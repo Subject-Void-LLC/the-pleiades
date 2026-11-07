@@ -31,14 +31,14 @@ func init() {
 		Name: factsEchoMethod,
 		Manifest: collection.Manifest{Status: collection.StatusImplemented, Reversibility: collection.Reversibility{Notes: "a test fixture that changes nothing"},
 			Facts: []collection.FactSpec{
-				{Key: "plain_note", Kind: collection.FactStable, Type: collection.FactString, Description: "an ordinary fact"},
-				{Key: "login_note", Kind: collection.FactStable, Type: collection.FactString, Description: "a fact holding the login's password"},
+				{Key: "test.plain_note", Kind: collection.FactStable, Type: collection.FactString, Description: "an ordinary fact"},
+				{Key: "test.login_note", Kind: collection.FactStable, Type: collection.FactString, Description: "a fact holding the login's password"},
 			}},
 		Invoke: func(_ context.Context, rc sdk.RunbookContext, _ inventory.InventoryItem, _ map[string]any) (collection.Result, error) {
-			if err := rc.EmitFact("plain_note", "ok"); err != nil {
+			if err := rc.EmitFact("test.plain_note", "ok"); err != nil {
 				return collection.Result{}, err
 			}
-			if err := rc.EmitFact("login_note", rc.InjectSecrets()["password"]); err != nil {
+			if err := rc.EmitFact("test.login_note", rc.InjectSecrets()["password"]); err != nil {
 				return collection.Result{}, err
 			}
 			return collection.Result{}, nil
@@ -48,7 +48,7 @@ func init() {
 
 func factEntries(t *testing.T) []facts.Entry {
 	t.Helper()
-	entries, _, err := facts.Prepare(map[string]any{"ansible_kernel": "6.1"}, facts.Guard{})
+	entries, _, err := facts.Prepare(map[string]any{"os.kernel.release": "6.1"}, facts.Guard{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,10 +162,10 @@ func TestExecute_PublishesNoFactHoldingTheDispatchsSecret(t *testing.T) {
 			t.Errorf("a published facts batch holds the dispatch's password: %s", p.evt.Data)
 		}
 	}
-	if stored["plain_note"] != "ok" {
+	if stored["test.plain_note"] != "ok" {
 		t.Fatalf("the ordinary fact was not published: %v", stored)
 	}
-	if _, ok := stored["login_note"]; ok {
+	if _, ok := stored["test.login_note"]; ok {
 		t.Errorf("the fact holding the dispatch's password was published: %v", stored)
 	}
 }

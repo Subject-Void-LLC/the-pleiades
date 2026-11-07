@@ -24,8 +24,8 @@ func TestGatherFacts_AServicesStateIsVolatileAndTheRestStable(t *testing.T) {
 	}{
 		{"service.sshd.service", collection.FactStable, collection.FactObject},
 		{"service_state.sshd.service", collection.FactVolatile, collection.FactString},
-		{gatherFactOSFamily, collection.FactStable, collection.FactString},
-		{gatherFactSwapTotalMB, collection.FactStable, collection.FactInteger},
+		{gatherFactFamily, collection.FactStable, collection.FactString},
+		{gatherFactSwapMB, collection.FactStable, collection.FactInteger},
 	}
 	for _, tc := range cases {
 		spec, ok := collection.FactFor(d.Manifest.Facts, tc.key)
@@ -84,7 +84,7 @@ func TestParseWindowsServices_ATemplateHasNoState(t *testing.T) {
 	}
 }
 
-func TestWindowsProbes_ReportAnsiblesSwapAndFamily(t *testing.T) {
+func TestWindowsProbes_ReportTheNativeFamilyAndNoSwap(t *testing.T) {
 	var min, hardware gatherProbe
 	for _, p := range windowsProbes() {
 		switch p.subset {
@@ -94,14 +94,20 @@ func TestWindowsProbes_ReportAnsiblesSwapAndFamily(t *testing.T) {
 			hardware = p
 		}
 	}
-	if !gatherWanted(min.keys, gatherFactOSFamily) || !gatherWanted(hardware.keys, gatherFactSwapTotalMB) {
+	// Windows has no swap natively (a page file is not swap); Ansible's 0
+	// there is pkg/ansiblefacts' to give.
+	if !gatherWanted(min.keys, gatherFactFamily) || gatherWanted(hardware.keys, gatherFactSwapMB) {
 		t.Fatalf("min keys %v, hardware keys %v", min.keys, hardware.keys)
 	}
-	// The scripts' objects as the host printed them on win-check.
-	if got := valuesOf(parseWindowsMin(`{"ansible_hostname":"WIN-CHECK","ansible_os_family":"Windows","ansible_distribution_version":"10.0.26100.0"}`)); got[gatherFactOSFamily] != "Windows" {
+	// The scripts' objects in the shape the host prints them.
+	if got := valuesOf(parseWindowsMin(`{"host.name":"WIN-CHECK","os.family":"windows","os.version":"10.0.26100.0"}`)); got[gatherFactFamily] != "windows" {
 		t.Errorf("min: %v", got)
 	}
-	if got := valuesOf(parseWindowsObject(`{"ansible_memtotal_mb":4095,"ansible_swaptotal_mb":0}`)); got[gatherFactSwapTotalMB] != 0 {
-		t.Errorf("hardware: %v, want swap 0, as Ansible reports it on Windows", got)
+	if got := valuesOf(parseWindowsObject(windowsHardwareSample)); len(got) != 1 || got[gatherFactMemoryMB] != 4095 {
+		t.Errorf("hardware: %v, want memory alone", got)
 	}
 }
+
+// windowsHardwareSample is the hardware script's object with only memory,
+// as a host whose CIM answers nothing else prints it.
+const windowsHardwareSample = `{"hardware.memory_mb":4095,"hardware.cpu.sockets":null}`

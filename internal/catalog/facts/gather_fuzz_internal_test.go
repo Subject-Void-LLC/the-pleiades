@@ -19,7 +19,7 @@ func FuzzGatherParsers(f *testing.F) {
 		"sshd.service loaded active running OpenSSH\n" + serviceSectionMark + "\nsshd.service enabled\n",
 		"brotli\t1.2.1,1\tFreeBSD:15:amd64\n", "DAEMON\nsshd\n" + serviceSectionMark + "\n/etc/rc.d/sshd\n" + serviceSectionMark + "\nsshd\tsshd is running as pid 1.\n",
 		"package-id: com.apple.pkg.A\nversion: 1\n", "\tservices = {\n\t\t 1 - \tcom.apple.x\n\t}\n" + serviceSectionMark + "\n",
-		`{"ansible_nodename":"a b/c","ansible_memtotal_mb":1}`, `[{"name":"x y/z%","version":"1","arch":"amd64"}]`,
+		`{"host.nodename":"a b/c","hardware.memory_mb":1}`, `[{"name":"x y/z%","version":"1","arch":"amd64"}]`,
 		`[{"name":"svc","state":"Running","mode":"Auto","delayed":true}]`, "{ sec = 1, usec = 2 }\n3\n", "total = 1.00M used",
 		"name\x00with nul\t1\tamd64\n", "\xff\xfe bad utf-8\t1\tx\n",
 	}

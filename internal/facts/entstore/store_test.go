@@ -229,7 +229,7 @@ func TestStore_VerifyFindsADeletedOrRewrittenRow(t *testing.T) {
 			store := entstore.New(client)
 			at := time.Date(2026, 11, 2, 10, 0, 0, 0, time.UTC)
 			for i, kernel := range []string{"6.1", "6.2", "6.3"} {
-				obs := facts.Observation{Entries: prepared(t, map[string]any{"ansible_kernel": kernel}), At: at.Add(time.Duration(i) * time.Minute),
+				obs := facts.Observation{Entries: prepared(t, map[string]any{"os.kernel.release": kernel}), At: at.Add(time.Duration(i) * time.Minute),
 					By: facts.Provenance{Run: "r", Order: facts.Order{Source: facts.ClockSource, Token: uint64(i + 1)}}}
 				if err := store.Record(context.Background(), dev.DeviceID, obs); err != nil {
 					t.Fatal(err)
@@ -302,8 +302,8 @@ func TestSubscriber_HoldsBatchesToTheEmbeddedCatalog(t *testing.T) {
 	store := entstore.New(client)
 	ctx := context.Background()
 	asVolatile := func(string) (facts.Spec, bool) { return facts.Spec{Kind: facts.KindVolatile}, true }
-	entries, _, _ := facts.Prepare(map[string]any{"ansible_kernel": "6.1", "ansible_uptime_seconds": 5, "acme_widgets": 3}, facts.Guard{Declared: asVolatile})
-	typed, _, _ := facts.Prepare(map[string]any{"ansible_memtotal_mb": "lots"}, facts.Guard{})
+	entries, _, _ := facts.Prepare(map[string]any{"os.kernel.release": "6.1", "host.uptime_seconds": 5, "acme_widgets": 3}, facts.Guard{Declared: asVolatile})
+	typed, _, _ := facts.Prepare(map[string]any{"hardware.memory_mb": "lots"}, facts.Guard{})
 	batch := facts.Batch{JobID: "job-1", DeviceID: device, Attempt: 2, ObservedAt: time.Now(), Entries: append(entries, typed...),
 		By: facts.Provenance{Job: "forged", Attempt: 9, Method: "not.a.method"}}
 	sub := entstore.NewSubscriber(store, nil, nil, entstore.WithDeclarations(index))
@@ -318,8 +318,8 @@ func TestSubscriber_HoldsBatchesToTheEmbeddedCatalog(t *testing.T) {
 			t.Errorf("%s: provenance = %+v, want the batch's own job and attempt", e.Key, e.By)
 		}
 	}
-	want := map[string]facts.Kind{"ansible_uptime_seconds": facts.KindVolatile, "acme_widgets": facts.KindVolatile}
-	if len(kinds) != len(want) || kinds["ansible_uptime_seconds"] != want["ansible_uptime_seconds"] || kinds["acme_widgets"] != want["acme_widgets"] {
+	want := map[string]facts.Kind{"host.uptime_seconds": facts.KindVolatile, "acme_widgets": facts.KindVolatile}
+	if len(kinds) != len(want) || kinds["host.uptime_seconds"] != want["host.uptime_seconds"] || kinds["acme_widgets"] != want["acme_widgets"] {
 		t.Fatalf("stored %v, want %v: the kernel claimed volatile and a memory size that is not an integer are refused", kinds, want)
 	}
 }
@@ -345,11 +345,11 @@ func TestSubscriber_KeepsABuiltInFactOnlyFromABuiltInMethod(t *testing.T) {
 		want   []string
 	}{
 		{method: "acme.facts.read", want: []string{"acme.widgets"}},
-		{method: "facts.gather", want: []string{"Package.openssh", "acme.widgets", "ansible_hostname"}},
+		{method: "facts.gather", want: []string{"Package.openssh", "acme.widgets", "host.name"}},
 	} {
 		client, device := open(t)
 		store := entstore.New(client)
-		entries, _, _ := facts.Prepare(map[string]any{"ansible_hostname": "web1", "Package.openssh": "9.6", "acme.widgets": 3}, facts.Guard{})
+		entries, _, _ := facts.Prepare(map[string]any{"host.name": "web1", "Package.openssh": "9.6", "acme.widgets": 3}, facts.Guard{})
 		batch := facts.Batch{JobID: "job-1", DeviceID: device, Attempt: 1, ObservedAt: time.Now(), Entries: entries, By: facts.Provenance{Method: tc.method}}
 		sub := entstore.NewSubscriber(store, nil, nil, entstore.WithDeclarations(index), entstore.WithBuiltinProvenance(builtins))
 		if err := handle(t, sub, batch); err != nil {

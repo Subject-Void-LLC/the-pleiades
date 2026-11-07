@@ -42,7 +42,7 @@ func unchecked(t *testing.T, key string, value any) facts.Entry {
 // a value, or a NUL in the run's provenance, never was a poison: the store
 // keeps each as text inside its JSON column, and these cases hold that.
 func TestSubscriber_APoisonedBatchIsAcknowledgedOnPostgres(t *testing.T) {
-	kernel := func() facts.Entry { return unchecked(t, "ansible_kernel", "6.1") }
+	kernel := func() facts.Entry { return unchecked(t, "os.kernel.release", "6.1") }
 	cases := map[string]struct {
 		build func(device string) facts.Batch
 		// want is the keys stored afterwards.
@@ -62,17 +62,17 @@ func TestSubscriber_APoisonedBatchIsAcknowledgedOnPostgres(t *testing.T) {
 			return facts.Batch{JobID: "j1", DeviceID: "web\n1", Entries: []facts.Entry{kernel()}}
 		}, nil},
 		"a NUL in a value": {func(device string) facts.Batch {
-			return facts.Batch{JobID: "j1", DeviceID: device, Entries: []facts.Entry{kernel(), unchecked(t, "ansible_hostname", "web\x00pad")}}
-		}, []string{"ansible_hostname", "ansible_kernel"}},
+			return facts.Batch{JobID: "j1", DeviceID: device, Entries: []facts.Entry{kernel(), unchecked(t, "host.name", "web\x00pad")}}
+		}, []string{"host.name", "os.kernel.release"}},
 		"a NUL in a nested field's name": {func(device string) facts.Batch {
-			return facts.Batch{JobID: "j1", DeviceID: device, Entries: []facts.Entry{kernel(), unchecked(t, "ansible_lsb", map[string]any{"id\x00": "x"})}}
-		}, []string{"ansible_kernel", "ansible_lsb"}},
+			return facts.Batch{JobID: "j1", DeviceID: device, Entries: []facts.Entry{kernel(), unchecked(t, "os.lsb", map[string]any{"id\x00": "x"})}}
+		}, []string{"os.kernel.release", "os.lsb"}},
 		"a number past what PostgreSQL's numeric holds": {func(device string) facts.Batch {
-			return facts.Batch{JobID: "j1", DeviceID: device, Entries: []facts.Entry{kernel(), unchecked(t, "ansible_memtotal_mb", json.Number("1e200000"))}}
-		}, []string{"ansible_kernel", "ansible_memtotal_mb"}},
+			return facts.Batch{JobID: "j1", DeviceID: device, Entries: []facts.Entry{kernel(), unchecked(t, "hardware.memory_mb", json.Number("1e200000"))}}
+		}, []string{"hardware.memory_mb", "os.kernel.release"}},
 		"a NUL in the run's node": {func(device string) facts.Batch {
 			return facts.Batch{JobID: "j1", DeviceID: device, By: facts.Provenance{Run: "r1", Node: "t\x00"}, Entries: []facts.Entry{kernel()}}
-		}, []string{"ansible_kernel"}},
+		}, []string{"os.kernel.release"}},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -197,7 +197,7 @@ func TestSubscriber_ADataExceptionIsAcknowledgedAndOthersRedelivered(t *testing.
 			}
 			store, device := postgresStore(t)
 			sub := entstore.NewSubscriber(failingStore{Store: store, err: tc.err}, nil, nil)
-			batch := facts.Batch{JobID: "j1", DeviceID: device, ObservedAt: time.Now(), Entries: []facts.Entry{unchecked(t, "ansible_kernel", "6.1")}}
+			batch := facts.Batch{JobID: "j1", DeviceID: device, ObservedAt: time.Now(), Entries: []facts.Entry{unchecked(t, "os.kernel.release", "6.1")}}
 			err := handle(t, sub, batch)
 			if acknowledged := err == nil; acknowledged != tc.acknowledge {
 				t.Fatalf("Handle = %v; acknowledged %v, want %v", err, acknowledged, tc.acknowledge)

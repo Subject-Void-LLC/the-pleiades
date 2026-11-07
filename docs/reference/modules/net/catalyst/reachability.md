@@ -30,11 +30,11 @@ Answers a different question than device_facts: device_facts describes what the 
 
 | Name | Type | Returned | Description |
 | --- | --- | --- | --- |
-| `reachability` | `list of map` | always | One entry per device: hostname, management_ip, reachability_status, collection_status, reachable. |
-| `unreachable` | `list of string` | always | Hostnames (or management IPs, if hostname is unset) of every unreachable device. |
-| `reachable_count` | `int` | always | Count of devices with reachability_status Reachable. |
-| `managed_count` | `int` | always | Count of devices with collection_status Managed. |
-| `total_device_count` | `int` | always | How many devices the controller listed, reachable or not. |
+| `catalyst.reachability` | `list of map` | always | One entry per device: hostname, management_ip, reachability_status, collection_status, reachable. |
+| `catalyst.unreachable` | `list of string` | always | Hostnames (or management IPs, if hostname is unset) of every unreachable device. |
+| `catalyst.reachable_count` | `int` | always | Count of devices with reachability_status Reachable. |
+| `catalyst.managed_count` | `int` | always | Count of devices with collection_status Managed. |
+| `catalyst.total_device_count` | `int` | always | How many devices the controller listed, reachable or not. |
 
 ## Undoing this
 
@@ -50,11 +50,11 @@ A real run stores each of these as the device's fact. A **stable** fact keeps ev
 
 | Fact | Kind | Type | Description |
 | --- | --- | --- | --- |
-| `reachability` | stable | list | One entry per device: hostname, management_ip, reachability_status, collection_status, reachable. |
-| `unreachable` | stable | list | Hostnames (or management IPs, if hostname is unset) of every unreachable device. |
-| `reachable_count` | stable | integer | Count of devices with reachability_status Reachable. |
-| `managed_count` | stable | integer | Count of devices with collection_status Managed. |
-| `total_device_count` | stable | integer | How many devices the controller listed, reachable or not. |
+| `catalyst.reachability` | stable | list | One entry per device: hostname, management_ip, reachability_status, collection_status, reachable. |
+| `catalyst.unreachable` | stable | list | Hostnames (or management IPs, if hostname is unset) of every unreachable device. |
+| `catalyst.reachable_count` | stable | integer | Count of devices with reachability_status Reachable. |
+| `catalyst.managed_count` | stable | integer | Count of devices with collection_status Managed. |
+| `catalyst.total_device_count` | stable | integer | How many devices the controller listed, reachable or not. |
 
 ## See also
 
@@ -73,6 +73,6 @@ Gate a change on full fleet reachability:
   net.ios.config:
     lines:
       - ntp server 192.0.2.10
-  when_cel: "stat.health[''].unreachable.size() == 0"
+  when_cel: "stat.health['']['catalyst.unreachable'].size() == 0"
 ```
 

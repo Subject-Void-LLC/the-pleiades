@@ -26,21 +26,21 @@ func TestGatherPlan_FamiliesInTheRefusalsAndTheFilter(t *testing.T) {
 	}
 	// A filter wanting nothing of the chosen subsets names the families it
 	// could have matched.
-	_, err := gatherPlan(map[string]any{gatherParamSubset: []any{"packages", "services", "!min"}, gatherParamFilter: []any{"ansible_*"}})
+	_, err := gatherPlan(map[string]any{gatherParamSubset: []any{"packages", "services", "!min"}, gatherParamFilter: []any{"os.*"}})
 	if err == nil || !strings.Contains(err.Error(), "package.*") || !strings.Contains(err.Error(), "service.*") {
 		t.Errorf("refusal = %v", err)
 	}
 	// A family is wanted by a pattern whose literal start agrees with its
 	// prefix, however that pattern begins.
 	for pattern, want := range map[string]bool{"*": true, "*nginx": true, "pack*": true, "package.nginx": true, "package.ng?nx": true,
-		"ansible_*": false, "service.*": false, "pkg*": false} {
+		"os.*": false, "host.*": false, "service.*": false, "pkg*": false} {
 		if got := gatherFamilyWanted([]string{pattern}, gatherFamilyPackage); got != want {
 			t.Errorf("%q wants packages: %v", pattern, got)
 		}
 	}
 	// A malformed pattern is refused whichever probe it would meet first,
 	// one starting like a family's included.
-	for _, bad := range []string{"[", "package.[", "ansible_[x"} {
+	for _, bad := range []string{"[", "package.[", "os.[x"} {
 		if _, err := gatherPlan(map[string]any{gatherParamSubset: []any{"all"}, gatherParamFilter: []any{bad}}); err == nil || !strings.Contains(err.Error(), "malformed") {
 			t.Errorf("%q: %v", bad, err)
 		}
@@ -60,7 +60,7 @@ func TestGatherListers_SkipWhatIsNotAnItem(t *testing.T) {
 	if len(launchd) != 1 || launchd["service.a.b"] == nil {
 		t.Errorf("launchd = %v", launchd)
 	}
-	if got := valuesOf(parseWindowsObject(`{"ansible_flag":true,"ansible_system":"Win32NT"}`)); got["ansible_flag"] != true {
+	if got := valuesOf(parseWindowsObject(`{"x.flag":true,"os.kernel.name":"windows"}`)); got["x.flag"] != true {
 		t.Errorf("a boolean = %v", got)
 	}
 	if got := (gatherProbe{command: "cat /proc/uptime"}).name(); got != "cat /proc/uptime" {
@@ -95,7 +95,7 @@ func TestGather_MoreFactsThanOneTaskMayRecordFailsTheTask(t *testing.T) {
 	}
 	many.WriteString("]")
 	answerWindows(t, map[string]winrmexec.Result{
-		gatherSubsetMin:      {Stdout: `{"ansible_system":"Win32NT"}`},
+		gatherSubsetMin:      {Stdout: `{"os.kernel.name":"windows"}`},
 		gatherSubsetPackages: {Stdout: many.String()},
 	})
 	rc := &winTestContext{facts: map[string]any{}}

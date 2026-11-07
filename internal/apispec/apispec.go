@@ -516,7 +516,7 @@ var GetDevice = Endpoint{
 var factEntrySchema = map[string]any{
 	"type": "object",
 	"properties": map[string]any{
-		"key":          map[string]any{"type": "string", "description": "The fact's name as the method emitted it, such as ansible_kernel."},
+		"key":          map[string]any{"type": "string", "description": "The fact's name as the method emitted it, such as os.kernel.release."},
 		"value":        map[string]any{"description": "The value observed, as the method emitted it."},
 		"hash":         map[string]any{"type": "string", "description": "SHA-256, hex, over the canonical JSON of key and value."},
 		"observed_at":  map[string]any{"type": "string", "format": "date-time", "description": "When this value was first observed."},
@@ -587,7 +587,7 @@ var ListDeviceFacts = Endpoint{
 	Rel:     auth.RelSelf,
 	Summary: "List a device's facts",
 	Description: "The newest value of each fact real runs observed on the device (what a method emitted, such as " +
-		"facts.gather's ansible_* keys), with when it was first observed and last confirmed. A value is stored " +
+		"facts.gather's os.*, host.* and hardware.* keys), with when it was first observed and last confirmed. A value is stored " +
 		"only when it changes, so last_seen_at says how current it still is.",
 	Params: []Param{
 		{Name: "name", In: "path", Required: true, Type: "string", Description: "The device's name."},

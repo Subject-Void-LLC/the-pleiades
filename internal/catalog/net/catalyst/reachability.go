@@ -69,14 +69,14 @@ func init() {
 				Description: "Answers a different question than device_facts: device_facts describes what the fleet is, gathered once; reachability describes what the fleet is doing right now, the check a gate task waits on before acting. Reports reachability_status (can the controller talk to the device at all) and collection_status (is it successfully collecting from it) separately, since a device can be reachable and still not managed.",
 				Fragments:   []string{"catalyst_connection", "catalyst_pagination"},
 				Returns: []collection.ReturnField{
-					{Name: "reachability", Type: "list of map", Returned: "always", Description: "One entry per device: hostname, management_ip, reachability_status, collection_status, reachable."},
-					{Name: "unreachable", Type: "list of string", Returned: "always", Description: "Hostnames (or management IPs, if hostname is unset) of every unreachable device."},
-					{Name: "reachable_count", Type: "int", Returned: "always", Description: "Count of devices with reachability_status Reachable."},
-					{Name: "managed_count", Type: "int", Returned: "always", Description: "Count of devices with collection_status Managed."},
-					{Name: "total_device_count", Type: "int", Returned: "always", Description: "How many devices the controller listed, reachable or not."},
+					{Name: factReachability, Type: "list of map", Returned: "always", Description: "One entry per device: hostname, management_ip, reachability_status, collection_status, reachable."},
+					{Name: factUnreachable, Type: "list of string", Returned: "always", Description: "Hostnames (or management IPs, if hostname is unset) of every unreachable device."},
+					{Name: factReachableCount, Type: "int", Returned: "always", Description: "Count of devices with reachability_status Reachable."},
+					{Name: factManagedCount, Type: "int", Returned: "always", Description: "Count of devices with collection_status Managed."},
+					{Name: factTotalDeviceCount, Type: "int", Returned: "always", Description: "How many devices the controller listed, reachable or not."},
 				},
 				Examples: []collection.Example{
-					{Name: "Gate a change on full fleet reachability", RunbookYAML: "- name: Confirm the fleet is reachable before changing anything\n  net.catalyst.reachability:\n  register: health\n\n- name: Apply the change\n  net.ios.config:\n    lines:\n      - ntp server 192.0.2.10\n  when_cel: \"stat.health[''].unreachable.size() == 0\"\n"},
+					{Name: "Gate a change on full fleet reachability", RunbookYAML: "- name: Confirm the fleet is reachable before changing anything\n  net.catalyst.reachability:\n  register: health\n\n- name: Apply the change\n  net.ios.config:\n    lines:\n      - ntp server 192.0.2.10\n  when_cel: \"stat.health['']['catalyst.unreachable'].size() == 0\"\n"},
 				},
 				SeeAlso: []string{"net.catalyst.device_facts"},
 			},
@@ -87,9 +87,20 @@ func init() {
 	}
 	// Every one stable: a device going unreachable is the change these
 	// facts exist to keep.
-	d.Manifest.Facts = collection.DeclareFacts(d.Manifest.Doc.Returns, []string{"reachability", "unreachable", "reachable_count", "managed_count", "total_device_count"})
+	d.Manifest.Facts = collection.DeclareFacts(d.Manifest.Doc.Returns, []string{factReachability, factUnreachable, factReachableCount, factManagedCount, factTotalDeviceCount})
 	collection.MustRegister(d)
 }
+
+// The keys net.catalyst.reachability records, each both a fact and the stat
+// a register reads, indexed by its full name since it holds a dot, in the
+// catalyst family every net.catalyst.* key shares.
+const (
+	factReachability     = "catalyst.reachability"
+	factUnreachable      = "catalyst.unreachable"
+	factReachableCount   = "catalyst.reachable_count"
+	factManagedCount     = "catalyst.managed_count"
+	factTotalDeviceCount = "catalyst.total_device_count"
+)
 
 // Reachability summarizes which devices the targeted Catalyst Center can
 // currently reach and manage.
@@ -98,9 +109,9 @@ func init() {
 // two answer different questions and are read at different times.
 // device_facts describes what the fleet is, and is usually gathered once;
 // reachability describes what the fleet is doing right now, and is what a
-// gate task waits on before acting. Emitting unreachable as its own fact
-// means a when_cel can branch on it directly rather than filtering a larger
-// structure.
+// gate task waits on before acting. Emitting catalyst.unreachable as its own
+// fact means a when_cel can branch on it directly rather than filtering a
+// larger structure.
 //
 // The two upstream signals are deliberately both reported.
 // reachability_status is whether the controller can talk to the device at
@@ -149,11 +160,11 @@ func Reachability(ctx context.Context, rc sdk.RunbookContext, device inventory.I
 	}
 
 	for key, value := range map[string]any{
-		"reachability":       statuses,
-		"unreachable":        unreachable,
-		"reachable_count":    reachableCount,
-		"managed_count":      managedCount,
-		"total_device_count": len(statuses),
+		factReachability:     statuses,
+		factUnreachable:      unreachable,
+		factReachableCount:   reachableCount,
+		factManagedCount:     managedCount,
+		factTotalDeviceCount: len(statuses),
 	} {
 		if err := rc.EmitFact(key, value); err != nil {
 			return collection.Result{}, err

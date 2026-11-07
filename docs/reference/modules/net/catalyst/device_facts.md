@@ -30,8 +30,8 @@ Pages through the Catalyst Center's device inventory and emits one fact entry pe
 
 | Name | Type | Returned | Description |
 | --- | --- | --- | --- |
-| `devices` | `list of map` | always | One entry per device: id, hostname, management_ip, family, series, platform_id, software_type, software_version, role, serial_number, reachability_status, collection_status, mac_address, type, up_time (as the controller words it) and description, each empty when the controller leaves it unset. |
-| `device_count` | `int` | always | The number of devices in the devices fact. |
+| `catalyst.devices` | `list of map` | always | One entry per device: id, hostname, management_ip, family, series, platform_id, software_type, software_version, role, serial_number, reachability_status, collection_status, mac_address, type, up_time (as the controller words it) and description, each empty when the controller leaves it unset. |
+| `catalyst.device_count` | `int` | always | The number of devices in the catalyst.devices fact. |
 
 ## Undoing this
 
@@ -47,8 +47,8 @@ A real run stores each of these as the device's fact. A **stable** fact keeps ev
 
 | Fact | Kind | Type | Description |
 | --- | --- | --- | --- |
-| `devices` | volatile | list | One entry per device: id, hostname, management_ip, family, series, platform_id, software_type, software_version, role, serial_number, reachability_status, collection_status, mac_address, type, up_time (as the controller words it) and description, each empty when the controller leaves it unset. |
-| `device_count` | stable | integer | The number of devices in the devices fact. |
+| `catalyst.devices` | volatile | list | One entry per device: id, hostname, management_ip, family, series, platform_id, software_type, software_version, role, serial_number, reachability_status, collection_status, mac_address, type, up_time (as the controller words it) and description, each empty when the controller leaves it unset. |
+| `catalyst.device_count` | stable | integer | The number of devices in the catalyst.devices fact. |
 
 ## See also
 

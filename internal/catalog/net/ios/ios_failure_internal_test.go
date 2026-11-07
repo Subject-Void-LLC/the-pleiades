@@ -147,7 +147,7 @@ func TestFacts_ReportWhichCommandTheDeviceCouldNotAnswer(t *testing.T) {
 func TestFacts_AFactThatCannotBeEmittedFailsTheTask(t *testing.T) {
 	withSession(t, factsSession())
 	rc := newStubContext()
-	rc.failFact = factGatherSubset
+	rc.failFact = factHostname
 
 	if _, err := Facts(context.Background(), rc, nil, nil); !errors.Is(err, errRecording) {
 		t.Errorf("err = %v, want the recording failure", err)

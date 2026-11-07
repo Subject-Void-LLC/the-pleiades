@@ -7104,100 +7104,106 @@
     "supportsCheck": true,
     "facts": [
       {
-        "key": "ansible_hostname",
+        "key": "host.name",
         "kind": "stable",
         "type": "string",
-        "description": "The short host name, which is everything before the first dot of what uname reports."
+        "description": "The short host name, which is everything before the first dot of what uname -n reports; on Windows the computer name."
       },
       {
-        "key": "ansible_kernel",
+        "key": "os.kernel.release",
         "kind": "stable",
         "type": "string",
-        "description": "The kernel release, as uname -r reports it."
+        "description": "The kernel release, as uname -r reports it; on Windows the OS version."
       },
       {
-        "key": "ansible_architecture",
+        "key": "hardware.architecture",
         "kind": "stable",
         "type": "string",
-        "description": "The machine hardware name, as uname -m reports it, for example x86_64."
+        "description": "The machine hardware name, as uname -m reports it, for example x86_64 or aarch64; on Windows the same names, read from the processor architecture Windows names (AMD64 is x86_64, ARM64 is aarch64, x86 is i686), and none for one it names otherwise."
       },
       {
-        "key": "ansible_distribution",
+        "key": "os.distribution",
         "kind": "stable",
         "type": "string",
-        "description": "The distribution's name as Ansible reports it: from ID in /etc/os-release for each distribution Ansible names its own way (Debian, Ubuntu, Kali, Devuan, RedHat, CentOS, Rocky, AlmaLinux, OracleLinux, Fedora, Amazon, Alpine, Archlinux), NAME on the SUSE family as Ansible's SUSE parser reports it (openSUSE Leap, SLES), and NAME for any other, which is Ansible's own fallback but not always its answer, since Ansible names some derivatives by a word in the file; MacOSX on macOS and the edition's caption on Windows."
+        "description": "The distribution, as a lowercase identifier: ID in /etc/os-release as the file writes it (debian, ubuntu, rhel, rocky, almalinux, ol, fedora, amzn, alpine, arch, opensuse-leap, sles and the rest), freebsd on FreeBSD, macos on macOS and windows on Windows. An /etc/os-release naming no ID reports none."
       },
       {
-        "key": "ansible_distribution_version",
+        "key": "os.version",
         "kind": "stable",
         "type": "string",
-        "description": "The distribution version as Ansible reports it: VERSION_ID in /etc/os-release, on Debian the point release /etc/debian_version holds when it is more precise (12.12 where VERSION_ID is 12), and on the SUSE family VERSION_ID's major and minor parts. A rolling release that publishes no VERSION_ID reports no such fact."
+        "description": "The distribution version: VERSION_ID in /etc/os-release, on Debian the point release /etc/debian_version holds when it is more precise (12.12 where VERSION_ID is 12, and forky/sid on testing, which has no VERSION_ID), and on the SUSE family VERSION_ID's major and minor parts; ProductVersion on macOS and the OS version on Windows. A rolling release that publishes no VERSION_ID reports no such fact."
       },
       {
-        "key": "ansible_memtotal_mb",
+        "key": "hardware.memory_mb",
         "kind": "stable",
         "type": "integer",
-        "description": "Total usable memory in megabytes, from MemTotal in /proc/meminfo, truncated the way Ansible truncates it; on Windows rounded up, as Ansible's Windows setup rounds it."
+        "description": "Total usable memory in whole megabytes, truncated: from MemTotal in /proc/meminfo, hw.physmem on FreeBSD, hw.memsize on macOS and TotalPhysicalMemory on Windows."
       },
       {
-        "key": "ansible_processor_count",
+        "key": "hardware.cpu.sockets",
         "kind": "stable",
         "type": "integer",
-        "description": "The number of physical processor packages, counted as the distinct physical id values in /proc/cpuinfo. An architecture whose /proc/cpuinfo carries no physical id field reports no such fact rather than a guessed 1."
+        "description": "The number of physical processor packages, counted as the distinct physical id values in /proc/cpuinfo (NumberOfProcessors on Windows). An architecture whose /proc/cpuinfo carries no physical id field reports no such fact rather than a guessed 1."
       },
       {
-        "key": "ansible_uptime_seconds",
+        "key": "host.uptime_seconds",
         "kind": "volatile",
         "type": "integer",
-        "description": "How long the device has been up, in whole seconds, from the first field of /proc/uptime."
+        "description": "How long the device has been up, in whole seconds, from the first field of /proc/uptime; from the boot time and the device's own clock on FreeBSD, macOS and Windows."
       },
       {
-        "key": "ansible_nodename",
+        "key": "host.nodename",
         "kind": "stable",
         "type": "string",
-        "description": "The full node name uname -n reports, before ansible_hostname cuts it at the first dot."
+        "description": "The full node name uname -n reports, before host.name cuts it at the first dot; on Windows the DNS host name, with the domain when the host is joined to one."
       },
       {
-        "key": "ansible_system",
+        "key": "os.kernel.name",
         "kind": "stable",
         "type": "string",
-        "description": "The kernel's name, as uname -s reports it: Linux, FreeBSD, Darwin."
+        "description": "The kernel's name, lowercase: linux, freebsd or darwin, as uname -s reports it, and windows on Windows."
       },
       {
-        "key": "ansible_distribution_major_version",
-        "kind": "stable",
-        "type": "string",
-        "description": "The distribution version up to its first dot, such as 24 for 24.04."
-      },
-      {
-        "key": "ansible_os_family",
-        "kind": "stable",
-        "type": "string",
-        "description": "The family the distribution belongs to, from Ansible's own table: RedHat, Debian, Suse, Archlinux, Alpine, FreeBSD, Darwin (macOS) or Windows, or for a distribution the table does not list but this method names as Ansible does, the distribution itself, as Ansible reports it. A distribution reported by its NAME alone has a family only where Ansible's table lists that NAME, since Ansible may name it otherwise: a family is never guessed."
-      },
-      {
-        "key": "ansible_distribution_release",
-        "kind": "stable",
-        "type": "string",
-        "description": "The release as Ansible reports it: the codename (VERSION_CODENAME in /etc/os-release, then UBUNTU_CODENAME, then the name in parentheses in VERSION, such as Blue Onyx), Stream on CentOS Stream, and the minor version on the SUSE family (6 for 15.6, 0 on an enterprise release with none). A release Ansible reports as NA or as empty, as it does on Fedora, Alpine and Amazon Linux, is left out. FreeBSD and macOS report none yet, where Ansible reports the kernel release."
-      },
-      {
-        "key": "ansible_swaptotal_mb",
+        "key": "os.version_major",
         "kind": "stable",
         "type": "integer",
-        "description": "Total swap in megabytes, from SwapTotal in /proc/meminfo (vm.swap_total on FreeBSD); 0 on a device with no swap, and always 0 on Windows, as Ansible reports it there, since a page file is not swap. macOS reports none, as Ansible does: its swap files are made and removed as memory is needed, so their total moves on its own."
+        "description": "The distribution version up to its first dot, as a whole number, such as 24 for 24.04. A version whose first part is not one (Debian testing's forky/sid) reports none."
       },
       {
-        "key": "ansible_processor_vcpus",
+        "key": "os.family",
         "kind": "stable",
-        "type": "integer",
-        "description": "The number of logical processors, counted as the processor entries in /proc/cpuinfo."
+        "type": "string",
+        "description": "The family the distribution belongs to, lowercase: debian, redhat, suse, arch, alpine, freebsd, macos or windows. A distribution whose os-release ID this method has not measured has a family only where Ansible's own family table lists its NAME (Linux Mint is debian), lowercased (gentoo, slackware): a family is never guessed."
       },
       {
-        "key": "ansible_processor_cores",
+        "key": "os.codename",
+        "kind": "stable",
+        "type": "string",
+        "description": "The release's codename: VERSION_CODENAME in /etc/os-release (bookworm, noble), then UBUNTU_CODENAME, then the name in parentheses in VERSION (Blue Onyx on Rocky Linux 9.6, Plow on Red Hat). A distribution that names none (Fedora, Alpine, Amazon Linux, Oracle Linux, CentOS Stream, the SUSE family) reports none, and so do FreeBSD, macOS and Windows."
+      },
+      {
+        "key": "os.edition",
+        "kind": "stable",
+        "type": "string",
+        "description": "The Windows edition's caption, such as Microsoft Windows Server 2022 Datacenter."
+      },
+      {
+        "key": "hardware.swap_mb",
         "kind": "stable",
         "type": "integer",
-        "description": "The cores per processor package, from the first cpu cores field in /proc/cpuinfo."
+        "description": "Total swap in whole megabytes, truncated, from SwapTotal in /proc/meminfo (vm.swap_total on FreeBSD); 0 on a device with no swap. macOS and Windows report none: a Mac's swap files are made and removed as memory is needed, so their total moves on its own, and a Windows page file is not swap."
+      },
+      {
+        "key": "hardware.cpu.threads",
+        "kind": "stable",
+        "type": "integer",
+        "description": "The number of logical processors, counted as the processor entries in /proc/cpuinfo (hw.ncpu on FreeBSD and macOS, NumberOfLogicalProcessors on Windows)."
+      },
+      {
+        "key": "hardware.cpu.cores",
+        "kind": "stable",
+        "type": "integer",
+        "description": "The cores per processor package, from the first cpu cores field in /proc/cpuinfo (the first package's NumberOfCores on Windows)."
       },
       {
         "key": "package.",
@@ -7258,12 +7264,12 @@
     ],
     "doc": {
       "summary": "Gathers system facts from the target: OS, kernel, distribution, and on request its packages, services, listening ports, accounts and named files.",
-      "description": "Reads every system fact it knows by default, over SSH or, from a Windows host, over WinRM (identity, kernel and system, distribution and its release, memory and swap, processors, uptime) and emits each one as a fact, so it is kept as drift data, which is also a stat a register, until or when reads as result.<register>.<name>. filter narrows it. A fact the device cannot answer for is left out entirely: there is no guessed default and no empty string, so a condition reading ansible_distribution can tell \"this device does not say\" from \"this device says nothing\". Nothing is changed and no command is elevated, so this always reports no change. gather_subset chooses what is read: min (identity, kernel, distribution) and hardware (memory, processors, uptime), the default; packages, one fact per installed package (package.<name>: version, arch and source, from dpkg, rpm, apk, FreeBSD's pkg, Homebrew, pkgutil's receipts, or a Windows host's Uninstall keys); services, two facts per service (service.<name>: enabled and status, and service_state.<name>: its state, which moves on its own and so is kept as its latest value only, never as drift), from systemd, OpenRC, FreeBSD's rc, launchd, or the Windows service control manager, leaving out a systemd unit that lasts only as long as a login, a connection or a process: a transient unit, a user@ or user-runtime-dir@ instance, or one connection's instance of an Accept=yes socket (a lingering user's user@<uid>.service is left out too, though it lasts as long as the host and not a login: that is a choice, so a user's own service manager is never listed as a service; and systemd before version 230 does not report a transient unit as transient, so there such a unit is still listed); ports, one fact per listening socket (port.<protocol>:<address>:<port>, from the kernel's socket tables on Linux, sockstat on FreeBSD, netstat on macOS, and the TCP/IP cmdlets on Windows); users, one fact per local account and group (user.<name>, group.<name>, from /etc/passwd and /etc/group read without their password field, a Mac's local directory, or a Windows host's local accounts), never a password or its hash; and files, one fact per path named in files (file.<path>: metadata and a SHA-256 digest, plain for a file anyone may read and keyed for any other, never the content), where a path the login cannot reach is unreadable, never absent. The sources each return names are Linux's: FreeBSD and macOS answer the same facts from sysctl (and macOS its distribution from sw_vers), and Windows from CIM, where ansible_hostname is the computer name, ansible_system is Win32NT, the kernel and the distribution version are the OS version, and the distribution is the edition's caption, as Ansible reports them. A family is read or the task says it was not: a source on the device whose listing fails, or answers without the structure it always prints, fails the task, so no item reads as removed; a family no source on the device answers fails a task that named its subset, and is a warning for one that reached it through all. Two of ansible.builtin.setup's parameters are absent rather than accepted and ignored: gather_timeout is the task's own timeout here, and fact_path's local fact files are a separate feature this does not implement.",
+      "description": "Reads every system fact it knows by default, over SSH or, from a Windows host, over WinRM (identity, kernel and system, distribution and its release, memory and swap, processors, uptime) and emits each one as a fact under this platform's own key (os.distribution, hardware.memory_mb) holding a native value (the os-release ID, a lowercase family, an integer major version), not under ansible.builtin.setup's names, which are not stored, so it is kept as drift data, which is also a stat a register, until or when reads as result.<register>.<name>. filter narrows it. A fact the device cannot answer for is left out entirely: there is no guessed default and no empty string, so a condition reading os.distribution can tell \"this device does not say\" from \"this device says nothing\". Nothing is changed and no command is elevated, so this always reports no change. gather_subset chooses what is read: min (identity, kernel, distribution) and hardware (memory, processors, uptime), the default; packages, one fact per installed package (package.<name>: version, arch and source, from dpkg, rpm, apk, FreeBSD's pkg, Homebrew, pkgutil's receipts, or a Windows host's Uninstall keys); services, two facts per service (service.<name>: enabled and status, and service_state.<name>: its state, which moves on its own and so is kept as its latest value only, never as drift), from systemd, OpenRC, FreeBSD's rc, launchd, or the Windows service control manager, leaving out a systemd unit that lasts only as long as a login, a connection or a process: a transient unit, a user@ or user-runtime-dir@ instance, or one connection's instance of an Accept=yes socket (a lingering user's user@<uid>.service is left out too, though it lasts as long as the host and not a login: that is a choice, so a user's own service manager is never listed as a service; and systemd before version 230 does not report a transient unit as transient, so there such a unit is still listed); ports, one fact per listening socket (port.<protocol>:<address>:<port>, from the kernel's socket tables on Linux, sockstat on FreeBSD, netstat on macOS, and the TCP/IP cmdlets on Windows); users, one fact per local account and group (user.<name>, group.<name>, from /etc/passwd and /etc/group read without their password field, a Mac's local directory, or a Windows host's local accounts), never a password or its hash; and files, one fact per path named in files (file.<path>: metadata and a SHA-256 digest, plain for a file anyone may read and keyed for any other, never the content), where a path the login cannot reach is unreadable, never absent. The sources each return names are Linux's: FreeBSD and macOS answer the same facts from sysctl (and macOS its distribution from sw_vers), and Windows from CIM, where host.name is the computer name, os.kernel.name, os.family and os.distribution are windows, the kernel release and os.version are the OS version, and os.edition is the edition's caption. A family is read or the task says it was not: a source on the device whose listing fails, or answers without the structure it always prints, fails the task, so no item reads as removed; a family no source on the device answers fails a task that named its subset, and is a warning for one that reached it through all. Two of ansible.builtin.setup's parameters are absent rather than accepted and ignored: gather_timeout is the task's own timeout here, and fact_path's local fact files are a separate feature this does not implement.",
       "params": [
         {
           "name": "filter",
           "type": "list of string",
-          "description": "Shell-style patterns, as ansible.builtin.setup takes them, narrowing which facts are gathered. A fact is gathered when its name matches any pattern, so [\"ansible_distribution*\"] gathers the distribution and its version and nothing else. Leaving this out gathers everything the chosen subsets gather, and so does an empty list. A pattern set matching none of the facts this method knows about is refused rather than gathering nothing, since that is a typo far more often than an intention. Narrowing also skips the commands behind the facts it excludes, so it is a real saving rather than a filter on the way out. A service's state is service_state.<name>, which a pattern for service.<name> alone does not match."
+          "description": "Shell-style patterns, as ansible.builtin.setup takes them, narrowing which facts are gathered. A fact is gathered when its key matches any pattern, so [\"os.*\"] gathers the operating system's facts (its distribution, family, version, codename and kernel) and nothing else. Leaving this out gathers everything the chosen subsets gather, and so does an empty list. A pattern set matching none of the facts this method knows about is refused rather than gathering nothing, since that is a typo far more often than an intention. Narrowing also skips the commands behind the facts it excludes, so it is a real saving rather than a filter on the way out. A service's state is service_state.<name>, which a pattern for service.<name> alone does not match."
         },
         {
           "name": "gather_subset",
@@ -7284,100 +7290,106 @@
       ],
       "returns": [
         {
-          "name": "ansible_hostname",
+          "name": "host.name",
           "type": "string",
           "returned": "when the device reports one",
-          "description": "The short host name, which is everything before the first dot of what uname reports."
+          "description": "The short host name, which is everything before the first dot of what uname -n reports; on Windows the computer name."
         },
         {
-          "name": "ansible_kernel",
+          "name": "os.kernel.release",
           "type": "string",
           "returned": "when the device reports one",
-          "description": "The kernel release, as uname -r reports it."
+          "description": "The kernel release, as uname -r reports it; on Windows the OS version."
         },
         {
-          "name": "ansible_architecture",
+          "name": "hardware.architecture",
           "type": "string",
           "returned": "when the device reports one",
-          "description": "The machine hardware name, as uname -m reports it, for example x86_64."
+          "description": "The machine hardware name, as uname -m reports it, for example x86_64 or aarch64; on Windows the same names, read from the processor architecture Windows names (AMD64 is x86_64, ARM64 is aarch64, x86 is i686), and none for one it names otherwise."
         },
         {
-          "name": "ansible_distribution",
+          "name": "os.distribution",
           "type": "string",
           "returned": "when the device names one",
-          "description": "The distribution's name as Ansible reports it: from ID in /etc/os-release for each distribution Ansible names its own way (Debian, Ubuntu, Kali, Devuan, RedHat, CentOS, Rocky, AlmaLinux, OracleLinux, Fedora, Amazon, Alpine, Archlinux), NAME on the SUSE family as Ansible's SUSE parser reports it (openSUSE Leap, SLES), and NAME for any other, which is Ansible's own fallback but not always its answer, since Ansible names some derivatives by a word in the file; MacOSX on macOS and the edition's caption on Windows."
+          "description": "The distribution, as a lowercase identifier: ID in /etc/os-release as the file writes it (debian, ubuntu, rhel, rocky, almalinux, ol, fedora, amzn, alpine, arch, opensuse-leap, sles and the rest), freebsd on FreeBSD, macos on macOS and windows on Windows. An /etc/os-release naming no ID reports none."
         },
         {
-          "name": "ansible_distribution_version",
+          "name": "os.version",
           "type": "string",
           "returned": "when the device names one",
-          "description": "The distribution version as Ansible reports it: VERSION_ID in /etc/os-release, on Debian the point release /etc/debian_version holds when it is more precise (12.12 where VERSION_ID is 12), and on the SUSE family VERSION_ID's major and minor parts. A rolling release that publishes no VERSION_ID reports no such fact."
+          "description": "The distribution version: VERSION_ID in /etc/os-release, on Debian the point release /etc/debian_version holds when it is more precise (12.12 where VERSION_ID is 12, and forky/sid on testing, which has no VERSION_ID), and on the SUSE family VERSION_ID's major and minor parts; ProductVersion on macOS and the OS version on Windows. A rolling release that publishes no VERSION_ID reports no such fact."
         },
         {
-          "name": "ansible_memtotal_mb",
+          "name": "hardware.memory_mb",
           "type": "int",
-          "returned": "when /proc/meminfo reports it",
-          "description": "Total usable memory in megabytes, from MemTotal in /proc/meminfo, truncated the way Ansible truncates it; on Windows rounded up, as Ansible's Windows setup rounds it."
+          "returned": "when the device reports it",
+          "description": "Total usable memory in whole megabytes, truncated: from MemTotal in /proc/meminfo, hw.physmem on FreeBSD, hw.memsize on macOS and TotalPhysicalMemory on Windows."
         },
         {
-          "name": "ansible_processor_count",
+          "name": "hardware.cpu.sockets",
           "type": "int",
-          "returned": "when /proc/cpuinfo reports it",
-          "description": "The number of physical processor packages, counted as the distinct physical id values in /proc/cpuinfo. An architecture whose /proc/cpuinfo carries no physical id field reports no such fact rather than a guessed 1."
+          "returned": "when /proc/cpuinfo reports it, or Windows does",
+          "description": "The number of physical processor packages, counted as the distinct physical id values in /proc/cpuinfo (NumberOfProcessors on Windows). An architecture whose /proc/cpuinfo carries no physical id field reports no such fact rather than a guessed 1."
         },
         {
-          "name": "ansible_uptime_seconds",
+          "name": "host.uptime_seconds",
           "type": "int",
-          "returned": "when /proc/uptime reports it",
-          "description": "How long the device has been up, in whole seconds, from the first field of /proc/uptime."
+          "returned": "when the device reports it",
+          "description": "How long the device has been up, in whole seconds, from the first field of /proc/uptime; from the boot time and the device's own clock on FreeBSD, macOS and Windows."
         },
         {
-          "name": "ansible_nodename",
+          "name": "host.nodename",
           "type": "string",
           "returned": "when the device reports one",
-          "description": "The full node name uname -n reports, before ansible_hostname cuts it at the first dot."
+          "description": "The full node name uname -n reports, before host.name cuts it at the first dot; on Windows the DNS host name, with the domain when the host is joined to one."
         },
         {
-          "name": "ansible_system",
+          "name": "os.kernel.name",
           "type": "string",
           "returned": "when the device reports one",
-          "description": "The kernel's name, as uname -s reports it: Linux, FreeBSD, Darwin."
+          "description": "The kernel's name, lowercase: linux, freebsd or darwin, as uname -s reports it, and windows on Windows."
         },
         {
-          "name": "ansible_distribution_major_version",
-          "type": "string",
-          "returned": "when the device names a version",
-          "description": "The distribution version up to its first dot, such as 24 for 24.04."
+          "name": "os.version_major",
+          "type": "int",
+          "returned": "when the device names a version whose first part is a whole number",
+          "description": "The distribution version up to its first dot, as a whole number, such as 24 for 24.04. A version whose first part is not one (Debian testing's forky/sid) reports none."
         },
         {
-          "name": "ansible_os_family",
+          "name": "os.family",
           "type": "string",
           "returned": "when the device names its distribution",
-          "description": "The family the distribution belongs to, from Ansible's own table: RedHat, Debian, Suse, Archlinux, Alpine, FreeBSD, Darwin (macOS) or Windows, or for a distribution the table does not list but this method names as Ansible does, the distribution itself, as Ansible reports it. A distribution reported by its NAME alone has a family only where Ansible's table lists that NAME, since Ansible may name it otherwise: a family is never guessed."
+          "description": "The family the distribution belongs to, lowercase: debian, redhat, suse, arch, alpine, freebsd, macos or windows. A distribution whose os-release ID this method has not measured has a family only where Ansible's own family table lists its NAME (Linux Mint is debian), lowercased (gentoo, slackware): a family is never guessed."
         },
         {
-          "name": "ansible_distribution_release",
+          "name": "os.codename",
           "type": "string",
           "returned": "when the distribution names one",
-          "description": "The release as Ansible reports it: the codename (VERSION_CODENAME in /etc/os-release, then UBUNTU_CODENAME, then the name in parentheses in VERSION, such as Blue Onyx), Stream on CentOS Stream, and the minor version on the SUSE family (6 for 15.6, 0 on an enterprise release with none). A release Ansible reports as NA or as empty, as it does on Fedora, Alpine and Amazon Linux, is left out. FreeBSD and macOS report none yet, where Ansible reports the kernel release."
+          "description": "The release's codename: VERSION_CODENAME in /etc/os-release (bookworm, noble), then UBUNTU_CODENAME, then the name in parentheses in VERSION (Blue Onyx on Rocky Linux 9.6, Plow on Red Hat). A distribution that names none (Fedora, Alpine, Amazon Linux, Oracle Linux, CentOS Stream, the SUSE family) reports none, and so do FreeBSD, macOS and Windows."
         },
         {
-          "name": "ansible_swaptotal_mb",
-          "type": "int",
-          "returned": "when the device reports it, never on macOS",
-          "description": "Total swap in megabytes, from SwapTotal in /proc/meminfo (vm.swap_total on FreeBSD); 0 on a device with no swap, and always 0 on Windows, as Ansible reports it there, since a page file is not swap. macOS reports none, as Ansible does: its swap files are made and removed as memory is needed, so their total moves on its own."
+          "name": "os.edition",
+          "type": "string",
+          "returned": "on Windows, when the host names it",
+          "description": "The Windows edition's caption, such as Microsoft Windows Server 2022 Datacenter."
         },
         {
-          "name": "ansible_processor_vcpus",
+          "name": "hardware.swap_mb",
           "type": "int",
-          "returned": "when /proc/cpuinfo lists processors",
-          "description": "The number of logical processors, counted as the processor entries in /proc/cpuinfo."
+          "returned": "when the device reports it, never on macOS or Windows",
+          "description": "Total swap in whole megabytes, truncated, from SwapTotal in /proc/meminfo (vm.swap_total on FreeBSD); 0 on a device with no swap. macOS and Windows report none: a Mac's swap files are made and removed as memory is needed, so their total moves on its own, and a Windows page file is not swap."
         },
         {
-          "name": "ansible_processor_cores",
+          "name": "hardware.cpu.threads",
           "type": "int",
-          "returned": "when /proc/cpuinfo reports cpu cores",
-          "description": "The cores per processor package, from the first cpu cores field in /proc/cpuinfo."
+          "returned": "when the device reports it",
+          "description": "The number of logical processors, counted as the processor entries in /proc/cpuinfo (hw.ncpu on FreeBSD and macOS, NumberOfLogicalProcessors on Windows)."
+        },
+        {
+          "name": "hardware.cpu.cores",
+          "type": "int",
+          "returned": "when /proc/cpuinfo reports cpu cores, or Windows does",
+          "description": "The cores per processor package, from the first cpu cores field in /proc/cpuinfo (the first package's NumberOfCores on Windows)."
         },
         {
           "name": "package.<name>",
@@ -7437,7 +7449,7 @@
         },
         {
           "name": "Gather only what a later condition reads",
-          "runbookYaml": "- name: Learn which distribution this is\n  facts.gather:\n    filter:\n      - ansible_distribution*\n"
+          "runbookYaml": "- name: Learn which distribution this is\n  facts.gather:\n    filter:\n      - os.*\n"
         }
       ],
       "seeAlso": [
@@ -10843,16 +10855,16 @@
     "supportsCheck": true,
     "facts": [
       {
-        "key": "devices",
+        "key": "catalyst.devices",
         "kind": "volatile",
         "type": "list",
         "description": "One entry per device: id, hostname, management_ip, family, series, platform_id, software_type, software_version, role, serial_number, reachability_status, collection_status, mac_address, type, up_time (as the controller words it) and description, each empty when the controller leaves it unset."
       },
       {
-        "key": "device_count",
+        "key": "catalyst.device_count",
         "kind": "stable",
         "type": "integer",
-        "description": "The number of devices in the devices fact."
+        "description": "The number of devices in the catalyst.devices fact."
       }
     ],
     "doc": {
@@ -10864,16 +10876,16 @@
       ],
       "returns": [
         {
-          "name": "devices",
+          "name": "catalyst.devices",
           "type": "list of map",
           "returned": "always",
           "description": "One entry per device: id, hostname, management_ip, family, series, platform_id, software_type, software_version, role, serial_number, reachability_status, collection_status, mac_address, type, up_time (as the controller words it) and description, each empty when the controller leaves it unset."
         },
         {
-          "name": "device_count",
+          "name": "catalyst.device_count",
           "type": "int",
           "returned": "always",
-          "description": "The number of devices in the devices fact."
+          "description": "The number of devices in the catalyst.devices fact."
         }
       ],
       "examples": [
@@ -10909,31 +10921,31 @@
     "supportsCheck": true,
     "facts": [
       {
-        "key": "reachability",
+        "key": "catalyst.reachability",
         "kind": "stable",
         "type": "list",
         "description": "One entry per device: hostname, management_ip, reachability_status, collection_status, reachable."
       },
       {
-        "key": "unreachable",
+        "key": "catalyst.unreachable",
         "kind": "stable",
         "type": "list",
         "description": "Hostnames (or management IPs, if hostname is unset) of every unreachable device."
       },
       {
-        "key": "reachable_count",
+        "key": "catalyst.reachable_count",
         "kind": "stable",
         "type": "integer",
         "description": "Count of devices with reachability_status Reachable."
       },
       {
-        "key": "managed_count",
+        "key": "catalyst.managed_count",
         "kind": "stable",
         "type": "integer",
         "description": "Count of devices with collection_status Managed."
       },
       {
-        "key": "total_device_count",
+        "key": "catalyst.total_device_count",
         "kind": "stable",
         "type": "integer",
         "description": "How many devices the controller listed, reachable or not."
@@ -10948,31 +10960,31 @@
       ],
       "returns": [
         {
-          "name": "reachability",
+          "name": "catalyst.reachability",
           "type": "list of map",
           "returned": "always",
           "description": "One entry per device: hostname, management_ip, reachability_status, collection_status, reachable."
         },
         {
-          "name": "unreachable",
+          "name": "catalyst.unreachable",
           "type": "list of string",
           "returned": "always",
           "description": "Hostnames (or management IPs, if hostname is unset) of every unreachable device."
         },
         {
-          "name": "reachable_count",
+          "name": "catalyst.reachable_count",
           "type": "int",
           "returned": "always",
           "description": "Count of devices with reachability_status Reachable."
         },
         {
-          "name": "managed_count",
+          "name": "catalyst.managed_count",
           "type": "int",
           "returned": "always",
           "description": "Count of devices with collection_status Managed."
         },
         {
-          "name": "total_device_count",
+          "name": "catalyst.total_device_count",
           "type": "int",
           "returned": "always",
           "description": "How many devices the controller listed, reachable or not."
@@ -10981,7 +10993,7 @@
       "examples": [
         {
           "name": "Gate a change on full fleet reachability",
-          "runbookYaml": "- name: Confirm the fleet is reachable before changing anything\n  net.catalyst.reachability:\n  register: health\n\n- name: Apply the change\n  net.ios.config:\n    lines:\n      - ntp server 192.0.2.10\n  when_cel: \"stat.health[''].unreachable.size() == 0\"\n"
+          "runbookYaml": "- name: Confirm the fleet is reachable before changing anything\n  net.catalyst.reachability:\n  register: health\n\n- name: Apply the change\n  net.ios.config:\n    lines:\n      - ntp server 192.0.2.10\n  when_cel: \"stat.health['']['catalyst.unreachable'].size() == 0\"\n"
         }
       ],
       "seeAlso": [
@@ -11010,16 +11022,16 @@
     "supportsCheck": true,
     "facts": [
       {
-        "key": "sites",
+        "key": "catalyst.sites",
         "kind": "stable",
         "type": "list",
         "description": "One entry per site: id, name, site_name_hierarchy."
       },
       {
-        "key": "site_count",
+        "key": "catalyst.site_count",
         "kind": "stable",
         "type": "integer",
-        "description": "The number of sites in the sites fact."
+        "description": "The number of sites in the catalyst.sites fact."
       }
     ],
     "doc": {
@@ -11030,16 +11042,16 @@
       ],
       "returns": [
         {
-          "name": "sites",
+          "name": "catalyst.sites",
           "type": "list of map",
           "returned": "always",
           "description": "One entry per site: id, name, site_name_hierarchy."
         },
         {
-          "name": "site_count",
+          "name": "catalyst.site_count",
           "type": "int",
           "returned": "always",
-          "description": "The number of sites in the sites fact."
+          "description": "The number of sites in the catalyst.sites fact."
         }
       ],
       "examples": [
@@ -11074,13 +11086,13 @@
     "supportsCheck": true,
     "facts": [
       {
-        "key": "tags",
+        "key": "catalyst.tags",
         "kind": "stable",
         "type": "list",
         "description": "One entry per tag: id, name, system_tag."
       },
       {
-        "key": "operator_tags",
+        "key": "catalyst.operator_tags",
         "kind": "stable",
         "type": "list",
         "description": "Names of every tag not created by the controller itself."
@@ -11094,13 +11106,13 @@
       ],
       "returns": [
         {
-          "name": "tags",
+          "name": "catalyst.tags",
           "type": "list of map",
           "returned": "always",
           "description": "One entry per tag: id, name, system_tag."
         },
         {
-          "name": "operator_tags",
+          "name": "catalyst.operator_tags",
           "type": "list of string",
           "returned": "always",
           "description": "Names of every tag not created by the controller itself."
@@ -12013,57 +12025,57 @@
     "noBecomeReason": "it types lines into the device's own CLI session, which no sudo prefix reaches, so it would run as the login",
     "facts": [
       {
-        "key": "ansible_net_hostname",
+        "key": "host.name",
         "kind": "stable",
         "type": "string",
         "description": "The device's own hostname, read from the \"<hostname> uptime is ...\" line of \"show version\"."
       },
       {
-        "key": "ansible_net_version",
+        "key": "os.version",
         "kind": "stable",
         "type": "string",
         "description": "The software version: the \"Cisco IOS XE Software, Version\" line's on IOS XE, e.g. \"17.15.04c\", and on a device that prints no such line (an IOL XE router) the \"Cisco IOS Software ..., Version\" line's, e.g. \"17.15.1\"."
       },
       {
-        "key": "ansible_net_model",
+        "key": "os.distribution",
+        "kind": "stable",
+        "type": "string",
+        "description": "Which Cisco IOS the device runs, read from \"show version\": \"ios_xe\" when it prints the \"Cisco IOS XE Software\" line or a \"Cisco IOS Software\" line naming IOS XE (\"[IOSXE]\" on an IOL XE router, \"IOS-XE Software\" on the 3.x trains), and \"ios\" when its \"Cisco IOS Software\" line names classic IOS only (the 3.x and classic banners are not yet measured on a device). The same fact facts.gather records for a server (\"ubuntu\", \"windows\"), so one condition can tell a router from a server."
+      },
+      {
+        "key": "hardware.model",
         "kind": "stable",
         "type": "string",
         "description": "The platform model, e.g. \"C8000V\". An IOL router reports none."
       },
       {
-        "key": "ansible_net_serialnum",
+        "key": "hardware.serial",
         "kind": "stable",
         "type": "string",
         "description": "The chassis serial number, preferring \"show inventory\"'s Chassis SN and falling back to \"show version\"'s Processor board ID."
       },
       {
-        "key": "ansible_net_image",
+        "key": "os.image",
         "kind": "stable",
         "type": "string",
         "description": "The running system image file, e.g. \"bootflash:packages.conf\"."
       },
       {
-        "key": "ansible_net_uptime",
+        "key": "host.uptime",
         "kind": "volatile",
         "type": "string",
         "description": "Uptime exactly as the device words it, e.g. \"1 hour, 32 minutes\". Not converted to seconds: IOS reports a rounded phrase, and parsing it into a precise number would invent precision the device never gave."
       },
       {
-        "key": "ansible_net_interfaces",
+        "key": "network.interfaces",
         "kind": "stable",
         "type": "list",
         "description": "One map per interface, in the order \"show ip interface brief\" lists them. From that command: name, ip_address (left out when the device says \"unassigned\"), status and protocol, the status taken whole so \"administratively down\" is not cut at its space. From \"show interfaces\": description (when one is set), mtu (a number), admin_state (\"down\" when the interface is shut down, else \"up\") and line_protocol (as written, e.g. \"up\" or \"down (notconnect)\"). And vrf, the VRF's name, only when the interface is in one: an interface with no vrf key is in the global table. A list, not the map keyed by name cisco.ios.ios_facts returns, because this method has returned a list since it was written, a list keeps the device's own order, and a condition finds one interface with exists(i, i.name == \"Ethernet0/0\")."
-      },
-      {
-        "key": "ansible_net_gather_subset",
-        "kind": "volatile",
-        "type": "list",
-        "description": "The subsets actually gathered, after \"all\" is expanded; config is absent when it was left out."
       }
     ],
     "doc": {
       "summary": "Gathers structured facts from a Cisco IOS device over its CLI.",
-      "description": "Closes a real gap: facts.gather requires FactGathererCapable, which no Cisco device type declares, so before this method a Cisco device could be commanded and configured but never described. Opens an interactive session in netcli.IOS's own paging and prompt conventions and sends only show commands: by default every subset, so one call hands back what the device is, each interface with its VRF and state, and the running configuration with every secret masked. Each value is recorded twice under one name: as a fact (EmitFact, long-lived drift data) and as a stat (SetStat), so register, until and when read it as result.<register>.<name>. The configuration is a stat only, since its placeholders are keyed per run and would read as a change on every run. Every parser was written against output captured from real devices (a Catalyst 8000V on IOS XE 17.15.04c and an IOL XE router on 17.15.1), not from documentation or memory. A field the device does not report is left out rather than set to an empty string, so a condition can tell \"this device does not say\" from \"this device says nothing\". Nothing is changed, so this always reports no change, and a check runs it for real. The config subset needs privileged mode: an account that lands in user mode needs its enable secret stored (pleiades add-credential --enable-password-stdin). When config came from all, the default, and the device refuses show running-config, it is left out with a warning and the rest is returned; asked for by name, that refusal fails the task. cisco.ios.ios_facts's hardware subset is absent on purpose: the memory and flash figures IOS reports vary enough by platform that parsing them generically would be a guess.",
+      "description": "Closes a real gap: facts.gather requires FactGathererCapable, which no Cisco device type declares, so before this method a Cisco device could be commanded and configured but never described. Opens an interactive session in netcli.IOS's own paging and prompt conventions and sends only show commands: by default every subset, so one call hands back what the device is, each interface with its VRF and state, and the running configuration with every secret masked. Each value is recorded twice under one name: as a fact (EmitFact, long-lived drift data) and as a stat (SetStat), so register, until and when read it as result.<register>[\"<name>\"] (a name holding a dot is read by index, as result.r1[\"host.name\"]). The facts carry the native names every built-in shares (host.name, os.version, os.distribution, hardware.model and the rest), so a router and a server answer the same question under one name. The configuration is a stat only, since its placeholders are keyed per run and would read as a change on every run, and so is ansible_net_gather_subset, which describes the call rather than the device. Every parser was written against output captured from real devices (a Catalyst 8000V on IOS XE 17.15.04c and an IOL XE router on 17.15.1), not from documentation or memory. A field the device does not report is left out rather than set to an empty string, so a condition can tell \"this device does not say\" from \"this device says nothing\". Nothing is changed, so this always reports no change, and a check runs it for real. The config subset needs privileged mode: an account that lands in user mode needs its enable secret stored (pleiades add-credential --enable-password-stdin). When config came from all, the default, and the device refuses show running-config, it is left out with a warning and the rest is returned; asked for by name, that refusal fails the task. cisco.ios.ios_facts's hardware subset is absent on purpose: the memory and flash figures IOS reports vary enough by platform that parsing them generically would be a guess.",
       "params": [
         {
           "name": "gather_subset",
@@ -12093,43 +12105,49 @@
       ],
       "returns": [
         {
-          "name": "ansible_net_hostname",
+          "name": "host.name",
           "type": "string",
           "returned": "when the min subset is gathered and the device reports it",
           "description": "The device's own hostname, read from the \"<hostname> uptime is ...\" line of \"show version\"."
         },
         {
-          "name": "ansible_net_version",
+          "name": "os.version",
           "type": "string",
           "returned": "when the min subset is gathered and the device reports it",
           "description": "The software version: the \"Cisco IOS XE Software, Version\" line's on IOS XE, e.g. \"17.15.04c\", and on a device that prints no such line (an IOL XE router) the \"Cisco IOS Software ..., Version\" line's, e.g. \"17.15.1\"."
         },
         {
-          "name": "ansible_net_model",
+          "name": "os.distribution",
+          "type": "string",
+          "returned": "when the min subset is gathered and the device reports it",
+          "description": "Which Cisco IOS the device runs, read from \"show version\": \"ios_xe\" when it prints the \"Cisco IOS XE Software\" line or a \"Cisco IOS Software\" line naming IOS XE (\"[IOSXE]\" on an IOL XE router, \"IOS-XE Software\" on the 3.x trains), and \"ios\" when its \"Cisco IOS Software\" line names classic IOS only (the 3.x and classic banners are not yet measured on a device). The same fact facts.gather records for a server (\"ubuntu\", \"windows\"), so one condition can tell a router from a server."
+        },
+        {
+          "name": "hardware.model",
           "type": "string",
           "returned": "when the min subset is gathered and the device reports it",
           "description": "The platform model, e.g. \"C8000V\". An IOL router reports none."
         },
         {
-          "name": "ansible_net_serialnum",
+          "name": "hardware.serial",
           "type": "string",
           "returned": "when the min subset is gathered and the device reports it",
           "description": "The chassis serial number, preferring \"show inventory\"'s Chassis SN and falling back to \"show version\"'s Processor board ID."
         },
         {
-          "name": "ansible_net_image",
+          "name": "os.image",
           "type": "string",
           "returned": "when the min subset is gathered and the device reports it",
           "description": "The running system image file, e.g. \"bootflash:packages.conf\"."
         },
         {
-          "name": "ansible_net_uptime",
+          "name": "host.uptime",
           "type": "string",
           "returned": "when the min subset is gathered and the device reports it",
           "description": "Uptime exactly as the device words it, e.g. \"1 hour, 32 minutes\". Not converted to seconds: IOS reports a rounded phrase, and parsing it into a precise number would invent precision the device never gave."
         },
         {
-          "name": "ansible_net_interfaces",
+          "name": "network.interfaces",
           "type": "list of map",
           "returned": "when the interfaces subset is gathered",
           "description": "One map per interface, in the order \"show ip interface brief\" lists them. From that command: name, ip_address (left out when the device says \"unassigned\"), status and protocol, the status taken whole so \"administratively down\" is not cut at its space. From \"show interfaces\": description (when one is set), mtu (a number), admin_state (\"down\" when the interface is shut down, else \"up\") and line_protocol (as written, e.g. \"up\" or \"down (notconnect)\"). And vrf, the VRF's name, only when the interface is in one: an interface with no vrf key is in the global table. A list, not the map keyed by name cisco.ios.ios_facts returns, because this method has returned a list since it was written, a list keeps the device's own order, and a condition finds one interface with exists(i, i.name == \"Ethernet0/0\")."
@@ -12150,7 +12168,7 @@
           "name": "ansible_net_gather_subset",
           "type": "list of string",
           "returned": "always",
-          "description": "The subsets actually gathered, after \"all\" is expanded; config is absent when it was left out."
+          "description": "The subsets actually gathered, after \"all\" is expanded; config is absent when it was left out. A stat only, never a fact: it describes the call, not the device."
         }
       ],
       "examples": [
@@ -12160,7 +12178,7 @@
         },
         {
           "name": "Wait until an interface's line protocol is up",
-          "runbookYaml": "- name: Wait for Ethernet0/1\n  net.ios.facts:\n    gather_subset:\n      - interfaces\n  register: r1\n  until: 'result.r1.ansible_net_interfaces.exists(i, i.name == \"Ethernet0/1\" && i.line_protocol == \"up\")'\n  retries: 10\n  delay: 6\n"
+          "runbookYaml": "- name: Wait for Ethernet0/1\n  net.ios.facts:\n    gather_subset:\n      - interfaces\n  register: r1\n  until: 'result.r1[\"network.interfaces\"].exists(i, i.name == \"Ethernet0/1\" && i.line_protocol == \"up\")'\n  retries: 10\n  delay: 6\n"
         },
         {
           "name": "Only the identity, without the configuration",

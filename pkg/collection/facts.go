@@ -212,8 +212,13 @@ func checkFacts(d Descriptor) error {
 		if err := checkExternalFacts(d); err != nil {
 			return err
 		}
-	} else if err := checkBuiltinAfterExternal(d); err != nil {
-		return err
+	} else {
+		if err := checkBuiltinAfterExternal(d); err != nil {
+			return err
+		}
+		if err := checkFactNames(d); err != nil {
+			return err
+		}
 	}
 	for _, s := range d.Manifest.Facts {
 		for name, other := range collections.All() {

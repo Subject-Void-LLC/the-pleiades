@@ -46,7 +46,7 @@ var (
 )
 
 // gatherInterfaces reads the three commands and joins them by name into
-// g's ansible_net_interfaces.
+// g's network.interfaces.
 func gatherInterfaces(ctx context.Context, session iosSession, g *gathered) error {
 	brief, err := show(ctx, session, "show ip interface brief")
 	if err != nil {

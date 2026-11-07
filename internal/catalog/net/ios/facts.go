@@ -63,28 +63,55 @@ func init() {
 		// Facts itself, since it only reads.
 		Check: Facts,
 	}
-	// The uptime moves on its own and the subsets gathered describe the
-	// call, not the device, so both are volatile. ansible_net_config is a
-	// stat only, never a fact.
-	d.Manifest.Facts = collection.DeclareFacts(d.Manifest.Doc.Returns, []string{factHostname, factVersion, factModel, factSerialNum, factImage, factUptime, factInterfaces, factGatherSubset}, factUptime, factGatherSubset)
+	// The uptime moves on its own, so it is volatile. The configuration and
+	// the subsets gathered are stats only, never facts: the configuration's
+	// placeholders are keyed per run, and the subsets describe the call, not
+	// the device.
+	d.Manifest.Facts = collection.DeclareFacts(d.Manifest.Doc.Returns, factKeys, factUptime)
 	collection.MustRegister(d)
 }
 
-// Fact names mirror cisco.ios.ios_facts's own, so a converted playbook
-// reading ansible_net_version keeps reading ansible_net_version. This is
-// the same reuse-Ansible's-vocabulary reasoning internal/catalog/facts
-// already follows for ansible_distribution and friends.
+// Fact names are the native typed families every built-in shares, so a
+// Cisco router and a Linux server answer host.name and os.version alike,
+// and os.distribution is what tells them apart. Each key is also the stat
+// a register reads, as result.<register>["host.name"]. The keys facts.gather
+// declares too (host.name, os.version, os.distribution) carry its kind and
+// type, which collection.Register holds every method to.
 const (
-	factHostname     = "ansible_net_hostname"
-	factVersion      = "ansible_net_version"
-	factModel        = "ansible_net_model"
-	factSerialNum    = "ansible_net_serialnum"
-	factImage        = "ansible_net_image"
-	factUptime       = "ansible_net_uptime"
-	factInterfaces   = "ansible_net_interfaces"
+	factHostname     = "host.name"
+	factVersion      = "os.version"
+	factDistribution = "os.distribution"
+	factModel        = "hardware.model"
+	factSerialNum    = "hardware.serial"
+	factImage        = "os.image"
+	factUptime       = "host.uptime"
+	factInterfaces   = "network.interfaces"
+	// factConfig and factGatherSubset are stats only, never facts, so they
+	// keep the names cisco.ios.ios_facts gives them.
 	factConfig       = "ansible_net_config"
 	factGatherSubset = "ansible_net_gather_subset"
 )
+
+// The two values os.distribution takes: "ios_xe" for a device whose show
+// version names IOS XE, and "ios" for one that names classic IOS only.
+const (
+	distributionIOS   = "ios"
+	distributionIOSXE = "ios_xe"
+)
+
+// factKeys is every key net.ios.facts declares and emits as a fact.
+var factKeys = []string{factHostname, factVersion, factDistribution, factModel, factSerialNum, factImage, factUptime, factInterfaces}
+
+// isFact reports whether name is one of factKeys, which record emits as a
+// fact beside its stat.
+func isFact(name string) bool {
+	for _, k := range factKeys {
+		if k == name {
+			return true
+		}
+	}
+	return false
+}
 
 const paramGatherSubset = "gather_subset"
 
@@ -154,15 +181,16 @@ func Facts(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventor
 }
 
 // record writes every value as a stat, so register, until and when read it,
-// and every value but the configuration as a fact too. The configuration is
-// a stat alone: its placeholders are keyed per run, so as drift data it
-// would read as changed every time.
+// and every declared fact as a fact too. The configuration is a stat alone:
+// its placeholders are keyed per run, so as drift data it would read as
+// changed every time. The subsets gathered are a stat alone as well, since
+// they describe this call rather than the device.
 func record(rc sdk.RunbookContext, g *gathered) error {
 	for _, name := range sortedKeys(g.values) {
 		if err := rc.SetStat(name, g.values[name]); err != nil {
 			return err
 		}
-		if name == factConfig {
+		if !isFact(name) {
 			continue
 		}
 		if err := rc.EmitFact(name, g.values[name]); err != nil {

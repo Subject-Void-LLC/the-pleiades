@@ -86,12 +86,12 @@ func TestCLI_FactsReleaseGate(t *testing.T) {
 	first := read()
 	kernel := ""
 	for _, f := range first.Facts {
-		if f.Key == "ansible_kernel" {
+		if f.Key == "os.kernel.release" {
 			kernel, _ = f.Value.(string)
 		}
 	}
 	if want := g.device(t, "uname -r"); kernel != want || first.DeviceID == "" {
-		t.Fatalf("stored ansible_kernel %q for device %q, the device says %q", kernel, first.DeviceID, want)
+		t.Fatalf("stored os.kernel.release %q for device %q, the device says %q", kernel, first.DeviceID, want)
 	}
 	kinds := map[string]string{}
 	for _, f := range first.Facts {
@@ -100,7 +100,7 @@ func TestCLI_FactsReleaseGate(t *testing.T) {
 			t.Errorf("%s: provenance %+v, want this run, its node, facts.gather and the run counter", f.Key, f.By)
 		}
 	}
-	if kinds["ansible_kernel"] != "stable" || kinds["ansible_uptime_seconds"] != "volatile" {
+	if kinds["os.kernel.release"] != "stable" || kinds["host.uptime_seconds"] != "volatile" {
 		t.Errorf("kinds = %v, want the kernel stable and the uptime volatile as declared", kinds)
 	}
 	history := filepath.Join(g.dir, ".pleiades", "facts", first.DeviceID+".jsonl")
@@ -123,16 +123,16 @@ func TestCLI_FactsReleaseGate(t *testing.T) {
 		t.Errorf("a second gather of an unchanged device wrote %d history lines", got-written)
 	}
 	for _, f := range second.Facts {
-		if f.Key == "ansible_kernel" {
+		if f.Key == "os.kernel.release" {
 			if !f.LastSeenAt.After(f.ObservedAt) || f.LastBy.Order.Token <= f.By.Order.Token || f.LastBy.Run == f.By.Run {
 				t.Errorf("the kernel, gathered again unchanged, was not confirmed by the second run: %+v", f)
 			}
 		}
 	}
-	if h := read("ansible_kernel"); len(h.Facts) != 1 {
+	if h := read("os.kernel.release"); len(h.Facts) != 1 {
 		t.Errorf("the kernel's history has %d values, want 1", len(h.Facts))
 	}
-	if h := read("ansible_uptime_seconds"); len(h.Facts) != 1 || h.Facts[0].Kind != "volatile" {
+	if h := read("host.uptime_seconds"); len(h.Facts) != 1 || h.Facts[0].Kind != "volatile" {
 		t.Errorf("the uptime's history = %+v, want its one latest value", h.Facts)
 	}
 

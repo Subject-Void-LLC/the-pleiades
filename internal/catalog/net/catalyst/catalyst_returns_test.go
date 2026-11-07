@@ -4,6 +4,7 @@
 package catalyst_test
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
@@ -46,13 +47,61 @@ func TestDeviceFacts_ReturnsTheWholeRecordAndDeclaresIt(t *testing.T) {
 		if fqcn != "net.catalyst.device_facts" {
 			continue
 		}
-		list, _ := rc.facts["devices"].([]map[string]any)
+		list, _ := rc.facts["catalyst.devices"].([]map[string]any)
 		if len(list) != 1 {
-			t.Fatalf("devices = %#v", rc.facts["devices"])
+			t.Fatalf("devices = %#v", rc.facts["catalyst.devices"])
 		}
 		for k, want := range map[string]string{"mac_address": "00:11:22:33:44:55", "type": "Cisco Catalyst 9300 Switch", "up_time": "12 days, 3:04:05.00", "description": "Cisco IOS Software [Cupertino]"} {
 			if list[0][k] != want {
 				t.Errorf("devices[0].%s = %v, want %q", k, list[0][k], want)
+			}
+		}
+	}
+}
+
+// TestCatalystFacts_AreInTheCatalystFamily holds every net.catalyst.* method's
+// fact declarations to their keys, kinds and types, written out rather than
+// read from the package's constants, so a key that loses its catalyst. family
+// fails here. Each key is also the stat a register reads, so it is a declared
+// return as well.
+func TestCatalystFacts_AreInTheCatalystFamily(t *testing.T) {
+	want := map[string]map[string][2]string{
+		"net.catalyst.device_facts": {
+			"catalyst.devices":      {"volatile", "list"},
+			"catalyst.device_count": {"stable", "integer"},
+		},
+		"net.catalyst.site_facts": {
+			"catalyst.sites":      {"stable", "list"},
+			"catalyst.site_count": {"stable", "integer"},
+		},
+		"net.catalyst.tag_facts": {
+			"catalyst.tags":          {"stable", "list"},
+			"catalyst.operator_tags": {"stable", "list"},
+		},
+		"net.catalyst.reachability": {
+			"catalyst.reachability":       {"stable", "list"},
+			"catalyst.unreachable":        {"stable", "list"},
+			"catalyst.reachable_count":    {"stable", "integer"},
+			"catalyst.managed_count":      {"stable", "integer"},
+			"catalyst.total_device_count": {"stable", "integer"},
+		},
+	}
+	for fqcn, keys := range want {
+		d, ok := collection.Lookup(fqcn)
+		if !ok {
+			t.Fatalf("%s is not registered", fqcn)
+		}
+		got := map[string][2]string{}
+		for _, f := range d.Manifest.Facts {
+			got[f.Key] = [2]string{string(f.Kind), string(f.Type)}
+		}
+		if !reflect.DeepEqual(got, keys) {
+			t.Errorf("%s facts =\n%v\nwant\n%v", fqcn, got, keys)
+		}
+		returns := declaredReturns(t, fqcn)
+		for key := range keys {
+			if !returns[key] {
+				t.Errorf("%s declares fact %s with no return of that name", fqcn, key)
 			}
 		}
 	}

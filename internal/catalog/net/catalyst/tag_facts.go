@@ -68,8 +68,8 @@ func init() {
 				Description: "Reads every tag the targeted Catalyst Center knows about, and separates the controller's own system tags (its internal bookkeeping) from operator-created ones, so a runbook grouping devices by operator intent does not have to filter system tags out itself.",
 				Fragments:   []string{"catalyst_connection"},
 				Returns: []collection.ReturnField{
-					{Name: "tags", Type: "list of map", Returned: "always", Description: "One entry per tag: id, name, system_tag."},
-					{Name: "operator_tags", Type: "list of string", Returned: "always", Description: "Names of every tag not created by the controller itself."},
+					{Name: factTags, Type: "list of map", Returned: "always", Description: "One entry per tag: id, name, system_tag."},
+					{Name: factOperatorTags, Type: "list of string", Returned: "always", Description: "Names of every tag not created by the controller itself."},
 				},
 				Examples: []collection.Example{
 					{Name: "Gather operator-created tags", RunbookYAML: "- name: Gather Catalyst Center tag facts\n  net.catalyst.tag_facts:\n  register: tags\n"},
@@ -80,9 +80,16 @@ func init() {
 		// TagFacts itself, since it only reads.
 		Check: TagFacts,
 	}
-	d.Manifest.Facts = collection.DeclareFacts(d.Manifest.Doc.Returns, []string{"tags", "operator_tags"})
+	d.Manifest.Facts = collection.DeclareFacts(d.Manifest.Doc.Returns, []string{factTags, factOperatorTags})
 	collection.MustRegister(d)
 }
+
+// The keys net.catalyst.tag_facts records, each both a fact and the stat a
+// register reads, in the catalyst family every net.catalyst.* key shares.
+const (
+	factTags         = "catalyst.tags"
+	factOperatorTags = "catalyst.operator_tags"
+)
 
 // TagFacts gathers the tags defined on the targeted Catalyst Center.
 //
@@ -116,10 +123,10 @@ func TagFacts(ctx context.Context, rc sdk.RunbookContext, device inventory.Inven
 		}
 	}
 
-	if err := rc.EmitFact("tags", all); err != nil {
+	if err := rc.EmitFact(factTags, all); err != nil {
 		return collection.Result{}, err
 	}
-	if err := rc.EmitFact("operator_tags", operator); err != nil {
+	if err := rc.EmitFact(factOperatorTags, operator); err != nil {
 		return collection.Result{}, err
 	}
 	return collection.Result{Changed: false}, nil

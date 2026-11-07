@@ -1,27 +1,25 @@
-// Package facts: the distribution facts as Ansible names them. A Linux
-// device's /etc/os-release (and a Debian device's /etc/debian_version) is
-// read into ansible_distribution, its version, major version and release, and
-// ansible_os_family, each held to the value ansible.builtin.setup gives on the
-// same machine (internal/catalog/facts/live measures that in each
-// distribution's own container). Ansible reaches those values through
-// module_utils/facts/system/distribution.py and the distro library it
-// vendors; the rules here are the parts of both that decide a value on the
-// distributions in ansibleDistributionByID and the SUSE family. One not in
-// either reports NAME and VERSION_ID, which is Ansible's own fallback but not
-// always its answer (its parsers name some derivatives by a word in the
-// file), so its family is reported only where Ansible's family table lists
-// that NAME: a family Ansible might not give is left out, not guessed.
+// Package facts: the distribution facts. A Linux device's /etc/os-release
+// (and a Debian device's /etc/debian_version) is read into os.distribution
+// (the os-release ID), os.family, os.version, os.version_major and
+// os.codename, each a native value: the ID as the file writes it, a
+// lowercase family, an integer major version. Ansible's names and words for
+// the same facts are pkg/ansiblefacts' to give (its ToAnsible), and
+// internal/catalog/facts/live holds the two together in each distribution's
+// own container: these facts, mapped, are what ansible.builtin.setup printed
+// there.
 package facts
 
 import (
 	"regexp"
+	"strconv"
 	"strings"
+
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/ansiblefacts"
 )
 
-// gatherFactOSFamily is ansible.builtin.setup's name for the family a
-// distribution belongs to (RedHat, Debian, Suse), the fact a converted
-// playbook's conditions read most.
-const gatherFactOSFamily = "ansible_os_family"
+// gatherFactFamily is the family a distribution belongs to (debian, redhat,
+// suse), the fact a condition choosing a package manager reads most.
+const gatherFactFamily = "os.family"
 
 // debianVersionMark separates /etc/os-release from /etc/debian_version in the
 // min probe's answer, so a device without the second file cannot shift its
@@ -30,158 +28,118 @@ const debianVersionMark = "--pleiades-debian-version--"
 
 // osReleaseCommand reads /etc/os-release and, where it exists,
 // /etc/debian_version, which holds the Debian point release os-release does
-// not (Ansible reads it through distro's best version). Both are plain cat,
-// which a BusyBox device has.
+// not. Both are plain cat, which a BusyBox device has.
 const osReleaseCommand = "cat /etc/os-release; echo '" + debianVersionMark + "'; cat /etc/debian_version 2>/dev/null"
 
-// ansibleDistributionByID is Ansible's distribution name for an os-release ID,
-// for each distribution measured against ansible.builtin.setup. Ansible gets
-// most of these from another file (Rocky, AlmaLinux and Fedora from the first
-// word of /etc/redhat-release, Archlinux from /etc/arch-release existing), and
-// the ID names the same thing on every release of each. The SUSE family is not
-// here: Ansible reports its NAME, as the fallback does.
-var ansibleDistributionByID = map[string]string{
-	"debian":    "Debian",
-	"ubuntu":    "Ubuntu",
-	"kali":      "Kali",
-	"devuan":    "Devuan",
-	"rhel":      "RedHat",
-	"centos":    "CentOS",
-	"rocky":     "Rocky",
-	"almalinux": "AlmaLinux",
-	"ol":        "OracleLinux",
-	"fedora":    "Fedora",
-	"amzn":      "Amazon",
-	"alpine":    "Alpine",
-	"arch":      "Archlinux",
-	"freebsd":   "FreeBSD",
+// familyByID is the native family of each os-release ID measured, and of
+// FreeBSD, whose os-release names it too.
+var familyByID = map[string]string{
+	"debian":              "debian",
+	"ubuntu":              "debian",
+	"kali":                "debian",
+	"devuan":              "debian",
+	"rhel":                "redhat",
+	"centos":              "redhat",
+	"rocky":               "redhat",
+	"almalinux":           "redhat",
+	"ol":                  "redhat",
+	"fedora":              "redhat",
+	"amzn":                "redhat",
+	"opensuse-leap":       "suse",
+	"opensuse-tumbleweed": "suse",
+	"opensuse":            "suse",
+	"sles":                "suse",
+	"sled":                "suse",
+	"sles_sap":            "suse",
+	"arch":                "arch",
+	"alpine":              "alpine",
+	"freebsd":             "freebsd",
 }
 
-// suseIDs are the os-release IDs Ansible reads through its SUSE parser, and
-// whether each is an enterprise release (whose release is "0" when VERSION_ID
-// has no minor part, where openSUSE's is empty).
-var suseIDs = map[string]bool{
-	"opensuse-leap":       false,
-	"opensuse-tumbleweed": false,
-	"opensuse":            false,
-	"sles":                true,
-	"sled":                true,
-	"sles_sap":            true,
-}
+// suseFamily is the native family whose version is cut to major.minor.
+const suseFamily = "suse"
 
-// ansibleOSFamilyMap is Ansible's OS_FAMILY_MAP (distribution.py), family to
-// the distribution names in it, copied whole so a distribution that reports
-// its NAME still finds its family when Ansible lists that name.
-var ansibleOSFamilyMap = map[string][]string{
-	"RedHat": {"RedHat", "RHEL", "Fedora", "CentOS", "Scientific", "SLC", "Ascendos", "CloudLinux", "PSBM", "OracleLinux", "OVS",
-		"OEL", "Amazon", "Amzn", "Virtuozzo", "XenServer", "Alibaba", "EulerOS", "openEuler", "AlmaLinux", "Rocky", "TencentOS",
-		"EuroLinux", "Kylin Linux Advanced Server", "MIRACLE"},
-	"Debian": {"Debian", "Ubuntu", "Raspbian", "Neon", "KDE neon", "Linux Mint", "SteamOS", "Devuan", "Kali", "Cumulus Linux",
-		"Pop!_OS", "Parrot", "Pardus GNU/Linux", "Uos", "Deepin", "OSMC"},
-	"Suse":       {"SuSE", "SLES", "SLED", "openSUSE", "openSUSE Tumbleweed", "SLES_SAP", "SUSE_LINUX", "openSUSE Leap", "ALP-Dolomite"},
-	"Archlinux":  {"Archlinux", "Antergos", "Manjaro"},
-	"Mandrake":   {"Mandrake", "Mandriva"},
-	"Solaris":    {"Solaris", "Nexenta", "OmniOS", "OpenIndiana", "SmartOS"},
-	"Slackware":  {"Slackware"},
-	"Altlinux":   {"Altlinux"},
-	"SMGL":       {"SMGL"},
-	"Gentoo":     {"Gentoo", "Funtoo"},
-	"Alpine":     {"Alpine"},
-	"AIX":        {"AIX"},
-	"HP-UX":      {"HPUX"},
-	"Darwin":     {"MacOSX"},
-	"FreeBSD":    {"FreeBSD", "TrueOS"},
-	"ClearLinux": {"Clear Linux OS", "Clear Linux Mix"},
-	"DragonFly":  {"DragonflyBSD", "DragonFlyBSD", "Gentoo/DragonflyBSD", "Gentoo/DragonFlyBSD"},
-	"NetBSD":     {"NetBSD"},
-}
-
-// ansibleOSFamily is ansibleOSFamilyMap read the other way: a distribution's
-// family.
-var ansibleOSFamily = func() map[string]string {
-	out := map[string]string{}
-	for family, names := range ansibleOSFamilyMap {
-		for _, name := range names {
-			out[name] = family
-		}
-	}
-	return out
-}()
-
-// osFamilyFact is distribution's ansible_os_family: its family in Ansible's
-// map, or, when known says the distribution is Ansible's own name for it, the
-// distribution itself, as Ansible reports one the map does not list. ok is
-// false for a name Ansible may not report, whose family is left out.
-func osFamilyFact(distribution string, known bool) (gatherFact, bool) {
-	if family, ok := ansibleOSFamily[distribution]; ok {
-		return gatherFact{key: gatherFactOSFamily, value: family}, true
-	}
-	return gatherFact{key: gatherFactOSFamily, value: distribution}, known
-}
-
-// versionCodename is the distro library's codename in os-release's VERSION:
-// a parenthesized run holding no digit ("9.6 (Blue Onyx)"), or what follows a
-// comma.
+// versionCodename is a codename in os-release's VERSION: a parenthesized run
+// holding no digit ("9.6 (Blue Onyx)"), or what follows a comma.
 var versionCodename = regexp.MustCompile(`\((\D+)\)|,\s*(\D+)`)
 
-// suseVersion is Ansible's SUSE version (major and optional minor) at the
-// start of VERSION_ID, the minor part being its release.
+// suseVersion is a SUSE version's major and optional minor part at the start
+// of VERSION_ID.
 var suseVersion = regexp.MustCompile(`^([0-9]+)\.?([0-9]*)`)
 
 // gatherOSRelease reads the min probe's answer (os-release, the mark, and
-// /etc/debian_version) into the distribution facts as ansible.builtin.setup
-// reports them. A value Ansible would report as NA, or as an empty string, is
-// left out, as every fact this method cannot determine is.
+// /etc/debian_version) into the distribution facts. A value the files do not
+// give is left out, as every fact this method cannot determine is.
 func gatherOSRelease(stdout string) []gatherFact {
 	osRelease, debianVersion, _ := strings.Cut(stdout, debianVersionMark)
 	values := gatherKeyValues(osRelease)
-	id := values["ID"]
-
-	distribution, known := ansibleDistributionByID[id]
-	known = known || isSUSE(id)
-	if distribution == "" {
-		// Ansible's fallback (parse_distribution_file_NA) and its SUSE parser
-		// both report NAME.
-		distribution = values["NAME"]
+	id := strings.ToLower(values["ID"])
+	family, known := familyByID[id]
+	if !known {
+		// An ID this method has not measured finds its family only where
+		// Ansible's own family table lists its NAME: a family is never
+		// guessed (ID_LIKE says what a distribution resembles, not what
+		// Ansible or a runbook written for it calls it).
+		family, known = ansiblefacts.FamilyOfName(values["NAME"])
 	}
-	// Its first line only, as distro reads it (readline), so a second line
-	// in the file never reaches the version.
+	// Its first line only, so a second line in the file never reaches the
+	// version.
 	firstLine, _, _ := strings.Cut(strings.TrimLeft(debianVersion, "\n"), "\n")
-	version := distributionVersion(id, values, strings.TrimSpace(firstLine))
-	release := distributionRelease(id, values)
+	version := distributionVersion(id, family, values, strings.TrimSpace(firstLine))
 
 	var facts []gatherFact
-	if distribution != "" {
-		facts = append(facts, gatherFact{key: gatherFactDistribution, value: distribution})
-		if family, ok := osFamilyFact(distribution, known); ok {
-			facts = append(facts, family)
-		}
+	if id != "" {
+		facts = append(facts, gatherFact{key: gatherFactDistribution, value: id})
 	}
-	if version != "" {
-		major, _, _ := strings.Cut(version, ".")
-		facts = append(facts, gatherFact{key: gatherFactDistributionVersion, value: version},
-			gatherFact{key: gatherFactDistributionMajor, value: major})
+	if known {
+		facts = append(facts, gatherFact{key: gatherFactFamily, value: family})
 	}
-	if release != "" {
-		facts = append(facts, gatherFact{key: gatherFactDistributionRelease, value: release})
+	facts = append(facts, versionFacts(version)...)
+	if codename := distributionCodename(values); codename != "" {
+		facts = append(facts, gatherFact{key: gatherFactCodename, value: codename})
 	}
 	return facts
 }
 
-// distributionVersion is Ansible's distribution version: VERSION_ID, but on
-// Debian the more precise of VERSION_ID and /etc/debian_version, by distro's
-// best-version rule (the first present, replaced by a later one with more
-// dots), so 12 with a debian_version of 12.12 is 12.12, and testing, which has
-// no VERSION_ID, is what debian_version says (forky/sid). On the SUSE family it
-// is VERSION_ID's leading major.minor, as Ansible's SUSE parser cuts it.
-func distributionVersion(id string, values map[string]string, debianVersion string) string {
+// versionFacts is version as os.version and, when the text before its first
+// dot is a whole number, os.version_major as that integer; Debian testing's
+// forky/sid has a version and no major one. An empty version is neither.
+func versionFacts(version string) []gatherFact {
+	if version == "" {
+		return nil
+	}
+	facts := []gatherFact{{key: gatherFactVersion, value: version}}
+	if major, ok := versionMajor(version); ok {
+		facts = append(facts, gatherFact{key: gatherFactVersionMajor, value: major})
+	}
+	return facts
+}
+
+// versionMajor is the whole number before version's first dot, and whether
+// there is one: digits only, so 15-SP6 and forky/sid have none.
+func versionMajor(version string) (int, bool) {
+	head, _, _ := strings.Cut(version, ".")
+	if head == "" || strings.Trim(head, "0123456789") != "" {
+		return 0, false
+	}
+	n, err := strconv.Atoi(head)
+	return n, err == nil
+}
+
+// distributionVersion is the distribution version: VERSION_ID, but on Debian
+// the more precise of VERSION_ID and /etc/debian_version (the first present,
+// replaced by a later one with more dots), so 12 with a debian_version of
+// 12.12 is 12.12, and testing, which has no VERSION_ID, is what
+// debian_version says (forky/sid). On the SUSE family it is VERSION_ID's
+// leading major.minor.
+func distributionVersion(id, family string, values map[string]string, debianVersion string) string {
 	version := values["VERSION_ID"]
 	switch {
 	case id == "debian" && debianVersion != "":
 		if version == "" || strings.Count(debianVersion, ".") > strings.Count(version, ".") {
 			version = debianVersion
 		}
-	case isSUSE(id):
+	case family == suseFamily:
 		if m := suseVersion.FindString(version); m != "" {
 			version = m
 		}
@@ -189,26 +147,13 @@ func distributionVersion(id string, values map[string]string, debianVersion stri
 	return version
 }
 
-// distributionRelease is Ansible's distribution release. On the SUSE family it
-// is VERSION_ID's minor part ("0" on an enterprise release with none); on
-// CentOS Stream it is Stream, which Ansible reads off /etc/centos-release and
-// NAME carries too. Elsewhere it is the distro library's codename:
-// VERSION_CODENAME when the file has the key (even empty, which Fedora's is),
-// then UBUNTU_CODENAME, then VERSION's parenthesized name.
-func distributionRelease(id string, values map[string]string) string {
-	if isSUSE(id) {
-		m := suseVersion.FindStringSubmatch(values["VERSION_ID"])
-		if m == nil {
-			return ""
-		}
-		if m[2] == "" && suseIDs[id] {
-			return "0"
-		}
-		return m[2]
-	}
-	if id == "centos" && strings.Contains(values["NAME"], "Stream") {
-		return "Stream"
-	}
+// distributionCodename is the codename os-release names: VERSION_CODENAME
+// when the file has the key (even empty, which Fedora's is, and which names
+// none), then UBUNTU_CODENAME, then VERSION's parenthesized name (Rocky's
+// Blue Onyx, Red Hat's Plow, which name theirs nowhere else). Ansible's
+// other words for a release (Stream on CentOS Stream, a SUSE minor version)
+// are not codenames and are pkg/ansiblefacts' to give.
+func distributionCodename(values map[string]string) string {
 	if codename, ok := values["VERSION_CODENAME"]; ok {
 		return codename
 	}
@@ -219,10 +164,4 @@ func distributionRelease(id string, values map[string]string) string {
 		return strings.TrimSpace(m[1] + m[2])
 	}
 	return ""
-}
-
-// isSUSE reports whether id is read through Ansible's SUSE parser.
-func isSUSE(id string) bool {
-	_, ok := suseIDs[id]
-	return ok
 }

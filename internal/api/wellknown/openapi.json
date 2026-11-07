@@ -6187,7 +6187,7 @@
     },
     "/inventory/devices/{name}/facts": {
       "get": {
-        "description": "The newest value of each fact real runs observed on the device (what a method emitted, such as facts.gather's ansible_* keys), with when it was first observed and last confirmed. A value is stored only when it changes, so last_seen_at says how current it still is.",
+        "description": "The newest value of each fact real runs observed on the device (what a method emitted, such as facts.gather's os.*, host.* and hardware.* keys), with when it was first observed and last confirmed. A value is stored only when it changes, so last_seen_at says how current it still is.",
         "operationId": "list_device_facts",
         "parameters": [
           {
@@ -6261,7 +6261,7 @@
                             "type": "string"
                           },
                           "key": {
-                            "description": "The fact's name as the method emitted it, such as ansible_kernel.",
+                            "description": "The fact's name as the method emitted it, such as os.kernel.release.",
                             "type": "string"
                           },
                           "kind": {
@@ -6478,7 +6478,7 @@
                             "type": "string"
                           },
                           "key": {
-                            "description": "The fact's name as the method emitted it, such as ansible_kernel.",
+                            "description": "The fact's name as the method emitted it, such as os.kernel.release.",
                             "type": "string"
                           },
                           "kind": {

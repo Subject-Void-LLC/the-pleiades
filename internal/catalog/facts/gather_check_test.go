@@ -76,12 +76,12 @@ func TestGatherCheck_OnlyReads(t *testing.T) {
 	// enough to fail this test on an unchanged tree. It must still be
 	// present in both and move forward by at most a little, never be equal
 	// by fiat.
-	checkUp, checkOK := checkRC.facts["ansible_uptime_seconds"].(int64)
-	runUp, runOK := runRC.facts["ansible_uptime_seconds"].(int64)
+	checkUp, checkOK := checkRC.facts["host.uptime_seconds"].(int64)
+	runUp, runOK := runRC.facts["host.uptime_seconds"].(int64)
 	if !checkOK || !runOK || runUp < checkUp || runUp-checkUp > 60 {
-		t.Errorf("uptime: check %#v, run %#v; want both present and the run's read no earlier and at most a minute later", checkRC.facts["ansible_uptime_seconds"], runRC.facts["ansible_uptime_seconds"])
+		t.Errorf("uptime: check %#v, run %#v; want both present and the run's read no earlier and at most a minute later", checkRC.facts["host.uptime_seconds"], runRC.facts["host.uptime_seconds"])
 	}
-	checkRest, runRest := withoutFact(checkRC.facts, "ansible_uptime_seconds"), withoutFact(runRC.facts, "ansible_uptime_seconds")
+	checkRest, runRest := withoutFact(checkRC.facts, "host.uptime_seconds"), withoutFact(runRC.facts, "host.uptime_seconds")
 	if checked.Changed || ran.Changed || !reflect.DeepEqual(checkRest, runRest) {
 		t.Errorf("check %v %v, run %v %v; want the same facts and no change", checked, checkRC.facts, ran, runRC.facts)
 	}

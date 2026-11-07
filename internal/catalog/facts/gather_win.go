@@ -39,54 +39,73 @@ $json = ConvertTo-Json -InputObject $out -Compress -Depth 4
 [regex]::Replace($json, '[^\x20-\x7e]', { param($m) ([string][char]92) + 'u' + ([int][char]$m.Value).ToString('x4') })
 `
 
-// windowsMinScript prints the min subset's facts as Ansible names them on
-// Windows: the host name the computer name (COMPUTERNAME), the system Win32NT, the kernel and the distribution version the
-// OS version, the distribution the edition's caption, the family Windows
-// (ansible.windows' setup sets it so), the architecture OSArchitecture's
-// 64-bit. The node name is the DNS name, with the domain when the host is
-// joined to one.
+// windowsMinScript prints the min subset's facts under their native keys:
+// the host name the computer name (COMPUTERNAME), the kernel's name, the
+// family and the distribution windows, the kernel release and the version
+// the OS version, the edition the caption. The node name is the DNS name,
+// with the domain when the host is joined to one. The processor
+// architecture is printed as Windows names it (AMD64, ARM64, x86) under
+// windowsArchitectureKey, which is not a fact: parseWindowsMin turns it into
+// hardware.architecture's machine name. PROCESSOR_ARCHITEW6432 is read first
+// because a 32-bit or emulated PowerShell sees its own architecture in
+// PROCESSOR_ARCHITECTURE, not the machine's.
 const windowsMinScript = `$ErrorActionPreference = 'Stop'
 $os = Get-CimInstance Win32_OperatingSystem
 $cs = Get-CimInstance Win32_ComputerSystem
 $v = [Environment]::OSVersion.Version.ToString()
 $node = [string]$cs.DNSHostName
 if ($cs.PartOfDomain -and $cs.Domain) { $node = $node + '.' + $cs.Domain }
+$arch = [string]$env:PROCESSOR_ARCHITEW6432
+if (-not $arch) { $arch = [string]$env:PROCESSOR_ARCHITECTURE }
 $out = [ordered]@{
-  ansible_hostname = [string]$env:COMPUTERNAME
-  ansible_nodename = $node
-  ansible_system = 'Win32NT'
-  ansible_kernel = $v
-  ansible_architecture = [string]$os.OSArchitecture
-  ansible_distribution = ([string]$os.Caption).Trim()
-  ansible_os_family = 'Windows'
-  ansible_distribution_version = $v
+  'host.name' = [string]$env:COMPUTERNAME
+  'host.nodename' = $node
+  'os.kernel.name' = 'windows'
+  'os.kernel.release' = $v
+  'os.distribution' = 'windows'
+  'os.family' = 'windows'
+  'os.version' = $v
+  'os.edition' = ([string]$os.Caption).Trim()
+  'processor_architecture' = $arch
 }` + windowsJSONOut
 
-// windowsHardwareScript prints the hardware subset's facts: memory in whole
-// megabytes, rounded up as ansible.windows' setup rounds it, swap as 0 (ansible.windows' setup reports it so, since a page
-// file is not swap; the page files' allocated size, which this read before,
-// was not Ansible's value and grows with a system-managed page file), the
-// processor packages, logical processors and the first package's cores, and
-// the seconds since boot by the host's own clock. A value CIM does not give is
-// null, which the parser leaves out, never 0.
+// windowsArchitectureKey is the min script's processor architecture as
+// Windows names it, which parseWindowsMin reads and never emits.
+const windowsArchitectureKey = "processor_architecture"
+
+// windowsMachines is the machine name (as uname -m spells it on Linux) of
+// each processor architecture Windows names. One it names otherwise leaves
+// hardware.architecture out rather than guessing.
+var windowsMachines = map[string]string{
+	"AMD64": "x86_64",
+	"ARM64": "aarch64",
+	"X86":   "i686",
+}
+
+// windowsHardwareScript prints the hardware subset's facts under their
+// native keys: memory in whole megabytes, truncated as every platform's is,
+// the processor packages, logical processors and the first package's cores,
+// and the seconds since boot by the host's own clock. There is no swap: a
+// page file is not swap, and its allocated size grows with a system-managed
+// page file. A value CIM does not give is null, which the parser leaves out,
+// never 0.
 const windowsHardwareScript = `$ErrorActionPreference = 'Stop'
 function N($v) { if ($null -eq $v) { $null } else { [int64]$v } }
 $os = Get-CimInstance Win32_OperatingSystem
 $cs = Get-CimInstance Win32_ComputerSystem
 $cpu = @(Get-CimInstance Win32_Processor)
 $mem = $null
-if ($null -ne $cs.TotalPhysicalMemory) { $mem = [math]::Ceiling([double]$cs.TotalPhysicalMemory / 1MB) }
+if ($null -ne $cs.TotalPhysicalMemory) { $mem = [math]::Floor([double]$cs.TotalPhysicalMemory / 1MB) }
 $cores = $null
 if ($cpu.Count -gt 0) { $cores = $cpu[0].NumberOfCores }
 $up = $null
 if ($null -ne $os.LastBootUpTime) { $up = [math]::Floor(((Get-Date) - $os.LastBootUpTime).TotalSeconds) }
 $out = [ordered]@{
-  ansible_memtotal_mb = N $mem
-  ansible_swaptotal_mb = 0
-  ansible_processor_count = N $cs.NumberOfProcessors
-  ansible_processor_vcpus = N $cs.NumberOfLogicalProcessors
-  ansible_processor_cores = N $cores
-  ansible_uptime_seconds = N $up
+  'hardware.memory_mb' = N $mem
+  'hardware.cpu.sockets' = N $cs.NumberOfProcessors
+  'hardware.cpu.threads' = N $cs.NumberOfLogicalProcessors
+  'hardware.cpu.cores' = N $cores
+  'host.uptime_seconds' = N $up
 }` + windowsJSONOut
 
 // windowsPackagesScript prints every program the machine's Uninstall keys
@@ -160,15 +179,15 @@ func windowsProbes() []gatherProbe {
 	return append([]gatherProbe{
 		{
 			subset: gatherSubsetMin,
-			keys: []string{gatherFactHostname, gatherFactNodename, gatherFactSystem, gatherFactKernel, gatherFactArchitecture,
-				gatherFactDistribution, gatherFactOSFamily, gatherFactDistributionVersion, gatherFactDistributionMajor},
+			keys: []string{gatherFactHostName, gatherFactHostNodename, gatherFactKernelName, gatherFactKernelRelease, gatherFactArchitecture,
+				gatherFactDistribution, gatherFactFamily, gatherFactVersion, gatherFactVersionMajor, gatherFactEdition},
 			command: windowsMinScript,
 			parse:   parseWindowsMin,
 		},
 		{
 			subset: gatherSubsetHardware,
-			keys: []string{gatherFactMemTotalMB, gatherFactSwapTotalMB, gatherFactProcessorCount, gatherFactProcessorVCPUs,
-				gatherFactProcessorCores, gatherFactUptimeSeconds},
+			keys: []string{gatherFactMemoryMB, gatherFactCPUSockets, gatherFactCPUThreads, gatherFactCPUCores,
+				gatherFactHostUptime},
 			command: windowsHardwareScript,
 			parse:   parseWindowsObject,
 		},
@@ -189,29 +208,37 @@ func windowsProbes() []gatherProbe {
 	}, windowsItemProbes()...)
 }
 
-// parseWindowsMin reads the min script's object, adding the distribution's
-// major version (the OS version to its first dot) and, when the host named
-// no computer name, the node name to its first dot as the host name.
+// parseWindowsMin reads the min script's object, adding the version's
+// whole-number major part, hardware.architecture from the architecture
+// Windows names (which is itself not kept), and, when the host named no
+// computer name, the node name to its first dot as the host name.
 func parseWindowsMin(out string) []gatherFact {
 	facts := parseWindowsObject(out)
-	var extra []gatherFact
+	var kept, extra []gatherFact
 	named := false
 	for _, f := range facts {
-		named = named || f.key == gatherFactHostname
+		named = named || f.key == gatherFactHostName
 	}
 	for _, f := range facts {
 		s, _ := f.value.(string)
 		switch f.key {
-		case gatherFactNodename:
-			if !named {
-				extra = append(extra, gatherFact{key: gatherFactHostname, value: gatherShortName(s)})
+		case windowsArchitectureKey:
+			if machine, ok := windowsMachines[strings.ToUpper(s)]; ok {
+				extra = append(extra, gatherFact{key: gatherFactArchitecture, value: machine})
 			}
-		case gatherFactDistributionVersion:
-			major, _, _ := strings.Cut(s, ".")
-			extra = append(extra, gatherFact{key: gatherFactDistributionMajor, value: major})
+			continue
+		case gatherFactHostNodename:
+			if !named {
+				extra = append(extra, gatherFact{key: gatherFactHostName, value: gatherShortName(s)})
+			}
+		case gatherFactVersion:
+			if major, ok := versionMajor(s); ok {
+				extra = append(extra, gatherFact{key: gatherFactVersionMajor, value: major})
+			}
 		}
+		kept = append(kept, f)
 	}
-	return append(facts, extra...)
+	return append(kept, extra...)
 }
 
 // parseWindowsObject reads one JSON object of fact names to values, in the

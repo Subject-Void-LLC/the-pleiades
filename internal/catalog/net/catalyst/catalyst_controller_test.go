@@ -57,18 +57,18 @@ func TestReachability_NamesEveryDeviceThatIsNotReachable(t *testing.T) {
 	if _, err := invoke(t, "net.catalyst.reachability", rc, newController(t, url), nil); err != nil {
 		t.Fatalf("reachability: %v", err)
 	}
-	unreachable, _ := rc.facts["unreachable"].([]string)
+	unreachable, _ := rc.facts["catalyst.unreachable"].([]string)
 	if len(unreachable) != 2 || unreachable[0] != "sw2" || unreachable[1] != "10.0.0.3" {
 		t.Errorf("unreachable = %v, want sw2 and the unnamed device's address", unreachable)
 	}
-	if rc.facts["reachable_count"] != 1 {
-		t.Errorf("reachable_count = %v, want 1", rc.facts["reachable_count"])
+	if rc.facts["catalyst.reachable_count"] != 1 {
+		t.Errorf("reachable_count = %v, want 1", rc.facts["catalyst.reachable_count"])
 	}
-	if rc.facts["managed_count"] != 2 {
-		t.Errorf("managed_count = %v, want 2: collection status is a separate question from reachability", rc.facts["managed_count"])
+	if rc.facts["catalyst.managed_count"] != 2 {
+		t.Errorf("managed_count = %v, want 2: collection status is a separate question from reachability", rc.facts["catalyst.managed_count"])
 	}
-	if rc.facts["total_device_count"] != 3 {
-		t.Errorf("total_device_count = %v, want 3", rc.facts["total_device_count"])
+	if rc.facts["catalyst.total_device_count"] != 3 {
+		t.Errorf("total_device_count = %v, want 3", rc.facts["catalyst.total_device_count"])
 	}
 }
 
@@ -107,9 +107,9 @@ func TestMethodsFailWhenTheFirstFactCannotBeStored(t *testing.T) {
 		method string
 		fact   string
 	}{
-		{method: "net.catalyst.device_facts", fact: "devices"},
-		{method: "net.catalyst.site_facts", fact: "sites"},
-		{method: "net.catalyst.tag_facts", fact: "tags"},
+		{method: "net.catalyst.device_facts", fact: "catalyst.devices"},
+		{method: "net.catalyst.site_facts", fact: "catalyst.sites"},
+		{method: "net.catalyst.tag_facts", fact: "catalyst.tags"},
 	} {
 		t.Run(tc.method, func(t *testing.T) {
 			rc := newFakeContext(validSecrets())
@@ -195,7 +195,7 @@ func TestClientHonorsInsecureSkipVerify(t *testing.T) {
 	if _, err := invoke(t, "net.catalyst.device_facts", rc, controller, map[string]any{"insecure_skip_verify": true}); err != nil {
 		t.Errorf("with insecure_skip_verify set = %v, want the gather to succeed", err)
 	}
-	if rc.facts["device_count"] != 0 {
-		t.Errorf("device_count = %v, want 0 from a controller reporting no devices", rc.facts["device_count"])
+	if rc.facts["catalyst.device_count"] != 0 {
+		t.Errorf("device_count = %v, want 0 from a controller reporting no devices", rc.facts["catalyst.device_count"])
 	}
 }

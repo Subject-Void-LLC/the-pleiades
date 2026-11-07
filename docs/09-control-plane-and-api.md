@@ -130,7 +130,7 @@ entire fleet in memory.
 ## Device facts
 
 What a job's tasks observed about a device (a method's emitted facts, such as
-`facts.gather`'s `ansible_*` values) is kept as the device's facts. The Runner
+`facts.gather`'s `os.*`, `host.*` and `hardware.*` values) is kept as the device's facts. The Runner
 publishes each task's facts on the job's own facts subject
 (`pleiades.jobs.facts.<job>`); the Controller checks them again (each fact's name,
 size and hash) and stores them only for a device it dispatched that job to. A

@@ -9,11 +9,14 @@ package main_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/ansiblefacts"
 )
 
 // PLEIADES_MAC_PROJECT and PLEIADES_MAC_DEVICE name a project that manages
@@ -171,11 +174,15 @@ func TestCLI_FactsGatherOnFreeBSDMatchesItsOwnTools(t *testing.T) {
 	}
 	mine := labPrivateFile(t, m, "/home/"+labShell(t, m, "id -un"))
 	stats := labGatherAll(t, m, "/etc/hosts", "/root/.cshrc", "/nonexistent", "/etc/master.passwd", mine)
-	if stats["ansible_system"] != "FreeBSD" || stats["ansible_distribution"] != "FreeBSD" || stats["ansible_os_family"] != "FreeBSD" {
-		t.Errorf("system %v, distribution %v, family %v", stats["ansible_system"], stats["ansible_distribution"], stats["ansible_os_family"])
+	if stats["os.kernel.name"] != "freebsd" || stats["os.distribution"] != "freebsd" || stats["os.family"] != "freebsd" {
+		t.Errorf("system %v, distribution %v, family %v, want the native freebsd", stats["os.kernel.name"], stats["os.distribution"], stats["os.family"])
 	}
-	if want := labAtoi(t, labShell(t, m, "sysctl -n hw.physmem")) / (1 << 20); numberStat(stats, "ansible_memtotal_mb") != want {
-		t.Errorf("ansible_memtotal_mb = %v, sysctl says %d", stats["ansible_memtotal_mb"], want)
+	// The mapping gives what Ansible reports for the same machine.
+	if a := ansiblefacts.ToAnsible(stats); a["ansible_system"] != "FreeBSD" || a["ansible_distribution"] != "FreeBSD" || a["ansible_os_family"] != "FreeBSD" {
+		t.Errorf("mapped to Ansible: system %v, distribution %v, family %v, want FreeBSD", a["ansible_system"], a["ansible_distribution"], a["ansible_os_family"])
+	}
+	if want := labAtoi(t, labShell(t, m, "sysctl -n hw.physmem")) / (1 << 20); numberStat(stats, "hardware.memory_mb") != want {
+		t.Errorf("hardware.memory_mb = %v, sysctl says %d", stats["hardware.memory_mb"], want)
 	}
 	if want := labAtoi(t, labShell(t, m, "pkg query %n | wc -l")); labCount(stats, "package.", "pkg") != want || want == 0 {
 		t.Errorf("%d package facts, pkg lists %d", labCount(stats, "package.", "pkg"), want)
@@ -236,15 +243,18 @@ func TestCLI_FactsGatherOnMacOSMatchesItsOwnTools(t *testing.T) {
 	stats := labGatherAll(t, m, "/etc/hosts", "/etc", "/private/var/root/.forward", "/nonexistent", mine)
 	labHoldsKeyedDigest(t, stats, labFileKey(mine))
 	labChangeShows(t, m, stats, mine, func() { labShell(t, m, "printf 'pin5678\\n' > "+mine+" && echo written") })
-	if stats["ansible_distribution"] != "MacOSX" || stats["ansible_os_family"] != "Darwin" || stats["ansible_distribution_version"] != labShell(t, m, "sw_vers -productVersion") {
-		t.Errorf("distribution %v %v, family %v", stats["ansible_distribution"], stats["ansible_distribution_version"], stats["ansible_os_family"])
+	if stats["os.distribution"] != "macos" || stats["os.family"] != "macos" || stats["os.kernel.name"] != "darwin" || stats["os.version"] != labShell(t, m, "sw_vers -productVersion") {
+		t.Errorf("distribution %v %v, family %v, kernel %v", stats["os.distribution"], stats["os.version"], stats["os.family"], stats["os.kernel.name"])
+	}
+	if a := ansiblefacts.ToAnsible(stats); a["ansible_distribution"] != "MacOSX" || a["ansible_os_family"] != "Darwin" || a["ansible_system"] != "Darwin" {
+		t.Errorf("mapped to Ansible: distribution %v, family %v, system %v, want MacOSX, Darwin, Darwin", a["ansible_distribution"], a["ansible_os_family"], a["ansible_system"])
 	}
 	// Ansible reports no swap on a Mac, whose swap files come and go.
-	if v, ok := stats["ansible_swaptotal_mb"]; ok {
-		t.Errorf("ansible_swaptotal_mb = %v on a Mac", v)
+	if v, ok := stats["hardware.swap_mb"]; ok {
+		t.Errorf("hardware.swap_mb = %v on a Mac", v)
 	}
-	if want := labAtoi(t, labShell(t, m, "sysctl -n hw.memsize")) / (1 << 20); numberStat(stats, "ansible_memtotal_mb") != want {
-		t.Errorf("ansible_memtotal_mb = %v, sysctl says %d", stats["ansible_memtotal_mb"], want)
+	if want := labAtoi(t, labShell(t, m, "sysctl -n hw.memsize")) / (1 << 20); numberStat(stats, "hardware.memory_mb") != want {
+		t.Errorf("hardware.memory_mb = %v, sysctl says %d", stats["hardware.memory_mb"], want)
 	}
 	if want := labAtoi(t, labShell(t, m, "pkgutil --pkgs | wc -l")); labCount(stats, "package.", "pkgutil") != want {
 		t.Errorf("%d pkgutil facts, pkgutil lists %d receipts", labCount(stats, "package.", "pkgutil"), want)
@@ -360,23 +370,30 @@ func TestCLI_FactsGatherOnWindowsMatchesItsOwnTools(t *testing.T) {
 	labHoldsKeyedDigest(t, stats, "file."+strings.ReplaceAll(winMine, " ", "%20"))
 	labChangeShowsAt(t, m, stats, "file."+strings.ReplaceAll(winMine, " ", "%20"), winMine,
 		func() { labPowerShell(t, m, `Set-Content -LiteralPath '`+winMine+`' -Value 'pin5678'; 'written'`) })
-	if stats["ansible_system"] != "Win32NT" || stats["ansible_hostname"] != labPowerShell(t, m, `$env:COMPUTERNAME`) {
-		t.Errorf("system %v, host name %v", stats["ansible_system"], stats["ansible_hostname"])
+	if stats["os.kernel.name"] != "windows" || stats["os.distribution"] != "windows" || stats["host.name"] != labPowerShell(t, m, `$env:COMPUTERNAME`) {
+		t.Errorf("system %v, distribution %v, host name %v", stats["os.kernel.name"], stats["os.distribution"], stats["host.name"])
 	}
-	if want := labPowerShell(t, m, `[Environment]::OSVersion.Version.ToString()`); stats["ansible_kernel"] != want || stats["ansible_distribution_version"] != want {
-		t.Errorf("kernel %v, distribution version %v, the host says %s", stats["ansible_kernel"], stats["ansible_distribution_version"], want)
+	// The caption is the edition, natively; Ansible reports it as the distribution.
+	if caption := labPowerShell(t, m, `(Get-CimInstance Win32_OperatingSystem).Caption`); stats["os.edition"] != caption {
+		t.Errorf("os.edition = %v, the host says %q", stats["os.edition"], caption)
+	}
+	if a := ansiblefacts.ToAnsible(stats); a["ansible_system"] != "Win32NT" || a["ansible_os_family"] != "Windows" || a["ansible_distribution"] != stats["os.edition"] || fmt.Sprint(a["ansible_swaptotal_mb"]) != "0" {
+		t.Errorf("mapped to Ansible: system %v, family %v, distribution %v, swap %v", a["ansible_system"], a["ansible_os_family"], a["ansible_distribution"], a["ansible_swaptotal_mb"])
+	}
+	if want := labPowerShell(t, m, `[Environment]::OSVersion.Version.ToString()`); stats["os.kernel.release"] != want || stats["os.version"] != want {
+		t.Errorf("kernel %v, version %v, the host says %s", stats["os.kernel.release"], stats["os.version"], want)
 	}
 	// ansible.windows' setup: the family Windows, and swap 0, since a page
 	// file is not swap.
-	if stats["ansible_os_family"] != "Windows" || numberStat(stats, "ansible_swaptotal_mb") != 0 {
-		t.Errorf("family %v, swap %v, want Windows and 0 as Ansible reports them", stats["ansible_os_family"], stats["ansible_swaptotal_mb"])
+	if _, swap := stats["hardware.swap_mb"]; stats["os.family"] != "windows" || swap {
+		t.Errorf("family %v, swap %v, want windows and no swap fact (natively absent)", stats["os.family"], stats["hardware.swap_mb"])
 	}
 	// Rounded up, as ansible.windows' setup rounds it.
-	if want := labAtoi(t, labPowerShell(t, m, `[int64][math]::Ceiling((Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory / 1MB)`)); numberStat(stats, "ansible_memtotal_mb") != want {
-		t.Errorf("ansible_memtotal_mb = %v, the host says %d", stats["ansible_memtotal_mb"], want)
+	if want := labAtoi(t, labPowerShell(t, m, `[int64][math]::Floor((Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory / 1MB)`)); numberStat(stats, "hardware.memory_mb") != want {
+		t.Errorf("hardware.memory_mb = %v, the host says %d", stats["hardware.memory_mb"], want)
 	}
-	if want := labAtoi(t, labPowerShell(t, m, `[Environment]::ProcessorCount`)); numberStat(stats, "ansible_processor_vcpus") != want {
-		t.Errorf("ansible_processor_vcpus = %v, the host says %d", stats["ansible_processor_vcpus"], want)
+	if want := labAtoi(t, labPowerShell(t, m, `[Environment]::ProcessorCount`)); numberStat(stats, "hardware.cpu.threads") != want {
+		t.Errorf("hardware.cpu.threads = %v, the host says %d", stats["hardware.cpu.threads"], want)
 	}
 
 	named := labAtoi(t, labPowerShell(t, m, `@(foreach ($k in @(`+labUninstallKeys+`)) { if (Test-Path $k) { Get-ItemProperty (Join-Path $k '*') -ErrorAction SilentlyContinue | Where-Object DisplayName } }).Count`))

@@ -23,7 +23,7 @@ func bsdHostProbes(platform string) []gatherProbe {
 	if platform == platformDarwin {
 		probes = append(probes, gatherProbe{
 			subset:  gatherSubsetMin,
-			keys:    []string{gatherFactDistribution, gatherFactOSFamily, gatherFactDistributionVersion, gatherFactDistributionMajor},
+			keys:    []string{gatherFactDistribution, gatherFactFamily, gatherFactVersion, gatherFactVersionMajor},
 			command: "sw_vers",
 			parse:   parseSwVers,
 		})
@@ -32,33 +32,32 @@ func bsdHostProbes(platform string) []gatherProbe {
 	if platform == platformDarwin {
 		memory = "hw.memsize"
 	} else {
-		// FreeBSD's configured swap. A Mac reports none, as Ansible does
-		// (its Darwin hardware facts have no swap): macOS makes and removes
-		// swap files as memory is needed, so vm.swapusage's total moves on
-		// a Mac nobody changed.
+		// FreeBSD's configured swap. A Mac reports none: macOS makes and
+		// removes swap files as memory is needed, so vm.swapusage's total
+		// moves on a Mac nobody changed.
 		probes = append(probes, gatherProbe{
 			subset:  gatherSubsetHardware,
-			keys:    []string{gatherFactSwapTotalMB},
+			keys:    []string{gatherFactSwapMB},
 			command: "sysctl -n vm.swap_total",
-			parse:   bytesToMB(gatherFactSwapTotalMB),
+			parse:   bytesToMB(gatherFactSwapMB),
 		})
 	}
 	return append(probes,
 		gatherProbe{
 			subset:  gatherSubsetHardware,
-			keys:    []string{gatherFactMemTotalMB},
+			keys:    []string{gatherFactMemoryMB},
 			command: "sysctl -n " + memory,
-			parse:   bytesToMB(gatherFactMemTotalMB),
+			parse:   bytesToMB(gatherFactMemoryMB),
 		},
 		gatherProbe{
 			subset:  gatherSubsetHardware,
-			keys:    []string{gatherFactProcessorVCPUs},
+			keys:    []string{gatherFactCPUThreads},
 			command: "sysctl -n hw.ncpu",
-			parse:   wholeNumber(gatherFactProcessorVCPUs),
+			parse:   wholeNumber(gatherFactCPUThreads),
 		},
 		gatherProbe{
 			subset: gatherSubsetHardware,
-			keys:   []string{gatherFactUptimeSeconds},
+			keys:   []string{gatherFactHostUptime},
 			// The boot time and the device's own clock, one line each, so
 			// the uptime does not lean on this machine's clock.
 			command: "sysctl -n kern.boottime; date +%s",
@@ -67,9 +66,9 @@ func bsdHostProbes(platform string) []gatherProbe {
 	)
 }
 
-// parseSwVers reads sw_vers (ProductName, ProductVersion), naming the
-// distribution MacOSX and its family Darwin as Ansible does, so a converted
-// condition reads the same.
+// parseSwVers reads sw_vers (ProductName, ProductVersion) into the
+// distribution facts: macos as both the distribution and its family, and the
+// product version with its whole-number major part.
 func parseSwVers(out string) []gatherFact {
 	var facts []gatherFact
 	for _, line := range strings.Split(out, "\n") {
@@ -81,22 +80,20 @@ func parseSwVers(out string) []gatherFact {
 		switch strings.TrimSpace(key) {
 		case "ProductName":
 			if value != "" {
-				family, _ := osFamilyFact("MacOSX", true)
-				facts = append(facts, gatherFact{key: gatherFactDistribution, value: "MacOSX"}, family)
+				facts = append(facts, gatherFact{key: gatherFactDistribution, value: darwinDistribution},
+					gatherFact{key: gatherFactFamily, value: darwinDistribution})
 			}
 		case "ProductVersion":
-			if value != "" {
-				major, _, _ := strings.Cut(value, ".")
-				facts = append(facts, gatherFact{key: gatherFactDistributionVersion, value: value},
-					gatherFact{key: gatherFactDistributionMajor, value: major})
-			}
+			facts = append(facts, versionFacts(value)...)
 		}
 	}
 	return facts
 }
 
-// bytesToMB reads a byte count as key's megabytes, truncated as Ansible
-// truncates.
+// darwinDistribution is macOS's native distribution and family.
+const darwinDistribution = "macos"
+
+// bytesToMB reads a byte count as key's whole megabytes, truncated.
 func bytesToMB(key string) func(string) []gatherFact {
 	return func(out string) []gatherFact {
 		n, err := strconv.ParseInt(strings.TrimSpace(out), 10, 64)
@@ -136,5 +133,5 @@ func parseBoottime(out string) []gatherFact {
 	if err1 != nil || err2 != nil || now < boot {
 		return nil
 	}
-	return []gatherFact{{key: gatherFactUptimeSeconds, value: int(now - boot)}}
+	return []gatherFact{{key: gatherFactHostUptime, value: int(now - boot)}}
 }

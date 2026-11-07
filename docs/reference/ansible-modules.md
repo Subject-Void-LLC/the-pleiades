@@ -413,7 +413,7 @@ Also written as `setup`, `ansible.builtin.gather_facts`, `gather_facts`, `ansibl
 
 | Argument | Becomes |
 |---|---|
-| `filter` | `filter` |
+| `filter` | blocked (`args.unmapped`): setup's filter names Ansible's facts and facts.gather filters native names (os.*, host.*, hardware.*); write the filter from the migration guide's fact table |
 | `gather_subset` | `gather_subset` |
 
 The converter also writes the parameters whose native default differs from Ansible's, so the task does what the playbook did.

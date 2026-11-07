@@ -25,7 +25,7 @@ func TestLoad_FactDeclarationsAreHeldToRegistersRules(t *testing.T) {
 	if err := collection.Register(collection.Descriptor{
 		Name: "factbuiltin.gather.kernel",
 		Manifest: collection.Manifest{Status: collection.StatusImplemented, Reversibility: collection.Reversibility{Notes: "a test fixture"},
-			Facts: []collection.FactSpec{{Key: "loadertest_kernel", Kind: collection.FactStable, Type: collection.FactString, Description: "the kernel"}}},
+			Facts: []collection.FactSpec{{Key: "loadertest.kernel", Kind: collection.FactStable, Type: collection.FactString, Description: "the kernel"}}},
 		Invoke: func(context.Context, sdk.RunbookContext, inventory.InventoryItem, map[string]any) (collection.Result, error) {
 			return collection.Result{}, nil
 		},
@@ -44,11 +44,11 @@ func TestLoad_FactDeclarationsAreHeldToRegistersRules(t *testing.T) {
 	}{
 		{"acme.facts.bad", []collection.FactSpec{{Key: "a b", Kind: collection.FactStable, Type: collection.FactString, Description: "x"}}, "not a fact name"},
 		{"acme.facts.nokind", []collection.FactSpec{{Key: "k", Type: collection.FactString, Description: "x"}}, "neither"},
-		{"acme.facts.clash", []collection.FactSpec{{Key: "loadertest_kernel", Kind: collection.FactVolatile, Type: collection.FactString, Description: "x"}}, "factbuiltin.gather.kernel"},
+		{"acme.facts.clash", []collection.FactSpec{{Key: "loadertest.kernel", Kind: collection.FactVolatile, Type: collection.FactString, Description: "x"}}, "factbuiltin.gather.kernel"},
 		// The security rule (collection.ReservedFact): a built-in's key is
 		// refused even with the same kind and type, which used to load, and so
 		// is a reserved family or a name inside one.
-		{"acme.facts.spoof", []collection.FactSpec{{Key: "loadertest_kernel", Kind: collection.FactStable, Type: collection.FactString, Description: "x"}}, "which built-in method \"factbuiltin.gather.kernel\""},
+		{"acme.facts.spoof", []collection.FactSpec{{Key: "loadertest.kernel", Kind: collection.FactStable, Type: collection.FactString, Description: "x"}}, "which built-in method \"factbuiltin.gather.kernel\""},
 		{"acme.facts.family", []collection.FactSpec{{Key: "package.", Prefix: true, Kind: collection.FactStable, Type: collection.FactObject, Description: "x"}}, "the reserved family \"package.\"*"},
 		{"acme.facts.item", []collection.FactSpec{{Key: "service.sshd", Kind: collection.FactStable, Type: collection.FactObject, Description: "x"}}, "the reserved family \"service.\"*"},
 		{"acme.facts.ansible", []collection.FactSpec{{Key: "ansible_distribution", Kind: collection.FactStable, Type: collection.FactString, Description: "x"}}, "the reserved family \"ansible_\"*"},

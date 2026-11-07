@@ -328,8 +328,8 @@ const skillGuide = "## Starting in a project\n\n" +
 	"  device is added first.\n" +
 	"- A command method (`exec.command`, `exec.shell`) cannot tell what its command did, so it reports `changed` on\n" +
 	"  every run, even one that only reads, and a check of it is unchecked. To read a device, prefer a method that\n" +
-	"  only reads, such as `facts.gather` with a `filter` list naming the facts (`ansible_kernel`,\n" +
-	"  `ansible_distribution*`); a report needs no `register:`. The example below uses commands to show one.\n" +
+	"  only reads, such as `facts.gather` with a `filter` list naming the facts (`os.kernel.release`,\n" +
+	"  `os.*`); a report needs no `register:`. The example below uses commands to show one.\n" +
 	"- A file `file.copy` creates is owned by the account the task logs in as, mode 0600 (an existing file keeps\n" +
 	"  its own), and a directory `file.directory` makes takes the device's umask, unless the task names `owner`,\n" +
 	"  `group` and `mode`: name them for anything another account must read.\n\n" +

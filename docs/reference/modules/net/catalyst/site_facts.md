@@ -29,8 +29,8 @@ Reads every site the targeted Catalyst Center manages. Emits the full site_name_
 
 | Name | Type | Returned | Description |
 | --- | --- | --- | --- |
-| `sites` | `list of map` | always | One entry per site: id, name, site_name_hierarchy. |
-| `site_count` | `int` | always | The number of sites in the sites fact. |
+| `catalyst.sites` | `list of map` | always | One entry per site: id, name, site_name_hierarchy. |
+| `catalyst.site_count` | `int` | always | The number of sites in the catalyst.sites fact. |
 
 ## Undoing this
 
@@ -46,8 +46,8 @@ A real run stores each of these as the device's fact. A **stable** fact keeps ev
 
 | Fact | Kind | Type | Description |
 | --- | --- | --- | --- |
-| `sites` | stable | list | One entry per site: id, name, site_name_hierarchy. |
-| `site_count` | stable | integer | The number of sites in the sites fact. |
+| `catalyst.sites` | stable | list | One entry per site: id, name, site_name_hierarchy. |
+| `catalyst.site_count` | stable | integer | The number of sites in the catalyst.sites fact. |
 
 ## See also
 

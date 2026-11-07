@@ -472,8 +472,11 @@ func TestFacts_OnlyMinSendsOnlyTheMinCommands(t *testing.T) {
 	if _, ok := rc.facts[factInterfaces]; ok {
 		t.Error("emitted an interfaces fact without being asked for that subset")
 	}
-	if got := rc.facts[factGatherSubset]; !reflect.DeepEqual(got, []string{subsetMin}) {
+	if got := rc.stats[factGatherSubset]; !reflect.DeepEqual(got, []string{subsetMin}) {
 		t.Errorf("%s = %v, want [min]", factGatherSubset, got)
+	}
+	if _, ok := rc.facts[factGatherSubset]; ok {
+		t.Errorf("%s was emitted as a fact: it describes the call, not the device", factGatherSubset)
 	}
 }
 
@@ -489,7 +492,7 @@ func TestFacts_DefaultsToAll(t *testing.T) {
 		if !reflect.DeepEqual(f.commandCalls, []string{"show version", "show inventory", "show ip interface brief", "show interfaces", "show vrf", showRunningConfig}) {
 			t.Errorf("sent %v, want every subset's commands", f.commandCalls)
 		}
-		if got := rc.facts[factGatherSubset]; !reflect.DeepEqual(got, []string{subsetInterfaces, subsetMin}) {
+		if got := rc.stats[factGatherSubset]; !reflect.DeepEqual(got, []string{subsetInterfaces, subsetMin}) {
 			t.Errorf("%s = %v, want [interfaces min] with config refused", factGatherSubset, got)
 		}
 	}

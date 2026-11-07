@@ -79,10 +79,12 @@ func TestParseVersion_ReadsBothPlatforms(t *testing.T) {
 		{name: "Catalyst 8000V, IOS XE 17.15.04c", out: realShowVersion, want: map[string]any{
 			factHostname: "Cat8kv", factUptime: "1 hour, 32 minutes", factVersion: "17.15.04c",
 			factModel: "C8000V", factSerialNum: "9XLWRY40A2V", factImage: "bootflash:packages.conf",
+			factDistribution: distributionIOSXE,
 		}},
 		{name: "IOL XE 17.15.1", out: iolFixture(t, "show_version"), want: map[string]any{
 			factHostname: "R1", factUptime: "2 hours, 53 minutes", factVersion: "17.15.1",
 			factSerialNum: "131184643", factImage: "unix:/x86_64_crb_linux-adventerprisek9-ms.iol",
+			factDistribution: distributionIOSXE,
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -90,6 +92,84 @@ func TestParseVersion_ReadsBothPlatforms(t *testing.T) {
 				t.Errorf("parseVersion = %v\nwant %v", got, tc.want)
 			}
 		})
+	}
+}
+
+// TestDistribution_TellsIOSXEFromClassicIOS: both captured platforms run IOS
+// XE, one saying so on a line of its own and one only inside its "Cisco IOS
+// Software" line. The classic IOS and IOS XE 3.x banners are not captured
+// from a device here; they are each train's first line as Cisco prints it,
+// held so the rule reads them the way it reads the captured ones.
+func TestDistribution_TellsIOSXEFromClassicIOS(t *testing.T) {
+	for _, tc := range []struct{ name, out, want string }{
+		{name: "Catalyst 8000V, captured", out: realShowVersion, want: distributionIOSXE},
+		{name: "IOL XE, captured", out: iolFixture(t, "show_version"), want: distributionIOSXE},
+		{name: "IOS XE 3.x, not captured", out: "Cisco IOS Software, IOS-XE Software, Catalyst 4500 L3 Switch Software (cat4500e-UNIVERSALK9-M), Version 03.06.06E RELEASE SOFTWARE (fc1)\n", want: distributionIOSXE},
+		{name: "classic IOS, not captured", out: "Cisco IOS Software, C2960X Software (C2960X-UNIVERSALK9-M), Version 15.2(7)E2, RELEASE SOFTWARE (fc3)\n", want: distributionIOS},
+		{name: "IOS XR is neither", out: "Cisco IOS XR Software, Version 7.3.2\n"},
+		{name: "nothing said", out: "sw1 uptime is 2 weeks\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := distribution(tc.out); got != tc.want {
+				t.Errorf("distribution = %q, want %q", got, tc.want)
+			}
+			if _, set := parseVersion(tc.out)[factDistribution]; set != (tc.want != "") {
+				t.Errorf("parseVersion sets os.distribution = %v, want %v", set, tc.want != "")
+			}
+		})
+	}
+}
+
+// TestFacts_DeclaresTheNativeKeys holds net.ios.facts's fact declarations to
+// the native names, kinds and types, written out rather than read from the
+// constants, so a rename back to cisco.ios.ios_facts's names fails here. The
+// keys facts.gather also declares carry its kind and type, and neither the
+// configuration nor the subsets gathered is a fact.
+func TestFacts_DeclaresTheNativeKeys(t *testing.T) {
+	want := map[string][2]string{
+		"host.name":          {"stable", "string"},
+		"os.version":         {"stable", "string"},
+		"os.distribution":    {"stable", "string"},
+		"hardware.model":     {"stable", "string"},
+		"hardware.serial":    {"stable", "string"},
+		"os.image":           {"stable", "string"},
+		"host.uptime":        {"volatile", "string"},
+		"network.interfaces": {"stable", "list"},
+	}
+	d, ok := collection.Lookup("net.ios.facts")
+	if !ok {
+		t.Fatal("net.ios.facts is not registered")
+	}
+	got := map[string][2]string{}
+	for _, f := range d.Manifest.Facts {
+		if f.Prefix {
+			t.Errorf("declares a family %q*, want exact keys only", f.Key)
+		}
+		got[f.Key] = [2]string{string(f.Kind), string(f.Type)}
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("facts =\n%v\nwant\n%v", got, want)
+	}
+
+	rc, err := runSession(t, iolSession(t), nil)
+	if err != nil {
+		t.Fatalf("Facts: %v", err)
+	}
+	for _, name := range []string{"ansible_net_config", "ansible_net_gather_subset"} {
+		if _, ok := rc.stats[name]; !ok {
+			t.Errorf("no stat %s", name)
+		}
+		if _, ok := rc.facts[name]; ok {
+			t.Errorf("%s was emitted as a fact", name)
+		}
+	}
+	for name := range rc.facts {
+		if _, ok := want[name]; !ok {
+			t.Errorf("emitted fact %s is not declared", name)
+		}
+	}
+	if rc.facts["os.distribution"] != "ios_xe" || rc.facts["host.name"] != "R1" {
+		t.Errorf("os.distribution = %v, host.name = %v, want ios_xe and R1", rc.facts["os.distribution"], rc.facts["host.name"])
 	}
 }
 

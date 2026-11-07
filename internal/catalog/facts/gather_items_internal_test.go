@@ -366,7 +366,7 @@ func TestGatherFilesFor_HoldsEachPathToTheDevicesOwnForm(t *testing.T) {
 }
 
 func TestGatherPlan_RefusesAFilterThatDropsTheNamedPaths(t *testing.T) {
-	_, err := gatherPlan(map[string]any{gatherParamFiles: []any{"/etc/hosts"}, gatherParamFilter: []any{"ansible_*"}})
+	_, err := gatherPlan(map[string]any{gatherParamFiles: []any{"/etc/hosts"}, gatherParamFilter: []any{"os.*"}})
 	if err == nil || !strings.Contains(err.Error(), "matches no file.") {
 		t.Errorf("named paths with a filter that drops them: %v", err)
 	}
