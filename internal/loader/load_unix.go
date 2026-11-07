@@ -16,6 +16,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/external"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
 
 // candidate is one program that passed its own inspection and described
@@ -26,6 +27,9 @@ type candidate struct {
 	desc   external.Description
 	// protocol is the version this build and the program agreed on.
 	protocol external.Protocol
+	// identity is the program's Collection identity (programIdentity), set
+	// by register before any method registers.
+	identity wire.CollectionIdentity
 }
 
 // Load loads every external Collection program in dir and registers its
@@ -278,6 +282,16 @@ func developmentBuildWarning(path, running string, methods []string) string {
 // registered one of these names in the meantime. Either way the methods
 // registered before it cannot be taken back, and the error says which.
 func register(found []candidate, o Options) ([]Program, error) {
+	// Every program's identity first, so a program that cannot have one is
+	// refused before anything registers. Pass one already refused a method
+	// named twice, so none is refused here today.
+	for i := range found {
+		id, err := programIdentity(found[i].path, found[i].desc.Methods)
+		if err != nil {
+			return nil, fmt.Errorf("external collections: %w", err)
+		}
+		found[i].identity = id
+	}
 	var programs []Program
 	var registered []string
 	for _, c := range found {
@@ -317,7 +331,7 @@ func descriptorFor(prog *program, c candidate, m external.DescribedMethod) colle
 		Name:     m.Name,
 		Manifest: m.Manifest,
 		Invoke:   prog.method(m.Name, collection.ModeExecute),
-		Provider: &collection.Provider{Program: c.path, Digest: c.digest},
+		Provider: &collection.Provider{Program: c.path, Digest: c.digest, Identity: c.identity},
 	}
 	if m.Manifest.SupportsCheck {
 		d.Check = prog.method(m.Name, collection.ModeCheck)
