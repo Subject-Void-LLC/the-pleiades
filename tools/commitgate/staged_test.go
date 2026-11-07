@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -244,4 +245,35 @@ func TestParseHunkStart(t *testing.T) {
 // the fixture steps that want to report git's own message on failure.
 func gitCombined(args ...string) ([]byte, error) {
 	return exec.Command("git", args...).CombinedOutput()
+}
+
+// TestReadStagedComparesASchemaFileWithItsParent: through a real repository,
+// a commit that changes only a schema file's comments passes the regenerate
+// rule, and one that changes its code beside the comments is refused. It is
+// what reads the parent's content (readStaged), not only the comparison.
+func TestReadStagedComparesASchemaFileWithItsParent(t *testing.T) {
+	newRepo(t)
+	write(t, "internal/ent/schema/fact.go", schemaBefore)
+	commit(t, "chore: seed")
+
+	write(t, "internal/ent/schema/fact.go", strings.Replace(schemaBefore, "// Fact is a fact.", "// Fact is a fact, said better.", 1))
+	entries, err := readStaged()
+	if err != nil {
+		t.Fatalf("readStaged: %v", err)
+	}
+	if len(entries) != 1 || entries[0].Before == nil {
+		t.Fatalf("readStaged = %+v, want the schema file with its parent's content", entries)
+	}
+	if hasRule(checkGenerated(entries), SeverityFail, "regenerated code") {
+		t.Error("refused a commit that changed only a schema file's comments")
+	}
+
+	write(t, "internal/ent/schema/fact.go", strings.Replace(schemaBefore, `field.String("key")`, `field.String("key").Immutable()`, 1))
+	entries, err = readStaged()
+	if err != nil {
+		t.Fatalf("readStaged: %v", err)
+	}
+	if !hasRule(checkGenerated(entries), SeverityFail, "regenerated code") {
+		t.Error("accepted a schema code change with no regenerated code")
+	}
 }

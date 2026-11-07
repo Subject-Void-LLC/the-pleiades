@@ -184,3 +184,17 @@ func TestCheckEntRegeneratedStillRefusesACodeChangeBesideComments(t *testing.T) 
 		t.Error("a comment-only file excused a real schema change beside it")
 	}
 }
+
+func TestCommentsOnlyCountsWhatItCannotCompareAsAChange(t *testing.T) {
+	if commentsOnly(modifiedSchema("package schema\nfunc (", schemaBefore)) {
+		t.Error("a parent that does not parse read as comment-only")
+	}
+	added := modifiedSchema(schemaBefore, schemaBefore)
+	added.Kind = changeAdded
+	if commentsOnly(added) {
+		t.Error("an added file read as comment-only")
+	}
+	if !commentsOnly(modifiedSchema(schemaBefore, schemaBefore)) {
+		t.Error("an unchanged file did not read as comment-only")
+	}
+}
