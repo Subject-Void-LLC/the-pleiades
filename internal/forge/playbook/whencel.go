@@ -48,6 +48,9 @@ type celCtx struct {
 	loopNames []string
 	// loopVar is the name loop_control gave the item.
 	loopVar string
+	// facts is the register of the play's inserted facts.gather, which a
+	// read of an Ansible fact reads natively; empty when none was inserted.
+	facts string
 }
 
 // term is a condition node's translation: a constant, or CEL text of a
@@ -63,6 +66,9 @@ type term struct {
 	// loopRead is set for a read of a native loop's item or position, whose
 	// type is known only for loop.
 	loopRead bool
+	// fact is the Ansible fact name a native fact read stands for, whose
+	// compared value is written the native way (facts_reads.go).
+	fact string
 }
 
 // celError says why a condition cannot be translated, and which code.
@@ -139,6 +145,9 @@ func (c *celCtx) variable(e *expr) (term, *celError) {
 	}
 	if p, ok := c.registers[e.name]; ok {
 		return c.registered(e, p)
+	}
+	if t, ok := c.factTerm(e); ok {
+		return t, nil
 	}
 	v, rerr := c.r.value(e.name, c.bindings, c.use, 0)
 	if rerr != nil {
@@ -236,6 +245,11 @@ func (c *celCtx) regex(e *expr) (term, *celError) {
 		return term{}, err
 	}
 	pattern, _ := e.value.(string)
+	if in.fact != "" {
+		// A pattern written for Ansible's word (Ubuntu|Debian) would be
+		// matched against the native one (ubuntu).
+		return term{}, &celError{"when.fact", fmt.Sprintf("%s is %s against a pattern, which would read the native value; write the condition on the native fact", in.fact, e.name)}
+	}
 	if why := regexUnsafe(pattern); why != "" {
 		return term{}, unsupported("the pattern of %s holds %s", e.name, why)
 	}

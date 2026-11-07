@@ -7504,3 +7504,14 @@ only before something reads its history.
 **Rule in practice.** Before a method first stores a key (a fact, a journal field, a baseline id), write down its
 name in the project's own vocabulary and its type, and keep any other program's name as a mapping at the edge. Decide
 it before a reader of history exists, not when one is built.
+
+## 410. A translated value carries its translation through every operation, or every operation but one refuses it
+
+**Rule.** When a converter swaps one value for another that means the same only under one operation (a native fact
+standing for Ansible's, equal under `==` after the literal is rewritten), the term must say so, and every other
+operation that can reach it (filters, orderings, pattern tests, truthiness, absence) either applies the same
+translation or refuses; a term that looks ordinary to the rest of the expression compiler is read as the old value.
+
+**Incident.** FAILURE_PATTERNS 968: the fact rewrite lived in `compare`, and filter, regex and truth read the native
+value as Ansible's. Two reviews found ten paths in one evening; the fix narrowed what converts to the one operation
+proven equal and refused the rest by name.

@@ -22,6 +22,10 @@ func (c *celCtx) truth(t term) (term, *celError) {
 			return term{}, unsupported("a value of type %s used as a condition", t.typ)
 		}
 		return t, nil
+	case t.fact != "":
+		// A fact read as a truth: Ansible's placeholder (NA) is true and an
+		// absent native fact is no value at all, so the two disagree.
+		return term{}, &celError{"when.fact", fmt.Sprintf("%s is read as a truth, which its native fact would not decide the same way; compare it with a value", t.fact)}
 	}
 	var pred string
 	switch t.typ {
@@ -62,6 +66,12 @@ func (c *celCtx) filter(e *expr) (term, *celError) {
 			}
 			return term{constant: true, value: int64(n)}, nil
 		}
+	}
+	if in.fact != "" {
+		// A filter acts on the native value, which is not Ansible's (rhel
+		// against RedHat), and | int differs where the fact is absent
+		// (Ansible's int of NA is 0) or not a whole number ("22.04").
+		return term{}, &celError{"when.fact", fmt.Sprintf("%s | %s acts on the fact's native value, which is not Ansible's; write the condition on the native fact", in.fact, e.name)}
 	}
 	switch {
 	case e.name == "length" && (in.typ == "string" || in.typ == "list"):
@@ -184,6 +194,16 @@ func (c *celCtx) compare(e *expr) (term, *celError) {
 		// (x == false), which the defined rule must see.
 		return term{}, unsupported("a condition compared with a constant; write the condition itself")
 	}
+	if open.fact != "" {
+		if ferr := majorVersionSemantics(open, fixed, e.op); ferr != nil {
+			return term{}, ferr
+		}
+		// Ansible's value written the native way ("Debian" is "debian").
+		var ferr *celError
+		if fixed, ferr = nativeOperand(open.fact, fixed); ferr != nil {
+			return term{}, ferr
+		}
+	}
 	lit, lerr := celLiteral(fixed.value)
 	if lerr != nil {
 		return term{}, unsupported("%v", lerr)
@@ -213,6 +233,9 @@ func (c *celCtx) compare(e *expr) (term, *celError) {
 		if e.op == "not in" {
 			cel = "!(" + cel + ")"
 		}
+	}
+	if open.fact != "" {
+		cel = guardFact(open, cel, e.op)
 	}
 	return term{cel: cel, typ: "bool"}, nil
 }

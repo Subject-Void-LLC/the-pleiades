@@ -128,12 +128,26 @@ func (t *translator) translatePlay(play *yaml.Node, index int, runbook string) *
 			t.raise("keyword.unknown", at, "", "the play carries "+e.key)
 		}
 	}
-	if facts {
+	// A play that gathers and reads a fact the mapping knows gets facts.gather
+	// at its start, and its reads read that (facts_reads.go); otherwise its
+	// facts are dropped, as before.
+	gather := facts && gatherable(play) && readsMappedFact(play)
+	if facts && !gather {
 		t.raise("play.facts", out.at, "", "facts are not gathered")
+	}
+	t.factsRegister = ""
+	var gatherTask *outTask
+	if gather {
+		t.factsRegister = t.pickFactsRegister()
+		gatherTask = t.gatherTask(t.factsRegister, out.at, ctx.runbook)
 	}
 	out.pre = t.translateTasks(lookup(play, "pre_tasks"), ctx)
 	out.main = t.translateTasks(lookup(play, "tasks"), ctx)
 	out.post = t.translateTasks(lookup(play, "post_tasks"), ctx)
+	if gatherTask != nil {
+		out.pre = append([]*outTask{gatherTask}, out.pre...)
+	}
+	t.factsRegister = ""
 	if handlers := deref(lookup(play, "handlers")); handlers != nil {
 		for _, h := range handlers.Content {
 			t.raise("handler.dropped", nodePos(h, t.file), taskName(h), "handler not converted")

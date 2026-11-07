@@ -7,9 +7,9 @@
 // family, an integer major version). A converted playbook still reads
 // Ansible's names (ansible_distribution == "Debian"); this package is the one
 // place those names and values are known: AnsibleKey and NativeKey are the
-// key table, ToAnsible applies the value rules too, and the playbook
-// converter's translation of a fact read is to be built on it (today the
-// converter flags such a read for review).
+// key table, ToAnsible applies the value rules too, and NativeValue writes an
+// Ansible value the native way for the playbook converter, which turns a
+// condition on an Ansible fact into the native condition.
 //
 // The value rules are measured, not read from Ansible's source: the facts
 // package's live tests gather the native facts in each distribution's own
