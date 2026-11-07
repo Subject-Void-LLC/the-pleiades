@@ -288,7 +288,9 @@ func TestGather_UsersMatchThisMachinesFilesAndCarryNoPassword(t *testing.T) {
 func gatherMinKeys(rc *gatherContext) []string {
 	var keys []string
 	for k := range rc.facts {
-		if strings.HasPrefix(k, "ansible_") {
+		// The min and hardware subsets' facts are the host., os. and
+		// hardware. families'.
+		if strings.HasPrefix(k, "host.") || strings.HasPrefix(k, "os.") || strings.HasPrefix(k, "hardware.") {
 			keys = append(keys, k)
 		}
 	}

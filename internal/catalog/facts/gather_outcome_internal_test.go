@@ -136,12 +136,12 @@ func TestStructureChecks(t *testing.T) {
 // TestParseWindowsObject_OnlyAWholeObject: an object cut short after a
 // complete member, or followed by other text, is no answer; a whole one is.
 func TestParseWindowsObject_OnlyAWholeObject(t *testing.T) {
-	for _, out := range []string{`{"ansible_hostname":"web1",`, `{"ansible_hostname":"web1"} trailing`, `{"ansible_hostname":"web1"}{}`, `{"ansible_hostname":"web1"]`} {
+	for _, out := range []string{`{"host.name":"web1",`, `{"host.name":"web1"} trailing`, `{"host.name":"web1"}{}`, `{"host.name":"web1"]`} {
 		if got := parseWindowsObject(out); got != nil {
 			t.Errorf("parseWindowsObject(%q) = %v, want nothing", out, got)
 		}
 	}
-	if got := parseWindowsObject(`{"ansible_hostname":"web1"}` + "\r\n"); len(got) != 1 {
+	if got := parseWindowsObject(`{"host.name":"web1"}` + "\r\n"); len(got) != 1 {
 		t.Errorf("a whole object: %v", got)
 	}
 }

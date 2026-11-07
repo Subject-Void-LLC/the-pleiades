@@ -9,17 +9,6 @@ import (
 	"strings"
 )
 
-// The further fact keys, ansible.builtin.setup's own names.
-const (
-	gatherFactNodename            = "ansible_nodename"
-	gatherFactSystem              = "ansible_system"
-	gatherFactDistributionMajor   = "ansible_distribution_major_version"
-	gatherFactDistributionRelease = "ansible_distribution_release"
-	gatherFactSwapTotalMB         = "ansible_swaptotal_mb"
-	gatherFactProcessorVCPUs      = "ansible_processor_vcpus"
-	gatherFactProcessorCores      = "ansible_processor_cores"
-)
-
 // gatherNodeNames reads uname -n into the short host name and the full node
 // name, both left out when the device printed nothing.
 func gatherNodeNames(stdout string) []gatherFact {
@@ -27,7 +16,7 @@ func gatherNodeNames(stdout string) []gatherFact {
 	if node == "" {
 		return nil
 	}
-	return []gatherFact{{key: gatherFactHostname, value: gatherShortName(node)}, {key: gatherFactNodename, value: node}}
+	return []gatherFact{{key: gatherFactHostName, value: gatherShortName(node)}, {key: gatherFactHostNodename, value: node}}
 }
 
 // gatherMemory reads total memory and total swap out of /proc/meminfo, each
@@ -38,7 +27,7 @@ func gatherNodeNames(stdout string) []gatherFact {
 func gatherMemory(stdout string) []gatherFact {
 	facts := gatherMemTotalMB(stdout)
 	if kilobytes, err := strconv.ParseInt(gatherFieldAfter(stdout, "SwapTotal:"), 10, 64); err == nil && kilobytes >= 0 {
-		facts = append(facts, gatherFact{key: gatherFactSwapTotalMB, value: kilobytes / gatherKilobytesPerMegabyte})
+		facts = append(facts, gatherFact{key: gatherFactSwapMB, value: kilobytes / gatherKilobytesPerMegabyte})
 	}
 	return facts
 }
@@ -66,10 +55,10 @@ func gatherProcessors(stdout string) []gatherFact {
 		}
 	}
 	if vcpus > 0 {
-		facts = append(facts, gatherFact{key: gatherFactProcessorVCPUs, value: vcpus})
+		facts = append(facts, gatherFact{key: gatherFactCPUThreads, value: vcpus})
 	}
 	if cores > 0 {
-		facts = append(facts, gatherFact{key: gatherFactProcessorCores, value: cores})
+		facts = append(facts, gatherFact{key: gatherFactCPUCores, value: cores})
 	}
 	return facts
 }

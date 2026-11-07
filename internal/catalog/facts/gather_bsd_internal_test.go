@@ -25,13 +25,13 @@ func TestBSDHostParsers_ReadSysctlAndSwVers(t *testing.T) {
 		out   string
 		want  map[string]any
 	}{
-		{bytesToMB(gatherFactMemTotalMB), "4254609408\n", map[string]any{gatherFactMemTotalMB: 4057}},
-		{bytesToMB(gatherFactMemTotalMB), "17179869184\n", map[string]any{gatherFactMemTotalMB: 16384}},
-		{bytesToMB(gatherFactSwapTotalMB), "3006267392\n", map[string]any{gatherFactSwapTotalMB: 2867}},
-		{wholeNumber(gatherFactProcessorVCPUs), "4\n", map[string]any{gatherFactProcessorVCPUs: 4}},
-		{parseBoottime, "{ sec = 1793718135, usec = 706058 } Tue Nov  3 15:02:15 2026\n1793718250\n", map[string]any{gatherFactUptimeSeconds: 115}},
+		{bytesToMB(gatherFactMemoryMB), "4254609408\n", map[string]any{gatherFactMemoryMB: 4057}},
+		{bytesToMB(gatherFactMemoryMB), "17179869184\n", map[string]any{gatherFactMemoryMB: 16384}},
+		{bytesToMB(gatherFactSwapMB), "3006267392\n", map[string]any{gatherFactSwapMB: 2867}},
+		{wholeNumber(gatherFactCPUThreads), "4\n", map[string]any{gatherFactCPUThreads: 4}},
+		{parseBoottime, "{ sec = 1793718135, usec = 706058 } Tue Nov  3 15:02:15 2026\n1793718250\n", map[string]any{gatherFactHostUptime: 115}},
 		{parseSwVers, "ProductName:\t\tmacOS\nProductVersion:\t\t27.0.1\nBuildVersion:\t\t26A434\n",
-			map[string]any{gatherFactDistribution: "MacOSX", gatherFactOSFamily: "Darwin", gatherFactDistributionVersion: "27.0.1", gatherFactDistributionMajor: "27"}},
+			map[string]any{gatherFactDistribution: "macos", gatherFactFamily: "macos", gatherFactVersion: "27.0.1", gatherFactVersionMajor: 27}},
 	}
 	for _, tc := range cases {
 		if got := valuesOf(tc.parse(tc.out)); !reflect.DeepEqual(got, tc.want) {
@@ -147,13 +147,13 @@ func TestParseLaunchd_LeavesOutEachLoginsInstanceJobs(t *testing.T) {
 
 func TestBSDHostProbes_AMacReportsNoSwap(t *testing.T) {
 	for _, p := range bsdHostProbes(platformDarwin) {
-		if strings.Contains(p.command, "swap") || gatherWanted(p.keys, gatherFactSwapTotalMB) {
+		if strings.Contains(p.command, "swap") || gatherWanted(p.keys, gatherFactSwapMB) {
 			t.Errorf("a Mac's probe %q reads swap, whose total moves on its own and Ansible does not report", p.command)
 		}
 	}
 	found := false
 	for _, p := range bsdHostProbes(platformFreeBSD) {
-		found = found || (p.command == "sysctl -n vm.swap_total" && gatherWanted(p.keys, gatherFactSwapTotalMB))
+		found = found || (p.command == "sysctl -n vm.swap_total" && gatherWanted(p.keys, gatherFactSwapMB))
 	}
 	if !found {
 		t.Error("FreeBSD no longer reads its swap")

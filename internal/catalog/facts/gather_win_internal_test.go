@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -20,32 +21,73 @@ import (
 )
 
 func TestWindowsParsers_ReadTheScriptsJSON(t *testing.T) {
-	min := valuesOf(parseWindowsMin(`{"ansible_hostname":"WIN-CHECK","ansible_nodename":"win-check.lab.example","ansible_system":"Win32NT","ansible_kernel":"10.0.26100.0",` +
-		`"ansible_architecture":"64-bit","ansible_distribution":"Microsoft Windows 11 Pro","ansible_distribution_version":"10.0.26100.0"}` + "\r\n"))
+	// What the min script prints, native keys and all: the architecture as
+	// Windows names it becomes the machine name and is not kept itself, and
+	// the version's major part is an integer.
+	min := valuesOf(parseWindowsMin(`{"host.name":"WIN-CHECK","host.nodename":"win-check.lab.example","os.kernel.name":"windows","os.kernel.release":"10.0.26100.0",` +
+		`"os.distribution":"windows","os.family":"windows","os.version":"10.0.26100.0","os.edition":"Microsoft Windows 11 Pro","processor_architecture":"AMD64"}` + "\r\n"))
 	want := map[string]any{
-		gatherFactNodename: "win-check.lab.example", gatherFactHostname: "WIN-CHECK", gatherFactSystem: "Win32NT",
-		gatherFactKernel: "10.0.26100.0", gatherFactArchitecture: "64-bit", gatherFactDistribution: "Microsoft Windows 11 Pro",
-		gatherFactDistributionVersion: "10.0.26100.0", gatherFactDistributionMajor: "10",
+		gatherFactHostNodename: "win-check.lab.example", gatherFactHostName: "WIN-CHECK", gatherFactKernelName: "windows",
+		gatherFactKernelRelease: "10.0.26100.0", gatherFactArchitecture: "x86_64", gatherFactDistribution: "windows",
+		gatherFactFamily: "windows", gatherFactEdition: "Microsoft Windows 11 Pro",
+		gatherFactVersion: "10.0.26100.0", gatherFactVersionMajor: 10,
 	}
 	if !reflect.DeepEqual(min, want) {
 		t.Errorf("min = %v\nwant %v", min, want)
 	}
+	// Each architecture Windows names is the machine name uname -m gives;
+	// one it names otherwise is left out, never guessed.
+	for arch, machine := range map[string]any{"AMD64": "x86_64", "ARM64": "aarch64", "x86": "i686", "IA64": nil, "": nil} {
+		got := valuesOf(parseWindowsMin(`{"os.kernel.name":"windows","processor_architecture":"` + arch + `"}`))
+		if v, ok := got[gatherFactArchitecture]; (machine == nil && ok) || (machine != nil && v != machine) {
+			t.Errorf("%q read as %v", arch, got)
+		}
+		if _, ok := got[windowsArchitectureKey]; ok {
+			t.Errorf("%q kept the raw architecture: %v", arch, got)
+		}
+	}
 	// A host naming no computer name takes the node name's first label.
-	if got := valuesOf(parseWindowsMin(`{"ansible_hostname":"","ansible_nodename":"web01.example"}`)); got[gatherFactHostname] != "web01" {
+	if got := valuesOf(parseWindowsMin(`{"host.name":"","host.nodename":"web01.example"}`)); got[gatherFactHostName] != "web01" {
 		t.Errorf("host name from the node name = %v", got)
 	}
-	hw := valuesOf(parseWindowsObject(`{"ansible_memtotal_mb":2047,"ansible_swaptotal_mb":0,"ansible_processor_count":1,"ansible_processor_vcpus":2,"ansible_processor_cores":2,"ansible_uptime_seconds":311}`))
-	if hw[gatherFactMemTotalMB] != 2047 || hw[gatherFactSwapTotalMB] != 0 || hw[gatherFactUptimeSeconds] != 311 || len(hw) != 6 {
+	hw := valuesOf(parseWindowsObject(`{"hardware.memory_mb":2046,"hardware.cpu.sockets":1,"hardware.cpu.threads":2,"hardware.cpu.cores":2,"host.uptime_seconds":311}`))
+	if hw[gatherFactMemoryMB] != 2046 || hw[gatherFactHostUptime] != 311 || len(hw) != 5 {
 		t.Errorf("hardware = %v", hw)
 	}
+	if _, ok := hw[gatherFactSwapMB]; ok {
+		t.Errorf("hardware has a swap fact on Windows: %v", hw)
+	}
 	// What the host could not answer is absent, never empty or guessed.
-	if got := valuesOf(parseWindowsObject(`{"ansible_distribution":"  ","ansible_kernel":null,"ansible_memtotal_mb":-1,"ansible_x":1.5,"ansible_y":[1],"ansible_system":"Win32NT"}`)); !reflect.DeepEqual(got, map[string]any{gatherFactSystem: "Win32NT"}) {
+	if got := valuesOf(parseWindowsObject(`{"os.edition":"  ","os.kernel.release":null,"hardware.memory_mb":-1,"x.y":1.5,"x.z":[1],"os.kernel.name":"windows"}`)); !reflect.DeepEqual(got, map[string]any{gatherFactKernelName: "windows"}) {
 		t.Errorf("partial = %v", got)
 	}
 	for _, bad := range []string{"", "[]", "not json", `{"a":`, `{"a" 1}`} {
 		if got := parseWindowsObject(bad); got != nil {
 			t.Errorf("%q read as %v", bad, got)
 		}
+	}
+}
+
+// TestWindowsScripts_PrintNativeKeys holds the scripts to the keys their
+// probes declare: each key the min and hardware scripts print is a native
+// fact key its probe lists (or the raw architecture, which the parser
+// consumes), and the hardware script truncates memory and prints no swap.
+func TestWindowsScripts_PrintNativeKeys(t *testing.T) {
+	printed := regexp.MustCompile(`(?m)^  '([^']+)' = `)
+	for _, p := range windowsProbes()[:2] {
+		keys := printed.FindAllStringSubmatch(p.command, -1)
+		if len(keys) == 0 {
+			t.Fatalf("%s prints no keys", p.name())
+		}
+		for _, k := range keys {
+			if k[1] != windowsArchitectureKey && !gatherWanted(p.keys, k[1]) {
+				t.Errorf("%s prints %q, which its probe does not declare (%v)", p.name(), k[1], p.keys)
+			}
+		}
+	}
+	hw := windowsProbes()[1].command
+	if !strings.Contains(hw, "[math]::Floor([double]$cs.TotalPhysicalMemory / 1MB)") || strings.Contains(hw, "Ceiling") || strings.Contains(hw, "swap") {
+		t.Errorf("the hardware script does not truncate memory, or prints swap:\n%s", hw)
 	}
 }
 
@@ -161,19 +203,19 @@ func newWinTestHost() inventory.InventoryItem {
 
 func TestGather_AWindowsHostIsReadOverWinRM(t *testing.T) {
 	asked := answerWindows(t, map[string]winrmexec.Result{
-		gatherSubsetMin:      {Stdout: `{"ansible_nodename":"win-check","ansible_system":"Win32NT"}`},
-		gatherSubsetHardware: {Stdout: `{"ansible_memtotal_mb":2047}`},
+		gatherSubsetMin:      {Stdout: `{"host.nodename":"win-check","os.kernel.name":"windows"}`},
+		gatherSubsetHardware: {Stdout: `{"hardware.memory_mb":2047}`},
 		gatherSubsetPackages: {Stdout: `[{"name":"7-Zip","version":"24.09","arch":"amd64"}]`},
 		gatherSubsetServices: {Stdout: `[{"name":"WinRM","state":"Running","mode":"Auto","delayed":false}]`},
 	})
 	rc := &winTestContext{facts: map[string]any{}}
-	if _, err := Gather(context.Background(), rc, newWinTestHost(), map[string]any{gatherParamSubset: []any{"all"}, gatherParamFilter: []any{"ansible_*", "package.*", "service.WinRM"}}); err != nil {
+	if _, err := Gather(context.Background(), rc, newWinTestHost(), map[string]any{gatherParamSubset: []any{"all"}, gatherParamFilter: []any{"host.*", "hardware.*", "os.*", "package.*", "service.WinRM"}}); err != nil {
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(*asked, []string{gatherSubsetMin, gatherSubsetHardware, gatherSubsetPackages, gatherSubsetServices}) {
 		t.Errorf("asked %v", *asked)
 	}
-	if rc.facts[gatherFactHostname] != "win-check" || rc.facts[gatherFactMemTotalMB] != 2047 || rc.facts["package.7-Zip"] == nil || rc.facts["service.WinRM"] == nil {
+	if rc.facts[gatherFactHostName] != "win-check" || rc.facts[gatherFactMemoryMB] != 2047 || rc.facts["package.7-Zip"] == nil || rc.facts["service.WinRM"] == nil {
 		t.Errorf("facts %v", rc.facts)
 	}
 
@@ -181,10 +223,10 @@ func TestGather_AWindowsHostIsReadOverWinRM(t *testing.T) {
 	// scripts sent.
 	*asked = nil
 	rc = &winTestContext{facts: map[string]any{}}
-	if _, err := Gather(context.Background(), rc, newWinTestHost(), map[string]any{gatherParamFilter: []any{"ansible_system"}}); err != nil {
+	if _, err := Gather(context.Background(), rc, newWinTestHost(), map[string]any{gatherParamFilter: []any{"os.kernel.name"}}); err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(*asked, []string{gatherSubsetMin}) || !reflect.DeepEqual(rc.facts, map[string]any{gatherFactSystem: "Win32NT"}) {
+	if !reflect.DeepEqual(*asked, []string{gatherSubsetMin}) || !reflect.DeepEqual(rc.facts, map[string]any{gatherFactKernelName: "windows"}) {
 		t.Errorf("asked %v, facts %v", *asked, rc.facts)
 	}
 }
@@ -214,7 +256,7 @@ func TestGather_AFailedWindowsScriptFailsTheTask(t *testing.T) {
 func TestGather_AWindowsHostWithoutTheCmdletsSaysSo(t *testing.T) {
 	absent := winrmexec.Result{Stdout: gatherAbsentMark + "\r\n"}
 	answerWindows(t, map[string]winrmexec.Result{
-		gatherSubsetMin:   {Stdout: `{"ansible_system":"Win32NT"}`},
+		gatherSubsetMin:   {Stdout: `{"os.kernel.name":"windows"}`},
 		gatherSubsetUsers: absent,
 		gatherSubsetPorts: absent,
 	})
@@ -226,7 +268,7 @@ func TestGather_AWindowsHostWithoutTheCmdletsSaysSo(t *testing.T) {
 	if _, err := Gather(context.Background(), rc, newWinTestHost(), map[string]any{gatherParamSubset: []any{"all", "!hardware", "!packages", "!services"}}); err != nil {
 		t.Fatalf("through all: %v", err)
 	}
-	if rc.facts[gatherFactSystem] != "Win32NT" {
+	if rc.facts[gatherFactKernelName] != "windows" {
 		t.Errorf("facts %v", rc.facts)
 	}
 }

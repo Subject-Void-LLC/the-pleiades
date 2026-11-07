@@ -267,7 +267,7 @@ func TestGather_LinuxAnswersEverythingThisSuiteWouldOtherwiseSkip(t *testing.T) 
 	if err != nil {
 		return // Already reported above; the key check below has nothing to read.
 	}
-	for _, key := range []string{"NAME", "VERSION_ID"} {
+	for _, key := range []string{"ID", "VERSION_ID"} {
 		found := false
 		for _, line := range strings.Split(string(release), "\n") {
 			if name, _, ok := strings.Cut(strings.TrimSpace(line), "="); ok && name == key {
@@ -333,16 +333,19 @@ func TestGather_EmitsEveryFactThisMachineCanAnswer(t *testing.T) {
 	node := gatherCommandOutput(t, "uname", "-n")
 	short, _, _ := strings.Cut(node, ".")
 	version := gatherOSReleaseValue(t, "VERSION_ID")
-	major, _, _ := strings.Cut(version, ".")
+	major, err := strconv.Atoi(strings.SplitN(version, ".", 2)[0])
+	if err != nil {
+		t.Skipf("this machine's VERSION_ID %q has no whole-number major part", version)
+	}
 	for key, want := range map[string]any{
-		"ansible_hostname":                   short,
-		"ansible_nodename":                   node,
-		"ansible_system":                     gatherCommandOutput(t, "uname", "-s"),
-		"ansible_distribution_major_version": major,
-		"ansible_kernel":                     gatherCommandOutput(t, "uname", "-r"),
-		"ansible_architecture":               gatherCommandOutput(t, "uname", "-m"),
-		"ansible_distribution":               gatherOSReleaseValue(t, "NAME"),
-		"ansible_distribution_version":       gatherOSReleaseValue(t, "VERSION_ID"),
+		"host.name":             short,
+		"host.nodename":         node,
+		"os.kernel.name":        strings.ToLower(gatherCommandOutput(t, "uname", "-s")),
+		"os.version_major":      major,
+		"os.kernel.release":     gatherCommandOutput(t, "uname", "-r"),
+		"hardware.architecture": gatherCommandOutput(t, "uname", "-m"),
+		"os.distribution":       gatherOSReleaseValue(t, "ID"),
+		"os.version":            version,
 	} {
 		if got := rc.facts[key]; got != want {
 			t.Errorf("%s fact = %v, want %v read straight off this machine", key, got, want)
@@ -356,8 +359,8 @@ func TestGather_EmitsEveryFactThisMachineCanAnswer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reading MemTotal from /proc/meminfo: %v", err)
 	}
-	if got := rc.facts["ansible_memtotal_mb"]; got != wantMB/1024 {
-		t.Errorf("ansible_memtotal_mb fact = %v, want %d", got, wantMB/1024)
+	if got := rc.facts["hardware.memory_mb"]; got != wantMB/1024 {
+		t.Errorf("hardware.memory_mb fact = %v, want %d", got, wantMB/1024)
 	}
 
 	// Uptime cannot be compared exactly, since it moves between the
@@ -365,24 +368,24 @@ func TestGather_EmitsEveryFactThisMachineCanAnswer(t *testing.T) {
 	// arrived: a machine that has been up at all reports more than zero
 	// seconds, and a fact that was never determined is absent rather than
 	// zero.
-	uptime, ok := rc.facts["ansible_uptime_seconds"].(int64)
+	uptime, ok := rc.facts["host.uptime_seconds"].(int64)
 	if !ok {
-		t.Fatalf("ansible_uptime_seconds fact = %#v, want an int64", rc.facts["ansible_uptime_seconds"])
+		t.Fatalf("host.uptime_seconds fact = %#v, want an int64", rc.facts["host.uptime_seconds"])
 	}
 	if uptime <= 0 {
-		t.Errorf("ansible_uptime_seconds fact = %d, want the real uptime of a running machine", uptime)
+		t.Errorf("host.uptime_seconds fact = %d, want the real uptime of a running machine", uptime)
 	}
 
 	// The processor count is present exactly when /proc/cpuinfo carries
 	// the field it is counted from, which is what makes an absent fact a
 	// real answer rather than a bug.
 	wantSockets := gatherDistinctPhysicalIDs(t)
-	got, present := rc.facts["ansible_processor_count"]
+	got, present := rc.facts["hardware.cpu.sockets"]
 	switch {
 	case wantSockets == 0 && present:
-		t.Errorf("ansible_processor_count fact = %v, want it absent: this machine's /proc/cpuinfo has no physical id field", got)
+		t.Errorf("hardware.cpu.sockets fact = %v, want it absent: this machine's /proc/cpuinfo has no physical id field", got)
 	case wantSockets != 0 && got != wantSockets:
-		t.Errorf("ansible_processor_count fact = %v, want %d distinct physical ids", got, wantSockets)
+		t.Errorf("hardware.cpu.sockets fact = %v, want %d distinct physical ids", got, wantSockets)
 	}
 
 	// The logical processors, counted here with this file's own reading of
@@ -393,11 +396,11 @@ func TestGather_EmitsEveryFactThisMachineCanAnswer(t *testing.T) {
 			vcpus++
 		}
 	}
-	if vcpus > 0 && rc.facts["ansible_processor_vcpus"] != vcpus {
-		t.Errorf("ansible_processor_vcpus fact = %v, want %d processor entries", rc.facts["ansible_processor_vcpus"], vcpus)
+	if vcpus > 0 && rc.facts["hardware.cpu.threads"] != vcpus {
+		t.Errorf("hardware.cpu.threads fact = %v, want %d processor entries", rc.facts["hardware.cpu.threads"], vcpus)
 	}
-	if mb, ok := rc.facts["ansible_swaptotal_mb"].(int64); !ok || mb < 0 {
-		t.Errorf("ansible_swaptotal_mb fact = %#v, want a non-negative int64", rc.facts["ansible_swaptotal_mb"])
+	if mb, ok := rc.facts["hardware.swap_mb"].(int64); !ok || mb < 0 {
+		t.Errorf("hardware.swap_mb fact = %#v, want a non-negative int64", rc.facts["hardware.swap_mb"])
 	}
 }
 
@@ -409,8 +412,8 @@ func TestGather_EveryNewFactIsDeclared(t *testing.T) {
 	for _, r := range d.Manifest.Doc.Returns {
 		declared[r.Name] = true
 	}
-	for _, key := range []string{"ansible_nodename", "ansible_system", "ansible_distribution_major_version", "ansible_distribution_release",
-		"ansible_swaptotal_mb", "ansible_processor_vcpus", "ansible_processor_cores"} {
+	for _, key := range []string{"host.nodename", "os.kernel.name", "os.version_major", "os.codename", "os.edition",
+		"hardware.swap_mb", "hardware.cpu.threads", "hardware.cpu.cores"} {
 		if !declared[key] {
 			t.Errorf("%s is gathered but not declared in Returns", key)
 		}
@@ -448,7 +451,7 @@ func gatherDistinctPhysicalIDs(t *testing.T) int {
 // printed nothing. What must happen then is that the task succeeds having
 // emitted NOTHING. The alternative a careless implementation reaches for,
 // recording each fact as the empty string, is exactly what makes a later
-// condition comparing ansible_distribution give a confidently wrong
+// condition comparing os.distribution give a confidently wrong
 // answer.
 func TestGather_OmitsEverythingItCannotDetermine(t *testing.T) {
 	server := startGatherServer(t)
@@ -506,10 +509,10 @@ func TestGather_OmitsOnlyTheFactsItCannotDetermine(t *testing.T) {
 		t.Fatalf("Gather: %v", err)
 	}
 
-	if got := rc.facts["ansible_kernel"]; got != kernel {
-		t.Errorf("ansible_kernel fact = %v, want %q: uname was reachable and its fact should have arrived", got, kernel)
+	if got := rc.facts["os.kernel.release"]; got != kernel {
+		t.Errorf("os.kernel.release fact = %v, want %q: uname was reachable and its fact should have arrived", got, kernel)
 	}
-	for _, key := range []string{"ansible_distribution", "ansible_distribution_version", "ansible_memtotal_mb", "ansible_uptime_seconds"} {
+	for _, key := range []string{"os.distribution", "os.version", "hardware.memory_mb", "host.uptime_seconds"} {
 		if got, present := rc.facts[key]; present {
 			t.Errorf("%s fact = %v, want it absent: cat was not on the PATH, so nothing could read it", key, got)
 		}
@@ -521,23 +524,23 @@ func TestGather_OmitsOnlyTheFactsItCannotDetermine(t *testing.T) {
 //
 // One command reads /etc/os-release and answers two facts, so a filter
 // naming one of them keeps that command and must still drop the other
-// fact on the way out. Asking for ansible_distribution and receiving
-// ansible_distribution_version as well is the failure this pins.
+// fact on the way out. Asking for os.distribution and receiving os.version
+// as well is the failure this pins.
 func TestGather_FilterNarrowsToOneFactOfAProbeThatAnswersTwo(t *testing.T) {
 	server := startGatherServer(t)
 	rc := newGatherContext(server)
 
 	if _, err := gatherRun(t, server, rc, map[string]any{
-		"filter": []any{"ansible_distribution"},
+		"filter": []any{"os.distribution"},
 	}); err != nil {
 		t.Fatalf("Gather: %v", err)
 	}
 
-	if got := rc.facts["ansible_distribution"]; got != gatherOSReleaseValue(t, "NAME") {
-		t.Errorf("ansible_distribution fact = %v, want the name this machine reports", got)
+	if got := rc.facts["os.distribution"]; got != gatherOSReleaseValue(t, "ID") {
+		t.Errorf("os.distribution fact = %v, want the ID this machine reports", got)
 	}
-	if got, present := rc.facts["ansible_distribution_version"]; present {
-		t.Errorf("ansible_distribution_version fact = %v, want it absent: the filter named its sibling, not it", got)
+	if got, present := rc.facts["os.version"]; present {
+		t.Errorf("os.version fact = %v, want it absent: the filter named its sibling, not it", got)
 	}
 	if len(rc.facts) != 1 {
 		t.Errorf("facts = %v, want exactly the one the filter named", rc.facts)
@@ -566,19 +569,22 @@ func TestGather_FilterNarrowsToOneFactOfAProbeThatAnswersTwo(t *testing.T) {
 // stops that skip firing where the evidence is supposed to come from.
 func TestGather_FilterMatchesAsAGlob(t *testing.T) {
 	version := gatherOSReleaseValue(t, "VERSION_ID")
-	major, _, _ := strings.Cut(version, ".")
+	major, err := strconv.Atoi(strings.SplitN(version, ".", 2)[0])
+	if err != nil {
+		t.Skipf("this machine's VERSION_ID %q has no whole-number major part", version)
+	}
+	// os.version* is the version and its major part, and not os.distribution
+	// or the kernel's facts, which share the os. family.
 	want := map[string]any{
-		"ansible_distribution":               gatherOSReleaseValue(t, "NAME"),
-		"ansible_distribution_version":       version,
-		"ansible_distribution_major_version": major,
-		"ansible_distribution_release":       gatherOSReleaseValue(t, "VERSION_CODENAME"),
+		"os.version":       version,
+		"os.version_major": major,
 	}
 
 	server := startGatherServer(t)
 	rc := newGatherContext(server)
 
 	if _, err := gatherRun(t, server, rc, map[string]any{
-		"filter": []any{"ansible_distribution*"},
+		"filter": []any{"os.version*"},
 	}); err != nil {
 		t.Fatalf("Gather: %v", err)
 	}
@@ -610,12 +616,12 @@ func TestGather_FilterSkipsTheCommandsItExcludes(t *testing.T) {
 	kernel := gatherCommandOutput(t, "uname", "-r")
 
 	if _, err := gatherRun(t, server, rc, map[string]any{
-		"filter": []any{"ansible_kernel"},
+		"filter": []any{"os.kernel.release"},
 	}); err != nil {
 		t.Fatalf("Gather: %v, want a narrowed run to have opened only one session", err)
 	}
-	if got := rc.facts["ansible_kernel"]; got != kernel {
-		t.Errorf("ansible_kernel fact = %v, want %q", got, kernel)
+	if got := rc.facts["os.kernel.release"]; got != kernel {
+		t.Errorf("os.kernel.release fact = %v, want %q", got, kernel)
 	}
 }
 
@@ -631,9 +637,9 @@ func TestGather_RefusesAFilterItCannotRead(t *testing.T) {
 		filter any
 		want   string
 	}{
-		{name: "a bare string", filter: "ansible_kernel", want: "filter must be a list of strings"},
+		{name: "a bare string", filter: "os.kernel.release", want: "filter must be a list of strings"},
 		{name: "a list of numbers", filter: []any{42}, want: "filter[0] is int, not a string"},
-		{name: "a malformed pattern", filter: []any{"ansible_["}, want: "is malformed"},
+		{name: "a malformed pattern", filter: []any{"os.["}, want: "is malformed"},
 	}
 
 	for _, tt := range tests {
@@ -659,7 +665,7 @@ func TestGather_RefusesAFilterItCannotRead(t *testing.T) {
 // the author has nothing to compare their spelling against.
 func TestGather_RefusesAFilterThatMatchesNothing(t *testing.T) {
 	_, err := facts.Gather(context.Background(), nil, nil, map[string]any{
-		"filter": []any{"ansible_kernal"},
+		"filter": []any{"os.kernal.release"},
 	})
 	if err == nil {
 		t.Fatal("a filter matching nothing was accepted, so the task would have gathered nothing and reported success")
@@ -667,7 +673,7 @@ func TestGather_RefusesAFilterThatMatchesNothing(t *testing.T) {
 	if !strings.Contains(err.Error(), "matches none of the facts") {
 		t.Errorf("error = %q, want it to say the filter matched nothing", err)
 	}
-	if !strings.Contains(err.Error(), "ansible_kernel") {
+	if !strings.Contains(err.Error(), "os.kernel.release") {
 		t.Errorf("error = %q, want it to list the names it could have matched", err)
 	}
 }
@@ -685,8 +691,8 @@ func TestGather_AcceptsAnEmptyFilterAsEverything(t *testing.T) {
 	if _, err := gatherRun(t, server, rc, map[string]any{"filter": []any{}}); err != nil {
 		t.Fatalf("Gather: %v", err)
 	}
-	if got := rc.facts["ansible_kernel"]; got != gatherCommandOutput(t, "uname", "-r") {
-		t.Errorf("ansible_kernel fact = %v, want an empty filter to have gathered everything", got)
+	if got := rc.facts["os.kernel.release"]; got != gatherCommandOutput(t, "uname", "-r") {
+		t.Errorf("os.kernel.release fact = %v, want an empty filter to have gathered everything", got)
 	}
 }
 
@@ -739,7 +745,7 @@ func TestGather_TransportFailureIsReported(t *testing.T) {
 func TestGather_FactRecordFailureIsReported(t *testing.T) {
 	server := startGatherServer(t)
 	rc := newGatherContext(server)
-	rc.failOn = "ansible_hostname"
+	rc.failOn = "host.name"
 
 	_, err := gatherRun(t, server, rc, nil)
 	if err == nil {
@@ -748,7 +754,7 @@ func TestGather_FactRecordFailureIsReported(t *testing.T) {
 	if !errors.Is(err, errGatherEmit) {
 		t.Errorf("error = %q, want it to carry what recording returned", err)
 	}
-	if !strings.Contains(err.Error(), "ansible_hostname") {
+	if !strings.Contains(err.Error(), "host.name") {
 		t.Errorf("error = %q, want it to name the fact that could not be recorded", err)
 	}
 }
