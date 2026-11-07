@@ -7515,3 +7515,26 @@ translation or refuses; a term that looks ordinary to the rest of the expression
 **Incident.** FAILURE_PATTERNS 968: the fact rewrite lived in `compare`, and filter, regex and truth read the native
 value as Ansible's. Two reviews found ten paths in one evening; the fix narrowed what converts to the one operation
 proven equal and refused the rest by name.
+
+## 411. A shared conformance suite proves only its cases: when stored state becomes a derivation, keep the old algorithm as an oracle and replay random sequences into it and every store
+
+**Rule.** When stored state that was kept in place becomes something derived on read (a last-seen time read from
+observation records instead of moved on a row), keep the old algorithm as an executable reference, and replay random
+sequences, including the orders nobody writes a case for, into the reference and into every implementation,
+comparing every read after every step.
+
+**Incident.** Phase 41h (2026-11-07) made the fact history insert-only. `factstest/oracle.go` keeps the ent store's
+old in-place algorithm; `derivedReadsMatchTheOracle` replays 120 random sequences (late runs, mixed order sources,
+equal tokens, kind changes) into it and into the file store, the ent store on SQLite and on PostgreSQL. Its first run
+failed on the file store, and the failure was not the new code: the two stores had already disagreed, for weeks, in
+two ways the shared conformance suite never exercised (FAILURE_PATTERNS 969). The derivation was then made equal to
+the oracle on all three.
+
+**What is old and what is new.** LESSONS 151 says to generate a test oracle from the implementation a criterion names.
+This one adds that a refactor's own "before" is that implementation, and that two stores held to one hand-written
+suite can still disagree wherever the suite has no case.
+
+**Rule in practice.** Before replacing how something is stored, copy the old algorithm into the test-support package,
+write a seeded random generator over the inputs that matter (orders, times, kinds, values), and require equal reads
+after every step on every backend. Keep the oracle after the change: it is the definition of "same answers as
+before".

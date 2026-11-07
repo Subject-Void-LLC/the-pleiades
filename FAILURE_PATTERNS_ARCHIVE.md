@@ -23436,3 +23436,157 @@ the ordinary resolution; refusals name the value's kind. `TestTranslate_AFactRea
 guard.
 
 **Lesson.** LESSONS 410.
+
+## 969. The two fact stores kept a value's last confirmation differently, and the shared conformance suite had no case that showed it (fixed before push, a repeat in kind of 113 and 749)
+
+**Symptom.** Found 2026-11-07 by the random differential written for Phase 41h ("seen versus changed"), on its first
+run, never released. The Crawl file store kept the last sighting per (key, value hash) in `<device>.state.json`, so after
+a late change wrote a value back (A, B, A), the first A's history entry claimed the later A's sighting, a time after B
+had started; the ent store kept it per row. The file store's Current also read every stable value before every
+volatile one, while the ent store read rows in the order written, so where orders from several sources mix (where
+`facts.Later` is not transitive) the two could name different current values for one key.
+
+**Root cause.** Both stores implemented one contract by hand, and `internal/facts/factstest`'s conformance cases
+covered the ordinary orders only: no case had a late change followed by a later confirmation, or a kind change under
+mixed order sources.
+
+**Why 113 and 749 did not prevent it.** Both were two statements of one rule that disagreed and were reconciled once;
+nothing kept them agreeing afterwards. Here a shared suite existed, and still passed both stores, because a suite
+proves only the cases written into it.
+
+**Fix.** Branch `feat/facts-seen-vs-changed-41h`. One derivation, `facts.Sightings`, now gives both stores their last
+confirmations, per stored value; the file store reads its values in the order written (`device.written`). The suite
+gained `derivedReadsMatchTheOracle`, which replays 120 random sequences into each store (SQLite, PostgreSQL, files)
+and into `factstest/oracle.go`, the old ent algorithm, comparing Current and History after every observation.
+
+**Lesson.** LESSONS 411.
+
+## 970. A stored fact's device edge had a setter, so an update could move a stored value to another device (fixed before push)
+
+**Symptom.** 2026-11-07, Phase 41h. `TestFact_TheSchemaRefusesEditingAValue` checked three named setters; widened to
+refuse every setter on `ent.FactUpdateOne`, it found `SetDevice`, `SetDeviceID` and `ClearDevice`. No code called them,
+and nothing deployed.
+
+**Root cause.** The edge was declared `Unique().Required()` without `Immutable()`, and the test listed the setters it
+expected to be missing rather than requiring none to exist. The chain hash names the device it was computed for, so a
+moved row would break the receiving device's chain at verification; on the sending device it breaks the chain only
+when a later row follows it, since a row cut off the end leaves a shorter chain that verifies.
+
+**Fix.** The edge is `Immutable()`; the test refuses any `Set`, `Add`, `Append` or `Clear` method on the update builders
+of Fact, FactObservation and FactCoverage, the timestamp mixin's `SetUpdatedAt` alone excepted (only an UPDATE sets
+it, which the insert-only trigger test proves never runs).
+
+**Lesson.** A test that something cannot be edited lists what may be edited, not what may not.
+
+## 971. Dropping the fact table's last_seen_at and last_provenance columns was a contracting migration the compatibility check refused (a repeat of 833 and 389) (fixed before push)
+
+**Symptom.** 2026-11-07, Phase 41h. With the columns removed from the schema, the generated migrations dropped them, and
+`TestEveryMigrationIsClassifiedAsDeclared` failed: the migration contracts the schema and is not declared, and a new
+contract needs the apply-time guard that is not built.
+
+**Root cause.** Removing an unused field from an ent schema reads as a cleanup, and is a column drop the build before
+it still writes.
+
+**Why 833 did not prevent it.** 833 was about adding NOT NULL columns; its lesson (expand only) was read as being about
+additions. Dropping is the other half of the same rule.
+
+**Fix.** Both columns stay in the schema as `Optional().Immutable()`, written and read by nothing, with a comment that
+the 1.0.0 golden image drops them with the squash. The migrations only add `observation_seq` (default 0) and two
+tables.
+
+**Lesson.** FAILURE_PATTERNS 389's lesson (expand only) covers removal too: a field no longer used stays until the
+squash.
+
+## 972. A state-file test passed only when Go's map order ran its zero-filled case last (fixed before push, a repeat in kind of 962)
+
+**Symptom.** 2026-11-07, Phase 41h. `TestFileStore_AnEmptyStateFileIsReadAsNoState` passed in one package run and failed
+in the next with "the state was not written whole again", size 0.
+
+**Root cause.** The test wrote an empty and a zero-filled state file in `range` order over a map, then required the next
+stable change to rewrite the state. Phase 41h stopped stable changes from touching the state, so the test now depended
+on which case ran last: zero-filled last left 64 bytes and passed.
+
+**Why 962 did not prevent it.** 962 was map order deciding a plan in product code; a test's own map order was not
+looked at.
+
+**Fix.** The next gather replaces a volatile value, which is what writes the state now, and the test requires the
+volatile value in it. Run 30 times.
+
+**Lesson.** A test that iterates a map must pass in every order; give the cases a slice when the order matters.
+
+## 973. A fact read folded observations read after its values, so a run that replaced a value could read as having confirmed it (fixed before push, a repeat of 528 and 283)
+
+**Symptom.** Found 2026-11-07 by both pre-gate reviews of Phase 41h (Fable and fp-reviewer), never released. Current
+and History read a device's values and then its observations in separate reads with no lock or transaction, while a
+record writes values first and its observation last. A record landing between the two reads (an unlocked `pleiades
+facts` beside a run, or an API read beside a Runner's batch) left the reader with the old value and the new
+observation: `facts.Sightings` saw the observation cover the key and write nothing the reader had, and credited the
+replaced value to the run that replaced it. Transient; the next read was right.
+
+**Root cause.** Before 41h a confirmation lived on the row it confirmed, so a read was at worst stale. Splitting
+confirmations into a second table made the answer depend on two reads, and the reads ran in the writer's order.
+
+**Why 528 and 283 did not prevent it.** Both were reads straddling a write in one store; the fix each time was local
+(a lock, one statement). This was a new derived read in the same store family, written without asking what a write
+between its two reads would do.
+
+**Fix.** The ent store takes the newest observation number first and folds only observations up to it
+(`Store.bound`): each record commits its rows and its observation together and numbers commit in order, so every row
+an included observation wrote is visible to the rows read after. The file store reads the observations first, then
+the state and values (`load`, `loadAfter`). `TestSighted_ARecordBetweenReadsCreditsNoReplacedValue` and
+`TestLoad_ARecordBetweenReadsCreditsNoReplacedValue` put a record between the reads, and each also shows the old order
+crediting the wrong run.
+
+**Lesson.** A value derived from two reads is read in the reverse of the order it is written, or in one snapshot.
+
+## 974. An order source longer than the new column would have failed its facts batch on every delivery (fixed before push, a repeat of 208, 919 and 961)
+
+**Symptom.** Found 2026-11-07 by both reviews of Phase 41h. `FactObservation.order_source` has `MaxLen(256)`; a
+Runner's order source is a free string in the batch. A longer one failed ent's validator inside Record, which is not a
+data exception (`poison.Unstorable`), so the consumer returned the error and the bus redelivered the batch until its
+budget ran out, holding up the batches behind it.
+
+**Root cause.** A bound added to a new column for a value copied out of untrusted provenance, with no thought for what
+the consumer does with a validation error.
+
+**Why 208, 919 and 961 did not prevent it.** Each fixed one message shape that could never succeed; none asked that a
+new column's bound be checked against what the consumer does when it is exceeded.
+
+**Fix.** `orderColumns` stores an order whose source is too long, or whose token is past a signed 64-bit integer, as
+an unknown order; `notEarlierThan` always includes unknown orders, so the fast path stays a superset. Conformance case
+`unusualOrders` runs both on SQLite, PostgreSQL and the file store.
+
+**Lesson.** A column bound on a value from a batch is a refusal; decide where it is refused before the consumer meets
+it.
+
+## 975. The new observations file refused a device's facts over one damaged line, the data a crash-emptied state file had been forgiven for (fixed before push, a repeat of 922)
+
+**Symptom.** Found 2026-11-07 by fp-reviewer. `readSeen` returned an error for any whole line that did not decode,
+which failed every Record, Current and History for the device until the file was edited by hand.
+
+**Root cause.** The reader was written like the history file's, where a bad line must stop the read because the
+chain depends on every line. Observations hold confirmations only, which the next run makes again.
+
+**Why 922 did not prevent it.** 922 made the state file tolerant when it held these confirmations; 41h moved them to a
+new file and wrote its reader from the stricter template next to it.
+
+**Fix.** A damaged line, a digest that does not match its keys, or a line naming a coverage nothing defined is left out
+and counted (`seenFile.skipped`); leaving one out can only make a value read as confirmed less recently.
+`TestFileStore_ADamagedObservationLineCostsOnlyConfirmations`.
+
+**Lesson.** A reader is as strict as what its data protects, not as strict as the file next to it.
+
+## 976. Six comments and a changelog sentence claimed more than the seen-versus-changed code does (fixed before push, a repeat of 571 and 789)
+
+**Symptom.** fp-reviewer, 2026-11-07: "every gather writes exactly one" observation (a Runner splits a large gather
+into batches, and a redelivered batch adds another); a coverage is "written once rather than every hour" (batch splits
+move with value lengths); "no field of a row has a setter" (the mixin's `updated_at` has one); "never the reverse" (a
+directory sync is a no-op on Windows); "nothing already stored is ever edited" (a volatile value is replaced); the kept
+columns "stay so a build from before 41h can still serve this schema" (it can, but what it writes reads as never
+confirmed).
+
+**Root cause.** Each sentence described the design's intent, written before the edge it misses was known.
+
+**Fix.** Each now says what the code does, its exception included.
+
+**Lesson.** FAILURE_PATTERNS 228's again: say the exception in the same sentence as the rule.

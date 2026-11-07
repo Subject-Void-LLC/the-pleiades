@@ -972,6 +972,14 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 966. The live distribution test was rewritten to start all 22 images ansible.json records, four of them rolling, named only in JSON where tools/testimages cannot see them (a repeat of 125; in kind of 124, 917 and 745) (fixed before push)
 967. The playbook converter copied setup's filter to facts.gather's, so once fact keys became native every converted ansible_* filter matched nothing and failed on every host (a repeat of 848 and 334) (fixed before push)
 968. The converter's first fact conditions changed Ansible's meaning on every path but the comparison it was written for (fixed before merge, a repeat in kind of 848 and 967)
+969. The two fact stores kept a value's last confirmation differently, and the shared conformance suite had no case that showed it (fixed before push, a repeat in kind of 113 and 749)
+970. A stored fact's device edge had a setter, so an update could move a stored value to another device (fixed before push)
+971. Dropping the fact table's last_seen_at and last_provenance columns was a contracting migration the compatibility check refused (a repeat of 833 and 389) (fixed before push)
+972. A state-file test passed only when Go's map order ran its zero-filled case last (fixed before push, a repeat in kind of 962)
+973. A fact read folded observations read after its values, so a run that replaced a value could read as having confirmed it (fixed before push, a repeat of 528 and 283)
+974. An order source longer than the new column would have failed its facts batch on every delivery (fixed before push, a repeat of 208, 919 and 961)
+975. The new observations file refused a device's facts over one damaged line, the data a crash-emptied state file had been forgiven for (fixed before push, a repeat of 922)
+976. Six comments and a changelog sentence claimed more than the seen-versus-changed code does (fixed before push, a repeat of 571 and 789)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

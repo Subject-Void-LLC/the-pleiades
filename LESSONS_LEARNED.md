@@ -443,6 +443,7 @@ story, per `.AGENTS/AGENTS.md`.
 408. **A reader of a format holds it to the writer's own source (the writer's exported closed sets, and a test that builds every shape the writer makes and reads it back), never to a copy kept beside the reader; and the format's tests read a frozen file of every kind the writer has ever written, so removing one fails (its first half a repeat in kind of 273; FAILURE_PATTERNS 959) (2026-11-06).**
 409. **Name a stored key before anything stores it: a fact's key is the identity of its history, so a key chosen for convenience (another tool's name) becomes a migration the day baselines, targeting or a twin read it; pre-1.0 the rename cost one PR and a breaking changelog fragment, after 1.0 it would cost a data migration on every deployment (a repeat in kind of 13; LESSONS 404) (2026-11-07).**
 410. A translated value carries its translation through every operation, or every operation but one refuses it.
+411. A shared conformance suite proves only its cases: when stored state becomes a derivation, keep the old algorithm as an oracle and replay random sequences into it and every store.
 
 Each entry above is the rule only. Full reasoning and the incident that produced it lives in [`LESSONS_LEARNED_ARCHIVE.md`](LESSONS_LEARNED_ARCHIVE.md), same entry numbers. Read an archive entry when its rule is directly relevant to what you're doing and you need the *why*; the rule sentence above is usually enough on its own.
 
