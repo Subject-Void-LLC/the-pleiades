@@ -5,15 +5,19 @@
 package main_test
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/clireport"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport/gooverlay"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/external"
 )
 
 var binPath string
@@ -597,5 +601,28 @@ func TestCLI_Version(t *testing.T) {
 	}
 	if !strings.Contains(out, "pleiades") {
 		t.Errorf("expected version output to mention pleiades, got:\n%s", out)
+	}
+	if !strings.Contains(out, "external collection protocols: 1") {
+		t.Errorf("version does not name the external Collection protocols it speaks:\n%s", out)
+	}
+}
+
+// TestCLI_VersionJSONAdvertisesTheProtocolWindow proves `pleiades version
+// --json` prints one document naming the protocols this build speaks, the
+// same window the loader negotiates from (pkg/external.Protocols), so an
+// author's CI reads which programs this release loads.
+func TestCLI_VersionJSONAdvertisesTheProtocolWindow(t *testing.T) {
+	out, err := runPleiades(t, t.TempDir(), "version", "--json")
+	if err != nil {
+		t.Fatalf("version --json: %v\n%s", err, out)
+	}
+	var r clireport.VersionReport
+	if err := json.Unmarshal([]byte(out), &r); err != nil {
+		t.Fatalf("version --json is not one JSON document: %v\n%s", err, out)
+	}
+	if r.Program != "pleiades" || r.SchemaVersion != clireport.VersionReportVersion || r.Version == "" ||
+		r.ExtensionProtocols.Current != external.ProtocolVersion ||
+		!reflect.DeepEqual(r.ExtensionProtocols.Versions, external.Protocols) {
+		t.Errorf("report %+v, want the build's version and external.Protocols", r)
 	}
 }

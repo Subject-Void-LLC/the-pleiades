@@ -80,8 +80,12 @@ import (
 // existing external Collection could not survive (a renamed field, a new
 // required one, a different descriptor for the response). An additive,
 // optional field such as wire.ChildRequest.Mode is not a bump, because
-// JSON decoding on both sides already ignores what it does not know. A
-// loader refuses any other version rather than guessing at compatibility.
+// JSON decoding on both sides already ignores what it does not know.
+//
+// It is the newest version in Protocols, the one a program built with this
+// package prints as Description.Protocol, which is all a loader from before
+// ranges reads. A loader that knows ranges takes the highest version both
+// it and the program speak (Negotiate, protocol.go).
 const ProtocolVersion = 1
 
 // The two commands an external Collection answers, each as its single
@@ -104,8 +108,17 @@ const (
 // declares, capabilities and check support included, arrives from a third
 // party in exactly the shape the registry already validates.
 type Description struct {
-	// Protocol is the ProtocolVersion the program was built against.
+	// Protocol is the ProtocolVersion the program was built against: the
+	// newest version it speaks, and the only one a program built before
+	// ranges existed names.
 	Protocol int `json:"protocol"`
+
+	// ProtocolMin and ProtocolMax are the range of versions the program
+	// speaks, when it speaks more than Protocol. A loader takes the highest
+	// version both it and the program speak (Description.Range, Negotiate);
+	// a loader from before ranges ignores both and reads Protocol alone.
+	ProtocolMin int `json:"protocol_min,omitempty"`
+	ProtocolMax int `json:"protocol_max,omitempty"`
 
 	// Methods lists every method the program provides.
 	Methods []DescribedMethod `json:"methods"`
@@ -236,7 +249,9 @@ func ServeProgram(ctx context.Context, args []string, p Program, s Streams) int 
 	}
 
 	if args[0] == CommandDescribe {
-		desc := Description{Protocol: ProtocolVersion, Methods: make([]DescribedMethod, 0, len(descs)), Capabilities: p.Capabilities}
+		lowest, highest := spokenRange()
+		desc := Description{Protocol: ProtocolVersion, ProtocolMin: lowest, ProtocolMax: highest,
+			Methods: make([]DescribedMethod, 0, len(descs)), Capabilities: p.Capabilities}
 		for _, d := range descs {
 			desc.Methods = append(desc.Methods, DescribedMethod{Name: d.Name, Manifest: d.Manifest})
 		}

@@ -46,5 +46,12 @@ func newFactsSubscriber(store facts.Store, logger *slog.Logger, admit journal.Ad
 	if err != nil {
 		return nil, err
 	}
-	return entstore.NewSubscriber(store, logger, admit, append([]entstore.SubscriberOption{entstore.WithDeclarations(index)}, opts...)...), nil
+	// A fact a built-in holds is kept only from a built-in method, whatever
+	// a Runner let through (Phase 135b).
+	builtins, err := entstore.BuiltinMethods(wellknown.ModuleCatalog)
+	if err != nil {
+		return nil, err
+	}
+	base := []entstore.SubscriberOption{entstore.WithDeclarations(index), entstore.WithBuiltinProvenance(builtins)}
+	return entstore.NewSubscriber(store, logger, admit, append(base, opts...)...), nil
 }

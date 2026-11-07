@@ -72,8 +72,15 @@ func parseDescription(data []byte) (external.Description, error) {
 			return external.Description{}, fmt.Errorf("describe printed invalid JSON: %w", err)
 		}
 	}
-	if d.Protocol != external.ProtocolVersion {
-		return external.Description{}, fmt.Errorf("describe reports protocol %d, and this build speaks protocol %d", d.Protocol, external.ProtocolVersion)
+	// The highest version both sides speak, or a refusal naming each side's
+	// versions; the loaded program keeps what was agreed (negotiated).
+	if _, err := external.Negotiate(d.Range()); err != nil {
+		return external.Description{}, err
+	}
+	// A program's newest version is the one it names on its own, so one
+	// outside its range contradicts itself; say so, so its author notices.
+	if low, high := d.Range(); d.Protocol < low || d.Protocol > high {
+		return external.Description{}, fmt.Errorf("describe names protocol %d outside its own range, %d to %d", d.Protocol, low, high)
 	}
 	if len(d.Methods) == 0 {
 		return external.Description{}, errors.New("describe lists no methods")
@@ -126,6 +133,14 @@ func validateMethod(m external.DescribedMethod, running string, reserved map[str
 	// exact key to the kind and type a built-in method declares for it.
 	if err := collection.ValidateFacts(m.Manifest.Facts); err != nil {
 		return false, fmt.Errorf("method %q %w", m.Name, err)
+	}
+	// Register refuses a fact a built-in holds (collection.CheckExternalFact,
+	// the one rule both call), since a spoofed one would steer targeting and
+	// baselines; said here so a directory does not load halfway.
+	for _, s := range m.Manifest.Facts {
+		if err := collection.CheckExternalFact(m.Name, s); err != nil {
+			return false, fmt.Errorf("method %q %w", m.Name, err)
+		}
 	}
 	for _, p := range m.Manifest.Doc.Params {
 		// Register refuses the same thing (checkReservedParams); saying so

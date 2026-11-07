@@ -25,3 +25,9 @@ var ModuleCatalog []byte
 
 //go:embed openapi.json
 var OpenAPISpec []byte
+
+// ExtensionProtocols is the external Collection protocol versions this
+// build speaks (pkg/external.Protocols), for an author's CI to read.
+//
+//go:embed extension-protocols.json
+var ExtensionProtocols []byte

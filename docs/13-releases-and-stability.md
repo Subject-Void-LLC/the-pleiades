@@ -76,7 +76,7 @@ than guessing.
 | Run journal | may change at each minor | `format` on every line | golden tests |
 | Dispatch payload (Controller to Runner) | may change at each minor | `payload_version` | tests on both sides |
 | Database schema | expand by default | migrations | migration and upgrade tests |
-| External Collection protocol | see its section | `protocol` | the loader's tests |
+| External Collection protocol | a window of versions, see its section | `protocol`, `protocol_min`, `protocol_max` | the loader's tests, and the schema check over the published window |
 
 ### Runbook schema and the module catalog
 
@@ -201,16 +201,35 @@ means for an upgrade.
 ### The external Collection protocol
 
 This is the contract between The Pleiades and an
-[external Collection](11-extending-pleiades.md#external-collections). It is
-`pkg/external.ProtocolVersion`, currently `1`, and it covers the `describe` output
-and the `invoke` request and response.
+[external Collection](11-extending-pleiades.md#external-collections). It covers the
+`describe` output and the `invoke` request and response, and it is versioned by one
+number. The versions a build speaks are `pkg/external.Protocols` (today `1`, which is
+`ProtocolVersion`), and every build says so: `pleiades version`, `runner version`, the
+Controller's `/.well-known/pleiades/extension-protocols.json` and `pleiades collection
+list`.
+
+- **A window, not one version.** A program names the range it speaks and the loader
+  takes the highest version both sides speak. A release speaks the newest version
+  and the one before it; the one before stays at least one minor release after the
+  newest goes final (longer after 1.0), and is deprecated, with the release that
+  removes it named, before it goes. A program agreed at a deprecated version warns
+  once each time programs are loaded (every command, every Runner start).
+- **A point release never moves the window.** A patch release never removes or
+  deprecates a version, starts or shortens a window, adds a rule refusing a program
+  the release before loaded, or changes which builds an approval list admits. It may
+  add an optional field inside the current version. `make schema-compat` holds the
+  window's published list to the last release, so a removed or deprecated version is
+  a break a patch line cannot make.
 
 - **What stays compatible within a version.** New optional fields may be added to
   the request, the response, or a method's manifest. Both sides ignore fields they
   do not know, so a program built against an earlier release keeps loading.
 - **What forces a new version.** Renaming or removing a field, making a new field
   required, or changing how the response is delivered. The Pleiades refuses a program
-  built for any other protocol version rather than guessing.
+  that speaks no version it does rather than guessing.
+- **What every version refuses.** A program declaring a fact a built-in method holds,
+  or one inside a built-in family, is refused at load (0.4.0 on): such a fact would
+  steer targeting and baselines.
 - **What is not covered.** The Go API of `pkg/` itself (the packages an external
   Collection imports) is not yet under a compatibility promise. Until the first
   release, rebuild an external Collection against the release you run.

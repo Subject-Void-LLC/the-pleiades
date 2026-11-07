@@ -41,6 +41,10 @@ type Program struct {
 	// Capabilities are the names of the capabilities the program defines
 	// as data, in the order it described them.
 	Capabilities []string
+
+	// Protocol is the protocol version this build and the program agreed on
+	// (external.Negotiate).
+	Protocol int
 }
 
 // newSet builds a Set over programs, which are sorted by path and have

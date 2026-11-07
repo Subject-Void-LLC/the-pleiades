@@ -100,7 +100,8 @@ func TestNewFactsSubscriber_HoldsBatchesToTheBuiltInDeclarations(t *testing.T) {
 	}
 	asVolatile := func(string) (facts.Spec, bool) { return facts.Spec{Kind: facts.KindVolatile}, true }
 	entries, _, _ := facts.Prepare(map[string]any{"ansible_kernel": "6.1", "ansible_uptime_seconds": 5}, facts.Guard{Declared: asVolatile})
-	data, err := json.Marshal(facts.Batch{JobID: "job-1", DeviceID: "dev-1", Attempt: 1, ObservedAt: time.Now(), Entries: entries})
+	data, err := json.Marshal(facts.Batch{JobID: "job-1", DeviceID: "dev-1", Attempt: 1, ObservedAt: time.Now(), Entries: entries,
+		By: facts.Provenance{Method: "facts.gather"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,6 +110,31 @@ func TestNewFactsSubscriber_HoldsBatchesToTheBuiltInDeclarations(t *testing.T) {
 	}
 	if len(store.got) != 1 || store.got[0].Key != "ansible_uptime_seconds" {
 		t.Errorf("stored %+v, want only the uptime: the kernel is declared stable", store.got)
+	}
+}
+
+// TestNewFactsSubscriber_KeepsABuiltInFactOnlyFromABuiltInMethod: a batch
+// whose method is not in the catalog this binary embeds (an external
+// Collection's, from a Runner that let it through) keeps its own facts and
+// loses every fact a built-in holds, a declared key or a reserved family's,
+// whatever its case (Phase 135b).
+func TestNewFactsSubscriber_KeepsABuiltInFactOnlyFromABuiltInMethod(t *testing.T) {
+	store := &recordingStore{}
+	sub, err := newFactsSubscriber(store, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries, _, _ := facts.Prepare(map[string]any{"ansible_uptime_seconds": 5, "Package.openssh": "9.6", "acme.widgets": 3}, facts.Guard{})
+	data, err := json.Marshal(facts.Batch{JobID: "job-1", DeviceID: "dev-1", Attempt: 1, ObservedAt: time.Now(), Entries: entries,
+		By: facts.Provenance{Method: "acme.facts.read"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := sub.Handle(event.Event{ID: "e1", Type: facts.EventType, Data: data}); err != nil {
+		t.Fatal(err)
+	}
+	if len(store.got) != 1 || store.got[0].Key != "acme.widgets" {
+		t.Errorf("stored %+v, want only the program's own fact", store.got)
 	}
 }
 

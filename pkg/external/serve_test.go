@@ -113,6 +113,14 @@ func TestServe_DescribeWritesEveryMethodAndManifest(t *testing.T) {
 	if got.Protocol != external.ProtocolVersion {
 		t.Errorf("Protocol = %d, want %d", got.Protocol, external.ProtocolVersion)
 	}
+	// The range is every version this build speaks, so a loader of the
+	// next release, speaking N and N-1, can still agree with this program.
+	if low, high := got.Range(); low != external.Protocols[0].Version || high != external.ProtocolVersion {
+		t.Errorf("describe's range = %d..%d, want %d..%d: %s", low, high, external.Protocols[0].Version, external.ProtocolVersion, raw)
+	}
+	if !bytes.Contains(raw, []byte(`"protocol_min"`)) || !bytes.Contains(raw, []byte(`"protocol_max"`)) {
+		t.Errorf("describe names no protocol_min or protocol_max: %s", raw)
+	}
 	if len(got.Methods) != len(descs) {
 		t.Fatalf("described %d methods, want %d: %s", len(got.Methods), len(descs), raw)
 	}

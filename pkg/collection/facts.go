@@ -205,6 +205,16 @@ func checkFacts(d Descriptor) error {
 	if err := ValidateFacts(d.Manifest.Facts); err != nil {
 		return fmt.Errorf("collection: %q %w", d.Name, err)
 	}
+	// An external method (one the loader gave a Provider) may not declare a
+	// fact a built-in holds at all, whatever its kind and type
+	// (facts_reserved.go); the agreement check below is for built-ins.
+	if d.Provider != nil {
+		if err := checkExternalFacts(d); err != nil {
+			return err
+		}
+	} else if err := checkBuiltinAfterExternal(d); err != nil {
+		return err
+	}
 	for _, s := range d.Manifest.Facts {
 		for name, other := range collections.All() {
 			for _, o := range other.Manifest.Facts {

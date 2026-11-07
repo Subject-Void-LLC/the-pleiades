@@ -1,0 +1,90 @@
+{
+  "$defs": {
+    "ExtensionProtocols": {
+      "description": "ExtensionProtocols is the external Collection protocol window.",
+      "properties": {
+        "current": {
+          "description": "Current is the newest version, the one a program built with this release's pkg/external names as its protocol.",
+          "type": "integer"
+        },
+        "versions": {
+          "description": "Versions are every version this build speaks, oldest first, each supported or deprecated with the release that removes it.",
+          "items": {
+            "$ref": "#/$defs/Protocol"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "current",
+        "versions"
+      ],
+      "type": "object"
+    },
+    "Protocol": {
+      "description": "Protocol is one protocol version this build speaks.",
+      "properties": {
+        "removed_in": {
+          "description": "RemovedIn names the release that stops speaking a deprecated version.",
+          "type": "string"
+        },
+        "status": {
+          "description": "Status says whether it is supported or deprecated. Known values: supported, deprecated. A newer producer may add others, and a reader treats one it does not know as not a pass.",
+          "examples": [
+            "supported",
+            "deprecated"
+          ],
+          "type": "string"
+        },
+        "version": {
+          "description": "Version is the protocol version.",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "version",
+        "status"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "VersionReport is what a binary says about itself: its version, its release's name, and the external Collection protocols it speaks, so a Collection author's CI, or an operator about to upgrade, reads which programs this build will load without running one. Printed by pleiades version --json and runner version --json. schema_version is the major version: it goes up only for a change an existing reader could misread, a field removed or renamed or given another type or meaning. Within a major version a newer producer may add fields, and new values to the open sets. So a reader ignores a field it does not know, treats a status or kind it does not know as not a pass, and refuses a major version it does not know.",
+  "properties": {
+    "codename": {
+      "description": "Codename is the release's name, absent for a development build.",
+      "type": "string"
+    },
+    "extension_protocols": {
+      "$ref": "#/$defs/ExtensionProtocols",
+      "description": "ExtensionProtocols are the external Collection protocol versions this build speaks."
+    },
+    "program": {
+      "description": "Program is the binary that printed it: pleiades or runner. Known values: pleiades, runner. A newer producer may add others, and a reader treats one it does not know as not a pass.",
+      "examples": [
+        "pleiades",
+        "runner"
+      ],
+      "type": "string"
+    },
+    "schema_version": {
+      "description": "SchemaVersion is this document's major version.",
+      "type": "integer"
+    },
+    "version": {
+      "description": "Version is the build's version: a release, or 0.0.0-dev+<commit>.",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "program",
+    "version",
+    "extension_protocols"
+  ],
+  "title": "Pleiades version",
+  "type": "object"
+}

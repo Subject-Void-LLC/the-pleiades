@@ -10,6 +10,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/jsonschema"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/external"
 )
 
 // Schema is one published schema: the file tools/gendocs writes, the model
@@ -63,8 +64,19 @@ var (
 	}
 )
 
+// VersionSchema is VersionReport's.
+var VersionSchema = Schema{
+	File: "version.json", Command: "pleiades version --json and runner version --json", Title: "Pleiades version",
+	Model: reflect.TypeFor[VersionReport](),
+	Known: map[string][]string{
+		"VersionReport.Program": {"pleiades", "runner"},
+		"Protocol.Status":       {string(external.ProtocolSupported), string(external.ProtocolDeprecated)},
+	},
+	ModelFiles: []string{"internal/clireport/version.go", "pkg/external/protocol.go"},
+}
+
 // Schemas are every schema this package publishes.
-var Schemas = []Schema{RunReportSchema, FiltersSchema, ConditionsSchema}
+var Schemas = []Schema{RunReportSchema, FiltersSchema, ConditionsSchema, VersionSchema}
 
 // Build returns the schema, its descriptions read from ModelFiles under the
 // repository root given. It is open where the contract is: an object may

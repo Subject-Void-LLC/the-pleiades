@@ -66,7 +66,10 @@ func TestFactDigestOptions_KeyWhatARunnerSealedThroughTheConsumerMainBuilds(t *t
 		t.Fatal(err)
 	}
 	entries, _, _ := facts.Prepare(map[string]any{"file.x": map[string]any{"state": "present", "sha256_sealed": string(file)}}, facts.Guard{AllowSealed: true})
-	data, _ := json.Marshal(facts.Batch{JobID: "job-1", DeviceID: "dev-1", Attempt: 1, ObservedAt: time.Now(), Entries: entries})
+	// A batch names the method that emitted it, as every Runner's does; the
+	// consumer keeps a built-in fact (file.) only from a built-in method.
+	data, _ := json.Marshal(facts.Batch{JobID: "job-1", DeviceID: "dev-1", Attempt: 1, ObservedAt: time.Now(), Entries: entries,
+		By: facts.Provenance{Method: "facts.gather"}})
 	if err := sub.Handle(event.Event{ID: "e1", Type: facts.EventType, Data: data}); err != nil {
 		t.Fatal(err)
 	}

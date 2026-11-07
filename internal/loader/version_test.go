@@ -70,18 +70,27 @@ func TestCheckEngineVersion(t *testing.T) {
 // gets, since an author reads these to fix their program.
 func TestParseDescription_Refusals(t *testing.T) {
 	cases := map[string]string{
-		"":                                 "printed nothing",
-		"   \n":                            "printed nothing",
-		"{":                                "invalid JSON",
-		"[]":                               "invalid JSON",
-		`{"protocol":1,"methods":[]}`:      "lists no methods",
-		`{"protocol":7,"methods":[{}]}`:    "protocol 7",
-		`{"protocol":1,"methods":[{}]} {}`: "data after",
+		"":                              "printed nothing",
+		"   \n":                         "printed nothing",
+		"{":                             "invalid JSON",
+		"[]":                            "invalid JSON",
+		`{"protocol":1,"methods":[]}`:   "lists no methods",
+		`{"protocol":7,"methods":[{}]}`: "describe speaks protocol 7, and this build speaks protocol 1",
+		`{"protocol":3,"protocol_min":2,"protocol_max":3,"methods":[{}]}`: "describe speaks protocol 2 to 3",
+		`{"protocol":2,"protocol_min":2,"protocol_max":1,"methods":[{}]}`: "inverted protocol range, 2 to 1",
+		`{"methods":[{}]}`: "names no protocol version",
+		`{"protocol":3,"protocol_min":1,"protocol_max":2,"methods":[{}]}`: "names protocol 3 outside its own range, 1 to 2",
+		`{"protocol":1,"methods":[{}]} {}`:                                "data after",
 	}
 	for input, want := range cases {
 		if _, err := parseDescription([]byte(input)); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("parseDescription(%q) = %v, want %q", input, err, want)
 		}
+	}
+	// A newer program whose range still reaches back to a version this
+	// build speaks loads at that version: the N-1 window from its side.
+	if _, err := parseDescription([]byte(`{"protocol":2,"protocol_min":1,"protocol_max":2,"methods":[{"name":"a.b"}]}`)); err != nil {
+		t.Errorf("a range reaching this build's version was refused: %v", err)
 	}
 	// Unknown fields are accepted: a newer program within the same
 	// protocol may send one this build does not know.
