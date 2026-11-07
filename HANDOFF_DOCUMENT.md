@@ -4,77 +4,85 @@ Rewrite the "Current Status" section when stopping mid-task or handing off, per 
 
 ## Current Status (this session)
 
-**2026-11-06. PR #123 (`fix/facts-churn`) merged as `56538cf4`, every check green the first time. Branch
-`fix/open-patterns-batch2`, in the main clone (the worktree the owner allowed is removed), nine commits on
-`56538cf4`: `8a7b91fd` (448), `5d468d73` (560), `4f8a30fe` (551), `62033dae` (systemd units), then the review fixes
-`501f7196`, `b39700eb`, `b4a32d91`, `07929043`, `b4338348`. Not yet through pr-check, push or a pull request.**
+**2026-11-07. `main` at `b8a5e065`, clean. No open pull requests and no branch besides `main` (this records branch,
+`docs/handoff-2026-11-07`, aside). `stash@{0}` (GNS3 link suspend and capture, back burner) is kept.**
 
 ### What works
 
-- **Three open failure patterns are fixed, each with its cause measured.**
-  - 448: XNU gave pin/tftp's dual-stack client socket a port an IPv4 loopback socket held, and that socket took the
-    replies. An IPv4 server's client is now bound to its route's source address (`pkg/tftpxfer/localaddr.go`).
-    `TestTransfersSurviveIPv4SocketsHoldingManyPorts` (9 of 40 Gets timed out on the Mac with `main`'s code).
-  - 560: a Docker Engine bug fixed in 28.3.0 (moby issue 50133); CI runs 28.0.4, this machine 29.8.0. `settle` after
-    start, stop and restart. `TestStop_TheListShowsTheStopWhenTheMethodReturns` (200 of 200 failed on 28.0.4 with
-    `main`'s code).
-  - 551: the rollback planner dropped a later run's tasks that failed during their action. They now refuse unless
-    `--despite-run`, as kind `unknown_effect` with `unknown_effects`, on the CLI and the Controller.
-    `TestCLI_RollbackReleaseGate/G2_a_later_run_that_failed_during_its_action_refuses`.
-- **systemd per-login units (954)** are left out of the services facts:
-  `TestCLI_ServiceFactsHoldStillWhileLoginsComeAndGo`.
-- **Review fixes** 955 to 958, found by fp-reviewer and a second model's review (rv2).
-- Each new test is red on the old code and green on the fix, with and without `-race`. Exceptions:
-  `TestResolveServer_TakesTheIPv4Address` and the mapped-literal subtests guard a regression only; the many-ports
-  test's latest change is a timing and a skip.
-- Coverage (floor in brackets): `internal/rollback` 94.6 (92.6), `pkg/tftpxfer` 94.9 (93.5),
-  `internal/catalog/facts` 100 (100), `internal/apispec` 100, `internal/api` 98.4 (98.4), `internal/catalog/container`
-  79.9 (no floor).
-- Not run here yet: the whole `internal/archtest` and the `cmd/pleiades` gates; pr-check's census runs them.
+Merged since the last handoff (#125 to #128 tonight, each with every check green the first time):
+
+- **#124** `c55f91e2`, `fix/open-patterns-batch2` (FAILURE_PATTERNS 448, 560, 551, 954 to 958). It merged before the
+  night's queue; the previous entry calls it unpushed.
+- **#125** `c95baf51`, Phase 135a, contracts a release keeps: `docs/13-releases-and-stability.md` (the 0.4.0 line and
+  the point-release rule), the journal's `format` field (`FormatVersion` 1), `wire.DispatchPayload.PayloadVersion` (1),
+  `tools/schemacompat` (direction-aware schema compatibility over the OpenAPI envelope, the module catalog and the
+  protocol window; `changelog/*.breaking.md` tokens; no break accepted on a patch line), and golden tests
+  (`internal/golden`). FAILURE_PATTERNS 959 to 962.
+- **#126** `1d579ebf`, Phase 135b: the external Collection protocol window (`external.Protocols`, `Negotiate`,
+  `Description.Range`, `ChildRequest.Protocol`, `ErrNoCommonProtocol`), advertised through `pleiades version` and
+  `runner version`, and reserved fact families (`collection.CheckExternalFact`). FAILURE_PATTERNS 963 (`list
+  --describe` ran unapproved bytes; submitted to vuln-corpus as C10/CWE-696), 964, 965.
+- **#127** `ccf890c4`, Phase 41h PR 1: native fact names (`os.*`, `host.*`, `hardware.*`, `network.*`, `catalyst.*`),
+  the `pkg/ansiblefacts` mapping and the register rules. Proven in the lab on the Mac, bsd-check and win-check; the
+  live distribution test runs pinned images in CI. FAILURE_PATTERNS 966, 967; LESSONS 409.
+- **#128** `b8a5e065`, Phase 41h PR 2: the playbook converter turns a condition on a known Ansible fact into a native
+  one, over an inserted, always-tagged `facts.gather` read as `nodes.<reg>[device.id]`. Narrow on purpose: only `==`,
+  `!=`, `in` and `not in` against strings convert, with an absent fact guarded as unequal. Orderings, filters (`| int`
+  included), pattern tests, truth reads, values with no single native word, localhost plays, tuned gathers and
+  shadowed facts stay `when.fact`; setup's `filter` is refused. Gate:
+  `TestMigratePlaybook_AFactReadDecidesPerHostAsAnsibleDoes` in `cmd/pleiades` (Debian and Alpine sshds; red without
+  the absence guard). FAILURE_PATTERNS 968, LESSONS 410.
+
+Tonight's gates and their times are in the timings log.
 
 ### Current blocker
 
-None. Next is pr-check for this branch.
+None.
 
 ### Open
 
-- (a) Owner design calls: a later run killed mid-task before its seal that wrote no journal entry is never counted
-  by the rollback planner (551); a later rollback run skipped as "cancels out" when it ran after the target (957).
-- (b) 560's likely sibling: `Session.RunToExit` and `Session.RunOnce` (`pkg/containerengine`) wait on
-  `WaitConditionNotRunning`; no caller lists right after, but before Docker 28.3.0 a later task's list could see a
-  stale state. Not changed.
-- (c) Native fact names, decided by the owner on 2026-11-06: no Ansible names in stored keys, dotted native families,
-  flat keys, the device's own lowercase IDs, Ansible names only in the converter's mapping, and a case-sensitive
-  `fact:` selector with an opt-in case-insensitive flag. The approved table and 12-step work list are in
-  `.SPECIFICATION/FACT_NAMES.md` section 4.4 (internal, never cite publicly). Open: its phase id. Two PRs (keys and mapping, then the
-  converter rewrite), before 41d.
-- (d) The backlog in memory `open-fp-fable-backlog`: 690, 483, the BSD and macOS release, Ansible fidelity gaps.
-- (e) 953 is still open; its Groundconfig entry `knowledge/unreviewed/virtualbox_whpx_guest_restart_boot_hang.txt`
-  awaits the owner's review.
-- (f) `stash@{0}` is the GNS3 work set aside on purpose (`lab-captures-129b`, 2026-10-25): never drop it.
-- API credit: about $46 left, expiring 2026-11-08. Spent on this branch: research r448 $0.88, r560 $0.26, r551 $0.28,
-  rsvc $0.21, review rv2 $0.90.
+- (a) Owner questions on #128: should setup's `filter` ever be translated, or stay refused? Should an ordering over
+  the major version convert by reading the native integer, which differs from Ansible's string comparison ("10" <
+  "8")?
+- (b) OpenBSD: Ansible's `ansible_distribution_release` there is said to be "release", "current", "stable" or "beta"
+  (research, not checked on a host). The converter would convert `== "current"` cleanly, and the run would then fail
+  loudly at the inserted gather, since an OpenBSD host gets no fact-gathering capability. Not a silent wrong answer.
+  Owner call: refuse those words in the converter, or document OpenBSD as unsupported.
+- (c) `examples/virtualbox_lab/README.md` still shows old fact names in a pasted transcript; it needs a fresh lab run.
+- (d) The first-party collection split (cloud and network Collections released apart from the core), raised by the
+  owner on 2026-11-06. Design calls open: an external program or a linked module, Landlock being Linux-only, the trust
+  tier. Not started.
+- (e) Leftover research (2026-11-07, not verified here):
+  - 483 (the CI reaper's 60 s readiness wait): image pull time falls outside the wait, so pre-pulling would not have
+    prevented it, and `TESTCONTAINERS_RYUK_CONNECTION_TIMEOUT` does not change the library's readiness wait. On the
+    next sighting, capture `docker ps -a`, `docker inspect` and `docker logs` of the ryuk container, `docker events`,
+    and `journalctl` for docker and containerd, and run with `TESTCONTAINERS_RYUK_VERBOSE=true`. Several packages
+    failing in the same second with one reaper ID would point at a shared-creation race under a slow daemon.
+  - 690 (a silent `[build failed]` on win-check): `cmd/go` normally prints a tool's exit status even when stderr is
+    empty, so the suspect is capture: since Go 1.24, build output arrives as build-output events keyed by the
+    `pkg [pkg.test]` action. Cheapest experiment: put a syntax error in a `_test.go`, run the win leg's exact
+    invocation, and check that testgate shows it. If it does not, it is a tooling gap in `flakegate.FailureOutput`.
+    If it does, capture Windows Application events 1000 and 1001, Resource-Exhaustion-Detector 2004, Defender
+    Operational 1116 and 1117, and the commit charge before rerunning.
+  - FreeBSD and macOS release: Ansible gives the kernel release (digit-first), which the converter already refuses.
+    No hole there.
+- (f) API credit: spent tonight (claude-fable-5-1, effort high, batch) rcompat $0.31, rv135a $0.70, rv135b $0.36,
+  rv41h $1.04, rv41h2 $0.32, leftover research $0.35; $3.08 in all. The ledger stands at $48.85 of the $92.58 credit,
+  so about $43.70 is left, and it expires 2026-11-08.
+- (g) `stash@{0}` is the GNS3 work set aside on purpose (`lab-captures-129b`, 2026-10-25): never drop it.
 
 ### Next, in order
 
-1. `make pr-check` through the monitor, push, `make branch-containers`, the pull request. Merge only when green,
-   `record-actions`, pull `main` and clean.
-2. The fact-name rename, two PRs, before Phase 41d.
-3. Phase 41, 41b to 41g, then 117b, 117c, 105, then release 0.4.0 (no tag until the owner says).
+1. Phase 41h's last item, "Seen versus changed" (its own PR): insert-only fact history, one observation per gather,
+   last seen read from the latest observation, in both stores (section 3.1 of the fact-name design note). Not
+   started.
+2. Phase 135c (written in the roadmap, not built).
+3. Then 41d and 41e (both now depend on 41h), 117b, 117c and 105, toward 0.4.0. No tag until the owner says.
 
 ### Files changed on this branch
 
-`pkg/tftpxfer/` (`tftpxfer.go`, `localaddr.go` (new), tests), `internal/catalog/container/` (`lifecycle.go`,
-`stop.go`, `docs.go`, settle tests, harness), `internal/rollback/` (`history.go`, `later_run.go` (new), `plan.go`,
-tests), `internal/api/dispatcher_rollback.go` and its test, `internal/apispec/template_endpoints.go`,
-`internal/catalog/facts/` (`gather_services.go`, `gather_outcome.go`, `gather.go`, tests),
-`internal/forge/catalogdata/` (`collections_gating.go`, `collections_container.go`), `internal/clireport` schema test,
-`cmd/pleiades/` (`services_facts_release_gate_test.go` (new), a rollback gate case), `docs/10-running-in-production.md`,
-and the regenerated `docs/reference` and `internal/api/wellknown`. Records (uncommitted): `FAILURE_PATTERNS.md` and its
-archive (448, 551 and 560 closed; 954 to 958), `LESSONS_LEARNED.md` and its archive (405 updated; 406, 407),
-`CI_LESSONS.md` (29), the Actions ledger (448 and 560 annotated), `HANDOFF_DOCUMENT.md`, `HANDOFF_ARCHIVE.md`,
-`changelog/tftp-transfers-on-macos.fixed.md`, `changelog/container-state-settled.fixed.md`,
-`changelog/rollback-later-failed-run.fixed.md`, `changelog/facts-gather-systemd-session-units.fixed.md`.
+`HANDOFF_DOCUMENT.md` and `HANDOFF_ARCHIVE.md` only (uncommitted).
 
-Machine: unchanged. Lab: unchanged; all VMs are powered off. The Mac was used by the worktree agent through pleiades
-(51.5 GB free before, 51.4 GB after, its TMPDIR leftovers removed).
+Machine: unchanged. Lab: unchanged. The Mac, bsd-check and win-check were each ACPI-stopped after the #127 lab gates
+and confirmed powered off then. At the end of the night `VBoxManage list runningvms` returned nothing with exit 0, so
+no lab VM is running.
