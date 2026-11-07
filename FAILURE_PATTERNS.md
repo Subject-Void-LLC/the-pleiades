@@ -971,6 +971,7 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 965. A new Controller fact rule was held by an older test's batch, which named no emitting method (a repeat in kind of 837) (fixed before merge)
 966. The live distribution test was rewritten to start all 22 images ansible.json records, four of them rolling, named only in JSON where tools/testimages cannot see them (a repeat of 125; in kind of 124, 917 and 745) (fixed before push)
 967. The playbook converter copied setup's filter to facts.gather's, so once fact keys became native every converted ansible_* filter matched nothing and failed on every host (a repeat of 848 and 334) (fixed before push)
+968. The converter's first fact conditions changed Ansible's meaning on every path but the comparison it was written for (fixed before merge, a repeat in kind of 848 and 967)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

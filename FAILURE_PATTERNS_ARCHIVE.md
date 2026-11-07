@@ -23410,3 +23410,29 @@ refusal. A later converter change is to translate the patterns rather than refus
 **Lesson.** When a method's key names change, every converter argument whose value names those keys (filters,
 patterns, selectors) is reviewed in the same change; a pattern copied across holds only while both sides spell the
 keys alike.
+
+## 968. The converter's first fact conditions changed Ansible's meaning on every path but the comparison it was written for (fixed before merge, a repeat in kind of 848 and 967)
+
+**Symptom.** Found by two reviews of the converter rewrite (Phase 41h PR 2, 2026-11-07), never released: the first
+version turned `ansible_os_family == "Debian"` into a native read correctly, and read the native fact on every other
+condition path as if it were Ansible's: an absent native fact (no codename on Alpine, Arch, Fedora) failed the task
+where Ansible's `NA` compares false; `ansible_distribution_major_version >= "8"` compared an integer where Ansible
+compares text ("10" < "8"); `| int` on a version string or an absent fact gave a CEL error or false where Jinja gives 22
+or 0; `is match("Ubuntu|Debian")` matched Ansible's word against `ubuntu`; a fact read as a truth failed on an absent
+fact where `NA` is true; `ansible_architecture == "x86_64"` was true on Windows, where Ansible says `64-bit`; the
+inserted gather had no tag, so `--tags` dropped it and every fact condition failed; a play var shadowing a fact was
+read as the fact; a refusal quoted the playbook's value (a repeat of 330).
+
+**Root cause.** The value rewrite was hooked into `compare` only, and the translated read was an ordinary CEL term
+every other node (filter, regex, truth) treated as the value Ansible would have, though only `compare` knew it was not.
+
+**Fix.** `5c9ca2fc`, `17d4e2b4`, `65182d96`. The conversion keeps to equality and membership against strings, with an
+absent fact guarded as unequal (`guardFact`); every other path on a fact term (filters, `| int` included, orderings,
+pattern tests, truth reads) refuses `when.fact`, and so do values with no one native word on every host
+(`ansiblefacts.NativeValue`: architecture, swap, a release starting with a digit, a non-canonical major version). The
+gather is tagged `always`; a localhost play or one tuning its gather keeps its facts dropped; a shadowed fact is left to
+the ordinary resolution; refusals name the value's kind. `TestTranslate_AFactReadKeepsAnsiblesMeaning` and the live
+`TestMigratePlaybook_AFactReadDecidesPerHostAsAnsibleDoes`, whose absent-codename case on Alpine is red without the
+guard.
+
+**Lesson.** LESSONS 410.
