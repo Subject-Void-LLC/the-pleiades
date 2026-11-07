@@ -203,3 +203,14 @@ func TestTranslate_APlayTheGatherCannotServeKeepsItsFactsDropped(t *testing.T) {
 		})
 	}
 }
+
+func TestTranslate_AFactRefusalNamesTheValuesKindNotTheValue(t *testing.T) {
+	const value = "hunter2-like-text-in-a-condition"
+	res := convert(t, factPlay(`ansible_distribution == "`+value+`"`, "x"))
+	if !slices.Contains(codesOf(res.Report), "when.fact") {
+		t.Fatalf("codes %v, want when.fact", codesOf(res.Report))
+	}
+	if strings.Contains(res.Report.String(), value) {
+		t.Errorf("the report quotes the playbook's value:\n%s", res.Report.String())
+	}
+}
