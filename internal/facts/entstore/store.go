@@ -1,11 +1,13 @@
 // Package entstore is the Controller's fact store over the ent Fact table
-// (Phase 41, 41b), and the consumer that writes what Runners publish into it.
+// (Phase 41, 41b, 41h), and the consumer that writes what Runners publish
+// into it.
 //
 // It keeps the rules the Crawl CLI's file store keeps (internal/facts). A
 // stable key's rows are the history of its value: a row is written only when
 // an observation's hash differs from the value the key held as of the
-// observation's run order, and an observation of that same value moves the
-// row's last_seen_at and last_provenance instead. The current value is the
+// observation's run order. No row is ever updated. Each gather writes one
+// FactObservation instead (observations.go), and when a value was last
+// confirmed is read from those (facts.Sightings): the current value is the
 // one most recently confirmed, by run order where two runs' orders compare
 // (facts.Order) and by the clock where they do not, so a batch that arrives
 // late (redelivered, or from a Runner whose clock runs behind) adds history
@@ -13,10 +15,11 @@
 // replaced when its value changes.
 //
 // Stable rows form a per-device hash chain (chain_prev, chain). A unique
-// index on (chain_prev, device) keeps it a line: two replicas storing for one
-// device at once cannot both extend the same row, and the loser's batch is
-// redelivered against the new head. The key, value, hash, kind, first
-// provenance and chain of a row have no setter in the generated client.
+// index on (chain_prev, device) keeps it a line, and one on an observation's
+// (seq, device) makes two replicas storing for one device at once take turns:
+// the loser's batch is redelivered against the new head. No field of a row
+// has a setter in the generated client but the shared timestamp mixin's
+// updated_at, which nothing calls.
 package entstore
 
 import (
@@ -77,6 +80,10 @@ func record(ctx context.Context, tx *ent.Tx, device string, obs facts.Observatio
 	if err != nil {
 		return err
 	}
+	seq, err := nextSeq(ctx, tx, dev.ID)
+	if err != nil {
+		return err
+	}
 	head, err := chainHead(ctx, tx, dev.ID)
 	if err != nil {
 		return err
@@ -102,42 +109,43 @@ func record(ctx context.Context, tx *ent.Tx, device string, obs facts.Observatio
 			byKey[row.Key] = append(byKey[row.Key], row)
 		}
 	}
+	last, err := lastSightings(ctx, tx, dev.ID, obs, byKey)
+	if err != nil {
+		return err
+	}
 	for _, e := range obs.Entries {
 		rows := byKey[e.Key]
 		if e.Kind == facts.KindVolatile {
-			if err := recordVolatile(ctx, tx, dev, rows, e, obs, by); err != nil {
+			if err := recordVolatile(ctx, tx, dev, rows, last, e, obs, seq, by); err != nil {
 				return err
 			}
 			continue
 		}
-		cur, ok := valueAt(rows, obs.By.Order, at)
-		if ok && cur.Hash == e.Hash {
-			if err := confirm(ctx, tx, cur, obs, by); err != nil {
-				return err
-			}
+		prior := make([]facts.Entry, len(rows))
+		for i, row := range rows {
+			prior[i] = last[row.ID]
+		}
+		if cur, ok := facts.ValueAt(prior, obs.By.Order, at); ok && cur.Hash == e.Hash {
+			// A confirmation: the observation written below is all of it.
 			continue
 		}
-		if head, err = chainStable(ctx, tx, dev, device, head, e, at, obs.By); err != nil {
+		if head, err = chainStable(ctx, tx, dev, device, head, e, at, obs.By, seq); err != nil {
 			return err
 		}
 		// A late change keeps the value confirmed after it in the history
 		// (FAILURE_PATTERNS 923).
-		prior := make([]facts.Entry, len(rows))
-		for i, row := range rows {
-			prior[i] = entry(row)
-		}
 		if back, ok := facts.Resumed(prior, facts.Entry{Key: e.Key, Hash: e.Hash, ObservedAt: at, By: obs.By}); ok {
-			if head, err = chainStable(ctx, tx, dev, device, head, back, back.ObservedAt, back.By); err != nil {
+			if head, err = chainStable(ctx, tx, dev, device, head, back, back.ObservedAt, back.By, seq); err != nil {
 				return err
 			}
 		}
 	}
-	return nil
+	return writeObservation(ctx, tx, dev, seq, obs, by)
 }
 
-// chainStable writes e as a stable row first observed at at by p, chained
-// after head, and returns the new head.
-func chainStable(ctx context.Context, tx *ent.Tx, dev *ent.Device, device, head string, e facts.Entry, at time.Time, p facts.Provenance) (string, error) {
+// chainStable writes e as a stable row first observed at at by p, written by
+// observation seq and chained after head, and returns the new head.
+func chainStable(ctx context.Context, tx *ent.Tx, dev *ent.Device, device, head string, e facts.Entry, at time.Time, p facts.Provenance, seq int64) (string, error) {
 	by, err := encode(p)
 	if err != nil {
 		return "", err
@@ -146,31 +154,26 @@ func chainStable(ctx context.Context, tx *ent.Tx, dev *ent.Device, device, head 
 	if err != nil {
 		return "", fmt.Errorf("facts: %w", err)
 	}
-	if err := create(tx, dev, e, at, by).SetKind(entfact.KindStable).SetChainPrev(head).SetChain(chain).Exec(ctx); err != nil {
+	if err := create(tx, dev, e, at, by, seq).SetKind(entfact.KindStable).SetChainPrev(head).SetChain(chain).Exec(ctx); err != nil {
 		return "", fmt.Errorf("facts: %w", err)
 	}
 	return chain, nil
 }
 
 // recordVolatile keeps e as its key's one volatile row when obs is the
-// latest observation of it: the row is confirmed when its value is the
-// same, and replaced when it is not; a late observation changes nothing.
-func recordVolatile(ctx context.Context, tx *ent.Tx, dev *ent.Device, rows []*ent.Fact, e facts.Entry, obs facts.Observation, by map[string]any) error {
-	var held []*ent.Fact
-	for _, row := range rows {
-		if row.Kind == entfact.KindVolatile {
-			held = append(held, row)
-		}
-	}
+// latest observation of it: a value the same as the one held is confirmed by
+// the observation alone, and a different one replaces it; a late observation
+// changes nothing.
+func recordVolatile(ctx context.Context, tx *ent.Tx, dev *ent.Device, rows []*ent.Fact, last map[int]facts.Entry, e facts.Entry, obs facts.Observation, seq int64, by map[string]any) error {
+	held := volatileRows(rows)
 	at := facts.StoredTime(obs.At)
 	if len(held) > 0 {
 		newest := held[len(held)-1]
-		last := entry(newest)
-		if after, _ := facts.Later(obs.By.Order, at, last.LastBy.Order, last.LastSeenAt); !after {
+		if !laterThan(facts.Entry{By: obs.By, ObservedAt: at}, lastOf(last, newest)) {
 			return nil
 		}
 		if newest.Hash == e.Hash && len(held) == 1 {
-			return confirm(ctx, tx, newest, obs, by)
+			return nil
 		}
 		ids := make([]int, len(held))
 		for i, row := range held {
@@ -180,56 +183,30 @@ func recordVolatile(ctx context.Context, tx *ent.Tx, dev *ent.Device, rows []*en
 			return fmt.Errorf("facts: %w", err)
 		}
 	}
-	if err := create(tx, dev, e, at, by).SetKind(entfact.KindVolatile).Exec(ctx); err != nil {
+	if err := create(tx, dev, e, at, by, seq).SetKind(entfact.KindVolatile).Exec(ctx); err != nil {
 		return fmt.Errorf("facts: %w", err)
 	}
 	return nil
 }
 
-// confirm moves row's last confirmation to obs when obs came later.
-func confirm(ctx context.Context, tx *ent.Tx, row *ent.Fact, obs facts.Observation, by map[string]any) error {
-	last := entry(row)
-	at := facts.StoredTime(obs.At)
-	if after, _ := facts.Later(obs.By.Order, at, last.LastBy.Order, last.LastSeenAt); !after {
-		return nil
-	}
-	if err := tx.Fact.UpdateOne(row).SetLastSeenAt(at).SetLastProvenance(by).Exec(ctx); err != nil {
-		return fmt.Errorf("facts: %w", err)
-	}
-	return nil
+// lastOf is row's last confirmation as an entry whose first sighting is it,
+// for laterThan.
+func lastOf(last map[int]facts.Entry, row *ent.Fact) facts.Entry {
+	e := last[row.ID]
+	return facts.Entry{By: e.LastBy, ObservedAt: e.LastSeenAt}
 }
 
-// create starts a row for e, first observed and last confirmed by obs.
-func create(tx *ent.Tx, dev *ent.Device, e facts.Entry, at time.Time, by map[string]any) *ent.FactCreate {
+// create starts a row for e, first observed at at by by, written by
+// observation seq.
+func create(tx *ent.Tx, dev *ent.Device, e facts.Entry, at time.Time, by map[string]any, seq int64) *ent.FactCreate {
 	return tx.Fact.Create().
 		SetKey(e.Key).
 		SetPayload(map[string]any{payloadKey: mustCanonical(e.Value)}).
 		SetHash(e.Hash).
 		SetCreatedAt(at).
-		SetLastSeenAt(at).
 		SetProvenance(by).
-		SetLastProvenance(by).
+		SetObservationSeq(seq).
 		SetDevice(dev)
-}
-
-// valueAt is the stable row a key held as of (order, at): of its rows that
-// came at or before it, the latest, the later row on a tie.
-func valueAt(rows []*ent.Fact, order facts.Order, at time.Time) (*ent.Fact, bool) {
-	var found *ent.Fact
-	var foundEntry facts.Entry
-	for _, row := range rows {
-		if row.Kind != entfact.KindStable {
-			continue
-		}
-		e := entry(row)
-		if after, _ := facts.Later(e.By.Order, e.ObservedAt, order, at); after {
-			continue
-		}
-		if found == nil || !laterThan(foundEntry, e) {
-			found, foundEntry = row, e
-		}
-	}
-	return found, found != nil
 }
 
 // laterThan reports whether a was first observed after b.

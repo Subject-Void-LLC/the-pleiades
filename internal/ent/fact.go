@@ -29,14 +29,16 @@ type Fact struct {
 	Payload map[string]interface{} `json:"payload,omitempty"`
 	// Hash holds the value of the "hash" field.
 	Hash string `json:"hash,omitempty"`
-	// LastSeenAt holds the value of the "last_seen_at" field.
-	LastSeenAt time.Time `json:"last_seen_at,omitempty"`
 	// Kind holds the value of the "kind" field.
 	Kind fact.Kind `json:"kind,omitempty"`
 	// Provenance holds the value of the "provenance" field.
 	Provenance map[string]interface{} `json:"provenance,omitempty"`
+	// LastSeenAt holds the value of the "last_seen_at" field.
+	LastSeenAt time.Time `json:"last_seen_at,omitempty"`
 	// LastProvenance holds the value of the "last_provenance" field.
 	LastProvenance map[string]interface{} `json:"last_provenance,omitempty"`
+	// ObservationSeq holds the value of the "observation_seq" field.
+	ObservationSeq int64 `json:"observation_seq,omitempty"`
 	// ChainPrev holds the value of the "chain_prev" field.
 	ChainPrev *string `json:"chain_prev,omitempty"`
 	// Chain holds the value of the "chain" field.
@@ -75,7 +77,7 @@ func (*Fact) scanValues(columns []string) ([]any, error) {
 		switch columns[i] {
 		case fact.FieldPayload, fact.FieldProvenance, fact.FieldLastProvenance:
 			values[i] = new([]byte)
-		case fact.FieldID:
+		case fact.FieldID, fact.FieldObservationSeq:
 			values[i] = new(sql.NullInt64)
 		case fact.FieldKey, fact.FieldHash, fact.FieldKind, fact.FieldChainPrev, fact.FieldChain:
 			values[i] = new(sql.NullString)
@@ -136,12 +138,6 @@ func (_m *Fact) assignValues(columns []string, values []any) error {
 			} else if value.Valid {
 				_m.Hash = value.String
 			}
-		case fact.FieldLastSeenAt:
-			if value, ok := values[i].(*sql.NullTime); !ok {
-				return fmt.Errorf("unexpected type %T for field last_seen_at", values[i])
-			} else if value.Valid {
-				_m.LastSeenAt = value.Time
-			}
 		case fact.FieldKind:
 			if value, ok := values[i].(*sql.NullString); !ok {
 				return fmt.Errorf("unexpected type %T for field kind", values[i])
@@ -156,6 +152,12 @@ func (_m *Fact) assignValues(columns []string, values []any) error {
 					return fmt.Errorf("unmarshal field provenance: %w", err)
 				}
 			}
+		case fact.FieldLastSeenAt:
+			if value, ok := values[i].(*sql.NullTime); !ok {
+				return fmt.Errorf("unexpected type %T for field last_seen_at", values[i])
+			} else if value.Valid {
+				_m.LastSeenAt = value.Time
+			}
 		case fact.FieldLastProvenance:
 			if value, ok := values[i].(*[]byte); !ok {
 				return fmt.Errorf("unexpected type %T for field last_provenance", values[i])
@@ -163,6 +165,12 @@ func (_m *Fact) assignValues(columns []string, values []any) error {
 				if err := json.Unmarshal(*value, &_m.LastProvenance); err != nil {
 					return fmt.Errorf("unmarshal field last_provenance: %w", err)
 				}
+			}
+		case fact.FieldObservationSeq:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field observation_seq", values[i])
+			} else if value.Valid {
+				_m.ObservationSeq = value.Int64
 			}
 		case fact.FieldChainPrev:
 			if value, ok := values[i].(*sql.NullString); !ok {
@@ -240,17 +248,20 @@ func (_m *Fact) String() string {
 	builder.WriteString("hash=")
 	builder.WriteString(_m.Hash)
 	builder.WriteString(", ")
-	builder.WriteString("last_seen_at=")
-	builder.WriteString(_m.LastSeenAt.Format(time.ANSIC))
-	builder.WriteString(", ")
 	builder.WriteString("kind=")
 	builder.WriteString(fmt.Sprintf("%v", _m.Kind))
 	builder.WriteString(", ")
 	builder.WriteString("provenance=")
 	builder.WriteString(fmt.Sprintf("%v", _m.Provenance))
 	builder.WriteString(", ")
+	builder.WriteString("last_seen_at=")
+	builder.WriteString(_m.LastSeenAt.Format(time.ANSIC))
+	builder.WriteString(", ")
 	builder.WriteString("last_provenance=")
 	builder.WriteString(fmt.Sprintf("%v", _m.LastProvenance))
+	builder.WriteString(", ")
+	builder.WriteString("observation_seq=")
+	builder.WriteString(fmt.Sprintf("%v", _m.ObservationSeq))
 	builder.WriteString(", ")
 	if v := _m.ChainPrev; v != nil {
 		builder.WriteString("chain_prev=")

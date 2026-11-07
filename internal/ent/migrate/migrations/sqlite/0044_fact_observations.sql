@@ -1,0 +1,15 @@
+PRAGMA foreign_keys = off;
+PRAGMA foreign_keys = off;
+CREATE TABLE `new_facts` (`id` integer NOT NULL PRIMARY KEY AUTOINCREMENT, `created_at` datetime NOT NULL, `updated_at` datetime NOT NULL, `key` text NOT NULL DEFAULT (''), `payload` json NOT NULL, `hash` text NOT NULL, `kind` text NOT NULL DEFAULT ('stable'), `provenance` json NULL, `last_seen_at` datetime NULL, `last_provenance` json NULL, `observation_seq` integer NOT NULL DEFAULT (0), `chain_prev` text NULL, `chain` text NULL, `device_facts` integer NOT NULL, CONSTRAINT `facts_devices_facts` FOREIGN KEY (`device_facts`) REFERENCES `devices` (`id`) ON DELETE NO ACTION);
+INSERT INTO `new_facts` (`id`, `created_at`, `updated_at`, `key`, `payload`, `hash`, `kind`, `provenance`, `last_seen_at`, `last_provenance`, `chain_prev`, `chain`, `device_facts`) SELECT `id`, `created_at`, `updated_at`, `key`, `payload`, `hash`, `kind`, `provenance`, `last_seen_at`, `last_provenance`, `chain_prev`, `chain`, `device_facts` FROM `facts`;
+DROP TABLE `facts`;
+ALTER TABLE `new_facts` RENAME TO `facts`;
+CREATE INDEX `fact_key_device_facts` ON `facts` (`key`, `device_facts`);
+CREATE INDEX `fact_device_facts` ON `facts` (`device_facts`);
+CREATE UNIQUE INDEX `fact_chain_prev_device_facts` ON `facts` (`chain_prev`, `device_facts`);
+CREATE TABLE `fact_coverages` (`id` integer NOT NULL PRIMARY KEY AUTOINCREMENT, `digest` text NOT NULL, `stable` json NULL, `volatile` json NULL, `device_fact_coverages` integer NOT NULL, CONSTRAINT `fact_coverages_devices_fact_coverages` FOREIGN KEY (`device_fact_coverages`) REFERENCES `devices` (`id`) ON DELETE NO ACTION);
+CREATE UNIQUE INDEX `factcoverage_digest_device_fact_coverages` ON `fact_coverages` (`digest`, `device_fact_coverages`);
+CREATE TABLE `fact_observations` (`id` integer NOT NULL PRIMARY KEY AUTOINCREMENT, `seq` integer NOT NULL, `observed_at` datetime NOT NULL, `order_source` text NOT NULL DEFAULT (''), `order_token` integer NOT NULL DEFAULT (0), `provenance` json NOT NULL, `coverage` text NOT NULL, `device_id` integer NOT NULL, CONSTRAINT `fact_observations_devices_fact_observations` FOREIGN KEY (`device_id`) REFERENCES `devices` (`id`) ON DELETE NO ACTION);
+CREATE UNIQUE INDEX `factobservation_device_id_seq` ON `fact_observations` (`device_id`, `seq`);
+PRAGMA foreign_keys = on;
+PRAGMA foreign_keys = on;

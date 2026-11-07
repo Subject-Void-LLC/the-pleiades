@@ -211,6 +211,11 @@ type stagedEntry struct {
 
 	// Content is the path's bytes exactly as the index holds them.
 	Content []byte
+
+	// Before is the path's bytes as the commit's parent held them, read only
+	// for a modified ent schema file (nil otherwise, and nil when it could
+	// not be read).
+	Before []byte
 }
 
 // generatedMarker is the comment Go's own convention requires at the top

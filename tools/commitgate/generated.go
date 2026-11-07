@@ -9,7 +9,11 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
+	"go/format"
+	"go/parser"
+	"go/token"
 	"strings"
 )
 
@@ -18,6 +22,7 @@ const (
 	entSchemaDir        = "internal/ent/schema/"
 	entGeneratedDir     = "internal/ent/"
 	entMigrationsDir    = "internal/ent/migrate/migrations/"
+	backupListing       = "internal/backup/testdata/toc_migrated.txt"
 	catalogDataDir      = "internal/forge/catalogdata/"
 	catalogGeneratedDir = "internal/catalog/"
 	specDir             = "internal/apispec/"
@@ -37,6 +42,7 @@ func checkGenerated(entries []stagedEntry) []Finding {
 	var findings []Finding
 	findings = append(findings, checkEntRegenerated(entries)...)
 	findings = append(findings, checkEntMigrations(entries)...)
+	findings = append(findings, checkBackupListing(entries)...)
 	findings = append(findings, checkCatalogRegenerated(entries)...)
 	findings = append(findings, checkReferenceRegenerated(entries)...)
 	return findings
@@ -69,9 +75,12 @@ func isEntGenerated(e stagedEntry) bool {
 }
 
 // checkEntRegenerated refuses a schema edit with no regenerated client
-// beside it.
+// beside it. A schema file whose Go code is unchanged but for its comments
+// is not an edit ent sees: go generate writes nothing for it, so demanding
+// regenerated output for one could only be passed with --no-verify, which
+// also skips every other rule.
 func checkEntRegenerated(entries []stagedEntry) []Finding {
-	if !staged(entries, func(e stagedEntry) bool { return isEntSchema(e.Path) }) {
+	if !staged(entries, func(e stagedEntry) bool { return isEntSchema(e.Path) && !commentsOnly(e) }) {
 		return nil
 	}
 	if staged(entries, isEntGenerated) {
@@ -175,5 +184,61 @@ func checkReferenceRegenerated(entries []stagedEntry) []Finding {
 		Rule:     "a spec edit usually ships with its regenerated reference",
 		Detail: "this commit changes internal/apispec or internal/clispec but stages nothing generated from it\n" +
 			"  run `make docs-gen-check` to see whether docs/reference or internal/api/wellknown moved",
+	}}
+}
+
+// commentsOnly reports whether a modified schema file changed nothing but
+// its comments: its code, parsed without comments and printed back, is the
+// same before and after. Anything it cannot show (an added file, a file with
+// no Before, one that does not parse either side) counts as a real change.
+func commentsOnly(e stagedEntry) bool {
+	if e.Kind != changeModified || e.Before == nil {
+		return false
+	}
+	before, ok := codeWithoutComments(e.Before)
+	if !ok {
+		return false
+	}
+	after, ok := codeWithoutComments(e.Content)
+	return ok && bytes.Equal(before, after)
+}
+
+// codeWithoutComments is Go source printed back from its syntax tree with
+// every comment left out, so two files that differ only in comments and the
+// spacing around them print the same.
+func codeWithoutComments(src []byte) ([]byte, bool) {
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "schema.go", src, parser.SkipObjectResolution)
+	if err != nil {
+		return nil, false
+	}
+	var out bytes.Buffer
+	if err := format.Node(&out, fset, file); err != nil {
+		return nil, false
+	}
+	return out.Bytes(), true
+}
+
+// checkBackupListing warns when a commit adds an ent entity and not the
+// recaptured backup listing beside it. internal/backup's
+// TestParseTOC_ReadsARealBackupOfThisSchema holds a real pg_restore --list to
+// the tables this build knows, so every new table needs the listing captured
+// again from a real database (toc_test.go's header says how). Three tables
+// in a row reached CI before anyone recaptured it (FAILURE_PATTERNS 978); it
+// is a warning, since the capture needs PostgreSQL and may follow in a later
+// commit of the same branch.
+func checkBackupListing(entries []stagedEntry) []Finding {
+	if !staged(entries, func(e stagedEntry) bool { return e.Kind == changeAdded && isEntSchema(e.Path) }) {
+		return nil
+	}
+	if staged(entries, func(e stagedEntry) bool { return e.Path == backupListing }) {
+		return nil
+	}
+	return []Finding{{
+		Severity: SeverityWarn,
+		Rule:     "a new ent entity is a new table in every backup",
+		Detail: "this commit adds an ent schema file but not a recaptured " + backupListing + "\n" +
+			"  recapture it (and toc_planted.txt) from a real database, as internal/backup/toc_test.go's header says,\n" +
+			"  or internal/backup's TestParseTOC_ReadsARealBackupOfThisSchema fails in CI's containers jobs",
 	}}
 }

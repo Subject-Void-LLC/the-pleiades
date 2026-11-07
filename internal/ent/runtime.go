@@ -15,6 +15,8 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/device"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/encryptionkey"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/fact"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/factcoverage"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/factobservation"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/group"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/job"
@@ -355,10 +357,68 @@ func init() {
 	factDescHash := factFields[2].Descriptor()
 	// fact.HashValidator is a validator for the "hash" field. It is called by the builders before save.
 	fact.HashValidator = factDescHash.Validators[0].(func(string) error)
-	// factDescLastSeenAt is the schema descriptor for last_seen_at field.
-	factDescLastSeenAt := factFields[3].Descriptor()
-	// fact.DefaultLastSeenAt holds the default value on creation for the last_seen_at field.
-	fact.DefaultLastSeenAt = factDescLastSeenAt.Default.(func() time.Time)
+	// factDescObservationSeq is the schema descriptor for observation_seq field.
+	factDescObservationSeq := factFields[7].Descriptor()
+	// fact.DefaultObservationSeq holds the default value on creation for the observation_seq field.
+	fact.DefaultObservationSeq = factDescObservationSeq.Default.(int64)
+	// fact.ObservationSeqValidator is a validator for the "observation_seq" field. It is called by the builders before save.
+	fact.ObservationSeqValidator = factDescObservationSeq.Validators[0].(func(int64) error)
+	factcoverageFields := schema.FactCoverage{}.Fields()
+	_ = factcoverageFields
+	// factcoverageDescDigest is the schema descriptor for digest field.
+	factcoverageDescDigest := factcoverageFields[0].Descriptor()
+	// factcoverage.DigestValidator is a validator for the "digest" field. It is called by the builders before save.
+	factcoverage.DigestValidator = func() func(string) error {
+		validators := factcoverageDescDigest.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(digest string) error {
+			for _, fn := range fns {
+				if err := fn(digest); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	factobservationFields := schema.FactObservation{}.Fields()
+	_ = factobservationFields
+	// factobservationDescSeq is the schema descriptor for seq field.
+	factobservationDescSeq := factobservationFields[1].Descriptor()
+	// factobservation.SeqValidator is a validator for the "seq" field. It is called by the builders before save.
+	factobservation.SeqValidator = factobservationDescSeq.Validators[0].(func(int64) error)
+	// factobservationDescOrderSource is the schema descriptor for order_source field.
+	factobservationDescOrderSource := factobservationFields[3].Descriptor()
+	// factobservation.DefaultOrderSource holds the default value on creation for the order_source field.
+	factobservation.DefaultOrderSource = factobservationDescOrderSource.Default.(string)
+	// factobservation.OrderSourceValidator is a validator for the "order_source" field. It is called by the builders before save.
+	factobservation.OrderSourceValidator = factobservationDescOrderSource.Validators[0].(func(string) error)
+	// factobservationDescOrderToken is the schema descriptor for order_token field.
+	factobservationDescOrderToken := factobservationFields[4].Descriptor()
+	// factobservation.DefaultOrderToken holds the default value on creation for the order_token field.
+	factobservation.DefaultOrderToken = factobservationDescOrderToken.Default.(int64)
+	// factobservation.OrderTokenValidator is a validator for the "order_token" field. It is called by the builders before save.
+	factobservation.OrderTokenValidator = factobservationDescOrderToken.Validators[0].(func(int64) error)
+	// factobservationDescCoverage is the schema descriptor for coverage field.
+	factobservationDescCoverage := factobservationFields[6].Descriptor()
+	// factobservation.CoverageValidator is a validator for the "coverage" field. It is called by the builders before save.
+	factobservation.CoverageValidator = func() func(string) error {
+		validators := factobservationDescCoverage.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(coverage string) error {
+			for _, fn := range fns {
+				if err := fn(coverage); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
 	groupMixin := schema.Group{}.Mixin()
 	groupMixinFields0 := groupMixin[0].Fields()
 	_ = groupMixinFields0

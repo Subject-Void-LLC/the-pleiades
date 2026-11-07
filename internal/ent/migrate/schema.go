@@ -330,10 +330,11 @@ var (
 		{Name: "key", Type: field.TypeString, Size: 256, Default: ""},
 		{Name: "payload", Type: field.TypeJSON},
 		{Name: "hash", Type: field.TypeString},
-		{Name: "last_seen_at", Type: field.TypeTime, Nullable: true},
 		{Name: "kind", Type: field.TypeEnum, Enums: []string{"stable", "volatile"}, Default: "stable"},
 		{Name: "provenance", Type: field.TypeJSON, Nullable: true},
+		{Name: "last_seen_at", Type: field.TypeTime, Nullable: true},
 		{Name: "last_provenance", Type: field.TypeJSON, Nullable: true},
+		{Name: "observation_seq", Type: field.TypeInt64, Default: 0},
 		{Name: "chain_prev", Type: field.TypeString, Nullable: true},
 		{Name: "chain", Type: field.TypeString, Nullable: true},
 		{Name: "device_facts", Type: field.TypeInt},
@@ -346,7 +347,7 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "facts_devices_facts",
-				Columns:    []*schema.Column{FactsColumns[12]},
+				Columns:    []*schema.Column{FactsColumns[13]},
 				RefColumns: []*schema.Column{DevicesColumns[0]},
 				OnDelete:   schema.NoAction,
 			},
@@ -355,17 +356,78 @@ var (
 			{
 				Name:    "fact_key_device_facts",
 				Unique:  false,
-				Columns: []*schema.Column{FactsColumns[3], FactsColumns[12]},
+				Columns: []*schema.Column{FactsColumns[3], FactsColumns[13]},
 			},
 			{
 				Name:    "fact_device_facts",
 				Unique:  false,
-				Columns: []*schema.Column{FactsColumns[12]},
+				Columns: []*schema.Column{FactsColumns[13]},
 			},
 			{
 				Name:    "fact_chain_prev_device_facts",
 				Unique:  true,
-				Columns: []*schema.Column{FactsColumns[10], FactsColumns[12]},
+				Columns: []*schema.Column{FactsColumns[11], FactsColumns[13]},
+			},
+		},
+	}
+	// FactCoveragesColumns holds the columns for the "fact_coverages" table.
+	FactCoveragesColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "digest", Type: field.TypeString, Size: 64},
+		{Name: "stable", Type: field.TypeJSON, Nullable: true},
+		{Name: "volatile", Type: field.TypeJSON, Nullable: true},
+		{Name: "device_fact_coverages", Type: field.TypeInt},
+	}
+	// FactCoveragesTable holds the schema information for the "fact_coverages" table.
+	FactCoveragesTable = &schema.Table{
+		Name:       "fact_coverages",
+		Columns:    FactCoveragesColumns,
+		PrimaryKey: []*schema.Column{FactCoveragesColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "fact_coverages_devices_fact_coverages",
+				Columns:    []*schema.Column{FactCoveragesColumns[4]},
+				RefColumns: []*schema.Column{DevicesColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "factcoverage_digest_device_fact_coverages",
+				Unique:  true,
+				Columns: []*schema.Column{FactCoveragesColumns[1], FactCoveragesColumns[4]},
+			},
+		},
+	}
+	// FactObservationsColumns holds the columns for the "fact_observations" table.
+	FactObservationsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "seq", Type: field.TypeInt64},
+		{Name: "observed_at", Type: field.TypeTime},
+		{Name: "order_source", Type: field.TypeString, Size: 256, Default: ""},
+		{Name: "order_token", Type: field.TypeInt64, Default: 0},
+		{Name: "provenance", Type: field.TypeJSON},
+		{Name: "coverage", Type: field.TypeString, Size: 64},
+		{Name: "device_id", Type: field.TypeInt},
+	}
+	// FactObservationsTable holds the schema information for the "fact_observations" table.
+	FactObservationsTable = &schema.Table{
+		Name:       "fact_observations",
+		Columns:    FactObservationsColumns,
+		PrimaryKey: []*schema.Column{FactObservationsColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "fact_observations_devices_fact_observations",
+				Columns:    []*schema.Column{FactObservationsColumns[7]},
+				RefColumns: []*schema.Column{DevicesColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "factobservation_device_id_seq",
+				Unique:  true,
+				Columns: []*schema.Column{FactObservationsColumns[7], FactObservationsColumns[1]},
 			},
 		},
 	}
@@ -1318,6 +1380,8 @@ var (
 		DevicesTable,
 		EncryptionKeysTable,
 		FactsTable,
+		FactCoveragesTable,
+		FactObservationsTable,
 		GroupsTable,
 		InventoriesTable,
 		JobsTable,
@@ -1360,6 +1424,8 @@ func init() {
 	DevicesTable.ForeignKeys[0].RefTable = DevicesTable
 	DevicesTable.ForeignKeys[1].RefTable = OrganizationsTable
 	FactsTable.ForeignKeys[0].RefTable = DevicesTable
+	FactCoveragesTable.ForeignKeys[0].RefTable = DevicesTable
+	FactObservationsTable.ForeignKeys[0].RefTable = DevicesTable
 	InventoriesTable.ForeignKeys[0].RefTable = OrganizationsTable
 	JobTasksTable.ForeignKeys[0].RefTable = JobsTable
 	LaunchablesTable.ForeignKeys[0].RefTable = OrganizationsTable

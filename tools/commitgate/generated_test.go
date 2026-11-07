@@ -1,7 +1,10 @@
 // Package main: tests for the rules about generated code.
 package main
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // entry builds a staged entry for a table row.
 func entry(path string, kind changeKind, content string) stagedEntry {
@@ -125,5 +128,93 @@ func TestCheckGeneratedIsSilentOnAnOrdinaryCommit(t *testing.T) {
 	}
 	if findings := checkGenerated(entries); len(findings) != 0 {
 		t.Errorf("reported %d findings against a commit touching no generated tree: %+v", len(findings), findings)
+	}
+}
+
+// schemaBefore is a schema file as its parent commit held it.
+const schemaBefore = `package schema
+
+// Fact is a fact.
+type Fact struct{}
+
+// Fields of the Fact.
+func (Fact) Fields() []ent.Field {
+	return []ent.Field{
+		field.String("key"), // the key
+	}
+}
+`
+
+// modifiedSchema is a modified schema entry with its before and after.
+func modifiedSchema(before, after string) stagedEntry {
+	e := entry("internal/ent/schema/fact.go", changeModified, after)
+	e.Before = []byte(before)
+	return e
+}
+
+func TestCheckEntRegeneratedAcceptsACommentOnlySchemaEdit(t *testing.T) {
+	after := strings.Replace(schemaBefore, "// Fact is a fact.", "// Fact is a fact, now said\n// at greater length.", 1)
+	after = strings.Replace(after, "// the key", "// the key, which names the history", 1)
+	if hasRule(checkGenerated([]stagedEntry{modifiedSchema(schemaBefore, after)}), SeverityFail, "regenerated code") {
+		t.Error("refused a schema edit that changed only comments, which go generate writes nothing for")
+	}
+}
+
+func TestCheckEntRegeneratedStillRefusesACodeChangeBesideComments(t *testing.T) {
+	for name, after := range map[string]string{
+		"a field added":              strings.Replace(schemaBefore, `field.String("key"), // the key`, "field.String(\"key\"), // the key\n\t\tfield.Int(\"seq\"),", 1),
+		"a field modified":           strings.Replace(schemaBefore, `field.String("key")`, `field.String("key").Immutable()`, 1),
+		"code that no longer parses": strings.Replace(schemaBefore, "return", "retrun", 1),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if !hasRule(checkGenerated([]stagedEntry{modifiedSchema(schemaBefore, after)}), SeverityFail, "regenerated code") {
+				t.Errorf("accepted %s with no regenerated code", name)
+			}
+		})
+	}
+	// With no parent content to compare (a rename), the edit counts as real.
+	e := entry("internal/ent/schema/fact.go", changeModified, schemaBefore)
+	if !hasRule(checkGenerated([]stagedEntry{e}), SeverityFail, "regenerated code") {
+		t.Error("accepted a schema edit whose parent content was not read")
+	}
+	// One comment-only file does not excuse a real edit beside it.
+	other := modifiedSchema(schemaBefore, strings.Replace(schemaBefore, `field.String("key")`, `field.Int("key")`, 1))
+	other.Path = "internal/ent/schema/journal.go"
+	if !hasRule(checkGenerated([]stagedEntry{modifiedSchema(schemaBefore, schemaBefore+"// trailing note\n"), other}), SeverityFail, "regenerated code") {
+		t.Error("a comment-only file excused a real schema change beside it")
+	}
+}
+
+func TestCommentsOnlyCountsWhatItCannotCompareAsAChange(t *testing.T) {
+	if commentsOnly(modifiedSchema("package schema\nfunc (", schemaBefore)) {
+		t.Error("a parent that does not parse read as comment-only")
+	}
+	added := modifiedSchema(schemaBefore, schemaBefore)
+	added.Kind = changeAdded
+	if commentsOnly(added) {
+		t.Error("an added file read as comment-only")
+	}
+	if !commentsOnly(modifiedSchema(schemaBefore, schemaBefore)) {
+		t.Error("an unchanged file did not read as comment-only")
+	}
+}
+
+func TestCheckBackupListingWarnsOnANewEntityAlone(t *testing.T) {
+	added := []stagedEntry{entry("internal/ent/schema/fact_coverage.go", changeAdded, "package schema\n")}
+	if !hasRule(checkGenerated(added), SeverityWarn, "new table in every backup") {
+		t.Error("said nothing about a new entity with no recaptured backup listing")
+	}
+	with := append(added, entry("internal/backup/testdata/toc_migrated.txt", changeModified, ";\n"))
+	if hasRule(checkGenerated(with), SeverityWarn, "new table in every backup") {
+		t.Error("warned although the listing was recaptured in the same commit")
+	}
+	modified := []stagedEntry{modifiedSchema(schemaBefore, schemaBefore+"// note\n")}
+	if hasRule(checkGenerated(modified), SeverityWarn, "new table in every backup") {
+		t.Error("warned on a schema file that adds no entity")
+	}
+	for _, f := range checkGenerated(added) {
+		if f.Severity == SeverityFail && strings.Contains(f.Rule, "backup") {
+			t.Error("the backup listing rule blocked a commit; it only warns")
+		}
 	}
 }

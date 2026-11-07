@@ -59,6 +59,10 @@ type DeviceEdges struct {
 	Children []*Device `json:"children,omitempty"`
 	// Facts holds the value of the facts edge.
 	Facts []*Fact `json:"facts,omitempty"`
+	// FactObservations holds the value of the fact_observations edge.
+	FactObservations []*FactObservation `json:"fact_observations,omitempty"`
+	// FactCoverages holds the value of the fact_coverages edge.
+	FactCoverages []*FactCoverage `json:"fact_coverages,omitempty"`
 	// Revisions holds the value of the revisions edge.
 	Revisions []*Revision `json:"revisions,omitempty"`
 	// Groups holds the value of the groups edge.
@@ -69,7 +73,7 @@ type DeviceEdges struct {
 	Inventories []*Inventory `json:"inventories,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [7]bool
+	loadedTypes [9]bool
 }
 
 // ParentOrErr returns the Parent value or an error if the edge
@@ -101,10 +105,28 @@ func (e DeviceEdges) FactsOrErr() ([]*Fact, error) {
 	return nil, &NotLoadedError{edge: "facts"}
 }
 
+// FactObservationsOrErr returns the FactObservations value or an error if the edge
+// was not loaded in eager-loading.
+func (e DeviceEdges) FactObservationsOrErr() ([]*FactObservation, error) {
+	if e.loadedTypes[3] {
+		return e.FactObservations, nil
+	}
+	return nil, &NotLoadedError{edge: "fact_observations"}
+}
+
+// FactCoveragesOrErr returns the FactCoverages value or an error if the edge
+// was not loaded in eager-loading.
+func (e DeviceEdges) FactCoveragesOrErr() ([]*FactCoverage, error) {
+	if e.loadedTypes[4] {
+		return e.FactCoverages, nil
+	}
+	return nil, &NotLoadedError{edge: "fact_coverages"}
+}
+
 // RevisionsOrErr returns the Revisions value or an error if the edge
 // was not loaded in eager-loading.
 func (e DeviceEdges) RevisionsOrErr() ([]*Revision, error) {
-	if e.loadedTypes[3] {
+	if e.loadedTypes[5] {
 		return e.Revisions, nil
 	}
 	return nil, &NotLoadedError{edge: "revisions"}
@@ -113,7 +135,7 @@ func (e DeviceEdges) RevisionsOrErr() ([]*Revision, error) {
 // GroupsOrErr returns the Groups value or an error if the edge
 // was not loaded in eager-loading.
 func (e DeviceEdges) GroupsOrErr() ([]*Group, error) {
-	if e.loadedTypes[4] {
+	if e.loadedTypes[6] {
 		return e.Groups, nil
 	}
 	return nil, &NotLoadedError{edge: "groups"}
@@ -124,7 +146,7 @@ func (e DeviceEdges) GroupsOrErr() ([]*Group, error) {
 func (e DeviceEdges) OrganizationOrErr() (*Organization, error) {
 	if e.Organization != nil {
 		return e.Organization, nil
-	} else if e.loadedTypes[5] {
+	} else if e.loadedTypes[7] {
 		return nil, &NotFoundError{label: organization.Label}
 	}
 	return nil, &NotLoadedError{edge: "organization"}
@@ -133,7 +155,7 @@ func (e DeviceEdges) OrganizationOrErr() (*Organization, error) {
 // InventoriesOrErr returns the Inventories value or an error if the edge
 // was not loaded in eager-loading.
 func (e DeviceEdges) InventoriesOrErr() ([]*Inventory, error) {
-	if e.loadedTypes[6] {
+	if e.loadedTypes[8] {
 		return e.Inventories, nil
 	}
 	return nil, &NotLoadedError{edge: "inventories"}
@@ -294,6 +316,16 @@ func (_m *Device) QueryChildren() *DeviceQuery {
 // QueryFacts queries the "facts" edge of the Device entity.
 func (_m *Device) QueryFacts() *FactQuery {
 	return NewDeviceClient(_m.config).QueryFacts(_m)
+}
+
+// QueryFactObservations queries the "fact_observations" edge of the Device entity.
+func (_m *Device) QueryFactObservations() *FactObservationQuery {
+	return NewDeviceClient(_m.config).QueryFactObservations(_m)
+}
+
+// QueryFactCoverages queries the "fact_coverages" edge of the Device entity.
+func (_m *Device) QueryFactCoverages() *FactCoverageQuery {
+	return NewDeviceClient(_m.config).QueryFactCoverages(_m)
 }
 
 // QueryRevisions queries the "revisions" edge of the Device entity.

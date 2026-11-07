@@ -25,14 +25,16 @@ const (
 	FieldPayload = "payload"
 	// FieldHash holds the string denoting the hash field in the database.
 	FieldHash = "hash"
-	// FieldLastSeenAt holds the string denoting the last_seen_at field in the database.
-	FieldLastSeenAt = "last_seen_at"
 	// FieldKind holds the string denoting the kind field in the database.
 	FieldKind = "kind"
 	// FieldProvenance holds the string denoting the provenance field in the database.
 	FieldProvenance = "provenance"
+	// FieldLastSeenAt holds the string denoting the last_seen_at field in the database.
+	FieldLastSeenAt = "last_seen_at"
 	// FieldLastProvenance holds the string denoting the last_provenance field in the database.
 	FieldLastProvenance = "last_provenance"
+	// FieldObservationSeq holds the string denoting the observation_seq field in the database.
+	FieldObservationSeq = "observation_seq"
 	// FieldChainPrev holds the string denoting the chain_prev field in the database.
 	FieldChainPrev = "chain_prev"
 	// FieldChain holds the string denoting the chain field in the database.
@@ -58,10 +60,11 @@ var Columns = []string{
 	FieldKey,
 	FieldPayload,
 	FieldHash,
-	FieldLastSeenAt,
 	FieldKind,
 	FieldProvenance,
+	FieldLastSeenAt,
 	FieldLastProvenance,
+	FieldObservationSeq,
 	FieldChainPrev,
 	FieldChain,
 }
@@ -100,8 +103,10 @@ var (
 	KeyValidator func(string) error
 	// HashValidator is a validator for the "hash" field. It is called by the builders before save.
 	HashValidator func(string) error
-	// DefaultLastSeenAt holds the default value on creation for the "last_seen_at" field.
-	DefaultLastSeenAt func() time.Time
+	// DefaultObservationSeq holds the default value on creation for the "observation_seq" field.
+	DefaultObservationSeq int64
+	// ObservationSeqValidator is a validator for the "observation_seq" field. It is called by the builders before save.
+	ObservationSeqValidator func(int64) error
 )
 
 // Kind defines the type for the "kind" enum field.
@@ -158,14 +163,19 @@ func ByHash(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldHash, opts...).ToFunc()
 }
 
+// ByKind orders the results by the kind field.
+func ByKind(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldKind, opts...).ToFunc()
+}
+
 // ByLastSeenAt orders the results by the last_seen_at field.
 func ByLastSeenAt(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldLastSeenAt, opts...).ToFunc()
 }
 
-// ByKind orders the results by the kind field.
-func ByKind(opts ...sql.OrderTermOption) OrderOption {
-	return sql.OrderByField(FieldKind, opts...).ToFunc()
+// ByObservationSeq orders the results by the observation_seq field.
+func ByObservationSeq(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldObservationSeq, opts...).ToFunc()
 }
 
 // ByChainPrev orders the results by the chain_prev field.

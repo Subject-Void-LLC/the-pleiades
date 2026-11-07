@@ -134,6 +134,10 @@ func (Device) Edges() []ent.Edge {
 			Unique(),
 		// A device has many immutable historical facts
 		edge.To("facts", Fact.Type),
+		// A device has one immutable observation per gather that stored
+		// facts (Phase 41h), and each distinct set of keys those covered.
+		edge.To("fact_observations", FactObservation.Type),
+		edge.To("fact_coverages", FactCoverage.Type),
 		// A device has many immutable revisions, its audit trail.
 		edge.To("revisions", Revision.Type),
 		// A device can belong to any number of overlapping groups

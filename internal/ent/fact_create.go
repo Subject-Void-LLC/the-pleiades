@@ -75,20 +75,6 @@ func (_c *FactCreate) SetHash(v string) *FactCreate {
 	return _c
 }
 
-// SetLastSeenAt sets the "last_seen_at" field.
-func (_c *FactCreate) SetLastSeenAt(v time.Time) *FactCreate {
-	_c.mutation.SetLastSeenAt(v)
-	return _c
-}
-
-// SetNillableLastSeenAt sets the "last_seen_at" field if the given value is not nil.
-func (_c *FactCreate) SetNillableLastSeenAt(v *time.Time) *FactCreate {
-	if v != nil {
-		_c.SetLastSeenAt(*v)
-	}
-	return _c
-}
-
 // SetKind sets the "kind" field.
 func (_c *FactCreate) SetKind(v fact.Kind) *FactCreate {
 	_c.mutation.SetKind(v)
@@ -109,9 +95,37 @@ func (_c *FactCreate) SetProvenance(v map[string]interface{}) *FactCreate {
 	return _c
 }
 
+// SetLastSeenAt sets the "last_seen_at" field.
+func (_c *FactCreate) SetLastSeenAt(v time.Time) *FactCreate {
+	_c.mutation.SetLastSeenAt(v)
+	return _c
+}
+
+// SetNillableLastSeenAt sets the "last_seen_at" field if the given value is not nil.
+func (_c *FactCreate) SetNillableLastSeenAt(v *time.Time) *FactCreate {
+	if v != nil {
+		_c.SetLastSeenAt(*v)
+	}
+	return _c
+}
+
 // SetLastProvenance sets the "last_provenance" field.
 func (_c *FactCreate) SetLastProvenance(v map[string]interface{}) *FactCreate {
 	_c.mutation.SetLastProvenance(v)
+	return _c
+}
+
+// SetObservationSeq sets the "observation_seq" field.
+func (_c *FactCreate) SetObservationSeq(v int64) *FactCreate {
+	_c.mutation.SetObservationSeq(v)
+	return _c
+}
+
+// SetNillableObservationSeq sets the "observation_seq" field if the given value is not nil.
+func (_c *FactCreate) SetNillableObservationSeq(v *int64) *FactCreate {
+	if v != nil {
+		_c.SetObservationSeq(*v)
+	}
 	return _c
 }
 
@@ -201,13 +215,13 @@ func (_c *FactCreate) defaults() {
 		v := fact.DefaultKey
 		_c.mutation.SetKey(v)
 	}
-	if _, ok := _c.mutation.LastSeenAt(); !ok {
-		v := fact.DefaultLastSeenAt()
-		_c.mutation.SetLastSeenAt(v)
-	}
 	if _, ok := _c.mutation.Kind(); !ok {
 		v := fact.DefaultKind
 		_c.mutation.SetKind(v)
+	}
+	if _, ok := _c.mutation.ObservationSeq(); !ok {
+		v := fact.DefaultObservationSeq
+		_c.mutation.SetObservationSeq(v)
 	}
 }
 
@@ -244,6 +258,14 @@ func (_c *FactCreate) check() error {
 	if v, ok := _c.mutation.Kind(); ok {
 		if err := fact.KindValidator(v); err != nil {
 			return &ValidationError{Name: "kind", err: fmt.Errorf(`ent: validator failed for field "Fact.kind": %w`, err)}
+		}
+	}
+	if _, ok := _c.mutation.ObservationSeq(); !ok {
+		return &ValidationError{Name: "observation_seq", err: errors.New(`ent: missing required field "Fact.observation_seq"`)}
+	}
+	if v, ok := _c.mutation.ObservationSeq(); ok {
+		if err := fact.ObservationSeqValidator(v); err != nil {
+			return &ValidationError{Name: "observation_seq", err: fmt.Errorf(`ent: validator failed for field "Fact.observation_seq": %w`, err)}
 		}
 	}
 	if len(_c.mutation.DeviceIDs()) == 0 {
@@ -295,10 +317,6 @@ func (_c *FactCreate) createSpec() (*Fact, *sqlgraph.CreateSpec) {
 		_spec.SetField(fact.FieldHash, field.TypeString, value)
 		_node.Hash = value
 	}
-	if value, ok := _c.mutation.LastSeenAt(); ok {
-		_spec.SetField(fact.FieldLastSeenAt, field.TypeTime, value)
-		_node.LastSeenAt = value
-	}
 	if value, ok := _c.mutation.Kind(); ok {
 		_spec.SetField(fact.FieldKind, field.TypeEnum, value)
 		_node.Kind = value
@@ -307,9 +325,17 @@ func (_c *FactCreate) createSpec() (*Fact, *sqlgraph.CreateSpec) {
 		_spec.SetField(fact.FieldProvenance, field.TypeJSON, value)
 		_node.Provenance = value
 	}
+	if value, ok := _c.mutation.LastSeenAt(); ok {
+		_spec.SetField(fact.FieldLastSeenAt, field.TypeTime, value)
+		_node.LastSeenAt = value
+	}
 	if value, ok := _c.mutation.LastProvenance(); ok {
 		_spec.SetField(fact.FieldLastProvenance, field.TypeJSON, value)
 		_node.LastProvenance = value
+	}
+	if value, ok := _c.mutation.ObservationSeq(); ok {
+		_spec.SetField(fact.FieldObservationSeq, field.TypeInt64, value)
+		_node.ObservationSeq = value
 	}
 	if value, ok := _c.mutation.ChainPrev(); ok {
 		_spec.SetField(fact.FieldChainPrev, field.TypeString, value)

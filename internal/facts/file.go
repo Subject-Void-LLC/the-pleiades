@@ -2,9 +2,10 @@
 // project's .pleiades/facts, one set per device.
 //
 // <device>.jsonl is append-only: one line per stored stable value, so a
-// key's lines are its history. <device>.state.json holds what changes on
-// every observation (file_store.go). A key's current value is the one most
-// recently confirmed.
+// key's lines are its history. <device>.seen.jsonl is append-only too: one
+// line per observation (file_seen.go). <device>.state.json holds each
+// volatile key's one value (file_store.go). A key's current value is the one
+// most recently confirmed.
 //
 // Every file is opened through an os.Root on the directory, so a link planted
 // there cannot lead a write outside it; the directory is refused when it is
@@ -36,9 +37,14 @@ const (
 	fileMode = 0o600
 )
 
-// maxLineBytes bounds one line read back: a value's bound plus room for the
-// key, hash and times.
-const maxLineBytes = MaxValueBytes + 4<<10
+// maxLineBytes bounds one history line read back: a value's bound plus room
+// for the key, hash and times. maxSeenLineBytes bounds one observation line,
+// which may list every key an observation may hold, each escaped as JSON may
+// write it.
+const (
+	maxLineBytes     = MaxValueBytes + 4<<10
+	maxSeenLineBytes = MaxFactsPerObservation*(6*MaxKeyBytes+3) + 4<<10
+)
 
 // deviceName is what a device's files are named after: its ID, a UUID or a
 // name made of the characters inventory allows.
@@ -136,10 +142,15 @@ func (s *FileStore) root(device string) (*os.Root, error) {
 	return r, nil
 }
 
-// appendLines appends to device's history, first cutting off an unfinished
-// line a crash left past complete bytes.
+// appendLines appends to device's history (appendTo).
 func appendLines(r *os.Root, device string, complete int64, appended []byte) error {
-	f, err := r.OpenFile(device+".jsonl", os.O_CREATE|os.O_RDWR, fileMode)
+	return appendTo(r, device+".jsonl", complete, appended)
+}
+
+// appendTo appends to the append-only file name, first cutting off an
+// unfinished line a crash left past complete bytes.
+func appendTo(r *os.Root, name string, complete int64, appended []byte) error {
+	f, err := r.OpenFile(name, os.O_CREATE|os.O_RDWR, fileMode)
 	if err != nil {
 		return fmt.Errorf("facts: %w", err)
 	}
@@ -150,14 +161,14 @@ func appendLines(r *os.Root, device string, complete int64, appended []byte) err
 	}
 	if info.Size() > complete {
 		if err := f.Truncate(complete); err != nil {
-			return fmt.Errorf("facts: cutting an unfinished line off %s.jsonl: %w", device, err)
+			return fmt.Errorf("facts: cutting an unfinished line off %s: %w", name, err)
 		}
 	}
 	if _, err := f.WriteAt(appended, complete); err != nil {
 		return fmt.Errorf("facts: %w", err)
 	}
-	// On disk before the state that names these values is renamed into
-	// place, so a crash cannot leave a state ahead of its history.
+	// On disk before anything that names these lines is written, so a crash
+	// cannot leave a later file ahead of this one.
 	if err := f.Sync(); err != nil {
 		return fmt.Errorf("facts: %w", err)
 	}
@@ -165,39 +176,55 @@ func appendLines(r *os.Root, device string, complete int64, appended []byte) err
 }
 
 // readLines reads device's history, and how many bytes of it are whole
-// lines. A missing file is an empty history; a final line with no newline
-// (a write a crash cut short) is left out; any other line that does not
-// decode is an error, never skipped.
+// lines (readJSONL).
 func readLines(r *os.Root, device string) ([]line, int64, error) {
-	f, err := r.Open(device + ".jsonl")
+	var lines []line
+	complete, err := readJSONL(r, device+".jsonl", maxLineBytes, func(n int, raw []byte) error {
+		var l line
+		dec := json.NewDecoder(bytes.NewReader(raw))
+		dec.UseNumber()
+		if err := dec.Decode(&l); err != nil || !ValidKey(l.Key) || l.Hash == "" || l.Seq < 0 {
+			return fmt.Errorf("facts: %s.jsonl line %d is not a stored fact", device, n)
+		}
+		lines = append(lines, l)
+		return nil
+	})
+	if err != nil {
+		return nil, 0, err
+	}
+	return lines, complete, nil
+}
+
+// readJSONL hands each whole line of the append-only file name to each, and
+// returns how many bytes are whole lines. A missing file has none; a final
+// line with no newline (a write a crash cut short) is left out; a line longer
+// than any stored line can be, or one each refuses, is an error, never
+// skipped.
+func readJSONL(r *os.Root, name string, maxBytes int, each func(n int, raw []byte) error) (int64, error) {
+	f, err := r.Open(name)
 	if errors.Is(err, fs.ErrNotExist) {
-		return nil, 0, nil
+		return 0, nil
 	}
 	if err != nil {
-		return nil, 0, fmt.Errorf("facts: %w", err)
+		return 0, fmt.Errorf("facts: %w", err)
 	}
 	defer func() { _ = f.Close() }()
 	br := bufio.NewReaderSize(f, 64<<10)
-	var lines []line
 	var complete int64
 	for n := 1; ; n++ {
 		raw, err := br.ReadBytes('\n')
 		if errors.Is(err, io.EOF) {
-			return lines, complete, nil
+			return complete, nil
 		}
 		if err != nil {
-			return nil, 0, fmt.Errorf("facts: %s.jsonl: %w", device, err)
+			return 0, fmt.Errorf("facts: %s: %w", name, err)
 		}
-		if len(raw) > maxLineBytes {
-			return nil, 0, fmt.Errorf("facts: %s.jsonl line %d is longer than a stored fact can be", device, n)
+		if len(raw) > maxBytes {
+			return 0, fmt.Errorf("facts: %s line %d is longer than a stored line can be", name, n)
 		}
-		var l line
-		dec := json.NewDecoder(bytes.NewReader(raw))
-		dec.UseNumber()
-		if err := dec.Decode(&l); err != nil || !ValidKey(l.Key) || l.Hash == "" {
-			return nil, 0, fmt.Errorf("facts: %s.jsonl line %d is not a stored fact", device, n)
+		if err := each(n, raw); err != nil {
+			return 0, err
 		}
-		lines = append(lines, l)
 		complete += int64(len(raw))
 	}
 }
@@ -208,11 +235,10 @@ func readLines(r *os.Root, device string) ([]line, int64, error) {
 // of a rename that reached the disk before the data did, empty on most
 // filesystems and zero-filled on XFS, on a store written before writeState
 // synced (FAILURE_PATTERNS 922). Refusing it refused the device's
-// facts forever; what it held is when values were last confirmed and the
-// volatile values, which the next run observes again, while the history
-// itself is in <device>.jsonl.
+// facts forever; what it held is the volatile values, which the next run
+// observes again, while the history itself is in <device>.jsonl.
 func readState(r *os.Root, device string) (state, error) {
-	st := state{Seen: map[string]map[string]sighting{}, Volatile: map[string]volatileValue{}}
+	st := state{Volatile: map[string]volatileValue{}}
 	f, err := r.Open(device + ".state.json")
 	if errors.Is(err, fs.ErrNotExist) {
 		return st, nil
@@ -232,9 +258,6 @@ func readState(r *os.Root, device string) (state, error) {
 	dec.UseNumber()
 	if err := dec.Decode(&st); err != nil {
 		return state{}, fmt.Errorf("facts: %s.state.json: %w", device, err)
-	}
-	if st.Seen == nil {
-		st.Seen = map[string]map[string]sighting{}
 	}
 	if st.Volatile == nil {
 		st.Volatile = map[string]volatileValue{}

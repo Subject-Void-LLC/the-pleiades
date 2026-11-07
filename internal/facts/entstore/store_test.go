@@ -28,7 +28,7 @@ import (
 )
 
 // open returns a client over a real file and one device in it.
-func open(t *testing.T) (*ent.Client, string) {
+func open(t testing.TB) (*ent.Client, string) {
 	t.Helper()
 	dsn := fmt.Sprintf("file:%s?_journal_mode=WAL&_busy_timeout=10000&_fk=1", filepath.Join(t.TempDir(), "facts.db"))
 	client := enttest.Open(t, "sqlite3", dsn)
@@ -80,18 +80,24 @@ func TestStore_WritesOnChangeAndKeepsHistory(t *testing.T) {
 }
 
 // TestFact_TheSchemaRefusesEditingAValue: a stored value is immutable in the
-// schema itself: the generated update has no setter for the key, the value
-// or the hash, so no caller can build an in-place edit, and only last_seen_at
-// moves.
+// schema itself: the generated update has no setter for any of its fields
+// (Phase 41h removed the last two, last_seen_at and last_provenance), and
+// neither has an observation's or a coverage's, so no caller can build an
+// in-place edit of the history.
 func TestFact_TheSchemaRefusesEditingAValue(t *testing.T) {
-	update := reflect.TypeOf(&ent.FactUpdateOne{})
-	for _, setter := range []string{"SetKey", "SetPayload", "SetHash"} {
-		if _, ok := update.MethodByName(setter); ok {
-			t.Errorf("ent.FactUpdateOne has %s: a stored fact could be edited in place", setter)
+	for _, update := range []reflect.Type{reflect.TypeOf(&ent.FactUpdateOne{}), reflect.TypeOf(&ent.FactObservationUpdateOne{}), reflect.TypeOf(&ent.FactCoverageUpdateOne{})} {
+		for i := 0; i < update.NumMethod(); i++ {
+			name := update.Method(i).Name
+			// updated_at is the shared timestamp mixin's, set only by an
+			// UPDATE, which TestStore_AGatherUpdatesNoStoredFact proves the
+			// store never runs.
+			if name == "SetUpdatedAt" {
+				continue
+			}
+			if strings.HasPrefix(name, "Set") || strings.HasPrefix(name, "Add") || strings.HasPrefix(name, "Append") || strings.HasPrefix(name, "Clear") {
+				t.Errorf("%s has %s: a stored record could be edited in place", update.Elem().Name(), name)
+			}
 		}
-	}
-	if _, ok := update.MethodByName("SetLastSeenAt"); !ok {
-		t.Error("ent.FactUpdateOne cannot move last_seen_at")
 	}
 }
 

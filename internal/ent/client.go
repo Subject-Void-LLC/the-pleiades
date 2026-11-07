@@ -25,6 +25,8 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/device"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/encryptionkey"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/fact"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/factcoverage"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/factobservation"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/group"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/job"
@@ -73,6 +75,10 @@ type Client struct {
 	EncryptionKey *EncryptionKeyClient
 	// Fact is the client for interacting with the Fact builders.
 	Fact *FactClient
+	// FactCoverage is the client for interacting with the FactCoverage builders.
+	FactCoverage *FactCoverageClient
+	// FactObservation is the client for interacting with the FactObservation builders.
+	FactObservation *FactObservationClient
 	// Group is the client for interacting with the Group builders.
 	Group *GroupClient
 	// Inventory is the client for interacting with the Inventory builders.
@@ -136,6 +142,8 @@ func (c *Client) init() {
 	c.Device = NewDeviceClient(c.config)
 	c.EncryptionKey = NewEncryptionKeyClient(c.config)
 	c.Fact = NewFactClient(c.config)
+	c.FactCoverage = NewFactCoverageClient(c.config)
+	c.FactObservation = NewFactObservationClient(c.config)
 	c.Group = NewGroupClient(c.config)
 	c.Inventory = NewInventoryClient(c.config)
 	c.Job = NewJobClient(c.config)
@@ -259,6 +267,8 @@ func (c *Client) Tx(ctx context.Context) (*Tx, error) {
 		Device:                NewDeviceClient(cfg),
 		EncryptionKey:         NewEncryptionKeyClient(cfg),
 		Fact:                  NewFactClient(cfg),
+		FactCoverage:          NewFactCoverageClient(cfg),
+		FactObservation:       NewFactObservationClient(cfg),
 		Group:                 NewGroupClient(cfg),
 		Inventory:             NewInventoryClient(cfg),
 		Job:                   NewJobClient(cfg),
@@ -309,6 +319,8 @@ func (c *Client) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error) 
 		Device:                NewDeviceClient(cfg),
 		EncryptionKey:         NewEncryptionKeyClient(cfg),
 		Fact:                  NewFactClient(cfg),
+		FactCoverage:          NewFactCoverageClient(cfg),
+		FactObservation:       NewFactObservationClient(cfg),
 		Group:                 NewGroupClient(cfg),
 		Inventory:             NewInventoryClient(cfg),
 		Job:                   NewJobClient(cfg),
@@ -361,10 +373,11 @@ func (c *Client) Use(hooks ...Hook) {
 	for _, n := range []interface{ Use(...Hook) }{
 		c.ActivityEntry, c.Announcement, c.Contact, c.ControllerInstance, c.Credential,
 		c.CredentialInputSource, c.CredentialType, c.Device, c.EncryptionKey, c.Fact,
-		c.Group, c.Inventory, c.Job, c.JobTask, c.JournalEntry, c.Launchable,
-		c.LocalCredential, c.MeshSigningKey, c.Organization, c.Project, c.Revision,
-		c.RoleBinding, c.SavedLaunchConfig, c.Schedule, c.ScheduleOccurrence,
-		c.Session, c.SurveyQuestion, c.SyncRun, c.Team, c.Template, c.User,
+		c.FactCoverage, c.FactObservation, c.Group, c.Inventory, c.Job, c.JobTask,
+		c.JournalEntry, c.Launchable, c.LocalCredential, c.MeshSigningKey,
+		c.Organization, c.Project, c.Revision, c.RoleBinding, c.SavedLaunchConfig,
+		c.Schedule, c.ScheduleOccurrence, c.Session, c.SurveyQuestion, c.SyncRun,
+		c.Team, c.Template, c.User,
 	} {
 		n.Use(hooks...)
 	}
@@ -376,10 +389,11 @@ func (c *Client) Intercept(interceptors ...Interceptor) {
 	for _, n := range []interface{ Intercept(...Interceptor) }{
 		c.ActivityEntry, c.Announcement, c.Contact, c.ControllerInstance, c.Credential,
 		c.CredentialInputSource, c.CredentialType, c.Device, c.EncryptionKey, c.Fact,
-		c.Group, c.Inventory, c.Job, c.JobTask, c.JournalEntry, c.Launchable,
-		c.LocalCredential, c.MeshSigningKey, c.Organization, c.Project, c.Revision,
-		c.RoleBinding, c.SavedLaunchConfig, c.Schedule, c.ScheduleOccurrence,
-		c.Session, c.SurveyQuestion, c.SyncRun, c.Team, c.Template, c.User,
+		c.FactCoverage, c.FactObservation, c.Group, c.Inventory, c.Job, c.JobTask,
+		c.JournalEntry, c.Launchable, c.LocalCredential, c.MeshSigningKey,
+		c.Organization, c.Project, c.Revision, c.RoleBinding, c.SavedLaunchConfig,
+		c.Schedule, c.ScheduleOccurrence, c.Session, c.SurveyQuestion, c.SyncRun,
+		c.Team, c.Template, c.User,
 	} {
 		n.Intercept(interceptors...)
 	}
@@ -408,6 +422,10 @@ func (c *Client) Mutate(ctx context.Context, m Mutation) (Value, error) {
 		return c.EncryptionKey.mutate(ctx, m)
 	case *FactMutation:
 		return c.Fact.mutate(ctx, m)
+	case *FactCoverageMutation:
+		return c.FactCoverage.mutate(ctx, m)
+	case *FactObservationMutation:
+		return c.FactObservation.mutate(ctx, m)
 	case *GroupMutation:
 		return c.Group.mutate(ctx, m)
 	case *InventoryMutation:
@@ -1750,6 +1768,38 @@ func (c *DeviceClient) QueryFacts(_m *Device) *FactQuery {
 	return query
 }
 
+// QueryFactObservations queries the fact_observations edge of a Device.
+func (c *DeviceClient) QueryFactObservations(_m *Device) *FactObservationQuery {
+	query := (&FactObservationClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(device.Table, device.FieldID, id),
+			sqlgraph.To(factobservation.Table, factobservation.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, device.FactObservationsTable, device.FactObservationsColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryFactCoverages queries the fact_coverages edge of a Device.
+func (c *DeviceClient) QueryFactCoverages(_m *Device) *FactCoverageQuery {
+	query := (&FactCoverageClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(device.Table, device.FieldID, id),
+			sqlgraph.To(factcoverage.Table, factcoverage.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, device.FactCoveragesTable, device.FactCoveragesColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
 // QueryRevisions queries the revisions edge of a Device.
 func (c *DeviceClient) QueryRevisions(_m *Device) *RevisionQuery {
 	query := (&RevisionClient{config: c.config}).Query()
@@ -2118,6 +2168,304 @@ func (c *FactClient) mutate(ctx context.Context, m *FactMutation) (Value, error)
 		return (&FactDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
 	default:
 		return nil, fmt.Errorf("ent: unknown Fact mutation op: %q", m.Op())
+	}
+}
+
+// FactCoverageClient is a client for the FactCoverage schema.
+type FactCoverageClient struct {
+	config
+}
+
+// NewFactCoverageClient returns a client for the FactCoverage from the given config.
+func NewFactCoverageClient(c config) *FactCoverageClient {
+	return &FactCoverageClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `factcoverage.Hooks(f(g(h())))`.
+func (c *FactCoverageClient) Use(hooks ...Hook) {
+	c.hooks.FactCoverage = append(c.hooks.FactCoverage, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `factcoverage.Intercept(f(g(h())))`.
+func (c *FactCoverageClient) Intercept(interceptors ...Interceptor) {
+	c.inters.FactCoverage = append(c.inters.FactCoverage, interceptors...)
+}
+
+// Create returns a builder for creating a FactCoverage entity.
+func (c *FactCoverageClient) Create() *FactCoverageCreate {
+	mutation := newFactCoverageMutation(c.config, OpCreate)
+	return &FactCoverageCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of FactCoverage entities.
+func (c *FactCoverageClient) CreateBulk(builders ...*FactCoverageCreate) *FactCoverageCreateBulk {
+	return &FactCoverageCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *FactCoverageClient) MapCreateBulk(slice any, setFunc func(*FactCoverageCreate, int)) *FactCoverageCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &FactCoverageCreateBulk{err: fmt.Errorf("calling to FactCoverageClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*FactCoverageCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &FactCoverageCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for FactCoverage.
+func (c *FactCoverageClient) Update() *FactCoverageUpdate {
+	mutation := newFactCoverageMutation(c.config, OpUpdate)
+	return &FactCoverageUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *FactCoverageClient) UpdateOne(_m *FactCoverage) *FactCoverageUpdateOne {
+	mutation := newFactCoverageMutation(c.config, OpUpdateOne, withFactCoverage(_m))
+	return &FactCoverageUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *FactCoverageClient) UpdateOneID(id int) *FactCoverageUpdateOne {
+	mutation := newFactCoverageMutation(c.config, OpUpdateOne, withFactCoverageID(id))
+	return &FactCoverageUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for FactCoverage.
+func (c *FactCoverageClient) Delete() *FactCoverageDelete {
+	mutation := newFactCoverageMutation(c.config, OpDelete)
+	return &FactCoverageDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *FactCoverageClient) DeleteOne(_m *FactCoverage) *FactCoverageDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *FactCoverageClient) DeleteOneID(id int) *FactCoverageDeleteOne {
+	builder := c.Delete().Where(factcoverage.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &FactCoverageDeleteOne{builder}
+}
+
+// Query returns a query builder for FactCoverage.
+func (c *FactCoverageClient) Query() *FactCoverageQuery {
+	return &FactCoverageQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeFactCoverage},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a FactCoverage entity by its id.
+func (c *FactCoverageClient) Get(ctx context.Context, id int) (*FactCoverage, error) {
+	return c.Query().Where(factcoverage.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *FactCoverageClient) GetX(ctx context.Context, id int) *FactCoverage {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// QueryDevice queries the device edge of a FactCoverage.
+func (c *FactCoverageClient) QueryDevice(_m *FactCoverage) *DeviceQuery {
+	query := (&DeviceClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(factcoverage.Table, factcoverage.FieldID, id),
+			sqlgraph.To(device.Table, device.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, factcoverage.DeviceTable, factcoverage.DeviceColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// Hooks returns the client hooks.
+func (c *FactCoverageClient) Hooks() []Hook {
+	return c.hooks.FactCoverage
+}
+
+// Interceptors returns the client interceptors.
+func (c *FactCoverageClient) Interceptors() []Interceptor {
+	return c.inters.FactCoverage
+}
+
+func (c *FactCoverageClient) mutate(ctx context.Context, m *FactCoverageMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&FactCoverageCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&FactCoverageUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&FactCoverageUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&FactCoverageDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown FactCoverage mutation op: %q", m.Op())
+	}
+}
+
+// FactObservationClient is a client for the FactObservation schema.
+type FactObservationClient struct {
+	config
+}
+
+// NewFactObservationClient returns a client for the FactObservation from the given config.
+func NewFactObservationClient(c config) *FactObservationClient {
+	return &FactObservationClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `factobservation.Hooks(f(g(h())))`.
+func (c *FactObservationClient) Use(hooks ...Hook) {
+	c.hooks.FactObservation = append(c.hooks.FactObservation, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `factobservation.Intercept(f(g(h())))`.
+func (c *FactObservationClient) Intercept(interceptors ...Interceptor) {
+	c.inters.FactObservation = append(c.inters.FactObservation, interceptors...)
+}
+
+// Create returns a builder for creating a FactObservation entity.
+func (c *FactObservationClient) Create() *FactObservationCreate {
+	mutation := newFactObservationMutation(c.config, OpCreate)
+	return &FactObservationCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of FactObservation entities.
+func (c *FactObservationClient) CreateBulk(builders ...*FactObservationCreate) *FactObservationCreateBulk {
+	return &FactObservationCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *FactObservationClient) MapCreateBulk(slice any, setFunc func(*FactObservationCreate, int)) *FactObservationCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &FactObservationCreateBulk{err: fmt.Errorf("calling to FactObservationClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*FactObservationCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &FactObservationCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for FactObservation.
+func (c *FactObservationClient) Update() *FactObservationUpdate {
+	mutation := newFactObservationMutation(c.config, OpUpdate)
+	return &FactObservationUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *FactObservationClient) UpdateOne(_m *FactObservation) *FactObservationUpdateOne {
+	mutation := newFactObservationMutation(c.config, OpUpdateOne, withFactObservation(_m))
+	return &FactObservationUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *FactObservationClient) UpdateOneID(id int) *FactObservationUpdateOne {
+	mutation := newFactObservationMutation(c.config, OpUpdateOne, withFactObservationID(id))
+	return &FactObservationUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for FactObservation.
+func (c *FactObservationClient) Delete() *FactObservationDelete {
+	mutation := newFactObservationMutation(c.config, OpDelete)
+	return &FactObservationDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *FactObservationClient) DeleteOne(_m *FactObservation) *FactObservationDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *FactObservationClient) DeleteOneID(id int) *FactObservationDeleteOne {
+	builder := c.Delete().Where(factobservation.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &FactObservationDeleteOne{builder}
+}
+
+// Query returns a query builder for FactObservation.
+func (c *FactObservationClient) Query() *FactObservationQuery {
+	return &FactObservationQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeFactObservation},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a FactObservation entity by its id.
+func (c *FactObservationClient) Get(ctx context.Context, id int) (*FactObservation, error) {
+	return c.Query().Where(factobservation.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *FactObservationClient) GetX(ctx context.Context, id int) *FactObservation {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// QueryDevice queries the device edge of a FactObservation.
+func (c *FactObservationClient) QueryDevice(_m *FactObservation) *DeviceQuery {
+	query := (&DeviceClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(factobservation.Table, factobservation.FieldID, id),
+			sqlgraph.To(device.Table, device.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, factobservation.DeviceTable, factobservation.DeviceColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// Hooks returns the client hooks.
+func (c *FactObservationClient) Hooks() []Hook {
+	return c.hooks.FactObservation
+}
+
+// Interceptors returns the client interceptors.
+func (c *FactObservationClient) Interceptors() []Interceptor {
+	return c.inters.FactObservation
+}
+
+func (c *FactObservationClient) mutate(ctx context.Context, m *FactObservationMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&FactObservationCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&FactObservationUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&FactObservationUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&FactObservationDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown FactObservation mutation op: %q", m.Op())
 	}
 }
 
@@ -5782,18 +6130,18 @@ func (c *UserClient) mutate(ctx context.Context, m *UserMutation) (Value, error)
 type (
 	hooks struct {
 		ActivityEntry, Announcement, Contact, ControllerInstance, Credential,
-		CredentialInputSource, CredentialType, Device, EncryptionKey, Fact, Group,
-		Inventory, Job, JobTask, JournalEntry, Launchable, LocalCredential,
-		MeshSigningKey, Organization, Project, Revision, RoleBinding,
-		SavedLaunchConfig, Schedule, ScheduleOccurrence, Session, SurveyQuestion,
-		SyncRun, Team, Template, User []ent.Hook
+		CredentialInputSource, CredentialType, Device, EncryptionKey, Fact,
+		FactCoverage, FactObservation, Group, Inventory, Job, JobTask, JournalEntry,
+		Launchable, LocalCredential, MeshSigningKey, Organization, Project, Revision,
+		RoleBinding, SavedLaunchConfig, Schedule, ScheduleOccurrence, Session,
+		SurveyQuestion, SyncRun, Team, Template, User []ent.Hook
 	}
 	inters struct {
 		ActivityEntry, Announcement, Contact, ControllerInstance, Credential,
-		CredentialInputSource, CredentialType, Device, EncryptionKey, Fact, Group,
-		Inventory, Job, JobTask, JournalEntry, Launchable, LocalCredential,
-		MeshSigningKey, Organization, Project, Revision, RoleBinding,
-		SavedLaunchConfig, Schedule, ScheduleOccurrence, Session, SurveyQuestion,
-		SyncRun, Team, Template, User []ent.Interceptor
+		CredentialInputSource, CredentialType, Device, EncryptionKey, Fact,
+		FactCoverage, FactObservation, Group, Inventory, Job, JobTask, JournalEntry,
+		Launchable, LocalCredential, MeshSigningKey, Organization, Project, Revision,
+		RoleBinding, SavedLaunchConfig, Schedule, ScheduleOccurrence, Session,
+		SurveyQuestion, SyncRun, Team, Template, User []ent.Interceptor
 	}
 )

@@ -22,6 +22,8 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/device"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/encryptionkey"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/fact"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/factcoverage"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/factobservation"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/group"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/job"
@@ -113,6 +115,8 @@ func checkColumn(t, c string) error {
 			device.Table:                device.ValidColumn,
 			encryptionkey.Table:         encryptionkey.ValidColumn,
 			fact.Table:                  fact.ValidColumn,
+			factcoverage.Table:          factcoverage.ValidColumn,
+			factobservation.Table:       factobservation.ValidColumn,
 			group.Table:                 group.ValidColumn,
 			inventory.Table:             inventory.ValidColumn,
 			job.Table:                   job.ValidColumn,

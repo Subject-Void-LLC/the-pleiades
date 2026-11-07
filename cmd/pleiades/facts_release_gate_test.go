@@ -104,23 +104,29 @@ func TestCLI_FactsReleaseGate(t *testing.T) {
 		t.Errorf("kinds = %v, want the kernel stable and the uptime volatile as declared", kinds)
 	}
 	history := filepath.Join(g.dir, ".pleiades", "facts", first.DeviceID+".jsonl")
-	lines := func() int {
-		raw, err := os.ReadFile(history) // #nosec G304 -- the test's own project
+	seenFile := filepath.Join(g.dir, ".pleiades", "facts", first.DeviceID+".seen.jsonl")
+	count := func(path string) int {
+		raw, err := os.ReadFile(path) // #nosec G304 -- the test's own project
 		if err != nil {
 			t.Fatal(err)
 		}
 		return strings.Count(string(raw), "\n")
 	}
-	written := lines()
-	if written == 0 {
-		t.Fatal("the gather wrote no history")
+	lines := func() int { return count(history) }
+	written, observed := lines(), count(seenFile)
+	if written == 0 || observed == 0 {
+		t.Fatalf("the gather wrote %d history lines and %d observations", written, observed)
 	}
 
 	gather()
 	second := read()
-	// The uptime moved, but it is volatile: no history line for it.
+	// The uptime moved, but it is volatile: no history line for it. The
+	// confirmation is one observation appended (Phase 41h), not a rewrite.
 	if got := lines(); got != written {
 		t.Errorf("a second gather of an unchanged device wrote %d history lines", got-written)
+	}
+	if got := count(seenFile); got != 2*observed {
+		t.Errorf("a second gather appended %d observations, want %d, as the first did", got-observed, observed)
 	}
 	for _, f := range second.Facts {
 		if f.Key == "os.kernel.release" {

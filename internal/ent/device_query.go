@@ -14,6 +14,8 @@ import (
 	"entgo.io/ent/schema/field"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/device"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/fact"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/factcoverage"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/factobservation"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/group"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/organization"
@@ -24,18 +26,20 @@ import (
 // DeviceQuery is the builder for querying Device entities.
 type DeviceQuery struct {
 	config
-	ctx              *QueryContext
-	order            []device.OrderOption
-	inters           []Interceptor
-	predicates       []predicate.Device
-	withParent       *DeviceQuery
-	withChildren     *DeviceQuery
-	withFacts        *FactQuery
-	withRevisions    *RevisionQuery
-	withGroups       *GroupQuery
-	withOrganization *OrganizationQuery
-	withInventories  *InventoryQuery
-	withFKs          bool
+	ctx                  *QueryContext
+	order                []device.OrderOption
+	inters               []Interceptor
+	predicates           []predicate.Device
+	withParent           *DeviceQuery
+	withChildren         *DeviceQuery
+	withFacts            *FactQuery
+	withFactObservations *FactObservationQuery
+	withFactCoverages    *FactCoverageQuery
+	withRevisions        *RevisionQuery
+	withGroups           *GroupQuery
+	withOrganization     *OrganizationQuery
+	withInventories      *InventoryQuery
+	withFKs              bool
 	// intermediate query (i.e. traversal path).
 	sql  *sql.Selector
 	path func(context.Context) (*sql.Selector, error)
@@ -131,6 +135,50 @@ func (_q *DeviceQuery) QueryFacts() *FactQuery {
 			sqlgraph.From(device.Table, device.FieldID, selector),
 			sqlgraph.To(fact.Table, fact.FieldID),
 			sqlgraph.Edge(sqlgraph.O2M, false, device.FactsTable, device.FactsColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
+}
+
+// QueryFactObservations chains the current query on the "fact_observations" edge.
+func (_q *DeviceQuery) QueryFactObservations() *FactObservationQuery {
+	query := (&FactObservationClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(device.Table, device.FieldID, selector),
+			sqlgraph.To(factobservation.Table, factobservation.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, device.FactObservationsTable, device.FactObservationsColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
+}
+
+// QueryFactCoverages chains the current query on the "fact_coverages" edge.
+func (_q *DeviceQuery) QueryFactCoverages() *FactCoverageQuery {
+	query := (&FactCoverageClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(device.Table, device.FieldID, selector),
+			sqlgraph.To(factcoverage.Table, factcoverage.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, device.FactCoveragesTable, device.FactCoveragesColumn),
 		)
 		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
 		return fromU, nil
@@ -413,18 +461,20 @@ func (_q *DeviceQuery) Clone() *DeviceQuery {
 		return nil
 	}
 	return &DeviceQuery{
-		config:           _q.config,
-		ctx:              _q.ctx.Clone(),
-		order:            append([]device.OrderOption{}, _q.order...),
-		inters:           append([]Interceptor{}, _q.inters...),
-		predicates:       append([]predicate.Device{}, _q.predicates...),
-		withParent:       _q.withParent.Clone(),
-		withChildren:     _q.withChildren.Clone(),
-		withFacts:        _q.withFacts.Clone(),
-		withRevisions:    _q.withRevisions.Clone(),
-		withGroups:       _q.withGroups.Clone(),
-		withOrganization: _q.withOrganization.Clone(),
-		withInventories:  _q.withInventories.Clone(),
+		config:               _q.config,
+		ctx:                  _q.ctx.Clone(),
+		order:                append([]device.OrderOption{}, _q.order...),
+		inters:               append([]Interceptor{}, _q.inters...),
+		predicates:           append([]predicate.Device{}, _q.predicates...),
+		withParent:           _q.withParent.Clone(),
+		withChildren:         _q.withChildren.Clone(),
+		withFacts:            _q.withFacts.Clone(),
+		withFactObservations: _q.withFactObservations.Clone(),
+		withFactCoverages:    _q.withFactCoverages.Clone(),
+		withRevisions:        _q.withRevisions.Clone(),
+		withGroups:           _q.withGroups.Clone(),
+		withOrganization:     _q.withOrganization.Clone(),
+		withInventories:      _q.withInventories.Clone(),
 		// clone intermediate query.
 		sql:  _q.sql.Clone(),
 		path: _q.path,
@@ -461,6 +511,28 @@ func (_q *DeviceQuery) WithFacts(opts ...func(*FactQuery)) *DeviceQuery {
 		opt(query)
 	}
 	_q.withFacts = query
+	return _q
+}
+
+// WithFactObservations tells the query-builder to eager-load the nodes that are connected to
+// the "fact_observations" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *DeviceQuery) WithFactObservations(opts ...func(*FactObservationQuery)) *DeviceQuery {
+	query := (&FactObservationClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withFactObservations = query
+	return _q
+}
+
+// WithFactCoverages tells the query-builder to eager-load the nodes that are connected to
+// the "fact_coverages" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *DeviceQuery) WithFactCoverages(opts ...func(*FactCoverageQuery)) *DeviceQuery {
+	query := (&FactCoverageClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withFactCoverages = query
 	return _q
 }
 
@@ -587,10 +659,12 @@ func (_q *DeviceQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*Devic
 		nodes       = []*Device{}
 		withFKs     = _q.withFKs
 		_spec       = _q.querySpec()
-		loadedTypes = [7]bool{
+		loadedTypes = [9]bool{
 			_q.withParent != nil,
 			_q.withChildren != nil,
 			_q.withFacts != nil,
+			_q.withFactObservations != nil,
+			_q.withFactCoverages != nil,
 			_q.withRevisions != nil,
 			_q.withGroups != nil,
 			_q.withOrganization != nil,
@@ -638,6 +712,20 @@ func (_q *DeviceQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*Devic
 		if err := _q.loadFacts(ctx, query, nodes,
 			func(n *Device) { n.Edges.Facts = []*Fact{} },
 			func(n *Device, e *Fact) { n.Edges.Facts = append(n.Edges.Facts, e) }); err != nil {
+			return nil, err
+		}
+	}
+	if query := _q.withFactObservations; query != nil {
+		if err := _q.loadFactObservations(ctx, query, nodes,
+			func(n *Device) { n.Edges.FactObservations = []*FactObservation{} },
+			func(n *Device, e *FactObservation) { n.Edges.FactObservations = append(n.Edges.FactObservations, e) }); err != nil {
+			return nil, err
+		}
+	}
+	if query := _q.withFactCoverages; query != nil {
+		if err := _q.loadFactCoverages(ctx, query, nodes,
+			func(n *Device) { n.Edges.FactCoverages = []*FactCoverage{} },
+			func(n *Device, e *FactCoverage) { n.Edges.FactCoverages = append(n.Edges.FactCoverages, e) }); err != nil {
 			return nil, err
 		}
 	}
@@ -760,6 +848,67 @@ func (_q *DeviceQuery) loadFacts(ctx context.Context, query *FactQuery, nodes []
 		node, ok := nodeids[*fk]
 		if !ok {
 			return fmt.Errorf(`unexpected referenced foreign-key "device_facts" returned %v for node %v`, *fk, n.ID)
+		}
+		assign(node, n)
+	}
+	return nil
+}
+func (_q *DeviceQuery) loadFactObservations(ctx context.Context, query *FactObservationQuery, nodes []*Device, init func(*Device), assign func(*Device, *FactObservation)) error {
+	fks := make([]driver.Value, 0, len(nodes))
+	nodeids := make(map[int]*Device)
+	for i := range nodes {
+		fks = append(fks, nodes[i].ID)
+		nodeids[nodes[i].ID] = nodes[i]
+		if init != nil {
+			init(nodes[i])
+		}
+	}
+	if len(query.ctx.Fields) > 0 {
+		query.ctx.AppendFieldOnce(factobservation.FieldDeviceID)
+	}
+	query.Where(predicate.FactObservation(func(s *sql.Selector) {
+		s.Where(sql.InValues(s.C(device.FactObservationsColumn), fks...))
+	}))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		fk := n.DeviceID
+		node, ok := nodeids[fk]
+		if !ok {
+			return fmt.Errorf(`unexpected referenced foreign-key "device_id" returned %v for node %v`, fk, n.ID)
+		}
+		assign(node, n)
+	}
+	return nil
+}
+func (_q *DeviceQuery) loadFactCoverages(ctx context.Context, query *FactCoverageQuery, nodes []*Device, init func(*Device), assign func(*Device, *FactCoverage)) error {
+	fks := make([]driver.Value, 0, len(nodes))
+	nodeids := make(map[int]*Device)
+	for i := range nodes {
+		fks = append(fks, nodes[i].ID)
+		nodeids[nodes[i].ID] = nodes[i]
+		if init != nil {
+			init(nodes[i])
+		}
+	}
+	query.withFKs = true
+	query.Where(predicate.FactCoverage(func(s *sql.Selector) {
+		s.Where(sql.InValues(s.C(device.FactCoveragesColumn), fks...))
+	}))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		fk := n.device_fact_coverages
+		if fk == nil {
+			return fmt.Errorf(`foreign-key "device_fact_coverages" is nil for node %v`, n.ID)
+		}
+		node, ok := nodeids[*fk]
+		if !ok {
+			return fmt.Errorf(`unexpected referenced foreign-key "device_fact_coverages" returned %v for node %v`, *fk, n.ID)
 		}
 		assign(node, n)
 	}

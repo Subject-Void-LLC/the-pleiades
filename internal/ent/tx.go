@@ -32,6 +32,10 @@ type Tx struct {
 	EncryptionKey *EncryptionKeyClient
 	// Fact is the client for interacting with the Fact builders.
 	Fact *FactClient
+	// FactCoverage is the client for interacting with the FactCoverage builders.
+	FactCoverage *FactCoverageClient
+	// FactObservation is the client for interacting with the FactObservation builders.
+	FactObservation *FactObservationClient
 	// Group is the client for interacting with the Group builders.
 	Group *GroupClient
 	// Inventory is the client for interacting with the Inventory builders.
@@ -215,6 +219,8 @@ func (tx *Tx) init() {
 	tx.Device = NewDeviceClient(tx.config)
 	tx.EncryptionKey = NewEncryptionKeyClient(tx.config)
 	tx.Fact = NewFactClient(tx.config)
+	tx.FactCoverage = NewFactCoverageClient(tx.config)
+	tx.FactObservation = NewFactObservationClient(tx.config)
 	tx.Group = NewGroupClient(tx.config)
 	tx.Inventory = NewInventoryClient(tx.config)
 	tx.Job = NewJobClient(tx.config)

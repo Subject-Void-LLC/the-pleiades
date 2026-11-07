@@ -23,6 +23,8 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/device"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/encryptionkey"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/fact"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/factcoverage"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/factobservation"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/group"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/job"
@@ -66,6 +68,8 @@ const (
 	TypeDevice                = "Device"
 	TypeEncryptionKey         = "EncryptionKey"
 	TypeFact                  = "Fact"
+	TypeFactCoverage          = "FactCoverage"
+	TypeFactObservation       = "FactObservation"
 	TypeGroup                 = "Group"
 	TypeInventory             = "Inventory"
 	TypeJob                   = "Job"
@@ -6160,46 +6164,52 @@ func (m *CredentialTypeMutation) ResetEdge(name string) error {
 // DeviceMutation represents an operation that mutates the Device nodes in the graph.
 type DeviceMutation struct {
 	config
-	op                  Op
-	typ                 string
-	id                  *int
-	created_at          *time.Time
-	updated_at          *time.Time
-	device_id           *string
-	name                *string
-	_type               *string
-	properties          *map[string]interface{}
-	secret_binding      *string
-	version             *uint64
-	addversion          *int64
-	state               *string
-	source              *string
-	source_synced_at    *time.Time
-	tags                *[]string
-	appendtags          []string
-	clearedFields       map[string]struct{}
-	parent              *int
-	clearedparent       bool
-	children            map[int]struct{}
-	removedchildren     map[int]struct{}
-	clearedchildren     bool
-	facts               map[int]struct{}
-	removedfacts        map[int]struct{}
-	clearedfacts        bool
-	revisions           map[int]struct{}
-	removedrevisions    map[int]struct{}
-	clearedrevisions    bool
-	groups              map[int]struct{}
-	removedgroups       map[int]struct{}
-	clearedgroups       bool
-	organization        *int
-	clearedorganization bool
-	inventories         map[int]struct{}
-	removedinventories  map[int]struct{}
-	clearedinventories  bool
-	done                bool
-	oldValue            func(context.Context) (*Device, error)
-	predicates          []predicate.Device
+	op                       Op
+	typ                      string
+	id                       *int
+	created_at               *time.Time
+	updated_at               *time.Time
+	device_id                *string
+	name                     *string
+	_type                    *string
+	properties               *map[string]interface{}
+	secret_binding           *string
+	version                  *uint64
+	addversion               *int64
+	state                    *string
+	source                   *string
+	source_synced_at         *time.Time
+	tags                     *[]string
+	appendtags               []string
+	clearedFields            map[string]struct{}
+	parent                   *int
+	clearedparent            bool
+	children                 map[int]struct{}
+	removedchildren          map[int]struct{}
+	clearedchildren          bool
+	facts                    map[int]struct{}
+	removedfacts             map[int]struct{}
+	clearedfacts             bool
+	fact_observations        map[int]struct{}
+	removedfact_observations map[int]struct{}
+	clearedfact_observations bool
+	fact_coverages           map[int]struct{}
+	removedfact_coverages    map[int]struct{}
+	clearedfact_coverages    bool
+	revisions                map[int]struct{}
+	removedrevisions         map[int]struct{}
+	clearedrevisions         bool
+	groups                   map[int]struct{}
+	removedgroups            map[int]struct{}
+	clearedgroups            bool
+	organization             *int
+	clearedorganization      bool
+	inventories              map[int]struct{}
+	removedinventories       map[int]struct{}
+	clearedinventories       bool
+	done                     bool
+	oldValue                 func(context.Context) (*Device, error)
+	predicates               []predicate.Device
 }
 
 var _ ent.Mutation = (*DeviceMutation)(nil)
@@ -6980,6 +6990,114 @@ func (m *DeviceMutation) ResetFacts() {
 	m.removedfacts = nil
 }
 
+// AddFactObservationIDs adds the "fact_observations" edge to the FactObservation entity by ids.
+func (m *DeviceMutation) AddFactObservationIDs(ids ...int) {
+	if m.fact_observations == nil {
+		m.fact_observations = make(map[int]struct{})
+	}
+	for i := range ids {
+		m.fact_observations[ids[i]] = struct{}{}
+	}
+}
+
+// ClearFactObservations clears the "fact_observations" edge to the FactObservation entity.
+func (m *DeviceMutation) ClearFactObservations() {
+	m.clearedfact_observations = true
+}
+
+// FactObservationsCleared reports if the "fact_observations" edge to the FactObservation entity was cleared.
+func (m *DeviceMutation) FactObservationsCleared() bool {
+	return m.clearedfact_observations
+}
+
+// RemoveFactObservationIDs removes the "fact_observations" edge to the FactObservation entity by IDs.
+func (m *DeviceMutation) RemoveFactObservationIDs(ids ...int) {
+	if m.removedfact_observations == nil {
+		m.removedfact_observations = make(map[int]struct{})
+	}
+	for i := range ids {
+		delete(m.fact_observations, ids[i])
+		m.removedfact_observations[ids[i]] = struct{}{}
+	}
+}
+
+// RemovedFactObservations returns the removed IDs of the "fact_observations" edge to the FactObservation entity.
+func (m *DeviceMutation) RemovedFactObservationsIDs() (ids []int) {
+	for id := range m.removedfact_observations {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// FactObservationsIDs returns the "fact_observations" edge IDs in the mutation.
+func (m *DeviceMutation) FactObservationsIDs() (ids []int) {
+	for id := range m.fact_observations {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// ResetFactObservations resets all changes to the "fact_observations" edge.
+func (m *DeviceMutation) ResetFactObservations() {
+	m.fact_observations = nil
+	m.clearedfact_observations = false
+	m.removedfact_observations = nil
+}
+
+// AddFactCoverageIDs adds the "fact_coverages" edge to the FactCoverage entity by ids.
+func (m *DeviceMutation) AddFactCoverageIDs(ids ...int) {
+	if m.fact_coverages == nil {
+		m.fact_coverages = make(map[int]struct{})
+	}
+	for i := range ids {
+		m.fact_coverages[ids[i]] = struct{}{}
+	}
+}
+
+// ClearFactCoverages clears the "fact_coverages" edge to the FactCoverage entity.
+func (m *DeviceMutation) ClearFactCoverages() {
+	m.clearedfact_coverages = true
+}
+
+// FactCoveragesCleared reports if the "fact_coverages" edge to the FactCoverage entity was cleared.
+func (m *DeviceMutation) FactCoveragesCleared() bool {
+	return m.clearedfact_coverages
+}
+
+// RemoveFactCoverageIDs removes the "fact_coverages" edge to the FactCoverage entity by IDs.
+func (m *DeviceMutation) RemoveFactCoverageIDs(ids ...int) {
+	if m.removedfact_coverages == nil {
+		m.removedfact_coverages = make(map[int]struct{})
+	}
+	for i := range ids {
+		delete(m.fact_coverages, ids[i])
+		m.removedfact_coverages[ids[i]] = struct{}{}
+	}
+}
+
+// RemovedFactCoverages returns the removed IDs of the "fact_coverages" edge to the FactCoverage entity.
+func (m *DeviceMutation) RemovedFactCoveragesIDs() (ids []int) {
+	for id := range m.removedfact_coverages {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// FactCoveragesIDs returns the "fact_coverages" edge IDs in the mutation.
+func (m *DeviceMutation) FactCoveragesIDs() (ids []int) {
+	for id := range m.fact_coverages {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// ResetFactCoverages resets all changes to the "fact_coverages" edge.
+func (m *DeviceMutation) ResetFactCoverages() {
+	m.fact_coverages = nil
+	m.clearedfact_coverages = false
+	m.removedfact_coverages = nil
+}
+
 // AddRevisionIDs adds the "revisions" edge to the Revision entity by ids.
 func (m *DeviceMutation) AddRevisionIDs(ids ...int) {
 	if m.revisions == nil {
@@ -7549,7 +7667,7 @@ func (m *DeviceMutation) ResetField(name string) error {
 
 // AddedEdges returns all edge names that were set/added in this mutation.
 func (m *DeviceMutation) AddedEdges() []string {
-	edges := make([]string, 0, 7)
+	edges := make([]string, 0, 9)
 	if m.parent != nil {
 		edges = append(edges, device.EdgeParent)
 	}
@@ -7558,6 +7676,12 @@ func (m *DeviceMutation) AddedEdges() []string {
 	}
 	if m.facts != nil {
 		edges = append(edges, device.EdgeFacts)
+	}
+	if m.fact_observations != nil {
+		edges = append(edges, device.EdgeFactObservations)
+	}
+	if m.fact_coverages != nil {
+		edges = append(edges, device.EdgeFactCoverages)
 	}
 	if m.revisions != nil {
 		edges = append(edges, device.EdgeRevisions)
@@ -7594,6 +7718,18 @@ func (m *DeviceMutation) AddedIDs(name string) []ent.Value {
 			ids = append(ids, id)
 		}
 		return ids
+	case device.EdgeFactObservations:
+		ids := make([]ent.Value, 0, len(m.fact_observations))
+		for id := range m.fact_observations {
+			ids = append(ids, id)
+		}
+		return ids
+	case device.EdgeFactCoverages:
+		ids := make([]ent.Value, 0, len(m.fact_coverages))
+		for id := range m.fact_coverages {
+			ids = append(ids, id)
+		}
+		return ids
 	case device.EdgeRevisions:
 		ids := make([]ent.Value, 0, len(m.revisions))
 		for id := range m.revisions {
@@ -7622,12 +7758,18 @@ func (m *DeviceMutation) AddedIDs(name string) []ent.Value {
 
 // RemovedEdges returns all edge names that were removed in this mutation.
 func (m *DeviceMutation) RemovedEdges() []string {
-	edges := make([]string, 0, 7)
+	edges := make([]string, 0, 9)
 	if m.removedchildren != nil {
 		edges = append(edges, device.EdgeChildren)
 	}
 	if m.removedfacts != nil {
 		edges = append(edges, device.EdgeFacts)
+	}
+	if m.removedfact_observations != nil {
+		edges = append(edges, device.EdgeFactObservations)
+	}
+	if m.removedfact_coverages != nil {
+		edges = append(edges, device.EdgeFactCoverages)
 	}
 	if m.removedrevisions != nil {
 		edges = append(edges, device.EdgeRevisions)
@@ -7657,6 +7799,18 @@ func (m *DeviceMutation) RemovedIDs(name string) []ent.Value {
 			ids = append(ids, id)
 		}
 		return ids
+	case device.EdgeFactObservations:
+		ids := make([]ent.Value, 0, len(m.removedfact_observations))
+		for id := range m.removedfact_observations {
+			ids = append(ids, id)
+		}
+		return ids
+	case device.EdgeFactCoverages:
+		ids := make([]ent.Value, 0, len(m.removedfact_coverages))
+		for id := range m.removedfact_coverages {
+			ids = append(ids, id)
+		}
+		return ids
 	case device.EdgeRevisions:
 		ids := make([]ent.Value, 0, len(m.removedrevisions))
 		for id := range m.removedrevisions {
@@ -7681,7 +7835,7 @@ func (m *DeviceMutation) RemovedIDs(name string) []ent.Value {
 
 // ClearedEdges returns all edge names that were cleared in this mutation.
 func (m *DeviceMutation) ClearedEdges() []string {
-	edges := make([]string, 0, 7)
+	edges := make([]string, 0, 9)
 	if m.clearedparent {
 		edges = append(edges, device.EdgeParent)
 	}
@@ -7690,6 +7844,12 @@ func (m *DeviceMutation) ClearedEdges() []string {
 	}
 	if m.clearedfacts {
 		edges = append(edges, device.EdgeFacts)
+	}
+	if m.clearedfact_observations {
+		edges = append(edges, device.EdgeFactObservations)
+	}
+	if m.clearedfact_coverages {
+		edges = append(edges, device.EdgeFactCoverages)
 	}
 	if m.clearedrevisions {
 		edges = append(edges, device.EdgeRevisions)
@@ -7716,6 +7876,10 @@ func (m *DeviceMutation) EdgeCleared(name string) bool {
 		return m.clearedchildren
 	case device.EdgeFacts:
 		return m.clearedfacts
+	case device.EdgeFactObservations:
+		return m.clearedfact_observations
+	case device.EdgeFactCoverages:
+		return m.clearedfact_coverages
 	case device.EdgeRevisions:
 		return m.clearedrevisions
 	case device.EdgeGroups:
@@ -7754,6 +7918,12 @@ func (m *DeviceMutation) ResetEdge(name string) error {
 		return nil
 	case device.EdgeFacts:
 		m.ResetFacts()
+		return nil
+	case device.EdgeFactObservations:
+		m.ResetFactObservations()
+		return nil
+	case device.EdgeFactCoverages:
+		m.ResetFactCoverages()
 		return nil
 	case device.EdgeRevisions:
 		m.ResetRevisions()
@@ -8370,26 +8540,28 @@ func (m *EncryptionKeyMutation) ResetEdge(name string) error {
 // FactMutation represents an operation that mutates the Fact nodes in the graph.
 type FactMutation struct {
 	config
-	op              Op
-	typ             string
-	id              *int
-	created_at      *time.Time
-	updated_at      *time.Time
-	key             *string
-	payload         *map[string]interface{}
-	hash            *string
-	last_seen_at    *time.Time
-	kind            *fact.Kind
-	provenance      *map[string]interface{}
-	last_provenance *map[string]interface{}
-	chain_prev      *string
-	chain           *string
-	clearedFields   map[string]struct{}
-	device          *int
-	cleareddevice   bool
-	done            bool
-	oldValue        func(context.Context) (*Fact, error)
-	predicates      []predicate.Fact
+	op                 Op
+	typ                string
+	id                 *int
+	created_at         *time.Time
+	updated_at         *time.Time
+	key                *string
+	payload            *map[string]interface{}
+	hash               *string
+	kind               *fact.Kind
+	provenance         *map[string]interface{}
+	last_seen_at       *time.Time
+	last_provenance    *map[string]interface{}
+	observation_seq    *int64
+	addobservation_seq *int64
+	chain_prev         *string
+	chain              *string
+	clearedFields      map[string]struct{}
+	device             *int
+	cleareddevice      bool
+	done               bool
+	oldValue           func(context.Context) (*Fact, error)
+	predicates         []predicate.Fact
 }
 
 var _ ent.Mutation = (*FactMutation)(nil)
@@ -8670,55 +8842,6 @@ func (m *FactMutation) ResetHash() {
 	m.hash = nil
 }
 
-// SetLastSeenAt sets the "last_seen_at" field.
-func (m *FactMutation) SetLastSeenAt(t time.Time) {
-	m.last_seen_at = &t
-}
-
-// LastSeenAt returns the value of the "last_seen_at" field in the mutation.
-func (m *FactMutation) LastSeenAt() (r time.Time, exists bool) {
-	v := m.last_seen_at
-	if v == nil {
-		return
-	}
-	return *v, true
-}
-
-// OldLastSeenAt returns the old "last_seen_at" field's value of the Fact entity.
-// If the Fact object wasn't provided to the builder, the object is fetched from the database.
-// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
-func (m *FactMutation) OldLastSeenAt(ctx context.Context) (v time.Time, err error) {
-	if !m.op.Is(OpUpdateOne) {
-		return v, errors.New("OldLastSeenAt is only allowed on UpdateOne operations")
-	}
-	if m.id == nil || m.oldValue == nil {
-		return v, errors.New("OldLastSeenAt requires an ID field in the mutation")
-	}
-	oldValue, err := m.oldValue(ctx)
-	if err != nil {
-		return v, fmt.Errorf("querying old value for OldLastSeenAt: %w", err)
-	}
-	return oldValue.LastSeenAt, nil
-}
-
-// ClearLastSeenAt clears the value of the "last_seen_at" field.
-func (m *FactMutation) ClearLastSeenAt() {
-	m.last_seen_at = nil
-	m.clearedFields[fact.FieldLastSeenAt] = struct{}{}
-}
-
-// LastSeenAtCleared returns if the "last_seen_at" field was cleared in this mutation.
-func (m *FactMutation) LastSeenAtCleared() bool {
-	_, ok := m.clearedFields[fact.FieldLastSeenAt]
-	return ok
-}
-
-// ResetLastSeenAt resets all changes to the "last_seen_at" field.
-func (m *FactMutation) ResetLastSeenAt() {
-	m.last_seen_at = nil
-	delete(m.clearedFields, fact.FieldLastSeenAt)
-}
-
 // SetKind sets the "kind" field.
 func (m *FactMutation) SetKind(f fact.Kind) {
 	m.kind = &f
@@ -8804,6 +8927,55 @@ func (m *FactMutation) ResetProvenance() {
 	delete(m.clearedFields, fact.FieldProvenance)
 }
 
+// SetLastSeenAt sets the "last_seen_at" field.
+func (m *FactMutation) SetLastSeenAt(t time.Time) {
+	m.last_seen_at = &t
+}
+
+// LastSeenAt returns the value of the "last_seen_at" field in the mutation.
+func (m *FactMutation) LastSeenAt() (r time.Time, exists bool) {
+	v := m.last_seen_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldLastSeenAt returns the old "last_seen_at" field's value of the Fact entity.
+// If the Fact object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *FactMutation) OldLastSeenAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldLastSeenAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldLastSeenAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldLastSeenAt: %w", err)
+	}
+	return oldValue.LastSeenAt, nil
+}
+
+// ClearLastSeenAt clears the value of the "last_seen_at" field.
+func (m *FactMutation) ClearLastSeenAt() {
+	m.last_seen_at = nil
+	m.clearedFields[fact.FieldLastSeenAt] = struct{}{}
+}
+
+// LastSeenAtCleared returns if the "last_seen_at" field was cleared in this mutation.
+func (m *FactMutation) LastSeenAtCleared() bool {
+	_, ok := m.clearedFields[fact.FieldLastSeenAt]
+	return ok
+}
+
+// ResetLastSeenAt resets all changes to the "last_seen_at" field.
+func (m *FactMutation) ResetLastSeenAt() {
+	m.last_seen_at = nil
+	delete(m.clearedFields, fact.FieldLastSeenAt)
+}
+
 // SetLastProvenance sets the "last_provenance" field.
 func (m *FactMutation) SetLastProvenance(value map[string]interface{}) {
 	m.last_provenance = &value
@@ -8851,6 +9023,62 @@ func (m *FactMutation) LastProvenanceCleared() bool {
 func (m *FactMutation) ResetLastProvenance() {
 	m.last_provenance = nil
 	delete(m.clearedFields, fact.FieldLastProvenance)
+}
+
+// SetObservationSeq sets the "observation_seq" field.
+func (m *FactMutation) SetObservationSeq(i int64) {
+	m.observation_seq = &i
+	m.addobservation_seq = nil
+}
+
+// ObservationSeq returns the value of the "observation_seq" field in the mutation.
+func (m *FactMutation) ObservationSeq() (r int64, exists bool) {
+	v := m.observation_seq
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldObservationSeq returns the old "observation_seq" field's value of the Fact entity.
+// If the Fact object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *FactMutation) OldObservationSeq(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldObservationSeq is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldObservationSeq requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldObservationSeq: %w", err)
+	}
+	return oldValue.ObservationSeq, nil
+}
+
+// AddObservationSeq adds i to the "observation_seq" field.
+func (m *FactMutation) AddObservationSeq(i int64) {
+	if m.addobservation_seq != nil {
+		*m.addobservation_seq += i
+	} else {
+		m.addobservation_seq = &i
+	}
+}
+
+// AddedObservationSeq returns the value that was added to the "observation_seq" field in this mutation.
+func (m *FactMutation) AddedObservationSeq() (r int64, exists bool) {
+	v := m.addobservation_seq
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetObservationSeq resets all changes to the "observation_seq" field.
+func (m *FactMutation) ResetObservationSeq() {
+	m.observation_seq = nil
+	m.addobservation_seq = nil
 }
 
 // SetChainPrev sets the "chain_prev" field.
@@ -9024,7 +9252,7 @@ func (m *FactMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *FactMutation) Fields() []string {
-	fields := make([]string, 0, 11)
+	fields := make([]string, 0, 12)
 	if m.created_at != nil {
 		fields = append(fields, fact.FieldCreatedAt)
 	}
@@ -9040,17 +9268,20 @@ func (m *FactMutation) Fields() []string {
 	if m.hash != nil {
 		fields = append(fields, fact.FieldHash)
 	}
-	if m.last_seen_at != nil {
-		fields = append(fields, fact.FieldLastSeenAt)
-	}
 	if m.kind != nil {
 		fields = append(fields, fact.FieldKind)
 	}
 	if m.provenance != nil {
 		fields = append(fields, fact.FieldProvenance)
 	}
+	if m.last_seen_at != nil {
+		fields = append(fields, fact.FieldLastSeenAt)
+	}
 	if m.last_provenance != nil {
 		fields = append(fields, fact.FieldLastProvenance)
+	}
+	if m.observation_seq != nil {
+		fields = append(fields, fact.FieldObservationSeq)
 	}
 	if m.chain_prev != nil {
 		fields = append(fields, fact.FieldChainPrev)
@@ -9076,14 +9307,16 @@ func (m *FactMutation) Field(name string) (ent.Value, bool) {
 		return m.Payload()
 	case fact.FieldHash:
 		return m.Hash()
-	case fact.FieldLastSeenAt:
-		return m.LastSeenAt()
 	case fact.FieldKind:
 		return m.Kind()
 	case fact.FieldProvenance:
 		return m.Provenance()
+	case fact.FieldLastSeenAt:
+		return m.LastSeenAt()
 	case fact.FieldLastProvenance:
 		return m.LastProvenance()
+	case fact.FieldObservationSeq:
+		return m.ObservationSeq()
 	case fact.FieldChainPrev:
 		return m.ChainPrev()
 	case fact.FieldChain:
@@ -9107,14 +9340,16 @@ func (m *FactMutation) OldField(ctx context.Context, name string) (ent.Value, er
 		return m.OldPayload(ctx)
 	case fact.FieldHash:
 		return m.OldHash(ctx)
-	case fact.FieldLastSeenAt:
-		return m.OldLastSeenAt(ctx)
 	case fact.FieldKind:
 		return m.OldKind(ctx)
 	case fact.FieldProvenance:
 		return m.OldProvenance(ctx)
+	case fact.FieldLastSeenAt:
+		return m.OldLastSeenAt(ctx)
 	case fact.FieldLastProvenance:
 		return m.OldLastProvenance(ctx)
+	case fact.FieldObservationSeq:
+		return m.OldObservationSeq(ctx)
 	case fact.FieldChainPrev:
 		return m.OldChainPrev(ctx)
 	case fact.FieldChain:
@@ -9163,13 +9398,6 @@ func (m *FactMutation) SetField(name string, value ent.Value) error {
 		}
 		m.SetHash(v)
 		return nil
-	case fact.FieldLastSeenAt:
-		v, ok := value.(time.Time)
-		if !ok {
-			return fmt.Errorf("unexpected type %T for field %s", value, name)
-		}
-		m.SetLastSeenAt(v)
-		return nil
 	case fact.FieldKind:
 		v, ok := value.(fact.Kind)
 		if !ok {
@@ -9184,12 +9412,26 @@ func (m *FactMutation) SetField(name string, value ent.Value) error {
 		}
 		m.SetProvenance(v)
 		return nil
+	case fact.FieldLastSeenAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetLastSeenAt(v)
+		return nil
 	case fact.FieldLastProvenance:
 		v, ok := value.(map[string]interface{})
 		if !ok {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetLastProvenance(v)
+		return nil
+	case fact.FieldObservationSeq:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetObservationSeq(v)
 		return nil
 	case fact.FieldChainPrev:
 		v, ok := value.(string)
@@ -9212,13 +9454,21 @@ func (m *FactMutation) SetField(name string, value ent.Value) error {
 // AddedFields returns all numeric fields that were incremented/decremented during
 // this mutation.
 func (m *FactMutation) AddedFields() []string {
-	return nil
+	var fields []string
+	if m.addobservation_seq != nil {
+		fields = append(fields, fact.FieldObservationSeq)
+	}
+	return fields
 }
 
 // AddedField returns the numeric value that was incremented/decremented on a field
 // with the given name. The second boolean return value indicates that this field
 // was not set, or was not defined in the schema.
 func (m *FactMutation) AddedField(name string) (ent.Value, bool) {
+	switch name {
+	case fact.FieldObservationSeq:
+		return m.AddedObservationSeq()
+	}
 	return nil, false
 }
 
@@ -9227,6 +9477,13 @@ func (m *FactMutation) AddedField(name string) (ent.Value, bool) {
 // type.
 func (m *FactMutation) AddField(name string, value ent.Value) error {
 	switch name {
+	case fact.FieldObservationSeq:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddObservationSeq(v)
+		return nil
 	}
 	return fmt.Errorf("unknown Fact numeric field %s", name)
 }
@@ -9235,11 +9492,11 @@ func (m *FactMutation) AddField(name string, value ent.Value) error {
 // mutation.
 func (m *FactMutation) ClearedFields() []string {
 	var fields []string
-	if m.FieldCleared(fact.FieldLastSeenAt) {
-		fields = append(fields, fact.FieldLastSeenAt)
-	}
 	if m.FieldCleared(fact.FieldProvenance) {
 		fields = append(fields, fact.FieldProvenance)
+	}
+	if m.FieldCleared(fact.FieldLastSeenAt) {
+		fields = append(fields, fact.FieldLastSeenAt)
 	}
 	if m.FieldCleared(fact.FieldLastProvenance) {
 		fields = append(fields, fact.FieldLastProvenance)
@@ -9264,11 +9521,11 @@ func (m *FactMutation) FieldCleared(name string) bool {
 // error if the field is not defined in the schema.
 func (m *FactMutation) ClearField(name string) error {
 	switch name {
-	case fact.FieldLastSeenAt:
-		m.ClearLastSeenAt()
-		return nil
 	case fact.FieldProvenance:
 		m.ClearProvenance()
+		return nil
+	case fact.FieldLastSeenAt:
+		m.ClearLastSeenAt()
 		return nil
 	case fact.FieldLastProvenance:
 		m.ClearLastProvenance()
@@ -9302,17 +9559,20 @@ func (m *FactMutation) ResetField(name string) error {
 	case fact.FieldHash:
 		m.ResetHash()
 		return nil
-	case fact.FieldLastSeenAt:
-		m.ResetLastSeenAt()
-		return nil
 	case fact.FieldKind:
 		m.ResetKind()
 		return nil
 	case fact.FieldProvenance:
 		m.ResetProvenance()
 		return nil
+	case fact.FieldLastSeenAt:
+		m.ResetLastSeenAt()
+		return nil
 	case fact.FieldLastProvenance:
 		m.ResetLastProvenance()
+		return nil
+	case fact.FieldObservationSeq:
+		m.ResetObservationSeq()
 		return nil
 	case fact.FieldChainPrev:
 		m.ResetChainPrev()
@@ -9396,6 +9656,1355 @@ func (m *FactMutation) ResetEdge(name string) error {
 		return nil
 	}
 	return fmt.Errorf("unknown Fact edge %s", name)
+}
+
+// FactCoverageMutation represents an operation that mutates the FactCoverage nodes in the graph.
+type FactCoverageMutation struct {
+	config
+	op             Op
+	typ            string
+	id             *int
+	digest         *string
+	stable         *[]string
+	appendstable   []string
+	volatile       *[]string
+	appendvolatile []string
+	clearedFields  map[string]struct{}
+	device         *int
+	cleareddevice  bool
+	done           bool
+	oldValue       func(context.Context) (*FactCoverage, error)
+	predicates     []predicate.FactCoverage
+}
+
+var _ ent.Mutation = (*FactCoverageMutation)(nil)
+
+// factcoverageOption allows management of the mutation configuration using functional options.
+type factcoverageOption func(*FactCoverageMutation)
+
+// newFactCoverageMutation creates new mutation for the FactCoverage entity.
+func newFactCoverageMutation(c config, op Op, opts ...factcoverageOption) *FactCoverageMutation {
+	m := &FactCoverageMutation{
+		config:        c,
+		op:            op,
+		typ:           TypeFactCoverage,
+		clearedFields: make(map[string]struct{}),
+	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
+}
+
+// withFactCoverageID sets the ID field of the mutation.
+func withFactCoverageID(id int) factcoverageOption {
+	return func(m *FactCoverageMutation) {
+		var (
+			err   error
+			once  sync.Once
+			value *FactCoverage
+		)
+		m.oldValue = func(ctx context.Context) (*FactCoverage, error) {
+			once.Do(func() {
+				if m.done {
+					err = errors.New("querying old values post mutation is not allowed")
+				} else {
+					value, err = m.Client().FactCoverage.Get(ctx, id)
+				}
+			})
+			return value, err
+		}
+		m.id = &id
+	}
+}
+
+// withFactCoverage sets the old FactCoverage of the mutation.
+func withFactCoverage(node *FactCoverage) factcoverageOption {
+	return func(m *FactCoverageMutation) {
+		m.oldValue = func(context.Context) (*FactCoverage, error) {
+			return node, nil
+		}
+		m.id = &node.ID
+	}
+}
+
+// Client returns a new `ent.Client` from the mutation. If the mutation was
+// executed in a transaction (ent.Tx), a transactional client is returned.
+func (m FactCoverageMutation) Client() *Client {
+	client := &Client{config: m.config}
+	client.init()
+	return client
+}
+
+// Tx returns an `ent.Tx` for mutations that were executed in transactions;
+// it returns an error otherwise.
+func (m FactCoverageMutation) Tx() (*Tx, error) {
+	if _, ok := m.driver.(*txDriver); !ok {
+		return nil, errors.New("ent: mutation is not running in a transaction")
+	}
+	tx := &Tx{config: m.config}
+	tx.init()
+	return tx, nil
+}
+
+// ID returns the ID value in the mutation. Note that the ID is only available
+// if it was provided to the builder or after it was returned from the database.
+func (m *FactCoverageMutation) ID() (id int, exists bool) {
+	if m.id == nil {
+		return
+	}
+	return *m.id, true
+}
+
+// IDs queries the database and returns the entity ids that match the mutation's predicate.
+// That means, if the mutation is applied within a transaction with an isolation level such
+// as sql.LevelSerializable, the returned ids match the ids of the rows that will be updated
+// or updated by the mutation.
+func (m *FactCoverageMutation) IDs(ctx context.Context) ([]int, error) {
+	switch {
+	case m.op.Is(OpUpdateOne | OpDeleteOne):
+		id, exists := m.ID()
+		if exists {
+			return []int{id}, nil
+		}
+		fallthrough
+	case m.op.Is(OpUpdate | OpDelete):
+		return m.Client().FactCoverage.Query().Where(m.predicates...).IDs(ctx)
+	default:
+		return nil, fmt.Errorf("IDs is not allowed on %s operations", m.op)
+	}
+}
+
+// SetDigest sets the "digest" field.
+func (m *FactCoverageMutation) SetDigest(s string) {
+	m.digest = &s
+}
+
+// Digest returns the value of the "digest" field in the mutation.
+func (m *FactCoverageMutation) Digest() (r string, exists bool) {
+	v := m.digest
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldDigest returns the old "digest" field's value of the FactCoverage entity.
+// If the FactCoverage object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *FactCoverageMutation) OldDigest(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldDigest is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldDigest requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldDigest: %w", err)
+	}
+	return oldValue.Digest, nil
+}
+
+// ResetDigest resets all changes to the "digest" field.
+func (m *FactCoverageMutation) ResetDigest() {
+	m.digest = nil
+}
+
+// SetStable sets the "stable" field.
+func (m *FactCoverageMutation) SetStable(s []string) {
+	m.stable = &s
+	m.appendstable = nil
+}
+
+// Stable returns the value of the "stable" field in the mutation.
+func (m *FactCoverageMutation) Stable() (r []string, exists bool) {
+	v := m.stable
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldStable returns the old "stable" field's value of the FactCoverage entity.
+// If the FactCoverage object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *FactCoverageMutation) OldStable(ctx context.Context) (v []string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldStable is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldStable requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldStable: %w", err)
+	}
+	return oldValue.Stable, nil
+}
+
+// AppendStable adds s to the "stable" field.
+func (m *FactCoverageMutation) AppendStable(s []string) {
+	m.appendstable = append(m.appendstable, s...)
+}
+
+// AppendedStable returns the list of values that were appended to the "stable" field in this mutation.
+func (m *FactCoverageMutation) AppendedStable() ([]string, bool) {
+	if len(m.appendstable) == 0 {
+		return nil, false
+	}
+	return m.appendstable, true
+}
+
+// ClearStable clears the value of the "stable" field.
+func (m *FactCoverageMutation) ClearStable() {
+	m.stable = nil
+	m.appendstable = nil
+	m.clearedFields[factcoverage.FieldStable] = struct{}{}
+}
+
+// StableCleared returns if the "stable" field was cleared in this mutation.
+func (m *FactCoverageMutation) StableCleared() bool {
+	_, ok := m.clearedFields[factcoverage.FieldStable]
+	return ok
+}
+
+// ResetStable resets all changes to the "stable" field.
+func (m *FactCoverageMutation) ResetStable() {
+	m.stable = nil
+	m.appendstable = nil
+	delete(m.clearedFields, factcoverage.FieldStable)
+}
+
+// SetVolatile sets the "volatile" field.
+func (m *FactCoverageMutation) SetVolatile(s []string) {
+	m.volatile = &s
+	m.appendvolatile = nil
+}
+
+// Volatile returns the value of the "volatile" field in the mutation.
+func (m *FactCoverageMutation) Volatile() (r []string, exists bool) {
+	v := m.volatile
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldVolatile returns the old "volatile" field's value of the FactCoverage entity.
+// If the FactCoverage object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *FactCoverageMutation) OldVolatile(ctx context.Context) (v []string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldVolatile is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldVolatile requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldVolatile: %w", err)
+	}
+	return oldValue.Volatile, nil
+}
+
+// AppendVolatile adds s to the "volatile" field.
+func (m *FactCoverageMutation) AppendVolatile(s []string) {
+	m.appendvolatile = append(m.appendvolatile, s...)
+}
+
+// AppendedVolatile returns the list of values that were appended to the "volatile" field in this mutation.
+func (m *FactCoverageMutation) AppendedVolatile() ([]string, bool) {
+	if len(m.appendvolatile) == 0 {
+		return nil, false
+	}
+	return m.appendvolatile, true
+}
+
+// ClearVolatile clears the value of the "volatile" field.
+func (m *FactCoverageMutation) ClearVolatile() {
+	m.volatile = nil
+	m.appendvolatile = nil
+	m.clearedFields[factcoverage.FieldVolatile] = struct{}{}
+}
+
+// VolatileCleared returns if the "volatile" field was cleared in this mutation.
+func (m *FactCoverageMutation) VolatileCleared() bool {
+	_, ok := m.clearedFields[factcoverage.FieldVolatile]
+	return ok
+}
+
+// ResetVolatile resets all changes to the "volatile" field.
+func (m *FactCoverageMutation) ResetVolatile() {
+	m.volatile = nil
+	m.appendvolatile = nil
+	delete(m.clearedFields, factcoverage.FieldVolatile)
+}
+
+// SetDeviceID sets the "device" edge to the Device entity by id.
+func (m *FactCoverageMutation) SetDeviceID(id int) {
+	m.device = &id
+}
+
+// ClearDevice clears the "device" edge to the Device entity.
+func (m *FactCoverageMutation) ClearDevice() {
+	m.cleareddevice = true
+}
+
+// DeviceCleared reports if the "device" edge to the Device entity was cleared.
+func (m *FactCoverageMutation) DeviceCleared() bool {
+	return m.cleareddevice
+}
+
+// DeviceID returns the "device" edge ID in the mutation.
+func (m *FactCoverageMutation) DeviceID() (id int, exists bool) {
+	if m.device != nil {
+		return *m.device, true
+	}
+	return
+}
+
+// DeviceIDs returns the "device" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// DeviceID instead. It exists only for internal usage by the builders.
+func (m *FactCoverageMutation) DeviceIDs() (ids []int) {
+	if id := m.device; id != nil {
+		ids = append(ids, *id)
+	}
+	return
+}
+
+// ResetDevice resets all changes to the "device" edge.
+func (m *FactCoverageMutation) ResetDevice() {
+	m.device = nil
+	m.cleareddevice = false
+}
+
+// Where appends a list predicates to the FactCoverageMutation builder.
+func (m *FactCoverageMutation) Where(ps ...predicate.FactCoverage) {
+	m.predicates = append(m.predicates, ps...)
+}
+
+// WhereP appends storage-level predicates to the FactCoverageMutation builder. Using this method,
+// users can use type-assertion to append predicates that do not depend on any generated package.
+func (m *FactCoverageMutation) WhereP(ps ...func(*sql.Selector)) {
+	p := make([]predicate.FactCoverage, len(ps))
+	for i := range ps {
+		p[i] = ps[i]
+	}
+	m.Where(p...)
+}
+
+// Op returns the operation name.
+func (m *FactCoverageMutation) Op() Op {
+	return m.op
+}
+
+// SetOp allows setting the mutation operation.
+func (m *FactCoverageMutation) SetOp(op Op) {
+	m.op = op
+}
+
+// Type returns the node type of this mutation (FactCoverage).
+func (m *FactCoverageMutation) Type() string {
+	return m.typ
+}
+
+// Fields returns all fields that were changed during this mutation. Note that in
+// order to get all numeric fields that were incremented/decremented, call
+// AddedFields().
+func (m *FactCoverageMutation) Fields() []string {
+	fields := make([]string, 0, 3)
+	if m.digest != nil {
+		fields = append(fields, factcoverage.FieldDigest)
+	}
+	if m.stable != nil {
+		fields = append(fields, factcoverage.FieldStable)
+	}
+	if m.volatile != nil {
+		fields = append(fields, factcoverage.FieldVolatile)
+	}
+	return fields
+}
+
+// Field returns the value of a field with the given name. The second boolean
+// return value indicates that this field was not set, or was not defined in the
+// schema.
+func (m *FactCoverageMutation) Field(name string) (ent.Value, bool) {
+	switch name {
+	case factcoverage.FieldDigest:
+		return m.Digest()
+	case factcoverage.FieldStable:
+		return m.Stable()
+	case factcoverage.FieldVolatile:
+		return m.Volatile()
+	}
+	return nil, false
+}
+
+// OldField returns the old value of the field from the database. An error is
+// returned if the mutation operation is not UpdateOne, or the query to the
+// database failed.
+func (m *FactCoverageMutation) OldField(ctx context.Context, name string) (ent.Value, error) {
+	switch name {
+	case factcoverage.FieldDigest:
+		return m.OldDigest(ctx)
+	case factcoverage.FieldStable:
+		return m.OldStable(ctx)
+	case factcoverage.FieldVolatile:
+		return m.OldVolatile(ctx)
+	}
+	return nil, fmt.Errorf("unknown FactCoverage field %s", name)
+}
+
+// SetField sets the value of a field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *FactCoverageMutation) SetField(name string, value ent.Value) error {
+	switch name {
+	case factcoverage.FieldDigest:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetDigest(v)
+		return nil
+	case factcoverage.FieldStable:
+		v, ok := value.([]string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetStable(v)
+		return nil
+	case factcoverage.FieldVolatile:
+		v, ok := value.([]string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetVolatile(v)
+		return nil
+	}
+	return fmt.Errorf("unknown FactCoverage field %s", name)
+}
+
+// AddedFields returns all numeric fields that were incremented/decremented during
+// this mutation.
+func (m *FactCoverageMutation) AddedFields() []string {
+	return nil
+}
+
+// AddedField returns the numeric value that was incremented/decremented on a field
+// with the given name. The second boolean return value indicates that this field
+// was not set, or was not defined in the schema.
+func (m *FactCoverageMutation) AddedField(name string) (ent.Value, bool) {
+	return nil, false
+}
+
+// AddField adds the value to the field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *FactCoverageMutation) AddField(name string, value ent.Value) error {
+	switch name {
+	}
+	return fmt.Errorf("unknown FactCoverage numeric field %s", name)
+}
+
+// ClearedFields returns all nullable fields that were cleared during this
+// mutation.
+func (m *FactCoverageMutation) ClearedFields() []string {
+	var fields []string
+	if m.FieldCleared(factcoverage.FieldStable) {
+		fields = append(fields, factcoverage.FieldStable)
+	}
+	if m.FieldCleared(factcoverage.FieldVolatile) {
+		fields = append(fields, factcoverage.FieldVolatile)
+	}
+	return fields
+}
+
+// FieldCleared returns a boolean indicating if a field with the given name was
+// cleared in this mutation.
+func (m *FactCoverageMutation) FieldCleared(name string) bool {
+	_, ok := m.clearedFields[name]
+	return ok
+}
+
+// ClearField clears the value of the field with the given name. It returns an
+// error if the field is not defined in the schema.
+func (m *FactCoverageMutation) ClearField(name string) error {
+	switch name {
+	case factcoverage.FieldStable:
+		m.ClearStable()
+		return nil
+	case factcoverage.FieldVolatile:
+		m.ClearVolatile()
+		return nil
+	}
+	return fmt.Errorf("unknown FactCoverage nullable field %s", name)
+}
+
+// ResetField resets all changes in the mutation for the field with the given name.
+// It returns an error if the field is not defined in the schema.
+func (m *FactCoverageMutation) ResetField(name string) error {
+	switch name {
+	case factcoverage.FieldDigest:
+		m.ResetDigest()
+		return nil
+	case factcoverage.FieldStable:
+		m.ResetStable()
+		return nil
+	case factcoverage.FieldVolatile:
+		m.ResetVolatile()
+		return nil
+	}
+	return fmt.Errorf("unknown FactCoverage field %s", name)
+}
+
+// AddedEdges returns all edge names that were set/added in this mutation.
+func (m *FactCoverageMutation) AddedEdges() []string {
+	edges := make([]string, 0, 1)
+	if m.device != nil {
+		edges = append(edges, factcoverage.EdgeDevice)
+	}
+	return edges
+}
+
+// AddedIDs returns all IDs (to other nodes) that were added for the given edge
+// name in this mutation.
+func (m *FactCoverageMutation) AddedIDs(name string) []ent.Value {
+	switch name {
+	case factcoverage.EdgeDevice:
+		if id := m.device; id != nil {
+			return []ent.Value{*id}
+		}
+	}
+	return nil
+}
+
+// RemovedEdges returns all edge names that were removed in this mutation.
+func (m *FactCoverageMutation) RemovedEdges() []string {
+	edges := make([]string, 0, 1)
+	return edges
+}
+
+// RemovedIDs returns all IDs (to other nodes) that were removed for the edge with
+// the given name in this mutation.
+func (m *FactCoverageMutation) RemovedIDs(name string) []ent.Value {
+	return nil
+}
+
+// ClearedEdges returns all edge names that were cleared in this mutation.
+func (m *FactCoverageMutation) ClearedEdges() []string {
+	edges := make([]string, 0, 1)
+	if m.cleareddevice {
+		edges = append(edges, factcoverage.EdgeDevice)
+	}
+	return edges
+}
+
+// EdgeCleared returns a boolean which indicates if the edge with the given name
+// was cleared in this mutation.
+func (m *FactCoverageMutation) EdgeCleared(name string) bool {
+	switch name {
+	case factcoverage.EdgeDevice:
+		return m.cleareddevice
+	}
+	return false
+}
+
+// ClearEdge clears the value of the edge with the given name. It returns an error
+// if that edge is not defined in the schema.
+func (m *FactCoverageMutation) ClearEdge(name string) error {
+	switch name {
+	case factcoverage.EdgeDevice:
+		m.ClearDevice()
+		return nil
+	}
+	return fmt.Errorf("unknown FactCoverage unique edge %s", name)
+}
+
+// ResetEdge resets all changes to the edge with the given name in this mutation.
+// It returns an error if the edge is not defined in the schema.
+func (m *FactCoverageMutation) ResetEdge(name string) error {
+	switch name {
+	case factcoverage.EdgeDevice:
+		m.ResetDevice()
+		return nil
+	}
+	return fmt.Errorf("unknown FactCoverage edge %s", name)
+}
+
+// FactObservationMutation represents an operation that mutates the FactObservation nodes in the graph.
+type FactObservationMutation struct {
+	config
+	op             Op
+	typ            string
+	id             *int
+	seq            *int64
+	addseq         *int64
+	observed_at    *time.Time
+	order_source   *string
+	order_token    *int64
+	addorder_token *int64
+	provenance     *map[string]interface{}
+	coverage       *string
+	clearedFields  map[string]struct{}
+	device         *int
+	cleareddevice  bool
+	done           bool
+	oldValue       func(context.Context) (*FactObservation, error)
+	predicates     []predicate.FactObservation
+}
+
+var _ ent.Mutation = (*FactObservationMutation)(nil)
+
+// factobservationOption allows management of the mutation configuration using functional options.
+type factobservationOption func(*FactObservationMutation)
+
+// newFactObservationMutation creates new mutation for the FactObservation entity.
+func newFactObservationMutation(c config, op Op, opts ...factobservationOption) *FactObservationMutation {
+	m := &FactObservationMutation{
+		config:        c,
+		op:            op,
+		typ:           TypeFactObservation,
+		clearedFields: make(map[string]struct{}),
+	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
+}
+
+// withFactObservationID sets the ID field of the mutation.
+func withFactObservationID(id int) factobservationOption {
+	return func(m *FactObservationMutation) {
+		var (
+			err   error
+			once  sync.Once
+			value *FactObservation
+		)
+		m.oldValue = func(ctx context.Context) (*FactObservation, error) {
+			once.Do(func() {
+				if m.done {
+					err = errors.New("querying old values post mutation is not allowed")
+				} else {
+					value, err = m.Client().FactObservation.Get(ctx, id)
+				}
+			})
+			return value, err
+		}
+		m.id = &id
+	}
+}
+
+// withFactObservation sets the old FactObservation of the mutation.
+func withFactObservation(node *FactObservation) factobservationOption {
+	return func(m *FactObservationMutation) {
+		m.oldValue = func(context.Context) (*FactObservation, error) {
+			return node, nil
+		}
+		m.id = &node.ID
+	}
+}
+
+// Client returns a new `ent.Client` from the mutation. If the mutation was
+// executed in a transaction (ent.Tx), a transactional client is returned.
+func (m FactObservationMutation) Client() *Client {
+	client := &Client{config: m.config}
+	client.init()
+	return client
+}
+
+// Tx returns an `ent.Tx` for mutations that were executed in transactions;
+// it returns an error otherwise.
+func (m FactObservationMutation) Tx() (*Tx, error) {
+	if _, ok := m.driver.(*txDriver); !ok {
+		return nil, errors.New("ent: mutation is not running in a transaction")
+	}
+	tx := &Tx{config: m.config}
+	tx.init()
+	return tx, nil
+}
+
+// ID returns the ID value in the mutation. Note that the ID is only available
+// if it was provided to the builder or after it was returned from the database.
+func (m *FactObservationMutation) ID() (id int, exists bool) {
+	if m.id == nil {
+		return
+	}
+	return *m.id, true
+}
+
+// IDs queries the database and returns the entity ids that match the mutation's predicate.
+// That means, if the mutation is applied within a transaction with an isolation level such
+// as sql.LevelSerializable, the returned ids match the ids of the rows that will be updated
+// or updated by the mutation.
+func (m *FactObservationMutation) IDs(ctx context.Context) ([]int, error) {
+	switch {
+	case m.op.Is(OpUpdateOne | OpDeleteOne):
+		id, exists := m.ID()
+		if exists {
+			return []int{id}, nil
+		}
+		fallthrough
+	case m.op.Is(OpUpdate | OpDelete):
+		return m.Client().FactObservation.Query().Where(m.predicates...).IDs(ctx)
+	default:
+		return nil, fmt.Errorf("IDs is not allowed on %s operations", m.op)
+	}
+}
+
+// SetDeviceID sets the "device_id" field.
+func (m *FactObservationMutation) SetDeviceID(i int) {
+	m.device = &i
+}
+
+// DeviceID returns the value of the "device_id" field in the mutation.
+func (m *FactObservationMutation) DeviceID() (r int, exists bool) {
+	v := m.device
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldDeviceID returns the old "device_id" field's value of the FactObservation entity.
+// If the FactObservation object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *FactObservationMutation) OldDeviceID(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldDeviceID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldDeviceID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldDeviceID: %w", err)
+	}
+	return oldValue.DeviceID, nil
+}
+
+// ResetDeviceID resets all changes to the "device_id" field.
+func (m *FactObservationMutation) ResetDeviceID() {
+	m.device = nil
+}
+
+// SetSeq sets the "seq" field.
+func (m *FactObservationMutation) SetSeq(i int64) {
+	m.seq = &i
+	m.addseq = nil
+}
+
+// Seq returns the value of the "seq" field in the mutation.
+func (m *FactObservationMutation) Seq() (r int64, exists bool) {
+	v := m.seq
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldSeq returns the old "seq" field's value of the FactObservation entity.
+// If the FactObservation object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *FactObservationMutation) OldSeq(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldSeq is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldSeq requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldSeq: %w", err)
+	}
+	return oldValue.Seq, nil
+}
+
+// AddSeq adds i to the "seq" field.
+func (m *FactObservationMutation) AddSeq(i int64) {
+	if m.addseq != nil {
+		*m.addseq += i
+	} else {
+		m.addseq = &i
+	}
+}
+
+// AddedSeq returns the value that was added to the "seq" field in this mutation.
+func (m *FactObservationMutation) AddedSeq() (r int64, exists bool) {
+	v := m.addseq
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetSeq resets all changes to the "seq" field.
+func (m *FactObservationMutation) ResetSeq() {
+	m.seq = nil
+	m.addseq = nil
+}
+
+// SetObservedAt sets the "observed_at" field.
+func (m *FactObservationMutation) SetObservedAt(t time.Time) {
+	m.observed_at = &t
+}
+
+// ObservedAt returns the value of the "observed_at" field in the mutation.
+func (m *FactObservationMutation) ObservedAt() (r time.Time, exists bool) {
+	v := m.observed_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldObservedAt returns the old "observed_at" field's value of the FactObservation entity.
+// If the FactObservation object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *FactObservationMutation) OldObservedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldObservedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldObservedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldObservedAt: %w", err)
+	}
+	return oldValue.ObservedAt, nil
+}
+
+// ResetObservedAt resets all changes to the "observed_at" field.
+func (m *FactObservationMutation) ResetObservedAt() {
+	m.observed_at = nil
+}
+
+// SetOrderSource sets the "order_source" field.
+func (m *FactObservationMutation) SetOrderSource(s string) {
+	m.order_source = &s
+}
+
+// OrderSource returns the value of the "order_source" field in the mutation.
+func (m *FactObservationMutation) OrderSource() (r string, exists bool) {
+	v := m.order_source
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldOrderSource returns the old "order_source" field's value of the FactObservation entity.
+// If the FactObservation object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *FactObservationMutation) OldOrderSource(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldOrderSource is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldOrderSource requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldOrderSource: %w", err)
+	}
+	return oldValue.OrderSource, nil
+}
+
+// ResetOrderSource resets all changes to the "order_source" field.
+func (m *FactObservationMutation) ResetOrderSource() {
+	m.order_source = nil
+}
+
+// SetOrderToken sets the "order_token" field.
+func (m *FactObservationMutation) SetOrderToken(i int64) {
+	m.order_token = &i
+	m.addorder_token = nil
+}
+
+// OrderToken returns the value of the "order_token" field in the mutation.
+func (m *FactObservationMutation) OrderToken() (r int64, exists bool) {
+	v := m.order_token
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldOrderToken returns the old "order_token" field's value of the FactObservation entity.
+// If the FactObservation object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *FactObservationMutation) OldOrderToken(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldOrderToken is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldOrderToken requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldOrderToken: %w", err)
+	}
+	return oldValue.OrderToken, nil
+}
+
+// AddOrderToken adds i to the "order_token" field.
+func (m *FactObservationMutation) AddOrderToken(i int64) {
+	if m.addorder_token != nil {
+		*m.addorder_token += i
+	} else {
+		m.addorder_token = &i
+	}
+}
+
+// AddedOrderToken returns the value that was added to the "order_token" field in this mutation.
+func (m *FactObservationMutation) AddedOrderToken() (r int64, exists bool) {
+	v := m.addorder_token
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetOrderToken resets all changes to the "order_token" field.
+func (m *FactObservationMutation) ResetOrderToken() {
+	m.order_token = nil
+	m.addorder_token = nil
+}
+
+// SetProvenance sets the "provenance" field.
+func (m *FactObservationMutation) SetProvenance(value map[string]interface{}) {
+	m.provenance = &value
+}
+
+// Provenance returns the value of the "provenance" field in the mutation.
+func (m *FactObservationMutation) Provenance() (r map[string]interface{}, exists bool) {
+	v := m.provenance
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldProvenance returns the old "provenance" field's value of the FactObservation entity.
+// If the FactObservation object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *FactObservationMutation) OldProvenance(ctx context.Context) (v map[string]interface{}, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldProvenance is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldProvenance requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldProvenance: %w", err)
+	}
+	return oldValue.Provenance, nil
+}
+
+// ResetProvenance resets all changes to the "provenance" field.
+func (m *FactObservationMutation) ResetProvenance() {
+	m.provenance = nil
+}
+
+// SetCoverage sets the "coverage" field.
+func (m *FactObservationMutation) SetCoverage(s string) {
+	m.coverage = &s
+}
+
+// Coverage returns the value of the "coverage" field in the mutation.
+func (m *FactObservationMutation) Coverage() (r string, exists bool) {
+	v := m.coverage
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCoverage returns the old "coverage" field's value of the FactObservation entity.
+// If the FactObservation object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *FactObservationMutation) OldCoverage(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCoverage is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCoverage requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCoverage: %w", err)
+	}
+	return oldValue.Coverage, nil
+}
+
+// ResetCoverage resets all changes to the "coverage" field.
+func (m *FactObservationMutation) ResetCoverage() {
+	m.coverage = nil
+}
+
+// ClearDevice clears the "device" edge to the Device entity.
+func (m *FactObservationMutation) ClearDevice() {
+	m.cleareddevice = true
+	m.clearedFields[factobservation.FieldDeviceID] = struct{}{}
+}
+
+// DeviceCleared reports if the "device" edge to the Device entity was cleared.
+func (m *FactObservationMutation) DeviceCleared() bool {
+	return m.cleareddevice
+}
+
+// DeviceIDs returns the "device" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// DeviceID instead. It exists only for internal usage by the builders.
+func (m *FactObservationMutation) DeviceIDs() (ids []int) {
+	if id := m.device; id != nil {
+		ids = append(ids, *id)
+	}
+	return
+}
+
+// ResetDevice resets all changes to the "device" edge.
+func (m *FactObservationMutation) ResetDevice() {
+	m.device = nil
+	m.cleareddevice = false
+}
+
+// Where appends a list predicates to the FactObservationMutation builder.
+func (m *FactObservationMutation) Where(ps ...predicate.FactObservation) {
+	m.predicates = append(m.predicates, ps...)
+}
+
+// WhereP appends storage-level predicates to the FactObservationMutation builder. Using this method,
+// users can use type-assertion to append predicates that do not depend on any generated package.
+func (m *FactObservationMutation) WhereP(ps ...func(*sql.Selector)) {
+	p := make([]predicate.FactObservation, len(ps))
+	for i := range ps {
+		p[i] = ps[i]
+	}
+	m.Where(p...)
+}
+
+// Op returns the operation name.
+func (m *FactObservationMutation) Op() Op {
+	return m.op
+}
+
+// SetOp allows setting the mutation operation.
+func (m *FactObservationMutation) SetOp(op Op) {
+	m.op = op
+}
+
+// Type returns the node type of this mutation (FactObservation).
+func (m *FactObservationMutation) Type() string {
+	return m.typ
+}
+
+// Fields returns all fields that were changed during this mutation. Note that in
+// order to get all numeric fields that were incremented/decremented, call
+// AddedFields().
+func (m *FactObservationMutation) Fields() []string {
+	fields := make([]string, 0, 7)
+	if m.device != nil {
+		fields = append(fields, factobservation.FieldDeviceID)
+	}
+	if m.seq != nil {
+		fields = append(fields, factobservation.FieldSeq)
+	}
+	if m.observed_at != nil {
+		fields = append(fields, factobservation.FieldObservedAt)
+	}
+	if m.order_source != nil {
+		fields = append(fields, factobservation.FieldOrderSource)
+	}
+	if m.order_token != nil {
+		fields = append(fields, factobservation.FieldOrderToken)
+	}
+	if m.provenance != nil {
+		fields = append(fields, factobservation.FieldProvenance)
+	}
+	if m.coverage != nil {
+		fields = append(fields, factobservation.FieldCoverage)
+	}
+	return fields
+}
+
+// Field returns the value of a field with the given name. The second boolean
+// return value indicates that this field was not set, or was not defined in the
+// schema.
+func (m *FactObservationMutation) Field(name string) (ent.Value, bool) {
+	switch name {
+	case factobservation.FieldDeviceID:
+		return m.DeviceID()
+	case factobservation.FieldSeq:
+		return m.Seq()
+	case factobservation.FieldObservedAt:
+		return m.ObservedAt()
+	case factobservation.FieldOrderSource:
+		return m.OrderSource()
+	case factobservation.FieldOrderToken:
+		return m.OrderToken()
+	case factobservation.FieldProvenance:
+		return m.Provenance()
+	case factobservation.FieldCoverage:
+		return m.Coverage()
+	}
+	return nil, false
+}
+
+// OldField returns the old value of the field from the database. An error is
+// returned if the mutation operation is not UpdateOne, or the query to the
+// database failed.
+func (m *FactObservationMutation) OldField(ctx context.Context, name string) (ent.Value, error) {
+	switch name {
+	case factobservation.FieldDeviceID:
+		return m.OldDeviceID(ctx)
+	case factobservation.FieldSeq:
+		return m.OldSeq(ctx)
+	case factobservation.FieldObservedAt:
+		return m.OldObservedAt(ctx)
+	case factobservation.FieldOrderSource:
+		return m.OldOrderSource(ctx)
+	case factobservation.FieldOrderToken:
+		return m.OldOrderToken(ctx)
+	case factobservation.FieldProvenance:
+		return m.OldProvenance(ctx)
+	case factobservation.FieldCoverage:
+		return m.OldCoverage(ctx)
+	}
+	return nil, fmt.Errorf("unknown FactObservation field %s", name)
+}
+
+// SetField sets the value of a field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *FactObservationMutation) SetField(name string, value ent.Value) error {
+	switch name {
+	case factobservation.FieldDeviceID:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetDeviceID(v)
+		return nil
+	case factobservation.FieldSeq:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetSeq(v)
+		return nil
+	case factobservation.FieldObservedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetObservedAt(v)
+		return nil
+	case factobservation.FieldOrderSource:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetOrderSource(v)
+		return nil
+	case factobservation.FieldOrderToken:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetOrderToken(v)
+		return nil
+	case factobservation.FieldProvenance:
+		v, ok := value.(map[string]interface{})
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetProvenance(v)
+		return nil
+	case factobservation.FieldCoverage:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCoverage(v)
+		return nil
+	}
+	return fmt.Errorf("unknown FactObservation field %s", name)
+}
+
+// AddedFields returns all numeric fields that were incremented/decremented during
+// this mutation.
+func (m *FactObservationMutation) AddedFields() []string {
+	var fields []string
+	if m.addseq != nil {
+		fields = append(fields, factobservation.FieldSeq)
+	}
+	if m.addorder_token != nil {
+		fields = append(fields, factobservation.FieldOrderToken)
+	}
+	return fields
+}
+
+// AddedField returns the numeric value that was incremented/decremented on a field
+// with the given name. The second boolean return value indicates that this field
+// was not set, or was not defined in the schema.
+func (m *FactObservationMutation) AddedField(name string) (ent.Value, bool) {
+	switch name {
+	case factobservation.FieldSeq:
+		return m.AddedSeq()
+	case factobservation.FieldOrderToken:
+		return m.AddedOrderToken()
+	}
+	return nil, false
+}
+
+// AddField adds the value to the field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *FactObservationMutation) AddField(name string, value ent.Value) error {
+	switch name {
+	case factobservation.FieldSeq:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddSeq(v)
+		return nil
+	case factobservation.FieldOrderToken:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddOrderToken(v)
+		return nil
+	}
+	return fmt.Errorf("unknown FactObservation numeric field %s", name)
+}
+
+// ClearedFields returns all nullable fields that were cleared during this
+// mutation.
+func (m *FactObservationMutation) ClearedFields() []string {
+	return nil
+}
+
+// FieldCleared returns a boolean indicating if a field with the given name was
+// cleared in this mutation.
+func (m *FactObservationMutation) FieldCleared(name string) bool {
+	_, ok := m.clearedFields[name]
+	return ok
+}
+
+// ClearField clears the value of the field with the given name. It returns an
+// error if the field is not defined in the schema.
+func (m *FactObservationMutation) ClearField(name string) error {
+	return fmt.Errorf("unknown FactObservation nullable field %s", name)
+}
+
+// ResetField resets all changes in the mutation for the field with the given name.
+// It returns an error if the field is not defined in the schema.
+func (m *FactObservationMutation) ResetField(name string) error {
+	switch name {
+	case factobservation.FieldDeviceID:
+		m.ResetDeviceID()
+		return nil
+	case factobservation.FieldSeq:
+		m.ResetSeq()
+		return nil
+	case factobservation.FieldObservedAt:
+		m.ResetObservedAt()
+		return nil
+	case factobservation.FieldOrderSource:
+		m.ResetOrderSource()
+		return nil
+	case factobservation.FieldOrderToken:
+		m.ResetOrderToken()
+		return nil
+	case factobservation.FieldProvenance:
+		m.ResetProvenance()
+		return nil
+	case factobservation.FieldCoverage:
+		m.ResetCoverage()
+		return nil
+	}
+	return fmt.Errorf("unknown FactObservation field %s", name)
+}
+
+// AddedEdges returns all edge names that were set/added in this mutation.
+func (m *FactObservationMutation) AddedEdges() []string {
+	edges := make([]string, 0, 1)
+	if m.device != nil {
+		edges = append(edges, factobservation.EdgeDevice)
+	}
+	return edges
+}
+
+// AddedIDs returns all IDs (to other nodes) that were added for the given edge
+// name in this mutation.
+func (m *FactObservationMutation) AddedIDs(name string) []ent.Value {
+	switch name {
+	case factobservation.EdgeDevice:
+		if id := m.device; id != nil {
+			return []ent.Value{*id}
+		}
+	}
+	return nil
+}
+
+// RemovedEdges returns all edge names that were removed in this mutation.
+func (m *FactObservationMutation) RemovedEdges() []string {
+	edges := make([]string, 0, 1)
+	return edges
+}
+
+// RemovedIDs returns all IDs (to other nodes) that were removed for the edge with
+// the given name in this mutation.
+func (m *FactObservationMutation) RemovedIDs(name string) []ent.Value {
+	return nil
+}
+
+// ClearedEdges returns all edge names that were cleared in this mutation.
+func (m *FactObservationMutation) ClearedEdges() []string {
+	edges := make([]string, 0, 1)
+	if m.cleareddevice {
+		edges = append(edges, factobservation.EdgeDevice)
+	}
+	return edges
+}
+
+// EdgeCleared returns a boolean which indicates if the edge with the given name
+// was cleared in this mutation.
+func (m *FactObservationMutation) EdgeCleared(name string) bool {
+	switch name {
+	case factobservation.EdgeDevice:
+		return m.cleareddevice
+	}
+	return false
+}
+
+// ClearEdge clears the value of the edge with the given name. It returns an error
+// if that edge is not defined in the schema.
+func (m *FactObservationMutation) ClearEdge(name string) error {
+	switch name {
+	case factobservation.EdgeDevice:
+		m.ClearDevice()
+		return nil
+	}
+	return fmt.Errorf("unknown FactObservation unique edge %s", name)
+}
+
+// ResetEdge resets all changes to the edge with the given name in this mutation.
+// It returns an error if the edge is not defined in the schema.
+func (m *FactObservationMutation) ResetEdge(name string) error {
+	switch name {
+	case factobservation.EdgeDevice:
+		m.ResetDevice()
+		return nil
+	}
+	return fmt.Errorf("unknown FactObservation edge %s", name)
 }
 
 // GroupMutation represents an operation that mutates the Group nodes in the graph.

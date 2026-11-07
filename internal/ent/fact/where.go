@@ -80,6 +80,11 @@ func LastSeenAt(v time.Time) predicate.Fact {
 	return predicate.Fact(sql.FieldEQ(FieldLastSeenAt, v))
 }
 
+// ObservationSeq applies equality check predicate on the "observation_seq" field. It's identical to ObservationSeqEQ.
+func ObservationSeq(v int64) predicate.Fact {
+	return predicate.Fact(sql.FieldEQ(FieldObservationSeq, v))
+}
+
 // ChainPrev applies equality check predicate on the "chain_prev" field. It's identical to ChainPrevEQ.
 func ChainPrev(v string) predicate.Fact {
 	return predicate.Fact(sql.FieldEQ(FieldChainPrev, v))
@@ -300,6 +305,36 @@ func HashContainsFold(v string) predicate.Fact {
 	return predicate.Fact(sql.FieldContainsFold(FieldHash, v))
 }
 
+// KindEQ applies the EQ predicate on the "kind" field.
+func KindEQ(v Kind) predicate.Fact {
+	return predicate.Fact(sql.FieldEQ(FieldKind, v))
+}
+
+// KindNEQ applies the NEQ predicate on the "kind" field.
+func KindNEQ(v Kind) predicate.Fact {
+	return predicate.Fact(sql.FieldNEQ(FieldKind, v))
+}
+
+// KindIn applies the In predicate on the "kind" field.
+func KindIn(vs ...Kind) predicate.Fact {
+	return predicate.Fact(sql.FieldIn(FieldKind, vs...))
+}
+
+// KindNotIn applies the NotIn predicate on the "kind" field.
+func KindNotIn(vs ...Kind) predicate.Fact {
+	return predicate.Fact(sql.FieldNotIn(FieldKind, vs...))
+}
+
+// ProvenanceIsNil applies the IsNil predicate on the "provenance" field.
+func ProvenanceIsNil() predicate.Fact {
+	return predicate.Fact(sql.FieldIsNull(FieldProvenance))
+}
+
+// ProvenanceNotNil applies the NotNil predicate on the "provenance" field.
+func ProvenanceNotNil() predicate.Fact {
+	return predicate.Fact(sql.FieldNotNull(FieldProvenance))
+}
+
 // LastSeenAtEQ applies the EQ predicate on the "last_seen_at" field.
 func LastSeenAtEQ(v time.Time) predicate.Fact {
 	return predicate.Fact(sql.FieldEQ(FieldLastSeenAt, v))
@@ -350,36 +385,6 @@ func LastSeenAtNotNil() predicate.Fact {
 	return predicate.Fact(sql.FieldNotNull(FieldLastSeenAt))
 }
 
-// KindEQ applies the EQ predicate on the "kind" field.
-func KindEQ(v Kind) predicate.Fact {
-	return predicate.Fact(sql.FieldEQ(FieldKind, v))
-}
-
-// KindNEQ applies the NEQ predicate on the "kind" field.
-func KindNEQ(v Kind) predicate.Fact {
-	return predicate.Fact(sql.FieldNEQ(FieldKind, v))
-}
-
-// KindIn applies the In predicate on the "kind" field.
-func KindIn(vs ...Kind) predicate.Fact {
-	return predicate.Fact(sql.FieldIn(FieldKind, vs...))
-}
-
-// KindNotIn applies the NotIn predicate on the "kind" field.
-func KindNotIn(vs ...Kind) predicate.Fact {
-	return predicate.Fact(sql.FieldNotIn(FieldKind, vs...))
-}
-
-// ProvenanceIsNil applies the IsNil predicate on the "provenance" field.
-func ProvenanceIsNil() predicate.Fact {
-	return predicate.Fact(sql.FieldIsNull(FieldProvenance))
-}
-
-// ProvenanceNotNil applies the NotNil predicate on the "provenance" field.
-func ProvenanceNotNil() predicate.Fact {
-	return predicate.Fact(sql.FieldNotNull(FieldProvenance))
-}
-
 // LastProvenanceIsNil applies the IsNil predicate on the "last_provenance" field.
 func LastProvenanceIsNil() predicate.Fact {
 	return predicate.Fact(sql.FieldIsNull(FieldLastProvenance))
@@ -388,6 +393,46 @@ func LastProvenanceIsNil() predicate.Fact {
 // LastProvenanceNotNil applies the NotNil predicate on the "last_provenance" field.
 func LastProvenanceNotNil() predicate.Fact {
 	return predicate.Fact(sql.FieldNotNull(FieldLastProvenance))
+}
+
+// ObservationSeqEQ applies the EQ predicate on the "observation_seq" field.
+func ObservationSeqEQ(v int64) predicate.Fact {
+	return predicate.Fact(sql.FieldEQ(FieldObservationSeq, v))
+}
+
+// ObservationSeqNEQ applies the NEQ predicate on the "observation_seq" field.
+func ObservationSeqNEQ(v int64) predicate.Fact {
+	return predicate.Fact(sql.FieldNEQ(FieldObservationSeq, v))
+}
+
+// ObservationSeqIn applies the In predicate on the "observation_seq" field.
+func ObservationSeqIn(vs ...int64) predicate.Fact {
+	return predicate.Fact(sql.FieldIn(FieldObservationSeq, vs...))
+}
+
+// ObservationSeqNotIn applies the NotIn predicate on the "observation_seq" field.
+func ObservationSeqNotIn(vs ...int64) predicate.Fact {
+	return predicate.Fact(sql.FieldNotIn(FieldObservationSeq, vs...))
+}
+
+// ObservationSeqGT applies the GT predicate on the "observation_seq" field.
+func ObservationSeqGT(v int64) predicate.Fact {
+	return predicate.Fact(sql.FieldGT(FieldObservationSeq, v))
+}
+
+// ObservationSeqGTE applies the GTE predicate on the "observation_seq" field.
+func ObservationSeqGTE(v int64) predicate.Fact {
+	return predicate.Fact(sql.FieldGTE(FieldObservationSeq, v))
+}
+
+// ObservationSeqLT applies the LT predicate on the "observation_seq" field.
+func ObservationSeqLT(v int64) predicate.Fact {
+	return predicate.Fact(sql.FieldLT(FieldObservationSeq, v))
+}
+
+// ObservationSeqLTE applies the LTE predicate on the "observation_seq" field.
+func ObservationSeqLTE(v int64) predicate.Fact {
+	return predicate.Fact(sql.FieldLTE(FieldObservationSeq, v))
 }
 
 // ChainPrevEQ applies the EQ predicate on the "chain_prev" field.
