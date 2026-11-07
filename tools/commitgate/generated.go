@@ -22,6 +22,7 @@ const (
 	entSchemaDir        = "internal/ent/schema/"
 	entGeneratedDir     = "internal/ent/"
 	entMigrationsDir    = "internal/ent/migrate/migrations/"
+	backupListing       = "internal/backup/testdata/toc_migrated.txt"
 	catalogDataDir      = "internal/forge/catalogdata/"
 	catalogGeneratedDir = "internal/catalog/"
 	specDir             = "internal/apispec/"
@@ -41,6 +42,7 @@ func checkGenerated(entries []stagedEntry) []Finding {
 	var findings []Finding
 	findings = append(findings, checkEntRegenerated(entries)...)
 	findings = append(findings, checkEntMigrations(entries)...)
+	findings = append(findings, checkBackupListing(entries)...)
 	findings = append(findings, checkCatalogRegenerated(entries)...)
 	findings = append(findings, checkReferenceRegenerated(entries)...)
 	return findings
@@ -215,4 +217,28 @@ func codeWithoutComments(src []byte) ([]byte, bool) {
 		return nil, false
 	}
 	return out.Bytes(), true
+}
+
+// checkBackupListing warns when a commit adds an ent entity and not the
+// recaptured backup listing beside it. internal/backup's
+// TestParseTOC_ReadsARealBackupOfThisSchema holds a real pg_restore --list to
+// the tables this build knows, so every new table needs the listing captured
+// again from a real database (toc_test.go's header says how). Three tables
+// in a row reached CI before anyone recaptured it (FAILURE_PATTERNS 978); it
+// is a warning, since the capture needs PostgreSQL and may follow in a later
+// commit of the same branch.
+func checkBackupListing(entries []stagedEntry) []Finding {
+	if !staged(entries, func(e stagedEntry) bool { return e.Kind == changeAdded && isEntSchema(e.Path) }) {
+		return nil
+	}
+	if staged(entries, func(e stagedEntry) bool { return e.Path == backupListing }) {
+		return nil
+	}
+	return []Finding{{
+		Severity: SeverityWarn,
+		Rule:     "a new ent entity is a new table in every backup",
+		Detail: "this commit adds an ent schema file but not a recaptured " + backupListing + "\n" +
+			"  recapture it (and toc_planted.txt) from a real database, as internal/backup/toc_test.go's header says,\n" +
+			"  or internal/backup's TestParseTOC_ReadsARealBackupOfThisSchema fails in CI's containers jobs",
+	}}
 }

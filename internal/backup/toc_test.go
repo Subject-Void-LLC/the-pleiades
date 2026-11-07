@@ -21,7 +21,8 @@ import (
 //
 // Both were recaptured on 2026-09-19, when the launchables table arrived and
 // the counts below stopped matching, and again on 2026-09-21 for
-// controller_instances (and sync_runs.owner_instance, which adds no entry). The procedure is the one the pair's own
+// controller_instances (and sync_runs.owner_instance, which adds no entry), and on 2026-11-07 for fact_observations
+// and fact_coverages (Phase 41h). The procedure is the one the pair's own
 // provenance describes and it is worth writing down, because the alternative
 // when a table is added is to hand-edit a fixture that claims to be a real
 // backup: run postgres at the pinned image (internal/testsupport.PostgresImage,
@@ -48,8 +49,8 @@ func TestParseTOC_ReadsARealBackupOfThisSchema(t *testing.T) {
 	if toc.Format != "CUSTOM" || toc.ServerVersion != "15.19" {
 		t.Fatalf("header = %q, %q; want CUSTOM, 15.19", toc.Format, toc.ServerVersion)
 	}
-	if len(toc.Entries) != 269 {
-		t.Fatalf("read %d entries, want the 269 the listing holds", len(toc.Entries))
+	if len(toc.Entries) != 290 {
+		t.Fatalf("read %d entries, want the 290 the listing holds", len(toc.Entries))
 	}
 	if err := toc.Check(backup.KnownTables()); err != nil {
 		t.Fatalf("Check() refused a real backup of this schema: %v", err)
@@ -63,7 +64,7 @@ func TestParseTOC_ReadsARealBackupOfThisSchema(t *testing.T) {
 			data = append(data, e.Tag)
 		}
 	}
-	if kinds["TABLE"] != 38 || kinds["TABLE DATA"] != 38 || kinds["FK CONSTRAINT"] != 44 {
+	if kinds["TABLE"] != 40 || kinds["TABLE DATA"] != 40 || kinds["FK CONSTRAINT"] != 46 {
 		t.Fatalf("kinds = %v", kinds)
 	}
 	// Every table this version knows is in the backup with its data, so a
