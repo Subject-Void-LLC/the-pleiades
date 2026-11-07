@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/external"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
@@ -26,7 +27,7 @@ func identityMethods() []external.DescribedMethod {
 }
 
 // TestLoad_ProviderIdentityIsTheDescribedManifestSet: each loaded method's
-// Provider carries the program's file name and the digest of the manifests
+// Provider carries the program's file name and the digest of the description
 // its describe gave; a program describing the same methods in the other
 // order, with a self-description of its own added, has the same identity,
 // while its file digest differs.
@@ -36,10 +37,10 @@ func TestLoad_ProviderIdentityIsTheDescribedManifestSet(t *testing.T) {
 	want := wire.CollectionIdentity{
 		Group:   "acme_identity",
 		Program: true,
-		Manifests: collection.ManifestSetDigest(map[string]collection.Manifest{
+		Manifests: collection.DescriptionDigest(map[string]collection.Manifest{
 			methods[0].Name: methods[0].Manifest,
 			methods[1].Name: methods[1].Manifest,
-		}),
+		}, nil),
 	}
 
 	// load loads a directory holding one program described by out and
@@ -101,5 +102,39 @@ func TestRegister_RefusesAProgramDescribingAMethodTwice(t *testing.T) {
 	}
 	if _, ok := collection.Lookup("acmeid.twice"); ok {
 		t.Error("a method of the refused program was registered")
+	}
+}
+
+// TestProgramIdentity_DigestsTheCapabilitiesItDefines: a program that changes
+// what one of its data capabilities says, with every method manifest the
+// same, has a new identity (owner, 2026-11-07); one that lists the same
+// capabilities in another order has the same identity.
+func TestProgramIdentity_DigestsTheCapabilitiesItDefines(t *testing.T) {
+	methods := identityMethods()
+	defs := func(doc string) []capability.DataDefinition {
+		return []capability.DataDefinition{
+			{Name: "acmeid.widget", Doc: doc},
+			{Name: "acmeid.gadget", Doc: "a gadget"},
+		}
+	}
+	identity := func(caps []capability.DataDefinition) wire.CollectionIdentity {
+		t.Helper()
+		id, err := programIdentity("/collections/acme_identity", external.Description{Methods: methods, Capabilities: caps})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	before, after := identity(defs("a widget")), identity(defs("a widget, on any host"))
+	if before == after {
+		t.Error("a changed capability definition left the program's identity as it was")
+	}
+	reordered := defs("a widget")
+	reordered[0], reordered[1] = reordered[1], reordered[0]
+	if got := identity(reordered); got != before {
+		t.Errorf("the same capabilities in another order give %+v, want %+v", got, before)
+	}
+	if none := identity(nil); none == before || none.Manifests == collection.ManifestSetDigest(map[string]collection.Manifest{methods[0].Name: methods[0].Manifest, methods[1].Name: methods[1].Manifest}) {
+		t.Errorf("a description with no capabilities digests as a manifest set or as one with capabilities: %+v", none)
 	}
 }

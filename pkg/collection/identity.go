@@ -17,7 +17,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"maps"
+	"sort"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
@@ -65,9 +67,16 @@ func ManifestSetDigest(manifests map[string]Manifest) string {
 	// string-keyed maps of those (TestManifestEncodingCannotFail holds it to
 	// that), which encoding/json always encodes, and its own output always
 	// decodes, so neither step below can fail.
+	return canonicalDigest(manifests)
+}
+
+// canonicalDigest is the SHA-256, with ManifestDigestPrefix, of v's
+// canonical JSON: encoded, decoded with numbers kept as written, and encoded
+// again, so every object's keys are sorted.
+func canonicalDigest(v any) string {
 	// A failure here would digest "null" for every failing set, a silent
 	// collision, so it panics rather than return a digest.
-	raw, err := marshalJSON(manifests)
+	raw, err := marshalJSON(v)
 	if err != nil {
 		panic("collection: a manifest set did not encode, which TestManifestEncodingCannotFail rules out: " + err.Error())
 	}
@@ -83,6 +92,27 @@ func ManifestSetDigest(manifests map[string]Manifest) string {
 	}
 	sum := sha256.Sum256(canonical)
 	return wire.ManifestDigestPrefix + hex.EncodeToString(sum[:])
+}
+
+// DescriptionDigest is an external program's description digest: the
+// canonical form ManifestSetDigest uses, over the program's method manifests
+// and the capabilities it defines as data, sorted by name. A program that
+// defines no capability digests the same as ManifestSetDigest over its
+// manifests would only by chance, never by design: the two are different
+// subjects, told apart by the identity's Program field.
+func DescriptionDigest(manifests map[string]Manifest, capabilities []capability.DataDefinition) string {
+	if manifests == nil {
+		manifests = map[string]Manifest{}
+	}
+	defs := append([]capability.DataDefinition(nil), capabilities...)
+	sort.Slice(defs, func(i, j int) bool { return defs[i].Name < defs[j].Name })
+	if defs == nil {
+		defs = []capability.DataDefinition{}
+	}
+	return canonicalDigest(struct {
+		Methods      map[string]Manifest         `json:"methods"`
+		Capabilities []capability.DataDefinition `json:"capabilities"`
+	}{manifests, defs})
 }
 
 // GroupManifests returns the manifests of every built-in method of the

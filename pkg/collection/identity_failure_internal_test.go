@@ -8,6 +8,8 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 )
 
 // TestManifestSetDigest_PanicsRatherThanCollide: each step of the canonical
@@ -58,5 +60,23 @@ func TestBuiltinIdentity_PassesOnAGroupDigestFailure(t *testing.T) {
 	groupDigest = func(string) (string, error) { return "", ErrGroupNotLinked }
 	if id, err := BuiltinIdentity("file.copy", "0.4.0"); !errors.Is(err, ErrGroupNotLinked) || !id.IsZero() {
 		t.Errorf("BuiltinIdentity = %+v, %v; want the group digest's error and no identity", id, err)
+	}
+}
+
+// TestDescriptionDigest_NilIsEmptyAndOrderIsFree: a nil set and nil
+// capabilities digest as empty ones, capability order does not matter, and a
+// description is never digested as a bare manifest set.
+func TestDescriptionDigest_NilIsEmptyAndOrderIsFree(t *testing.T) {
+	if DescriptionDigest(nil, nil) != DescriptionDigest(map[string]Manifest{}, []capability.DataDefinition{}) {
+		t.Error("nil and empty descriptions digest differently")
+	}
+	a := []capability.DataDefinition{{Name: "acme.a"}, {Name: "acme.b"}}
+	b := []capability.DataDefinition{{Name: "acme.b"}, {Name: "acme.a"}}
+	m := map[string]Manifest{"acme.x": {}}
+	if DescriptionDigest(m, a) != DescriptionDigest(m, b) {
+		t.Error("capability order moved the digest")
+	}
+	if DescriptionDigest(m, nil) == ManifestSetDigest(m) {
+		t.Error("a description digested as a bare manifest set")
 	}
 }

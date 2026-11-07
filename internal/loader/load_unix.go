@@ -286,7 +286,7 @@ func register(found []candidate, o Options) ([]Program, error) {
 	// refused before anything registers. Pass one already refused a method
 	// named twice, so none is refused here today.
 	for i := range found {
-		id, err := programIdentity(found[i].path, found[i].desc.Methods)
+		id, err := programIdentity(found[i].path, found[i].desc)
 		if err != nil {
 			return nil, fmt.Errorf("external collections: %w", err)
 		}
