@@ -44,7 +44,7 @@ func randomObservation(t *testing.T, rng *rand.Rand, prefix string) facts.Observ
 		entries = entries1(t, facts.KindStable, prefix+"a", "x")
 	}
 	sources := []string{facts.ClockSource, facts.ClockSource, facts.ClockSource, "lease:e1", ""}
-	order := facts.Order{Source: sources[rng.IntN(len(sources))], Token: uint64(1 + rng.IntN(8))}
+	order := facts.Order{Source: sources[rng.IntN(len(sources))], Token: 1 + rng.Uint64N(8)}
 	if order.Source == "" {
 		order.Token = 0
 	}
@@ -87,7 +87,9 @@ func view(entries []facts.Entry, prefix string) []comparableEntry {
 // derivedReadsMatchTheOracle: every sequence's Current and History, after
 // each observation, are what the mutable store gave for the same sequence.
 func derivedReadsMatchTheOracle(t *testing.T, newStore NewStore) {
-	rng := rand.New(rand.NewPCG(41, 8))
+	// A fixed seed, on purpose: a failing sequence must replay the same way, and
+	// nothing here is secret.
+	rng := rand.New(rand.NewPCG(41, 8)) // #nosec G404 -- a seeded, reproducible test sequence, not a secret
 	for seq := 0; seq < differentialSequences; seq++ {
 		// A subtest each, so each sequence's store is closed when it ends
 		// rather than all of them at the end of the run.
