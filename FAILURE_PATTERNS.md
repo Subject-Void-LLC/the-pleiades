@@ -968,6 +968,7 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 962. The rollback planner ordered one node's changes on two devices by Go's map order, so one journal planned two different rollbacks (fixed)
 963. `pleiades collection list --describe` ran a program before checking its bytes were the approved build (fixed before merge)
 964. The loader agreed a protocol version with a program and never told the program (a repeat in kind of 116) (fixed before merge)
+965. A new Controller fact rule was held by an older test's batch, which named no emitting method (a repeat in kind of 837) (fixed before merge)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

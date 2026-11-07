@@ -23331,3 +23331,24 @@ real child received.
 
 **Lesson.** A negotiation is finished only when both sides act on its result: test the agreed value at the place it
 is used, not where it is chosen (a repeat in kind of 116).
+
+## 965. A new Controller fact rule was held by an older test's batch, which named no emitting method (fixed before merge)
+
+**Symptom.** `make branch-containers` for the protocol window branch (run 42347669082, shard 5) failed
+`TestFactDigestOptions_KeyWhatARunnerSealedThroughTheConsumerMainBuilds` (`cmd/controller/fact_digest_keys_test.go`):
+"stored []", the subscriber having logged "dropping facts a built-in holds that a batch says a method outside the
+catalog emitted ... method=\"\" facts=[file.x]". It failed again alone, so not contention. pr-check had passed:
+`cmd/controller` is a container package it leaves to Actions (CI_LESSONS 1).
+
+**Root cause.** The branch made the Controller's facts consumer (`newFactsSubscriber`) keep a built-in fact only from a
+built-in method (`entstore.WithBuiltinProvenance`). The test written for that rule set `By.Method`; an older test of
+the same consumer built its batch with no `By` at all, a shape no Runner sends: the engine stores only keys the
+emitting method's registered manifest declares, so every stored fact carries a registered method.
+
+**Fix.** The older test's batch names `facts.gather`, the built-in that declares `file.`; the whole `cmd/controller`
+package passes with `-tags integration`. The only other subscribers built in tests (`internal/facts/entstore`) do not
+take the new option.
+
+**Lesson.** No new lesson; 837's: a rule added at the Controller's fact seam is checked against every test that feeds
+that seam, found by the constructor (`newFactsSubscriber`), not only by the new test, and a fixture holds the shape a
+real producer sends.
