@@ -10,8 +10,10 @@ import (
 )
 
 // FactObservation holds the schema definition for the FactObservation entity:
-// one task's facts on one device, as stored (Phase 41h). Every gather that
-// stores facts writes exactly one, and nothing ever updates it: when a stored
+// one stored batch of facts on one device (Phase 41h): a task's facts, or one
+// part of them when a Runner splits a large gather into several batches, and
+// one more when a batch is delivered again after it was stored. Nothing ever
+// updates it: when a stored
 // Fact was last confirmed is read from these rows (internal/facts'
 // Sightings) rather than kept on the Fact, so the history stays insert-only.
 type FactObservation struct {

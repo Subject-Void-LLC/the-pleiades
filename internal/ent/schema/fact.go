@@ -56,7 +56,10 @@ func (Fact) Fields() []ent.Field {
 		// immutable, so it cannot move them. They stay only so a build from
 		// before 41h can still serve this schema (the expand-only rule in
 		// internal/ent/migrate's compat.go); the 1.0.0 golden image drops
-		// them with the squash.
+		// them with the squash. A build from before 41h can serve the
+		// schema, but what it writes this build reads as observed once and
+		// never confirmed (its rows carry observation_seq 0); nothing that
+		// old is deployed (pre-1.0, forward only).
 		field.Time("last_seen_at").Optional().Immutable(),
 		field.JSON("last_provenance", map[string]interface{}{}).Optional().Immutable(),
 		// observation_seq is the device's FactObservation that wrote this

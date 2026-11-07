@@ -11,8 +11,10 @@ import (
 
 // FactCoverage holds the schema definition for the FactCoverage entity: one
 // distinct set of keys a device's observations covered (Phase 41h), kept once
-// and named by its digest, so a gather that covers the same thousands of keys
-// every hour writes them once rather than every hour.
+// and named by its digest, so batches that cover the same keys again name the
+// set rather than list it. A Runner splits a large gather into batches by
+// encoded size, so a value whose length changes can move a split and make a
+// new set; each is still written once.
 type FactCoverage struct {
 	ent.Schema
 }
