@@ -789,6 +789,18 @@ built-in method goes through: a namespaced name, known capabilities, a reversibi
 answer, check support that agrees with itself, and `StatusImplemented` (a program
 exists to run code, so a declared stub is refused).
 
+**Names that are reserved.** A program's methods use a namespace of its own, such as your
+organization's name. Every first-party namespace is reserved whether or not this build of
+The Pleiades includes that Collection: the namespace of each first-party Collection
+(`file`, `container`, `net`, `virt`, `kubernetes` and the rest), The Pleiades's own
+(`pleiades`), Ansible's (`ansible`), and the namespace of each built-in fact family (`os`,
+`host`, `package` and the rest). The list ships as data,
+[`docs/reference/schemas/first-party.json`](reference/schemas/first-party.json), with the
+routing table from each first-party method to its Collection. A name joins the list only
+on a minor release, never on a patch. A program using a reserved namespace is refused at
+load, naming the namespace. A prefix counts only at a dot: `net` reserves `net.acme.x`, and
+`netbox.x` is yours.
+
 ### Installing it
 
 Build it and put the binary in a directory, then name that directory in
@@ -859,7 +871,8 @@ approved program is agreed at.
 **Facts.** A method may declare facts it records, under its own namespace (`acme.widgets`
 for an `acme.*` method). It may not declare a fact a built-in method holds, nor one inside a
 built-in family (`package.`, `service.`, `service_state.`, `file.`, `port.`, `user.`,
-`group.`, `os.`, `host.`, `hardware.`, `network.`, `catalyst.`, `ansible_`), compared
+`group.`, `os.`, `host.`, `hardware.`, `network.`, `catalyst.`, `ansible_`) or under any
+first-party namespace (the `fact_floor` of `first-party.json`), compared
 without case, and its fact names are ASCII: facts drive targeting, baselines and
 conditions, and a program that could write a built-in fact could make a device read as
 something it is not. Such a program is refused at load, naming what holds the fact, and
