@@ -36,6 +36,12 @@ type EncryptionKey func(*sql.Selector)
 // Fact is the predicate function for fact builders.
 type Fact func(*sql.Selector)
 
+// FactCoverage is the predicate function for factcoverage builders.
+type FactCoverage func(*sql.Selector)
+
+// FactObservation is the predicate function for factobservation builders.
+type FactObservation func(*sql.Selector)
+
 // Group is the predicate function for group builders.
 type Group func(*sql.Selector)
 

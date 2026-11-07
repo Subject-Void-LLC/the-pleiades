@@ -129,6 +129,30 @@ func (f FactFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error)
 	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.FactMutation", m)
 }
 
+// The FactCoverageFunc type is an adapter to allow the use of ordinary
+// function as FactCoverage mutator.
+type FactCoverageFunc func(context.Context, *ent.FactCoverageMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f FactCoverageFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.FactCoverageMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.FactCoverageMutation", m)
+}
+
+// The FactObservationFunc type is an adapter to allow the use of ordinary
+// function as FactObservation mutator.
+type FactObservationFunc func(context.Context, *ent.FactObservationMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f FactObservationFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.FactObservationMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.FactObservationMutation", m)
+}
+
 // The GroupFunc type is an adapter to allow the use of ordinary
 // function as Group mutator.
 type GroupFunc func(context.Context, *ent.GroupMutation) (ent.Value, error)

@@ -44,6 +44,10 @@ const (
 	EdgeChildren = "children"
 	// EdgeFacts holds the string denoting the facts edge name in mutations.
 	EdgeFacts = "facts"
+	// EdgeFactObservations holds the string denoting the fact_observations edge name in mutations.
+	EdgeFactObservations = "fact_observations"
+	// EdgeFactCoverages holds the string denoting the fact_coverages edge name in mutations.
+	EdgeFactCoverages = "fact_coverages"
 	// EdgeRevisions holds the string denoting the revisions edge name in mutations.
 	EdgeRevisions = "revisions"
 	// EdgeGroups holds the string denoting the groups edge name in mutations.
@@ -69,6 +73,20 @@ const (
 	FactsInverseTable = "facts"
 	// FactsColumn is the table column denoting the facts relation/edge.
 	FactsColumn = "device_facts"
+	// FactObservationsTable is the table that holds the fact_observations relation/edge.
+	FactObservationsTable = "fact_observations"
+	// FactObservationsInverseTable is the table name for the FactObservation entity.
+	// It exists in this package in order to avoid circular dependency with the "factobservation" package.
+	FactObservationsInverseTable = "fact_observations"
+	// FactObservationsColumn is the table column denoting the fact_observations relation/edge.
+	FactObservationsColumn = "device_id"
+	// FactCoveragesTable is the table that holds the fact_coverages relation/edge.
+	FactCoveragesTable = "fact_coverages"
+	// FactCoveragesInverseTable is the table name for the FactCoverage entity.
+	// It exists in this package in order to avoid circular dependency with the "factcoverage" package.
+	FactCoveragesInverseTable = "fact_coverages"
+	// FactCoveragesColumn is the table column denoting the fact_coverages relation/edge.
+	FactCoveragesColumn = "device_fact_coverages"
 	// RevisionsTable is the table that holds the revisions relation/edge.
 	RevisionsTable = "revisions"
 	// RevisionsInverseTable is the table name for the Revision entity.
@@ -261,6 +279,34 @@ func ByFacts(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
 	}
 }
 
+// ByFactObservationsCount orders the results by fact_observations count.
+func ByFactObservationsCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newFactObservationsStep(), opts...)
+	}
+}
+
+// ByFactObservations orders the results by fact_observations terms.
+func ByFactObservations(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newFactObservationsStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
+
+// ByFactCoveragesCount orders the results by fact_coverages count.
+func ByFactCoveragesCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newFactCoveragesStep(), opts...)
+	}
+}
+
+// ByFactCoverages orders the results by fact_coverages terms.
+func ByFactCoverages(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newFactCoveragesStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
+
 // ByRevisionsCount orders the results by revisions count.
 func ByRevisionsCount(opts ...sql.OrderTermOption) OrderOption {
 	return func(s *sql.Selector) {
@@ -328,6 +374,20 @@ func newFactsStep() *sqlgraph.Step {
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(FactsInverseTable, FieldID),
 		sqlgraph.Edge(sqlgraph.O2M, false, FactsTable, FactsColumn),
+	)
+}
+func newFactObservationsStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(FactObservationsInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, FactObservationsTable, FactObservationsColumn),
+	)
+}
+func newFactCoveragesStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(FactCoveragesInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, FactCoveragesTable, FactCoveragesColumn),
 	)
 }
 func newRevisionsStep() *sqlgraph.Step {

@@ -1,11 +1,12 @@
 // Package facts: what the Crawl CLI's file store keeps for one device, and
-// how an observation changes it (Phase 41, 41b).
+// how an observation changes it (Phase 41, 41b, 41h).
 //
 // <device>.jsonl holds the device's stable values, one line each, appended
-// in the order they were stored and chained (chain.go). <device>.state.json
-// holds what changes on every observation: when each stable value was last
-// confirmed and by which run, and each volatile key's one value. It is
-// rewritten whole through a uniquely named temporary file and a rename.
+// in the order they were stored and chained (chain.go). <device>.seen.jsonl
+// holds one line per observation (file_seen.go), from which each value's last
+// confirmation is read (Sightings). <device>.state.json holds each volatile
+// key's one value; it is rewritten whole, through a uniquely named temporary
+// file and a rename, only when a volatile value is replaced.
 package facts
 
 import (
@@ -24,15 +25,11 @@ type line struct {
 	Hash       string     `json:"hash"`
 	ObservedAt time.Time  `json:"observed_at"`
 	By         Provenance `json:"by,omitzero"`
+	// Seq is the observation that wrote it (Stored.Seq).
+	Seq int64 `json:"seq,omitempty"`
 	// Prev and Chain are the device's hash chain (chain.go).
 	Prev  string `json:"prev"`
 	Chain string `json:"chain,omitempty"`
-}
-
-// sighting is when a value was last confirmed, and by which run.
-type sighting struct {
-	At time.Time  `json:"at"`
-	By Provenance `json:"by,omitzero"`
 }
 
 // volatileValue is a volatile key's one kept value.
@@ -40,51 +37,47 @@ type volatileValue struct {
 	Value      any        `json:"value"`
 	Hash       string     `json:"hash"`
 	ObservedAt time.Time  `json:"observed_at"`
-	LastSeenAt time.Time  `json:"last_seen_at"`
 	By         Provenance `json:"by,omitzero"`
-	LastBy     Provenance `json:"last_by,omitzero"`
+	// Seq is the observation that wrote it.
+	Seq int64 `json:"seq,omitempty"`
 }
 
 // state is <device>.state.json.
 type state struct {
-	// Seen is when each stable key's each value was last confirmed, by key
-	// and then hash.
-	Seen map[string]map[string]sighting `json:"seen"`
 	// Volatile is each volatile key's value.
 	Volatile map[string]volatileValue `json:"volatile"`
 }
 
-// Record implements Store, under the device's lock.
-func (s *FileStore) Record(_ context.Context, device string, obs Observation) error {
+// Record implements Store, under the device's lock. It appends the values
+// that changed and one observation, and rewrites the state only when a
+// volatile value is replaced: nothing already written is edited.
+func (s *FileStore) Record(_ context.Context, name string, obs Observation) error {
 	if len(obs.Entries) == 0 {
 		return nil
 	}
-	return s.locked(device, func(r *os.Root) error {
-		lines, complete, err := readLines(r, device)
+	return s.locked(name, func(r *os.Root) error {
+		d, err := load(r, name)
 		if err != nil {
 			return err
 		}
-		st, err := readState(r, device)
-		if err != nil {
-			return err
-		}
+		seq := d.nextSeq()
 		at, by := StoredTime(obs.At), obs.By
 		entries := append([]Entry(nil), obs.Entries...)
 		sort.Slice(entries, func(i, j int) bool { return entries[i].Key < entries[j].Key })
-		head := chainHead(lines)
-		// Each key's lines, read once rather than the whole history once per
+		head := chainHead(d.lines)
+		// Each key's values, read once rather than the whole history once per
 		// fact: a host's packages are thousands of keys against a history
 		// that keeps growing.
-		byKey := map[string][]line{}
-		for _, l := range lines {
-			byKey[l.Key] = append(byKey[l.Key], l)
+		byKey := map[string][]Entry{}
+		for _, e := range d.stable {
+			byKey[e.Key] = append(byKey[e.Key], e)
 		}
 		var appended []byte
 		// add chains l after the head and appends it.
 		add := func(l line) error {
-			l.Prev = head
+			l.Prev, l.Seq = head, seq
 			var err error
-			if l.Chain, err = ChainHash(device, l.Prev, l.Key, l.Hash, l.ObservedAt, l.By); err != nil {
+			if l.Chain, err = ChainHash(name, l.Prev, l.Key, l.Hash, l.ObservedAt, l.By); err != nil {
 				return fmt.Errorf("facts: %w", err)
 			}
 			raw, err := json.Marshal(l)
@@ -92,29 +85,24 @@ func (s *FileStore) Record(_ context.Context, device string, obs Observation) er
 				return fmt.Errorf("facts: %w", err)
 			}
 			appended = append(append(appended, raw...), '\n')
-			byKey[l.Key] = append(byKey[l.Key], l)
 			head = l.Chain
 			return nil
 		}
+		replaced := false
 		for _, e := range entries {
 			if e.Kind == KindVolatile {
-				recordVolatile(st, e, at, by)
+				if cur, ok := d.volatile[e.Key]; ok && (!isLater(by.Order, at, cur.LastBy.Order, cur.LastSeenAt) || cur.Hash == e.Hash) {
+					// A late observation of a value already replaced, or the same
+					// value again: the observation itself is the confirmation.
+					continue
+				}
+				d.st.Volatile[e.Key] = volatileValue{Value: e.Value, Hash: e.Hash, ObservedAt: at, By: by, Seq: seq}
+				replaced = true
 				continue
 			}
-			if st.Seen[e.Key] == nil {
-				st.Seen[e.Key] = map[string]sighting{}
-			}
-			if prior, ok := st.Seen[e.Key][e.Hash]; !ok || isLater(by.Order, at, prior.By.Order, prior.At) {
-				st.Seen[e.Key][e.Hash] = sighting{At: at, By: by}
-			}
-			if cur, ok := valueAt(byKey[e.Key], by.Order, at); ok && cur.Hash == e.Hash {
+			prior := byKey[e.Key]
+			if cur, ok := ValueAt(prior, by.Order, at); ok && cur.Hash == e.Hash {
 				continue
-			}
-			// The key's values before this one, with their last sightings,
-			// for Resumed below.
-			prior := make([]Entry, len(byKey[e.Key]))
-			for i, pl := range byKey[e.Key] {
-				prior[i] = stableEntry(st, pl)
 			}
 			if err := add(line{Key: e.Key, Value: e.Value, Hash: e.Hash, ObservedAt: at, By: by}); err != nil {
 				return err
@@ -127,28 +115,22 @@ func (s *FileStore) Record(_ context.Context, device string, obs Observation) er
 				}
 			}
 		}
+		// The values first, then the state, then the observation that names
+		// them: a crash between leaves values no observation covers, which
+		// reads as the run never having confirmed anything, never the
+		// reverse.
 		if len(appended) > 0 {
-			if err := appendLines(r, device, complete, appended); err != nil {
+			if err := appendLines(r, name, d.complete, appended); err != nil {
 				return err
 			}
 		}
-		return writeState(r, device, st)
+		if replaced {
+			if err := writeState(r, name, d.st); err != nil {
+				return err
+			}
+		}
+		return appendSeen(r, name, d.sf, seq, at, by, CoverageOf(entries))
 	})
-}
-
-// recordVolatile keeps e as its key's one value when this observation is
-// the latest of the key's, and otherwise leaves the newer value alone.
-func recordVolatile(st state, e Entry, at time.Time, by Provenance) {
-	cur, ok := st.Volatile[e.Key]
-	switch {
-	case ok && !isLater(by.Order, at, cur.LastBy.Order, cur.LastSeenAt):
-		// A late observation of a value already replaced.
-	case ok && cur.Hash == e.Hash:
-		cur.LastSeenAt, cur.LastBy = at, by
-		st.Volatile[e.Key] = cur
-	default:
-		st.Volatile[e.Key] = volatileValue{Value: e.Value, Hash: e.Hash, ObservedAt: at, LastSeenAt: at, By: by, LastBy: by}
-	}
 }
 
 // isLater reports whether (a, ta) came after (b, tb): by run order where the
@@ -156,23 +138,6 @@ func recordVolatile(st state, e Entry, at time.Time, by Provenance) {
 func isLater(a Order, ta time.Time, b Order, tb time.Time) bool {
 	after, _ := Later(a, ta, b, tb)
 	return after
-}
-
-// valueAt is the line a key held as of (order, at), given that key's lines
-// in file order: of those that came at or before it, the latest, the later
-// line in the file on a tie.
-func valueAt(lines []line, order Order, at time.Time) (line, bool) {
-	var found line
-	ok := false
-	for _, l := range lines {
-		if !notAfter(l.By.Order, l.ObservedAt, order, at) {
-			continue
-		}
-		if !ok || !isLater(found.By.Order, found.ObservedAt, l.By.Order, l.ObservedAt) {
-			found, ok = l, true
-		}
-	}
-	return found, ok
 }
 
 // chainHead is the chain hash of the last chained line, "" when none is.
@@ -189,8 +154,8 @@ func chainHead(lines []line) string {
 // by run order where the runs compare (the later line on a tie); a volatile
 // value takes part like any other, so a key whose kind changed reads its
 // newest.
-func (s *FileStore) Current(_ context.Context, device string) ([]Entry, error) {
-	lines, st, err := s.read(device)
+func (s *FileStore) Current(_ context.Context, name string) ([]Entry, error) {
+	d, err := s.read(name)
 	if err != nil {
 		return nil, err
 	}
@@ -200,11 +165,11 @@ func (s *FileStore) Current(_ context.Context, device string) ([]Entry, error) {
 			current[e.Key] = e
 		}
 	}
-	for _, l := range lines {
-		keep(stableEntry(st, l))
-	}
-	for key, v := range st.Volatile {
-		keep(volatileEntry(key, v))
+	// In the order the values were written, stable and volatile together,
+	// as the ent store reads its rows: where orders of several sources mix,
+	// the comparison is not transitive and the order read decides.
+	for _, e := range d.written() {
+		keep(e)
 	}
 	out := make([]Entry, 0, len(current))
 	for _, e := range current {
@@ -217,20 +182,20 @@ func (s *FileStore) Current(_ context.Context, device string) ([]Entry, error) {
 // History implements Store: key's stable values in run order, and its
 // volatile value last; each says when the clock rather than the run order
 // placed it after the one before.
-func (s *FileStore) History(_ context.Context, device, key string) ([]Entry, error) {
-	lines, st, err := s.read(device)
+func (s *FileStore) History(_ context.Context, name, key string) ([]Entry, error) {
+	d, err := s.read(name)
 	if err != nil {
 		return nil, err
 	}
 	var out []Entry
-	for _, l := range lines {
-		if l.Key == key {
-			out = append(out, stableEntry(st, l))
+	for _, e := range d.stable {
+		if e.Key == key {
+			out = append(out, e)
 		}
 	}
 	out = InRunOrder(out)
-	if v, ok := st.Volatile[key]; ok {
-		out = append(out, volatileEntry(key, v))
+	if v, ok := d.volatile[key]; ok {
+		out = append(out, v)
 	}
 	return out, nil
 }
@@ -253,21 +218,6 @@ func (s *FileStore) Verify(_ context.Context, device string) (Verdict, error) {
 		links[i] = Link{Key: l.Key, Value: l.Value, Hash: l.Hash, ObservedAt: l.ObservedAt, By: l.By, Prev: l.Prev, Chain: l.Chain}
 	}
 	return VerifyChain(device, links), nil
-}
-
-// stableEntry is a history line as an Entry, with when and by which run its
-// value was last confirmed.
-func stableEntry(st state, l line) Entry {
-	e := Entry{Key: l.Key, Value: l.Value, Hash: l.Hash, ObservedAt: l.ObservedAt, LastSeenAt: l.ObservedAt, Kind: KindStable, By: l.By, LastBy: l.By}
-	if seen, ok := st.Seen[l.Key][l.Hash]; ok && isLater(seen.By.Order, seen.At, l.By.Order, l.ObservedAt) {
-		e.LastSeenAt, e.LastBy = seen.At, seen.By
-	}
-	return e
-}
-
-// volatileEntry is a volatile value as an Entry.
-func volatileEntry(key string, v volatileValue) Entry {
-	return Entry{Key: key, Value: v.Value, Hash: v.Hash, ObservedAt: v.ObservedAt, LastSeenAt: v.LastSeenAt, Kind: KindVolatile, By: v.By, LastBy: v.LastBy}
 }
 
 // InRunOrder sorts a key's values by when they were first observed, by run
@@ -310,21 +260,13 @@ func (s *FileStore) locked(device string, fn func(r *os.Root) error) error {
 	return fn(r)
 }
 
-// read reads device's history and state, unlocked: a reader may see a
-// value appended and not yet confirmed, never half a file.
-func (s *FileStore) read(device string) ([]line, state, error) {
-	r, err := s.root(device)
+// read reads device's files, unlocked: a reader may see a value appended
+// and not yet confirmed, never half a file.
+func (s *FileStore) read(name string) (device, error) {
+	r, err := s.root(name)
 	if err != nil {
-		return nil, state{}, err
+		return device{}, err
 	}
 	defer func() { _ = r.Close() }()
-	lines, _, err := readLines(r, device)
-	if err != nil {
-		return nil, state{}, err
-	}
-	st, err := readState(r, device)
-	if err != nil {
-		return nil, state{}, err
-	}
-	return lines, st, nil
+	return load(r, name)
 }

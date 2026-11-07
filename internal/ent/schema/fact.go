@@ -1,8 +1,6 @@
 package schema
 
 import (
-	"time"
-
 	"entgo.io/ent"
 	"entgo.io/ent/schema/edge"
 	"entgo.io/ent/schema/field"
@@ -12,8 +10,9 @@ import (
 // Fact holds the schema definition for the Fact entity: one observed value of
 // one key on one device (Phase 41). A row is written only when a key's value
 // changes, so a device's rows for a key are the history of that value, and
-// the newest is its current value; last_seen_at says when it was last
-// confirmed, the one field a later observation of the same value updates.
+// the newest is its current value. A row is never updated (Phase 41h): when
+// a value was last confirmed is read from the device's FactObservation rows,
+// and observation_seq names the observation that wrote this one.
 type Fact struct {
 	ent.Schema
 }
@@ -43,21 +42,27 @@ func (Fact) Fields() []ent.Field {
 		// (internal/facts.Hash), which is how a later observation is
 		// compared with this one.
 		field.String("hash").NotEmpty().Immutable(),
-		// last_seen_at is when this value was last observed; a later
-		// observation of the same value moves it rather than writing a row.
-		// Nullable for the expand migration's sake, as key's default is; the
-		// store always sets it, and a reader falls back to created_at.
-		field.Time("last_seen_at").Optional().Default(time.Now),
 		// kind is what the emitting method declared (Phase 41b): a stable
 		// key's rows are its history; a volatile key keeps one row, replaced
 		// when its value changes. A row from before 41b reads as stable.
 		field.Enum("kind").Values("stable", "volatile").Default("stable").Immutable(),
 		// provenance is the run that first observed this value
-		// (facts.Provenance, with its run order); last_provenance the run
-		// that last confirmed it, which moves with last_seen_at. Empty on a
-		// row from before 41b, which reads as unknown provenance.
+		// (facts.Provenance, with its run order). Empty on a row from before
+		// 41b, which reads as unknown provenance.
 		field.JSON("provenance", map[string]interface{}{}).Optional().Immutable(),
-		field.JSON("last_provenance", map[string]interface{}{}).Optional(),
+		// last_seen_at and last_provenance are what a build before 41h kept
+		// here and moved on every confirmation. This build writes neither
+		// and reads neither (it reads FactObservation), and both are
+		// immutable, so it cannot move them. They stay only so a build from
+		// before 41h can still serve this schema (the expand-only rule in
+		// internal/ent/migrate's compat.go); the 1.0.0 golden image drops
+		// them with the squash.
+		field.Time("last_seen_at").Optional().Immutable(),
+		field.JSON("last_provenance", map[string]interface{}{}).Optional().Immutable(),
+		// observation_seq is the device's FactObservation that wrote this
+		// row (its seq); 0 on a row from before 41h, which every observation
+		// finds already there.
+		field.Int64("observation_seq").Default(0).NonNegative().Immutable(),
 		// chain_prev and chain are the device's hash chain over its stable
 		// rows (internal/facts' chain.go): chain_prev is the chain hash of
 		// the device's stable row stored before this one ("" for the first),
@@ -87,6 +92,9 @@ func (Fact) Edges() []ent.Edge {
 		edge.From("device", Device.Type).
 			Ref("facts").
 			Unique().
-			Required(),
+			Required().
+			// Immutable: a value moved to another device would leave both
+			// devices' chains reading as unbroken (Phase 41h).
+			Immutable(),
 	}
 }

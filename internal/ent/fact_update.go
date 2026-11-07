@@ -11,7 +11,6 @@ import (
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
-	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/device"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/fact"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/predicate"
 )
@@ -35,58 +34,9 @@ func (_u *FactUpdate) SetUpdatedAt(v time.Time) *FactUpdate {
 	return _u
 }
 
-// SetLastSeenAt sets the "last_seen_at" field.
-func (_u *FactUpdate) SetLastSeenAt(v time.Time) *FactUpdate {
-	_u.mutation.SetLastSeenAt(v)
-	return _u
-}
-
-// SetNillableLastSeenAt sets the "last_seen_at" field if the given value is not nil.
-func (_u *FactUpdate) SetNillableLastSeenAt(v *time.Time) *FactUpdate {
-	if v != nil {
-		_u.SetLastSeenAt(*v)
-	}
-	return _u
-}
-
-// ClearLastSeenAt clears the value of the "last_seen_at" field.
-func (_u *FactUpdate) ClearLastSeenAt() *FactUpdate {
-	_u.mutation.ClearLastSeenAt()
-	return _u
-}
-
-// SetLastProvenance sets the "last_provenance" field.
-func (_u *FactUpdate) SetLastProvenance(v map[string]interface{}) *FactUpdate {
-	_u.mutation.SetLastProvenance(v)
-	return _u
-}
-
-// ClearLastProvenance clears the value of the "last_provenance" field.
-func (_u *FactUpdate) ClearLastProvenance() *FactUpdate {
-	_u.mutation.ClearLastProvenance()
-	return _u
-}
-
-// SetDeviceID sets the "device" edge to the Device entity by ID.
-func (_u *FactUpdate) SetDeviceID(id int) *FactUpdate {
-	_u.mutation.SetDeviceID(id)
-	return _u
-}
-
-// SetDevice sets the "device" edge to the Device entity.
-func (_u *FactUpdate) SetDevice(v *Device) *FactUpdate {
-	return _u.SetDeviceID(v.ID)
-}
-
 // Mutation returns the FactMutation object of the builder.
 func (_u *FactUpdate) Mutation() *FactMutation {
 	return _u.mutation
-}
-
-// ClearDevice clears the "device" edge to the Device entity.
-func (_u *FactUpdate) ClearDevice() *FactUpdate {
-	_u.mutation.ClearDevice()
-	return _u
 }
 
 // Save executes the query and returns the number of nodes affected by the update operation.
@@ -148,17 +98,11 @@ func (_u *FactUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	if value, ok := _u.mutation.UpdatedAt(); ok {
 		_spec.SetField(fact.FieldUpdatedAt, field.TypeTime, value)
 	}
-	if value, ok := _u.mutation.LastSeenAt(); ok {
-		_spec.SetField(fact.FieldLastSeenAt, field.TypeTime, value)
-	}
-	if _u.mutation.LastSeenAtCleared() {
-		_spec.ClearField(fact.FieldLastSeenAt, field.TypeTime)
-	}
 	if _u.mutation.ProvenanceCleared() {
 		_spec.ClearField(fact.FieldProvenance, field.TypeJSON)
 	}
-	if value, ok := _u.mutation.LastProvenance(); ok {
-		_spec.SetField(fact.FieldLastProvenance, field.TypeJSON, value)
+	if _u.mutation.LastSeenAtCleared() {
+		_spec.ClearField(fact.FieldLastSeenAt, field.TypeTime)
 	}
 	if _u.mutation.LastProvenanceCleared() {
 		_spec.ClearField(fact.FieldLastProvenance, field.TypeJSON)
@@ -168,35 +112,6 @@ func (_u *FactUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if _u.mutation.ChainCleared() {
 		_spec.ClearField(fact.FieldChain, field.TypeString)
-	}
-	if _u.mutation.DeviceCleared() {
-		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.M2O,
-			Inverse: true,
-			Table:   fact.DeviceTable,
-			Columns: []string{fact.DeviceColumn},
-			Bidi:    false,
-			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(device.FieldID, field.TypeInt),
-			},
-		}
-		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
-	}
-	if nodes := _u.mutation.DeviceIDs(); len(nodes) > 0 {
-		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.M2O,
-			Inverse: true,
-			Table:   fact.DeviceTable,
-			Columns: []string{fact.DeviceColumn},
-			Bidi:    false,
-			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(device.FieldID, field.TypeInt),
-			},
-		}
-		for _, k := range nodes {
-			edge.Target.Nodes = append(edge.Target.Nodes, k)
-		}
-		_spec.Edges.Add = append(_spec.Edges.Add, edge)
 	}
 	if _node, err = sqlgraph.UpdateNodes(ctx, _u.driver, _spec); err != nil {
 		if _, ok := err.(*sqlgraph.NotFoundError); ok {
@@ -224,58 +139,9 @@ func (_u *FactUpdateOne) SetUpdatedAt(v time.Time) *FactUpdateOne {
 	return _u
 }
 
-// SetLastSeenAt sets the "last_seen_at" field.
-func (_u *FactUpdateOne) SetLastSeenAt(v time.Time) *FactUpdateOne {
-	_u.mutation.SetLastSeenAt(v)
-	return _u
-}
-
-// SetNillableLastSeenAt sets the "last_seen_at" field if the given value is not nil.
-func (_u *FactUpdateOne) SetNillableLastSeenAt(v *time.Time) *FactUpdateOne {
-	if v != nil {
-		_u.SetLastSeenAt(*v)
-	}
-	return _u
-}
-
-// ClearLastSeenAt clears the value of the "last_seen_at" field.
-func (_u *FactUpdateOne) ClearLastSeenAt() *FactUpdateOne {
-	_u.mutation.ClearLastSeenAt()
-	return _u
-}
-
-// SetLastProvenance sets the "last_provenance" field.
-func (_u *FactUpdateOne) SetLastProvenance(v map[string]interface{}) *FactUpdateOne {
-	_u.mutation.SetLastProvenance(v)
-	return _u
-}
-
-// ClearLastProvenance clears the value of the "last_provenance" field.
-func (_u *FactUpdateOne) ClearLastProvenance() *FactUpdateOne {
-	_u.mutation.ClearLastProvenance()
-	return _u
-}
-
-// SetDeviceID sets the "device" edge to the Device entity by ID.
-func (_u *FactUpdateOne) SetDeviceID(id int) *FactUpdateOne {
-	_u.mutation.SetDeviceID(id)
-	return _u
-}
-
-// SetDevice sets the "device" edge to the Device entity.
-func (_u *FactUpdateOne) SetDevice(v *Device) *FactUpdateOne {
-	return _u.SetDeviceID(v.ID)
-}
-
 // Mutation returns the FactMutation object of the builder.
 func (_u *FactUpdateOne) Mutation() *FactMutation {
 	return _u.mutation
-}
-
-// ClearDevice clears the "device" edge to the Device entity.
-func (_u *FactUpdateOne) ClearDevice() *FactUpdateOne {
-	_u.mutation.ClearDevice()
-	return _u
 }
 
 // Where appends a list predicates to the FactUpdate builder.
@@ -367,17 +233,11 @@ func (_u *FactUpdateOne) sqlSave(ctx context.Context) (_node *Fact, err error) {
 	if value, ok := _u.mutation.UpdatedAt(); ok {
 		_spec.SetField(fact.FieldUpdatedAt, field.TypeTime, value)
 	}
-	if value, ok := _u.mutation.LastSeenAt(); ok {
-		_spec.SetField(fact.FieldLastSeenAt, field.TypeTime, value)
-	}
-	if _u.mutation.LastSeenAtCleared() {
-		_spec.ClearField(fact.FieldLastSeenAt, field.TypeTime)
-	}
 	if _u.mutation.ProvenanceCleared() {
 		_spec.ClearField(fact.FieldProvenance, field.TypeJSON)
 	}
-	if value, ok := _u.mutation.LastProvenance(); ok {
-		_spec.SetField(fact.FieldLastProvenance, field.TypeJSON, value)
+	if _u.mutation.LastSeenAtCleared() {
+		_spec.ClearField(fact.FieldLastSeenAt, field.TypeTime)
 	}
 	if _u.mutation.LastProvenanceCleared() {
 		_spec.ClearField(fact.FieldLastProvenance, field.TypeJSON)
@@ -387,35 +247,6 @@ func (_u *FactUpdateOne) sqlSave(ctx context.Context) (_node *Fact, err error) {
 	}
 	if _u.mutation.ChainCleared() {
 		_spec.ClearField(fact.FieldChain, field.TypeString)
-	}
-	if _u.mutation.DeviceCleared() {
-		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.M2O,
-			Inverse: true,
-			Table:   fact.DeviceTable,
-			Columns: []string{fact.DeviceColumn},
-			Bidi:    false,
-			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(device.FieldID, field.TypeInt),
-			},
-		}
-		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
-	}
-	if nodes := _u.mutation.DeviceIDs(); len(nodes) > 0 {
-		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.M2O,
-			Inverse: true,
-			Table:   fact.DeviceTable,
-			Columns: []string{fact.DeviceColumn},
-			Bidi:    false,
-			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(device.FieldID, field.TypeInt),
-			},
-		}
-		for _, k := range nodes {
-			edge.Target.Nodes = append(edge.Target.Nodes, k)
-		}
-		_spec.Edges.Add = append(_spec.Edges.Add, edge)
 	}
 	_node = &Fact{config: _u.config}
 	_spec.Assign = _node.assignValues

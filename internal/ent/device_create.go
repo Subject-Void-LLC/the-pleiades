@@ -12,6 +12,8 @@ import (
 	"entgo.io/ent/schema/field"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/device"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/fact"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/factcoverage"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/factobservation"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/group"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/organization"
@@ -208,6 +210,36 @@ func (_c *DeviceCreate) AddFacts(v ...*Fact) *DeviceCreate {
 		ids[i] = v[i].ID
 	}
 	return _c.AddFactIDs(ids...)
+}
+
+// AddFactObservationIDs adds the "fact_observations" edge to the FactObservation entity by IDs.
+func (_c *DeviceCreate) AddFactObservationIDs(ids ...int) *DeviceCreate {
+	_c.mutation.AddFactObservationIDs(ids...)
+	return _c
+}
+
+// AddFactObservations adds the "fact_observations" edges to the FactObservation entity.
+func (_c *DeviceCreate) AddFactObservations(v ...*FactObservation) *DeviceCreate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _c.AddFactObservationIDs(ids...)
+}
+
+// AddFactCoverageIDs adds the "fact_coverages" edge to the FactCoverage entity by IDs.
+func (_c *DeviceCreate) AddFactCoverageIDs(ids ...int) *DeviceCreate {
+	_c.mutation.AddFactCoverageIDs(ids...)
+	return _c
+}
+
+// AddFactCoverages adds the "fact_coverages" edges to the FactCoverage entity.
+func (_c *DeviceCreate) AddFactCoverages(v ...*FactCoverage) *DeviceCreate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _c.AddFactCoverageIDs(ids...)
 }
 
 // AddRevisionIDs adds the "revisions" edge to the Revision entity by IDs.
@@ -494,6 +526,38 @@ func (_c *DeviceCreate) createSpec() (*Device, *sqlgraph.CreateSpec) {
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(fact.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.FactObservationsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   device.FactObservationsTable,
+			Columns: []string{device.FactObservationsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(factobservation.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.FactCoveragesIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   device.FactCoveragesTable,
+			Columns: []string{device.FactCoveragesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(factcoverage.FieldID, field.TypeInt),
 			},
 		}
 		for _, k := range nodes {

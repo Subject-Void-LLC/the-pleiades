@@ -774,6 +774,52 @@ func HasFactsWith(preds ...predicate.Fact) predicate.Device {
 	})
 }
 
+// HasFactObservations applies the HasEdge predicate on the "fact_observations" edge.
+func HasFactObservations() predicate.Device {
+	return predicate.Device(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, FactObservationsTable, FactObservationsColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasFactObservationsWith applies the HasEdge predicate on the "fact_observations" edge with a given conditions (other predicates).
+func HasFactObservationsWith(preds ...predicate.FactObservation) predicate.Device {
+	return predicate.Device(func(s *sql.Selector) {
+		step := newFactObservationsStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
+// HasFactCoverages applies the HasEdge predicate on the "fact_coverages" edge.
+func HasFactCoverages() predicate.Device {
+	return predicate.Device(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, FactCoveragesTable, FactCoveragesColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasFactCoveragesWith applies the HasEdge predicate on the "fact_coverages" edge with a given conditions (other predicates).
+func HasFactCoveragesWith(preds ...predicate.FactCoverage) predicate.Device {
+	return predicate.Device(func(s *sql.Selector) {
+		step := newFactCoveragesStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
 // HasRevisions applies the HasEdge predicate on the "revisions" edge.
 func HasRevisions() predicate.Device {
 	return predicate.Device(func(s *sql.Selector) {

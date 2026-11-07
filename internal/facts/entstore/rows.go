@@ -26,9 +26,12 @@ func (s *Store) Current(ctx context.Context, device string) ([]facts.Entry, erro
 	if err != nil {
 		return nil, fmt.Errorf("facts: %w", err)
 	}
+	sighted, err := s.sighted(ctx, device, rows)
+	if err != nil {
+		return nil, err
+	}
 	current := map[string]facts.Entry{}
-	for _, row := range rows {
-		e := entry(row)
+	for _, e := range sighted {
 		cur, ok := current[e.Key]
 		if !ok {
 			current[e.Key] = e
@@ -56,15 +59,43 @@ func (s *Store) History(ctx context.Context, device, key string) ([]facts.Entry,
 	if err != nil {
 		return nil, fmt.Errorf("facts: %w", err)
 	}
+	sighted, err := s.sighted(ctx, device, rows)
+	if err != nil {
+		return nil, err
+	}
 	var stable, volatile []facts.Entry
-	for _, row := range rows {
-		if row.Kind == entfact.KindVolatile {
-			volatile = append(volatile, entry(row))
+	for _, e := range sighted {
+		if e.Kind == facts.KindVolatile {
+			volatile = append(volatile, e)
 			continue
 		}
-		stable = append(stable, entry(row))
+		stable = append(stable, e)
 	}
 	return append(facts.InRunOrder(stable), volatile...), nil
+}
+
+// sighted is rows (all of one device's, or all of one key's) as entries in
+// the same order, each with its last confirmation read from the observations
+// written since the oldest of them (facts.Sightings).
+func (s *Store) sighted(ctx context.Context, device string, rows []*ent.Fact) ([]facts.Entry, error) {
+	if len(rows) == 0 {
+		return nil, nil
+	}
+	dev, err := s.client.Device.Query().Where(entdevice.DeviceIDEQ(device)).OnlyID(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("facts: %w", err)
+	}
+	stored := make([]facts.Stored, len(rows))
+	from := rows[0].ObservationSeq
+	for i, row := range rows {
+		stored[i] = facts.Stored{Entry: entry(row), Seq: row.ObservationSeq}
+		from = min(from, row.ObservationSeq)
+	}
+	seen, err := observationsAfter(ctx, storeClient{s.client}, dev, from)
+	if err != nil {
+		return nil, err
+	}
+	return facts.Sightings(stored, seen), nil
 }
 
 // Verify implements facts.Store: device's chain over its stable rows, in the
@@ -124,12 +155,9 @@ func decodeProvenance(col map[string]any) facts.Provenance {
 	return p
 }
 
-// entry is a row as a facts.Entry.
+// entry is a row as a facts.Entry, last confirmed when it was first
+// observed: sighted reads its later confirmations from the observations.
 func entry(row *ent.Fact) facts.Entry {
-	seen := row.LastSeenAt
-	if seen.IsZero() {
-		seen = row.CreatedAt
-	}
 	var value any
 	if text, ok := row.Payload[payloadKey].(string); ok {
 		dec := json.NewDecoder(strings.NewReader(text))
@@ -143,9 +171,5 @@ func entry(row *ent.Fact) facts.Entry {
 		kind = facts.KindVolatile
 	}
 	by := decodeProvenance(row.Provenance)
-	lastBy := decodeProvenance(row.LastProvenance)
-	if lastBy == (facts.Provenance{}) {
-		lastBy = by
-	}
-	return facts.Entry{Key: row.Key, Value: value, Hash: row.Hash, ObservedAt: row.CreatedAt.UTC(), LastSeenAt: seen.UTC(), Kind: kind, By: by, LastBy: lastBy}
+	return facts.Entry{Key: row.Key, Value: value, Hash: row.Hash, ObservedAt: row.CreatedAt.UTC(), LastSeenAt: row.CreatedAt.UTC(), Kind: kind, By: by, LastBy: by}
 }
