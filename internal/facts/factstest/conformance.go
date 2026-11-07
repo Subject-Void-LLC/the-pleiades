@@ -32,6 +32,8 @@ func Run(t *testing.T, newStore NewStore) {
 	t.Run("a time is kept to the microsecond and still verifies", func(t *testing.T) { microsecondTime(t, newStore) })
 	t.Run("a late change keeps a later confirmation in the history", func(t *testing.T) { lateChangeKeepsConfirmation(t, newStore) })
 	t.Run("a value that follows itself in the history reads as one", func(t *testing.T) { repeatsReadAsOne(t, newStore) })
+	t.Run("an observation confirms only the keys it covered", func(t *testing.T) { confirmsOnlyWhatItCovered(t, newStore) })
+	t.Run("reads read from observations give the mutable store's answers", func(t *testing.T) { derivedReadsMatchTheOracle(t, newStore) })
 }
 
 // entries prepares observed as a method declaring every key kind would.
@@ -296,5 +298,21 @@ func repeatsReadAsOne(t *testing.T, newStore NewStore) {
 	// The rows are all still stored and chained.
 	if v, err := s.Verify(context.Background(), dev); err != nil || v.Break != nil || v.Values != 4 {
 		t.Fatalf("Verify = %+v, %v; want four chained values", v, err)
+	}
+}
+
+// confirmsOnlyWhatItCovered: an observation that covers some of a device's
+// keys moves the last sighting of those alone, and a key it did not cover
+// keeps the sighting it had (Phase 41h: the sighting is read from the
+// observations, so what one covered is what it confirms).
+func confirmsOnlyWhatItCovered(t *testing.T, newStore NewStore) {
+	s, dev := newStore(t)
+	record(t, s, dev, facts.KindStable, map[string]any{"os.kernel": "6.1", "os.family": "debian"}, base, by("both", 1))
+	record(t, s, dev, facts.KindStable, map[string]any{"os.kernel": "6.1"}, base.Add(time.Minute), by("one", 2))
+	if e := current(t, s, dev, "os.kernel"); e.LastBy.Run != "one" || !e.LastSeenAt.Equal(base.Add(time.Minute)) {
+		t.Fatalf("os.kernel = %+v, want last confirmed by one", e)
+	}
+	if e := current(t, s, dev, "os.family"); e.LastBy.Run != "both" || !e.LastSeenAt.Equal(base) {
+		t.Fatalf("os.family = %+v, want still last confirmed by both", e)
 	}
 }

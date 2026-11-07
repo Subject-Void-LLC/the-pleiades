@@ -47,6 +47,14 @@ func postgresStore(t *testing.T) (facts.Store, string) {
 // Controller migrates one, and the ID of one device in it.
 func postgresClient(t *testing.T) (*ent.Client, string) {
 	t.Helper()
+	client, device, _ := postgresClientDB(t)
+	return client, device
+}
+
+// postgresClientDB is postgresClient with the database handle under the
+// client, for a test that changes the database itself.
+func postgresClientDB(t *testing.T) (*ent.Client, string, *sql.DB) {
+	t.Helper()
 	if testing.Short() {
 		t.Skip("starts a PostgreSQL container")
 	}
@@ -88,7 +96,7 @@ func postgresClient(t *testing.T) (*ent.Client, string) {
 	}
 	client := ent.NewClient(ent.Driver(entsql.OpenDB("postgres", db)))
 	dev := client.Device.Create().SetName("web1").SetType("linux_server").SetProperties(map[string]any{"host": "10.0.0.1"}).SaveX(context.Background())
-	return client, dev.DeviceID
+	return client, dev.DeviceID, db
 }
 
 // TestStore_ConformanceOnPostgres holds the Controller's store to the rules

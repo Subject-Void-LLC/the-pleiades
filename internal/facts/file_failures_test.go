@@ -128,14 +128,23 @@ func TestFileStore_FailuresAreReportedAndLeaveNoTemporaryFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ro.Record(ctx, "dev1", obs); err != nil {
+	// Only a volatile value replaced rewrites the state, through a temporary
+	// file; a stable change appends to files that are already there.
+	volatile := func(observed map[string]any) []facts.Entry {
+		entries := prepared(t, observed)
+		for i := range entries {
+			entries[i].Kind = facts.KindVolatile
+		}
+		return entries
+	}
+	if err := ro.Record(ctx, "dev1", facts.Observation{Entries: volatile(map[string]any{"uptime": 1}), At: time.Now()}); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Chmod(locked, 0o500); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.Chmod(locked, 0o700) })
-	next := facts.Observation{Entries: prepared(t, map[string]any{"ansible_kernel": "6.2"}), At: time.Now().Add(time.Minute)}
+	next := facts.Observation{Entries: volatile(map[string]any{"uptime": 2}), At: time.Now().Add(time.Minute)}
 	if err := ro.Record(ctx, "dev1", next); err == nil {
 		t.Error("a directory that refuses new files took a new state")
 	}
