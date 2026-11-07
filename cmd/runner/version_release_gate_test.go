@@ -79,8 +79,10 @@ func TestVersionReleaseGate_OneVersionAcrossBothBinaries(t *testing.T) {
 	// A release build.
 	runner, cli := buildStamped(t, "-X "+buildinfoPackage+".version=9.8.7 -X "+buildinfoPackage+".revision=abcdef0123456")
 	for bin, want := range map[string]string{runner: "runner 9.8.7", cli: "pleiades 9.8.7"} {
-		if out, err := run(t, nil, bin, "version"); err != nil || strings.TrimSpace(out) != want {
-			t.Errorf("%s version = %q, %v; want %q", filepath.Base(bin), out, err, want)
+		// The first line is the version a script reads; the protocols the
+		// build speaks follow it (Phase 135b).
+		if out, err := run(t, nil, bin, "version"); err != nil || firstLine(out) != want || !strings.Contains(out, "\nexternal collection protocols: ") {
+			t.Errorf("%s version = %q, %v; want %q and then its protocols", filepath.Base(bin), out, err, want)
 		}
 	}
 	for name, args := range map[string][]string{"runner": nil, "pleiades": {"doc", "--list"}} {
@@ -97,8 +99,10 @@ func TestVersionReleaseGate_OneVersionAcrossBothBinaries(t *testing.T) {
 	// A development build: the default the image build arguments leave.
 	runner, cli = buildStamped(t, "-X "+buildinfoPackage+".version=unknown -X "+buildinfoPackage+".revision=abcdef0123456")
 	for bin, want := range map[string]string{runner: "runner 0.0.0-dev+abcdef012345", cli: "pleiades 0.0.0-dev+abcdef012345"} {
-		if out, err := run(t, nil, bin, "version"); err != nil || strings.TrimSpace(out) != want {
-			t.Errorf("%s version = %q, %v; want %q", filepath.Base(bin), out, err, want)
+		// The first line is the version a script reads; the protocols the
+		// build speaks follow it (Phase 135b).
+		if out, err := run(t, nil, bin, "version"); err != nil || firstLine(out) != want || !strings.Contains(out, "\nexternal collection protocols: ") {
+			t.Errorf("%s version = %q, %v; want %q and then its protocols", filepath.Base(bin), out, err, want)
 		}
 	}
 	out, err := run(t, env, cli, "doc", "--list")
@@ -115,4 +119,10 @@ func TestVersionReleaseGate_OneVersionAcrossBothBinaries(t *testing.T) {
 	if err != nil || !strings.Contains(out, ">=99.0.0 (not checked: 0.0.0-dev+abcdef012345 is a development build)") {
 		t.Errorf("doc on a development build does not say the constraint went unchecked: %v\n%s", err, out)
 	}
+}
+
+// firstLine is out's first line, without its line ending.
+func firstLine(out string) string {
+	line, _, _ := strings.Cut(strings.TrimSpace(out), "\n")
+	return line
 }

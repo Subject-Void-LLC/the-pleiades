@@ -220,11 +220,12 @@ func TestReleaseBuildReportsItsVersion(t *testing.T) {
 		t.Error(err)
 	}
 	// 9.8.7 has no codename, so its title is the tag alone; the runner's
-	// version command prints no second line for it.
+	// version command prints no codename line for it: the version, then the
+	// external Collection protocols it speaks (Phase 135b), nothing between.
 	if title, _ := os.ReadFile(filepath.Join(out, TitleFile)); string(title) != "v9.8.7\n" {
 		t.Errorf("release title = %q", title)
 	}
-	if lines := strings.Split(strings.TrimSpace(string(got)), "\n"); len(lines) != 1 {
-		t.Errorf("an unnamed release printed %q", got)
+	if lines := strings.Split(strings.TrimSpace(string(got)), "\n"); len(lines) != 2 || !strings.HasPrefix(lines[1], "external collection protocols: ") {
+		t.Errorf("an unnamed release printed %q, want its version and then its protocols", got)
 	}
 }
