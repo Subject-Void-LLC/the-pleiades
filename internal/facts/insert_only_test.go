@@ -97,3 +97,45 @@ func TestFileStore_AGatherOnlyAppends(t *testing.T) {
 		t.Fatalf("History(os.kernel) = %+v, %v; want 6.1 last confirmed by run2, then 6.2", kernel, err)
 	}
 }
+
+// TestFileStore_ADamagedObservationLineCostsOnlyConfirmations: a whole line
+// of <device>.seen.jsonl that does not decode (a hand edit, a page the disk
+// lost) is left out: the device's facts still read and record, and the values
+// read as confirmed by the observations that remain (the reviewer's F3, the
+// class of FAILURE_PATTERNS 922).
+func TestFileStore_ADamagedObservationLineCostsOnlyConfirmations(t *testing.T) {
+	ctx := context.Background()
+	dir := filepath.Join(t.TempDir(), "facts")
+	store, err := facts.NewFileStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t0 := time.Date(2026, 11, 7, 10, 0, 0, 0, time.UTC)
+	gather := func(n int) {
+		t.Helper()
+		by := facts.Provenance{Run: fmt.Sprintf("run%d", n), Order: facts.Order{Source: facts.ClockSource, Token: uint64(n)}}
+		if err := store.Record(ctx, "dev1", facts.Observation{Entries: prepared(t, map[string]any{"os.kernel": "6.1"}), At: t0.Add(time.Duration(n) * time.Hour), By: by}); err != nil {
+			t.Fatalf("gather %d: %v", n, err)
+		}
+	}
+	gather(1)
+	gather(2)
+	gather(3)
+	path := filepath.Join(dir, "dev1.seen.jsonl")
+	raw, err := os.ReadFile(path) // #nosec G304 -- the test's own directory
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := bytes.SplitAfter(raw, []byte("\n"))
+	lines[2] = []byte("{not an observation\n")
+	if err := os.WriteFile(path, bytes.Join(lines, nil), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if e, err := store.Current(ctx, "dev1"); err != nil || len(e) != 1 || e[0].LastBy.Run != "run2" {
+		t.Fatalf("Current = %+v, %v; want 6.1 last confirmed by run2, run3's line being unreadable", e, err)
+	}
+	gather(4)
+	if e, err := store.Current(ctx, "dev1"); err != nil || len(e) != 1 || e[0].LastBy.Run != "run4" {
+		t.Fatalf("Current after another gather = %+v, %v; want run4", e, err)
+	}
+}

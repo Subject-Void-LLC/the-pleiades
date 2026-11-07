@@ -3,8 +3,8 @@
 // changed").
 //
 // A store writes a value only when it changes, and a row once written is
-// never edited: the history is insert-only. What every gather does write is
-// one observation: the device's next sequence number, when and by which run
+// never edited: the history is insert-only. What every stored batch does
+// write is one observation: the device's next sequence number, when and by which run
 // it was made, and which keys it covered (its Coverage, kept once per
 // distinct set). Each stored value names the observation that wrote it.
 //
@@ -127,24 +127,60 @@ func Sightings(stored []Stored, seen []Seen) []Entry {
 	}
 	order := append([]Seen(nil), seen...)
 	sort.SliceStable(order, func(a, b int) bool { return order[a].Seq < order[b].Seq })
+	// Each distinct coverage resolved once to the stored values of the keys
+	// it names, so an observation costs what it can confirm, not how many
+	// keys it covered: a key's history folds one key's values, not the
+	// thousands of keys each gather covered (the reviewer's read cost).
+	resolved := map[*Coverage]coverIndex{}
 	for _, o := range order {
 		if o.Covers == nil {
 			continue
 		}
+		r, ok := resolved[o.Covers]
+		if !ok {
+			r = coverIndex{stable: covered(o.Covers.Stable, stable), volatile: covered(o.Covers.Volatile, volatile)}
+			resolved[o.Covers] = r
+		}
 		s := sighting{at: o.At, by: o.By}
-		for _, key := range o.Covers.Stable {
-			if i, ok := stableTarget(stored, stable[key], o); ok && s.later(last[i]) {
+		for _, idx := range r.stable {
+			if i, ok := stableTarget(stored, idx, o); ok && s.later(last[i]) {
 				last[i] = s
 			}
 		}
-		for _, key := range o.Covers.Volatile {
-			if i, ok := volatileTarget(stored, volatile[key], o.Seq); ok && s.later(last[i]) {
+		for _, idx := range r.volatile {
+			if i, ok := volatileTarget(stored, idx, o.Seq); ok && s.later(last[i]) {
 				last[i] = s
 			}
 		}
 	}
 	for i := range out {
 		out[i].LastSeenAt, out[i].LastBy = last[i].at, last[i].by
+	}
+	return out
+}
+
+// coverIndex is one coverage resolved to the stored values of each key it
+// names that has any, by kind.
+type coverIndex struct {
+	stable, volatile [][]int
+}
+
+// covered is, for each key in keys (sorted) that byKey holds values of, those
+// values: by walking the shorter of the two and looking each up in the other.
+func covered(keys []string, byKey map[string][]int) [][]int {
+	var out [][]int
+	if len(keys) <= len(byKey) {
+		for _, key := range keys {
+			if idx, ok := byKey[key]; ok {
+				out = append(out, idx)
+			}
+		}
+		return out
+	}
+	for key, idx := range byKey {
+		if i := sort.SearchStrings(keys, key); i < len(keys) && keys[i] == key {
+			out = append(out, idx)
+		}
 	}
 	return out
 }

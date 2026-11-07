@@ -117,8 +117,12 @@ func (s *FileStore) Record(_ context.Context, name string, obs Observation) erro
 		}
 		// The values first, then the state, then the observation that names
 		// them: a crash between leaves values no observation covers, which
-		// reads as the run never having confirmed anything, never the
-		// reverse.
+		// reads as the run never having confirmed anything. The reverse (an
+		// observation kept and a state rename lost) needs the rename on disk
+		// before the observation, which syncDir makes so where the platform
+		// syncs a directory; on Windows it does nothing, and a power loss
+		// there could credit a replaced volatile value with the newer
+		// sighting.
 		if len(appended) > 0 {
 			if err := appendLines(r, name, d.complete, appended); err != nil {
 				return err
@@ -260,8 +264,9 @@ func (s *FileStore) locked(device string, fn func(r *os.Root) error) error {
 	return fn(r)
 }
 
-// read reads device's files, unlocked: a reader may see a value appended
-// and not yet confirmed, never half a file.
+// read reads device's files, unlocked (load says in what order): a reader
+// may see a value appended that no observation it read confirms, never half a
+// file, and never a confirmation the writer did not make.
 func (s *FileStore) read(name string) (device, error) {
 	r, err := s.root(name)
 	if err != nil {

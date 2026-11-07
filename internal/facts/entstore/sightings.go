@@ -4,6 +4,7 @@ package entstore
 
 import (
 	"context"
+	"math"
 	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent"
@@ -70,7 +71,7 @@ func lastSightings(ctx context.Context, tx *ent.Tx, device int, obs facts.Observ
 			return last, nil
 		}
 	}
-	seen, err := observationsAfter(ctx, txClient{tx}, device, from)
+	seen, err := observationsAfter(ctx, txClient{tx}, device, from, math.MaxInt64)
 	if err != nil {
 		return nil, err
 	}

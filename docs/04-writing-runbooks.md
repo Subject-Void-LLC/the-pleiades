@@ -195,8 +195,8 @@ the run:
 - Each stored value says which run, task and method first observed it and which
   run last confirmed it. Confirming a value writes nothing to it: each task that
   stores facts adds one record of the gather (its run, its time and the keys it
-  covered), and the last confirmation is read from those, so nothing already
-  stored is ever edited. Values are ordered by an order the system keeps, not by a
+  covered), and the last confirmation is read from those, so a stored value is
+  never edited; a volatile fact's one value is still replaced when it changes. Values are ordered by an order the system keeps, not by a
   clock: on the command line a tick of the project's run counter taken when the
   task finished, so two runs at once on one host order by when each observed; on
   the Controller the device lease's fencing token. A result stored late does not

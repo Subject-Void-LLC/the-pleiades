@@ -26,36 +26,47 @@ type seenLine struct {
 }
 
 // seenFile is what <device>.seen.jsonl holds: each observation, the coverage
-// each digest names, and how many bytes of the file are whole lines.
+// each digest names, how many bytes of the file are whole lines, and how many
+// whole lines could not be read and were left out.
 type seenFile struct {
 	seen     []Seen
 	covers   map[string]*Coverage
 	complete int64
 	maxSeq   int64
+	skipped  int
 }
 
-// readSeen reads device's observations. A line naming a digest no line
-// before it defined is an error: the defining line is always written first,
-// in the same append.
+// readSeen reads device's observations. A whole line that does not decode,
+// lists keys its digest does not name, or names a coverage no line before it
+// lists is left out and counted, never an error: what an observation holds
+// is when values were last confirmed, which the next run confirms again, so a
+// damaged line costs some confirmations and refusing it would cost the
+// device's facts, as a damaged state file once did (FAILURE_PATTERNS 922).
+// Leaving one out can only make a value read as confirmed less recently: an
+// observation never says a value changed. A line longer than any observation
+// can be is still an error.
 func readSeen(r *os.Root, device string) (seenFile, error) {
 	sf := seenFile{covers: map[string]*Coverage{}}
 	name := device + ".seen.jsonl"
-	complete, err := readJSONL(r, name, maxSeenLineBytes, func(n int, raw []byte) error {
+	complete, err := readJSONL(r, name, maxSeenLineBytes, func(_ int, raw []byte) error {
 		var l seenLine
 		dec := json.NewDecoder(bytes.NewReader(raw))
 		dec.UseNumber()
 		if err := dec.Decode(&l); err != nil || l.Seq <= 0 || l.Coverage == "" {
-			return fmt.Errorf("facts: %s line %d is not a stored observation", name, n)
+			sf.skipped++
+			return nil
 		}
 		if l.Keys != nil {
 			if l.Keys.Digest() != l.Coverage {
-				return fmt.Errorf("facts: %s line %d lists keys its digest does not name", name, n)
+				sf.skipped++
+				return nil
 			}
 			sf.covers[l.Coverage] = l.Keys
 		}
 		covers, ok := sf.covers[l.Coverage]
 		if !ok {
-			return fmt.Errorf("facts: %s line %d names a coverage no line before it lists", name, n)
+			sf.skipped++
+			return nil
 		}
 		sf.seen = append(sf.seen, Seen{Seq: l.Seq, At: l.At, By: l.By, Covers: covers})
 		sf.maxSeq = max(sf.maxSeq, l.Seq)

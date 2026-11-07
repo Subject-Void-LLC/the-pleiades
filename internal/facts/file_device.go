@@ -20,17 +20,28 @@ type device struct {
 	volatile map[string]Entry
 }
 
-// load reads device's files and their sightings.
+// load reads device's files and their sightings, in the reverse of the
+// order Record writes them (values, then state, then the observation): a
+// reader that is not holding the lock then sees every value an observation
+// it read wrote, and a value written since reads as confirmed by nobody yet,
+// never as confirmed by the run that replaced it (the reviewer's torn read).
 func load(r *os.Root, name string) (device, error) {
-	lines, complete, err := readLines(r, name)
+	sf, err := readSeen(r, name)
 	if err != nil {
 		return device{}, err
 	}
+	return loadAfter(r, name, sf)
+}
+
+// loadAfter is load with the observations already read: the state and the
+// values are read after them, so whatever was written since is newer than
+// every observation folded.
+func loadAfter(r *os.Root, name string, sf seenFile) (device, error) {
 	st, err := readState(r, name)
 	if err != nil {
 		return device{}, err
 	}
-	sf, err := readSeen(r, name)
+	lines, complete, err := readLines(r, name)
 	if err != nil {
 		return device{}, err
 	}

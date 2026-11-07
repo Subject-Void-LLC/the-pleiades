@@ -17,22 +17,31 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts"
 )
 
-// nextSeq is the number device's next observation takes: one past its
-// newest. Two stores reading the same newest at once both take the same
-// number, and the unique index on (seq, device) fails the second to commit.
-func nextSeq(ctx context.Context, tx *ent.Tx, device int) (int64, error) {
-	row, err := tx.FactObservation.Query().
+// maxOrderSource is the longest order source the order_source column holds.
+const maxOrderSource = 256
+
+// newestSeq is the number of device's newest observation, 0 when it has none.
+func newestSeq(ctx context.Context, client queryClient, device int) (int64, error) {
+	row, err := client.observations().Query().
 		Where(entobs.DeviceIDEQ(device)).
 		Order(ent.Desc(entobs.FieldSeq)).
 		Select(entobs.FieldSeq).
 		First(ctx)
 	switch {
 	case ent.IsNotFound(err):
-		return 1, nil
+		return 0, nil
 	case err != nil:
 		return 0, fmt.Errorf("facts: %w", err)
 	}
-	return row.Seq + 1, nil
+	return row.Seq, nil
+}
+
+// nextSeq is the number device's next observation takes: one past its
+// newest. Two stores reading the same newest at once both take the same
+// number, and the unique index on (seq, device) fails the second to commit.
+func nextSeq(ctx context.Context, tx *ent.Tx, device int) (int64, error) {
+	n, err := newestSeq(ctx, txClient{tx}, device)
+	return n + 1, err
 }
 
 // orderColumns is an order as the observation's order columns hold it: a
@@ -40,7 +49,9 @@ func nextSeq(ctx context.Context, tx *ent.Tx, device int) (int64, error) {
 // which every comparison in the database then reads by the clock alone, and
 // which earlierThan never leaves out.
 func orderColumns(o facts.Order) (string, int64) {
-	if !o.Known() || o.Token > math.MaxInt64 {
+	// A source longer than the column holds is stored as unknown too:
+	// refusing it would fail the batch on every delivery.
+	if !o.Known() || o.Token > math.MaxInt64 || len(o.Source) > maxOrderSource {
 		return "", 0
 	}
 	return o.Source, int64(o.Token) // #nosec G115 -- bounded by the check above
@@ -122,11 +133,12 @@ func anyNotEarlier(ctx context.Context, tx *ent.Tx, device int, seq int64, order
 	return found, nil
 }
 
-// observationsAfter is device's observations numbered after seq, with what
-// each covered, read through client (a transaction's or the store's).
-func observationsAfter(ctx context.Context, client queryClient, device int, seq int64) ([]facts.Seen, error) {
+// observationsAfter is device's observations numbered after seq and at most
+// upTo, with what each covered, read through client (a transaction's or the
+// store's).
+func observationsAfter(ctx context.Context, client queryClient, device int, seq, upTo int64) ([]facts.Seen, error) {
 	rows, err := client.observations().Query().
-		Where(entobs.DeviceIDEQ(device), entobs.SeqGT(seq)).
+		Where(entobs.DeviceIDEQ(device), entobs.SeqGT(seq), entobs.SeqLTE(upTo)).
 		Order(ent.Asc(entobs.FieldSeq)).
 		All(ctx)
 	if err != nil {

@@ -90,7 +90,15 @@ func postgresClientDB(t *testing.T) (*ent.Client, string, *sql.DB) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = db.Close() })
+	t.Cleanup(func() {
+		_ = db.Close()
+		// The differential makes a database per sequence; each is dropped
+		// when its test ends rather than left in the container.
+		if admin, err := sql.Open("postgres", pgAdmin); err == nil {
+			_, _ = admin.Exec("DROP DATABASE IF EXISTS " + name + " WITH (FORCE)")
+			_ = admin.Close()
+		}
+	})
 	if err := migrate.Apply(context.Background(), "postgres", db); err != nil {
 		t.Fatalf("migrating: %v", err)
 	}

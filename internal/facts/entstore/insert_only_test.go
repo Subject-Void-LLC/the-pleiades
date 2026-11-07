@@ -25,7 +25,7 @@ var sqliteRefusals = []string{
 
 // postgresRefusals make PostgreSQL refuse the same.
 var postgresRefusals = []string{
-	"CREATE FUNCTION refuse_history_edit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'a stored fact was %d', TG_OP; END $$",
+	"CREATE FUNCTION refuse_history_edit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'a stored fact got a %', TG_OP; END $$",
 	"CREATE TRIGGER facts_never_updated BEFORE UPDATE ON facts FOR EACH ROW EXECUTE FUNCTION refuse_history_edit()",
 	"CREATE TRIGGER facts_history_kept BEFORE DELETE ON facts FOR EACH ROW WHEN (OLD.kind = 'stable') EXECUTE FUNCTION refuse_history_edit()",
 }
@@ -95,8 +95,10 @@ func TestStore_AGatherUpdatesNoStoredFact(t *testing.T) {
 }
 
 // TestStore_AGatherUpdatesNoStoredFactOnPostgres: the same on PostgreSQL,
-// where an UPDATE leaves a dead row version for vacuum (the cost this
-// removes), through the migrations a Controller applies.
+// where an UPDATE leaves a dead row version for vacuum, through the
+// migrations a Controller applies. A volatile value that changes is still a
+// DELETE and an INSERT, by design (one value kept), and the trigger allows it:
+// this removes the per-gather updates of unchanged values, not every dead row.
 func TestStore_AGatherUpdatesNoStoredFactOnPostgres(t *testing.T) {
 	client, device, db := postgresClientDB(t)
 	gatherAgainAndAgain(t, client, device, db, postgresRefusals)

@@ -18,7 +18,8 @@
 // index on (chain_prev, device) keeps it a line, and one on an observation's
 // (seq, device) makes two replicas storing for one device at once take turns:
 // the loser's batch is redelivered against the new head. No field of a row
-// has a setter in the generated client.
+// has a setter in the generated client but the shared timestamp mixin's
+// updated_at, which nothing calls.
 package entstore
 
 import (
