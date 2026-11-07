@@ -4,9 +4,7 @@
 package rollback
 
 import (
-	"fmt"
 	"slices"
-	"strings"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
 )
@@ -124,8 +122,9 @@ func fullyUndone(run Run, others []Run) bool {
 // laterRunProblems refuses undoing target beneath another run that has
 // changed the same devices since target began: undoing target's changes
 // then undoes them on top of the other run's. Runs that cancel out (a run
-// fully undone by its own rollback, and that rollback) do not count, nor
-// does a rollback of target itself.
+// fully undone by its own rollback, and that rollback) do not count, unless
+// a task of the run failed during its action on one of those devices,
+// which no rollback undoes; nor does a rollback of target itself.
 //
 // Which runs are later is decided by ticks and lease revisions (order.go),
 // and by clock times only for a pair of runs one of which predates them: the
@@ -146,32 +145,34 @@ func laterRunProblems(req Request, changed []engine.JournalEntry) ([]Problem, []
 		if r.ID == req.Target.ID || rollbackOf(r) == req.Target.ID || req.DespiteRuns[r.ID] {
 			continue
 		}
-		if fullyUndone(r, req.Others) {
-			continue
-		}
-		if of := rollbackOf(r); of != "" {
-			if undone, known := byID[of]; known && fullyUndone(undone, req.Others) {
-				continue
-			}
-		}
-		later, basis := laterOn(req.Target, r, devices)
 		// A task that failed during its action may have changed its device
 		// partway (plan.go's Unknown), so the run counts as a later change
 		// there exactly as a recorded change does: the journal cannot say
 		// the device is as the run being undone left it.
 		theirs, failedActing := changesOf(r)
 		onDevices := func(e engine.JournalEntry) bool { return devices[e.DeviceID] }
+		if cancelsOut(r, req.Others, byID) {
+			if !slices.ContainsFunc(failedActing, onDevices) {
+				continue
+			}
+			// Its rollback undid every change it recorded, but no rollback
+			// undoes a task that failed during its action (one accepted with
+			// --allow-unknown is left as it is), so what that task did is
+			// still on the device: only those tasks count.
+			theirs = nil
+		}
+		later, basis := laterOn(req.Target, r, devices)
 		// A run ordered by clock is named only when the order decided
 		// something: it changed, or may have changed, one of the devices
 		// this rollback undoes on.
 		if basis == byClock && (slices.ContainsFunc(theirs, onDevices) || slices.ContainsFunc(failedActing, onDevices)) {
 			byClockRuns = append(byClockRuns, r.ID)
 		}
-		var shared, irreversible, unknown []string
+		var changedOn, mayHaveOn, irreversible, unknown []string
 		undoable := false
-		// share notes e's device as one both runs changed when the other
-		// run came later there, and reports whether it did.
-		share := func(e engine.JournalEntry) bool {
+		// share notes e's device in list when the other run came later on
+		// one this rollback undoes on, and reports whether it did.
+		share := func(e engine.JournalEntry, list *[]string) bool {
 			if !devices[e.DeviceID] || !later[e.DeviceID] {
 				return false
 			}
@@ -179,13 +180,13 @@ func laterRunProblems(req Request, changed []engine.JournalEntry) ([]Problem, []
 			if name == "" {
 				name = e.DeviceID
 			}
-			if !slices.Contains(shared, name) {
-				shared = append(shared, name)
+			if !slices.Contains(*list, name) {
+				*list = append(*list, name)
 			}
 			return true
 		}
 		for _, e := range theirs {
-			if !share(e) {
+			if !share(e, &changedOn) {
 				continue
 			}
 			switch {
@@ -197,17 +198,21 @@ func laterRunProblems(req Request, changed []engine.JournalEntry) ([]Problem, []
 			}
 		}
 		for _, e := range failedActing {
-			if share(e) && !slices.Contains(unknown, e.FQCN) {
+			if share(e, &mayHaveOn) && !slices.Contains(unknown, e.FQCN) {
 				unknown = append(unknown, e.FQCN)
 			}
 		}
-		if len(shared) == 0 {
+		if len(changedOn) == 0 && len(mayHaveOn) == 0 {
 			continue
 		}
-		slices.Sort(shared)
+		// A device the run both changed and failed on is named once, as
+		// changed: the failure is said beside it.
+		mayHaveOn = slices.DeleteFunc(mayHaveOn, func(d string) bool { return slices.Contains(changedOn, d) })
+		slices.Sort(changedOn)
+		slices.Sort(mayHaveOn)
 		slices.Sort(irreversible)
 		slices.Sort(unknown)
-		p := laterRun(r.ID, strings.Join(shared, ", "), undoable, irreversible, unknown)
+		p := laterRun(r.ID, changedOn, mayHaveOn, undoable, irreversible, unknown)
 		switch basis {
 		case byUnfinished:
 			p.Reason += "; it never recorded its end on the project's run counter, and no run began after it stopped to record that it was gone, so it may have changed them at any time after this run began"
@@ -217,57 +222,4 @@ func laterRunProblems(req Request, changed []engine.JournalEntry) ([]Problem, []
 		problems = append(problems, p)
 	}
 	return problems, byClockRuns
-}
-
-// The kinds of later run a rollback can be refused over (Problem.Kind),
-// each with its own advice.
-const (
-	// KindUndoFirst is a later run with changes of its own to undo: roll it
-	// back first.
-	KindUndoFirst = "undo_first"
-	// KindCannotUndo is a later run whose changes on the shared devices
-	// include ones with no undo, and none with one: rolling it back first
-	// would refuse too.
-	KindCannotUndo = "cannot_undo"
-	// KindNothingToUndo is a later run whose every change on the shared
-	// devices its runbook says needs no undo (rollback: []).
-	KindNothingToUndo = "nothing_to_undo"
-	// KindUnknownEffect is a later run that recorded no change on the shared
-	// devices, but a task of which failed there during its action, so it may
-	// have changed them partway: read it, and step over it once the devices
-	// are known to be as the run being undone left them.
-	KindUnknownEffect = "unknown_effect"
-	// KindNoRunbook is a change whose undo needs the runbook the run ran,
-	// which was not found as it ran: naming it with --runbook may answer
-	// it, where --leave gives the change up.
-	KindNoRunbook = "no_runbook"
-)
-
-// laterRun is the refusal over run id, which changed devices (named) after
-// the run being undone began, or may have (unknown names the methods that
-// failed there during their action): which kind it is, and what to do
-// about it.
-func laterRun(id, devices string, undoable bool, irreversible, unknown []string) Problem {
-	head := fmt.Sprintf("run %s changed %s after this run began, so undoing this run beneath it could undo on top of its changes", id, devices)
-	failed := ""
-	if len(unknown) > 0 {
-		failed = "; " + strings.Join(unknown, ", ") + " failed during its action there, so it may have changed part of what it meant to, and the journal cannot say what"
-	}
-	p := Problem{Accept: "--despite-run " + id, UnknownEffects: unknown}
-	switch {
-	case undoable:
-		p.Kind = KindUndoFirst
-		p.Reason = head + failed + "; it has changes of its own to undo, so roll it back first (pleiades rollback " + id + "), or step over it"
-	case len(irreversible) > 0:
-		p.Kind = KindCannotUndo
-		p.Reason = head + failed + "; its changes there cannot be undone (" + strings.Join(irreversible, ", ") + " recorded no undo), so read it (pleiades journal show " + id + ") and step over it"
-	case len(unknown) > 0:
-		p.Kind = KindUnknownEffect
-		p.Reason = fmt.Sprintf("run %s may have changed %s after this run began", id, devices) + failed +
-			", so read it (pleiades journal show " + id + ") and step over it once those devices are known to be as this run left them"
-	default:
-		p.Kind = KindNothingToUndo
-		p.Reason = head + "; its runbook says none of its changes there needs undoing (rollback: []), so stepping over it is safe when that still holds"
-	}
-	return p
 }
