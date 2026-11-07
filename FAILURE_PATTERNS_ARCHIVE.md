@@ -23590,3 +23590,23 @@ confirmed).
 **Fix.** Each now says what the code does, its exception included.
 
 **Lesson.** FAILURE_PATTERNS 228's again: say the exception in the same sentence as the rule.
+
+## 977. commitgate refused a comment-only ent schema edit, which go generate writes nothing for, so the only way through was --no-verify (fixed)
+
+**Symptom.** 2026-11-07, Phase 41h. Correcting three schema doc comments the review found overclaiming, the commit was
+refused: "this commit changes internal/ent/schema but stages no regenerated file". `go generate ./internal/ent`
+produced no change, since ent reads no Go comment, and `git commit --no-verify` was denied by the session's safety
+classifier.
+
+**Root cause.** The rule was path-based: any staged schema file needed a staged generated file. Its sibling rule
+(`checkEntMigrations`) already said this check "cannot tell such an edit from a comment fix" and that a rule crying wolf
+on every schema comment "would be turned off". The regenerate rule had the same blind spot and no escape but skipping
+every rule.
+
+**Fix.** `commentsOnly` compares a modified schema file with its parent, each parsed without comments and printed back
+with `go/format`; only an identical result is excused. An added file, a rename, a file that does not parse, and a real
+edit beside a comment-only one are still refused (`TestCheckEntRegeneratedAcceptsACommentOnlySchemaEdit`, red on the old
+rule, and `TestCheckEntRegeneratedStillRefusesACodeChangeBesideComments`).
+
+**Lesson.** A gate whose only exit is skipping every rule teaches skipping; give each rule the precision its sibling
+already documented.

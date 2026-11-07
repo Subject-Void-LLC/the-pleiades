@@ -980,6 +980,7 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 974. An order source longer than the new column would have failed its facts batch on every delivery (fixed before push, a repeat of 208, 919 and 961)
 975. The new observations file refused a device's facts over one damaged line, the data a crash-emptied state file had been forgiven for (fixed before push, a repeat of 922)
 976. Six comments and a changelog sentence claimed more than the seen-versus-changed code does (fixed before push, a repeat of 571 and 789)
+977. commitgate refused a comment-only ent schema edit, which go generate writes nothing for, so the only way through was --no-verify (fixed)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 
