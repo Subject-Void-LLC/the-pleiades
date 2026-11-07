@@ -159,7 +159,9 @@ func encode(entries []engine.JournalEntry) ([]byte, error) {
 	enc.SetEscapeHTML(false)
 
 	for _, entry := range entries {
-		if err := enc.Encode(normalize(entry)); err != nil {
+		// Each line carries the format it was written in (format.go), so
+		// a reader of another build refuses it by name instead of guessing.
+		if err := enc.Encode(lineFor(normalize(entry))); err != nil {
 			return nil, fmt.Errorf("failed to encode a journal entry for run %s: %w", entry.RunID, err)
 		}
 	}

@@ -180,6 +180,15 @@ const (
 // envelope's own Data field decodes into on the Runner side, not the
 // top-level shape of a raw NATS message.
 type DispatchPayload struct {
+	// PayloadVersion is the version of this payload's shape
+	// (DispatchPayloadVersion, dispatch_version.go). The Controller sets it;
+	// a Runner refuses one past its own, and reads an absent one, from a
+	// Controller that predates the field, as version 1. The Controller always
+	// writes a version, so omitempty drops it only from a payload nothing
+	// versioned (a test's, or pkg/external's own child request), which reads
+	// as version 1 either way.
+	PayloadVersion int `json:"payload_version,omitempty"`
+
 	// JobID identifies the overall dispatch operation this payload
 	// belongs to. Every device targeted by a single DispatchRunbook call
 	// shares the same JobID, so the Runner and any downstream audit trail

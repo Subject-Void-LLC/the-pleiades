@@ -37,7 +37,7 @@ TERMINAL = frozenset({PASS, FAIL, NOT_RUN, ENDED, SKIPPED, STOPPED})
 # templ-gen are prerequisites of prerequisites; --trace names them too.
 STATIC_TARGETS = [
     "build", "devtools", "vet", "fmt", "tidy-check", "tools", "gosec", "docs-lint",
-    "docs-gen-check", "helm-lint", "templ-gen", "templ-gen-check", "workflow-lint", "pr-check-vet",
+    "docs-gen-check", "schema-compat", "helm-lint", "templ-gen", "templ-gen-check", "workflow-lint", "pr-check-vet",
 ]
 # HIDDEN_UNTIL_SEEN are targets only --trace shows; they stay off the page
 # until something happens to them.

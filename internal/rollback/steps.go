@@ -43,13 +43,28 @@ func changesOf(run Run) (changed, unknown []engine.JournalEntry) {
 	for _, e := range latest {
 		changed = append(changed, e)
 	}
+	// latest is a map, so the order is decided wholly here. Each device's
+	// Runner numbers its own entries on the Walk tier, so one node's entries
+	// on two devices share a sequence; the node and then the device break the
+	// tie, so one journal always plans one rollback (FAILURE_PATTERNS 962).
 	sort.Slice(changed, func(i, j int) bool {
-		if changed[i].Attempt != changed[j].Attempt {
-			return changed[i].Attempt > changed[j].Attempt
+		a, b := changed[i], changed[j]
+		switch {
+		case a.Attempt != b.Attempt:
+			return a.Attempt > b.Attempt
+		case a.Sequence != b.Sequence:
+			return a.Sequence > b.Sequence
+		case a.NodeID != b.NodeID:
+			return a.NodeID > b.NodeID
 		}
-		return changed[i].Sequence > changed[j].Sequence
+		return a.DeviceID < b.DeviceID
 	})
-	sort.Slice(unknown, func(i, j int) bool { return unknown[i].Sequence < unknown[j].Sequence })
+	sort.Slice(unknown, func(i, j int) bool {
+		if unknown[i].Sequence != unknown[j].Sequence {
+			return unknown[i].Sequence < unknown[j].Sequence
+		}
+		return unknown[i].DeviceID < unknown[j].DeviceID
+	})
 	return changed, unknown
 }
 

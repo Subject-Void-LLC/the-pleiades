@@ -1,4 +1,4 @@
-.PHONY: resources-record up up-plan setup setup-env-check down backup restore decom build devtools vet fmt fmt-fix tidy-check test test-race test-no-docker test-repeat test-integration gosec govulncheck arch coverage docs-lint docs-gen-check helm-lint templ-gen templ-gen-check tools hooks lsp commitgate sweep sweep-dry sweep-timer sweep-timer-off dev-cert ui-dev ui-stop break-glass image-tools image-scan ci ci-remote push-gate test-full push-gate-full coverage-measured ci-fast ci-containers pr-check pr-check-vet mac-check bsd-check win-check ci-images ci-branch-plan branch-containers workflow-lint doctor test-clean-room release release-notes release-dry-run
+.PHONY: resources-record up up-plan setup setup-env-check down backup restore decom build devtools vet fmt fmt-fix tidy-check test test-race test-no-docker test-repeat test-integration gosec govulncheck arch coverage docs-lint docs-gen-check schema-compat helm-lint templ-gen templ-gen-check tools hooks lsp commitgate sweep sweep-dry sweep-timer sweep-timer-off dev-cert ui-dev ui-stop break-glass image-tools image-scan ci ci-remote push-gate test-full push-gate-full coverage-measured ci-fast ci-containers pr-check pr-check-vet mac-check bsd-check win-check ci-images ci-branch-plan branch-containers workflow-lint doctor test-clean-room release release-notes release-dry-run
 
 # GOBIN's tools (gopls, golangci-lint, gosec, govulncheck) live under
 # $(go env GOPATH)/bin, which is not guaranteed to be on PATH for every
@@ -852,7 +852,7 @@ PR_BASE ?= origin/main
 # which this machine's memory cannot spare beside the rest, and `make ci`
 # and CI's ci job run it on every pull request within minutes. It is
 # defined here because a prerequisite list is read when its rule is.
-CI_REMOTE_STATIC := build devtools vet fmt tidy-check gosec docs-lint docs-gen-check helm-lint templ-gen-check workflow-lint
+CI_REMOTE_STATIC := build devtools vet fmt tidy-check gosec docs-lint docs-gen-check schema-compat helm-lint templ-gen-check workflow-lint
 PR_CHECK_PARALLELISM ?= 0
 # PR_CHECK_CONTAINERS says whether pr-check runs the container pass. It does
 # not by default (owner, 2026-10-31): that pass took 104 minutes serial, and a
@@ -1271,6 +1271,17 @@ docs-gen-check:
 	git diff --exit-code -- docs/reference internal/api/wellknown
 	test -z "$$(git ls-files --others --exclude-standard -- docs/reference internal/api/wellknown)"
 
+# schema-compat (tools/schemacompat) holds the generated schemas in
+# docs/reference/schemas to the newest release tag at or below this tree's
+# release line (internal/buildinfo.CurrentRelease): a change that would break
+# a runbook, an API client or a reader of the run report fails, unless the
+# tree is on a later minor line and a changelog/*.breaking.md fragment names
+# it. On a patch line nothing accepts a break. It runs after docs-gen-check,
+# so it reads schemas regenerated from this tree, and it needs the release
+# tags (a clone has them; CI's checkout fetches them).
+schema-compat:
+	go run ./tools/schemacompat
+
 # helm-lint (tools/helm-lint) renders helm/the-pleiades in every arrangement
 # it supports, asserts the rendered containers are hardened (two distinct
 # probes, a numeric non-root uid, a read-only root filesystem, no capabilities,
@@ -1324,7 +1335,7 @@ GATE_START_COMMIT := $(shell git rev-parse HEAD 2>/dev/null)
 GATE_START_CLEAN := $(shell test -z "$$(git status --porcelain 2>/dev/null)" && echo yes || echo no)
 endif
 
-ci: build devtools vet fmt tidy-check test-full test-repeat gosec govulncheck coverage-measured docs-lint docs-gen-check helm-lint templ-gen-check workflow-lint
+ci: build devtools vet fmt tidy-check test-full test-repeat gosec govulncheck coverage-measured docs-lint docs-gen-check schema-compat helm-lint templ-gen-check workflow-lint
 	@echo "ci: all checks passed"
 	@go run ./tools/gatereceipt write --target ci --started-at "$(GATE_START_COMMIT)" --started-clean "$(GATE_START_CLEAN)"
 
@@ -1368,7 +1379,7 @@ ci-remote: $(CI_REMOTE_STATIC) govulncheck
 # tools/gatereceipt, which .githooks/pre-push verifies; the hook does not
 # run the gate itself (CLAUDE.md says why). The pull-request CI jobs apply
 # the same rule; ci and the nightly job do not.
-push-gate: build devtools vet fmt tidy-check push-gate-full test-repeat gosec govulncheck coverage-measured docs-lint docs-gen-check helm-lint templ-gen-check workflow-lint
+push-gate: build devtools vet fmt tidy-check push-gate-full test-repeat gosec govulncheck coverage-measured docs-lint docs-gen-check schema-compat helm-lint templ-gen-check workflow-lint
 	@echo "push-gate: all checks passed (a failure listed above as passing when re-run alone was tolerated as contention; one that recurs run after run is not contention)"
 	@go run ./tools/gatereceipt write --target push-gate --started-at "$(GATE_START_COMMIT)" --started-clean "$(GATE_START_CLEAN)"
 

@@ -73,6 +73,18 @@ func (a *Agent) handleMessage(ctx context.Context, msg jetstream.Msg) {
 
 	var payload wire.DispatchPayload
 	if err := json.Unmarshal(evt.Data, &payload); err != nil {
+		// A newer Controller's payload can fail to decode here (a field it
+		// retyped), and is then reported failed with the version as its
+		// reason, so its job does not read "dispatched" forever. Its job id
+		// is checked first, as every other path's is below.
+		if newer, verr, ok := newerUndecodable(evt.Data); ok {
+			if _, idErr := uuid.Parse(newer.JobID); idErr == nil {
+				a.reportResult(ctx, newer, wire.Outcome{}, verr)
+			}
+			a.termMalformed(msg, "dropping a dispatch this runner cannot read", verr,
+				slog.Int("payload_version", newer.PayloadVersion))
+			return
+		}
 		a.termMalformed(msg, "dropping malformed message", err)
 		return
 	}
@@ -113,10 +125,6 @@ func (a *Agent) handleMessage(ctx context.Context, msg jetstream.Msg) {
 		slog.String("device", payload.DeviceName),
 	)
 
-	// Execute the Runbook using the configured adapter, wrapped in a
-	// per-device lock lease (PLAN.md Section 13) with a heartbeat-driven
-	// self-abort (PLAN.md Section 16's Network Partitions mitigation).
-	// See executeWithLease's own doc comment (agent_exec.go).
 	// Suppress a redelivery of work that already completed. The hazard
 	// is real and narrow: a dispatch publish can report failure to the
 	// Controller and have succeeded anyway, because nats.go buffers the
@@ -137,6 +145,27 @@ func (a *Agent) handleMessage(ctx context.Context, msg jetstream.Msg) {
 		return
 	}
 
+	// A payload from a newer Controller than this Runner reads is refused
+	// before any work (after duplicate suppression, so a republish of work
+	// a newer Runner already finished is acked rather than reported failed), and reported the way a kind with no adapter is (see
+	// below): the job fails with the reason, rather than saying
+	// "dispatched" forever, and the message is terminated, since this
+	// binary will not learn the newer shape between two deliveries.
+	if verr := payload.CheckVersion(); verr != nil {
+		span.RecordError(verr)
+		span.SetStatus(codes.Error, "dispatch payload version not supported")
+		a.logger.Error("refusing a dispatch this runner cannot read",
+			slog.String("job_id", payload.JobID),
+			slog.String("device_id", payload.DeviceID),
+			slog.Int("payload_version", payload.PayloadVersion),
+			slog.String("error", verr.Error()))
+		a.reportResult(ctx, payload, wire.Outcome{}, verr)
+		settle()
+		a.termMalformed(msg, "dropping a dispatch this runner cannot read", verr,
+			slog.Int("payload_version", payload.PayloadVersion))
+		return
+	}
+
 	// The dispatch's redelivery count, for the run journal (Phase 40).
 	// It exists only on the message, and the sink that records it is
 	// built three layers down in the adapter, so it travels as a context
@@ -150,6 +179,10 @@ func (a *Agent) handleMessage(ctx context.Context, msg jetstream.Msg) {
 	// anything.
 	ctx = journal.WithAttempt(ctx, numDeliveredFor(msg))
 
+	// Execute the Runbook using the configured adapter, wrapped in a
+	// per-device lock lease (PLAN.md Section 13) with a heartbeat-driven
+	// self-abort (PLAN.md Section 16's Network Partitions mitigation).
+	// See executeWithLease's own doc comment (agent_exec.go).
 	outcome, execErr := a.executeWithLease(ctx, payload)
 	if execErr != nil && errorsIsContention(execErr) {
 		// Not an execution failure: Execute was never attempted, so it is

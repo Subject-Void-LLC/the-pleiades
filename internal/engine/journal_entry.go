@@ -375,7 +375,22 @@ func validFailureStage(stage FailureStage) bool {
 	}
 }
 
-// validSkipKind reports whether kind is one of the six reasons a node may
+// IsRecordedFailureStage reports whether stage is one a failed entry may
+// carry: the one list the engine writes from (validFailureStage) and the
+// journal reader holds a recorded entry to, so the two cannot drift apart.
+//
+// Because the reader holds old journals to it too, the list only grows: a
+// stage the engine no longer writes stays listed, or every journal that
+// recorded it stops reading (internal/journal's TestJournalFormatOneReadsEveryKind).
+func IsRecordedFailureStage(stage FailureStage) bool { return validFailureStage(stage) }
+
+// IsRecordedSkipKind reports whether kind is one a skipped entry may carry,
+// the one list the engine writes from (validSkipKind) and the journal reader
+// holds a recorded entry to.
+// Like IsRecordedFailureStage's list, it only grows.
+func IsRecordedSkipKind(kind SkipKind) bool { return validSkipKind(kind) }
+
+// validSkipKind reports whether kind is one of the seven reasons a node may
 // be recorded as skipped. It enumerates them for the same reason
 // validFailureStage does.
 func validSkipKind(kind SkipKind) bool {
@@ -515,7 +530,7 @@ func (r *run) projectResult(n NodeResult) (JournalEntry, error) {
 	case n.Skipped:
 		if !validSkipKind(n.skipKind) {
 			return JournalEntry{}, fmt.Errorf(
-				"node %q (device %q) was skipped for reason kind %q, which is not one of the four this journal records",
+				"node %q (device %q) was skipped for reason kind %q, which is not one this journal records",
 				n.NodeID, n.Device, n.skipKind)
 		}
 		entry.Outcome = OutcomeSkipped

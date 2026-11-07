@@ -7457,3 +7457,28 @@ written about ordering, so nobody read it as asking for a sweep of the skip path
 **Rule in practice.** When a safety rule is added for one of the runs a planner reads, list every path by which the
 planner can skip or excuse a run (cancels out, nothing to undo, ordered by clock, before the target) and give each a
 test with the rule's case in it.
+
+## 408. A reader of a format holds it to the writer's own source (the writer's exported closed sets, and a test that builds every shape the writer makes and reads it back), never to a copy kept beside the reader; and the format's tests read a frozen file of every kind the writer has ever written, so removing one fails (its first half a repeat in kind of 273; FAILURE_PATTERNS 959) (2026-11-06).
+
+**Why.** Branch `feat/contracts-135`. The strict journal reader (`internal/journal/reader.go`) kept its own lists of the
+engine's failure stages and skip kinds and its own pattern for the builder's node ids. Handlers added `tasks.handlers[N]`
+and the `not_notified` skip kind, and a parallel group's synthetic `.fanout` and `.join` nodes had been journaled since
+before v0.3.0, and the reader refused all of them. Because `ListRuns` stops at the first journal it cannot read, one such
+run made `pleiades journal list` and `pleiades rollback` refuse every journal in the project. The first fix (handlers)
+was itself incomplete: only a test that built every shape the builder makes found the parallel nodes (FAILURE_PATTERNS
+959).
+
+**What is old and what is new.** The first half restates LESSONS 273 (a guard over a hand-kept list reads the property
+the list stands for) for a reader: FAILURE_PATTERNS 768 was the same copy in `internal/validate`, and its fix did not
+look for copies elsewhere. The second half is new. A test against the writer's current source shows that the reader
+knows today's shapes; only a frozen file of every kind ever written shows that it still reads old journals, since a
+writer may stop writing a kind that files on disk still hold.
+
+**Rule in practice.** For each closed set or grammar a reader checks, find the writer's own definition and call it
+(`engine.IsRecordedFailureStage`, `engine.IsRecordedSkipKind`); where the writer exports none, say so beside the copy
+and cover it with the frozen file (the journal's `knownOutcome` is that case). Add a test that builds every shape
+through the writer's real path and reads it back through the strict reader (`TestEveryNodeIDTheBuilderMakesReadsBack`),
+and keep a frozen file per format version with one line of every kind
+(`internal/journal/testdata/format-1/every-kind.jsonl`, read by `TestJournalFormatOneReadsEveryKind`). When the writer
+gains a kind, add it to the frozen file in the same change. Before adding a new copy, search other readers of the same
+format for the same list.

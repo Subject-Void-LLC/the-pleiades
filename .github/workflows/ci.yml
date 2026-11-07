@@ -135,6 +135,15 @@ jobs:
           rm -rf helm.tar.gz linux-amd64
           helm version --short
 
+      # ci-remote's schema-compat compares the generated schemas with the
+      # newest release's (tools/schemacompat), so it needs the release tags.
+      # A depth-1 checkout brings only tags on the fetched commit, even with
+      # fetch-tags, so they are fetched by an explicit refspec, one commit
+      # deep each.
+      - name: Fetch the release tags
+        if: runner.os == 'Linux'
+        run: git fetch --no-tags --depth=1 origin '+refs/tags/v*:refs/tags/v*'
+
       - name: ci-remote
         if: runner.os == 'Linux'
         run: make ci-remote

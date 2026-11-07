@@ -4,6 +4,7 @@
 package main_test
 
 import (
+	"encoding/json"
 	"testing"
 )
 
@@ -59,6 +60,27 @@ func TestCLI_HandlersRunOnceInTheirOrderOnlyWhenNotified(t *testing.T) {
 		}
 		if got, code := device.exec(t, "cat", "/tmp/hg.log"); code != 0 || got != want {
 			t.Fatalf("after run %d the handlers' log is %q (exit %d), want %q:\n%s", i+1, got, code, want, out)
+		}
+	}
+
+	// Each run's journal reads back: the handlers' entries (node
+	// tasks.handlers[N], and the second run's restart skipped as
+	// not_notified) are ones the strict reader accepts, so journal and
+	// rollback can read a run that had handlers.
+	out, err := runPleiadesWithHome(t, dir, home, "journal", "list", "--json")
+	if err != nil {
+		t.Fatalf("journal list: %v\n%s", err, out)
+	}
+	var runs []struct {
+		RunID string `json:"run_id"`
+		Tasks int    `json:"tasks"`
+	}
+	if err := json.Unmarshal([]byte(out), &runs); err != nil || len(runs) != 2 {
+		t.Fatalf("journal list --json gave %d runs (%v), want 2:\n%s", len(runs), err, out)
+	}
+	for _, r := range runs {
+		if out, err := runPleiadesWithHome(t, dir, home, "journal", "show", r.RunID, "--json"); err != nil {
+			t.Errorf("journal show %s: %v\n%s", r.RunID, err, out)
 		}
 	}
 }

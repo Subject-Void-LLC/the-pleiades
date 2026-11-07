@@ -19,9 +19,10 @@ types), assembled into `CHANGELOG.md` when a release is cut, by hand for now.
 
 ## Breaking changes and deprecations
 
-None yet, for the same reason: nothing has shipped a version a later one could break
-compatibility with. `CHANGELOG.md`'s own `breaking`/`deprecated`/`removed` fragment
-types exist and are ready to record one the first time it happens.
+A breaking change is recorded as a `changelog/<slug>.breaking.md` fragment, and the
+release notes list each one. A change that breaks a generated schema (see
+[How the contracts are checked](#how-the-contracts-are-checked)) cannot merge until a
+fragment names it.
 
 ## Versioning and deprecation policy
 
@@ -29,32 +30,153 @@ Releases are numbered `MAJOR.MINOR.PATCH`. Every binary reports its own
 (`pleiades version`, `runner version`, `controller version`): a release build's
 version, stamped by `make release`, or `0.0.0-dev+<commit>` for any other build.
 
-**Before 1.0.0, a minor release may break compatibility**, and each one is a step
-along a planned ladder rather than a point on a support calendar. A patch release
-never breaks anything, and it may add: a new method, parameter, runbook keyword or
-template feature (more of Jinja, for example) that nothing already written depends on
-behaving otherwise. A runbook that ran on 0.3.0 runs the same on every 0.3.x. What
-that means in practice:
+**`main` is on the 0.4.0 line.** 0.4.0 changes values 0.3.0 shipped (the facts
+`facts.gather` records, for one), so it is a minor release, not a patch. A 0.3.x
+patch release, if one is needed, branches from the `v0.3.0` tag and takes fixes only.
 
-- Anything documented as `status: beta` or narrower may change shape in the next
-  minor release. Check the badge at the top of a page before depending on what it
-  describes.
-- The two contracts below are the exceptions, and they hold from the first release
-  rather than from 1.0.0: the database schema's compatibility window, and the
-  external Collection protocol version.
-- A Collection method's `engineVersion` constraint names the oldest engine it runs
-  on, so a method built against one release states that release rather than a round
-  number. Today every built-in method declares the release it ships in.
+**A point release is always safe.** A patch release (`x.y.Z`) never breaks a
+contract below, never removes or deprecates anything, and never adds a rule that
+refuses something the release before it accepted. It may add: a new method,
+parameter, runbook keyword or template feature (more of Jinja, for example) that
+nothing already written depends on behaving otherwise. A runbook that ran on 0.3.0
+runs the same on every 0.3.x.
+
+**Before 1.0.0, a minor release may break compatibility**, and each one is a step
+along a planned ladder rather than a point on a support calendar. Each break is
+named in that release's notes, with what to change. Anything documented as
+`status: beta` or narrower may change shape in the next minor release; check the
+badge at the top of a page before depending on what it describes.
 
 **1.0.0 is the first release whose stored data has to survive an upgrade**, and the
-compatibility promises below are measured from it.
+compatibility promises below are measured from it. No support window or
+deprecation notice period has been published yet. When one is, it will be here.
 
-No support window or deprecation notice period has been published yet. When one is,
-it will be here.
+A Collection method's `engineVersion` constraint names the oldest engine it runs
+on, so a method built against one release states that release rather than a round
+number.
+
+## The contracts
+
+Each contract below says what stays compatible, what forces a change of version or
+a breaking-change note, and how that is tested. "Holds within a minor" means no
+patch release breaks it, and a minor release breaks it only with a
+`.breaking.md` fragment naming the break. "Versioned" means the format carries a
+version number, and a reader refuses a version newer than its own by name rather
+than guessing.
+
+| Contract | Before 1.0 | Versioned by | Checked by |
+|---|---|---|---|
+| Runbook schema | holds within a minor | the release | the schema check |
+| Module catalog (methods, parameters, returns, facts) | holds within a minor | the release | the schema check |
+| Facts | holds within a minor | the release | the schema check, over the catalog's fact declarations |
+| Run report (`--json`) | holds within a minor | `schema_version` | the schema check |
+| API | holds within a minor | the release | the schema check, over the OpenAPI document |
+| Rollback planning | holds within a minor | the release | golden tests |
+| Template and variable semantics | holds within a minor | the release | golden tests |
+| Run journal | may change at each minor | `format` on every line | golden tests |
+| Dispatch payload (Controller to Runner) | may change at each minor | `payload_version` | tests on both sides |
+| Database schema | expand by default | migrations | migration and upgrade tests |
+| External Collection protocol | see its section | `protocol` | the loader's tests |
+
+### Runbook schema and the module catalog
+
+**What stays compatible:** a runbook that validated keeps validating and means the
+same. New optional keywords and parameters, new methods, new values a parameter
+accepts.
+
+**What breaks:** a keyword or parameter removed or renamed, one becoming required, a
+type or set of choices narrowed, a default changed, a method removed, a return value
+or fact a method records removed or retyped, or a method needing a capability or
+losing a transport it had.
+
+### Facts
+
+**What stays compatible:** a fact keeps its key, its type and whether it is stable or
+volatile. New facts and new item families may be added.
+
+**What breaks:** a key renamed or removed, a value's type changed, or a value's
+meaning changed (a version reported as a string becoming an integer, for example).
+Facts are stored by key, so a key is the identity of a fact's history: renaming one
+starts a new history.
+
+### Run report
+
+The `--json` document `pleiades run`, `adhoc` and `rollback` print,
+published as `docs/reference/schemas/run-report.json`.
+
+**What stays compatible:** new fields, and new values in its open sets (a status or
+kind, which the schema describes in prose rather than as an `enum`). A reader ignores
+a field it does not know, treats a status or kind it does not know as not a pass, and
+refuses a `schema_version` it does not know.
+
+**What breaks:** a field removed or renamed, a required field becoming optional, a
+field given another type or meaning, or a value added to a closed set (an `enum`).
+`schema_version` rises with any of these; a reviewer holds a change to that rule, since
+the schema check finds the break but not the missing bump.
+
+### API
+
+The Controller's HTTP API, published as `docs/reference/schemas/openapi.json`.
+
+**What stays compatible:** new routes, new optional request fields, new response
+fields.
+
+**What breaks:** a route or method removed, a request field or parameter becoming
+required or narrowed, a success status no longer returned, a required response field
+removed or retyped, or a route needing a scope it did not.
+
+### Rollback planning
+
+**What stays compatible:** the plan `pleiades rollback` and `POST /jobs/{id}/rollback`
+build from a given journal: which steps undo what, in which order, and which gaps
+refuse until accepted by name.
+
+**What breaks:** the same journal producing a different plan, a gap that refused now
+passing, or one that passed now refusing.
+
+### Template and variable semantics
+
+**What stays compatible:** what a template renders to, and which value wins when one
+name is set at several levels (runbook `vars:`, `set_fact`, device variables, block
+and task `vars:`, then extra variables, which win over everything). New filters and
+template features may be added.
+
+**What breaks:** a template rendering differently, an error becoming a value or a
+value becoming an error, or a change to the order of precedence.
+
+### Run journal
+
+The journal under `.pleiades/journal` records every task of a run, for audit and for
+rollback. Each line carries `format`, the version of its shape; a line without one
+was written before the field existed and reads as format 1.
+
+**Until 1.0, the format may change at any minor release.** A build refuses a format
+newer than its own by name, so an older build never plans a rollback from fields it
+does not understand. A journal written by one release is read by every later one: the
+change that adds a format keeps every earlier one readable, and a frozen format-1
+journal holding every kind of entry is read back by every build's tests. 0.3.0 predates the field: it refuses a journal 0.4.0 wrote,
+naming the unknown `format` key rather than the version.
+
+### Dispatch payload
+
+The message a Controller sends a Runner for each device of a job. It carries
+`payload_version`.
+
+**Until 1.0, the payload may change at any minor release**, and a Controller and its
+Runners are upgraded to the same release. A new field whose absence means the old
+behavior needs no new version. A field an older Runner would misread raises the
+version, and a Runner refuses a payload newer than it reads: the job fails with the
+reason rather than running part of what was asked. Runners from before 0.4.0 predate
+the field and cannot refuse one.
+
+Two other Walk-tier messages carry no version yet: the journal batch a Runner sends
+the Controller, and a job's result. Each is read leniently, so a field a newer Runner
+adds is dropped by an older Controller. Upgrading the Controller and its Runners
+together, as above, is what keeps them in step.
 
 ### The database schema's compatibility window
 
-The second versioned contract is the database schema, between two builds of the
+The database schema is a contract, between two builds of the
 controller running against one database. The rule is written and enforced now, and
 it becomes a promise to deployments from the first release on:
 
@@ -76,10 +198,9 @@ window is measured from there. [Running in
 production](10-running-in-production.md#upgrading-and-rolling-back) has what this
 means for an upgrade.
 
-### The one versioned extension contract
+### The external Collection protocol
 
-One interface is versioned today, because code outside this repository builds
-against it: the contract between The Pleiades and an
+This is the contract between The Pleiades and an
 [external Collection](11-extending-pleiades.md#external-collections). It is
 `pkg/external.ProtocolVersion`, currently `1`, and it covers the `describe` output
 and the `invoke` request and response.
@@ -93,6 +214,33 @@ and the `invoke` request and response.
 - **What is not covered.** The Go API of `pkg/` itself (the packages an external
   Collection imports) is not yet under a compatibility promise. Until the first
   release, rebuild an external Collection against the release you run.
+
+### How the contracts are checked
+
+`make schema-compat` (part of `make ci-remote` and every pull request's checks)
+compares each schema in `docs/reference/schemas` with the same file at the newest
+release tag at or below this tree's release line. A change to a schema for something a
+user writes (a runbook, an inventory file, an API request) breaks when it refuses a
+document the release accepted. A change to a schema for something the platform writes
+(the run report, an API response) breaks when it removes a field or makes one
+optional, or widens a type, an `enum` or a bound, so a reader meets something it was
+never told about; a new field is not a break, since a reader ignores a field it does
+not know. A keyword the check has no rule for counts as a break whenever it changes.
+The module catalog is checked for the removals and changes listed above.
+
+Each break is printed as one token, such as
+`property-removed run-report.json#/properties/nodes`. On the 0.4.0 line, a
+`changelog/<slug>.breaking.md` fragment that says what changed for a user and names
+the token, in backticks, accepts it; a fragment naming a token that matches no break
+fails too. On a patch line, nothing accepts a break.
+
+The line is `internal/buildinfo.CurrentRelease`. Tagging a release makes the branch
+it was cut from a patch line until the change that opens the next minor moves
+`CurrentRelease`, which is the first change after a release that may break anything.
+
+What has no schema (the journal, rollback plans, rendering and variable precedence) is
+held by golden tests: a change to what they produce fails until its golden file is
+updated on purpose, in a change a reviewer sees.
 
 ## Platform and compatibility matrix
 

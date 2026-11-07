@@ -1,0 +1,111 @@
+{
+  "order": [
+    "runbook_vars",
+    "global_set_fact",
+    "device_vars",
+    "device_set_fact",
+    "block_vars",
+    "task_vars",
+    "extra_vars"
+  ],
+  "setups": [
+    {
+      "levels": [
+        "runbook_vars"
+      ],
+      "winners": {
+        "every_level": "runbook_vars"
+      }
+    },
+    {
+      "levels": [
+        "runbook_vars",
+        "global_set_fact"
+      ],
+      "winners": {
+        "every_level": "global_set_fact",
+        "runbook_vars__global_set_fact": "global_set_fact"
+      }
+    },
+    {
+      "levels": [
+        "runbook_vars",
+        "global_set_fact",
+        "device_vars"
+      ],
+      "winners": {
+        "every_level": "device_vars",
+        "global_set_fact__device_vars": "device_vars",
+        "runbook_vars__global_set_fact": "global_set_fact"
+      }
+    },
+    {
+      "levels": [
+        "runbook_vars",
+        "global_set_fact",
+        "device_vars",
+        "device_set_fact"
+      ],
+      "winners": {
+        "device_vars__device_set_fact": "device_set_fact",
+        "every_level": "device_set_fact",
+        "global_set_fact__device_vars": "device_vars",
+        "runbook_vars__global_set_fact": "global_set_fact"
+      }
+    },
+    {
+      "levels": [
+        "runbook_vars",
+        "global_set_fact",
+        "device_vars",
+        "device_set_fact",
+        "block_vars"
+      ],
+      "winners": {
+        "device_set_fact__block_vars": "block_vars",
+        "device_vars__device_set_fact": "device_set_fact",
+        "every_level": "block_vars",
+        "global_set_fact__device_vars": "device_vars",
+        "runbook_vars__global_set_fact": "global_set_fact"
+      }
+    },
+    {
+      "levels": [
+        "runbook_vars",
+        "global_set_fact",
+        "device_vars",
+        "device_set_fact",
+        "block_vars",
+        "task_vars"
+      ],
+      "winners": {
+        "block_vars__task_vars": "task_vars",
+        "device_set_fact__block_vars": "block_vars",
+        "device_vars__device_set_fact": "device_set_fact",
+        "every_level": "task_vars",
+        "global_set_fact__device_vars": "device_vars",
+        "runbook_vars__global_set_fact": "global_set_fact"
+      }
+    },
+    {
+      "levels": [
+        "runbook_vars",
+        "global_set_fact",
+        "device_vars",
+        "device_set_fact",
+        "block_vars",
+        "task_vars",
+        "extra_vars"
+      ],
+      "winners": {
+        "block_vars__task_vars": "task_vars",
+        "device_set_fact__block_vars": "block_vars",
+        "device_vars__device_set_fact": "device_set_fact",
+        "every_level": "extra_vars",
+        "global_set_fact__device_vars": "device_vars",
+        "runbook_vars__global_set_fact": "global_set_fact",
+        "task_vars__extra_vars": "extra_vars"
+      }
+    }
+  ]
+}
