@@ -5,7 +5,6 @@ package ansiblefacts
 import (
 	"slices"
 	"strconv"
-	"strings"
 )
 
 // ansibleDistributionIDs is distributionNames read the other way: Ansible's
@@ -64,9 +63,9 @@ func NativeValue(ansible string, v any) (any, bool) {
 	case keyVersionMajor:
 		return majorValue(v)
 	case keySwapMB:
-		// Linux and the BSDs report swap as Ansible does; on Windows Ansible
-		// writes 0 where the native fact is absent, which a person decides.
-		return v, true
+		// Ansible writes 0 on Windows where the native fact is absent, so no
+		// one native value means the same on every host.
+		return nil, false
 	}
 	s, isString := v.(string)
 	if !isString {
@@ -87,15 +86,17 @@ func NativeValue(ansible string, v any) (any, bool) {
 		name, ok := nativeKernelNames[s]
 		return name, ok
 	case keyCodename:
-		if s == "Stream" || s == "" || s == "NA" || isDigits(s) {
+		// A codename is a word; Ansible's own release values (Stream, a SUSE
+		// minor version, the kernel release on FreeBSD and macOS) start with
+		// a digit or are its placeholder, and have no native fact.
+		if s == "Stream" || s == "" || s == "NA" || (s[0] >= '0' && s[0] <= '9') {
 			return nil, false
 		}
 		return s, true
 	case keyArchitecture:
-		if s == "64-bit" || s == "32-bit" {
-			return nil, false
-		}
-		return s, true
+		// Windows reports 64-bit where the native fact is x86_64, so
+		// x86_64 is true natively on a Windows host and false in Ansible.
+		return nil, false
 	}
 	return nil, false
 }
@@ -105,8 +106,10 @@ func NativeValue(ansible string, v any) (any, bool) {
 func majorValue(v any) (any, bool) {
 	switch n := v.(type) {
 	case string:
-		i, err := strconv.ParseInt(strings.TrimSpace(n), 10, 64)
-		return i, err == nil
+		// Only the canonical spelling: Ansible compares "08" as text, which
+		// is not "8".
+		i, err := strconv.ParseInt(n, 10, 64)
+		return i, err == nil && strconv.FormatInt(i, 10) == n
 	case int64:
 		return n, true
 	case int:

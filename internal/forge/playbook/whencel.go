@@ -67,11 +67,8 @@ type term struct {
 	// type is known only for loop.
 	loopRead bool
 	// fact is the Ansible fact name a native fact read stands for, whose
-	// compared value is written the native way (facts_reads.go), and
-	// intFiltered says the read went through | int, so Ansible compared it as
-	// a number rather than as its string.
-	fact        string
-	intFiltered bool
+	// compared value is written the native way (facts_reads.go).
+	fact string
 }
 
 // celError says why a condition cannot be translated, and which code.
@@ -248,6 +245,11 @@ func (c *celCtx) regex(e *expr) (term, *celError) {
 		return term{}, err
 	}
 	pattern, _ := e.value.(string)
+	if in.fact != "" {
+		// A pattern written for Ansible's word (Ubuntu|Debian) would be
+		// matched against the native one (ubuntu).
+		return term{}, &celError{"when.fact", fmt.Sprintf("%s is %s against a pattern, which would read the native value; write the condition on the native fact", in.fact, e.name)}
+	}
 	if why := regexUnsafe(pattern); why != "" {
 		return term{}, unsupported("the pattern of %s holds %s", e.name, why)
 	}

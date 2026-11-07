@@ -341,21 +341,25 @@ should make the call is a person's decision. The converter maps `wait_for`'s por
 to `pleiades.builtin.wait.port` and `setup` to `facts.gather` itself.
 
 **Fact names.** The Pleiades stores facts under native, dotted names with typed values,
-not under Ansible's. A play that gathers facts (`gather_facts` on, Ansible's default) and
-reads one of Ansible's in a condition is converted with `facts.gather` inserted at its
-start and registered as `gathered_facts`, and the condition reads the native fact on each
-device, its value written the native way: `when: ansible_os_family == "Debian"` becomes
-`nodes.gathered_facts[device.id]["os.family"] == "debian"`, decided per host as Ansible
-decides it; `ansible_facts['os_family']` and `ansible_facts.os_family` read the same. A
-fact the device does not give compares as Ansible's placeholder does: not equal to
-anything. A value with no one native word (a Windows caption, CentOS Stream's `Stream`), a
-major version Ansible compares as text (an ordering without `| int`), a filter other than
-`int`, and a template reading a fact (a template cannot index the facts by the device it
-runs on) stay findings to review (`when.fact`, `template.fact`). The inserted `facts.gather`
-needs a device that can gather facts: on one that cannot (a network device), the converted
-play fails where Ansible's gather would have done nothing to it, so convert such a play
-with `gather_facts: false`. The table is
-the translation, from the same mapping the measured comparison with Ansible holds:
+not under Ansible's. A play that gathers facts (`gather_facts` on, Ansible's default),
+whose own tasks compare one of Ansible's facts in a condition, is converted with
+`facts.gather` inserted at its start (tagged `always`, as Ansible's implicit gather runs
+whatever `--tags` selects) and registered as `gathered_facts`, and the comparison reads the
+native fact on each device, decided per host as Ansible decides it:
+`when: ansible_os_family == "Debian"` becomes a read of
+`nodes.gathered_facts[device.id]["os.family"]` equal to `"debian"`.
+`ansible_facts['os_family']` and `ansible_facts.os_family` read the same. What converts is
+equality and membership (`==`, `!=`, `in`, `not in`) against strings; a fact the device does
+not give is unequal to every one, as Ansible's `NA` is. Everything else that reads a fact
+stays a finding to review (`when.fact`, `template.fact`): an ordering, a filter (`| int`
+included), a pattern test, a fact read as a truth, a value with no one native word (a
+Windows caption, CentOS Stream's `Stream`, a release that is a kernel version, an
+architecture or a swap size, which Windows words differently), a fact a play variable or
+`set_fact` shadows, a condition in an imported file, and a template, which cannot index the
+facts by the device it runs on. A `localhost` play, or one tuning its gather
+(`gather_subset`, `gather_timeout`, `fact_path`), keeps its facts dropped. The inserted
+`facts.gather` needs a device that can gather facts; on one that cannot, convert the play
+with `gather_facts: false`. The table is the translation, from the same mapping the measured comparison with Ansible holds:
 
 | Ansible fact | Native fact | Value |
 |---|---|---|

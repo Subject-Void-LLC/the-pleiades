@@ -131,7 +131,7 @@ func (t *translator) translatePlay(play *yaml.Node, index int, runbook string) *
 	// A play that gathers and reads a fact the mapping knows gets facts.gather
 	// at its start, and its reads read that (facts_reads.go); otherwise its
 	// facts are dropped, as before.
-	gather := facts && readsMappedFact(play)
+	gather := facts && gatherable(play) && readsMappedFact(play)
 	if facts && !gather {
 		t.raise("play.facts", out.at, "", "facts are not gathered")
 	}

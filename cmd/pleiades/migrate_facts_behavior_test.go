@@ -3,7 +3,8 @@
 // through the real binary, and the runbook decides per host as Ansible does:
 // a Debian device runs the task gated on ansible_os_family == "Debian" and
 // skips the one gated on "Alpine", and an Alpine device in the same run does
-// the opposite.
+// the opposite; and a condition on a fact Alpine does not give (its codename)
+// runs there as Ansible's comparison with its NA placeholder would.
 package main_test
 
 import (
@@ -31,6 +32,11 @@ const factsPlaybook = `- hosts: web
         dest: /tmp/pleiades-alpine-marker
         content: "alpine\n"
       when: ansible_os_family == "Alpine"
+    - name: mark every host whose release is not one that does not exist
+      ansible.builtin.copy:
+        dest: /tmp/pleiades-release-marker
+        content: "ran\n"
+      when: ansible_distribution_release != "no-such-release"
 `
 
 func TestMigratePlaybook_AFactReadDecidesPerHostAsAnsibleDoes(t *testing.T) {
@@ -85,6 +91,13 @@ func TestMigratePlaybook_AFactReadDecidesPerHostAsAnsibleDoes(t *testing.T) {
 		t.Fatalf("pleiades run: %v\n%s", err, out)
 	}
 
+	// Alpine has no codename: the absent fact is unequal to anything, as
+	// Ansible's NA is, so the task runs there too rather than failing.
+	for _, d := range []*testdataDevice{debian, alpine} {
+		if got, code := d.exec(t, "cat", "/tmp/pleiades-release-marker"); code != 0 || got != "ran" {
+			t.Errorf("a device's release marker = %q (exit %d), want the != task to have run on both", got, code)
+		}
+	}
 	for _, tc := range []struct {
 		d          *testdataDevice
 		own, other string

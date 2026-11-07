@@ -22,6 +22,10 @@ func (c *celCtx) truth(t term) (term, *celError) {
 			return term{}, unsupported("a value of type %s used as a condition", t.typ)
 		}
 		return t, nil
+	case t.fact != "":
+		// A fact read as a truth: Ansible's placeholder (NA) is true and an
+		// absent native fact is no value at all, so the two disagree.
+		return term{}, &celError{"when.fact", fmt.Sprintf("%s is read as a truth, which its native fact would not decide the same way; compare it with a value", t.fact)}
 	}
 	var pred string
 	switch t.typ {
@@ -64,16 +68,10 @@ func (c *celCtx) filter(e *expr) (term, *celError) {
 		}
 	}
 	if in.fact != "" {
-		// Only | int keeps a fact read's meaning: any other filter would act
-		// on the native word (rhel), not Ansible's (RedHat).
-		if e.name != "int" {
-			return term{}, &celError{"when.fact", fmt.Sprintf("%s | %s acts on the fact's native value, which is not Ansible's; write the condition on the native fact", in.fact, e.name)}
-		}
-		if in.typ == "string" {
-			in.cel = "int(" + in.cel + ")"
-		}
-		in.typ, in.intFiltered = "int", true
-		return in, nil
+		// A filter acts on the native value, which is not Ansible's (rhel
+		// against RedHat), and | int differs where the fact is absent
+		// (Ansible's int of NA is 0) or not a whole number ("22.04").
+		return term{}, &celError{"when.fact", fmt.Sprintf("%s | %s acts on the fact's native value, which is not Ansible's; write the condition on the native fact", in.fact, e.name)}
 	}
 	switch {
 	case e.name == "length" && (in.typ == "string" || in.typ == "list"):

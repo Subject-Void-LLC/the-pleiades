@@ -121,7 +121,10 @@ func (t *translator) gatherTask(register string, at Position, runbook string) *o
 	// free name rather than registering this one twice.
 	t.registers[register] = produced{fqcn: "facts.gather"}
 	t.emitted++
-	task := &outTask{name: "Gather facts", fqcn: "facts.gather", params: map[string]any{}, register: register, at: at, cites: []string{id}}
+	// Ansible's implicit gather runs whatever --tags selects unless the play
+	// is tagged; always does the same, and play tags reach it as they reach
+	// every task.
+	task := &outTask{name: "Gather facts", fqcn: "facts.gather", params: map[string]any{}, register: register, at: at, cites: []string{id}, tags: []string{"always"}}
 	task.result = &TaskResult{
 		At: at, Name: task.name, Module: "gather_facts", Runbook: runbook, FQCN: task.fqcn, Params: task.params,
 		Class: ClassObserve, ClassBasis: "gathering facts reads and changes nothing", Outcome: outcomeOf(t, task.cites), Findings: task.cites,
@@ -141,7 +144,10 @@ func (c *celCtx) factTerm(e *expr) (term, bool) {
 		name, path = "ansible_"+key, path[1:]
 	}
 	native, ok := ansiblefacts.NativeKey(name)
-	if c.facts == "" || !ok || len(path) != 0 {
+	// A play, block or task var or a set_fact of the same name wins over a
+	// gathered fact in Ansible, which the native read would not honor; such
+	// a read is left to the ordinary resolution, which refuses it.
+	if c.facts == "" || !ok || len(path) != 0 || hasBinding(c.bindings, name) || len(c.r.ix.defs[name]) > 0 {
 		return term{}, false
 	}
 	return term{cel: factRead(c.facts, native), typ: gatherReturnType(native), register: c.facts, field: native, fact: name}, true
@@ -175,7 +181,7 @@ func gatherReturnType(native string) string {
 func nativeOperand(fact string, fixed term) (term, *celError) {
 	v, ok := ansiblefacts.NativeValue(fact, fixed.value)
 	if !ok {
-		return term{}, &celError{"when.fact", fmt.Sprintf("Ansible's %v for %s has no one native value; write the condition on the native fact", fixed.value, fact)}
+		return term{}, &celError{"when.fact", fmt.Sprintf("the %s compared with %s has no one native value on every host; write the condition on the native fact", kindOf(fixed.value), fact)}
 	}
 	fixed.value = v
 	return fixed, nil
@@ -190,18 +196,17 @@ func factRead(register, native string) string {
 	return "nodes" + celKey(register) + "[device.id]" + celKey(native)
 }
 
-// majorVersionSemantics refuses a comparison of the major version whose
-// meaning the native integer would change. Ansible's major version is a
-// string, so without | int an ordering compares text ("10" < "8") and a
-// number never equals it ("12" == 12 is false); only equality and membership
-// against strings, or a read through | int, mean the same over the integer.
+// majorVersionSemantics refuses a comparison of a fact whose meaning the
+// native value would change: every Ansible fact this converts is a string or
+// a placeholder, so an ordering compares text and a number never equals it;
+// only equality and membership against strings mean the same.
 func majorVersionSemantics(open, fixed term, op string) *celError {
-	if open.fact != "ansible_distribution_major_version" || open.intFiltered {
-		return nil
-	}
+	// An ordering over a fact compares Ansible's string or placeholder (NA)
+	// in ways the native value does not ("10" < "8"); only equality and
+	// membership against strings mean the same.
 	ordering := op != "==" && op != "!=" && op != "in" && op != "not in"
 	if ordering || !allStrings(fixed.value) {
-		return &celError{"when.fact", "Ansible compares ansible_distribution_major_version as a string here, which the native integer would not; add | int, or write the condition on os.version_major"}
+		return &celError{"when.fact", fmt.Sprintf("Ansible compares %s as text here, which the native fact would not; write the condition on the native fact", open.fact)}
 	}
 	return nil
 }
@@ -237,3 +242,22 @@ func guardFact(open term, cel, op string) string {
 
 // strconvQuote quotes a key for CEL.
 func strconvQuote(s string) string { return strconv.Quote(s) }
+
+// gatherKeys are the play keys that tune Ansible's gather, which the inserted
+// facts.gather does not carry; a play setting one keeps its facts dropped.
+var gatherKeys = []string{"gather_subset", "gather_timeout", "fact_path"}
+
+// gatherable reports whether a play's facts can be gathered by an inserted
+// facts.gather: not a localhost play (facts.gather needs a device) and not one
+// tuning the gather in a way the inserted task would not honor.
+func gatherable(play *yaml.Node) bool {
+	if hosts := deref(lookup(play, "hosts")); hosts != nil && (hosts.Value == "localhost" || hosts.Value == "127.0.0.1") {
+		return false
+	}
+	for _, key := range gatherKeys {
+		if lookup(play, key) != nil {
+			return false
+		}
+	}
+	return true
+}

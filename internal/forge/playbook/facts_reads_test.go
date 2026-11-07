@@ -34,8 +34,8 @@ func TestTranslate_AFactReadReadsTheNativeFactOfAnInsertedGather(t *testing.T) {
 			wantWhen: `nodes.gathered_facts[device.id]["os.distribution"] in ["ubuntu", "rhel"]`},
 		{name: "major version as a string", when: `ansible_distribution_major_version == "12"`, msg: "x",
 			wantWhen: `nodes.gathered_facts[device.id]["os.version_major"] == 12`},
-		{name: "major version through int", when: `ansible_distribution_major_version | int >= 12`, msg: "x",
-			wantWhen: `nodes.gathered_facts[device.id]["os.version_major"] >= 12`},
+		// | int differs where the fact is absent (Ansible's int of NA is 0).
+		{name: "major version through int", when: `ansible_distribution_major_version | int >= 12`, msg: "x", wantCode: "when.fact"},
 		{name: "a kernel name", when: `ansible_system == "Linux"`, msg: "x",
 			wantWhen: `nodes.gathered_facts[device.id]["os.kernel.name"] == "linux"`},
 		{name: "a value with no native word", when: `ansible_distribution == "Microsoft Windows Server 2022 Datacenter"`, msg: "x",
@@ -122,8 +122,10 @@ func TestTranslate_AFactReadKeepsAnsiblesMeaning(t *testing.T) {
 		// number never equals it, which the native integer would change.
 		{name: "an ordering over the version string", when: `ansible_distribution_major_version >= "8"`, code: "when.fact"},
 		{name: "a number against the version string", when: `ansible_distribution_major_version == 12`, code: "when.fact"},
-		{name: "through int it is a number", when: `ansible_distribution_major_version | int >= 8`,
-			want: `nodes.gathered_facts[device.id]["os.version_major"] >= 8`},
+		{name: "through int", when: `ansible_distribution_major_version | int >= 8`, code: "when.fact"},
+		{name: "a pattern over a fact", when: `ansible_distribution is match("Ubuntu|Debian")`, code: "when.fact"},
+		{name: "a fact read as a truth", when: `ansible_distribution_release`, code: "when.fact"},
+		{name: "an architecture Windows words differently", when: `ansible_architecture == "x86_64"`, code: "when.fact"},
 		{name: "a filter other than int", when: `ansible_hostname | length > 3`, code: "when.fact"},
 		{name: "the ansible_facts spelling", when: `ansible_facts['os_family'] == "Debian"`,
 			want: `nodes.gathered_facts[device.id]["os.family"] == "debian"`},
@@ -165,5 +167,39 @@ func TestTranslate_TwoPlaysOnOneHostGroupGatherUnderTwoNames(t *testing.T) {
 	}
 	if !strings.Contains(text, "register: gathered_facts\n") || !strings.Contains(text, "register: gathered_facts_2") {
 		t.Errorf("the two plays' gathers do not register two names:\n%s", text)
+	}
+}
+
+func TestTranslate_TheGatherRunsWhateverTagsSelect(t *testing.T) {
+	res := convert(t, factPlay(`ansible_os_family == "Debian"`, "x"))
+	text := ""
+	if len(res.Runbooks) == 1 {
+		text = string(res.Runbooks[0].YAML)
+	}
+	gather := strings.Index(text, "facts.gather")
+	mark := strings.Index(text, "name: mark")
+	if gather < 0 || mark < 0 || !strings.Contains(text[gather:mark], "always") {
+		t.Errorf("the inserted gather is not tagged always:\n%s", text)
+	}
+}
+
+func TestTranslate_APlayTheGatherCannotServeKeepsItsFactsDropped(t *testing.T) {
+	for name, play := range map[string]string{
+		"localhost":       "- hosts: localhost\n  tasks:\n    - name: mark\n      ansible.builtin.copy: {dest: /tmp/m, content: x}\n      when: ansible_os_family == \"Debian\"\n",
+		"gather_subset":   "- hosts: web\n  gather_subset: [network]\n  tasks:\n    - name: mark\n      ansible.builtin.copy: {dest: /tmp/m, content: x}\n      when: ansible_os_family == \"Debian\"\n",
+		"a shadowing var": "- hosts: web\n  vars:\n    ansible_os_family: Debian\n  tasks:\n    - name: mark\n      ansible.builtin.copy: {dest: /tmp/m, content: x}\n      when: ansible_os_family == \"Debian\"\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			res := convert(t, play)
+			codes := codesOf(res.Report)
+			if name != "a shadowing var" && slices.Contains(codes, "play.facts_gathered") {
+				t.Errorf("codes %v: a gather was inserted", codes)
+			}
+			for _, rb := range res.Runbooks {
+				if strings.Contains(string(rb.YAML), "nodes.gathered_facts") {
+					t.Errorf("the condition reads the gathered fact:\n%s", rb.YAML)
+				}
+			}
+		})
 	}
 }
