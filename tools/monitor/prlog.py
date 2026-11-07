@@ -35,6 +35,7 @@ COMMANDS: Dict[str, str] = {
     "go run ./tools/gosec-check": "gosec",
     "go run ./tools/docs-lint": "docs-lint",
     "go run ./tools/gendocs": "docs-gen-check",
+    "go run ./tools/schemacompat": "schema-compat",
     "go run ./tools/helm-lint": "helm-lint",
     "go tool templ generate ./internal/ui/render": "templ-gen-check",
     "actionlint": "workflow-lint",

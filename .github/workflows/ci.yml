@@ -109,7 +109,11 @@ jobs:
     continue-on-error: ${{ !matrix.required }}
     timeout-minutes: 45
     steps:
+      # The release tags: ci-remote's schema-compat compares the generated
+      # schemas with the newest release's (tools/schemacompat).
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-tags: true
       # Go at go.mod's toolchain release (.github/actions/setup-go).
       - uses: ./.github/actions/setup-go
 
