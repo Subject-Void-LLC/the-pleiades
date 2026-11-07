@@ -7482,3 +7482,25 @@ and keep a frozen file per format version with one line of every kind
 (`internal/journal/testdata/format-1/every-kind.jsonl`, read by `TestJournalFormatOneReadsEveryKind`). When the writer
 gains a kind, add it to the frozen file in the same change. Before adding a new copy, search other readers of the same
 format for the same list.
+
+## 409. Name a stored key before anything stores it: a fact's key is the identity of its history, so a key chosen for convenience (another tool's name) becomes a migration the day baselines, targeting or a twin read it; pre-1.0 the rename cost one PR and a breaking changelog fragment, after 1.0 it would cost a data migration on every deployment (a repeat in kind of 13; LESSONS 404) (2026-11-07).
+
+**Why.** Branch `feat/native-fact-names-41h`. `facts.gather` and `net.ios.facts` stored Ansible's names
+(`ansible_distribution`, `ansible_net_*`) so a converted playbook's conditions would read them unchanged. That made
+another program's spelling and value rules (a string `NA` for missing, a version major as a string) the identity of
+every stored fact's history. The owner decided on 2026-11-06 that stored keys are native, dotted and typed (`os.*`,
+`host.*`, `hardware.*`), with Ansible's names kept only as a translation (`pkg/ansiblefacts`, used by the playbook
+converter). It had to land before Phase 41d (baselines, whose identity is the key) and 41e's target-by-facts selector,
+and before anything like the owner's digital twin reads the history. The rename cost one branch, a breaking changelog
+fragment (`changelog/facts-native-names.breaking.md`) and two review findings (FAILURE_PATTERNS 966 and 967). Facts
+stored under the old names stay as history and are not updated. After 1.0 every deployment's store would need a
+migration instead.
+
+**What is old and what is new.** LESSONS 13 says a value that names what a thing is survives a rename that a value
+named for a product does not; it was about a field's value, not stored data. LESSONS 404 says a fact named after
+Ansible's holds Ansible's value only when measured. This lesson adds the cost of time: a stored key is cheap to change
+only before something reads its history.
+
+**Rule in practice.** Before a method first stores a key (a fact, a journal field, a baseline id), write down its
+name in the project's own vocabulary and its type, and keep any other program's name as a mapping at the edge. Decide
+it before a reader of history exists, not when one is built.

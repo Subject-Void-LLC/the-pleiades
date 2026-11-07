@@ -23352,3 +23352,61 @@ take the new option.
 **Lesson.** No new lesson; 837's: a rule added at the Controller's fact seam is checked against every test that feeds
 that seam, found by the constructor (`newFactsSubscriber`), not only by the new test, and a fixture holds the shape a
 real producer sends.
+
+## 966. The live distribution test was rewritten to start all 22 images ansible.json records, four of them rolling, named only in JSON where tools/testimages cannot see them (a repeat of 125; in kind of 124, 917 and 745) (fixed before push)
+
+**Symptom.** Found in review of `feat/native-fact-names-41h` (fp-reviewer F1), before any push. Commit `23f08687`
+rewrote `TestGatherDistribution_MapsToAnsibleOnRealDistributions` (`internal/catalog/facts/live/distribution_test.go`)
+to start every image `internal/catalog/facts/testdata/distribution/ansible.json` records (22) and hold each to the
+values Ansible printed there on 2026-11-06. Four of those images are rolling: `opensuse/tumbleweed`, `archlinux:base`,
+`kalilinux/kali-rolling` and `debian:testing`. Several others name a major version only (`debian:13`, `oraclelinux:9`,
+`amazonlinux:2`, `quay.io/centos/centos:stream9`). The same commit dropped the Go constants `debianImage` and
+`ubuntuImage`, so the images the test started were named only in JSON. The first fresh pull of a rolling image in CI,
+after its next snapshot, would have failed the test with nothing in the repository changed.
+
+**Root cause.** A measurement taken on one day was turned into a CI assertion over images that move. And the images
+left the place every image guard reads: `tools/testimages` keeps Go constants and fields whose names hold `Image`, so a
+JSON-only image was missing from CI's image cache key and from pr-check's `testimages -served` step. The package's run
+time grew with it: `tools/testgate/durations.json` records 20 seconds for `internal/catalog/facts/live`, and 22
+container starts were never measured against that (745's class; not measured on this branch).
+
+**Why 125 did not hold.** 125's fix wrote the pin rule as a predicate (`rejectPin`), but `TestPinsNameAnExactVersion`
+applies it to a hand-listed map of `internal/testsupport`'s constants. An image named in another package's test, or in
+a data file, is never checked. 124 is the same blind spot from another side: a value outside the files a guard reads.
+917 is the same moving source under a pinned image (a package index there, an image tag here). 465 and 736 concern the
+same list, `tools/testimages`', but the opposite error: they let in things that are not images, and here real images
+were left out.
+
+**Fix.** `85a4c89f`. CI runs the four pinned images (`debian:12.12`, `ubuntu:24.04`,
+`rockylinux/rockylinux:9.6-minimal`, `alpine:3.20.10`), each named as a Go constant (`debianImage`, `ubuntuImage`,
+`rockyImage`, `openrcImage`) so the scanner sees it, and each checked against the image `ansible.json` recorded for its
+slug; the test fails if `ansible.json` lacks one. All 22 run only with `PLEIADES_LIVE_ALL_DISTRIBUTIONS=1`, a
+measurement on a given day, which passed 22 of 22 on 2026-11-07.
+
+**Lesson.** A test that CI runs starts only images pinned to a release and named where `tools/testimages` reads them;
+a recorded measurement over rolling or major-only images runs when asked, never as a gate.
+
+## 967. The playbook converter copied setup's filter to facts.gather's, so once fact keys became native every converted ansible_* filter matched nothing and failed on every host (a repeat of 848 and 334) (fixed before push)
+
+**Symptom.** Found in review of `feat/native-fact-names-41h` (fp-reviewer F2), before any push. The converter's
+`setup` entry (`internal/forge/playbook/modules_misc.go`) mapped `filter` straight to `facts.gather`'s `filter`.
+Commit `23f08687` made `facts.gather`'s keys native (`os.*`, `host.*`, `hardware.*`), so a converted
+`filter: ansible_distribution*` matched none of them. `pleiades validate` passed it, since the refusal of a filter that
+matches nothing is inside the method (`TestGather_RefusesAFilterThatMatchesNothing`), and the task would have failed on
+every host. The test case "setup no subset" (`internal/forge/playbook/modules_test.go`) asserted the copy-through.
+
+**Root cause.** 334's and 848's: an argument copied across because its name is the same on both sides. A filter's value
+is a pattern over the other side's fact names, so its meaning changed when the names did, with the spelling unchanged.
+
+**Why 848 did not hold.** 848 fixed `gather_subset` by computing its meaning and left `filter` as a copy, which was
+correct then: both sides used Ansible's names. Nothing tied the converter's argument table to the method's key names,
+so the rename that changed what `filter` matches did not touch the converter. 334's `ansible-doc` check compares
+argument names and values, not what a pattern matches.
+
+**Fix.** `85a4c89f`. The converter refuses `filter` for review (`ArgBlock`, code `args.unmapped`), with a reason that
+names the native families and the migration guide's fact table. The test case is now "setup filter" and asserts the
+refusal. A later converter change is to translate the patterns rather than refuse them.
+
+**Lesson.** When a method's key names change, every converter argument whose value names those keys (filters,
+patterns, selectors) is reviewed in the same change; a pattern copied across holds only while both sides spell the
+keys alike.
