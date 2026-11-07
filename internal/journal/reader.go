@@ -38,9 +38,11 @@ const maxJournalBytes = 64 << 20
 // maxLineBytes bounds one entry.
 const maxLineBytes = 1 << 20
 
-// nodeIDPattern is the graph ids the DAG builder synthesizes, and a step of
-// a block's rollback_on_failure undoing one of them (.undo[k]).
-var nodeIDPattern = regexp.MustCompile(`^(pre|post)?tasks\[\d+\](\.(block|rescue|always|parallel)\[\d+\])*(\.(item|attempt)\[\d+\]){0,2}(\.undo\[\d+\])?$`)
+// nodeIDPattern is the graph ids the DAG builder synthesizes, a handler's
+// copy after a section ("tasks.handlers[i]", internal/engine/chain.go; a
+// handler is one task, never a block), and a step of a block's
+// rollback_on_failure undoing one of them (.undo[k]).
+var nodeIDPattern = regexp.MustCompile(`^(pre|post)?tasks(\[\d+\](\.(block|rescue|always|parallel)\[\d+\])*|\.handlers\[\d+\])(\.(item|attempt)\[\d+\]){0,2}(\.undo\[\d+\])?$`)
 
 // digestPattern is DAG.Version's shape.
 var digestPattern = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
@@ -198,9 +200,14 @@ func decodeEntry(line []byte, runID string) (engine.JournalEntry, error) {
 		return e, fmt.Errorf("carries version %q, which is not a digest", e.DAGVersion)
 	case !knownOutcome[e.Outcome]:
 		return e, fmt.Errorf("records outcome %q", e.Outcome)
-	case !knownStage[e.FailureStage]:
+	// The stage and skip kind sets are the engine's own
+	// (engine.IsRecordedFailureStage, IsRecordedSkipKind), so a kind the
+	// engine learns to write is one this reader accepts: a second copy here
+	// once lacked the handlers' not_notified, and every run with a handler
+	// made journal list and rollback refuse the whole directory.
+	case e.FailureStage != engine.FailureStageNone && !engine.IsRecordedFailureStage(e.FailureStage):
 		return e, fmt.Errorf("records failure stage %q", e.FailureStage)
-	case !knownSkip[e.SkipKind]:
+	case e.SkipKind != engine.SkipKindNone && !engine.IsRecordedSkipKind(e.SkipKind):
 		return e, fmt.Errorf("records skip kind %q", e.SkipKind)
 	case e.RollbackOf != "":
 		if _, err := fileNameFor(e.RollbackOf); err != nil {
@@ -215,20 +222,6 @@ var (
 	knownOutcome = map[engine.Outcome]bool{
 		engine.OutcomeRan: true, engine.OutcomeChanged: true, engine.OutcomeSkipped: true,
 		engine.OutcomeFailed: true, engine.OutcomeNotReached: true,
-	}
-	knownStage = map[engine.FailureStage]bool{
-		engine.FailureStageNone: true, engine.FailureStageWorkflowRead: true, engine.FailureStageConditionEval: true,
-		engine.FailureStageSecretMask: true, engine.FailureStageRender: true, engine.FailureStageResolveTarget: true, engine.FailureStageLockAll: true,
-		engine.FailureStageLockDevice: true, engine.FailureStageAction: true, engine.FailureStageRegisterMask: true,
-		engine.FailureStageRecord: true,
-		// Added for Phase 88's failed_when and changed_when. Older journals
-		// never hold them and read as before.
-		engine.FailureStageFailedWhen: true, engine.FailureStageChangedWhen: true,
-	}
-	knownSkip = map[engine.SkipKind]bool{
-		engine.SkipKindNone: true, engine.SkipKindWhen: true, engine.SkipKindWhenOr: true,
-		engine.SkipKindWhenCEL: true, engine.SkipKindLifecycle: true, engine.SkipKindBlockFailed: true,
-		engine.SkipKindNotFailed: true,
 	}
 )
 
