@@ -985,6 +985,8 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 979. The Controller's check of which facts only a built-in may write kept the old family list when the Runner's floor grew (fixed before push, a repeat in kind of 837 and 749)
 980. A new build tag could drop the catalog from a release build through GOFLAGS (fixed before push)
 981. The playbook converter reported a missing native method as a missing parameter (fixed before push)
+982. A new check in the loader's second pass refused a whole collections directory over a file name every earlier entry point admits (fixed before push, a repeat in kind of 823 and 887)
+983. A program's own provider text on its capabilities moved its identity digest, then the loader overwrote it (fixed before push, the class of 113)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

@@ -23683,3 +23683,38 @@ the order never showed.
 
 **Lesson.** A check that two lookups share should test the outer one first; a build with less linked is the cheapest
 place to see the order.
+
+## 982. A new check in the loader's second pass refused a whole collections directory over a file name every earlier entry point admits (fixed before push, a repeat in kind of 823 and 887)
+
+**Symptom.** fp-reviewer on Phase 136b PR 1 (2026-11-07): `programIdentity` held the identity it computed to
+`wire.CollectionIdentity.Valid`, which refuses a group with invalid UTF-8 or a control or format character. The group is
+the program's file name, which `collection approve`, pass one and `Inspect` all accept. An approved program named
+`caf\xe9` or holding a soft hyphen would have stopped every program in its directory from loading (and a Runner from
+starting), with `collection list` still showing it approved; the error also printed the raw path.
+
+**Root cause.** A rule meant for readers of a stored identity was applied at the writer, in pass two, which the loader
+documents as only repeating rules pass one already checked. The phase promised no behavior change.
+
+**Why 823 and 887 did not prevent it.** Both were two entry points disagreeing on one call; the lesson (LESSONS 244)
+names sibling guards, and a new validator added to one stage is the same shape.
+
+**Fix.** The loader no longer holds a program's identity to `Valid`; readers of a stored identity will (later PRs).
+The duplicate-method error quotes the path.
+
+**Lesson.** A validation added for a later reader is placed at that reader, not at the writer, unless every earlier
+entry point admits the same set.
+
+## 983. A program's own provider text on its capabilities moved its identity digest, then the loader overwrote it (fixed before push, the class of 113)
+
+**Symptom.** fp-reviewer on Phase 136b PR 1: `DescriptionDigest` digested `desc.Capabilities` as decoded, including
+each definition's `provider` string, which the program sends and `register` then replaces with the file name. A program
+could change its identity by editing text the platform throws away, and a later check rebuilding the digest from what
+was registered could never reproduce the loader's.
+
+**Root cause.** The digest was taken over what was received, while the platform keeps what it registers; the two
+differed in one field.
+
+**Fix.** The loader digests each definition with `Provider` set to the file name, as register sets it; a test proves a
+program's own provider text moves nothing.
+
+**Lesson.** An identity is computed over what is registered, never over what was received.
