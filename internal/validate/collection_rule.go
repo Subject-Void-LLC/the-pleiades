@@ -2,6 +2,7 @@ package validate
 
 import (
 	"fmt"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/firstparty"
 	"strings"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
@@ -101,7 +102,7 @@ func CollectionRule(world WorldView) []Finding {
 			findings = append(findings, Finding{
 				RuleName: "collection",
 				Node:     id,
-				Message:  fmt.Sprintf("task %s calls %q, which is not a registered collection name", label, task.FQCN),
+				Message:  fmt.Sprintf("task %s calls %q, which is not a registered collection name%s", label, task.FQCN, firstparty.Hint(task.FQCN)),
 			})
 		case desc.Manifest.Status == collection.StatusDeclared:
 			findings = append(findings, Finding{

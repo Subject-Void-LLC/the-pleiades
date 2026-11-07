@@ -52,6 +52,13 @@ func TestLoad_ReservedNamespacesAreRefused(t *testing.T) {
 		{name: "brandnew.external.method", want: `the "brandnew" namespace`},
 		{name: "pleiades.custom.thing", want: `the "pleiades" namespace`},
 		{name: "ansible.builtin.copy", want: `the "ansible" namespace`},
+		// This test binary links no Collection, so these are reserved by the
+		// static first-party list alone (Phase 136a), as they will be once
+		// each group ships as a program of its own.
+		{name: "container.image.pull", want: `the "container" namespace`},
+		{name: "kubernetes.object.apply", want: `the "kubernetes" namespace`},
+		{name: "os.release.read", want: `the "os" namespace`},
+		{name: "netbox.devices.sync"},
 		{name: "acme.motd.set"},
 		{name: "example.note.write"},
 	} {

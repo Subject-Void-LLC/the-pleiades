@@ -5,6 +5,7 @@ package playbook
 import (
 	"errors"
 	"fmt"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/firstparty"
 	"strings"
 
 	"go.yaml.in/yaml/v3"
@@ -127,6 +128,11 @@ type resolvedItem struct{ v any }
 // or a resolvedItem.
 func (t *translator) setParam(c *plannedCall, param string, item any, in argIn, bindings map[string]any) *blockReason {
 	types := paramTypes(c.call.FQCN)
+	if types == nil {
+		// The method itself is missing (a build without its Collection), so
+		// say that rather than blame the parameter (Phase 136a).
+		return &blockReason{"module.unmapped", in.at, fmt.Sprintf("%s is not a registered native method%s", c.call.FQCN, firstparty.Hint(c.call.FQCN))}
+	}
 	typ, declared := types[param]
 	if !declared {
 		return &blockReason{"args.unmapped", in.at, fmt.Sprintf("%s has no parameter for %s", c.call.FQCN, in.name)}
@@ -238,7 +244,7 @@ func paramTypes(fqcn string) map[string]string {
 func checkRequired(c plannedCall, taskAt Position) *blockReason {
 	d, ok := collection.Lookup(c.call.FQCN)
 	if !ok {
-		return &blockReason{"module.unmapped", taskAt, fmt.Sprintf("%s is not a registered native method", c.call.FQCN)}
+		return &blockReason{"module.unmapped", taskAt, fmt.Sprintf("%s is not a registered native method%s", c.call.FQCN, firstparty.Hint(c.call.FQCN))}
 	}
 	for _, p := range d.Manifest.Doc.Params {
 		if _, set := c.params[p.Name]; p.Required && !set {
