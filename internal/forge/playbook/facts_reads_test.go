@@ -105,3 +105,65 @@ func TestTranslate_TheGathersRegisterDoesNotTakeAPlaybooksOwn(t *testing.T) {
 		t.Errorf("the gather took the playbook's own register name:\n%s\ncodes %v", text, codesOf(res.Report))
 	}
 }
+
+func TestTranslate_AFactReadKeepsAnsiblesMeaning(t *testing.T) {
+	for _, tc := range []struct {
+		name, when string
+		want       string
+		code       playbook.Code
+	}{
+		// An absent fact (no codename on a rolling release) is not equal to
+		// anything, as Ansible's NA is not, rather than failing the task.
+		{name: "an absent fact compares false", when: `ansible_distribution_release == "bookworm"`,
+			want: `("os.codename" in nodes.gathered_facts[device.id] && (nodes.gathered_facts[device.id]["os.codename"] == "bookworm"))`},
+		{name: "an absent fact is not equal", when: `ansible_distribution_release != "bookworm"`,
+			want: `(!("os.codename" in nodes.gathered_facts[device.id]) || (nodes.gathered_facts[device.id]["os.codename"] != "bookworm"))`},
+		// Ansible's major version is a string: an ordering compares text and a
+		// number never equals it, which the native integer would change.
+		{name: "an ordering over the version string", when: `ansible_distribution_major_version >= "8"`, code: "when.fact"},
+		{name: "a number against the version string", when: `ansible_distribution_major_version == 12`, code: "when.fact"},
+		{name: "through int it is a number", when: `ansible_distribution_major_version | int >= 8`,
+			want: `nodes.gathered_facts[device.id]["os.version_major"] >= 8`},
+		{name: "a filter other than int", when: `ansible_hostname | length > 3`, code: "when.fact"},
+		{name: "the ansible_facts spelling", when: `ansible_facts['os_family'] == "Debian"`,
+			want: `nodes.gathered_facts[device.id]["os.family"] == "debian"`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			res := convert(t, factPlay(tc.when, "x"))
+			codes := codesOf(res.Report)
+			if tc.code != "" {
+				if !slices.Contains(codes, tc.code) {
+					t.Errorf("codes %v, want %s", codes, tc.code)
+				}
+				return
+			}
+			if len(res.Runbooks) != 1 || res.Runbooks[0].Incomplete {
+				t.Fatalf("runbooks %+v; codes %v", res.Runbooks, codes)
+			}
+			build(t, res.Runbooks[0].YAML)
+			if text := string(res.Runbooks[0].YAML); !strings.Contains(text, tc.want) {
+				t.Errorf("when is not %s:\n%s", tc.want, text)
+			}
+		})
+	}
+}
+
+func TestTranslate_OnlyAConditionDecidesThePlayGathers(t *testing.T) {
+	// A task named after a fact reads no fact: the play gathers nothing.
+	res := convert(t, "- hosts: web\n  tasks:\n    - name: ansible_os_family is not read here\n      ansible.builtin.copy: {dest: /tmp/m, content: x}\n")
+	if codes := codesOf(res.Report); !slices.Contains(codes, "play.facts") || slices.Contains(codes, "play.facts_gathered") {
+		t.Errorf("codes %v, want play.facts and no gather", codes)
+	}
+}
+
+func TestTranslate_TwoPlaysOnOneHostGroupGatherUnderTwoNames(t *testing.T) {
+	play := "- hosts: web\n  tasks:\n    - name: mark\n      ansible.builtin.copy: {dest: /tmp/m, content: x}\n      when: ansible_os_family == \"Debian\"\n"
+	res := convert(t, play+play)
+	var text string
+	for _, rb := range res.Runbooks {
+		text += string(rb.YAML)
+	}
+	if !strings.Contains(text, "register: gathered_facts\n") || !strings.Contains(text, "register: gathered_facts_2") {
+		t.Errorf("the two plays' gathers do not register two names:\n%s", text)
+	}
+}

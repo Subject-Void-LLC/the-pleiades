@@ -67,8 +67,11 @@ type term struct {
 	// type is known only for loop.
 	loopRead bool
 	// fact is the Ansible fact name a native fact read stands for, whose
-	// compared value is written the native way (facts_reads.go).
-	fact string
+	// compared value is written the native way (facts_reads.go), and
+	// intFiltered says the read went through | int, so Ansible compared it as
+	// a number rather than as its string.
+	fact        string
+	intFiltered bool
 }
 
 // celError says why a condition cannot be translated, and which code.

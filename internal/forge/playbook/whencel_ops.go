@@ -63,6 +63,18 @@ func (c *celCtx) filter(e *expr) (term, *celError) {
 			return term{constant: true, value: int64(n)}, nil
 		}
 	}
+	if in.fact != "" {
+		// Only | int keeps a fact read's meaning: any other filter would act
+		// on the native word (rhel), not Ansible's (RedHat).
+		if e.name != "int" {
+			return term{}, &celError{"when.fact", fmt.Sprintf("%s | %s acts on the fact's native value, which is not Ansible's; write the condition on the native fact", in.fact, e.name)}
+		}
+		if in.typ == "string" {
+			in.cel = "int(" + in.cel + ")"
+		}
+		in.typ, in.intFiltered = "int", true
+		return in, nil
+	}
 	switch {
 	case e.name == "length" && (in.typ == "string" || in.typ == "list"):
 		return term{cel: "size(" + in.cel + ")", typ: "int", register: in.register, field: in.field}, nil
@@ -185,6 +197,9 @@ func (c *celCtx) compare(e *expr) (term, *celError) {
 		return term{}, unsupported("a condition compared with a constant; write the condition itself")
 	}
 	if open.fact != "" {
+		if ferr := majorVersionSemantics(open, fixed, e.op); ferr != nil {
+			return term{}, ferr
+		}
 		// Ansible's value written the native way ("Debian" is "debian").
 		var ferr *celError
 		if fixed, ferr = nativeOperand(open.fact, fixed); ferr != nil {
@@ -220,6 +235,9 @@ func (c *celCtx) compare(e *expr) (term, *celError) {
 		if e.op == "not in" {
 			cel = "!(" + cel + ")"
 		}
+	}
+	if open.fact != "" {
+		cel = guardFact(open, cel, e.op)
 	}
 	return term{cel: cel, typ: "bool"}, nil
 }
