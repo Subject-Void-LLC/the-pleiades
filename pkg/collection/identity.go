@@ -32,6 +32,14 @@ var ErrNotBuiltin = errors.New("collection: not a built-in method of a first-par
 // methods arrive, or a group a build leaves out).
 var ErrGroupNotLinked = errors.New("collection: the first-party group holds no built-in method in this build")
 
+// marshalJSON and groupDigest are json.Marshal and GroupDigest, as variables
+// so a test can prove what ManifestSetDigest and BuiltinIdentity do on a
+// failure no real input reaches.
+var (
+	marshalJSON = json.Marshal
+	groupDigest = GroupDigest
+)
+
 // ManifestSetDigest is the digest of a set of manifests keyed by method
 // name: wire.ManifestDigestPrefix and the hex SHA-256 of the set's canonical
 // JSON.
@@ -39,9 +47,11 @@ var ErrGroupNotLinked = errors.New("collection: the first-party group holds no b
 // The canonical JSON is the object mapping each name to its Manifest as this
 // build's JSON tags write it, put through JSON once more with numbers kept as
 // written so every object's keys come out sorted, with no white space and
-// with encoding/json's escaping (internal/facts.Canonical does the same for
-// a fact). So the digest depends on neither the order the manifests arrived
-// in nor the order a struct declares its fields. A field this build does not
+// with encoding/json's escaping. So the digest depends on neither the order
+// the manifests arrived in nor the order a struct declares its fields. The
+// order of a list inside a manifest (its transports, its parameters) is part
+// of what is digested: two declarations listing one set in another order
+// read as different. A field this build does not
 // know (an external program's describe can carry one) was dropped when the
 // manifest was decoded, and a field left at its zero value under omitempty
 // writes nothing, so adding such a field to Manifest moves no digest until a
@@ -55,12 +65,22 @@ func ManifestSetDigest(manifests map[string]Manifest) string {
 	// string-keyed maps of those (TestManifestEncodingCannotFail holds it to
 	// that), which encoding/json always encodes, and its own output always
 	// decodes, so neither step below can fail.
-	raw, _ := json.Marshal(manifests)
+	// A failure here would digest "null" for every failing set, a silent
+	// collision, so it panics rather than return a digest.
+	raw, err := marshalJSON(manifests)
+	if err != nil {
+		panic("collection: a manifest set did not encode, which TestManifestEncodingCannotFail rules out: " + err.Error())
+	}
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.UseNumber()
 	var normalized any
-	_ = dec.Decode(&normalized)
-	canonical, _ := json.Marshal(normalized)
+	if err := dec.Decode(&normalized); err != nil {
+		panic("collection: a manifest set's own encoding did not decode: " + err.Error())
+	}
+	canonical, err := marshalJSON(normalized)
+	if err != nil {
+		panic("collection: a decoded manifest set did not encode again: " + err.Error())
+	}
 	sum := sha256.Sum256(canonical)
 	return wire.ManifestDigestPrefix + hex.EncodeToString(sum[:])
 }
@@ -135,8 +155,9 @@ func BuiltinIdentity(fqcn, version string) (wire.CollectionIdentity, error) {
 	if !ok {
 		return wire.CollectionIdentity{}, fmt.Errorf("%w: %s belongs to no first-party group", ErrNotBuiltin, fqcn)
 	}
-	// The group holds fqcn itself, so GroupDigest finds a method and a
-	// known group and cannot refuse.
-	digest, _ := GroupDigest(g.Name)
+	digest, err := groupDigest(g.Name)
+	if err != nil {
+		return wire.CollectionIdentity{}, err
+	}
 	return wire.CollectionIdentity{Group: g.Name, Version: version, Manifests: digest}, nil
 }

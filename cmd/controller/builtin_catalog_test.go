@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/api/wellknown"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts"
@@ -151,5 +152,42 @@ func TestTheControllerBuildsARunbookAsTheRunnerWill(t *testing.T) {
 	const runbook = "id: notify\nhosts: h1\ntasks:\n  - name: change\n    file.permissions:\n      path: /etc/motd\n      mode: \"0644\"\n    notify:\n      - summarize\nhandlers:\n  - name: summarize\n    net.pcap.summary:\n      src: capture.pcap\n"
 	if _, err := engine.NewBuilder(eval).BuildFromYAML([]byte(runbook)); err == nil || !strings.Contains(err.Error(), "acts on no device") {
 		t.Fatalf("a handler acting on no device: %v, want it refused", err)
+	}
+}
+
+// TestBuiltinCatalog_GivesEachGroupTheCatalogsDigest: a Controller links no
+// Collection, so each first-party group's identity digest comes from the
+// catalog InstallCatalog put in place (Phase 136b). Each must equal the digest
+// of the same group taken straight from the embedded catalog's JSON, which
+// internal/archtest holds equal to a Runner's registry: so a Controller and a
+// Runner of one build agree on every group.
+func TestBuiltinCatalog_GivesEachGroupTheCatalogsDigest(t *testing.T) {
+	var catalog map[string]collection.Manifest
+	if err := json.Unmarshal(wellknown.ModuleCatalog, &catalog); err != nil {
+		t.Fatal(err)
+	}
+	byGroup := map[string]map[string]collection.Manifest{}
+	for name, m := range catalog {
+		g, ok := collection.FirstPartyGroupOf(name)
+		if !ok {
+			t.Fatalf("%s is in the catalog and in no first-party group", name)
+		}
+		if byGroup[g.Name] == nil {
+			byGroup[g.Name] = map[string]collection.Manifest{}
+		}
+		byGroup[g.Name][name] = m
+	}
+	if len(byGroup) == 0 {
+		t.Fatal("control: the embedded catalog holds no group")
+	}
+	for group, manifests := range byGroup {
+		got, err := collection.GroupDigest(group)
+		if err != nil {
+			t.Errorf("group %s: %v", group, err)
+			continue
+		}
+		if want := collection.ManifestSetDigest(manifests); got != want {
+			t.Errorf("group %s: the installed catalog digests to %s and its JSON to %s", group, got, want)
+		}
 	}
 }

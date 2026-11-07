@@ -34,7 +34,8 @@ func TestLoad_ProviderIdentityIsTheDescribedManifestSet(t *testing.T) {
 	requireConfinement(t)
 	methods := identityMethods()
 	want := wire.CollectionIdentity{
-		Group: "acme_identity",
+		Group:   "acme_identity",
+		Program: true,
 		Manifests: collection.ManifestSetDigest(map[string]collection.Manifest{
 			methods[0].Name: methods[0].Manifest,
 			methods[1].Name: methods[1].Manifest,

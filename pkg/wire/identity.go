@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -23,7 +24,7 @@ import (
 const ManifestDigestPrefix = "sha256:"
 
 // MaxIdentityGroupBytes bounds CollectionIdentity.Group: the longest file
-// name a program may have on the platforms the loader runs on.
+// name a program may have on Linux, where the loader runs.
 const MaxIdentityGroupBytes = 255
 
 // MaxIdentityVersionBytes bounds CollectionIdentity.Version. A release
@@ -57,6 +58,11 @@ type CollectionIdentity struct {
 	// an external program, whose own version would be text the program sent.
 	Version string `json:"version,omitempty"`
 
+	// Program is true for an external program's identity, whose Group is
+	// the program's file name; false for a first-party group's. A file name
+	// can be the same word as a first-party group (a program named "file"),
+	// so a reader tells the two apart by this field, never by Group alone.
+	Program bool `json:"program,omitempty"`
 	// Manifests is the digest of the group's canonical manifest set
 	// (collection.ManifestSetDigest): ManifestDigestPrefix and 64 hex
 	// digits. It is what tells two builds' declarations apart, since it
@@ -72,8 +78,8 @@ func (id CollectionIdentity) IsZero() bool {
 
 // Valid holds an identity read back from a record or a payload to the shape
 // a build writes: a Group that is non-empty UTF-8 within
-// MaxIdentityGroupBytes and holds no NUL or slash (a group name or a file
-// name), a Version of printable ASCII within MaxIdentityVersionBytes (empty
+// MaxIdentityGroupBytes and holds no NUL, slash, control or format character
+// (a group name or a file name), a Version of printable ASCII within MaxIdentityVersionBytes (empty
 // allowed), and a Manifests digest of the form "sha256:" and 64 lowercase
 // hex digits. The zero identity is not valid: a reader checks IsZero first.
 func (id CollectionIdentity) Valid() error {
@@ -84,6 +90,11 @@ func (id CollectionIdentity) Valid() error {
 		return fmt.Errorf("%w: its group is over %d bytes", ErrInvalidIdentity, MaxIdentityGroupBytes)
 	case !utf8.ValidString(id.Group) || strings.ContainsAny(id.Group, "\x00/"):
 		return fmt.Errorf("%w: its group %q is neither a group name nor a file name", ErrInvalidIdentity, id.Group)
+	case strings.ContainsFunc(id.Group, controlOrFormat):
+		// A group is printed in refusals an operator reads: a control or
+		// format character (an escape, a newline, a direction override)
+		// could make it read as something else.
+		return fmt.Errorf("%w: its group %q holds a control or format character", ErrInvalidIdentity, id.Group)
 	case len(id.Version) > MaxIdentityVersionBytes:
 		return fmt.Errorf("%w: its version is over %d bytes", ErrInvalidIdentity, MaxIdentityVersionBytes)
 	case !printableASCII(id.Version):
@@ -92,6 +103,12 @@ func (id CollectionIdentity) Valid() error {
 		return fmt.Errorf("%w: its manifest digest %q is not sha256:<64 lowercase hex digits>", ErrInvalidIdentity, id.Manifests)
 	}
 	return nil
+}
+
+// controlOrFormat reports whether r is a control character or a Unicode
+// format character (category Cf, such as a direction override).
+func controlOrFormat(r rune) bool {
+	return unicode.IsControl(r) || unicode.Is(unicode.Cf, r)
 }
 
 // printableASCII reports whether every byte of s is a visible ASCII

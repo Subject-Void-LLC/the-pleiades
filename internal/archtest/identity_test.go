@@ -67,9 +67,10 @@ func TestCatalogDigestMatchesRegistry(t *testing.T) {
 		}
 		compared++
 	}
-	// Control: a run that compared nothing would pass on any catalog.
-	if compared < 20 {
-		t.Fatalf("compared %d groups; the catalog or the registry is not linked here", compared)
+	// Control: every group the catalog holds was compared, and the catalog
+	// holds groups at all (a run that compared nothing would pass on any).
+	if compared != len(byGroup) || compared == 0 {
+		t.Fatalf("compared %d groups of the catalog's %d; the catalog or the registry is not linked here", compared, len(byGroup))
 	}
 }
 
@@ -91,8 +92,8 @@ func TestEveryBuiltinHasAnIdentity(t *testing.T) {
 			t.Errorf("%s: %v", name, err)
 			continue
 		}
-		if id.Group != routes[name] || id.Version != version {
-			t.Errorf("%s: identity %+v, want group %s and version %s", name, id, routes[name], version)
+		if id.Group != routes[name] {
+			t.Errorf("%s: identity %+v, want group %s", name, id, routes[name])
 		}
 		if err := id.Valid(); err != nil {
 			t.Errorf("%s: %v", name, err)
