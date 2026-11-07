@@ -23267,3 +23267,30 @@ The unit tests in `internal/runner` construct their own Agents and were not swep
 **Lesson.** No new lesson. LESSONS 351: a harness wiring a production object copies every option the composition root
 passes. And 208's: split a consumer's failures on what each one means, not on which layer said no; here, a message
 terminated for a job someone is waiting on is reported first.
+
+## 962. The rollback planner ordered one node's changes on two devices by Go's map order, so one journal planned two different rollbacks (fixed)
+
+**Symptom.** `make pr-check`'s repeat pass (2026-11-06, the contracts branch) failed
+`TestRollbackPlanMatchesTheGolden` once and passed it once: the plan named `tasks[0]` on `h2` before `h1` where the
+golden had `h1` first. `TestBuild_TheSameJournalPlansTheSameRollback` (`internal/rollback/determinism_test.go`) shows it
+directly: on `main`'s planner fifty calls of `rollback.Build` on one request do not all agree (the refusal's problems
+flipped at call 22 in its first run), with the plan's levels and the refusal's problem list both affected.
+
+**Root cause.** `changesOf` (`internal/rollback/steps.go`) gathers a run's changes into a map keyed by node and device,
+then sorts them by attempt and sequence alone. On the Walk tier each device's Runner numbers its own entries, so one
+node's entries on two devices share a sequence; with nothing else deciding, the map's order did. Every later step (each
+entry's level, the problem list) follows that order, so the same journal produced a different plan from one call to the
+next. The golden test, written that evening, was the first test to compare a whole multi-device plan byte for byte.
+
+**Fix.** The sort breaks ties by node and then device, and the unknown-effect list by device, so the order is total.
+`TestBuild_TheSameJournalPlansTheSameRollback` is red on the old planner and green on the fix (thirty runs with
+`-race`).
+
+**Still open (an owner design call).** Each change is its own level (`levelKey{order, index}` with `order` the change's
+own position), so one node's undo on several devices runs one device after another, though `Plan.Levels`' doc says a
+level's devices run side by side. Grouping by node changes the plan's shape and the order steps run in, so it is left
+for the owner, with the golden pinning today's shape.
+
+**Lesson.** The new contract (docs/13: "the same journal producing a different plan" breaks rollback planning) made the
+property testable; a golden test of a whole plan is what found it. Any order built from a map is total by construction:
+the sort that follows names every field down to a unique one.

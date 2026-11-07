@@ -965,6 +965,7 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 959. The strict journal reader kept its own copies of the engine's stages, skip kinds and node id grammar, so it refused a handler's entries and a parallel group's fan-out and join entries, and one such run made `journal list` and `rollback` refuse every journal (a repeat in kind of 768; the parallel case shipped in v0.3.0) (fixed)
 960. A depth-1 CI checkout with `fetch-tags: true` holds no release tag, so `schema-compat` in `ci-remote` would have failed the `ci` job's Linux row on every pull request (a repeat of 418; the class of 416) (fixed before push)
 961. A Runner terminated a newer dispatch it could not decode with no reported result, since the `payload_version` check ran only after a full decode, so the job would read dispatched until the Reaper republished it into the same refusal (the class of 208; its test a repeat in kind of 380) (fixed before push)
+962. The rollback planner ordered one node's changes on two devices by Go's map order, so one journal planned two different rollbacks (fixed)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 
