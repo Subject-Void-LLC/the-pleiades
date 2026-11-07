@@ -26,14 +26,14 @@ type FirstPartyGroup struct {
 	// the longest prefix of its name ending at a dot (FirstPartyGroupOf).
 	Name string `json:"name"`
 	// Core is true for what stays in the core process when the rest moves
-	// out: facts.gather and pleiades.builtin.* (PLAN.md Section 38, D3).
+	// out: facts.gather and pleiades.builtin.*.
 	Core bool `json:"core,omitempty"`
 }
 
-// firstPartyGroups is every first-party Collection, by the waves of
-// `.SPECIFICATION/COLLECTION_SPLIT_GUIDE.md` section 6 (each wave's groups
-// move together, each group is one program). kubernetes has no method yet
-// (Phase 119g adds them) and is reserved here so nobody takes it first.
+// firstPartyGroups is every first-party Collection, grouped by the release
+// waves in which the groups leave the core (each wave's groups move together,
+// and each group is one program). kubernetes has no method yet (its methods
+// arrive later) and is reserved here so nobody takes it first.
 var firstPartyGroups = []FirstPartyGroup{
 	// Core.
 	{Name: "facts", Core: true},
