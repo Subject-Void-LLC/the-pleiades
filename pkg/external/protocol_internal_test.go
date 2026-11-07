@@ -33,6 +33,7 @@ func TestNegotiateTakesTheHighestVersionBothSpeak(t *testing.T) {
 		{low: 3, high: 4, wantRefusal: "describe speaks protocol 3 to 4, and this build speaks protocol 1 (deprecated, removed in 0.6.0), 2"},
 		{low: 3, high: 2, wantRefusal: "inverted protocol range, 3 to 2"},
 		{low: 0, high: 0, wantRefusal: "names no protocol version"},
+		{low: -1, high: 2, wantRefusal: "negative protocol version"},
 	} {
 		got, err := Negotiate(tc.low, tc.high)
 		switch {
@@ -68,5 +69,18 @@ func TestProtocolVersionIsTheNewestThisBuildSpeaks(t *testing.T) {
 		if p.Status == ProtocolDeprecated && p.RemovedIn == "" {
 			t.Errorf("protocol %d is deprecated and names no release that removes it", p.Version)
 		}
+	}
+}
+
+func TestAnInvokeAsksOnlyForAVersionTheProgramSpeaks(t *testing.T) {
+	withProtocols(t, []Protocol{{Version: 1, Status: ProtocolDeprecated, RemovedIn: "0.6.0"}, {Version: 2, Status: ProtocolSupported}})
+	for v, ok := range map[int]bool{0: true, 1: true, 2: true, 3: false} {
+		err := checkRequestProtocol(v)
+		if (err == nil) != ok {
+			t.Errorf("protocol %d: error %v, want accepted %v", v, err, ok)
+		}
+	}
+	if err := checkRequestProtocol(3); err == nil || !strings.Contains(err.Error(), "asks for protocol 3, and this program speaks protocol 1 (deprecated, removed in 0.6.0), 2") {
+		t.Errorf("error %v", err)
 	}
 }

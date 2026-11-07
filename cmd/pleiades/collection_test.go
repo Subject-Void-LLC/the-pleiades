@@ -2,7 +2,9 @@
 package main_test
 
 import (
+	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -213,7 +215,10 @@ func TestCLI_CollectionListNamesEachBuildsProtocol(t *testing.T) {
 		t.Fatal(err)
 	}
 	newer := strings.Replace(promptProgram, `"protocol":1`, `"protocol":3,"protocol_min":2,"protocol_max":3`, 1)
-	for name, body := range map[string]string{"prompt": promptProgram, "newer": newer} {
+	// replaced stands for bytes swapped in after approval: its describe
+	// fails, so running it would print "unknown"; it must not be run at all.
+	replaced := "#!/bin/sh\nexit 1\n"
+	for name, body := range map[string]string{"prompt": promptProgram, "newer": newer, "replaced": replaced} {
 		if err := os.WriteFile(filepath.Join(collections, name), []byte(body), 0o700); err != nil { // #nosec G306 -- a test program that must be executable
 			t.Fatal(err)
 		}
@@ -223,7 +228,8 @@ func TestCLI_CollectionListNamesEachBuildsProtocol(t *testing.T) {
 	for _, args := range [][]string{
 		{"collection", "approve", "prompt", "--yes"},
 		{"collection", "approve", "prompt", "--digest", "sha256:" + strings.Repeat("c", 64)},
-		{"collection", "approve", "newer", "--digest", "sha256:" + strings.Repeat("d", 64)},
+		{"collection", "approve", "newer", "--digest", fileDigest(t, filepath.Join(collections, "newer"))},
+		{"collection", "approve", "replaced", "--digest", "sha256:" + strings.Repeat("e", 64)},
 	} {
 		if out, err := runWithStdin(t, dir, env, "", args...); err != nil {
 			t.Fatalf("%v: %v\n%s", args, err, out)
@@ -242,9 +248,23 @@ func TestCLI_CollectionListNamesEachBuildsProtocol(t *testing.T) {
 			t.Errorf("list --describe lacks %q:\n%s", want, described)
 		}
 	}
+	if strings.Contains(described, "protocol: unknown") || strings.Count(described, "protocol: not this build") != 2 {
+		t.Errorf("a build whose bytes are not the approved ones was run, or not named:\n%s", described)
+	}
 	// The newer program is refused at describe for its range: say which
 	// versions each side speaks.
 	if !strings.Contains(described, "describe speaks protocol 2 to 3, and this build speaks protocol 1") {
 		t.Errorf("list --describe does not name both sides' protocols for the newer program:\n%s", described)
 	}
+}
+
+// fileDigest is the sha256:<hex> digest of the file at path, as the loader
+// computes it.
+func fileDigest(t *testing.T, path string) string {
+	t.Helper()
+	b, err := os.ReadFile(path) // #nosec G304 -- a file this test wrote
+	if err != nil {
+		t.Fatal(err)
+	}
+	return fmt.Sprintf("sha256:%x", sha256.Sum256(b))
 }

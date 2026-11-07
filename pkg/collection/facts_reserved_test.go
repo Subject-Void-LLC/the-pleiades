@@ -45,6 +45,14 @@ func TestRegister_RefusesAnExternalMethodsReservedFact(t *testing.T) {
 	if err := collection.Register(external("acme2.again", stable("acme.widgets", false))); err != nil {
 		t.Errorf("a second program sharing an external key with the same kind and type: %v", err)
 	}
+	// A built-in registered after an external that holds its key is refused,
+	// so the rule does not rest on built-ins registering first.
+	if err := collection.Register(factMethod("resbuiltin.late", stable("acme.widgets", false))); err == nil || !strings.Contains(err.Error(), `(registered first) declares as "acme.widgets"`) {
+		t.Errorf("a built-in after an external holding its key: %v", err)
+	}
+	if got := collection.OwnFactName("acme", stable("package.", true)); got != "acme.*" {
+		t.Errorf("OwnFactName for a family = %q, want acme.*", got)
+	}
 	// A built-in may still declare into a reserved family.
 	if err := collection.Register(factMethod("resbuiltin.packages", stable("package.", true))); err != nil {
 		t.Errorf("a built-in's family: %v", err)

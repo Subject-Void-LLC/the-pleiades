@@ -46,3 +46,8 @@ func Revoke(_, _, _ string) (int, error) {
 func Inspect(_ context.Context, _, _ string, _ Options) (string, external.Description, error) {
 	return "", external.Description{}, errUnsupported
 }
+
+// ProgramDigest refuses on this platform, as Load does.
+func ProgramDigest(_, _ string) (string, error) {
+	return "", errUnsupported
+}

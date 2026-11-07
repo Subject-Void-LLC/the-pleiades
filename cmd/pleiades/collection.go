@@ -260,6 +260,15 @@ func runCollectionList(args []string) error {
 // agree on, or why there is none: the program is absent, its bytes are not
 // the approved build's, or the two share no version.
 func describeProtocol(dir string, a loader.Approval) string {
+	// Hashed first: bytes nobody approved are never run, not even to
+	// describe themselves.
+	current, err := loader.ProgramDigest(dir, a.Program)
+	switch {
+	case err != nil:
+		return "protocol: unknown (" + termsafe.EscapeLine(err.Error()) + ")"
+	case current != a.Digest:
+		return "protocol: not this build (the program in the directory is " + current + ")"
+	}
 	found, desc, err := loader.Inspect(context.Background(), dir, a.Program, loader.Options{
 		EngineVersion: version,
 		Logger:        slog.New(slog.NewTextHandler(os.Stderr, redact.Shared().HandlerOptions(slog.LevelWarn))),

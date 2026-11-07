@@ -108,6 +108,12 @@ func InvokeRequestFor(ctx context.Context, lookup LookupFunc, req wire.ChildRequ
 	if err != nil {
 		return wire.ChildResponse{Error: fmt.Sprintf("collection method %q: %v", req.FQCN, err)}
 	}
+	// The protocol the loader asks for must be one this build of the
+	// program speaks; absent is a loader from before the field, which spoke
+	// the newest. A program speaking several would branch on it here.
+	if err := checkRequestProtocol(req.Protocol); err != nil {
+		return wire.ChildResponse{Error: fmt.Sprintf("collection method %q: %v", req.FQCN, err)}
+	}
 	// An async task's call: its SSH commands run detached here as in the
 	// parent (the context value did not cross the process boundary).
 	if req.Detach {

@@ -49,6 +49,14 @@ type ChildRequest struct {
 	// collection.ParseMode is the one place the string is read.
 	Mode string `json:"mode,omitempty"`
 
+	// Protocol is the external Collection protocol version the loader and
+	// the program agreed on (pkg/external.Negotiate), so a program speaking
+	// more than one answers in the version asked. Absent means the request
+	// came from a loader that predates the field, which spoke only the
+	// program's newest (Description.Protocol). The Runner's own per-task
+	// child leaves it absent: it speaks this build's version by construction.
+	Protocol int `json:"protocol,omitempty"`
+
 	// Params is the task's own params block, passed through unchanged.
 	Params map[string]any `json:"params"`
 

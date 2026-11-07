@@ -245,7 +245,7 @@ func register(found []candidate, o Options) ([]Program, error) {
 	var programs []Program
 	var registered []string
 	for _, c := range found {
-		prog := &program{path: c.path, dir: filepath.Dir(c.path), digest: c.digest, opts: o}
+		prog := &program{path: c.path, dir: filepath.Dir(c.path), digest: c.digest, opts: o, protocol: c.protocol.Version}
 		p := Program{Path: c.path, Digest: c.digest, Protocol: c.protocol.Version}
 		// The program's capabilities first, so its methods may require them.
 		// The provider is the loader's own name for the program, never the
@@ -335,4 +335,24 @@ func Inspect(ctx context.Context, dir, program string, opts Options) (string, ex
 		return "", external.Description{}, fmt.Errorf("program %s: %w", path, err)
 	}
 	return digest, desc, nil
+}
+
+// ProgramDigest returns the digest of program in dir without running it,
+// after the directory and file checks Load and Inspect apply, so a caller
+// can tell an approved build from replaced bytes before anything executes.
+func ProgramDigest(dir, program string) (string, error) {
+	root, err := checkDir(dir)
+	if err != nil {
+		return "", err
+	}
+	if program == "" || strings.ContainsRune(program, filepath.Separator) || strings.HasPrefix(program, ".") {
+		return "", fmt.Errorf("%q is not the file name of a program in %s", program, root)
+	}
+	path := filepath.Join(root, program)
+	prog, digest, err := openProgram(path)
+	if err != nil {
+		return "", fmt.Errorf("program %s %w", path, err)
+	}
+	_ = prog.Close()
+	return digest, nil
 }

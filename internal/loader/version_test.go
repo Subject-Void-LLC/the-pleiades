@@ -78,8 +78,9 @@ func TestParseDescription_Refusals(t *testing.T) {
 		`{"protocol":7,"methods":[{}]}`: "describe speaks protocol 7, and this build speaks protocol 1",
 		`{"protocol":3,"protocol_min":2,"protocol_max":3,"methods":[{}]}`: "describe speaks protocol 2 to 3",
 		`{"protocol":2,"protocol_min":2,"protocol_max":1,"methods":[{}]}`: "inverted protocol range, 2 to 1",
-		`{"methods":[{}]}`:                 "names no protocol version",
-		`{"protocol":1,"methods":[{}]} {}`: "data after",
+		`{"methods":[{}]}`: "names no protocol version",
+		`{"protocol":3,"protocol_min":1,"protocol_max":2,"methods":[{}]}`: "names protocol 3 outside its own range, 1 to 2",
+		`{"protocol":1,"methods":[{}]} {}`:                                "data after",
 	}
 	for input, want := range cases {
 		if _, err := parseDescription([]byte(input)); err == nil || !strings.Contains(err.Error(), want) {

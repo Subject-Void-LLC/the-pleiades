@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/external"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
 
@@ -76,6 +77,11 @@ func TestProxy_DeliversTheRequestAndReturnsTheResponse(t *testing.T) {
 	}
 	if req.Secrets["password"] != testPassword {
 		t.Error("the credential did not arrive on stdin, which is the only way it may travel")
+	}
+	// The version agreed at load travels with every call, so a program
+	// speaking several answers in it (Phase 135b).
+	if req.Protocol != external.ProtocolVersion {
+		t.Errorf("request protocol = %d, want the agreed %d", req.Protocol, external.ProtocolVersion)
 	}
 }
 

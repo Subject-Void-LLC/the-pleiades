@@ -84,7 +84,9 @@ func (d Description) Range() (lowest, highest int) {
 // versions on each side.
 func Negotiate(lowest, highest int) (Protocol, error) {
 	switch {
-	case lowest <= 0 || highest <= 0:
+	case lowest < 0 || highest < 0:
+		return Protocol{}, fmt.Errorf("describe names a negative protocol version (%d to %d)", lowest, highest)
+	case lowest == 0 || highest == 0:
 		return Protocol{}, fmt.Errorf("describe names no protocol version (protocol %d to %d)", lowest, highest)
 	case lowest > highest:
 		return Protocol{}, fmt.Errorf("describe names an inverted protocol range, %d to %d", lowest, highest)
@@ -113,6 +115,21 @@ func SpokenText() string {
 		parts = append(parts, text)
 	}
 	return strings.Join(parts, ", ")
+}
+
+// checkRequestProtocol refuses an invoke asking for a protocol version this
+// build does not speak. Zero is a request from a loader that predates the
+// field.
+func checkRequestProtocol(v int) error {
+	if v == 0 {
+		return nil
+	}
+	for _, p := range Protocols {
+		if p.Version == v {
+			return nil
+		}
+	}
+	return fmt.Errorf("the request asks for protocol %d, and this program speaks protocol %s", v, SpokenText())
 }
 
 // spanText writes a range as "1" or "2 to 3".

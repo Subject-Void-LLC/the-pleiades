@@ -4,6 +4,7 @@
 package loader
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -24,5 +25,33 @@ func TestValidateCandidates_ADeprecatedProtocolWarnsOncePerProgram(t *testing.T)
 	}
 	if len(warnings) != 1 || !strings.Contains(warnings[0], "program /c/old speaks protocol 1, which is deprecated and removed in 0.6.0") {
 		t.Errorf("warnings %q, want one naming /c/old and 0.6.0", warnings)
+	}
+}
+
+// TestProgramDigest_HashesWithoutRunning proves ProgramDigest returns the
+// digest Inspect reports for the same file, refuses a name that is not a
+// program's file name, and refuses a directory Load would refuse.
+func TestProgramDigest_HashesWithoutRunning(t *testing.T) {
+	requireConfinement(t)
+	dir := programDir(t)
+	writeProgram(t, dir, "prog", script(describeJSON(t, 0, external.DescribedMethod{Name: "acme.digest.run", Manifest: implemented(false)}), "exit 0"))
+	got, err := ProgramDigest(dir, "prog")
+	if err != nil {
+		t.Fatalf("ProgramDigest: %v", err)
+	}
+	want, _, err := Inspect(t.Context(), dir, "prog", testOptions())
+	if err != nil {
+		t.Fatalf("Inspect: %v", err)
+	}
+	if got != want {
+		t.Errorf("ProgramDigest = %s, Inspect = %s", got, want)
+	}
+	for _, name := range []string{"", "../prog", ".hidden", "missing"} {
+		if _, err := ProgramDigest(dir, name); err == nil {
+			t.Errorf("ProgramDigest(%q) succeeded", name)
+		}
+	}
+	if _, err := ProgramDigest(filepath.Join(dir, "no-such-dir"), "prog"); err == nil {
+		t.Error("a directory that does not exist was read")
 	}
 }

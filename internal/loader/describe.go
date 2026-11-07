@@ -77,6 +77,11 @@ func parseDescription(data []byte) (external.Description, error) {
 	if _, err := external.Negotiate(d.Range()); err != nil {
 		return external.Description{}, err
 	}
+	// A program's newest version is the one it names on its own, so one
+	// outside its range contradicts itself; say so, so its author notices.
+	if low, high := d.Range(); d.Protocol < low || d.Protocol > high {
+		return external.Description{}, fmt.Errorf("describe names protocol %d outside its own range, %d to %d", d.Protocol, low, high)
+	}
 	if len(d.Methods) == 0 {
 		return external.Description{}, errors.New("describe lists no methods")
 	}
@@ -136,7 +141,7 @@ func validateMethod(m external.DescribedMethod, running string, reserved map[str
 	for _, s := range m.Manifest.Facts {
 		if by, reserved := collection.ReservedFact(s); reserved {
 			return false, fmt.Errorf("method %q declares fact %q, which %s holds; an external Collection's facts go under its own namespace, such as %q",
-				m.Name, s.Key, by, ns+"."+strings.TrimPrefix(s.Key, "."))
+				m.Name, s.Key, by, collection.OwnFactName(ns, s))
 		}
 	}
 	for _, p := range m.Manifest.Doc.Params {

@@ -9,17 +9,33 @@ package main
 
 // compareProtocols compares two protocol documents.
 func (c *schemaComparer) compareProtocols(o, n map[string]any) {
-	olds, news := byVersion(o["protocols"]), byVersion(n["protocols"])
+	olds, news := byVersion(o["versions"]), byVersion(n["versions"])
 	for _, v := range sortedKeys(olds) {
-		at := "/protocols/" + escape(v)
+		at := "/versions/" + escape(v)
 		np, still := news[v]
 		switch {
 		case !still:
 			c.report("protocol-removed", at, both, input)
 		case olds[v]["status"] == "supported" && np["status"] != "supported":
 			c.report("protocol-deprecated", at+"/status", both, input)
+		case earlierRelease(np["removed_in"], olds[v]["removed_in"]):
+			// A removal moved sooner strands programs before their notice.
+			c.report("protocol-removal-sooner", at+"/removed_in", both, input)
 		}
 	}
+	if oc, nc := o["current"].(float64), n["current"].(float64); nc < oc {
+		c.report("protocol-current-lowered", "/current", both, input)
+	}
+}
+
+// earlierRelease reports whether release a is earlier than release b, both
+// written as versions; anything else compares as not earlier.
+func earlierRelease(a, b any) bool {
+	as, _ := a.(string)
+	bs, _ := b.(string)
+	av, aok := parseVersion(as)
+	bv, bok := parseVersion(bs)
+	return aok && bok && av.less(bv)
 }
 
 // byVersion keys a protocols list by its version, written as text.

@@ -36,6 +36,9 @@ type program struct {
 	dir    string
 	digest string
 	opts   Options
+	// protocol is the version this build and the program agreed on, sent on
+	// every invoke so a program speaking several answers in it.
+	protocol int
 }
 
 // method returns the proxy for fqcn in mode: the collection.Method that
@@ -64,6 +67,9 @@ func (p *program) invoke(ctx context.Context, fqcn string, mode collection.Mode,
 	defer func() { _ = prog.Close() }()
 
 	req := buildRequest(fqcn, mode, params, device, rc.InjectSecrets(), filepath.Base(p.path))
+	// The version agreed at load, so a program speaking several answers in
+	// it (wire.ChildRequest.Protocol).
+	req.Protocol = p.protocol
 	req.Detach = remoteexec.Detached(ctx)
 	secrets := redact.MapValues(req.Secrets)
 	body, err := json.Marshal(&req)

@@ -45,6 +45,39 @@ func ReservedFact(s FactSpec) (string, bool) {
 	return "", false
 }
 
+// OwnFactName suggests where s belongs under namespace ns: the key after
+// "ns.", or for a family the namespace itself, since "acme.package." names no
+// family an author would mean.
+func OwnFactName(ns string, s FactSpec) string {
+	if s.Prefix {
+		return ns + ".*"
+	}
+	return ns + "." + strings.TrimPrefix(s.Key, ".")
+}
+
+// checkBuiltinAfterExternal refuses a built-in method declaring a fact an
+// external method registered before it already declares. Built-ins register
+// at package init, before any loader runs, so this never fires in a binary
+// built as this repository builds one; it keeps the rule from resting on
+// that order, since an external fact registered first would otherwise pass
+// the agreement check below with the built-in's own kind and type.
+func checkBuiltinAfterExternal(d Descriptor) error {
+	for name, other := range collections.All() {
+		if other.Provider == nil {
+			continue
+		}
+		for _, o := range other.Manifest.Facts {
+			for _, s := range d.Manifest.Facts {
+				if overlaps(s, o) {
+					return fmt.Errorf("collection: built-in %q declares fact %s, which external %q (registered first) declares as %s; built-in methods register before external ones",
+						d.Name, factName(s), name, factName(o))
+				}
+			}
+		}
+	}
+	return nil
+}
+
 // checkExternalFacts refuses an external method's declaration of a reserved
 // fact (ReservedFact), naming what holds it and the namespace its facts
 // belong in.
@@ -53,7 +86,7 @@ func checkExternalFacts(d Descriptor) error {
 	for _, s := range d.Manifest.Facts {
 		if by, reserved := ReservedFact(s); reserved {
 			return fmt.Errorf("collection: %q declares fact %s, which %s holds; an external Collection's facts go under its own namespace, such as %q",
-				d.Name, factName(s), by, ns+"."+strings.TrimPrefix(s.Key, "."))
+				d.Name, factName(s), by, OwnFactName(ns, s))
 		}
 	}
 	return nil

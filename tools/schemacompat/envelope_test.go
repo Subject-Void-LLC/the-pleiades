@@ -3,6 +3,7 @@ package main
 
 import (
 	"reflect"
+	"strconv"
 	"testing"
 )
 
@@ -113,16 +114,23 @@ func TestACatalogWithNothingImplementedIsAProblemNotAPass(t *testing.T) {
 }
 
 func TestProtocolWindowChecks(t *testing.T) {
-	doc := func(ps string) string { return `{"schemaVersion":1,"current":2,"protocols":[` + ps + `]}` }
-	old := doc(`{"version":1,"status":"supported"},{"version":2,"status":"supported"}`)
+	doc := func(current int, vs string) string {
+		return `{"schema_version":1,"current":` + strconv.Itoa(current) + `,"versions":[` + vs + `]}`
+	}
+	old := doc(2, `{"version":1,"status":"deprecated","removed_in":"0.7.0"},{"version":2,"status":"supported"}`)
 	cases := []struct {
 		name, new string
 		want      []string
 	}{
-		{name: "a new version added", new: doc(`{"version":1,"status":"supported"},{"version":2,"status":"supported"},{"version":3,"status":"supported"}`), want: []string{}},
-		{name: "a version deprecated", new: doc(`{"version":1,"status":"deprecated","removed_in":"0.6.0"},{"version":2,"status":"supported"}`),
-			want: []string{"protocol-deprecated x.json#/protocols/1/status"}},
-		{name: "a version removed", new: doc(`{"version":2,"status":"supported"}`), want: []string{"protocol-removed x.json#/protocols/1"}},
+		{name: "a new version added", new: doc(3, `{"version":1,"status":"deprecated","removed_in":"0.7.0"},{"version":2,"status":"supported"},{"version":3,"status":"supported"}`), want: []string{}},
+		{name: "a version deprecated", new: doc(2, `{"version":1,"status":"deprecated","removed_in":"0.7.0"},{"version":2,"status":"deprecated","removed_in":"0.8.0"}`),
+			want: []string{"protocol-deprecated x.json#/versions/2/status"}},
+		{name: "a version removed", new: doc(2, `{"version":2,"status":"supported"}`), want: []string{"protocol-removed x.json#/versions/1"}},
+		{name: "a removal moved sooner", new: doc(2, `{"version":1,"status":"deprecated","removed_in":"0.6.0"},{"version":2,"status":"supported"}`),
+			want: []string{"protocol-removal-sooner x.json#/versions/1/removed_in"}},
+		{name: "a removal moved later is not a break", new: doc(2, `{"version":1,"status":"deprecated","removed_in":"0.8.0"},{"version":2,"status":"supported"}`), want: []string{}},
+		{name: "current lowered", new: doc(1, `{"version":1,"status":"deprecated","removed_in":"0.7.0"},{"version":2,"status":"supported"}`),
+			want: []string{"protocol-current-lowered x.json#/current"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
