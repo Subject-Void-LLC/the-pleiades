@@ -34,6 +34,12 @@ func TestOpenAPIChecks(t *testing.T) {
 				"property-removed x.json#/paths/~1jobs~1{id}/get/responses/200/content/application~1json/schema/properties/id",
 				"scope-added x.json#/paths/~1jobs~1{id}/get/security/bearerAuth:admin",
 			}},
+		{name: "a parameter both required now and narrowed reports both",
+			new: api(`{"security":[{"bearerAuth":["job:read"]}],"parameters":[{"in":"query","name":"limit","required":true,"schema":{"type":"integer","maximum":10}}],"responses":{"200":{"content":{"application/json":{"schema":{"type":"object","properties":{"id":{"type":"integer"},"note":{"type":"string"}},"required":["id"]}}}}}}`),
+			want: []string{
+				"parameter-became-required x.json#/paths/~1jobs~1{id}/get/parameters/query:limit",
+				"bound-tightened x.json#/paths/~1jobs~1{id}/get/parameters/query:limit/schema/maximum",
+			}},
 		{name: "the success status removed",
 			new:  api(`{"security":[{"bearerAuth":["job:read"]}],"responses":{"201":{}}}`),
 			want: []string{"response-status-removed x.json#/paths/~1jobs~1{id}/get/responses/200"}},
@@ -84,5 +90,24 @@ func TestCatalogChecks(t *testing.T) {
 				t.Errorf("findings %q, want %q", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestAnOperationInheritsTheDocumentsSecurity(t *testing.T) {
+	// The operation names no security of its own, so the document's applies;
+	// a scope added there reaches it.
+	doc := func(scope string) string {
+		return `{"openapi":"3.1.0","security":[{"bearerAuth":[` + scope + `]}],"paths":{"/x":{"get":{"responses":{"200":{}}}}}}`
+	}
+	want := []string{"scope-added x.json#/paths/~1x/get/security/bearerAuth:admin"}
+	if got := tokens(t, openAPI, doc(``), doc(`"admin"`)); !reflect.DeepEqual(got, want) {
+		t.Errorf("findings %q, want %q", got, want)
+	}
+}
+
+func TestACatalogWithNothingImplementedIsAProblemNotAPass(t *testing.T) {
+	old := `{"a.b":{"status":"Implemented"}}`
+	if _, err := compareFile("module-catalog.json", catalog, []byte(old), []byte(old)); err == nil {
+		t.Error("a catalog the check compared nothing in passed")
 	}
 }

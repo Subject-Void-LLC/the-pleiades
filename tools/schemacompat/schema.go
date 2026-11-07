@@ -163,7 +163,24 @@ func (c *schemaComparer) followRefs(om, nm map[string]any, ptr string, d directi
 		at = strings.TrimPrefix(oref, "#")
 	}
 	c.compare(o, n, at, d)
+	// JSON Schema 2020-12 and OpenAPI 3.1 allow keywords beside a $ref
+	// ("$ref" plus an enum, say), which apply as well as what it names, so
+	// they are compared where they are written.
+	if os, ns := siblings(om), siblings(nm); len(os) > 0 || len(ns) > 0 {
+		c.compare(os, ns, ptr, d)
+	}
 	return true
+}
+
+// siblings returns a schema's keywords other than $ref and annotations.
+func siblings(m map[string]any) map[string]any {
+	out := map[string]any{}
+	for k, v := range m {
+		if k != "$ref" && !annotations[k] {
+			out[k] = v
+		}
+	}
+	return out
 }
 
 // resolve follows a local reference ("#/$defs/task") in root, returning nil

@@ -326,6 +326,11 @@ func (w *Worker) dispatchPayload(ctx context.Context, job *Job, prepared Prepare
 // On failure it returns false and the reason the device's row records,
 // which names the device and nothing it holds.
 func (w *Worker) publishDispatch(ctx context.Context, job *Job, traceID string, device pkginventory.InventoryItem, mode collection.Mode, payload wire.DispatchPayload) (string, bool) {
+	// Every dispatch, check and rollback leaves through here, so the payload
+	// version is stamped here as well as where the payload is built: a
+	// payload assembled any other way still names the shape it has, and a
+	// Runner of an older release refuses one it would misread.
+	payload.PayloadVersion = wire.DispatchPayloadVersion
 	dispatchEvt, err := event.WrapPayload(uuid.New().String(), "runbook.dispatched", payload)
 	if err != nil {
 		return fmt.Sprintf("failed to build dispatch event for device %q", device.Name()), false

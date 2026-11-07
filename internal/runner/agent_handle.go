@@ -125,8 +125,21 @@ func (a *Agent) handleMessage(ctx context.Context, msg jetstream.Msg) {
 	// record for that device, and internal/dispatch.Reaper republishes,
 	// roughly ten to twenty minutes later and therefore far outside
 	// JetStream's producer-side duplicate window.
+	if a.alreadyExecuted(ctx, payload) {
+		a.logger.Info("skipping a dispatch that already executed",
+			slog.String("job", payload.JobID),
+			slog.String("device", payload.DeviceName))
+		settle()
+		if err := msg.Ack(); err != nil {
+			a.logger.Warn("failed to ack an already-executed dispatch", slog.String("error", err.Error()))
+		}
+		span.SetAttributes(attribute.Bool("pleiades.dispatch.duplicate", true))
+		return
+	}
+
 	// A payload from a newer Controller than this Runner reads is refused
-	// before any work, and reported the way a kind with no adapter is (see
+	// before any work (after duplicate suppression, so a republish of work
+	// a newer Runner already finished is acked rather than reported failed), and reported the way a kind with no adapter is (see
 	// below): the job fails with the reason, rather than saying
 	// "dispatched" forever, and the message is terminated, since this
 	// binary will not learn the newer shape between two deliveries.
@@ -142,18 +155,6 @@ func (a *Agent) handleMessage(ctx context.Context, msg jetstream.Msg) {
 		settle()
 		a.termMalformed(msg, "dropping a dispatch this runner cannot read", verr,
 			slog.Int("payload_version", payload.PayloadVersion))
-		return
-	}
-
-	if a.alreadyExecuted(ctx, payload) {
-		a.logger.Info("skipping a dispatch that already executed",
-			slog.String("job", payload.JobID),
-			slog.String("device", payload.DeviceName))
-		settle()
-		if err := msg.Ack(); err != nil {
-			a.logger.Warn("failed to ack an already-executed dispatch", slog.String("error", err.Error()))
-		}
-		span.SetAttributes(attribute.Bool("pleiades.dispatch.duplicate", true))
 		return
 	}
 

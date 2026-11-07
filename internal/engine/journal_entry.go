@@ -378,11 +378,16 @@ func validFailureStage(stage FailureStage) bool {
 // IsRecordedFailureStage reports whether stage is one a failed entry may
 // carry: the one list the engine writes from (validFailureStage) and the
 // journal reader holds a recorded entry to, so the two cannot drift apart.
+//
+// Because the reader holds old journals to it too, the list only grows: a
+// stage the engine no longer writes stays listed, or every journal that
+// recorded it stops reading (internal/journal's TestJournalFormatOneReadsEveryKind).
 func IsRecordedFailureStage(stage FailureStage) bool { return validFailureStage(stage) }
 
 // IsRecordedSkipKind reports whether kind is one a skipped entry may carry,
 // the one list the engine writes from (validSkipKind) and the journal reader
 // holds a recorded entry to.
+// Like IsRecordedFailureStage's list, it only grows.
 func IsRecordedSkipKind(kind SkipKind) bool { return validSkipKind(kind) }
 
 // validSkipKind reports whether kind is one of the seven reasons a node may

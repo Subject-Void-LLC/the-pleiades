@@ -190,7 +190,9 @@ func compareFile(name string, k kind, oldB, newB []byte) ([]Finding, error) {
 	case openAPI:
 		c.compareOpenAPI(om, nm)
 	case catalog:
-		c.compareCatalog(om, nm)
+		if c.compareCatalog(om, nm) == 0 && len(om) > 0 {
+			return nil, fmt.Errorf("%s at the base has %d methods and none is implemented: the catalog's shape changed, so the check compared nothing", name, len(om))
+		}
 	}
 	return c.findings, nil
 }
@@ -223,7 +225,7 @@ func printVerdict(w io.Writer, v Verdict) {
 		fmt.Fprintln(w, "schemacompat: a point release never breaks a contract: undo each BREAKING change here, and make it on main for the next minor release")
 		return
 	}
-	fmt.Fprintln(w, "schemacompat: name each BREAKING token, exactly as printed, in a changelog/<slug>.breaking.md fragment saying what changed for a user")
+	fmt.Fprintln(w, "schemacompat: name each BREAKING token, exactly as printed and in backticks, in a changelog/<slug>.breaking.md fragment saying what changed for a user")
 }
 
 // gitShow reads a tag through the git command.

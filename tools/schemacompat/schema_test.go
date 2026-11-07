@@ -49,10 +49,29 @@ func TestSchemaRulesBreakOnlyInTheirDirection(t *testing.T) {
 			wantOutput: []string{"property-removed x.json#/properties/a"},
 		},
 		{
-			name:       "a property removed from a closed schema breaks a writer",
+			name:       "a property removed from a closed schema breaks a writer and a reader",
 			old:        `{"type":"object","additionalProperties":false,"properties":{"a":{}}}`,
 			new:        `{"type":"object","additionalProperties":false,"properties":{}}`,
 			wantInput:  []string{"property-removed x.json#/properties/a"},
+			wantOutput: []string{"property-removed x.json#/properties/a"},
+		},
+		{
+			name: "an optional property removed breaks a reader that used it",
+			old:  obj(`"a":{"type":"string"}`, ``), new: obj(``, ``),
+			wantInput:  []string{},
+			wantOutput: []string{"property-removed x.json#/properties/a"},
+		},
+		{
+			name:       "a keyword beside a $ref is compared where it is written",
+			old:        `{"properties":{"a":{"$ref":"#/$defs/s"}},"$defs":{"s":{"type":"string"}}}`,
+			new:        `{"properties":{"a":{"$ref":"#/$defs/s","enum":["x"]}},"$defs":{"s":{"type":"string"}}}`,
+			wantInput:  []string{"enum-value-removed x.json#/properties/a/enum"},
+			wantOutput: []string{},
+		},
+		{
+			name: "additionalProperties given a schema where any value was accepted narrows",
+			old:  `{"type":"object"}`, new: `{"type":"object","additionalProperties":{"type":"string"}}`,
+			wantInput:  []string{"additional-properties-narrowed x.json#/additionalProperties"},
 			wantOutput: []string{},
 		},
 		{

@@ -35,9 +35,24 @@ func (c *schemaComparer) compareOpenAPI(o, n map[string]any) {
 				c.report("operation-removed", at+"/"+method, both, input)
 				continue
 			}
-			c.compareOperation(oItem, nItem, oOp, nOp, at+"/"+method)
+			c.compareOperation(oItem, nItem, inherit(o, oOp), inherit(n, nOp), at+"/"+method)
 		}
 	}
+}
+
+// inherit returns op with the document's top-level security when op names
+// none of its own, as OpenAPI applies it, so a scope added at either level is
+// seen on every operation it reaches.
+func inherit(doc, op map[string]any) map[string]any {
+	if _, own := op["security"]; own {
+		return op
+	}
+	out := make(map[string]any, len(op)+1)
+	for k, v := range op {
+		out[k] = v
+	}
+	out["security"] = doc["security"]
+	return out
 }
 
 // compareOperation compares one operation's parameters, body, responses and
@@ -49,13 +64,15 @@ func (c *schemaComparer) compareOperation(oItem, nItem, oOp, nOp map[string]any,
 		pAt := at + "/parameters/" + escape(key)
 		oPar, had := oParams[key]
 		switch {
-		case !had && truthy(nPar["required"]):
-			c.report("parameter-added-required", pAt, both, input)
-		case had && !truthy(oPar["required"]) && truthy(nPar["required"]):
+		case !had:
+			if truthy(nPar["required"]) {
+				c.report("parameter-added-required", pAt, both, input)
+			}
+			continue
+		case !truthy(oPar["required"]) && truthy(nPar["required"]):
 			c.report("parameter-became-required", pAt, both, input)
-		case had:
-			c.compare(oPar["schema"], nPar["schema"], pAt+"/schema", input)
 		}
+		c.compare(oPar["schema"], nPar["schema"], pAt+"/schema", input)
 	}
 	c.compareBody(oOp, nOp, at)
 	c.compareResponses(oOp, nOp, at)

@@ -148,3 +148,30 @@ func TestJournalFormatOneStaysReadable(t *testing.T) {
 		t.Errorf("a format-1 journal reads differently:\ngot  %s\nwant %s", gotJSON, wantJSON)
 	}
 }
+
+// TestJournalFormatOneReadsEveryKind holds every later build to read a
+// format-1 journal holding each failure stage, skip kind and outcome the
+// engine writes, and each shape of node id, handlers' included. The fixture
+// is frozen: a build that stops reading one of its lines has broken every
+// journal that recorded it (engine.IsRecordedFailureStage's lists only grow).
+func TestJournalFormatOneReadsEveryKind(t *testing.T) {
+	frozen, err := os.ReadFile(filepath.Join("testdata", "format-1", "every-kind.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	dir := filepath.Join(root, ".pleiades", "journal")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, goldenRunID+".jsonl"), frozen, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	run, err := journal.ReadRun(root, goldenRunID)
+	if err != nil {
+		t.Fatalf("a format-1 journal holding every kind no longer reads: %v", err)
+	}
+	if len(run.Entries) != 26 {
+		t.Errorf("read %d entries, want 26", len(run.Entries))
+	}
+}

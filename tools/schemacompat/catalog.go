@@ -10,8 +10,11 @@
 // fact retyped, and a method needing a capability or losing a transport.
 package main
 
-// compareCatalog compares two module catalogs.
-func (c *schemaComparer) compareCatalog(o, n map[string]any) {
+// compareCatalog compares two module catalogs and returns how many
+// implemented methods it compared, so a catalog whose status values changed
+// shape is not a silent pass over nothing.
+func (c *schemaComparer) compareCatalog(o, n map[string]any) int {
+	compared := 0
 	for _, fqcn := range sortedKeys(o) {
 		at := "/" + escape(fqcn)
 		om, _ := o[fqcn].(map[string]any)
@@ -20,6 +23,7 @@ func (c *schemaComparer) compareCatalog(o, n map[string]any) {
 			// on it yet.
 			continue
 		}
+		compared++
 		nm, ok := n[fqcn].(map[string]any)
 		if !ok || nm["status"] != "implemented" {
 			c.report("method-removed", at, both, input)
@@ -39,6 +43,7 @@ func (c *schemaComparer) compareCatalog(o, n map[string]any) {
 			}
 		}
 	}
+	return compared
 }
 
 // docList keys a method's doc list ("params" or "returns") by name.

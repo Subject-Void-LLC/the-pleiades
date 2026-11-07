@@ -169,10 +169,11 @@ func closed(m map[string]any) bool {
 // compareProperties walks the properties both sides name, and reports a
 // property removed and a property's required-ness changed.
 //
-// A removed property breaks a reader when it was required, since a reader
-// relied on it; it breaks a writer only when the new schema is closed, since
-// an open schema still accepts the key (the platform then ignores it, which a
-// fragment should still say). A property becoming required, or a new one
+// A removed property breaks a reader, required or not, since a reader that
+// used it gets nothing (the run report's own contract counts a field removed
+// as a major change); it breaks a writer only when the new schema is closed,
+// since an open schema still accepts the key (the platform then ignores it,
+// which a fragment should still say). A property becoming required, or a new one
 // arriving required, breaks a writer; one ceasing to be required breaks a
 // reader.
 func (c *schemaComparer) compareProperties(om, nm map[string]any, ptr string, d direction) {
@@ -198,7 +199,7 @@ func (c *schemaComparer) compareProperties(om, nm map[string]any, ptr string, d 
 		_, inNew := np[name]
 		switch {
 		case inOld && !inNew:
-			if (d == output && oreq[name]) || (d == input && closed(nm)) {
+			if d == output || closed(nm) {
 				c.report("property-removed", at, both, d)
 			}
 			continue
@@ -214,16 +215,19 @@ func (c *schemaComparer) compareProperties(om, nm map[string]any, ptr string, d 
 	}
 }
 
-// compareAdditional reports additionalProperties closed (narrowed), and
-// compares the schema each side gives it.
+// compareAdditional reports additionalProperties closed, or given a schema
+// where any value was accepted (both narrow), and compares the schema each
+// side gives it.
 func (c *schemaComparer) compareAdditional(om, nm map[string]any, ptr string, d direction) {
-	if !closed(om) && closed(nm) {
-		c.report("additional-properties-closed", ptr+"/additionalProperties", narrows, d)
-	}
 	ov, oOK := om["additionalProperties"].(map[string]any)
 	nv, nOK := nm["additionalProperties"].(map[string]any)
-	if oOK && nOK {
+	switch {
+	case !closed(om) && closed(nm):
+		c.report("additional-properties-closed", ptr+"/additionalProperties", narrows, d)
+	case oOK && nOK:
 		c.compare(ov, nv, ptr+"/additionalProperties", d)
+	case !oOK && nOK && !closed(om):
+		c.report("additional-properties-narrowed", ptr+"/additionalProperties", narrows, d)
 	}
 }
 

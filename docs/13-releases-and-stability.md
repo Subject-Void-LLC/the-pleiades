@@ -68,7 +68,7 @@ than guessing.
 |---|---|---|---|
 | Runbook schema | holds within a minor | the release | the schema check |
 | Module catalog (methods, parameters, returns, facts) | holds within a minor | the release | the schema check |
-| Facts | holds within a minor | the release | the schema check, and golden tests |
+| Facts | holds within a minor | the release | the schema check, over the catalog's fact declarations |
 | Run report (`--json`) | holds within a minor | `schema_version` | the schema check |
 | API | holds within a minor | the release | the schema check, over the OpenAPI document |
 | Rollback planning | holds within a minor | the release | golden tests |
@@ -105,11 +105,14 @@ The `--json` document `pleiades run`, `adhoc` and `rollback` print,
 published as `docs/reference/schemas/run-report.json`.
 
 **What stays compatible:** new fields, and new values in its open sets (a status or
-kind). A reader ignores a field it does not know, treats a status or kind it does not
-know as not a pass, and refuses a `schema_version` it does not know.
+kind, which the schema describes in prose rather than as an `enum`). A reader ignores
+a field it does not know, treats a status or kind it does not know as not a pass, and
+refuses a `schema_version` it does not know.
 
-**What breaks:** a field removed or renamed, a required field becoming optional, or a
-field given another type or meaning. `schema_version` rises with any of these.
+**What breaks:** a field removed or renamed, a required field becoming optional, a
+field given another type or meaning, or a value added to a closed set (an `enum`).
+`schema_version` rises with any of these; a reviewer holds a change to that rule, since
+the schema check finds the break but not the missing bump.
 
 ### API
 
@@ -150,7 +153,8 @@ was written before the field existed and reads as format 1.
 **Until 1.0, the format may change at any minor release.** A build reads every format
 up to its own and refuses a newer one by name, so an older build never plans a
 rollback from fields it does not understand. A journal written by one release is
-read by every later one.
+read by every later one. 0.3.0 predates the field: it refuses a journal 0.4.0 wrote,
+naming the unknown `format` key rather than the version.
 
 ### Dispatch payload
 
@@ -218,8 +222,12 @@ removals and changes listed above.
 Each break is printed as one token, such as
 `property-removed run-report.json#/properties/nodes`. On the 0.4.0 line, a
 `changelog/<slug>.breaking.md` fragment that says what changed for a user and names
-the token accepts it; a fragment naming a token that matches no break fails too. On a
-patch line, nothing accepts a break.
+the token, in backticks, accepts it; a fragment naming a token that matches no break
+fails too. On a patch line, nothing accepts a break.
+
+The line is `internal/buildinfo.CurrentRelease`. Tagging a release makes the branch
+it was cut from a patch line until the change that opens the next minor moves
+`CurrentRelease`, which is the first change after a release that may break anything.
 
 What has no schema (the journal, rollback plans, rendering and variable precedence) is
 held by golden tests: a change to what they produce fails until its golden file is

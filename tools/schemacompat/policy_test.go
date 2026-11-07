@@ -41,6 +41,7 @@ func TestTokensAreReadFromBreakingFragmentsOnly(t *testing.T) {
 	dir := t.TempDir()
 	write(t, filepath.Join(dir, "rename.breaking.md"), "Facts are renamed: `fact-removed module-catalog.json#/facts.gather/facts/ansible_os_family` and\n`property-removed run-report.json#/properties/a`.\n")
 	write(t, filepath.Join(dir, "other.added.md"), "`method-removed module-catalog.json#/x.y`\n")
+	write(t, filepath.Join(dir, "prose.breaking.md"), "The schema run-report.json#/properties/c is gone, see property-removed run-report.json#/properties/d.\n")
 	got, err := acceptedTokens(dir)
 	if err != nil {
 		t.Fatal(err)

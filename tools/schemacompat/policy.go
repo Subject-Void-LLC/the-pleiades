@@ -74,9 +74,11 @@ func baseTag(tags []string, line version) string {
 	return best
 }
 
-// tokenPattern finds a breaking-change token in a fragment: a rule id, one
-// space, and a schema file's pointer.
-var tokenPattern = regexp.MustCompile("([a-z][a-z-]*[a-z]) ([A-Za-z0-9._-]+\\.json#[^\\s`'\"]*)")
+// tokenPattern finds a breaking-change token in a fragment: in backticks, a
+// rule id, one space, and a schema file's pointer. The backticks are
+// required, so prose beside a pointer, or the period ending a sentence, is
+// never read as part of a token.
+var tokenPattern = regexp.MustCompile("`([a-z][a-z-]*[a-z]) ([A-Za-z0-9._-]+\\.json#[^\\s`]*)`")
 
 // acceptedTokens reads every `*.breaking.md` fragment in dir and returns
 // each token it names, with the fragment that named it.
