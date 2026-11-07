@@ -68,8 +68,8 @@ func init() {
 				Description: "Reads every site the targeted Catalyst Center manages. Emits the full site_name_hierarchy for each site, not just its bare name, since two sites in different regions can share a bare name.",
 				Fragments:   []string{"catalyst_connection"},
 				Returns: []collection.ReturnField{
-					{Name: "sites", Type: "list of map", Returned: "always", Description: "One entry per site: id, name, site_name_hierarchy."},
-					{Name: "site_count", Type: "int", Returned: "always", Description: "The number of sites in the sites fact."},
+					{Name: factSites, Type: "list of map", Returned: "always", Description: "One entry per site: id, name, site_name_hierarchy."},
+					{Name: factSiteCount, Type: "int", Returned: "always", Description: "The number of sites in the catalyst.sites fact."},
 				},
 				Examples: []collection.Example{
 					{Name: "Gather the site hierarchy", RunbookYAML: "- name: Gather Catalyst Center site facts\n  net.catalyst.site_facts:\n  register: sites\n"},
@@ -81,9 +81,16 @@ func init() {
 		// SiteFacts itself, since it only reads.
 		Check: SiteFacts,
 	}
-	d.Manifest.Facts = collection.DeclareFacts(d.Manifest.Doc.Returns, []string{"sites", "site_count"})
+	d.Manifest.Facts = collection.DeclareFacts(d.Manifest.Doc.Returns, []string{factSites, factSiteCount})
 	collection.MustRegister(d)
 }
+
+// The keys net.catalyst.site_facts records, each both a fact and the stat a
+// register reads, in the catalyst family every net.catalyst.* key shares.
+const (
+	factSites     = "catalyst.sites"
+	factSiteCount = "catalyst.site_count"
+)
 
 // SiteFacts gathers the targeted Catalyst Center's site hierarchy.
 //
@@ -112,10 +119,10 @@ func SiteFacts(ctx context.Context, rc sdk.RunbookContext, device inventory.Inve
 		})
 	}
 
-	if err := rc.EmitFact("sites", facts); err != nil {
+	if err := rc.EmitFact(factSites, facts); err != nil {
 		return collection.Result{}, err
 	}
-	if err := rc.EmitFact("site_count", len(facts)); err != nil {
+	if err := rc.EmitFact(factSiteCount, len(facts)); err != nil {
 		return collection.Result{}, err
 	}
 	return collection.Result{Changed: false}, nil

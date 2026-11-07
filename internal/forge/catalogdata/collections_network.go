@@ -364,8 +364,8 @@ var networkCollections = []collectionscaffold.Config{
 			Description: "Pages through the Catalyst Center's device inventory and emits one fact entry per device: identity, platform, software, role, and reachability/collection status. Never reports changed: reading an inventory does not alter it.",
 			Fragments:   []string{"catalyst_connection", "catalyst_pagination"},
 			Returns: []collection.ReturnField{
-				{Name: "devices", Type: "list of map", Returned: "always", Description: "One entry per device: id, hostname, management_ip, family, series, platform_id, software_type, software_version, role, serial_number, reachability_status, collection_status, mac_address, type, up_time (as the controller words it) and description, each empty when the controller leaves it unset."},
-				{Name: "device_count", Type: "int", Returned: "always", Description: "The number of devices in the devices fact."},
+				{Name: "catalyst.devices", Type: "list of map", Returned: "always", Description: "One entry per device: id, hostname, management_ip, family, series, platform_id, software_type, software_version, role, serial_number, reachability_status, collection_status, mac_address, type, up_time (as the controller words it) and description, each empty when the controller leaves it unset."},
+				{Name: "catalyst.device_count", Type: "int", Returned: "always", Description: "The number of devices in the catalyst.devices fact."},
 			},
 			Examples: []collection.Example{
 				{Name: "Gather the managed fleet", RunbookYAML: "- name: Gather Catalyst Center device facts\n  net.catalyst.device_facts:\n  register: fleet\n"},
@@ -385,8 +385,8 @@ var networkCollections = []collectionscaffold.Config{
 			Description: "Reads every site the targeted Catalyst Center manages. Emits the full site_name_hierarchy for each site, not just its bare name, since two sites in different regions can share a bare name.",
 			Fragments:   []string{"catalyst_connection"},
 			Returns: []collection.ReturnField{
-				{Name: "sites", Type: "list of map", Returned: "always", Description: "One entry per site: id, name, site_name_hierarchy."},
-				{Name: "site_count", Type: "int", Returned: "always", Description: "The number of sites in the sites fact."},
+				{Name: "catalyst.sites", Type: "list of map", Returned: "always", Description: "One entry per site: id, name, site_name_hierarchy."},
+				{Name: "catalyst.site_count", Type: "int", Returned: "always", Description: "The number of sites in the catalyst.sites fact."},
 			},
 			Examples: []collection.Example{
 				{Name: "Gather the site hierarchy", RunbookYAML: "- name: Gather Catalyst Center site facts\n  net.catalyst.site_facts:\n  register: sites\n"},
@@ -406,8 +406,8 @@ var networkCollections = []collectionscaffold.Config{
 			Description: "Reads every tag the targeted Catalyst Center knows about, and separates the controller's own system tags (its internal bookkeeping) from operator-created ones, so a runbook grouping devices by operator intent does not have to filter system tags out itself.",
 			Fragments:   []string{"catalyst_connection"},
 			Returns: []collection.ReturnField{
-				{Name: "tags", Type: "list of map", Returned: "always", Description: "One entry per tag: id, name, system_tag."},
-				{Name: "operator_tags", Type: "list of string", Returned: "always", Description: "Names of every tag not created by the controller itself."},
+				{Name: "catalyst.tags", Type: "list of map", Returned: "always", Description: "One entry per tag: id, name, system_tag."},
+				{Name: "catalyst.operator_tags", Type: "list of string", Returned: "always", Description: "Names of every tag not created by the controller itself."},
 			},
 			Examples: []collection.Example{
 				{Name: "Gather operator-created tags", RunbookYAML: "- name: Gather Catalyst Center tag facts\n  net.catalyst.tag_facts:\n  register: tags\n"},
@@ -426,14 +426,14 @@ var networkCollections = []collectionscaffold.Config{
 			Description: "Answers a different question than device_facts: device_facts describes what the fleet is, gathered once; reachability describes what the fleet is doing right now, the check a gate task waits on before acting. Reports reachability_status (can the controller talk to the device at all) and collection_status (is it successfully collecting from it) separately, since a device can be reachable and still not managed.",
 			Fragments:   []string{"catalyst_connection", "catalyst_pagination"},
 			Returns: []collection.ReturnField{
-				{Name: "reachability", Type: "list of map", Returned: "always", Description: "One entry per device: hostname, management_ip, reachability_status, collection_status, reachable."},
-				{Name: "unreachable", Type: "list of string", Returned: "always", Description: "Hostnames (or management IPs, if hostname is unset) of every unreachable device."},
-				{Name: "reachable_count", Type: "int", Returned: "always", Description: "Count of devices with reachability_status Reachable."},
-				{Name: "managed_count", Type: "int", Returned: "always", Description: "Count of devices with collection_status Managed."},
-				{Name: "total_device_count", Type: "int", Returned: "always", Description: "How many devices the controller listed, reachable or not."},
+				{Name: "catalyst.reachability", Type: "list of map", Returned: "always", Description: "One entry per device: hostname, management_ip, reachability_status, collection_status, reachable."},
+				{Name: "catalyst.unreachable", Type: "list of string", Returned: "always", Description: "Hostnames (or management IPs, if hostname is unset) of every unreachable device."},
+				{Name: "catalyst.reachable_count", Type: "int", Returned: "always", Description: "Count of devices with reachability_status Reachable."},
+				{Name: "catalyst.managed_count", Type: "int", Returned: "always", Description: "Count of devices with collection_status Managed."},
+				{Name: "catalyst.total_device_count", Type: "int", Returned: "always", Description: "How many devices the controller listed, reachable or not."},
 			},
 			Examples: []collection.Example{
-				{Name: "Gate a change on full fleet reachability", RunbookYAML: "- name: Confirm the fleet is reachable before changing anything\n  net.catalyst.reachability:\n  register: health\n\n- name: Apply the change\n  net.ios.config:\n    lines:\n      - ntp server 192.0.2.10\n  when_cel: \"stat.health[''].unreachable.size() == 0\"\n"},
+				{Name: "Gate a change on full fleet reachability", RunbookYAML: "- name: Confirm the fleet is reachable before changing anything\n  net.catalyst.reachability:\n  register: health\n\n- name: Apply the change\n  net.ios.config:\n    lines:\n      - ntp server 192.0.2.10\n  when_cel: \"stat.health['']['catalyst.unreachable'].size() == 0\"\n"},
 			},
 			SeeAlso: []string{"net.catalyst.device_facts"},
 		},

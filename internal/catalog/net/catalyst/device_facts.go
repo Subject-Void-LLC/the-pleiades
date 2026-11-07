@@ -69,8 +69,8 @@ func init() {
 				Description: "Pages through the Catalyst Center's device inventory and emits one fact entry per device: identity, platform, software, role, and reachability/collection status. Never reports changed: reading an inventory does not alter it.",
 				Fragments:   []string{"catalyst_connection", "catalyst_pagination"},
 				Returns: []collection.ReturnField{
-					{Name: "devices", Type: "list of map", Returned: "always", Description: "One entry per device: id, hostname, management_ip, family, series, platform_id, software_type, software_version, role, serial_number, reachability_status, collection_status, mac_address, type, up_time (as the controller words it) and description, each empty when the controller leaves it unset."},
-					{Name: "device_count", Type: "int", Returned: "always", Description: "The number of devices in the devices fact."},
+					{Name: factDevices, Type: "list of map", Returned: "always", Description: "One entry per device: id, hostname, management_ip, family, series, platform_id, software_type, software_version, role, serial_number, reachability_status, collection_status, mac_address, type, up_time (as the controller words it) and description, each empty when the controller leaves it unset."},
+					{Name: factDeviceCount, Type: "int", Returned: "always", Description: "The number of devices in the catalyst.devices fact."},
 				},
 				Examples: []collection.Example{
 					{Name: "Gather the managed fleet", RunbookYAML: "- name: Gather Catalyst Center device facts\n  net.catalyst.device_facts:\n  register: fleet\n"},
@@ -82,19 +82,28 @@ func init() {
 		// DeviceFacts itself, since it only reads.
 		Check: DeviceFacts,
 	}
-	// devices is volatile: each entry carries the device's up_time as the
-	// controller words it, so the list changes on every gather; the count
-	// is what a change of the fleet shows in.
-	d.Manifest.Facts = collection.DeclareFacts(d.Manifest.Doc.Returns, []string{"devices", "device_count"}, "devices")
+	// catalyst.devices is volatile: each entry carries the device's up_time
+	// as the controller words it, so the list changes on every gather; the
+	// count is what a change of the fleet shows in.
+	d.Manifest.Facts = collection.DeclareFacts(d.Manifest.Doc.Returns, []string{factDevices, factDeviceCount}, factDevices)
 	collection.MustRegister(d)
 }
+
+// The keys net.catalyst.device_facts records, each both a fact and the stat
+// a register reads (result.fleet["catalyst.devices"]). Every net.catalyst.*
+// key is in the catalyst family, so a controller's fleet never shares a key
+// with what a device says about itself.
+const (
+	factDevices     = "catalyst.devices"
+	factDeviceCount = "catalyst.device_count"
+)
 
 // DeviceFacts gathers every device the targeted Catalyst Center manages
 // and emits them as facts.
 //
 // It pages rather than fetching everything at once, so a controller
 // managing a large fleet does not have to fit in the runner's memory. The
-// emitted "devices" fact is a slice of maps rather than a typed struct
+// emitted catalyst.devices fact is a slice of maps rather than a typed struct
 // because facts cross into CEL expressions, where a map is what a
 // when_cel condition can actually index.
 //
@@ -136,10 +145,10 @@ func DeviceFacts(ctx context.Context, rc sdk.RunbookContext, device inventory.In
 		return collection.Result{}, fmt.Errorf("net.catalyst.device_facts: %w", err)
 	}
 
-	if err := rc.EmitFact("devices", devices); err != nil {
+	if err := rc.EmitFact(factDevices, devices); err != nil {
 		return collection.Result{}, err
 	}
-	if err := rc.EmitFact("device_count", len(devices)); err != nil {
+	if err := rc.EmitFact(factDeviceCount, len(devices)); err != nil {
 		return collection.Result{}, err
 	}
 	return collection.Result{Changed: false}, nil

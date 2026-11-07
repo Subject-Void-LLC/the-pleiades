@@ -67,7 +67,7 @@ func TestCLI_ImportCMLReachesIOSOverTelnet(t *testing.T) {
 		t.Fatalf("add-credential: %v\n%s", err, out)
 	}
 	facts := task("adhoc", node, "net.ios.facts")
-	if stats, _ := facts["stats"].(map[string]any); facts["status"] != "ok" || stats["ansible_net_hostname"] == "" {
+	if stats, _ := facts["stats"].(map[string]any); facts["status"] != "ok" || stats["host.name"] == "" {
 		t.Fatalf("net.ios.facts over Telnet = %v", facts)
 	}
 	brief := task("adhoc", node, "net.ios.command", "command=show ip interface brief")

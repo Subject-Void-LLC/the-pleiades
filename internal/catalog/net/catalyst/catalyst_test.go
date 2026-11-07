@@ -227,14 +227,14 @@ func TestDeviceFacts(t *testing.T) {
 		t.Error("a fact gatherer must never report Changed")
 	}
 
-	count, ok := rc.facts["device_count"].(int)
+	count, ok := rc.facts["catalyst.device_count"].(int)
 	if !ok || count != 4 {
-		t.Fatalf("device_count = %v, want 4", rc.facts["device_count"])
+		t.Fatalf("device_count = %v, want 4", rc.facts["catalyst.device_count"])
 	}
 
-	devices, ok := rc.facts["devices"].([]map[string]any)
+	devices, ok := rc.facts["catalyst.devices"].([]map[string]any)
 	if !ok {
-		t.Fatalf("devices fact has type %T, want []map[string]any", rc.facts["devices"])
+		t.Fatalf("devices fact has type %T, want []map[string]any", rc.facts["catalyst.devices"])
 	}
 	if len(devices) != 4 {
 		t.Fatalf("got %d devices, want 4", len(devices))
@@ -262,13 +262,13 @@ func TestSiteFacts(t *testing.T) {
 		t.Fatalf("SiteFacts: %v", err)
 	}
 
-	if count, ok := rc.facts["site_count"].(int); !ok || count != 25 {
-		t.Fatalf("site_count = %v, want 25", rc.facts["site_count"])
+	if count, ok := rc.facts["catalyst.site_count"].(int); !ok || count != 25 {
+		t.Fatalf("site_count = %v, want 25", rc.facts["catalyst.site_count"])
 	}
 
-	sites, ok := rc.facts["sites"].([]map[string]any)
+	sites, ok := rc.facts["catalyst.sites"].([]map[string]any)
 	if !ok {
-		t.Fatalf("sites fact has type %T, want []map[string]any", rc.facts["sites"])
+		t.Fatalf("sites fact has type %T, want []map[string]any", rc.facts["catalyst.sites"])
 	}
 
 	var foundNested bool
@@ -295,13 +295,13 @@ func TestTagFacts(t *testing.T) {
 		t.Fatalf("TagFacts: %v", err)
 	}
 
-	all, ok := rc.facts["tags"].([]map[string]any)
+	all, ok := rc.facts["catalyst.tags"].([]map[string]any)
 	if !ok {
-		t.Fatalf("tags fact has type %T, want []map[string]any", rc.facts["tags"])
+		t.Fatalf("tags fact has type %T, want []map[string]any", rc.facts["catalyst.tags"])
 	}
-	operator, ok := rc.facts["operator_tags"].([]string)
+	operator, ok := rc.facts["catalyst.operator_tags"].([]string)
 	if !ok {
-		t.Fatalf("operator_tags fact has type %T, want []string", rc.facts["operator_tags"])
+		t.Fatalf("operator_tags fact has type %T, want []string", rc.facts["catalyst.operator_tags"])
 	}
 
 	if len(all) == 0 {
@@ -323,19 +323,19 @@ func TestReachability(t *testing.T) {
 		t.Fatalf("Reachability: %v", err)
 	}
 
-	if total, ok := rc.facts["total_device_count"].(int); !ok || total != 4 {
-		t.Fatalf("total_device_count = %v, want 4", rc.facts["total_device_count"])
+	if total, ok := rc.facts["catalyst.total_device_count"].(int); !ok || total != 4 {
+		t.Fatalf("total_device_count = %v, want 4", rc.facts["catalyst.total_device_count"])
 	}
 	// Every device in the captured fixture is Reachable and Managed.
-	if got, ok := rc.facts["reachable_count"].(int); !ok || got != 4 {
-		t.Errorf("reachable_count = %v, want 4", rc.facts["reachable_count"])
+	if got, ok := rc.facts["catalyst.reachable_count"].(int); !ok || got != 4 {
+		t.Errorf("reachable_count = %v, want 4", rc.facts["catalyst.reachable_count"])
 	}
-	if got, ok := rc.facts["managed_count"].(int); !ok || got != 4 {
-		t.Errorf("managed_count = %v, want 4", rc.facts["managed_count"])
+	if got, ok := rc.facts["catalyst.managed_count"].(int); !ok || got != 4 {
+		t.Errorf("managed_count = %v, want 4", rc.facts["catalyst.managed_count"])
 	}
-	unreachable, ok := rc.facts["unreachable"].([]string)
+	unreachable, ok := rc.facts["catalyst.unreachable"].([]string)
 	if !ok {
-		t.Fatalf("unreachable fact has type %T, want []string", rc.facts["unreachable"])
+		t.Fatalf("unreachable fact has type %T, want []string", rc.facts["catalyst.unreachable"])
 	}
 	if len(unreachable) != 0 {
 		t.Errorf("unreachable = %v, want empty for the captured fixture", unreachable)
@@ -417,7 +417,7 @@ func TestMethodsRejectWrongCredentials(t *testing.T) {
 	if _, err := invoke(t, "net.catalyst.device_facts", rc, controller, nil); err == nil {
 		t.Fatal("expected a wrong password to fail")
 	}
-	if _, emitted := rc.facts["devices"]; emitted {
+	if _, emitted := rc.facts["catalyst.devices"]; emitted {
 		t.Error("no facts should be emitted when authentication fails")
 	}
 }

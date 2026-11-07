@@ -30,6 +30,12 @@ var (
 	// RELEASE SOFTWARE (fc4)": an IOL XE router prints only this line, with
 	// no IOS XE line above it, so it is the version there and only there.
 	reIOSVersion = regexp.MustCompile(`(?m)^Cisco IOS Software\b.*?, Version ([^\s,]+)`)
+	// The "Cisco IOS Software" line names IOS XE inside it on a device with
+	// no line of its own for it: "[IOSXE]" on the IOL XE router captured,
+	// and "IOS-XE Software" on the older IOS XE 3.x trains. Classic IOS
+	// prints neither ("Cisco IOS Software, C2960 Software (...), Version
+	// 15.2(7)E2"), which is how os.distribution tells the two apart.
+	reIOSXEMarker = regexp.MustCompile(`(?m)^Cisco IOS Software\b[^\n]*(\[IOSXE\]|IOS-XE Software)`)
 	// "cisco C8000V (VXE) processor (revision VXE) with ...". An IOL
 	// router's "Linux Unix (i686) processor" names no model, and none is
 	// reported for it.
@@ -89,6 +95,9 @@ func parseVersion(out string) map[string]any {
 	} else if m := reIOSVersion.FindStringSubmatch(out); m != nil {
 		facts[factVersion] = m[1]
 	}
+	if d := distribution(out); d != "" {
+		facts[factDistribution] = d
+	}
 	if m := reModel.FindStringSubmatch(out); m != nil {
 		facts[factModel] = m[1]
 	}
@@ -99,6 +108,21 @@ func parseVersion(out string) map[string]any {
 		facts[factImage] = m[1]
 	}
 	return facts
+}
+
+// distribution is os.distribution read from "show version": "ios_xe" when
+// the output has the "Cisco IOS XE Software" line or a "Cisco IOS Software"
+// line naming IOS XE, "ios" when it has a "Cisco IOS Software" line naming
+// nothing more, and "" (left out) when it has neither, since then the device
+// has not said which it runs.
+func distribution(out string) string {
+	switch {
+	case reVersion.MatchString(out), reIOSXEMarker.MatchString(out):
+		return distributionIOSXE
+	case reIOSVersion.MatchString(out):
+		return distributionIOS
+	}
+	return ""
 }
 
 // chassisSerial returns the serial number of the entry named "Chassis"

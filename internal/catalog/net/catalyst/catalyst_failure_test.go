@@ -75,10 +75,10 @@ func TestMethodsFailWhenAFactCannotBeStored(t *testing.T) {
 		method string
 		fact   string
 	}{
-		{method: "net.catalyst.device_facts", fact: "device_count"},
-		{method: "net.catalyst.site_facts", fact: "site_count"},
-		{method: "net.catalyst.tag_facts", fact: "operator_tags"},
-		{method: "net.catalyst.reachability", fact: "reachability"},
+		{method: "net.catalyst.device_facts", fact: "catalyst.device_count"},
+		{method: "net.catalyst.site_facts", fact: "catalyst.site_count"},
+		{method: "net.catalyst.tag_facts", fact: "catalyst.operator_tags"},
+		{method: "net.catalyst.reachability", fact: "catalyst.reachability"},
 	} {
 		t.Run(tc.method, func(t *testing.T) {
 			rc := newFakeContext(validSecrets())
