@@ -4,6 +4,7 @@ package ent
 
 import (
 	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"strings"
 	"time"
@@ -69,7 +70,7 @@ type Job struct {
 	// RollbackOf holds the value of the "rollback_of" field.
 	RollbackOf string `json:"rollback_of,omitempty"`
 	// Rollback holds the value of the "rollback" field.
-	Rollback json.RawMessage `json:"rollback,omitempty"`
+	Rollback jsontext.Value `json:"rollback,omitempty"`
 	// Edges holds the relations/edges for other nodes in the graph.
 	// The values are being populated by the JobQuery when eager-loading is set.
 	Edges        JobEdges `json:"edges"`

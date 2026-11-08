@@ -4,7 +4,7 @@ package ent
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"errors"
 	"fmt"
 	"time"
@@ -398,7 +398,7 @@ func (_c *JournalEntryCreate) SetNillableDiffRecorded(v *bool) *JournalEntryCrea
 }
 
 // SetInverseParams sets the "inverse_params" field.
-func (_c *JournalEntryCreate) SetInverseParams(v json.RawMessage) *JournalEntryCreate {
+func (_c *JournalEntryCreate) SetInverseParams(v jsontext.Value) *JournalEntryCreate {
 	_c.mutation.SetInverseParams(v)
 	return _c
 }
