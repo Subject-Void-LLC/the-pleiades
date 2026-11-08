@@ -48,8 +48,8 @@ func RowPath(prefix, resource, id, action, row string) string {
 }
 
 // segment is id escaped as one URL path segment, and false when it is not
-// Addressable. It is the only place this package and internal/ui/web escape
-// an id into a path, which TestNothingElseEscapesAnIDIntoAPath holds true.
+// Addressable. It is the only place this package and internal/ui/web build
+// a path from an id, which TestNothingElseBuildsAPathFromAnID holds true.
 func segment(id string) (string, bool) {
 	if !Addressable(id) {
 		return "", false
