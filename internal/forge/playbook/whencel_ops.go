@@ -52,6 +52,11 @@ func (c *celCtx) filter(e *expr) (term, *celError) {
 	if err != nil {
 		return term{}, err
 	}
+	if in.majorInt {
+		// Only a comparison of Jinja's integer is translated: bool of it is
+		// Ansible's own truth rules over a number, which no CEL here repeats.
+		return term{}, &celError{"when.fact", fmt.Sprintf("%s | int | %s is not translated; compare %s | int with a whole number", ansibleMajorVersion, e.name, ansibleMajorVersion)}
+	}
 	if in.constant {
 		switch e.name {
 		case "bool":

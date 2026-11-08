@@ -10,9 +10,12 @@
 // a whole number decides on every host what Jinja's does. Only that is
 // translated: the six comparisons (==, !=, <, <=, >, >=) with an integer
 // literal. A comparison with text raises in Jinja, a fraction is no
-// version's major, and a membership or a truth is left to a person. int with
-// arguments (a default, a base) or another filter before it never reaches
-// here: the condition parser refuses both (when.go's test).
+// version's major, and a membership, a truth or any filter after | int is
+// left to a person (the last refused in whencel_ops.go's filter). int with
+// arguments (a default, a base) never reaches here, since the condition
+// parser refuses it (when.go's test), and neither does a filter before int:
+// the parser refuses every filter but bool, int and length, and filter
+// refuses those three on a fact itself.
 package playbook
 
 import (

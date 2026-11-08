@@ -1,10 +1,16 @@
 // Black-box tests of ansible_distribution_major_version | int
 // (facts_major.go): the converted condition, evaluated by the engine's own
-// CEL evaluator over each host's native facts, decides what Jinja decides
-// over the Ansible facts ToAnsible gives for the same host.
+// CEL evaluator over each measured distribution's native facts (what
+// facts.gather's own os-release probe reads from the file captured in that
+// image), decides what Jinja decides over the major version
+// ansible.builtin.setup printed in the same image.
 package playbook_test
 
 import (
+	"encoding/json"
+	"math"
+	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -12,37 +18,84 @@ import (
 
 	"go.yaml.in/yaml/v3"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/catalog/facts"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/forge/playbook"
-	"github.com/Subject-Void-LLC/the-pleiades/pkg/ansiblefacts"
 )
 
-// majorHosts are native fact sets as facts.gather reports them, one per kind
-// of major version: a one- and a two-digit major, Debian testing (whose
-// version forky/sid has no major), a rolling release with no version at all,
-// and Windows.
-var majorHosts = map[string]map[string]any{
-	"debian 12":      {"os.distribution": "debian", "os.family": "debian", "os.version": "12.12", "os.version_major": int64(12)},
-	"rhel 8":         {"os.distribution": "rhel", "os.family": "redhat", "os.version": "8.10", "os.version_major": int64(8)},
-	"rhel 10":        {"os.distribution": "rhel", "os.family": "redhat", "os.version": "10.0", "os.version_major": int64(10)},
-	"debian testing": {"os.distribution": "debian", "os.family": "debian", "os.version": "forky/sid"},
-	"arch":           {"os.distribution": "arch", "os.family": "arch"},
-	"alpine 3":       {"os.distribution": "alpine", "os.family": "alpine", "os.version": "3.20.3", "os.version_major": int64(3)},
-	"windows 10":     {"os.distribution": "windows", "os.family": "windows", "os.kernel.name": "windows", "os.version": "10.0.20348", "os.version_major": int64(10)},
+// distributionTestdata is where internal/catalog/facts keeps each image's
+// captured os-release and ansible.json, Ansible's answers in the same images.
+var distributionTestdata = filepath.Join("..", "..", "catalog", "facts", "testdata", "distribution")
+
+// measuredHost is one measured image: the native facts facts.gather reads
+// there, and Ansible's ansible_distribution_major_version there.
+type measuredHost struct {
+	native map[string]any
+	major  string
 }
 
-// jinjaInt is Jinja's int filter over Ansible's major version as ToAnsible
-// gives it for native: the number a whole-number string spells, and 0, the
-// filter's default, for any other string. A host ToAnsible gives no major
-// (no version at all) reports Ansible's placeholder NA there, whose int is 0
-// too.
-func jinjaInt(native map[string]any) int64 {
-	s, _ := ansiblefacts.ToAnsible(native)["ansible_distribution_major_version"].(string)
-	n, err := strconv.ParseInt(strings.TrimSpace(s), 10, 64)
+// measuredHosts reads every image ansible.json records, running the real
+// os-release probe's parser over the captured file.
+func measuredHosts(t *testing.T) map[string]measuredHost {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join(distributionTestdata, "ansible.json"))
 	if err != nil {
-		return 0
+		t.Fatal(err)
 	}
-	return n
+	var measured struct {
+		Images map[string]map[string]string `json:"images"`
+	}
+	if err := json.Unmarshal(raw, &measured); err != nil {
+		t.Fatal(err)
+	}
+	probes := facts.Probes("Linux", "min", "/etc/os-release")
+	if len(probes) != 1 {
+		t.Fatalf("%d os-release probes", len(probes))
+	}
+	out := map[string]measuredHost{}
+	for slug, ansible := range measured.Images {
+		captured, err := os.ReadFile(filepath.Join(distributionTestdata, slug+".txt"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		out[slug] = measuredHost{native: probes[0].Read(string(captured)), major: ansible["ansible_distribution_major_version"]}
+	}
+	// Debian testing is the image whose version has no whole-number first
+	// part (forky/sid): the one where the native fact is absent and Jinja's
+	// int is 0.
+	if h, ok := out["debian-testing"]; !ok || h.major != "forky/sid" {
+		t.Fatalf("the measured images lack Debian testing's forky/sid: %+v", h)
+	}
+	return out
+}
+
+// jinjaInt is Jinja's int filter (do_int) over Ansible's major version s:
+// int(s), else int(float(s)), else the default 0.
+func jinjaInt(s string) int64 {
+	if n, err := strconv.ParseInt(strings.TrimSpace(s), 10, 64); err == nil {
+		return n
+	}
+	if f, err := strconv.ParseFloat(strings.TrimSpace(s), 64); err == nil && !math.IsInf(f, 0) && !math.IsNaN(f) {
+		return int64(f)
+	}
+	return 0
+}
+
+// asJSON is native as a decoded JSON report holds it: every number a
+// float64.
+func asJSON(native map[string]any) map[string]any {
+	out := make(map[string]any, len(native))
+	for k, v := range native {
+		switch n := v.(type) {
+		case int:
+			out[k] = float64(n)
+		case int64:
+			out[k] = float64(n)
+		default:
+			out[k] = v
+		}
+	}
+	return out
 }
 
 // pyCompare is Python's comparison op between two integers.
@@ -113,6 +166,7 @@ func evalOnHost(t *testing.T, cel string, facts map[string]any) bool {
 }
 
 func TestTranslate_MajorVersionThroughIntDecidesPerHostAsJinjaDoes(t *testing.T) {
+	hosts := measuredHosts(t)
 	for _, tc := range []struct {
 		when string
 		// op and n are the comparison Jinja makes, the integer on the left.
@@ -138,10 +192,14 @@ func TestTranslate_MajorVersionThroughIntDecidesPerHostAsJinjaDoes(t *testing.T)
 			}
 			build(t, res.Runbooks[0].YAML)
 			cel := markWhen(t, res.Runbooks[0].YAML)
-			for host, facts := range majorHosts {
-				want := pyCompare(tc.op, jinjaInt(facts), tc.n)
-				if got := evalOnHost(t, cel, facts); got != want {
-					t.Errorf("%s: %q is %v natively, %v in Jinja (int of the major is %d)", host, cel, got, want, jinjaInt(facts))
+			for slug, host := range hosts {
+				want := pyCompare(tc.op, jinjaInt(host.major), tc.n)
+				// As the method hands the facts over, and as a decoded report
+				// holds them.
+				for _, native := range []map[string]any{host.native, asJSON(host.native)} {
+					if got := evalOnHost(t, cel, native); got != want {
+						t.Errorf("%s: %q is %v natively over %v, %v in Jinja (Ansible's major %q)", slug, cel, got, native, want, host.major)
+					}
 				}
 			}
 		})
@@ -167,6 +225,10 @@ func TestTranslate_MajorVersionReadsJinjaWouldNotTranslateAreRefused(t *testing.
 		{name: "int of another fact", when: `ansible_distribution_version | int >= 8`, code: "when.fact"},
 		{name: "the bare text ordering", when: `ansible_distribution_major_version >= "8"`, code: "when.fact",
 			mentions: []string{"ansible_distribution_major_version | int", "os.version_major"}},
+		// A filter after | int is not translated.
+		{name: "int then bool", when: `ansible_distribution_major_version | int | bool`, code: "when.fact"},
+		{name: "int twice", when: `ansible_distribution_major_version | int | int >= 8`, code: "when.fact"},
+		{name: "int then length", when: `ansible_distribution_major_version | int | length > 1`, code: "when.fact"},
 		{name: "a number against the text", when: `ansible_distribution_major_version == 12`, code: "when.fact",
 			mentions: []string{"| int", "os.version_major"}},
 	} {
