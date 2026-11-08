@@ -52,32 +52,60 @@ func TestJoin(t *testing.T) {
 	}
 }
 
-// FuzzJoin: whatever ref is, a joined URL has the base's origin and sits
-// under the base's path.
+// fuzzBases are the bases FuzzJoin joins to: with and without a path, a
+// trailing slash, and a path of their own that is escaped.
+var fuzzBases = []string{
+	"https://api.example.com:8443/v2",
+	"https://api.example.com",
+	"https://api.example.com/v2/",
+	"https://api.example.com/tenant%2Fone/v2",
+	"https://api.example.com/a%20b/%7E/",
+}
+
+// escapedSlashes counts the %2F escapes in s, in either case.
+func escapedSlashes(s string) int {
+	return strings.Count(strings.ToUpper(s), "%2F")
+}
+
+// FuzzJoin: whatever ref is, a joined URL has the base's origin, sits under
+// the base's path, is sent as the path Join checked, and keeps every %2F
+// its caller and its base escaped, so no escaped slash becomes a separator.
 func FuzzJoin(f *testing.F) {
-	for _, s := range []string{"/items", "//x", "/%2e%2e/", "/a?b#c", "/\\x", "/..;/", "/a%2Fb", "/a%2F..%2Fb", "/a%3Bb"} {
-		f.Add(s)
+	for i, s := range []string{"/items", "//x", "/%2e%2e/", "/a?b#c", "/\\x", "/..;/", "/a%2Fb", "/a%2F..%2Fb", "/a%3Bb", "/a%2fb c", "/%2F%2f"} {
+		f.Add(s, uint8(i))
 	}
-	base := mustBase(f, "https://api.example.com:8443/v2")
-	f.Fuzz(func(t *testing.T, ref string) {
+	bases := make([]*url.URL, len(fuzzBases))
+	for i, raw := range fuzzBases {
+		bases[i] = mustBase(f, raw)
+	}
+	f.Fuzz(func(t *testing.T, ref string, which uint8) {
+		base := bases[int(which)%len(bases)]
 		got, err := httpapi.Join(base, ref)
 		if err != nil {
 			return
 		}
 		if !httpapi.SameOrigin(base, got) || got.User != nil {
-			t.Fatalf("Join(%q) = %s left the origin", ref, got)
+			t.Fatalf("Join(%s, %q) = %s left the origin", base, ref, got)
 		}
-		if !strings.HasPrefix(got.Path, "/v2/") {
-			t.Fatalf("Join(%q) = %s left the base path", ref, got)
+		if !strings.HasPrefix(got.Path, strings.TrimSuffix(base.Path, "/")+"/") ||
+			!strings.HasPrefix(got.EscapedPath(), strings.TrimSuffix(base.EscapedPath(), "/")+"/") {
+			t.Fatalf("Join(%s, %q) = %s left the base path", base, ref, got)
 		}
 		reparsed, err := url.Parse(got.String())
 		if err != nil || !httpapi.SameOrigin(base, reparsed) {
-			t.Fatalf("Join(%q) = %s reparses to another origin", ref, got)
+			t.Fatalf("Join(%s, %q) = %s reparses to another origin", base, ref, got)
 		}
 		// What is sent decodes to the path Join checked, so the check and
 		// the request are about the same path.
 		if reparsed.Path != got.Path || reparsed.EscapedPath() != got.EscapedPath() {
-			t.Fatalf("Join(%q) = %s is sent as path %q, but Join checked %q", ref, got, reparsed.Path, got.Path)
+			t.Fatalf("Join(%s, %q) = %s is sent as path %q, but Join checked %q", base, ref, got, reparsed.Path, got.Path)
+		}
+		// Every escaped slash the base and the caller wrote is still one in
+		// what is sent. Join used to decode the path and send the decoded
+		// form, which loses exactly these.
+		refPath, _, _ := strings.Cut(ref, "?")
+		if want := escapedSlashes(base.EscapedPath()) + escapedSlashes(refPath); escapedSlashes(reparsed.EscapedPath()) != want {
+			t.Fatalf("Join(%s, %q) = %s holds %d escaped slashes, want %d", base, ref, got, escapedSlashes(reparsed.EscapedPath()), want)
 		}
 	})
 }
