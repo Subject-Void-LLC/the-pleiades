@@ -2,8 +2,10 @@ package api
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -116,6 +118,56 @@ func TestHrefFor_SubstitutesAndEscapes(t *testing.T) {
 				t.Errorf("hrefFor() = %q, which has a different segment count from its pattern", got)
 			}
 		})
+	}
+}
+
+// TestHrefFor_EscapesARoutedNameOnce routes real requests through chi and
+// reads back the link built for each. chi matches on the request's escaped
+// path whenever it has one (any name holding a / or a ;), so the parameter
+// value it records is still escaped there and decoded otherwise. The link
+// must name the record the request named either way: it used to escape the
+// still-escaped value again, so /devices/sw%2F1 linked to /devices/sw%252F1,
+// a different device.
+func TestHrefFor_EscapesARoutedNameOnce(t *testing.T) {
+	router := chi.NewRouter()
+	router.Get("/devices/{name}", func(w http.ResponseWriter, r *http.Request) {
+		href, err := hrefFor(r, "/devices/{name}")
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		_, _ = w.Write([]byte(href))
+	})
+	srv := httptest.NewServer(router)
+	defer srv.Close()
+	for _, name := range []string{"sw/1", "a b", "a?b", "a#b", "a;b", "a b/c", "%2E%2E", "%2F", "50%"} {
+		want := "/devices/" + url.PathEscape(name)
+		resp, err := srv.Client().Get(srv.URL + want)
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, err := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		if err != nil || resp.StatusCode != http.StatusOK {
+			t.Errorf("GET %s = %d %q, %v", want, resp.StatusCode, body, err)
+			continue
+		}
+		if string(body) != want {
+			t.Errorf("device %q requested as %s links to %s", name, want, body)
+		}
+	}
+}
+
+// TestHrefFor_RefusesAnUndecodableEscapedValue: a value taken from an
+// escaped path that does not decode cannot be named in a link, and guessing
+// would name some other record.
+func TestHrefFor_RefusesAnUndecodableEscapedValue(t *testing.T) {
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", "a%zz")
+	r := httptest.NewRequest(http.MethodGet, "/jobs/a%2Fb", nil)
+	r = r.WithContext(context.WithValue(r.Context(), chi.RouteCtxKey, rctx))
+	if got, err := hrefFor(r, "/jobs/{id}"); err == nil {
+		t.Fatalf("hrefFor() = %q, want an error for a value that does not decode", got)
 	}
 }
 

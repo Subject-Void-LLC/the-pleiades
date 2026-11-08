@@ -225,9 +225,29 @@ func hrefFor(r *http.Request, pattern string) (string, error) {
 		if key == "*" {
 			continue
 		}
-		href = strings.ReplaceAll(href, "{"+key+"}", url.PathEscape(rctx.URLParams.Values[i]))
+		value, err := routedValue(r, rctx.URLParams.Values[i])
+		if err != nil {
+			return "", fmt.Errorf("api: route parameter %s of %s: %w", key, pattern, err)
+		}
+		href = strings.ReplaceAll(href, "{"+key+"}", url.PathEscape(value))
 	}
 	return href, nil
+}
+
+// routedValue is a chi URL parameter's value decoded, so escaping it once
+// names the same record the request did.
+//
+// chi matches a route against r.URL.RawPath whenever the request has one,
+// which it does exactly when the path's escaping differs from the default
+// (a name holding a / or a ;), and records each value from that string,
+// still escaped. Otherwise it matches r.URL.Path, and the value is already
+// decoded. Decoding only in the first case keeps a literal % in a decoded
+// value from being read as an escape.
+func routedValue(r *http.Request, value string) (string, error) {
+	if r.URL.RawPath == "" {
+		return value, nil
+	}
+	return url.PathUnescape(value)
 }
 
 // sortMethods orders an Allow set alphabetically so one caller's header is
