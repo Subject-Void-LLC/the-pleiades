@@ -24351,3 +24351,240 @@ went to the engine, which projects the identity on the Runner. The Controller's 
 
 **Lesson.** Pending the fix. The facts subscriber's rule applies here too: a process that stores a received identity is
 a writer of its store and holds it to `Valid` (1006).
+
+## 1008. httpapi.Join decoded the ref it was given and then cleared RawPath, so a caller's url.PathEscape("r1/mgmt") reached the server as r1/mgmt, one name as two segments; catalystcenter.New did the same to its base path (fixed on this branch; on main since 35f391a1, 2026-09-24, and in catalystcenter since ad1ff164, 2026-08-06; the mirror of 998, the class of 72 and 438)
+
+**Symptom.** Found by the escaping sweep on `fix/url-escaping`, 2026-11-08: a review through the Batch API (Fable,
+the batch named burn5) given 82 URL-building call sites with their context. A containerlab node named `r1/mgmt`,
+escaped by its caller as `r1%2Fmgmt`, reached a stub server as `.../nodes/r1/mgmt/logs`, and `a%3Bb` went out as a
+literal `;`, which a Java server reads as a path parameter. Every `virt.clab` call goes through Join
+(`pkg/clabapi.Client.Call`), as do `http.request`'s device paths and onboarding's OpenAPI read.
+`pkg/catalystcenter.New` kept only the decoded path of its base URL, so a Catalyst Center behind a proxy prefix
+holding `%2F` or `%3B` was called under a different path.
+
+**Security.** Low severity. A name holding `/` could reach another route of the same origin, and the request carried
+the device's credential. The dot-segment check held, so a name could not climb above the base path. Shown against a
+stub server; not run against a real device. Our own code; no upstream fix applies.
+
+**Root cause.** Join checked `rel.Path`, the decoded form, which is right for the dot check. It then built `out.Path`
+from that form and set `out.RawPath = ""`. With no RawPath, `url.URL.String()` escapes Path again, and `/` is the one
+character it leaves alone, so the one escape `url.PathEscape` exists for was the one lost. 998 broke the same contract
+from the other side: `url.URL.JoinPath` takes its elements as already escaped, and hashivault passed them raw. Here the
+callers passed text already escaped, and Join decoded it.
+
+**Why 998, 72 and 438 did not prevent it.** 998 was fixed the same day in hashivault alone. Its lesson asks for a
+search of the module's other URL builders, and this sweep is that search. 72's fix escaped values in the API's link
+builder only, and 438's lesson stayed in the container engine's guard.
+
+**Fix.** `15e2d5a8` keeps the escaped form beside the decoded one. That first fix built the escaped form from
+`EscapedPath`, which falls back to escaping Path whenever RawPath as a whole is not valid escaping, so one raw byte
+beside a `%XX` still lost every escape (`/items/a%2Fb c` went out as `/items/a/b%20c`). `556bedef` fixed that before
+push: `escapedPathOf` (`pkg/httpapi/escape.go`) keeps each `%XX` as written and escapes only the raw bytes a path may
+not hold. `520f18f6` keeps catalystcenter's base path as escaped (then normalized; 1014). Tests, red on the old code:
+`TestJoin_SendsTheCallersEscaping` and `TestJoin_KeepsEachEscapeAsWrittenBesideARawByte`
+(`pkg/httpapi/join_escape_test.go`), `TestCall_SendsEachNameAsOneSegment` (`pkg/clabapi`),
+`TestNew_KeepsTheBasePathAsWritten` (`pkg/catalystcenter`), and `FuzzJoin` (`pkg/httpapi/httpapi_test.go`), which now
+varies the base and counts every escaped slash (1016). User-visible: `changelog/url-escaping.security.md`.
+
+**Lesson.** A helper handed text already escaped keeps it escaped to the wire: judge the decoded form, send the escaped
+one. As 998's lesson says, the test reads the request line a stub server receives.
+
+**Class.** C4 (path traversal and confinement escape; CWE-22)
+**Portable.** yes: any helper that parses an escaped path, sets url.URL.Path from it and clears RawPath
+**Detector.** a stub server asserting the request line for a path holding %2F, %3B and a raw space beside %2F; see
+~/vuln-corpus/README.md
+
+## 1009. httpapi.Join ran its control-character check on the ref as written and its dot check on the decoded path, so %00, %0A and %7F passed, and so did a "..;" segment, which a Java server reads as ".." (fixed on this branch; on main since 35f391a1, 2026-09-24; a repeat of 438)
+
+**Symptom.** Found on `fix/url-escaping`, 2026-11-08, while fixing 1008. `hasControl(ref)` read the raw string, so a
+control character written as an escape passed, though the server acts on the decoded path. The dot check compared each
+decoded segment with `.` and `..`, so `..;x` passed. A Java server (Batfish is one) drops a `;` path parameter and
+resolves the segment as `..`.
+
+**Root cause.** Two guards in one function judged two forms of the same input. 438's lesson is that a guard decides on
+exactly the bytes the far side will read.
+
+**Why 438 did not prevent it.** 438's fix and lesson stayed in the container engine's guard (Phase 119b). Nothing held
+the module's other URL guards to it, the same gap 1008 names.
+
+**Fix.** `556bedef`. Join refuses a control character in the decoded path too, and `dotSegment`
+(`pkg/httpapi/escape.go`) refuses a dot segment followed by a `;`. Tests, red on the old code:
+`TestJoin_RefusesWhatTheDecodedPathHolds` and `TestJoin_RefusesADotSegmentInAnyEncoding`
+(`pkg/httpapi/join_escape_test.go`).
+
+**Lesson.** Every check in one guard reads the same form of its input, the one the far side acts on. For a URL path
+that is the decoded path, read as each kind of server reads it, `;` included.
+
+**Class.** C4 (path traversal and confinement escape; CWE-22)
+**Portable.** yes: any path guard that checks the raw text for one rule and the decoded text for another
+**Detector.** %00, %0A, %7F and ..;x through each path guard, each expected refused; see ~/vuln-corpus/README.md
+
+## 1010. batfish, gns3 and aiprovider's Google kind appended a path already escaped to url.URL.Path, the decoded field, so every name was escaped twice ("prod west" went out as prod%2520west) (fixed on this branch; on main since b5baafd5, 2026-10-15, in aiprovider, 8444bb5b, 2026-10-22, in batfish, and 3fe90317, 2026-10-23, in gns3; the mirror of 1008)
+
+**Symptom.** Found by the same sweep, 2026-11-08. `pkg/batfish.Client.do` did `u.Path += path` with names escaped
+by `url.PathEscape`, so `String()` escaped each `%` again. The network `prod west` was sent as `prod%2520west`, which
+Batfish reads as a network named `prod%20west`. `CreateNetwork` sent the raw name in its query, and the work item's
+JSON body named it raw too, so a network whose name held a space or a reserved character could be created and then
+never given a snapshot, parsed, asked a question or deleted. `pkg/gns3`'s `raw` set `u.Path = path` the same way;
+latent, since GNS3 issues project ids as UUIDs. `pkg/aiprovider`'s Google kind asked for a model `a b` as `a%20b` and
+for `tunedModels/x` as `tunedModels%2Fx`.
+
+**Root cause.** `url.URL.Path` holds the decoded form, and `String()` escapes whatever is written there. Each client
+built its request path itself rather than through one helper that keeps both forms. The archive holds no earlier
+double escape.
+
+**Fix.** `335a56d4`, `918db0e2`, `c1145893`. All three send through `httpapi.Join`, which sends an escaped path as
+written and refuses a dot segment. Every aiprovider kind now resolves its path through Join, and an endpoint with no
+base URL is an error rather than a nil dereference. Tests, red on the old code: `TestDeleteNetwork_SendsTheNameEscapedOnce`
+and `TestUploadSnapshot_NamesOneNetworkEverywhere` (`pkg/batfish/client_escape_test.go`),
+`TestNodes_SendsTheProjectIDEscapedOnce` (`pkg/gns3`), `TestGoogle_SendsTheModelNameEscapedOnce` (`pkg/aiprovider`).
+`TestChat_PostsJSON` holds that every kind still posts JSON after the move.
+
+**Lesson.** Never write escaped text into `url.URL.Path`. A client joins a request path through the one helper that
+keeps the escaped form (`httpapi.Join`).
+
+## 1011. url.PathEscape leaves "", "." and ".." as they are, so pkg/cml sent GET /api/v0/labs/.. with the controller's token, and internal/ui's path.Join turned a record named ".." into a link to /ui (fixed on this branch; on main since db3b8b9f, 2026-09-13, in internal/ui, and 654537b1, 2026-10-23, in pkg/cml; a sibling in kind of 815)
+
+**Symptom.** Found by the same sweep, 2026-11-08. A CML lab reference of `..` went out as `GET /api/v0/labs/..`
+with the controller's token, which the controller resolves to `/api/v0/` rather than to a lab; `FetchPCAP`'s key took
+the same path. In the UI, `path.Join(prefix, resource, url.PathEscape(id))` resolved `..` to `/ui` and `.` to the
+record's own list, from a list row, a reference, a section's controls, a live stream and a write's redirect. The API
+accepts `..` as a device name. A request with an empty segment (`/ui/devices//edit`), which only a client sending
+paths unresolved can make, was routed by chi as `{id} = ""` and rendered that record's edit form with an empty form
+action.
+
+**Security.** Low severity, for `pkg/cml`: a lab reference could address a controller path that is not a lab, with the
+controller's token. Shown against a stub; not run against a real CML.
+
+**Root cause.** PathEscape escapes characters, and a dot segment is made only of characters it leaves alone. No
+escaping makes such an id addressable, since a browser resolves `%2E%2E` too. `path.Join` then cleans what PathEscape
+passed. 815 was path cleaning removing a `..` a test needed; here it resolved one a link was built from.
+
+**Fix.** `8bb76bb2`: every CML request goes through `httpapi.Join`, which refuses a dot segment, and `FindLab` looks a
+reference of `.` or `..` up among the titles, since no lab id can be one (`TestLab_SendsTheIDEscapedOnce`,
+`TestFindLab_FindsADotTitleByItsTitle`, `pkg/cml`). `0043a3b4` and `210afa18`: every record link the UI builds goes
+through `view.Addressable`, `view.RecordPath` or `view.RowPath` (`internal/ui/view/paths.go`), which escape the id as
+one segment and give no link for `""`, `.` or `..`. A write to such a record returns to its list, and a middleware
+(`internal/ui/web/dotsegments.go`) answers 404 to a dot segment, or to an empty segment anywhere but the start and the
+end, before sign-in. `TestNothingElseBuildsAPathFromAnID` (`internal/ui/view/paths_rule_test.go`) refuses a path built
+from an id anywhere else (1017). Tests: `TestRecordLinks_WithholdALinkNoURLCanCarry`, `TestRoutes_RefuseADotSegment`,
+`TestRoutes_RefuseADotSegmentBeforeSignIn`, `TestResourcePath_ReturnsAnUnaddressableRecordToItsList`.
+
+**Lesson.** An id of `""`, `.` or `..` has no URL, and escaping does not give it one. Refuse it where the path is built,
+in one helper every link goes through.
+
+**Class.** C4 (path traversal and confinement escape; CWE-22)
+**Portable.** yes: any path built from url.PathEscape(id) without refusing "", "." and ".."
+**Detector.** ids "", "." and ".." through each path builder, expecting a refusal or no link; see
+~/vuln-corpus/README.md
+
+## 1012. chi v5.4.0 routes on r.URL.RawPath whenever a request has one and records the parameter still escaped, so the API's link builder escaped sw%2F1 again into sw%252F1, and the 405 handler, matching r.URL.Path, found no route and sent no Allow header (fixed on this branch; on main since 5387aaa8, 2026-08-07, 72's fix)
+
+**Symptom.** The sweep marked the link case as not settled by the files it was given. It was settled in chi's source:
+`Mux.routeHTTP` (`mux.go` line 462 in v5.4.0) routes on `r.URL.RawPath` when it is set. A request for
+`/inventory/devices/sw%2F1` was handed links to `sw%252F1`, another device. `PUT /inventory/devices/sw%2F1` got a
+405 with no `Allow` header.
+
+**Root cause.** 72's fix (`5387aaa8`) built each href from the matched route pattern and escaped each parameter value
+with `url.PathEscape`, taking the value as decoded. A request has a RawPath exactly when a name holds a character whose
+escaping differs from the default (a `/` or a `;`), and then chi's value is still escaped. `internal/api/options.go`
+matched the decoded path, which splits `sw%2F1` into two segments.
+
+**Fix.** `220fd100`: `routedValue` (`internal/api/links.go`) decodes a value only when the request has a RawPath, so a
+literal `%` in a value chi already decoded is never read as an escape. `8aa9bb00`: `routedPath` gives the 405 handler
+the form chi routed on, and the href test gains rows holding a literal `%` beside a slash, which pass only while chi
+records a value still escaped, so a chi release that changes that fails the test. Tests, red on the old code:
+`TestHrefFor_EscapesARoutedNameOnce` and `TestHrefFor_RefusesAnUndecodableEscapedValue`
+(`internal/api/hypermedia_internal_test.go`), `TestMethodNotAllowed_FindsTheRouteOfAnEscapedName`
+(`internal/api/options_test.go`). The handlers still read the value escaped (1013).
+
+**Lesson.** Code beside a router reads the path the router matched, and a value in the form the router recorded it; for
+chi that is RawPath when it is set. Pin the router's behavior in a test, so a release that changes it fails.
+
+## 1013. The API's handlers read chi.URLParam still escaped, so a device named sw/1 cannot be addressed, and 1012's links now point at /devices/sw%2F1, where the handler acts on the literal name sw%2F1 (open: passed to the owner's separate pull request, N1; on main since 9224cd24, 2026-08-04)
+
+**Symptom.** Found by fp-reviewer on `fix/url-escaping`, 2026-11-08, reviewing 1012's fix. Each handler in
+`internal/api` reads its id with `chi.URLParam`, which returns the value chi recorded: still escaped when the request
+has a RawPath (1012). A request for `/inventory/devices/sw%2F1` is served for the record named literally `sw%2F1`, and
+so is one for `sw%252F1`. A record named `sw/1` has no URL. Since 1012's fix, a response's links name `/devices/sw%2F1`,
+which a client reads as `sw/1`, while the handler there acts on `sw%2F1`.
+
+**Root cause.** 1012's fix corrected the side that builds an address and left the side that resolves it. Decoding in
+the handlers is a change of its own, since it changes which record a name holding `%` reaches.
+
+**Status.** Open. Passed to the owner's separate pull request (N1). Whether this has a security effect has not been
+checked.
+
+**Lesson.** Pending the fix. LESSONS 420: a fix to one side of an encode and decode pair names and tests the other.
+
+## 1014. Keeping catalystcenter's base path as written gave one controller two BaseURL() values, a%2fb and a%2Fb, and BaseURL is the synced controller's DeviceID (fixed before push)
+
+**Symptom.** Found on `fix/url-escaping`, 2026-11-08, before push. `520f18f6` (1008) kept the operator's own spelling
+of the base path, so `a%2fb` and `a%2Fb`, or `%7E` and `~`, gave two `BaseURL()` values for one appliance, and BaseURL is
+the synced controller's DeviceID.
+
+**Root cause.** The fix kept text as written where that text is also an identity, and RFC 3986 allows several
+spellings of one path.
+
+**Fix.** `d7f20082`. `basePath` and `normalizeEscapes` (`pkg/catalystcenter/baseurl.go`) put the path in RFC 3986
+section 6.2.2's normal form: an escaped unreserved character is decoded, and every other escape's hex is upper case. A
+literal `;` and `%3B` stay apart, and an escaped slash stays escaped. Escaping the whole path with `url.PathEscape` was
+rejected, because it rewrites `;` and `,`, which a Java server reads differently. Test:
+`TestNew_GivesOnePathOneIdentity`.
+
+**Lesson.** When a fix keeps text as written, check whether that text is also an identity. If it is, give one value one
+spelling through the normal form the standard defines.
+
+## 1015. The database backup built its DSN host as host + ":" + port, so an IPv6 host such as ::1 gave postgres://...@::1:5433/..., which lib/pq reads as the host ::1:5433 on the default port (fixed on this branch; on main since ed27c14e, 2026-09-18)
+
+**Symptom.** Found by the same sweep, 2026-11-08. `internal/backup/pg.go` opens its own connections for backup and
+restore, and a `DB_DSN` naming `[::1]:5433` became a DSN pointing at the wrong host and port.
+
+**Root cause.** Concatenation instead of `net.JoinHostPort`. `pkg/winrmexec`'s `Host` field documents the same kind of
+failure (a bracketed IPv6 literal once built an unparsable WS-Man URL), but it never had an entry here, so no search
+looked for other host joins.
+
+**Fix.** `17496325`. The host is `net.JoinHostPort(t.host, t.port)`. Test, red on the old code:
+`TestTargetDSN_BracketsAnIPv6Host` (`internal/backup/words_internal_test.go`). User-visible:
+`changelog/backup-ipv6-dsn.fixed.md`.
+
+**Lesson.** A host and a port are joined only with `net.JoinHostPort`, and a test of each join uses an IPv6 literal.
+
+## 1016. Two of the branch's first tests could pass with the fix removed: a FuzzJoin property that the old Join also met, and a dot-segment middleware test whose passing half asserted what a probe handler that echoed any id served (fixed before push, a repeat of 54 and 958; LESSONS 213, 338)
+
+**Symptom.** fp-reviewer, on `fix/url-escaping`, 2026-11-08, before push. `15e2d5a8` added a FuzzJoin property: what
+is sent decodes to the path Join checked. The old Join sent the decoded path, so it met that property too. The first
+middleware test (`0043a3b4`, `internal/ui/web/dotsegments_test.go`) asserted that paths it should pass were served,
+through a probe that echoed any id, so it said nothing about what the middleware passed on.
+
+**Root cause.** Each test asserted a property the old code also had.
+
+**Why 54, 958, 213 and 338 did not prevent it.** LESSONS 213 and 338 ask for a run with the protection removed for each
+test of a protection. The branch's named regression tests were held red on the old code; the fuzz property and the
+middleware test were not run that way until review.
+
+**Fix.** `556bedef`: FuzzJoin varies its base over five (with and without a path, with a trailing slash, with an
+escaped path) and counts every escaped slash the base and the ref wrote, which the original Join fails. `210afa18`: the
+middleware test asserts what the middleware passes on (`TestRefuseDotSegments_PassesEveryOtherPath`).
+
+**Lesson.** A fuzz property and a middleware test of a fix are tests of that fix: each is run on the old code and must
+fail there.
+
+## 1017. The UI's first guard against building a path from an id outside paths.go matched one spelling, url.PathEscape called through the name url, so an aliased import, url.JoinPath, path.Join, an fmt format or a concatenation passed it (fixed before push, a repeat in kind of 194; LESSONS 114)
+
+**Symptom.** Found on `fix/url-escaping`, 2026-11-08, before push. `0043a3b4`'s `TestNothingElseEscapesAnIDIntoAPath`
+walked the syntax trees of `internal/ui/view` and `internal/ui/web`, those two directories only, for a selector
+`PathEscape` on the identifier `url`.
+
+**Root cause.** The guard was written against the one call the fix had removed (LESSONS 114). Like 194's, it matched a
+name rather than the thing the name stands for.
+
+**Why 114 and 194 did not prevent it.** Both say a guard written against a spelling misses the next spelling. The first
+guard was still written from the incident rather than from the rule it states.
+
+**Fix.** `210afa18`. `TestNothingElseBuildsAPathFromAnID` (`internal/ui/view/paths_rule_test.go`) finds net/url under
+any import name and refuses `PathEscape`, `JoinPath`, `path` and `filepath` Join, fmt formats holding a `/` and string
+concatenation, in both packages and their subpackages.
+
+**Lesson.** As 114: state the rule as what may not happen (a path built from an id outside `paths.go`), then list
+each way to write it and hold the guard to each.
