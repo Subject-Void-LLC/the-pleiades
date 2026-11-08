@@ -465,6 +465,22 @@ var journalStringFields = map[string]journalStringField{
 		kind: journalKindDigest,
 		why:  "sha256:<hex> of the program's bytes, computed by the loader's openProgram from the file it opened and set on the descriptor at registration, never reported by the program",
 	},
+	"Collection.Group": {
+		kind: journalKindRegistryConstant,
+		why:  "for a built-in, the name of the first-party group collection.FirstPartyGroupOf finds for the resolved FQCN in pkg/collection's static list (collection.BuiltinIdentity), a compile-time constant; for an external program's method (Collection.Program), the file name the loader opened, which is a platform-resolved name like ProviderProgram (kind 1) rather than a constant, set on the descriptor at registration and read back through the registry, and recorded only when wire.CollectionIdentity.Valid accepts it; never text the program, the runbook or a device sent",
+	},
+	"Collection.Version": {
+		kind: journalKindRegistryConstant,
+		why:  "the core build's version from internal/buildinfo, a link-time constant the engine reads once (coreVersion); empty for an external program, whose identity carries no version",
+	},
+	"Collection.Manifests": {
+		kind: journalKindDigest,
+		why:  "sha256:<hex> of the group's registered manifests (collection.GroupDigest) or, for a program, of the description the loader decoded (collection.DescriptionDigest), computed by The Pleiades and never reported",
+	},
+	"InverseSpecDigest": {
+		kind: journalKindDigest,
+		why:  "sha256:<hex> of a built-in emitter's sdk.InverseSpec for the undo and the undo method's declared parameters (collection.UndoDigest), computed from the registry at write time",
+	},
 	"DAGVersion": {
 		kind: journalKindDigest,
 		why:  "sha256:<hex> over the fully resolved definition, computed by the DAG builder and never authored",

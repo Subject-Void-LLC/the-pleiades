@@ -31,6 +31,10 @@ import (
 	"testing"
 
 	"golang.org/x/crypto/ssh/knownhosts"
+
+	"github.com/Subject-Void-LLC/the-pleiades/internal/catalog/fragment"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/clireport"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 )
 
 // The four sentinels, one per route a device-obtained value takes into an
@@ -77,31 +81,26 @@ func journalGateRunbook() string {
 	return "id: journal-release-gate\n" +
 		"tasks:\n" +
 		"  - name: plant-the-values-on-the-device\n" +
-		"    fqcn: exec.shell\n" +
-		"    params:\n" +
+		"    exec.shell:\n" +
 		"      target: container1\n" +
 		"      cmd: \"printf '%s' '" + sentinelStdout + "' > " + gateReadPath +
 		" && printf 'setting = %s\\n' '" + sentinelBefore + "' > " + gateEditPath + "\"\n" +
 		"  - name: put-a-value-in-the-command-line\n" +
-		"    fqcn: exec.command\n" +
-		"    params:\n" +
+		"    exec.command:\n" +
 		"      target: container1\n" +
 		"      cmd: \"/bin/echo " + sentinelCmd + "\"\n" +
 		"  - name: read-a-value-off-the-device\n" +
-		"    fqcn: exec.command\n" +
-		"    params:\n" +
+		"    exec.command:\n" +
 		"      target: container1\n" +
 		"      cmd: \"/bin/cat " + gateReadPath + "\"\n" +
 		"  - name: edit-a-file-that-holds-a-value\n" +
-		"    fqcn: file.line.set\n" +
-		"    params:\n" +
+		"    file.line.set:\n" +
 		"      target: container1\n" +
 		"      path: " + gateEditPath + "\n" +
 		"      regexp: \"^setting\"\n" +
 		"      line: \"setting = " + sentinelAfter + "\"\n" +
 		"  - name: fail-with-a-value-on-standard-error\n" +
-		"    fqcn: exec.command\n" +
-		"    params:\n" +
+		"    exec.command:\n" +
 		"      target: container1\n" +
 		"      cmd: \"/bin/cat /tmp/" + sentinelStderr + "\"\n"
 }
@@ -126,6 +125,17 @@ type journalRecord struct {
 	ParamKeys    []string `json:"param_keys"`
 	InverseFQCN  string   `json:"inverse_fqcn"`
 	DiffRecorded bool     `json:"diff_recorded"`
+
+	// Collection and InverseSpecDigest are the identity of the Collection
+	// the task's method came from and the digest of its undo's declaration
+	// (Phase 136b).
+	Collection struct {
+		Group     string `json:"group"`
+		Version   string `json:"version"`
+		Program   bool   `json:"program"`
+		Manifests string `json:"manifests"`
+	} `json:"collection"`
+	InverseSpecDigest string `json:"inverse_spec_digest"`
 }
 
 // readJournal returns every byte the journal directory holds and every
@@ -325,12 +335,70 @@ func TestCLI_JournalHoldsNoDeviceValue(t *testing.T) {
 		t.Error("the file.line.set task recorded no inverse fqcn, so nothing names what would undo it")
 	}
 
+	// Each task names the Collection its method came from (Phase 136b): its
+	// first-party group, the build that ran it, and the digest of the
+	// group's manifests as this same build registers them, which the test
+	// binary links too; and the undo names the digest of its declaration.
+	assertJournalCollectionIdentity(t, records, edit)
+
 	// And the whole run is ordered and attributable.
 	for i, rec := range records {
 		if rec.Sequence != i+1 {
 			t.Errorf("record %d carries sequence %d: the run's own order is not recoverable from the file", i, rec.Sequence)
 			break
 		}
+	}
+}
+
+// assertJournalCollectionIdentity holds every record of a method to the
+// identity of its first-party group at the version `pleiades version --json`
+// reports, and edit's undo to the digest of file.line.set's declaration of
+// it, both computed here from the registry the test binary links.
+func assertJournalCollectionIdentity(t *testing.T, records []journalRecord, edit journalRecord) {
+	t.Helper()
+	out, err := runPleiades(t, t.TempDir(), "version", "--json")
+	if err != nil {
+		t.Fatalf("version --json: %v\n%s", err, out)
+	}
+	var report clireport.VersionReport
+	if err := json.Unmarshal([]byte(out), &report); err != nil || report.Version == "" {
+		t.Fatalf("version --json gave no version (%v):\n%s", err, out)
+	}
+	for _, rec := range records {
+		group, ok := collection.FirstPartyGroupOf(rec.FQCN)
+		if !ok {
+			t.Fatalf("task %q ran %s, which is in no first-party group", rec.TaskName, rec.FQCN)
+		}
+		digest, err := collection.GroupDigest(group.Name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := rec.Collection
+		if got.Group != group.Name || got.Program || got.Version != report.Version || got.Manifests != digest {
+			t.Errorf("task %q (%s) recorded collection %+v, want group %s at %s with digest %s",
+				rec.TaskName, rec.FQCN, got, group.Name, report.Version, digest)
+		}
+	}
+
+	emitter, ok := collection.Lookup("file.line.set")
+	if !ok {
+		t.Fatal("file.line.set is not registered in the test binary")
+	}
+	target, ok := collection.Lookup(edit.InverseFQCN)
+	if !ok {
+		t.Fatalf("the edit's undo %q is not registered", edit.InverseFQCN)
+	}
+	var want string
+	for _, spec := range emitter.Manifest.Reversibility.Inverses {
+		if spec.FQCN == edit.InverseFQCN {
+			want = collection.UndoDigest(spec, fragment.ByName(target))
+		}
+	}
+	if want == "" {
+		t.Fatalf("file.line.set declares no undo through %s, so its digest is not checkable here", edit.InverseFQCN)
+	}
+	if edit.InverseSpecDigest != want {
+		t.Errorf("the edit's undo recorded inverse_spec_digest %q, want %q", edit.InverseSpecDigest, want)
 	}
 }
 

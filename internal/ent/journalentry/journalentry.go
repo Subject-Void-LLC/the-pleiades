@@ -104,6 +104,16 @@ const (
 	FieldLeaseRevision = "lease_revision"
 	// FieldLeaseEpoch holds the string denoting the lease_epoch field in the database.
 	FieldLeaseEpoch = "lease_epoch"
+	// FieldCollectionGroup holds the string denoting the collection_group field in the database.
+	FieldCollectionGroup = "collection_group"
+	// FieldCollectionVersion holds the string denoting the collection_version field in the database.
+	FieldCollectionVersion = "collection_version"
+	// FieldCollectionProgram holds the string denoting the collection_program field in the database.
+	FieldCollectionProgram = "collection_program"
+	// FieldCollectionManifests holds the string denoting the collection_manifests field in the database.
+	FieldCollectionManifests = "collection_manifests"
+	// FieldInverseSpecDigest holds the string denoting the inverse_spec_digest field in the database.
+	FieldInverseSpecDigest = "inverse_spec_digest"
 	// Table holds the table name of the journalentry in the database.
 	Table = "journal_entries"
 )
@@ -156,6 +166,11 @@ var Columns = []string{
 	FieldRunTick,
 	FieldLeaseRevision,
 	FieldLeaseEpoch,
+	FieldCollectionGroup,
+	FieldCollectionVersion,
+	FieldCollectionProgram,
+	FieldCollectionManifests,
+	FieldInverseSpecDigest,
 }
 
 // ValidColumn reports if the column name is valid (part of the table columns).
@@ -229,6 +244,8 @@ var (
 	DefaultRunTick uint64
 	// DefaultLeaseRevision holds the default value on creation for the "lease_revision" field.
 	DefaultLeaseRevision uint64
+	// DefaultCollectionProgram holds the default value on creation for the "collection_program" field.
+	DefaultCollectionProgram bool
 )
 
 // Outcome defines the type for the "outcome" enum field.
@@ -468,4 +485,29 @@ func ByLeaseRevision(opts ...sql.OrderTermOption) OrderOption {
 // ByLeaseEpoch orders the results by the lease_epoch field.
 func ByLeaseEpoch(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldLeaseEpoch, opts...).ToFunc()
+}
+
+// ByCollectionGroup orders the results by the collection_group field.
+func ByCollectionGroup(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldCollectionGroup, opts...).ToFunc()
+}
+
+// ByCollectionVersion orders the results by the collection_version field.
+func ByCollectionVersion(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldCollectionVersion, opts...).ToFunc()
+}
+
+// ByCollectionProgram orders the results by the collection_program field.
+func ByCollectionProgram(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldCollectionProgram, opts...).ToFunc()
+}
+
+// ByCollectionManifests orders the results by the collection_manifests field.
+func ByCollectionManifests(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldCollectionManifests, opts...).ToFunc()
+}
+
+// ByInverseSpecDigest orders the results by the inverse_spec_digest field.
+func ByInverseSpecDigest(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldInverseSpecDigest, opts...).ToFunc()
 }

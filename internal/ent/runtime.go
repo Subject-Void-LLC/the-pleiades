@@ -658,6 +658,10 @@ func init() {
 	journalentryDescLeaseRevision := journalentryFields[41].Descriptor()
 	// journalentry.DefaultLeaseRevision holds the default value on creation for the lease_revision field.
 	journalentry.DefaultLeaseRevision = journalentryDescLeaseRevision.Default.(uint64)
+	// journalentryDescCollectionProgram is the schema descriptor for collection_program field.
+	journalentryDescCollectionProgram := journalentryFields[45].Descriptor()
+	// journalentry.DefaultCollectionProgram holds the default value on creation for the collection_program field.
+	journalentry.DefaultCollectionProgram = journalentryDescCollectionProgram.Default.(bool)
 	launchableMixin := schema.Launchable{}.Mixin()
 	launchableMixinFields0 := launchableMixin[0].Fields()
 	_ = launchableMixinFields0

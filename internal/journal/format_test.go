@@ -27,19 +27,20 @@ func TestReadRunRefusesANewerFormatByName(t *testing.T) {
 		t.Fatal(err)
 	}
 	line := strings.TrimSuffix(string(written), "\n")
-	if !strings.HasPrefix(line, `{"format":1,`) {
+	if !strings.HasPrefix(line, `{"format":2,`) {
 		t.Fatalf("a written line does not lead with its format: %s", line)
 	}
 	for _, tc := range []struct {
 		name, line, wantErr string
 	}{
 		{name: "this build's format", line: line},
-		{name: "no format, from before the field", line: strings.Replace(line, `"format":1,`, "", 1)},
-		{name: "a newer format with a key this build lacks", line: strings.Replace(line, `"format":1,`, `"format":2,"a_newer_key":true,`, 1),
-			wantErr: "is journal format 2, and this build reads formats up to 1"},
-		{name: "a newer format alone", line: strings.Replace(line, `"format":1,`, `"format":2,`, 1),
-			wantErr: "is journal format 2"},
-		{name: "a negative format", line: strings.Replace(line, `"format":1,`, `"format":-1,`, 1),
+		{name: "no format, from before the field", line: strings.Replace(line, `"format":2,`, "", 1)},
+		{name: "format 1, from before the Collection identity", line: strings.Replace(line, `"format":2,`, `"format":1,`, 1)},
+		{name: "a newer format with a key this build lacks", line: strings.Replace(line, `"format":2,`, `"format":3,"a_newer_key":true,`, 1),
+			wantErr: "is journal format 3, and this build reads formats up to 2"},
+		{name: "a newer format alone", line: strings.Replace(line, `"format":2,`, `"format":3,`, 1),
+			wantErr: "is journal format 3"},
+		{name: "a negative format", line: strings.Replace(line, `"format":2,`, `"format":-1,`, 1),
 			wantErr: "names format -1, which is not a format version"},
 		{name: "not an object at all", line: `["format",2]`, wantErr: "not a journal entry"},
 	} {
@@ -48,6 +49,57 @@ func TestReadRunRefusesANewerFormatByName(t *testing.T) {
 				t.Fatal(err)
 			}
 			_, err := journal.ReadRun(root, "run-a")
+			switch {
+			case tc.wantErr == "" && err != nil:
+				t.Errorf("refused: %v", err)
+			case tc.wantErr != "" && (err == nil || !strings.Contains(err.Error(), tc.wantErr)):
+				t.Errorf("error %v, want %q", err, tc.wantErr)
+			}
+		})
+	}
+}
+
+// TestReadRunHoldsTheCollectionIdentityToWhatABuildWrites: a format-2 line's
+// identity and undo digest read as written; the same line is refused when
+// it claims an earlier format, when its identity is not one Valid accepts
+// (a manifest digest of the wrong shape, a group holding a format
+// character), and when its undo digest is not a digest.
+func TestReadRunHoldsTheCollectionIdentityToWhatABuildWrites(t *testing.T) {
+	frozen, err := os.ReadFile(filepath.Join("testdata", "format-2", "entries.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	line := strings.SplitN(string(frozen), "\n", 2)[0]
+	manifests := `"manifests":"sha256:` + strings.Repeat("c", 64) + `"`
+	undo := `"inverse_spec_digest":"sha256:` + strings.Repeat("d", 64) + `"`
+	for _, want := range []string{`"format":2,`, manifests, undo, `"group":"acme-files"`} {
+		if !strings.Contains(line, want) {
+			t.Fatalf("the frozen line lacks %s, so the cases below would test nothing:\n%s", want, line)
+		}
+	}
+	root := t.TempDir()
+	dir := filepath.Join(root, ".pleiades", "journal")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, goldenRunID+".jsonl")
+	for _, tc := range []struct{ name, old, new, wantErr string }{
+		{name: "as written"},
+		{name: "claiming format 1", old: `"format":2,`, new: `"format":1,`, wantErr: "is journal format 1 and carries a Collection identity"},
+		{name: "claiming no format", old: `"format":2,`, new: ``, wantErr: "is journal format 1 and carries a Collection identity"},
+		{name: "a manifest digest of the wrong shape", old: manifests, new: `"manifests":"sha256:00"`, wantErr: "records a Collection identity no build writes"},
+		{name: "a group holding a soft hyphen", old: `"group":"acme-files"`, new: `"group":"acme\u00adfiles"`, wantErr: "control or format character"},
+		{name: "an undo digest of the wrong shape", old: undo, new: `"inverse_spec_digest":"md5:00"`, wantErr: "carries undo digest"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			text := line
+			if tc.old != "" {
+				text = strings.Replace(line, tc.old, tc.new, 1)
+			}
+			if err := os.WriteFile(path, []byte(text+"\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			_, err := journal.ReadRun(root, goldenRunID)
 			switch {
 			case tc.wantErr == "" && err != nil:
 				t.Errorf("refused: %v", err)

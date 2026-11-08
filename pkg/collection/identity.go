@@ -1,5 +1,6 @@
 // Package collection: the identity of the Collection a built-in method came
-// from, and the canonical digest of a set of manifests (Phase 136b).
+// from, the canonical digest of a set of manifests, and the digest of one
+// undo's declaration (Phase 136b).
 //
 // A group's identity (wire.CollectionIdentity) is its first-party name, the
 // core build it was linked into, and a digest of its manifests. The digest
@@ -18,10 +19,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"maps"
 	"sort"
 
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
 
@@ -126,6 +128,59 @@ func DescriptionDigest(manifests map[string]Manifest, capabilities []capability.
 		Methods      map[string]Manifest         `json:"methods"`
 		Capabilities []capability.DataDefinition `json:"capabilities"`
 	}{manifests, defs})
+}
+
+// UndoDigest is the digest of one undo's declaration: the emitting method's
+// sdk.InverseSpec for it and the parameters the undo's own method declares
+// (params, by name, as fragment.ByName gives them: its Doc.Params and its
+// fragments'), in the canonical form ManifestSetDigest uses.
+//
+// It covers what decides whether a recorded undo still replays as it was
+// recorded, and nothing else: the spec's FQCN, the Record and Withhold sets
+// and its two flags; and each parameter's name, type, whether it is
+// required, its default, the parameter it is an alias of, its closed set of
+// choices, its format (a recorded path read as a template_file is a
+// different replay), whether a run setting may fill it, and whether it may
+// hold secret references. A description and a risk mark move nothing, so a
+// corrected sentence in a method's documentation never reads as skew.
+// TestUndoDigest_DecidesEveryField holds every field of sdk.InverseSpec and
+// Param to that list or to the list of what is left out. The sets (Record,
+// Withhold, Choices) are sorted, since their order means nothing to a
+// replay.
+func UndoDigest(spec sdk.InverseSpec, params map[string]Param) string {
+	type undoParam struct {
+		Name              string   `json:"name"`
+		Type              string   `json:"type"`
+		Required          bool     `json:"required"`
+		Default           string   `json:"default"`
+		AliasOf           string   `json:"aliasOf"`
+		Choices           []string `json:"choices"`
+		ChoicesIgnoreCase bool     `json:"choicesIgnoreCase"`
+		Format            string   `json:"format"`
+		RunSetting        bool     `json:"runSetting"`
+		SecretRefs        bool     `json:"secretRefs"`
+	}
+	sorted := func(s []string) []string {
+		out := append([]string{}, s...)
+		sort.Strings(out)
+		return out
+	}
+	declared := make(map[string]undoParam, len(params))
+	for name, p := range params {
+		declared[name] = undoParam{
+			Name: p.Name, Type: p.Type, Required: p.Required, Default: p.Default,
+			AliasOf: p.AliasOf, Choices: sorted(p.Choices), ChoicesIgnoreCase: p.ChoicesIgnoreCase,
+			Format: string(p.Format), RunSetting: p.RunSetting, SecretRefs: p.SecretRefs,
+		}
+	}
+	return canonicalDigest(struct {
+		FQCN             string               `json:"fqcn"`
+		Record           []string             `json:"record"`
+		Withhold         []string             `json:"withhold"`
+		MayBePartial     bool                 `json:"mayBePartial"`
+		MayKeepOnFailure bool                 `json:"mayKeepOnFailure"`
+		Params           map[string]undoParam `json:"params"`
+	}{spec.FQCN, sorted(spec.Record), sorted(spec.Withhold), spec.MayBePartial, spec.MayKeepOnFailure, declared})
 }
 
 // GroupManifests returns the manifests of every built-in method of the

@@ -133,12 +133,19 @@ func Types(d collection.Descriptor) map[string]string {
 // Doc.Params and its named fragments' alike, by name. A method's own
 // declaration wins over a fragment's of the same name, as Types has it.
 func ByName(d collection.Descriptor) map[string]collection.Param {
-	out := make(map[string]collection.Param, len(d.Manifest.Doc.Params))
-	shared, _ := Params(d.Manifest.Doc.Fragments)
+	return ByNameIn(d.Manifest)
+}
+
+// ByNameIn is ByName for a manifest alone, for a caller that holds no
+// descriptor (one reading a method through collection.ManifestOf, which
+// falls back to the installed catalog where nothing is registered).
+func ByNameIn(m collection.Manifest) map[string]collection.Param {
+	out := make(map[string]collection.Param, len(m.Doc.Params))
+	shared, _ := Params(m.Doc.Fragments)
 	for _, p := range shared {
 		out[p.Name] = p
 	}
-	for _, p := range d.Manifest.Doc.Params {
+	for _, p := range m.Doc.Params {
 		out[p.Name] = p
 	}
 	return out

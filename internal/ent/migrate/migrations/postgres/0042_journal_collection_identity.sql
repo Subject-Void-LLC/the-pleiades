@@ -1,0 +1,1 @@
+ALTER TABLE "journal_entries" ADD COLUMN "collection_group" character varying NULL, ADD COLUMN "collection_version" character varying NULL, ADD COLUMN "collection_program" boolean NOT NULL DEFAULT false, ADD COLUMN "collection_manifests" character varying NULL, ADD COLUMN "inverse_spec_digest" character varying NULL;

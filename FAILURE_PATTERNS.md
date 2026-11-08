@@ -987,6 +987,10 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 981. The playbook converter reported a missing native method as a missing parameter (fixed before push)
 982. A new check in the loader's second pass refused a whole collections directory over a file name every earlier entry point admits (fixed before push, a repeat in kind of 823 and 887)
 983. A program's own provider text on its capabilities moved its identity digest, then the loader overwrote it (fixed before push, the class of 113)
+984. The engine journaled an external program's identity as the loader set it, so a name Valid refuses would make the run unreadable to the strict reader 982 planned, and invalid UTF-8 in it was rewritten by encoding/json (fixed before push, a repeat in kind of 982; its UTF-8 half the class of 370 and 932)
+985. The strict journal reader's "refuse anything the writer could not have made" was not extended to format 2's fields (fixed before push, a repeat in kind of 959; LESSONS 408)
+986. collection.UndoDigest's doc said it covers what decides whether a recorded undo still replays, and it left out a parameter's format, run setting and secret references (fixed before push, a repeat in kind of 885; LESSONS 348)
+987. The changelog said 0.3 refuses a format-2 journal line by its format version, and v0.3.0 predates the format key (fixed before push, a repeat of 571 and 976)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

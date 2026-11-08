@@ -741,6 +741,8 @@ func TestEntStoreRoundTripsEveryFieldByReflection(t *testing.T) {
 			f.SetUint(uint64(1000 + i))
 		case field.Type == reflect.TypeOf([]string{}):
 			f.Set(reflect.ValueOf([]string{"k-" + field.Name}))
+		case f.Kind() == reflect.Struct && fillFlatStruct(f, field.Name):
+			// A struct of strings and bools (Collection), each set apart.
 		default:
 			t.Fatalf("JournalEntry.%s is a %s, which this test cannot fill; teach it one, so the field is round-tripped", field.Name, field.Type)
 		}
@@ -771,6 +773,25 @@ func TestEntStoreRoundTripsEveryFieldByReflection(t *testing.T) {
 			t.Errorf("%s = %#v after the round trip, want %#v: the store drops or changes it", name, g, w)
 		}
 	}
+}
+
+// fillFlatStruct gives every field of the struct s, all strings or bools, a
+// value naming it, and reports false, filling nothing, when one is of another
+// kind.
+func fillFlatStruct(s reflect.Value, name string) bool {
+	for i := range s.NumField() {
+		if k := s.Field(i).Kind(); k != reflect.String && k != reflect.Bool {
+			return false
+		}
+	}
+	for i := range s.NumField() {
+		if f := s.Field(i); f.Kind() == reflect.String {
+			f.SetString("v-" + name + "." + s.Type().Field(i).Name)
+		} else {
+			f.SetBool(true)
+		}
+	}
+	return true
 }
 
 // TestEntStoreReadsAnUnreadableUndoAsNone covers a stored inverse_params

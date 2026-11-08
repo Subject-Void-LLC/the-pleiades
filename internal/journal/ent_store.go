@@ -22,6 +22,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent"
 	entjournal "github.com/Subject-Void-LLC/the-pleiades/internal/ent/journalentry"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
 
 // ErrUnstorable marks a batch this store will never accept, however many
@@ -108,6 +109,10 @@ func (s *EntStore) saveOne(ctx context.Context, entry engine.JournalEntry) (bool
 		SetFqcnUnresolved(entry.FQCNUnresolved).
 		SetProviderProgram(entry.ProviderProgram).
 		SetProviderDigest(entry.ProviderDigest).
+		SetCollectionGroup(entry.Collection.Group).
+		SetCollectionVersion(entry.Collection.Version).
+		SetCollectionProgram(entry.Collection.Program).
+		SetCollectionManifests(entry.Collection.Manifests).
 		SetTaskName(entry.TaskName).
 		SetRegister(entry.Register).
 		SetOutcome(outcome).
@@ -123,6 +128,7 @@ func (s *EntStore) saveOne(ctx context.Context, entry engine.JournalEntry) (bool
 		SetInverseFqcnUnresolved(entry.InverseFQCNUnresolved).
 		SetInverseParamKeys(entry.InverseParamKeys).
 		SetUndeclaredInverseParamCount(entry.UndeclaredInverseParamCount).
+		SetInverseSpecDigest(entry.InverseSpecDigest).
 		SetDiffRecorded(entry.DiffRecorded).
 		SetInverseComplete(entry.InverseComplete).
 		SetInversePartial(entry.InversePartial).
@@ -272,18 +278,22 @@ func (s *EntStore) ForJob(ctx context.Context, jobID string, limit int) (entries
 // second authority on the same question.
 func hydrateEntry(row *ent.JournalEntry) engine.JournalEntry {
 	return engine.JournalEntry{
-		JobID:                       row.JobID,
-		DeviceID:                    row.DeviceID,
-		Attempt:                     row.Attempt,
-		NodeID:                      row.NodeID,
-		RunID:                       row.RunID,
-		Sequence:                    row.Sequence,
-		DAGID:                       row.DagID,
-		DAGVersion:                  row.DagVersion,
-		FQCN:                        row.Fqcn,
-		FQCNUnresolved:              row.FqcnUnresolved,
-		ProviderProgram:             row.ProviderProgram,
-		ProviderDigest:              row.ProviderDigest,
+		JobID:           row.JobID,
+		DeviceID:        row.DeviceID,
+		Attempt:         row.Attempt,
+		NodeID:          row.NodeID,
+		RunID:           row.RunID,
+		Sequence:        row.Sequence,
+		DAGID:           row.DagID,
+		DAGVersion:      row.DagVersion,
+		FQCN:            row.Fqcn,
+		FQCNUnresolved:  row.FqcnUnresolved,
+		ProviderProgram: row.ProviderProgram,
+		ProviderDigest:  row.ProviderDigest,
+		Collection: wire.CollectionIdentity{
+			Group: row.CollectionGroup, Version: row.CollectionVersion,
+			Program: row.CollectionProgram, Manifests: row.CollectionManifests,
+		},
 		TaskName:                    row.TaskName,
 		Register:                    row.Register,
 		StartedAt:                   row.StartedAt,
@@ -301,6 +311,7 @@ func hydrateEntry(row *ent.JournalEntry) engine.JournalEntry {
 		InverseFQCNUnresolved:       row.InverseFqcnUnresolved,
 		InverseParamKeys:            row.InverseParamKeys,
 		UndeclaredInverseParamCount: row.UndeclaredInverseParamCount,
+		InverseSpecDigest:           row.InverseSpecDigest,
 		DiffRecorded:                row.DiffRecorded,
 		InverseParams:               hydrateInverseParams(row.InverseParams),
 		InverseComplete:             row.InverseComplete,

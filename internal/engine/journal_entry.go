@@ -467,6 +467,7 @@ func (r *run) projectResult(n NodeResult) (JournalEntry, error) {
 		entry.ProviderProgram = n.Provider.Program
 		entry.ProviderDigest = n.Provider.Digest
 	}
+	entry.Collection = r.collectionIdentity(resolved, n.Provider)
 
 	// Param key names only, against this method's own Doc.Params. No
 	// declaration can ever admit a param VALUE: file.copy's content is a
@@ -608,6 +609,7 @@ func projectInverse(entry *JournalEntry, stats map[string]interface{}, emitter *
 	if !declared {
 		return
 	}
+	entry.InverseSpecDigest = inverseSpecDigest(spec, inverse)
 	complete := !inverse.Unresolved && entry.UndeclaredInverseParamCount == 0
 	for _, key := range sortedParamKeys(params) {
 		value, ok := recordedValue(key, params[key], ListParam(inverse.Name, key))

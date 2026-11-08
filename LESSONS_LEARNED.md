@@ -445,6 +445,8 @@ story, per `.AGENTS/AGENTS.md`.
 410. A translated value carries its translation through every operation, or every operation but one refuses it.
 411. A shared conformance suite proves only its cases: when stored state becomes a derivation, keep the old algorithm as an oracle and replay random sequences into it and every store.
 412. The release that introduces a compatibility contract is the one release its checker cannot see: write that release's breaking fragment by hand.
+413. When a check moves from the writer to the reader, the writer writes only what that reader accepts, and the same change tests the writer against the reader's own check.
+414. A digest over chosen fields of a type lists every field as digested or left out, and a reflection test fails on a field in neither list.
 
 Each entry above is the rule only. Full reasoning and the incident that produced it lives in [`LESSONS_LEARNED_ARCHIVE.md`](LESSONS_LEARNED_ARCHIVE.md), same entry numbers. Read an archive entry when its rule is directly relevant to what you're doing and you need the *why*; the rule sentence above is usually enough on its own.
 
