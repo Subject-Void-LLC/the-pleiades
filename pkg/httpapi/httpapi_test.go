@@ -55,7 +55,7 @@ func TestJoin(t *testing.T) {
 // FuzzJoin: whatever ref is, a joined URL has the base's origin and sits
 // under the base's path.
 func FuzzJoin(f *testing.F) {
-	for _, s := range []string{"/items", "//x", "/%2e%2e/", "/a?b#c", "/\\x", "/..;/"} {
+	for _, s := range []string{"/items", "//x", "/%2e%2e/", "/a?b#c", "/\\x", "/..;/", "/a%2Fb", "/a%2F..%2Fb", "/a%3Bb"} {
 		f.Add(s)
 	}
 	base := mustBase(f, "https://api.example.com:8443/v2")
@@ -73,6 +73,11 @@ func FuzzJoin(f *testing.F) {
 		reparsed, err := url.Parse(got.String())
 		if err != nil || !httpapi.SameOrigin(base, reparsed) {
 			t.Fatalf("Join(%q) = %s reparses to another origin", ref, got)
+		}
+		// What is sent decodes to the path Join checked, so the check and
+		// the request are about the same path.
+		if reparsed.Path != got.Path || reparsed.EscapedPath() != got.EscapedPath() {
+			t.Fatalf("Join(%q) = %s is sent as path %q, but Join checked %q", ref, got, reparsed.Path, got.Path)
 		}
 	})
 }

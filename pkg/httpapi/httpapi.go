@@ -91,6 +91,12 @@ func PlaintextWarning(device string) string {
 // contains can move the request off base's origin: a scheme, a host, a
 // second leading slash (a protocol-relative URL) and a ".." segment
 // climbing above base's own path are each refused.
+//
+// ref is already escaped, as a caller writing "/labs/"+url.PathEscape(name)
+// has it, and the joined URL keeps that encoding: a %2F inside one segment
+// reaches the server as %2F, never as a second segment. The dot-segment
+// check runs on the decoded path, so a dot segment is refused however it is
+// written (%2E%2E, or a ".." that only appears once a %2F is decoded).
 func Join(base *url.URL, ref string) (*url.URL, error) {
 	if !strings.HasPrefix(ref, "/") || strings.HasPrefix(ref, "//") || strings.HasPrefix(ref, `/\`) {
 		return nil, errors.New("a device URL must be a path beginning with one /")
@@ -111,10 +117,31 @@ func Join(base *url.URL, ref string) (*url.URL, error) {
 		}
 	}
 	out := *base
-	out.Path = strings.TrimSuffix(base.Path, "/") + rel.Path
-	out.RawPath = ""
+	setJoinedPath(&out, base, rel)
 	out.RawQuery = rel.RawQuery
 	return &out, nil
+}
+
+// setJoinedPath sets out's path to rel's appended to base's, in both forms.
+// Path holds the decoded form, which cannot tell a / that separates
+// segments from an escaped %2F inside one, so the escaped form is built
+// from each side's EscapedPath and kept in RawPath whenever it differs from
+// the default encoding of Path. The two always agree, since a literal
+// trailing / is trimmed from both forms of base's path together.
+func setJoinedPath(out, base, rel *url.URL) {
+	basePath, baseEscaped := base.Path, base.EscapedPath()
+	if strings.HasSuffix(baseEscaped, "/") {
+		// A literal / ending the escaped form is a / ending the decoded one.
+		basePath, baseEscaped = strings.TrimSuffix(basePath, "/"), strings.TrimSuffix(baseEscaped, "/")
+	}
+	out.Path = basePath + rel.Path
+	escaped := baseEscaped + rel.EscapedPath()
+	// RawPath is set only when it says something Path's default encoding
+	// does not, as url.Parse itself sets it.
+	out.RawPath = ""
+	if escaped != (&url.URL{Path: out.Path}).EscapedPath() {
+		out.RawPath = escaped
+	}
 }
 
 // SameOrigin reports whether a and b share scheme, host and port. A
