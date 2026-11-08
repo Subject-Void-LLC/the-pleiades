@@ -204,6 +204,38 @@ func TestTranslate_APlayTheGatherCannotServeKeepsItsFactsDropped(t *testing.T) {
 	}
 }
 
+func TestTranslate_AnOpenBSDReleaseWordIsRefusedNamingOpenBSD(t *testing.T) {
+	// Ansible reports these as OpenBSD's release (kern.version's suffix, or
+	// release); none is a codename, and this platform gathers no facts there.
+	for _, word := range []string{"release", "current", "stable", "beta"} {
+		for _, when := range []string{
+			`ansible_distribution_release == "` + word + `"`,
+			`ansible_distribution_release != "` + word + `"`,
+			`ansible_distribution_release in ["bookworm", "` + word + `"]`,
+		} {
+			t.Run(when, func(t *testing.T) {
+				res := convert(t, factPlay(when, "x"))
+				if !slices.Contains(codesOf(res.Report), "when.fact") {
+					t.Errorf("codes %v, want when.fact", codesOf(res.Report))
+				}
+				if report := res.Report.String(); !strings.Contains(report, "OpenBSD") {
+					t.Errorf("the refusal does not name OpenBSD:\n%s", report)
+				}
+				for _, rb := range res.Runbooks {
+					if strings.Contains(string(rb.YAML), `"os.codename"`) {
+						t.Errorf("the condition was converted:\n%s", rb.YAML)
+					}
+				}
+			})
+		}
+	}
+	// A codename still converts.
+	res := convert(t, factPlay(`ansible_distribution_release == "bookworm"`, "x"))
+	if len(res.Runbooks) != 1 || !strings.Contains(string(res.Runbooks[0].YAML), `["os.codename"] == "bookworm"`) {
+		t.Errorf("a codename no longer converts: codes %v", codesOf(res.Report))
+	}
+}
+
 func TestTranslate_AFactRefusalNamesTheValuesKindNotTheValue(t *testing.T) {
 	const value = "hunter2-like-text-in-a-condition"
 	res := convert(t, factPlay(`ansible_distribution == "`+value+`"`, "x"))

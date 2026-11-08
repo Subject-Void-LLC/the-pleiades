@@ -3,6 +3,7 @@ package ansiblefacts
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -48,6 +49,13 @@ func TestNativeValueWritesAnsiblesValuesTheNativeWay(t *testing.T) {
 		{"ansible_lsb", "x", nil, false},
 		{"ansible_os_family", []any{"Debian", "RedHat"}, []any{"debian", "redhat"}, true},
 		{"ansible_os_family", []any{"Debian", "Plan9"}, nil, false},
+		// OpenBSD's release words name no codename.
+		{"ansible_distribution_release", "release", nil, false},
+		{"ansible_distribution_release", "current", nil, false},
+		{"ansible_distribution_release", "stable", nil, false},
+		{"ansible_distribution_release", "beta", nil, false},
+		{"ansible_distribution_release", []any{"bookworm", "current"}, nil, false},
+		{"ansible_distribution_release", "kali-rolling", "kali-rolling", true},
 	} {
 		got, ok := NativeValue(tc.fact, tc.v)
 		if ok != tc.ok || (ok && !reflect.DeepEqual(got, tc.want)) {
@@ -56,6 +64,27 @@ func TestNativeValueWritesAnsiblesValuesTheNativeWay(t *testing.T) {
 	}
 	if isDigits("") || !isDigits("15") || isDigits("1a") {
 		t.Error("isDigits")
+	}
+}
+
+func TestNativeValueReasonNamesOpenBSDForItsReleaseWords(t *testing.T) {
+	for _, word := range []string{"release", "current", "stable", "beta"} {
+		if v, why := NativeValueReason("ansible_distribution_release", word); v != nil || !strings.Contains(why, "OpenBSD") {
+			t.Errorf("NativeValueReason(release, %q) = %v, %q; want a refusal naming OpenBSD", word, v, why)
+		}
+	}
+	// Every other refusal keeps the general reason, and a translated value
+	// has none.
+	for _, tc := range []struct {
+		fact string
+		v    any
+	}{{"ansible_distribution_release", "Stream"}, {"ansible_architecture", "x86_64"}, {"ansible_lsb", "x"}, {"ansible_distribution", 7}} {
+		if _, why := NativeValueReason(tc.fact, tc.v); why != NoNativeValue {
+			t.Errorf("NativeValueReason(%s, %#v) reason %q, want %q", tc.fact, tc.v, why, NoNativeValue)
+		}
+	}
+	if v, why := NativeValueReason("ansible_distribution_release", "bookworm"); v != "bookworm" || why != "" {
+		t.Errorf("NativeValueReason(release, bookworm) = %v, %q", v, why)
 	}
 }
 

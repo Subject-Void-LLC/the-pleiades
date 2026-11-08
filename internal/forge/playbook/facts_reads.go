@@ -177,11 +177,12 @@ func gatherReturnType(native string) string {
 
 // nativeOperand writes fixed, the value a condition compares the Ansible fact
 // fact with, the native way, or refuses the condition when the mapping has
-// no one native value for it.
+// no one native value for it, saying why (OpenBSD's release words are named
+// as such).
 func nativeOperand(fact string, fixed term) (term, *celError) {
-	v, ok := ansiblefacts.NativeValue(fact, fixed.value)
-	if !ok {
-		return term{}, &celError{"when.fact", fmt.Sprintf("the %s compared with %s has no one native value on every host; write the condition on the native fact", kindOf(fixed.value), fact)}
+	v, why := ansiblefacts.NativeValueReason(fact, fixed.value)
+	if why != "" {
+		return term{}, &celError{"when.fact", fmt.Sprintf("the %s compared with %s %s; write the condition on the native fact", kindOf(fixed.value), fact, why)}
 	}
 	fixed.value = v
 	return fixed, nil
