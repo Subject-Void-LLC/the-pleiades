@@ -384,9 +384,26 @@ match nothing on every host), and so is a character class, a filter known only a
 a filter keeping only hardware facts under a `gather_subset` that leaves hardware out (one
 mixing hardware and other facts gathers the others there, as Ansible does). A pattern
 with a wildcard may also match Ansible facts this platform does not gather, which the review
-finding says. On a Windows host Ansible's setup ignores `filter` and gathers every fact, where
-the converted task gathers only the listed keys; `ansible.windows.setup`'s `filter` is dropped
-for that reason.
+finding says.
+
+A filtered `setup` is split by device, because Ansible ignores `filter` on a Windows host. There
+`ansible.builtin.setup` runs as `ansible.windows.setup`: a WinRM, PSRP or PowerShell-over-SSH
+connection prefers PowerShell modules (ansible-core 2.17.1, `plugins/connection/winrm.py` line
+245, `psrp.py` line 344, `ssh.py` line 583), and the loader routes `setup.ps1` to
+`ansible.windows.setup` (`config/ansible_builtin_runtime.yml` lines 4101-4102). That module has
+no `filter` option, takes any argument it does not know as raw so that `Ansible.Basic` does not
+refuse it, and never reads it (ansible.windows 2.4.0, `plugins/modules/setup.ps1` lines 13-40),
+so it gathers every fact. The converted task is therefore two `facts.gather` tasks: the filtered
+one, named with `(not Windows)`, runs where `"WindowsShellCapable" in device.capabilities` is
+false, and one with no filter (its `gather_subset` kept), named with `(Windows)`, runs where it
+is true. Each adds that test of the device to the task's own conditions, never in place of them,
+and the engine decides it on each device on its own, with no gather needed. Both take the task's
+`register`: exactly one runs on each device, and a skipped task registers nothing, so a later
+read sees the one that ran. The gap: a Windows host this platform does not know as
+`WindowsShellCapable` (a `generic_ssh` device whose onboarding never granted it) gets the
+filtered gather, where Ansible would gather every fact. `ansible.windows.setup` written as such
+ignores `filter` on every host, so its `filter` is dropped (`args.ignored`) and the task is not
+split.
 
 The table is the translation, from the same mapping the measured comparison with Ansible holds:
 
