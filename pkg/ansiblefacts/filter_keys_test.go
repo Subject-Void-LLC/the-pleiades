@@ -45,15 +45,23 @@ func TestFilterKeysKeepWhatToAnsibleReadsOnEveryHost(t *testing.T) {
 	if got := ToAnsible(kept)["ansible_distribution"]; got != windows["os.edition"] {
 		t.Errorf("a Windows host filtered to %v gives ansible_distribution %v, want its caption", FilterKeys("ansible_distribution"), got)
 	}
-	// And a Windows host whose filter keeps swap and a fact naming Windows
-	// gives Ansible's 0, which ToAnsible gives only beside memory.
-	kept = map[string]any{"os.kernel.name": "windows"}
+	// Swap is not translatable alone on Windows: a Windows host has no native
+	// swap, and ToAnsible gives Ansible's 0 only beside memory and a fact
+	// that names Windows, which the swap filter's keys do not hold. Only the
+	// filter's own keys are kept here, and the swap is absent, as documented.
+	kept = map[string]any{}
 	for _, key := range FilterKeys("ansible_swaptotal_mb") {
 		if v, ok := windows[key]; ok {
 			kept[key] = v
 		}
 	}
+	if got, ok := ToAnsible(kept)["ansible_swaptotal_mb"]; ok {
+		t.Errorf("a Windows host filtered to %v gives ansible_swaptotal_mb %v; FilterKeys says it gives none", FilterKeys("ansible_swaptotal_mb"), got)
+	}
+	// With a fact naming Windows beside them, as an unfiltered gather holds,
+	// the memory FilterKeys keeps is what gives the 0.
+	kept["os.kernel.name"] = "windows"
 	if got := ToAnsible(kept)["ansible_swaptotal_mb"]; got != 0 {
-		t.Errorf("a Windows host filtered to %v gives ansible_swaptotal_mb %v, want 0", FilterKeys("ansible_swaptotal_mb"), got)
+		t.Errorf("a Windows host's memory and kernel name give ansible_swaptotal_mb %v, want 0", got)
 	}
 }

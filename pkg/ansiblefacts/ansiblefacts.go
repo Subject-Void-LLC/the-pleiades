@@ -111,7 +111,11 @@ func AnsibleNames() []string {
 // Windows host's ansible_distribution is its edition, which ToAnsible reads
 // there) and hardware.memory_mb beside hardware.swap_mb (a Windows host has no
 // native swap, and ToAnsible gives Ansible's 0 for it only beside a gathered
-// memory fact). Nil for a name this package does not map.
+// memory fact). Swap alone is still not translatable on Windows: ToAnsible
+// also needs a fact naming the host Windows (os.kernel.name, os.distribution
+// or os.family), which these keys do not hold, so a Windows host filtered to
+// them gives no ansible_swaptotal_mb where Ansible gives 0. Nil for a name
+// this package does not map.
 func FilterKeys(ansible string) []string {
 	native, ok := nativeByAnsible[ansible]
 	switch {
