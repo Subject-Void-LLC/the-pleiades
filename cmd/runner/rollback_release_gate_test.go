@@ -30,6 +30,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/api"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/buildinfo"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/dispatch"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/journal"
@@ -268,6 +269,27 @@ func TestRollbackReleaseGate_AControllerJobIsUndoneOnItsDevice(t *testing.T) {
 	// registry this binary links computes, and a complete undo the digest of
 	// its declaration.
 	assertStoredCollectionIdentity(t, db, job.JobID)
+
+	// And the rollback's steps, which its dispatch carries to the Runner,
+	// carry the identity and undo digest each forward row recorded.
+	forward, err := journalStore.AllForJob(ctx, job.JobID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byNode := map[string]engine.JournalEntry{}
+	for _, e := range forward {
+		byNode[e.NodeID] = e
+	}
+	undone, err := store.Lookup(ctx, rollbackID)
+	if err != nil || undone.Rollback == nil || len(undone.Rollback.Devices) != 1 || len(undone.Rollback.Devices[0].Steps) == 0 {
+		t.Fatalf("the rollback job's plan: %+v %v", undone, err)
+	}
+	for _, step := range undone.Rollback.Devices[0].Steps {
+		e := byNode[step.Node]
+		if step.Collection.IsZero() || step.Collection != e.Collection || step.UndoDigest == "" || step.UndoDigest != e.InverseSpecDigest {
+			t.Errorf("step %s carries %+v and %q, want its forward row's %+v and %q", step.Node, step.Collection, step.UndoDigest, e.Collection, e.InverseSpecDigest)
+		}
+	}
 
 	// Undone in full: a second rollback has nothing left to do.
 	_, err = dispatcher.Rollback(ctx, "release-gate", job.JobID, api.RollbackRequest{Mode: collection.ModeExecute, Leave: []string{"tasks[2]"}})
