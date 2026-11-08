@@ -47,7 +47,9 @@ func programIdentity(path string, desc external.Description) (wire.CollectionIde
 		capabilities[i] = def
 	}
 	// The identity is not held to Valid here: a file name the loader admits
-	// today is admitted still (this phase changes no behavior), and a reader
-	// of a stored identity holds it to Valid when one first reads it.
+	// today is admitted still (this phase changes no behavior). Whatever
+	// first writes the identity into a record holds it to Valid then (the
+	// engine's journal projection, the fact writers), and a reader of a
+	// record holds it to Shape.
 	return wire.CollectionIdentity{Group: name, Program: true, Manifests: collection.DescriptionDigest(manifests, capabilities)}, nil
 }

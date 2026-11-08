@@ -203,12 +203,15 @@ func decodeEntry(line []byte, runID string) (engine.JournalEntry, error) {
 	// Format 2 added the Collection identity and the undo's digest
 	// (format.go), so a line of an earlier format carrying either is not
 	// one a build wrote. The engine records only an identity that passes
-	// Valid (engine's collectionIdentity), so any other is refused here
-	// rather than trusted by a rollback.
+	// Valid (engine's collectionIdentity); the reader holds one to Shape,
+	// the part of Valid no Go release can change, so a journal one build
+	// wrote stays readable after a toolchain whose Unicode tables call one
+	// of its group's characters a format character (LESSONS 415). Any
+	// other is refused here rather than trusted by a rollback.
 	case l.Format < 2 && (!e.Collection.IsZero() || e.InverseSpecDigest != ""):
 		return e, fmt.Errorf("is journal format %d and carries a Collection identity or undo digest, which format 2 added", max(l.Format, 1))
-	case !e.Collection.IsZero() && e.Collection.Valid() != nil:
-		return e, fmt.Errorf("records a Collection identity no build writes: %w", e.Collection.Valid())
+	case !e.Collection.IsZero() && e.Collection.Shape() != nil:
+		return e, fmt.Errorf("records a Collection identity no build writes: %w", e.Collection.Shape())
 	case e.InverseSpecDigest != "" && !digestPattern.MatchString(e.InverseSpecDigest):
 		return e, fmt.Errorf("carries undo digest %q, which is not a digest", e.InverseSpecDigest)
 	case !knownOutcome[e.Outcome]:

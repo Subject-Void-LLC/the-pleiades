@@ -76,13 +76,48 @@ func (id CollectionIdentity) IsZero() bool {
 	return id == CollectionIdentity{}
 }
 
-// Valid holds an identity read back from a record or a payload to the shape
-// a build writes: a Group that is non-empty UTF-8 within
-// MaxIdentityGroupBytes and holds no NUL, slash, control or format character
-// (a group name or a file name), a Version of printable ASCII within MaxIdentityVersionBytes (empty
-// allowed), and a Manifests digest of the form "sha256:" and 64 lowercase
-// hex digits. The zero identity is not valid: a reader checks IsZero first.
+// Valid holds an identity a build is about to write to the shape it writes:
+// Shape, and a Group that holds no control or format character.
+//
+// The second half depends on the Unicode tables of the Go release the build
+// was made with, which a later release may change, so it is a rule for
+// writers only: whatever puts an identity into a record, the engine's
+// journal projection and the fact writers among them. A process that
+// receives an identity and stores it (the Controller storing a Runner's
+// facts batch) is a writer of that store, and holds it to Valid. A reader
+// that only uses a stored or delivered identity (the journal's reader, a
+// Runner comparing a dispatch's) holds it to Shape, which no release can
+// change, so an identity written correctly stays readable (LESSONS 415's
+// rule).
+//
+// The zero identity is not valid: a caller checks IsZero first.
 func (id CollectionIdentity) Valid() error {
+	if err := id.Shape(); err != nil {
+		return err
+	}
+	if strings.ContainsFunc(id.Group, controlOrFormat) {
+		// A group is printed in refusals an operator reads: a control or
+		// format character (an escape, a newline, a direction override)
+		// could make it read as something else.
+		return fmt.Errorf("%w: its group %q holds a control or format character", ErrInvalidIdentity, id.Group)
+	}
+	return nil
+}
+
+// Shape holds an identity read back from a record or a payload to the part
+// of Valid that depends on nothing a Go release can change: a Group that is
+// non-empty UTF-8 within MaxIdentityGroupBytes and holds no NUL or slash (a
+// group name or a file name) and no C0 or C1 control code or DEL, no Version
+// on a program's identity, a Version of printable ASCII within
+// MaxIdentityVersionBytes (empty allowed), and a Manifests digest of the
+// form "sha256:" and 64 lowercase hex digits. Byte lengths, UTF-8 validity,
+// fixed code point ranges and the digest's pattern read the same under
+// every toolchain: Unicode never reassigns a control code, so Valid has
+// refused every one of them under every release, and Shape refusing them
+// turns away nothing a build wrote.
+//
+// The zero identity does not pass: a reader checks IsZero first.
+func (id CollectionIdentity) Shape() error {
 	switch {
 	case id.Group == "":
 		return fmt.Errorf("%w: it names no group", ErrInvalidIdentity)
@@ -90,11 +125,10 @@ func (id CollectionIdentity) Valid() error {
 		return fmt.Errorf("%w: its group is over %d bytes", ErrInvalidIdentity, MaxIdentityGroupBytes)
 	case !utf8.ValidString(id.Group) || strings.ContainsAny(id.Group, "\x00/"):
 		return fmt.Errorf("%w: its group %q is neither a group name nor a file name", ErrInvalidIdentity, id.Group)
-	case strings.ContainsFunc(id.Group, controlOrFormat):
-		// A group is printed in refusals an operator reads: a control or
-		// format character (an escape, a newline, a direction override)
-		// could make it read as something else.
-		return fmt.Errorf("%w: its group %q holds a control or format character", ErrInvalidIdentity, id.Group)
+	case strings.ContainsFunc(id.Group, controlCode):
+		// An escape or a newline acts on the terminal or the log line a group
+		// is printed into, so no reader takes one.
+		return fmt.Errorf("%w: its group %q holds a control code", ErrInvalidIdentity, id.Group)
 	case id.Program && id.Version != "":
 		// No build writes a version for a program: the loader knows none.
 		return fmt.Errorf("%w: a program's identity carries no version, and this one names %q", ErrInvalidIdentity, id.Version)
@@ -119,6 +153,13 @@ func controlOrFormat(r rune) bool {
 		return true
 	}
 	return !unicode.IsGraphic(r) || unicode.Is(unicode.Cf, r) || unicode.Is(unicode.Variation_Selector, r)
+}
+
+// controlCode reports whether r is a C0 control code, DEL or a C1 control
+// code: the fixed range Unicode's category Cc has always held and, by its
+// stability policy, always will.
+func controlCode(r rune) bool {
+	return r < 0x20 || (r >= 0x7f && r <= 0x9f)
 }
 
 // printableASCII reports whether every byte of s is a visible ASCII
