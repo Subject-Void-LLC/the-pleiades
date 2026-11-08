@@ -35,7 +35,11 @@ var coreVersion = sync.OnceValue(buildinfo.Version)
 // A built-in's is computed once per method per run, since GroupDigest
 // encodes every manifest of the group: a run of many nodes would otherwise
 // pay for it on each. It is touched only by projectResult, which recordLevel
-// calls at the level barrier, so the cache needs no lock (see run.sequence).
+// calls, and by factProvenance, which recordFacts calls (Phase 136b's fact
+// provenance names the same identity). Both run on the walk's own goroutine:
+// at each level barrier after runConcurrently has returned, in undoBlock's
+// steps, and in Run's deferred drain of uncollected jobs, never from inside
+// a node, so the cache needs no lock (see run.sequence).
 func (r *run) collectionIdentity(resolved resolvedFQCN, provider *collection.Provider) wire.CollectionIdentity {
 	if resolved.Unresolved || resolved.engineAction {
 		return wire.CollectionIdentity{}

@@ -4,6 +4,7 @@ package engine_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/buildinfo"
@@ -12,18 +13,24 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
 
 // registerIdentityGather registers name, a method that emits one declared
-// fact, provided by provider (nil for a built-in).
+// fact, provided by provider (nil for a built-in). A program's fact goes
+// under its own namespace, as collection.Register requires.
 func registerIdentityGather(t *testing.T, name string, provider *collection.Provider) {
 	t.Helper()
+	key := "os.kernel.release"
+	if provider != nil {
+		key = strings.SplitN(name, ".", 2)[0] + ".os.kernel.release"
+	}
 	gather := func(_ context.Context, rc sdk.RunbookContext, _ inventory.InventoryItem, _ map[string]any) (collection.Result, error) {
-		return collection.Result{}, rc.EmitFact("os.kernel.release", "6.1")
+		return collection.Result{}, rc.EmitFact(key, "6.1")
 	}
 	if err := collection.Register(collection.Descriptor{Name: name, Invoke: gather, Check: gather, Provider: provider,
 		Manifest: collection.Manifest{Status: collection.StatusImplemented, SupportsCheck: true, Reversibility: collection.Reversibility{ReadOnly: true, Notes: "a test fixture"},
-			Facts: []collection.FactSpec{{Key: "os.kernel.release", Kind: collection.FactStable, Type: collection.FactString, Description: "the kernel"}}}}); err != nil {
+			Facts: []collection.FactSpec{{Key: key, Kind: collection.FactStable, Type: collection.FactString, Description: "the kernel"}}}}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -65,5 +72,18 @@ func TestFacts_AMethodInNoGroupStoresNoIdentity(t *testing.T) {
 	registerIdentityGather(t, "factidtest.nogroup", nil)
 	if by := gatherBy(t, "factidtest.nogroup"); !by.Collection.IsZero() {
 		t.Fatalf("a method in no first-party group stored collection %+v", by.Collection)
+	}
+}
+
+// TestFacts_AProgramsFactsNameTheIdentityTheLoaderSet: a method an external
+// program provides stores the identity on its descriptor's Provider, which
+// the loader computes, never one the program sends.
+func TestFacts_AProgramsFactsNameTheIdentityTheLoaderSet(t *testing.T) {
+	t.Cleanup(collection.SnapshotForTest())
+	digest := wire.ManifestDigestPrefix + strings.Repeat("0", 64)
+	program := wire.CollectionIdentity{Group: "acme_tools", Program: true, Manifests: digest}
+	registerIdentityGather(t, "acmefactidtest.gather", &collection.Provider{Program: "/opt/collections/acme_tools", Digest: digest, Identity: program})
+	if by := gatherBy(t, "acmefactidtest.gather"); by.Collection != program {
+		t.Fatalf("stored collection %+v, want the loader's %+v", by.Collection, program)
 	}
 }

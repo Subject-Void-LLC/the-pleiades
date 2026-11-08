@@ -68,8 +68,8 @@ func TestSubscriber_KeepsARunnersIdentityAndDropsOneNoBuildWrites(t *testing.T) 
 
 // TestStore_ARowEditedToAnotherIdentityBreaksTheChain: the chain covers the
 // identity as it was stored, so a provenance rewritten in SQL to name
-// another digest of the same group, or another group, is found. A row naming
-// an identity no build writes reads as unknown rather than as that identity.
+// another digest of the same group, or another group, is found, and the row
+// is read back as it stands rather than refused or rewritten.
 func TestStore_ARowEditedToAnotherIdentityBreaksTheChain(t *testing.T) {
 	for name, edit := range map[string]func(p *facts.Provenance){
 		"another digest": func(p *facts.Provenance) { p.Collection.Manifests = "sha256:" + strings.Repeat("cd", 32) },
@@ -122,8 +122,8 @@ func TestStore_ARowEditedToAnotherIdentityBreaksTheChain(t *testing.T) {
 			if err != nil || len(history) != 2 {
 				t.Fatalf("History = %+v, %v", history, err)
 			}
-			if got := history[0].By.Collection; edited.CheckCollection() != nil && !got.IsZero() {
-				t.Fatalf("a row naming an identity no build writes reads as %+v, want unknown", got)
+			if got := history[0].By.Collection; got != edited.Collection {
+				t.Fatalf("the edited row reads with identity %+v, want it as it stands, %+v", got, edited.Collection)
 			}
 		})
 	}

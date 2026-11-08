@@ -1,10 +1,12 @@
-// Tests of the file store's readers against a Collection identity no build
-// writes (Phase 136b), each file edited the way someone tampering would.
+// Tests of the file store and the Collection identity (Phase 136b): the
+// writer refuses one no build writes, and the readers return what was stored,
+// edited or not, leaving an edit for the chain to find.
 package facts_test
 
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -12,6 +14,7 @@ import (
 	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
 
 // identityStore records one stable and one volatile value with the facts
@@ -73,66 +76,72 @@ func TestFileStore_KeepsTheIdentityItRecorded(t *testing.T) {
 	}
 }
 
-// TestFileStore_RefusesAHistoryLineNamingAnotherGroup: a history line is a
-// chained record, so one naming an identity no build writes for its method
-// is refused as a line no store wrote, not read as unknown.
-func TestFileStore_RefusesAHistoryLineNamingAnotherGroup(t *testing.T) {
+// TestFileStore_AnEditedIdentityBreaksTheChainAndReadsAsStored: the chain
+// covers the identity, so a history line edited to name another group is
+// found by Verify at that value, and is read back as it now stands rather
+// than refused or rewritten.
+func TestFileStore_AnEditedIdentityBreaksTheChainAndReadsAsStored(t *testing.T) {
 	store, dir := identityStore(t)
 	editGroup(t, dir, "dev1.jsonl")
-	if _, err := store.History(context.Background(), "dev1", "os.kernel.release"); err == nil {
-		t.Fatal("a history line naming another group's identity was read")
+	verdict, err := store.Verify(context.Background(), "dev1")
+	if err != nil || verdict.Break == nil || verdict.Break.Index != 0 {
+		t.Fatalf("Verify = %+v, %v; want a break at the edited value", verdict, err)
+	}
+	history, err := store.History(context.Background(), "dev1", "os.kernel.release")
+	if err != nil || len(history) != 1 || history[0].By.Collection.Group != "file" {
+		t.Fatalf("History = %+v, %v; want the edited value read as it stands", history, err)
 	}
 }
 
-// TestFileStore_AVolatileValueNamingAnotherGroupReadsAsUnknown: a volatile
-// value is not chained and the next run replaces it, so it keeps its value
-// and reads as of unknown Collection.
-func TestFileStore_AVolatileValueNamingAnotherGroupReadsAsUnknown(t *testing.T) {
+// TestFileStore_AStoredIdentityALaterRuleRefusesStillReads: CheckCollection
+// reads the first-party group list, which a minor release may grow, so a
+// program's identity stored today can fail it later. A history line whose
+// chain matches its identity reads and verifies whatever the rule now says:
+// here a program's identity for a first-party method, which the rule
+// refuses, written with its chain recomputed as a store would have.
+func TestFileStore_AStoredIdentityALaterRuleRefusesStillReads(t *testing.T) {
 	store, dir := identityStore(t)
-	editGroup(t, dir, "dev1.state.json")
-	history, err := store.History(context.Background(), "dev1", "uptime")
-	if err != nil || len(history) != 1 {
-		t.Fatalf("History(uptime) = %+v, %v; want the one volatile value", history, err)
-	}
-	if !history[0].By.Collection.IsZero() {
-		t.Fatalf("the edited volatile value reads with %+v, want no identity", history[0].By.Collection)
-	}
-}
-
-// TestFileStore_SkipsAnObservationNamingAnotherGroup: an observation line is
-// left out and counted like any other damaged one, which costs a
-// confirmation and never a value.
-func TestFileStore_SkipsAnObservationNamingAnotherGroup(t *testing.T) {
-	store, dir := identityStore(t)
-	entries, _, err := facts.Prepare(map[string]any{"os.kernel.release": "6.18.33"}, facts.Guard{})
+	path := filepath.Join(dir, "dev1.jsonl")
+	raw, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	confirm := facts.Provenance{Run: "r2", Node: "n1", Method: "facts.gather", Order: facts.Order{Source: facts.ClockSource, Token: 2}, Collection: factsIdentity}
-	if err := store.Record(context.Background(), "dev1", facts.Observation{Entries: entries, At: time.Date(2026, 11, 8, 11, 0, 0, 0, time.UTC), By: confirm}); err != nil {
+	var line map[string]any
+	if err := json.Unmarshal(bytes.TrimSpace(raw), &line); err != nil {
 		t.Fatal(err)
 	}
-	kernel := func() facts.Entry {
-		t.Helper()
-		current, err := store.Current(context.Background(), "dev1")
-		if err != nil {
-			t.Fatal(err)
-		}
-		for _, e := range current {
-			if e.Key == "os.kernel.release" {
-				return e
-			}
-		}
-		t.Fatalf("no os.kernel.release in %+v", current)
-		return facts.Entry{}
+	var by facts.Provenance
+	byRaw, _ := json.Marshal(line["by"])
+	if err := json.Unmarshal(byRaw, &by); err != nil {
+		t.Fatal(err)
 	}
-	if e := kernel(); e.LastBy.Run != "r2" {
-		t.Fatalf("before the edit the value was last confirmed by %q, want r2", e.LastBy.Run)
+	by.Collection = wire.CollectionIdentity{Group: "facts", Program: true, Manifests: factsIdentity.Manifests}
+	if by.CheckCollection() == nil {
+		t.Fatal("the fixture's identity passes today's rule; it must be one the rule refuses")
 	}
-	editGroup(t, dir, "dev1.seen.jsonl")
-	e := kernel()
-	if e.Value != "6.18.33" || e.LastBy.Run != "r" {
-		t.Fatalf("after the edit: %+v; want the value kept, confirmed last by its first run", e)
+	observed, err := time.Parse(time.RFC3339Nano, line["observed_at"].(string))
+	if err != nil {
+		t.Fatal(err)
+	}
+	chain, err := facts.ChainHash("dev1", "", line["key"].(string), line["hash"].(string), observed, by)
+	if err != nil {
+		t.Fatal(err)
+	}
+	line["by"], line["chain"] = by, chain
+	rewritten, err := json.Marshal(line)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, append(rewritten, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	verdict, err := store.Verify(context.Background(), "dev1")
+	if err != nil || verdict.Break != nil || verdict.Values != 1 {
+		t.Fatalf("Verify = %+v, %v; want the one value verifying", verdict, err)
+	}
+	history, err := store.History(context.Background(), "dev1", "os.kernel.release")
+	if err != nil || len(history) != 1 || history[0].By.Collection != by.Collection {
+		t.Fatalf("History = %+v, %v; want the value with its stored identity", history, err)
 	}
 }
 

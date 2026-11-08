@@ -52,7 +52,7 @@ func readSeen(r *os.Root, device string) (seenFile, error) {
 		var l seenLine
 		dec := json.NewDecoder(bytes.NewReader(raw))
 		dec.UseNumber()
-		if err := dec.Decode(&l); err != nil || l.Seq <= 0 || l.Coverage == "" || l.By.CheckCollection() != nil {
+		if err := dec.Decode(&l); err != nil || l.Seq <= 0 || l.Coverage == "" {
 			sf.skipped++
 			return nil
 		}

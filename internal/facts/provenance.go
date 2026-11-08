@@ -65,7 +65,7 @@ type Provenance struct {
 
 // ErrCollectionIdentity marks a provenance whose Collection identity no
 // build writes for its method.
-var ErrCollectionIdentity = errors.New("facts: a collection identity no build writes")
+var ErrCollectionIdentity = errors.New("a collection identity no build writes for its method")
 
 // CheckCollection holds p's Collection to what the engine writes: zero, or
 // an identity that passes wire.CollectionIdentity.Valid and agrees with
@@ -73,7 +73,12 @@ var ErrCollectionIdentity = errors.New("facts: a collection identity no build wr
 // (collection.FirstPartyGroupOf); a program's names a method in no
 // first-party group, since a program may not use one's namespace. The rule
 // reads only the static group list, so a Controller, which links no
-// Collection, holds a Runner's batch to it as the CLI holds its own files.
+// Collection, holds a Runner's batch to it as the CLI holds its own writes.
+//
+// It is a rule for writing, never for reading: the group list may grow on a
+// minor release, so a program's identity stored today could fail it later.
+// A reader hashes and returns what was stored, and the chain, which covers
+// the identity, is what finds one edited.
 func (p Provenance) CheckCollection() error {
 	id := p.Collection
 	if id.IsZero() {
