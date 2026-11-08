@@ -438,6 +438,24 @@ type DispatchPayload struct {
 	// this field never reads, so no Runner runs the runbook being undone
 	// in its place.
 	Rollback *Rollback `json:"rollback,omitempty"`
+
+	// Collections is the Controller's identity of each first-party group the
+	// dispatch's methods belong to, keyed by the group's name: the group, the
+	// Controller's build, and the digest of the group's manifests as its
+	// installed catalog holds them (collection.BuiltinIdentity). The Runner
+	// compares each with its own build's and, in this release, warns of a
+	// difference in its own log and the job's, and runs: it runs its own linked code under its own
+	// checks and journals its own identity, which is what a rollback later
+	// compares. A refusal waits for a release with version ranges.
+	//
+	// Only a first-party group is named. A method the Controller's catalog
+	// does not hold (an external program's, which only a Runner's loader
+	// knows) is not, and neither is anything for a playbook, whose tasks the
+	// Controller never reads. Absent from an older Controller's payload; nil
+	// and empty both mean the Controller named nothing, which the Runner
+	// compares with nothing. Its absence is the old behavior, so it needs no
+	// new payload version.
+	Collections map[string]CollectionIdentity `json:"collections,omitempty"`
 }
 
 // Rollback is one device's part of a rollback job.
@@ -479,6 +497,18 @@ type RollbackStep struct {
 	// recorded in the journal, or "authored", the runbook's rollback:
 	// list.
 	Source string `json:"source"`
+
+	// Collection is the identity the run journal recorded for the node's
+	// method (the Collection it came from, at the declarations it had), and
+	// UndoDigest the digest of the undo's declaration it recorded. Both are
+	// set for a recorded step whose journal entry carries them, and empty
+	// for an authored step and for an entry written before the journal
+	// recorded either. They travel so the Runner can hold a recorded undo to
+	// its own build's declarations; in this release it carries them and does
+	// not compare them yet. A rollback is published only on its own subject,
+	// which an older Runner never reads, so they need no new payload version.
+	Collection CollectionIdentity `json:"collection,omitzero"`
+	UndoDigest string             `json:"undo_digest,omitempty"`
 }
 
 // Injected is the rendered output of a dispatch's bound credentials.

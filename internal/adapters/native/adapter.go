@@ -205,6 +205,20 @@ func (a *Adapter) Execute(ctx context.Context, payload wire.DispatchPayload) (wi
 		}
 	}
 
+	// The Collections the Controller planned against, compared with this
+	// Runner's own and warned about where they differ, over the tasks this
+	// dispatch runs; it runs either way (collections.go). Each warning goes
+	// to the Runner's log and, as a task.warning event, to the job's, which
+	// is where an operator reads it.
+	for _, warning := range compareCollections(a.logger, payload, dag) {
+		event := wire.JobEvent{Status: "ok", Host: payload.DeviceHost, Task: "task.warning"}
+		event.Timestamp = time.Now().UTC().Format(time.RFC3339)
+		event.EventData.Message = "WARNING: " + warning
+		if err := a.publish(ctx, payload.JobID, event); err != nil {
+			return wire.Outcome{}, fmt.Errorf("failed to publish a warning: %w", err)
+		}
+	}
+
 	// The same plan-time checks `pleiades validate` and `pleiades run`
 	// make, before any task runs, against the one device this dispatch
 	// names and resolved exactly as the executor below resolves it. The

@@ -342,7 +342,8 @@ func (d *Dispatcher) planRollback(ctx context.Context, job *dispatch.Job, tasks 
 
 // addStep appends s to its device's steps in plan, in the order they run.
 func addStep(plan *dispatch.RollbackPlan, s rollback.Step) {
-	step := wire.RollbackStep{Node: s.Node, Index: s.Index, Emitter: s.Emitter, Method: s.FQCN, Params: s.Params, Name: s.Name, Source: s.Source}
+	step := wire.RollbackStep{Node: s.Node, Index: s.Index, Emitter: s.Emitter, Method: s.FQCN, Params: s.Params, Name: s.Name, Source: s.Source,
+		Collection: s.Collection, UndoDigest: s.UndoDigest}
 	for i := range plan.Devices {
 		if plan.Devices[i].DeviceID == s.DeviceID {
 			plan.Devices[i].Steps = append(plan.Devices[i].Steps, step)

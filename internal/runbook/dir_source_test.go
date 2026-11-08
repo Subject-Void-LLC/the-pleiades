@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -391,6 +392,11 @@ tasks:
 	}
 	if len(rb.Required) != 0 {
 		t.Errorf("Required = %v, want none: ios_backup is conditional", rb.Required)
+	}
+	// AllMethods keeps them: a condition that holds runs its task, so the
+	// Collections a dispatch may run include it.
+	if want := []string{"ios_backup", "noop", "pkg.apt.install"}; !slices.Equal(rb.AllMethods, want) {
+		t.Errorf("AllMethods = %v, want %v", rb.AllMethods, want)
 	}
 }
 

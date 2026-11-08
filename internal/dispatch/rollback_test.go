@@ -36,6 +36,12 @@ func rollbackPlan() *dispatch.RollbackPlan {
 // fans it out.
 func requestRollback(t *testing.T, fields launch.Fields) (*windowFixture, event.Event) {
 	t.Helper()
+	return requestRollbackOf(t, fields, rollbackPlan())
+}
+
+// requestRollbackOf is requestRollback with plan in place of rollbackPlan's.
+func requestRollbackOf(t *testing.T, fields launch.Fields, plan *dispatch.RollbackPlan) (*windowFixture, event.Event) {
+	t.Helper()
 	store := newTestJobStore(t)
 	bus := newCapturingBus()
 	repo := &namedRepository{}
@@ -44,7 +50,7 @@ func requestRollback(t *testing.T, fields launch.Fields) (*windowFixture, event.
 	}
 	worker := dispatch.NewWorker(store, repo, newTestRunbookSource(t), bus, nil)
 	job := &dispatch.Job{RunbookID: "pb-1", GroupName: "routers", Actor: "user@example.com", Fields: fields,
-		RollbackOf: "job-x", Rollback: rollbackPlan()}
+		RollbackOf: "job-x", Rollback: plan}
 	if err := store.Create(t.Context(), job); err != nil {
 		t.Fatalf("Create: %v", err)
 	}

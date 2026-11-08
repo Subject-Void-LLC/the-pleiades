@@ -23,6 +23,28 @@
       ],
       "type": "object"
     },
+    "CollectionIdentity": {
+      "description": "CollectionIdentity names the Collection a method came from and the declarations it had: a first-party group linked into this build, or an external program the loader hashed and approved. Its zero value means \"unknown\": a record written before the field existed, or one with nothing to attribute (an engine action, an unregistered name). A carrier writes it with omitzero, so a zero identity adds no key and an older record's bytes are unchanged.",
+      "properties": {
+        "group": {
+          "description": "Group is the first-party group's name (\"file\", \"virt.clab\"; collection.FirstPartyGroup.Name) for a built-in method, or the file name of the external program the loader approved for one it loaded.",
+          "type": "string"
+        },
+        "manifests": {
+          "description": "Manifests is the digest of the group's canonical manifest set (collection.ManifestSetDigest for a first-party group, collection.DescriptionDigest for a program): ManifestDigestPrefix and 64 hex digits. It is what tells two builds' declarations apart, since it depends on the declarations alone, not on the binary or the version.",
+          "type": "string"
+        },
+        "program": {
+          "description": "Program is true for an external program's identity, whose Group is the program's file name; false for a first-party group's. A file name can be the same word as a first-party group (a program named \"file\"), so a reader tells the two apart by this field, never by Group alone.",
+          "type": "boolean"
+        },
+        "version": {
+          "description": "Version is the core build a built-in group was linked into, as the build reports it (\"0.4.0\", or \"0.0.0-dev+<rev>\" for a development build). It is printed for a person and never parsed for order: two development builds of different trees can share one. It is empty for an external program, whose own version would be text the program sent.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
     "Gap": {
       "description": "Gap is a change the plan does not undo, and why.",
       "properties": {
@@ -447,6 +469,10 @@
           "description": "Become is the account the step runs its commands as, the account the node ran as: empty when it ran as its login.",
           "type": "string"
         },
+        "collection": {
+          "$ref": "#/$defs/CollectionIdentity",
+          "description": "Collection and UndoDigest are what the journal recorded for a recorded undo: the identity of the Collection the node's method came from (engine.JournalEntry.Collection) and the digest of the undo's declaration (JournalEntry.InverseSpecDigest). Both are empty for an authored step and for an entry that recorded neither. The plan carries them to a Runner (wire.RollbackStep) and decides nothing by them yet."
+        },
         "device": {
           "description": "DeviceID and DeviceName name the device the step runs on: the one the node changed.",
           "type": "string"
@@ -486,6 +512,10 @@
         },
         "source": {
           "description": "Source says where the step came from: \"recorded\" or \"authored\".",
+          "type": "string"
+        },
+        "undo_digest": {
+          "description": "Collection and UndoDigest are what the journal recorded for a recorded undo: the identity of the Collection the node's method came from (engine.JournalEntry.Collection) and the digest of the undo's declaration (JournalEntry.InverseSpecDigest). Both are empty for an authored step and for an entry that recorded neither. The plan carries them to a Runner (wire.RollbackStep) and decides nothing by them yet.",
           "type": "string"
         }
       },
