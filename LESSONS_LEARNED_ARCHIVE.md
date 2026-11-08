@@ -7612,6 +7612,11 @@ release data is a separate question, decided per format: the journal's strict re
 choice with a test that stores a value the rule refuses, chains it correctly, and reads and verifies it
 (`TestFileStore_AStoredIdentityALaterRuleRefusesStillReads`).
 
+**Correction (2026-11-08, FAILURE_PATTERNS 1003).** The journal sentence above was wrong. `Valid` was not free of
+release data: its format-character check reads Go's Unicode tables, which a Go release updates. Phase 136b PR 4 split it,
+and the journal's strict reader now holds an identity to `wire.CollectionIdentity.Shape`, the part no Go release can
+change. The rule of this entry covers the toolchain's data as well as The Pleiades'.
+
 ## 416. An instruction to keep code as it is gets the same check as a change: before telling an agent to leave something, search the failure patterns for its class, and say in the instruction what it was checked against (FAILURE_PATTERNS 990)
 
 **Why.** `feat/converter-facts-filters`, 2026-11-08. While relaying an earlier review to the building agent, the main
@@ -7669,3 +7674,25 @@ one's output.
 parse-time value reads the Makefile's copy rather than asking go. `ensure-tool` and `make doctor` compare the Go that
 built each tool with it. A toolchain move changes, in one commit, every file that names a release: go.mod, the CI
 action, the Makefile, each Dockerfile's `FROM`, the lab's runbooks and README, and the scaffold.
+
+## 419. A review given only a plan or a diff makes claims about code it was not shown: attach the files each guarantee it is asked about rests on, and settle each claim in the code before acting on it (a refinement of 392 and 403; FAILURE_PATTERNS 1003)
+
+**Why.** Phase 136b PR 4 (`feat/provider-identity-136b-4`, 2026-11-08). Two independent reviews went through the Batch
+API (Fable). The review of the PR 4 and PR 5 plan (the batch named burn5) found a real defect (FAILURE_PATTERNS 1003).
+Its finding 7 was wrong: it said the Controller attaches `seed_*` secrets to a dispatch. The writer and fp-reviewer both
+refuted it in the code: the engine derives a seed from the executing build's own manifest, and on a Runner it derives
+none. The filter that drops such keys (`internal/adapters/native/seeds.go`) was kept as defense in depth. A second
+review, of the diff alone (burn6), said `Valid` accepts U+3164, which `controlOrFormat` names explicitly in lines the
+diff did not change, and that the rollback compared the wrong DAG, which the writer refuted with
+TestAdapter_Execute_ComparesTheRollbackItRuns (internal/adapters/native).
+
+**What is old and what is new.** LESSONS 392 says to verify every claim a second model makes before acting, and 403
+says a proposed fix and its test are hypotheses. Both treat a wrong claim as the model's error. Here each wrong claim was
+about code the review was not given: a plan names no source, and a diff omits the unchanged lines a guarantee rests on.
+The review filled the gap with a guess. The new part is on the sender's side: what the prompt attaches decides what the
+review can know.
+
+**Rule in practice.** Before sending a review, list the guarantees it is asked to judge, and attach the files each one
+rests on whole, not only the diff (here `pkg/wire/identity.go` and the engine's seeding). Mark each claim the answer
+makes about a file it was not given as unverified, and settle it in the code or with a test before acting. Record which
+claims held and which did not, as 392 asks.

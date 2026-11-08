@@ -24231,3 +24231,123 @@ outside every local check. The move to go1.26.10 changed both Dockerfiles in the
 **Lesson.** A toolchain move lists every file that names a Go release (go.mod, the CI action, the Makefile, each
 Dockerfile's builder, the lab's runbooks and README, the scaffold) and changes them together. A file no local gate
 builds is checked by reading it (LESSONS 418).
+
+## 1003. The Crawl journal's strict reader held a stored Collection identity to wire.CollectionIdentity.Valid, whose format-character check reads Go's Unicode tables, so a Go release could make a journal one build wrote unreadable to another (fixed on this branch; on main since 73c94889, 2026-11-07, merged in #133; a repeat of 988)
+
+**Symptom.** Phase 136b PR 4 (`feat/provider-identity-136b-4`, 2026-11-08). `decodeEntry` in
+`internal/journal/reader.go` refused a line whose identity failed `Valid`, and one refused line makes the whole journal
+unreadable. `Valid`'s `controlOrFormat` check uses `unicode.IsGraphic`, category `Cf` and `Variation_Selector`, which
+come from the Unicode tables of the Go release that built the binary. go1.26 carries Unicode 15.0.0 and go1.27, which
+main moved to in #136, carries 17.0.0 (each toolchain's `unicode.Version`, read here). So a stored identity one build
+accepted could fail the same check in a build made with another Go, and its journal would not read.
+
+**Who found it.** An independent review of the PR 4 and PR 5 plan, sent through the Batch API (Fable, the batch named
+burn5).
+
+**Root cause.** The class of 988: a reader of a durable record held a stored value to a rule a later release can
+change. Here the release is Go's, not The Pleiades'. `73c94889` added the check on read in PR 2.
+
+**Why 988 did not prevent it.** 988's fix and LESSONS 415 looked at rules built on Pleiades release data (the
+first-party group list) and treated `Valid` as a shape check that depends on no release data. LESSONS 415's own text
+said "the journal's strict reader holds an identity to `wire.CollectionIdentity.Valid`" as the settled choice. Nobody
+asked whether `Valid` read data a toolchain upgrade changes, and `unicode`'s tables are such data.
+
+**Fix.** `51ec65eb`. `Valid` is split. `Shape` holds what no Go release can change: byte lengths, UTF-8 validity, NUL
+and '/', the fixed C0, DEL and C1 code point ranges (`controlCode`), the digest's pattern, and Program and Version
+agreeing. `Valid` is `Shape` plus `controlOrFormat`, for writers. The journal reader holds a line's identity to
+`Shape`. Tests: `TestReadRunHoldsTheCollectionIdentityToWhatABuildWrites` (`internal/journal/format_test.go`), red on
+the old reader, and `TestControlCodeIsAlsoControlOrFormat` (`pkg/wire/identity_test.go`), which walks every rune to
+show `Shape` refuses nothing `Valid` accepts.
+
+**Lesson.** When a reader's check is called release-independent, list what it reads, the standard library's tables
+included. A check that reads `unicode`, `time`'s zone data, `mime` types or any table Go updates is a writer's rule
+(LESSONS 415).
+
+## 1004. The JSON Schema builder wrote "required": null for an object with no required property, so the published run-report.json, with wire.CollectionIdentity in it, was invalid JSON Schema 2020-12 (fixed before push, the class of 765)
+
+**Symptom.** Phase 136b PR 4, before push. Every field of `wire.CollectionIdentity` is `omitempty`, so
+`internal/jsonschema`'s `Builder.Object` built a nil `required` list and wrote it as `"required": null` into
+`docs/reference/schemas/run-report.json`. JSON Schema 2020-12 requires `required` to be an array. A consumer that
+validates the schema itself (ajv, Python's jsonschema) would refuse the whole contract.
+
+**Who found it.** fp-reviewer, which named 765 as the nearest precedent.
+
+**Root cause.** The builder put `required` in the object unconditionally. The house validator reads null as nothing
+required, so every house test passed, and no builder test had an all-optional struct.
+
+**Why 765 did not prevent it.** 765 was a published schema whose field names said more than the code. Its fix
+corrected those names, and its lesson was to read a record against its source. Nothing reads a generated schema
+against the JSON Schema specification, and the one validator the tests use accepted the invalid form.
+
+**Fix.** `21303261`. An object with no required property leaves the keyword out. The same commit makes an `omitzero`
+field optional, as `omitempty` already was, since `encoding/json` leaves a zero value out (the step's new `collection`
+field is written with `omitzero`). Test: `TestBuilder_AnAllOptionalObjectNamesNoRequired`
+(`internal/jsonschema/jsonschema_test.go`).
+
+**Lesson.** A generator of a published contract is tested on its edge shapes (no required field, no properties, every
+tag option `encoding/json` reads), and a validator that is more lenient than the specification is not evidence that a
+schema is valid.
+
+## 1005. Three intermediate commits failed their own checks: Builder.Object refused wire.CollectionIdentity for a missing doc comment, because clireport's ModelFiles gained pkg/wire/identity.go only in a later commit (fixed before push, a repeat of 1001 and 685; LESSONS 152)
+
+**Symptom.** Phase 136b PR 4, before push. In three commits short of the tip, `make docs-gen-check` errored:
+`internal/jsonschema`'s `Builder.Object` refuses a type whose doc comment it cannot find, and the files it reads doc
+comments from are `internal/clireport`'s `ModelFiles`. The commit that put `CollectionIdentity` in the report model came
+before the commit adding `pkg/wire/identity.go` to that list. The tip passed.
+
+**Root cause.** As in 1001: the change was written and checked at the tip, then split into commits by topic, and only
+the tip is gated. A generator's input list is a statement about which files exist and matter, and it is true only in a
+commit that holds the code it serves.
+
+**Why 1001 and 685 did not prevent it.** The writer's brief named 1001, and it happened anyway. 1001's lesson is about
+a waiver moving with its line, and this was a generator's file list, which the lesson does not name. Neither lesson
+adds a check, and nothing runs a check on each commit of a branch.
+
+**Fix.** The history was rebuilt so each commit carries the `ModelFiles` entry its types need. The tip is
+byte-identical to the tip before the rebuild.
+
+**Lesson.** After splitting a change that passed at the tip, run each commit through the checks the tip ran (for
+example `git rebase --exec '<check>' origin/main`), or at least the generators and the packages each commit touches.
+Naming the past pattern in a brief does not make anything check it.
+
+## 1006. Comments and a guide paragraph the branch made false: two comments said readers hold Valid, the new Valid doc, and docs/13 saying only digests are compared and a same-declaration pair logs nothing (fixed before push, a repeat of 571, 789, 976 and 994)
+
+**Symptom.** Phase 136b PR 4, before push.
+- `internal/loader/identity.go` and `internal/engine/journal_identity.go` said readers hold an identity to `Valid`.
+  After 1003's fix, a reader holds it to `Shape`.
+- The new doc of `Valid` in `pkg/wire/identity.go` needed correcting. As fixed, it says a reader of a delivered or
+  stored identity holds it to `Shape`, and a process that stores a received identity (the Controller's facts subscriber)
+  is a writer of its store and holds it to `Valid`, which `facts.Provenance.CheckCollection` calls.
+- `docs/13-releases-and-stability.md` said only the digests are compared and two builds with the same declarations log
+  nothing. The Runner notes different versions at debug level and a built-in method whose Collection the Controller did
+  not name at info level.
+
+**Root cause.** 228's class. The branch changed the code these sentences describe (789's shape), and the guide stated
+the rule without its exceptions.
+
+**Why 571, 789, 976 and 994 did not prevent it.** Their rule (reread the text a branch's changes touch, and say the
+exception in the same sentence) is still checked only by a review. 994 was the same day, on another branch.
+
+**Fix.** In the rebuilt history: `51ec65eb` for the loader's, the engine's and `Valid`'s comments, `36337ef9` for
+the guide, which now says the digests decide whether the declarations differ, the versions only choose the warning's
+wording, and names the debug and info notes.
+
+**Lesson.** 994's again. When a change renames what a rule is called (here, `Valid` split into `Shape` and `Valid`),
+search the comments and docs for the old name before review.
+
+## 1007. The Controller's journal store writes a Runner's batch with no check of its Collection identity, unlike the facts subscriber, so an identity no build writes can be stored and copied into a rollback's steps (open: passed to Phase 136b PR 5; on main since 30f1d172, 2026-11-07)
+
+**Symptom.** Found while building Phase 136b PR 4, 2026-11-08. The journal's ent store (`saveOne` in
+`internal/journal/ent_store.go`) and its subscriber (`internal/journal/subscriber.go`) store each entry's
+`Collection` as a Runner sent it. Neither calls `Shape`, `Valid` or any other identity check. The facts path checks a
+Runner's identity before storing it (`internal/facts/entstore/subscriber.go` calls `CheckCollection`). This branch's
+rollback plan copies a stored identity into the steps a rollback's dispatch carries to a Runner (`wire.RollbackStep`),
+which decides nothing by it yet.
+
+**Root cause.** `30f1d172` (PR 2) added the identity columns to the journal store's write path, and the check on write
+went to the engine, which projects the identity on the Runner. The Controller's store took the Runner's word.
+
+**Status.** Open. Passed to Phase 136b PR 5. The effect of storing such an identity has not been measured.
+
+**Lesson.** Pending the fix. The facts subscriber's rule applies here too: a process that stores a received identity is
+a writer of its store and holds it to `Valid` (1006).

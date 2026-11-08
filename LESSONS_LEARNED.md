@@ -451,6 +451,7 @@ story, per `.AGENTS/AGENTS.md`.
 416. An instruction to keep code as it is gets the same check as a change: before telling an agent to leave something, search the failure patterns for its class, and say in the instruction what it was checked against (FAILURE_PATTERNS 990).
 417. A scanner that can skip input fails on a skip, because its silence is not a pass: read the field where the tool names what it could not read, fail on each skip not waived by name with a reason and on a stale skip waiver, and test that against the tool's own recorded output (a refinement of 138; FAILURE_PATTERNS 996).
 418. Every local entry point pins the Go release go.mod's toolchain line names: the Makefile's GOTOOLCHAIN, each Dockerfile's builder, the clean room, and the Go that built each tool, so a system upgrade cannot split local runs from CI without a sign (a refinement of 92; FAILURE_PATTERNS 552, 995, 1000, 1002).
+419. A review given only a plan or a diff makes claims about code it was not shown: attach the files each guarantee it is asked about rests on, and settle each claim in the code before acting on it (a refinement of 392 and 403; FAILURE_PATTERNS 1003).
 
 Each entry above is the rule only. Full reasoning and the incident that produced it lives in [`LESSONS_LEARNED_ARCHIVE.md`](LESSONS_LEARNED_ARCHIVE.md), same entry numbers. Read an archive entry when its rule is directly relevant to what you're doing and you need the *why*; the rule sentence above is usually enough on its own.
 
