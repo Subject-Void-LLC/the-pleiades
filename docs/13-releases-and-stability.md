@@ -157,6 +157,33 @@ change that adds a format keeps every earlier one readable, and a frozen format-
 journal holding every kind of entry is read back by every build's tests. 0.3.0 predates the field: it refuses a journal 0.4.0 wrote,
 naming the unknown `format` key rather than the version.
 
+From 0.4.0 each entry also names the Collection its method came from: the group, the
+version of The Pleiades it was linked into, and a digest of the group's method
+declarations, with a digest of the undo's own declaration beside it. A rollback
+compares the undo's digest with its own build's, and only when none was recorded the
+group's. The same digest replays as before. A different one is refused, naming both
+versions and both digests, until `pleiades rollback --allow-skew <node>` (the API's
+`allow_skew`) accepts it by node, and the plan then says which digests it accepted.
+A group whose documentation alone changed moves only the group's digest, so it needs
+no flag, and a method a later release moves to another group is a warning, never a
+refusal. Whatever is named, every recorded value is still held to the build's own
+declarations: a value under a parameter the undo no longer records, a value of another
+type than the parameter now takes, and a parameter the undo now requires that the run
+did not record are each refused, and only `--leave` answers them. An entry with no
+identity (a journal from before 0.4.0) is checked against the build's declarations
+alone, and the plan says so. The Controller stores a Runner's rows with only an
+identity a run's journal writes; any other is stored as none, with a warning, and the
+row is kept. On the Walk tier the Runner makes the same comparison
+against its own build, so a node named in `allow_skew` is accepted even where the
+Controller's declarations match the recording; the CLI, which plans and runs in one
+process, refuses a node named with no skew to accept.
+
+**`--allow-skew` is advisory until Collection identities are signed.** The digests are
+computed from public declarations, so whoever can write a journal can write the
+digests a build computes and suppress the comparison. It keeps an operator from
+replaying an undo recorded under other declarations unawares; the checks of each
+recorded value against the build's declarations are what hold either way.
+
 ### Dispatch payload
 
 The message a Controller sends a Runner for each device of a job. It carries

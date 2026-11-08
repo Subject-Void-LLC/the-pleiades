@@ -317,8 +317,12 @@ only if every device was dispatched, succeeded, and left no task unchecked.
 ### Rolling a job back
 
 `POST /jobs/{id}/rollback` (`runbook:execute`) undoes what a finished `runbook` job
-changed. The body is optional: `mode` (`execute`, the default, or `check`), and four lists
-that accept problems by name, `leave`, `allow_partial`, `allow_unknown` and `despite_job`.
+changed. The body is optional: `mode` (`execute`, the default, or `check`), and five lists
+that accept problems by name, `leave`, `allow_partial`, `allow_unknown`, `allow_skew` and
+`despite_job`. `allow_skew` accepts replaying an undo recorded under Collection
+declarations other than the ones it runs under; a node named there is accepted even where
+the Controller's declarations match the recording, since the Runner that runs it compares
+its own (see [Releases and stability](13-releases-and-stability.md#run-journal)).
 The Controller plans the rollback when it is asked, from the job's journal, what other jobs
 have done on the same devices since, and the runbook the job ran, which must still be the
 version it ran (adding or editing a `rollback:` list does not change it). When the plan has
