@@ -23817,3 +23817,75 @@ and code cannot reach.
 
 **Lesson.** A claim about how an older release behaves is checked in that release's tag (`git show <tag>:<path>`) or its
 binary before it is written, as 959 did for v0.3.0's parallel nodes.
+
+## 988. Both fact stores' readers held a stored Collection identity to a rule a minor release may change, so a value stored correctly would have made a device's CLI history unreadable and shown a false chain break on the Controller after such a release (fixed before push, a repeat of 975 and 922; in kind of 959 and LESSONS 397)
+
+**Symptom.** Phase 136b PR 3 (`feat/provider-identity-136b-3`, 2026-11-08). `7bee73af` gave every stored fact a
+Collection identity (`facts.Provenance.Collection`) and held it to `Provenance.CheckCollection`
+(`internal/facts/provenance.go`) on read as well as on write. `CheckCollection` reads `collection.firstPartyGroups`,
+and `tools/schemacompat` lets that list grow on a minor release (`first-party-group-added`, `first-party-method-moved`).
+So a value stored correctly under release N, by a program method `acme.gather` or by `net.frr.config` under group `net`,
+would fail the rule under N+1 once a group named `acme` or `net.frr` is added. On the CLI, the file store's `readLines`
+(`internal/facts/file.go`) refused such a history line, so `Record`, `Current`, `History` and `Verify` failed for the
+whole device; `readSeen` skipped such a line and `readState` cleared such a volatile value's identity. On the Controller,
+the ent store's `decodeProvenance` (`internal/facts/entstore/rows.go`) cleared it, so `VerifyChain` recomputed the hash
+without it and reported a break at that row, which reads as tampering. The branch's own test
+`TestFileStore_RefusesAHistoryLineNamingAnotherGroup` asserted the refusal.
+
+**Who found it.** An independent review sent through the Batch API before the branch was pushed (model
+`claude-fable-5-1`, high effort; it cost $0.60), confirmed by fp-reviewer. The other review findings taken in the same
+fix: the identity cache's doc now names both of its callers and why neither races (`internal/engine/journal_identity.go`);
+the Controller's subscriber checks the identity only after a batch is admitted, so a batch it drops is not warned about;
+a test that a program's facts carry the identity the loader set, through an engine run
+(`TestFacts_AProgramsFactsNameTheIdentityTheLoaderSet`, `internal/engine/facts_identity_test.go`); and
+`ErrCollectionIdentity` no longer repeats the `facts:` prefix.
+
+**Root cause.** A write rule was used as a read rule. The rule depends on release data, the first-party group list, so
+it answers differently for the same stored value under different releases. A reader that refuses or edits a stored value
+by it turns a later release into data loss (the CLI) or a false tamper report (the Controller). The chain already covers
+the identity as stored, so the read check protected nothing the chain did not.
+
+**Why 975 and 922 did not prevent it.** Both made a fact file reader tolerant of a line it could not use, and 975's
+lesson is that a reader is as strict as what its data protects. The history reader is strict on purpose, because the
+chain needs every line, and this branch added a new refusal to that strict reader. Nothing in either lesson asks whether
+a new refusal depends on data that changes between releases.
+
+**Why 959 and LESSONS 408 did not prevent it.** 959 was a
+reader out of step with what the writer wrote, which made whole records unreadable, and 408's remedy is to hold the
+reader to the writer's own source. This branch did that: `CheckCollection` is the writer's own function. But it is the
+writer's source as of the reading release, not the one that wrote the value. LESSONS 397 names that mixed-release pair
+for a value whose meaning changes; here the value is unchanged and the rule moves.
+
+**Fix.** `df02959e`. `CheckCollection` runs only where a value is written: both stores' `Record`, the engine's
+`factProvenance` and the Controller's subscriber. `readLines`, `readSeen`, `readState` and `decodeProvenance` return the
+identity as stored, and the chain, which covers it, finds an edited one. `CheckCollection`'s doc says it is a rule for
+writing, never for reading. Tests: `TestFileStore_AStoredIdentityALaterRuleRefusesStillReads` (a correctly chained line
+the rule refuses still reads and verifies) and `TestFileStore_AnEditedIdentityBreaksTheChainAndReadsAsStored`
+(`internal/facts/file_identity_test.go`).
+
+**Lesson.** LESSONS 415: a reader of a hash-chained record hashes and returns what was stored, and a rule that depends
+on data a later release may change runs only where the value is written.
+
+## 989. The changelog and the runbook guide said every stored fact names its Collection, the same identity the journal records, and four cases store none (fixed before push, a repeat of 571, 976 and 987)
+
+**Symptom.** Phase 136b PR 3. `changelog/fact-collection-identity.added.md` said "every stored fact now names the
+Collection its method came from" and "the same identity the run journal records", and `docs/04-writing-runbooks.md`
+said the same. Four cases store no identity: a method in no first-party group, a program whose file name fails
+`wire.CollectionIdentity.Valid`, a batch from a Runner before this change, and an identity the Controller clears. The
+fact provenance description in `internal/apispec/apispec.go` listed two of the four. fp-reviewer named it a repeat of
+571, 976 and 987.
+
+**Root cause.** 228's class: each sentence said the rule and left out the exceptions, though the same branch wrote the
+code that makes them (the engine's zero identity for a method in no group, 984's `Valid` check, the subscriber's
+clearing).
+
+**Why 571, 976 and 987 did not prevent it.** Their rule (say the exception in the same sentence as the rule) is checked
+only by a review. 987 was one day earlier in the same phase, and its lesson is about older releases, not about the
+branch's own exceptions. Nothing reads a changelog sentence against the code before the review does.
+
+**Fix.** `79c60df0`. The fragment, the guide and the apispec description name all four cases. The fragment also says
+that a build from before this change reads a value stored with an identity without it, so its chain check reports that
+value as a break, and that no release before this one keeps facts.
+
+**Lesson.** 976's again: before writing "every" or "the same as" about a stored field, list each path in the branch
+that stores it empty and name those paths in the sentence.
