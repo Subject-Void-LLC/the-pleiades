@@ -15,6 +15,52 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/catalystcenter"
 )
 
+// TestNew_GivesOnePathOneIdentity: BaseURL is the synced controller's
+// DeviceID, so two spellings of one base path give one BaseURL, and the
+// controller is not onboarded twice. Escapes that do not mean the same
+// path (a literal ; against %3B, which a Java server reads apart) stay
+// apart, and an escaped slash stays escaped.
+func TestNew_GivesOnePathOneIdentity(t *testing.T) {
+	for _, same := range [][]string{
+		{"https://dnac.example/a%2fb", "https://dnac.example/a%2Fb", "https://dnac.example/a%2Fb/"},
+		{"https://dnac.example/%7Eops", "https://dnac.example/~ops", "https://dnac.example/%7eops"},
+		{"https://dnac.example/%41pi%2d1", "https://dnac.example/Api-1"},
+		{"https://dnac.example/a%20b", "https://dnac.example/a b"},
+		{"https://dnac.example/x%2F", "https://dnac.example/x%2f"},
+	} {
+		var first string
+		for i, base := range same {
+			c, err := catalystcenter.New(base, "admin", "pw")
+			if err != nil {
+				t.Fatalf("New(%q): %v", base, err)
+			}
+			if i == 0 {
+				first = c.BaseURL()
+				continue
+			}
+			if c.BaseURL() != first {
+				t.Errorf("New(%q).BaseURL() = %q, but New(%q) gave %q for the same path", base, c.BaseURL(), same[0], first)
+			}
+		}
+	}
+	for base, want := range map[string]string{
+		"https://dnac.example/a%2fb": "https://dnac.example/a%2Fb",
+		"https://dnac.example/%7E":   "https://dnac.example/~",
+		"https://dnac.example/x%2F":  "https://dnac.example/x%2F",
+		"https://dnac.example/a;b":   "https://dnac.example/a;b",
+		"https://dnac.example/a%3bb": "https://dnac.example/a%3Bb",
+	} {
+		c, err := catalystcenter.New(base, "admin", "pw")
+		if err != nil {
+			t.Errorf("New(%q): %v", base, err)
+			continue
+		}
+		if c.BaseURL() != want {
+			t.Errorf("New(%q).BaseURL() = %q, want %q", base, c.BaseURL(), want)
+		}
+	}
+}
+
 // TestNew_KeepsTheBasePathAsWritten puts one awkward segment in the base
 // URL's path and reads the device count through it. The controller must be
 // sent the segment as url.PathEscape wrote it and decode it back. New used
