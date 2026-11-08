@@ -13,12 +13,15 @@ package main_test
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
 
-	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
+	"go.yaml.in/yaml/v3"
 	"golang.org/x/crypto/ssh/knownhosts"
+
+	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
 )
 
 // factsPlaybook gathers facts (gather_facts left at its default, on) and
@@ -105,8 +108,21 @@ func TestMigratePlaybook_AFactReadDecidesPerHostAsAnsibleDoes(t *testing.T) {
 	}
 	// The setup task's filter is the native keys its patterns match, never
 	// the Ansible pattern, which facts.gather would refuse on every host.
-	if strings.Contains(string(runbook), "ansible_distribution*") || !strings.Contains(string(runbook), "os.version_major") {
-		t.Fatalf("the setup filter was not written as native keys:\n%s", runbook)
+	var parsed struct {
+		Tasks []map[string]any `yaml:"tasks"`
+	}
+	if err := yaml.Unmarshal(runbook, &parsed); err != nil {
+		t.Fatalf("the runbook does not parse: %v\n%s", err, runbook)
+	}
+	var filter []any
+	for _, task := range parsed.Tasks {
+		if task["name"] == "gather the distribution facts alone" {
+			gather, _ := task["facts.gather"].(map[string]any)
+			filter, _ = gather["filter"].([]any)
+		}
+	}
+	if want := []any{"os.codename", "os.distribution", "os.edition", "os.family", "os.version", "os.version_major"}; !reflect.DeepEqual(filter, want) {
+		t.Fatalf("the setup task's filter is %v, want %v:\n%s", filter, want, runbook)
 	}
 	if out, err := runPleiadesWithHome(t, dir, home, "run", "runbooks/site.yaml"); err != nil {
 		t.Fatalf("pleiades run: %v\n%s", err, out)
