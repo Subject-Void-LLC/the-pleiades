@@ -142,6 +142,11 @@ func runbookContextFor(payload wire.DispatchPayload) engine.RunbookContextFunc {
 // stack the Crawl-tier CLI runs, scoped to the one device this payload
 // names.
 func (a *Adapter) Execute(ctx context.Context, payload wire.DispatchPayload) (wire.Outcome, error) {
+	// Login seed material is the engine's to derive, never a dispatch's to
+	// carry, so any is dropped before anything below reads the secrets
+	// (seeds.go).
+	payload = withoutDeliveredSeeds(a.logger, payload)
+
 	// The mode is settled before anything starts, and a value that is not
 	// a mode refuses the dispatch: reading it as a real run would be the
 	// one unsafe guess (pkg/wire.DispatchPayload.Mode).
