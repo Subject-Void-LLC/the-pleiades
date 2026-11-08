@@ -206,10 +206,15 @@ func majorVersionSemantics(open, fixed term, op string) *celError {
 	// in ways the native value does not ("10" < "8"); only equality and
 	// membership against strings mean the same.
 	ordering := op != "==" && op != "!=" && op != "in" && op != "not in"
-	if ordering || !allStrings(fixed.value) {
-		return &celError{"when.fact", fmt.Sprintf("Ansible compares %s as text here, which the native fact would not; write the condition on the native fact", open.fact)}
+	switch {
+	case !ordering && allStrings(fixed.value):
+		return nil
+	case open.fact == ansibleMajorVersion:
+		// The major version has a translated spelling: Jinja's | int, which
+		// compares the integer as the native os.version_major does.
+		return &celError{"when.fact", fmt.Sprintf("Ansible compares %s as text here (\"10\" sorts before \"8\"), which the native integer os.version_major would not; write %s | int compared with a whole number for Jinja's integer comparison, or the condition on os.version_major", open.fact, open.fact)}
 	}
-	return nil
+	return &celError{"when.fact", fmt.Sprintf("Ansible compares %s as text here, which the native fact would not; write the condition on the native fact", open.fact)}
 }
 
 // allStrings reports whether v is a string or a list of strings only.

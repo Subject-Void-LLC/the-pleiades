@@ -34,8 +34,10 @@ func TestTranslate_AFactReadReadsTheNativeFactOfAnInsertedGather(t *testing.T) {
 			wantWhen: `nodes.gathered_facts[device.id]["os.distribution"] in ["ubuntu", "rhel"]`},
 		{name: "major version as a string", when: `ansible_distribution_major_version == "12"`, msg: "x",
 			wantWhen: `nodes.gathered_facts[device.id]["os.version_major"] == 12`},
-		// | int differs where the fact is absent (Ansible's int of NA is 0).
-		{name: "major version through int", when: `ansible_distribution_major_version | int >= 12`, msg: "x", wantCode: "when.fact"},
+		// | int is Jinja's integer: the native major, or 0 where the device has
+		// none (facts_major_test.go evaluates it per host).
+		{name: "major version through int", when: `ansible_distribution_major_version | int >= 12`, msg: "x",
+			wantWhen: `(("os.version_major" in nodes.gathered_facts[device.id]) ? nodes.gathered_facts[device.id]["os.version_major"] : 0) >= 12`},
 		{name: "a kernel name", when: `ansible_system == "Linux"`, msg: "x",
 			wantWhen: `nodes.gathered_facts[device.id]["os.kernel.name"] == "linux"`},
 		{name: "a value with no native word", when: `ansible_distribution == "Microsoft Windows Server 2022 Datacenter"`, msg: "x",
@@ -122,7 +124,7 @@ func TestTranslate_AFactReadKeepsAnsiblesMeaning(t *testing.T) {
 		// number never equals it, which the native integer would change.
 		{name: "an ordering over the version string", when: `ansible_distribution_major_version >= "8"`, code: "when.fact"},
 		{name: "a number against the version string", when: `ansible_distribution_major_version == 12`, code: "when.fact"},
-		{name: "through int", when: `ansible_distribution_major_version | int >= 8`, code: "when.fact"},
+		{name: "an ordering over another fact's text", when: `ansible_kernel >= "6"`, code: "when.fact"},
 		{name: "a pattern over a fact", when: `ansible_distribution is match("Ubuntu|Debian")`, code: "when.fact"},
 		{name: "a fact read as a truth", when: `ansible_distribution_release`, code: "when.fact"},
 		{name: "an architecture Windows words differently", when: `ansible_architecture == "x86_64"`, code: "when.fact"},
