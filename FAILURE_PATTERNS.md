@@ -991,6 +991,8 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 985. The strict journal reader's "refuse anything the writer could not have made" was not extended to format 2's fields (fixed before push, a repeat in kind of 959; LESSONS 408)
 986. collection.UndoDigest's doc said it covers what decides whether a recorded undo still replays, and it left out a parameter's format, run setting and secret references (fixed before push, a repeat in kind of 885; LESSONS 348)
 987. The changelog said 0.3 refuses a format-2 journal line by its format version, and v0.3.0 predates the format key (fixed before push, a repeat of 571 and 976)
+988. Both fact stores' readers held a stored Collection identity to a rule a minor release may change, so a value stored correctly would have made a device's CLI history unreadable and shown a false chain break on the Controller after such a release (fixed before push, a repeat of 975 and 922; in kind of 959 and LESSONS 397)
+989. The changelog and the runbook guide said every stored fact names its Collection, the same identity the journal records, and four cases store none (fixed before push, a repeat of 571, 976 and 987)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

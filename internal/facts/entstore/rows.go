@@ -173,7 +173,10 @@ func encode(p facts.Provenance) (map[string]any, error) {
 }
 
 // decodeProvenance reads a provenance column; one that is empty or does
-// not decode is unknown provenance.
+// not decode is unknown provenance. The Collection identity is read as
+// stored, never held to CheckCollection (Record already did): the rule reads
+// the first-party group list, which a later release may grow, and the chain,
+// which covers the identity as it was stored, is what finds an edited row.
 func decodeProvenance(col map[string]any) facts.Provenance {
 	var p facts.Provenance
 	if text, ok := col[payloadKey].(string); ok {

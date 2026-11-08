@@ -7587,3 +7587,27 @@ type: a projection whose purpose is to notice change must not be the one place a
 **Rule in practice.** For a digest, a fingerprint or a canonical form built from some of a type's fields, keep two
 lists beside it: what it covers and what it leaves out, each with a reason. A test reflects over the type and fails on
 a field in neither. The doc comment names both lists, so its claim can be checked against them.
+
+## 415. A reader of a record a hash chain covers hashes and returns what was stored; a rule that depends on data a later release may change runs only where the value is written (a refinement of 413; FAILURE_PATTERNS 988)
+
+**Why.** Phase 136b PR 3. Both fact stores held each stored Collection identity to `facts.Provenance.CheckCollection`
+on read as well as on write. The rule reads the first-party group list, which `tools/schemacompat` lets a minor release
+grow. A value stored correctly under one release could fail it under the next: the CLI's history reader would have
+refused the whole device's facts, and the Controller's decoder cleared the identity, so the chain recomputed without it
+and reported a break that reads as tampering. The chain already covered the identity as stored, so the read check
+added no protection (FAILURE_PATTERNS 988).
+
+**What is old and what is new.** LESSONS 413 says the writer writes only what the reader accepts, and 982's lesson puts
+a validation meant for later readers at those readers. Both assume the rule gives the same answer whenever it runs. A
+rule built on release data does not: it is the writer's rule as of the release that runs it. LESSONS 408 (hold a
+reader to the writer's own source) has the same gap, since the source a reader calls belongs to its own release. For a
+record whose integrity a chain already proves, the reader's job is to hash and return the bytes as stored, so the chain
+can say whether they changed.
+
+**Rule in practice.** For each check a reader of a durable record makes, ask whether its answer can change between
+releases for the same stored value (a group list, a reserved namespace, an allow-list). If it can, run it only at the
+write and say so in the rule's doc. A reader never edits a value before hashing it. A shape check that depends on no
+release data is a separate question, decided per format: the journal's strict reader holds an identity to
+`wire.CollectionIdentity.Valid`, and the fact readers deliberately do not, because the chain flags an edited row. Pin the
+choice with a test that stores a value the rule refuses, chains it correctly, and reads and verifies it
+(`TestFileStore_AStoredIdentityALaterRuleRefusesStillReads`).

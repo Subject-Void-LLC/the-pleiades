@@ -7,6 +7,7 @@ package factstest
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"strconv"
@@ -15,6 +16,7 @@ import (
 	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
 
 // NewStore returns a fresh store and the ID of a device it may record for.
@@ -38,6 +40,7 @@ func Run(t *testing.T, newStore NewStore) {
 	t.Run("an observation confirms only the keys it covered", func(t *testing.T) { confirmsOnlyWhatItCovered(t, newStore) })
 	t.Run("an order no column holds is stored and still decides", func(t *testing.T) { unusualOrders(t, newStore) })
 	t.Run("reads read from observations give the mutable store's answers", func(t *testing.T) { derivedReadsMatchTheOracle(t, newStore) })
+	t.Run("the Collection identity is kept, chained, and refused when no build writes it", func(t *testing.T) { collectionIdentity(t, newStore) })
 }
 
 // entries prepares observed as a method declaring every key kind would.
@@ -343,5 +346,59 @@ func unusualOrders(t *testing.T, newStore NewStore) {
 	record(t, s, dev, facts.KindVolatile, map[string]any{"host.uptime_seconds": 9}, base.Add(time.Hour), huge(1))
 	if e := current(t, s, dev, "host.uptime_seconds"); e.Value != jsonInt(1) || e.LastBy.Run != "huge2" {
 		t.Fatalf("uptime = %+v, want 1 from huge2: the later clock of huge1 is an earlier run", e)
+	}
+}
+
+// gatherIdentity is a well-formed identity of the facts group, the one
+// facts.gather belongs to.
+var gatherIdentity = wire.CollectionIdentity{Group: "facts", Version: "0.4.0", Manifests: "sha256:" + strings.Repeat("ab", 32)}
+
+// collectionIdentity: a value stored before Phase 136b (no identity) and
+// values stored with one share one chain; each value, stable or volatile,
+// reads back with the identity of the run that first saw it and of the one
+// that last confirmed it; and an observation whose identity no build writes
+// for its method is refused whole, before anything is written.
+func collectionIdentity(t *testing.T, newStore NewStore) {
+	s, dev := newStore(t)
+	with := func(run string, token uint64) facts.Provenance {
+		p := by(run, token)
+		p.Collection = gatherIdentity
+		return p
+	}
+	record(t, s, dev, facts.KindStable, map[string]any{"a": "1"}, base, by("old", 1))
+	record(t, s, dev, facts.KindStable, map[string]any{"a": "1"}, base.Add(time.Minute), with("confirm", 2))
+	record(t, s, dev, facts.KindStable, map[string]any{"a": "2"}, base.Add(2*time.Minute), with("new", 3))
+	record(t, s, dev, facts.KindVolatile, map[string]any{"up": 5}, base.Add(2*time.Minute), with("new", 3))
+
+	h := history(t, s, dev, "a")
+	if len(h) != 2 || !h[0].By.Collection.IsZero() || h[1].By.Collection != gatherIdentity {
+		t.Fatalf("history = %+v, want 1 with no identity, then 2 with the facts group's", h)
+	}
+	if e := current(t, s, dev, "a"); e.By.Collection != gatherIdentity || e.LastBy.Collection != gatherIdentity {
+		t.Fatalf("current a = %+v, want the facts group's identity first and last", e)
+	}
+	if e := current(t, s, dev, "up"); e.By.Collection != gatherIdentity {
+		t.Fatalf("current up = %+v, want the facts group's identity", e)
+	}
+	v, err := s.Verify(context.Background(), dev)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v.Break != nil || v.Values != 2 {
+		t.Fatalf("verdict = %+v, want two chained values across the identity and no break", v)
+	}
+
+	// The identity of another group, for a method of the facts group.
+	wrong := with("wrong", 4)
+	wrong.Collection.Group = "file"
+	err = s.Record(context.Background(), dev, facts.Observation{Entries: entries(t, facts.KindStable, map[string]any{"a": "3"}), At: base.Add(3 * time.Minute), By: wrong})
+	if !errors.Is(err, facts.ErrInvalid) || !errors.Is(err, facts.ErrCollectionIdentity) {
+		t.Fatalf("Record with another group's identity = %v, want ErrInvalid and ErrCollectionIdentity", err)
+	}
+	if h := history(t, s, dev, "a"); len(h) != 2 {
+		t.Fatalf("a refused observation wrote a value: %+v", h)
+	}
+	if e := current(t, s, dev, "a"); e.LastBy.Run != "new" {
+		t.Fatalf("a refused observation confirmed a value: %+v", e)
 	}
 }

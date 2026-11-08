@@ -183,6 +183,10 @@ func readLines(r *os.Root, device string) ([]line, int64, error) {
 		var l line
 		dec := json.NewDecoder(bytes.NewReader(raw))
 		dec.UseNumber()
+		// The Collection identity is read as written, never held to
+		// CheckCollection: the rule reads the first-party group list, which
+		// a later release may grow, and a line its chain already covers must
+		// keep reading and verifying under it. The chain finds an edited one.
 		if err := dec.Decode(&l); err != nil || !ValidKey(l.Key) || l.Hash == "" || l.Seq < 0 {
 			return fmt.Errorf("facts: %s.jsonl line %d is not a stored fact", device, n)
 		}

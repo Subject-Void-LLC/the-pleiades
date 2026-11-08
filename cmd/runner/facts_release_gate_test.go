@@ -24,6 +24,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/api"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/buildinfo"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/dispatch"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
@@ -33,6 +34,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/journal"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/runbook"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	pkginventory "github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	inventorytest "github.com/Subject-Void-LLC/the-pleiades/pkg/inventory/inventorytest"
 )
@@ -214,6 +216,19 @@ func TestFactsReleaseGate_AControllerJobStoresWhatItsTaskObserved(t *testing.T) 
 		if by.Job != job.JobID || by.Attempt < 1 || by.Method != "facts.gather" || by.Runner != gateRunnerID || by.Node == "" ||
 			!strings.HasPrefix(by.Order.Source, "lease:") || by.Order.Token == 0 {
 			t.Errorf("%s: provenance %+v, want this job, its attempt, facts.gather, the gate's Runner and the lease's token", f.Key, by)
+		}
+	}
+	// Phase 136b: and the Collection it came from, as the Runner's engine
+	// recorded it and the Controller stored it: the facts group at this
+	// build, with the digest this test binary's registry computes, the same
+	// identity the journal records for the node.
+	wantIdentity, err := collection.BuiltinIdentity("facts.gather", buildinfo.Version())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range body.Facts {
+		if f.By.Collection != wantIdentity {
+			t.Errorf("%s: collection %+v, want %+v", f.Key, f.By.Collection, wantIdentity)
 		}
 	}
 	if kinds["os.kernel.release"] != "stable" || kinds["host.uptime_seconds"] != "volatile" {

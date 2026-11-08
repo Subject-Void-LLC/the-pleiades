@@ -55,6 +55,12 @@ func (s *FileStore) Record(_ context.Context, name string, obs Observation) erro
 	if len(obs.Entries) == 0 {
 		return nil
 	}
+	// Refused before anything is written: readLines refuses a line carrying
+	// an identity no build writes, so storing one would leave the device's
+	// history unreadable.
+	if err := obs.By.CheckCollection(); err != nil {
+		return fmt.Errorf("%w: %w", ErrInvalid, err)
+	}
 	return s.locked(name, func(r *os.Root) error {
 		d, err := load(r, name)
 		if err != nil {

@@ -20,6 +20,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/sealed"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
 
 // Subscriber writes published fact batches into the store.
@@ -161,6 +162,17 @@ func (s *Subscriber) Handle(evt event.Event) error {
 		default:
 			return fmt.Errorf("the facts batch names job %s device %s, which this controller has not recorded dispatching yet", batch.JobID, batch.DeviceID)
 		}
+	}
+	// The Collection identity is the Runner's engine's, never the method's
+	// (Phase 136b), checked once the batch is admitted so a batch this
+	// controller drops is not warned about. One no build writes for the batch's method (a Runner out
+	// of step with itself, or a batch made by hand) is not stored: the facts
+	// are the device's and are kept, and the identity reads as unknown, as
+	// it does for a value from a Runner before it.
+	if err := by.CheckCollection(); err != nil {
+		s.logger.Warn("storing facts with no Collection identity, since the batch names one no build writes for its method",
+			slog.String("job", batch.JobID), slog.String("device", batch.DeviceID), slog.String("method", by.Method), slog.String("reason", err.Error()))
+		by.Collection = wire.CollectionIdentity{}
 	}
 	obs := facts.Observation{Entries: entries, At: batch.ObservedAt, By: by}
 	if err := s.store.Record(context.Background(), batch.DeviceID, obs); err != nil {

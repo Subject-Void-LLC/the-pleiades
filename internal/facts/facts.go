@@ -140,7 +140,7 @@ type Problem struct {
 
 // Guard is what keeps a secret out of storage: the values the run knows to be
 // secrets, and two checks a caller supplies from internal/redact (this package
-// imports only the standard library): Shaped, whether text holds something
+// imports no internal package): Shaped, whether text holds something
 // shaped like a secret (a private key, a bearer token, a URL with a
 // password), and SecretName, whether a name marks one (password,
 // token), asked of a fact's key and of every field name inside its value.
