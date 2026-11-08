@@ -553,7 +553,9 @@ var RollbackJob = Endpoint{
 			"leave":         namesSchema("Node ids whose changes to leave in place."),
 			"allow_partial": namesSchema("Node ids whose partial undo to run, knowing it does not put back everything the task overwrote."),
 			"allow_unknown": namesSchema("Node ids whose unknown effect to accept, and \"unsealed\" for a job some device never reported back from."),
-			"despite_job":   namesSchema("Ids of later jobs whose changes to the same devices to undo this one beneath."),
+			"allow_skew": namesSchema("Node ids whose recorded undo to replay although it was recorded under Collection declarations other than this Controller's or the Runner's. " +
+				"Each recorded value is still held to the declarations it runs under; a node named here is accepted even where this Controller finds no difference, since a Runner of another build may."),
+			"despite_job": namesSchema("Ids of later jobs whose changes to the same devices to undo this one beneath."),
 			"method_settings": map[string]any{
 				"type":                 "object",
 				"additionalProperties": map[string]any{"type": "string"},

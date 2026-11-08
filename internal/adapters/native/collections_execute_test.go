@@ -177,10 +177,10 @@ func TestStepFromWire_KeepsEveryField(t *testing.T) {
 	ws := wire.RollbackStep{Node: "tasks[2]", Index: 1, Emitter: "file.copy", Method: "file.remove", Params: map[string]any{"path": "/x"},
 		Name: "undo", Source: "recorded",
 		Collection: wire.CollectionIdentity{Group: "file", Version: "0.4.0", Manifests: wire.ManifestDigestPrefix + strings.Repeat("c", 64)},
-		UndoDigest: wire.ManifestDigestPrefix + strings.Repeat("d", 64)}
+		UndoDigest: wire.ManifestDigestPrefix + strings.Repeat("d", 64), SkewAccepted: true}
 	s := stepFromWire(ws)
 	if s.Node != ws.Node || s.Index != ws.Index || s.Emitter != ws.Emitter || s.FQCN != ws.Method || s.Params["path"] != "/x" ||
-		s.Name != ws.Name || s.Source != ws.Source || s.Collection != ws.Collection || s.UndoDigest != ws.UndoDigest {
+		s.Name != ws.Name || s.Source != ws.Source || s.Collection != ws.Collection || s.UndoDigest != ws.UndoDigest || !s.SkewAccepted {
 		t.Errorf("stepFromWire(%+v) = %+v", ws, s)
 	}
 }

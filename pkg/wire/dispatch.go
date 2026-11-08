@@ -504,11 +504,21 @@ type RollbackStep struct {
 	// set for a recorded step whose journal entry carries them, and empty
 	// for an authored step and for an entry written before the journal
 	// recorded either. They travel so the Runner can hold a recorded undo to
-	// its own build's declarations; in this release it carries them and does
-	// not compare them yet. A rollback is published only on its own subject,
-	// which an older Runner never reads, so they need no new payload version.
+	// its own build's declarations: it refuses a step whose undo digest (or,
+	// when none was recorded, whose Collection digest) is not its own, unless
+	// SkewAccepted. A rollback is published only on its own subject, which an
+	// older Runner never reads, so they need no new payload version.
 	Collection CollectionIdentity `json:"collection,omitzero"`
 	UndoDigest string             `json:"undo_digest,omitempty"`
+
+	// SkewAccepted says the operator named this step's node in the
+	// rollback's allow_skew, accepting its replay under declarations other
+	// than those it was recorded under. The Controller sets it for every
+	// recorded step of a node so named, whether or not its own declarations
+	// differ, since the Runner's may; it relaxes only the digest comparison,
+	// never the Runner's check of each recorded value against its own
+	// declarations.
+	SkewAccepted bool `json:"skew_accepted,omitempty"`
 }
 
 // Injected is the rendered output of a dispatch's bound credentials.

@@ -546,6 +546,7 @@ undo a run from its journal: every device it changed, newest change first
 | --leave | `string` | - | a node whose change to leave in place rather than undo (repeatable) |
 | --allow-partial | `string` | - | a node whose partial undo to run anyway (repeatable) |
 | --allow-unknown | `string` | - | a node whose unknown effect to accept, or unsealed for a journal with no seal (repeatable) |
+| --allow-skew | `string` | - | a node whose recorded undo to replay although its Collection's declarations differ from this build's (repeatable) |
 | --despite-run | `string` | - | a later run whose changes to the same devices to undo beneath (repeatable) |
 | --verbose | `bool` | `false` | print each undo's own output |
 | --v | `bool` | `false` | shorthand for --verbose |

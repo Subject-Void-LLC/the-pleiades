@@ -22,8 +22,10 @@ const (
 // Verify holds one step to dag, the runbook the undone run ran, at the
 // version its journal records: the node exists and runs the step's
 // emitter; a recorded step is an undo that method declares, carrying only
-// values it declares recordable, each one the journal could have held; an
-// authored step is that node's rollback: list entry exactly as written.
+// values it declares recordable, each one the journal could have held and
+// of the type its method declares, recorded under this build's
+// declarations unless the plan accepted the skew by name (SkewAccepted);
+// an authored step is that node's rollback: list entry exactly as written.
 //
 // The journal a plan is read from was published by Runners, so on the
 // Walk tier the Controller asks this before it creates a rollback job and
@@ -57,20 +59,50 @@ func Verify(dag *engine.DAG, s Step) error {
 	}
 }
 
-// verifyRecorded holds a recorded step to what its emitter declares.
+// verifyRecorded holds a recorded step to what its emitter declares in
+// this build, and to the declarations it was recorded under (skew.go): a
+// step whose undo digest (or, with none recorded, whose Collection digest)
+// is not this build's runs only when the plan accepted the skew by name.
+// SkewAccepted relaxes that comparison alone, never the checks of each
+// value against this build's declarations, nor a parameter this build's
+// undo method requires that the step does not carry. The identity is held
+// to Shape, never Valid, and a group this build routes elsewhere is not
+// refused: a minor release may move a method (FAILURE_PATTERNS 988).
 func verifyRecorded(s Step) error {
+	// No program's undo is ever planned, so a step carrying a program's
+	// identity is not one a Controller made.
+	if err := checkIdentity(s.Emitter, s.Collection, ""); err != nil {
+		return err
+	}
 	spec, target, err := declaredUndo(s.Emitter, s.FQCN)
 	if err != nil {
 		return err
 	}
-	declared := fragment.DeclaredIn(target)
+	declared := fragment.ByNameIn(target)
+	have := map[string]bool{}
 	for k, v := range s.Params {
-		if collection.IsReservedParam(k) || !slices.Contains(spec.Record, k) || !declared[k] {
+		param, isDeclared := declared[k]
+		if collection.IsReservedParam(k) || !slices.Contains(spec.Record, k) || !isDeclared {
 			return fmt.Errorf("the undo of %s through %s carries parameter %q, which %s does not declare recordable", s.Emitter, s.FQCN, k, s.Emitter)
 		}
 		if !recordableValue(v, engine.ListParam(s.FQCN, k)) {
 			return fmt.Errorf("the undo of %s through %s carries a value for %q the journal would never hold", s.Emitter, s.FQCN, k)
 		}
+		if err := checkKind(k, v, param, s.FQCN); err != nil {
+			return err
+		}
+		have[k] = true
+	}
+	k := skewOf(s.Emitter, s.Collection, s.UndoDigest, *spec, target, nil)
+	if !k.skewed() {
+		return nil
+	}
+	if missing := requiredMissing(target, have); len(missing) > 0 {
+		return fmt.Errorf("the undo of %s through %s now requires %s, which the step does not carry, so it cannot run whatever was accepted: %s", s.Emitter, s.FQCN, quoted(missing), k.describe())
+	}
+	if !s.SkewAccepted {
+		return fmt.Errorf("the undo of %s through %s was recorded under other declarations than this Runner's, and the rollback was not planned with allow_skew naming %s (--allow-skew on the CLI): %s",
+			s.Emitter, s.FQCN, s.Node, k.describe())
 	}
 	return nil
 }

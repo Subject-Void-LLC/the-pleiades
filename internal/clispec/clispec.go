@@ -515,6 +515,7 @@ var Root = Command{
 				{Name: "leave", Type: "string", Default: "", Doc: "a node whose change to leave in place rather than undo (repeatable)"},
 				{Name: "allow-partial", Type: "string", Default: "", Doc: "a node whose partial undo to run anyway (repeatable)"},
 				{Name: "allow-unknown", Type: "string", Default: "", Doc: "a node whose unknown effect to accept, or unsealed for a journal with no seal (repeatable)"},
+				{Name: "allow-skew", Type: "string", Default: "", Doc: "a node whose recorded undo to replay although its Collection's declarations differ from this build's (repeatable)"},
 				{Name: "despite-run", Type: "string", Default: "", Doc: "a later run whose changes to the same devices to undo beneath (repeatable)"},
 				{Name: "verbose", Type: "bool", Default: "false", Doc: "print each undo's own output"},
 				{Name: "v", Type: "bool", Default: "false", Doc: "shorthand for --verbose"},

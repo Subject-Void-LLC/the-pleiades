@@ -19,8 +19,11 @@
 // what the method declares, the device has left the inventory, or a later
 // run has changed the same device since. Each refusal names the node and
 // the device, and the flag that accepts that gap by name (Request.Leave,
-// AllowPartial, AllowUnknown, DespiteRuns), so an operator accepts exactly
-// what they read and nothing else, as `--allow-unchecked` does for a check.
+// AllowPartial, AllowUnknown, AllowSkew, DespiteRuns), so an operator
+// accepts exactly what they read and nothing else, as `--allow-unchecked`
+// does for a check. A recorded undo is also held to the declarations it was
+// recorded under (skew.go), and what the plan wants read without refusing
+// is in Plan.Warnings.
 //
 // A task that failed during its own action is different: it may have
 // changed part of what it meant to, and the journal cannot say which,
@@ -97,6 +100,27 @@ type Request struct {
 	// DespiteRuns names later runs, by id, whose changes to the same
 	// devices the operator accepts undoing Target beneath.
 	DespiteRuns map[string]bool
+
+	// AllowSkew names node ids whose recorded undo the operator accepts
+	// replaying under declarations other than those it was recorded under:
+	// the undo's declaration (its InverseSpecDigest), or, for an entry that
+	// recorded none, its Collection's digest, differs from this build's. It
+	// relaxes that comparison alone. Every recorded value is still held to
+	// this build's declarations (declared, recordable and of the declared
+	// type), and a parameter this build's undo method requires that the run
+	// did not record is refused whatever it names (skew.go).
+	AllowSkew map[string]bool
+
+	// ExecutorIsPlanner says the steps run in the process that plans them:
+	// the Crawl tier, where one build plans and runs against one set of
+	// declarations. There a node AllowSkew names that has no skew to accept
+	// is refused, so a flag carried over from an earlier command never
+	// stands ready to accept a skew nobody was shown. The Walk tier leaves it
+	// false: a Runner of another build may hold other declarations than the
+	// Controller's, so a node AllowSkew names is marked SkewAccepted even
+	// when the Controller finds no skew, or the Runner's refusal could never
+	// be accepted.
+	ExecutorIsPlanner bool
 }
 
 // Unsealed is the name AllowUnknown takes for a journal with no seal.
@@ -146,10 +170,31 @@ type Step struct {
 	// recorded undo: the identity of the Collection the node's method came
 	// from (engine.JournalEntry.Collection) and the digest of the undo's
 	// declaration (JournalEntry.InverseSpecDigest). Both are empty for an
-	// authored step and for an entry that recorded neither. The plan carries
-	// them to a Runner (wire.RollbackStep) and decides nothing by them yet.
+	// authored step and for an entry that recorded neither. The planner
+	// compares them with this build's declarations (skew.go), and the plan
+	// carries them to a Runner (wire.RollbackStep), which compares them with
+	// its own.
 	Collection wire.CollectionIdentity `json:"collection,omitzero"`
 	UndoDigest string                  `json:"undo_digest,omitempty"`
+
+	// SkewAccepted marks a recorded undo whose node the operator named in
+	// AllowSkew: run although its declarations differ from this build's,
+	// or, on the Walk tier, from the Runner's.
+	SkewAccepted bool `json:"skew_accepted,omitempty"`
+}
+
+// Warning is something the planner wants an operator to read about a
+// change it plans to undo, which does not stop the plan: an undo checked
+// against this build's declarations alone, a Collection whose declarations
+// changed while the undo's own did not, or a skew accepted by name.
+type Warning struct {
+	// Node is the node, in the run being undone, the warning is about.
+	Node string `json:"node"`
+	// DeviceID and DeviceName name the device the node changed, when one.
+	DeviceID   string `json:"device_id,omitempty"`
+	DeviceName string `json:"device,omitempty"`
+	// Message says what to know.
+	Message string `json:"message"`
 }
 
 // Gap is a change the plan does not undo, and why.
@@ -198,6 +243,10 @@ type Plan struct {
 	// predates run ordering (order.go). Every other run was ordered by the
 	// project's run counter or by lease revisions.
 	OrderedByClock []string `json:"ordered_by_clock,omitempty"`
+
+	// Warnings are what an operator should read about the changes the plan
+	// undoes, in the order those changes are planned.
+	Warnings []Warning `json:"warnings,omitempty"`
 }
 
 // Steps returns every step of the plan in the order it runs.
@@ -284,10 +333,12 @@ func Build(req Request) (Plan, error) {
 		index int
 	}
 	levels := map[levelKey][]Step{}
+	// One digest per group for the whole plan (skew.go).
+	groups := groupDigests{}
 	for order, e := range changed {
 		p := pair{e.NodeID, e.DeviceID}
 		name, known := deviceLookup(req, e.DeviceID)
-		steps, err := stepsFor(req, e)
+		steps, warnings, err := stepsFor(req, e, groups)
 		// A change named to leave stays as it is, whether or not it could
 		// be undone: the operator decides what to take back out.
 		if req.Leave[e.NodeID] {
@@ -297,6 +348,15 @@ func Build(req Request) (Plan, error) {
 			}
 			plan.Left = append(plan.Left, Gap{Node: e.NodeID, DeviceID: e.DeviceID, DeviceName: name, Reason: reason})
 			continue
+		}
+		// Where this process runs what it plans, a node named to
+		// --allow-skew with no skew is refused, and nothing but dropping the
+		// name answers it (Request.ExecutorIsPlanner).
+		if (err == nil || errors.Is(err, errNothingToUndo)) && req.ExecutorIsPlanner && req.AllowSkew[e.NodeID] {
+			if why := needlessSkew(e.NodeID, steps); why != "" {
+				problems = append(problems, Problem{Node: e.NodeID, DeviceID: e.DeviceID, DeviceName: name, Reason: why})
+				continue
+			}
 		}
 		switch {
 		case errors.Is(err, errNothingToUndo):
@@ -339,12 +399,18 @@ func Build(req Request) (Plan, error) {
 				Reason: "the device this changed is no longer in the inventory, so nothing can reach it to undo it", Accept: "--leave " + e.NodeID})
 			continue
 		}
+		// What to read about an undo is said only for one the plan runs.
+		for _, w := range warnings {
+			plan.Warnings = append(plan.Warnings, Warning{Node: e.NodeID, DeviceID: e.DeviceID, DeviceName: name, Message: w})
+		}
 		for _, s := range remaining {
 			s.DeviceID, s.DeviceName = e.DeviceID, name
 			k := levelKey{order, s.Index}
 			levels[k] = append(levels[k], s)
 		}
 	}
+
+	problems = append(problems, unjournaledSkews(req)...)
 
 	// Nothing left but what an earlier rollback undid, what the operator
 	// named to leave and what its runbook says has nothing to undo: a

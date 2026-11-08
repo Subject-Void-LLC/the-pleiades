@@ -204,7 +204,7 @@ func (a *Adapter) Execute(ctx context.Context, payload wire.DispatchPayload) (wi
 	// held to this Runner's copy of the runbook first (rollback.go).
 	var rollbackOption engine.ExecutorOption = func(*engine.Executor) {}
 	if payload.Rollback != nil {
-		dag, rollbackOption, err = rollbackDAG(dag, payload)
+		dag, rollbackOption, err = rollbackDAG(a.logger, dag, payload)
 		if err != nil {
 			return wire.Outcome{}, a.refuse(ctx, payload, err)
 		}

@@ -71,9 +71,9 @@ var ErrSettingLocked = errors.New("api: the job's template does not let a launch
 type RollbackRequest struct {
 	// Mode is execute, or check to see what the rollback would do.
 	Mode collection.Mode
-	// Leave, AllowPartial and AllowUnknown name node ids, as
+	// Leave, AllowPartial, AllowUnknown and AllowSkew name node ids, as
 	// rollback.Request does; AllowUnknown also takes rollback.Unsealed.
-	Leave, AllowPartial, AllowUnknown []string
+	Leave, AllowPartial, AllowUnknown, AllowSkew []string
 	// DespiteJobs names later jobs to undo beneath.
 	DespiteJobs []string
 	// MethodSettings are run settings for the rollback's tasks, over the
@@ -122,6 +122,7 @@ var acceptFields = map[string]string{
 	"--allow-partial": "allow_partial",
 	"--allow-unknown": "allow_unknown",
 	"--despite-run":   "despite_job",
+	"--allow-skew":    "allow_skew",
 }
 
 // problemFrom renders a planner problem for the API.
@@ -297,6 +298,12 @@ func (d *Dispatcher) planRollback(ctx context.Context, job *dispatch.Job, tasks 
 		},
 		Leave: setOf(req.Leave), AllowPartial: setOf(req.AllowPartial),
 		AllowUnknown: setOf(req.AllowUnknown), DespiteRuns: setOf(req.DespiteJobs),
+		// A Runner, not this process, runs each step, and its declarations
+		// may differ from this Controller's catalog: a node named here is
+		// marked accepted even where this Controller finds no skew, or a
+		// Runner's refusal of it could never be accepted
+		// (rollback.Request.ExecutorIsPlanner).
+		AllowSkew: setOf(req.AllowSkew),
 	})
 	var refused *rollback.RefusedError
 	var problems []RollbackProblem
@@ -334,6 +341,19 @@ func (d *Dispatcher) planRollback(ctx context.Context, job *dispatch.Job, tasks 
 	if len(problems) > 0 {
 		return nil, &RollbackRefusedError{Problems: problems}
 	}
+	// What the plan says to read (an undo checked against this Controller's
+	// declarations alone, a Collection whose declarations changed while the
+	// undo's did not, a skew accepted by allow_skew and the digests it
+	// accepted) is logged, through the request's logger when it has one. Each
+	// message quotes every group, version and digest it names.
+	logger, ok := loggerFromContext(ctx)
+	if !ok {
+		logger = slog.Default()
+	}
+	for _, w := range plan.Warnings {
+		logger.WarnContext(ctx, "rollback plan warning", slog.String("job_id", job.JobID), slog.String("node", w.Node),
+			slog.String("device", w.DeviceName), slog.String("warning", w.Message))
+	}
 	if len(out.Devices) == 0 {
 		return nil, fmt.Errorf("%w: nothing is left to run, since every change is left in place as named or its rollback: list says there is nothing to undo", ErrNotRollbackable)
 	}
@@ -343,7 +363,7 @@ func (d *Dispatcher) planRollback(ctx context.Context, job *dispatch.Job, tasks 
 // addStep appends s to its device's steps in plan, in the order they run.
 func addStep(plan *dispatch.RollbackPlan, s rollback.Step) {
 	step := wire.RollbackStep{Node: s.Node, Index: s.Index, Emitter: s.Emitter, Method: s.FQCN, Params: s.Params, Name: s.Name, Source: s.Source,
-		Collection: s.Collection, UndoDigest: s.UndoDigest}
+		Collection: s.Collection, UndoDigest: s.UndoDigest, SkewAccepted: s.SkewAccepted}
 	for i := range plan.Devices {
 		if plan.Devices[i].DeviceID == s.DeviceID {
 			plan.Devices[i].Steps = append(plan.Devices[i].Steps, step)
@@ -430,6 +450,7 @@ type rollbackBody struct {
 	Leave        []string `json:"leave"`
 	AllowPartial []string `json:"allow_partial"`
 	AllowUnknown []string `json:"allow_unknown"`
+	AllowSkew    []string `json:"allow_skew"`
 	DespiteJob   []string `json:"despite_job"`
 	// MethodSettings are run settings over the job's own, keyed
 	// <method>.<parameter>.
@@ -479,7 +500,7 @@ func (d *Dispatcher) RollbackJob(w http.ResponseWriter, r *http.Request) {
 
 	newJobID, err := d.Rollback(r.Context(), identity.Subject, jobID, RollbackRequest{
 		Mode: mode, Leave: body.Leave, AllowPartial: body.AllowPartial,
-		AllowUnknown: body.AllowUnknown, DespiteJobs: body.DespiteJob, MethodSettings: settings,
+		AllowUnknown: body.AllowUnknown, AllowSkew: body.AllowSkew, DespiteJobs: body.DespiteJob, MethodSettings: settings,
 	})
 	var refused *RollbackRefusedError
 	switch {
