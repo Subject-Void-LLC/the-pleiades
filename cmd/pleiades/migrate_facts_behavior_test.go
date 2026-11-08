@@ -7,7 +7,8 @@
 // runs there as Ansible's comparison with its NA placeholder would; a
 // condition on ansible_distribution_major_version | int orders Jinja's
 // integer on each host; and a setup task's filter, written as the native
-// keys its patterns match, gathers on both.
+// keys its patterns match and split by device (an unfiltered twin for a
+// WindowsShellCapable device), gathers on both.
 package main_test
 
 import (
@@ -114,15 +115,25 @@ func TestMigratePlaybook_AFactReadDecidesPerHostAsAnsibleDoes(t *testing.T) {
 	if err := yaml.Unmarshal(runbook, &parsed); err != nil {
 		t.Fatalf("the runbook does not parse: %v\n%s", err, runbook)
 	}
-	var filter []any
+	// It is split by device: the filtered gather where the device is not
+	// WindowsShellCapable, and an unfiltered one where it is, since Ansible's
+	// Windows setup ignores filter.
+	gathers := map[string]map[string]any{}
 	for _, task := range parsed.Tasks {
-		if task["name"] == "gather the distribution facts alone" {
+		if name, _ := task["name"].(string); strings.HasPrefix(name, "gather the distribution facts alone") {
 			gather, _ := task["facts.gather"].(map[string]any)
-			filter, _ = gather["filter"].([]any)
+			gathers[name] = gather
 		}
 	}
-	if want := []any{"os.codename", "os.distribution", "os.edition", "os.family", "os.version", "os.version_major"}; !reflect.DeepEqual(filter, want) {
-		t.Fatalf("the setup task's filter is %v, want %v:\n%s", filter, want, runbook)
+	filtered, whole := gathers["gather the distribution facts alone (not Windows)"], gathers["gather the distribution facts alone (Windows)"]
+	if len(gathers) != 2 || filtered == nil || whole == nil {
+		t.Fatalf("the setup task is not split into its two gathers: %v\n%s", gathers, runbook)
+	}
+	if want := []any{"os.codename", "os.distribution", "os.edition", "os.family", "os.version", "os.version_major"}; !reflect.DeepEqual(filtered["filter"], want) {
+		t.Fatalf("the filtered gather's filter is %v, want %v:\n%s", filtered["filter"], want, runbook)
+	}
+	if _, ok := whole["filter"]; ok {
+		t.Fatalf("the Windows gather carries a filter:\n%s", runbook)
 	}
 	if out, err := runPleiadesWithHome(t, dir, home, "run", "runbooks/site.yaml"); err != nil {
 		t.Fatalf("pleiades run: %v\n%s", err, out)
