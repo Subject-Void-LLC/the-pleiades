@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"maps"
 	"reflect"
 	"testing"
 
@@ -143,6 +144,66 @@ func TestDescriptionDigest_IsPinned(t *testing.T) {
 	if want := "sha256:" + hex.EncodeToString(sum[:]); got != want {
 		t.Errorf("DescriptionDigest = %s, want %s, the SHA-256 of %s", got, want, canonical)
 	}
+}
+
+// TestUndoDigest_CoversWhatAReplayReadsAndNothingElse: the digest is the
+// SHA-256 of one canonical form written out here; the order of the spec's
+// sets and a parameter's choices moves nothing, nor does documentation; a
+// parameter's type, a newly required one, and a recorded key do.
+func TestUndoDigest_CoversWhatAReplayReadsAndNothingElse(t *testing.T) {
+	spec := sdk.InverseSpec{FQCN: "file.remove", Record: []string{"path", "force"}, Withhold: []string{"content"}}
+	params := map[string]collection.Param{
+		"path": {Name: "path", Type: "string", Required: true, Description: "the file"},
+		"mode": {Name: "mode", Type: "string", Choices: []string{"b", "a"}, Format: collection.ParamFormatCommand},
+	}
+	got := collection.UndoDigest(spec, params)
+	canonical := `{"fqcn":"file.remove","mayBePartial":false,"mayKeepOnFailure":false,` +
+		`"params":{"mode":{"aliasOf":"","choices":["a","b"],"choicesIgnoreCase":false,"default":"","name":"mode","required":false,"type":"string"},` +
+		`"path":{"aliasOf":"","choices":[],"choicesIgnoreCase":false,"default":"","name":"path","required":true,"type":"string"}},` +
+		`"record":["force","path"],"withhold":["content"]}`
+	sum := sha256.Sum256([]byte(canonical))
+	if want := wire.ManifestDigestPrefix + hex.EncodeToString(sum[:]); got != want {
+		t.Fatalf("UndoDigest = %s, want %s, the SHA-256 of %s", got, want, canonical)
+	}
+
+	same := func(name string, s sdk.InverseSpec, p map[string]collection.Param) {
+		if collection.UndoDigest(s, p) != got {
+			t.Errorf("%s moved the digest", name)
+		}
+	}
+	moved := func(name string, s sdk.InverseSpec, p map[string]collection.Param) {
+		if collection.UndoDigest(s, p) == got {
+			t.Errorf("%s left the digest unchanged", name)
+		}
+	}
+	edit := func(name string, change func(*collection.Param)) map[string]collection.Param {
+		out := maps.Clone(params)
+		p := out[name]
+		change(&p)
+		out[name] = p
+		return out
+	}
+	reordered := spec
+	reordered.Record = []string{"force", "path"}
+	same("the order of Record", reordered, params)
+	same("a parameter's description", spec, edit("path", func(p *collection.Param) { p.Description = "another sentence" }))
+	same("a parameter's format", spec, edit("mode", func(p *collection.Param) { p.Format = "" }))
+	same("the order of a parameter's choices", spec, edit("mode", func(p *collection.Param) { p.Choices = []string{"a", "b"} }))
+
+	moved("a parameter's type", spec, edit("path", func(p *collection.Param) { p.Type = "int" }))
+	moved("a parameter made required", spec, edit("mode", func(p *collection.Param) { p.Required = true }))
+	moved("a narrower set of choices", spec, edit("mode", func(p *collection.Param) { p.Choices = []string{"a"} }))
+	moved("a new default", spec, edit("mode", func(p *collection.Param) { p.Default = "a" }))
+	renamed := maps.Clone(params)
+	renamed["file"] = renamed["path"]
+	delete(renamed, "path")
+	moved("a renamed parameter", spec, renamed)
+	recordMore := spec
+	recordMore.Record = append([]string{"mode"}, spec.Record...)
+	moved("a key added to Record", recordMore, params)
+	partial := spec
+	partial.MayBePartial = true
+	moved("an undo allowed to be partial", partial, params)
 }
 
 // TestGroupManifests_RegistryThenCatalog: a group's set is its registered
