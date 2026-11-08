@@ -25,6 +25,7 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -131,6 +132,13 @@ func New(baseURL, username, password string, opts ...Option) (*Client, error) {
 	if username == "" {
 		return nil, fmt.Errorf("catalystcenter: username is required")
 	}
+	// A dot segment in the base path is resolved away by the server, so the
+	// controller would be reached somewhere other than the URL says.
+	for _, seg := range strings.Split(parsed.Path, "/") {
+		if seg == "." || seg == ".." {
+			return nil, errors.New("catalystcenter: the base URL's path may not contain . or .. segments")
+		}
+	}
 
 	// Store the parsed form rather than the caller's raw string, so the
 	// scheme and host are normalized exactly once. url.Parse already
@@ -139,10 +147,15 @@ func New(baseURL, username, password string, opts ...Option) (*Client, error) {
 	// controller. That matters beyond tidiness: this value becomes the
 	// synced controller's DeviceID and its catalyst_base_url property, so
 	// an un-normalized copy would onboard the same appliance twice.
+	//
+	// The path keeps its escaped form beside the decoded one: from Path
+	// alone, String() cannot tell a %2F inside a segment from a / between
+	// two, and would send a proxy's prefix as a different path.
 	normalized := &url.URL{
-		Scheme: parsed.Scheme,
-		Host:   parsed.Host,
-		Path:   strings.TrimRight(parsed.Path, "/"),
+		Scheme:  parsed.Scheme,
+		Host:    parsed.Host,
+		Path:    strings.TrimRight(parsed.Path, "/"),
+		RawPath: strings.TrimRight(parsed.EscapedPath(), "/"),
 	}
 
 	c := &Client{
