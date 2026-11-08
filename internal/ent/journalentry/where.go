@@ -254,6 +254,31 @@ func LeaseEpoch(v string) predicate.JournalEntry {
 	return predicate.JournalEntry(sql.FieldEQ(FieldLeaseEpoch, v))
 }
 
+// CollectionGroup applies equality check predicate on the "collection_group" field. It's identical to CollectionGroupEQ.
+func CollectionGroup(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldEQ(FieldCollectionGroup, v))
+}
+
+// CollectionVersion applies equality check predicate on the "collection_version" field. It's identical to CollectionVersionEQ.
+func CollectionVersion(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldEQ(FieldCollectionVersion, v))
+}
+
+// CollectionProgram applies equality check predicate on the "collection_program" field. It's identical to CollectionProgramEQ.
+func CollectionProgram(v bool) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldEQ(FieldCollectionProgram, v))
+}
+
+// CollectionManifests applies equality check predicate on the "collection_manifests" field. It's identical to CollectionManifestsEQ.
+func CollectionManifests(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldEQ(FieldCollectionManifests, v))
+}
+
+// InverseSpecDigest applies equality check predicate on the "inverse_spec_digest" field. It's identical to InverseSpecDigestEQ.
+func InverseSpecDigest(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldEQ(FieldInverseSpecDigest, v))
+}
+
 // CreatedAtEQ applies the EQ predicate on the "created_at" field.
 func CreatedAtEQ(v time.Time) predicate.JournalEntry {
 	return predicate.JournalEntry(sql.FieldEQ(FieldCreatedAt, v))
@@ -2292,6 +2317,316 @@ func LeaseEpochEqualFold(v string) predicate.JournalEntry {
 // LeaseEpochContainsFold applies the ContainsFold predicate on the "lease_epoch" field.
 func LeaseEpochContainsFold(v string) predicate.JournalEntry {
 	return predicate.JournalEntry(sql.FieldContainsFold(FieldLeaseEpoch, v))
+}
+
+// CollectionGroupEQ applies the EQ predicate on the "collection_group" field.
+func CollectionGroupEQ(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldEQ(FieldCollectionGroup, v))
+}
+
+// CollectionGroupNEQ applies the NEQ predicate on the "collection_group" field.
+func CollectionGroupNEQ(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldNEQ(FieldCollectionGroup, v))
+}
+
+// CollectionGroupIn applies the In predicate on the "collection_group" field.
+func CollectionGroupIn(vs ...string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldIn(FieldCollectionGroup, vs...))
+}
+
+// CollectionGroupNotIn applies the NotIn predicate on the "collection_group" field.
+func CollectionGroupNotIn(vs ...string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldNotIn(FieldCollectionGroup, vs...))
+}
+
+// CollectionGroupGT applies the GT predicate on the "collection_group" field.
+func CollectionGroupGT(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldGT(FieldCollectionGroup, v))
+}
+
+// CollectionGroupGTE applies the GTE predicate on the "collection_group" field.
+func CollectionGroupGTE(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldGTE(FieldCollectionGroup, v))
+}
+
+// CollectionGroupLT applies the LT predicate on the "collection_group" field.
+func CollectionGroupLT(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldLT(FieldCollectionGroup, v))
+}
+
+// CollectionGroupLTE applies the LTE predicate on the "collection_group" field.
+func CollectionGroupLTE(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldLTE(FieldCollectionGroup, v))
+}
+
+// CollectionGroupContains applies the Contains predicate on the "collection_group" field.
+func CollectionGroupContains(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldContains(FieldCollectionGroup, v))
+}
+
+// CollectionGroupHasPrefix applies the HasPrefix predicate on the "collection_group" field.
+func CollectionGroupHasPrefix(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldHasPrefix(FieldCollectionGroup, v))
+}
+
+// CollectionGroupHasSuffix applies the HasSuffix predicate on the "collection_group" field.
+func CollectionGroupHasSuffix(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldHasSuffix(FieldCollectionGroup, v))
+}
+
+// CollectionGroupIsNil applies the IsNil predicate on the "collection_group" field.
+func CollectionGroupIsNil() predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldIsNull(FieldCollectionGroup))
+}
+
+// CollectionGroupNotNil applies the NotNil predicate on the "collection_group" field.
+func CollectionGroupNotNil() predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldNotNull(FieldCollectionGroup))
+}
+
+// CollectionGroupEqualFold applies the EqualFold predicate on the "collection_group" field.
+func CollectionGroupEqualFold(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldEqualFold(FieldCollectionGroup, v))
+}
+
+// CollectionGroupContainsFold applies the ContainsFold predicate on the "collection_group" field.
+func CollectionGroupContainsFold(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldContainsFold(FieldCollectionGroup, v))
+}
+
+// CollectionVersionEQ applies the EQ predicate on the "collection_version" field.
+func CollectionVersionEQ(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldEQ(FieldCollectionVersion, v))
+}
+
+// CollectionVersionNEQ applies the NEQ predicate on the "collection_version" field.
+func CollectionVersionNEQ(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldNEQ(FieldCollectionVersion, v))
+}
+
+// CollectionVersionIn applies the In predicate on the "collection_version" field.
+func CollectionVersionIn(vs ...string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldIn(FieldCollectionVersion, vs...))
+}
+
+// CollectionVersionNotIn applies the NotIn predicate on the "collection_version" field.
+func CollectionVersionNotIn(vs ...string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldNotIn(FieldCollectionVersion, vs...))
+}
+
+// CollectionVersionGT applies the GT predicate on the "collection_version" field.
+func CollectionVersionGT(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldGT(FieldCollectionVersion, v))
+}
+
+// CollectionVersionGTE applies the GTE predicate on the "collection_version" field.
+func CollectionVersionGTE(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldGTE(FieldCollectionVersion, v))
+}
+
+// CollectionVersionLT applies the LT predicate on the "collection_version" field.
+func CollectionVersionLT(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldLT(FieldCollectionVersion, v))
+}
+
+// CollectionVersionLTE applies the LTE predicate on the "collection_version" field.
+func CollectionVersionLTE(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldLTE(FieldCollectionVersion, v))
+}
+
+// CollectionVersionContains applies the Contains predicate on the "collection_version" field.
+func CollectionVersionContains(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldContains(FieldCollectionVersion, v))
+}
+
+// CollectionVersionHasPrefix applies the HasPrefix predicate on the "collection_version" field.
+func CollectionVersionHasPrefix(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldHasPrefix(FieldCollectionVersion, v))
+}
+
+// CollectionVersionHasSuffix applies the HasSuffix predicate on the "collection_version" field.
+func CollectionVersionHasSuffix(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldHasSuffix(FieldCollectionVersion, v))
+}
+
+// CollectionVersionIsNil applies the IsNil predicate on the "collection_version" field.
+func CollectionVersionIsNil() predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldIsNull(FieldCollectionVersion))
+}
+
+// CollectionVersionNotNil applies the NotNil predicate on the "collection_version" field.
+func CollectionVersionNotNil() predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldNotNull(FieldCollectionVersion))
+}
+
+// CollectionVersionEqualFold applies the EqualFold predicate on the "collection_version" field.
+func CollectionVersionEqualFold(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldEqualFold(FieldCollectionVersion, v))
+}
+
+// CollectionVersionContainsFold applies the ContainsFold predicate on the "collection_version" field.
+func CollectionVersionContainsFold(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldContainsFold(FieldCollectionVersion, v))
+}
+
+// CollectionProgramEQ applies the EQ predicate on the "collection_program" field.
+func CollectionProgramEQ(v bool) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldEQ(FieldCollectionProgram, v))
+}
+
+// CollectionProgramNEQ applies the NEQ predicate on the "collection_program" field.
+func CollectionProgramNEQ(v bool) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldNEQ(FieldCollectionProgram, v))
+}
+
+// CollectionManifestsEQ applies the EQ predicate on the "collection_manifests" field.
+func CollectionManifestsEQ(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldEQ(FieldCollectionManifests, v))
+}
+
+// CollectionManifestsNEQ applies the NEQ predicate on the "collection_manifests" field.
+func CollectionManifestsNEQ(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldNEQ(FieldCollectionManifests, v))
+}
+
+// CollectionManifestsIn applies the In predicate on the "collection_manifests" field.
+func CollectionManifestsIn(vs ...string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldIn(FieldCollectionManifests, vs...))
+}
+
+// CollectionManifestsNotIn applies the NotIn predicate on the "collection_manifests" field.
+func CollectionManifestsNotIn(vs ...string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldNotIn(FieldCollectionManifests, vs...))
+}
+
+// CollectionManifestsGT applies the GT predicate on the "collection_manifests" field.
+func CollectionManifestsGT(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldGT(FieldCollectionManifests, v))
+}
+
+// CollectionManifestsGTE applies the GTE predicate on the "collection_manifests" field.
+func CollectionManifestsGTE(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldGTE(FieldCollectionManifests, v))
+}
+
+// CollectionManifestsLT applies the LT predicate on the "collection_manifests" field.
+func CollectionManifestsLT(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldLT(FieldCollectionManifests, v))
+}
+
+// CollectionManifestsLTE applies the LTE predicate on the "collection_manifests" field.
+func CollectionManifestsLTE(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldLTE(FieldCollectionManifests, v))
+}
+
+// CollectionManifestsContains applies the Contains predicate on the "collection_manifests" field.
+func CollectionManifestsContains(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldContains(FieldCollectionManifests, v))
+}
+
+// CollectionManifestsHasPrefix applies the HasPrefix predicate on the "collection_manifests" field.
+func CollectionManifestsHasPrefix(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldHasPrefix(FieldCollectionManifests, v))
+}
+
+// CollectionManifestsHasSuffix applies the HasSuffix predicate on the "collection_manifests" field.
+func CollectionManifestsHasSuffix(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldHasSuffix(FieldCollectionManifests, v))
+}
+
+// CollectionManifestsIsNil applies the IsNil predicate on the "collection_manifests" field.
+func CollectionManifestsIsNil() predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldIsNull(FieldCollectionManifests))
+}
+
+// CollectionManifestsNotNil applies the NotNil predicate on the "collection_manifests" field.
+func CollectionManifestsNotNil() predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldNotNull(FieldCollectionManifests))
+}
+
+// CollectionManifestsEqualFold applies the EqualFold predicate on the "collection_manifests" field.
+func CollectionManifestsEqualFold(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldEqualFold(FieldCollectionManifests, v))
+}
+
+// CollectionManifestsContainsFold applies the ContainsFold predicate on the "collection_manifests" field.
+func CollectionManifestsContainsFold(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldContainsFold(FieldCollectionManifests, v))
+}
+
+// InverseSpecDigestEQ applies the EQ predicate on the "inverse_spec_digest" field.
+func InverseSpecDigestEQ(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldEQ(FieldInverseSpecDigest, v))
+}
+
+// InverseSpecDigestNEQ applies the NEQ predicate on the "inverse_spec_digest" field.
+func InverseSpecDigestNEQ(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldNEQ(FieldInverseSpecDigest, v))
+}
+
+// InverseSpecDigestIn applies the In predicate on the "inverse_spec_digest" field.
+func InverseSpecDigestIn(vs ...string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldIn(FieldInverseSpecDigest, vs...))
+}
+
+// InverseSpecDigestNotIn applies the NotIn predicate on the "inverse_spec_digest" field.
+func InverseSpecDigestNotIn(vs ...string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldNotIn(FieldInverseSpecDigest, vs...))
+}
+
+// InverseSpecDigestGT applies the GT predicate on the "inverse_spec_digest" field.
+func InverseSpecDigestGT(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldGT(FieldInverseSpecDigest, v))
+}
+
+// InverseSpecDigestGTE applies the GTE predicate on the "inverse_spec_digest" field.
+func InverseSpecDigestGTE(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldGTE(FieldInverseSpecDigest, v))
+}
+
+// InverseSpecDigestLT applies the LT predicate on the "inverse_spec_digest" field.
+func InverseSpecDigestLT(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldLT(FieldInverseSpecDigest, v))
+}
+
+// InverseSpecDigestLTE applies the LTE predicate on the "inverse_spec_digest" field.
+func InverseSpecDigestLTE(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldLTE(FieldInverseSpecDigest, v))
+}
+
+// InverseSpecDigestContains applies the Contains predicate on the "inverse_spec_digest" field.
+func InverseSpecDigestContains(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldContains(FieldInverseSpecDigest, v))
+}
+
+// InverseSpecDigestHasPrefix applies the HasPrefix predicate on the "inverse_spec_digest" field.
+func InverseSpecDigestHasPrefix(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldHasPrefix(FieldInverseSpecDigest, v))
+}
+
+// InverseSpecDigestHasSuffix applies the HasSuffix predicate on the "inverse_spec_digest" field.
+func InverseSpecDigestHasSuffix(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldHasSuffix(FieldInverseSpecDigest, v))
+}
+
+// InverseSpecDigestIsNil applies the IsNil predicate on the "inverse_spec_digest" field.
+func InverseSpecDigestIsNil() predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldIsNull(FieldInverseSpecDigest))
+}
+
+// InverseSpecDigestNotNil applies the NotNil predicate on the "inverse_spec_digest" field.
+func InverseSpecDigestNotNil() predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldNotNull(FieldInverseSpecDigest))
+}
+
+// InverseSpecDigestEqualFold applies the EqualFold predicate on the "inverse_spec_digest" field.
+func InverseSpecDigestEqualFold(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldEqualFold(FieldInverseSpecDigest, v))
+}
+
+// InverseSpecDigestContainsFold applies the ContainsFold predicate on the "inverse_spec_digest" field.
+func InverseSpecDigestContainsFold(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldContainsFold(FieldInverseSpecDigest, v))
 }
 
 // And groups predicates with the AND operator between them.

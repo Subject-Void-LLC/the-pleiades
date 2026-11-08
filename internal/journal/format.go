@@ -23,7 +23,12 @@ import (
 // does not know needs no raise of its own, since the strict reader already
 // refuses an unknown key, but raising it anyway turns that refusal into one
 // that names the version. docs/13-releases-and-stability.md states the rule.
-const FormatVersion = 1
+//
+// Format 2 (Phase 136b) adds the Collection identity ("collection") and the
+// undo declaration's digest ("inverse_spec_digest"), which a rollback checks
+// an undo against: fields an undo depends on, so the version is raised. A
+// format-1 line reads with both empty.
+const FormatVersion = 2
 
 // fileLine is the shape of one journal line: the entry, plus the format.
 //

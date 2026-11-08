@@ -579,7 +579,14 @@ jq -r 'select(.outcome == "changed") | "\(.task_name)\t\(.fqcn)\t\(.device_id)"'
   .pleiades/journal/*.jsonl
 ```
 
-The Walk tier stores the same fields as columns in `journal_entries`.
+The Walk tier stores the same fields as columns in `journal_entries` (the
+`collection` object as `collection_group`, `collection_version`,
+`collection_program` and `collection_manifests`).
+
+Each Crawl-tier line also carries `format`, the version of its shape. 0.4.0 writes
+format 2, which added `collection` and `inverse_spec_digest`; it reads format 1
+lines, and lines with no `format`, with both absent. A build refuses a line whose
+format is newer than it knows, naming the version, rather than half reading it.
 
 **Identifiers**
 
@@ -599,6 +606,7 @@ The Walk tier stores the same fields as columns in `journal_entries`.
 | `fqcn` | The method, resolved through the collection registry when the record was written. Never the raw text from the runbook. |
 | `fqcn_unresolved` | True when the registry knew no such method, in which case `fqcn` reads `unregistered`. |
 | `provider_program`, `provider_digest` | For a method an external Collection program provides, that program's path and the SHA-256 digest it ran as. Both are empty for a method built into The Pleiades. |
+| `collection` | The Collection the method came from, as `group`, `version`, `program` and `manifests`. For a built-in method: its first-party group (such as `file`), the version of The Pleiades that ran it, and a `sha256:` digest of the group's method declarations, which two builds of the same source share. For an external program's method: `program` is true, `group` is the program's file name, there is no version, and the digest covers what the program described (its methods and the capabilities it defines). Absent on a record written before 0.4.0, and on a task no Collection runs (`ssh_exec`, `fail`, an unknown method). |
 | `dag_id` | The runbook's own `id:`, as written. |
 | `dag_version` | A `sha256:` hash of the compiled runbook, for detecting drift between what ran and what is on disk now. It cannot recover the runbook. |
 | `task_name`, `register` | The author's own `name:` and `register:`, as written. These are the only fields carrying free text a person typed. |
@@ -637,6 +645,7 @@ These are what `pleiades rollback` and a Controller rollback are planned from.
 | Field | Meaning |
 |---|---|
 | `inverse_params` | The undo's parameter values the method declares recordable, each a key and one text, number or true/false, or, for a parameter the undo method declares a list, up to 128 such texts (the packages an install pulled in). Only those: a value the method withholds, or one too long or holding control characters, leaves its key out, and the undo is then incomplete. |
+| `inverse_spec_digest` | A `sha256:` digest of how the method declared this undo when the task ran: the undo method, which of its parameters are recorded or withheld, and each parameter's name, type, default, choices and whether it is required. A later build compares it with its own to tell an undo that changed from one whose documentation alone did. Absent when no built-in method declared the undo. |
 | `inverse_complete` | True when every parameter the undo takes has its value here, so it can be replayed exactly. |
 | `inverse_partial` | True when the undo does not put back everything the task overwrote, such as a file copied over another, whose earlier content is not kept. A rollback runs one only when told to. |
 | `action_changed` | True when the task changed the device, even if a later step of the same task failed. |

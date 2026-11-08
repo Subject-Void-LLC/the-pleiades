@@ -20,6 +20,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/golden"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/journal"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
 
 // goldenRunID is the one run every golden entry belongs to.
@@ -37,7 +38,8 @@ func goldenEntries() []engine.JournalEntry {
 		JobID: "job-7", Attempt: 2, RunID: goldenRunID, Sequence: 1, NodeID: "tasks[0]",
 		DAGID: "golden-runbook", DAGVersion: "sha256:" + hex64('a'),
 		FQCN: "file.copy", ProviderProgram: "acme-files", ProviderDigest: "sha256:" + hex64('b'),
-		TaskName: "copy the banner", Register: "banner", DeviceID: "dev-1",
+		Collection: wire.CollectionIdentity{Group: "acme-files", Program: true, Manifests: "sha256:" + hex64('c')}, TaskName: "copy the banner",
+		Register: "banner", DeviceID: "dev-1",
 		StartedAt: at(1), FinishedAt: at(2), RunTick: 41, LeaseRevision: 9, LeaseEpoch: "epoch-2026",
 		Outcome: engine.OutcomeChanged, StatKeys: []string{"changed", "inverse"}, UndeclaredStatCount: 1,
 		ParamKeys: []string{"content", "dest"}, UndeclaredParamCount: 2,
@@ -48,7 +50,7 @@ func goldenEntries() []engine.JournalEntry {
 			{Key: "force", Bool: &yes},
 			{Key: "names", Texts: []string{"a", "b"}},
 		},
-		InverseComplete: true, InversePartial: true, DiffRecorded: true, ActionChanged: true,
+		InverseSpecDigest: "sha256:" + hex64('d'), InverseComplete: true, InversePartial: true, DiffRecorded: true, ActionChanged: true,
 		AuthoredRollback: true, AuthoredRollbackEmpty: true, Become: "root",
 	}, {
 		// A failed task whose method name did not resolve, nor its undo's.
@@ -64,6 +66,12 @@ func goldenEntries() []engine.JournalEntry {
 		SkipKind: engine.SkipKindWhen, SkipOrdinal: 2, SkipTotal: 3,
 		StatKeys: []string{}, ParamKeys: []string{}, InverseParamKeys: []string{}, InverseParams: []engine.InverseParam{},
 		RollbackOf: "5d1e2f3a-0000-4000-8000-000000000001", UndoesNode: "tasks[0]", UndoesStep: 1,
+	}, {
+		// A built-in's task, carrying its group's identity at a core version.
+		RunID: goldenRunID, Sequence: 4, NodeID: "tasks[3]", DAGID: "golden-runbook",
+		FQCN: "file.stat", StartedAt: at(6), FinishedAt: at(7), Outcome: engine.OutcomeRan,
+		Collection: wire.CollectionIdentity{Group: "file", Version: "0.4.0", Manifests: "sha256:" + hex64('e')},
+		StatKeys:   []string{}, ParamKeys: []string{}, InverseParamKeys: []string{}, InverseParams: []engine.InverseParam{},
 	}}
 }
 
@@ -142,10 +150,50 @@ func TestJournalFormatOneStaysReadable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("a format-1 journal no longer reads: %v", err)
 	}
-	if want := goldenEntries(); !reflect.DeepEqual(run.Entries, want) {
+	if want := formatOneEntries(); !reflect.DeepEqual(run.Entries, want) {
 		gotJSON, _ := json.MarshalIndent(run.Entries, "", " ")
 		wantJSON, _ := json.MarshalIndent(want, "", " ")
 		t.Errorf("a format-1 journal reads differently:\ngot  %s\nwant %s", gotJSON, wantJSON)
+	}
+}
+
+// formatOneEntries is what the frozen format-1 file holds: the golden
+// entries format 1 had (the first three), with every field format 2 added
+// at its zero.
+func formatOneEntries() []engine.JournalEntry {
+	entries := goldenEntries()[:3]
+	for i := range entries {
+		entries[i].Collection = wire.CollectionIdentity{}
+		entries[i].InverseSpecDigest = ""
+	}
+	return entries
+}
+
+// TestJournalFormatTwoStaysReadable holds every later build to read the
+// frozen format-2 file, a copy of the golden file as Phase 136b first wrote
+// it, as the golden entries: the identity and undo digest each line carries
+// read back exactly.
+func TestJournalFormatTwoStaysReadable(t *testing.T) {
+	frozen, err := os.ReadFile(filepath.Join("testdata", "format-2", "entries.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	dir := filepath.Join(root, ".pleiades", "journal")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, goldenRunID+".jsonl"), frozen, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	run, err := journal.ReadRun(root, goldenRunID)
+	if err != nil {
+		t.Fatalf("a format-2 journal no longer reads: %v", err)
+	}
+	if want := goldenEntries(); !reflect.DeepEqual(run.Entries, want) {
+		gotJSON, _ := json.MarshalIndent(run.Entries, "", " ")
+		wantJSON, _ := json.MarshalIndent(want, "", " ")
+		t.Errorf("a format-2 journal reads differently:\ngot  %s\nwant %s", gotJSON, wantJSON)
 	}
 }
 

@@ -27,19 +27,20 @@ func TestReadRunRefusesANewerFormatByName(t *testing.T) {
 		t.Fatal(err)
 	}
 	line := strings.TrimSuffix(string(written), "\n")
-	if !strings.HasPrefix(line, `{"format":1,`) {
+	if !strings.HasPrefix(line, `{"format":2,`) {
 		t.Fatalf("a written line does not lead with its format: %s", line)
 	}
 	for _, tc := range []struct {
 		name, line, wantErr string
 	}{
 		{name: "this build's format", line: line},
-		{name: "no format, from before the field", line: strings.Replace(line, `"format":1,`, "", 1)},
-		{name: "a newer format with a key this build lacks", line: strings.Replace(line, `"format":1,`, `"format":2,"a_newer_key":true,`, 1),
-			wantErr: "is journal format 2, and this build reads formats up to 1"},
-		{name: "a newer format alone", line: strings.Replace(line, `"format":1,`, `"format":2,`, 1),
-			wantErr: "is journal format 2"},
-		{name: "a negative format", line: strings.Replace(line, `"format":1,`, `"format":-1,`, 1),
+		{name: "no format, from before the field", line: strings.Replace(line, `"format":2,`, "", 1)},
+		{name: "format 1, from before the Collection identity", line: strings.Replace(line, `"format":2,`, `"format":1,`, 1)},
+		{name: "a newer format with a key this build lacks", line: strings.Replace(line, `"format":2,`, `"format":3,"a_newer_key":true,`, 1),
+			wantErr: "is journal format 3, and this build reads formats up to 2"},
+		{name: "a newer format alone", line: strings.Replace(line, `"format":2,`, `"format":3,`, 1),
+			wantErr: "is journal format 3"},
+		{name: "a negative format", line: strings.Replace(line, `"format":2,`, `"format":-1,`, 1),
 			wantErr: "names format -1, which is not a format version"},
 		{name: "not an object at all", line: `["format",2]`, wantErr: "not a journal entry"},
 	} {

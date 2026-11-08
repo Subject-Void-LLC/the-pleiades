@@ -18,6 +18,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 	"github.com/google/uuid"
 )
 
@@ -692,6 +693,11 @@ type run struct {
 	// device execution ever reaches them.
 	sequence        int
 	journalFailures int
+
+	// identities caches each built-in method's Collection identity for
+	// this run's journal entries (collectionIdentity, journal_identity.go),
+	// touched only by recordLevel's projection as sequence is.
+	identities map[string]wire.CollectionIdentity
 
 	// factFailures counts the fact stores that failed this run (facts.go).
 	factFailures int

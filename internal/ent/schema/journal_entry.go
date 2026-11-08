@@ -212,6 +212,20 @@ func (JournalEntry) Fields() []ent.Field {
 		// lease_epoch names the life of the lock bucket's sequence that
 		// lease_revision comes from; revisions compare only within one.
 		field.String("lease_epoch").Immutable().Optional(),
+		// The Collection identity columns (Phase 136b), last so the migration
+		// adding them only adds: the Collection the node's method came from
+		// (engine.JournalEntry.Collection, a first-party group or, with
+		// collection_program, an external program's file name), the core
+		// build's version for a group, and the digest of its manifests or of
+		// the program's description; inverse_spec_digest is the digest of the
+		// undo's declaration as the recording build had it. Columns rather than
+		// a JSON one, so a query can select by group. Platform constants and
+		// digests, so no crypto hook. Empty on a row written before them.
+		field.String("collection_group").Immutable().Optional(),
+		field.String("collection_version").Immutable().Optional(),
+		field.Bool("collection_program").Immutable().Default(false),
+		field.String("collection_manifests").Immutable().Optional(),
+		field.String("inverse_spec_digest").Immutable().Optional(),
 	}
 }
 

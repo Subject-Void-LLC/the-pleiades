@@ -16503,6 +16503,11 @@ type JournalEntryMutation struct {
 	lease_revision                    *uint64
 	addlease_revision                 *int64
 	lease_epoch                       *string
+	collection_group                  *string
+	collection_version                *string
+	collection_program                *bool
+	collection_manifests              *string
+	inverse_spec_digest               *string
 	clearedFields                     map[string]struct{}
 	done                              bool
 	oldValue                          func(context.Context) (*JournalEntry, error)
@@ -18764,6 +18769,238 @@ func (m *JournalEntryMutation) ResetLeaseEpoch() {
 	delete(m.clearedFields, journalentry.FieldLeaseEpoch)
 }
 
+// SetCollectionGroup sets the "collection_group" field.
+func (m *JournalEntryMutation) SetCollectionGroup(s string) {
+	m.collection_group = &s
+}
+
+// CollectionGroup returns the value of the "collection_group" field in the mutation.
+func (m *JournalEntryMutation) CollectionGroup() (r string, exists bool) {
+	v := m.collection_group
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCollectionGroup returns the old "collection_group" field's value of the JournalEntry entity.
+// If the JournalEntry object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *JournalEntryMutation) OldCollectionGroup(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCollectionGroup is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCollectionGroup requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCollectionGroup: %w", err)
+	}
+	return oldValue.CollectionGroup, nil
+}
+
+// ClearCollectionGroup clears the value of the "collection_group" field.
+func (m *JournalEntryMutation) ClearCollectionGroup() {
+	m.collection_group = nil
+	m.clearedFields[journalentry.FieldCollectionGroup] = struct{}{}
+}
+
+// CollectionGroupCleared returns if the "collection_group" field was cleared in this mutation.
+func (m *JournalEntryMutation) CollectionGroupCleared() bool {
+	_, ok := m.clearedFields[journalentry.FieldCollectionGroup]
+	return ok
+}
+
+// ResetCollectionGroup resets all changes to the "collection_group" field.
+func (m *JournalEntryMutation) ResetCollectionGroup() {
+	m.collection_group = nil
+	delete(m.clearedFields, journalentry.FieldCollectionGroup)
+}
+
+// SetCollectionVersion sets the "collection_version" field.
+func (m *JournalEntryMutation) SetCollectionVersion(s string) {
+	m.collection_version = &s
+}
+
+// CollectionVersion returns the value of the "collection_version" field in the mutation.
+func (m *JournalEntryMutation) CollectionVersion() (r string, exists bool) {
+	v := m.collection_version
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCollectionVersion returns the old "collection_version" field's value of the JournalEntry entity.
+// If the JournalEntry object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *JournalEntryMutation) OldCollectionVersion(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCollectionVersion is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCollectionVersion requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCollectionVersion: %w", err)
+	}
+	return oldValue.CollectionVersion, nil
+}
+
+// ClearCollectionVersion clears the value of the "collection_version" field.
+func (m *JournalEntryMutation) ClearCollectionVersion() {
+	m.collection_version = nil
+	m.clearedFields[journalentry.FieldCollectionVersion] = struct{}{}
+}
+
+// CollectionVersionCleared returns if the "collection_version" field was cleared in this mutation.
+func (m *JournalEntryMutation) CollectionVersionCleared() bool {
+	_, ok := m.clearedFields[journalentry.FieldCollectionVersion]
+	return ok
+}
+
+// ResetCollectionVersion resets all changes to the "collection_version" field.
+func (m *JournalEntryMutation) ResetCollectionVersion() {
+	m.collection_version = nil
+	delete(m.clearedFields, journalentry.FieldCollectionVersion)
+}
+
+// SetCollectionProgram sets the "collection_program" field.
+func (m *JournalEntryMutation) SetCollectionProgram(b bool) {
+	m.collection_program = &b
+}
+
+// CollectionProgram returns the value of the "collection_program" field in the mutation.
+func (m *JournalEntryMutation) CollectionProgram() (r bool, exists bool) {
+	v := m.collection_program
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCollectionProgram returns the old "collection_program" field's value of the JournalEntry entity.
+// If the JournalEntry object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *JournalEntryMutation) OldCollectionProgram(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCollectionProgram is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCollectionProgram requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCollectionProgram: %w", err)
+	}
+	return oldValue.CollectionProgram, nil
+}
+
+// ResetCollectionProgram resets all changes to the "collection_program" field.
+func (m *JournalEntryMutation) ResetCollectionProgram() {
+	m.collection_program = nil
+}
+
+// SetCollectionManifests sets the "collection_manifests" field.
+func (m *JournalEntryMutation) SetCollectionManifests(s string) {
+	m.collection_manifests = &s
+}
+
+// CollectionManifests returns the value of the "collection_manifests" field in the mutation.
+func (m *JournalEntryMutation) CollectionManifests() (r string, exists bool) {
+	v := m.collection_manifests
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCollectionManifests returns the old "collection_manifests" field's value of the JournalEntry entity.
+// If the JournalEntry object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *JournalEntryMutation) OldCollectionManifests(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCollectionManifests is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCollectionManifests requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCollectionManifests: %w", err)
+	}
+	return oldValue.CollectionManifests, nil
+}
+
+// ClearCollectionManifests clears the value of the "collection_manifests" field.
+func (m *JournalEntryMutation) ClearCollectionManifests() {
+	m.collection_manifests = nil
+	m.clearedFields[journalentry.FieldCollectionManifests] = struct{}{}
+}
+
+// CollectionManifestsCleared returns if the "collection_manifests" field was cleared in this mutation.
+func (m *JournalEntryMutation) CollectionManifestsCleared() bool {
+	_, ok := m.clearedFields[journalentry.FieldCollectionManifests]
+	return ok
+}
+
+// ResetCollectionManifests resets all changes to the "collection_manifests" field.
+func (m *JournalEntryMutation) ResetCollectionManifests() {
+	m.collection_manifests = nil
+	delete(m.clearedFields, journalentry.FieldCollectionManifests)
+}
+
+// SetInverseSpecDigest sets the "inverse_spec_digest" field.
+func (m *JournalEntryMutation) SetInverseSpecDigest(s string) {
+	m.inverse_spec_digest = &s
+}
+
+// InverseSpecDigest returns the value of the "inverse_spec_digest" field in the mutation.
+func (m *JournalEntryMutation) InverseSpecDigest() (r string, exists bool) {
+	v := m.inverse_spec_digest
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldInverseSpecDigest returns the old "inverse_spec_digest" field's value of the JournalEntry entity.
+// If the JournalEntry object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *JournalEntryMutation) OldInverseSpecDigest(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldInverseSpecDigest is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldInverseSpecDigest requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldInverseSpecDigest: %w", err)
+	}
+	return oldValue.InverseSpecDigest, nil
+}
+
+// ClearInverseSpecDigest clears the value of the "inverse_spec_digest" field.
+func (m *JournalEntryMutation) ClearInverseSpecDigest() {
+	m.inverse_spec_digest = nil
+	m.clearedFields[journalentry.FieldInverseSpecDigest] = struct{}{}
+}
+
+// InverseSpecDigestCleared returns if the "inverse_spec_digest" field was cleared in this mutation.
+func (m *JournalEntryMutation) InverseSpecDigestCleared() bool {
+	_, ok := m.clearedFields[journalentry.FieldInverseSpecDigest]
+	return ok
+}
+
+// ResetInverseSpecDigest resets all changes to the "inverse_spec_digest" field.
+func (m *JournalEntryMutation) ResetInverseSpecDigest() {
+	m.inverse_spec_digest = nil
+	delete(m.clearedFields, journalentry.FieldInverseSpecDigest)
+}
+
 // Where appends a list predicates to the JournalEntryMutation builder.
 func (m *JournalEntryMutation) Where(ps ...predicate.JournalEntry) {
 	m.predicates = append(m.predicates, ps...)
@@ -18798,7 +19035,7 @@ func (m *JournalEntryMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *JournalEntryMutation) Fields() []string {
-	fields := make([]string, 0, 45)
+	fields := make([]string, 0, 50)
 	if m.created_at != nil {
 		fields = append(fields, journalentry.FieldCreatedAt)
 	}
@@ -18934,6 +19171,21 @@ func (m *JournalEntryMutation) Fields() []string {
 	if m.lease_epoch != nil {
 		fields = append(fields, journalentry.FieldLeaseEpoch)
 	}
+	if m.collection_group != nil {
+		fields = append(fields, journalentry.FieldCollectionGroup)
+	}
+	if m.collection_version != nil {
+		fields = append(fields, journalentry.FieldCollectionVersion)
+	}
+	if m.collection_program != nil {
+		fields = append(fields, journalentry.FieldCollectionProgram)
+	}
+	if m.collection_manifests != nil {
+		fields = append(fields, journalentry.FieldCollectionManifests)
+	}
+	if m.inverse_spec_digest != nil {
+		fields = append(fields, journalentry.FieldInverseSpecDigest)
+	}
 	return fields
 }
 
@@ -19032,6 +19284,16 @@ func (m *JournalEntryMutation) Field(name string) (ent.Value, bool) {
 		return m.LeaseRevision()
 	case journalentry.FieldLeaseEpoch:
 		return m.LeaseEpoch()
+	case journalentry.FieldCollectionGroup:
+		return m.CollectionGroup()
+	case journalentry.FieldCollectionVersion:
+		return m.CollectionVersion()
+	case journalentry.FieldCollectionProgram:
+		return m.CollectionProgram()
+	case journalentry.FieldCollectionManifests:
+		return m.CollectionManifests()
+	case journalentry.FieldInverseSpecDigest:
+		return m.InverseSpecDigest()
 	}
 	return nil, false
 }
@@ -19131,6 +19393,16 @@ func (m *JournalEntryMutation) OldField(ctx context.Context, name string) (ent.V
 		return m.OldLeaseRevision(ctx)
 	case journalentry.FieldLeaseEpoch:
 		return m.OldLeaseEpoch(ctx)
+	case journalentry.FieldCollectionGroup:
+		return m.OldCollectionGroup(ctx)
+	case journalentry.FieldCollectionVersion:
+		return m.OldCollectionVersion(ctx)
+	case journalentry.FieldCollectionProgram:
+		return m.OldCollectionProgram(ctx)
+	case journalentry.FieldCollectionManifests:
+		return m.OldCollectionManifests(ctx)
+	case journalentry.FieldInverseSpecDigest:
+		return m.OldInverseSpecDigest(ctx)
 	}
 	return nil, fmt.Errorf("unknown JournalEntry field %s", name)
 }
@@ -19455,6 +19727,41 @@ func (m *JournalEntryMutation) SetField(name string, value ent.Value) error {
 		}
 		m.SetLeaseEpoch(v)
 		return nil
+	case journalentry.FieldCollectionGroup:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCollectionGroup(v)
+		return nil
+	case journalentry.FieldCollectionVersion:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCollectionVersion(v)
+		return nil
+	case journalentry.FieldCollectionProgram:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCollectionProgram(v)
+		return nil
+	case journalentry.FieldCollectionManifests:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCollectionManifests(v)
+		return nil
+	case journalentry.FieldInverseSpecDigest:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetInverseSpecDigest(v)
+		return nil
 	}
 	return fmt.Errorf("unknown JournalEntry field %s", name)
 }
@@ -19671,6 +19978,18 @@ func (m *JournalEntryMutation) ClearedFields() []string {
 	if m.FieldCleared(journalentry.FieldLeaseEpoch) {
 		fields = append(fields, journalentry.FieldLeaseEpoch)
 	}
+	if m.FieldCleared(journalentry.FieldCollectionGroup) {
+		fields = append(fields, journalentry.FieldCollectionGroup)
+	}
+	if m.FieldCleared(journalentry.FieldCollectionVersion) {
+		fields = append(fields, journalentry.FieldCollectionVersion)
+	}
+	if m.FieldCleared(journalentry.FieldCollectionManifests) {
+		fields = append(fields, journalentry.FieldCollectionManifests)
+	}
+	if m.FieldCleared(journalentry.FieldInverseSpecDigest) {
+		fields = append(fields, journalentry.FieldInverseSpecDigest)
+	}
 	return fields
 }
 
@@ -19747,6 +20066,18 @@ func (m *JournalEntryMutation) ClearField(name string) error {
 		return nil
 	case journalentry.FieldLeaseEpoch:
 		m.ClearLeaseEpoch()
+		return nil
+	case journalentry.FieldCollectionGroup:
+		m.ClearCollectionGroup()
+		return nil
+	case journalentry.FieldCollectionVersion:
+		m.ClearCollectionVersion()
+		return nil
+	case journalentry.FieldCollectionManifests:
+		m.ClearCollectionManifests()
+		return nil
+	case journalentry.FieldInverseSpecDigest:
+		m.ClearInverseSpecDigest()
 		return nil
 	}
 	return fmt.Errorf("unknown JournalEntry nullable field %s", name)
@@ -19890,6 +20221,21 @@ func (m *JournalEntryMutation) ResetField(name string) error {
 		return nil
 	case journalentry.FieldLeaseEpoch:
 		m.ResetLeaseEpoch()
+		return nil
+	case journalentry.FieldCollectionGroup:
+		m.ResetCollectionGroup()
+		return nil
+	case journalentry.FieldCollectionVersion:
+		m.ResetCollectionVersion()
+		return nil
+	case journalentry.FieldCollectionProgram:
+		m.ResetCollectionProgram()
+		return nil
+	case journalentry.FieldCollectionManifests:
+		m.ResetCollectionManifests()
+		return nil
+	case journalentry.FieldInverseSpecDigest:
+		m.ResetInverseSpecDigest()
 		return nil
 	}
 	return fmt.Errorf("unknown JournalEntry field %s", name)

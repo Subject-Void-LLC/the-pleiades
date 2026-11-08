@@ -571,6 +571,76 @@ func (_c *JournalEntryCreate) SetNillableLeaseEpoch(v *string) *JournalEntryCrea
 	return _c
 }
 
+// SetCollectionGroup sets the "collection_group" field.
+func (_c *JournalEntryCreate) SetCollectionGroup(v string) *JournalEntryCreate {
+	_c.mutation.SetCollectionGroup(v)
+	return _c
+}
+
+// SetNillableCollectionGroup sets the "collection_group" field if the given value is not nil.
+func (_c *JournalEntryCreate) SetNillableCollectionGroup(v *string) *JournalEntryCreate {
+	if v != nil {
+		_c.SetCollectionGroup(*v)
+	}
+	return _c
+}
+
+// SetCollectionVersion sets the "collection_version" field.
+func (_c *JournalEntryCreate) SetCollectionVersion(v string) *JournalEntryCreate {
+	_c.mutation.SetCollectionVersion(v)
+	return _c
+}
+
+// SetNillableCollectionVersion sets the "collection_version" field if the given value is not nil.
+func (_c *JournalEntryCreate) SetNillableCollectionVersion(v *string) *JournalEntryCreate {
+	if v != nil {
+		_c.SetCollectionVersion(*v)
+	}
+	return _c
+}
+
+// SetCollectionProgram sets the "collection_program" field.
+func (_c *JournalEntryCreate) SetCollectionProgram(v bool) *JournalEntryCreate {
+	_c.mutation.SetCollectionProgram(v)
+	return _c
+}
+
+// SetNillableCollectionProgram sets the "collection_program" field if the given value is not nil.
+func (_c *JournalEntryCreate) SetNillableCollectionProgram(v *bool) *JournalEntryCreate {
+	if v != nil {
+		_c.SetCollectionProgram(*v)
+	}
+	return _c
+}
+
+// SetCollectionManifests sets the "collection_manifests" field.
+func (_c *JournalEntryCreate) SetCollectionManifests(v string) *JournalEntryCreate {
+	_c.mutation.SetCollectionManifests(v)
+	return _c
+}
+
+// SetNillableCollectionManifests sets the "collection_manifests" field if the given value is not nil.
+func (_c *JournalEntryCreate) SetNillableCollectionManifests(v *string) *JournalEntryCreate {
+	if v != nil {
+		_c.SetCollectionManifests(*v)
+	}
+	return _c
+}
+
+// SetInverseSpecDigest sets the "inverse_spec_digest" field.
+func (_c *JournalEntryCreate) SetInverseSpecDigest(v string) *JournalEntryCreate {
+	_c.mutation.SetInverseSpecDigest(v)
+	return _c
+}
+
+// SetNillableInverseSpecDigest sets the "inverse_spec_digest" field if the given value is not nil.
+func (_c *JournalEntryCreate) SetNillableInverseSpecDigest(v *string) *JournalEntryCreate {
+	if v != nil {
+		_c.SetInverseSpecDigest(*v)
+	}
+	return _c
+}
+
 // Mutation returns the JournalEntryMutation object of the builder.
 func (_c *JournalEntryCreate) Mutation() *JournalEntryMutation {
 	return _c.mutation
@@ -677,6 +747,10 @@ func (_c *JournalEntryCreate) defaults() {
 	if _, ok := _c.mutation.LeaseRevision(); !ok {
 		v := journalentry.DefaultLeaseRevision
 		_c.mutation.SetLeaseRevision(v)
+	}
+	if _, ok := _c.mutation.CollectionProgram(); !ok {
+		v := journalentry.DefaultCollectionProgram
+		_c.mutation.SetCollectionProgram(v)
 	}
 }
 
@@ -813,6 +887,9 @@ func (_c *JournalEntryCreate) check() error {
 	}
 	if _, ok := _c.mutation.LeaseRevision(); !ok {
 		return &ValidationError{Name: "lease_revision", err: errors.New(`ent: missing required field "JournalEntry.lease_revision"`)}
+	}
+	if _, ok := _c.mutation.CollectionProgram(); !ok {
+		return &ValidationError{Name: "collection_program", err: errors.New(`ent: missing required field "JournalEntry.collection_program"`)}
 	}
 	return nil
 }
@@ -1019,6 +1096,26 @@ func (_c *JournalEntryCreate) createSpec() (*JournalEntry, *sqlgraph.CreateSpec)
 	if value, ok := _c.mutation.LeaseEpoch(); ok {
 		_spec.SetField(journalentry.FieldLeaseEpoch, field.TypeString, value)
 		_node.LeaseEpoch = value
+	}
+	if value, ok := _c.mutation.CollectionGroup(); ok {
+		_spec.SetField(journalentry.FieldCollectionGroup, field.TypeString, value)
+		_node.CollectionGroup = value
+	}
+	if value, ok := _c.mutation.CollectionVersion(); ok {
+		_spec.SetField(journalentry.FieldCollectionVersion, field.TypeString, value)
+		_node.CollectionVersion = value
+	}
+	if value, ok := _c.mutation.CollectionProgram(); ok {
+		_spec.SetField(journalentry.FieldCollectionProgram, field.TypeBool, value)
+		_node.CollectionProgram = value
+	}
+	if value, ok := _c.mutation.CollectionManifests(); ok {
+		_spec.SetField(journalentry.FieldCollectionManifests, field.TypeString, value)
+		_node.CollectionManifests = value
+	}
+	if value, ok := _c.mutation.InverseSpecDigest(); ok {
+		_spec.SetField(journalentry.FieldInverseSpecDigest, field.TypeString, value)
+		_node.InverseSpecDigest = value
 	}
 	return _node, _spec
 }

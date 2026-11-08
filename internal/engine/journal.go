@@ -14,6 +14,8 @@ import (
 	"context"
 	"encoding/json"
 	"time"
+
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
 
 // JournalEntry is one node execution's durable record.
@@ -35,11 +37,14 @@ import (
 // serialization, which is stated here rather than left for a reader to
 // discover.
 //
-// No field of this type carries omitempty, so every record carries every
-// field. (InverseParam, the element type of InverseParams, does: a
-// parameter holds one of text, number or bool.) A synthetic fan-out marker therefore writes an empty FQCN and a zero
-// StartedAt and FinishedAt, which is the honest record of a node that
-// executed nothing, not corruption.
+// The fields every entry has always had carry no omitempty, so every record
+// carries them. (InverseParam, the element type of InverseParams, does: a
+// parameter holds one of text, number or bool.) A synthetic fan-out marker
+// therefore writes an empty FQCN and a zero StartedAt and FinishedAt, which is
+// the honest record of a node that executed nothing, not corruption. A field
+// added later (Become, RunTick, LeaseRevision, LeaseEpoch, Collection,
+// InverseSpecDigest) may omit its zero, which a reader takes as "written
+// before the field existed" or "not applicable", the same thing for each.
 //
 // # The provenance rule
 //
@@ -55,18 +60,23 @@ import (
 //     RollbackOf and UndoesNode.
 //  2. A compile-time constant resolved through a registry at write time:
 //     FQCN and InverseFQCN after resolution through collection.Lookup,
-//     the stat and param key names a method's own Doc declares, and the
-//     two pkg/sdk stat keys (sdk.StatInverse, sdk.StatDiff).
+//     the stat and param key names a method's own Doc declares, the
+//     two pkg/sdk stat keys (sdk.StatInverse, sdk.StatDiff), and a
+//     Collection's group (a first-party group's name, or the file name the
+//     loader opened) and the core build's version.
 //  3. A closed enum this package defines: Outcome, FailureStage,
 //     SkipKind. A bool is the two-valued case of the same thing, and is
 //     admitted here rather than as a kind of its own: FQCNUnresolved,
 //     InverseFQCNUnresolved, DiffRecorded, InverseComplete,
-//     InversePartial, ActionChanged and AuthoredRollback each report a
+//     InversePartial, ActionChanged, AuthoredRollback and
+//     Collection.Program each report a
 //     decision the platform made or a flag a method raised, never a value
 //     it observed.
-//  4. A content-addressed digest: DAGVersion, and nothing else.
-//     DAG.Version is computed, never authored (dag.go:313-329), a
-//     sha256:<hex> over the fully resolved definition.
+//  4. A content-addressed digest, computed and never authored:
+//     DAGVersion, a sha256:<hex> over the fully resolved definition
+//     (dag.go); ProviderDigest, of a program's bytes; Collection.Manifests,
+//     of a group's manifests or a program's description; and
+//     InverseSpecDigest, of an undo's declaration.
 //  5. An author-written label from the compiled runbook: DAGID, TaskName,
 //     Register. See below.
 //  6. A count: SkipOrdinal, SkipTotal, UndeclaredStatCount,
@@ -204,6 +214,19 @@ type JournalEntry struct {
 	ProviderProgram string `json:"provider_program"`
 	ProviderDigest  string `json:"provider_digest"`
 
+	// Collection is the identity of the Collection FQCN's method came from
+	// (Phase 136b), resolved at write time as FQCN is: for a built-in, its
+	// first-party group (kind 2), the core build's version (kind 2, a
+	// link-time constant) and the digest of the group's manifests (kind 4),
+	// through collection.BuiltinIdentity; for an external program's method,
+	// the identity the loader computed and set on the descriptor from the
+	// file it opened and the description it decoded (Program set, Group the
+	// file name), never a field the program sent to name itself. Zero for an
+	// engine action, an unresolved name, a synthetic marker, and an entry
+	// written before the field existed. It says which declarations a
+	// rollback must check a recorded undo against.
+	Collection wire.CollectionIdentity `json:"collection,omitzero"`
+
 	// TaskName is the task's author-written name: (kind 5), unconstrained
 	// free text.
 	TaskName string `json:"task_name"`
@@ -335,6 +358,15 @@ type JournalEntry struct {
 	// terminal-safe text on one line. Anything else stays a key name in
 	// InverseParamKeys, and InverseComplete says so.
 	InverseParams []InverseParam `json:"inverse_params"`
+
+	// InverseSpecDigest is collection.UndoDigest over the emitting method's
+	// declaration of this undo (its sdk.InverseSpec for InverseFQCN) and the
+	// parameters the undo's method declares, as this build had them when
+	// the undo was recorded (kind 4). Empty when the undo's method has no
+	// declaration from a built-in emitter, which is also when InverseParams
+	// is empty. A later build compares it with its own to tell a changed
+	// undo from a group whose documentation alone changed.
+	InverseSpecDigest string `json:"inverse_spec_digest,omitempty"`
 
 	// InverseComplete reports that every parameter the undo carried is in
 	// InverseParams and the undo is not partial (kind 3), so a rollback can
