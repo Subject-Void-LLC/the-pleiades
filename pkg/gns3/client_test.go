@@ -15,8 +15,11 @@ import (
 
 // TestNew_RefusesWhatIsNotABaseURL: a path, a query, credentials in the
 // URL or a scheme other than http and https is refused before any call.
+// Refusing every base path is also what lets each request's path stand for
+// the whole path: there is no base path for it to replace or append to.
 func TestNew_RefusesWhatIsNotABaseURL(t *testing.T) {
-	for _, base := range []string{"", "ftp://gns3:3080", "http://", "http://gns3:3080/v3", "http://gns3:3080?x=1", "http://admin:pw@gns3:3080"} {
+	for _, base := range []string{"", "ftp://gns3:3080", "http://", "http://gns3:3080/v3", "http://gns3:3080/proxy/", "http://gns3:3080/%2F",
+		"http://gns3:3080?x=1", "http://admin:pw@gns3:3080"} {
 		if _, err := gns3.New(base, nil, gns3.Credentials{}); err == nil {
 			t.Errorf("New(%q) accepted", base)
 		}
