@@ -98,8 +98,13 @@ func (t *translator) apply(e *Entry, args []argIn, bindings map[string]any, task
 	}
 	for i := range calls {
 		if e.Adjust != nil {
-			if why := e.Adjust(calls[i].params); why != "" {
+			adj := e.Adjust(calls[i].params)
+			for _, why := range adj.Notes {
 				p.notes = append(p.notes, note{"module.semantics", taskAt, why})
+			}
+			if adj.Refusal != "" {
+				p.blocked = &blockReason{adj.Code, taskAt, adj.Refusal}
+				return p
 			}
 		}
 		if blocked := checkRequired(calls[i], taskAt); blocked != nil {

@@ -405,7 +405,7 @@ Also written as `wait_for`.
 
 ### `ansible.builtin.setup`
 
-Also written as `setup`, `ansible.builtin.gather_facts`, `gather_facts`, `ansible.windows.setup`.
+Also written as `setup`, `ansible.builtin.gather_facts`, `gather_facts`.
 
 | When | Native call | Class |
 |---|---|---|
@@ -413,7 +413,20 @@ Also written as `setup`, `ansible.builtin.gather_facts`, `gather_facts`, `ansibl
 
 | Argument | Becomes |
 |---|---|
-| `filter` | blocked (`args.unmapped`): setup's filter names Ansible's facts and facts.gather filters native names (os.*, host.*, hardware.*); write the filter from the migration guide's fact table |
+| `filter` | `filter` (review: its patterns are matched against the Ansible facts the migration guide's fact table maps, and the task gets the native keys they match (no filter when they match every one); a Windows host's setup ignores filter and gathers every fact, where this task gathers only those keys) |
+| `gather_subset` | `gather_subset` |
+
+The converter also writes the parameters whose native default differs from Ansible's, so the task does what the playbook did.
+
+### `ansible.windows.setup`
+
+| When | Native call | Class |
+|---|---|---|
+| otherwise | `facts.gather` | observe |
+
+| Argument | Becomes |
+|---|---|
+| `filter` | dropped (`args.ignored`): ansible.windows.setup ignores filter and gathers every fact, as facts.gather does without one |
 | `gather_subset` | `gather_subset` |
 
 The converter also writes the parameters whose native default differs from Ansible's, so the task does what the playbook did.
