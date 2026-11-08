@@ -7611,3 +7611,21 @@ release data is a separate question, decided per format: the journal's strict re
 `wire.CollectionIdentity.Valid`, and the fact readers deliberately do not, because the chain flags an edited row. Pin the
 choice with a test that stores a value the rule refuses, chains it correctly, and reads and verifies it
 (`TestFileStore_AStoredIdentityALaterRuleRefusesStillReads`).
+
+## 416. An instruction to keep code as it is gets the same check as a change: before telling an agent to leave something, search the failure patterns for its class, and say in the instruction what it was checked against (FAILURE_PATTERNS 990)
+
+**Why.** `feat/converter-facts-filters`, 2026-11-08. While relaying an earlier review to the building agent, the main
+thread told it to leave the setup filter's quoted patterns as they were. The quotes put the playbook's own text into
+the conversion report, which FAILURE_PATTERNS 330 says holds names and positions only. The agent kept them, its tests
+asserted the quoted text, and fp-reviewer found the leak before push (FAILURE_PATTERNS 990).
+
+**What is old and what is new.** LESSONS 50 says a review's suggested fix is checked against the invariant before it is
+applied, and 392 and 403 say every claim an outside model makes is verified first. Each is about a change proposed to
+the main thread. Here the main thread gave the instruction, and it was to keep code, which reads as the safe choice and
+so got no check. A building agent follows its caller over its own reading of the records, and the instruction is not
+in the diff, so a review sees only what it produced.
+
+**Rule in practice.** Before telling an agent to keep, skip or leave a finding, search the failure-pattern archive for
+its class by symptom (here, "a report or refusal quotes its input") and by cause. Name what was checked in the
+instruction ("leave it; checked against 330, it prints only a name"). When the check was not made, say so, and leave
+the decision to the agent or the reviewer rather than closing it.

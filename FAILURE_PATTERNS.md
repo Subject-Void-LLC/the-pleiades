@@ -993,6 +993,11 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 987. The changelog said 0.3 refuses a format-2 journal line by its format version, and v0.3.0 predates the format key (fixed before push, a repeat of 571 and 976)
 988. Both fact stores' readers held a stored Collection identity to a rule a minor release may change, so a value stored correctly would have made a device's CLI history unreadable and shown a false chain break on the Controller after such a release (fixed before push, a repeat of 975 and 922; in kind of 959 and LESSONS 397)
 989. The changelog and the runbook guide said every stored fact names its Collection, the same identity the journal records, and four cases store none (fixed before push, a repeat of 571, 976 and 987)
+990. The setup filter's refusals and its wildcard review quoted the playbook's own pattern into the conversion report, and the branch's tests asserted the quoted text (fixed before push, a repeat of 330 and of 968's last case)
+991. A filter of min facts under gather_subset ['!all', '!min'] converted and gathered them where Ansible gathers none, because setupSubset rewrote the subset before the filter's check read it (fixed before push, the class of 848; a sibling guard, LESSONS 244)
+992. Two documented behaviors of the Windows and non-Windows setup split had no test, so removing either passed: the Windows half keeping the task's gather_subset, and a later read of the split's shared register converting (fixed before push, the kind of 888; LESSONS 213)
+993. args.value's fixed advice "Quote the value in the playbook" was printed with every setup filter refusal and with refusals already on main that quoting cannot fix (fixed before push, a repeat in kind of 270, 488 and 600)
+994. Three comments and the "decides on every host" wording claimed more than the code or its tests show (fixed before push, a repeat of 571, 789 and 976)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 
