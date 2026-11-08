@@ -81,7 +81,7 @@ var (
 // goDirective is the go line a generated go.mod carries: the one in
 // The Pleiades's own go.mod, which is the oldest Go that can build a program
 // importing it. TestGoDirectiveMatchesTheModule keeps the two equal.
-const goDirective = "1.26.0"
+const goDirective = "1.27.0"
 
 // goModTemplateSource is the program's go.mod: a module line and a go
 // line, and nothing else. There is no require, because the right version

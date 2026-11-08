@@ -22436,7 +22436,7 @@
       "examples": [
         {
           "name": "Unpack Go, once",
-          "runbookYaml": "- name: Unpack Go into C:\\go\n  win.archive.extract:\n    src: C:\\Windows\\Temp\\go1.26.9.windows-amd64.zip\n    dest: C:\\\n    creates: C:\\go\\bin\\go.exe\n"
+          "runbookYaml": "- name: Unpack Go into C:\\go\n  win.archive.extract:\n    src: C:\\Windows\\Temp\\go1.27.3.windows-amd64.zip\n    dest: C:\\\n    creates: C:\\go\\bin\\go.exe\n"
         }
       ],
       "seeAlso": [

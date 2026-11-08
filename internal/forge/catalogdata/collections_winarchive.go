@@ -35,7 +35,7 @@ var winArchiveCollections = []collectionscaffold.Config{
 				{Name: "diff", Type: "dict", Returned: "always", Description: "Whether dest existed before this task and after it."},
 			},
 			Examples: []collection.Example{
-				{Name: "Unpack Go, once", RunbookYAML: "- name: Unpack Go into C:\\go\n  win.archive.extract:\n    src: C:\\Windows\\Temp\\go1.26.9.windows-amd64.zip\n    dest: C:\\\n    creates: C:\\go\\bin\\go.exe\n"},
+				{Name: "Unpack Go, once", RunbookYAML: "- name: Unpack Go into C:\\go\n  win.archive.extract:\n    src: C:\\Windows\\Temp\\go1.27.3.windows-amd64.zip\n    dest: C:\\\n    creates: C:\\go\\bin\\go.exe\n"},
 			},
 			SeeAlso: []string{"win.file.download", "archive.extract"},
 		},

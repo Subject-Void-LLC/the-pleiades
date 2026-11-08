@@ -110,7 +110,7 @@ func extractRun(t *testing.T, mode collection.Mode, params map[string]any) (*rec
 	return rc, res, err
 }
 
-const goZip = `C:\Windows\Temp\go1.26.9.windows-amd64.zip`
+const goZip = `C:\Windows\Temp\go1.27.3.windows-amd64.zip`
 
 // TestExtract_ExtractsOnceWithCreates: a check predicts the extraction and
 // sends no change; the run makes dest and extracts; with creates there, a

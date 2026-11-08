@@ -36,7 +36,7 @@ func TestGoMod_IsAModuleAndAGoLineAndNothingElse(t *testing.T) {
 	if !ok {
 		t.Fatal("Generate wrote no go.mod")
 	}
-	if want := "module acme-motd-read\n\ngo 1.26.0\n"; got != want {
+	if want := "module acme-motd-read\n\ngo 1.27.0\n"; got != want {
 		t.Errorf("go.mod = %q, want exactly %q", got, want)
 	}
 	if _, ok := goModOf(t, externalscaffold.Config{Name: "acme.motd.read", NoGoMod: true}); ok {
