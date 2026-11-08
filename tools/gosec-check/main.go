@@ -1,6 +1,7 @@
-// Command gosec-check runs gosec and fails only on a finding not already
+// Command gosec-check runs gosec and fails on a finding not already
 // recorded, with a written reason, in gosec-waivers.json at the repo
-// root. This is the per-finding waiver mechanism the Phase 0 CI harness
+// root, and on any file gosec could not type-check and so scanned nothing
+// in, unless the same file names it as a skip with a reason (skips.go). This is the per-finding waiver mechanism the Phase 0 CI harness
 // item's pre-existing-findings policy calls for
 // (.SPECIFICATION/IMPLEMENTATION.md): every waived finding is named
 // individually by file, line, and rule, never suppressed by rule ID or
@@ -31,8 +32,11 @@ type gosecIssue struct {
 	Detail string `json:"details"`
 }
 
+// gosecReport is the subset of gosec's JSON report this tool reads: the
+// findings, and the files it could not type-check, by path.
 type gosecReport struct {
-	Issues []gosecIssue `json:"Issues"`
+	Issues       []gosecIssue            `json:"Issues"`
+	GolangErrors map[string][]gosecError `json:"Golang errors"`
 }
 
 // waiver is one accepted, individually-justified finding.
@@ -43,8 +47,11 @@ type waiver struct {
 	Reason string `json:"reason"`
 }
 
+// waiverFile is gosec-waivers.json: the waived findings, and the files
+// accepted as never type-checking.
 type waiverFile struct {
-	Waivers []waiver `json:"waivers"`
+	Waivers []waiver     `json:"waivers"`
+	Skips   []skipWaiver `json:"skips"`
 }
 
 type waiverKey struct {
@@ -66,7 +73,7 @@ func run() error {
 		return fmt.Errorf("getwd: %w", err)
 	}
 
-	waivers, err := loadWaivers(filepath.Join(repoRoot, "gosec-waivers.json"))
+	waivers, skips, err := loadWaivers(filepath.Join(repoRoot, "gosec-waivers.json"))
 	if err != nil {
 		return fmt.Errorf("loading gosec-waivers.json: %w", err)
 	}
@@ -102,7 +109,15 @@ func run() error {
 		}
 	}
 
-	if len(unwaived) == 0 && len(stale) == 0 {
+	// Before the findings' verdict: a scan that skipped files has not
+	// read them, so "all waived" would be a statement about less than the
+	// module.
+	skipped := checkSkips(report.GolangErrors, skips, repoRoot)
+	if skipped.failed() {
+		fmt.Fprint(os.Stderr, skipped.report(20))
+	}
+
+	if len(unwaived) == 0 && len(stale) == 0 && !skipped.failed() {
 		fmt.Printf("gosec-check: %d finding(s), all individually waived in gosec-waivers.json\n", len(report.Issues))
 		return nil
 	}
@@ -129,20 +144,28 @@ func run() error {
 	return fmt.Errorf("gosec check failed")
 }
 
-func loadWaivers(path string) (map[waiverKey]waiver, error) {
+// loadWaivers reads gosec-waivers.json: the waived findings by key, and the
+// skip waivers. A skip waiver with no reason is refused, as an unexplained
+// exemption would be.
+func loadWaivers(path string) (map[waiverKey]waiver, []skipWaiver, error) {
 	data, err := os.ReadFile(path) // #nosec G304 -- fixed repo-relative path, not user input
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	var wf waiverFile
 	if err := json.Unmarshal(data, &wf); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	out := make(map[waiverKey]waiver, len(wf.Waivers))
 	for _, w := range wf.Waivers {
 		out[waiverKey{file: w.File, line: w.Line, ruleID: w.RuleID}] = w
 	}
-	return out, nil
+	for _, s := range wf.Skips {
+		if s.File == "" || s.Reason == "" {
+			return nil, nil, fmt.Errorf("a skip waiver must name a file and give a reason: %+v", s)
+		}
+	}
+	return out, wf.Skips, nil
 }
 
 func runGosec() (*gosecReport, error) {

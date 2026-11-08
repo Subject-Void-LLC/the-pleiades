@@ -205,5 +205,11 @@
       "rule_id": "G125",
       "reason": "gosec v2.30.0 (the Go 1.27 bump, 2026-11-08) flags url.URL.JoinPath over elements it cannot see escaped. It found a real defect first: JoinPath takes each element as already escaped, so a reference path or mount holding %2E%2E or %2F reached Vault as a '..' or a separator, outside the secret's path, with the source's token. endpointFor now escapes every element with url.PathEscape before joining (the mount and each path element), so each is sent as the characters it holds, one segment; checkSegments also refuses literal dot segments and a slash in the mount. TestAnEncodedSegmentStaysOneLiteralSegment holds encoded dots, encoded slashes in the path and the mount, and a literal percent to reaching Vault literally, and fails on the code before the fix. gosec's taint analysis does not credit url.PathEscape, so the finding stays reported on the escaped call."
     }
+  ],
+  "skips": [
+    {
+      "file": "tools/internal/flakegate/testdata/containerscan/local/local.go",
+      "reason": "A deliberately unbuildable fixture: flakegate's container scanner test reads this package's imports (example.com/scan/helper, which exists nowhere) to prove the scanner follows a test's calls without building them. It is testdata, never linked into any binary, and type-checking it is not possible by design, so gosec has nothing to scan in it."
+    }
   ]
 }
