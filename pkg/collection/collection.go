@@ -10,6 +10,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/registry"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
 
 // Method is a Collection method's real implementation: the function a
@@ -173,6 +174,22 @@ type Provider struct {
 	// Digest is the SHA-256 digest ("sha256:<hex>") the program was
 	// loaded with.
 	Digest string
+
+	// Identity is the program's Collection identity (Phase 136b): the
+	// program's file name as its approval names it, marked as a program's,
+	// no version, and the digest of its whole description (DescriptionDigest:
+	// its manifests and the capabilities it defines), which the loader
+	// computes from what it decoded. Nothing the program says about itself
+	// sets it. It is not encoded (json:"-"), so it is lost at every JSON
+	// boundary a descriptor crosses: a record that carries it takes it from
+	// the registered descriptor, never from a decoded report or result. It differs from Digest, which is the file's
+	// bytes: a rebuild that changes no declaration keeps this and changes
+	// that.
+	//
+	// It is not encoded (json:"-") so the run report, which carries a
+	// Provider, keeps its published shape: each record that carries the
+	// identity adds its own key in its own change.
+	Identity wire.CollectionIdentity `json:"-"`
 }
 
 // collections holds every registered Collection method. It is built on
