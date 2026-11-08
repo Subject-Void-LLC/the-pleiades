@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/url"
 	"os"
 	"os/exec"
@@ -77,11 +78,13 @@ func (t target) on(database, user, password string) target {
 }
 
 // dsn is the URL form, with the password, for this process's own database
-// connections. It never leaves the process.
+// connections. It never leaves the process. net.JoinHostPort brackets an
+// IPv6 host: joined with a bare colon, "::1" and "5432" read back as the
+// one host "::1:5432" on the default port.
 func (t target) dsn() string {
 	u := url.URL{
 		Scheme: "postgres", User: url.UserPassword(t.user, t.password),
-		Host: t.host + ":" + t.port, Path: "/" + t.database, RawQuery: t.params.Encode(),
+		Host: net.JoinHostPort(t.host, t.port), Path: "/" + t.database, RawQuery: t.params.Encode(),
 	}
 	return u.String()
 }
