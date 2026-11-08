@@ -7552,3 +7552,38 @@ a `.security.md` that left out the fact half. fp-reviewer listed what a full bui
 
 **Rule in practice.** For a new contract file, diff the behavior the old code and the new code allow (what loads, what
 is refused) and write that as the breaking fragment in the same branch.
+
+## 413. When a check moves from the writer to the reader, the writer writes only what that reader accepts, and the same change tests the writer against the reader's own check
+
+**Why.** Phase 136b. PR 1 took `wire.CollectionIdentity.Valid` out of the loader, because it refused a whole collections
+directory over a file name every earlier entry point admits (FAILURE_PATTERNS 982), and said readers of a stored
+identity would hold it to `Valid`. PR 2's engine then journaled every identity the loader set. A program whose name
+holds a format character would have been journaled with an identity the strict reader refuses, which makes the whole
+run unreadable, and invalid UTF-8 would have been rewritten by `encoding/json` (FAILURE_PATTERNS 984).
+
+**What is old and what is new.** LESSONS 408 says a reader holds a format to the writer's own source. This is its
+converse. Once the reader holds a value to a rule the earlier stages do not, the writer is the last place that can keep
+a refused value out of storage, and it must apply the reader's rule itself. 982's lesson placed the check; it did not
+say what that placement asks of the writer.
+
+**Rule in practice.** When a validation is moved to a reader, or a reader gains one, find the writer of that field and
+call the same function before writing (here `Valid`, in `internal/engine/journal_identity.go`). Decide what the writer
+does with a value that fails: record nothing, with a warning, rather than a value no reader will take. Add a test that
+writes each refused shape through the writer's real path and reads the result back through the strict reader.
+
+## 414. A digest over chosen fields of a type lists every field as digested or left out, and a reflection test fails on a field in neither list
+
+**Why.** Phase 136b PR 2. `collection.UndoDigest` digested a hand-picked set of `sdk.InverseSpec` and `collection.Param`
+fields, and its doc said that set decides whether a recorded undo still replays. It left out a parameter's format, run
+setting and secret references, so a build changing one would read as the same undo (FAILURE_PATTERNS 986).
+`TestUndoDigest_DecidesEveryField` now walks both types and fails on any field that is in neither list.
+
+**What is old and what is new.** LESSONS 348 says a new field is added to a copy that names fields, in the same change.
+That is a search a person makes when a field is added. It misses a field left out when the copy was written, and it
+depends on someone remembering. The repository already guards the journal's string fields this way
+(`internal/archtest`'s `journalStringFields`). The new part is applying it to every digest or identity that projects a
+type: a projection whose purpose is to notice change must not be the one place a change goes unnoticed.
+
+**Rule in practice.** For a digest, a fingerprint or a canonical form built from some of a type's fields, keep two
+lists beside it: what it covers and what it leaves out, each with a reason. A test reflects over the type and fails on
+a field in neither. The doc comment names both lists, so its claim can be checked against them.

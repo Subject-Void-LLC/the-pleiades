@@ -23718,3 +23718,102 @@ differed in one field.
 program's own provider text moves nothing.
 
 **Lesson.** An identity is computed over what is registered, never over what was received.
+
+## 984. The engine journaled an external program's identity as the loader set it, so a name Valid refuses would make the run unreadable to the strict reader 982 planned, and invalid UTF-8 in it was rewritten by encoding/json (fixed before push, a repeat in kind of 982; its UTF-8 half the class of 370 and 932)
+
+**Symptom.** fp-reviewer on Phase 136b PR 2 (`feat/provider-identity-136b-2`, 2026-11-07). `wire.CollectionIdentity.Valid`
+(PR #132) refuses a group holding a control or format character or invalid UTF-8. 982 took `Valid` out of the loader, so
+an approved program with such a file name still loads, and said readers of a stored identity would hold it to `Valid`.
+This branch's engine (`30f1d172`, `internal/engine/journal_identity.go`) then recorded `provider.Identity` as it was. Two
+results. A program whose name holds a soft hyphen (U+00AD) would be journaled with an identity the planned strict reader
+refuses, and a reader that refuses one line refuses the whole run, which is 959's shape. A name holding invalid UTF-8
+(`caf\xe9`) would be rewritten to U+FFFD by `encoding/json` on the way into the file, so the stored group would never
+equal the registry's.
+
+**Root cause.** 982 moved the check from the writer to the reader, and the writer added in the next PR wrote every value
+the loader admits rather than every value the reader accepts. The writer was not checked against the reader's rule.
+The UTF-8 half is a serializer that repairs: `encoding/json` turns a malformed value into a valid one, so nothing after
+it can see the difference.
+
+**Why 982 did not prevent it.** 982's lesson places a validation at the reader. It says nothing about the writer, which
+from then on is the only place a value the reader refuses can come from. 370 and 932 say a repairing step must be
+decided on the raw input; both were fixed in their own code (sign-in, fact keys), and nothing carries that to a new
+journal field.
+
+**Fix.** `73c94889`. `collectionIdentity` records only an identity that passes `Valid`. Any other is recorded as zero,
+with one slog warning per method per run, and the entry keeps its `ProviderProgram` and `ProviderDigest` columns.
+`internal/journal/reader.go`'s `decodeEntry` refuses a line whose identity fails `Valid`. Tests:
+`TestJournalEntry_RecordsAProgramsIdentityAsTheLoaderSetIt` (`internal/engine/journal_identity_internal_test.go`, cases
+for a name that is not UTF-8 and one holding a soft hyphen) and
+`TestReadRunHoldsTheCollectionIdentityToWhatABuildWrites` (`internal/journal/format_test.go`).
+
+**Lesson.** LESSONS 413: when a check moves from the writer to the reader, the writer writes only what that reader
+accepts, and the same change tests the writer against the reader's own check.
+
+## 985. The strict journal reader's "refuse anything the writer could not have made" was not extended to format 2's fields (fixed before push, a repeat in kind of 959; LESSONS 408)
+
+**Symptom.** fp-reviewer on Phase 136b PR 2. `internal/journal/reader.go`'s package comment says the reader refuses
+anything the writer could not have made, and `decodeEntry` checked `DAGVersion`'s digest shape. Format 2 (`30f1d172`)
+added `Collection` and `InverseSpecDigest`, and the reader checked neither: a `Collection.Manifests` or an undo digest
+of any shape was accepted, and so was a format-1 line carrying either key, which only format 2 writes.
+
+**Root cause.** The branch extended the writer, the frozen file (`internal/journal/testdata/format-2/entries.jsonl`)
+and the decoder's fields, and not the refusals. The refusals are a list of cases in one switch, and a new field gets
+none unless someone adds them.
+
+**Why 959 and LESSONS 408 did not prevent it.** 408 says a reader holds a format to the writer's own source and reads a
+frozen file of every kind the writer has written. This branch did both halves. They prove the reader accepts what the
+writer makes; neither proves it refuses what the writer cannot make, which is the other half of the reader's own
+contract. Nothing fails when a new field has no refusal.
+
+**Fix.** `73c94889`. Three new cases in `decodeEntry`: a line of a format before 2 carrying an identity or undo digest,
+an identity that fails `Valid` (which checks `Manifests` against `sha256:` and 64 lowercase hex digits), and an undo
+digest that does not match `digestPattern`. `TestReadRunHoldsTheCollectionIdentityToWhatABuildWrites` covers each.
+
+**Lesson.** A field added to a strictly read format gets its refusal in the same change: what shapes the writer can put
+there, and under which format versions it may appear at all.
+
+## 986. collection.UndoDigest's doc said it covers what decides whether a recorded undo still replays, and it left out a parameter's format, run setting and secret references (fixed before push, a repeat in kind of 885; LESSONS 348)
+
+**Symptom.** fp-reviewer on Phase 136b PR 2. `UndoDigest` (`pkg/collection/identity.go`, `13f4324a`) digested a
+hand-picked set of an undo's spec and parameter fields, and its doc said that set is what decides whether a recorded
+undo still replays as recorded. It left out `Param.Format` (a recorded path read as a `template_file` replays
+differently), `Param.RunSetting` and `Param.SecretRefs`. A build that changed one of them would carry the same digest,
+so a rollback could not tell the undo had changed.
+
+**Root cause.** The digest is a projection that names its fields. The fields were chosen by reading the type once, and
+nothing held the projection to the type, so a field that decides a replay could be missed at the start and any field
+added later would be missed too.
+
+**Why 885 and LESSONS 348 did not prevent it.** 885 added the one missing field to one sealed binding. LESSONS 348 says
+a new field is added to a copy that names fields; it is a search done when a field is added, and these fields existed
+before the digest did. The repository has reflection guards of this kind (`internal/archtest`'s `journalStringFields`,
+the round-trip test from 743), but each covers its own type, and nothing asked a new digest for one.
+
+**Fix.** `73c94889`. `UndoDigest` covers `Format`, `RunSetting` and `SecretRefs`, and its doc lists what it covers and
+what it leaves out. `TestUndoDigest_DecidesEveryField` (`pkg/collection/identity_test.go`) walks every field of
+`sdk.InverseSpec` and `collection.Param` and fails on one that is in neither the digested list nor the left-out list,
+so a new field fails until someone decides it.
+
+**Lesson.** LESSONS 414: a digest over chosen fields of a type lists every field as digested or left out, and a
+reflection test fails on a field in neither list.
+
+## 987. The changelog said 0.3 refuses a format-2 journal line by its format version, and v0.3.0 predates the format key (fixed before push, a repeat of 571 and 976)
+
+**Symptom.** fp-reviewer on Phase 136b PR 2. `changelog/journal-collection-identity.added.md` (`30f1d172`) said "a 0.3
+build refuses one by its format version rather than reading it". v0.3.0's `internal/journal/reader.go` has no `format`
+key at all. It decodes with `DisallowUnknownFields`, so it refuses a format-2 line, but on the unknown key, not by
+version.
+
+**Root cause.** The sentence described the format-version mechanism this code has and assumed an older release had it.
+Nobody read the tag.
+
+**Why 571 and 976 did not prevent it.** Their rule is to say what the code does, with its exception, and their check is
+a review, which is what found this. The code in question was another release's, which a search of the branch's own text
+and code cannot reach.
+
+**Fix.** `73c94889`. The fragment now says a build that knows only format 1 refuses format 2 by its version, and that
+0.3.0 already refuses any line with a `format` key. Checked with `git show v0.3.0:internal/journal/reader.go`.
+
+**Lesson.** A claim about how an older release behaves is checked in that release's tag (`git show <tag>:<path>`) or its
+binary before it is written, as 959 did for v0.3.0's parallel nodes.
