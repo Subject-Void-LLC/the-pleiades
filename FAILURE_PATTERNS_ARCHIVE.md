@@ -24027,3 +24027,207 @@ follows from source.
 
 **Lesson.** 976's again, plus one: a claim that a conversion matches Ansible "on every host" names the hosts it was
 measured on (LESSONS 404).
+
+## 995. The system Go became go1.27.3 while go.mod's toolchain line named go1.26.10, and GOTOOLCHAIN=auto never switches down, so local builds, tests and scans ran on another Go than CI (fixed on this branch; on main until it merges, live here from 2026-11-08 10:29; a repeat of 552's second trap)
+
+**Symptom.** 2026-11-08, the gate for pull request #135 (`feat/converter-facts-filters`): gosec-check failed on 15
+"stale waivers" in files the branch never touched. Diagnosis took about an hour, through two wrong guesses, each
+disproven by a rerun: first the 2800M memory cap, then memory in general. The proof came from gosec's own JSON
+("cannot decode export data", "export data version 5 is greater than maximum supported version 4") and from
+`/var/log/dpkg.log`, which shows `golang-1.27-go` from the longsleep PPA installed at 10:29 that day.
+
+**Root cause.** go.mod named `toolchain go1.26.10`. The Makefile set no `GOTOOLCHAIN`, so Go's default `auto`
+applied, and `auto` switches only up to a newer release, never down. Every local make target built, tested and
+scanned with the machine's go1.27.3, while CI (`.github/actions/setup-go`, 545's fix) installed go1.26.10. gosec
+v2.28.0, built by go1.26, could not decode the export data go1.27 wrote. 996 is what that did to the check.
+
+**Why 552 did not prevent it.** 552 found this trap on the Mac, whose go1.27.2 scanned without `GOTOOLCHAIN` judged
+the wrong standard library. Its fix named `GOTOOLCHAIN` only for the Mac's vuln phase (`maccheck -phase vuln`). The
+Makefile, where every other local command starts, stayed on `auto`, and nothing compared the Go that built a tool
+with the module's. The diagnosis also repeated 552's lesson: memory was the first guess twice, and the answer was
+what the run reads that the commit does not fix, here a newer Go (LESSONS 406).
+
+**Fix.**
+- `187bd977`: the Makefile exports `GOTOOLCHAIN` from go.mod's toolchain line (`GO_TOOLCHAIN`), so every go command
+  a recipe runs uses the release CI installs. `ensure-tool` reinstalls a tool whose build Go differs from that
+  release, not only one whose module version differs.
+- `edf91629`: a carriage return is dropped from the line, as the CI action drops it, and with no toolchain line the
+  value is `auto`.
+- `cf8efe74`: `tools/doctor` holds each scanner to the Go release that built it, not only to its pin
+  (`TestCheckTools_AToolAnotherGoBuiltIsAFix`), and doctor and `ensure-tool` read that release whatever the
+  binary's path holds (`TestBuildRelease_ReadsTheReleaseWhateverThePath`).
+- The move itself (`86cbb601`) names `go 1.27.0` and `toolchain go1.27.3`, and gosec is pinned at v2.30.0
+  (`187bd977`), since v2.28.0 failed even rebuilt with go1.27.
+
+**Lesson.** A release CI installs from a file is the release every local entry point reads from the same file;
+`auto` is not a pin (LESSONS 418).
+
+## 996. gosec-check read gosec's "Golang errors" as no findings, so a gosec that skipped 1,345 packages would have passed a module it had not read (fixed on this branch; on main since 968aac16, 2026-08-04)
+
+**Symptom.** The run in 995. gosec listed 1,345 packages under its JSON's "Golang errors" and made no findings in
+them. tools/gosec-check failed only because 15 waivers happened to sit in skipped files, and it reported them as
+stale. With no waiver there it would have printed "all individually waived".
+
+**Security.** A fail-open in our own security gate. Whether gosec skipped files in an earlier run, here or in CI, is
+not known, because the check never read the field.
+
+**Root cause.** gosec reports a file it cannot type-check under "Golang errors" and goes on. gosec-check decoded only
+`Issues`, as it had since it was written (`968aac16`), so a report with nothing read looked like a clean one. LESSONS
+138 asks that "I could not look" get a third answer apart from "it is not there"; the check had two.
+
+**Why earlier fixes did not prevent it.** 552's lesson says a scanner killed for memory has said nothing, not
+"clean". That scanner printed nothing and failed. This one exited normally and named what it skipped, in a field
+nothing read. LESSONS 99 and 138 state the rule, and no check applied it to gosec's output.
+
+**Fix.** `f63e65f5` and `cf8efe74` (`tools/gosec-check/skips.go`, `main.go`).
+- gosec's whole-run "-" warning fails the check, telling the reader to rebuild gosec with this toolchain.
+- Each skipped file fails unless `gosec-waivers.json` names it under `skips` with a reason. A skip waiver gosec did
+  not need is stale and fails, and one with no reason is refused (`TestLoadWaivers_ASkipWithoutAReasonIsRefused`).
+  The one file that never type-checks by design, flakegate's container-scan fixture under testdata, is waived by name.
+- `TestCheckSkips_ASkipIsNeverAPass`, and `TestJudge_ARecordedSkippingRunFails`, which runs the verdict (`judge`)
+  and the decoder (`decodeReport`) over gosec's own recorded JSON (`tools/gosec-check/testdata/gosec-skipped.json`
+  and `gosec-clean.json`). It fails when the "Golang errors" tag is renamed or the skip check dropped.
+- Run with the old gosec, the check fails naming 1,343 files.
+
+**Lesson.** A scanner that can skip input fails on a skip (LESSONS 417).
+
+**Class.** C9 (fail-open: a check that could not read its input reported a pass; CWE-636)
+**Portable.** yes: any gate that judges a tool's findings and ignores the field where the tool names what it skipped
+**Detector.** a test over the tool's own recorded output from a run that skipped input, asserting the gate fails; see
+~/vuln-corpus/README.md
+
+## 997. Two diagnostic gosec runs ended by timeout left their go list and compile children running, five copies of internal/ent's compile at about 800 MB each, and free memory fell to 1.3 GB (fixed before push by stopping them by PID; a repeat in kind of 340, LESSONS 327)
+
+**Symptom.** 2026-11-08, while diagnosing 995. Two gosec runs were started under `timeout`. After they ended, five
+compiles of `internal/ent` at about 800 MB each were still running, with their `go list` parents, and free memory on
+this 9.7 GiB machine fell to 1.3 GB. The two oldest `go list` parents were not the diagnostic runs' at all: they dated
+from the gate's own gosec run 40 minutes earlier, which had returned its JSON while its loader's children went on.
+
+**Root cause.** Not established beyond this: the signal `timeout` sent ended gosec and did not end the `go list` and
+compile processes it had started.
+
+**Why 340 and LESSONS 327 did not prevent it.** 340 says anything a run starts outside the harness survives an outside
+kill, and to check for leftovers after one; LESSONS 327 says to stop by process group and confirm with `ps`. Both were
+written for tests and an unattended driver, and a short diagnostic run was not treated as either.
+
+**Fix.** The processes were found and stopped by PID (the running comparison by its task), and `ps` afterwards
+listed no gosec, `go list` or compile process left; free memory was back at 5.6 GB. No code changed.
+
+**Lesson.** A diagnostic run of a tool that starts the Go toolchain is a run with children: give it no outside kill
+shorter than it needs, and after any kill, look for `go list` and `compile` processes before starting the next run.
+
+## 998. hashivault's endpointFor joined reference elements with url.URL.JoinPath, which takes them as already escaped, so %2E%2E in a path reached Vault as `..` and %2F became a separator (fixed on this branch; on main since c6946faa, 2026-08-25, Phase 78b; the class of 72 and 438)
+
+**Symptom.** Found by gosec v2.30.0's new rule G125 during the Go 1.27 bump, 2026-11-08. For a reference path
+element written `%2E%2E`, the test's stub server received `/v1/kv/data/../../sys/health`. `%2F` in a mount or a
+path became a separator, and a literal `%` sent the request to the base URL. The comment beside the call said
+JoinPath escapes each segment, the opposite of what it does.
+
+**Security.** A reference could address a Vault API path outside the secret it named, read with the source's token.
+Reasoned by fp-reviewer and not run against a real Vault: on a kv v1 mount, a path of
+`%2E%2E/auth/token/lookup-self` with key `id` could return the source's own Vault token, through a ServeMux
+clean-and-redirect that keeps `X-Vault-Token`. Our own code; no upstream fix applies.
+
+**Root cause.** `url.URL.JoinPath` treats each element as an escaped path segment. `checkSegments`
+(`internal/credtype/lookup/hashivault/reference.go`) refused literal dot segments and judged the text before that
+decoding, so an encoded one passed it and was decoded afterward. The wrong comment stated the safety property the
+code lacked (228's class), so no reader had a reason to check it.
+
+**Why 72 and 438 did not prevent it.** 72's fix escaped each value with `url.PathEscape` in the API's link builder,
+and 438's lesson says a guard decides on exactly the bytes the far side will read. Both fixes stayed in their own
+packages, and nothing looked for other URL builders that took input. `checkSegments` judging text that is decoded
+later is 438's case exactly.
+
+**Fix.** `e0e8e3cc` and `edf91629`. `endpointFor` passes the mount and each path element through `url.PathEscape`
+before `JoinPath`, and the comments in `hashivault.go` and `reference.go` say what JoinPath takes.
+`TestAnEncodedSegmentStaysOneLiteralSegment` (`internal/credtype/lookup/hashivault/hashivault_test.go`) holds encoded
+dots, an encoded slash in the path and in the mount, and a literal percent to both the path Vault decodes and the
+bytes on the wire, and was red on the old code. A G125 waiver stays on the escaped call, because gosec's taint
+analysis does not credit `url.PathEscape`. A user-visible change: a path written pre-encoded is now read literally
+(`changelog/vault-reference-escaping.security.md`).
+
+**Lesson.** An element taken from input is escaped by the code that builds the URL, every time, and the test reads the
+wire bytes as well as the decoded path. When a fix like 72's lands, search the module for the other builders.
+
+**Class.** C4 (path traversal and confinement escape; CWE-22)
+**Portable.** yes: any URL built with `url.URL.JoinPath` or `url.JoinPath` from elements taken from input
+**Detector.** gosec G125; a test sending encoded dots, an encoded slash and a literal percent through each URL builder,
+asserting the wire bytes; see ~/vuln-corpus/README.md
+
+## 999. x/sys v0.49.0, brought in by x/tools v0.52.0, renamed LandlockRulesetAttr.Access_fs to Handled_access_fs and grew the struct, so the loader's confinement no longer compiled (fixed before push)
+
+**Symptom.** `86cbb601`, 2026-11-08. `internal/loader/confine_linux.go` did not compile. It first showed as a skipped
+file in the new gosec-check report (996), before any build ran.
+
+**Root cause.** golang.org/x/tools v0.52.0 is the first release whose export data reader decodes go1.27's (ent's code
+generation failed with "export data version 5 is greater than maximum supported version 4"). It required
+golang.org/x/sys v0.49.0 (from v0.48.0), which names `LandlockRulesetAttr`'s field as the kernel's header does and
+adds `Quiet_*` fields. x/sys is a v0 module, so a minor release may rename a field. The archive holds no earlier entry
+for a dependency bump changing a field a security control fills; 254 is Landlock, but a threading defect.
+
+**Fix.** `86cbb601`. The field is renamed, and the new quiet fields are left zero. The kernel copies the struct with
+`copy_struct_from_user`, which accepts a struct larger than it knows when the extra bytes are zero, so an older
+kernel reads the same ruleset. The comment above `restrictThreadAndStart` says so. `internal/loader`'s confinement
+tests ran on real Landlock, none skipped.
+
+**Lesson.** A rename fails the build, which is the safe case. The quiet one is a field the struct gains, which takes
+its zero value with no error. When a bump changes a type a security control fills, read its diff field by field and
+say in the code what each new field's zero value means to the kernel.
+
+## 1000. The Makefile's new comment said every go command uses go.mod's toolchain, but before GNU make 4.4 an exported variable does not reach a parse-time $(shell), so CLEAN_ROOM_IMAGE still took the machine's Go (fixed before push, the class of 686; an outside review confirmed the claim, against LESSONS 392)
+
+**Symptom.** fp-reviewer, before push, measured it with a two-line makefile on this machine's GNU make 4.3. Ubuntu
+24.04 ships 4.3 and macOS 3.81. The Fable review through the API had confirmed the wrong claim.
+
+**Root cause.** `187bd977`'s comment said what `export` reaches without measuring it. `CLEAN_ROOM_IMAGE ?=
+golang:$(patsubst go%,%,$(shell go env GOVERSION))` (on main since `8e6d7f3e`, 2026-09-29) runs at parse time. Make
+before 4.4 passes no exported variable to `$(shell)`, so that go ran with `auto` and named the machine's go1.27.3. On
+main, with no export at all, it took the machine's Go too (995).
+
+**Why 686 did not prevent it.** 686 was what make exports reaching a child through `MAKEFLAGS`, and its rule (LESSONS
+344) is for a program that runs make. This is what an export does not reach, inside one Makefile, and the answer
+depends on the make version. LESSONS 392 says to verify every claim an outside model makes; a review agreeing with a
+claim is a claim too.
+
+**Fix.** `cf8efe74`. `CLEAN_ROOM_IMAGE` reads `GO_TOOLCHAIN`, falling back to `go env GOVERSION` only with no
+toolchain line, and the comment at the top of the Makefile says what reaches what.
+
+**Lesson.** A claim about what a make variable reaches is measured on the oldest make that runs the file (macOS's
+3.81 here), with a makefile small enough to read whole. Agreement from a reviewer is not a measurement.
+
+## 1001. The gosec pin's commit carried the G125 waiver for a line the next commit created, with a reason describing a fix not yet made (fixed before push, a repeat of 685; LESSONS 152)
+
+**Symptom.** Found before push. The commit pinning gosec v2.30.0 carried a waiver keyed to a `hashivault.go` line
+that only the hashivault fix (998) created, and its reason described that fix.
+
+**Root cause.** The waivers were written at the tip, where gosec ran, and the change was then split into commits by
+topic. A waiver is a `file:line` citation (LESSONS 152) and a statement about the code. It is true only in a commit
+that holds that code.
+
+**Why 685 did not prevent it.** 685's lesson asks for `make gosec` and a re-reviewed waiver on each edit to a waived
+file. That was done at the tip, which is where gosec runs. Nothing runs gosec on each commit; only the tip is gated.
+
+**Fix.** The history was rebuilt so each waiver lands with its code: `187bd977` carries only the `tlscert` G302
+waiver, and `e0e8e3cc` carries the hashivault fix with its G125 waiver. The tip is byte-identical to the tip before
+the rebuild. `187bd977`'s message says the G125 finding is fixed and waived in the next commit.
+
+**Lesson.** A waiver is committed with the line it names. When a change is split into commits after gosec ran on the
+whole, move each waiver with its code and read each reason against its own commit.
+
+## 1002. Dockerfile.runner and Dockerfile.controller still built from a golang:1.26-bookworm digest after the go line moved to 1.27.0, and no gate the branch ran builds them (fixed before push, the class of 559 and 631)
+
+**Symptom.** Both reviewers (the Fable review through the API and fp-reviewer), before push. The official golang
+image sets `GOTOOLCHAIN=local` (checked here in `golang:1.26.8-bookworm`'s config), so the builder stage's `go mod
+download` would refuse a module whose go line is 1.27.0. `edf91629`'s message says a 1.26 base "would have fetched
+1.27.3 at image-build time"; under `GOTOOLCHAIN=local` it would not, and the build would fail instead.
+
+**Root cause.** Only `tests/e2e`'s packaging gates build these images. pr-check leaves `tests/e2e` to CI (559's
+census), and `make branch-containers` runs the container packages a branch changes (631), so the Dockerfiles were
+outside every local check. The move to go1.26.10 changed both Dockerfiles in the same commit as go.mod (`7b8ccafc`,
+552). This move started from go.mod and the Makefile, and the Dockerfiles were not on its list.
+
+**Fix.** `edf91629`. Both build from `golang:1.27.3-bookworm`, pinned by its index digest.
+
+**Lesson.** A toolchain move lists every file that names a Go release (go.mod, the CI action, the Makefile, each
+Dockerfile's builder, the lab's runbooks and README, the scaffold) and changes them together. A file no local gate
+builds is checked by reading it (LESSONS 418).

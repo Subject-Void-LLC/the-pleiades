@@ -7629,3 +7629,43 @@ in the diff, so a review sees only what it produced.
 its class by symptom (here, "a report or refusal quotes its input") and by cause. Name what was checked in the
 instruction ("leave it; checked against 330, it prints only a name"). When the check was not made, say so, and leave
 the decision to the agent or the reviewer rather than closing it.
+
+## 417. A scanner that can skip input fails on a skip, because its silence is not a pass: read the field where the tool names what it could not read, fail on each skip not waived by name with a reason and on a stale skip waiver, and test that against the tool's own recorded output (a refinement of 138; FAILURE_PATTERNS 996)
+
+**Why.** `chore/go-1-27-toolchain`, 2026-11-08. A gosec that go1.26 built could not read go1.27's export data and
+listed 1,345 packages under its JSON's "Golang errors". tools/gosec-check decoded only the findings, so it read the
+skipped packages as clean. It failed that day only because 15 waivers sat in skipped files. With none there, it would
+have printed "all individually waived" over a module it had not read (FAILURE_PATTERNS 996).
+
+**What is old and what is new.** LESSONS 138 says to give "I could not look" a third answer apart from "it is not
+there", and 99 says an affordance whose only failure mode is silence needs a test of its visible outcome.
+FAILURE_PATTERNS 552 says a scanner killed for memory has said nothing. Each covers a check that fails or prints
+nothing. A scanner can also finish normally and report its skips in a field of its own, and a gate reading only the
+findings never sees them. The new parts are where to look (the tool's own skip channel), what passes (a skip waived by
+file with a reason, like a finding), and how to keep it from rotting (a test over recorded output, since a renamed
+field fails open again).
+
+**Rule in practice.** For each scanner a gate runs (gosec, govulncheck, a linter), find where it reports input it
+could not read, and make the gate fail on it. Waive a skip only by name, with a reason, and fail on a waiver the run
+did not need. Record one real run's output that skipped input as a testdata file, and test that the gate fails on it
+through the same decoder the gate uses (`TestJudge_ARecordedSkippingRunFails`).
+
+## 418. Every local entry point pins the Go release go.mod's toolchain line names: the Makefile's GOTOOLCHAIN, each Dockerfile's builder, the clean room, and the Go that built each tool, so a system upgrade cannot split local runs from CI without a sign (a refinement of 92; FAILURE_PATTERNS 552, 995, 1000, 1002)
+
+**Why.** `chore/go-1-27-toolchain`, 2026-11-08. The machine's Go became go1.27.3 through a package upgrade. go.mod
+named go1.26.10 and the Makefile left `GOTOOLCHAIN` at `auto`, which never switches down, so every local build, test
+and scan ran on go1.27.3 while CI ran on go1.26.10. Nothing said so; it surfaced as gosec skipping 1,345 packages
+(FAILURE_PATTERNS 995, 996). The move to 1.27 then found two more places that named their own Go: the clean room's
+image, read at parse time where make before 4.4 passes no export (1000), and both Dockerfiles' builders, which no local
+gate builds (1002).
+
+**What is old and what is new.** LESSONS 92 says a test pinned to another version than the deployment does not test
+it, and 406 says to compare versions with the runner before ruling out a CI-only failure. FAILURE_PATTERNS 552 named
+`GOTOOLCHAIN` for one Mac phase. None makes the pin the default for every local command. The new part is that the pin
+is read from go.mod by each entry point, the tool binaries included, since a tool another Go built fails to read this
+one's output.
+
+**Rule in practice.** go.mod's toolchain line is the one source. The Makefile exports it as `GOTOOLCHAIN`, and a
+parse-time value reads the Makefile's copy rather than asking go. `ensure-tool` and `make doctor` compare the Go that
+built each tool with it. A toolchain move changes, in one commit, every file that names a release: go.mod, the CI
+action, the Makefile, each Dockerfile's `FROM`, the lab's runbooks and README, and the scaffold.
