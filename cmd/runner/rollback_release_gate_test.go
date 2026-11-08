@@ -296,6 +296,81 @@ func TestRollbackReleaseGate_AControllerJobIsUndoneOnItsDevice(t *testing.T) {
 	if !errors.As(err, &refused) || !strings.Contains(refused.Problems[0].Reason, "already been undone") {
 		t.Errorf("a second rollback: %v", err)
 	}
+
+	// A skew accepted by name, end to end (Phase 136b): the job again, its
+	// rows then rewritten as a Runner of an older build with other
+	// declarations would have published them, which this process, holding
+	// one build, cannot run. The Controller refuses the rollback naming
+	// allow_skew, plans it once both nodes are named, and the Runner, whose
+	// declarations differ from the recorded ones just as the Controller's
+	// do, runs each step the plan marked and puts the device back.
+	again := &dispatch.Job{RunbookID: "rb-walk", GroupName: "gate", Actor: "release-gate", Kind: "runbook"}
+	if err := store.Create(ctx, again); err != nil {
+		t.Fatal(err)
+	}
+	fanOut(again.JobID)
+	journaled(again.JobID, 3)
+	if got := h.onDevice(t, footprint); got != "setting = new\nnew" {
+		t.Fatalf("after the job again the device holds %q", got)
+	}
+	recordedElsewhere(t, dbPath, again.JobID, "tasks[0]", "tasks[1]")
+	skewed := api.RollbackRequest{Mode: collection.ModeExecute}
+	_, err = dispatcher.Rollback(ctx, "release-gate", again.JobID, skewed)
+	if !errors.As(err, &refused) || len(refused.Problems) != 2 {
+		t.Fatalf("a rollback of rows recorded under other declarations: %v %+v, want two problems", err, refused)
+	}
+	for _, p := range refused.Problems {
+		if p.Field != "allow_skew" || p.Value != p.Node || !strings.Contains(p.Reason, `"0.3.9"`) {
+			t.Errorf("problem %+v, want it accepted by allow_skew naming its node and the recorded version", p)
+		}
+	}
+	skewed.AllowSkew = []string{"tasks[0]", "tasks[1]"}
+	skewID, err := dispatcher.Rollback(ctx, "release-gate", again.JobID, skewed)
+	if err != nil {
+		t.Fatalf("the rollback with allow_skew: %v", err)
+	}
+	planned, err := store.Lookup(ctx, skewID)
+	if err != nil || planned.Rollback == nil || len(planned.Rollback.Devices) != 1 || len(planned.Rollback.Devices[0].Steps) != 2 {
+		t.Fatalf("the skewed rollback's plan: %+v %v", planned, err)
+	}
+	for _, step := range planned.Rollback.Devices[0].Steps {
+		if !step.SkewAccepted || step.Collection.Version != "0.3.9" {
+			t.Errorf("step %s carries %+v, want it marked accepted under the recorded identity", step.Node, step)
+		}
+	}
+	fanOut(skewID)
+	journaled(skewID, 2)
+	if got := h.onDevice(t, footprint); got != "setting = new\nno-directory" {
+		t.Errorf("after the skewed rollback the device holds %q, want the copy and directory gone", got)
+	}
+	if _, tasks, err := store.Get(ctx, skewID); err != nil {
+		t.Fatal(err)
+	} else if len(tasks) != 1 || tasks[0].Result != dispatch.ResultSucceeded {
+		t.Errorf("the skewed rollback reported %s; want the Runner to have run the accepted steps", jobRows(store, skewID))
+	}
+}
+
+// recordedElsewhere rewrites the stored rows of jobID's nodes as an older
+// build of other declarations would have recorded them: another version,
+// and a Collection and an undo digest no build of this source computes.
+// It writes through a connection of its own, as the gate reads.
+func recordedElsewhere(t *testing.T, dbPath, jobID string, nodes ...string) {
+	t.Helper()
+	db, err := sql.Open("sqlite3", "file:"+dbPath+"?_busy_timeout=5000")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	for _, node := range nodes {
+		res, err := db.Exec(`UPDATE journal_entries SET collection_version = ?, collection_manifests = ?, inverse_spec_digest = ? WHERE job_id = ? AND node_id = ?`,
+			"0.3.9", "sha256:"+strings.Repeat("a", 64), "sha256:"+strings.Repeat("b", 64), jobID, node)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if n, _ := res.RowsAffected(); n != 1 {
+			t.Fatalf("rewrote %d rows of job %s node %s, want 1", n, jobID, node)
+		}
+	}
 }
 
 // assertStoredCollectionIdentity holds every stored row of jobID to the
