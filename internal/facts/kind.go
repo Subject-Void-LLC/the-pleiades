@@ -104,8 +104,9 @@ func describe(t ValueType) string {
 
 // SpecOf is a declaration (collection.FactSpec's kind, type, key and
 // whether the key is the prefix of a family of items, NamesItems) as Prepare
-// reads it. internal/facts imports no other package of the module, so
-// callers pass the fields.
+// reads it. Callers pass the fields, so the rules here stay apart from a
+// manifest's own types; the package reaches pkg/collection only for the
+// static first-party groups (Provenance.CheckCollection).
 func SpecOf(kind, valueType, key string, items bool) Spec {
 	spec := Spec{Kind: Kind(kind), Type: ValueType(valueType)}
 	if items {

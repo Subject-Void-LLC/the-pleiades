@@ -12,7 +12,8 @@
 // A method declares each fact it emits (collection.Manifest.Facts): a key it
 // did not declare is named in the log and not stored, and a volatile one
 // keeps only its latest value. Each stored value says which run, node and
-// method observed it, and the recorder adds the run's order.
+// method observed it, and the Collection that method came from (Phase
+// 136b), and the recorder adds the run's order.
 //
 // Storing is the journal's kind of write: a failure is logged and counted and
 // never changes the run's outcome, since a fact is a record of the run, not
@@ -28,6 +29,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/redact"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
 
 // FactRecorder stores the facts a task observed on a device. It must be
@@ -120,13 +122,33 @@ func (r *run) recordFacts(ctx context.Context, results []NodeResult) {
 			at = time.Now().UTC()
 		}
 		wctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), factRecordTimeout)
-		obs := facts.Observation{Entries: entries, At: at, By: facts.Provenance{Run: r.runID, Node: nr.NodeID, Method: nr.factMethod, Order: nr.factOrder}}
+		by := r.factProvenance(nr)
+		obs := facts.Observation{Entries: entries, At: at, By: by}
 		if err := r.x.facts.Record(wctx, nr.Device, obs); err != nil {
 			r.factFailures++
 			slog.Error("storing a task's facts failed; the run goes on", "node", nr.NodeID, "device", nr.Device, "error", err, "failures_this_run", r.factFailures)
 		}
 		cancel()
 	}
+}
+
+// factProvenance is the provenance the engine stamps on nr's facts: the run,
+// node and method, the order taken when the task finished, and the identity
+// the journal records for the same node (Phase 136b): the core's, from what
+// it linked or its loader hashed, never one the method sent. It runs on the
+// walk's goroutine after recordLevel, as the identity cache requires.
+func (r *run) factProvenance(nr NodeResult) facts.Provenance {
+	by := facts.Provenance{Run: r.runID, Node: nr.NodeID, Method: nr.factMethod, Order: nr.factOrder,
+		Collection: r.collectionIdentity(resolveFQCN(nr.factMethod), nr.Provider)}
+	if err := by.CheckCollection(); err != nil {
+		// Never expected: a built-in's identity is its own group's, and
+		// collection.Register keeps a program's methods out of every group.
+		// A store refuses the observation whole over it, so the facts are
+		// kept and the identity is not.
+		slog.Warn("a task's facts are stored with no Collection identity", "node", nr.NodeID, "device", nr.Device, "reason", err)
+		by.Collection = wire.CollectionIdentity{}
+	}
+	return by
 }
 
 // declaredFacts is what method's manifest declares about each fact it may

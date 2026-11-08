@@ -4,7 +4,14 @@
 // 831).
 package facts
 
-import "time"
+import (
+	"errors"
+	"fmt"
+	"time"
+
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
+)
 
 // Order is a run's place in an order the system keeps: the Crawl CLI's run
 // counter (.pleiades/clock) or the device lease revision a Runner held. Two
@@ -47,6 +54,44 @@ type Provenance struct {
 	Runner string `json:"runner,omitempty"`
 	// Order is the run's place in the order the system keeps.
 	Order Order `json:"order,omitzero"`
+	// Collection is the Collection Method came from, at the declarations the
+	// core linked or its loader hashed (Phase 136b): the engine sets it, as
+	// it sets the journal's, and no method writes its own. Zero for a value
+	// stored before Phase 136b, which reads as unknown like every other empty
+	// field here; omitzero leaves the key out, so such a value's chain hash
+	// is the one it was stored with.
+	Collection wire.CollectionIdentity `json:"collection,omitzero"`
+}
+
+// ErrCollectionIdentity marks a provenance whose Collection identity no
+// build writes for its method.
+var ErrCollectionIdentity = errors.New("facts: a collection identity no build writes")
+
+// CheckCollection holds p's Collection to what the engine writes: zero, or
+// an identity that passes wire.CollectionIdentity.Valid and agrees with
+// Method. A first-party group's identity names the group Method belongs to
+// (collection.FirstPartyGroupOf); a program's names a method in no
+// first-party group, since a program may not use one's namespace. The rule
+// reads only the static group list, so a Controller, which links no
+// Collection, holds a Runner's batch to it as the CLI holds its own files.
+func (p Provenance) CheckCollection() error {
+	id := p.Collection
+	if id.IsZero() {
+		return nil
+	}
+	if err := id.Valid(); err != nil {
+		return fmt.Errorf("%w: %w", ErrCollectionIdentity, err)
+	}
+	group, firstParty := collection.FirstPartyGroupOf(p.Method)
+	switch {
+	case id.Program && firstParty:
+		return fmt.Errorf("%w: a program's identity for %q, a method of the first-party group %s", ErrCollectionIdentity, p.Method, group.Name)
+	case !id.Program && !firstParty:
+		return fmt.Errorf("%w: group %s for %q, a method in no first-party group", ErrCollectionIdentity, id.Group, p.Method)
+	case !id.Program && group.Name != id.Group:
+		return fmt.Errorf("%w: group %s for %q, a method of %s", ErrCollectionIdentity, id.Group, p.Method, group.Name)
+	}
+	return nil
 }
 
 // Observation is one task's prepared facts on one device: what Record

@@ -6219,6 +6219,28 @@
                                 "description": "The dispatch's delivery attempt on a Runner.",
                                 "type": "integer"
                               },
+                              "collection": {
+                                "description": "The Collection the method came from, as the core that ran it recorded it; absent for a value stored before it was kept, or when the Runner's batch named one no build writes for the method.",
+                                "properties": {
+                                  "group": {
+                                    "description": "The first-party group (facts, virt.clab), or the external program's file name when program is true.",
+                                    "type": "string"
+                                  },
+                                  "manifests": {
+                                    "description": "sha256: and 64 hex digits over the group's declarations, which tells two builds' declarations apart.",
+                                    "type": "string"
+                                  },
+                                  "program": {
+                                    "description": "True when group names an external program rather than a first-party group.",
+                                    "type": "boolean"
+                                  },
+                                  "version": {
+                                    "description": "The core build the group was linked into; absent for a program. Printed for a person, never an order.",
+                                    "type": "string"
+                                  }
+                                },
+                                "type": "object"
+                              },
                               "job": {
                                 "description": "The Controller's job ID; absent on a CLI run.",
                                 "type": "string"
@@ -6278,6 +6300,28 @@
                               "attempt": {
                                 "description": "The dispatch's delivery attempt on a Runner.",
                                 "type": "integer"
+                              },
+                              "collection": {
+                                "description": "The Collection the method came from, as the core that ran it recorded it; absent for a value stored before it was kept, or when the Runner's batch named one no build writes for the method.",
+                                "properties": {
+                                  "group": {
+                                    "description": "The first-party group (facts, virt.clab), or the external program's file name when program is true.",
+                                    "type": "string"
+                                  },
+                                  "manifests": {
+                                    "description": "sha256: and 64 hex digits over the group's declarations, which tells two builds' declarations apart.",
+                                    "type": "string"
+                                  },
+                                  "program": {
+                                    "description": "True when group names an external program rather than a first-party group.",
+                                    "type": "boolean"
+                                  },
+                                  "version": {
+                                    "description": "The core build the group was linked into; absent for a program. Printed for a person, never an order.",
+                                    "type": "string"
+                                  }
+                                },
+                                "type": "object"
                               },
                               "job": {
                                 "description": "The Controller's job ID; absent on a CLI run.",
@@ -6436,6 +6480,28 @@
                                 "description": "The dispatch's delivery attempt on a Runner.",
                                 "type": "integer"
                               },
+                              "collection": {
+                                "description": "The Collection the method came from, as the core that ran it recorded it; absent for a value stored before it was kept, or when the Runner's batch named one no build writes for the method.",
+                                "properties": {
+                                  "group": {
+                                    "description": "The first-party group (facts, virt.clab), or the external program's file name when program is true.",
+                                    "type": "string"
+                                  },
+                                  "manifests": {
+                                    "description": "sha256: and 64 hex digits over the group's declarations, which tells two builds' declarations apart.",
+                                    "type": "string"
+                                  },
+                                  "program": {
+                                    "description": "True when group names an external program rather than a first-party group.",
+                                    "type": "boolean"
+                                  },
+                                  "version": {
+                                    "description": "The core build the group was linked into; absent for a program. Printed for a person, never an order.",
+                                    "type": "string"
+                                  }
+                                },
+                                "type": "object"
+                              },
                               "job": {
                                 "description": "The Controller's job ID; absent on a CLI run.",
                                 "type": "string"
@@ -6495,6 +6561,28 @@
                               "attempt": {
                                 "description": "The dispatch's delivery attempt on a Runner.",
                                 "type": "integer"
+                              },
+                              "collection": {
+                                "description": "The Collection the method came from, as the core that ran it recorded it; absent for a value stored before it was kept, or when the Runner's batch named one no build writes for the method.",
+                                "properties": {
+                                  "group": {
+                                    "description": "The first-party group (facts, virt.clab), or the external program's file name when program is true.",
+                                    "type": "string"
+                                  },
+                                  "manifests": {
+                                    "description": "sha256: and 64 hex digits over the group's declarations, which tells two builds' declarations apart.",
+                                    "type": "string"
+                                  },
+                                  "program": {
+                                    "description": "True when group names an external program rather than a first-party group.",
+                                    "type": "boolean"
+                                  },
+                                  "version": {
+                                    "description": "The core build the group was linked into; absent for a program. Printed for a person, never an order.",
+                                    "type": "string"
+                                  }
+                                },
+                                "type": "object"
                               },
                               "job": {
                                 "description": "The Controller's job ID; absent on a CLI run.",

@@ -52,6 +52,11 @@ func (s *Store) Record(ctx context.Context, device string, obs facts.Observation
 	if len(obs.Entries) == 0 {
 		return nil
 	}
+	// The file store's rule (Phase 136b): a provenance naming a Collection
+	// identity no build writes for its method is never stored.
+	if err := obs.By.CheckCollection(); err != nil {
+		return fmt.Errorf("%w: %w", facts.ErrInvalid, err)
+	}
 	tx, err := s.client.Tx(ctx)
 	if err != nil {
 		return fmt.Errorf("facts: %w", err)

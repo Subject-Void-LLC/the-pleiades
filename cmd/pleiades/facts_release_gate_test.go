@@ -14,8 +14,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
-	"github.com/Subject-Void-LLC/the-pleiades/internal/facts"
 	"io"
 	"os"
 	"path/filepath"
@@ -26,6 +24,12 @@ import (
 
 	"github.com/testcontainers/testcontainers-go"
 	tcexec "github.com/testcontainers/testcontainers-go/exec"
+
+	"github.com/Subject-Void-LLC/the-pleiades/internal/clireport"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/facts"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
 
 // factsView is pleiades facts --json.
@@ -55,6 +59,7 @@ type factsByView struct {
 		Source string `json:"source"`
 		Token  uint64 `json:"token"`
 	} `json:"order"`
+	Collection wire.CollectionIdentity `json:"collection"`
 }
 
 func TestCLI_FactsReleaseGate(t *testing.T) {
@@ -102,6 +107,15 @@ func TestCLI_FactsReleaseGate(t *testing.T) {
 	}
 	if kinds["os.kernel.release"] != "stable" || kinds["host.uptime_seconds"] != "volatile" {
 		t.Errorf("kinds = %v, want the kernel stable and the uptime volatile as declared", kinds)
+	}
+	// Phase 136b: each value names the Collection facts.gather came from, the
+	// facts group at the version the binary reports, with the digest this
+	// test binary's registry computes, first seen and last confirmed alike.
+	wantIdentity := factsGatherIdentity(t)
+	for _, f := range first.Facts {
+		if f.By.Collection != wantIdentity || f.LastBy.Collection != wantIdentity {
+			t.Errorf("%s: collection %+v, last %+v, want %+v", f.Key, f.By.Collection, f.LastBy.Collection, wantIdentity)
+		}
 	}
 	history := filepath.Join(g.dir, ".pleiades", "facts", first.DeviceID+".jsonl")
 	seenFile := filepath.Join(g.dir, ".pleiades", "facts", first.DeviceID+".seen.jsonl")
@@ -371,4 +385,24 @@ func asRoot(t *testing.T, c testcontainers.Container, script string) string {
 		t.Fatalf("%s exited %d: %s", script, code, out)
 	}
 	return strings.TrimSpace(string(out))
+}
+
+// factsGatherIdentity is the identity the binary records for facts.gather:
+// the facts group at the version pleiades version --json reports, with the
+// group's digest as the registry this test binary links computes it.
+func factsGatherIdentity(t *testing.T) wire.CollectionIdentity {
+	t.Helper()
+	out, err := runPleiades(t, t.TempDir(), "version", "--json")
+	if err != nil {
+		t.Fatalf("version --json: %v\n%s", err, out)
+	}
+	var report clireport.VersionReport
+	if err := json.Unmarshal([]byte(out), &report); err != nil || report.Version == "" {
+		t.Fatalf("version --json gave no version (%v):\n%s", err, out)
+	}
+	digest, err := collection.GroupDigest("facts")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return wire.CollectionIdentity{Group: "facts", Version: report.Version, Manifests: digest}
 }

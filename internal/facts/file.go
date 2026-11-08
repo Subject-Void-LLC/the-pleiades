@@ -29,6 +29,8 @@ import (
 	"regexp"
 	"sync/atomic"
 	"time"
+
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
 
 // File permissions: owner-only, as the journal's are.
@@ -183,7 +185,10 @@ func readLines(r *os.Root, device string) ([]line, int64, error) {
 		var l line
 		dec := json.NewDecoder(bytes.NewReader(raw))
 		dec.UseNumber()
-		if err := dec.Decode(&l); err != nil || !ValidKey(l.Key) || l.Hash == "" || l.Seq < 0 {
+		// A Collection identity no build writes for the line's method is
+		// refused as the rest of a line no store wrote is: the engine
+		// records only one CheckCollection accepts (Phase 136b).
+		if err := dec.Decode(&l); err != nil || !ValidKey(l.Key) || l.Hash == "" || l.Seq < 0 || l.By.CheckCollection() != nil {
 			return fmt.Errorf("facts: %s.jsonl line %d is not a stored fact", device, n)
 		}
 		lines = append(lines, l)
@@ -261,6 +266,16 @@ func readState(r *os.Root, device string) (state, error) {
 	}
 	if st.Volatile == nil {
 		st.Volatile = map[string]volatileValue{}
+	}
+	// A volatile value is not chained and the next run replaces it, so one
+	// naming a Collection identity no build writes keeps its value and reads
+	// as of unknown Collection, rather than costing the device every value
+	// the file holds (FAILURE_PATTERNS 922).
+	for key, v := range st.Volatile {
+		if v.By.CheckCollection() != nil {
+			v.By.Collection = wire.CollectionIdentity{}
+			st.Volatile[key] = v
+		}
 	}
 	return st, nil
 }

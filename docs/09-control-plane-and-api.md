@@ -149,9 +149,13 @@ declaration's kind and type, read from the module catalog the Controller serves
 Each value carries its kind (`stable`, history kept; `volatile`, latest value
 only) and its provenance: the job, attempt, run, task, method and Runner that
 observed it (`by`) and that last confirmed it (`last_by`), with the run's order,
-the device lease's fencing token. The Runner's name is the host name it reported,
+the device lease's fencing token, and the Collection the method came from
+(`collection`, as the Runner's engine recorded it). The Runner's name is the host name it reported,
 and the token is the one it reports: neither is checked by the Controller, so a
-Runner that is not trusted can mislabel its facts or misorder them. A device's
+Runner that is not trusted can mislabel its facts or misorder them. The Collection
+is checked only for its shape and for agreeing with the method (a first-party
+method's group, or a program's method outside every group); one that does not is
+stored as unknown, with a warning, and the facts are kept. A device's
 history is ordered by that token, not by a Runner's clock; where two values'
 orders do not compare or are equal (one dispatch's own tasks; a dispatch on a
 shared lease, which has no token; or a lock store that started again), the clock

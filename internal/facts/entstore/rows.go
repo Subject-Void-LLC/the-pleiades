@@ -13,6 +13,7 @@ import (
 	entdevice "github.com/Subject-Void-LLC/the-pleiades/internal/ent/device"
 	entfact "github.com/Subject-Void-LLC/the-pleiades/internal/ent/fact"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
 
 // Current implements facts.Store: for each of device's keys, the value most
@@ -173,11 +174,17 @@ func encode(p facts.Provenance) (map[string]any, error) {
 }
 
 // decodeProvenance reads a provenance column; one that is empty or does
-// not decode is unknown provenance.
+// not decode is unknown provenance. A Collection identity no build writes
+// for the provenance's method (a row edited by hand: Record stores none)
+// reads as unknown, and a stable value's chain, which covers the identity as
+// it was stored, then fails at that row.
 func decodeProvenance(col map[string]any) facts.Provenance {
 	var p facts.Provenance
 	if text, ok := col[payloadKey].(string); ok {
 		_ = json.Unmarshal([]byte(text), &p)
+	}
+	if p.CheckCollection() != nil {
+		p.Collection = wire.CollectionIdentity{}
 	}
 	return p
 }
