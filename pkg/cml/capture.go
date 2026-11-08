@@ -130,8 +130,11 @@ func (c *Client) FetchPCAP(ctx context.Context, key string, max int64) ([]byte, 
 	if c.token == "" {
 		return nil, errors.New("cml: Connect first")
 	}
-	path := "/pcap/" + url.PathEscape(key)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.base.String()+"/api/v0"+path, nil)
+	u, err := c.endpoint("/pcap/" + url.PathEscape(key))
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
 		return nil, err
 	}

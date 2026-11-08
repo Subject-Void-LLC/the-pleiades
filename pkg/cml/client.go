@@ -21,6 +21,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/farside"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/httpapi"
 )
 
 // maxResponse bounds a response body read: a lab's nodes with their
@@ -239,10 +240,25 @@ func (c *Client) get(ctx context.Context, path string, into any) error {
 	return c.call(ctx, http.MethodGet, path, nil, into)
 }
 
+// endpoint is the URL of path (already escaped, and possibly with a query)
+// under /api/v0. It is built through httpapi.Join, which sends the escaped
+// path as it is and refuses a dot segment: url.PathEscape leaves ".." as it
+// is, and the controller would resolve /labs/.. to another route.
+func (c *Client) endpoint(path string) (string, error) {
+	u, err := httpapi.Join(c.base, "/api/v0"+path)
+	if err != nil {
+		return "", fmt.Errorf("cml: /api/v0%s: %w", strings.SplitN(path, "?", 2)[0], err)
+	}
+	return u.String(), nil
+}
+
 // call sends one request under /api/v0 and decodes a 2xx answer into into,
 // or reads none when into is nil (a 204's empty answer).
 func (c *Client) call(ctx context.Context, method, path string, body []byte, into any) error {
-	u := c.base.String() + "/api/v0" + path
+	u, err := c.endpoint(path)
+	if err != nil {
+		return err
+	}
 	var r io.Reader
 	if body != nil {
 		r = bytes.NewReader(body)
