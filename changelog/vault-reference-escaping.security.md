@@ -1,0 +1,1 @@
+A HashiCorp Vault secret reference whose mount or path held a percent-encoded dot or slash (`%2E%2E`, `%2F`) reached Vault as a `..` or a separator, so it could address an API path outside the secret it named with the source's token; each element is now sent escaped, as the characters it holds, one path segment each.

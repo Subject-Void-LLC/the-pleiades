@@ -198,6 +198,12 @@
       "line": "99",
       "rule_id": "G302",
       "reason": "gosec v2.30.0 (the Go 1.27 bump, 2026-11-08) reports os.Chmod with a mode above 0600. The target is a DIRECTORY, prepareDir's certificate directory, and dirMode is 0700: owner read, write and search, nothing for group or other. A directory needs its search (execute) bit to be entered, so 0600 would lock its own owner out of the certificate files this package writes into it. The chmod runs only on a directory this call created, to undo a umask that stripped owner bits (the comment above it), never on one that was already there. 0700 is the narrowest mode that works."
+    },
+    {
+      "file": "internal/credtype/lookup/hashivault/hashivault.go",
+      "line": "251",
+      "rule_id": "G125",
+      "reason": "gosec v2.30.0 (the Go 1.27 bump, 2026-11-08) flags url.URL.JoinPath over elements it cannot see escaped. It found a real defect first: JoinPath takes each element as already escaped, so a reference path or mount holding %2E%2E or %2F reached Vault as a '..' or a separator, outside the secret's path, with the source's token. endpointFor now escapes every element with url.PathEscape before joining (the mount and each path element), so each is sent as the characters it holds, one segment; checkSegments also refuses literal dot segments and a slash in the mount. TestAnEncodedSegmentStaysOneLiteralSegment holds encoded dots, encoded slashes in the path and the mount, and a literal percent to reaching Vault literally, and fails on the code before the fix. gosec's taint analysis does not credit url.PathEscape, so the finding stays reported on the escaped call."
     }
   ]
 }
