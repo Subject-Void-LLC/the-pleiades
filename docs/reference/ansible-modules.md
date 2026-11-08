@@ -695,7 +695,7 @@ Every finding in a migration report carries one of these codes. The set is close
 | `args.list_unrolled` | review | A list of names became one task per name, so the items no longer succeed or fail together. | - |
 | `args.unmapped` | blocked | An argument the native method has no equivalent for. | Drop it if it changes nothing, or write the task by hand. |
 | `args.unparsable` | blocked | Free-form arguments this converter cannot read unambiguously. | Write the arguments as a map. |
-| `args.value` | blocked | A value whose meaning differs between Ansible's YAML 1.1 and the runbook's YAML 1.2, or that the native parameter cannot take. | Quote the value in the playbook so its meaning is plain. |
+| `args.value` | blocked | A value whose meaning differs between Ansible's YAML 1.1 and the runbook's YAML 1.2, or that the native parameter cannot take. | Where the YAML meaning is the problem, quote the value in the playbook so its meaning is plain; otherwise change the value as the finding says, or write the task by hand. |
 | `assert.quiet` | info | assert's quiet option was ignored: the native assert always reports its result. | - |
 | `assert.unmapped` | blocked | An assert, fail or set_fact that carries a keyword the native action cannot take (a loop, until, changed_when, failed_when, a register or a timeout), or an argument it does not have. | - |
 | `block.always` | review | always: converted. It runs on each device the block ran on, whatever happened, or once on its own target. | - |

@@ -354,7 +354,9 @@ not give is unequal to every one, as Ansible's `NA` is. One ordering converts to
 `ansible_distribution_major_version | int` compared with a whole number (`==`, `!=`, `<`,
 `<=`, `>`, `>=`, either side) reads Jinja's integer, which is the native `os.version_major`
 where the device has one and 0 where it has none, as Jinja's `int` of `forky/sid` or `NA` is,
-so `ansible_distribution_major_version | int >= 8` decides on every host what Ansible decides.
+so `ansible_distribution_major_version | int >= 8` decides what Ansible decides. That is
+measured against Ansible's own output on every Linux distribution the fact fixtures capture,
+and follows from Ansible's source on Windows, macOS and FreeBSD.
 The same comparison without `| int` (`ansible_distribution_major_version >= "8"`) compares
 text in Ansible, where `"10"` sorts before `"8"`, and is refused with a finding that names
 `| int` and `os.version_major`; an ordering over any other fact's text (`ansible_kernel >= "6"`)
@@ -382,9 +384,11 @@ gets the native keys of the names it matched as a list, with `os.edition` beside
 convert with no review. A pattern that matches none of the table's names is refused at conversion (it would
 match nothing on every host), and so is a character class, a filter known only at run time, and
 a filter keeping only hardware facts under a `gather_subset` that leaves hardware out (one
-mixing hardware and other facts gathers the others there, as Ansible does). A pattern
+mixing hardware and other facts gathers the others there, as Ansible does), and any filter
+under a `gather_subset` that leaves out both `min` and `hardware`, since Ansible then gathers
+none of the table's facts while `facts.gather` always gathers `min`. A pattern
 with a wildcard may also match Ansible facts this platform does not gather, which the review
-finding says.
+finding says. A finding names a pattern by its place in the filter, never by its text.
 
 A filtered `setup` is split by device, because Ansible ignores `filter` on a Windows host. There
 `ansible.builtin.setup` runs as `ansible.windows.setup`: a WinRM, PSRP or PowerShell-over-SSH

@@ -166,6 +166,38 @@ func TestTranslate_ASplitSetupKeepsItsOwnCondition(t *testing.T) {
 	}
 }
 
+func TestTranslate_ASplitSetupKeepsItsSubsetAndItsRegisterReads(t *testing.T) {
+	// The Windows half drops only the filter Ansible ignores: its subset is
+	// the task's as written. And the register both halves share is a result
+	// a later task may read, as Ansible's one setup task's is.
+	res := convert(t, "- hosts: web\n  gather_facts: false\n  tasks:\n    - name: facts\n      ansible.builtin.setup: {filter: ansible_os_family, gather_subset: [hardware]}\n      register: found\n    - name: mark\n      ansible.builtin.copy: {dest: /tmp/m, content: x}\n      when: found is defined\n")
+	if len(res.Runbooks) != 1 || res.Runbooks[0].Incomplete || res.Report.Counts.Blocked != 0 {
+		t.Fatalf("the play did not convert whole: codes %v\n%s", codesOf(res.Report), res.Report.String())
+	}
+	dag := build(t, res.Runbooks[0].YAML)
+	if report := validate.Validate(validate.WorldView{DAG: dag}); report.HasErrors() {
+		t.Errorf("the converted runbook does not validate:\n%s", report.String())
+	}
+	nodes := gatherNodes(dag, "facts")
+	if len(nodes) != 2 {
+		t.Fatalf("facts.gather tasks %v:\n%s", nodes, res.Runbooks[0].YAML)
+	}
+	for name, id := range nodes {
+		if got := anyStrings(dag.Nodes[id].Params["gather_subset"]); !slices.Equal(got, []string{"min", "hardware"}) {
+			t.Errorf("%s gathers subsets %v, want [min hardware], the task's own", name, got)
+		}
+	}
+	marked := false
+	for _, n := range dag.Nodes {
+		if n.Name == "mark" {
+			marked = true
+		}
+	}
+	if !marked {
+		t.Errorf("the task reading the split's register did not convert:\n%s", res.Runbooks[0].YAML)
+	}
+}
+
 // runsOnWith is runsOn over a whole stat tree.
 func runsOnWith(t *testing.T, dag *engine.DAG, node string, device, tree map[string]any) bool {
 	t.Helper()

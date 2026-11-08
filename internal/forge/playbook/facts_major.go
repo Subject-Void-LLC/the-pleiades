@@ -7,9 +7,11 @@
 // native os.version_major holds the integer where Ansible's string is a whole
 // number and is absent where it is not, so the read is the native major where
 // the device has one and 0 where it has none, and a comparison of that with
-// a whole number decides on every host what Jinja's does. Only that is
+// a whole number decides what Jinja's does on every host the fact fixtures
+// measure (and, from Ansible's source, on the rest). Only that is
 // translated: the six comparisons (==, !=, <, <=, >, >=) with an integer
-// literal. A comparison with text raises in Jinja, a fraction is no
+// literal. An ordering against text raises in Jinja and an equality with text
+// is never true there, so neither is translated; a fraction is no
 // version's major, and a membership, a truth or any filter after | int is
 // left to a person (the last refused in whencel_ops.go's filter). int with
 // arguments (a default, a base) never reaches here, since the condition

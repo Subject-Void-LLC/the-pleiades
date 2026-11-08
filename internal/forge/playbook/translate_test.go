@@ -206,6 +206,9 @@ func TestReport_NoValues(t *testing.T) {
 func TestReport_RefusedValuesNotPrinted(t *testing.T) {
 	const octal, decimal, base60, comma = "0123456701", "1234567", "12:34:56", "SENTINELCOMMA"
 	const state, notInt, token, kind, field = "SENTINELSTATE", "SENTINELINT", "SENTINELTOKEN", "SENTINELKIND", "SENTINELFIELD"
+	// A setup filter's pattern, refused for matching nothing, and one with a
+	// wildcard, which converts with a review naming it by its place.
+	const filter, glob = "SENTINELFILTER", "ansible_os_famil*"
 	res := convert(t, `- hosts: web
   gather_facts: false
   vars: {word: `+notInt+`, count: 3}
@@ -220,18 +223,20 @@ func TestReport_RefusedValuesNotPrinted(t *testing.T) {
     - {command: x, when: "count == 3 '`+token+`'"}
     - {command: x, when: "count < '`+kind+`'"}
     - {command: x, when: "probe.rc == '`+field+`'"}
+    - {setup: {filter: `+filter+`}}
+    - {setup: {filter: [ansible_kernel, '`+glob+`']}}
 `)
 	js, err := json.Marshal(res.Report)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, value := range []string{octal, decimal, base60, comma, state, notInt, token, kind, field} {
+	for _, value := range []string{octal, decimal, base60, comma, state, notInt, token, kind, field, filter, glob} {
 		if strings.Contains(res.Report.String(), value) || strings.Contains(string(js), value) {
 			t.Errorf("%s reached the report", value)
 		}
 	}
-	if res.Report.Counts.Blocked != 9 {
-		t.Errorf("blocked = %d, want every task but the probe: %v", res.Report.Counts.Blocked, codesOf(res.Report))
+	if res.Report.Counts.Blocked != 10 {
+		t.Errorf("blocked = %d, want every task but the probe and the globbed setup: %v", res.Report.Counts.Blocked, codesOf(res.Report))
 	}
 }
 

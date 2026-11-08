@@ -62,8 +62,9 @@ type Entry struct {
 
 // Adjustment is what an Entry's Adjust makes of one call's parameters.
 type Adjustment struct {
-	// Notes are the module.semantics reviews the call raises, one finding
-	// each.
+	// Notes are the module.semantics reviews the call raises, joined into
+	// one finding (apply.go: the report keeps one finding per code and
+	// position).
 	Notes []string
 	// Refusal, when set, leaves the task for a person, raising Code.
 	Code    Code

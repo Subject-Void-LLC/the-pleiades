@@ -11,9 +11,12 @@
 // matched here against the Ansible names pkg/ansiblefacts maps, and the task
 // gets the native keys of what matched as an explicit sorted list, with the
 // keys a Windows host reads its distribution and swap beside. A pattern that
-// matches no mapped name is refused at conversion, where facts.gather would
-// refuse the filter at run time; and one matching every mapped name means no
-// filter, as * and ansible_* do.
+// matches no mapped name is refused at conversion, the whole filter with it
+// (facts.gather refuses a filter matching none of its facts at run time, so a
+// filter of that pattern alone would fail on every host); and one matching
+// every mapped name means no filter, as * and ansible_* do. A finding names a
+// pattern by its place in the filter, never by its text: the report is written
+// to be shared, and holds names and positions only (FAILURE_PATTERNS 330).
 package playbook
 
 import (
@@ -59,14 +62,22 @@ type filterExpansion struct {
 	// keys are the native keys the filter keeps, sorted; nil when it keeps
 	// every mapped fact and the task needs no filter.
 	keys []string
-	// wildcards are the patterns holding * or ?, which in Ansible may also
-	// keep facts this platform does not gather.
-	wildcards []string
+	// wildcards are the places in the filter (from 1) of the patterns
+	// holding * or ?, which in Ansible may also keep facts this platform does
+	// not gather.
+	wildcards []int
 }
 
 // setupAdjust is setup's Adjust: gather_subset as setupSubset writes it,
 // then the filter expanded into the native keys it means.
 func setupAdjust(params map[string]any) Adjustment {
+	// Read before setupSubset rewrites gather_subset as facts.gather's.
+	hardware, base := true, false
+	if raw, ok := params["gather_subset"]; ok {
+		added, removed, _ := parseSubset(raw)
+		hardware = subsetHasHardware(added, removed)
+		base = !hardware && !subsetHasMin(removed)
+	}
 	adj := noted(setupSubset(params))
 	raw, ok := params["filter"]
 	if !ok {
@@ -83,7 +94,15 @@ func setupAdjust(params map[string]any) Adjustment {
 		delete(params, "filter")
 		return adj
 	}
-	if subsets, ok := params["gather_subset"].([]any); ok && !slices.Contains(subsets, "hardware") && onlyHardware(ex.keys) {
+	switch {
+	case base:
+		// gather_subset leaves out both min and hardware: Ansible's base facts
+		// hold none of the mapped ones, so its filter keeps nothing, while
+		// facts.gather, which always gathers min, would keep these.
+		adj.Code = setupFilterCode
+		adj.Refusal = fmt.Sprintf("setup's filter keeps %s and gather_subset leaves out min and hardware, so Ansible gathers none of them, and facts.gather, which always gathers min, would; gather min or hardware, or drop the filter", strings.Join(ex.keys, ", "))
+		return adj
+	case !hardware && onlyHardware(ex.keys):
 		adj.Code = setupFilterCode
 		adj.Refusal = fmt.Sprintf("setup's filter keeps only hardware facts (%s) and gather_subset leaves hardware out, so Ansible gathers none of them and facts.gather refuses the filter; gather hardware or filter a min fact", strings.Join(ex.keys, ", "))
 		return adj
@@ -98,7 +117,7 @@ func setupAdjust(params map[string]any) Adjustment {
 	adj.Windows = unfiltered(params)
 	adj.Notes = append(adj.Notes, fmt.Sprintf(setupFilterNote, strings.Join(ex.keys, ", ")))
 	if len(ex.wildcards) > 0 {
-		adj.Notes = append(adj.Notes, fmt.Sprintf("setup's filter pattern %s may also match Ansible facts this platform does not gather, which are not gathered; it keeps %s", strings.Join(quoteAll(ex.wildcards), ", "), strings.Join(ex.keys, ", ")))
+		adj.Notes = append(adj.Notes, fmt.Sprintf("%s may also match Ansible facts this platform does not gather, which are not gathered; it keeps %s", wildcardNames(ex.wildcards, len(listOf(raw))), strings.Join(ex.keys, ", ")))
 	}
 	return adj
 }
@@ -121,22 +140,23 @@ func expandSetupFilter(v any) (filterExpansion, string) {
 	all := ansiblefacts.AnsibleNames()
 	var ex filterExpansion
 	var matched []string
-	for _, item := range list {
+	for i, item := range list {
 		pattern, ok := item.(string)
+		name := patternName(i, len(list))
 		switch {
 		case !ok:
 			return filterExpansion{}, fmt.Sprintf("setup's filter holds %s where it takes a pattern", kindOf(item))
 		case hasTemplate(pattern):
 			return filterExpansion{}, filterAtRunTime
 		case strings.ContainsAny(pattern, `[]\`):
-			return filterExpansion{}, fmt.Sprintf("setup's filter pattern %s holds a character class or an escape, which Python's fnmatch and this converter read differently; write the native keys as facts.gather's filter", strconv.Quote(pattern))
+			return filterExpansion{}, fmt.Sprintf("%s holds a character class or an escape, which Python's fnmatch and this converter read differently; write the native keys as facts.gather's filter", name)
 		}
 		hits := matchFactNames(pattern, all)
 		if len(hits) == 0 {
-			return filterExpansion{}, fmt.Sprintf("setup's filter pattern %s matches no fact this platform gathers, so facts.gather would refuse it on every host; the facts it gathers are %s", strconv.Quote(pattern), strings.Join(all, ", "))
+			return filterExpansion{}, fmt.Sprintf("%s matches no fact this platform gathers, so a filter of it alone would fail on every host; the facts it gathers are %s", name, strings.Join(all, ", "))
 		}
 		if strings.ContainsAny(pattern, "*?") {
-			ex.wildcards = append(ex.wildcards, pattern)
+			ex.wildcards = append(ex.wildcards, i+1)
 		}
 		matched = append(matched, hits...)
 	}
@@ -209,11 +229,34 @@ func onlyHardware(keys []string) bool {
 	return true
 }
 
-// quoteAll quotes each string, so a pattern reads as written in a finding.
-func quoteAll(ss []string) []string {
-	out := make([]string, len(ss))
-	for i, s := range ss {
-		out[i] = strconv.Quote(s)
+// patternName names the pattern at index i of a filter of n patterns in a
+// finding, by its place and never by its text: "setup's filter pattern" for
+// the only one, "pattern 2 of setup's filter" otherwise.
+func patternName(i, n int) string {
+	if n == 1 {
+		return "setup's filter pattern"
 	}
-	return out
+	return fmt.Sprintf("pattern %d of setup's filter", i+1)
+}
+
+// wildcardNames names, by their places in a filter of n patterns, the
+// patterns holding a wildcard.
+func wildcardNames(places []int, n int) string {
+	if n == 1 {
+		return "setup's filter pattern"
+	}
+	words := make([]string, len(places))
+	for i, place := range places {
+		words[i] = strconv.Itoa(place)
+	}
+	if len(words) == 1 {
+		return "pattern " + words[0] + " of setup's filter"
+	}
+	return "patterns " + strings.Join(words, ", ") + " of setup's filter"
+}
+
+// listOf is v as setup's filter list, or nil when it is not one.
+func listOf(v any) []any {
+	list, _ := v.([]any)
+	return list
 }

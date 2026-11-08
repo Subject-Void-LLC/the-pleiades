@@ -8,7 +8,6 @@ import (
 	"context"
 	"reflect"
 	"slices"
-	"strconv"
 	"strings"
 	"testing"
 
@@ -125,7 +124,7 @@ func TestTranslate_ASetupFilterRefusalKeepsTheSubsetsReview(t *testing.T) {
 	// And beside a filter that converts, both reviews reach the report: the
 	// report keeps one finding per code and position.
 	res = convert(t, setupPlay("ansible.builtin.setup", "{filter: 'ansible_os_*', gather_subset: [network]}"))
-	for _, want := range []string{"gather_subset's network", "written as the native keys", `"ansible_os_*" may also match`} {
+	for _, want := range []string{"gather_subset's network", "written as the native keys", "setup's filter pattern may also match"} {
 		if !strings.Contains(res.Report.String(), want) {
 			t.Errorf("the report lacks %q:\n%s", want, res.Report.String())
 		}
@@ -137,28 +136,39 @@ func TestTranslate_ASetupFilterGlobNamesWhatItMayAlsoMatch(t *testing.T) {
 	if task := gatherTask(t, res); task.Outcome != playbook.OutcomeReview {
 		t.Errorf("outcome %s, want review", task.Outcome)
 	}
-	if report := res.Report.String(); !strings.Contains(report, `"ansible_distribution*" may also match`) {
-		t.Errorf("the report does not name the glob:\n%s", report)
+	if report := res.Report.String(); !strings.Contains(report, "setup's filter pattern may also match") || strings.Contains(report, "ansible_distribution*") {
+		t.Errorf("the report does not name the glob by its place, or prints its text:\n%s", report)
+	}
+	// In a list, by its place in it.
+	res = convert(t, setupPlay("ansible.builtin.setup", "{filter: [ansible_os_family, 'ansible_distribution*', 'ansible_kernel*']}"))
+	if report := res.Report.String(); !strings.Contains(report, "patterns 2, 3 of setup's filter may also match") {
+		t.Errorf("the report does not name the globs by their places:\n%s", report)
 	}
 }
 
 func TestTranslate_ASetupFilterItCannotExpandIsRefusedNamingThePattern(t *testing.T) {
 	for _, tc := range []struct {
 		name, args string
-		// named is text the refusal must carry.
-		named string
+		// named is text the refusal must carry; secret is the playbook's own
+		// pattern, which it must not (the report holds names and positions
+		// only, FAILURE_PATTERNS 330).
+		named, secret string
 	}{
-		{name: "a fact the platform does not gather", args: "{filter: ansible_default_ipv4}", named: strconv.Quote("ansible_default_ipv4")},
-		{name: "one pattern of a list", args: "{filter: [ansible_memtotal_mb, nosuchfact]}", named: strconv.Quote("nosuchfact")},
-		{name: "a capital", args: "{filter: Ansible_Distribution}", named: strconv.Quote("Ansible_Distribution")},
-		{name: "the ansible_facts spelling", args: "{filter: ansible_facts.os_family}", named: strconv.Quote("ansible_facts.os_family")},
-		{name: "a facter pattern", args: "{filter: 'facter_*'}", named: strconv.Quote("facter_*")},
-		{name: "a character class", args: "{filter: 'ansible_[dk]*'}", named: "character class"},
+		{name: "a fact the platform does not gather", args: "{filter: ansible_default_ipv4}", named: "setup's filter pattern matches no fact", secret: "ansible_default_ipv4"},
+		{name: "one pattern of a list", args: "{filter: [ansible_memtotal_mb, nosuchfact]}", named: "pattern 2 of setup's filter matches no fact", secret: "nosuchfact"},
+		{name: "a capital", args: "{filter: Ansible_Distribution}", named: "matches no fact", secret: "Ansible_Distribution"},
+		{name: "the ansible_facts spelling", args: "{filter: ansible_facts.os_family}", named: "matches no fact", secret: "ansible_facts.os_family"},
+		{name: "a facter pattern", args: "{filter: 'facter_*'}", named: "matches no fact", secret: "facter_*"},
+		{name: "a character class", args: "{filter: 'ansible_[dk]*'}", named: "character class", secret: "ansible_[dk]*"},
 		// A loop over a registered result stays a native loop, whose item is
 		// known only at run time.
 		{name: "a run-time value", args: "{filter: '{{ item }}'}\n      loop: '{{ listed.stdout }}'", named: "run time"},
 		{name: "a comma list", args: "{filter: 'ansible_os_family,ansible_system'}", named: "commas"},
 		{name: "hardware only without the hardware subset", args: "{filter: ansible_memtotal_mb, gather_subset: ['!hardware']}", named: "hardware"},
+		// Ansible's base facts hold none of the mapped ones, so with min and
+		// hardware both left out its filter keeps nothing, where facts.gather,
+		// which always gathers min, would keep these.
+		{name: "a min fact with min and hardware left out", args: "{filter: ansible_os_family, gather_subset: ['!all', '!min']}", named: "leaves out min and hardware"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			res := convert(t, setupPlay("ansible.builtin.setup", tc.args))
@@ -180,6 +190,11 @@ func TestTranslate_ASetupFilterItCannotExpandIsRefusedNamingThePattern(t *testin
 			}
 			if !refused {
 				t.Errorf("no args.value refusal of the setup task names %s:\n%s", tc.named, res.Report.String())
+			}
+			if tc.secret != "" {
+				if report := res.Report.String(); strings.Contains(report, tc.secret) {
+					t.Errorf("the report prints the playbook's pattern %q:\n%s", tc.secret, report)
+				}
 			}
 		})
 	}
