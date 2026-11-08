@@ -1,5 +1,18 @@
 .PHONY: resources-record up up-plan setup setup-env-check down backup restore decom build devtools vet fmt fmt-fix tidy-check test test-race test-no-docker test-repeat test-integration gosec govulncheck arch coverage docs-lint docs-gen-check schema-compat helm-lint templ-gen templ-gen-check tools hooks lsp commitgate sweep sweep-dry sweep-timer sweep-timer-off dev-cert ui-dev ui-stop break-glass image-tools image-scan ci ci-remote push-gate test-full push-gate-full coverage-measured ci-fast ci-containers pr-check pr-check-vet mac-check bsd-check win-check ci-images ci-branch-plan branch-containers workflow-lint doctor test-clean-room release release-notes release-dry-run
 
+# Every go command this Makefile runs, and every one the targets it starts
+# run (tools/testgate, the scanners' builds), uses the release go.mod's
+# toolchain line names: the one CI installs (.github/actions/setup-go).
+# GOTOOLCHAIN=auto never switches DOWN, so a machine whose own Go was newer
+# built, tested and scanned with another Go than CI did, and a scanner one
+# release built could not read the other's export data: gosec skipped 1,345
+# packages and read the findings it lost as stale waivers (2026-11-08). The
+# release is fetched into the module cache on first use. A single run that
+# wants another passes GOTOOLCHAIN=... on the make command line, which wins
+# over this assignment.
+GO_TOOLCHAIN := $(shell sed -n 's/^toolchain //p' go.mod)
+export GOTOOLCHAIN := $(or $(GO_TOOLCHAIN),local)
+
 # GOBIN's tools (gopls, golangci-lint, gosec, govulncheck) live under
 # $(go env GOPATH)/bin, which is not guaranteed to be on PATH for every
 # invoking shell (AGENTS.md's own IDE & LSP Tooling section documents
@@ -40,7 +53,9 @@ MODULE_PATH := $(shell awk '/^module /{print $$2}' go.mod)
 # working one pays.
 LSP_HANDSHAKE_SECONDS ?= 45
 
-GOSEC_VERSION       ?= v2.28.0
+# v2.30.0 is the first that reads Go 1.27's export data: v2.28.0, even
+# rebuilt with go1.27, skips every package importing a module (2026-11-08).
+GOSEC_VERSION       ?= v2.30.0
 GOVULNCHECK_VERSION ?= v1.6.0
 
 # actionlint checks .github/workflows before they are pushed, because a
@@ -66,10 +81,17 @@ TRIVY_VERSION       ?= v0.58.2
 # release-time ldflags that `go install` does not apply, so a
 # `go install`ed gosec reports "dev" regardless of which tag it was
 # actually built from, and would reinstall itself on every single run.
+#
+# The Go release that built the tool must also be this toolchain's: a
+# scanner built by an older Go cannot decode the export data a newer go
+# list writes, and gosec then skips those packages rather than failing
+# (2026-11-08). `go version <binary>` names the release that built it.
 define ensure-tool
 	have="$$(go version -m "$$(command -v $(1) 2>/dev/null)" 2>/dev/null | awk '$$1=="mod"{print $$3; exit}')"; \
-	if [ "$$have" != "$(3)" ]; then \
-		echo "tools: installing $(1) $(3) (found: $${have:-none})"; \
+	built="$$(go version "$$(command -v $(1) 2>/dev/null)" 2>/dev/null | awk '{print $$NF}')"; \
+	want="$$(go env GOVERSION)"; \
+	if [ "$$have" != "$(3)" ] || [ "$$built" != "$$want" ]; then \
+		echo "tools: installing $(1) $(3) with $$want (found: $${have:-none}, built with $${built:-none})"; \
 		go install $(2)@$(3); \
 	fi
 endef
