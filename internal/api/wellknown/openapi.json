@@ -6220,7 +6220,7 @@
                                 "type": "integer"
                               },
                               "collection": {
-                                "description": "The Collection the method came from, as the core that ran it recorded it; absent for a value stored before it was kept, or when the Runner's batch named one no build writes for the method.",
+                                "description": "The Collection the method came from, as the core that ran it recorded it; absent for a value stored before it was kept or by a Runner before it, for a method in no first-party group, for a program whose file name cannot be recorded faithfully, and when the Runner's batch named one no build writes for the method.",
                                 "properties": {
                                   "group": {
                                     "description": "The first-party group (facts, virt.clab), or the external program's file name when program is true.",
@@ -6302,7 +6302,7 @@
                                 "type": "integer"
                               },
                               "collection": {
-                                "description": "The Collection the method came from, as the core that ran it recorded it; absent for a value stored before it was kept, or when the Runner's batch named one no build writes for the method.",
+                                "description": "The Collection the method came from, as the core that ran it recorded it; absent for a value stored before it was kept or by a Runner before it, for a method in no first-party group, for a program whose file name cannot be recorded faithfully, and when the Runner's batch named one no build writes for the method.",
                                 "properties": {
                                   "group": {
                                     "description": "The first-party group (facts, virt.clab), or the external program's file name when program is true.",
@@ -6481,7 +6481,7 @@
                                 "type": "integer"
                               },
                               "collection": {
-                                "description": "The Collection the method came from, as the core that ran it recorded it; absent for a value stored before it was kept, or when the Runner's batch named one no build writes for the method.",
+                                "description": "The Collection the method came from, as the core that ran it recorded it; absent for a value stored before it was kept or by a Runner before it, for a method in no first-party group, for a program whose file name cannot be recorded faithfully, and when the Runner's batch named one no build writes for the method.",
                                 "properties": {
                                   "group": {
                                     "description": "The first-party group (facts, virt.clab), or the external program's file name when program is true.",
@@ -6563,7 +6563,7 @@
                                 "type": "integer"
                               },
                               "collection": {
-                                "description": "The Collection the method came from, as the core that ran it recorded it; absent for a value stored before it was kept, or when the Runner's batch named one no build writes for the method.",
+                                "description": "The Collection the method came from, as the core that ran it recorded it; absent for a value stored before it was kept or by a Runner before it, for a method in no first-party group, for a program whose file name cannot be recorded faithfully, and when the Runner's batch named one no build writes for the method.",
                                 "properties": {
                                   "group": {
                                     "description": "The first-party group (facts, virt.clab), or the external program's file name when program is true.",

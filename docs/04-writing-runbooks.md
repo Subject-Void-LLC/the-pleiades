@@ -197,8 +197,11 @@ the run:
   built-in's first-party group, the version of The Pleiades that ran it and a
   digest of the group's method declarations, or an external program's file name
   and the digest of what it described), the same identity the run journal records
-  for that task. A value stored before this was kept has none, and its chain is
-  unchanged. Confirming a value writes nothing to it: each task that
+  for that task. It names none for a method in no first-party group or a program
+  whose file name cannot be recorded faithfully, and the Controller stores none for
+  a batch from a Runner before this was kept or one naming an identity no build
+  writes for its method. A value stored before this was kept has none, and its
+  chain is unchanged. Confirming a value writes nothing to it: each task that
   stores facts adds one record of the gather (its run, its time and the keys it
   covered), and the last confirmation is read from those, so a stored value is
   never edited; a volatile fact's one value is still replaced when it changes. Values are ordered by an order the system keeps, not by a

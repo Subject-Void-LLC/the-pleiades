@@ -547,7 +547,7 @@ func factProvenanceSchema(description string) map[string]any {
 					"source": map[string]any{"type": "string", "description": "clock (the CLI's run counter) or lease:<epoch> (a device lease's fencing token)."},
 					"token":  map[string]any{"type": "integer", "description": "The counter's value for the run."},
 				}},
-			"collection": map[string]any{"type": "object", "description": "The Collection the method came from, as the core that ran it recorded it; absent for a value stored before it was kept, or when the Runner's batch named one no build writes for the method.",
+			"collection": map[string]any{"type": "object", "description": "The Collection the method came from, as the core that ran it recorded it; absent for a value stored before it was kept or by a Runner before it, for a method in no first-party group, for a program whose file name cannot be recorded faithfully, and when the Runner's batch named one no build writes for the method.",
 				"properties": map[string]any{
 					"group":     map[string]any{"type": "string", "description": "The first-party group (facts, virt.clab), or the external program's file name when program is true."},
 					"version":   map[string]any{"type": "string", "description": "The core build the group was linked into; absent for a program. Printed for a person, never an order."},
