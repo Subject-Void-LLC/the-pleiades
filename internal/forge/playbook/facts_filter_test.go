@@ -68,6 +68,11 @@ func TestTranslate_ASetupFilterIsWrittenAsTheNativeKeysItMatches(t *testing.T) {
 		{name: "a question mark", args: "{filter: 'ansible_processor_co??s'}", keys: []string{"hardware.cpu.cores"}},
 		{name: "a list", args: "{filter: [ansible_kernel, ansible_hostname, ansible_kernel]}", keys: []string{"host.name", "os.kernel.release"}},
 		{name: "a list beside gather_subset", args: "{filter: [ansible_system], gather_subset: [min]}", keys: []string{"os.kernel.name"}},
+		// Under min both Ansible and facts.gather gather the min facts of a
+		// mixed filter and drop the hardware ones; facts.gather refuses only a
+		// filter matching none of the subsets' facts.
+		{name: "a mixed filter under min", args: "{filter: [ansible_swaptotal_mb, ansible_os_family], gather_subset: [min]}",
+			keys: []string{"hardware.memory_mb", "hardware.swap_mb", "os.family"}},
 		{name: "every fact", args: "{filter: '*'}"},
 		{name: "every Ansible fact", args: "{filter: 'ansible_*'}"},
 		{name: "an empty pattern", args: "{filter: ''}"},
@@ -97,10 +102,33 @@ func TestTranslate_ASetupFilterIsWrittenAsTheNativeKeysItMatches(t *testing.T) {
 			if text := string(res.Runbooks[0].YAML); strings.Contains(text, "ansible_") {
 				t.Errorf("an Ansible pattern was copied into the runbook:\n%s", text)
 			}
-			if !strings.Contains(res.Report.String(), "setup ignores filter") {
-				t.Errorf("the report does not say a Windows host's setup ignores filter:\n%s", res.Report.String())
+			// A written list carries the review; a filter keeping every fact
+			// converts exactly, with none.
+			if got := strings.Contains(res.Report.String(), "setup ignores filter"); got != (tc.keys != nil) {
+				t.Errorf("the report says a Windows host's setup ignores filter: %v, want %v\n%s", got, tc.keys != nil, res.Report.String())
+			}
+			if tc.keys == nil && task.Outcome != playbook.OutcomeConverted {
+				t.Errorf("outcome %s, want converted:\n%s", task.Outcome, res.Report.String())
 			}
 		})
+	}
+}
+
+func TestTranslate_ASetupFilterRefusalKeepsTheSubsetsReview(t *testing.T) {
+	// gather_subset's network has no facts.gather counterpart, a review the
+	// refusal of the filter beside it must not swallow.
+	res := convert(t, setupPlay("ansible.builtin.setup", "{filter: nosuchfact, gather_subset: [network]}"))
+	codes := codesOf(res.Report)
+	if !slices.Contains(codes, "args.value") || !strings.Contains(res.Report.String(), "gather_subset's network") {
+		t.Errorf("codes %v, want args.value and the subset's review of network:\n%s", codes, res.Report.String())
+	}
+	// And beside a filter that converts, both reviews reach the report: the
+	// report keeps one finding per code and position.
+	res = convert(t, setupPlay("ansible.builtin.setup", "{filter: 'ansible_os_*', gather_subset: [network]}"))
+	for _, want := range []string{"gather_subset's network", "written as the native keys", `"ansible_os_*" may also match`} {
+		if !strings.Contains(res.Report.String(), want) {
+			t.Errorf("the report lacks %q:\n%s", want, res.Report.String())
+		}
 	}
 }
 
@@ -142,8 +170,16 @@ func TestTranslate_ASetupFilterItCannotExpandIsRefusedNamingThePattern(t *testin
 			if res.Report.Counts.Blocked != 1 {
 				t.Errorf("blocked %d, want 1", res.Report.Counts.Blocked)
 			}
-			if report := res.Report.String(); !strings.Contains(report, tc.named) {
-				t.Errorf("the refusal does not name %s:\n%s", tc.named, report)
+			// The setup task's own refusal, args.value, names it, not some
+			// other construct's.
+			refused := false
+			for _, f := range res.Report.Findings {
+				if f.Task == "facts" && f.Outcome == playbook.OutcomeBlocked && f.Code == "args.value" && strings.Contains(f.Message, tc.named) {
+					refused = true
+				}
+			}
+			if !refused {
+				t.Errorf("no args.value refusal of the setup task names %s:\n%s", tc.named, res.Report.String())
 			}
 		})
 	}

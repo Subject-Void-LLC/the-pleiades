@@ -140,4 +140,8 @@ type Arg struct {
 	// Note, when set on a mapped argument, is a module.semantics review
 	// raised when the task gives it.
 	Note string
+	// Rewrite, when set on a mapped argument, says how the entry's Adjust
+	// rewrites its value (setup's filter, written as native keys). The module
+	// reference prints it; it raises no finding, the Adjust raising its own.
+	Rewrite string
 }

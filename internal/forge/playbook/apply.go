@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 	"strconv"
+	"strings"
 
 	"go.yaml.in/yaml/v3"
 )
@@ -99,8 +100,10 @@ func (t *translator) apply(e *Entry, args []argIn, bindings map[string]any, task
 	for i := range calls {
 		if e.Adjust != nil {
 			adj := e.Adjust(calls[i].params)
-			for _, why := range adj.Notes {
-				p.notes = append(p.notes, note{"module.semantics", taskAt, why})
+			// One finding: the report keeps one per code and position, so a
+			// second note at the task would be dropped.
+			if len(adj.Notes) > 0 {
+				p.notes = append(p.notes, note{"module.semantics", taskAt, strings.Join(adj.Notes, "; ")})
 			}
 			if adj.Refusal != "" {
 				p.blocked = &blockReason{adj.Code, taskAt, adj.Refusal}

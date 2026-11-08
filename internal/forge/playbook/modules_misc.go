@@ -107,16 +107,18 @@ var miscModules = []Entry{
 			// native ones (os.*, hardware.*), so a pattern copied across would
 			// match nothing and fail on every host; setupAdjust writes the
 			// native keys it matches instead (facts_filter.go).
-			{Name: "filter", To: "filter", Note: setupFilterNote},
+			{Name: "filter", To: "filter", Rewrite: setupFilterRewrite},
 			{Name: "gather_subset", To: "gather_subset"},
 		},
 	},
 	{
 		// The same module for a Windows host, which facts.gather reads over
-		// WinRM. Its argument spec has no filter: it takes any argument it
-		// does not know as raw and ignores it (ansible.windows' setup.ps1),
-		// so it gathers every fact whatever filter says, as an unfiltered
-		// facts.gather does.
+		// WinRM. Its argument spec has no filter (ansible.windows 2.4.0's
+		// setup.ps1, lines 13-23), and before Ansible.Basic's check for
+		// unsupported parameters runs it adds every argument it does not know
+		// to the spec as raw (lines 25-40), so filter neither fails the task
+		// nor is read: it gathers every fact, as an unfiltered facts.gather
+		// does.
 		Module:  "ansible.windows.setup",
 		Default: &Call{FQCN: "facts.gather", Class: ClassObserve, Basis: "gathering facts reads and changes nothing"},
 		Adjust:  setupAdjust,

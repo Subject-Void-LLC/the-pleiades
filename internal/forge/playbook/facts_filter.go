@@ -30,9 +30,13 @@ import (
 // refused with.
 const setupFilterCode Code = "args.value"
 
-// setupFilterNote is the review a setup task giving filter raises, and what
-// the module reference says of the argument.
-const setupFilterNote = "its patterns are matched against the Ansible facts the migration guide's fact table maps, and the task gets the native keys they match (no filter when they match every one); a Windows host's setup ignores filter and gathers every fact, where this task gathers only those keys"
+// setupFilterRewrite is what the module reference says of setup's filter.
+const setupFilterRewrite = "its patterns are matched against the Ansible facts the migration guide's fact table maps, and the task gets the native keys they match, or no filter when they match every one; a Windows host's setup ignores filter and gathers every fact, which the review of a written list says"
+
+// setupFilterNote is the review a setup task raises when its filter is
+// written as a list of native keys; a filter keeping every fact converts
+// exactly and raises none.
+const setupFilterNote = "setup's filter is written as the native keys it matches (%s); a Windows host's setup ignores filter and gathers every fact, where this task gathers only these keys"
 
 // unprefixedPatterns are the prefixes after which Ansible tries a pattern
 // only as written, never with ansible_ in front.
@@ -42,7 +46,11 @@ var unprefixedPatterns = []string{"ansible_", "facter", "ohai"}
 // (internal/catalog/facts' gatherHostProbes: memory, processors, uptime), the
 // same facts Ansible's hardware collector gives; every other key the mapping
 // knows is in min. With gather_subset leaving hardware out, a filter keeping
-// only these gathers nothing in Ansible and is refused by facts.gather.
+// only these gathers nothing in Ansible and is refused by facts.gather, which
+// refuses a filter matching none of the chosen subsets' facts (and only that:
+// a filter mixing min and hardware facts gathers the min ones under min, as
+// Ansible does). TestHardwareSubsetKeysAreTheCatalogsHardwareSubset holds
+// this list to facts.gather's own planning.
 var hardwareSubsetKeys = []string{"hardware.memory_mb", "hardware.swap_mb", "hardware.cpu.sockets",
 	"hardware.cpu.cores", "hardware.cpu.threads", "host.uptime_seconds"}
 
@@ -66,7 +74,9 @@ func setupAdjust(params map[string]any) Adjustment {
 	}
 	ex, why := expandSetupFilter(raw)
 	if why != "" {
-		return Adjustment{Code: setupFilterCode, Refusal: why}
+		// The subset's review still stands beside the refusal.
+		adj.Code, adj.Refusal = setupFilterCode, why
+		return adj
 	}
 	if ex.keys == nil {
 		// Every mapped fact, which is what an unfiltered gather reads.
@@ -74,15 +84,16 @@ func setupAdjust(params map[string]any) Adjustment {
 		return adj
 	}
 	if subsets, ok := params["gather_subset"].([]any); ok && !slices.Contains(subsets, "hardware") && onlyHardware(ex.keys) {
-		return Adjustment{Code: setupFilterCode, Refusal: fmt.Sprintf("setup's filter keeps only hardware facts (%s) and gather_subset leaves hardware out, so Ansible gathers none of them and facts.gather refuses the filter; gather hardware or filter a min fact", strings.Join(ex.keys, ", "))}
+		adj.Code = setupFilterCode
+		adj.Refusal = fmt.Sprintf("setup's filter keeps only hardware facts (%s) and gather_subset leaves hardware out, so Ansible gathers none of them and facts.gather refuses the filter; gather hardware or filter a min fact", strings.Join(ex.keys, ", "))
+		return adj
 	}
 	keys := make([]any, len(ex.keys))
 	for i, key := range ex.keys {
 		keys[i] = key
 	}
 	params["filter"] = keys
-	// The filter's own review (setupFilterNote) says the rest; a wildcard
-	// is the one thing it cannot say ahead of the patterns.
+	adj.Notes = append(adj.Notes, fmt.Sprintf(setupFilterNote, strings.Join(ex.keys, ", ")))
 	if len(ex.wildcards) > 0 {
 		adj.Notes = append(adj.Notes, fmt.Sprintf("setup's filter pattern %s may also match Ansible facts this platform does not gather, which are not gathered; it keeps %s", strings.Join(quoteAll(ex.wildcards), ", "), strings.Join(ex.keys, ", ")))
 	}
@@ -96,7 +107,12 @@ func setupAdjust(params map[string]any) Adjustment {
 // Go's path.Match), or one matching no mapped name.
 func expandSetupFilter(v any) (filterExpansion, string) {
 	list, ok := v.([]any)
-	if !ok {
+	switch {
+	case !ok && isTemplateText(v):
+		// A template only the run resolves (a native loop's item) reaches
+		// here whole, as the native template text.
+		return filterExpansion{}, filterAtRunTime
+	case !ok:
 		return filterExpansion{}, "setup's filter is not a pattern or a list of patterns"
 	}
 	all := ansiblefacts.AnsibleNames()
@@ -108,7 +124,7 @@ func expandSetupFilter(v any) (filterExpansion, string) {
 		case !ok:
 			return filterExpansion{}, fmt.Sprintf("setup's filter holds %s where it takes a pattern", kindOf(item))
 		case hasTemplate(pattern):
-			return filterExpansion{}, "setup's filter is computed at run time, so it cannot be written as the native keys it matches; write the native keys as facts.gather's filter"
+			return filterExpansion{}, filterAtRunTime
 		case strings.ContainsAny(pattern, `[]\`):
 			return filterExpansion{}, fmt.Sprintf("setup's filter pattern %s holds a character class or an escape, which Python's fnmatch and this converter read differently; write the native keys as facts.gather's filter", strconv.Quote(pattern))
 		}
@@ -134,6 +150,15 @@ func expandSetupFilter(v any) (filterExpansion, string) {
 	slices.Sort(ex.keys)
 	ex.keys = slices.Compact(ex.keys)
 	return ex, ""
+}
+
+// filterAtRunTime is the refusal of a filter only the run resolves.
+const filterAtRunTime = "setup's filter is computed at run time, so it cannot be written as the native keys it matches; write the native keys as facts.gather's filter"
+
+// isTemplateText reports whether v is text holding a template.
+func isTemplateText(v any) bool {
+	s, ok := v.(string)
+	return ok && hasTemplate(s)
 }
 
 // matchFactNames is the names in all that pattern keeps as Ansible's filter

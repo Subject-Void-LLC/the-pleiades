@@ -413,7 +413,7 @@ Also written as `setup`, `ansible.builtin.gather_facts`, `gather_facts`.
 
 | Argument | Becomes |
 |---|---|
-| `filter` | `filter` (review: its patterns are matched against the Ansible facts the migration guide's fact table maps, and the task gets the native keys they match (no filter when they match every one); a Windows host's setup ignores filter and gathers every fact, where this task gathers only those keys) |
+| `filter` | `filter`, rewritten: its patterns are matched against the Ansible facts the migration guide's fact table maps, and the task gets the native keys they match, or no filter when they match every one; a Windows host's setup ignores filter and gathers every fact, which the review of a written list says |
 | `gather_subset` | `gather_subset` |
 
 The converter also writes the parameters whose native default differs from Ansible's, so the task does what the playbook did.

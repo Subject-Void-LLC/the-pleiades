@@ -137,6 +137,9 @@ func argText(a playbook.Arg) string {
 		return fmt.Sprintf("blocked (`%s`): %s", a.Code, cell(a.Reason))
 	}
 	text := "`" + a.To + "`"
+	if a.Rewrite != "" {
+		text += ", rewritten: " + cell(a.Rewrite)
+	}
 	if a.Note != "" {
 		text += " (review: " + cell(a.Note) + ")"
 	}
