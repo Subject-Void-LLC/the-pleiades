@@ -71,8 +71,10 @@ func methodNotAllowedHandler(builder *linkBuilder) http.HandlerFunc {
 
 		// chi does not populate a RoutePattern for a 405, since no route
 		// matched, so recover the pattern by asking the route table which
-		// of its patterns this path corresponds to.
-		pattern := matchPattern(builder, r.URL.Path)
+		// of its patterns this path corresponds to. The path is the one chi
+		// matched on, so a name holding %2F is one segment here as it was
+		// there.
+		pattern := matchPattern(builder, routedPath(r))
 		if pattern == "" {
 			RespondError(w, r, http.StatusMethodNotAllowed, "method not allowed")
 			return

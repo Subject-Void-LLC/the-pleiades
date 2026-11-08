@@ -250,6 +250,16 @@ func routedValue(r *http.Request, value string) (string, error) {
 	return url.PathUnescape(value)
 }
 
+// routedPath is the path chi matches a request against: r.URL.RawPath when
+// the request has one, else r.URL.Path (chi's Mux.routeHTTP). Split on /,
+// it has the segments chi saw, so a name holding %2F stays one segment.
+func routedPath(r *http.Request) string {
+	if r.URL.RawPath != "" {
+		return r.URL.RawPath
+	}
+	return r.URL.Path
+}
+
 // sortMethods orders an Allow set alphabetically so one caller's header is
 // byte-identical across requests. It is an insertion sort because the set
 // is at most a handful of verbs.

@@ -140,7 +140,13 @@ func TestHrefFor_EscapesARoutedNameOnce(t *testing.T) {
 	})
 	srv := httptest.NewServer(router)
 	defer srv.Close()
-	for _, name := range []string{"sw/1", "a b", "a?b", "a#b", "a;b", "a b/c", "%2E%2E", "%2F", "50%"} {
+	// The last three hold a literal %. With a slash beside it (a/%b,
+	// a/%2Fb) they pass only while chi records the value escaped: a chi
+	// that decoded it would hand over a/%b, which does not decode again, and
+	// a/%2Fb, which decodes to a/b, so a release of chi that changed this
+	// fails here rather than in a link. a%2Fb alone has no RawPath, so chi
+	// routes it decoded and it must not be decoded twice.
+	for _, name := range []string{"sw/1", "a b", "a?b", "a#b", "a;b", "a b/c", "%2E%2E", "%2F", "50%", "a%2Fb", "a/%b", "a/%2Fb"} {
 		want := "/devices/" + url.PathEscape(name)
 		resp, err := srv.Client().Get(srv.URL + want)
 		if err != nil {
