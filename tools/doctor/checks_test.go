@@ -41,9 +41,20 @@ func (m fakeMachine) install(t *testing.T) {
 	getenv = func(key string) string { return m.env[key] }
 }
 
-// modinfo is what `go version -m` prints for a tool built at version.
+// modinfo is what `go version -m` prints for a tool built at version by
+// go.mod's toolchain.
 func modinfo(tool, version string) string {
-	return "/fake/bin/" + tool + ": go1.26.8\n\tpath\texample.com/" + tool + "\n\tmod\texample.com/" + tool + "\t" + version + "\th1:x=\n"
+	raw, err := os.ReadFile("go.mod")
+	if err != nil {
+		panic(err)
+	}
+	return modinfoBuiltBy(tool, version, requiredToolchain(string(raw)))
+}
+
+// modinfoBuiltBy is what `go version -m` prints for a tool built at version
+// by release.
+func modinfoBuiltBy(tool, version, release string) string {
+	return "/fake/bin/" + tool + ": " + release + "\n\tpath\texample.com/" + tool + "\n\tmod\texample.com/" + tool + "\t" + version + "\th1:x=\n"
 }
 
 // allChecks runs every check, as main does.
@@ -206,5 +217,41 @@ func TestCheckPortRange(t *testing.T) {
 	fakeMachine{}.install(t)
 	if got := checkPortRange(); got != nil {
 		t.Errorf("an unreachable daemon: %+v, want nothing (checkDocker says it)", got)
+	}
+}
+
+// TestCheckTools_AToolAnotherGoBuiltIsAFix proves a scanner at its pin is not
+// enough either: one an older Go built cannot read this toolchain's export
+// data, so it is a fix naming both releases, and a GOEXPERIMENT build's
+// suffix is not mistaken for another release.
+func TestCheckTools_AToolAnotherGoBuiltIsAFix(t *testing.T) {
+	atRepoRoot(t)
+	p := pins(t)
+	raw, err := os.ReadFile("go.mod")
+	if err != nil {
+		t.Fatal(err)
+	}
+	toolchain := requiredToolchain(string(raw))
+	withExperiment := strings.Replace(modinfoBuiltBy("actionlint", p["actionlint"], toolchain), toolchain, toolchain+" X:nojsonv2", 1)
+	fakeMachine{
+		commands: map[string]string{
+			"go version -m /fake/bin/gosec":       modinfoBuiltBy("gosec", p["gosec"], "go1.26.6"),
+			"go version -m /fake/bin/govulncheck": modinfo("govulncheck", p["govulncheck"]),
+			"go version -m /fake/bin/actionlint":  withExperiment,
+		},
+		tools: map[string]bool{"gosec": true, "govulncheck": true, "actionlint": true},
+	}.install(t)
+
+	byTool := map[string]line{}
+	for _, l := range checkTools() {
+		byTool[l.what] = l
+	}
+	if l := byTool["gosec"]; l.status != "fix" || !strings.Contains(l.detail, "built with go1.26.6") || !strings.Contains(l.detail, toolchain) {
+		t.Errorf("gosec an older Go built = %+v, want a fix naming both releases", l)
+	}
+	for _, tool := range []string{"govulncheck", "actionlint"} {
+		if l := byTool[tool]; l.status != "ok" {
+			t.Errorf("%s built by go.mod's toolchain = %+v, want ok", tool, l)
+		}
 	}
 }

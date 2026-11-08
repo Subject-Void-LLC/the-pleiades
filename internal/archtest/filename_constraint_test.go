@@ -12,7 +12,7 @@ import (
 
 // filenameGOOS and filenameGOARCH are the suffixes Go reads from a file
 // name as a build constraint: `_linux.go` compiles only on Linux,
-// `_arm64_test.go` only on arm64. go/build's own lists, as of Go 1.26.
+// `_arm64_test.go` only on arm64. go/build's own lists, as of Go 1.27 (unchanged from 1.26).
 var (
 	filenameGOOS = []string{"aix", "android", "darwin", "dragonfly", "freebsd", "hurd", "illumos", "ios", "js",
 		"linux", "nacl", "netbsd", "openbsd", "plan9", "solaris", "wasip1", "windows", "zos"}

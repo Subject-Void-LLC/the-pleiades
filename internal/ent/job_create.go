@@ -4,7 +4,7 @@ package ent
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"errors"
 	"fmt"
 	"time"
@@ -325,7 +325,7 @@ func (_c *JobCreate) SetNillableRollbackOf(v *string) *JobCreate {
 }
 
 // SetRollback sets the "rollback" field.
-func (_c *JobCreate) SetRollback(v json.RawMessage) *JobCreate {
+func (_c *JobCreate) SetRollback(v jsontext.Value) *JobCreate {
 	_c.mutation.SetRollback(v)
 	return _c
 }

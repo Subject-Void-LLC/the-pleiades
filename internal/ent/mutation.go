@@ -4,7 +4,7 @@ package ent
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"errors"
 	"fmt"
 	"sync"
@@ -12873,8 +12873,8 @@ type JobMutation struct {
 	appendcredential_ids []int
 	external_checks      *bool
 	rollback_of          *string
-	rollback             *json.RawMessage
-	appendrollback       json.RawMessage
+	rollback             *jsontext.Value
+	appendrollback       jsontext.Value
 	clearedFields        map[string]struct{}
 	tasks                map[int]struct{}
 	removedtasks         map[int]struct{}
@@ -14232,13 +14232,13 @@ func (m *JobMutation) ResetRollbackOf() {
 }
 
 // SetRollback sets the "rollback" field.
-func (m *JobMutation) SetRollback(jm json.RawMessage) {
-	m.rollback = &jm
+func (m *JobMutation) SetRollback(j jsontext.Value) {
+	m.rollback = &j
 	m.appendrollback = nil
 }
 
 // Rollback returns the value of the "rollback" field in the mutation.
-func (m *JobMutation) Rollback() (r json.RawMessage, exists bool) {
+func (m *JobMutation) Rollback() (r jsontext.Value, exists bool) {
 	v := m.rollback
 	if v == nil {
 		return
@@ -14249,7 +14249,7 @@ func (m *JobMutation) Rollback() (r json.RawMessage, exists bool) {
 // OldRollback returns the old "rollback" field's value of the Job entity.
 // If the Job object wasn't provided to the builder, the object is fetched from the database.
 // An error is returned if the mutation operation is not UpdateOne, or the database query fails.
-func (m *JobMutation) OldRollback(ctx context.Context) (v json.RawMessage, err error) {
+func (m *JobMutation) OldRollback(ctx context.Context) (v jsontext.Value, err error) {
 	if !m.op.Is(OpUpdateOne) {
 		return v, errors.New("OldRollback is only allowed on UpdateOne operations")
 	}
@@ -14263,13 +14263,13 @@ func (m *JobMutation) OldRollback(ctx context.Context) (v json.RawMessage, err e
 	return oldValue.Rollback, nil
 }
 
-// AppendRollback adds jm to the "rollback" field.
-func (m *JobMutation) AppendRollback(jm json.RawMessage) {
-	m.appendrollback = append(m.appendrollback, jm...)
+// AppendRollback adds j to the "rollback" field.
+func (m *JobMutation) AppendRollback(j jsontext.Value) {
+	m.appendrollback = append(m.appendrollback, j...)
 }
 
 // AppendedRollback returns the list of values that were appended to the "rollback" field in this mutation.
-func (m *JobMutation) AppendedRollback() (json.RawMessage, bool) {
+func (m *JobMutation) AppendedRollback() (jsontext.Value, bool) {
 	if len(m.appendrollback) == 0 {
 		return nil, false
 	}
@@ -14769,7 +14769,7 @@ func (m *JobMutation) SetField(name string, value ent.Value) error {
 		m.SetRollbackOf(v)
 		return nil
 	case job.FieldRollback:
-		v, ok := value.(json.RawMessage)
+		v, ok := value.(jsontext.Value)
 		if !ok {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
@@ -16486,8 +16486,8 @@ type JournalEntryMutation struct {
 	undeclared_inverse_param_count    *int
 	addundeclared_inverse_param_count *int
 	diff_recorded                     *bool
-	inverse_params                    *json.RawMessage
-	appendinverse_params              json.RawMessage
+	inverse_params                    *jsontext.Value
+	appendinverse_params              jsontext.Value
 	inverse_complete                  *bool
 	inverse_partial                   *bool
 	action_changed                    *bool
@@ -18161,13 +18161,13 @@ func (m *JournalEntryMutation) ResetDiffRecorded() {
 }
 
 // SetInverseParams sets the "inverse_params" field.
-func (m *JournalEntryMutation) SetInverseParams(jm json.RawMessage) {
-	m.inverse_params = &jm
+func (m *JournalEntryMutation) SetInverseParams(j jsontext.Value) {
+	m.inverse_params = &j
 	m.appendinverse_params = nil
 }
 
 // InverseParams returns the value of the "inverse_params" field in the mutation.
-func (m *JournalEntryMutation) InverseParams() (r json.RawMessage, exists bool) {
+func (m *JournalEntryMutation) InverseParams() (r jsontext.Value, exists bool) {
 	v := m.inverse_params
 	if v == nil {
 		return
@@ -18178,7 +18178,7 @@ func (m *JournalEntryMutation) InverseParams() (r json.RawMessage, exists bool) 
 // OldInverseParams returns the old "inverse_params" field's value of the JournalEntry entity.
 // If the JournalEntry object wasn't provided to the builder, the object is fetched from the database.
 // An error is returned if the mutation operation is not UpdateOne, or the database query fails.
-func (m *JournalEntryMutation) OldInverseParams(ctx context.Context) (v json.RawMessage, err error) {
+func (m *JournalEntryMutation) OldInverseParams(ctx context.Context) (v jsontext.Value, err error) {
 	if !m.op.Is(OpUpdateOne) {
 		return v, errors.New("OldInverseParams is only allowed on UpdateOne operations")
 	}
@@ -18192,13 +18192,13 @@ func (m *JournalEntryMutation) OldInverseParams(ctx context.Context) (v json.Raw
 	return oldValue.InverseParams, nil
 }
 
-// AppendInverseParams adds jm to the "inverse_params" field.
-func (m *JournalEntryMutation) AppendInverseParams(jm json.RawMessage) {
-	m.appendinverse_params = append(m.appendinverse_params, jm...)
+// AppendInverseParams adds j to the "inverse_params" field.
+func (m *JournalEntryMutation) AppendInverseParams(j jsontext.Value) {
+	m.appendinverse_params = append(m.appendinverse_params, j...)
 }
 
 // AppendedInverseParams returns the list of values that were appended to the "inverse_params" field in this mutation.
-func (m *JournalEntryMutation) AppendedInverseParams() (json.RawMessage, bool) {
+func (m *JournalEntryMutation) AppendedInverseParams() (jsontext.Value, bool) {
 	if len(m.appendinverse_params) == 0 {
 		return nil, false
 	}
@@ -19637,7 +19637,7 @@ func (m *JournalEntryMutation) SetField(name string, value ent.Value) error {
 		m.SetDiffRecorded(v)
 		return nil
 	case journalentry.FieldInverseParams:
-		v, ok := value.(json.RawMessage)
+		v, ok := value.(jsontext.Value)
 		if !ok {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}

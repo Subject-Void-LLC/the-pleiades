@@ -504,10 +504,11 @@ pleiades run runbooks/check-freebsd-01-create.yaml   # clone with git and sudo, 
 pleiades trust-host bsd-check --from-console vengeance
 pleiades onboard bsd-check
 
-curl -fsSLo dist/go1.26.9.freebsd-amd64.tar.gz https://go.dev/dl/go1.26.9.freebsd-amd64.tar.gz
-sha256sum dist/go1.26.9.freebsd-amd64.tar.gz   # 9a2928c12bba7357fd8f24143fb0f400882d3081406bf0ef87b3857635b02fea
+curl -fsSLo dist/go1.27.3.freebsd-amd64.tar.gz https://go.dev/dl/go1.27.3.freebsd-amd64.tar.gz
+sha256sum dist/go1.27.3.freebsd-amd64.tar.gz   # c15c88d07d6b2d2db5df7b65d9b9c73d631ac4e787da04e2bef2a5b6952c2cbb
 pleiades adhoc bsd-check file.directory path=/home/pleiades/sdk mode=0755
-pleiades adhoc bsd-check file.copy src=dist/go1.26.9.freebsd-amd64.tar.gz dest=/home/pleiades/sdk/go.tar.gz mode=0600
+pleiades adhoc bsd-check file.remove path=/home/pleiades/sdk/go recurse:=true   # an older Go: never unpack over one
+pleiades adhoc bsd-check file.copy src=dist/go1.27.3.freebsd-amd64.tar.gz dest=/home/pleiades/sdk/go.tar.gz mode=0600
 pleiades adhoc bsd-check archive.extract src=/home/pleiades/sdk/go.tar.gz dest=/home/pleiades/sdk remove:=true
 ```
 

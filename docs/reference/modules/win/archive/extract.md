@@ -57,7 +57,7 @@ Unpack Go, once:
 ```yaml
 - name: Unpack Go into C:\go
   win.archive.extract:
-    src: C:\Windows\Temp\go1.26.9.windows-amd64.zip
+    src: C:\Windows\Temp\go1.27.3.windows-amd64.zip
     dest: C:\
     creates: C:\go\bin\go.exe
 ```

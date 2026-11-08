@@ -137,10 +137,11 @@ func decodeReference(raw string) (reference, error) {
 // checkSegments refuses anything that would let a mount or a path address
 // something other than the secret it names.
 //
-// The mount and the path become URL path segments. url.URL.JoinPath escapes
-// each segment, so a slash inside one cannot introduce a new one, but it
-// also CLEANS the result, which means a ".." segment would resolve upward
-// into a different Vault API endpoint rather than failing. Refusing dot
+// The mount and the path become URL path segments. endpointFor escapes each
+// one before url.URL.JoinPath, which takes its elements as already escaped,
+// so an encoded slash or dot inside one stays literal; JoinPath also CLEANS
+// the result, which means a ".." segment would resolve upward into a
+// different Vault API endpoint rather than failing. Refusing dot
 // segments outright means there is nothing left for cleaning to resolve,
 // which is the same argument internal/credtype/lookup/file makes for
 // refusing every separator rather than cleaning and then checking.

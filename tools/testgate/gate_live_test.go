@@ -56,11 +56,12 @@ func throwawayModule(t *testing.T, broken bool) {
 }
 
 // racePlatforms are the GOOS/GOARCH pairs Go's race detector is built for
-// (Go 1.26). windows/arm64 is not one: the Windows ARM VM has a C compiler,
-// so cgo is on there, and go test -race still refuses ("-race is not
-// supported on windows/arm64").
+// (Go 1.27's internal/platform.RaceDetectorSupported, which added
+// linux/riscv64). windows/arm64 is not one: the Windows ARM VM has a C
+// compiler, so cgo is on there, and go test -race still refuses ("-race is
+// not supported on windows/arm64").
 var racePlatforms = map[string]bool{
-	"linux/amd64": true, "linux/arm64": true, "linux/ppc64le": true, "linux/s390x": true, "linux/loong64": true,
+	"linux/amd64": true, "linux/arm64": true, "linux/ppc64le": true, "linux/s390x": true, "linux/loong64": true, "linux/riscv64": true,
 	"freebsd/amd64": true, "netbsd/amd64": true, "darwin/amd64": true, "darwin/arm64": true, "windows/amd64": true,
 }
 

@@ -52,7 +52,8 @@ func pinnedTools(makefile string) map[string]string {
 }
 
 // moduleVersion reads the module version out of `go version -m`, the
-// line that starts "mod", which is what `make tools` compares too.
+// line that starts "mod", which is what `make tools` compares too, beside
+// the build release (buildRelease).
 func moduleVersion(modinfo string) string {
 	for _, raw := range strings.Split(modinfo, "\n") {
 		fields := strings.Fields(raw)
@@ -61,6 +62,24 @@ func moduleVersion(modinfo string) string {
 		}
 	}
 	return ""
+}
+
+// buildRelease reads the Go release that built a binary out of `go version
+// -m`'s first line ("<path>: go1.27.3", a GOEXPERIMENT build adding a word),
+// the release `make tools` compares too.
+func buildRelease(modinfo string) string {
+	first, _, _ := strings.Cut(modinfo, "\n")
+	// After the last ": ", so a path holding a space (a Windows profile) or
+	// a colon is never read as the release.
+	i := strings.LastIndex(first, ": ")
+	if i < 0 {
+		return ""
+	}
+	words := strings.Fields(first[i+2:])
+	if len(words) == 0 {
+		return ""
+	}
+	return words[0]
 }
 
 // portRange reads /proc/sys/net/ipv4/ip_local_port_range: two numbers, the

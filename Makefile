@@ -1,11 +1,36 @@
 .PHONY: resources-record up up-plan setup setup-env-check down backup restore decom build devtools vet fmt fmt-fix tidy-check test test-race test-no-docker test-repeat test-integration gosec govulncheck arch coverage docs-lint docs-gen-check schema-compat helm-lint templ-gen templ-gen-check tools hooks lsp commitgate sweep sweep-dry sweep-timer sweep-timer-off dev-cert ui-dev ui-stop break-glass image-tools image-scan ci ci-remote push-gate test-full push-gate-full coverage-measured ci-fast ci-containers pr-check pr-check-vet mac-check bsd-check win-check ci-images ci-branch-plan branch-containers workflow-lint doctor test-clean-room release release-notes release-dry-run
 
+# Every go command a recipe runs, and every one the programs it starts run
+# (tools/testgate, the scanners' builds), uses the release go.mod's
+# toolchain line names: the one CI installs (.github/actions/setup-go).
+# A $(shell ...) at parse time does not see an exported variable before GNU
+# make 4.4 (Ubuntu 24.04 ships 4.3, macOS 3.81), so a parse-time value that
+# depends on the release reads GO_TOOLCHAIN instead of asking go.
+# GOTOOLCHAIN=auto never switches DOWN, so a machine whose own Go was newer
+# built, tested and scanned with another Go than CI did, and a scanner one
+# release built could not read the other's export data: gosec skipped 1,345
+# packages and read the findings it lost as stale waivers (2026-11-08). The
+# release is fetched into the module cache on first use. A single run that
+# wants another passes GOTOOLCHAIN=... on the make command line, which wins
+# over this assignment. A carriage return is dropped as the CI action drops
+# it (a checkout with core.autocrlf), and with no toolchain line go.mod's go
+# line governs, through auto. The parse-time go env below runs the machine's
+# own Go (make before 4.4 exports nothing to it), whose GOBIN and GOPATH are
+# the release's; the first recipe that runs go is the first to fetch the
+# release, and on a machine without it or a network, that recipe fails.
+GO_TOOLCHAIN := $(shell sed -n 's/^toolchain //p' go.mod | tr -d '\r')
+export GOTOOLCHAIN := $(or $(GO_TOOLCHAIN),auto)
+
 # GOBIN's tools (gopls, golangci-lint, gosec, govulncheck) live under
 # $(go env GOPATH)/bin, which is not guaranteed to be on PATH for every
 # invoking shell (AGENTS.md's own IDE & LSP Tooling section documents
 # this exact gap). Prepending it here means `make ci` works the same way
 # regardless of whether the invoking shell's profile was set up for it.
-export PATH := $(shell go env GOPATH)/bin:$(PATH)
+#
+# go install writes to GOBIN when it is set, so that directory, not
+# GOPATH/bin, is the one that must come first: otherwise ensure-tool would
+# install a fresh build where PATH never finds it and run a stale one.
+export PATH := $(or $(shell go env GOBIN),$(shell go env GOPATH)/bin):$(PATH)
 
 # Pinned versions of the two external scanners `make ci` shells out to,
 # and the single place either version is written down: the CI workflow
@@ -40,7 +65,9 @@ MODULE_PATH := $(shell awk '/^module /{print $$2}' go.mod)
 # working one pays.
 LSP_HANDSHAKE_SECONDS ?= 45
 
-GOSEC_VERSION       ?= v2.28.0
+# v2.30.0 is the first that reads Go 1.27's export data: v2.28.0, even
+# rebuilt with go1.27, skips every package importing a module (2026-11-08).
+GOSEC_VERSION       ?= v2.30.0
 GOVULNCHECK_VERSION ?= v1.6.0
 
 # actionlint checks .github/workflows before they are pushed, because a
@@ -66,10 +93,20 @@ TRIVY_VERSION       ?= v0.58.2
 # release-time ldflags that `go install` does not apply, so a
 # `go install`ed gosec reports "dev" regardless of which tag it was
 # actually built from, and would reinstall itself on every single run.
+#
+# The Go release that built the tool must also be this toolchain's: a
+# scanner built by an older Go cannot decode the export data a newer go
+# list writes, and gosec then skips those packages rather than failing
+# (2026-11-08). `go version <binary>` prints "<path>: <release>", a
+# GOEXPERIMENT build adding a word (X:nojsonv2): the release is the first word
+# after the last ": ", so a path holding a space (a Windows profile) or a
+# colon is read whole.
 define ensure-tool
 	have="$$(go version -m "$$(command -v $(1) 2>/dev/null)" 2>/dev/null | awk '$$1=="mod"{print $$3; exit}')"; \
-	if [ "$$have" != "$(3)" ]; then \
-		echo "tools: installing $(1) $(3) (found: $${have:-none})"; \
+	built="$$(go version "$$(command -v $(1) 2>/dev/null)" 2>/dev/null | awk -F': ' '{split($$NF, w, " "); print w[1]}')"; \
+	want="$$(go env GOVERSION)"; \
+	if [ "$$have" != "$(3)" ] || [ "$$built" != "$$want" ]; then \
+		echo "tools: installing $(1) $(3) with $$want (found: $${have:-none}, built with $${built:-none})"; \
 		go install $(2)@$(3); \
 	fi
 endef
@@ -1185,7 +1222,7 @@ doctor:
 # COMMITTED tree, so commit first; uncommitted changes are not in it.
 # The module cache lives in a named volume so a second run does not
 # download every module again.
-CLEAN_ROOM_IMAGE ?= golang:$(patsubst go%,%,$(shell go env GOVERSION))
+CLEAN_ROOM_IMAGE ?= golang:$(patsubst go%,%,$(or $(GO_TOOLCHAIN),$(shell go env GOVERSION)))
 test-clean-room:
 	@$(SPLIT_PACKAGES); \
 	docker volume create pleiades-clean-room-cache >/dev/null; \

@@ -234,15 +234,20 @@ func (l *Lookup) Resolve(ctx context.Context, reference string) (string, error) 
 // single behavioural difference between the two engine versions here and
 // the reason api_version is an input rather than something to sniff.
 func (l *Lookup) endpointFor(ref reference) (*url.URL, error) {
-	segments := []string{"v1", ref.Mount}
+	segments := []string{"v1", url.PathEscape(ref.Mount)}
 	if l.kvVersion == "v2" {
 		segments = append(segments, "data")
 	}
-	segments = append(segments, strings.Split(ref.Path, "/")...)
+	for _, element := range strings.Split(ref.Path, "/") {
+		segments = append(segments, url.PathEscape(element))
+	}
 
-	// JoinPath escapes each segment, so a path element can never introduce
-	// a new one. checkSegments has already refused dot segments outright,
-	// so there is nothing here for JoinPath's own cleaning to resolve.
+	// JoinPath takes each element as already escaped: %2E%2E would reach
+	// Vault as a ".." its own cleaning never saw, and %2F as a separator.
+	// Escaping every element first means each is sent as the characters it
+	// holds, one segment, so a reference cannot address anything outside
+	// the secret it names. checkSegments has also refused dot segments
+	// outright, so there is nothing for JoinPath's cleaning to resolve.
 	endpoint := l.base.JoinPath(segments...)
 
 	if ref.Version > 0 {

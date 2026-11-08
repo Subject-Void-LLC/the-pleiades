@@ -4,6 +4,7 @@ package ent
 
 import (
 	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"strings"
 	"time"
@@ -83,7 +84,7 @@ type JournalEntry struct {
 	// DiffRecorded holds the value of the "diff_recorded" field.
 	DiffRecorded bool `json:"diff_recorded,omitempty"`
 	// InverseParams holds the value of the "inverse_params" field.
-	InverseParams json.RawMessage `json:"inverse_params,omitempty"`
+	InverseParams jsontext.Value `json:"inverse_params,omitempty"`
 	// InverseComplete holds the value of the "inverse_complete" field.
 	InverseComplete bool `json:"inverse_complete,omitempty"`
 	// InversePartial holds the value of the "inverse_partial" field.

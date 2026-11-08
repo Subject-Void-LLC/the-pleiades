@@ -161,7 +161,12 @@ func confineAndStart(cmd *exec.Cmd, rules []confineRule, abi int, errc chan<- er
 // is locked and will never be unlocked (startConfined).
 func restrictThreadAndStart(cmd *exec.Cmd, rules []confineRule, abi int) error {
 	handled := handledRights(abi)
-	attr := unix.LandlockRulesetAttr{Access_fs: handled, Scoped: scopes(abi)}
+	// x/sys v0.49 names the fields as the kernel's header does
+	// (handled_access_fs) and adds the quiet ones, left zero: the kernel
+	// copies the struct with copy_struct_from_user, which takes a larger
+	// one than it knows when the extra bytes are zero, so an older kernel
+	// reads the same ruleset as before.
+	attr := unix.LandlockRulesetAttr{Handled_access_fs: handled, Scoped: scopes(abi)}
 	// #nosec G103 -- the Landlock system calls take a pointer to a kernel
 	// structure; attr is a local that outlives the call, and x/sys defines
 	// its layout from the kernel's own header.

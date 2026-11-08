@@ -192,6 +192,24 @@
       "line": "21",
       "rule_id": "G101",
       "reason": "Phase 129a. This is addSecretUsage, the usage line of the add-secret command, a constant string that spells the flags --value-stdin and --value-file. G101 is a heuristic over identifier and literal text, and it matches the word secret near the identifier; the literal holds no credential, only the names of flags through which a person supplies one. The value is read from standard input, a sealed file or generated: the command defines no flag that carries it (the flags are declared beside this constant in secret.go), so none can put it on a command line. TestCLI_SecretReferencesReachTheDeviceOnly guards a different claim, that a stored secret's value reaches the device and never appears in a run report or the project."
+    },
+    {
+      "file": "internal/tlscert/write.go",
+      "line": "99",
+      "rule_id": "G302",
+      "reason": "gosec v2.30.0 (the Go 1.27 bump, 2026-11-08) reports os.Chmod with a mode above 0600. The target is a DIRECTORY, prepareDir's certificate directory, and dirMode is 0700: owner read, write and search, nothing for group or other. A directory needs its search (execute) bit to be entered, so 0600 would lock its own owner out of the certificate files this package writes into it. The chmod runs only on a directory this call created, to undo a umask that stripped owner bits (the comment above it), never on one that was already there. 0700 is the narrowest mode that works."
+    },
+    {
+      "file": "internal/credtype/lookup/hashivault/hashivault.go",
+      "line": "251",
+      "rule_id": "G125",
+      "reason": "gosec v2.30.0 (the Go 1.27 bump, 2026-11-08) flags url.URL.JoinPath over elements it cannot see escaped. It found a real defect first: JoinPath takes each element as already escaped, so a reference path or mount holding %2E%2E or %2F reached Vault as a '..' or a separator, outside the secret's path, with the source's token. endpointFor now escapes every element with url.PathEscape before joining (the mount and each path element), so each is sent as the characters it holds, one segment; checkSegments also refuses literal dot segments and a slash in the mount. TestAnEncodedSegmentStaysOneLiteralSegment holds encoded dots, encoded slashes in the path and the mount, and a literal percent to reaching Vault literally, and fails on the code before the fix. gosec's taint analysis does not credit url.PathEscape, so the finding stays reported on the escaped call."
+    }
+  ],
+  "skips": [
+    {
+      "file": "tools/internal/flakegate/testdata/containerscan/local/local.go",
+      "reason": "A deliberately unbuildable fixture: flakegate's container scanner test reads this package's imports (example.com/scan/helper, which exists nowhere) to prove the scanner follows a test's calls without building them. It is testdata, never linked into any binary, and type-checking it is not possible by design, so gosec has nothing to scan in it."
     }
   ]
 }

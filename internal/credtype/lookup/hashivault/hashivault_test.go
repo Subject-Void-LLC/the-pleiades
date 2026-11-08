@@ -32,6 +32,7 @@ type vaultStub struct {
 
 	// lastPath, lastQuery and lastHeaders are the most recent request.
 	lastPath    string
+	lastRawURI  string
 	lastQuery   string
 	lastToken   string
 	lastNS      string
@@ -46,6 +47,7 @@ func newVaultStub(t *testing.T, body string) *vaultStub {
 	s := &vaultStub{status: http.StatusOK, body: body}
 	s.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s.lastPath = r.URL.Path
+		s.lastRawURI = r.RequestURI
 		s.lastQuery = r.URL.RawQuery
 		s.lastToken = r.Header.Get("X-Vault-Token")
 		s.lastNS = r.Header.Get("X-Vault-Namespace")
@@ -538,4 +540,38 @@ func certificatePEM(t *testing.T, server *httptest.Server) string {
 		t.Fatal("the TLS test server has no certificate")
 	}
 	return string(pemEncode(t, cert.Raw))
+}
+
+// TestAnEncodedSegmentStaysOneLiteralSegment: url.URL.JoinPath takes each
+// element as already escaped, so a reference whose path or mount holds
+// %2E%2E or %2F would otherwise reach Vault as a ".." or a separator, and a
+// server that resolves dot segments would read outside the secret's path
+// (another API endpoint, with the source's token). Each element is escaped
+// first, so Vault receives its characters literally, as one segment.
+func TestAnEncodedSegmentStaysOneLiteralSegment(t *testing.T) {
+	for _, tc := range []struct {
+		// want is the path Vault decodes; wire the bytes the request sends.
+		name, mount, path, want, wire string
+	}{
+		{"encoded dots in the path", "kv", "%2E%2E/%2E%2E/sys/health", "/v1/kv/data/%2E%2E/%2E%2E/sys/health", "/v1/kv/data/%252E%252E/%252E%252E/sys/health"},
+		{"an encoded slash in the path", "kv", "prod%2Fapi", "/v1/kv/data/prod%2Fapi", "/v1/kv/data/prod%252Fapi"},
+		{"an encoded slash in the mount", "kv%2Fother", "prod/api", "/v1/kv%2Fother/data/prod/api", "/v1/kv%252Fother/data/prod/api"},
+		{"a literal percent", "kv", "100%", "/v1/kv/data/100%", "/v1/kv/data/100%25"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			stub := newVaultStub(t, kv2(map[string]any{"token": "v"}))
+			lookup := sourceFor(t, stub, nil)
+			if _, err := lookup.Resolve(context.Background(), refFor(t, map[string]string{
+				"secret_backend": tc.mount, "secret_path": tc.path, "secret_key": "token",
+			})); err != nil {
+				t.Fatalf("Resolve() error = %v", err)
+			}
+			if stub.lastPath != tc.want {
+				t.Errorf("Vault received the path %q, want %q: each element exactly as written, one segment each", stub.lastPath, tc.want)
+			}
+			if stub.lastRawURI != tc.wire {
+				t.Errorf("the request sent %q, want %q, each element escaped", stub.lastRawURI, tc.wire)
+			}
+		})
+	}
 }

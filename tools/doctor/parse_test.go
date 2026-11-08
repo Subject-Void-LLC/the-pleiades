@@ -60,3 +60,20 @@ func TestModuleVersion(t *testing.T) {
 		t.Errorf("moduleVersion of junk = %q", got)
 	}
 }
+
+// TestBuildRelease_ReadsTheReleaseWhateverThePath: the release is the first
+// word after the last ": ", so a path holding a space or a colon, and a
+// GOEXPERIMENT build's extra word, are read right.
+func TestBuildRelease_ReadsTheReleaseWhateverThePath(t *testing.T) {
+	for in, want := range map[string]string{
+		"/home/x/go/bin/gosec: go1.27.3\n\tpath\tx":                      "go1.27.3",
+		`C:\Users\Jane Doe\go\bin\gosec.exe: go1.27.3 X:nojsonv2` + "\n": "go1.27.3",
+		"/a b/c: d/gosec: go1.26.6":                                      "go1.26.6",
+		"not a Go binary":                                                "",
+		"":                                                               "",
+	} {
+		if got := buildRelease(in); got != want {
+			t.Errorf("buildRelease(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
