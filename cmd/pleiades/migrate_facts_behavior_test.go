@@ -3,19 +3,26 @@
 // through the real binary, and the runbook decides per host as Ansible does:
 // a Debian device runs the task gated on ansible_os_family == "Debian" and
 // skips the one gated on "Alpine", and an Alpine device in the same run does
-// the opposite; and a condition on a fact Alpine does not give (its codename)
-// runs there as Ansible's comparison with its NA placeholder would.
+// the opposite; a condition on a fact Alpine does not give (its codename)
+// runs there as Ansible's comparison with its NA placeholder would; a
+// condition on ansible_distribution_major_version | int orders Jinja's
+// integer on each host; and a setup task's filter, written as the native
+// keys its patterns match and split by device (an unfiltered twin for a
+// WindowsShellCapable device), gathers on both.
 package main_test
 
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
 
-	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
+	"go.yaml.in/yaml/v3"
 	"golang.org/x/crypto/ssh/knownhosts"
+
+	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
 )
 
 // factsPlaybook gathers facts (gather_facts left at its default, on) and
@@ -37,6 +44,19 @@ const factsPlaybook = `- hosts: web
         dest: /tmp/pleiades-release-marker
         content: "ran\n"
       when: ansible_distribution_release != "no-such-release"
+    - name: mark a host whose major version is at least 10
+      ansible.builtin.copy:
+        dest: /tmp/pleiades-major-high-marker
+        content: "high\n"
+      when: ansible_distribution_major_version | int >= 10
+    - name: mark a host whose major version is under 10
+      ansible.builtin.copy:
+        dest: /tmp/pleiades-major-low-marker
+        content: "low\n"
+      when: 10 > ansible_distribution_major_version | int
+    - name: gather the distribution facts alone
+      ansible.builtin.setup:
+        filter: [ansible_os_family, "ansible_distribution*"]
 `
 
 func TestMigratePlaybook_AFactReadDecidesPerHostAsAnsibleDoes(t *testing.T) {
@@ -87,6 +107,34 @@ func TestMigratePlaybook_AFactReadDecidesPerHostAsAnsibleDoes(t *testing.T) {
 	if !strings.Contains(string(runbook), "facts.gather") || !strings.Contains(string(runbook), `["os.family"] == "debian"`) {
 		t.Fatalf("the runbook does not gather and read the native family:\n%s", runbook)
 	}
+	// The setup task's filter is the native keys its patterns match, never
+	// the Ansible pattern, which facts.gather would refuse on every host.
+	var parsed struct {
+		Tasks []map[string]any `yaml:"tasks"`
+	}
+	if err := yaml.Unmarshal(runbook, &parsed); err != nil {
+		t.Fatalf("the runbook does not parse: %v\n%s", err, runbook)
+	}
+	// It is split by device: the filtered gather where the device is not
+	// WindowsShellCapable, and an unfiltered one where it is, since Ansible's
+	// Windows setup ignores filter.
+	gathers := map[string]map[string]any{}
+	for _, task := range parsed.Tasks {
+		if name, _ := task["name"].(string); strings.HasPrefix(name, "gather the distribution facts alone") {
+			gather, _ := task["facts.gather"].(map[string]any)
+			gathers[name] = gather
+		}
+	}
+	filtered, whole := gathers["gather the distribution facts alone (not Windows)"], gathers["gather the distribution facts alone (Windows)"]
+	if len(gathers) != 2 || filtered == nil || whole == nil {
+		t.Fatalf("the setup task is not split into its two gathers: %v\n%s", gathers, runbook)
+	}
+	if want := []any{"os.codename", "os.distribution", "os.edition", "os.family", "os.version", "os.version_major"}; !reflect.DeepEqual(filtered["filter"], want) {
+		t.Fatalf("the filtered gather's filter is %v, want %v:\n%s", filtered["filter"], want, runbook)
+	}
+	if _, ok := whole["filter"]; ok {
+		t.Fatalf("the Windows gather carries a filter:\n%s", runbook)
+	}
 	if out, err := runPleiadesWithHome(t, dir, home, "run", "runbooks/site.yaml"); err != nil {
 		t.Fatalf("pleiades run: %v\n%s", err, out)
 	}
@@ -96,6 +144,19 @@ func TestMigratePlaybook_AFactReadDecidesPerHostAsAnsibleDoes(t *testing.T) {
 	for _, d := range []*testdataDevice{debian, alpine} {
 		if got, code := d.exec(t, "cat", "/tmp/pleiades-release-marker"); code != 0 || got != "ran" {
 			t.Errorf("a device's release marker = %q (exit %d), want the != task to have run on both", got, code)
+		}
+	}
+	// Jinja's int of the major version: Debian bookworm's 12 is at least 10,
+	// Alpine 3.22's 3 is under it.
+	for _, tc := range []struct {
+		d          *testdataDevice
+		own, other string
+	}{{debian, "major-high", "major-low"}, {alpine, "major-low", "major-high"}} {
+		if got, code := tc.d.exec(t, "cat", "/tmp/pleiades-"+tc.own+"-marker"); code != 0 || got == "" {
+			t.Errorf("the %s marker = %q (exit %d), want the task gated on | int to have run", tc.own, got, code)
+		}
+		if got, code := tc.d.exec(t, "cat", "/tmp/pleiades-"+tc.other+"-marker"); code == 0 {
+			t.Errorf("a device holds the %s marker %q: | int did not decide per host", tc.other, got)
 		}
 	}
 	for _, tc := range []struct {

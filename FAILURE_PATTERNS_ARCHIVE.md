@@ -23889,3 +23889,141 @@ value as a break, and that no release before this one keeps facts.
 
 **Lesson.** 976's again: before writing "every" or "the same as" about a stored field, list each path in the branch
 that stores it empty and name those paths in the sentence.
+
+## 990. The setup filter's refusals and its wildcard review quoted the playbook's own pattern into the conversion report, and the branch's tests asserted the quoted text (fixed before push, a repeat of 330 and of 968's last case)
+
+**Symptom.** fp-reviewer on `feat/converter-facts-filters`, 2026-11-08, before push. The converter's new translation
+of `setup`'s `filter` (`internal/forge/playbook/facts_filter.go`, from `db1b0419`) built its refusals (a pattern that
+matches no fact, for one) and its review note on a pattern with a wildcard with `strconv.Quote` of the pattern. The
+conversion report is written to be shared and holds names and positions only (330). The branch's own tests asserted
+the quoted text (`named: strconv.Quote("nosuchfact")` in
+`TestTranslate_ASetupFilterItCannotExpandIsRefusedNamingThePattern`, `"ansible_distribution*" may also match` in
+`TestTranslate_ASetupFilterGlobNamesWhatItMayAlsoMatch`), so the leak was locked in, and
+`TestReport_RefusedValuesNotPrinted` had no filter case.
+
+**Security.** Information exposure through a report written for sharing, in our own code, found before release. A
+filter pattern is usually a fact name, but the report's promise is that no playbook text reaches it, and a mistyped or
+pasted value is exactly what a refusal prints. Measured: the guard test, given a refused and a globbed filter, is red
+on the old code and green on `6695385c`.
+
+**Root cause.** 330's: a message written for a new refusal is free to quote its input, and the guard test covers only
+the paths it lists. A contributing cause, stated plainly: while relaying an earlier review to the building agent, the
+main thread told it to leave the quoted patterns as they were. That instruction overrode a recorded pattern, and
+nobody checked the pattern before giving it.
+
+**Why 330 and 968 did not hold.** 330's fix is a sentinel test with one case per refusal path. A new path joins it only
+when its author adds a case. 968 found the same leak in the converter's fact conditions a day earlier, and its fix
+covered those paths only. Neither puts a new refusal under the guard by default. And the instruction to keep the quotes
+came from the main thread. It is not in the diff, so a review sees only its result; fp-reviewer's pass over the diff
+is what caught it.
+
+**Fix.** `6695385c`. Each finding names the pattern by its place: "setup's filter pattern" when it is the only one,
+"pattern 2 of setup's filter", "patterns 2, 3 of setup's filter". `TestReport_RefusedValuesNotPrinted`
+(`internal/forge/playbook/translate_test.go`) carries a refused pattern and a globbed one; each row of
+`TestTranslate_ASetupFilterItCannotExpandIsRefusedNamingThePattern` asserts the place is named and the pattern is not
+printed. The migration guide says a finding names a pattern by its place, never its text.
+
+**Lesson.** A new refusal in the converter adds its case to `TestReport_RefusedValuesNotPrinted` in the same change.
+An instruction to keep code as it is gets the same check as a change (LESSONS 416).
+
+**Class.** C7 (secret exposure through logging or output; CWE-532)
+**Portable.** yes: any error or report message that quotes the input it refused
+**Detector.** sentinel values through every refusal path, asserting none appears in any output; see ~/vuln-corpus/README.md
+
+## 991. A filter of min facts under gather_subset ['!all', '!min'] converted and gathered them where Ansible gathers none, because setupSubset rewrote the subset before the filter's check read it (fixed before push, the class of 848; a sibling guard, LESSONS 244)
+
+**Symptom.** fp-reviewer on `feat/converter-facts-filters`, 2026-11-08, before push. The branch refused a filter
+keeping only hardware facts under a `gather_subset` that leaves hardware out. Its twin had no guard: a filter of min
+facts (`{filter: ansible_os_family, gather_subset: ['!all', '!min']}`) converted. Ansible's base facts hold none of the
+mapped facts, so its filter keeps nothing there, while `facts.gather` always gathers min, so the converted task
+gathered and kept them.
+
+**Root cause.** `setupSubset` (`internal/forge/playbook/adjust.go`, 848's fix) wrote its meaning back into the task's
+params, replacing the subset as written with `[min]` or `[min, hardware]`. The filter's check read the params after
+that, so it could see whether hardware was gathered but not that min had been removed.
+
+**Why 244 and 848 did not prevent it.** 244 says to check the sibling of a guarded path. The sibling here was a case of
+the same input, min removed rather than hardware, and the fact its guard needed had been erased by an earlier step.
+848's fix computed the subset's meaning correctly for the method and returned it by overwriting the input, which no
+later reader of the same params could undo.
+
+**Fix.** `6695385c`. `parseSubset`, `subsetHasHardware` and `subsetHasMin` are factored out of `setupSubset`, and the
+filter's check (`facts_filter.go`) reads the subset as written through them. A filter under a subset that leaves out
+both min and hardware is refused. Pinned by the row "a min fact with min and hardware left out" in
+`TestTranslate_ASetupFilterItCannotExpandIsRefusedNamingThePattern` (`internal/forge/playbook/facts_filter_test.go`).
+
+**Lesson.** A step that turns a shared input into its meaning leaves the input as written for every later reader, and
+each reader derives what it needs through the same functions (244's helper rule). When one case of an input is
+refused, list its twins (each subset removed alone and together) and give each a row.
+
+## 992. Two documented behaviors of the Windows and non-Windows setup split had no test, so removing either passed: the Windows half keeping the task's gather_subset, and a later read of the split's shared register converting (fixed before push, the kind of 888; LESSONS 213)
+
+**Symptom.** fp-reviewer on `feat/converter-facts-filters`, 2026-11-08, before push. `18ed2ce5` splits a filtered
+`setup` into a filtered gather for devices that are not `WindowsShellCapable` and an unfiltered one for those that are
+(`internal/forge/playbook/facts_split.go`). Its file comment says the Windows half runs without the filter, its
+subsets kept, and that both halves take the task's register, so a later read sees the one that ran (`convert.go`'s
+`|| p.split` lets that read convert). Removing either the kept subset or the `|| p.split` left every test green.
+
+**Root cause.** The split's tests held other parts of it, such as which half runs on each host. The two behaviors its
+comment promised were reasoned about and never asserted.
+
+**Why 213 and 888 did not prevent it.** 213 asks that a test of a protection fail with the protection removed. It is
+applied to the tests a branch writes, and these two behaviors had no test to run that way. 888 found the same kind of
+gap (wiring with no test, checks that could not fail), and its check is the review, which is what found this one.
+
+**Fix.** `6695385c`. `TestTranslate_ASplitSetupKeepsItsSubsetAndItsRegisterReads`
+(`internal/forge/playbook/facts_split_test.go`) converts a filtered setup with `gather_subset: [hardware]`, registered,
+and a later task reading the register. It asserts both gathers carry `[min hardware]` and that the later task converted.
+It fails on either mutation.
+
+**Lesson.** Each behavior a comment or doc states about a new transform gets a test that fails when the line making it
+true is removed: one mutation per sentence.
+
+## 993. args.value's fixed advice "Quote the value in the playbook" was printed with every setup filter refusal and with refusals already on main that quoting cannot fix (fixed before push, a repeat in kind of 270, 488 and 600)
+
+**Symptom.** Found in the branch review of `feat/converter-facts-filters`, 2026-11-08, before push. The code
+`args.value` (`internal/forge/playbook/codes.go`) describes "a value whose meaning differs between Ansible's YAML 1.1
+and the runbook's YAML 1.2, or that the native parameter cannot take", and its fix text said only "Quote the value in
+the playbook so its meaning is plain." Every setup filter refusal used the code, and so did refusals already on main in
+`modules_win.go`, `modules_pkg.go`, `modules_file.go`, `modules_misc.go` and `native.go` (a checksum algorithm with no
+native equivalent, `remote_src: true`, and others). Quoting changes none of them.
+
+**Root cause.** A shared code's advice was written for its first use, the YAML meaning. The code's description grew a
+second use and its advice did not, and every site that picked the code by its description printed advice for the
+first.
+
+**Why 270, 488 and 600 did not prevent it.** Their rule is to follow the advice once before shipping it. Advice in a
+shared table is printed by every site that uses the code, so following it where it was written proves nothing for the
+others, and a new site is chosen by the code's description, not its advice.
+
+**Fix.** `6695385c`. The advice now reads "Where the YAML meaning is the problem, quote the value in the playbook so
+its meaning is plain; otherwise change the value as the finding says, or write the task by hand." The fix adds
+no test that holds a code's advice to the messages that use it.
+
+**Lesson.** A code's advice is a claim about every message that carries it. When a code gains a use, read its advice
+against the new message, and split the code when one sentence cannot fit both.
+
+## 994. Three comments and the "decides on every host" wording claimed more than the code or its tests show (fixed before push, a repeat of 571, 789 and 976)
+
+**Symptom.** Found in the branch review of `feat/converter-facts-filters`, 2026-11-08, before push.
+- `Adjustment.Notes` (`internal/forge/playbook/table.go`, from `db1b0419`) said "one finding each". `a6e708df`, on the
+  same branch, joined an Adjust's notes into one finding, since the report keeps one per code and position.
+- `facts_major.go` (from `573fd245`) said a comparison with text raises in Jinja. Only an ordering does; an equality
+  with text is just never true.
+- The migration guide (`5ea9e20d`) and the changelog fragment said `ansible_distribution_major_version | int` decides
+  "on every host" what Ansible decides. It is measured against Ansible's output only on the Linux images the fact
+  fixtures capture, and reasoned from Ansible's source for Windows, macOS and FreeBSD.
+
+**Root cause.** 228's class. One sentence was made false by a later commit on the same branch (789's shape), and two
+stated the rule without its exception or its evidence.
+
+**Why 571, 789 and 976 did not prevent it.** Their rule, say the exception in the same sentence and reread text a
+branch's changes touch, is checked only by a review. 976 was the day before, in another phase. Nothing reads a comment
+against the code before the review does.
+
+**Fix.** `6695385c`. The Notes doc says they are joined into one finding and why; `facts_major.go` says an ordering
+against text raises and an equality with text is never true; the guide and the fragment say what is measured and what
+follows from source.
+
+**Lesson.** 976's again, plus one: a claim that a conversion matches Ansible "on every host" names the hosts it was
+measured on (LESSONS 404).

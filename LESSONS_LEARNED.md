@@ -448,6 +448,7 @@ story, per `.AGENTS/AGENTS.md`.
 413. When a check moves from the writer to the reader, the writer writes only what that reader accepts, and the same change tests the writer against the reader's own check.
 414. A digest over chosen fields of a type lists every field as digested or left out, and a reflection test fails on a field in neither list.
 415. A reader of a record a hash chain covers hashes and returns what was stored; a rule that depends on data a later release may change runs only where the value is written (a refinement of 413).
+416. An instruction to keep code as it is gets the same check as a change: before telling an agent to leave something, search the failure patterns for its class, and say in the instruction what it was checked against (FAILURE_PATTERNS 990).
 
 Each entry above is the rule only. Full reasoning and the incident that produced it lives in [`LESSONS_LEARNED_ARCHIVE.md`](LESSONS_LEARNED_ARCHIVE.md), same entry numbers. Read an archive entry when its rule is directly relevant to what you're doing and you need the *why*; the rule sentence above is usually enough on its own.
 

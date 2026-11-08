@@ -98,17 +98,32 @@ var miscModules = []Entry{
 		},
 	},
 	{
-		Module: "ansible.builtin.setup",
-		// ansible.windows.setup is the same module for a Windows host, which
-		// facts.gather reads over WinRM.
-		Aliases: []string{"setup", "ansible.builtin.gather_facts", "gather_facts", "ansible.windows.setup"},
+		Module:  "ansible.builtin.setup",
+		Aliases: []string{"setup", "ansible.builtin.gather_facts", "gather_facts"},
 		Default: &Call{FQCN: "facts.gather", Class: ClassObserve, Basis: "gathering facts reads and changes nothing"},
-		Adjust:  setupSubset,
+		Adjust:  setupAdjust,
 		Args: []Arg{
 			// Ansible's filter names Ansible's facts, and facts.gather's names
 			// native ones (os.*, hardware.*), so a pattern copied across would
-			// match nothing and fail on every host.
-			{Name: "filter", Handling: ArgBlock, Code: "args.unmapped", Reason: "setup's filter names Ansible's facts and facts.gather filters native names (os.*, host.*, hardware.*); write the filter from the migration guide's fact table"},
+			// match nothing and fail on every host; setupAdjust writes the
+			// native keys it matches instead (facts_filter.go).
+			{Name: "filter", To: "filter", Rewrite: setupFilterRewrite},
+			{Name: "gather_subset", To: "gather_subset"},
+		},
+	},
+	{
+		// The same module for a Windows host, which facts.gather reads over
+		// WinRM. Its argument spec has no filter (ansible.windows 2.4.0's
+		// setup.ps1, lines 13-23), and before Ansible.Basic's check for
+		// unsupported parameters runs it adds every argument it does not know
+		// to the spec as raw (lines 25-40), so filter neither fails the task
+		// nor is read: it gathers every fact, as an unfiltered facts.gather
+		// does.
+		Module:  "ansible.windows.setup",
+		Default: &Call{FQCN: "facts.gather", Class: ClassObserve, Basis: "gathering facts reads and changes nothing"},
+		Adjust:  setupAdjust,
+		Args: []Arg{
+			{Name: "filter", Handling: ArgDrop, Code: "args.ignored", Reason: "ansible.windows.setup ignores filter and gathers every fact, as facts.gather does without one"},
 			{Name: "gather_subset", To: "gather_subset"},
 		},
 	},

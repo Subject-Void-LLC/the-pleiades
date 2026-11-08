@@ -26,6 +26,9 @@ func (c *celCtx) truth(t term) (term, *celError) {
 		// A fact read as a truth: Ansible's placeholder (NA) is true and an
 		// absent native fact is no value at all, so the two disagree.
 		return term{}, &celError{"when.fact", fmt.Sprintf("%s is read as a truth, which its native fact would not decide the same way; compare it with a value", t.fact)}
+	case t.majorInt:
+		// Only a comparison of Jinja's integer is translated (facts_major.go).
+		return term{}, &celError{"when.fact", ansibleMajorVersion + " | int is read as a truth, which is not translated; compare it with a whole number"}
 	}
 	var pred string
 	switch t.typ {
@@ -49,6 +52,11 @@ func (c *celCtx) filter(e *expr) (term, *celError) {
 	if err != nil {
 		return term{}, err
 	}
+	if in.majorInt {
+		// Only a comparison of Jinja's integer is translated: bool of it is
+		// Ansible's own truth rules over a number, which no CEL here repeats.
+		return term{}, &celError{"when.fact", fmt.Sprintf("%s | int | %s is not translated; compare %s | int with a whole number", ansibleMajorVersion, e.name, ansibleMajorVersion)}
+	}
 	if in.constant {
 		switch e.name {
 		case "bool":
@@ -68,9 +76,15 @@ func (c *celCtx) filter(e *expr) (term, *celError) {
 		}
 	}
 	if in.fact != "" {
-		// A filter acts on the native value, which is not Ansible's (rhel
-		// against RedHat), and | int differs where the fact is absent
-		// (Ansible's int of NA is 0) or not a whole number ("22.04").
+		// The major version's | int is Jinja's integer, which the native
+		// major and 0 give on every host (facts_major.go).
+		if t, ok := majorIntTerm(e, in); ok {
+			return t, nil
+		}
+		// Any other filter acts on the native value, which is not Ansible's
+		// (rhel against RedHat), and | int of any other fact differs where
+		// the fact is absent (Ansible's int of NA is 0) or not a whole
+		// number ("22.04").
 		return term{}, &celError{"when.fact", fmt.Sprintf("%s | %s acts on the fact's native value, which is not Ansible's; write the condition on the native fact", in.fact, e.name)}
 	}
 	switch {
@@ -193,6 +207,11 @@ func (c *celCtx) compare(e *expr) (term, *celError) {
 		// A whole condition compared with a constant can hide a negation
 		// (x == false), which the defined rule must see.
 		return term{}, unsupported("a condition compared with a constant; write the condition itself")
+	}
+	if open.majorInt {
+		// Jinja's integer of the major version, which needs no guard: its
+		// read is already 0 where the device has no major (facts_major.go).
+		return majorIntCompare(open, fixed, e.op, openLeft)
 	}
 	if open.fact != "" {
 		if ferr := majorVersionSemantics(open, fixed, e.op); ferr != nil {

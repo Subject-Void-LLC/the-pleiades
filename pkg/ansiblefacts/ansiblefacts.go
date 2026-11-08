@@ -23,6 +23,7 @@ package ansiblefacts
 
 import (
 	"encoding/json"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -92,6 +93,40 @@ func AnsibleKey(native string) (string, bool) {
 func NativeKey(ansible string) (string, bool) {
 	native, ok := nativeByAnsible[ansible]
 	return native, ok
+}
+
+// AnsibleNames is every Ansible fact name this package maps, sorted: the
+// names a converted setup filter's patterns are matched against.
+func AnsibleNames() []string {
+	out := make([]string, 0, len(nativeByAnsible))
+	for ansible := range nativeByAnsible {
+		out = append(out, ansible)
+	}
+	slices.Sort(out)
+	return out
+}
+
+// FilterKeys is the native keys a facts.gather filtered to the Ansible fact
+// ansible keeps: its own key, with os.edition beside os.distribution (a
+// Windows host's ansible_distribution is its edition, which ToAnsible reads
+// there) and hardware.memory_mb beside hardware.swap_mb (a Windows host has no
+// native swap, and ToAnsible gives Ansible's 0 for it only beside a gathered
+// memory fact). Swap alone is still not translatable on Windows: ToAnsible
+// also needs a fact naming the host Windows (os.kernel.name, os.distribution
+// or os.family), which these keys do not hold, so a Windows host filtered to
+// them gives no ansible_swaptotal_mb where Ansible gives 0. Nil for a name
+// this package does not map.
+func FilterKeys(ansible string) []string {
+	native, ok := nativeByAnsible[ansible]
+	switch {
+	case !ok:
+		return nil
+	case native == keyDistribution:
+		return []string{keyDistribution, keyEdition}
+	case native == keySwapMB:
+		return []string{keyMemoryMB, keySwapMB}
+	}
+	return []string{native}
 }
 
 // copied are the native keys whose value Ansible reports unchanged.

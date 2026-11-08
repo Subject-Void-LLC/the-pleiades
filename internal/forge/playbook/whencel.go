@@ -69,6 +69,10 @@ type term struct {
 	// fact is the Ansible fact name a native fact read stands for, whose
 	// compared value is written the native way (facts_reads.go).
 	fact string
+	// majorInt is set for ansible_distribution_major_version | int, Jinja's
+	// integer of the major version: the native major, or 0 where the device
+	// has none (facts_major.go).
+	majorInt bool
 }
 
 // celError says why a condition cannot be translated, and which code.

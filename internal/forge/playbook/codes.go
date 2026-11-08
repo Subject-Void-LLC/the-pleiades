@@ -29,7 +29,7 @@ var codes = map[Code]CodeDoc{
 	"module.ambiguous":   {OutcomeBlocked, "The task names more than one module, or none.", "One module per task."},
 	"args.unmapped":      {OutcomeBlocked, "An argument the native method has no equivalent for.", "Drop it if it changes nothing, or write the task by hand."},
 	"args.unparsable":    {OutcomeBlocked, "Free-form arguments this converter cannot read unambiguously.", "Write the arguments as a map."},
-	"args.value":         {OutcomeBlocked, "A value whose meaning differs between Ansible's YAML 1.1 and the runbook's YAML 1.2, or that the native parameter cannot take.", "Quote the value in the playbook so its meaning is plain."},
+	"args.value":         {OutcomeBlocked, "A value whose meaning differs between Ansible's YAML 1.1 and the runbook's YAML 1.2, or that the native parameter cannot take.", "Where the YAML meaning is the problem, quote the value in the playbook so its meaning is plain; otherwise change the value as the finding says, or write the task by hand."},
 	"args.ignored":       {OutcomeInfo, "An argument with no effect on the native call was dropped: Ansible ignores it for this state, or the native method has nothing for it to choose.", ""},
 	"args.list_unrolled": {OutcomeReview, "A list of names became one task per name, so the items no longer succeed or fail together.", ""},
 	// Templates and variables.

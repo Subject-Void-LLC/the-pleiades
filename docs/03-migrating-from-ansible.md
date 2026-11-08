@@ -350,16 +350,66 @@ native fact on each device, decided per host as Ansible decides it:
 `nodes.gathered_facts[device.id]["os.family"]` equal to `"debian"`.
 `ansible_facts['os_family']` and `ansible_facts.os_family` read the same. What converts is
 equality and membership (`==`, `!=`, `in`, `not in`) against strings; a fact the device does
-not give is unequal to every one, as Ansible's `NA` is. Everything else that reads a fact
-stays a finding to review (`when.fact`, `template.fact`): an ordering, a filter (`| int`
-included), a pattern test, a fact read as a truth, a value with no one native word (a
-Windows caption, CentOS Stream's `Stream`, a release that is a kernel version, an
+not give is unequal to every one, as Ansible's `NA` is. One ordering converts too:
+`ansible_distribution_major_version | int` compared with a whole number (`==`, `!=`, `<`,
+`<=`, `>`, `>=`, either side) reads Jinja's integer, which is the native `os.version_major`
+where the device has one and 0 where it has none, as Jinja's `int` of `forky/sid` or `NA` is,
+so `ansible_distribution_major_version | int >= 8` decides what Ansible decides. That is
+measured against Ansible's own output on every Linux distribution the fact fixtures capture,
+and follows from Ansible's source on Windows, macOS and FreeBSD.
+The same comparison without `| int` (`ansible_distribution_major_version >= "8"`) compares
+text in Ansible, where `"10"` sorts before `"8"`, and is refused with a finding that names
+`| int` and `os.version_major`; an ordering over any other fact's text (`ansible_kernel >= "6"`)
+is refused without that hint, since no other fact has a translated `| int`. Everything else that reads a fact
+stays a finding to review (`when.fact`, `template.fact`): any other ordering, any other filter
+(`| int` with a default, on another fact, or followed by another filter, included), a pattern
+test, a fact read as a truth,
+a value with no one native word (a Windows caption, CentOS Stream's `Stream`, a release that is
+a kernel version, OpenBSD's release words `release`, `current`, `stable` and `beta`, an
 architecture or a swap size, which Windows words differently), a fact a play variable or
 `set_fact` shadows, a condition in an imported file, and a template, which cannot index the
 facts by the device it runs on. A `localhost` play, or one tuning its gather
 (`gather_subset`, `gather_timeout`, `fact_path`), keeps its facts dropped. The inserted
 `facts.gather` needs a device that can gather facts; on one that cannot, convert the play
-with `gather_facts: false`. The table is the translation, from the same mapping the measured comparison with Ansible holds:
+with `gather_facts: false`.
+
+A `setup` task's `filter` names Ansible's facts and `facts.gather`'s names native ones, so the
+pattern itself is never copied. Each pattern is matched against the Ansible names in the table
+below as Ansible matches it (the whole name, case sensitive, with `ansible_` also tried in front
+of a pattern that starts with none of `ansible_`, `facter` and `ohai`; a `facter` or `ohai`
+pattern names facts this platform does not gather, so it matches nothing here), and the task
+gets the native keys of the names it matched as a list, with `os.edition` beside
+`os.distribution` (a Windows host's distribution) and `hardware.memory_mb` beside
+`hardware.swap_mb`. `*`, `ansible_*`, an empty pattern and an empty list mean no filter, and
+convert with no review. A pattern that matches none of the table's names is refused at conversion (it would
+match nothing on every host), and so is a character class, a filter known only at run time, and
+a filter keeping only hardware facts under a `gather_subset` that leaves hardware out (one
+mixing hardware and other facts gathers the others there, as Ansible does), and any filter
+under a `gather_subset` that leaves out both `min` and `hardware`, since Ansible then gathers
+none of the table's facts while `facts.gather` always gathers `min`. A pattern
+with a wildcard may also match Ansible facts this platform does not gather, which the review
+finding says. A finding names a pattern by its place in the filter, never by its text.
+
+A filtered `setup` is split by device, because Ansible ignores `filter` on a Windows host. There
+`ansible.builtin.setup` runs as `ansible.windows.setup`: a WinRM, PSRP or PowerShell-over-SSH
+connection prefers PowerShell modules (ansible-core 2.17.1, `plugins/connection/winrm.py` line
+245, `psrp.py` line 344, `ssh.py` line 583), and the loader routes `setup.ps1` to
+`ansible.windows.setup` (`config/ansible_builtin_runtime.yml` lines 4101-4102). That module has
+no `filter` option, takes any argument it does not know as raw so that `Ansible.Basic` does not
+refuse it, and never reads it (ansible.windows 2.4.0, `plugins/modules/setup.ps1` lines 13-40),
+so it gathers every fact. The converted task is therefore two `facts.gather` tasks: the filtered
+one, named with `(not Windows)`, runs where `"WindowsShellCapable" in device.capabilities` is
+false, and one with no filter (its `gather_subset` kept), named with `(Windows)`, runs where it
+is true. Each adds that test of the device to the task's own conditions, never in place of them,
+and the engine decides it on each device on its own, with no gather needed. Both take the task's
+`register`: exactly one runs on each device, and a skipped task registers nothing, so a later
+read sees the one that ran. The gap: a Windows host this platform does not know as
+`WindowsShellCapable` (a `generic_ssh` device whose onboarding never granted it) gets the
+filtered gather, where Ansible would gather every fact. `ansible.windows.setup` written as such
+ignores `filter` on every host, so its `filter` is dropped (`args.ignored`) and the task is not
+split.
+
+The table is the translation, from the same mapping the measured comparison with Ansible holds:
 
 | Ansible fact | Native fact | Value |
 |---|---|---|
@@ -377,6 +427,7 @@ with `gather_facts: false`. The table is the translation, from the same mapping 
 | `ansible_memtotal_mb`, `ansible_swaptotal_mb` | `hardware.memory_mb`, `hardware.swap_mb` | whole megabytes, truncated; on Windows Ansible rounds memory up, so a threshold at a whole megabyte can come out one lower; swap absent on Windows, where Ansible writes `0` |
 | `ansible_processor_count`, `_cores`, `_vcpus` | `hardware.cpu.sockets`, `.cores`, `.threads` | the same |
 | `ansible_net_hostname`, `_version`, `_model`, `_serialnum`, `_image`, `_uptime`, `_interfaces` | `host.name`, `os.version`, `hardware.model`, `hardware.serial`, `os.image`, `host.uptime`, `network.interfaces` | the same; `os.distribution` is `ios` or `ios_xe` |
+| any fact of an OpenBSD host | none | not gathered: onboarding grants an OpenBSD host no fact gathering, so `facts.gather` does not run there; a condition on OpenBSD's release words (`release`, `current`, `stable`, `beta`) is refused |
 
 `pleiades.builtin.wait.port` and `set_metadata` are not 1:1 ports of an Ansible
 module; they are native to The Pleiades, which is why the first lives under a reserved

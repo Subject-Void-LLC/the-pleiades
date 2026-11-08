@@ -177,11 +177,12 @@ func gatherReturnType(native string) string {
 
 // nativeOperand writes fixed, the value a condition compares the Ansible fact
 // fact with, the native way, or refuses the condition when the mapping has
-// no one native value for it.
+// no one native value for it, saying why (OpenBSD's release words are named
+// as such).
 func nativeOperand(fact string, fixed term) (term, *celError) {
-	v, ok := ansiblefacts.NativeValue(fact, fixed.value)
-	if !ok {
-		return term{}, &celError{"when.fact", fmt.Sprintf("the %s compared with %s has no one native value on every host; write the condition on the native fact", kindOf(fixed.value), fact)}
+	v, why := ansiblefacts.NativeValueReason(fact, fixed.value)
+	if why != "" {
+		return term{}, &celError{"when.fact", fmt.Sprintf("the %s compared with %s %s; write the condition on the native fact", kindOf(fixed.value), fact, why)}
 	}
 	fixed.value = v
 	return fixed, nil
@@ -205,10 +206,15 @@ func majorVersionSemantics(open, fixed term, op string) *celError {
 	// in ways the native value does not ("10" < "8"); only equality and
 	// membership against strings mean the same.
 	ordering := op != "==" && op != "!=" && op != "in" && op != "not in"
-	if ordering || !allStrings(fixed.value) {
-		return &celError{"when.fact", fmt.Sprintf("Ansible compares %s as text here, which the native fact would not; write the condition on the native fact", open.fact)}
+	switch {
+	case !ordering && allStrings(fixed.value):
+		return nil
+	case open.fact == ansibleMajorVersion:
+		// The major version has a translated spelling: Jinja's | int, which
+		// compares the integer as the native os.version_major does.
+		return &celError{"when.fact", fmt.Sprintf("Ansible compares %s as text here (\"10\" sorts before \"8\"), which the native integer os.version_major would not; write %s | int compared with a whole number for Jinja's integer comparison, or the condition on os.version_major", open.fact, open.fact)}
 	}
-	return nil
+	return &celError{"when.fact", fmt.Sprintf("Ansible compares %s as text here, which the native fact would not; write the condition on the native fact", open.fact)}
 }
 
 // allStrings reports whether v is a string or a list of strings only.

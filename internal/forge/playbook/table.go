@@ -53,9 +53,26 @@ type Entry struct {
 	Returns map[string]string
 	// Adjust, when set, rewrites each call's mapped parameters for a module
 	// whose defaults depend on each other (firewalld's permanent and
-	// immediate), and returns a module.semantics note, or "". Each one
-	// lives in adjust.go, never in a table file.
-	Adjust func(params map[string]any) string
+	// immediate), or whose values name something else natively (setup's
+	// filter), and returns the module.semantics notes it raises or the
+	// reason the call cannot be written. Each one lives in adjust.go or a
+	// file of its own, never in a table file.
+	Adjust func(params map[string]any) Adjustment
+}
+
+// Adjustment is what an Entry's Adjust makes of one call's parameters.
+type Adjustment struct {
+	// Notes are the module.semantics reviews the call raises, joined into
+	// one finding (apply.go: the report keeps one finding per code and
+	// position).
+	Notes []string
+	// Refusal, when set, leaves the task for a person, raising Code.
+	Code    Code
+	Refusal string
+	// Windows, when set, splits the call by device (facts_split.go): the
+	// call as adjusted runs where the device is not WindowsShellCapable, and
+	// a second call with these parameters runs where it is.
+	Windows map[string]any
 }
 
 // Selector picks a call from one argument's value.
@@ -128,4 +145,8 @@ type Arg struct {
 	// Note, when set on a mapped argument, is a module.semantics review
 	// raised when the task gives it.
 	Note string
+	// Rewrite, when set on a mapped argument, says how the entry's Adjust
+	// rewrites its value (setup's filter, written as native keys). The module
+	// reference prints it; it raises no finding, the Adjust raising its own.
+	Rewrite string
 }

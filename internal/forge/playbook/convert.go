@@ -38,7 +38,9 @@ func (t *translator) convertOnce(e *Entry, spec leafSpec, args []argIn, bindings
 		}
 		return []*outTask{out}
 	}
-	if spec.register != "" && len(p.calls) > 1 {
+	// A call split by device (facts_split.go) runs one task per device, so
+	// both may hold the register: the one skipped there writes nothing.
+	if spec.register != "" && len(p.calls) > 1 && !p.split {
 		id := t.raise("loop.register", spec.at, spec.name, "the task becomes several native tasks, and only one can hold the registered name")
 		return []*outTask{t.placeholder(name, spec.module, spec.at, ctx, append(cites, id)...)}
 	}
@@ -62,9 +64,15 @@ func (t *translator) convertOnce(e *Entry, spec leafSpec, args []argIn, bindings
 				continue
 			}
 		}
+		callWhens := whens
+		if call.when != "" {
+			// ANDed with the task's own conditions, never in place of them;
+			// cloned so the split's two tasks do not share one list.
+			callWhens = append(slices.Clone(whens), call.when)
+		}
 		task := &outTask{
 			name: callName, fqcn: call.call.FQCN, params: call.params, register: spec.register,
-			when: whens, tags: spec.tags, checkMode: spec.checkMode, timeout: spec.timeout, at: spec.at,
+			when: callWhens, tags: spec.tags, checkMode: spec.checkMode, timeout: spec.timeout, at: spec.at,
 		}
 		if id := t.applyKeys(e, spec, ctx, task); id != "" {
 			out = append(out, t.placeholder(callName, spec.module, spec.at, ctx, append(cites, id)...))
@@ -83,10 +91,23 @@ func (t *translator) convertOnce(e *Entry, spec leafSpec, args []argIn, bindings
 		}
 		out = append(out, task)
 	}
-	if spec.register != "" && len(out) == 1 && out[0].result.Outcome != OutcomeBlocked && spec.nk.loop == nil {
+	if spec.register != "" && (len(out) == 1 || p.split) && !anyBlocked(out) && spec.nk.loop == nil {
 		t.registers[spec.register] = produced{fqcn: out[0].fqcn, returns: e.Returns}
 	}
 	return out
+}
+
+// anyBlocked reports whether any of tasks is blocked, or there are none.
+func anyBlocked(tasks []*outTask) bool {
+	if len(tasks) == 0 {
+		return true
+	}
+	for _, task := range tasks {
+		if task.result.Outcome == OutcomeBlocked {
+			return true
+		}
+	}
+	return false
 }
 
 // whens translates a task's conditions, after the ones its blocks pushed

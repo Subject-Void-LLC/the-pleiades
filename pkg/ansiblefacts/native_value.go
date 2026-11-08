@@ -36,69 +36,106 @@ var nativeKernelNames = func() map[string]string {
 // It reports false when no one native value means the same on every host:
 // a distribution this package has not measured or a Windows caption (which is
 // os.edition natively, not os.distribution), a release that is Ansible's own
-// word rather than a codename (CentOS Stream's Stream, a SUSE minor version),
-// Windows' 64-bit or 32-bit architecture, a major version that is not an
-// integer, or a fact this package does not map. The converter then leaves
-// the condition for a person to write.
+// word rather than a codename (CentOS Stream's Stream, a SUSE minor version,
+// OpenBSD's release words), Windows' 64-bit or 32-bit architecture, a major
+// version that is not an integer, or a fact this package does not map. The
+// converter then leaves the condition for a person to write, and
+// NativeValueReason says why.
 func NativeValue(ansible string, v any) (any, bool) {
+	native, why := NativeValueReason(ansible, v)
+	return native, why == ""
+}
+
+// NoNativeValue is the reason NativeValueReason gives for a value with no
+// one native meaning when it has nothing more particular to say.
+const NoNativeValue = "has no one native value on every host"
+
+// openBSDReleases are the values Ansible reports as
+// ansible_distribution_release on OpenBSD: the suffix of kern.version
+// (current, stable or beta), or release when it has none (ansible-core's
+// Distribution.get_distribution_OpenBSD). They are not codenames, and this
+// platform gathers no facts on OpenBSD, so none has a native value: a
+// condition on one translated as a codename would compare os.codename with a
+// word no gathered host reports.
+var openBSDReleases = []string{"release", "current", "stable", "beta"}
+
+// NativeValueReason is NativeValue with, in place of its bool, why the value
+// has no one native meaning: empty when it has one, otherwise a phrase a
+// refusal reads after the value's kind and the fact ("the text compared with
+// ansible_distribution_release <why>"). The phrase never holds the value
+// itself, only Ansible's own fixed words.
+func NativeValueReason(ansible string, v any) (any, string) {
 	if list, ok := v.([]any); ok {
 		out := make([]any, 0, len(list))
 		for _, item := range list {
-			n, ok := NativeValue(ansible, item)
-			if !ok {
-				return nil, false
+			n, why := NativeValueReason(ansible, item)
+			if why != "" {
+				return nil, why
 			}
 			out = append(out, n)
 		}
-		return out, true
+		return out, ""
 	}
 	native, ok := nativeByAnsible[ansible]
 	if !ok {
-		return nil, false
+		return nil, NoNativeValue
 	}
 	if slices.Contains(copied, native) {
-		return v, true
+		return v, ""
 	}
 	switch native {
 	case keyVersionMajor:
-		return majorValue(v)
+		if n, ok := majorValue(v); ok {
+			return n, ""
+		}
+		return nil, NoNativeValue
 	case keySwapMB:
 		// Ansible writes 0 on Windows where the native fact is absent, so no
 		// one native value means the same on every host.
-		return nil, false
+		return nil, NoNativeValue
 	}
 	s, isString := v.(string)
 	if !isString {
-		return nil, false
+		return nil, NoNativeValue
 	}
 	switch native {
 	case keyDistribution:
-		id, ok := ansibleDistributionIDs[s]
-		return id, ok
+		if id, ok := ansibleDistributionIDs[s]; ok {
+			return id, ""
+		}
 	case keyFamily:
 		if s == "Windows" {
-			return windowsName, true
+			return windowsName, ""
 		}
 		if _, known := ansibleOSFamilyMap[s]; known {
-			return nativeFamily(s), true
+			return nativeFamily(s), ""
 		}
 	case keyKernelName:
-		name, ok := nativeKernelNames[s]
-		return name, ok
-	case keyCodename:
-		// A codename is a word; Ansible's own release values (Stream, a SUSE
-		// minor version, the kernel release on FreeBSD and macOS) start with
-		// a digit or are its placeholder, and have no native fact.
-		if s == "Stream" || s == "" || s == "NA" || (s[0] >= '0' && s[0] <= '9') {
-			return nil, false
+		if name, ok := nativeKernelNames[s]; ok {
+			return name, ""
 		}
-		return s, true
-	case keyArchitecture:
-		// Windows reports 64-bit where the native fact is x86_64, so
-		// x86_64 is true natively on a Windows host and false in Ansible.
-		return nil, false
+	case keyCodename:
+		return codenameValue(s)
 	}
-	return nil, false
+	// keyArchitecture ends here too: Windows reports 64-bit where the native
+	// fact is x86_64, so x86_64 is true natively on a Windows host and false
+	// in Ansible.
+	return nil, NoNativeValue
+}
+
+// codenameValue is Ansible's distribution release s as the native codename,
+// or why it is not one. A codename is a word; Ansible's own release values
+// (CentOS Stream's Stream, a SUSE minor version, the kernel release on
+// FreeBSD and macOS) start with a digit or are its placeholder, and
+// OpenBSD's release words name no codename, so none has a native fact.
+func codenameValue(s string) (any, string) {
+	switch {
+	case slices.Contains(openBSDReleases, s):
+		return nil, "is one of the release words Ansible reports on OpenBSD (release, current, stable, beta), which name no codename, and this platform gathers no facts on OpenBSD"
+	case s == "Stream" || s == "" || s == "NA" || (s[0] >= '0' && s[0] <= '9'):
+		return nil, NoNativeValue
+	}
+	return s, ""
 }
 
 // majorValue is Ansible's major version (a string such as "12", or a number

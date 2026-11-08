@@ -108,7 +108,11 @@ func TestModules_Map(t *testing.T) {
 		{name: "setup all", task: "{setup: {gather_subset: all}}", fqcns: []string{"facts.gather"}, params: map[string]any{"gather_subset": []any{"min", "hardware"}}},
 		{name: "setup removal wins", task: "{setup: {gather_subset: ['!hardware', all]}}", fqcns: []string{"facts.gather"}, params: map[string]any{"gather_subset": []any{"min"}}},
 		{name: "setup nothing left", task: "{setup: {gather_subset: ['!min', '!hardware', '']}}", fqcns: []string{"facts.gather"}, code: "module.semantics", params: map[string]any{"gather_subset": []any{"min"}}},
-		{name: "setup filter", task: "{setup: {filter: 'ansible_*'}}", code: "args.unmapped"},
+		{name: "setup filter", task: "{setup: {filter: 'ansible_*'}}", fqcns: []string{"facts.gather"}},
+		// Split by device: the filtered gather, then the Windows one without it.
+		{name: "setup filter names", task: "{setup: {filter: [ansible_os_family]}}", fqcns: []string{"facts.gather", "facts.gather"}, params: map[string]any{"filter": []any{"os.family"}}, code: "module.semantics"},
+		{name: "setup filter unmapped", task: "{setup: {filter: ansible_mounts}}", code: "args.value"},
+		{name: "windows setup filter", task: "{ansible.windows.setup: {filter: ansible_os_family}}", fqcns: []string{"facts.gather"}, code: "args.ignored"},
 		{name: "setup network", task: "{setup: {gather_subset: [network, '!min']}}", fqcns: []string{"facts.gather"}, code: "module.semantics", params: map[string]any{"gather_subset": []any{"min"}}},
 		{name: "windows setup", task: "{ansible.windows.setup: {gather_subset: [min, hardware]}}", fqcns: []string{"facts.gather"}, params: map[string]any{"gather_subset": []any{"min", "hardware"}}, class: playbook.ClassObserve},
 		{name: "package_facts", task: "{package_facts: {manager: auto}}", fqcns: []string{"facts.gather"}, code: "args.ignored", params: map[string]any{"gather_subset": []any{"packages"}}, class: playbook.ClassObserve},

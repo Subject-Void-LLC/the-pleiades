@@ -405,7 +405,7 @@ Also written as `wait_for`.
 
 ### `ansible.builtin.setup`
 
-Also written as `setup`, `ansible.builtin.gather_facts`, `gather_facts`, `ansible.windows.setup`.
+Also written as `setup`, `ansible.builtin.gather_facts`, `gather_facts`.
 
 | When | Native call | Class |
 |---|---|---|
@@ -413,7 +413,20 @@ Also written as `setup`, `ansible.builtin.gather_facts`, `gather_facts`, `ansibl
 
 | Argument | Becomes |
 |---|---|
-| `filter` | blocked (`args.unmapped`): setup's filter names Ansible's facts and facts.gather filters native names (os.*, host.*, hardware.*); write the filter from the migration guide's fact table |
+| `filter` | `filter`, rewritten: its patterns are matched against the Ansible facts the migration guide's fact table maps, and the task gets the native keys they match, or no filter when they match every one; a written list splits the task by device, a WindowsShellCapable device gathering every fact in a task of its own, since Ansible's Windows setup ignores filter |
+| `gather_subset` | `gather_subset` |
+
+The converter also writes the parameters whose native default differs from Ansible's, so the task does what the playbook did.
+
+### `ansible.windows.setup`
+
+| When | Native call | Class |
+|---|---|---|
+| otherwise | `facts.gather` | observe |
+
+| Argument | Becomes |
+|---|---|
+| `filter` | dropped (`args.ignored`): ansible.windows.setup ignores filter and gathers every fact, as facts.gather does without one |
 | `gather_subset` | `gather_subset` |
 
 The converter also writes the parameters whose native default differs from Ansible's, so the task does what the playbook did.
@@ -682,7 +695,7 @@ Every finding in a migration report carries one of these codes. The set is close
 | `args.list_unrolled` | review | A list of names became one task per name, so the items no longer succeed or fail together. | - |
 | `args.unmapped` | blocked | An argument the native method has no equivalent for. | Drop it if it changes nothing, or write the task by hand. |
 | `args.unparsable` | blocked | Free-form arguments this converter cannot read unambiguously. | Write the arguments as a map. |
-| `args.value` | blocked | A value whose meaning differs between Ansible's YAML 1.1 and the runbook's YAML 1.2, or that the native parameter cannot take. | Quote the value in the playbook so its meaning is plain. |
+| `args.value` | blocked | A value whose meaning differs between Ansible's YAML 1.1 and the runbook's YAML 1.2, or that the native parameter cannot take. | Where the YAML meaning is the problem, quote the value in the playbook so its meaning is plain; otherwise change the value as the finding says, or write the task by hand. |
 | `assert.quiet` | info | assert's quiet option was ignored: the native assert always reports its result. | - |
 | `assert.unmapped` | blocked | An assert, fail or set_fact that carries a keyword the native action cannot take (a loop, until, changed_when, failed_when, a register or a timeout), or an argument it does not have. | - |
 | `block.always` | review | always: converted. It runs on each device the block ran on, whatever happened, or once on its own target. | - |
