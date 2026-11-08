@@ -6,6 +6,7 @@ package engine
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/catalog/fragment"
@@ -73,27 +74,48 @@ func TestJournalEntry_RecordsABuiltinsCollectionIdentity(t *testing.T) {
 // external program provides records the identity on its Provider, and its
 // undo, which the journal never honors for a program, no digest.
 func TestJournalEntry_RecordsAProgramsIdentityAsTheLoaderSetIt(t *testing.T) {
-	id := wire.CollectionIdentity{Group: "acme_tools", Program: true, Manifests: wire.ManifestDigestPrefix + "00"}
-	provider := &collection.Provider{Program: "/opt/collections/acme_tools", Digest: "sha256:00", Identity: id}
-	emitter, target := registerIdentityFixtures(t, "acmeidtest", provider)
-	r := &run{
-		dag:   buildInternalDAG(t, `{"id": "identity", "tasks": [{"name": "a", "fqcn": "`+emitter.Name+`"}]}`),
-		runID: "run-under-test",
-	}
-	// As the executor sets it, from the registered descriptor (externalProvider).
-	n := NodeResult{NodeID: "tasks[0]", Device: "dev-1", Changed: true, Provider: externalProvider(emitter.Name)}
-	n.journalStats = map[string]any{sdk.StatInverse: map[string]any{
-		sdk.InverseFQCNKey: target.Name, sdk.InverseParamsKey: map[string]any{"name": "web"},
-	}}
-	entry, err := r.projectResult(n)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if entry.Collection != id {
-		t.Errorf("Collection = %+v, want the provider's %+v", entry.Collection, id)
-	}
-	if entry.InverseSpecDigest != "" {
-		t.Errorf("a program's undo recorded InverseSpecDigest %q", entry.InverseSpecDigest)
+	digest := wire.ManifestDigestPrefix + strings.Repeat("0", 64)
+	for _, tc := range []struct {
+		name, group string
+		recorded    bool
+	}{
+		{name: "a valid identity", group: "acme_tools", recorded: true},
+		// A file name the loader admits but JSON cannot carry, or Valid
+		// refuses: recorded as none rather than as text no reader can trust.
+		{name: "a name that is not UTF-8", group: "caf\xe9"},
+		{name: "a name holding a soft hyphen", group: "acme\u00adtools"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			id := wire.CollectionIdentity{Group: tc.group, Program: true, Manifests: digest}
+			provider := &collection.Provider{Program: "/opt/collections/" + tc.group, Digest: digest, Identity: id}
+			emitter, target := registerIdentityFixtures(t, "acmeidtest", provider)
+			r := &run{
+				dag:   buildInternalDAG(t, `{"id": "identity", "tasks": [{"name": "a", "fqcn": "`+emitter.Name+`"}]}`),
+				runID: "run-under-test",
+			}
+			// As the executor sets it, from the registered descriptor (externalProvider).
+			n := NodeResult{NodeID: "tasks[0]", Device: "dev-1", Changed: true, Provider: externalProvider(emitter.Name)}
+			n.journalStats = map[string]any{sdk.StatInverse: map[string]any{
+				sdk.InverseFQCNKey: target.Name, sdk.InverseParamsKey: map[string]any{"name": "web"},
+			}}
+			entry, err := r.projectResult(n)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := wire.CollectionIdentity{}
+			if tc.recorded {
+				want = id
+			}
+			if entry.Collection != want {
+				t.Errorf("Collection = %+v, want %+v", entry.Collection, want)
+			}
+			if entry.ProviderProgram != provider.Program || entry.ProviderDigest != digest {
+				t.Errorf("the provider columns lost the program: %q %q", entry.ProviderProgram, entry.ProviderDigest)
+			}
+			if entry.InverseSpecDigest != "" {
+				t.Errorf("a program's undo recorded InverseSpecDigest %q", entry.InverseSpecDigest)
+			}
+		})
 	}
 }
 

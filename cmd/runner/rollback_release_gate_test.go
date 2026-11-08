@@ -21,12 +21,14 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/adapters/routing"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/api"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/buildinfo"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/dispatch"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
@@ -260,9 +262,64 @@ func TestRollbackReleaseGate_AControllerJobIsUndoneOnItsDevice(t *testing.T) {
 		t.Errorf("stored rollback rows %q, want %q (and none for the check)", stored, want)
 	}
 
+	// Each forward row names the Collection its method came from (Phase
+	// 136b), as the Runner's engine projected it and the Controller stored
+	// it: the first-party group at this build's version with the digest the
+	// registry this binary links computes, and a complete undo the digest of
+	// its declaration.
+	assertStoredCollectionIdentity(t, db, job.JobID)
+
 	// Undone in full: a second rollback has nothing left to do.
 	_, err = dispatcher.Rollback(ctx, "release-gate", job.JobID, api.RollbackRequest{Mode: collection.ModeExecute, Leave: []string{"tasks[2]"}})
 	if !errors.As(err, &refused) || !strings.Contains(refused.Problems[0].Reason, "already been undone") {
 		t.Errorf("a second rollback: %v", err)
+	}
+}
+
+// assertStoredCollectionIdentity holds every stored row of jobID to the
+// identity of its method's first-party group, as this test binary's
+// registry and build compute it, and each complete undo to a digest.
+func assertStoredCollectionIdentity(t *testing.T, db *sql.DB, jobID string) {
+	t.Helper()
+	rows, err := db.Query(`SELECT node_id, fqcn, collection_group, collection_version, collection_program, collection_manifests, inverse_complete, inverse_spec_digest
+		FROM journal_entries WHERE job_id = ? ORDER BY sequence`, jobID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = rows.Close() }()
+	digestShape := regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
+	seen, undos := 0, 0
+	for rows.Next() {
+		var node, fqcn string
+		var group, version, manifests, undo sql.NullString
+		var program, complete bool
+		if err := rows.Scan(&node, &fqcn, &group, &version, &program, &manifests, &complete, &undo); err != nil {
+			t.Fatal(err)
+		}
+		seen++
+		want, ok := collection.FirstPartyGroupOf(fqcn)
+		if !ok {
+			t.Fatalf("row %s ran %s, which is in no first-party group", node, fqcn)
+		}
+		digest, err := collection.GroupDigest(want.Name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if group.String != want.Name || program || version.String != buildinfo.Version() || manifests.String != digest {
+			t.Errorf("row %s (%s) stored collection %q %q program=%v %q, want %s at %s with digest %s",
+				node, fqcn, group.String, version.String, program, manifests.String, want.Name, buildinfo.Version(), digest)
+		}
+		if complete {
+			undos++
+			if !digestShape.MatchString(undo.String) {
+				t.Errorf("row %s's complete undo stored inverse_spec_digest %q", node, undo.String)
+			}
+		}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if seen == 0 || undos == 0 {
+		t.Fatalf("job %s stored %d rows, %d with a complete undo, so the identity was not checked", jobID, seen, undos)
 	}
 }

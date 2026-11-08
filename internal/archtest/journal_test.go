@@ -467,7 +467,7 @@ var journalStringFields = map[string]journalStringField{
 	},
 	"Collection.Group": {
 		kind: journalKindRegistryConstant,
-		why:  "for a built-in, the name of the first-party group collection.FirstPartyGroupOf finds for the resolved FQCN in pkg/collection's static list (collection.BuiltinIdentity); for an external program's method (Collection.Program), the file name the loader opened, set on the descriptor at registration and read back through the registry as ProviderProgram is; never text the program, the runbook or a device sent",
+		why:  "for a built-in, the name of the first-party group collection.FirstPartyGroupOf finds for the resolved FQCN in pkg/collection's static list (collection.BuiltinIdentity), a compile-time constant; for an external program's method (Collection.Program), the file name the loader opened, which is a platform-resolved name like ProviderProgram (kind 1) rather than a constant, set on the descriptor at registration and read back through the registry, and recorded only when wire.CollectionIdentity.Valid accepts it; never text the program, the runbook or a device sent",
 	},
 	"Collection.Version": {
 		kind: journalKindRegistryConstant,

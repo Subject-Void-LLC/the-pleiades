@@ -212,8 +212,9 @@ func (JournalEntry) Fields() []ent.Field {
 		// lease_epoch names the life of the lock bucket's sequence that
 		// lease_revision comes from; revisions compare only within one.
 		field.String("lease_epoch").Immutable().Optional(),
-		// The Collection identity columns (Phase 136b), last so the migration
-		// adding them only adds: the Collection the node's method came from
+		// The Collection identity columns (Phase 136b), appended last as every
+		// later column is (Postgres adds them; SQLite rebuilds the table, as
+		// for the columns before): the Collection the node's method came from
 		// (engine.JournalEntry.Collection, a first-party group or, with
 		// collection_program, an external program's file name), the core
 		// build's version for a group, and the digest of its manifests or of

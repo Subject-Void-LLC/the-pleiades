@@ -3,6 +3,7 @@
 package engine
 
 import (
+	"log/slog"
 	"sync"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/buildinfo"
@@ -23,26 +24,43 @@ var coreVersion = sync.OnceValue(buildinfo.Version)
 // first-party group a built-in belongs to. Zero for an engine action and an
 // unresolved name, which no Collection provides.
 //
+// Only an identity that passes wire.CollectionIdentity.Valid is recorded,
+// so every identity a journal holds is one its readers can hold to Valid. A
+// program's file name the loader admits can hold what Valid refuses (a
+// format character) or bytes JSON cannot carry (invalid UTF-8, which
+// encoding/json replaces), and the loader does not refuse one (an approved
+// program loads as before); such a program's entries record no identity,
+// keep its ProviderProgram and ProviderDigest, and are warned about once.
+//
 // A built-in's is computed once per method per run, since GroupDigest
 // encodes every manifest of the group: a run of many nodes would otherwise
 // pay for it on each. It is touched only by projectResult, which recordLevel
 // calls at the level barrier, so the cache needs no lock (see run.sequence).
 func (r *run) collectionIdentity(resolved resolvedFQCN, provider *collection.Provider) wire.CollectionIdentity {
-	if provider != nil {
-		return provider.Identity
-	}
 	if resolved.Unresolved || resolved.engineAction {
 		return wire.CollectionIdentity{}
 	}
 	if id, ok := r.identities[resolved.Name]; ok {
 		return id
 	}
-	// An error is a name no first-party group holds, which
-	// internal/archtest's TestEveryBuiltinHasAnIdentity rules out for every
-	// built-in; the entry then records no identity, which a rollback reads as
-	// one recorded before the field existed and checks against this build's
-	// declarations alone.
-	id, _ := collection.BuiltinIdentity(resolved.Name, coreVersion())
+	var id wire.CollectionIdentity
+	var err error
+	if provider != nil {
+		id = provider.Identity
+		err = id.Valid()
+	} else {
+		// internal/archtest's TestEveryBuiltinHasAnIdentity holds every
+		// built-in to resolve, so an error here is a build out of step with
+		// its own registry.
+		id, err = collection.BuiltinIdentity(resolved.Name, coreVersion())
+	}
+	if err != nil {
+		// Recorded as none, which a rollback cannot tell from an entry
+		// written before the field existed: said here, once per method per
+		// run, rather than left to be discovered from the journal.
+		slog.Warn("the run journal records no Collection identity for this method", "run", r.runID, "fqcn", resolved.Name, "reason", err)
+		id = wire.CollectionIdentity{}
+	}
 	if r.identities == nil {
 		r.identities = map[string]wire.CollectionIdentity{}
 	}

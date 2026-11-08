@@ -158,8 +158,8 @@ func TestUndoDigest_CoversWhatAReplayReadsAndNothingElse(t *testing.T) {
 	}
 	got := collection.UndoDigest(spec, params)
 	canonical := `{"fqcn":"file.remove","mayBePartial":false,"mayKeepOnFailure":false,` +
-		`"params":{"mode":{"aliasOf":"","choices":["a","b"],"choicesIgnoreCase":false,"default":"","name":"mode","required":false,"type":"string"},` +
-		`"path":{"aliasOf":"","choices":[],"choicesIgnoreCase":false,"default":"","name":"path","required":true,"type":"string"}},` +
+		`"params":{"mode":{"aliasOf":"","choices":["a","b"],"choicesIgnoreCase":false,"default":"","format":"command","name":"mode","required":false,"runSetting":false,"secretRefs":false,"type":"string"},` +
+		`"path":{"aliasOf":"","choices":[],"choicesIgnoreCase":false,"default":"","format":"","name":"path","required":true,"runSetting":false,"secretRefs":false,"type":"string"}},` +
 		`"record":["force","path"],"withhold":["content"]}`
 	sum := sha256.Sum256([]byte(canonical))
 	if want := wire.ManifestDigestPrefix + hex.EncodeToString(sum[:]); got != want {
@@ -187,13 +187,16 @@ func TestUndoDigest_CoversWhatAReplayReadsAndNothingElse(t *testing.T) {
 	reordered.Record = []string{"force", "path"}
 	same("the order of Record", reordered, params)
 	same("a parameter's description", spec, edit("path", func(p *collection.Param) { p.Description = "another sentence" }))
-	same("a parameter's format", spec, edit("mode", func(p *collection.Param) { p.Format = "" }))
+	same("a parameter's risk mark", spec, edit("mode", func(p *collection.Param) { p.Risk = collection.ParamRiskHostEscape }))
 	same("the order of a parameter's choices", spec, edit("mode", func(p *collection.Param) { p.Choices = []string{"a", "b"} }))
 
 	moved("a parameter's type", spec, edit("path", func(p *collection.Param) { p.Type = "int" }))
 	moved("a parameter made required", spec, edit("mode", func(p *collection.Param) { p.Required = true }))
 	moved("a narrower set of choices", spec, edit("mode", func(p *collection.Param) { p.Choices = []string{"a"} }))
 	moved("a new default", spec, edit("mode", func(p *collection.Param) { p.Default = "a" }))
+	moved("a parameter's format", spec, edit("path", func(p *collection.Param) { p.Format = collection.ParamFormatTemplateFile }))
+	moved("a parameter a run setting may fill", spec, edit("mode", func(p *collection.Param) { p.RunSetting = true }))
+	moved("a parameter that may hold secret references", spec, edit("path", func(p *collection.Param) { p.SecretRefs = true }))
 	renamed := maps.Clone(params)
 	renamed["file"] = renamed["path"]
 	delete(renamed, "path")
@@ -204,6 +207,34 @@ func TestUndoDigest_CoversWhatAReplayReadsAndNothingElse(t *testing.T) {
 	partial := spec
 	partial.MayBePartial = true
 	moved("an undo allowed to be partial", partial, params)
+}
+
+// TestUndoDigest_DecidesEveryField lists every field of sdk.InverseSpec and
+// Param as digested or left out, so a field added to either fails here until
+// someone decides whether a change to it changes how a recorded undo
+// replays (and, if it does, adds it to UndoDigest).
+func TestUndoDigest_DecidesEveryField(t *testing.T) {
+	decided := map[reflect.Type]map[string]bool{
+		reflect.TypeFor[sdk.InverseSpec](): {
+			"FQCN": true, "Record": true, "Withhold": true, "MayBePartial": true, "MayKeepOnFailure": true,
+		},
+		reflect.TypeFor[collection.Param](): {
+			"Name": true, "Type": true, "Required": true, "Default": true, "AliasOf": true,
+			"Choices": true, "ChoicesIgnoreCase": true, "Format": true, "RunSetting": true, "SecretRefs": true,
+			// Left out: prose, and a mark nothing at run time reads.
+			"Description": false, "Risk": false,
+		},
+	}
+	for typ, fields := range decided {
+		for i := range typ.NumField() {
+			if _, ok := fields[typ.Field(i).Name]; !ok {
+				t.Errorf("%s.%s is neither digested by UndoDigest nor listed as left out: decide whether it changes a replay", typ.Name(), typ.Field(i).Name)
+			}
+		}
+		if len(fields) != typ.NumField() {
+			t.Errorf("%s lists %d fields, and the type has %d: a listed field no longer exists", typ.Name(), len(fields), typ.NumField())
+		}
+	}
 }
 
 // TestGroupManifests_RegistryThenCatalog: a group's set is its registered

@@ -200,6 +200,17 @@ func decodeEntry(line []byte, runID string) (engine.JournalEntry, error) {
 		return e, fmt.Errorf("undoes node %q, which is not a graph id", e.UndoesNode)
 	case e.DAGVersion != "" && !digestPattern.MatchString(e.DAGVersion):
 		return e, fmt.Errorf("carries version %q, which is not a digest", e.DAGVersion)
+	// Format 2 added the Collection identity and the undo's digest
+	// (format.go), so a line of an earlier format carrying either is not
+	// one a build wrote. The engine records only an identity that passes
+	// Valid (engine's collectionIdentity), so any other is refused here
+	// rather than trusted by a rollback.
+	case l.Format < 2 && (!e.Collection.IsZero() || e.InverseSpecDigest != ""):
+		return e, fmt.Errorf("is journal format %d and carries a Collection identity or undo digest, which format 2 added", max(l.Format, 1))
+	case !e.Collection.IsZero() && e.Collection.Valid() != nil:
+		return e, fmt.Errorf("records a Collection identity no build writes: %w", e.Collection.Valid())
+	case e.InverseSpecDigest != "" && !digestPattern.MatchString(e.InverseSpecDigest):
+		return e, fmt.Errorf("carries undo digest %q, which is not a digest", e.InverseSpecDigest)
 	case !knownOutcome[e.Outcome]:
 		return e, fmt.Errorf("records outcome %q", e.Outcome)
 	// The stage and skip kind sets are the engine's own

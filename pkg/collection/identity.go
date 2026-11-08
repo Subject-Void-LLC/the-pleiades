@@ -138,11 +138,15 @@ func DescriptionDigest(manifests map[string]Manifest, capabilities []capability.
 // It covers what decides whether a recorded undo still replays as it was
 // recorded, and nothing else: the spec's FQCN, the Record and Withhold sets
 // and its two flags; and each parameter's name, type, whether it is
-// required, its default, the parameter it is an alias of, and its closed set
-// of choices. A description, a format or a risk mark moves nothing, so a
-// corrected sentence in a method's documentation never reads as skew. The
-// sets (Record, Withhold, Choices) are sorted, since their order means
-// nothing to a replay.
+// required, its default, the parameter it is an alias of, its closed set of
+// choices, its format (a recorded path read as a template_file is a
+// different replay), whether a run setting may fill it, and whether it may
+// hold secret references. A description and a risk mark move nothing, so a
+// corrected sentence in a method's documentation never reads as skew.
+// TestUndoDigest_DecidesEveryField holds every field of sdk.InverseSpec and
+// Param to that list or to the list of what is left out. The sets (Record,
+// Withhold, Choices) are sorted, since their order means nothing to a
+// replay.
 func UndoDigest(spec sdk.InverseSpec, params map[string]Param) string {
 	type undoParam struct {
 		Name              string   `json:"name"`
@@ -152,6 +156,9 @@ func UndoDigest(spec sdk.InverseSpec, params map[string]Param) string {
 		AliasOf           string   `json:"aliasOf"`
 		Choices           []string `json:"choices"`
 		ChoicesIgnoreCase bool     `json:"choicesIgnoreCase"`
+		Format            string   `json:"format"`
+		RunSetting        bool     `json:"runSetting"`
+		SecretRefs        bool     `json:"secretRefs"`
 	}
 	sorted := func(s []string) []string {
 		out := append([]string{}, s...)
@@ -163,6 +170,7 @@ func UndoDigest(spec sdk.InverseSpec, params map[string]Param) string {
 		declared[name] = undoParam{
 			Name: p.Name, Type: p.Type, Required: p.Required, Default: p.Default,
 			AliasOf: p.AliasOf, Choices: sorted(p.Choices), ChoicesIgnoreCase: p.ChoicesIgnoreCase,
+			Format: string(p.Format), RunSetting: p.RunSetting, SecretRefs: p.SecretRefs,
 		}
 	}
 	return canonicalDigest(struct {
