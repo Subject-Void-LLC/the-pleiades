@@ -357,9 +357,11 @@ where the device has one and 0 where it has none, as Jinja's `int` of `forky/sid
 so `ansible_distribution_major_version | int >= 8` decides on every host what Ansible decides.
 The same comparison without `| int` (`ansible_distribution_major_version >= "8"`) compares
 text in Ansible, where `"10"` sorts before `"8"`, and is refused with a finding that names
-`| int` and `os.version_major`. Everything else that reads a fact
+`| int` and `os.version_major`; an ordering over any other fact's text (`ansible_kernel >= "6"`)
+is refused without that hint, since no other fact has a translated `| int`. Everything else that reads a fact
 stays a finding to review (`when.fact`, `template.fact`): any other ordering, any other filter
-(`| int` with a default, or on another fact, included), a pattern test, a fact read as a truth,
+(`| int` with a default, on another fact, or followed by another filter, included), a pattern
+test, a fact read as a truth,
 a value with no one native word (a Windows caption, CentOS Stream's `Stream`, a release that is
 a kernel version, OpenBSD's release words `release`, `current`, `stable` and `beta`, an
 architecture or a swap size, which Windows words differently), a fact a play variable or
@@ -371,13 +373,16 @@ with `gather_facts: false`.
 
 A `setup` task's `filter` names Ansible's facts and `facts.gather`'s names native ones, so the
 pattern itself is never copied. Each pattern is matched against the Ansible names in the table
-below as Ansible matches it (the whole name, case sensitive, with `ansible_` tried in front of a
-pattern that does not start with it), and the task gets the native keys of the names it matched
-as a list, with `os.edition` beside `os.distribution` (a Windows host's distribution) and
-`hardware.memory_mb` beside `hardware.swap_mb`. `*`, `ansible_*` and an empty pattern mean no
-filter. A pattern that matches none of the table's names is refused at conversion (it would
+below as Ansible matches it (the whole name, case sensitive, with `ansible_` also tried in front
+of a pattern that starts with none of `ansible_`, `facter` and `ohai`; a `facter` or `ohai`
+pattern names facts this platform does not gather, so it matches nothing here), and the task
+gets the native keys of the names it matched as a list, with `os.edition` beside
+`os.distribution` (a Windows host's distribution) and `hardware.memory_mb` beside
+`hardware.swap_mb`. `*`, `ansible_*`, an empty pattern and an empty list mean no filter, and
+convert with no review. A pattern that matches none of the table's names is refused at conversion (it would
 match nothing on every host), and so is a character class, a filter known only at run time, and
-a filter keeping only hardware facts under a `gather_subset` that leaves hardware out. A pattern
+a filter keeping only hardware facts under a `gather_subset` that leaves hardware out (one
+mixing hardware and other facts gathers the others there, as Ansible does). A pattern
 with a wildcard may also match Ansible facts this platform does not gather, which the review
 finding says. On a Windows host Ansible's setup ignores `filter` and gathers every fact, where
 the converted task gathers only the listed keys; `ansible.windows.setup`'s `filter` is dropped
