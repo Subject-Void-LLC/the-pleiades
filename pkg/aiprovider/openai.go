@@ -55,7 +55,7 @@ func (o openai) Chat(ctx context.Context, ep Endpoint, req Request, omit map[str
 	if len(req.Schema) > 0 && !omit[ParamSchema] {
 		body["response_format"] = map[string]any{"type": "json_schema", "json_schema": map[string]any{"name": "answer", "schema": json.RawMessage(req.Schema), "strict": true}}
 	}
-	resp, err := post(ctx, ep, join(ep.Base, "/chat/completions"), o.headers(ep), body)
+	resp, err := post(ctx, ep, "/chat/completions", o.headers(ep), body)
 	if err != nil {
 		return Response{}, err
 	}
@@ -117,7 +117,7 @@ func (o openai) Chat(ctx context.Context, ep Endpoint, req Request, omit map[str
 }
 
 func (o openai) Models(ctx context.Context, ep Endpoint) ([]string, error) {
-	resp, err := get(ctx, ep, join(ep.Base, "/models"), o.headers(ep))
+	resp, err := get(ctx, ep, "/models", o.headers(ep))
 	if err != nil {
 		return nil, err
 	}

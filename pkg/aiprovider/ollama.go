@@ -64,7 +64,7 @@ func (o ollama) Chat(ctx context.Context, ep Endpoint, req Request, omit map[str
 	if len(req.Schema) > 0 && !omit[ParamSchema] {
 		body["format"] = json.RawMessage(req.Schema)
 	}
-	resp, err := post(ctx, ep, join(ep.Base, "/api/chat"), o.headers(ep), body)
+	resp, err := post(ctx, ep, "/api/chat", o.headers(ep), body)
 	if err != nil {
 		return Response{}, err
 	}
@@ -139,7 +139,7 @@ func OllamaResident(ctx context.Context, ep Endpoint) ([]OllamaModel, error) {
 }
 
 func ollamaList(ctx context.Context, ep Endpoint, path string) ([]OllamaModel, error) {
-	resp, err := get(ctx, ep, join(ep.Base, path), ollama{}.headers(ep))
+	resp, err := get(ctx, ep, path, ollama{}.headers(ep))
 	if err != nil {
 		return nil, err
 	}
@@ -166,7 +166,7 @@ func OllamaUnload(ctx context.Context, ep Endpoint, model string) error {
 }
 
 func ollamaGenerate(ctx context.Context, ep Endpoint, model string, keepAlive int) error {
-	resp, err := post(ctx, ep, join(ep.Base, "/api/generate"), ollama{}.headers(ep), map[string]any{"model": model, "keep_alive": keepAlive, "stream": false})
+	resp, err := post(ctx, ep, "/api/generate", ollama{}.headers(ep), map[string]any{"model": model, "keep_alive": keepAlive, "stream": false})
 	if err != nil {
 		return err
 	}
@@ -176,7 +176,7 @@ func ollamaGenerate(ctx context.Context, ep Endpoint, model string, keepAlive in
 // OllamaPull pulls model, streaming Ollama's progress until it says
 // success.
 func OllamaPull(ctx context.Context, ep Endpoint, model string) error {
-	resp, err := post(ctx, ep, join(ep.Base, "/api/pull"), ollama{}.headers(ep), map[string]any{"model": model, "stream": true})
+	resp, err := post(ctx, ep, "/api/pull", ollama{}.headers(ep), map[string]any{"model": model, "stream": true})
 	if err != nil {
 		return err
 	}
@@ -208,7 +208,7 @@ func OllamaPull(ctx context.Context, ep Endpoint, model string) error {
 // OllamaDelete deletes model from the host (DELETE /api/delete).
 func OllamaDelete(ctx context.Context, ep Endpoint, model string) error {
 	data, _ := json.Marshal(map[string]string{"model": model})
-	req, err := newRequest(ctx, "DELETE", join(ep.Base, "/api/delete"), data, ollama{}.headers(ep))
+	req, err := newRequest(ctx, "DELETE", ep, "/api/delete", data, ollama{}.headers(ep))
 	if err != nil {
 		return err
 	}

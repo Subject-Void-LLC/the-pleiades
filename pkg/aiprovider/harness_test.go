@@ -19,8 +19,10 @@ import (
 // seen is one request a test server received.
 type seen struct {
 	Method, Path, Query string
-	Header              http.Header
-	Body                map[string]any
+	// URI is the request target as it arrived, before any decoding.
+	URI    string
+	Header http.Header
+	Body   map[string]any
 }
 
 // server is a test server answering each request with answer.
@@ -37,7 +39,7 @@ func newServer(t *testing.T, answer func(i int, w http.ResponseWriter, s seen)) 
 	srv := &server{}
 	srv.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		data, _ := io.ReadAll(r.Body)
-		s := seen{Method: r.Method, Path: r.URL.Path, Query: r.URL.RawQuery, Header: r.Header.Clone()}
+		s := seen{Method: r.Method, Path: r.URL.Path, Query: r.URL.RawQuery, URI: r.RequestURI, Header: r.Header.Clone()}
 		_ = json.Unmarshal(data, &s.Body)
 		srv.mu.Lock()
 		i := len(srv.reqs)

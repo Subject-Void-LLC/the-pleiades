@@ -86,7 +86,7 @@ func (a anthropic) Chat(ctx context.Context, ep Endpoint, req Request, omit map[
 		body["tools"] = []any{map[string]any{"name": anthropicTool, "description": "Give the answer.", "input_schema": json.RawMessage(req.Schema)}}
 		body["tool_choice"] = map[string]any{"type": "tool", "name": anthropicTool}
 	}
-	resp, err := post(ctx, ep, join(ep.Base, "/v1/messages"), a.headers(ep), body)
+	resp, err := post(ctx, ep, "/v1/messages", a.headers(ep), body)
 	if err != nil {
 		return Response{}, err
 	}
@@ -168,7 +168,7 @@ func (a anthropic) Chat(ctx context.Context, ep Endpoint, req Request, omit map[
 }
 
 func (a anthropic) Models(ctx context.Context, ep Endpoint) ([]string, error) {
-	resp, err := get(ctx, ep, join(ep.Base, "/v1/models"), a.headers(ep))
+	resp, err := get(ctx, ep, "/v1/models", a.headers(ep))
 	if err != nil {
 		return nil, err
 	}
