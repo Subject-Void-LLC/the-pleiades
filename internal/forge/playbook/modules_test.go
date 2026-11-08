@@ -109,7 +109,8 @@ func TestModules_Map(t *testing.T) {
 		{name: "setup removal wins", task: "{setup: {gather_subset: ['!hardware', all]}}", fqcns: []string{"facts.gather"}, params: map[string]any{"gather_subset": []any{"min"}}},
 		{name: "setup nothing left", task: "{setup: {gather_subset: ['!min', '!hardware', '']}}", fqcns: []string{"facts.gather"}, code: "module.semantics", params: map[string]any{"gather_subset": []any{"min"}}},
 		{name: "setup filter", task: "{setup: {filter: 'ansible_*'}}", fqcns: []string{"facts.gather"}},
-		{name: "setup filter names", task: "{setup: {filter: [ansible_os_family]}}", fqcns: []string{"facts.gather"}, params: map[string]any{"filter": []any{"os.family"}}, code: "module.semantics"},
+		// Split by device: the filtered gather, then the Windows one without it.
+		{name: "setup filter names", task: "{setup: {filter: [ansible_os_family]}}", fqcns: []string{"facts.gather", "facts.gather"}, params: map[string]any{"filter": []any{"os.family"}}, code: "module.semantics"},
 		{name: "setup filter unmapped", task: "{setup: {filter: ansible_mounts}}", code: "args.value"},
 		{name: "windows setup filter", task: "{ansible.windows.setup: {filter: ansible_os_family}}", fqcns: []string{"facts.gather"}, code: "args.ignored"},
 		{name: "setup network", task: "{setup: {gather_subset: [network, '!min']}}", fqcns: []string{"facts.gather"}, code: "module.semantics", params: map[string]any{"gather_subset": []any{"min"}}},

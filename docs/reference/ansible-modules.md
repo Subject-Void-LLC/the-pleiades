@@ -413,7 +413,7 @@ Also written as `setup`, `ansible.builtin.gather_facts`, `gather_facts`.
 
 | Argument | Becomes |
 |---|---|
-| `filter` | `filter`, rewritten: its patterns are matched against the Ansible facts the migration guide's fact table maps, and the task gets the native keys they match, or no filter when they match every one; a Windows host's setup ignores filter and gathers every fact, which the review of a written list says |
+| `filter` | `filter`, rewritten: its patterns are matched against the Ansible facts the migration guide's fact table maps, and the task gets the native keys they match, or no filter when they match every one; a written list splits the task by device, a WindowsShellCapable device gathering every fact in a task of its own, since Ansible's Windows setup ignores filter |
 | `gather_subset` | `gather_subset` |
 
 The converter also writes the parameters whose native default differs from Ansible's, so the task does what the playbook did.

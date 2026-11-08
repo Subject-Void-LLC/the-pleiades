@@ -38,6 +38,9 @@ type plannedCall struct {
 	params map[string]any
 	// label tells copies apart when one task becomes several ("curl").
 	label string
+	// when, when set, is a condition this call adds to the task's own, ANDed
+	// with them (a split call's test of the device, facts_split.go).
+	when string
 }
 
 // plan is what an entry makes of a task.
@@ -46,6 +49,9 @@ type plan struct {
 	blocked  *blockReason
 	notes    []note
 	computed bool
+	// split is set when the calls are one call split by device, of which
+	// exactly one runs on each device, so they may share the task's register.
+	split bool
 }
 
 // apply maps args onto e's native calls.
@@ -97,9 +103,11 @@ func (t *translator) apply(e *Entry, args []argIn, bindings map[string]any, task
 			return p
 		}
 	}
+	var planned []plannedCall
 	for i := range calls {
+		var adj Adjustment
 		if e.Adjust != nil {
-			adj := e.Adjust(calls[i].params)
+			adj = e.Adjust(calls[i].params)
 			// One finding: the report keeps one per code and position, so a
 			// second note at the task would be dropped.
 			if len(adj.Notes) > 0 {
@@ -114,8 +122,16 @@ func (t *translator) apply(e *Entry, args []argIn, bindings map[string]any, task
 			p.blocked = blocked
 			return p
 		}
+		if adj.Windows == nil {
+			planned = append(planned, calls[i])
+			continue
+		}
+		planned = append(planned, splitByWindows(calls[i], adj.Windows)...)
+		// Only a task that was one call becomes exactly the split pair, one
+		// of which runs per device; any other keeps the several-calls rules.
+		p.split = len(calls) == 1
 	}
-	p.calls = calls
+	p.calls = planned
 	return p
 }
 

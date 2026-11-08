@@ -31,12 +31,12 @@ import (
 const setupFilterCode Code = "args.value"
 
 // setupFilterRewrite is what the module reference says of setup's filter.
-const setupFilterRewrite = "its patterns are matched against the Ansible facts the migration guide's fact table maps, and the task gets the native keys they match, or no filter when they match every one; a Windows host's setup ignores filter and gathers every fact, which the review of a written list says"
+const setupFilterRewrite = "its patterns are matched against the Ansible facts the migration guide's fact table maps, and the task gets the native keys they match, or no filter when they match every one; a written list splits the task by device, a WindowsShellCapable device gathering every fact in a task of its own, since Ansible's Windows setup ignores filter"
 
 // setupFilterNote is the review a setup task raises when its filter is
 // written as a list of native keys; a filter keeping every fact converts
 // exactly and raises none.
-const setupFilterNote = "setup's filter is written as the native keys it matches (%s); a Windows host's setup ignores filter and gathers every fact, where this task gathers only these keys"
+const setupFilterNote = "setup's filter is written as the native keys it matches (%s), gathered where the device is not WindowsShellCapable; Ansible's Windows setup ignores filter, so a WindowsShellCapable device gathers every fact in a task of its own, and a Windows host this platform does not know as WindowsShellCapable (a generic_ssh device onboarding did not grant it) gets the filtered gather"
 
 // unprefixedPatterns are the prefixes after which Ansible tries a pattern
 // only as written, never with ansible_ in front.
@@ -93,6 +93,9 @@ func setupAdjust(params map[string]any) Adjustment {
 		keys[i] = key
 	}
 	params["filter"] = keys
+	// Ansible's Windows setup ignores filter, so the task is split by device
+	// (facts_split.go).
+	adj.Windows = unfiltered(params)
 	adj.Notes = append(adj.Notes, fmt.Sprintf(setupFilterNote, strings.Join(ex.keys, ", ")))
 	if len(ex.wildcards) > 0 {
 		adj.Notes = append(adj.Notes, fmt.Sprintf("setup's filter pattern %s may also match Ansible facts this platform does not gather, which are not gathered; it keeps %s", strings.Join(quoteAll(ex.wildcards), ", "), strings.Join(ex.keys, ", ")))

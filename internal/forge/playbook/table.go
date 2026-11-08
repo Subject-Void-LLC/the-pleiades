@@ -68,6 +68,10 @@ type Adjustment struct {
 	// Refusal, when set, leaves the task for a person, raising Code.
 	Code    Code
 	Refusal string
+	// Windows, when set, splits the call by device (facts_split.go): the
+	// call as adjusted runs where the device is not WindowsShellCapable, and
+	// a second call with these parameters runs where it is.
+	Windows map[string]any
 }
 
 // Selector picks a call from one argument's value.
