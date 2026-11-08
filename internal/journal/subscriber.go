@@ -154,6 +154,24 @@ func (s *Subscriber) Handle(evt event.Event) error {
 		}
 	}
 
+	// This Controller writes these rows, so it holds each delivered
+	// identity to what the engine writes, clearing one that fails and keeping
+	// the entry (identity.go). Said here, where the batch is known; the
+	// store applies the same rule to any other caller. Valid's message
+	// quotes the group, so no character it holds reaches the log raw.
+	for i := range batch.Entries {
+		cleared, reasons := identityProblems(batch.Entries[i])
+		for _, reason := range reasons {
+			s.logger.Warn("storing a run journal entry without what its batch names, which no build writes for it",
+				slog.String("job", batch.JobID),
+				slog.String("device", batch.DeviceID),
+				slog.String("node", cleared.NodeID),
+				slog.String("fqcn", cleared.FQCN),
+				slog.String("reason", reason))
+		}
+		batch.Entries[i] = cleared
+	}
+
 	written, err := s.store.Save(context.Background(), batch.Entries)
 	// A batch no delivery can store: a value the store's own checks refuse
 	// (ErrUnstorable), or one the database itself refuses as data (SQLSTATE

@@ -96,6 +96,12 @@ func (s *EntStore) saveOne(ctx context.Context, entry engine.JournalEntry) (bool
 	// null that a nil slice marshals to. See normalize (record.go).
 	entry = normalize(entry)
 
+	// The store writes only the identity and undo digest the engine's
+	// projection writes, whoever calls it (identity.go). The subscriber, the
+	// path a Runner's batch takes, has already cleared and logged what fails;
+	// any other caller is held to the same rule here.
+	entry, _ = identityProblems(entry)
+
 	create := s.client.JournalEntry.Create().
 		SetJobID(entry.JobID).
 		SetDeviceID(entry.DeviceID).
