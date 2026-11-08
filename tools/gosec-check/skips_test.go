@@ -72,3 +72,48 @@ func TestLoadWaivers_ASkipWithoutAReasonIsRefused(t *testing.T) {
 		t.Fatalf("a skip waiver with a reason: %v, %v", skips, err)
 	}
 }
+
+// judgeRecorded decodes a recorded gosec report through decodeReport and
+// judges it with one waiver for its one finding (internal/sealed's G115, as
+// gosec-waivers.json has it) and skips, returning judge's error and output.
+func judgeRecorded(t *testing.T, file string, skips []skipWaiver) (error, string) {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join("testdata", file))
+	if err != nil {
+		t.Fatal(err)
+	}
+	report, err := decodeReport(raw)
+	if err != nil {
+		t.Fatalf("decoding %s: %v", file, err)
+	}
+	waivers := map[waiverKey]waiver{{file: "internal/sealed/passphrase.go", line: "74", ruleID: "G115"}: {Reason: "fixture"}}
+	var out, errOut strings.Builder
+	err = judge(report, waivers, skips, "/repo", &out, &errOut)
+	return err, out.String() + errOut.String()
+}
+
+// TestJudge_ARecordedSkippingRunFails: gosec's own JSON from the 2026-11-08
+// run whose gosec could not read go1.27's export data (its "-" warning and
+// two of the files it skipped, paths rewritten to /repo), decoded as
+// gosec-check decodes it, fails although its one finding is waived, and
+// names the warning and the files. A clean report with the same finding
+// passes. This holds the "Golang errors" key and judge's use of the skips
+// to real gosec output, not to a map a test builds.
+func TestJudge_ARecordedSkippingRunFails(t *testing.T) {
+	err, output := judgeRecorded(t, "gosec-skipped.json", nil)
+	if err == nil {
+		t.Fatalf("a run that skipped files passed:\n%s", output)
+	}
+	for _, want := range []string{"Rebuild it with this toolchain", "cmd/controller/admin.go", "cmd/controller/admindeps.go"} {
+		if !strings.Contains(output, want) {
+			t.Errorf("the verdict does not name %q:\n%s", want, output)
+		}
+	}
+	if strings.Contains(output, "all individually waived") {
+		t.Errorf("a skipping run printed the pass line:\n%s", output)
+	}
+
+	if err, output := judgeRecorded(t, "gosec-clean.json", nil); err != nil {
+		t.Fatalf("a clean recorded run with its finding waived failed: %v\n%s", err, output)
+	}
+}

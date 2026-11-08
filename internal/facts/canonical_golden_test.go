@@ -30,7 +30,7 @@ func TestCanonicalBytesAreThoseGo126Wrote(t *testing.T) {
 		"unicode":    "\u00e9\u4e2d\U0001d11e",
 		"floats":     []any{0.1, 1.5e300, 1e21, 1e-7, -0.0, 123456789.0, 3.0},
 		// -0.0 above is a constant, and so positive zero; this is the float
-		// whose sign bit is set, which v1 and v2 have encoded differently.
+		// whose sign bit is set, a value an encoder rewrite could write as 0.
 		"negzero":   math.Copysign(0, -1),
 		"ints":      []any{int64(9007199254740993), int64(-9223372036854775808), uint64(18446744073709551615)},
 		"numberstr": json.Number("12345678901234567890.000"),

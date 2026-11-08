@@ -507,6 +507,7 @@ pleiades onboard bsd-check
 curl -fsSLo dist/go1.27.3.freebsd-amd64.tar.gz https://go.dev/dl/go1.27.3.freebsd-amd64.tar.gz
 sha256sum dist/go1.27.3.freebsd-amd64.tar.gz   # c15c88d07d6b2d2db5df7b65d9b9c73d631ac4e787da04e2bef2a5b6952c2cbb
 pleiades adhoc bsd-check file.directory path=/home/pleiades/sdk mode=0755
+pleiades adhoc bsd-check file.remove path=/home/pleiades/sdk/go recurse:=true   # an older Go: never unpack over one
 pleiades adhoc bsd-check file.copy src=dist/go1.27.3.freebsd-amd64.tar.gz dest=/home/pleiades/sdk/go.tar.gz mode=0600
 pleiades adhoc bsd-check archive.extract src=/home/pleiades/sdk/go.tar.gz dest=/home/pleiades/sdk remove:=true
 ```

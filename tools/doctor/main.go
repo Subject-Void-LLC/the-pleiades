@@ -91,7 +91,7 @@ func checkGo() []line {
 	need := requiredToolchain(string(raw))
 	have := goVersion()
 	if !atLeast(have, need) {
-		return []line{{"fix", "Go toolchain", fmt.Sprintf("%s, and go.mod asks for %s: install it, or leave GOTOOLCHAIN=auto so go fetches it", have, need)}}
+		return []line{{"fix", "Go toolchain", fmt.Sprintf("%s, and go.mod asks for %s: install it, or run through make, which sets GOTOOLCHAIN to go.mod's toolchain so go fetches it", have, need)}}
 	}
 	return []line{{"ok", "Go toolchain", fmt.Sprintf("%s (go.mod asks for %s)", have, need)}}
 }
@@ -140,13 +140,21 @@ func checkPortRange() []line {
 	return []line{{"ok", "published ports", fmt.Sprintf("ephemeral ports %d-%d sit below Docker Desktop's (from %d)", lo, hi, dockerports.DesktopLowest)}}
 }
 
-// checkTools compares each pinned scanner on PATH with the Makefile's pin.
+// checkTools compares each pinned scanner on PATH with the Makefile's pin,
+// and the Go release that built it with go.mod's toolchain, as `make tools`
+// does: a scanner an older Go built cannot read this one's export data, and
+// gosec skipped what it could not read rather than failing (2026-11-08).
 func checkTools() []line {
 	raw, err := os.ReadFile("Makefile")
 	if err != nil {
 		return []line{{"fix", "Makefile", err.Error()}}
 	}
 	pins := pinnedTools(string(raw))
+	gomod, err := os.ReadFile("go.mod")
+	if err != nil {
+		return []line{{"fix", "go.mod", "run this from the repository root: " + err.Error()}}
+	}
+	toolchain := requiredToolchain(string(gomod))
 	var out []line
 	for _, tool := range []string{"gosec", "govulncheck", "actionlint"} {
 		want := pins[tool]
@@ -161,7 +169,11 @@ func checkTools() []line {
 			out = append(out, line{"fix", tool, fmt.Sprintf("%s, pinned %s: run `make tools`", orNone(have), want)})
 			continue
 		}
-		out = append(out, line{"ok", tool, want})
+		if built := buildRelease(modinfo); built != toolchain {
+			out = append(out, line{"fix", tool, fmt.Sprintf("%s built with %s, and go.mod's toolchain is %s: run `make tools`", want, orNone(built), toolchain)})
+			continue
+		}
+		out = append(out, line{"ok", tool, want + " built with " + toolchain})
 	}
 	return out
 }

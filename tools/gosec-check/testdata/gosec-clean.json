@@ -1,0 +1,27 @@
+{
+ "Golang errors": {},
+ "Issues": [
+  {
+   "severity": "HIGH",
+   "confidence": "MEDIUM",
+   "cwe": {
+    "id": "190",
+    "url": "https://cwe.mitre.org/data/definitions/190.html"
+   },
+   "rule_id": "G115",
+   "details": "integer overflow conversion uint64 -> uint8",
+   "file": "/repo/internal/sealed/passphrase.go",
+   "code": "73: \t}\n74: \treturn argon2idParams{time: uint32(values[\"t\"]), memoryKiB: uint32(values[\"m\"]), threads: uint8(values[\"p\"])}, nil\n75: }\n",
+   "line": "74",
+   "column": "97",
+   "nosec": false,
+   "suppressions": null
+  }
+ ],
+ "Stats": {
+  "files": 1911,
+  "lines": 365635,
+  "nosec": 223,
+  "found": 34
+ }
+}

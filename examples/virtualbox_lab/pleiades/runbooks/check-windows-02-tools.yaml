@@ -3,7 +3,10 @@
 # GCC), which turns cgo and the race detector on so the tests that open a
 # SQLite database run there. MinGit and GCC are held to the digests their
 # releases publish. win.archive.extract unpacks each once, its creates
-# naming the program that shows it is there.
+# naming the program that shows it is there, so a box that already has an
+# older Go keeps it: the go command there fetches go.mod's toolchain on first
+# use, verified against Go's checksum database, and a new box gets this one.
+# No catalog method removes a Windows directory yet, so this runbook does not.
 id: vbox-lab-check-windows-tools
 hosts: win-check
 # What to unpack, once each: the archive, where it goes, and what shows it is

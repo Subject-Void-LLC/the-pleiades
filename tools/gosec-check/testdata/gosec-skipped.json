@@ -1,0 +1,49 @@
+{
+ "Golang errors": {
+  "-": [
+   {
+    "line": 0,
+    "column": 0,
+    "error": "This application uses version go1.26 of the source-processing packages but runs version go1.27 of 'go list'. It may fail to process source files that rely on newer language features. If so, rebuild the application using a newer version of Go."
+   }
+  ],
+  "/repo/cmd/controller/admin.go": [
+   {
+    "line": 33,
+    "column": 2,
+    "error": "could not import context (reading /home/noot/.cache/go-build/79/79c4621001ee94720b8da30ef859bf3adc2b9655eb84c32e9cfb747713ea380a-d: internal error in importing \"context\" (cannot decode \"context\", export data version 5 is greater than maximum supported version 4); please report an issue)"
+   }
+  ],
+  "/repo/cmd/controller/admindeps.go": [
+   {
+    "line": 20,
+    "column": 2,
+    "error": "could not import github.com/Subject-Void-LLC/the-pleiades/internal/activity (reading /home/noot/.cache/go-build/ed/ed5585e3f736ecd9cced2725e8d5ed92dd6442c06a2866edac10a2b1163941b9-d: internal error in importing \"github.com/Subject-Void-LLC/the-pleiades/internal/activity\" (cannot decode \"github.com/Subject-Void-LLC/the-pleiades/internal/activity\", export data version 5 is greater than maximum supported version 4); please report an issue)"
+   }
+  ]
+ },
+ "Issues": [
+  {
+   "severity": "HIGH",
+   "confidence": "MEDIUM",
+   "cwe": {
+    "id": "190",
+    "url": "https://cwe.mitre.org/data/definitions/190.html"
+   },
+   "rule_id": "G115",
+   "details": "integer overflow conversion uint64 -> uint8",
+   "file": "/repo/internal/sealed/passphrase.go",
+   "code": "73: \t}\n74: \treturn argon2idParams{time: uint32(values[\"t\"]), memoryKiB: uint32(values[\"m\"]), threads: uint8(values[\"p\"])}, nil\n75: }\n",
+   "line": "74",
+   "column": "97",
+   "nosec": false,
+   "suppressions": null
+  }
+ ],
+ "Stats": {
+  "files": 1911,
+  "lines": 365635,
+  "nosec": 223,
+  "found": 17
+ }
+}

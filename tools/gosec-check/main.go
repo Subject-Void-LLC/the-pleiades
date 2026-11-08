@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -67,6 +68,8 @@ func main() {
 	}
 }
 
+// run loads the waivers, runs gosec over the module, and judges what it
+// reported (judge).
 func run() error {
 	repoRoot, err := os.Getwd()
 	if err != nil {
@@ -82,7 +85,15 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	return judge(report, waivers, skips, repoRoot, os.Stdout, os.Stderr)
+}
 
+// judge holds report, gosec's decoded output for the module at repoRoot, to
+// the waivers and the skips: a finding no waiver names fails, a waiver no
+// finding matches is stale and fails, and a file gosec could not type-check
+// fails unless a skip names it (checkSkips). It writes the pass to out and
+// every failure to errOut, and returns an error when any failed.
+func judge(report *gosecReport, waivers map[waiverKey]waiver, skips []skipWaiver, repoRoot string, out, errOut io.Writer) error {
 	seen := make(map[waiverKey]bool, len(waivers))
 	var unwaived []gosecIssue
 	for _, issue := range report.Issues {
@@ -110,24 +121,26 @@ func run() error {
 	}
 
 	// Before the findings' verdict: a scan that skipped files has not
-	// read them, so "all waived" would be a statement about less than the
-	// module.
+	// read them, so "all waived" would be a statement about fewer files
+	// than gosec was asked to scan. It covers only what gosec names: a
+	// package gosec cannot name at all, and a file excluded by GOOS or build
+	// tags, are outside it.
 	skipped := checkSkips(report.GolangErrors, skips, repoRoot)
 	if skipped.failed() {
-		fmt.Fprint(os.Stderr, skipped.report(20))
+		fmt.Fprint(errOut, skipped.report(20))
 	}
 
 	if len(unwaived) == 0 && len(stale) == 0 && !skipped.failed() {
-		fmt.Printf("gosec-check: %d finding(s), all individually waived in gosec-waivers.json\n", len(report.Issues))
+		fmt.Fprintf(out, "gosec-check: %d finding(s), all individually waived in gosec-waivers.json\n", len(report.Issues))
 		return nil
 	}
 
 	if len(unwaived) > 0 {
-		fmt.Fprintf(os.Stderr, "gosec-check: %d finding(s) not in gosec-waivers.json:\n\n", len(unwaived))
+		fmt.Fprintf(errOut, "gosec-check: %d finding(s) not in gosec-waivers.json:\n\n", len(unwaived))
 		for _, issue := range unwaived {
-			fmt.Fprintf(os.Stderr, "  %s:%s [%s] %s\n", issue.File, issue.Line, issue.RuleID, issue.Detail)
+			fmt.Fprintf(errOut, "  %s:%s [%s] %s\n", issue.File, issue.Line, issue.RuleID, issue.Detail)
 		}
-		fmt.Fprintln(os.Stderr, "\nFix it, or add a gosec-waivers.json entry with a written reason (never a blanket rule/directory exclusion).")
+		fmt.Fprintln(errOut, "\nFix it, or add a gosec-waivers.json entry with a written reason (never a blanket rule/directory exclusion).")
 	}
 	if len(stale) > 0 {
 		sort.Slice(stale, func(i, j int) bool {
@@ -136,9 +149,9 @@ func run() error {
 			}
 			return stale[i].line < stale[j].line
 		})
-		fmt.Fprintf(os.Stderr, "\ngosec-check: %d stale waiver(s) in gosec-waivers.json no longer match any finding (remove or update them):\n\n", len(stale))
+		fmt.Fprintf(errOut, "\ngosec-check: %d stale waiver(s) in gosec-waivers.json no longer match any finding (remove or update them):\n\n", len(stale))
 		for _, key := range stale {
-			fmt.Fprintf(os.Stderr, "  %s:%s [%s]\n", key.file, key.line, key.ruleID)
+			fmt.Fprintf(errOut, "  %s:%s [%s]\n", key.file, key.line, key.ruleID)
 		}
 	}
 	return fmt.Errorf("gosec check failed")
@@ -175,12 +188,21 @@ func runGosec() (*gosecReport, error) {
 	cmd.Stderr = &stderr
 	runErr := cmd.Run()
 
-	var report gosecReport
-	if err := json.Unmarshal(stdout.Bytes(), &report); err != nil {
+	report, err := decodeReport(stdout.Bytes())
+	if err != nil {
 		// gosec exits non-zero whenever it finds anything at all, so a
 		// non-zero exit alone is not an error; a body that will not parse
 		// as its own JSON report is the real failure.
 		return nil, fmt.Errorf("gosec did not produce valid JSON output (exit error: %v): %w\nstderr:\n%s", runErr, err, stderr.String())
+	}
+	return report, nil
+}
+
+// decodeReport reads gosec's JSON report.
+func decodeReport(raw []byte) (*gosecReport, error) {
+	var report gosecReport
+	if err := json.Unmarshal(raw, &report); err != nil {
+		return nil, err
 	}
 	return &report, nil
 }
