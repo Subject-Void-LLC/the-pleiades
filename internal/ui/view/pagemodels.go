@@ -129,7 +129,7 @@ func (m ListModel) IsPrimary(f Field) string {
 
 // DetailHref is the link to one record.
 func (m ListModel) DetailHref(row Row) string {
-	return path.Join(m.Page.Prefix, m.Descriptor.Name, url.PathEscape(row.ID))
+	return RecordPath(m.Page.Prefix, m.Descriptor.Name, row.ID)
 }
 
 // RefHref is the link to the record a referencing cell points at, empty
@@ -155,7 +155,7 @@ func (m ListModel) RefHref(row Row, f Field) string {
 	if strings.TrimSpace(row.Cells[f.Name]) == "" {
 		return ""
 	}
-	return path.Join(m.Page.Prefix, f.References, url.PathEscape(id))
+	return RecordPath(m.Page.Prefix, f.References, id)
 }
 
 // CreateHref is the link to the create form.
@@ -297,12 +297,12 @@ func (m DetailModel) Value(f Field) string { return m.Row.Cells[f.Name] }
 
 // EditHref is the link to this record's edit form.
 func (m DetailModel) EditHref() string {
-	return path.Join(m.Page.Prefix, m.Descriptor.Name, url.PathEscape(m.Row.ID), "edit")
+	return RecordPath(m.Page.Prefix, m.Descriptor.Name, m.Row.ID, "edit")
 }
 
 // SelfHref is this record's own URL, which the delete control posts to.
 func (m DetailModel) SelfHref() string {
-	return path.Join(m.Page.Prefix, m.Descriptor.Name, url.PathEscape(m.Row.ID))
+	return RecordPath(m.Page.Prefix, m.Descriptor.Name, m.Row.ID)
 }
 
 // ListHref is the link back to the collection.
@@ -340,7 +340,7 @@ func (m DetailModel) Actions() []RecordActionLink {
 		}
 		out = append(out, RecordActionLink{
 			Label: a.Label,
-			Href:  path.Join(m.Page.Prefix, m.Descriptor.Name, url.PathEscape(m.Row.ID), a.Name),
+			Href:  RecordPath(m.Page.Prefix, m.Descriptor.Name, m.Row.ID, a.Name),
 		})
 	}
 	return out
@@ -391,10 +391,10 @@ func (d DownloadLink) NoteID() string {
 // "this is yours, but not now", where the truth for an expired log window
 // is that it is gone and waiting will not bring it back.
 func (m DetailModel) ResolveDownloads(ctx context.Context) []DownloadLink {
-	if len(m.Descriptor.Downloads) == 0 || m.Row.ID == "" {
+	if len(m.Descriptor.Downloads) == 0 || !Addressable(m.Row.ID) {
 		return nil
 	}
-	base := path.Join(m.Page.Prefix, m.Descriptor.Name, url.PathEscape(m.Row.ID), "download")
+	base := RecordPath(m.Page.Prefix, m.Descriptor.Name, m.Row.ID, "download")
 	out := make([]DownloadLink, 0, len(m.Descriptor.Downloads))
 	for _, dl := range m.Descriptor.Downloads {
 		if !dl.Offers(ctx, m.Row.ID) {
@@ -418,7 +418,7 @@ func (m DetailModel) CanStream() bool { return m.Descriptor.Stream != nil }
 
 // LogsHref is the link to this record's live log page.
 func (m DetailModel) LogsHref() string {
-	return path.Join(m.Page.Prefix, m.Descriptor.Name, url.PathEscape(m.Row.ID), "logs")
+	return RecordPath(m.Page.Prefix, m.Descriptor.Name, m.Row.ID, "logs")
 }
 
 // StreamModel is one record's live log view.
@@ -457,7 +457,7 @@ func (m StreamModel) StreamURL() string {
 
 // BackHref returns to the record this stream belongs to.
 func (m StreamModel) BackHref() string {
-	return path.Join(m.Page.Prefix, m.Descriptor.Name, url.PathEscape(m.ID))
+	return RecordPath(m.Page.Prefix, m.Descriptor.Name, m.ID)
 }
 
 // FormModel is a create or edit form.
@@ -524,7 +524,7 @@ func (m FormModel) Heading() string {
 // methods and the UI must work with scripting disabled.
 func (m FormModel) Action() string {
 	if m.Editing() {
-		return path.Join(m.Page.Prefix, m.Descriptor.Name, url.PathEscape(m.ID))
+		return RecordPath(m.Page.Prefix, m.Descriptor.Name, m.ID)
 	}
 	return path.Join(m.Page.Prefix, m.Descriptor.Name)
 }
@@ -532,7 +532,7 @@ func (m FormModel) Action() string {
 // CancelHref returns to wherever the form was entered from.
 func (m FormModel) CancelHref() string {
 	if m.Editing() {
-		return path.Join(m.Page.Prefix, m.Descriptor.Name, url.PathEscape(m.ID))
+		return RecordPath(m.Page.Prefix, m.Descriptor.Name, m.ID)
 	}
 	return path.Join(m.Page.Prefix, m.Descriptor.Name)
 }
@@ -701,18 +701,18 @@ func (m ActionModel) SubmitLabel() string { return m.Action.Label }
 
 // Action is where the form posts, and CancelHref returns to the record.
 func (m ActionModel) ActionHref() string {
-	target := path.Join(m.Page.Prefix, m.Descriptor.Name, url.PathEscape(m.ID), m.Action.Name)
+	target := RecordPath(m.Page.Prefix, m.Descriptor.Name, m.ID, m.Action.Name)
 	if m.Row == "" {
 		return target
 	}
 	// The form posts to the same four segment address the control linked
 	// to, so the GET that drew it and the POST that runs it name the same
 	// row and cannot drift apart.
-	return path.Join(target, url.PathEscape(m.Row))
+	return RowPath(m.Page.Prefix, m.Descriptor.Name, m.ID, m.Action.Name, m.Row)
 }
 
 func (m ActionModel) CancelHref() string {
-	return path.Join(m.Page.Prefix, m.Descriptor.Name, url.PathEscape(m.ID))
+	return RecordPath(m.Page.Prefix, m.Descriptor.Name, m.ID)
 }
 
 // NoticeModel is what a write path says when it was refused for a reason
@@ -757,7 +757,7 @@ func (m NoticeModel) Zero() ZeroState {
 		Tone:    ZoneProblem,
 		Actions: []ChromeAction{{
 			Label: "Back to the record",
-			Href:  path.Join(m.Page.Prefix, m.Descriptor.Name, url.PathEscape(m.ID)),
+			Href:  RecordPath(m.Page.Prefix, m.Descriptor.Name, m.ID),
 		}},
 	}
 }
