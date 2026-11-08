@@ -9,16 +9,24 @@
 # packages and read the findings it lost as stale waivers (2026-11-08). The
 # release is fetched into the module cache on first use. A single run that
 # wants another passes GOTOOLCHAIN=... on the make command line, which wins
-# over this assignment.
-GO_TOOLCHAIN := $(shell sed -n 's/^toolchain //p' go.mod)
-export GOTOOLCHAIN := $(or $(GO_TOOLCHAIN),local)
+# over this assignment. A carriage return is dropped as the CI action drops
+# it (a checkout with core.autocrlf), and with no toolchain line go.mod's go
+# line governs, through auto. The first go command below (go env) is the
+# first that needs the release: on a machine without it and without a
+# network, every target stops there.
+GO_TOOLCHAIN := $(shell sed -n 's/^toolchain //p' go.mod | tr -d '\r')
+export GOTOOLCHAIN := $(or $(GO_TOOLCHAIN),auto)
 
 # GOBIN's tools (gopls, golangci-lint, gosec, govulncheck) live under
 # $(go env GOPATH)/bin, which is not guaranteed to be on PATH for every
 # invoking shell (AGENTS.md's own IDE & LSP Tooling section documents
 # this exact gap). Prepending it here means `make ci` works the same way
 # regardless of whether the invoking shell's profile was set up for it.
-export PATH := $(shell go env GOPATH)/bin:$(PATH)
+#
+# go install writes to GOBIN when it is set, so that directory, not
+# GOPATH/bin, is the one that must come first: otherwise ensure-tool would
+# install a fresh build where PATH never finds it and run a stale one.
+export PATH := $(or $(shell go env GOBIN),$(shell go env GOPATH)/bin):$(PATH)
 
 # Pinned versions of the two external scanners `make ci` shells out to,
 # and the single place either version is written down: the CI workflow
@@ -85,10 +93,11 @@ TRIVY_VERSION       ?= v0.58.2
 # The Go release that built the tool must also be this toolchain's: a
 # scanner built by an older Go cannot decode the export data a newer go
 # list writes, and gosec then skips those packages rather than failing
-# (2026-11-08). `go version <binary>` names the release that built it.
+# (2026-11-08). `go version <binary>` names the release that built it as its
+# second field; a GOEXPERIMENT build adds a third (X:nojsonv2), not compared.
 define ensure-tool
 	have="$$(go version -m "$$(command -v $(1) 2>/dev/null)" 2>/dev/null | awk '$$1=="mod"{print $$3; exit}')"; \
-	built="$$(go version "$$(command -v $(1) 2>/dev/null)" 2>/dev/null | awk '{print $$NF}')"; \
+	built="$$(go version "$$(command -v $(1) 2>/dev/null)" 2>/dev/null | awk '{print $$2}')"; \
 	want="$$(go env GOVERSION)"; \
 	if [ "$$have" != "$(3)" ] || [ "$$built" != "$$want" ]; then \
 		echo "tools: installing $(1) $(3) with $$want (found: $${have:-none}, built with $${built:-none})"; \
