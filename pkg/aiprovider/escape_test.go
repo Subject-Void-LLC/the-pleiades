@@ -11,6 +11,31 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/aiprovider"
 )
 
+// TestChat_PostsJSON: every kind's chat is a POST whose body is declared as
+// JSON. post builds its request through newRequest since the path moved to
+// httpapi.Join, and this holds that the header moved with it.
+func TestChat_PostsJSON(t *testing.T) {
+	srv := newServer(t, func(n int, w http.ResponseWriter, s seen) {
+		w.WriteHeader(http.StatusOK)
+	})
+	for _, name := range []string{"anthropic", "google", "ollama", "openai"} {
+		// The empty answer is not one any kind reads, so the error is
+		// expected; what is asserted is the request it sent.
+		_, _ = kind(t, name).Chat(context.Background(), srv.endpoint(t, "", "key"), aiprovider.Request{
+			Model:    "m",
+			Messages: []aiprovider.Message{{Role: "user", Content: "hi"}},
+		}, nil)
+		reqs := srv.requests()
+		if len(reqs) == 0 {
+			t.Fatalf("%s sent nothing", name)
+		}
+		r := reqs[len(reqs)-1]
+		if r.Method != http.MethodPost || r.Header.Get("Content-Type") != "application/json" || r.Body == nil {
+			t.Errorf("%s sent %s %s with Content-Type %q and body %v, want a JSON POST", name, r.Method, r.Path, r.Header.Get("Content-Type"), r.Body)
+		}
+	}
+}
+
 // TestChat_RefusesAnEndpointWithNoBase: an endpoint with no base URL is an
 // error, not a request to nowhere (it used to be a nil dereference).
 func TestChat_RefusesAnEndpointWithNoBase(t *testing.T) {
