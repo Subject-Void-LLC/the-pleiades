@@ -7,7 +7,6 @@ package main
 import (
 	"errors"
 	"flag"
-	"io"
 	"os"
 	"reflect"
 	"slices"
@@ -137,8 +136,8 @@ type splitCommand struct {
 }
 
 // splitCommands is every command whose arguments parseArgs splits.
-// TestEveryCommandSplitsItsOwnBoolFlags fails on a command that calls
-// parseArgs and is not here.
+// TestEverySplittingCommandIsInTheTable fails on a command that calls
+// parseArgs, parseCheckedArgs or parseOneArg and is not here.
 var splitCommands = []splitCommand{
 	{name: "add-host", call: runAddHost, positionals: []string{"web1"}},
 	{name: "set-host", call: runSetHost, positionals: []string{"web1"}},
@@ -280,57 +279,5 @@ func TestEveryCommandSplitsItsOwnBoolFlags(t *testing.T) {
 				t.Errorf("%s -vxf %q = %v, want the flag error first", c.name, c.positionals, err)
 			}
 		})
-	}
-}
-
-// captureStderr returns what fn writes to os.Stderr.
-func captureStderr(t *testing.T, fn func()) string {
-	t.Helper()
-	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatalf("creating pipe: %v", err)
-	}
-	original := os.Stderr
-	os.Stderr = w
-	done := make(chan []byte, 1)
-	go func() {
-		b, _ := io.ReadAll(r)
-		done <- b
-	}()
-	func() {
-		defer func() {
-			os.Stderr = original
-			_ = w.Close()
-		}()
-		fn()
-	}()
-	out := <-done
-	_ = r.Close()
-	return string(out)
-}
-
-// TestHelpShowsTheUsageLineAndTheFlags asks a command that takes a
-// positional for help, without one and with one. A flag error now comes
-// before the missing positional, so --help reaches the flag package, which
-// prints the flags; the usage line naming the positional is printed too,
-// and asking exits 0.
-func TestHelpShowsTheUsageLineAndTheFlags(t *testing.T) {
-	t.Chdir(t.TempDir())
-	for _, args := range [][]string{{"add-host", "--help"}, {"add-host", "web1", "-h"}} {
-		var code int
-		out := captureStderr(t, func() {
-			captureStdout(t, func() { code = run(args) })
-		})
-		if code != 0 {
-			t.Errorf("pleiades %q exits %d", args, code)
-		}
-		for _, want := range []string{"usage: pleiades add-host <name>", "-classify"} {
-			if !strings.Contains(out, want) {
-				t.Errorf("pleiades %q does not print %q:\n%s", args, want, out)
-			}
-		}
-		if strings.Contains(out, flag.ErrHelp.Error()) {
-			t.Errorf("pleiades %q prints the flag package's own error text:\n%s", args, out)
-		}
 	}
 }

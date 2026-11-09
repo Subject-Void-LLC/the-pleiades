@@ -41,12 +41,14 @@ func runGrantCapability(args []string) error {
 	reason := fs.String("reason", "", "why this device holds the capability, recorded with the grant (required)")
 	set := &keyValueList{}
 	fs.Var(set, "set", "grant property as key=value (repeatable)")
-	positional, err := parseArgs(fs, args)
+	positional, err := parseCheckedArgs(fs, args, func(p []string) error {
+		if len(p) != 2 {
+			return errors.New("usage: pleiades grant-capability <device> <capability> --reason <text> [--set key=value ...]")
+		}
+		return nil
+	})
 	if err != nil {
 		return err
-	}
-	if len(positional) != 2 {
-		return errors.New("usage: pleiades grant-capability <device> <capability> --reason <text> [--set key=value ...]")
 	}
 	name, capName := positional[0], capability.Name(positional[1])
 	if err := inventory.ValidateGrantReason(*reason); err != nil {
@@ -114,12 +116,14 @@ func runGrantCapability(args []string) error {
 func runRevokeCapability(args []string) error {
 	fs := flag.NewFlagSet("revoke-capability", flag.ContinueOnError)
 	dir := fs.String("dir", ".", "project directory")
-	positional, err := parseArgs(fs, args)
+	positional, err := parseCheckedArgs(fs, args, func(p []string) error {
+		if len(p) != 2 {
+			return errors.New("usage: pleiades revoke-capability <device> <capability>")
+		}
+		return nil
+	})
 	if err != nil {
 		return err
-	}
-	if len(positional) != 2 {
-		return errors.New("usage: pleiades revoke-capability <device> <capability>")
 	}
 	name, capName := positional[0], capability.Name(positional[1])
 	ctx := context.Background()

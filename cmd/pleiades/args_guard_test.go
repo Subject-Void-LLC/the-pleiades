@@ -84,9 +84,10 @@ func parsePackage(t *testing.T) (*token.FileSet, []*ast.File) {
 }
 
 // TestEverySplittingCommandIsInTheTable fails on a function that calls
-// parseArgs or parseOneArg and is not covered by splitCommands, so a new
-// command is held to TestEveryCommandSplitsItsOwnBoolFlags the day it is
-// written.
+// parseArgs, parseCheckedArgs or parseOneArg and that is not a command in
+// splitCommands nor called, directly or through other functions, by one,
+// so a new command is held to TestEveryCommandSplitsItsOwnBoolFlags the
+// day it is written.
 func TestEverySplittingCommandIsInTheTable(t *testing.T) {
 	covered := map[string]bool{}
 	for _, c := range splitCommands {
@@ -94,13 +95,22 @@ func TestEverySplittingCommandIsInTheTable(t *testing.T) {
 		name := runtime.FuncForPC(reflect.ValueOf(c.call).Pointer()).Name()
 		covered[name[strings.LastIndex(name, ".")+1:]] = true
 	}
-	// reviewFlags splits for ai review show, approve and deny.
-	covered["reviewFlags"] = covered["runAIReviewShow"] && covered["runAIReviewApprove"] && covered["runAIReviewDeny"]
 	fset, parsed := parsePackage(t)
+	// callers maps each function in the package to the functions that call
+	// it by name, so a helper that splits for commands (reviewFlags splits
+	// for ai review show, approve and deny) counts as covered when a
+	// command in the table reaches it.
+	callers := map[string][]string{}
+	type splitCall struct {
+		fn, callee string
+		at         token.Pos
+	}
+	var splits []splitCall
 	for _, file := range parsed {
 		for _, decl := range file.Decls {
 			fn, ok := decl.(*ast.FuncDecl)
-			if !ok || fn.Body == nil || fn.Name.Name == "parseOneArg" {
+			// The splitter's own functions call one another.
+			if !ok || fn.Body == nil || fn.Name.Name == "parseArgs" || fn.Name.Name == "parseOneArg" {
 				continue
 			}
 			ast.Inspect(fn.Body, func(n ast.Node) bool {
@@ -109,11 +119,36 @@ func TestEverySplittingCommandIsInTheTable(t *testing.T) {
 					return true
 				}
 				id, ok := call.Fun.(*ast.Ident)
-				if ok && (id.Name == "parseArgs" || id.Name == "parseOneArg") && !covered[fn.Name.Name] {
-					t.Errorf("%s: %s calls %s and is not in splitCommands", fset.Position(call.Pos()), fn.Name.Name, id.Name)
+				if !ok {
+					return true
+				}
+				callers[id.Name] = append(callers[id.Name], fn.Name.Name)
+				if id.Name == "parseArgs" || id.Name == "parseOneArg" || id.Name == "parseCheckedArgs" {
+					splits = append(splits, splitCall{fn: fn.Name.Name, callee: id.Name, at: call.Pos()})
 				}
 				return true
 			})
+		}
+	}
+	var reached func(name string, seen map[string]bool) bool
+	reached = func(name string, seen map[string]bool) bool {
+		if covered[name] {
+			return true
+		}
+		if seen[name] {
+			return false
+		}
+		seen[name] = true
+		for _, caller := range callers[name] {
+			if reached(caller, seen) {
+				return true
+			}
+		}
+		return false
+	}
+	for _, s := range splits {
+		if !reached(s.fn, map[string]bool{}) {
+			t.Errorf("%s: %s calls %s and no command in splitCommands reaches it", fset.Position(s.at), s.fn, s.callee)
 		}
 	}
 }

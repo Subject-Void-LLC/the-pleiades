@@ -10,6 +10,16 @@
 // that is read from the command's own FlagSet, the same way the flag
 // package itself decides it, so it cannot disagree with the flags the
 // command really has.
+//
+// One case does read differently from the flag package. A flag the
+// FlagSet does not define is taken to have a value, so it takes the next
+// token with it. For an unknown flag that does not matter, since fs.Parse
+// refuses it. But -h and -help are undefined in every command and the
+// flag package answers them as a help request, so `add-host -h web1`
+// takes web1 as -h's value and the command sees no positional. main's
+// asksHelp reads the same tokens as help either way, and the old
+// splitter did the same, so help output is unchanged
+// (TestHelpOutputIsUnchanged).
 package main
 
 import (
@@ -38,16 +48,40 @@ var parsedHook func(fs *flag.FlagSet, positionals []string) error
 // parseArgs parses args for a command whose flags are declared on fs. The
 // positionals may come before, between or after the flags, and are
 // returned in the order given; "--" ends the flags, so every token after
-// it is a positional, even one that starts with "-". A flag error (an unknown flag, a bad value,
-// -h) is returned before anything about the positionals is decided, so the
-// command reports what is really wrong with its arguments.
+// it is a positional, even one that starts with "-". A flag error (an
+// unknown flag, a bad value) is returned before anything about the
+// positionals is decided, so the command reports what is really wrong
+// with its arguments.
 func parseArgs(fs *flag.FlagSet, args []string) ([]string, error) {
+	return parseCheckedArgs(fs, args, nil)
+}
+
+// parseCheckedArgs is parseArgs for a command whose positionals check
+// judges: check's error is returned after the flags parse, so a flag error
+// still comes first.
+//
+// A help request is the exception, and is answered as it always was
+// (the owner's decision of 2026-10-22: a bare --help stays as designed).
+// check runs before the flags parse, so a command asked for help without
+// its positionals answers with its own usage line, and only one given them
+// reaches the flag package, which prints its flags.
+func parseCheckedArgs(fs *flag.FlagSet, args []string, check func(positionals []string) error) ([]string, error) {
 	positionals, rest := splitArgs(fs, args)
+	if check != nil && asksHelp(rest) {
+		if err := check(positionals); err != nil {
+			return nil, err
+		}
+	}
 	if err := fs.Parse(rest); err != nil {
 		return nil, err
 	}
 	if parsedHook != nil {
 		if err := parsedHook(fs, positionals); err != nil {
+			return nil, err
+		}
+	}
+	if check != nil {
+		if err := check(positionals); err != nil {
 			return nil, err
 		}
 	}
@@ -58,17 +92,23 @@ func parseArgs(fs *flag.FlagSet, args []string) ([]string, error) {
 // argument (add-host's host name, forge new-device's vendor). Its error is
 // a flag error, or one matching errMissingPositional or errExtraPositional.
 func parseOneArg(fs *flag.FlagSet, args []string) (string, error) {
-	positionals, err := parseArgs(fs, args)
+	positionals, err := parseCheckedArgs(fs, args, exactlyOne)
 	if err != nil {
 		return "", err
 	}
+	return positionals[0], nil
+}
+
+// exactlyOne is parseOneArg's check: one positional, or an error matching
+// errMissingPositional or errExtraPositional.
+func exactlyOne(positionals []string) error {
 	switch len(positionals) {
 	case 0:
-		return "", errMissingPositional
+		return errMissingPositional
 	case 1:
-		return positionals[0], nil
+		return nil
 	}
-	return "", fmt.Errorf("%w: %q", errExtraPositional, positionals[1])
+	return fmt.Errorf("%w: %q", errExtraPositional, positionals[1])
 }
 
 // isPositionalCountErr reports whether err is parseOneArg's error for the

@@ -114,12 +114,10 @@ func run(args []string) int {
 
 	if err := cmd(args[1:]); err != nil {
 		// Asked for help, a command that stops on its usage has answered:
-		// the flag package printed its flags, the usage line is the
-		// error's text, or both, and asking is not a failure.
+		// the flag package printed its flags, or the usage line is the
+		// error's text, and asking is not a failure.
 		if asksHelp(args[1:]) && (errors.Is(err, flag.ErrHelp) || errors.Is(err, errMissingPositional) || strings.HasPrefix(err.Error(), "usage: ")) {
-			if usage := helpUsage(err); usage != "" {
-				fmt.Fprintln(os.Stderr, termsafe.Escape(usage))
-			}
+			printHelpAnswer(err)
 			return 0
 		}
 		// A nested dispatcher (e.g. forge.go) has already printed its own
@@ -162,19 +160,16 @@ func printError(err error) {
 	fmt.Fprintf(os.Stderr, "pleiades: %s\n", termsafe.Escape(err.Error()))
 }
 
-// helpUsage is the usage line a command's error carries when it was asked
-// for help: the error's text without the missing positional or the flag
-// package's help request it ends with. It is "" for the flag package's
-// bare help request, which carries no usage line.
-func helpUsage(err error) string {
-	msg := err.Error()
-	for _, asked := range []error{errMissingPositional, flag.ErrHelp} {
-		msg = strings.TrimSuffix(msg, ": "+asked.Error())
+// printHelpAnswer writes the usage line a command answered a help request
+// with, which is its error's text without the missing positional it ends
+// with. The flag package's own help request prints nothing more, since
+// that package has printed the flags already. The text is escaped as
+// printError escapes an error.
+func printHelpAnswer(err error) {
+	if errors.Is(err, flag.ErrHelp) {
+		return
 	}
-	if msg == flag.ErrHelp.Error() {
-		return ""
-	}
-	return msg
+	fmt.Fprintln(os.Stderr, termsafe.Escape(strings.TrimSuffix(err.Error(), ": "+errMissingPositional.Error())))
 }
 
 // exitCoder is an error that carries the status the command ends with,

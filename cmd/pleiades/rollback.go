@@ -102,12 +102,14 @@ func namedList(fs *flag.FlagSet, name, usage string, set map[string]bool) {
 // runRollback is `pleiades rollback <run-id>`.
 func runRollback(args []string) error {
 	fs, flags, rf := newRollbackFlags()
-	positionals, err := parseArgs(fs, args)
+	positionals, err := parseCheckedArgs(fs, args, func(p []string) error {
+		if len(p) != 1 {
+			return fmt.Errorf("%s: %w", usageLine("rollback <run-id>", fs), errMissingPositional)
+		}
+		return nil
+	})
 	if err != nil {
 		return err
-	}
-	if len(positionals) != 1 {
-		return fmt.Errorf("%s: %w", usageLine("rollback <run-id>", fs), errMissingPositional)
 	}
 	runID := positionals[0]
 	opts, err := flags.options()
