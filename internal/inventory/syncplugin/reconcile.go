@@ -9,8 +9,8 @@ import (
 
 	inv "github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/recordname"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
-	"github.com/Subject-Void-LLC/the-pleiades/pkg/recordname"
 )
 
 // Outcome is what reconciliation decided about one discovered device.
@@ -56,7 +56,7 @@ const (
 	// OutcomeWouldUpdate is OutcomeUpdated under a read-only inventory.
 	OutcomeWouldUpdate Outcome = "would update"
 	// OutcomeRefused means the upstream name cannot name a device: it is
-	// "", "." or ".." (pkg/recordname), which no URL can carry, so the
+	// "", "." or ".." (internal/recordname), which no URL can carry, so the
 	// device could be stored but never opened, changed or deleted by its
 	// address. It is reported with the reason and not stored, and the sync
 	// goes on with the rest. Failing the whole sync instead would let one

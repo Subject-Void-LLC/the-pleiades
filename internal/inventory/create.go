@@ -3,8 +3,8 @@ package inventory
 import (
 	"fmt"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/recordname"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
-	"github.com/Subject-Void-LLC/the-pleiades/pkg/recordname"
 )
 
 // checkNewDevice is what both stores require of a device before they create

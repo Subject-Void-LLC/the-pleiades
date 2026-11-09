@@ -12,7 +12,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/Subject-Void-LLC/the-pleiades/pkg/recordname"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/recordname"
 )
 
 // TableModel is every table this UI draws.

@@ -11,8 +11,8 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/classification"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/recordname"
 	pkginventory "github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
-	"github.com/Subject-Void-LLC/the-pleiades/pkg/recordname"
 	"github.com/google/uuid"
 )
 

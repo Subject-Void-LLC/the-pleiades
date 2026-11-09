@@ -6,8 +6,8 @@ package view_test
 import (
 	"testing"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/recordname"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ui/view"
-	"github.com/Subject-Void-LLC/the-pleiades/pkg/recordname"
 )
 
 // unaddressable are the ids path.Join and every browser resolve away.

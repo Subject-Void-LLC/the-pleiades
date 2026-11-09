@@ -17,10 +17,10 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/kubernetes"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/recordname"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
 	pkginventory "github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/kubeapi"
-	"github.com/Subject-Void-LLC/the-pleiades/pkg/recordname"
 )
 
 // maxKubeconfigRead bounds what the command reads before kubeapi.Import

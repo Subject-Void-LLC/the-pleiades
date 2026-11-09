@@ -11,8 +11,9 @@
 //
 // It is the one place the rule is written, for whatever builds such an
 // address and whatever chooses a name that will become one. It imports
-// nothing of this module, so any package may: pkg/ as well as internal/ and
-// cmd/, and a package such as internal/facts that imports no internal one.
+// nothing of this module, so any package under internal/ and cmd/ may
+// use it. It is not under pkg/: no Collection needs it, and pkg/ is the
+// surface a Collection compiles against.
 package recordname
 
 import (

@@ -9,9 +9,9 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/recordname"
 	pkginventory "github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory/inventorytest"
-	"github.com/Subject-Void-LLC/the-pleiades/pkg/recordname"
 )
 
 // This file extends the Phase W4 conformance suite to Repository.Create,

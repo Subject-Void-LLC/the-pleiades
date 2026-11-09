@@ -25,8 +25,8 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/auth"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/recordname"
 	pkginventory "github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
-	"github.com/Subject-Void-LLC/the-pleiades/pkg/recordname"
 )
 
 // maxDeviceNameLength bounds the {name} URL parameter. It is the DNS name
@@ -619,7 +619,7 @@ func (h *DeviceHandler) deviceName(w http.ResponseWriter, r *http.Request) (stri
 
 // refuseUnaddressable answers 400 with the reason when name, which a create
 // is about to make a device's address (/inventory/devices/{name}), is "",
-// "." or ".." (pkg/recordname), and reports whether name may be used.
+// "." or ".." (internal/recordname), and reports whether name may be used.
 // The message names the name only when it is "." or "..", so it echoes
 // nothing else a caller sent.
 func refuseUnaddressable(w http.ResponseWriter, r *http.Request, name string) bool {

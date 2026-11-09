@@ -2,7 +2,7 @@
 //
 // Every link to a record, a record's page or a row of one of its sections
 // goes through RecordPath or RowPath, so ids are escaped here and nowhere
-// else. Which ids can be a URL path segment at all is pkg/recordname's
+// else. Which ids can be a URL path segment at all is internal/recordname's
 // rule, shared with every write that chooses a device's name.
 package view
 
@@ -10,7 +10,7 @@ import (
 	"net/url"
 	"path"
 
-	"github.com/Subject-Void-LLC/the-pleiades/pkg/recordname"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/recordname"
 )
 
 // RecordPath is the URL of record id of resource under prefix, followed by

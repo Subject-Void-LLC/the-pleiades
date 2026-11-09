@@ -24,9 +24,9 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/auth"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/recordname"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ui/view"
 	pkginventory "github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
-	"github.com/Subject-Void-LLC/the-pleiades/pkg/recordname"
 )
 
 // Name is this view's registration key and URL segment.

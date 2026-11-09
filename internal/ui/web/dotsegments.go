@@ -7,7 +7,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/Subject-Void-LLC/the-pleiades/pkg/recordname"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/recordname"
 )
 
 // refuseDotSegments answers 404 to a request whose path, as it was sent,

@@ -24,7 +24,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/Subject-Void-LLC/the-pleiades/pkg/recordname"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/recordname"
 )
 
 // Bounds on what one observation may hold. A fact is device-supplied data
@@ -121,7 +121,7 @@ func Hash(key string, value any) (string, error) {
 // (wellFormedKey), so it reads the same in a report, a URL and a file, and
 // not "." or "..". A key is the last segment of its history's URL,
 // /inventory/devices/{name}/facts/{key}, and no URL can carry either of
-// those as a segment (pkg/recordname), so a fact named one could be stored
+// those as a segment (internal/recordname), so a fact named one could be stored
 // but never read back by its address.
 func ValidKey(key string) bool {
 	return wellFormedKey(key) && recordname.Addressable(key)
@@ -154,8 +154,8 @@ type Problem struct {
 }
 
 // Guard is what keeps a secret out of storage: the values the run knows to be
-// secrets, and two checks a caller supplies from internal/redact (this package
-// imports no internal package): Shaped, whether text holds something
+// secrets, and two checks a caller supplies from internal/redact, which this
+// package does not import: Shaped, whether text holds something
 // shaped like a secret (a private key, a bearer token, a URL with a
 // password), and SecretName, whether a name marks one (password,
 // token), asked of a fact's key and of every field name inside its value.

@@ -19,7 +19,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/auth/authtest"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/enttest"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
-	"github.com/Subject-Void-LLC/the-pleiades/pkg/recordname"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/recordname"
 )
 
 // TestDeviceCreate_RefusesANameNoURLCarries posts a device named "", "."

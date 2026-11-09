@@ -9,7 +9,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/apispec"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/auth"
-	"github.com/Subject-Void-LLC/the-pleiades/pkg/recordname"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/recordname"
 )
 
 // The models below are what a template receives. Each one is fully

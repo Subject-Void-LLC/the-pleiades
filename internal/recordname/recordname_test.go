@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Subject-Void-LLC/the-pleiades/pkg/recordname"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/recordname"
 )
 
 // TestCheck_RefusesOnlyTheThreeNamesNoURLCarries tables the rule. The rows
