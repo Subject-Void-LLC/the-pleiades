@@ -192,6 +192,11 @@ func (ct CredentialType) Validate(eng render.Engine) error {
 	if eng == nil {
 		return fmt.Errorf("%w: a render engine is required to validate injector templates", ErrInvalidType)
 	}
+	// First, so a NUL is refused by the field it is in rather than echoed,
+	// escaped, inside another rule's message (text.go).
+	if err := ct.nulRefusal(); err != nil {
+		return err
+	}
 	if ct.Name == "" {
 		return fmt.Errorf("%w: name is required", ErrInvalidType)
 	}

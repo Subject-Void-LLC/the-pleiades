@@ -13,6 +13,7 @@ package credentialtypes
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -144,6 +145,12 @@ func (w writer) Delete(ctx context.Context, id string) error {
 func writeFault(err error) error {
 	if err == nil {
 		return nil
+	}
+	// Validate's text rule names the field it refused (credtype.TextError),
+	// so a NUL is answered on the box it was typed into.
+	var text *credtype.TextError
+	if errors.As(err, &text) && (text.Field == "name" || text.Field == "description") {
+		return view.FieldFault{Field: text.Field, Message: "This may not contain a NUL character."}
 	}
 	msg := err.Error()
 	switch {

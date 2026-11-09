@@ -165,6 +165,15 @@ func TestCredentialTypePatch_IsValidatedWhole(t *testing.T) {
 	f.credentialTypeRefusedUnchanged(t, id, `{"name":""}`, http.StatusBadRequest, "name")
 	f.credentialTypeRefusedUnchanged(t, id, `{"name":"Patch API patch_api_taken"}`, http.StatusConflict)
 
+	for field, body := range map[string]map[string]any{
+		"name":        {"name": "Patch" + nulChar + "API"},
+		"description": {"description": "A token" + nulChar},
+	} {
+		t.Run("a NUL in "+field, func(t *testing.T) {
+			f.credentialTypeRefusedUnchanged(t, id, string(mustJSON(t, body)), http.StatusBadRequest, field, "NUL")
+		})
+	}
+
 	managed, err := f.store.EnsureManagedType(t.Context(), managedTypeForTest())
 	if err != nil {
 		t.Fatalf("EnsureManagedType: %v", err)
@@ -228,6 +237,28 @@ func TestCredentialTypePatch_RefusesABodyThatIsNotAnObjectOfKnownFields(t *testi
 	} {
 		t.Run(name, func(t *testing.T) {
 			f.credentialTypeRefusedUnchanged(t, id, body, http.StatusBadRequest, "malformed")
+		})
+	}
+}
+
+// TestCredentialTypeCreate_RefusesNUL holds the create path to the same text
+// rule: a NUL was stored on SQLite and failed on PostgreSQL.
+func TestCredentialTypeCreate_RefusesNUL(t *testing.T) {
+	t.Parallel()
+	f := newCredentialFixture(t)
+
+	for field, value := range map[string]string{"name": "Patch" + nulChar + "API", "description": "A token" + nulChar} {
+		t.Run(field, func(t *testing.T) {
+			// Each case has a name and namespace of its own, so a case the
+			// old code accepted cannot fail the next as a duplicate.
+			body := map[string]any{
+				"name": "Patch API " + field, "kind": "cloud", "namespace": "patch_nul_" + field, "organization": f.orgA,
+			}
+			body[field] = value
+			status, resp := f.do(t, http.MethodPost, "/api/v1/credential-types", body)
+			if status != http.StatusBadRequest || !strings.Contains(string(resp), field) || !strings.Contains(string(resp), "NUL") {
+				t.Errorf("POST with a NUL in %s: %d %s, want 400 naming it", field, status, resp)
+			}
 		})
 	}
 }

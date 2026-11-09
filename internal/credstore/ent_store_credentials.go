@@ -87,6 +87,9 @@ func (s *entStore) ListAllCredentials(ctx context.Context) ([]Credential, error)
 // database; nothing here sees ciphertext or plaintext twice.
 func (s *entStore) CreateCredential(ctx context.Context, organizationID, typeID int, name, description string, inputs, external map[string]string, opts ...CredentialOption) (Credential, error) {
 	write := applyCredentialOptions(opts)
+	if err := checkCredentialText(name, description, external); err != nil {
+		return Credential{}, err
+	}
 	ct, err := s.client.CredentialType.Get(ctx, typeID)
 	if err != nil {
 		return Credential{}, wrapNotFound(err, "credential type")
@@ -171,6 +174,9 @@ func (s *entStore) CreateCredential(ctx context.Context, organizationID, typeID 
 // successful save.
 func (s *entStore) UpdateCredential(ctx context.Context, id int, name, description string, inputs, external map[string]string, opts ...CredentialOption) (Credential, error) {
 	write := applyCredentialOptions(opts)
+	if err := checkCredentialText(name, description, external); err != nil {
+		return Credential{}, err
+	}
 
 	row, err := s.loadCredential(ctx, credential.IDEQ(id))
 	if err != nil {

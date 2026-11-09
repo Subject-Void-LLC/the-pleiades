@@ -311,6 +311,12 @@ func writeFault(err error) error {
 	if err == nil {
 		return nil
 	}
+	// The store's text rule names the field it refused (credtype.TextError),
+	// so a NUL is answered on the box it was typed into rather than with a
+	// 500 from a database that cannot store one.
+	if field, message, ok := textFault(err); ok {
+		return view.FieldFault{Field: field, Message: message}
+	}
 	msg := err.Error()
 	switch {
 	case strings.Contains(msg, "already exists"):
@@ -320,4 +326,17 @@ func writeFault(err error) error {
 	default:
 		return err
 	}
+}
+
+// textFault returns the control and message for a refusal of the store's
+// text rule on a field this form has a control for, and whether err is one.
+func textFault(err error) (string, string, bool) {
+	var text *credtype.TextError
+	if !errors.As(err, &text) || (text.Field != "name" && text.Field != "description") {
+		return "", "", false
+	}
+	if text.Blank {
+		return text.Field, "This is required.", true
+	}
+	return text.Field, "This may not contain a NUL character.", true
 }

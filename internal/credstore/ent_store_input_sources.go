@@ -169,6 +169,9 @@ func (s *entStore) checkBindings(
 ) error {
 	seen := make(map[string]struct{}, len(bindings))
 	for _, b := range bindings {
+		if err := checkMetadataText(b.Metadata); err != nil {
+			return err
+		}
 		if _, dup := seen[b.InputID]; dup {
 			return fmt.Errorf("%w: input %q is bound to a source twice in one request", ErrExists, b.InputID)
 		}

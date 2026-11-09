@@ -37,6 +37,10 @@ const (
 // patchSecrets lists every secret a credential in these tests ever holds.
 var patchSecrets = []string{patchTokenSecret, patchBackupSecret, patchRotatedSecret}
 
+// nulChar is a NUL, built from its code point rather than written as an
+// escape a tool could turn into the real byte in this file.
+var nulChar = string(rune(0))
+
 // credentialPath is the URL of one credential.
 func credentialPath(id int) string { return fmt.Sprintf("/api/v1/credentials/%d", id) }
 
@@ -355,7 +359,8 @@ func TestCredentialPatch_RefusesAChangedTypeOrOrganization(t *testing.T) {
 }
 
 // TestCredentialPatch_IsValidatedWhole holds the merged credential to every
-// rule a write is held to.
+// rule a write is held to, and refuses before the store what the store would
+// answer 500 for: a blank name, and a NUL, which PostgreSQL cannot store.
 func TestCredentialPatch_IsValidatedWhole(t *testing.T) {
 	t.Parallel()
 	f := newCredentialFixture(t)
@@ -366,11 +371,25 @@ func TestCredentialPatch_IsValidatedWhole(t *testing.T) {
 		"inputs": map[string]string{"token": patchRotatedSecret},
 	})
 
+	f.credentialRefusedUnchanged(t, id, `{"name":""}`, http.StatusBadRequest, "name")
 	f.credentialRefusedUnchanged(t, id, `{"inputs":{"undeclared":"x"}}`, http.StatusBadRequest, "undeclared")
 	f.credentialRefusedUnchanged(t, id, `{"inputs":{"region":"north"}}`, http.StatusBadRequest, "region")
 	f.credentialRefusedUnchanged(t, id, `{"inputs":{"token":""}}`, http.StatusBadRequest, "token", "required")
 	f.credentialRefusedUnchanged(t, id, `{"name":"taken"}`, http.StatusConflict)
 
+	for field, body := range map[string]map[string]any{
+		"name":        {"name": "edge" + nulChar + "api"},
+		"description": {"description": "Edge" + nulChar},
+		"external":    {"external": map[string]string{"url": "file:edge" + nulChar + "url"}},
+	} {
+		t.Run("a NUL in "+field, func(t *testing.T) {
+			raw, err := json.Marshal(body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			f.credentialRefusedUnchanged(t, id, string(raw), http.StatusBadRequest, field, "NUL")
+		})
+	}
 }
 
 // TestCredentialPatch_NeverShowsASecret rotates a secret and drives every
@@ -409,5 +428,48 @@ func TestCredentialPatch_NeverShowsASecret(t *testing.T) {
 	assertNoSecret(t, "GET", body)
 	if status != http.StatusOK || !bytes.Contains(body, []byte(redact.Marker)) {
 		t.Errorf("GET after a rotation: %d %s, want the marker", status, body)
+	}
+}
+
+// TestCredentialCreate_RefusesABlankNameAndNUL holds the create path to the
+// same text rules: a blank name answered 500 and a NUL was stored on SQLite
+// and failed on PostgreSQL.
+func TestCredentialCreate_RefusesABlankNameAndNUL(t *testing.T) {
+	t.Parallel()
+	f := newCredentialFixture(t)
+	typeID := f.createPatchType(t, f.orgA, "patch_api")
+
+	cases := []struct {
+		name, field string
+		change      map[string]any
+		mentions    []string
+	}{
+		{"a blank name", "name", map[string]any{"name": ""}, []string{"name"}},
+		{"a NUL in name", "name", map[string]any{"name": "new" + nulChar + "one"}, []string{"name", "NUL"}},
+		{"a NUL in description", "description", map[string]any{"description": "Edge" + nulChar}, []string{"description", "NUL"}},
+		{"a NUL in external", "external", map[string]any{"external": map[string]string{"url": "file:edge" + nulChar + "url"}}, []string{"external", "NUL"}},
+	}
+	for i, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Each case has a name of its own, so a case the old code
+			// accepted cannot fail the next as a duplicate.
+			body := map[string]any{
+				"name": fmt.Sprintf("new %d", i), "organization": f.orgA, "credential_type": typeID,
+				"inputs": map[string]string{"token": patchTokenSecret},
+			}
+			for k, v := range tc.change {
+				body[k] = v
+			}
+			status, resp := f.do(t, http.MethodPost, "/api/v1/credentials", body)
+			assertNoSecret(t, "POST", resp)
+			if status != http.StatusBadRequest {
+				t.Fatalf("POST with %s: %d %s, want 400", tc.name, status, resp)
+			}
+			for _, mention := range tc.mentions {
+				if !strings.Contains(string(resp), mention) {
+					t.Errorf("POST with %s: the refusal %s does not say %q", tc.name, resp, mention)
+				}
+			}
+		})
 	}
 }
