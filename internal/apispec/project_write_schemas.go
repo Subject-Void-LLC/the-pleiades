@@ -47,7 +47,8 @@ var projectPatchSchema = map[string]any{
 		"empty value clears description, scm_url and scm_branch, and \"credential\": 0 unbinds the credential. No " +
 		"field may be null: leave it out to keep it. The project as it would be saved is checked whole, so " +
 		"setting scm_type to git on a project with no scm_url is refused, and a kept credential is checked again. " +
-		"Unknown fields, the read-only sync fields among them, are refused.",
+		"Unknown fields, the read-only sync fields among them, are refused, and so is a field named twice in any " +
+		"mix of upper and lower case.",
 	"properties": map[string]any{
 		"name":         stringSchema("Unique within its organization. May not be blank." + projectBound(project.MaxNameBytes)),
 		"description":  stringSchema("What is in this repository. \"\" clears it." + projectBound(project.MaxDescriptionBytes)),

@@ -12,7 +12,8 @@ package apispec
 // so they cannot describe the rule differently.
 const patchBodyRules = "A partial update. A field left out keeps its stored value and a field present is " +
 	"applied; an empty value clears a field that can be empty. No field may be null: leave it out to keep it. " +
-	"Unknown fields are refused, so a GET response cannot be sent back as it is; send the fields a create takes."
+	"Unknown fields are refused, so a GET response cannot be sent back as it is; send the fields a create takes. " +
+	"A field named twice, in any mix of upper and lower case, is refused, naming it."
 
 // fixedFieldNote describes a field no update can change.
 const fixedFieldNote = "Not updatable: accepted only as the stored value, and any other is refused with 400."

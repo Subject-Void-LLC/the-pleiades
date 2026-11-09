@@ -1229,7 +1229,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "description": "A partial update. A field left out keeps its stored value and a field present is applied; an empty value clears a field that can be empty. No field may be null: leave it out to keep it. Unknown fields are refused, so a GET response cannot be sent back as it is; send the fields a create takes. Only the role and the effect can change: re-pointing a grant is revoking one and issuing another, which leaves two legible events.",
+                "description": "A partial update. A field left out keeps its stored value and a field present is applied; an empty value clears a field that can be empty. No field may be null: leave it out to keep it. Unknown fields are refused, so a GET response cannot be sent back as it is; send the fields a create takes. A field named twice, in any mix of upper and lower case, is refused, naming it. Only the role and the effect can change: re-pointing a grant is revoking one and issuing another, which leaves two legible events.",
                 "properties": {
                   "effect": {
                     "description": "allow or deny.",
@@ -1934,7 +1934,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "description": "A partial update. A field left out keeps its stored value and a field present is applied; an empty value clears a field that can be empty. No field may be null: leave it out to keep it. Unknown fields are refused, so a GET response cannot be sent back as it is; send the fields a create takes. The contact as it would be saved is checked whole, so clearing its only way to reach somebody is refused.",
+                "description": "A partial update. A field left out keeps its stored value and a field present is applied; an empty value clears a field that can be empty. No field may be null: leave it out to keep it. Unknown fields are refused, so a GET response cannot be sent back as it is; send the fields a create takes. A field named twice, in any mix of upper and lower case, is refused, naming it. The contact as it would be saved is checked whole, so clearing its only way to reach somebody is refused.",
                 "properties": {
                   "email": {
                     "description": "\"\" clears it, while at least one of email, phone or url remains.",
@@ -2910,7 +2910,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "description": "A partial update. A field left out keeps its stored value and a field present is applied; an empty value clears a field that can be empty. No field may be null: leave it out to keep it. Unknown fields are refused, so a GET response cannot be sent back as it is; send the fields a create takes. inputs and injectors, when present, each replace the stored document whole, as PUT .../inputs and PUT .../injectors do. The type as it would be saved is validated whole, so an inputs document dropping an input an injector still reads is refused. An input marked secret cannot be made non-secret: remove it and add it again, which deletes its stored values. After every edit a credential of the type keeps a stored value, an external reference or an input source only for an input the type still declares, and for an input the edit adds only when it adds it as secret, where anything already stored reads back only as \"$encrypted$\". So removing an input deletes what credentials hold for it, and adding one as non-secret finds nothing stored under its id. A value stored as secret therefore never reads back as itself. An edit is refused with 409 while a credential of the type cannot be decrypted with this Controller's key.",
+                "description": "A partial update. A field left out keeps its stored value and a field present is applied; an empty value clears a field that can be empty. No field may be null: leave it out to keep it. Unknown fields are refused, so a GET response cannot be sent back as it is; send the fields a create takes. A field named twice, in any mix of upper and lower case, is refused, naming it. inputs and injectors, when present, each replace the stored document whole, as PUT .../inputs and PUT .../injectors do. The type as it would be saved is validated whole, so an inputs document dropping an input an injector still reads is refused. An input marked secret cannot be made non-secret: remove it and add it again, which deletes its stored values. After every edit a credential of the type keeps a stored value, an external reference or an input source only for an input the type still declares, and for an input the edit adds only when it adds it as secret, where anything already stored reads back only as \"$encrypted$\". So removing an input deletes what credentials hold for it, and adding one as non-secret finds nothing stored under its id. A value stored as secret therefore never reads back as itself. An edit is refused with 409 while a credential of the type cannot be decrypted with this Controller's key.",
                 "properties": {
                   "description": {
                     "description": "\"\" clears it.",
@@ -4471,7 +4471,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "description": "A partial update. A field left out keeps its stored value and a field present is applied; an empty value clears a field that can be empty. No field may be null: leave it out to keep it. Unknown fields are refused, so a GET response cannot be sent back as it is; send the fields a create takes. The credential as it would be saved is checked whole against its type, so removing the only value or reference a required input has is refused.",
+                "description": "A partial update. A field left out keeps its stored value and a field present is applied; an empty value clears a field that can be empty. No field may be null: leave it out to keep it. Unknown fields are refused, so a GET response cannot be sent back as it is; send the fields a create takes. A field named twice, in any mix of upper and lower case, is refused, naming it. The credential as it would be saved is checked whole against its type, so removing the only value or reference a required input has is refused.",
                 "properties": {
                   "credential_type": {
                     "description": "Not updatable: accepted only as the stored value, and any other is refused with 400.",
@@ -9403,7 +9403,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "description": "A partial update. A field left out keeps its stored value and a field present is applied; an empty value clears a field that can be empty. No field may be null: leave it out to keep it. Unknown fields are refused, so a GET response cannot be sent back as it is; send the fields a create takes. frozen: false is the explicit unfreeze. The attestation cannot be sent.",
+                "description": "A partial update. A field left out keeps its stored value and a field present is applied; an empty value clears a field that can be empty. No field may be null: leave it out to keep it. Unknown fields are refused, so a GET response cannot be sent back as it is; send the fields a create takes. A field named twice, in any mix of upper and lower case, is refused, naming it. frozen: false is the explicit unfreeze. The attestation cannot be sent.",
                 "properties": {
                   "change_window": {
                     "description": "When this tenant permits automation to run, written for a human. \"\" clears it.",
@@ -10204,7 +10204,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "description": "A partial update. A field left out keeps its stored value and a field present is applied; an empty value clears description, scm_url and scm_branch, and \"credential\": 0 unbinds the credential. No field may be null: leave it out to keep it. The project as it would be saved is checked whole, so setting scm_type to git on a project with no scm_url is refused, and a kept credential is checked again. Unknown fields, the read-only sync fields among them, are refused.",
+                "description": "A partial update. A field left out keeps its stored value and a field present is applied; an empty value clears description, scm_url and scm_branch, and \"credential\": 0 unbinds the credential. No field may be null: leave it out to keep it. The project as it would be saved is checked whole, so setting scm_type to git on a project with no scm_url is refused, and a kept credential is checked again. Unknown fields, the read-only sync fields among them, are refused, and so is a field named twice in any mix of upper and lower case.",
                 "properties": {
                   "credential": {
                     "description": "Rebinds the project to this source control credential, which the project's own organization must own. 0 unbinds it; leaving the key out keeps it, and a kept credential is checked again.",
@@ -12550,7 +12550,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "description": "A partial update. A field left out keeps its stored value and a field present is applied; an empty value clears a field that can be empty. No field may be null: leave it out to keep it. Unknown fields are refused, so a GET response cannot be sent back as it is; send the fields a create takes.",
+                "description": "A partial update. A field left out keeps its stored value and a field present is applied; an empty value clears a field that can be empty. No field may be null: leave it out to keep it. Unknown fields are refused, so a GET response cannot be sent back as it is; send the fields a create takes. A field named twice, in any mix of upper and lower case, is refused, naming it.",
                 "properties": {
                   "description": {
                     "description": "What this team is responsible for. \"\" clears it.",
@@ -13704,7 +13704,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "description": "A partial update. A field left out keeps its stored value and a field present is applied. An empty value clears description (\"\"), defaults ({}), prompts and required_capabilities ([]); a name may not be blank; a survey is cleared with {\"enabled\": false, \"questions\": []}, since survey: {} keeps it. None of these fields, nor survey.enabled or survey.questions, may be null: leave it out to keep it. Inside a question, fields are read as a create reads them. Unknown fields are refused, so a GET response cannot be sent back as it is; send the fields a create takes.",
+                "description": "A partial update. A field left out keeps its stored value and a field present is applied. An empty value clears description (\"\"), defaults ({}), prompts and required_capabilities ([]); a name may not be blank; a survey is cleared with {\"enabled\": false, \"questions\": []}, since survey: {} keeps it. None of these fields, nor survey.enabled or survey.questions, may be null: leave it out to keep it. Inside a question, fields are read as a create reads them. Unknown fields are refused, so a GET response cannot be sent back as it is; send the fields a create takes. A field named twice, in any mix of upper and lower case, is refused, naming it, and so is one named twice inside the survey.",
                 "properties": {
                   "allow_simultaneous": {
                     "type": "boolean"

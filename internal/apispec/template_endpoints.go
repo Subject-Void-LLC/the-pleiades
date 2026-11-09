@@ -146,7 +146,8 @@ var templatePatchSchema = map[string]any{
 		"not be blank; a survey is cleared with {\"enabled\": false, \"questions\": []}, since survey: {} keeps it. " +
 		"None of these fields, nor survey.enabled or survey.questions, may be null: leave it out to keep it. Inside " +
 		"a question, fields are read as a create reads them. Unknown fields are refused, so a GET response cannot " +
-		"be sent back as it is; send the fields a create takes.",
+		"be sent back as it is; send the fields a create takes. A field named twice, in any mix of upper and lower " +
+		"case, is refused, naming it, and so is one named twice inside the survey.",
 	"properties": map[string]any{
 		"name":        stringSchema("Unique within the template's organization. May not be blank, and at most 253 bytes."),
 		"description": stringSchema("What this template is for."),

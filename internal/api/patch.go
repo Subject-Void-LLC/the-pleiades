@@ -8,7 +8,8 @@
 // teamPatchDTO, contactPatchDTO, bindingPatchDTO). Every field is a pointer, so an absent key can be told from
 // a zero value. The type's UnmarshalJSON decodes through decodePatch, which
 // refuses an unknown key and a body that is not an object, and records each
-// field the body set to null so the handler can refuse it by name. A field no
+// field the body set to null so the handler can refuse it by name, and refuses
+// a body that names one field twice (patchRepeatedFieldError). A field no
 // update may change is compared against the stored record and refused only
 // when it differs, so an echo of the stored value still works.
 package api
@@ -72,6 +73,9 @@ func decodePatchObject(data []byte, dst any, shape reflect.Type, noun string) ([
 	if err := dec.Decode(dst); err != nil {
 		return nil, err
 	}
+	if field, repeated := repeatedPatchField(data, shape); repeated {
+		return nil, &patchRepeatedFieldError{Field: field}
+	}
 
 	var nulls []string
 	for key, value := range raw {
@@ -82,6 +86,56 @@ func decodePatchObject(data []byte, dst any, shape reflect.Type, noun string) ([
 	}
 	sort.Strings(nulls)
 	return nulls, nil
+}
+
+// patchRepeatedFieldError is the refusal of a PATCH body that names one of
+// its fields twice, in any mix of upper and lower case.
+//
+// encoding/json matches a key to a field without regard to case and lets
+// the later key win, and a field decoded by its own unmarshaler into a
+// pointer it already set (a credential's external, a template's survey)
+// decodes the second value into the first, so a body naming external twice
+// used to store both sets of references. Which one the caller meant cannot
+// be known, so neither is applied. decodeJSON answers it with its own text,
+// which names the field by its tag and repeats nothing the caller sent.
+type patchRepeatedFieldError struct {
+	// Field is the field's json name, prefixed by the object it is in when
+	// that object is nested ("survey.enabled").
+	Field string
+}
+
+// Error says which field was named twice and what to do instead.
+func (e *patchRepeatedFieldError) Error() string {
+	return `"` + e.Field + `" is named more than once in the body, in some mix of upper and lower case; name each field once`
+}
+
+// repeatedPatchField returns the json name of the first of shape's fields
+// that the top level of the object in data names twice, matching keys to
+// fields as encoding/json does, and whether there is one. It runs after the
+// strict decode has refused an unknown key, so every key here names a field.
+func repeatedPatchField(data []byte, shape reflect.Type) (string, bool) {
+	dec := json.NewDecoder(bytes.NewReader(data))
+	if _, err := dec.Token(); err != nil {
+		return "", false
+	}
+	seen := make(map[string]bool)
+	for dec.More() {
+		token, err := dec.Token()
+		if err != nil {
+			return "", false
+		}
+		key, _ := token.(string)
+		name := patchFieldName(shape, key)
+		if seen[name] {
+			return name, true
+		}
+		seen[name] = true
+		var value json.RawMessage
+		if err := dec.Decode(&value); err != nil {
+			return "", false
+		}
+	}
+	return "", false
 }
 
 // patchFieldName finds the json name of the field in shape that key decodes
