@@ -107,8 +107,11 @@ func (s *entStore) CreateCredential(ctx context.Context, organizationID, typeID 
 			return Credential{}, fmt.Errorf("credstore: reading the credential type's organization: %w", ownerErr)
 		}
 		if owner.ID != organizationID {
+			// Named by the id the caller sent, never by name: the type is
+			// another tenant's record, and a caller may hold the write scope
+			// without the read scope that would show it.
 			return Credential{}, fmt.Errorf(
-				"%w: the credential type %q belongs to another organization", ErrCrossOrganization, ct.Name)
+				"%w: the credential type %d belongs to another organization", ErrCrossOrganization, typeID)
 		}
 	}
 
@@ -329,8 +332,10 @@ func (s *entStore) boundFor(ctx context.Context, ids []int, organizationID int) 
 			return nil, fmt.Errorf("credstore: credential %d was read without its type or organization", id)
 		}
 		if org.ID != organizationID {
+			// Named by the id the caller sent, never by name, as
+			// CreateCredential's own cross-tenant refusal is.
 			return nil, fmt.Errorf(
-				"%w: the credential %q belongs to another organization", ErrCrossOrganization, row.Name)
+				"%w: the credential %d belongs to another organization", ErrCrossOrganization, id)
 		}
 
 		kind := credtype.Kind(ct.Kind)

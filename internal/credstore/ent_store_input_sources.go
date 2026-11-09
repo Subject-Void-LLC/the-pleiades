@@ -206,9 +206,10 @@ func (s *entStore) checkBindings(
 		if sourceOrg.ID != organizationID {
 			// The same refusal boundFor makes, for the same reason: a
 			// credential reading its values through another tenant's Vault
-			// authenticates as somebody else.
-			return fmt.Errorf("%w: the source credential %q belongs to another organization",
-				ErrCrossOrganization, source.Name)
+			// authenticates as somebody else. Named by the id the caller
+			// sent, never by name, as boundFor's is.
+			return fmt.Errorf("%w: the source credential %d belongs to another organization",
+				ErrCrossOrganization, b.SourceCredentialID)
 		}
 		if err := checkSourceField(b, source.Name, sourceType, schema); err != nil {
 			return err
