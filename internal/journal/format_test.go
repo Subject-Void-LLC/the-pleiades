@@ -61,9 +61,13 @@ func TestReadRunRefusesANewerFormatByName(t *testing.T) {
 
 // TestReadRunHoldsTheCollectionIdentityToWhatABuildWrites: a format-2 line's
 // identity and undo digest read as written; the same line is refused when
-// it claims an earlier format, when its identity is not one Valid accepts
-// (a manifest digest of the wrong shape, a group holding a format
-// character), and when its undo digest is not a digest.
+// it claims an earlier format, when its identity fails Shape (a manifest
+// digest of the wrong shape, a group holding an escape), and when its undo
+// digest is not a digest. A group holding a character only Go's Unicode
+// tables call a format character (a soft hyphen) reads, though Valid, which
+// the engine holds an identity to before writing it, refuses it: those
+// tables change with the Go release, and a journal written correctly under
+// one must stay readable under the next (LESSONS 415).
 func TestReadRunHoldsTheCollectionIdentityToWhatABuildWrites(t *testing.T) {
 	frozen, err := os.ReadFile(filepath.Join("testdata", "format-2", "entries.jsonl"))
 	if err != nil {
@@ -83,12 +87,19 @@ func TestReadRunHoldsTheCollectionIdentityToWhatABuildWrites(t *testing.T) {
 		t.Fatal(err)
 	}
 	path := filepath.Join(dir, goldenRunID+".jsonl")
-	for _, tc := range []struct{ name, old, new, wantErr string }{
+	for _, tc := range []struct {
+		name, old, new, wantErr string
+		// unicodeOnly marks a group whose only fault is one Go's Unicode
+		// tables decide, which the reader takes and Valid refuses.
+		unicodeOnly bool
+	}{
 		{name: "as written"},
 		{name: "claiming format 1", old: `"format":2,`, new: `"format":1,`, wantErr: "is journal format 1 and carries a Collection identity"},
 		{name: "claiming no format", old: `"format":2,`, new: ``, wantErr: "is journal format 1 and carries a Collection identity"},
 		{name: "a manifest digest of the wrong shape", old: manifests, new: `"manifests":"sha256:00"`, wantErr: "records a Collection identity no build writes"},
-		{name: "a group holding a soft hyphen", old: `"group":"acme-files"`, new: `"group":"acme\u00adfiles"`, wantErr: "control or format character"},
+		{name: "a group holding an escape", old: `"group":"acme-files"`, new: `"group":"acme\u001bfiles"`, wantErr: "holds a control code"},
+		{name: "a group holding a soft hyphen", old: `"group":"acme-files"`, new: `"group":"acme\u00adfiles"`, unicodeOnly: true},
+		{name: "a group holding a direction override", old: `"group":"acme-files"`, new: `"group":"acme\u202efiles"`, unicodeOnly: true},
 		{name: "an undo digest of the wrong shape", old: undo, new: `"inverse_spec_digest":"md5:00"`, wantErr: "carries undo digest"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -99,12 +110,21 @@ func TestReadRunHoldsTheCollectionIdentityToWhatABuildWrites(t *testing.T) {
 			if err := os.WriteFile(path, []byte(text+"\n"), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			_, err := journal.ReadRun(root, goldenRunID)
+			entries, err := journal.ReadRun(root, goldenRunID)
 			switch {
 			case tc.wantErr == "" && err != nil:
 				t.Errorf("refused: %v", err)
 			case tc.wantErr != "" && (err == nil || !strings.Contains(err.Error(), tc.wantErr)):
 				t.Errorf("error %v, want %q", err, tc.wantErr)
+			}
+			// The identity read back is one the engine would not have
+			// written under this toolchain: the reader accepts what a writer
+			// of another release could have, and the writer's rule still
+			// holds here.
+			if tc.unicodeOnly && err == nil {
+				if len(entries.Entries) == 0 || entries.Entries[0].Collection.Valid() == nil {
+					t.Errorf("the identity read back passes Valid, so this case tests nothing: %+v", entries.Entries)
+				}
 			}
 		})
 	}

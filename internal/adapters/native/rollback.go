@@ -32,7 +32,7 @@ func rollbackDAG(ran *engine.DAG, payload wire.DispatchPayload) (*engine.DAG, en
 	}
 	levels := make([][]rollback.Step, 0, len(rb.Steps))
 	for _, ws := range rb.Steps {
-		s := rollback.Step{Node: ws.Node, Index: ws.Index, Emitter: ws.Emitter, FQCN: ws.Method, Params: ws.Params, Name: ws.Name, Source: ws.Source}
+		s := stepFromWire(ws)
 		if err := rollback.Verify(ran, s); err != nil {
 			return nil, nil, fmt.Errorf("the rollback of job %s does not hold against runbook %q: %w", rb.Of, payload.RunbookID, err)
 		}
@@ -51,4 +51,12 @@ func rollbackDAG(ran *engine.DAG, payload wire.DispatchPayload) (*engine.DAG, en
 		return nil, nil, fmt.Errorf("the rollback of job %s does not build: %w", rb.Of, err)
 	}
 	return dag, engine.WithRollback(rb.Of, undoes), nil
+}
+
+// stepFromWire is the planner's step for ws, as the Controller planned it:
+// every field the wire carries, the Collection identity and undo digest the
+// journal recorded among them, for the step's checks on this Runner.
+func stepFromWire(ws wire.RollbackStep) rollback.Step {
+	return rollback.Step{Node: ws.Node, Index: ws.Index, Emitter: ws.Emitter, FQCN: ws.Method, Params: ws.Params, Name: ws.Name, Source: ws.Source,
+		Collection: ws.Collection, UndoDigest: ws.UndoDigest}
 }

@@ -169,6 +169,20 @@ version, and a Runner refuses a payload newer than it reads: the job fails with 
 reason rather than running part of what was asked. Runners from before 0.4.0 predate
 the field and cannot refuse one.
 
+A payload also names, under `collections`, each first-party Collection its runbook
+runs, as the Controller's catalog identifies it: the group, the Controller's version
+and a digest of the group's method declarations. The Runner compares each with its own
+build and warns where the declarations differ, in its own log and in the job's log,
+then runs the job: it runs its own code and records its own identity in the run
+journal, which is what a later rollback compares. The digests decide whether the
+declarations differ; the versions only choose the warning's wording, since the same
+version with other declarations points to a stale catalog or a corrupt build. Two
+builds with the same declarations warn nowhere, and the Runner notes the different
+versions only at debug level. A built-in method whose Collection the Controller did
+not name is noted at info level. A Runner of a release that cannot read the key
+compares nothing; a Controller of one names nothing, and its Runners compare
+nothing.
+
 Two other Walk-tier messages carry no version yet: the journal batch a Runner sends
 the Controller, and a job's result. Each is read leniently, so a field a newer Runner
 adds is dropped by an older Controller. Upgrading the Controller and its Runners

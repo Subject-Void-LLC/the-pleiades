@@ -318,7 +318,8 @@ func (d *dirSource) resolve(ctx context.Context, id string) (cacheEntry, error) 
 	rb := &Runbook{
 		ID:            id,
 		Required:      requiredCapabilities(dag),
-		Methods:       methods(dag),
+		Methods:       methods(dag, false),
+		AllMethods:    methods(dag, true),
 		Interruptible: dag.Metadata.IsInterruptible(),
 		Serial:        dag.Serial,
 		// Catalog metadata, read from the file rather than stored beside
@@ -381,13 +382,14 @@ func requiredCapabilities(dag *engine.DAG) []capability.Name {
 // methods computes Runbook.Methods from a compiled DAG: the FQCN of every
 // node without a condition of its own (engine.DAG.Conditional, the rule
 // internal/validate's CapabilityRule and TransportRule follow), deduplicated
-// and sorted. A synthetic node (a parallel block's fan-out or join) names
-// none and contributes nothing.
-func methods(dag *engine.DAG) []string {
+// and sorted; with conditional true, Runbook.AllMethods, which keeps the
+// nodes that have one. A synthetic node (a parallel block's fan-out or join)
+// names none and contributes nothing.
+func methods(dag *engine.DAG, conditional bool) []string {
 	seen := make(map[string]bool, len(dag.Nodes))
 	var names []string
 	for id, task := range dag.Nodes {
-		if task.FQCN == "" || seen[task.FQCN] || dag.Conditional(id) {
+		if task.FQCN == "" || seen[task.FQCN] || (!conditional && dag.Conditional(id)) {
 			continue
 		}
 		seen[task.FQCN] = true

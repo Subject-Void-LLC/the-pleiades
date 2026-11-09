@@ -165,6 +165,8 @@ func stepsFor(req Request, e engine.JournalEntry) ([]Step, error) {
 	return []Step{{
 		Node: e.NodeID, Index: 0, Emitter: e.FQCN, FQCN: e.InverseFQCN, Params: params, Source: SourceRecorded, Become: e.Become,
 		Name: fmt.Sprintf("undo %s (%s)", e.NodeID, labelOf(e)), Partial: e.InversePartial,
+		// Carried as recorded, for the Runner that runs the undo.
+		Collection: e.Collection, UndoDigest: e.InverseSpecDigest,
 	}}, nil
 }
 

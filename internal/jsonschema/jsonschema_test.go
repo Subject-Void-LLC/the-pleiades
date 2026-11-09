@@ -38,6 +38,8 @@ type sample struct {
 	Tags []string `json:"tags,omitempty"`
 	// Inner is a nested object.
 	Inner inner `json:"inner"`
+	// Maybe is a nested object written only when it is not zero.
+	Maybe inner `json:"maybe,omitzero"`
 	// Next is an optional pointer.
 	Next *inner `json:"next,omitempty"`
 	// Stats holds anything.
@@ -113,8 +115,8 @@ func TestBuilder_DescribesEachShape(t *testing.T) {
 		t.Error("a closed schema leaves its object open")
 	}
 	required := schema["required"].([]any)
-	if !slices.Contains(required, any("name")) || slices.Contains(required, any("tags")) {
-		t.Errorf("required = %v, want name and not the omitempty tags", required)
+	if !slices.Contains(required, any("name")) || slices.Contains(required, any("tags")) || slices.Contains(required, any("maybe")) {
+		t.Errorf("required = %v, want name and neither the omitempty tags nor the omitzero maybe", required)
 	}
 	code := schema["$defs"].(map[string]any)["inner"].(map[string]any)["properties"].(map[string]any)["code"].(map[string]any)
 	if !strings.Contains(code["description"].(string), "Known values: a, b") || code["examples"] == nil {
@@ -155,6 +157,34 @@ func TestBuilder_FixedIsNotShared(t *testing.T) {
 	}
 }
 
+// TestBuilder_AnAllOptionalObjectNamesNoRequired: an object whose every
+// property is omitempty or omitzero has no required list at all, since JSON
+// Schema's required must be an array and null is not one; written out, the
+// schema holds no required key.
+func TestBuilder_AnAllOptionalObjectNamesNoRequired(t *testing.T) {
+	type optional struct {
+		// A is optional.
+		A string `json:"a,omitempty"`
+		// B is optional too.
+		B inner `json:"b,omitzero"`
+	}
+	b := &Builder{Docs: map[string]string{"optional.A": "a", "optional.B": "b", "inner.Code": "code"}, Defs: map[string]any{}}
+	obj, err := b.Object(reflect.TypeFor[optional]())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := obj["required"]; ok {
+		t.Errorf("an all-optional object carries required = %v", obj["required"])
+	}
+	data, err := json.Marshal(obj)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), `"required"`) {
+		t.Errorf("the written schema names required: %s", data)
+	}
+}
+
 func TestBuilder_Refusals(t *testing.T) {
 	type undocumented struct {
 		X string `json:"x"`
@@ -188,7 +218,7 @@ func TestBuilder_Refusals(t *testing.T) {
 func TestValidator(t *testing.T) {
 	schema := buildSample(t, true)
 	good := `{"name":"n","count":2,"ratio":0.5,"on":true,"at":"2026-10-28T00:00:00Z","tags":["x"],"inner":{"code":"a"},
-		"next":{"code":"b"},"stats":{"any":[1,"two",{"three":null}]},"level":"high","Untagged":"u","first":"f","second":"s"}`
+		"maybe":{"code":"a"},"next":{"code":"b"},"stats":{"any":[1,"two",{"three":null}]},"level":"high","Untagged":"u","first":"f","second":"s"}`
 	var doc any
 	if err := json.Unmarshal([]byte(good), &doc); err != nil {
 		t.Fatal(err)

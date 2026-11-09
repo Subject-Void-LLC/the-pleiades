@@ -11,6 +11,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/playbook"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/runbook"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
 
 // PreparedDefinition is what fan-out needs to know about the thing a job
@@ -36,6 +37,12 @@ type PreparedDefinition struct {
 	// fan-out queues every admitted device and the pump runs them a batch at
 	// a time (serial.go). Empty for a playbook, whose serial: is Ansible's own.
 	Serial engine.SerialList
+
+	// Collections is this Controller's identity of each first-party group
+	// the definition's methods belong to (collectionIdentities over
+	// runbook.Runbook.AllMethods), carried onto every device's dispatch
+	// payload for the Runner to compare with its own. Nil for a playbook.
+	Collections map[string]wire.CollectionIdentity
 }
 
 // DefinitionSource prepares one kind's definitions for fan-out.
@@ -77,7 +84,8 @@ func (s runbookDefinitionSource) Prepare(ctx context.Context, definition string)
 		}
 		return PreparedDefinition{}, reason, err
 	}
-	return PreparedDefinition{Required: rb.Required, Methods: rb.Methods, Interruptible: rb.Interruptible, Serial: rb.Serial}, "", nil
+	return PreparedDefinition{Required: rb.Required, Methods: rb.Methods, Interruptible: rb.Interruptible, Serial: rb.Serial,
+		Collections: collectionIdentities(rb.AllMethods)}, "", nil
 }
 
 // PlaybookGetter is the slice of internal/playbook.Source fan-out needs:

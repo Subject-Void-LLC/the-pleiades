@@ -16,6 +16,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/render"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/rollback"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
 
 // repoRoot is the repository root, where the model files are.
@@ -48,7 +49,11 @@ func fullRunReport() RunReport {
 		Rollback: &RollbackReport{
 			Of: "run-0",
 			Levels: [][]rollback.Step{{{Node: "tasks[0]", DeviceID: "id-1", DeviceName: "r1", Index: 0, Emitter: "file.copy",
-				FQCN: "file.remove", Params: map[string]any{"path": "/x"}, Name: "undo", Source: "recorded", Partial: true, Become: "root"}}},
+				FQCN: "file.remove", Params: map[string]any{"path": "/x"}, Name: "undo", Source: "recorded", Partial: true, Become: "root",
+				Collection: wire.CollectionIdentity{Group: "file", Version: "0.4.0", Manifests: "sha256:" + strings.Repeat("c", 64)},
+				UndoDigest: "sha256:" + strings.Repeat("d", 64)}},
+				{{Node: "tasks[2]", DeviceID: "id-1", DeviceName: "r1", Emitter: "acme.make", FQCN: "acme.remove", Params: map[string]any{}, Name: "undo 2", Source: "recorded",
+					Collection: wire.CollectionIdentity{Group: "acme", Program: true, Manifests: "sha256:" + strings.Repeat("e", 64)}}}},
 			Left: []rollback.Gap{gap}, Unknown: []rollback.Gap{gap}, UnacceptedUnknown: 1, AlreadyUndone: []rollback.Gap{gap},
 			NothingToUndo: []rollback.Gap{gap}, OrderedByClock: []string{"0f8fad5b-d9cb-469f-a165-70867728950e"},
 			Problems:    []rollback.Problem{{Node: "tasks[0]", DeviceID: "id-1", DeviceName: "r1", Reason: "no undo", Kind: "later_run", Accept: "--despite-run run-2", UnknownEffects: []string{"exec.shell"}}},

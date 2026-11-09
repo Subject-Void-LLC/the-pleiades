@@ -142,6 +142,11 @@ func runbookContextFor(payload wire.DispatchPayload) engine.RunbookContextFunc {
 // stack the Crawl-tier CLI runs, scoped to the one device this payload
 // names.
 func (a *Adapter) Execute(ctx context.Context, payload wire.DispatchPayload) (wire.Outcome, error) {
+	// Login seed material is the engine's to derive, never a dispatch's to
+	// carry, so any is dropped before anything below reads the secrets
+	// (seeds.go).
+	payload = withoutDeliveredSeeds(a.logger, payload)
+
 	// The mode is settled before anything starts, and a value that is not
 	// a mode refuses the dispatch: reading it as a real run would be the
 	// one unsafe guess (pkg/wire.DispatchPayload.Mode).
@@ -202,6 +207,20 @@ func (a *Adapter) Execute(ctx context.Context, payload wire.DispatchPayload) (wi
 		dag, rollbackOption, err = rollbackDAG(dag, payload)
 		if err != nil {
 			return wire.Outcome{}, a.refuse(ctx, payload, err)
+		}
+	}
+
+	// The Collections the Controller planned against, compared with this
+	// Runner's own and warned about where they differ, over the tasks this
+	// dispatch runs; it runs either way (collections.go). Each warning goes
+	// to the Runner's log and, as a task.warning event, to the job's, which
+	// is where an operator reads it.
+	for _, warning := range compareCollections(a.logger, payload, dag) {
+		event := wire.JobEvent{Status: "ok", Host: payload.DeviceHost, Task: "task.warning"}
+		event.Timestamp = time.Now().UTC().Format(time.RFC3339)
+		event.EventData.Message = "WARNING: " + warning
+		if err := a.publish(ctx, payload.JobID, event); err != nil {
+			return wire.Outcome{}, fmt.Errorf("failed to publish a warning: %w", err)
 		}
 	}
 

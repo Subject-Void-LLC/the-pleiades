@@ -73,6 +73,14 @@ type Runbook struct {
 	// and is left to the Runner.
 	Methods []string
 
+	// AllMethods is Methods with the conditional tasks kept: every action
+	// FQCN the compiled DAG names, sorted and deduplicated. Admission leaves
+	// a conditional task out because the run may skip it; the Controller's
+	// statement of which Collections a dispatch may run (each group's
+	// identity, wire.DispatchPayload.Collections) cannot, since a condition
+	// that holds on the Runner runs it.
+	AllMethods []string
+
 	// Interruptible is engine.Metadata.IsInterruptible()'s own resolved
 	// answer for this runbook (dir_source.go's Get applies the default
 	// there, once, so every caller of this package gets a concrete bool

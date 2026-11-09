@@ -267,11 +267,16 @@ func (w *Worker) dispatchPayload(ctx context.Context, job *Job, prepared Prepare
 	// through the same resolution the CLI uses. Off at either is off.
 	payload.PersistConnections = launch.PersistConnections(job.Fields) && engine.PersistFor(w.repo)(ctx, device)
 
-	// A rollback job's device carries its own steps, which its Runner runs
-	// in place of the runbook's tasks (rollback.go).
+	// The Collections the dispatch runs, as this Controller's catalog
+	// identifies them, for the Runner to compare with its own build's
+	// (collections.go). A rollback job's device carries its own steps, which
+	// its Runner runs in place of the runbook's tasks (rollback.go), so its
+	// Collections are its steps'.
+	payload.Collections = prepared.Collections
 	if job.RollbackOf != "" {
 		steps, _ := job.Rollback.StepsFor(string(device.ID()))
 		payload.Rollback = &wire.Rollback{Of: job.RollbackOf, DAGVersion: job.Rollback.DAGVersion, Steps: steps}
+		payload.Collections = rollbackCollections(steps)
 	}
 
 	// The template's own bound credentials, already rendered for the whole

@@ -48,7 +48,7 @@ var (
 			"RunWarning.Kind":     KnownWarningKinds,
 			"RunWarning.When":     {"start", "end"},
 		},
-		ModelFiles: []string{"internal/clireport/run.go", "internal/rollback/plan.go", "pkg/collection/collection.go"},
+		ModelFiles: []string{"internal/clireport/run.go", "internal/rollback/plan.go", "pkg/collection/collection.go", "pkg/wire/identity.go"},
 	}
 	// FiltersSchema is FiltersTopic's.
 	FiltersSchema = Schema{

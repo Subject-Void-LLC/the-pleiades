@@ -25,7 +25,8 @@ var coreVersion = sync.OnceValue(buildinfo.Version)
 // unresolved name, which no Collection provides.
 //
 // Only an identity that passes wire.CollectionIdentity.Valid is recorded,
-// so every identity a journal holds is one its readers can hold to Valid. A
+// so every identity a journal holds passes Shape, the part of Valid its
+// readers hold it to, under this toolchain and every later one. A
 // program's file name the loader admits can hold what Valid refuses (a
 // format character) or bytes JSON cannot carry (invalid UTF-8, which
 // encoding/json replaces), and the loader does not refuse one (an approved

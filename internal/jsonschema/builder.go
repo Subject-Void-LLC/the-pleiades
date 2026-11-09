@@ -124,7 +124,7 @@ func (s *Builder) Of(t reflect.Type) (map[string]any, error) {
 }
 
 // Object returns t's object schema: each serialized field a property,
-// described by its doc comment, required unless omitempty. A field with no
+// described by its doc comment, required unless omitempty or omitzero. A field with no
 // JSON name is written under its Go name, as encoding/json writes it.
 func (s *Builder) Object(t reflect.Type) (map[string]any, error) {
 	props := map[string]any{}
@@ -156,7 +156,9 @@ func (s *Builder) Object(t reflect.Type) (map[string]any, error) {
 		}
 		prop["description"] = doc
 		props[name] = prop
-		if !strings.Contains(opts, "omitempty") {
+		// omitzero leaves a zero value out exactly as omitempty leaves an
+		// empty one, so either makes the property optional.
+		if !strings.Contains(opts, "omitempty") && !strings.Contains(opts, "omitzero") {
 			required = append(required, name)
 		}
 	}
@@ -164,7 +166,11 @@ func (s *Builder) Object(t reflect.Type) (map[string]any, error) {
 		"type":        "object",
 		"description": s.Docs[t.Name()],
 		"properties":  props,
-		"required":    required,
+	}
+	// JSON Schema's required is an array: an object with no required
+	// property leaves the keyword out rather than write null.
+	if len(required) > 0 {
+		obj["required"] = required
 	}
 	if !s.Open {
 		obj["additionalProperties"] = false

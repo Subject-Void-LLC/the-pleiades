@@ -36,6 +36,7 @@ import (
 	"sort"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
 
 // Run is one run's journal, as the planner reads it.
@@ -140,6 +141,15 @@ type Step struct {
 	// Partial marks a recorded undo that does not put everything back,
 	// run because the operator named it in AllowPartial.
 	Partial bool `json:"partial,omitempty"`
+
+	// Collection and UndoDigest are what the journal recorded for a
+	// recorded undo: the identity of the Collection the node's method came
+	// from (engine.JournalEntry.Collection) and the digest of the undo's
+	// declaration (JournalEntry.InverseSpecDigest). Both are empty for an
+	// authored step and for an entry that recorded neither. The plan carries
+	// them to a Runner (wire.RollbackStep) and decides nothing by them yet.
+	Collection wire.CollectionIdentity `json:"collection,omitzero"`
+	UndoDigest string                  `json:"undo_digest,omitempty"`
 }
 
 // Gap is a change the plan does not undo, and why.

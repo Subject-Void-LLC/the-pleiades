@@ -53,8 +53,27 @@ func TestDispatchPayload_JSONRoundTrip(t *testing.T) {
 				SSHPort:       22,
 				Capabilities:  []capability.Name{capability.NameSSHTransport},
 				Secrets:       map[string]string{"password": "hunter2"},
+				Collections:   map[string]CollectionIdentity{"net": {Group: "net", Version: "0.4.0", Manifests: validDigest}},
 			},
-			wantJSON: `{"job_id":"job-123","runbook_id":"runbook-456","kind":"","device_id":"device-789","device_name":"core-switch-1","device_host":"10.0.0.1","interruptible":true,"ssh_port":22,"capabilities":["SSHTransportCapable"],"secrets":{"password":"hunter2"}}`,
+			wantJSON: `{"job_id":"job-123","runbook_id":"runbook-456","kind":"","device_id":"device-789","device_name":"core-switch-1","device_host":"10.0.0.1","interruptible":true,"ssh_port":22,"capabilities":["SSHTransportCapable"],"secrets":{"password":"hunter2"},` +
+				`"collections":{"net":{"group":"net","version":"0.4.0","manifests":"` + validDigest + `"}}}`,
+		},
+		{
+			name: "a rollback step carries the identity its journal entry recorded",
+			// A recorded step's identity and undo digest ride with it; an
+			// authored step, which has neither, writes neither key.
+			in: DispatchPayload{
+				JobID: "job-4",
+				Rollback: &Rollback{Of: "job-3", DAGVersion: "sha256:aa", Steps: []RollbackStep{
+					{Node: "tasks[0]", Emitter: "file.copy", Method: "file.remove", Name: "undo", Source: "recorded",
+						Collection: CollectionIdentity{Group: "file", Version: "0.4.0", Manifests: validDigest}, UndoDigest: validDigest},
+					{Node: "tasks[1]", Index: 1, Emitter: "file.copy", Method: "file.remove", Name: "undo 2", Source: "authored"},
+				}},
+			},
+			wantJSON: `{"job_id":"job-4","runbook_id":"","kind":"","device_id":"","device_name":"","device_host":"","interruptible":false,"ssh_port":0,"capabilities":null,` +
+				`"rollback":{"of":"job-3","dag_version":"sha256:aa","steps":[` +
+				`{"node":"tasks[0]","index":0,"emitter":"file.copy","method":"file.remove","name":"undo","source":"recorded","collection":{"group":"file","version":"0.4.0","manifests":"` + validDigest + `"},"undo_digest":"` + validDigest + `"},` +
+				`{"node":"tasks[1]","index":1,"emitter":"file.copy","method":"file.remove","name":"undo 2","source":"authored"}]}}`,
 		},
 		{
 			name:     "zero value",
