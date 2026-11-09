@@ -204,6 +204,9 @@ func (w writer) Update(ctx context.Context, id string, p project.Project) error 
 	// Immutable, so an edit never carries it and the store must not be
 	// told to move the project between tenants.
 	p.OrganizationID = existing.OrganizationID
+	// The form shows the URL redacted, so saving it unchanged sends the
+	// redacted form back: an echo, which keeps the stored URL.
+	p.SCMURL = project.KeepEchoedSourceURL(existing.SCMURL, p.SCMURL)
 	if err := usableForGit(ctx, w.creds, p.CredentialID); err != nil {
 		return view.WrapNotFound(err, project.ErrNotFound)
 	}

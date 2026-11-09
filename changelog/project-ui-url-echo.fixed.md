@@ -1,0 +1,1 @@
+Saving a project's edit form in the web UI without touching its URL now keeps the stored URL. The form shows a URL that carries a credential redacted, and saving a manual or archive project used to store the redacted form in place of the real URL. A git project whose stored URL carries a credential is still refused until its URL is changed, as before.
