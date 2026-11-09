@@ -72,19 +72,28 @@ func TestDevices_ANameAURLMustEscapeIsReachedByItsLink(t *testing.T) {
 			if edit.Code != http.StatusOK {
 				t.Fatalf("GET %s/edit = %d, want 200", link, edit.Code)
 			}
-			if !strings.Contains(edit.Body.String(), `value="`+html.EscapeString(name)+`"`) {
-				t.Errorf("the edit form at %s/edit is not prefilled with %q", link, name)
+			// The name is fixed once a device exists, so the edit form
+			// carries it only in where it submits to, which must be this
+			// record's own address.
+			if !strings.Contains(edit.Body.String(), `action="`+html.EscapeString(link)+`"`) {
+				t.Errorf("the edit form at %s/edit does not submit to %s", link, link)
 			}
 
-			// The devices view saves the item its form builds, so an
-			// update shows the record the path named only in where it
-			// returns to.
-			updated := h.post(t, link, map[string]string{"name": name, "type": "linux_server", "tags": "patched"})
+			// An update changes the stored device the path named, so the
+			// record it returns to is that one.
+			updated := h.post(t, link, map[string]string{"tags": "patched"})
 			if updated.Code != http.StatusSeeOther {
 				t.Fatalf("POST %s = %d, want 303: %s", link, updated.Code, updated.Body.String())
 			}
 			if got := updated.Header().Get("Location"); got != link {
 				t.Errorf("updating %q returned to %s, want %s", name, got, link)
+			}
+			stored, err := conformanceRepo.GetByName(t.Context(), name)
+			if err != nil {
+				t.Fatalf("GetByName(%q) after the update = %v, want nil", name, err)
+			}
+			if got := stored.Tags(); len(got) != 1 || got[0] != "patched" {
+				t.Errorf("updating %q stored the tags %v, want [patched]", name, got)
 			}
 
 			deleted := h.post(t, link, map[string]string{"_method": http.MethodDelete})

@@ -1,0 +1,1 @@
+`PATCH /inventory/devices/{name}` now refuses a `name` or `type` that differs from the stored device with 400 and a message naming the field, where it used to answer 200 and change neither. A body that repeats the stored name and type is still accepted.

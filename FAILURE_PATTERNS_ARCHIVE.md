@@ -25199,6 +25199,40 @@ ent repository.
 
 **Lesson.** Pending.
 
+**Resolved 2026-11-09 (fixed on `fix/ui-device-edit`, `6db5b4d5`, with `5f38ecda` and `7b958c25`). Reproduced, and the
+failure was not the one guessed; a repeat of 261.** Run through the real UI handler (`web.New` with the real router,
+the ent session store, CSRF and admission) over `inventory.NewEntRepository` on SQLite, and over the file store, an edit
+of a device's tags answered 303, the success redirect, and stored nothing: the tags stayed as they were, the version
+stayed 0, and no revision was recorded. It was not a 500 or a version conflict. The view's `Bind` built the item through
+`factory.Build` with a fresh id and version 0, so its `BaseVersion()` equaled its `Version()`, and both stores' `Save`
+return nil for "nothing changed" before they look the row up. The lookup by the new id that the symptom above guessed
+at was never reached. The edit form also offered `name` and `type`, which neither store's `Save` writes and the stored
+type column cannot change.
+
+**Why 261 did not prevent it.** 261 was this defect on the API's PATCH: an item at the version it was loaded at, and a
+`Save` that read it as unchanged. Its fix (`record.Base.ChangeTags`) and its lesson (test a write path that ends in that
+optimization against the real repository) were applied to the API handler only. Nothing applied them to the UI's
+writer, and the UI conformance suite's fake repository hid it: its `Save` returned nil and kept nothing, and it handed
+out stored items by pointer, so no read-back in that suite could show the loss (1053).
+
+**Fix.** `writer.Update` (`internal/ui/resources/devices/ports.go`) reads the stored device with `GetByName`, applies the
+change through `ChangeTags` and saves that device, so its id, state, source, properties and history are kept, the
+version goes up and a revision is recorded. `inventory.ErrVersionConflict` answers 422 on the form and keeps what was
+typed. `name` and `type` are `Immutable` (111), so the edit form no longer offers them. Tests, each shown red on the old
+code: `TestEditingADeviceUpdatesTheStoredRecord` (ent), `TestEditingADeviceUpdatesTheFileStore`,
+`TestAnEditThatLosesARaceIsRefusedAndKeepsTheOtherWrite`, `TestAnEditFormOffersOnlyWhatAnEditCanChange` and
+`TestEditingADeviceKeepsItsPropertiesAndState` (`internal/ui/resources/devices/edit_test.go`), and the e2e
+`TestUI_FullCRUDRoundTrip` (`tests/e2e/ui_test.go`), which now has an edit step, passes against real PostgreSQL and
+fails against the old view (1057).
+
+**Limits, by design.** The edit form carries no version, so a form opened before another change still overwrites the
+tags when submitted: last writer wins, as the API's PATCH does without `If-Match`. Only a race between the server's own
+read and its save is refused. Neither store can rename a device, so the name stays fixed.
+
+**Lesson.** As 261, and for the suite as well as the code: a write that ends in "unchanged version means nothing to
+save" is proven only by reading the record back from a real store, and a fake standing in for that store must keep its
+contract (LESSONS 424).
+
 ## 1045. The toybox chmod test downloaded toybox 0.8.13 from landley.net on every run, so a CI containers shard failed when that server timed out, with nothing in the repository changed (fixed on this branch; on main since 17d17f8b, 2026-09-28)
 
 **Symptom.** 2026-11-08, a CI run of PR #135, the converter's (run 42506735140, `containers (3)`, at `d963453c`):
@@ -25387,3 +25421,135 @@ and the step below requires toybox.
 
 **Lesson.** As 1041: before review, reread each sentence the branch added against the code it describes, including
 comments in workflow files.
+
+## 1053. The UI conformance suite's fakes were more permissive than the stores they stand for: the device fake's Save answered nil and kept nothing, its reads handed out the stored item by pointer, and the device retire and inventory delete fakes answered nil for a record that was not stored (fixed on this branch; on main since 9de3c7fe, 2026-08-11, and the inventory delete fake since 46d6f734, 2026-09-13; a repeat in kind of 261)
+
+**Symptom.** Found on `fix/ui-device-edit`, 2026-11-09, while reproducing 1044. `internal/ui/resources/harness_test.go`'s
+`fakeRepository.Save` was `return nil`: it stored nothing, so an edit that wrote nothing passed every test in the
+suite. Its `GetByName` returned the stored item itself, so a caller's change to that item in memory reached the fixture
+with no `Save` at all, which no real store allows. `fakeRepository.Retire` and `fakeSetStore.Delete` answered nil for
+any name or id, so in the suite a delete of a device or an inventory that was not stored answered 303, the success
+redirect, where the real stores return `inventory.ErrItemNotFound` and `inventory.ErrSetNotFound` (1058).
+
+**Root cause.** The fakes were written to let each view's handler run, not to keep the stores' contract. A fake that
+accepts every write and answers every lookup can only make a test pass more often than the real store would, and the
+suite never read a record back from the fake after a write.
+
+**Why 261 did not prevent it.** 261's handler tests used a stub repository that recorded any `Save` call, and its lesson
+said such a path must be tested against the real repository. The fix there replaced the API handler's test, not the
+other fakes of the same repository; this suite's fake predates 261 and nothing swept it.
+
+**Fix.** `5f38ecda` and `b5c39653`. `GetByName` returns a copy rebuilt through the factory from the stored record,
+version and history included (`copyItem`). `Save` stores the item, conditional on the stored version as the real
+repositories are, and answers `ErrVersionConflict` on a mismatch. `Retire` and `fakeSetStore.Delete` return the real
+stores' not-found errors for a record that is not stored, and `Delete` really removes. The tests that depend on them are
+1044's and 1058's.
+
+**Lesson.** A fake for a store keeps the store's contract: it copies on read, stores on save under the same version
+check, and returns the store's own not-found errors. A fake more permissive than its store hides exactly the failures
+the store would show (LESSONS 424).
+
+## 1054. PATCH /inventory/devices/{name} answered 200 while ignoring name and type, so a rename or a type change stored nothing and said it had worked (fixed on this branch; on main since ea2fc4fd, 2026-08-10; a repeat of 111 and 261)
+
+**Symptom.** Found on `fix/ui-device-edit`, 2026-11-09. `deviceWriteRequest` (`internal/api/devices.go`) decodes
+`name` and `type` for create and update alike, and `DeviceHandler.Update` never read either. A body changing either one
+answered 200 with the record unchanged. Neither store's `Save` writes the name, and the stored type column cannot
+change.
+
+**Root cause.** One request type serves create and update, and the update path read only the fields it could apply.
+Nothing refused the rest.
+
+**Why 111 and 261 did not prevent it.** 111 was the same "accepted and ignored" shape in the UI's edit forms, and its fix,
+`view.Field.Immutable`, lives in the UI's view declarations; no sweep held the API's write types to it. 261 fixed the
+two fields its symptom showed, state and tags, and left the request type's other two fields unread.
+
+**Fix.** `239aaa6b`. `Update` compares each of `name` and `type` in the body byte for byte against the stored record. A
+differing value is refused with 400 naming the field. An echo of the stored value is accepted, so a client that sends
+the record back with one other field changed still works. The route's description in `internal/apispec/apispec.go` says
+so, and the generated OpenAPI documents were regenerated. Test, shown red on the old code:
+`TestDeviceUpdate_ANameOrTypeChangeIsRefusedAndAnEchoIsAccepted` (`internal/api/devices_fixed_fields_test.go`). This is
+a breaking change for a client that relied on a differing value being dropped, and its changelog fragment says so.
+
+**Lesson.** As 111: a write path that cannot apply a field it decodes refuses a value that differs from the stored one,
+rather than answering success. A request type shared by create and update needs its update half checked field by
+field.
+
+## 1055. Nine other PATCH endpoints answer success while ignoring fields their body can carry: announcements, bindings, contacts, credential types, credentials, inventories, projects, teams and templates (open: task 17; a repeat of 111, 261 and 1054)
+
+**Symptom.** Found by a sweep of the PATCH handlers on `fix/ui-device-edit`, 2026-11-09, after 1054. Each of the nine
+endpoints named in the title decodes at least one field that its update then ignores, so a request changing that field
+answers success and stores nothing for it. The fields each one ignores are held in task 17 and are not listed here. The
+templates endpoint's `kind`, `definition` and `inventory` are ignored on update by design (its `templateWriteDTO` doc
+comment), which is the same shape whatever its reason.
+
+**Root cause.** As 1054: a request type shared by create and update, and an update that reads only what it can apply.
+
+**Status.** Open. Passed to task 17. When each was introduced has not been traced.
+
+**Lesson.** Pending the fix. 1054's rule applies to each: refuse a differing value of a field the update cannot apply.
+
+## 1056. PATCH /templates/{id} replaces a template's editable half from the body, so a client that omits survey deletes the survey, omitting defaults, prompts or required_capabilities blanks them, and omitting allow_simultaneous writes false (open, read in code and not reproduced: task 16; on main since 5dbc35bc, 2026-08-12; a repeat in kind of 103)
+
+**Symptom.** Found by reading on `fix/ui-device-edit`, 2026-11-09; not run. `TemplateHandler.Update`
+(`internal/api/templates.go`, lines 388 to 417) checks that the template exists and then calls `h.templates.Update`
+with a `launch.Template` built only from the body: `Name`, `Description`, `Defaults`, `Prompts`, `Survey`,
+`AllowSimultaneous` and `RequiredCaps`. A field the body leaves out arrives as its zero value. Read, that deletes a
+survey's questions, blanks the defaults, prompts and required capabilities, and writes `allow_simultaneous: false`. The
+method's own doc comment says it "replaces a template's editable half", behind a route documented as PATCH. If the
+reading holds, an ordinary partial PATCH loses data.
+
+**Why 103 did not prevent it.** 103's fix landed in the same commit, `5dbc35bc`. It turned the teams' and inventories'
+membership lists into pointers, and its lesson (LESSONS 98) says PATCH means partial and a field whose absence differs
+from its emptiness needs three states. The fix and the rule were applied to the list fields its symptom showed; the
+template handler, written beside them, takes plain values and a map, and nothing held every PATCH handler to the rule.
+
+**Status.** Open, unverified (task 16). The next step is a test that seeds a template with a survey, defaults and
+`allow_simultaneous: true`, sends a PATCH naming only its description through the real router and store, and reads the
+template back.
+
+**Lesson.** Pending the fix. LESSONS 98 applies to every field of a PATCH body, not only to lists.
+
+## 1057. TestUI_FullCRUDRoundTrip's doc comment said it drove create, read, edit and delete through the rendered pages, and the test had no edit step (fixed on this branch; on main since 9de3c7fe, 2026-08-11; the class of 228, 1029 and 1041)
+
+**Symptom.** Found on `fix/ui-device-edit`, 2026-11-09, while resolving 1044. `tests/e2e/ui_test.go`'s
+`TestUI_FullCRUDRoundTrip` created a device, read it back and retired it. Its doc comment named an edit as well. The one
+end-to-end test of the UI's writes against real PostgreSQL therefore never edited anything, and a reader of its comment
+had no reason to look for 1044 there.
+
+**Root cause.** The comment named the steps the test was meant to have, not the steps it had.
+
+**Why 228, 1029 and 1041 did not prevent it.** Their rule is to reread each sentence a branch adds against the code it
+describes before review. This sentence was old, and no check reads a test's doc comment against its body.
+
+**Fix.** `7b958c25`. The test now opens the device's edit form, posts new tags with that form's own CSRF token, expects
+303, and reads the tags back from the detail page. It passes against real PostgreSQL and fails against the old view.
+
+**Lesson.** A test's doc comment that lists the steps it covers is coverage a reader trusts. Read it against the test's
+body as a claim, as 1029 and 1041 say of any other text.
+
+## 1058. An edit or a delete of a record that was not stored answered 500 on every writable UI view, as though the server were broken (fixed on this branch; on main since 9de3c7fe, 2026-08-11)
+
+**Symptom.** Found on `fix/ui-device-edit`, 2026-11-09, while writing 1044's tests. The UI handler
+(`internal/ui/web/resources.go`) answered every error from a view's `Update` or `Delete` with `serverError`, so editing
+or deleting a record someone else had removed answered 500 on all twelve writable views. Credentials and templates
+answered 400 on the edit instead, because their edit forms build their fields from the stored record and failed there.
+In the conformance suite, a delete of a missing device or inventory answered 303, because the fakes answered nil (1053).
+
+**Root cause.** The handler had no way to tell "not stored" from a fault. Each write port returned its store's own
+not-found error, and the handler imports no store, so it could not test for any of them.
+
+**Earlier entries.** A search of the index for a missing record answered as a server fault, by symptom and by cause,
+found no earlier entry.
+
+**Fix.** `c63f7e1f` and `b5c39653`. `view.ErrNotFound` and `view.WrapNotFound(err, storeNotFound)`
+(`internal/ui/view/bind.go`): each of the twelve writable views (contacts, credentials, credential types, devices,
+grants, inventories, organizations, projects, schedules, teams, templates and users) wraps its store's not-found sentinel,
+and the handler's update, delete and form-resolving paths answer it with 404, as the edit form for an unreadable record
+already did. Tests, shown red on the old code: `TestViewConformance_AMissingRecordIsNotFound`
+(`internal/ui/resources/missing_record_test.go`), which also fails if the set of writable views drifts from the set it
+checks; `TestWrapNotFound` (`internal/ui/view/wrapnotfound_test.go`); and `TestEditingAMissingDeviceIsNotFound`
+(`internal/ui/resources/devices/edit_test.go`). The review checked that no other error maps to 404 and that the new 404
+gives no signal of a record's existence across organizations.
+
+**Lesson.** A handler that imports no store needs one sentinel of its own for "not stored", which each port wraps, or
+every missing record reads as a server fault. Test it over the whole set of views, so a view added later cannot skip it.

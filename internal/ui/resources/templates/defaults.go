@@ -17,6 +17,7 @@ package templates
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strconv"
@@ -44,6 +45,11 @@ func defaultsFields(store launch.Store) func(context.Context, view.Resolve) ([]v
 		// to read fields from.
 		tmpl, ok := load(ctx, store, r.ID)
 		if !ok {
+			// An edit of a template that is not stored is answered 404
+			// before anything is read off the submission.
+			if err := missingOnEdit(ctx, store, r); err != nil {
+				return nil, err
+			}
 			// A template that cannot be read offers no controls for values
 			// nothing here could apply. GET returns not-found separately.
 			return nil, nil
@@ -235,4 +241,22 @@ func bindDefaults(v view.Values) (launch.Fields, []string, view.FieldErrors) {
 		defaults = nil
 	}
 	return defaults, prompts, errs
+}
+
+// missingOnEdit returns view.ErrNotFound when r is an edit of a template
+// that is not stored, and nil otherwise, so a submission to a removed
+// template is a 404 rather than a refusal of the default controls its form
+// carried. It is asked only once load has found nothing.
+func missingOnEdit(ctx context.Context, store launch.Store, r view.Resolve) error {
+	if !r.Editing() {
+		return nil
+	}
+	id, err := strconv.Atoi(r.ID)
+	if err != nil || id < 1 {
+		return view.ErrNotFound
+	}
+	if _, err := store.Get(ctx, id); errors.Is(err, launch.ErrNotFound) {
+		return view.ErrNotFound
+	}
+	return nil
 }

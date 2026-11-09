@@ -1,0 +1,1 @@
+Editing a device in the web UI now saves the change: the edit used to report success and store nothing. The edit form now offers only the tags, since a device's name and type are fixed once it exists, and an edit made against a version another change has since replaced is refused on the form, so it cannot overwrite that change.

@@ -392,6 +392,32 @@ func TestUI_FullCRUDRoundTrip(t *testing.T) {
 		t.Error("the detail page does not show the tags that were submitted")
 	}
 
+	// Edit: change the tags through the edit form, with its own token, then
+	// read them back from the detail page. The edit used to redirect as a
+	// success and store nothing, which only a read-back can see.
+	status, editPage, _ := uiGet(t, client, h.baseURL+"/ui/devices/"+name+"/edit")
+	if status != http.StatusOK {
+		t.Fatalf("GET edit form = %d, want 200", status)
+	}
+	editResp, err := client.PostForm(h.baseURL+"/ui/devices/"+name, url.Values{
+		"tags":  {"e2e, edited-by-form"},
+		"_csrf": {csrfTokenFrom(t, editPage)},
+	})
+	if err != nil {
+		t.Fatalf("edit: %v", err)
+	}
+	_ = editResp.Body.Close()
+	if editResp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("edit = %d, want 303", editResp.StatusCode)
+	}
+	status, detail, _ = uiGet(t, client, h.baseURL+"/ui/devices/"+name)
+	if status != http.StatusOK {
+		t.Fatalf("GET detail after the edit = %d, want 200", status)
+	}
+	if !strings.Contains(detail, "edited-by-form") {
+		t.Error("the detail page does not show the tags the edit form submitted")
+	}
+
 	// Delete, which for a device is retirement rather than row removal:
 	// every Revision is immutable by schema, so a real delete would destroy
 	// the audit trail the schema exists to protect.

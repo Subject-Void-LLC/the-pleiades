@@ -223,7 +223,7 @@ func (w writer) Create(ctx context.Context, s schedule.Schedule) (string, error)
 func (w writer) Update(ctx context.Context, id string, s schedule.Schedule) error {
 	existing, err := w.store.Get(ctx, schedule.AnyOrganization, id)
 	if err != nil {
-		return err
+		return view.WrapNotFound(err, schedule.ErrNotFound)
 	}
 	// The identity of the row being edited comes from storage, never from
 	// the submission: a form that could restate them could move a schedule
@@ -251,7 +251,7 @@ func (w writer) Update(ctx context.Context, id string, s schedule.Schedule) erro
 	}
 
 	if _, err := w.store.Update(ctx, s, reachOf(ctx)); err != nil {
-		return asFieldFault(err)
+		return view.WrapNotFound(asFieldFault(err), schedule.ErrNotFound)
 	}
 	return nil
 }
@@ -269,7 +269,7 @@ func reachOf(ctx context.Context) launchable.Reach {
 }
 
 func (w writer) Delete(ctx context.Context, id string) error {
-	return w.store.Delete(ctx, schedule.AnyOrganization, id)
+	return view.WrapNotFound(w.store.Delete(ctx, schedule.AnyOrganization, id), schedule.ErrNotFound)
 }
 
 // asFieldFault turns a store validation failure into the form-level fault

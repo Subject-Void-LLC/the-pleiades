@@ -5275,7 +5275,7 @@
               "schema": {
                 "properties": {
                   "name": {
-                    "description": "The device's unique name, which is its address: \"\", \".\" and \"..\" are refused, since no URL can carry one as a path segment.",
+                    "description": "The device's unique name, which is its address: \"\", \".\" and \"..\" are refused, since no URL can carry one as a path segment. Fixed once the device exists: an update refuses a different name.",
                     "type": "string"
                   },
                   "state": {
@@ -5289,7 +5289,7 @@
                     "type": "array"
                   },
                   "type": {
-                    "description": "A registered device type, e.g. \"linux_server\".",
+                    "description": "A registered device type, e.g. \"linux_server\". Fixed once the device exists: an update refuses a different type.",
                     "type": "string"
                   }
                 },
@@ -5601,7 +5601,7 @@
         "x-link-relation": "self"
       },
       "patch": {
-        "description": "Applies tag and lifecycle-state changes to an existing device, and is how a device is promoted out of quarantined or simulate-locked. Each change is recorded as a revision in the device's history, and setting what the device already has records nothing. A sync that later updates the device keeps the state set here. The write is guarded by the stored version token, so two callers editing the same device concurrently cannot lose one another's change: the later write is refused with 409 and must reload and reapply.",
+        "description": "Applies tag and lifecycle-state changes to an existing device, and is how a device is promoted out of quarantined or simulate-locked. Each change is recorded as a revision in the device's history, and setting what the device already has records nothing. A sync that later updates the device keeps the state set here. The write is guarded by the stored version token, so two callers editing the same device concurrently cannot lose one another's change: the later write is refused with 409 and must reload and reapply. A device's name and type are fixed once it exists: a body may repeat the stored values, as a client echoing the record back does, and a different name or type is refused with 400 rather than ignored.",
         "operationId": "update_device",
         "parameters": [
           {
@@ -5620,7 +5620,7 @@
               "schema": {
                 "properties": {
                   "name": {
-                    "description": "The device's unique name, which is its address: \"\", \".\" and \"..\" are refused, since no URL can carry one as a path segment.",
+                    "description": "The device's unique name, which is its address: \"\", \".\" and \"..\" are refused, since no URL can carry one as a path segment. Fixed once the device exists: an update refuses a different name.",
                     "type": "string"
                   },
                   "state": {
@@ -5634,7 +5634,7 @@
                     "type": "array"
                   },
                   "type": {
-                    "description": "A registered device type, e.g. \"linux_server\".",
+                    "description": "A registered device type, e.g. \"linux_server\". Fixed once the device exists: an update refuses a different type.",
                     "type": "string"
                   }
                 },
@@ -5721,7 +5721,7 @@
                 }
               }
             },
-            "description": "The body is malformed, or name is unusable."
+            "description": "The body is malformed, the path name is unusable, or the body names a name or type other than the stored device's, which an update cannot change; the message names the field."
           },
           "404": {
             "content": {

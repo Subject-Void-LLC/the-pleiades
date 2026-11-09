@@ -88,18 +88,18 @@ func (w writer) Create(ctx context.Context, user access.User) (string, error) {
 func (w writer) Update(ctx context.Context, id string, user access.User) error {
 	numeric, err := strconv.Atoi(id)
 	if err != nil {
-		return access.ErrNotFound
+		return view.ErrNotFound
 	}
 	user.ID = numeric
-	return w.store.UpdateUser(ctx, user)
+	return view.WrapNotFound(w.store.UpdateUser(ctx, user), access.ErrNotFound)
 }
 
 func (w writer) Delete(ctx context.Context, id string) error {
 	numeric, err := strconv.Atoi(id)
 	if err != nil {
-		return access.ErrNotFound
+		return view.ErrNotFound
 	}
-	return w.store.DeleteUser(ctx, numeric)
+	return view.WrapNotFound(w.store.DeleteUser(ctx, numeric), access.ErrNotFound)
 }
 
 // Register wires the Users view over the access store.

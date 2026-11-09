@@ -282,23 +282,23 @@ func (w writer) Create(ctx context.Context, contact access.Contact) (string, err
 func (w writer) Update(ctx context.Context, id string, contact access.Contact) error {
 	numeric, err := strconv.Atoi(id)
 	if err != nil {
-		return access.ErrNotFound
+		return view.ErrNotFound
 	}
 	current, err := w.store.GetContact(ctx, numeric)
 	if err != nil {
-		return err
+		return view.WrapNotFound(err, access.ErrNotFound)
 	}
 	contact.ID = numeric
 	contact.OrganizationID, contact.TeamID = current.OrganizationID, current.TeamID
-	return w.store.UpdateContact(ctx, contact)
+	return view.WrapNotFound(w.store.UpdateContact(ctx, contact), access.ErrNotFound)
 }
 
 func (w writer) Delete(ctx context.Context, id string) error {
 	numeric, err := strconv.Atoi(id)
 	if err != nil {
-		return access.ErrNotFound
+		return view.ErrNotFound
 	}
-	return w.store.DeleteContact(ctx, numeric)
+	return view.WrapNotFound(w.store.DeleteContact(ctx, numeric), access.ErrNotFound)
 }
 
 // Register wires the Contacts view over the access store.

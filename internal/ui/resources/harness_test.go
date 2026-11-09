@@ -533,7 +533,20 @@ func (s *fakeSetStore) Update(_ context.Context, set inventory.Set) error {
 	return inventory.ErrSetNotFound
 }
 
-func (s *fakeSetStore) Delete(context.Context, int) error { return nil }
+// Delete really removes, and answers a missing id as the real store does,
+// so a delete of an inventory that is not stored can be told from one that
+// is.
+func (s *fakeSetStore) Delete(_ context.Context, id int) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i, set := range s.sets {
+		if set.ID == id {
+			s.sets = append(s.sets[:i], s.sets[i+1:]...)
+			return nil
+		}
+	}
+	return inventory.ErrSetNotFound
+}
 
 func (s *fakeSetStore) SetsForDevice(context.Context, int) ([]int, error) { return []int{1}, nil }
 
@@ -710,15 +723,35 @@ func (r *fakeRepository) GetGroup(_ context.Context, _ pkginventory.Selector) (i
 	return &sliceIterator{items: append([]pkginventory.InventoryItem(nil), r.items...)}, nil
 }
 
+// GetByName returns a copy of the stored device, as a real repository
+// hydrates a fresh item on every read. Handing out the stored value itself
+// let a caller's in-memory change reach the fixture without a Save, which no
+// real store allows.
 func (r *fakeRepository) GetByName(_ context.Context, name string) (pkginventory.InventoryItem, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	for _, item := range r.items {
 		if item.Name() == name {
-			return item, nil
+			return copyItem(item), nil
 		}
 	}
 	return nil, inventory.ErrItemNotFound
+}
+
+// copyItem rebuilds item through the factory from its own record, version
+// and history included, so the copy is the item a repository read would
+// return.
+func copyItem(item pkginventory.InventoryItem) pkginventory.InventoryItem {
+	typed, _ := item.(interface{ DeviceType() string })
+	copied, err := inventory.NewItemFactory().Build(record.Record{
+		ID: item.ID(), Name: item.Name(), Type: typed.DeviceType(),
+		Properties: item.Properties().Raw(), Tags: item.Tags(), State: item.State(),
+		Source: item.Source(), Version: item.Version(), History: item.History(),
+	})
+	if err != nil {
+		panic("copying a stored fixture device: " + err.Error())
+	}
+	return copied
 }
 
 func (r *fakeRepository) Create(_ context.Context, item pkginventory.InventoryItem) error {
@@ -728,13 +761,45 @@ func (r *fakeRepository) Create(_ context.Context, item pkginventory.InventoryIt
 	return nil
 }
 
-func (r *fakeRepository) Save(context.Context, pkginventory.InventoryItem) error { return nil }
+// Save really stores, conditional on the stored version as the real
+// repositories are. It used to answer nil and keep nothing, which is how a
+// devices edit that wrote nothing passed every test in this suite
+// (FAILURE_PATTERNS 1044).
+func (r *fakeRepository) Save(_ context.Context, item pkginventory.InventoryItem) error {
+	base, ok := item.(interface{ BaseVersion() uint64 })
+	if !ok {
+		return fmt.Errorf("item %s reports no base version", item.Name())
+	}
+	if item.Version() == base.BaseVersion() {
+		return nil
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for i, stored := range r.items {
+		if stored.ID() != item.ID() {
+			continue
+		}
+		if stored.Version() != base.BaseVersion() {
+			return inventory.ErrVersionConflict
+		}
+		r.items[i] = copyItem(item)
+		return nil
+	}
+	return inventory.ErrVersionConflict
+}
 
+// Retire records the name it was asked for, and answers a device that is
+// not stored with ErrItemNotFound, as the real repositories do.
 func (r *fakeRepository) Retire(_ context.Context, name string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.retired = append(r.retired, name)
-	return nil
+	for _, item := range r.items {
+		if item.Name() == name {
+			return nil
+		}
+	}
+	return inventory.ErrItemNotFound
 }
 func (r *fakeRepository) GroupAncestry(context.Context, string) ([]inventory.HierarchyLayer, error) {
 	return nil, nil

@@ -7776,3 +7776,26 @@ names a stash protects it only from a reader, not from a command.
 committed version with `git checkout -- <path>`, and copy it back when done. Never run `git stash push`, `pop`, `drop`
 or `clear` in an agent's worktree. If a stash entry is lost, look for it in `git fsck --unreachable` output before
 anything runs `git gc`, and store it again with `git stash store -m "<original message>" <sha>`.
+
+## 424. A fake standing in for a store keeps the store's contract: it copies on read, stores on save under the same version check, and returns the store's own not-found errors, because a fake more permissive than its store passes exactly the failures the store would show (a repeat in kind of FAILURE_PATTERNS 261's stub; FAILURE_PATTERNS 1044, 1053 and 1058) (2026-11-09)
+
+**Why.** Branch `fix/ui-device-edit`, 2026-11-09. Editing a device in the web UI answered 303 and stored nothing
+(FAILURE_PATTERNS 1044), and the UI conformance suite passed it. Its fake repository's `Save` returned nil and kept
+nothing, and its `GetByName` handed out the stored item by pointer, so no read-back in the suite could show the loss.
+Its device retire and inventory delete fakes answered nil for a record that was not stored, so a delete of a missing
+record answered 303 in the suite where the real stores' errors gave a 500 (FAILURE_PATTERNS 1053, 1058). Each fake was
+written to let a handler run, and each was more permissive than the store it stood for.
+
+**What is old and what is new.** FAILURE_PATTERNS 261's lesson says a write path ending in "unchanged version means
+nothing to save" is tested against the real repository, not a stub that records the call. LESSONS 136 says a test that
+cannot fail against its defect is worse than none, and LESSONS 213 that a test of a protection is finished only when it
+fails with the protection removed. Those rules say where to test and how to check a test. None says what a fake owes:
+when a suite runs over a fake, the fake's contract is the contract every test in that suite proves. The new part is
+that a fake is held to the store's behavior on the paths that fail (a stale version, a missing record, a write with
+nothing to write), not only on the path that succeeds.
+
+**Rule in practice.** When writing or reviewing a fake for a store, list the store's own refusals and match each one: a
+read returns a copy, a save stores under the same version check and returns the same conflict error, and a lookup, an
+update or a delete of a missing record returns the store's own not-found error. A fake whose write method is `return
+nil` is a defect. Where the real store can run in the test (ent on SQLite, the file store), run the test against it, as
+`TestEditingADeviceUpdatesTheStoredRecord` and `TestEditingADeviceUpdatesTheFileStore` do.

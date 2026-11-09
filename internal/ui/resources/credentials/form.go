@@ -25,6 +25,7 @@ package credentials
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -80,6 +81,11 @@ func inputFields(store typeReader) func(context.Context, view.Resolve) ([]view.F
 	return func(ctx context.Context, r view.Resolve) ([]view.Field, error) {
 		id, ok := resolveTypeID(ctx, store, r)
 		if !ok {
+			// An edit of a credential that is not stored is answered 404
+			// before anything is read off the submission.
+			if err := missingOnEdit(ctx, store, r); err != nil {
+				return nil, err
+			}
 			// No type chosen yet. The form renders its static half and the
 			// submit reads "Continue", which is the first step of the two
 			// this form takes without JavaScript.
@@ -93,6 +99,25 @@ func inputFields(store typeReader) func(context.Context, view.Resolve) ([]view.F
 		}
 		return controlsFor(ct.Inputs), nil
 	}
+}
+
+// missingOnEdit returns view.ErrNotFound when r is an edit of a credential
+// that is not stored, and nil otherwise, so a submission to a removed
+// credential is a 404 rather than a refusal of the input controls its form
+// carried. It is asked only once resolveTypeID has found no type.
+func missingOnEdit(ctx context.Context, store typeReader, r view.Resolve) error {
+	if !r.Editing() {
+		return nil
+	}
+	id, err := strconv.Atoi(r.ID)
+	if err != nil {
+		return view.ErrNotFound
+	}
+	_, err = store.GetCredential(ctx, id)
+	if errors.Is(err, credstore.ErrNotFound) {
+		return view.ErrNotFound
+	}
+	return nil
 }
 
 // resolveTypeID answers which credential type this form is being filled in
@@ -254,14 +279,14 @@ func (w writer) Create(ctx context.Context, c credstore.Credential) (string, err
 func (w writer) Update(ctx context.Context, id string, c credstore.Credential) error {
 	numeric, err := strconv.Atoi(id)
 	if err != nil {
-		return fmt.Errorf("credentials: unreadable credential id %q: %w", id, err)
+		return fmt.Errorf("%w: credentials: unreadable credential id %q: %w", view.ErrNotFound, id, err)
 	}
 	stored, err := w.store.GetCredential(ctx, numeric)
 	if err != nil {
-		return err
+		return view.WrapNotFound(err, credstore.ErrNotFound)
 	}
 	if _, err := w.store.UpdateCredential(ctx, numeric, c.Name, c.Description, c.Inputs, stored.External); err != nil {
-		return writeFault(err)
+		return view.WrapNotFound(writeFault(err), credstore.ErrNotFound)
 	}
 	return nil
 }
@@ -270,9 +295,9 @@ func (w writer) Update(ctx context.Context, id string, c credstore.Credential) e
 func (w writer) Delete(ctx context.Context, id string) error {
 	numeric, err := strconv.Atoi(id)
 	if err != nil {
-		return fmt.Errorf("credentials: unreadable credential id %q: %w", id, err)
+		return fmt.Errorf("%w: credentials: unreadable credential id %q: %w", view.ErrNotFound, id, err)
 	}
-	return w.store.DeleteCredential(ctx, numeric)
+	return view.WrapNotFound(w.store.DeleteCredential(ctx, numeric), credstore.ErrNotFound)
 }
 
 // writeFault turns a store refusal into a message against a control where
