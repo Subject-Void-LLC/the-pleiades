@@ -1,0 +1,1 @@
+Creating or updating a project with a NUL character in its `name`, `description`, `scm_url` or `scm_branch`, through the API or the web UI's form, is now refused with a 400 (or an error beside the field) that names the field, where on PostgreSQL it failed at the database and answered 500.

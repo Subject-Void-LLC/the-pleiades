@@ -108,3 +108,37 @@ func TestProjects_RefuseAFieldLongerThanTheDatabaseHolds(t *testing.T) {
 	f.create(t, fmt.Sprintf(`{"name":%q,"organization":%d,"scm_url":"https://example.invalid/a.git"}`,
 		"  "+strings.Repeat("n", 253)+"  ", f.orgID))
 }
+
+// TestProjects_RefuseANULInATextField refuses a NUL in each text field on
+// create and on PATCH with a 400 naming the field, before the store.
+// PostgreSQL cannot store a NUL in a text column, so one reaching the store
+// answered 500 there (FAILURE_PATTERNS 371, 1079), while SQLite stored it.
+func TestProjects_RefuseANULInATextField(t *testing.T) {
+	for _, field := range []string{"name", "description", "scm_url", "scm_branch"} {
+		t.Run(field, func(t *testing.T) {
+			f := newProjectFixture(t)
+			withNUL := "a\x00b"
+			if field == "scm_url" {
+				withNUL = "https://example.invalid/a\x00b.git"
+			}
+
+			create := map[string]any{"name": "nul", "organization": f.orgID, "scm_url": "https://example.invalid/a.git"}
+			create[field] = withNUL
+			body, err := json.Marshal(create)
+			if err != nil {
+				t.Fatal(err)
+			}
+			status, resp := f.do(t, http.MethodPost, "/api/v1/projects", json.RawMessage(body))
+			if status != http.StatusBadRequest || !strings.Contains(string(resp), field) || !strings.Contains(string(resp), "NUL") {
+				t.Errorf("creating with a NUL in %s: status %d, want 400 naming the field and the NUL; body %s", field, status, resp)
+			}
+
+			id := f.createProject(t, "automation")
+			patch, err := json.Marshal(map[string]string{field: withNUL})
+			if err != nil {
+				t.Fatal(err)
+			}
+			f.refusedUnchanged(t, id, string(patch), http.StatusBadRequest, field, "NUL")
+		})
+	}
+}

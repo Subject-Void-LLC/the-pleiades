@@ -337,6 +337,12 @@ func Register(store project.Store, syncer project.Syncer, runner syncEnqueuer, o
 				if p.SCMType == project.SCMGit && p.SCMURL == "" {
 					errs.Add("scm_url", "A git project needs a repository URL.")
 				}
+				// A NUL beside the field rather than at the store, which on
+				// PostgreSQL cannot hold one and fails the write.
+				var nul *project.NULError
+				if errors.As(project.CheckNUL(p), &nul) {
+					errs.Add(nul.Field, "This may not contain a NUL character.")
+				}
 				return p, errs
 			},
 		}),

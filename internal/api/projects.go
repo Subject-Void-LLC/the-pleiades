@@ -465,6 +465,12 @@ func (h *ProjectHandler) validProject(w http.ResponseWriter, r *http.Request, p 
 		RespondError(w, r, http.StatusBadRequest, err.Error())
 		return false
 	}
+	// A NUL is refused before the store for the same reason: PostgreSQL
+	// cannot store one and answers 500 (FAILURE_PATTERNS 371, 1079).
+	if err := project.CheckNUL(*p); err != nil {
+		RespondError(w, r, http.StatusBadRequest, err.Error())
+		return false
+	}
 	if p.SCMType == "" {
 		p.SCMType = project.SCMGit
 	}

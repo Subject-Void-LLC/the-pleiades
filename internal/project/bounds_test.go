@@ -91,3 +91,33 @@ func TestCheckLengths_NamesTheFirstFieldOverItsBound(t *testing.T) {
 		})
 	}
 }
+
+// TestCheckNUL_NamesTheFirstFieldHoldingANUL covers each text field, and that
+// a value with none passes.
+func TestCheckNUL_NamesTheFirstFieldHoldingANUL(t *testing.T) {
+	clean := project.Project{Name: "n", Description: "d", SCMURL: "https://example.invalid/r.git", SCMBranch: "main"}
+	if err := project.CheckNUL(clean); err != nil {
+		t.Fatalf("CheckNUL of clean fields = %v", err)
+	}
+	for _, tc := range []struct {
+		field string
+		set   func(*project.Project)
+	}{
+		{"name", func(p *project.Project) { p.Name = "a\x00b" }},
+		{"description", func(p *project.Project) { p.Description = "\x00" }},
+		{"scm_url", func(p *project.Project) { p.SCMURL += "\x00" }},
+		{"scm_branch", func(p *project.Project) { p.SCMBranch = "ma\x00in" }},
+	} {
+		t.Run(tc.field, func(t *testing.T) {
+			p := clean
+			tc.set(&p)
+			var nul *project.NULError
+			if err := project.CheckNUL(p); !errors.As(err, &nul) || nul.Field != tc.field {
+				t.Fatalf("CheckNUL = %v, want a *NULError for %s", err, tc.field)
+			}
+			if msg := nul.Error(); !strings.Contains(msg, tc.field) || strings.ContainsRune(msg, 0) {
+				t.Errorf("the message %q does not name the field, or carries the NUL", msg)
+			}
+		})
+	}
+}

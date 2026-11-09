@@ -85,3 +85,28 @@ func TestProjectsView_RefusesAFieldLongerThanTheDatabaseHolds(t *testing.T) {
 		})
 	}
 }
+
+// TestProjectsView_RefusesANULInATextField refuses a NUL in each text field
+// on the create form, beside the field: PostgreSQL cannot store one, so it
+// would otherwise fail at the store.
+func TestProjectsView_RefusesANULInATextField(t *testing.T) {
+	h := newHarness(t, adminIdentity)
+	orgID := optionValue(t, body(t, h, "/ui/projects/new"), "organization", "acme")
+
+	for _, field := range []string{"name", "description", "scm_url", "scm_branch"} {
+		t.Run(field, func(t *testing.T) {
+			values := map[string]string{
+				"name": uniqueName(t, "nul"), "organization": orgID, "scm_type": "git",
+				"scm_url": "https://git.example.test/team/nul.git",
+			}
+			values[field] += "\x00b"
+			w := h.post(t, "/ui/projects", values)
+			if w.Code != http.StatusUnprocessableEntity {
+				t.Fatalf("creating with a NUL in %s = %d, want 422", field, w.Code)
+			}
+			if !strings.Contains(w.Body.String(), `id="f-`+field+`-error"`) {
+				t.Errorf("the refusal is not beside the %s control: %s", field, formErrors(w.Body.String()))
+			}
+		})
+	}
+}

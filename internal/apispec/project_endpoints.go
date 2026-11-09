@@ -101,7 +101,7 @@ var CreateProject = Endpoint{
 	Summary: "Create a project",
 	Responses: []Response{
 		{Status: http.StatusCreated, Description: "The project as stored.", Schema: projectSchema},
-		{Status: http.StatusBadRequest, Description: "A required field is missing, a field is longer than its bound, a git project carries no URL, the URL names a source this deployment will not fetch from or carries a password, or the credential is not one the project's organization owns (answered as no credential with that id in the project's organization) or cannot authenticate a clone.", Schema: errorSchema("")},
+		{Status: http.StatusBadRequest, Description: "A required field is missing, a field is longer than its bound or holds a NUL character, a git project carries no URL, the URL names a source this deployment will not fetch from or carries a password, or the credential is not one the project's organization owns (answered as no credential with that id in the project's organization) or cannot authenticate a clone.", Schema: errorSchema("")},
 		{Status: http.StatusConflict, Description: "The name is taken in that organization.", Schema: errorSchema("")},
 	},
 	Description:        "Registers a source repository. Nothing is fetched until a sync runs.",
@@ -119,7 +119,7 @@ var UpdateProject = Endpoint{
 	Summary: "Update a project",
 	Responses: []Response{
 		{Status: http.StatusOK, Description: "The project as stored.", Schema: projectSchema},
-		{Status: http.StatusBadRequest, Description: "The body is malformed, sets a field to null or changes the organization, or the project it would leave has a blank name, a field longer than its bound, a git source with no URL, a URL this deployment will not fetch from or that carries a password, or a credential the project's organization does not own (answered as no credential with that id in the project's organization) or that cannot authenticate a clone.", Schema: errorSchema("")},
+		{Status: http.StatusBadRequest, Description: "The body is malformed, sets a field to null or changes the organization, or the project it would leave has a blank name, a field longer than its bound or holding a NUL character, a git source with no URL, a URL this deployment will not fetch from or that carries a password, or a credential the project's organization does not own (answered as no credential with that id in the project's organization) or that cannot authenticate a clone.", Schema: errorSchema("")},
 		{Status: http.StatusNotFound, Description: "No project with that id.", Schema: errorSchema("")},
 		{Status: http.StatusConflict, Description: "The name is taken in that organization.", Schema: errorSchema("")},
 	},
