@@ -21,15 +21,19 @@ func (c *Client) FindLab(ctx context.Context, ref string) (Lab, error) {
 	if ref == "" {
 		return Lab{}, errors.New("cml: no lab named")
 	}
-	lab, err := c.Lab(ctx, ref)
-	var se *StatusError
-	switch {
-	case err == nil:
-		return lab, nil
-	case errors.As(err, &se) && (se.Status == http.StatusNotFound || se.Status == http.StatusBadRequest || se.Status == http.StatusUnprocessableEntity):
-		// Not an id: a title, perhaps.
-	default:
-		return Lab{}, err
+	// No id is a dot segment, which no request path can carry, so "." and
+	// ".." can only be titles: they are looked for there at once.
+	if ref != "." && ref != ".." {
+		lab, err := c.Lab(ctx, ref)
+		var se *StatusError
+		switch {
+		case err == nil:
+			return lab, nil
+		case errors.As(err, &se) && (se.Status == http.StatusNotFound || se.Status == http.StatusBadRequest || se.Status == http.StatusUnprocessableEntity):
+			// Not an id: a title, perhaps.
+		default:
+			return Lab{}, err
+		}
 	}
 	labs, err := c.Labs(ctx)
 	if err != nil {

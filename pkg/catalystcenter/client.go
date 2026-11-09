@@ -131,6 +131,10 @@ func New(baseURL, username, password string, opts ...Option) (*Client, error) {
 	if username == "" {
 		return nil, fmt.Errorf("catalystcenter: username is required")
 	}
+	decodedPath, escapedPath, err := basePath(parsed)
+	if err != nil {
+		return nil, err
+	}
 
 	// Store the parsed form rather than the caller's raw string, so the
 	// scheme and host are normalized exactly once. url.Parse already
@@ -139,10 +143,16 @@ func New(baseURL, username, password string, opts ...Option) (*Client, error) {
 	// controller. That matters beyond tidiness: this value becomes the
 	// synced controller's DeviceID and its catalyst_base_url property, so
 	// an un-normalized copy would onboard the same appliance twice.
+	//
+	// The path keeps its escaped form beside the decoded one: from Path
+	// alone, String() cannot tell a %2F inside a segment from a / between
+	// two, and would send a proxy's prefix as a different path. Both are in
+	// one canonical spelling (basePath), so the identity is one string.
 	normalized := &url.URL{
-		Scheme: parsed.Scheme,
-		Host:   parsed.Host,
-		Path:   strings.TrimRight(parsed.Path, "/"),
+		Scheme:  parsed.Scheme,
+		Host:    parsed.Host,
+		Path:    decodedPath,
+		RawPath: escapedPath,
 	}
 
 	c := &Client{

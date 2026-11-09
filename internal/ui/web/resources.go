@@ -1110,15 +1110,20 @@ func (h *Handler) formValues(w http.ResponseWriter, r *http.Request, fields []vi
 	return values, submitted, true
 }
 
-// resourcePath builds a URL for one record, escaping the identifier.
+// resourcePath builds a URL for one record, through view.RecordPath like
+// every link a view builds, so the identifier is escaped as one segment.
 //
 // The escape is load-bearing rather than tidy: path.Join cleans its result,
 // so an identifier of "../.." would not be a path segment, it would delete
 // the prefix in front of it and send the caller somewhere else entirely.
-// The view models escape for the same reason; this is the write path's
-// equivalent, and gosec's taint analysis is what noticed it was missing.
+// gosec's taint analysis is what noticed it was missing here. An id no URL
+// can address ("", "." or "..", view.Addressable) has no page, so a write
+// to one returns to the resource's list instead.
 func resourcePath(prefix, resource, id string) string {
-	return path.Join(prefix, resource, url.PathEscape(id))
+	if p := view.RecordPath(prefix, resource, id); p != "" {
+		return p
+	}
+	return path.Join(prefix, resource)
 }
 
 // redirect answers a successful write, honouring HTMX.

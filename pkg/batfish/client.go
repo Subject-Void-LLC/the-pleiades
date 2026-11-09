@@ -28,6 +28,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/farside"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/httpapi"
 )
 
 // The headers every request carries.
@@ -78,9 +79,17 @@ func New(base string, hc *http.Client) (*Client, error) {
 
 // do sends one request and returns the body of a 2xx answer, or an error
 // carrying Batfish's own words.
+//
+// path is already escaped (each name in it went through url.PathEscape) and
+// is sent as it is, through httpapi.Join: appending it to the URL's decoded
+// Path escaped it a second time, so the network "a b" reached Batfish as one
+// literally named "a%20b" while the work item's body named "a b". A dot
+// segment is refused, since a server resolves it to another route.
 func (c *Client) do(ctx context.Context, method, path string, query url.Values, body []byte, contentType string) ([]byte, error) {
-	u := *c.base
-	u.Path += path
+	u, err := httpapi.Join(c.base, path)
+	if err != nil {
+		return nil, fmt.Errorf("batfish: %s %s: %w", method, path, err)
+	}
 	u.RawQuery = query.Encode()
 	var r io.Reader
 	if body != nil {

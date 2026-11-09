@@ -162,6 +162,24 @@ func TestMethodNotAllowed_AllowHeaderIsAlsoScopeFiltered(t *testing.T) {
 	}
 }
 
+// TestMethodNotAllowed_FindsTheRouteOfAnEscapedName: chi routes a path
+// holding %2F on its escaped form, where the name is one segment, so the
+// 405 must find the route on that form too. It read the decoded path,
+// whose extra segment matched no pattern, and answered with no Allow.
+func TestMethodNotAllowed_FindsTheRouteOfAnEscapedName(t *testing.T) {
+	f := newGateFixture(t)
+	for _, name := range []string{"sw%2F1", "a%3Bb", "a%20b"} {
+		rr := f.do(t, http.MethodPut, api.APIVersionPrefix+"/inventory/devices/"+name, readOnlyIdentity)
+		if rr.Code != http.StatusMethodNotAllowed {
+			t.Errorf("PUT %s returned %d, want 405", name, rr.Code)
+			continue
+		}
+		if got := rr.Header().Get("Allow"); got != "GET, OPTIONS" {
+			t.Errorf("PUT %s: 405 Allow is %q, want %q", name, got, "GET, OPTIONS")
+		}
+	}
+}
+
 func TestOptions_AgreesWithTheLinksArray(t *testing.T) {
 	// One mechanism, two renderings. Both read the same route table and
 	// ask the same generator, so this asserts they cannot drift: every

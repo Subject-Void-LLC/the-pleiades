@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lib/pq"
+
 	"github.com/Subject-Void-LLC/the-pleiades/internal/crypto"
 )
 
@@ -105,6 +107,35 @@ func TestParseTarget_PassesOnlyWhatItUnderstands(t *testing.T) {
 	}
 	if got := quoteConninfo(`it's a \\ value`); got != `'it\'s a \\\\ value'` {
 		t.Errorf("quoteConninfo() = %s", got)
+	}
+}
+
+// TestTargetDSN_BracketsAnIPv6Host: a DB_DSN naming an IPv6 literal host
+// gives a DSN the driver reads back as that host and port. The host and
+// port used to be joined with a bare colon, so lib/pq read "::1:5433" as one
+// host name on the default port and the connection went nowhere.
+func TestTargetDSN_BracketsAnIPv6Host(t *testing.T) {
+	for _, tc := range []struct {
+		dsn, host string
+		port      uint16
+	}{
+		{"postgres://pleiades:pw@[::1]:5433/pleiades?sslmode=disable", "::1", 5433},
+		{"postgres://pleiades:pw@[fd00::5]/pleiades", "fd00::5", 5432},
+		{"postgres://pleiades:pw@db.example:5433/pleiades", "db.example", 5433},
+		{"postgres://pleiades:pw@192.0.2.7/pleiades", "192.0.2.7", 5432},
+	} {
+		target, err := parseTarget(tc.dsn)
+		if err != nil {
+			t.Fatalf("parseTarget(%q): %v", tc.dsn, err)
+		}
+		cfg, err := pq.NewConfig(target.dsn())
+		if err != nil {
+			t.Errorf("%s: the driver refuses the DSN: %v", tc.dsn, err)
+			continue
+		}
+		if cfg.Host != tc.host || cfg.Port != tc.port || cfg.Database != "pleiades" {
+			t.Errorf("%s: the driver reads host %q port %d database %q, want %q %d pleiades", tc.dsn, cfg.Host, cfg.Port, cfg.Database, tc.host, tc.port)
+		}
 	}
 }
 

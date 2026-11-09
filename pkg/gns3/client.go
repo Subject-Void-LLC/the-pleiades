@@ -17,6 +17,7 @@ import (
 	"strings"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/farside"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/httpapi"
 )
 
 // maxResponse bounds a response body read: a project of a few hundred
@@ -190,9 +191,16 @@ func (c *Client) get(ctx context.Context, path string, into any) error {
 
 // raw sends one request and returns the status and the bounded body. basic
 // sends the credentials as basic auth, which a 2.2.x server takes.
+//
+// path is already escaped (a project id in it went through url.PathEscape)
+// and is sent as it is, through httpapi.Join: setting it as the URL's
+// decoded Path escaped it a second time. A dot segment is refused, since a
+// server resolves it to another route.
 func (c *Client) raw(ctx context.Context, method, path string, body io.Reader, contentType string, basic bool) (int, []byte, error) {
-	u := *c.base
-	u.Path = path
+	u, err := httpapi.Join(c.base, path)
+	if err != nil {
+		return 0, nil, fmt.Errorf("gns3: %s %s: %w", method, path, err)
+	}
 	req, err := http.NewRequestWithContext(ctx, method, u.String(), body)
 	if err != nil {
 		return 0, nil, err

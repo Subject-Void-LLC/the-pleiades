@@ -137,6 +137,7 @@ func (h *Handler) Routes() http.Handler {
 	r := chi.NewRouter()
 
 	r.Use(h.securityHeaders)
+	r.Use(h.refuseDotSegments)
 
 	// Unauthenticated: the login page and the assets needed to render it.
 	r.Handle("/static/*", http.StripPrefix(path.Join(h.cfg.Prefix, "static"), static.Handler("")))

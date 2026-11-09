@@ -7696,3 +7696,26 @@ review can know.
 rests on whole, not only the diff (here `pkg/wire/identity.go` and the engine's seeding). Mark each claim the answer
 makes about a file it was not given as unverified, and settle it in the code or with a test before acting. Record which
 claims held and which did not, as 392 asks.
+
+## 420. A fix to one side of an encode and decode pair names the other side and tests both: when the code that builds an address changes, find the code that resolves it and check that it reads the address the same way, or the fixed side now names a record the other side does not serve (a refinement in kind of 155; FAILURE_PATTERNS 1008, 1012, 1013)
+
+**Why.** `fix/url-escaping`, 2026-11-08. The escaping sweep, a review through the Batch API given 82 URL-building
+call sites with their context, found that the API's link builder escaped chi's routed values twice
+(FAILURE_PATTERNS 1012). The fix made each link name the record by RFC 3986: a request for `/devices/sw%2F1` now links
+to `/devices/sw%2F1`, which a client reads as `sw/1`. fp-reviewer then found that the handlers resolve the same address
+another way: they read `chi.URLParam` still escaped, so the handler at that link acts on the literal name `sw%2F1`
+(1013). Before the fix the link and the handler were wrong together; after it, the link names one record and the page
+serves another. The branch's first defect, `httpapi.Join` (1008), was the same pair read the other way round: callers
+built an escaped path, and the helper that resolved it decoded it. 998, fixed the same day, was the mirror image.
+
+**What is old and what is new.** LESSONS 155 says to ask a guard's question from both ends of a registry, and
+FAILURE_PATTERNS 958's lesson says every reader and checker of an old shape is part of a change that adds a field. Both
+are about a shape that grows. Here nothing grew: two pieces of code each held one half of a convention (escaped or
+decoded), and each was right only in the other's terms. Fixing one half alone moved the defect rather than removing it.
+The new part is to treat the two halves as one unit of change and test them together.
+
+**Rule in practice.** When a fix changes how an address is built (a link, a request path, a key, a subject), write down
+the code that resolves that address (the handler, the remote server, the store lookup) before calling the fix done. Test
+the round trip through the real resolver: build the address for a name holding the hard characters (`/`, `;`, `%`, a
+space, `..`) and check that resolving it reaches that same name. When the resolver is out of scope, as N1 was here,
+record it as an open failure pattern in the same change, so the fixed side is not read as the whole fix.

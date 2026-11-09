@@ -11,11 +11,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/httpapi"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 )
 
@@ -28,27 +28,28 @@ const maxErrorBody = 64 << 10
 // maxAnswer bounds a whole answer's text.
 const maxAnswer = 16 << 20
 
-// post sends body as JSON to u with headers, and returns the response for
-// a 2xx; any other status is read (bounded) into an *APIError.
-func post(ctx context.Context, ep Endpoint, u *url.URL, headers map[string]string, body any) (*http.Response, error) {
+// post sends body as JSON to ref under the endpoint with headers, and
+// returns the response for a 2xx; any other status is read (bounded) into an
+// *APIError.
+func post(ctx context.Context, ep Endpoint, ref string, headers map[string]string, body any) (*http.Response, error) {
 	data, err := json.Marshal(body)
 	if err != nil {
 		return nil, err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u.String(), bytes.NewReader(data))
+	req, err := newRequest(ctx, http.MethodPost, ep, ref, data, headers)
 	if err != nil {
 		return nil, err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	for k, v := range headers {
-		req.Header.Set(k, v)
 	}
 	return send(ep, req)
 }
 
-// get sends a GET to u with headers.
-func get(ctx context.Context, ep Endpoint, u *url.URL, headers map[string]string) (*http.Response, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+// get sends a GET to ref under the endpoint with headers.
+func get(ctx context.Context, ep Endpoint, ref string, headers map[string]string) (*http.Response, error) {
+	u, err := endpointURL(ep, ref)
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -195,11 +196,21 @@ func (a *answer) add(s string) error {
 	return nil
 }
 
-// join resolves path against base, keeping base's own path.
-func join(base *url.URL, path string) *url.URL {
-	u := *base
-	u.Path = strings.TrimSuffix(base.Path, "/") + path
-	return &u
+// endpointURL resolves ref, an escaped path under the endpoint (a model name
+// in it went through url.PathEscape) with an optional query, against the
+// endpoint's base, keeping the base's own path. It goes through
+// httpapi.Join, which sends the escaped path as it is: appending it to the
+// URL's decoded Path escaped it a second time, so a model "a b" was asked
+// for as "a%20b".
+func endpointURL(ep Endpoint, ref string) (string, error) {
+	if ep.Base == nil {
+		return "", errors.New("aiprovider: an endpoint needs a base URL")
+	}
+	u, err := httpapi.Join(ep.Base, ref)
+	if err != nil {
+		return "", fmt.Errorf("aiprovider: %w", err)
+	}
+	return u.String(), nil
 }
 
 // maxListBody bounds a model list.
@@ -213,9 +224,13 @@ func decodeBounded(resp *http.Response, v any) error {
 	return nil
 }
 
-// newRequest builds a request with a JSON body.
-func newRequest(ctx context.Context, method string, u *url.URL, body []byte, headers map[string]string) (*http.Request, error) {
-	req, err := http.NewRequestWithContext(ctx, method, u.String(), bytes.NewReader(body))
+// newRequest builds a request to ref under the endpoint with a JSON body.
+func newRequest(ctx context.Context, method string, ep Endpoint, ref string, body []byte, headers map[string]string) (*http.Request, error) {
+	u, err := endpointURL(ep, ref)
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, method, u, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}

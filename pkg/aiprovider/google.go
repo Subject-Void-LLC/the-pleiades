@@ -80,9 +80,10 @@ func (g google) Chat(ctx context.Context, ep Endpoint, req Request, omit map[str
 	if len(gen) > 0 {
 		body["generationConfig"] = gen
 	}
-	u := join(ep.Base, "/v1beta/models/"+url.PathEscape(req.Model)+":streamGenerateContent")
-	u.RawQuery = "alt=sse"
-	resp, err := post(ctx, ep, u, g.headers(ep), body)
+	// The model name is one path segment, escaped once here and sent as it
+	// was escaped.
+	ref := "/v1beta/models/" + url.PathEscape(req.Model) + ":streamGenerateContent?alt=sse"
+	resp, err := post(ctx, ep, ref, g.headers(ep), body)
 	if err != nil {
 		return Response{}, err
 	}
@@ -150,7 +151,7 @@ func (g google) Chat(ctx context.Context, ep Endpoint, req Request, omit map[str
 }
 
 func (g google) Models(ctx context.Context, ep Endpoint) ([]string, error) {
-	resp, err := get(ctx, ep, join(ep.Base, "/v1beta/models"), g.headers(ep))
+	resp, err := get(ctx, ep, "/v1beta/models", g.headers(ep))
 	if err != nil {
 		return nil, err
 	}

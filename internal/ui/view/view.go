@@ -27,7 +27,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"net/url"
 	"regexp"
 	"sort"
 	"strings"
@@ -879,9 +878,14 @@ const minRefreshInterval = time.Second
 // escaped identifier replaces.
 const idToken = "{id}"
 
-// StreamPath builds one record's stream URL, escaping the identifier.
+// StreamPath builds one record's stream URL, escaping the identifier, or ""
+// when the identifier is not Addressable.
 func (s StreamSpec) StreamPath(id string) string {
-	return strings.ReplaceAll(s.PathPattern, idToken, url.PathEscape(id))
+	seg, ok := segment(id)
+	if !ok {
+		return ""
+	}
+	return strings.ReplaceAll(s.PathPattern, idToken, seg)
 }
 
 // Descriptor is everything the UI needs to render one resource.

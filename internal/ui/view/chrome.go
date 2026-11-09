@@ -305,7 +305,7 @@ func recordCrumbs(prefix string, d Descriptor, id, name string, currentIsRecord 
 	if currentIsRecord {
 		crumb.Current = true
 	} else {
-		crumb.Href = path.Join(prefix, d.Name, url.PathEscape(id))
+		crumb.Href = RecordPath(prefix, d.Name, id)
 	}
 	return append(out, crumb)
 }
@@ -427,7 +427,7 @@ func (m DetailModel) StatusBadge() (Badge, bool) {
 // and a hand-written tab bar is a second list of sections to keep in step
 // with the first.
 func (m DetailModel) Tabs() []Tab {
-	base := path.Join(m.Page.Prefix, m.Descriptor.Name, url.PathEscape(m.Row.ID))
+	base := RecordPath(m.Page.Prefix, m.Descriptor.Name, m.Row.ID)
 	current := m.CurrentTab()
 
 	tabs := []Tab{{

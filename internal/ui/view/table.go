@@ -8,7 +8,6 @@
 package view
 
 import (
-	"net/url"
 	"path"
 	"strconv"
 	"strings"
@@ -151,7 +150,7 @@ func (t TableModel) RowHref(row Row) string {
 	if t.RecordView == "" || row.ID == "" {
 		return ""
 	}
-	return path.Join(t.Prefix, t.RecordView, url.PathEscape(row.ID))
+	return RecordPath(t.Prefix, t.RecordView, row.ID)
 }
 
 // Linkable reports whether rows in this table lead anywhere on their own.
@@ -175,7 +174,7 @@ func (t TableModel) RefHref(row Row, f Field) string {
 	if strings.TrimSpace(row.Cells[f.Name]) == "" {
 		return ""
 	}
-	return path.Join(t.Prefix, f.References, url.PathEscape(id))
+	return RecordPath(t.Prefix, f.References, id)
 }
 
 // CellHref is the one link decision a cell makes, so the template asks once
@@ -461,7 +460,7 @@ func (m DetailModel) SectionViews() []SectionView {
 // the store would refuse, is the same "control that can only fail" the
 // affordance layer exists to withhold.
 func (d Descriptor) sectionActions(spec Section, prefix string, parent Row, aff Affordances) []ChromeAction {
-	if parent.ID == "" || len(spec.Actions) == 0 {
+	if !Addressable(parent.ID) || len(spec.Actions) == 0 {
 		return nil
 	}
 	out := make([]ChromeAction, 0, len(spec.Actions))
@@ -478,7 +477,7 @@ func (d Descriptor) sectionActions(spec Section, prefix string, parent Row, aff 
 			}
 			out = append(out, ChromeAction{
 				Label: a.Label,
-				Href:  path.Join(prefix, d.Name, url.PathEscape(parent.ID), a.Name),
+				Href:  RecordPath(prefix, d.Name, parent.ID, a.Name),
 				Kind:  ActionNormal,
 			})
 			break
@@ -500,7 +499,7 @@ func (d Descriptor) sectionActions(spec Section, prefix string, parent Row, aff 
 //
 // The fourth is the row's own, and it is the only one evaluated per row.
 func (d Descriptor) rowControls(s LoadedSection, prefix string, parent Row, aff Affordances) [][]RowControl {
-	if parent.ID == "" || len(s.Spec.RowActions) == 0 || len(s.Rows) == 0 {
+	if !Addressable(parent.ID) || len(s.Spec.RowActions) == 0 || len(s.Rows) == 0 {
 		return nil
 	}
 
@@ -520,7 +519,7 @@ func (d Descriptor) rowControls(s LoadedSection, prefix string, parent Row, aff 
 
 	out := make([][]RowControl, len(s.Rows))
 	for i, row := range s.Rows {
-		if row.ID == "" {
+		if !Addressable(row.ID) {
 			// There is nothing to address. A control here would post to
 			// the parent's own action route with a trailing empty
 			// segment, which is a 404 at best.
@@ -538,7 +537,7 @@ func (d Descriptor) rowControls(s LoadedSection, prefix string, parent Row, aff 
 			}
 			control := RowControl{
 				Label:   a.Label,
-				Href:    path.Join(prefix, d.Name, url.PathEscape(parent.ID), a.Name, url.PathEscape(row.ID)),
+				Href:    RowPath(prefix, d.Name, parent.ID, a.Name, row.ID),
 				Confirm: a.Confirm,
 				Prompts: a.Prompts(),
 			}
@@ -622,7 +621,7 @@ func (m DetailModel) RefHref(f Field) string {
 	if strings.TrimSpace(m.Row.Cells[f.Name]) == "" {
 		return ""
 	}
-	return path.Join(m.Page.Prefix, f.References, url.PathEscape(id))
+	return RecordPath(m.Page.Prefix, f.References, id)
 }
 
 // StreamURL is where the record's Output tab reads its live log from.
