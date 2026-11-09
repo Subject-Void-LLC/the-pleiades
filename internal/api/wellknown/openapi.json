@@ -12343,7 +12343,7 @@
                     "type": "string"
                   },
                   "name": {
-                    "description": "Unique within the organization the inventory belongs to.",
+                    "description": "Unique within the organization the inventory belongs to. At most 253 bytes.",
                     "type": "string"
                   },
                   "prompts": {
@@ -12600,7 +12600,7 @@
                 }
               }
             },
-            "description": "The body is malformed, names no registered kind, or declares a default or a prompt the kind has no field for."
+            "description": "The body is malformed, names no registered kind, names the template with nothing or with more than 253 bytes, declares a default or a prompt the kind has no field for, or carries a survey nobody could answer."
           },
           "403": {
             "content": {
@@ -12978,7 +12978,7 @@
                     "type": "string"
                   },
                   "name": {
-                    "description": "Unique within the template's organization. May not be blank.",
+                    "description": "Unique within the template's organization. May not be blank, and at most 253 bytes.",
                     "type": "string"
                   },
                   "prompts": {
@@ -13230,7 +13230,7 @@
                 }
               }
             },
-            "description": "The body is malformed, sets a field to null or changes the kind, the definition or the inventory, or the template it would leave declares a default or a prompt the kind has no field for, or a survey nobody could answer."
+            "description": "The body is malformed, sets a field to null or changes the kind, the definition or the inventory, or the template it would leave has a blank name or one over 253 bytes, declares a default or a prompt the kind has no field for, or carries a survey nobody could answer."
           },
           "404": {
             "content": {
@@ -14535,7 +14535,7 @@
     },
     "/templates/{id}/survey": {
       "put": {
-        "description": "Replaces the whole survey, leaving the template's metadata, defaults and prompts as they are. It is the same store update PATCH performs, narrowed to the survey, and unlike a PATCH it replaces the survey whole: an absent survey, or one without questions, clears them. The questions are stored in the order given, which is the order the launch form asks them in. A survey nobody could answer correctly is refused: a question writing to no variable, two questions writing to one variable, a choice question offering nothing, a default that is not one of the choices, a password question carrying a default, a file question carrying a default or a maximum above 32768, allow_program_content set on a question that is not a file, or a minimum above its maximum.",
+        "description": "Replaces the whole survey, leaving the template's metadata, defaults and prompts as they are. It is the same store update PATCH performs, narrowed to the survey, and unlike a PATCH it replaces the survey whole: an absent survey, or one without questions, clears them. The questions are stored in the order given, which is the order the launch form asks them in. A survey nobody could answer correctly is refused: a question writing to no variable, a question with no label, two questions writing to one variable, a choice question offering nothing, a default that is not one of the choices, a password question carrying a default, a file question carrying a default or a maximum above 32768, allow_program_content set on a question that is not a file, or a minimum above its maximum.",
         "operationId": "set_template_survey",
         "parameters": [
           {
