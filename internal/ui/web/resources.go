@@ -962,8 +962,9 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 		// 422 rather than 200, so the status says what happened even
 		// though the body is a form. The submitted values are redisplayed
 		// rather than cleared: making someone retype a form to discover
-		// what was wrong with it is its own accessibility problem.
-		h.renderForm(w, r, d, "", fields, submitted, errs, http.StatusUnprocessableEntity)
+		// what was wrong with it is its own accessibility problem. A field
+		// declaring RefusedValue is the exception (refusedValues).
+		h.renderForm(w, r, d, "", fields, refusedValues(fields, submitted), errs, http.StatusUnprocessableEntity)
 		return
 	}
 
@@ -973,7 +974,7 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if errs.Any() {
-		h.renderForm(w, r, d, "", fields, submitted, errs, http.StatusUnprocessableEntity)
+		h.renderForm(w, r, d, "", fields, refusedValues(fields, submitted), errs, http.StatusUnprocessableEntity)
 		return
 	}
 
@@ -1014,7 +1015,7 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if errs := view.Validate(r.Context(), fields, values); errs.Any() {
-		h.renderForm(w, r, d, id, fields, submitted, errs, http.StatusUnprocessableEntity)
+		h.renderForm(w, r, d, id, fields, refusedValues(fields, submitted), errs, http.StatusUnprocessableEntity)
 		return
 	}
 
@@ -1030,11 +1031,31 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if errs.Any() {
-		h.renderForm(w, r, d, id, fields, submitted, errs, http.StatusUnprocessableEntity)
+		h.renderForm(w, r, d, id, fields, refusedValues(fields, submitted), errs, http.StatusUnprocessableEntity)
 		return
 	}
 
 	h.redirect(w, r, resourcePath(h.cfg.Prefix, d.Name, id))
+}
+
+// refusedValues is what a refused form redisplays: the submission as typed,
+// except that a field declaring view.Field.RefusedValue shows its value
+// through it, so a value that must never be echoed is not put back on the
+// page. The submission itself is left alone.
+func refusedValues(fields []view.Field, submitted map[string]string) map[string]string {
+	shown := make(map[string]string, len(submitted))
+	for name, value := range submitted {
+		shown[name] = value
+	}
+	for _, f := range fields {
+		if f.RefusedValue == nil {
+			continue
+		}
+		if value, ok := shown[f.Name]; ok {
+			shown[f.Name] = f.RefusedValue(value)
+		}
+	}
+	return shown
 }
 
 func (h *Handler) destroy(w http.ResponseWriter, r *http.Request) {

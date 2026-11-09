@@ -225,6 +225,15 @@ type Field struct {
 	// more.
 	MaxLen int
 
+	// RefusedValue, when set, is what a refused form shows in this control
+	// in place of what was submitted. A refused form is redisplayed with
+	// the submission so nobody retypes it, and for a value that must never
+	// be echoed (a source URL carrying a password) that put the secret on
+	// the 422 page; a field naming one passes it through this first, and
+	// the error beside the control is unchanged. Nil shows the submission
+	// as typed.
+	RefusedValue func(submitted string) string
+
 	// Options supplies the choices for a KindSelect field. It takes a
 	// context because a real option set is usually a query (every
 	// inventory group, every device type), not a constant.

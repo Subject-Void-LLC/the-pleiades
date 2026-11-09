@@ -118,9 +118,9 @@ func TestProjectsView_RefusesACredentialInTheURLForEveryType(t *testing.T) {
 // control, to use a credential, in a message repeating no part of the
 // password.
 //
-// Only the message is checked for the password. A refused form re-renders
-// its controls with what was submitted, so a create's URL control holds the
-// URL its author just typed; an edit's holds the redacted form it showed.
+// Only the message is checked for the password here; the page as a whole is
+// held to it by TestProjectsView_ARefusedFormNeverShowsATypedCredentialURL,
+// since a refused form redisplays the URL control redacted or withheld.
 func assertURLCredentialError(t *testing.T, page string) {
 	t.Helper()
 	m := regexp.MustCompile(`id="f-scm_url-error">([^<]*)`).FindStringSubmatch(page)

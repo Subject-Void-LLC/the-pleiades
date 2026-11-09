@@ -90,7 +90,13 @@ func declaredFields(orgs inventory.OrganizationLister, creds credentialLister) [
 		{
 			Name: "scm_url", Label: "URL", Kind: view.KindText,
 			MaxLen: project.MaxSCMURLBytes, InList: true, InForm: true, Autocomplete: "off",
-			Help: "The repository to clone. Prefer an https address with a credential over embedding a token in the URL: a URL's userinfo ends up in error messages.",
+			// A refused form shows a URL that may carry a credential as it
+			// would be shown stored, redacted or withheld, never as typed.
+			// Not blanked: on an edit, sending back an empty URL would clear
+			// a manual project's stored one, where sending back the redacted
+			// form is an echo the store refuses again until the URL changes.
+			RefusedValue: project.RedactedSourceURL,
+			Help:         "The repository to clone. Prefer an https address with a credential over embedding a token in the URL: a URL's userinfo ends up in error messages.",
 		},
 		{
 			Name: "credential", Label: "CREDENTIAL", Kind: view.KindSelect,
