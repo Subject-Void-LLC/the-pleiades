@@ -137,7 +137,8 @@ refusal is a 400 naming the character by its code point and position, and never 
 name. The web UI's device form, `pleiades add-host`, the imports and `pleiades inventory sync`
 refuse the same names, and a sync reports such an upstream device as refused, quoted, and
 adds the rest. Only a new name is checked: a device stored under such a name before this rule
-is kept, listed, changed and retired as before. (The by-name routes,
+is kept, listed, changed and retired as before, a sync that sends it again updates it, and a
+kubeconfig import with `replace` replaces it. (The by-name routes,
 `/inventory/devices/{name}` and those under it, already refused a name holding a NUL, a
 carriage return or a newline, and still do.) A fact key already obeys a stricter rule
 (printable characters only, and no space), so it refuses all of these too.
