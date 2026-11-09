@@ -74,7 +74,9 @@ type DeviceResult struct {
 	// Outcome is what reconciliation did about it.
 	Outcome Outcome
 
-	// Reason explains a quarantine or a conflict, and is empty otherwise.
+	// Reason explains a quarantine, a conflict, a refused name
+	// (recordname's reason) or a write a read-only inventory turned into a
+	// would-add or would-update, and is empty otherwise.
 	Reason string
 }
 
