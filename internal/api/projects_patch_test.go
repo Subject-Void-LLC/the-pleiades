@@ -103,7 +103,7 @@ func assertProjectFields(t *testing.T, got map[string]any, want map[string]any, 
 func (f *projectFixture) boundCredential(t *testing.T, name string) int {
 	t.Helper()
 	id := realCredential(t, f.client, f.orgID, name)
-	f.creds.creds = append(f.creds.creds, scmCredential(id))
+	f.creds.creds = append(f.creds.creds, scmCredential(id, f.orgID))
 	return id
 }
 

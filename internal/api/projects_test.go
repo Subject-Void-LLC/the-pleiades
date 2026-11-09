@@ -248,13 +248,15 @@ func realCredential(t *testing.T, client *ent.Client, orgID int, name string) in
 		SaveX(ctx).ID
 }
 
-// scmCredential is a source control credential carrying a stored password.
-func scmCredential(id int) credstore.Credential {
+// scmCredential is a source control credential carrying a stored password,
+// owned by the organization orgID, as the redacted projection reports it.
+func scmCredential(id, orgID int) credstore.Credential {
 	return credstore.Credential{
-		ID:     id,
-		Name:   "forge",
-		Kind:   credtype.KindSCM,
-		Inputs: map[string]string{"username": "svc", "password": "$encrypted$"},
+		ID:             id,
+		Name:           "forge",
+		Kind:           credtype.KindSCM,
+		Inputs:         map[string]string{"username": "svc", "password": "$encrypted$"},
+		OrganizationID: orgID,
 	}
 }
 
@@ -407,7 +409,7 @@ func TestProjects_OnlyASourceControlCredentialMayAuthenticateAClone(t *testing.T
 	external := realCredential(t, f.client, f.orgID, "vault-backed")
 
 	f.creds.creds = []credstore.Credential{
-		scmCredential(withPassword),
+		scmCredential(withPassword, f.orgID),
 		{
 			ID:     machine,
 			Name:   "device access",
@@ -429,7 +431,8 @@ func TestProjects_OnlyASourceControlCredentialMayAuthenticateAClone(t *testing.T
 			// credstore reports an externally sourced value. A check
 			// consulting only Inputs would refuse every credential whose
 			// password lives in a secret manager.
-			External: map[string]string{"password": "vault:/forge#token"},
+			External:       map[string]string{"password": "vault:/forge#token"},
+			OrganizationID: f.orgID,
 		},
 	}
 

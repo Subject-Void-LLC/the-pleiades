@@ -332,7 +332,7 @@ func (s *GitSyncer) resolveAuth(ctx context.Context, p Project) (Auth, error) {
 	if s.auth == nil || p.CredentialID == 0 {
 		return Auth{}, nil
 	}
-	return s.auth.ResolveAuth(ctx, p.CredentialID)
+	return s.auth.ResolveAuth(ctx, p)
 }
 
 // authMethod maps an Auth onto go-git's transport auth, nil for a public

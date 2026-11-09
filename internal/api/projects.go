@@ -79,14 +79,33 @@ func NewProjectHandler(store project.Store, syncs syncEnqueuer, creds credential
 	return &ProjectHandler{projects: store, syncs: syncs, creds: creds, logger: logger}
 }
 
-// checkCredential refuses a credential that cannot authenticate a clone.
+// checkCredential refuses a credential p may not bind: one of another
+// organization, and one that cannot authenticate a clone.
 //
-// The same rule the UI enforces, through the same predicate, because a rule
-// applied on one of two write paths is not a rule. Answered as a 400 rather
-// than a 422: the id names a real credential and the request is
-// well-formed, it just asks for something that cannot work.
-func (h *ProjectHandler) checkCredential(w http.ResponseWriter, r *http.Request, id int) bool {
-	if id == 0 || h.creds == nil {
+// The same rules the UI enforces, through the same predicates, because a
+// rule applied on one of two write paths is not a rule. Answered as a 400
+// rather than a 422: the request is well-formed, it just asks for something
+// that cannot work. Each message opens with the field it is about, since a
+// PATCH naming only a description is checked against the credential it keeps.
+//
+// A credential belongs to exactly one organization (the schema requires the
+// edge), and a project may bind only one of its own organization's, as an
+// AWX credential is owned by an organization and used by that organization's
+// projects. What the rule stops is a project of one organization using
+// another's credential, which a sync would send to whatever host the project
+// names. What it does not stop is a caller choosing the organization: this
+// route is authorized by token scope across the deployment (role bindings
+// are not enforced, FAILURE_PATTERNS 98), so a caller holding project:write
+// can create a project in another organization and bind that organization's
+// credential, and the binding is then consistent. Keeping a caller to their
+// own organization waits on per-organization authorization. Another
+// organization's credential is answered exactly as a missing one is, so the
+// refusal says nothing about another organization's credentials, not even
+// that the id exists. A nil lister checks nothing here; the sync refuses a
+// cross-organization credential at the moment of use regardless
+// (cmd/controller's projectAuth).
+func (h *ProjectHandler) checkCredential(w http.ResponseWriter, r *http.Request, p project.Project) bool {
+	if p.CredentialID == 0 || h.creds == nil {
 		return true
 	}
 	found, err := h.creds.ListAllCredentials(r.Context())
@@ -97,17 +116,17 @@ func (h *ProjectHandler) checkCredential(w http.ResponseWriter, r *http.Request,
 		return false
 	}
 	for _, c := range found {
-		if c.ID != id {
+		if c.ID != p.CredentialID || c.OrganizationID != p.OrganizationID {
 			continue
 		}
 		if !project.AuthenticatesGit(c.Kind, c.Inputs, c.External) {
 			RespondError(w, r, http.StatusBadRequest,
-				"that is not a source control credential carrying a password, token or SSH key, so it cannot authenticate a clone")
+				"credential: that is not a source control credential carrying a password, token or SSH key, so it cannot authenticate a clone")
 			return false
 		}
 		return true
 	}
-	RespondError(w, r, http.StatusBadRequest, "no credential with that id")
+	RespondError(w, r, http.StatusBadRequest, "credential: no credential with that id in this project's organization")
 	return false
 }
 
@@ -224,7 +243,7 @@ func (h *ProjectHandler) Create(w http.ResponseWriter, r *http.Request) {
 		RespondError(w, r, http.StatusBadRequest, "organization is required")
 		return
 	}
-	if !h.checkCredential(w, r, p.CredentialID) {
+	if !h.checkCredential(w, r, p) {
 		return
 	}
 

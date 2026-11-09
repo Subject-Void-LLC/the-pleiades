@@ -36,8 +36,10 @@ type stubAuth struct {
 	calls []int
 }
 
-func (s *stubAuth) ResolveAuth(_ context.Context, id int) (project.Auth, error) {
-	s.calls = append(s.calls, id)
+// ResolveAuth records the credential id it was asked for and answers with
+// the stub's fixed values.
+func (s *stubAuth) ResolveAuth(_ context.Context, p project.Project) (project.Auth, error) {
+	s.calls = append(s.calls, p.CredentialID)
 	return s.auth, s.err
 }
 

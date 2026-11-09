@@ -9725,7 +9725,7 @@
               "schema": {
                 "properties": {
                   "credential": {
-                    "description": "A source control credential carrying a password, token or SSH key. 0 or absent for a public repository.",
+                    "description": "A source control credential carrying a password, token or SSH key, owned by the project's own organization; another organization's is refused as if it did not exist. 0 or absent for a public repository.",
                     "type": "integer"
                   },
                   "description": {
@@ -9857,7 +9857,7 @@
                 }
               }
             },
-            "description": "A required field is missing, a field is longer than its bound, a git project carries no URL, the URL names a source this deployment will not fetch from or carries a password, or the credential cannot authenticate a clone."
+            "description": "A required field is missing, a field is longer than its bound, a git project carries no URL, the URL names a source this deployment will not fetch from or carries a password, or the credential is not one the project's organization owns (answered as no credential with that id in the project's organization) or cannot authenticate a clone."
           },
           "409": {
             "content": {
@@ -10091,7 +10091,7 @@
                 "description": "A partial update. A field left out keeps its stored value and a field present is applied; an empty value clears description, scm_url and scm_branch, and \"credential\": 0 unbinds the credential. No field may be null: leave it out to keep it. The project as it would be saved is checked whole, so setting scm_type to git on a project with no scm_url is refused, and a kept credential is checked again. Unknown fields, the read-only sync fields among them, are refused.",
                 "properties": {
                   "credential": {
-                    "description": "Rebinds the project to this source control credential. 0 unbinds it; leaving the key out keeps it.",
+                    "description": "Rebinds the project to this source control credential, which the project's own organization must own. 0 unbinds it; leaving the key out keeps it, and a kept credential is checked again.",
                     "type": "integer"
                   },
                   "description": {
@@ -10219,7 +10219,7 @@
                 }
               }
             },
-            "description": "The body is malformed, sets a field to null or changes the organization, or the project it would leave has a blank name, a field longer than its bound, a git source with no URL, a URL this deployment will not fetch from or that carries a password, or a credential that cannot authenticate a clone."
+            "description": "The body is malformed, sets a field to null or changes the organization, or the project it would leave has a blank name, a field longer than its bound, a git source with no URL, a URL this deployment will not fetch from or that carries a password, or a credential the project's organization does not own (answered as no credential with that id in the project's organization) or that cannot authenticate a clone."
           },
           "404": {
             "content": {

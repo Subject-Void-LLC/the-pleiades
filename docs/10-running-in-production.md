@@ -1632,6 +1632,20 @@ either is on, so an operator reading a boot log sees what a deployment permits. 
 refusal is answered at the write, where somebody can fix it, and again at the sync,
 because a row can predate the rule or the toggle can be taken away.
 
+A project's credential must belong to the project's own organization. Every
+credential belongs to exactly one organization, and a project binds only one its
+organization owns: the API and the web UI refuse another organization's credential
+on the `credential` field, answering it as they answer an id that does not exist,
+and a sync refuses to use one, so a binding stored before the rule fails its syncs,
+saying the credential belongs to another organization, until it is rebound. What
+this stops is a project of one organization using another organization's
+credential. What it does not stop is a caller writing a project in any organization
+they choose: authorization is by token scope, deployment-wide, so whoever holds
+`project:write` can create a project in another organization and bind that
+organization's credential to it, and that project is then consistent with the rule.
+Keeping a caller to their own organization waits on per-organization authorization,
+which is not enforced yet.
+
 Three limits worth knowing, none of which this mechanism claims to cover:
 
 - **It is not a host allowlist.** git reads anything shaped like `host:path` as an

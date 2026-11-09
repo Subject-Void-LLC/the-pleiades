@@ -143,7 +143,7 @@ func (h *ProjectHandler) Update(w http.ResponseWriter, r *http.Request) {
 	// naming one field is refused for a kept value a full write would be
 	// refused for: setting scm_type to git on a project with no URL, say.
 	p := body.apply(stored)
-	if !h.validProject(w, r, &p) || !h.checkCredential(w, r, p.CredentialID) {
+	if !h.validProject(w, r, &p) || !h.checkCredential(w, r, p) {
 		return
 	}
 

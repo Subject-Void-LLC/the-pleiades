@@ -431,7 +431,14 @@ func supplies(inputs, external map[string]string, id string) bool {
 // A nil resolver means every clone is unauthenticated, which is the honest
 // behaviour for a deployment that has wired no credentials.
 type AuthResolver interface {
-	// ResolveAuth returns the credential's values, or an empty Auth when
-	// id is zero.
-	ResolveAuth(ctx context.Context, credentialID int) (Auth, error)
+	// ResolveAuth returns the values of p's credential, or an empty Auth
+	// when p binds none.
+	//
+	// It takes the project, not only the credential's id, because whether
+	// the credential may be used is a question about both: a credential
+	// belongs to one organization and authenticates only that organization's
+	// projects. An implementation refuses one of another organization here,
+	// at the moment of use, so a binding stored before that rule was
+	// enforced at the write is never acted on.
+	ResolveAuth(ctx context.Context, p Project) (Auth, error)
 }

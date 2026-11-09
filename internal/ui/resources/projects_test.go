@@ -164,7 +164,7 @@ func TestProjectsView_OffersACredentialAndStoresTheChoice(t *testing.T) {
 	if !strings.Contains(form, "public repository") {
 		t.Error("the credential chooser offers no way to say a repository is public")
 	}
-	credID := optionValue(t, form, "credential", "conformance scm credential (Source Control)")
+	credID := optionValue(t, form, "credential", "conformance scm credential (Source Control, conformance)")
 
 	name := uniqueName(t, "private-project")
 	if w := h.post(t, "/ui/projects", map[string]string{

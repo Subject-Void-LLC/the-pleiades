@@ -36,7 +36,7 @@ var projectWriteSchema = map[string]any{
 		"scm_type":     stringSchema("git, archive or manual. Empty or absent means git."),
 		"scm_url":      stringSchema(projectSourceRules + " Required for git." + projectBound(project.MaxSCMURLBytes)),
 		"scm_branch":   stringSchema("The branch, tag or commit to check out. Empty means the remote's own default." + projectBound(project.MaxSCMBranchBytes)),
-		"credential":   map[string]any{"type": "integer", "description": "A source control credential carrying a password, token or SSH key. 0 or absent for a public repository."},
+		"credential":   map[string]any{"type": "integer", "description": "A source control credential carrying a password, token or SSH key, owned by the project's own organization; another organization's is refused as if it did not exist. 0 or absent for a public repository."},
 	},
 }
 
@@ -57,6 +57,6 @@ var projectPatchSchema = map[string]any{
 			"credential redacted or withheld whole, and sending back exactly what GET showed keeps the stored URL." +
 			projectBound(project.MaxSCMURLBytes)),
 		"scm_branch": stringSchema("The branch, tag or commit to check out. \"\" means the remote's own default." + projectBound(project.MaxSCMBranchBytes)),
-		"credential": map[string]any{"type": "integer", "description": "Rebinds the project to this source control credential. 0 unbinds it; leaving the key out keeps it."},
+		"credential": map[string]any{"type": "integer", "description": "Rebinds the project to this source control credential, which the project's own organization must own. 0 unbinds it; leaving the key out keeps it, and a kept credential is checked again."},
 	},
 }

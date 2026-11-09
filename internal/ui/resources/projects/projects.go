@@ -181,7 +181,7 @@ type writer struct {
 }
 
 func (w writer) Create(ctx context.Context, p project.Project) (string, error) {
-	if err := usableForGit(ctx, w.creds, p.CredentialID); err != nil {
+	if err := usableForGit(ctx, w.creds, p.OrganizationID, p.CredentialID); err != nil {
 		return "", err
 	}
 	created, err := w.store.Create(ctx, p)
@@ -207,7 +207,7 @@ func (w writer) Update(ctx context.Context, id string, p project.Project) error 
 	// The form shows the URL redacted, so saving it unchanged sends the
 	// redacted form back: an echo, which keeps the stored URL.
 	p.SCMURL = project.KeepEchoedSourceURL(existing.SCMURL, p.SCMURL)
-	if err := usableForGit(ctx, w.creds, p.CredentialID); err != nil {
+	if err := usableForGit(ctx, w.creds, p.OrganizationID, p.CredentialID); err != nil {
 		return view.WrapNotFound(err, project.ErrNotFound)
 	}
 	return view.WrapNotFound(asFault(w.store.Update(ctx, p)), project.ErrNotFound)
