@@ -412,8 +412,8 @@ var deviceWriteSchema = map[string]any{
 	"type":     "object",
 	"required": []any{"name", "type"},
 	"properties": map[string]any{
-		"name":  stringSchema("The device's unique name, which is its address: \"\", \".\" and \"..\" are refused, since no URL can carry one as a path segment."),
-		"type":  stringSchema("A registered device type, e.g. \"linux_server\"."),
+		"name":  stringSchema("The device's unique name, which is its address: \"\", \".\" and \"..\" are refused, since no URL can carry one as a path segment. Fixed once the device exists: an update refuses a different name."),
+		"type":  stringSchema("A registered device type, e.g. \"linux_server\". Fixed once the device exists: an update refuses a different type."),
 		"tags":  map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
 		"state": stringSchema("One of the eight lifecycle states. Defaults to \"active\" on create."),
 	},
@@ -478,7 +478,9 @@ var UpdateDevice = Endpoint{
 		"device's history, and setting what the device already has records nothing. A sync that later " +
 		"updates the device keeps the state set here. The write is guarded by the stored version token, " +
 		"so two callers editing the same device concurrently cannot lose one another's change: the later " +
-		"write is refused with 409 and must reload and reapply.",
+		"write is refused with 409 and must reload and reapply. A device's name and type are fixed once it " +
+		"exists: a body may repeat the stored values, as a client echoing the record back does, and a " +
+		"different name or type is refused with 400 rather than ignored.",
 	Params: []Param{
 		{Name: "name", In: "path", Required: true, Type: "string", Description: "The device's name."},
 	},
@@ -486,7 +488,7 @@ var UpdateDevice = Endpoint{
 	RequestSchema:      deviceWriteSchema,
 	Responses: []Response{
 		{Status: http.StatusOK, Description: "The updated device.", Schema: deviceResponseSchema},
-		{Status: http.StatusBadRequest, Description: "The body is malformed, or name is unusable.", Schema: errorSchema("")},
+		{Status: http.StatusBadRequest, Description: "The body is malformed, the path name is unusable, or the body names a name or type other than the stored device's, which an update cannot change; the message names the field.", Schema: errorSchema("")},
 		{Status: http.StatusNotFound, Description: "No device with that name exists.", Schema: errorSchema("")},
 		{Status: http.StatusConflict, Description: "The device was modified concurrently, or the inventory is read-only.", Schema: errorSchema("")},
 		{Status: http.StatusUnprocessableEntity, Description: "state names no known lifecycle state.", Schema: errorSchema("")},

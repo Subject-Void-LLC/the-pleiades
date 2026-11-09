@@ -333,7 +333,8 @@ func (h *DeviceHandler) Create(w http.ResponseWriter, r *http.Request) {
 	Respond(w, r, http.StatusCreated, &dto)
 }
 
-// Update applies tag and lifecycle changes to an existing device.
+// Update applies tag and lifecycle changes to an existing device. A name
+// or type in the body must equal the stored one, since neither can change.
 //
 // The write goes through Save, which is guarded by the stored version
 // token, so a concurrent edit is refused with 409 rather than silently
@@ -374,6 +375,21 @@ func (h *DeviceHandler) Update(w http.ResponseWriter, r *http.Request) {
 		h.logger.ErrorContext(r.Context(), "stored device reports no device type",
 			slog.String("device", name))
 		RespondError(w, r, http.StatusInternalServerError, "internal error")
+		return
+	}
+
+	// A device's name and type are fixed once it exists: Save writes
+	// neither, and the stored type column is immutable. Reading neither
+	// used to answer 200 for a rename that stored nothing, so a change to
+	// either is refused, naming the field. The stored value itself is
+	// accepted, so a client that echoes the record back with one field
+	// changed still works.
+	if req.Name != nil && *req.Name != item.Name() {
+		RespondError(w, r, http.StatusBadRequest, "name cannot be changed: a device's name is fixed once it exists")
+		return
+	}
+	if req.Type != nil && *req.Type != typed.DeviceType() {
+		RespondError(w, r, http.StatusBadRequest, "type cannot be changed: a device's type is fixed once it exists")
 		return
 	}
 
