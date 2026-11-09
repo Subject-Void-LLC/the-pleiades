@@ -26,6 +26,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ui/view"
 	pkginventory "github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/recordname"
 )
 
 // Name is this view's registration key and URL segment.
@@ -164,6 +165,15 @@ func Register(repo inventory.Repository, factory *inventory.ItemFactory) error {
 		},
 		Bind: func(v view.Values) (pkginventory.InventoryItem, view.FieldErrors) {
 			errs := view.FieldErrors{}
+			// A device's name is its address (/ui/devices/{name}), so one no
+			// URL can carry is refused on the field, with the reason, before
+			// anything is built or stored. The shared validator answers an
+			// empty name first, since the field is required; recordname
+			// adds "." and "..".
+			if err := recordname.Check(v.Get("name")); err != nil {
+				errs.Add("name", err.Error())
+				return nil, errs
+			}
 			tags := make([]pkginventory.Tag, 0)
 			for _, t := range v.Tags("tags") {
 				tags = append(tags, pkginventory.Tag(t))

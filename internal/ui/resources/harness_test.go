@@ -674,6 +674,13 @@ type fakeRepository struct {
 	retired []string
 }
 
+// itemCount is how many devices the repository holds.
+func (r *fakeRepository) itemCount() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return len(r.items)
+}
+
 // retiredNames is a copy of the names Retire was asked for.
 func (r *fakeRepository) retiredNames() []string {
 	r.mu.Lock()

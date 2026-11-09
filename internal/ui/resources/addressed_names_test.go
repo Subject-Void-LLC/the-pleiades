@@ -108,3 +108,27 @@ func pageTitle(body string) string {
 	}
 	return body[start+len("<title>") : end]
 }
+
+// TestDevices_CreateRefusesANameNoURLCarries submits the create form with a
+// name of "." and "..". Each is refused on the name field with the reason
+// (422, the form redisplayed) and nothing reaches the store; an empty name
+// is the shared validator's, since the field is required.
+func TestDevices_CreateRefusesANameNoURLCarries(t *testing.T) {
+	h := newHarness(t, adminIdentity)
+	before := conformanceRepo.itemCount()
+	for _, name := range []string{".", ".."} {
+		rec := h.post(t, "/ui/devices", map[string]string{"name": name, "type": "linux_server"})
+		if rec.Code != http.StatusUnprocessableEntity {
+			t.Fatalf("creating a device named %q = %d, want 422: %s", name, rec.Code, rec.Body.String())
+		}
+		if want := html.EscapeString(`the name "` + name + `" cannot be used`); !strings.Contains(rec.Body.String(), want) {
+			t.Errorf("the form for %q does not say why it was refused", name)
+		}
+	}
+	if rec := h.post(t, "/ui/devices", map[string]string{"name": "", "type": "linux_server"}); rec.Code != http.StatusUnprocessableEntity {
+		t.Errorf("creating a device with no name = %d, want 422", rec.Code)
+	}
+	if after := conformanceRepo.itemCount(); after != before {
+		t.Errorf("the store holds %d devices after the refused creates, want %d", after, before)
+	}
+}
