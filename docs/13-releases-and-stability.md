@@ -163,20 +163,43 @@ declarations, with a digest of the undo's own declaration beside it. A rollback
 compares the undo's digest with its own build's, and only when none was recorded the
 group's. The same digest replays as before. A different one is refused, naming both
 versions and both digests, until `pleiades rollback --allow-skew <node>` (the API's
-`allow_skew`) accepts it by node, and the plan then says which digests it accepted.
-A group whose documentation alone changed moves only the group's digest, so it needs
-no flag, and a method a later release moves to another group is a warning, never a
-refusal. Whatever is named, every recorded value is still held to the build's own
-declarations: a value under a parameter the undo no longer records, a value of another
-type than the parameter now takes, and a parameter the undo now requires that the run
-did not record are each refused, and only `--leave` answers them. An entry with no
-identity (a journal from before 0.4.0) is checked against the build's declarations
-alone, and the plan says so. The Controller stores a Runner's rows with only an
-identity a run's journal writes; any other is stored as none, with a warning, and the
-row is kept. On the Walk tier the Runner makes the same comparison
-against its own build, so a node named in `allow_skew` is accepted even where the
-Controller's declarations match the recording; the CLI, which plans and runs in one
-process, refuses a node named with no skew to accept.
+`allow_skew`) accepts it by node. A group whose documentation alone changed moves only
+the group's digest, so it needs no flag, and a method a later release moves to another
+group is a warning, never a refusal.
+
+Whatever is named, every recorded value is still held to the build's own
+declarations, and only `--leave` answers what fails: a value under a parameter the undo
+does not record, a value of another type than the parameter takes or outside the
+choices it declares, and a parameter the undo's method requires that the run did not
+record, unless the undo's digest is this build's exactly. So an entry with no identity
+(a journal from before 0.4.0) is checked against the build's declarations alone, and
+the plan says so.
+
+What a plan wants read without refusing (a Collection whose declarations changed while
+the undo's did not, an entry checked against this build alone, a skew accepted and the
+digests it accepted) is printed by `pleiades rollback` before its plan and listed under
+`rollback.warnings` in its `--json` report, and `POST /jobs/{id}/rollback` returns it in
+its `202` answer's `warnings`. On the Walk tier the Runner makes the same comparison
+against its own build, and each step it runs under a skew the rollback accepted is a
+warning in the job's log. So a node named in `allow_skew` is accepted even where the
+Controller's declarations match the recording. The CLI, which plans and runs in one
+process, refuses `--allow-skew` naming a node with no skew to accept, or one also named
+to `--leave`. Both tiers refuse a name for a node the run did not change (one the
+journal lacks, one that ran without a change, one that failed with an effect nobody
+knows), since nothing of it is replayed.
+
+The Controller stores a Runner's journal rows and facts with only an identity that
+passes the writer's check: any other is stored as none, with a warning, and the row is
+kept. It never holds a Runner's identity to its own grouping of methods, which a later
+release may change; a difference is logged at info level and the identity is kept as
+sent.
+
+Builds of two releases side by side do not refuse each other's rows, but one may
+refuse what the other would run. A Runner of this release under an older Controller,
+which has no `allow_skew`, refuses every step recorded under other declarations than
+its own, and its advice names a field that Controller does not take. A newer
+Controller may refuse, with `--leave` the only answer, a recorded value only its own
+newer declarations reject.
 
 **`--allow-skew` is advisory until Collection identities are signed.** The digests are
 computed from public declarations, so whoever can write a journal can write the

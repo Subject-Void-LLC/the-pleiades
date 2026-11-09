@@ -322,7 +322,10 @@ that accept problems by name, `leave`, `allow_partial`, `allow_unknown`, `allow_
 `despite_job`. `allow_skew` accepts replaying an undo recorded under Collection
 declarations other than the ones it runs under; a node named there is accepted even where
 the Controller's declarations match the recording, since the Runner that runs it compares
-its own (see [Releases and stability](13-releases-and-stability.md#run-journal)).
+its own (see [Releases and stability](13-releases-and-stability.md#run-journal)). An
+accepted rollback answers `202` with the new job's `job_id` and a `warnings` list, always
+present, of what its plan wants read without refusing, each with its `node`, `device` and
+`message`; a Runner's own warnings reach the job's log as `task.warning` events.
 The Controller plans the rollback when it is asked, from the job's journal, what other jobs
 have done on the same devices since, and the runbook the job ran, which must still be the
 version it ran (adding or editing a `rollback:` list does not change it). When the plan has
