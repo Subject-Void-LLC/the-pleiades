@@ -7,8 +7,6 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/go-chi/chi/v5"
-
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts"
 )
 
@@ -40,8 +38,8 @@ func (h *DeviceHandler) Facts(w http.ResponseWriter, r *http.Request) {
 
 // FactHistory serves GET /inventory/devices/{name}/facts/{key}.
 func (h *DeviceHandler) FactHistory(w http.ResponseWriter, r *http.Request) {
-	key := chi.URLParam(r, "key")
-	if !facts.ValidKey(key) {
+	key, err := PathParam(r, "key")
+	if err != nil || !facts.ValidKey(key) {
 		// Not echoed: it is the caller's text (FAILURE_PATTERNS.md #72).
 		RespondError(w, r, http.StatusBadRequest, "invalid fact name")
 		return

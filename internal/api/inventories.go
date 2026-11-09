@@ -17,7 +17,6 @@ import (
 	"strconv"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
-	"github.com/go-chi/chi/v5"
 )
 
 // InventoryRepository is the narrow slice of inventory.SetStore these
@@ -305,8 +304,8 @@ func (h *InventoryHandler) Delete(w http.ResponseWriter, r *http.Request) {
 // constraining its shape at the boundary is cheaper than trusting every
 // layer beneath it to.
 func (h *InventoryHandler) parseID(w http.ResponseWriter, r *http.Request) (int, bool) {
-	id, err := strconv.Atoi(chi.URLParam(r, "id"))
-	if err != nil || id < 1 {
+	id, err := pathID(r, "id")
+	if err != nil {
 		RespondError(w, r, http.StatusBadRequest, "inventory id must be a positive integer")
 		return 0, false
 	}

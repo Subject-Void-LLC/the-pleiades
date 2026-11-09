@@ -26,7 +26,6 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
 	pkginventory "github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
-	"github.com/go-chi/chi/v5"
 )
 
 // maxDeviceNameLength bounds the {name} URL parameter. It is the DNS name
@@ -599,9 +598,13 @@ func (h *DeviceHandler) Delete(w http.ResponseWriter, r *http.Request) {
 
 // deviceName extracts and bounds the {name} URL parameter, answering the
 // caller itself and reporting false when the value is unusable.
+//
+// The value is decoded once (PathParam), so /inventory/devices/sw%2F1
+// names the device "sw/1"; an escape that does not decode is as unusable
+// as an empty name.
 func (h *DeviceHandler) deviceName(w http.ResponseWriter, r *http.Request) (string, bool) {
-	name := chi.URLParam(r, "name")
-	if name == "" || len(name) > maxDeviceNameLength || strings.ContainsAny(name, "\x00\r\n") {
+	name, err := PathParam(r, "name")
+	if err != nil || name == "" || len(name) > maxDeviceNameLength || strings.ContainsAny(name, "\x00\r\n") {
 		// The rejected value is never echoed back. It is caller-controlled
 		// and reflecting it is the shape FAILURE_PATTERNS.md #72 records.
 		RespondError(w, r, http.StatusBadRequest, "invalid device name")

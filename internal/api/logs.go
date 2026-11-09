@@ -7,8 +7,6 @@ import (
 	"sync"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
-	"github.com/go-chi/chi/v5"
-	"github.com/google/uuid"
 	"github.com/nats-io/nats.go/jetstream"
 )
 
@@ -45,8 +43,8 @@ func NewLogStreamer(js jetstream.JetStream) *LogStreamer {
 
 // StreamLogs handles GET /api/v1/jobs/{id}/logs via SSE.
 func (ls *LogStreamer) StreamLogs(w http.ResponseWriter, r *http.Request) {
-	jobID := chi.URLParam(r, "id")
-	if _, err := uuid.Parse(jobID); err != nil {
+	jobID, err := pathUUID(r, "id")
+	if err != nil {
 		RespondError(w, r, http.StatusBadRequest, "job id must be a UUID")
 		return
 	}

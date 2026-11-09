@@ -16,7 +16,6 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/auth"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/dispatch"
-	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 )
 
@@ -254,8 +253,8 @@ func toJobResponse(job *dispatch.Job, tasks []dispatch.JobTask) jobResponse {
 // single-owner conventions (e.g. internal/topology's own doc comment)
 // exist to prevent.
 func (h *JobHandler) Get(w http.ResponseWriter, r *http.Request) {
-	jobID := chi.URLParam(r, "id")
-	if _, err := uuid.Parse(jobID); err != nil {
+	jobID, err := pathUUID(r, "id")
+	if err != nil {
 		RespondError(w, r, http.StatusBadRequest, "job id must be a UUID")
 		return
 	}
@@ -318,8 +317,8 @@ func (j jobResponse) AllowsRel(rel auth.LinkRel) bool {
 // dispatched to. Work already running on a device is signalled separately
 // and best-effort, so "accepted" is the honest word for what happened.
 func (h *JobHandler) Cancel(w http.ResponseWriter, r *http.Request) {
-	jobID := chi.URLParam(r, "id")
-	if _, err := uuid.Parse(jobID); err != nil {
+	jobID, err := pathUUID(r, "id")
+	if err != nil {
 		RespondError(w, r, http.StatusBadRequest, "job id must be a UUID")
 		return
 	}

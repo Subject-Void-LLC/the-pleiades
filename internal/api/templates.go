@@ -19,8 +19,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/go-chi/chi/v5"
-
 	"github.com/Subject-Void-LLC/the-pleiades/internal/launch"
 )
 
@@ -654,8 +652,8 @@ func (h *TemplateHandler) CreateConfig(w http.ResponseWriter, r *http.Request) {
 // and a second implementation of the same check is how the two would
 // eventually disagree about what a template id is.
 func parseTemplateID(w http.ResponseWriter, r *http.Request) (int, bool) {
-	id, err := strconv.Atoi(chi.URLParam(r, "id"))
-	if err != nil || id < 1 {
+	id, err := pathID(r, "id")
+	if err != nil {
 		RespondError(w, r, http.StatusBadRequest, "template id must be a positive integer")
 		return 0, false
 	}

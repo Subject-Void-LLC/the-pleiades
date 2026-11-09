@@ -18,7 +18,6 @@ import (
 	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/announce"
-	"github.com/go-chi/chi/v5"
 )
 
 // AnnouncementRepository is the announce.Store slice these handlers need.
@@ -279,8 +278,8 @@ func (h *AnnouncementHandler) parseInstant(w http.ResponseWriter, r *http.Reques
 
 // parseID reads and validates the {id} path parameter.
 func (h *AnnouncementHandler) parseID(w http.ResponseWriter, r *http.Request) (int, bool) {
-	id, err := strconv.Atoi(chi.URLParam(r, "id"))
-	if err != nil || id < 1 {
+	id, err := pathID(r, "id")
+	if err != nil {
 		RespondError(w, r, http.StatusBadRequest, "announcement id must be a positive integer")
 		return 0, false
 	}
