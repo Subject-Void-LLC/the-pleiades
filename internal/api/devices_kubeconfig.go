@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/auth"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credstore"
@@ -97,16 +98,15 @@ func (h *DeviceHandler) ImportKubeconfig(w http.ResponseWriter, r *http.Request)
 	if !decodeJSONWithin(w, r, &req, maxKubeconfigImportBody) {
 		return
 	}
-	// The name becomes the cluster's address and is printed wherever the
-	// cluster is named, so one no record can be created under is refused
-	// with the reason (refuseUnusableName) before anything is read or
-	// written.
-	if !refuseUnusableName(w, r, req.Name) {
-		return
-	}
-	// Control codes were refused just above, so the length is what is left.
 	if len(req.Name) > maxDeviceNameLength {
 		RespondError(w, r, http.StatusBadRequest, "invalid device name")
+		return
+	}
+	// No device is stored under a name holding NUL (no PostgreSQL row can
+	// hold one, and PostgreSQL refuses the lookup itself), so such a name
+	// is refused with the reason here, before the store is asked, rather
+	// than answered as the store's internal error.
+	if strings.ContainsRune(req.Name, 0) && !refuseUnusableName(w, r, req.Name) {
 		return
 	}
 	if req.Organization <= 0 {
@@ -129,6 +129,14 @@ func (h *DeviceHandler) ImportKubeconfig(w http.ResponseWriter, r *http.Request)
 		return
 	case !req.Replace:
 		RespondError(w, r, http.StatusConflict, "device already exists; set replace to replace its connection settings and credential")
+		return
+	}
+	// A new cluster's name becomes its address and is printed wherever the
+	// cluster is named, so one no device may be created under is refused
+	// with the reason (refuseUnusableName) before anything is written. A
+	// cluster already stored under such a name is replaced like any other:
+	// only a create is held to the rule (LESSONS 415).
+	if existing == nil && !refuseUnusableName(w, r, req.Name) {
 		return
 	}
 	if existing != nil {

@@ -227,6 +227,49 @@ func TestImportKubeconfig_Refusals(t *testing.T) {
 	}
 }
 
+// postgresNameStore is a repository that answers a name holding NUL as
+// PostgreSQL does, refusing the text parameter itself (lib/pq's error), and
+// records that it was asked.
+type postgresNameStore struct {
+	api.DeviceRepository
+	asked *bool
+}
+
+func (s postgresNameStore) GetByName(ctx context.Context, name string) (pkginventory.InventoryItem, error) {
+	if strings.ContainsRune(name, 0) {
+		*s.asked = true
+		return nil, fmt.Errorf(`pq: invalid byte sequence for encoding "UTF8": 0x00`)
+	}
+	return s.DeviceRepository.GetByName(ctx, name)
+}
+
+// TestImportKubeconfig_RefusesANULNameBeforeTheStore: no PostgreSQL row
+// can hold a name with NUL in it, and the store refuses the query itself,
+// so the import refuses such a name with the reason before it asks the
+// store whether a cluster is stored under it, rather than answering the
+// store's refusal as an internal error.
+func TestImportKubeconfig_RefusesANULNameBeforeTheStore(t *testing.T) {
+	f := newImportFixture(t, false)
+	asked := false
+	handler := api.NewDeviceHandler(postgresNameStore{DeviceRepository: f.repo, asked: &asked}, inventory.NewItemFactory(),
+		slog.New(slog.NewTextHandler(io.Discard, nil))).WithKubeconfigImport(f.store)
+	f.router = chi.NewRouter()
+	f.router.Post("/inventory/kubeconfig-imports", handler.ImportKubeconfig)
+
+	token := kubeconfigFor("https://k8s.example.com", testCAPEM(t), "    token: "+importToken+"\n")
+	rec := f.post(t, map[string]any{"name": "a\x00b", "organization": f.org, "kubeconfig": token, "replace": true},
+		auth.ScopeCredentialWrite, auth.ScopeInventoryWrite)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "U+0000 at byte 1") {
+		t.Fatalf("import = %d %s, want 400 naming U+0000 at byte 1", rec.Code, rec.Body)
+	}
+	if asked {
+		t.Error("the import asked the store about a name no row can hold")
+	}
+	if creds := f.credentials(t); len(creds) != 0 {
+		t.Errorf("the refused import left credentials: %+v", creds)
+	}
+}
+
 // TestImportKubeconfig_Replace: an import over an existing cluster is a
 // conflict unless replace is set; a replacement keeps the device's
 // identity and, when the identity changes kind, replaces the credential.

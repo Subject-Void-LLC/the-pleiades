@@ -834,7 +834,7 @@ var ImportKubeconfig = Endpoint{
 		"type":     "object",
 		"required": []string{"name", "kubeconfig", "organization"},
 		"properties": map[string]any{
-			"name":         stringSchema("The cluster device's name, which is its address: \"\", \".\" and \"..\" are refused, and so is a name the device create refuses for what it holds."),
+			"name":         stringSchema("The cluster device's name, which is its address: for a new cluster, \"\", \".\" and \"..\" are refused, and so is a name the device create refuses for what it holds. A cluster already stored under such a name can still be replaced."),
 			"kubeconfig":   stringSchema("The kubeconfig, YAML or JSON, at most one mebibyte."),
 			"context":      stringSchema("The context to import; the kubeconfig's current context when empty."),
 			"organization": map[string]any{"type": "integer", "description": "The organization the credential belongs to."},

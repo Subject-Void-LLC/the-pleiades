@@ -6944,7 +6944,7 @@
                     "type": "string"
                   },
                   "name": {
-                    "description": "The cluster device's name, which is its address: \"\", \".\" and \"..\" are refused, and so is a name the device create refuses for what it holds.",
+                    "description": "The cluster device's name, which is its address: for a new cluster, \"\", \".\" and \"..\" are refused, and so is a name the device create refuses for what it holds. A cluster already stored under such a name can still be replaced.",
                     "type": "string"
                   },
                   "organization": {
