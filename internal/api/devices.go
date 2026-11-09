@@ -26,6 +26,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
 	pkginventory "github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/recordname"
 )
 
 // maxDeviceNameLength bounds the {name} URL parameter. It is the DNS name
@@ -271,7 +272,10 @@ func (h *DeviceHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	name := deref(req.Name)
-	if name == "" || len(name) > maxDeviceNameLength || strings.ContainsAny(name, "\x00\r\n") {
+	if !refuseUnaddressable(w, r, name) {
+		return
+	}
+	if len(name) > maxDeviceNameLength || strings.ContainsAny(name, "\x00\r\n") {
 		RespondError(w, r, http.StatusBadRequest, "invalid device name")
 		return
 	}
@@ -613,6 +617,19 @@ func (h *DeviceHandler) deviceName(w http.ResponseWriter, r *http.Request) (stri
 	return name, true
 }
 
+// refuseUnaddressable answers 400 with the reason when name, which a create
+// is about to make a device's address (/inventory/devices/{name}), is "",
+// "." or ".." (pkg/recordname), and reports whether name may be used.
+// The message names the name only when it is "." or "..", so it echoes
+// nothing else a caller sent.
+func refuseUnaddressable(w http.ResponseWriter, r *http.Request, name string) bool {
+	if err := recordname.Check(name); err != nil {
+		RespondError(w, r, http.StatusBadRequest, err.Error())
+		return false
+	}
+	return true
+}
+
 // writeRepositoryError maps a repository failure onto a status code,
 // logging the real error and telling the client only the category.
 //
@@ -638,6 +655,12 @@ func (h *DeviceHandler) writeRepositoryError(w http.ResponseWriter, r *http.Requ
 		RespondError(w, r, http.StatusConflict, "inventory is read-only")
 	case errors.Is(err, inventory.ErrVersionConflict):
 		RespondError(w, r, http.StatusConflict, "device was modified concurrently, reload and retry")
+	case errors.Is(err, recordname.ErrUnaddressable):
+		// The store's own refusal of a name no URL can carry, for a path
+		// that reached Create without refuseUnaddressable. Its text is
+		// recordname's, fixed strings and at most "." or "..", so it is
+		// the caller's to read.
+		RespondError(w, r, http.StatusBadRequest, err.Error())
 	default:
 		// The driver's own message never reaches the client: it can name
 		// tables, columns, and hosts. The same reasoning /readyz already

@@ -5275,7 +5275,7 @@
               "schema": {
                 "properties": {
                   "name": {
-                    "description": "The device's unique name.",
+                    "description": "The device's unique name, which is its address: \"\", \".\" and \"..\" are refused, since no URL can carry one as a path segment.",
                     "type": "string"
                   },
                   "state": {
@@ -5376,7 +5376,7 @@
                 }
               }
             },
-            "description": "The body is malformed, or name or type is missing or unusable."
+            "description": "The body is malformed, or name or type is missing or unusable. A name of \".\" or \"..\" is unusable, and the message says why."
           },
           "409": {
             "content": {
@@ -5620,7 +5620,7 @@
               "schema": {
                 "properties": {
                   "name": {
-                    "description": "The device's unique name.",
+                    "description": "The device's unique name, which is its address: \"\", \".\" and \"..\" are refused, since no URL can carry one as a path segment.",
                     "type": "string"
                   },
                   "state": {
@@ -6944,7 +6944,7 @@
                     "type": "string"
                   },
                   "name": {
-                    "description": "The cluster device's name.",
+                    "description": "The cluster device's name, which is its address: \"\", \".\" and \"..\" are refused.",
                     "type": "string"
                   },
                   "organization": {
@@ -7180,7 +7180,7 @@
                 }
               }
             },
-            "description": "The body is malformed, or name or organization is missing or unusable."
+            "description": "The body is malformed, or name or organization is missing or unusable. A name of \".\" or \"..\" is unusable, and the message says why."
           },
           "403": {
             "content": {
