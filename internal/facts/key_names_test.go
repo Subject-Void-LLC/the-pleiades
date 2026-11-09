@@ -1,6 +1,7 @@
 // Package facts_test: a new fact may not be named "." or "..", which no URL
 // carries as the {key} of its history's address, while a key an earlier
-// release stored under either still reads back.
+// release stored under either still reads back; and a fact key refuses
+// every character a device name may not hold.
 package facts_test
 
 import (
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/recordname"
 )
 
 // TestValidKey_RefusesTheNamesNoURLCarries tables the rule with its near
@@ -76,5 +78,37 @@ func TestFileStore_StillReadsADotKeyAnEarlierReleaseStored(t *testing.T) {
 	}
 	if len(current) != 1 || current[0].Key != "." {
 		t.Errorf("Current = %+v, want the stored \".\" fact", current)
+	}
+}
+
+// TestValidKey_RefusesEveryCharacterADeviceNameCannotHold sweeps the code
+// points where recordname.Check's refused ranges lie (the Basic
+// Multilingual Plane, the next two planes, and the tag plane) and holds
+// ValidKey to refusing a key wherever Check refuses a device name holding
+// the same character. A fact key is printed where a device name is, so it
+// needs the same rule, and it already has a stricter one: wellFormedKey
+// takes printable characters only, and no space. This pins that, so a
+// later change to either rule cannot quietly leave keys behind names.
+func TestValidKey_RefusesEveryCharacterADeviceNameCannotHold(t *testing.T) {
+	refused := 0
+	for _, span := range [][2]rune{{0, 0x2FFFF}, {0xE0000, 0xE0FFF}} {
+		for r := span[0]; r <= span[1]; r++ {
+			if r >= 0xD800 && r <= 0xDFFF {
+				continue // a surrogate is no character; string(r) is U+FFFD
+			}
+			key := "k" + string(r) + "1"
+			if recordname.Check(key) == nil {
+				continue
+			}
+			refused++
+			if facts.ValidKey(key) {
+				t.Errorf("ValidKey accepts a key holding %U, which a device name may not hold", r)
+			}
+		}
+	}
+	// The control codes alone are 65, so a sweep that found fewer was not
+	// asking Check what it refuses.
+	if refused < 65 {
+		t.Fatalf("Check refused %d code points in the sweep, want at least the 65 control codes", refused)
 	}
 }

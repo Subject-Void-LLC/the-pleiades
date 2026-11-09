@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strings"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/auth"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credstore"
@@ -98,13 +97,15 @@ func (h *DeviceHandler) ImportKubeconfig(w http.ResponseWriter, r *http.Request)
 	if !decodeJSONWithin(w, r, &req, maxKubeconfigImportBody) {
 		return
 	}
-	// The name becomes the cluster's address, so one no URL can carry is
-	// refused with the reason (refuseUnaddressable) before anything is read
-	// or written.
-	if !refuseUnaddressable(w, r, req.Name) {
+	// The name becomes the cluster's address and is printed wherever the
+	// cluster is named, so one no record can be created under is refused
+	// with the reason (refuseUnusableName) before anything is read or
+	// written.
+	if !refuseUnusableName(w, r, req.Name) {
 		return
 	}
-	if len(req.Name) > maxDeviceNameLength || strings.ContainsAny(req.Name, "\x00\r\n") {
+	// Control codes were refused just above, so the length is what is left.
+	if len(req.Name) > maxDeviceNameLength {
 		RespondError(w, r, http.StatusBadRequest, "invalid device name")
 		return
 	}

@@ -52,11 +52,20 @@ func (r failingRepo) Save(ctx context.Context, item inventory.InventoryItem) err
 	return r.Repository.Save(ctx, item)
 }
 
+// quotedName is an upstream device name the name rule allows that %q
+// still changes, for the steps only a create reaches: a name holding a
+// newline is refused before any of them (recordname.Check), so a quote
+// is what shows the name was written with %q there.
+const quotedName = `web1" scripted: approved`
+
 // TestReconcile_QuotesTheUpstreamNameInEveryError makes Reconcile stop at
 // each step that names the device in its error: classifying, loading,
 // the reserved property refusal, building, creating, rebuilding, updating
-// and saving. A step that updates a device runs after a first sync stored
-// it. Each error carries the name quoted and no newline at all.
+// and saving. A step a device already stored reaches runs over a device
+// stored under craftedName the way a release before the name rule could
+// have stored it (seededRepos), since only a create is held to the rule; a
+// step only a create reaches runs under quotedName. Each error carries the
+// name quoted and no newline at all.
 func TestReconcile_QuotesTheUpstreamNameInEveryError(t *testing.T) {
 	forged := inventory.Discovery{Protocol: "ssh", Capabilities: []capability.Name{capability.NameApt}}.Property()
 	unbuildable := func(record.Record) (syncplugin.Classification, error) {
@@ -64,7 +73,9 @@ func TestReconcile_QuotesTheUpstreamNameInEveryError(t *testing.T) {
 	}
 	tests := []struct {
 		name string
-		// stored runs a first, successful sync before the failing one.
+		// stored seeds a device under craftedName before the sync, which
+		// then sends that name; otherwise the sync sends quotedName to an
+		// empty store.
 		stored   bool
 		props    map[string]inventory.PropertyValue
 		classify func(record.Record) (syncplugin.Classification, error)
@@ -72,12 +83,14 @@ func TestReconcile_QuotesTheUpstreamNameInEveryError(t *testing.T) {
 		step     string
 	}{
 		{
-			name: "classifying",
+			name:   "classifying",
+			stored: true,
 			classify: func(record.Record) (syncplugin.Classification, error) {
 				return syncplugin.Classification{}, errors.New("classifier exploded")
 			},
 			step: "classifying",
 		},
+		{name: "loading a refused name", stored: true, repo: failingRepo{getErr: errors.New("disk unreadable")}, step: "loading"},
 		{name: "loading", repo: failingRepo{getErr: errors.New("disk unreadable")}, step: "loading"},
 		{name: "the reserved property", props: map[string]inventory.PropertyValue{inventory.DiscoveredProperty: forged}, step: "sets property"},
 		{name: "building", classify: unbuildable, step: "building"},
@@ -86,17 +99,21 @@ func TestReconcile_QuotesTheUpstreamNameInEveryError(t *testing.T) {
 		{name: "updating", stored: true, props: map[string]inventory.PropertyValue{inventory.DiscoveredProperty: forged}, step: "updating"},
 		{name: "saving", stored: true, props: map[string]inventory.PropertyValue{"host": "10.0.0.2"}, repo: failingRepo{saveErr: errors.New("disk full")}, step: "saving"},
 	}
+	fileStore := seededRepos()[1]
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
+			name := quotedName
 			repo := tt.repo
-			repo.Repository = newRepo(t)
-			p := &scriptedPlugin{records: []record.Record{
-				hostRecord(craftedName, map[string]inventory.PropertyValue{"host": "10.0.0.1"}),
-			}}
 			if tt.stored {
-				reconcile(t, p, repo.Repository)
+				name = craftedName
+				repo.Repository = fileStore.open(t, craftedName)
+			} else {
+				repo.Repository = newRepo(t)
 			}
+			p := &scriptedPlugin{records: []record.Record{
+				hostRecord(name, map[string]inventory.PropertyValue{"host": "10.0.0.1"}),
+			}}
 			for key, value := range tt.props {
 				p.records[0].Properties[key] = value
 			}
@@ -113,8 +130,14 @@ func TestReconcile_QuotesTheUpstreamNameInEveryError(t *testing.T) {
 			if strings.Contains(msg, "\n") {
 				t.Errorf("the error carries the name's newline raw:\n%s", msg)
 			}
-			if !strings.Contains(msg, strconv.Quote(craftedName)) {
-				t.Errorf("the error does not quote the name %s:\n%s", strconv.Quote(craftedName), msg)
+			if !strings.Contains(msg, strconv.Quote(name)) {
+				t.Errorf("the error does not quote the name %s:\n%s", strconv.Quote(name), msg)
+			}
+			// Neither name is a part of its own quoted form (the quote and
+			// the newline each become an escape), so a raw copy of it is
+			// one some wrapped error printed unquoted.
+			if strings.Contains(msg, name) {
+				t.Errorf("the error carries the name raw beside its quoted form:\n%s", msg)
 			}
 		})
 	}

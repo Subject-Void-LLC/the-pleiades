@@ -272,10 +272,13 @@ func (h *DeviceHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	name := deref(req.Name)
-	if !refuseUnaddressable(w, r, name) {
+	if !refuseUnusableName(w, r, name) {
 		return
 	}
-	if len(name) > maxDeviceNameLength || strings.ContainsAny(name, "\x00\r\n") {
+	// A NUL, a carriage return and a newline are control codes, which
+	// refuseUnusableName has already refused with the reason; the length is
+	// the one bound left to hold.
+	if len(name) > maxDeviceNameLength {
 		RespondError(w, r, http.StatusBadRequest, "invalid device name")
 		return
 	}
@@ -633,12 +636,15 @@ func (h *DeviceHandler) deviceName(w http.ResponseWriter, r *http.Request) (stri
 	return name, true
 }
 
-// refuseUnaddressable answers 400 with the reason when name, which a create
-// is about to make a device's address (/inventory/devices/{name}), is "",
-// "." or ".." (internal/recordname), and reports whether name may be used.
-// The message names the name only when it is "." or "..", so it echoes
-// nothing else a caller sent.
-func refuseUnaddressable(w http.ResponseWriter, r *http.Request, name string) bool {
+// refuseUnusableName answers 400 with the reason when a create may not use
+// name, which is about to become a device's address
+// (/inventory/devices/{name}) and be printed wherever the device is named:
+// "", "." or "..", or a name holding invalid UTF-8, a control code, a line
+// break, a direction control or an invisible character
+// (internal/recordname). It reports whether name may be used. The message
+// names the name only when it is "." or ".." and otherwise names a
+// character by its code point, so it echoes nothing else a caller sent.
+func refuseUnusableName(w http.ResponseWriter, r *http.Request, name string) bool {
 	if err := recordname.Check(name); err != nil {
 		RespondError(w, r, http.StatusBadRequest, err.Error())
 		return false
@@ -671,11 +677,11 @@ func (h *DeviceHandler) writeRepositoryError(w http.ResponseWriter, r *http.Requ
 		RespondError(w, r, http.StatusConflict, "inventory is read-only")
 	case errors.Is(err, inventory.ErrVersionConflict):
 		RespondError(w, r, http.StatusConflict, "device was modified concurrently, reload and retry")
-	case errors.Is(err, recordname.ErrUnaddressable):
-		// The store's own refusal of a name no URL can carry, for a path
-		// that reached Create without refuseUnaddressable. Its text is
-		// recordname's, fixed strings and at most "." or "..", so it is
-		// the caller's to read.
+	case errors.Is(err, recordname.ErrUnusable):
+		// The store's own refusal of a name no record can be created under,
+		// for a path that reached Create without refuseUnusableName. Its
+		// text is recordname's, fixed strings, at most "." or "..", and a
+		// code point, so it is the caller's to read.
 		RespondError(w, r, http.StatusBadRequest, err.Error())
 	default:
 		// The driver's own message never reaches the client: it can name

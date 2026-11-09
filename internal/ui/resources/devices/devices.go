@@ -120,11 +120,14 @@ func Register(repo inventory.Repository, factory *inventory.ItemFactory) error {
 			if v.Editing() {
 				return device{tags: tags}, errs
 			}
-			// A device's name is its address (/ui/devices/{name}), so one no
-			// URL can carry is refused on the field, with the reason, before
-			// anything is built or stored. The shared validator answers an
-			// empty name first, since the field is required; recordname
-			// adds "." and "..".
+			// A device's name is its address (/ui/devices/{name}) and is
+			// printed wherever the device is named, so one no device can be
+			// created under is refused on the field, with the reason,
+			// before anything is built or stored. The shared validator
+			// answers an empty name first, since the field is required;
+			// recordname adds "." and "..", and a name holding a control
+			// code, a line break, a direction control or an invisible
+			// character.
 			if err := recordname.Check(v.Get("name")); err != nil {
 				errs.Add("name", err.Error())
 				return device{}, errs

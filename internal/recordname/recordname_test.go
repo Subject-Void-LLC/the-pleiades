@@ -13,10 +13,12 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/recordname"
 )
 
-// TestCheck_RefusesOnlyTheThreeNamesNoURLCarries tables the rule. The rows
-// that matter are the ones a reasonable person writes next: a name of
-// three dots, a dot with a letter, an escaped dot, a space around a dot.
-// Each is a real name a URL can carry once escaped, so each stays usable.
+// TestCheck_RefusesOnlyTheThreeNamesNoURLCarries tables the address half
+// of the rule over printable ASCII names. The rows that matter are the ones
+// a reasonable person writes next: a name of three dots, a dot with a
+// letter, an escaped dot, a space around a dot. Each is a real name a URL
+// can carry once escaped, so each stays usable. recordname_shown_test.go
+// tables the other half.
 func TestCheck_RefusesOnlyTheThreeNamesNoURLCarries(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -48,12 +50,12 @@ func TestCheck_RefusesOnlyTheThreeNamesNoURLCarries(t *testing.T) {
 				}
 				return
 			}
-			if !errors.Is(err, recordname.ErrUnaddressable) {
-				t.Fatalf("Check(%q) = %v, want an error matching ErrUnaddressable", tc.name, err)
+			if !errors.Is(err, recordname.ErrUnusable) {
+				t.Fatalf("Check(%q) = %v, want an error matching ErrUnusable", tc.name, err)
 			}
 			// Wrapped the way a store wraps it, it still matches.
-			if wrapped := fmt.Errorf("creating device: %w", err); !errors.Is(wrapped, recordname.ErrUnaddressable) {
-				t.Errorf("a wrapped Check error no longer matches ErrUnaddressable")
+			if wrapped := fmt.Errorf("creating device: %w", err); !errors.Is(wrapped, recordname.ErrUnusable) {
+				t.Errorf("a wrapped Check error no longer matches ErrUnusable")
 			}
 		})
 	}

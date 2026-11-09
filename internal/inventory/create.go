@@ -10,12 +10,16 @@ import (
 // checkNewDevice is what both stores require of a device before they create
 // it, and returns the type Create stores.
 //
-// Its name must be able to be its address. A device is addressed by name in
-// the API and the UI, so "", "." and ".." (recordname) would be a record
-// stored but never opened, changed or deleted by its URL. Create is the one
-// place a device's name is chosen (Save never changes it), so refusing here
-// covers every caller: the API, the UI, a sync, an import. The error
-// matches recordname.ErrUnaddressable and says why.
+// Its name must be one recordname.Check accepts. A device is addressed by
+// name in the API and the UI, so "", "." and ".." would be a record stored
+// but never opened, changed or deleted by its URL; and its name is printed
+// wherever the device is named, so a name holding a control code, a line
+// break, a direction control or an invisible character would make every
+// such line say something else. Create is the one place a device's name is
+// chosen (Save never changes it), so refusing here covers every caller: the
+// API, the UI, a sync, an import. A device stored under such a name before
+// the rule keeps being read and saved. The error matches
+// recordname.ErrUnusable and says why.
 func checkNewDevice(item inventory.InventoryItem) (string, error) {
 	if err := recordname.Check(item.Name()); err != nil {
 		return "", fmt.Errorf("creating device: %w", err)

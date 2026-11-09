@@ -1,19 +1,29 @@
-// Package recordname holds the one rule a record's name obeys when the name
-// is the record's address: it cannot be "", "." or "..".
+// Package recordname holds the one rule a record's name obeys when it is
+// chosen: it can be the record's address, and it shows as itself wherever
+// the record is named.
 //
 // A device is addressed by its name in the API (/inventory/devices/{name})
 // and the UI (/ui/devices/{name}), so its name is one URL path segment. No
-// escaping makes these three names one: url.PathEscape leaves "." and ".."
+// escaping makes "", "." and ".." one: url.PathEscape leaves "." and ".."
 // as they are, every browser and path.Join resolve them (and their escaped
 // forms %2E and %2E%2E) as steps between folders, and "" is no segment at
 // all. A record holding one could be stored but never opened, changed or
-// deleted by its address (FAILURE_PATTERNS 1011).
+// deleted by its address (FAILURE_PATTERNS 1011). Addressable is that rule.
+//
+// A device's name is also printed in every error, log line, report and page
+// that names the device, and read by programs and models. A name holding a
+// newline, an escape or a direction override would make each of those say
+// something else ("sw2\npleiades: approved" prints a line of its own), so
+// every one of them would have to defend itself. Check refuses such a name
+// when it is chosen, which Addressable does not, since a reader asks
+// Addressable of a name already stored.
 //
 // It is the one place the rule is written, for whatever builds such an
 // address and whatever chooses a name that will become one. It imports
-// nothing of this module, so any package under internal/ and cmd/ may
-// use it. It is not under pkg/: no Collection needs it, and pkg/ is the
-// surface a Collection compiles against.
+// only internal/termsafe, which imports nothing of this module, so any
+// package under internal/ and cmd/ may use it. It is not under pkg/: no
+// Collection needs it, and pkg/ is the surface a Collection compiles
+// against.
 package recordname
 
 import (
@@ -22,14 +32,19 @@ import (
 	"net/url"
 )
 
-// ErrUnaddressable is what Check's error matches under errors.Is: the name
-// cannot be the address of a record. A caller maps it to its own refusal
-// (a 400, a form error, a skipped sync record) and shows Check's message,
-// which says why.
-var ErrUnaddressable = errors.New("not a name a URL can carry")
+// ErrUnusable is what Check's error matches under errors.Is: no record can
+// be created under the name. A caller maps it to its own refusal (a 400, a
+// form error, a skipped sync record) and shows Check's message, which says
+// why.
+var ErrUnusable = errors.New("not a name a record can be created under")
 
 // Addressable reports whether name can be one URL path segment naming a
 // record: anything but "", "." and "..".
+//
+// It is the rule a reader asks of a name already stored (whether to link
+// it, whether a path can reach it), and it does not grow: a record stored
+// under any other name stays reachable. A name being chosen is held to
+// Check, which refuses more.
 func Addressable(name string) bool {
 	return name != "" && name != "." && name != ".."
 }
@@ -54,27 +69,39 @@ func Segment(name string, static map[string]bool) string {
 	return fmt.Sprintf("%%%02X", seg[0]) + seg[1:]
 }
 
-// Check returns nil for an Addressable name, and otherwise an error that
-// says why the name cannot be used and matches ErrUnaddressable. Its
-// message quotes the name only when it is "." or "..", so it never echoes
+// Check returns nil for a name a record may be created under, and otherwise
+// an error that says why and matches ErrUnusable. It refuses what
+// Addressable refuses, and a name that would not show as itself
+// (shownAsItself): one holding invalid UTF-8, a control code, a line
+// break, a direction control or an invisible character listed there.
+//
+// Check is for the moment a name is chosen: a create, an import, a sync
+// adding a record. A reader never holds a stored name to it. The rule may
+// grow in a later release, and a record stored before must keep being
+// read, changed and deleted (LESSONS 415).
+//
+// Its message quotes the name only when it is "." or "..", and otherwise
+// names a character by its code point and byte offset, so it never echoes
 // anything else a caller sent.
 func Check(name string) error {
 	switch name {
 	case "":
-		return unaddressable{msg: "a name is required: an empty name cannot be the address of a record"}
+		return unusable{msg: "a name is required: an empty name cannot be the address of a record"}
 	case ".", "..":
-		return unaddressable{msg: fmt.Sprintf("the name %q cannot be used: a URL reads \".\" and \"..\" as steps between folders, however they are escaped, so no address could reach the record", name)}
+		return unusable{msg: fmt.Sprintf("the name %q cannot be used: a URL reads \".\" and \"..\" as steps between folders, however they are escaped, so no address could reach the record", name)}
+	}
+	if err := shownAsItself(name); err != nil {
+		return unusable{msg: "the name cannot be used: " + err.Error() + " (a name is printed wherever the record is named, so it must be one line that shows as itself)"}
 	}
 	return nil
 }
 
-// unaddressable is Check's error: its text is the reason alone, and it
-// unwraps to ErrUnaddressable so a caller can recognize it through any
-// wrapping.
-type unaddressable struct{ msg string }
+// unusable is Check's error: its text is the reason alone, and it unwraps
+// to ErrUnusable so a caller can recognize it through any wrapping.
+type unusable struct{ msg string }
 
 // Error implements error.
-func (e unaddressable) Error() string { return e.msg }
+func (e unusable) Error() string { return e.msg }
 
-// Unwrap lets errors.Is match ErrUnaddressable.
-func (e unaddressable) Unwrap() error { return ErrUnaddressable }
+// Unwrap lets errors.Is match ErrUnusable.
+func (e unusable) Unwrap() error { return ErrUnusable }

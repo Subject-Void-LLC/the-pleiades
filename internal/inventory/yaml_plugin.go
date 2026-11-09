@@ -76,11 +76,12 @@ func ReadHosts(path string) ([]HostSpec, error) {
 // not, not merely lossless for the data model alone as an earlier version
 // of this comment claimed.
 //
-// A host the original did not hold is refused when its name is "", "." or
-// ".." (refuseNewUnaddressable), so no writer of this file, add-host, an
-// import or the file store's Create, can add one a URL could never carry.
+// A host the original did not hold is refused when recordname.Check
+// refuses its name (refuseNewUnusable): "", "." or "..", or a name that
+// would not show as itself. So no writer of this file, add-host, an import
+// or the file store's Create, can add one.
 func EncodeHosts(original []byte, hosts []HostSpec) ([]byte, error) {
-	if err := refuseNewUnaddressable(original, hosts); err != nil {
+	if err := refuseNewUnusable(original, hosts); err != nil {
 		return nil, err
 	}
 	doc, err := mergeHostsIntoDocument(original, hosts)
@@ -94,15 +95,16 @@ func EncodeHosts(original []byte, hosts []HostSpec) ([]byte, error) {
 	return data, nil
 }
 
-// refuseNewUnaddressable refuses hosts when it holds more hosts under a
-// name recordname refuses than original does.
+// refuseNewUnusable refuses hosts when it holds more hosts under a name
+// recordname.Check refuses than original does.
 //
 // Counted against the original rather than refusing every such name, so a
-// host already in the file (written by hand, or before this rule) does not
-// stop every later write from adding or changing some other host. Each
-// command that adds a host checks its own name first and says so in its
-// own words; this is the backstop for one that does not.
-func refuseNewUnaddressable(original []byte, hosts []HostSpec) error {
+// host already in the file (written by hand, or before this rule or a later
+// one) does not stop every later write from adding or changing some other
+// host, and is written again as it was (LESSONS 415). Each command that
+// adds a host checks its own name first and says so in its own words; this
+// is the backstop for one that does not.
+func refuseNewUnusable(original []byte, hosts []HostSpec) error {
 	had := map[string]int{}
 	if len(original) > 0 {
 		before, err := ParseHosts(original)
@@ -110,20 +112,21 @@ func refuseNewUnaddressable(original []byte, hosts []HostSpec) error {
 			return err
 		}
 		for _, h := range before {
-			if !recordname.Addressable(h.Name) {
+			if recordname.Check(h.Name) != nil {
 				had[h.Name]++
 			}
 		}
 	}
 	for _, h := range hosts {
-		if recordname.Addressable(h.Name) {
+		err := recordname.Check(h.Name)
+		if err == nil {
 			continue
 		}
 		if had[h.Name] > 0 {
 			had[h.Name]--
 			continue
 		}
-		return fmt.Errorf("refusing to add a host to the inventory: %w", recordname.Check(h.Name))
+		return fmt.Errorf("refusing to add a host to the inventory: %w", err)
 	}
 	return nil
 }

@@ -55,11 +55,15 @@ const (
 
 	// OutcomeWouldUpdate is OutcomeUpdated under a read-only inventory.
 	OutcomeWouldUpdate Outcome = "would update"
-	// OutcomeRefused means the upstream name cannot name a device: it is
-	// "", "." or ".." (internal/recordname), which no URL can carry, so the
-	// device could be stored but never opened, changed or deleted by its
-	// address. It is reported with the reason and not stored, and the sync
-	// goes on with the rest. Failing the whole sync instead would let one
+	// OutcomeRefused means the upstream name cannot name a device
+	// (recordname.Check): it is "", "." or "..", which no URL can carry, so
+	// the device could be stored but never opened, changed or deleted by its
+	// address; or it holds a control code, a line break, a direction control
+	// or an invisible character, which would make every line naming the
+	// device say something else. It is reported with the reason and not
+	// stored, and the sync goes on with the rest. Only a new device is
+	// refused: one already stored under such a name, from before the rule,
+	// is updated as any other. Failing the whole sync instead would let one
 	// record nobody here controls stop every other device's updates on
 	// every run until someone renamed it upstream.
 	OutcomeRefused Outcome = "refused"
@@ -148,12 +152,20 @@ func Reconcile(
 	for it.Next(ctx) {
 		raw := it.Record()
 
-		// Before classifying, since no classification makes such a name
-		// usable, and before any lookup, so a record of that name stored
-		// before this rule is not updated under it either.
+		// A name no device may be created under is refused before
+		// classifying, since no classification makes it usable, but only
+		// when no device is stored under it: only a create is held to the
+		// rule, so a device stored before the rule changed is updated like
+		// any other (LESSONS 415).
 		if err := recordname.Check(raw.Name); err != nil {
-			report.add(raw.Name, OutcomeRefused, err.Error())
-			continue
+			stored, lookupErr := storedUnder(ctx, repo, raw.Name)
+			if lookupErr != nil {
+				return report, fmt.Errorf("sync plugin %q: loading %q: %w", cfg.Name, raw.Name, lookupErr)
+			}
+			if !stored {
+				report.add(raw.Name, OutcomeRefused, err.Error())
+				continue
+			}
 		}
 
 		cls, err := p.Classify(ctx, raw)
@@ -180,6 +192,20 @@ func Reconcile(
 		return report, fmt.Errorf("sync plugin %q: discovery stream failed: %w", cfg.Name, err)
 	}
 	return report, nil
+}
+
+// storedUnder reports whether repo holds a device under name, and returns
+// any error but the device's absence.
+func storedUnder(ctx context.Context, repo inv.Repository, name string) (bool, error) {
+	_, err := repo.GetByName(ctx, name)
+	switch {
+	case err == nil:
+		return true, nil
+	case errors.Is(err, inv.ErrItemNotFound):
+		return false, nil
+	default:
+		return false, err
+	}
 }
 
 // reconcileOne decides and applies the outcome for a single classified
