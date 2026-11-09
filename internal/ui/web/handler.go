@@ -341,15 +341,6 @@ func tokenFrom(ctx context.Context) string {
 	return tok
 }
 
-// resourceOf resolves the {resource} path parameter to a descriptor.
-//
-// The parameter reaches a registry lookup and nothing else -- never a
-// filesystem path, never a query fragment -- so an unregistered name is a
-// map miss and a 404 rather than a traversal question.
-func (h *Handler) resourceOf(r *http.Request) (view.Descriptor, bool) {
-	return view.Lookup(chi.URLParam(r, "resource"))
-}
-
 // page assembles the chrome for a request.
 func (h *Handler) page(r *http.Request, title, current string) view.PageModel {
 	identity := identityFrom(r.Context())

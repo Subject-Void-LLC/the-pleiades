@@ -80,6 +80,10 @@ func uniqueName(t *testing.T, prefix string) string {
 // the registration.
 var conformanceStream activity.Store
 
+// conformanceRepo is the device repository the registered views read and
+// write, captured at registration for the reason conformanceStream is.
+var conformanceRepo *fakeRepository
+
 // conformanceProjectRunner is the runner the Projects view's Sync button
 // enqueues onto, captured at registration so a test can wait on a background
 // clone the way a caller waits on a poll.
@@ -94,6 +98,7 @@ func registerViews(t *testing.T) {
 	t.Helper()
 	registerOnce.Do(func() {
 		repo := newFakeRepository()
+		conformanceRepo = repo
 		sets := newFakeSetStore()
 		accessStore, activityStream := newTestAccessStore(t)
 		conformanceStream = activityStream
@@ -663,6 +668,17 @@ type fakeRepository struct {
 	inventory.Repository
 	mu    sync.Mutex
 	items []pkginventory.InventoryItem
+
+	// retired is every name Retire was asked for, in order, so a test can
+	// prove which record a delete reached.
+	retired []string
+}
+
+// retiredNames is a copy of the names Retire was asked for.
+func (r *fakeRepository) retiredNames() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]string(nil), r.retired...)
 }
 
 func newFakeRepository() *fakeRepository {
@@ -706,7 +722,13 @@ func (r *fakeRepository) Create(_ context.Context, item pkginventory.InventoryIt
 }
 
 func (r *fakeRepository) Save(context.Context, pkginventory.InventoryItem) error { return nil }
-func (r *fakeRepository) Retire(context.Context, string) error                   { return nil }
+
+func (r *fakeRepository) Retire(_ context.Context, name string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.retired = append(r.retired, name)
+	return nil
+}
 func (r *fakeRepository) GroupAncestry(context.Context, string) ([]inventory.HierarchyLayer, error) {
 	return nil, nil
 }
