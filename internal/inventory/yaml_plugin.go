@@ -7,6 +7,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/classification"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/recordname"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -74,7 +75,14 @@ func ReadHosts(path string) ([]HostSpec, error) {
 // lossless for content HostSpec models and preserving for content it does
 // not, not merely lossless for the data model alone as an earlier version
 // of this comment claimed.
+//
+// A host the original did not hold is refused when its name is "", "." or
+// ".." (refuseNewUnaddressable), so no writer of this file, add-host, an
+// import or the file store's Create, can add one a URL could never carry.
 func EncodeHosts(original []byte, hosts []HostSpec) ([]byte, error) {
+	if err := refuseNewUnaddressable(original, hosts); err != nil {
+		return nil, err
+	}
 	doc, err := mergeHostsIntoDocument(original, hosts)
 	if err != nil {
 		return nil, err
@@ -84,6 +92,40 @@ func EncodeHosts(original []byte, hosts []HostSpec) ([]byte, error) {
 		return nil, fmt.Errorf("failed to marshal inventory YAML: %w", err)
 	}
 	return data, nil
+}
+
+// refuseNewUnaddressable refuses hosts when it holds more hosts under a
+// name recordname refuses than original does.
+//
+// Counted against the original rather than refusing every such name, so a
+// host already in the file (written by hand, or before this rule) does not
+// stop every later write from adding or changing some other host. Each
+// command that adds a host checks its own name first and says so in its
+// own words; this is the backstop for one that does not.
+func refuseNewUnaddressable(original []byte, hosts []HostSpec) error {
+	had := map[string]int{}
+	if len(original) > 0 {
+		before, err := ParseHosts(original)
+		if err != nil {
+			return err
+		}
+		for _, h := range before {
+			if !recordname.Addressable(h.Name) {
+				had[h.Name]++
+			}
+		}
+	}
+	for _, h := range hosts {
+		if recordname.Addressable(h.Name) {
+			continue
+		}
+		if had[h.Name] > 0 {
+			had[h.Name]--
+			continue
+		}
+		return fmt.Errorf("refusing to add a host to the inventory: %w", recordname.Check(h.Name))
+	}
+	return nil
 }
 
 // WriteHosts serializes hosts and writes them to a static YAML inventory
