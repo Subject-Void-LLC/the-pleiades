@@ -1,11 +1,11 @@
 // Package api_test: the API refuses to create a device whose name no URL can
-// carry, saying why, through the real request pipeline.
+// carry, saying why, through the real request pipeline. The handler's own
+// refusal and the store's are each pinned on their own.
 package api_test
 
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -17,21 +17,29 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/api"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/auth"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/auth/authtest"
-	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/enttest"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/recordname"
+	pkginventory "github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 )
 
-// TestDeviceCreate_RefusesANameNoURLCarries posts a device named "", "."
-// and ".." through api.NewRouter, real JWT authentication, a real admission
-// chain and a real ent repository, and expects each refused with 400 and the
-// reason, and nothing stored. Three dots, a near miss, is created.
-func TestDeviceCreate_RefusesANameNoURLCarries(t *testing.T) {
-	dsn := fmt.Sprintf("file:devicenames-%d?mode=memory&cache=shared&_fk=1", pathFixtureSeq.Add(1))
-	client := enttest.Open(t, "sqlite3", dsn)
-	t.Cleanup(func() { _ = client.Close() })
+// unreachableStore is a device repository whose Create fails the test: the
+// handler must refuse before it asks the store anything.
+type unreachableStore struct {
+	*stubDeviceRepo
+	t *testing.T
+}
 
-	repo := inventory.NewEntRepository(client, inventory.NewItemFactory())
+// Create implements api.DeviceRepository, failing the test.
+func (s unreachableStore) Create(_ context.Context, item pkginventory.InventoryItem) error {
+	s.t.Errorf("the handler asked the store to create %q; its own guard should have refused it", item.Name())
+	return nil
+}
+
+// createRouter is POST /inventory/devices over repo, through api.NewRouter,
+// real JWT authentication, a real admission chain and a real generator. It
+// returns the router and a function posting one device as readWriteIdentity.
+func createRouter(t *testing.T, repo api.DeviceRepository) func(name string) *httptest.ResponseRecorder {
+	t.Helper()
 	issuer := authtest.New(t, "devicenames-issuer", "devicenames-audience")
 	chain := auth.AdmissionChain{auth.NewTokenScopeRule(issuer.Evaluator())}
 	generator, err := auth.NewAdmissionHATEOASGenerator(chain)
@@ -47,14 +55,12 @@ func TestDeviceCreate_RefusesANameNoURLCarries(t *testing.T) {
 		HATEOAS:   generator,
 		Routes: []api.Route{
 			{Method: http.MethodPost, Pattern: "/inventory/devices", Scope: auth.ScopeInventoryWrite, Rel: auth.RelCreate, Handler: devices.Create},
-			{Method: http.MethodGet, Pattern: "/inventory/devices/{name}", Scope: auth.ScopeInventoryRead, Rel: auth.RelSelf, Handler: devices.Get},
 		},
 	})
 	if err != nil {
 		t.Fatalf("NewRouter: %v", err)
 	}
-
-	post := func(name string) *httptest.ResponseRecorder {
+	return func(name string) *httptest.ResponseRecorder {
 		body, _ := json.Marshal(map[string]string{"name": name, "type": "linux_server"})
 		req := httptest.NewRequest(http.MethodPost, api.APIVersionPrefix+"/inventory/devices", strings.NewReader(string(body)))
 		req.Header.Set("Content-Type", "application/json")
@@ -63,7 +69,25 @@ func TestDeviceCreate_RefusesANameNoURLCarries(t *testing.T) {
 		router.ServeHTTP(rr, req)
 		return rr
 	}
+}
 
+// errorMessage decodes a response's {"error": ...} body.
+func errorMessage(t *testing.T, rr *httptest.ResponseRecorder) string {
+	t.Helper()
+	var body struct {
+		Error string `json:"error"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
+		t.Fatalf("body is not JSON: %q", rr.Body.String())
+	}
+	return body.Error
+}
+
+// TestDeviceCreate_RefusesANameNoURLCarries posts a device named "", "."
+// and ".." and expects each refused by the handler itself, with 400 and the
+// reason, before the store is asked anything.
+func TestDeviceCreate_RefusesANameNoURLCarries(t *testing.T) {
+	post := createRouter(t, unreachableStore{stubDeviceRepo: &stubDeviceRepo{}, t: t})
 	for _, tc := range []struct{ name, says string }{
 		{"", "a name is required"},
 		{".", `the name "." cannot be used`},
@@ -74,39 +98,25 @@ func TestDeviceCreate_RefusesANameNoURLCarries(t *testing.T) {
 			if rr.Code != http.StatusBadRequest {
 				t.Fatalf("POST a device named %q = %d, want 400: %s", tc.name, rr.Code, rr.Body.String())
 			}
-			var body struct {
-				Error string `json:"error"`
-			}
-			if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
-				t.Fatalf("body is not JSON: %q", rr.Body.String())
-			}
-			if !strings.Contains(body.Error, tc.says) {
-				t.Errorf("the refusal says %q, want it to say %q", body.Error, tc.says)
-			}
-			if _, err := repo.GetByName(context.Background(), tc.name); !errors.Is(err, inventory.ErrItemNotFound) {
-				t.Errorf("a device named %q was stored (GetByName = %v)", tc.name, err)
+			if msg := errorMessage(t, rr); !strings.Contains(msg, tc.says) {
+				t.Errorf("the refusal says %q, want it to say %q", msg, tc.says)
 			}
 		})
 	}
-
-	if rr := post("..."); rr.Code != http.StatusCreated {
-		t.Fatalf("POST a device named \"...\" = %d, want 201: %s", rr.Code, rr.Body.String())
-	}
 }
 
-// TestDeviceHandler_MapsTheStoresNameRefusalTo400 covers the mapping for a
-// store refusal that reaches the handler some other way than a create's own
-// check: a 400 carrying recordname's reason, never a 500.
-func TestDeviceHandler_MapsTheStoresNameRefusalTo400(t *testing.T) {
+// TestDeviceCreate_MapsTheStoresNameRefusalTo400: a store that refuses a
+// name the handler let through (here one it would have accepted, so only
+// the store can be refusing) is answered 400 with recordname's reason,
+// never 500.
+func TestDeviceCreate_MapsTheStoresNameRefusalTo400(t *testing.T) {
 	refusal := fmt.Errorf("creating device: %w", recordname.Check(".."))
-	router := deviceRouter(t, &stubDeviceRepo{getErr: refusal})
-
-	rr := httptest.NewRecorder()
-	router.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, api.APIVersionPrefix+"/inventory/devices/edge-01", nil))
+	post := createRouter(t, &stubDeviceRepo{createErr: refusal})
+	rr := post("edge-01")
 	if rr.Code != http.StatusBadRequest {
-		t.Fatalf("status is %d, want 400", rr.Code)
+		t.Fatalf("status is %d, want 400: %s", rr.Code, rr.Body.String())
 	}
-	if !strings.Contains(rr.Body.String(), "cannot be used") {
-		t.Errorf("the body %s does not carry the reason", rr.Body.String())
+	if msg := errorMessage(t, rr); !strings.Contains(msg, `the name ".." cannot be used`) {
+		t.Errorf("the body says %q, want recordname's reason", msg)
 	}
 }
