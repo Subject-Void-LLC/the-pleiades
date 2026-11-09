@@ -103,7 +103,10 @@ func TracingMiddleware(tracer trace.Tracer, propagator propagation.TextMapPropag
 				trace.WithSpanKind(trace.SpanKindServer),
 				trace.WithAttributes(
 					attribute.String("http.request.method", r.Method),
-					attribute.String("url.path", r.URL.Path),
+					// As sent, so a trace of /devices/sw%2Ffacts (the device
+					// "sw/facts") is not read as one of /devices/sw/facts
+					// (the facts of the device "sw"); see requestPath.
+					attribute.String("url.path", requestPath(r)),
 					attribute.String("network.protocol.name", "http"),
 				),
 			)
@@ -155,7 +158,7 @@ func StructuredLoggerMiddleware(logger *slog.Logger) func(http.Handler) http.Han
 			attrs := []any{
 				slog.String("method", r.Method),
 				slog.String("route", routePattern(r)),
-				slog.String("path", r.URL.Path),
+				slog.String("path", requestPath(r)),
 				slog.Int("status", ww.Status()),
 				slog.Int("bytes", ww.BytesWritten()),
 				slog.Duration("latency", time.Since(start)),
@@ -201,6 +204,19 @@ func MetricsMiddleware(m *Metrics) func(http.Handler) http.Handler {
 			next.ServeHTTP(ww, r)
 		})
 	}
+}
+
+// requestPath is the path a request log line and trace span record: the
+// path as the client escaped it (url.URL.EscapedPath), never r.URL.Path.
+//
+// r.URL.Path is decoded, so a name holding an escaped slash reads as one
+// segment more: GET /inventory/devices/sw%2Ffacts, the device "sw/facts",
+// was logged as /inventory/devices/sw/facts, which is the facts of the
+// device "sw". An operator reading the log after an incident could not
+// tell the two requests apart, and the route field alone does not say
+// which record was named.
+func requestPath(r *http.Request) string {
+	return r.URL.EscapedPath()
 }
 
 // routePattern returns the chi route pattern that matched r, which is the
