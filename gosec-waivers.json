@@ -204,6 +204,12 @@
       "line": "251",
       "rule_id": "G125",
       "reason": "gosec v2.30.0 (the Go 1.27 bump, 2026-11-08) flags url.URL.JoinPath over elements it cannot see escaped. It found a real defect first: JoinPath takes each element as already escaped, so a reference path or mount holding %2E%2E or %2F reached Vault as a '..' or a separator, outside the secret's path, with the source's token. endpointFor now escapes every element with url.PathEscape before joining (the mount and each path element), so each is sent as the characters it holds, one segment; checkSegments also refuses literal dot segments and a slash in the mount. TestAnEncodedSegmentStaysOneLiteralSegment holds encoded dots, encoded slashes in the path and the mount, and a literal percent to reaching Vault literally, and fails on the code before the fix. gosec's taint analysis does not credit url.PathEscape, so the finding stays reported on the escaped call."
+    },
+    {
+      "file": "internal/ui/web/resources.go",
+      "line": "1136",
+      "rule_id": "G710",
+      "reason": "Handler.redirect after a successful resource write. Its targets come from resourcePath (create, update and delete in this file), which builds view.RecordPath(prefix, resource, id) or, for an id no URL can address, path.Join(prefix, resource). prefix is the handler's configured UI prefix and resource a registered resource name; the one caller-controlled part, the record id, is escaped by url.PathEscape as exactly one segment inside view.segment, and an id of \"\", \".\" or \"..\" is refused there (view.Addressable), so a '/' or dot in an id can neither add a segment, climb out of the prefix, nor form a protocol-relative //host. The target is therefore always a path under the UI prefix on this origin. gosec stopped seeing the sanitizer only because url.PathEscape moved from this file into internal/ui/view/paths.go (the URL escaping fix, 2026-11-08), where its taint analysis does not follow it; before that move it raised nothing here. Proof: internal/ui/web/safereturn_test.go's TestResourcePath_EscapesTheIdentifier (including ../../etc/passwd, a/b) asserts every result keeps the prefix, internal/ui/web/dotsegments_test.go covers the dot ids, and internal/ui/view's TestNothingElseBuildsAPathFromAnID holds every path built from an id to view.RecordPath and view.RowPath."
     }
   ],
   "skips": [
