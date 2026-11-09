@@ -1,6 +1,9 @@
 // This file is the one place a value chi routed is read. Every handler in
-// this package reads a path parameter through PathParam or one of the two
-// helpers beside it, never through chi.URLParam.
+// this package and in internal/ui/web reads a path parameter through
+// PathParam or a helper over it, never through chi.URLParam, and
+// internal/archtest's TestOnlyPathParamReadsARoutedValue refuses every
+// other way to reach chi's recorded values (and a decoded r.URL.Path in a
+// package chi routes) anywhere else.
 //
 // The reason is chi's own behavior, pinned by tests here: chi v5 matches a
 // route against r.URL.RawPath whenever the request has one and records each
