@@ -64,8 +64,9 @@ func Verify(dag *engine.DAG, s Step) error {
 // step whose undo digest (or, with none recorded, whose Collection digest)
 // is not this build's runs only when the plan accepted the skew by name.
 // SkewAccepted relaxes that comparison alone, never the checks of each
-// value against this build's declarations, nor a parameter this build's
-// undo method requires that the step does not carry. The identity is held
+// value against this build's declarations (its type and choices), nor a
+// parameter this build's undo method requires that the step does not carry
+// (refused unless the step's undo digest is this build's). The identity is held
 // to Shape, never Valid, and a group this build routes elsewhere is not
 // refused: a minor release may move a method (FAILURE_PATTERNS 988).
 func verifyRecorded(s Step) error {
@@ -88,17 +89,19 @@ func verifyRecorded(s Step) error {
 		if !recordableValue(v, engine.ListParam(s.FQCN, k)) {
 			return fmt.Errorf("the undo of %s through %s carries a value for %q the journal would never hold", s.Emitter, s.FQCN, k)
 		}
-		if err := checkKind(k, v, param, s.FQCN); err != nil {
+		if err := checkParamValue(k, v, param, s.FQCN); err != nil {
 			return err
 		}
 		have[k] = true
 	}
+	// No group cache: a skew digests the group only for a step that recorded
+	// no undo digest, or for a message (groupDigests).
 	k := skewOf(s.Emitter, s.Collection, s.UndoDigest, *spec, target, nil)
+	if err := k.missingRequired(s.Emitter, s.FQCN, target, have); err != nil {
+		return err
+	}
 	if !k.skewed() {
 		return nil
-	}
-	if missing := requiredMissing(target, have); len(missing) > 0 {
-		return fmt.Errorf("the undo of %s through %s now requires %s, which the step does not carry, so it cannot run whatever was accepted: %s", s.Emitter, s.FQCN, quoted(missing), k.describe())
 	}
 	if !s.SkewAccepted {
 		return fmt.Errorf("the undo of %s through %s was recorded under other declarations than this Runner's, and the rollback was not planned with allow_skew naming %s (--allow-skew on the CLI): %s",

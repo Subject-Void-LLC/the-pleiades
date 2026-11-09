@@ -99,15 +99,12 @@ func Params(names []string) (params []collection.Param, unknown []string) {
 }
 
 // Declared returns the set of parameter names d's own documentation
-// declares: its Doc.Params plus every param its named fragments add.
+// declares: its Doc.Params plus every param its named fragments add. A
+// caller holding a manifest alone (the rollback planner, which reads the
+// Controller's installed catalog) uses ByNameIn, which also gives each
+// parameter's declaration.
 func Declared(d collection.Descriptor) map[string]bool {
-	return DeclaredIn(d.Manifest)
-}
-
-// DeclaredIn is Declared for a manifest alone, for a caller that holds no
-// descriptor (a binary that reads the built-in catalog, such as the
-// Controller's rollback planner).
-func DeclaredIn(m collection.Manifest) map[string]bool {
+	m := d.Manifest
 	declared := make(map[string]bool, len(m.Doc.Params))
 	for _, p := range m.Doc.Params {
 		declared[p.Name] = true

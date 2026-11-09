@@ -13,10 +13,12 @@
 //
 // What the comparison may relax is narrow. Every recorded value is still
 // held to this build's declarations (checkRecorded): declared, recordable,
-// and of the declared type. A parameter this build's undo method requires
-// that the run did not record is refused whatever the operator names.
-// What remains is a digest difference that adds only optional declarations
-// or changes ones the entry does not record, which --allow-skew (the API's
+// of the declared type and inside the declared choices. A parameter this
+// build's undo method requires that the run did not record is refused
+// whatever the operator names, unless the undo's declaration is this
+// build's exactly (its digest matches), when the method recorded it so. What
+// remains is a digest difference that adds only optional declarations or
+// changes ones the entry does not record, which --allow-skew (the API's
 // allow_skew) accepts by node.
 //
 // Every stored identity is read through wire.CollectionIdentity.Shape,
@@ -37,6 +39,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/buildinfo"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/catalog/fragment"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
@@ -52,18 +55,21 @@ type skew struct {
 	recorded     wire.CollectionIdentity
 	recordedUndo string
 	// group is the first-party group this build routes the emitter to ("" for
-	// none), and groupDigest its digest here ("" when this build holds none).
-	group       string
-	groupDigest string
+	// none), and groups where its digest is read (groupDigest).
+	group  string
+	groups groupDigests
 	// undoDigest is this build's collection.UndoDigest of the undo.
 	undoDigest string
 }
 
-// groupDigests holds collection.GroupDigest per group for one plan: a
-// digest encodes every manifest of its group, and a Walk job's journal can
-// hold one entry per node per device, so each group is digested once per
-// Build rather than once per entry. A nil one digests on every call, which
-// a Runner's handful of steps can afford.
+// groupDigests holds collection.GroupDigest per group for one plan. A
+// digest encodes every manifest of its group, about a millisecond for a
+// large one, and a Walk job's journal can hold one entry per node per
+// device, so the planner digests each group once per Build. A nil one
+// digests on every call: Verify passes nil, on the Controller for every
+// step it plans and on a Runner for every step it runs, and a skew reads a
+// group's digest only when it is needed (groupDigest), so the common step,
+// whose undo digest was recorded and is this build's, never computes one.
 type groupDigests map[string]string
 
 // of returns group's digest in this build, "" when it holds none.
@@ -81,21 +87,34 @@ func (c groupDigests) of(group string) string {
 
 // skewOf compares an undo of emitter recorded under id and recordedUndo with
 // this build's declaration of it, spec, and its method's manifest, target,
-// reading group digests through groups.
+// reading group digests through groups when it needs one.
 func skewOf(emitter string, id wire.CollectionIdentity, recordedUndo string, spec sdk.InverseSpec, target collection.Manifest, groups groupDigests) skew {
-	k := skew{recorded: id, recordedUndo: recordedUndo,
+	k := skew{recorded: id, recordedUndo: recordedUndo, groups: groups,
 		// The parameters as the engine digested them when it recorded the
 		// undo (engine's inverseSpecDigest), fragments included.
 		undoDigest: collection.UndoDigest(spec, fragment.ByNameIn(target))}
 	if g, ok := collection.FirstPartyGroupOf(emitter); ok {
-		k.group, k.groupDigest = g.Name, groups.of(g.Name)
+		k.group = g.Name
 	}
 	return k
+}
+
+// groupDigest is this build's digest of the group it routes the emitter
+// to, "" when it routes it to none or holds none of the group's methods.
+func (k skew) groupDigest() string {
+	if k.group == "" {
+		return ""
+	}
+	return k.groups.of(k.group)
 }
 
 // unknown reports whether the entry recorded neither digest, so nothing
 // tells its declarations from this build's.
 func (k skew) unknown() bool { return k.recorded.IsZero() && k.recordedUndo == "" }
+
+// undoMatches reports whether the entry recorded an undo digest and it is
+// this build's: the undo's declaration is the one it was recorded under.
+func (k skew) undoMatches() bool { return k.recordedUndo != "" && k.recordedUndo == k.undoDigest }
 
 // skewed reports whether the undo was recorded under other declarations
 // than this build's: by the undo's own digest when one was recorded, else
@@ -103,11 +122,29 @@ func (k skew) unknown() bool { return k.recorded.IsZero() && k.recordedUndo == "
 func (k skew) skewed() bool {
 	switch {
 	case k.recordedUndo != "":
-		return k.recordedUndo != k.undoDigest
+		return !k.undoMatches()
 	case !k.recorded.IsZero():
-		return k.recorded.Manifests != k.groupDigest
+		return k.recorded.Manifests != k.groupDigest()
 	}
 	return false
+}
+
+// missingRequired refuses an undo that does not give a parameter target
+// requires, unless its declaration is this build's exactly: then the method
+// recorded it as declared, and the method's own check answers at run time.
+// Everywhere else (no undo digest, or another one) nothing says the
+// requirement was there when the run recorded the undo, and replaying it
+// without the value cannot work whatever is accepted.
+func (k skew) missingRequired(emitter, method string, target collection.Manifest, have map[string]bool) error {
+	if k.undoMatches() {
+		return nil
+	}
+	missing := requiredMissing(target, have)
+	if len(missing) == 0 {
+		return nil
+	}
+	return fmt.Errorf("%s requires %s in this build, which the undo of %s through %s does not give, so it cannot be replayed whatever is accepted: %s",
+		method, quoted(missing), emitter, method, k.describe())
 }
 
 // describe says what the undo was recorded under and what this build has,
@@ -123,7 +160,7 @@ func (k skew) describe() string {
 	}
 	here := "routes it to no first-party group"
 	if k.group != "" {
-		here = fmt.Sprintf("has the %q Collection's manifests %q", k.group, k.groupDigest)
+		here = fmt.Sprintf("has the %q Collection's manifests %q", k.group, k.groupDigest())
 	}
 	return fmt.Sprintf("it was recorded %s with undo digest %s, and this build is %q, %s and undo digest %q",
 		recorded, undo, coreVersion(), here, k.undoDigest)
@@ -179,26 +216,27 @@ func judgeSkew(req Request, node string, k skew, emitter, method string, target 
 		// group is never held to this build's routing (FAILURE_PATTERNS 988).
 		warnings = append(warnings, fmt.Sprintf("the journal records %s under the %q Collection, and this build routes it to %s; its undo is held to this build's declarations", emitter, k.recorded.Group, k.routedTo()))
 	}
+	if err := k.missingRequired(emitter, method, target, have); err != nil {
+		return false, nil, err
+	}
 	if !k.skewed() {
 		switch {
 		case k.unknown():
 			warnings = append(warnings, fmt.Sprintf("%s was recorded with no Collection identity, so its undo was checked against this build's declarations only", emitter))
 		case k.recorded.IsZero():
 			warnings = append(warnings, fmt.Sprintf("%s was recorded with no Collection identity, and its undo's declaration is this build's (undo digest %q)", emitter, k.undoDigest))
-		case k.recorded.Manifests != k.groupDigest:
+		case k.recorded.Manifests != k.groupDigest():
 			warnings = append(warnings, fmt.Sprintf("%s's Collection declarations changed since the run, and its undo's own declaration is unchanged, so it replays as recorded: %s", emitter, k.describe()))
 		}
 		if named && !req.ExecutorIsPlanner {
 			// A Runner of another build may hold other declarations than this
-			// Controller's, and only this mark lets it run the step then.
-			warnings = append(warnings, fmt.Sprintf("allow_skew names this node, and %s's undo matches this Controller's declarations; the step is marked so that a Runner whose declarations differ replays it: %s", emitter, k.describe()))
+			// Controller's, and only this mark lets it run the step then. The
+			// warning says what this Controller compared, which for an entry
+			// that recorded neither digest is nothing.
+			warnings = append(warnings, namedUnskewed(emitter, k))
 			return true, warnings, nil
 		}
 		return false, warnings, nil
-	}
-	if missing := requiredMissing(target, have); len(missing) > 0 {
-		return false, nil, fmt.Errorf("the undo of %s through %s now requires %s, which the run did not record, so it cannot be replayed whatever is accepted: %s",
-			emitter, method, quoted(missing), k.describe())
 	}
 	if !named {
 		return false, nil, &stepError{
@@ -215,6 +253,18 @@ func judgeSkew(req Request, node string, k skew, emitter, method string, target 
 	}
 	warnings = append(warnings, fmt.Sprintf("%s accepted the undo of %s through %s under other declarations: %s", by, emitter, method, k.describe()))
 	return true, warnings, nil
+}
+
+// namedUnskewed is the warning for a node allow_skew names whose undo this
+// Controller finds no skew in, saying what it compared.
+func namedUnskewed(emitter string, k skew) string {
+	switch {
+	case k.recordedUndo != "":
+		return fmt.Sprintf("allow_skew names this node, and the undo digest %s's entry recorded (%q) is this Controller's; the step is marked so that a Runner whose own declarations differ replays it", emitter, k.recordedUndo)
+	case !k.recorded.IsZero():
+		return fmt.Sprintf("allow_skew names this node, and %s's Collection digest as recorded (%q) is this Controller's; the step is marked so that a Runner whose own declarations differ replays it", emitter, k.recorded.Manifests)
+	}
+	return fmt.Sprintf("allow_skew names this node, and %s was recorded with no Collection identity or undo digest, so nothing was compared, on this Controller or on a Runner; the name changes nothing", emitter)
 }
 
 // quoted is names, each quoted, joined for a sentence.
@@ -247,20 +297,33 @@ func needlessSkew(node string, steps []Step) string {
 	return fmt.Sprintf("node %s has no skew to accept: %s; drop --allow-skew %s", node, why, node)
 }
 
-// unjournaledSkews refuses each node AllowSkew names that no entry of the
-// run's journal names, on either tier: it accepts nothing, and is most
-// likely a mistyped name or one carried from another run's rollback.
-func unjournaledSkews(req Request) []Problem {
-	journaled := map[string]bool{}
+// unplannedSkews refuses, on either tier, each node AllowSkew names that
+// has no change in the run to undo: one no entry of its journal names, and
+// one whose entries ran without changing anything or failed with an effect
+// nobody knows (changed holds the run's changes, changesOf's). Nothing of
+// such a node is replayed by the planner or by a Runner, so the name
+// accepts nothing, and it is most likely mistyped or carried from another
+// run's rollback.
+func unplannedSkews(req Request, changed []engine.JournalEntry) []Problem {
+	journaled, hasChange := map[string]bool{}, map[string]bool{}
 	for _, e := range req.Target.Entries {
 		journaled[e.NodeID] = true
 	}
+	for _, e := range changed {
+		hasChange[e.NodeID] = true
+	}
 	var problems []Problem
 	for node, named := range req.AllowSkew {
-		if named && !journaled[node] {
-			problems = append(problems, Problem{Node: node,
-				Reason: fmt.Sprintf("a skew is accepted for node %q, which no entry of run %s's journal names, so it accepts nothing", node, req.Target.ID)})
+		var reason string
+		switch {
+		case !named || hasChange[node]:
+			continue
+		case journaled[node]:
+			reason = fmt.Sprintf("a skew is accepted for node %q, which changed nothing in run %s or failed with an effect nobody knows, so it has no undo to compare and the name accepts nothing", node, req.Target.ID)
+		default:
+			reason = fmt.Sprintf("a skew is accepted for node %q, which no entry of run %s's journal names, so it accepts nothing", node, req.Target.ID)
 		}
+		problems = append(problems, Problem{Node: node, Reason: reason})
 	}
 	sort.Slice(problems, func(i, j int) bool { return problems[i].Node < problems[j].Node })
 	return problems

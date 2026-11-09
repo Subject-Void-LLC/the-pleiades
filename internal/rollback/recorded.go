@@ -21,7 +21,8 @@ import (
 // build knows, run by no external program, declaring an undo through the
 // recorded method; every recorded value must sit under a key it declares
 // recordable and the target reads, be a value the journal's own projection
-// could have written, and be of the type the target declares. It returns
+// could have written, and be of the type and inside the choices the target
+// declares (checkParamValue), skewed or not. It returns
 // the declaration and the target's manifest the undo was held to. No flag
 // relaxes any of it: --allow-skew relaxes only judgeSkew's comparison,
 // which runs after.
@@ -59,7 +60,7 @@ func checkRecorded(e engine.JournalEntry) (*sdk.InverseSpec, collection.Manifest
 			return nil, collection.Manifest{}, fmt.Errorf("undo parameter %q: %w%s", p.Key, err, at)
 		}
 		value, _ := p.Value()
-		if err := checkKind(p.Key, value, param, e.InverseFQCN); err != nil {
+		if err := checkParamValue(p.Key, value, param, e.InverseFQCN); err != nil {
 			return nil, collection.Manifest{}, fmt.Errorf("%w%s", err, at)
 		}
 	}
@@ -114,17 +115,23 @@ func checkIdentity(fqcn string, id wire.CollectionIdentity, program string) erro
 	return nil
 }
 
-// checkKind refuses a recorded value of another type than this build's
-// undo method declares for its parameter (collection.ParamFits, the rule
-// validation and the engine hold every value to): replaying it would hand
-// the method a value its author never meant, and no flag accepts that.
-func checkKind(key string, value any, param collection.Param, method string) error {
+// checkParamValue refuses a recorded value this build's undo method would
+// refuse for its parameter: one of another type than it declares
+// (collection.ParamFits) or outside the choices it declares
+// (collection.ChoiceProblem), the two rules validation and the engine hold
+// every value to. Replaying it would hand the method a value its author
+// never meant, and no flag accepts that. The value itself is never printed:
+// only its kind, and the method's own choices.
+func checkParamValue(key string, value any, param collection.Param, method string) error {
 	fits, err := collection.ParamFits(param.Type, value)
 	switch {
 	case err != nil:
 		return fmt.Errorf("undo parameter %q: %s declares it of a type this build does not know: %w", key, method, err)
 	case !fits:
 		return fmt.Errorf("the journal records undo parameter %q as %s, and %s declares it %s, so it is not trusted", key, collection.ValueKind(value), method, param.Type)
+	}
+	if problem := collection.ChoiceProblem(param, value); problem != "" {
+		return fmt.Errorf("the journal records a value for undo parameter %q that %s does not take (%s), so it is not trusted", key, method, problem)
 	}
 	return nil
 }

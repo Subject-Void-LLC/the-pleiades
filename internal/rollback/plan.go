@@ -342,6 +342,14 @@ func Build(req Request) (Plan, error) {
 		// A change named to leave stays as it is, whether or not it could
 		// be undone: the operator decides what to take back out.
 		if req.Leave[e.NodeID] {
+			// Where this process runs what it plans, a node named to both
+			// --leave and --allow-skew is refused: nothing of it is replayed,
+			// so the skew name accepts nothing (Request.ExecutorIsPlanner).
+			if req.ExecutorIsPlanner && req.AllowSkew[e.NodeID] {
+				problems = append(problems, Problem{Node: e.NodeID, DeviceID: e.DeviceID, DeviceName: name,
+					Reason: fmt.Sprintf("node %s is named to --leave, so nothing of it is replayed and --allow-skew accepts nothing; drop --allow-skew %s", e.NodeID, e.NodeID)})
+				continue
+			}
 			reason := "named to leave in place"
 			if err != nil {
 				reason = err.Error()
@@ -410,7 +418,7 @@ func Build(req Request) (Plan, error) {
 		}
 	}
 
-	problems = append(problems, unjournaledSkews(req)...)
+	problems = append(problems, unplannedSkews(req, changed)...)
 
 	// Nothing left but what an earlier rollback undid, what the operator
 	// named to leave and what its runbook says has nothing to undo: a

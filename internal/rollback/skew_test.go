@@ -29,17 +29,18 @@ type installed struct {
 
 // registerSkew registers, for the rest of the test, two methods of the
 // first-party group "file": file.rbmake, whose undo is file.rbremove with
-// path and mode recorded, and file.rbremove, which requires path and takes
-// an int mode and a bool force. It returns what this build computes for
-// them.
+// path, mode and state recorded, and file.rbremove, which requires path and
+// takes an int mode, a bool force and a state that is only ever "absent".
+// It returns what this build computes for them.
 func registerSkew(t *testing.T) installed {
 	t.Helper()
 	t.Cleanup(collection.SnapshotForTest())
 	run := func(context.Context, sdk.RunbookContext, inventory.InventoryItem, map[string]any) (collection.Result, error) {
 		return collection.Result{}, nil
 	}
-	removeParams := []collection.Param{{Name: "path", Type: "string", Required: true}, {Name: "mode", Type: "int"}, {Name: "force", Type: "bool"}}
-	spec := sdk.InverseSpec{FQCN: "file.rbremove", Record: []string{"path", "mode"}}
+	removeParams := []collection.Param{{Name: "path", Type: "string", Required: true}, {Name: "mode", Type: "int"}, {Name: "force", Type: "bool"},
+		{Name: "state", Type: "string", Choices: []string{"absent"}}}
+	spec := sdk.InverseSpec{FQCN: "file.rbremove", Record: []string{"path", "mode", "state"}}
 	for _, d := range []collection.Descriptor{
 		{Name: "file.rbremove", Invoke: run, Manifest: collection.Manifest{Status: collection.StatusImplemented,
 			Reversibility: collection.Reversibility{Notes: "gone is gone"}, Doc: collection.Doc{Params: removeParams}}},
@@ -287,11 +288,13 @@ func TestBuild_AMovedGroupWarnsAndRefusesNothing(t *testing.T) {
 	}
 }
 
-// TestBuild_AllowSkewNamingNoSkewDependsOnWhoRunsIt is finding 1's
-// deadlock: where the planner runs the steps (the CLI), a node named that
-// has no skew is refused, nothing accepting it but dropping the name; where
-// a Runner of another build runs them (the Controller), the node is marked
-// accepted all the same, since the Runner's declarations may differ.
+// TestBuild_AllowSkewNamingNoSkewDependsOnWhoRunsIt: where the planner runs
+// the steps (the CLI), a node named that has no skew is refused, nothing
+// accepting it but dropping the name; where a Runner of another build runs
+// them (the Controller), the node is marked accepted all the same, since
+// the Runner's declarations may differ. Refused there too, a Runner's
+// refusal of the step could never be accepted: the Controller would refuse
+// the very name the Runner's refusal asks for.
 func TestBuild_AllowSkewNamingNoSkewDependsOnWhoRunsIt(t *testing.T) {
 	in := registerSkew(t)
 	for name, e := range map[string]engine.JournalEntry{
