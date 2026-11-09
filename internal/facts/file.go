@@ -187,7 +187,8 @@ func readLines(r *os.Root, device string) ([]line, int64, error) {
 		// CheckCollection: the rule reads the first-party group list, which
 		// a later release may grow, and a line its chain already covers must
 		// keep reading and verifying under it. The chain finds an edited one.
-		if err := dec.Decode(&l); err != nil || !ValidKey(l.Key) || l.Hash == "" || l.Seq < 0 {
+		// The key likewise: wellFormedKey, never ValidKey, which grows.
+		if err := dec.Decode(&l); err != nil || !wellFormedKey(l.Key) || l.Hash == "" || l.Seq < 0 {
 			return fmt.Errorf("facts: %s.jsonl line %d is not a stored fact", device, n)
 		}
 		lines = append(lines, l)
