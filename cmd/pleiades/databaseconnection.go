@@ -25,11 +25,6 @@ const maxCAFileBytes = 1 << 20
 // other method. It lives in the credential file's own databases section,
 // which no device name can address.
 func runAddDatabaseConnection(args []string) error {
-	boolFlags := map[string]bool{"password-stdin": true, "no-password": true, "insecure-transport": true}
-	name, rest, err := splitPositional(args, boolFlags)
-	if err != nil {
-		return fmt.Errorf("usage: pleiades add-database-connection <name> --host <host> --user <user> [--password-stdin | --no-password]: %w", err)
-	}
 	fs := flag.NewFlagSet("add-database-connection", flag.ContinueOnError)
 	dir := fs.String("dir", ".", "project directory")
 	host := fs.String("host", "", "the server as the device a task runs on sees it: a name, an address, or its Unix socket directory")
@@ -42,8 +37,9 @@ func runAddDatabaseConnection(args []string) error {
 	serverName := fs.String("server-name", "", "the name the server's certificate is checked against, when it is not --host")
 	insecure := fs.Bool("insecure-transport", false, "allow --sslmode disable to a server that is not local: the password and every row cross that network in the clear")
 	live := fs.String("live", "", "comma-separated databases on this server a restore refuses unless the task overrides it")
-	if err := fs.Parse(rest); err != nil {
-		return err
+	name, err := parseOneArg(fs, args)
+	if err != nil {
+		return fmt.Errorf("usage: pleiades add-database-connection <name> --host <host> --user <user> [--password-stdin | --no-password]: %w", err)
 	}
 	if *stdinPassword && *noPassword {
 		return fmt.Errorf("--password-stdin and --no-password cannot both be given")
@@ -157,14 +153,14 @@ func runListDatabaseConnections(args []string) error {
 
 // runRemoveDatabaseConnection removes the named connection.
 func runRemoveDatabaseConnection(args []string) error {
-	name, rest, err := splitPositional(args, nil)
-	if err != nil || name == "" {
-		return fmt.Errorf("usage: pleiades remove-database-connection <name> [--dir DIR]")
-	}
 	fs := flag.NewFlagSet("remove-database-connection", flag.ContinueOnError)
 	dir := fs.String("dir", ".", "project directory")
-	if err := fs.Parse(rest); err != nil {
+	name, err := parseOneArg(fs, args)
+	if err != nil && !isPositionalCountErr(err) {
 		return err
+	}
+	if err != nil || name == "" {
+		return fmt.Errorf("usage: pleiades remove-database-connection <name> [--dir DIR]")
 	}
 	removed, err := credential.RemoveDatabaseConnection(*dir, name)
 	if err != nil {

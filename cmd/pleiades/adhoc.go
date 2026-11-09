@@ -43,16 +43,16 @@ func runAdhoc(args []string) error {
 	flags := addRunFlags(fs)
 	var timeout secondsFlag
 	fs.Var(&timeout, "timeout", "how long the call may run on each device before it is stopped and fails, as a task's timeout key: whole seconds (40) or a duration (40s, 5m), up to 86400 seconds (0: no bound)")
-	positionals, rest := splitPositionals(args, runBoolFlags)
+	positionals, err := parseArgs(fs, args)
+	if err != nil {
+		return err
+	}
 	// A method that needs no device may be named first, with no hosts.
 	if len(positionals) >= 1 && needsNoDevice(positionals[0]) && (len(positionals) == 1 || strings.Contains(positionals[1], "=")) {
 		positionals = append([]string{noHosts}, positionals...)
 	}
 	if len(positionals) < 2 {
 		return fmt.Errorf("%s: %w", usageLine(adhocCommand, fs), errMissingPositional)
-	}
-	if err := fs.Parse(rest); err != nil {
-		return err
 	}
 	opts, err := flags.options()
 	if err != nil {

@@ -27,16 +27,13 @@ import (
 func runForgeMigratePlaybook(args []string) error {
 	usage := "usage: pleiades forge migrate-playbook <playbook.yml> [--out runbooks] [--json] [--force]"
 
-	path, rest, err := splitPositional(args, map[string]bool{"json": true, "force": true})
-	if err != nil {
-		return fmt.Errorf("%s: %w", usage, err)
-	}
 	flags := flag.NewFlagSet("forge migrate-playbook", flag.ContinueOnError)
 	out := flags.String("out", "runbooks", "directory to write the converted runbooks into, created when missing")
 	asJSON := flags.Bool("json", false, "print the migration report as JSON, the same model the text view renders")
 	force := flags.Bool("force", false, "replace runbooks an earlier conversion wrote")
-	if err := flags.Parse(rest); err != nil {
-		return err
+	path, err := parseOneArg(flags, args)
+	if err != nil {
+		return fmt.Errorf("%s: %w", usage, err)
 	}
 	if flags.NArg() > 0 {
 		return fmt.Errorf("%s: unexpected argument %s", usage, termsafe.EscapeLine(flags.Arg(0)))

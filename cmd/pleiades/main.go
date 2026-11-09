@@ -113,11 +113,11 @@ func run(args []string) int {
 
 	if err := cmd(args[1:]); err != nil {
 		// Asked for help, a command that stops on its usage has answered:
-		// the flag package printed its flags, or the usage line is the
-		// error's text, and asking is not a failure.
+		// the flag package printed its flags, the usage line is the
+		// error's text, or both, and asking is not a failure.
 		if asksHelp(args[1:]) && (errors.Is(err, flag.ErrHelp) || errors.Is(err, errMissingPositional) || strings.HasPrefix(err.Error(), "usage: ")) {
-			if !errors.Is(err, flag.ErrHelp) {
-				fmt.Fprintln(os.Stderr, strings.TrimSuffix(err.Error(), ": "+errMissingPositional.Error()))
+			if usage := helpUsage(err); usage != "" {
+				fmt.Fprintln(os.Stderr, usage)
 			}
 			return 0
 		}
@@ -150,6 +150,21 @@ func asksHelp(args []string) bool {
 		}
 	}
 	return false
+}
+
+// helpUsage is the usage line a command's error carries when it was asked
+// for help: the error's text without the missing positional or the flag
+// package's help request it ends with. It is "" for the flag package's
+// bare help request, which carries no usage line.
+func helpUsage(err error) string {
+	msg := err.Error()
+	for _, asked := range []error{errMissingPositional, flag.ErrHelp} {
+		msg = strings.TrimSuffix(msg, ": "+asked.Error())
+	}
+	if msg == flag.ErrHelp.Error() {
+		return ""
+	}
+	return msg
 }
 
 // exitCoder is an error that carries the status the command ends with,

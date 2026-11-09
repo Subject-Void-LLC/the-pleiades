@@ -21,11 +21,6 @@ import (
 // runbook task calling the new FQCN reaches the real dispatcher and is
 // refused there, by design, until the method is really implemented.
 func runForgeNewCollection(args []string) error {
-	name, rest, err := splitPositional(args, map[string]bool{"requires-elevation": true, "skip-existing": true})
-	if err != nil {
-		return fmt.Errorf("usage: pleiades forge new-collection <namespace.method> [--capabilities Name1,Name2] [--transports ssh] [--requires-elevation] [--site target|controller|hybrid] [--device required|optional|none] [--engine-version x.y.z] [--doc-json '{...}'|@file.json] [--skip-existing] [--dir .]: %w", err)
-	}
-
 	fs := flag.NewFlagSet("forge new-collection", flag.ContinueOnError)
 	dir := fs.String("dir", ".", "repository directory to write the generated package into")
 	capabilitiesFlag := fs.String("capabilities", "", "comma-separated required capability names (e.g. AptCapable)")
@@ -37,8 +32,9 @@ func runForgeNewCollection(args []string) error {
 	docJSON := fs.String("doc-json", "", "reference documentation as a JSON pkg/collection.Doc object, or @path to read it from a file")
 	skipExisting := fs.Bool("skip-existing", false, "leave an entry already there alone (any of its files, or its method already registered in this binary) instead of refusing, for regenerating a catalog in place")
 
-	if err := fs.Parse(rest); err != nil {
-		return err
+	name, err := parseOneArg(fs, args)
+	if err != nil {
+		return fmt.Errorf("usage: pleiades forge new-collection <namespace.method> [--capabilities Name1,Name2] [--transports ssh] [--requires-elevation] [--site target|controller|hybrid] [--device required|optional|none] [--engine-version x.y.z] [--doc-json '{...}'|@file.json] [--skip-existing] [--dir .]: %w", err)
 	}
 
 	var transports []string

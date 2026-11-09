@@ -17,11 +17,6 @@ import (
 // and the generated package's own doc comment for what a human fills in and
 // in what order.
 func runForgeNewView(args []string) error {
-	name, rest, err := splitPositional(args, nil)
-	if err != nil {
-		return fmt.Errorf("usage: pleiades forge new-view <name> --title <text> --summary <text> [--nav-label TEXT] [--nav-order 70] [--dir .]: %w", err)
-	}
-
 	fs := flag.NewFlagSet("forge new-view", flag.ContinueOnError)
 	dir := fs.String("dir", ".", "repository directory to write the generated package into")
 	title := fs.String("title", "", "page heading and document title for this view")
@@ -31,8 +26,9 @@ func runForgeNewView(args []string) error {
 	// new view after them without renumbering anything.
 	navOrder := fs.Int("nav-order", 70, "sidebar position; built-in views use 10 through 60")
 
-	if err := fs.Parse(rest); err != nil {
-		return err
+	name, err := parseOneArg(fs, args)
+	if err != nil {
+		return fmt.Errorf("usage: pleiades forge new-view <name> --title <text> --summary <text> [--nav-label TEXT] [--nav-order 70] [--dir .]: %w", err)
 	}
 
 	cfg := viewscaffold.Config{

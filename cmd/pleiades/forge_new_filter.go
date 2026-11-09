@@ -69,11 +69,6 @@ func runForgeNewFilter(args []string) error {
 	usage := "usage: pleiades forge new-filter <GoName> --cel-name <celName> --category <name> --summary <text> " +
 		"--param name:goType[:celType] [--param ...] --return goType[:celType] [--skip-existing] [--dir .]"
 
-	goName, rest, err := splitPositional(args, map[string]bool{"skip-existing": true})
-	if err != nil {
-		return fmt.Errorf("%s: %w", usage, err)
-	}
-
 	fs := flag.NewFlagSet("forge new-filter", flag.ContinueOnError)
 	dir := fs.String("dir", ".", "repository directory to write the generated files into")
 	celName := fs.String("cel-name", "", "the bare name after \"filters.\" in a runbook condition, e.g. cidrToNetmask")
@@ -84,8 +79,9 @@ func runForgeNewFilter(args []string) error {
 	ret := fs.String("return", "", "this filter's result: goType, or goType:celType for a type filterscaffold does not know")
 	skipExisting := fs.Bool("skip-existing", false, "leave an already-written file alone instead of refusing")
 
-	if err := fs.Parse(rest); err != nil {
-		return err
+	goName, err := parseOneArg(fs, args)
+	if err != nil {
+		return fmt.Errorf("%s: %w", usage, err)
 	}
 	if *ret == "" {
 		return fmt.Errorf("%s: --return is required", usage)

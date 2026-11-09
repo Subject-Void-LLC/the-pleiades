@@ -49,12 +49,12 @@ func runFacts(args []string) error {
 	if len(args) == 0 || asksHelp(args[:1]) {
 		return fmt.Errorf("%s: %w", factsUsage, errMissingPositional)
 	}
-	positionals, rest := splitPositionals(args, map[string]bool{"json": true, "verify": true})
 	fs := flag.NewFlagSet("facts", flag.ContinueOnError)
 	dir := fs.String("dir", ".", "project directory")
 	asJSON := fs.Bool("json", false, "print one JSON document instead of text")
 	verify := fs.Bool("verify", false, "check the host's fact chain instead of showing its facts")
-	if err := fs.Parse(rest); err != nil {
+	positionals, err := parseArgs(fs, args)
+	if err != nil {
 		return err
 	}
 	if len(positionals) < 1 || len(positionals) > 2 || *verify && len(positionals) != 1 {

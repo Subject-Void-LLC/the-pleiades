@@ -58,12 +58,6 @@ import (
 // principal the target maps to one, so a username beside it is a second
 // answer to a question that already has one.
 func runAddCredential(args []string) error {
-	name, rest, err := splitPositional(args, map[string]bool{"password-stdin": true, "passphrase": true, "passphrase-stdin": true, "generate": true, "replace": true, "token-stdin": true, "enable-password": true, "enable-password-stdin": true})
-	if err != nil {
-		return fmt.Errorf("usage: pleiades add-credential <device> [--username <user>] "+
-			"[--password <password> | --password-stdin | --password-file <sealed file> [--passphrase] | --key <path> [--passphrase] | --certificate <path> --key <path> | --pfx <path> --passphrase | --token-stdin | --generate [--replace]] [--enable-password | --enable-password-stdin]; with --password-stdin and --enable-password-stdin, standard input is two lines, the password and then the enable secret: %w", err)
-	}
-
 	fs := flag.NewFlagSet("add-credential", flag.ContinueOnError)
 	dir := fs.String("dir", ".", "project directory")
 	username := fs.String("username", "", "account name to authenticate as")
@@ -82,8 +76,10 @@ func runAddCredential(args []string) error {
 	promptEnable := fs.Bool("enable-password", false, "prompt for the secret a network device asks for to enter privileged mode (Cisco's enable), when this account lands in user mode")
 	stdinEnable := fs.Bool("enable-password-stdin", false, "read that enable secret as one line on standard input; with --password-stdin it is the second line")
 
-	if err := fs.Parse(rest); err != nil {
-		return err
+	name, err := parseOneArg(fs, args)
+	if err != nil {
+		return fmt.Errorf("usage: pleiades add-credential <device> [--username <user>] "+
+			"[--password <password> | --password-stdin | --password-file <sealed file> [--passphrase] | --key <path> [--passphrase] | --certificate <path> --key <path> | --pfx <path> --passphrase | --token-stdin | --generate [--replace]] [--enable-password | --enable-password-stdin]; with --password-stdin and --enable-password-stdin, standard input is two lines, the password and then the enable secret: %w", err)
 	}
 
 	if *replace && !*generate {

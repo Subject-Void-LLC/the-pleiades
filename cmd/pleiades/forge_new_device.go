@@ -19,19 +19,15 @@ import (
 // type is not reachable from the stock binary until a human adds a blank
 // import of it to internal/inventory/builtins.go.
 func runForgeNewDevice(args []string) error {
-	vendor, rest, err := splitPositional(args, map[string]bool{"skip-existing": true})
-	if err != nil {
-		return fmt.Errorf("usage: pleiades forge new-device <vendor> --type <type_key> [--capabilities Name1,Name2] [--skip-existing] [--dir .]: %w", err)
-	}
-
 	fs := flag.NewFlagSet("forge new-device", flag.ContinueOnError)
 	dir := fs.String("dir", ".", "repository directory to write the generated package into")
 	typeKey := fs.String("type", "", "the full record.RegisterType key (e.g. cisco_router)")
 	capabilitiesFlag := fs.String("capabilities", "", "comma-separated vendor baseline capability names (e.g. AptCapable,SSHTransportCapable)")
 	skipExisting := fs.Bool("skip-existing", false, "leave an already-written file alone instead of refusing, for regenerating a catalog in place")
 
-	if err := fs.Parse(rest); err != nil {
-		return err
+	vendor, err := parseOneArg(fs, args)
+	if err != nil {
+		return fmt.Errorf("usage: pleiades forge new-device <vendor> --type <type_key> [--capabilities Name1,Name2] [--skip-existing] [--dir .]: %w", err)
 	}
 
 	if *typeKey == "" {

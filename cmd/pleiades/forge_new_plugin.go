@@ -17,11 +17,6 @@ import (
 // generated package's own doc comment for what a human fills in and in what
 // order.
 func runForgeNewPlugin(args []string) error {
-	name, rest, err := splitPositional(args, map[string]bool{"read-only": true, "skip-existing": true, "requires-credentials": true})
-	if err != nil {
-		return fmt.Errorf("usage: pleiades forge new-plugin <name> --description <text> [--endpoint https://host] [--read-only] [--requires-credentials] [--settings-json '[...]'|@file.json] [--skip-existing] [--dir .]: %w", err)
-	}
-
 	fs := flag.NewFlagSet("forge new-plugin", flag.ContinueOnError)
 	dir := fs.String("dir", ".", "repository directory to write the generated package into")
 	description := fs.String("description", "", "one-line help text describing the upstream system this plugin reads")
@@ -31,8 +26,9 @@ func runForgeNewPlugin(args []string) error {
 	settingsJSON := fs.String("settings-json", "", "per-deployment settings as a JSON list of syncplugin.SettingSpec objects, or @path to read it from a file")
 	skipExisting := fs.Bool("skip-existing", false, "leave an already-written file alone instead of refusing, for regenerating a catalog in place")
 
-	if err := fs.Parse(rest); err != nil {
-		return err
+	name, err := parseOneArg(fs, args)
+	if err != nil {
+		return fmt.Errorf("usage: pleiades forge new-plugin <name> --description <text> [--endpoint https://host] [--read-only] [--requires-credentials] [--settings-json '[...]'|@file.json] [--skip-existing] [--dir .]: %w", err)
 	}
 
 	settings, err := parseSettingsJSONFlag(*settingsJSON)

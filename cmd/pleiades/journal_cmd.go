@@ -55,13 +55,13 @@ func runJournal(args []string) error {
 	if len(args) == 0 || asksHelp(args[:1]) {
 		return fmt.Errorf("%s: %w", journalUsage, errMissingPositional)
 	}
-	positionals, rest := splitPositionals(args[1:], map[string]bool{"json": true, "changed": true})
 	fs := flag.NewFlagSet("journal", flag.ContinueOnError)
 	dir := fs.String("dir", ".", "project directory")
 	asJSON := fs.Bool("json", false, "print one JSON document instead of text")
 	since := fs.String("since", "", "list only runs that began this long ago or later (2h, 30m) or at or after this time (RFC 3339)")
 	changed := fs.Bool("changed", false, "list only runs that changed something")
-	if err := fs.Parse(rest); err != nil {
+	positionals, err := parseArgs(fs, args[1:])
+	if err != nil {
 		return err
 	}
 	if args[0] != "list" && (*since != "" || *changed) {

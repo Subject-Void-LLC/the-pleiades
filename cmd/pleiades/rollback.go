@@ -53,7 +53,7 @@ func usageLine(command string, fs *flag.FlagSet) string {
 		if len(f.Name) == 1 {
 			return
 		}
-		if bf, ok := f.Value.(interface{ IsBoolFlag() bool }); ok && bf.IsBoolFlag() {
+		if boolValue(f.Value) {
 			fmt.Fprintf(&b, " [--%s]", f.Name)
 			return
 		}
@@ -101,15 +101,15 @@ func namedList(fs *flag.FlagSet, name, usage string, set map[string]bool) {
 
 // runRollback is `pleiades rollback <run-id>`.
 func runRollback(args []string) error {
-	positionals, rest := splitPositionals(args, runBoolFlags)
 	fs, flags, rf := newRollbackFlags()
+	positionals, err := parseArgs(fs, args)
+	if err != nil {
+		return err
+	}
 	if len(positionals) != 1 {
 		return fmt.Errorf("%s: %w", usageLine("rollback <run-id>", fs), errMissingPositional)
 	}
 	runID := positionals[0]
-	if err := fs.Parse(rest); err != nil {
-		return err
-	}
 	opts, err := flags.options()
 	if err != nil {
 		return err

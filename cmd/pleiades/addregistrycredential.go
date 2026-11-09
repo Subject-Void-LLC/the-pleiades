@@ -17,16 +17,13 @@ import (
 // device or another registry. It lives in the credential file's own
 // registries section, which no device name can address.
 func runAddRegistryCredential(args []string) error {
-	host, rest, err := splitPositional(args, map[string]bool{"password-stdin": true})
-	if err != nil {
-		return fmt.Errorf("usage: pleiades add-registry-credential <registry host> --username <user> [--password-stdin]: %w", err)
-	}
 	fs := flag.NewFlagSet("add-registry-credential", flag.ContinueOnError)
 	dir := fs.String("dir", ".", "project directory")
 	username := fs.String("username", "", "the registry account")
 	stdinPassword := fs.Bool("password-stdin", false, "read the password or token as one line on standard input")
-	if err := fs.Parse(rest); err != nil {
-		return err
+	host, err := parseOneArg(fs, args)
+	if err != nil {
+		return fmt.Errorf("usage: pleiades add-registry-credential <registry host> --username <user> [--password-stdin]: %w", err)
 	}
 	if *username == "" {
 		return fmt.Errorf("--username is required")

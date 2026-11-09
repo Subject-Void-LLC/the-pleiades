@@ -30,14 +30,6 @@ const minKeyPrefix = 8
 // the command prints. A command naming a review takes its key anywhere
 // among them, and returns it as the one element of rest.
 func reviewFlags(name string, args []string, withJSON bool) (dir string, asJSON bool, comment string, rest []string, err error) {
-	if name != "list" {
-		key, flags, err := splitPositional(args, map[string]bool{"json": true})
-		if err != nil {
-			return "", false, "", nil, err
-		}
-		d, j, c, _, err := reviewFlags("list", flags, withJSON)
-		return d, j, c, []string{key}, err
-	}
 	fs := flag.NewFlagSet("ai review "+name, flag.ContinueOnError)
 	d := fs.String("dir", ".", "project directory")
 	var j *bool
@@ -45,13 +37,24 @@ func reviewFlags(name string, args []string, withJSON bool) (dir string, asJSON 
 		j = fs.Bool("json", false, "print JSON")
 	}
 	c := fs.String("comment", "", "why, recorded with the decision")
-	if err := fs.Parse(args); err != nil {
-		return "", false, "", nil, err
+	if name == "list" {
+		// list names no review, so its flags parse as the flag package
+		// parses them.
+		if err := fs.Parse(args); err != nil {
+			return "", false, "", nil, err
+		}
+		rest = fs.Args()
+	} else {
+		key, err := parseOneArg(fs, args)
+		if err != nil {
+			return "", false, "", nil, err
+		}
+		rest = []string{key}
 	}
 	if j != nil {
 		asJSON = *j
 	}
-	return *d, asJSON, *c, fs.Args(), nil
+	return *d, asJSON, *c, rest, nil
 }
 
 // resolveKey finds the review a full key or a unique prefix names.
