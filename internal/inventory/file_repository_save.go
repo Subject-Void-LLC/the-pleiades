@@ -48,7 +48,7 @@ func (r *fileRepository) Save(ctx context.Context, item inventory.InventoryItem)
 	// written safely, because there is no way to detect a lost update.
 	v, ok := item.(versioned)
 	if !ok {
-		return fmt.Errorf("item %s does not report a base version, refusing to write without conflict detection", item.Name())
+		return fmt.Errorf("item %q does not report a base version, refusing to write without conflict detection", item.Name())
 	}
 
 	baseVersion := v.BaseVersion()
@@ -60,7 +60,7 @@ func (r *fileRepository) Save(ctx context.Context, item inventory.InventoryItem)
 		return nil
 	}
 	if current < baseVersion {
-		return fmt.Errorf("item %s has version %d below its loaded version %d, which should be impossible", item.Name(), current, baseVersion)
+		return fmt.Errorf("item %q has version %d below its loaded version %d, which should be impossible", item.Name(), current, baseVersion)
 	}
 
 	// Only the revisions recorded since load are new. Anything at or below
@@ -88,7 +88,7 @@ func (r *fileRepository) Save(ctx context.Context, item inventory.InventoryItem)
 	}
 	hostIdx := findHostIndex(hosts, item.ID())
 	if hostIdx == -1 {
-		return fmt.Errorf("cannot save item %s: no host with id %s found in %s", item.Name(), item.ID(), r.hostsPath)
+		return fmt.Errorf("cannot save item %q: no host with id %q found in %s", item.Name(), item.ID(), r.hostsPath)
 	}
 
 	sidecar, err := readSidecar(r.sidecarPath)
@@ -107,7 +107,7 @@ func (r *fileRepository) Save(ctx context.Context, item inventory.InventoryItem)
 		// current >= baseVersion was already checked above) an older one.
 		// Either way this change was computed against state that no longer
 		// exists, so the caller must reload rather than retry.
-		return fmt.Errorf("saving %s at version %d: %w", item.Name(), baseVersion, ErrVersionConflict)
+		return fmt.Errorf("saving %q at version %d: %w", item.Name(), baseVersion, ErrVersionConflict)
 	}
 
 	entry.ID = string(item.ID())
@@ -141,7 +141,7 @@ func (r *fileRepository) Save(ctx context.Context, item inventory.InventoryItem)
 	// Write the sidecar first; see the method doc comment above for why
 	// this ordering, not the reverse, is the one that fails safely.
 	if err := writeSidecar(r.sidecarPath, sidecar); err != nil {
-		return fmt.Errorf("failed to write inventory state for %s: %w", item.Name(), err)
+		return fmt.Errorf("failed to write inventory state for %q: %w", item.Name(), err)
 	}
 
 	hosts[hostIdx].Properties = hostProperties
@@ -150,7 +150,7 @@ func (r *fileRepository) Save(ctx context.Context, item inventory.InventoryItem)
 	// revision was recorded, while the file kept the old tags.
 	hosts[hostIdx].Tags = tagsToStrings(item.Tags())
 	if err := writeHostsAtomic(r.hostsPath, original, hosts); err != nil {
-		return fmt.Errorf("failed to write inventory for %s: %w", item.Name(), err)
+		return fmt.Errorf("failed to write inventory for %q: %w", item.Name(), err)
 	}
 
 	return nil

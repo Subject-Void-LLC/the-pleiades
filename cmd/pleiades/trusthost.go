@@ -59,10 +59,6 @@ func isEphemeral(device inventory.InventoryItem) bool {
 // refused for a device not flagged ephemeral unless --reason says why, which
 // is recorded on the device.
 func runTrustHost(args []string) error {
-	name, rest, err := splitPositional(args, map[string]bool{"first-connect": true, "replace": true})
-	if err != nil {
-		return fmt.Errorf("usage: pleiades trust-host <device> (--from-console <virtualbox host> [--vm <name>] | --first-connect [--reason <why>]) [--replace]: %w", err)
-	}
 	fs := flag.NewFlagSet("trust-host", flag.ContinueOnError)
 	dir := fs.String("dir", ".", "project directory")
 	fromConsole := fs.String("from-console", "", "the VirtualBox host running the device's VM, whose console log holds its host keys")
@@ -71,8 +67,9 @@ func runTrustHost(args []string) error {
 	reason := fs.String("reason", "", "with --first-connect on a device not flagged ephemeral (a lab node an import flags), why its keys are trusted unverified; recorded on the device")
 	replace := fs.Bool("replace", false, "drop keys already trusted for the device's address that differ, as after a VM is made again")
 	timeout := fs.Duration("timeout", 5*time.Minute, "how long to wait for the keys")
-	if err := fs.Parse(rest); err != nil {
-		return err
+	name, err := parseOneArg(fs, args)
+	if err != nil {
+		return fmt.Errorf("usage: pleiades trust-host <device> (--from-console <virtualbox host> [--vm <name>] | --first-connect [--reason <why>]) [--replace]: %w", err)
 	}
 	if (*fromConsole == "") == !*firstConnect {
 		return errors.New("name one source of keys: --from-console <virtualbox host>, or --first-connect")

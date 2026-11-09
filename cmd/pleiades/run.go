@@ -15,10 +15,6 @@ import (
 // the runbook launch kind's forks field sets on the Controller.
 const maxForks = 1000
 
-// runBoolFlags are the run flags that take no value in their bare form,
-// for splitPositional.
-var runBoolFlags = map[string]bool{"verbose": true, "v": true, "persist-connections": true, "json": true}
-
 // runRunbook loads the inventory and a runbook, validates them, prints
 // the resulting execution plan (the authored pretasks/tasks/posttasks
 // tree and what each task targets), and then executes it with
@@ -35,7 +31,7 @@ var runBoolFlags = map[string]bool{"verbose": true, "v": true, "persist-connecti
 // --json prints the run's report as one JSON document instead of text,
 // with every task's output, and ends with the same exit status.
 func runRunbook(args []string) error {
-	// splitPositional rather than fs.Arg(0), for the same reason
+	// parseOneArg rather than fs.Arg(0), for the same reason
 	// add-host and the forge subcommands use it: Go's flag package stops
 	// parsing at the first non-flag argument, so `run site.yaml
 	// --verbose` would silently treat --verbose as a second positional
@@ -45,12 +41,9 @@ func runRunbook(args []string) error {
 	flags := addRunFlags(fs)
 	selection := tagFlags(fs)
 	extraVars := addExtraVarsFlag(fs)
-	runbook, rest, err := splitPositional(args, runBoolFlags)
+	runbook, err := parseOneArg(fs, args)
 	if err != nil {
 		return fmt.Errorf("%s: %w", usageLine("run <runbook.yaml>", fs), err)
-	}
-	if err := fs.Parse(rest); err != nil {
-		return err
 	}
 	opts, err := flags.options()
 	if err != nil {

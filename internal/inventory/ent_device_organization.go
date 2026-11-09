@@ -45,11 +45,11 @@ func (r *entRepository) AssignDeviceOrganization(ctx context.Context, name strin
 	case current == orgID:
 		return nil
 	case current != 0:
-		return fmt.Errorf("device %s: %w", name, ErrCrossTenantMember)
+		return fmt.Errorf("device %q: %w", name, ErrCrossTenantMember)
 	}
 	n, err := r.entClient(ctx).Device.Update().Where(device.NameEQ(name), device.Not(device.HasOrganization())).SetOrganizationID(orgID).Save(ctx)
 	if err != nil {
-		return fmt.Errorf("putting device %s in organization %d: %w", name, orgID, err)
+		return fmt.Errorf("putting device %q in organization %d: %w", name, orgID, err)
 	}
 	if n != 1 {
 		// Another writer gave it an organization between the read and the
@@ -64,9 +64,9 @@ func (r *entRepository) DeviceOrganization(ctx context.Context, name string) (in
 	dev, err := r.entClient(ctx).Device.Query().Where(device.NameEQ(name)).WithOrganization().Only(ctx)
 	if err != nil {
 		if ent.IsNotFound(err) {
-			return 0, fmt.Errorf("device %s: %w", name, ErrItemNotFound)
+			return 0, fmt.Errorf("device %q: %w", name, ErrItemNotFound)
 		}
-		return 0, fmt.Errorf("reading device %s's organization: %w", name, err)
+		return 0, fmt.Errorf("reading device %q's organization: %w", name, err)
 	}
 	if dev.Edges.Organization == nil {
 		return 0, nil

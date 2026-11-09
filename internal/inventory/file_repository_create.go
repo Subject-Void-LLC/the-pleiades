@@ -62,7 +62,7 @@ func (r *fileRepository) Create(ctx context.Context, item inventory.InventoryIte
 	hosts = append(hosts, spec)
 
 	if err := writeHostsAtomic(r.hostsPath, original, hosts); err != nil {
-		return fmt.Errorf("failed to write inventory for %s: %w", item.Name(), err)
+		return fmt.Errorf("failed to write inventory for %q: %w", item.Name(), err)
 	}
 
 	// A device created at version 0 with no history and no provenance needs
@@ -85,7 +85,7 @@ func (r *fileRepository) Create(ctx context.Context, item inventory.InventoryIte
 func ensureHostAbsent(hosts []HostSpec, item inventory.InventoryItem) error {
 	for _, h := range hosts {
 		if h.ID == string(item.ID()) || h.Name == item.Name() {
-			return fmt.Errorf("creating %s: %w", item.Name(), ErrItemExists)
+			return fmt.Errorf("creating %q: %w", item.Name(), ErrItemExists)
 		}
 	}
 	return nil
@@ -146,7 +146,7 @@ func (r *fileRepository) createSidecarEntry(item inventory.InventoryItem) error 
 
 	sidecar.Hosts = append(sidecar.Hosts, entry)
 	if err := writeSidecar(r.sidecarPath, sidecar); err != nil {
-		return fmt.Errorf("failed to write inventory state for %s: %w", item.Name(), err)
+		return fmt.Errorf("failed to write inventory state for %q: %w", item.Name(), err)
 	}
 	return nil
 }

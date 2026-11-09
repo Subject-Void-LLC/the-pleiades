@@ -55,12 +55,12 @@ func (r *readOnlyRepository) GetByName(ctx context.Context, name string) (invent
 // Create refuses, naming the item so an operator can tell which write was
 // blocked rather than only that one was.
 func (r *readOnlyRepository) Create(_ context.Context, item inventory.InventoryItem) error {
-	return fmt.Errorf("refusing to create %s: %w", item.Name(), ErrInventoryReadOnly)
+	return fmt.Errorf("refusing to create %q: %w", item.Name(), ErrInventoryReadOnly)
 }
 
 // Save refuses, naming the item for the same reason Create does.
 func (r *readOnlyRepository) Save(_ context.Context, item inventory.InventoryItem) error {
-	return fmt.Errorf("refusing to save %s: %w", item.Name(), ErrInventoryReadOnly)
+	return fmt.Errorf("refusing to save %q: %w", item.Name(), ErrInventoryReadOnly)
 }
 
 // Retire refuses, naming the item for the same reason Create does.
@@ -71,7 +71,7 @@ func (r *readOnlyRepository) Save(_ context.Context, item inventory.InventoryIte
 // non-mutating run that silently performed one would break the exact
 // promise NewReadOnlyRepository exists to make.
 func (r *readOnlyRepository) Retire(_ context.Context, name string) error {
-	return fmt.Errorf("refusing to retire %s: %w", name, ErrInventoryReadOnly)
+	return fmt.Errorf("refusing to retire %q: %w", name, ErrInventoryReadOnly)
 }
 
 // GroupAncestry reads through to the wrapped repository, exactly like

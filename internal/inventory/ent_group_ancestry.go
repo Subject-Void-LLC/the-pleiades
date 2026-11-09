@@ -83,7 +83,7 @@ func (r *entRepository) GroupAncestry(ctx context.Context, deviceName string) ([
 
 			invs, err := g.QueryInventories().All(ctx)
 			if err != nil {
-				return nil, fmt.Errorf("failed to load inventories for group %s: %w", g.Name, err)
+				return nil, fmt.Errorf("failed to load inventories for group %q: %w", g.Name, err)
 			}
 			for _, inv := range invs {
 				visitedInventories[inv.ID] = inv
@@ -91,7 +91,7 @@ func (r *entRepository) GroupAncestry(ctx context.Context, deviceName string) ([
 
 			parents, err := g.QueryParents().All(ctx)
 			if err != nil {
-				return nil, fmt.Errorf("failed to load parent groups for group %s: %w", g.Name, err)
+				return nil, fmt.Errorf("failed to load parent groups for group %q: %w", g.Name, err)
 			}
 			next = append(next, parents...)
 		}

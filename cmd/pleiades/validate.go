@@ -60,21 +60,16 @@ func (c runbookCheck) failed() bool {
 // is checked even after one fails, and the command fails when any did or
 // when nothing was left to check.
 func runValidate(args []string) error {
-	// Runbooks may come before, after or between the flags, so they are
-	// pulled out first; every validate flag takes a value.
-	paths, rest := splitPositionals(args, nil)
-
 	fs := flag.NewFlagSet("validate", flag.ContinueOnError)
 	dir := fs.String("dir", ".", "project directory")
 	selection := tagFlags(fs)
 	// The same flag, and the same parser, as run's, so a runbook is
 	// validated against exactly the variables a run would render.
 	extraVars := addExtraVarsFlag(fs)
-	if err := fs.Parse(rest); err != nil {
+	// Runbooks may come before, after or between the flags.
+	paths, err := parseArgs(fs, args)
+	if err != nil {
 		return err
-	}
-	if fs.NArg() > 0 {
-		return fmt.Errorf("usage: pleiades validate [runbook.yaml ...] [--tags a,b] [--skip-tags c] [--extra-vars key=value] [--dir .]")
 	}
 	variables, err := extraVars.variables()
 	if err != nil {
@@ -170,7 +165,7 @@ func projectRunbooks(dir string) ([]string, error) {
 // tasks come back skipped; any other build failure comes back as err.
 func buildCheck(builder *engine.Builder, path string) runbookCheck {
 	check := runbookCheck{path: path}
-	if info, err := os.Stat(path); err == nil && info.IsDir() {
+	if info, err := os.Stat(path); err == nil && info.IsDir() { // #nosec G703 -- path is a CLI argument the invoking user passes to their own process, or an entry of their own runbooks directory; see loadWorld
 		check.skip = "a directory"
 		return check
 	}
@@ -188,7 +183,7 @@ func buildCheck(builder *engine.Builder, path string) runbookCheck {
 	case err != nil:
 		check.err, check.stage = err, "build DAG"
 	default:
-		source, err := os.ReadFile(path) // #nosec G304 -- the same path BuildFromYAMLFile just read, a CLI argument or an entry of the user's own runbooks directory
+		source, err := os.ReadFile(path) // #nosec G304 G703 -- the same path BuildFromYAMLFile just read, a CLI argument or an entry of the user's own runbooks directory
 		if err != nil {
 			check.err, check.stage = err, "read"
 			return check

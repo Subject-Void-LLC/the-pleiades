@@ -1,0 +1,477 @@
+{
+  "add-credential --help": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "usage: pleiades add-credential \u003cdevice\u003e [--username \u003cuser\u003e] [--password \u003cpassword\u003e | --password-stdin | --password-file \u003csealed file\u003e [--passphrase] | --key \u003cpath\u003e [--passphrase] | --certificate \u003cpath\u003e --key \u003cpath\u003e | --pfx \u003cpath\u003e --passphrase | --token-stdin | --generate [--replace]] [--enable-password | --enable-password-stdin]; with --password-stdin and --enable-password-stdin, standard input is two lines, the password and then the enable secret\n"
+  },
+  "add-credential -h": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "usage: pleiades add-credential \u003cdevice\u003e [--username \u003cuser\u003e] [--password \u003cpassword\u003e | --password-stdin | --password-file \u003csealed file\u003e [--passphrase] | --key \u003cpath\u003e [--passphrase] | --certificate \u003cpath\u003e --key \u003cpath\u003e | --pfx \u003cpath\u003e --passphrase | --token-stdin | --generate [--replace]] [--enable-password | --enable-password-stdin]; with --password-stdin and --enable-password-stdin, standard input is two lines, the password and then the enable secret\n"
+  },
+  "add-database-connection --help": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "usage: pleiades add-database-connection \u003cname\u003e --host \u003chost\u003e --user \u003cuser\u003e [--password-stdin | --no-password]\n"
+  },
+  "add-database-connection -h": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "usage: pleiades add-database-connection \u003cname\u003e --host \u003chost\u003e --user \u003cuser\u003e [--password-stdin | --no-password]\n"
+  },
+  "add-host --help": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "usage: pleiades add-host \u003cname\u003e (--type \u003ctype\u003e | --classify a,b,c) [--set key=value ...] [--tags a,b | --tag a ...]\n"
+  },
+  "add-host --help web1": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "usage: pleiades add-host \u003cname\u003e (--type \u003ctype\u003e | --classify a,b,c) [--set key=value ...] [--tags a,b | --tag a ...]\n"
+  },
+  "add-host -h": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "usage: pleiades add-host \u003cname\u003e (--type \u003ctype\u003e | --classify a,b,c) [--set key=value ...] [--tags a,b | --tag a ...]\n"
+  },
+  "add-host web1 --help": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "Usage of add-host:\n  -classify string\n    \tcomma-separated classification path (e.g. linux_server,debian_family,ubuntu), an alternative to --type\n  -dir string\n    \tproject directory (default \".\")\n  -set value\n    \tdevice property as key=value (repeatable)\n  -tag value\n    \ta tag, or several separated by commas (repeatable); --tags is the same flag\n  -tags value\n    \tcomma-separated tags (repeatable); --tag is the same flag\n  -type string\n    \tdevice type (e.g. linux_server, cisco_router)\n"
+  },
+  "add-registry-credential --help": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "usage: pleiades add-registry-credential \u003cregistry host\u003e --username \u003cuser\u003e [--password-stdin]\n"
+  },
+  "add-registry-credential -h": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "usage: pleiades add-registry-credential \u003cregistry host\u003e --username \u003cuser\u003e [--password-stdin]\n"
+  },
+  "add-secret --help": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "usage: pleiades add-secret \u003cname\u003e --field \u003cfield\u003e (--value-stdin | --value-file \u003csealed file\u003e [--passphrase | --passphrase-stdin] | --generate \u003clength\u003e) [--replace] [--dir DIR]\n"
+  },
+  "add-secret -h": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "usage: pleiades add-secret \u003cname\u003e --field \u003cfield\u003e (--value-stdin | --value-file \u003csealed file\u003e [--passphrase | --passphrase-stdin] | --generate \u003clength\u003e) [--replace] [--dir DIR]\n"
+  },
+  "adhoc --help": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "usage: pleiades adhoc \u003chosts | a,b,c | -\u003e \u003cmethod\u003e [key=value | key:=yaml ...] [--allow-unchecked X] [--dir X] [--fail-on-rescue] [--forks X] [--json] [--limit X] [--mode X] [--persist-connections] [--setting X] [--timeout X] [--verbose]\n"
+  },
+  "adhoc -h": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "usage: pleiades adhoc \u003chosts | a,b,c | -\u003e \u003cmethod\u003e [key=value | key:=yaml ...] [--allow-unchecked X] [--dir X] [--fail-on-rescue] [--forks X] [--json] [--limit X] [--mode X] [--persist-connections] [--setting X] [--timeout X] [--verbose]\n"
+  },
+  "adhoc web1 --help": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "usage: pleiades adhoc \u003chosts | a,b,c | -\u003e \u003cmethod\u003e [key=value | key:=yaml ...] [--allow-unchecked X] [--dir X] [--fail-on-rescue] [--forks X] [--json] [--limit X] [--mode X] [--persist-connections] [--setting X] [--timeout X] [--verbose]\n"
+  },
+  "adhoc web1 exec.command --help": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "Usage of adhoc:\n  -allow-unchecked value\n    \ta method whose tasks may go unchecked without making the check incomplete (repeatable)\n  -dir string\n    \tproject directory (default \".\")\n  -fail-on-rescue\n    \tend with status 4 when a block's rescue: answered a failure, so a gate never passes through a fallback\n  -forks int\n    \thow many devices are worked on at once, 1 to 1000 (Ansible's forks, with the same default) (default 5)\n  -json\n    \tprint the run as one JSON document, with every task's output, instead of text\n  -limit string\n    \trun on only these of the runbook's devices: names, tags or globs, comma separated, ! to exclude and \u0026 to intersect (Ansible's --limit)\n  -mode string\n    \texecute applies changes; check reports what each task would change and changes nothing (default \"execute\")\n  -persist-connections\n    \tkeep one SSH connection per device open between its tasks; =false logs in afresh for every task (default true)\n  -setting value\n    \ta run setting, \u003cmethod\u003e.\u003cparameter\u003e=\u003cvalue\u003e (file.remove.check_forbidden=warn), for every task that leaves the parameter out (repeatable)\n  -timeout value\n    \thow long the call may run on each device before it is stopped and fails, as a task's timeout key: whole seconds (40) or a duration (40s, 5m), up to 86400 seconds (0: no bound)\n  -v\tshorthand for --verbose\n  -verbose\n    \tprint each task's own output (stdout, exit status, diffs), not just whether it changed\n"
+  },
+  "ai --help": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "usage: pleiades ai \u003ccommand\u003e [flags]\n\ncommands:\n  prompt  make a prompt signing key, and sign a prompt bundle with it, at a terminal\n  review  list, show, approve and deny the answers runs held for review (ai/review)\n"
+  },
+  "ai -h": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "usage: pleiades ai \u003ccommand\u003e [flags]\n\ncommands:\n  prompt  make a prompt signing key, and sign a prompt bundle with it, at a terminal\n  review  list, show, approve and deny the answers runs held for review (ai/review)\n"
+  },
+  "ai prompt sign --help": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "usage: pleiades ai prompt sign \u003cbundle.json\u003e --key \u003cfile\u003e [--dir .]\n"
+  },
+  "ai review approve -h": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "missing positional argument\n"
+  },
+  "ai review show --help": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "missing positional argument\n"
+  },
+  "collection --help": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "usage: pleiades collection \u003ccommand\u003e [flags]\n\ncommands:\n  approve  approve a build of a program in PLEIADES_COLLECTIONS_DIR, after showing what it says it provides\n  revoke   withdraw a program's approvals, so it stops running from its next call\n  list     list the external Collection protocols this build speaks and every approved build, who approved it and when\n"
+  },
+  "collection -h": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "usage: pleiades collection \u003ccommand\u003e [flags]\n\ncommands:\n  approve  approve a build of a program in PLEIADES_COLLECTIONS_DIR, after showing what it says it provides\n  revoke   withdraw a program's approvals, so it stops running from its next call\n  list     list the external Collection protocols this build speaks and every approved build, who approved it and when\n"
+  },
+  "collection approve --help": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "usage: pleiades collection approve \u003cprogram\u003e [--digest sha256:\u003chex\u003e] [--yes]\n"
+  },
+  "collection revoke -h": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "usage: pleiades collection revoke \u003cprogram\u003e [--digest sha256:\u003chex\u003e]\n"
+  },
+  "doc --help": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "Usage of doc:\n  -create-skill\n    \tcreate SKILL.md in the current directory, a skill an AI agent reads to learn The Pleiades: its commands, how a runbook is written, and every built-in method\n  -dir string\n    \tproject directory whose external Collections are read, as run --dir (default \".\")\n  -json\n    \tprint the full catalog, or one fqcn's Manifest, as JSON\n  -list\n    \tlist every registered FQCN, or those in one namespace if fqcn is given as a prefix\n  -snippet\n    \tprint a paste-ready runbook task stanza for fqcn\n"
+  },
+  "doc -h": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "Usage of doc:\n  -create-skill\n    \tcreate SKILL.md in the current directory, a skill an AI agent reads to learn The Pleiades: its commands, how a runbook is written, and every built-in method\n  -dir string\n    \tproject directory whose external Collections are read, as run --dir (default \".\")\n  -json\n    \tprint the full catalog, or one fqcn's Manifest, as JSON\n  -list\n    \tlist every registered FQCN, or those in one namespace if fqcn is given as a prefix\n  -snippet\n    \tprint a paste-ready runbook task stanza for fqcn\n"
+  },
+  "doc exec.command --help": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "Usage of doc:\n  -create-skill\n    \tcreate SKILL.md in the current directory, a skill an AI agent reads to learn The Pleiades: its commands, how a runbook is written, and every built-in method\n  -dir string\n    \tproject directory whose external Collections are read, as run --dir (default \".\")\n  -json\n    \tprint the full catalog, or one fqcn's Manifest, as JSON\n  -list\n    \tlist every registered FQCN, or those in one namespace if fqcn is given as a prefix\n  -snippet\n    \tprint a paste-ready runbook task stanza for fqcn\n"
+  },
+  "facts --help": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "usage: pleiades facts \u003chost\u003e [\u003ckey\u003e] [--verify] [--dir DIR] [--json]\n"
+  },
+  "facts -h": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "usage: pleiades facts \u003chost\u003e [\u003ckey\u003e] [--verify] [--dir DIR] [--json]\n"
+  },
+  "facts web1 --help": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "Usage of facts:\n  -dir string\n    \tproject directory (default \".\")\n  -json\n    \tprint one JSON document instead of text\n  -verify\n    \tcheck the host's fact chain instead of showing its facts\n"
+  },
+  "forge --help": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "usage: pleiades forge \u003ccommand\u003e [flags]\n\ncommands:\n  new-device        generate a new vendor device-type package\n  new-collection    generate a new namespaced Collection method package\n  new-plugin        generate a new inventory sync plugin package\n  new-view          generate a new web UI view resource package\n  new-external      generate a buildable external Collection program providing one method\n  new-filter        generate a new pkg/filters function and its starter test\n  migrate-playbook  convert an Ansible playbook into native runbooks, with a report of everything a person must finish; exits 3 when anything needs one\n\nSee docs/ in the repository for the full Forge command surface.\n"
+  },
+  "forge -h": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "usage: pleiades forge \u003ccommand\u003e [flags]\n\ncommands:\n  new-device        generate a new vendor device-type package\n  new-collection    generate a new namespaced Collection method package\n  new-plugin        generate a new inventory sync plugin package\n  new-view          generate a new web UI view resource package\n  new-external      generate a buildable external Collection program providing one method\n  new-filter        generate a new pkg/filters function and its starter test\n  migrate-playbook  convert an Ansible playbook into native runbooks, with a report of everything a person must finish; exits 3 when anything needs one\n\nSee docs/ in the repository for the full Forge command surface.\n"
+  },
+  "forge migrate-playbook --help": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "usage: pleiades forge migrate-playbook \u003cplaybook.yml\u003e [--out runbooks] [--json] [--force]\n"
+  },
+  "forge new-collection --help": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "usage: pleiades forge new-collection \u003cnamespace.method\u003e [--capabilities Name1,Name2] [--transports ssh] [--requires-elevation] [--site target|controller|hybrid] [--device required|optional|none] [--engine-version x.y.z] [--doc-json '{...}'|@file.json] [--skip-existing] [--dir .]\n"
+  },
+  "forge new-device -h": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "usage: pleiades forge new-device \u003cvendor\u003e --type \u003ctype_key\u003e [--capabilities Name1,Name2] [--skip-existing] [--dir .]\n"
+  },
+  "grant-capability --help": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "usage: pleiades grant-capability \u003cdevice\u003e \u003ccapability\u003e --reason \u003ctext\u003e [--set key=value ...]\n"
+  },
+  "grant-capability -h": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "usage: pleiades grant-capability \u003cdevice\u003e \u003ccapability\u003e --reason \u003ctext\u003e [--set key=value ...]\n"
+  },
+  "grant-capability web1 --help": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "usage: pleiades grant-capability \u003cdevice\u003e \u003ccapability\u003e --reason \u003ctext\u003e [--set key=value ...]\n"
+  },
+  "grant-capability web1 acme.thing -h": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "Usage of grant-capability:\n  -dir string\n    \tproject directory (default \".\")\n  -reason string\n    \twhy this device holds the capability, recorded with the grant (required)\n  -set value\n    \tgrant property as key=value (repeatable)\n"
+  },
+  "import --help": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "usage: pleiades import \u003ccommand\u003e [flags]\n\ncommands:\n  awx-credential-types  check an AWX credential type export against this platform, before a migration\n\nSee docs/ in the repository for the migration guidance these commands support.\n"
+  },
+  "import -h": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "usage: pleiades import \u003ccommand\u003e [flags]\n\ncommands:\n  awx-credential-types  check an AWX credential type export against this platform, before a migration\n\nSee docs/ in the repository for the migration guidance these commands support.\n"
+  },
+  "import awx-credential-types --help": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "Usage of import awx-credential-types:\n  -out string\n    \tdirectory to write each importable type into as JSON, ready to POST to /credential-types\n  -quiet\n    \treport only the types this platform would not import\n"
+  },
+  "import awx-credential-types -h": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "Usage of import awx-credential-types:\n  -out string\n    \tdirectory to write each importable type into as JSON, ready to POST to /credential-types\n  -quiet\n    \treport only the types this platform would not import\n"
+  },
+  "import-cml --help": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "Usage of import-cml:\n  -address value\n    \tNODE=IP: the node's management address, where the controller observed none or several (repeatable)\n  -allow-plaintext\n    \tsend the password over plain HTTP to a controller that is not this machine\n  -controller string\n    \ta cml_controller device of this project: its api_base, TLS settings and stored login, in place of --server, --tls-*, --username and the password\n  -dir string\n    \tproject directory (default \".\")\n  -json\n    \tprint the result as one JSON document\n  -lab string\n    \tthe lab to import, by title or id\n  -nodes string\n    \tcomma-separated nodes to import; every node when empty\n  -onboard\n    \tonboard each node once it is imported (needs a credential and trusted host keys)\n  -password-stdin\n    \tread the password from the first line of standard input, instead of PLEIADES_CML_PASSWORD\n  -replace\n    \treplace the address of a node already in the inventory as the same device type\n  -server string\n    \tthe CML controller's base URL, e.g. https://cml.lab\n  -tls-ca string\n    \ta PEM file of the CAs the controller's certificate must chain to\n  -tls-fingerprint string\n    \ttrust only the controller certificate with this SHA-256 fingerprint (sha256:\u003chex\u003e), whatever its issuer or dates\n  -trust-first-connect\n    \ttrust whatever host keys answer at each node's address, unverified, as trust-host --first-connect does\n  -username string\n    \tthe controller account to log in as\n  -via string\n    \thow the nodes are reached: ssh; telnet for a lab whose nodes run no SSH server (a login crossing in cleartext); or console, through the --controller device's console server, for nodes with no address reachable from here (default \"ssh\")\n"
+  },
+  "import-cml -h": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "Usage of import-cml:\n  -address value\n    \tNODE=IP: the node's management address, where the controller observed none or several (repeatable)\n  -allow-plaintext\n    \tsend the password over plain HTTP to a controller that is not this machine\n  -controller string\n    \ta cml_controller device of this project: its api_base, TLS settings and stored login, in place of --server, --tls-*, --username and the password\n  -dir string\n    \tproject directory (default \".\")\n  -json\n    \tprint the result as one JSON document\n  -lab string\n    \tthe lab to import, by title or id\n  -nodes string\n    \tcomma-separated nodes to import; every node when empty\n  -onboard\n    \tonboard each node once it is imported (needs a credential and trusted host keys)\n  -password-stdin\n    \tread the password from the first line of standard input, instead of PLEIADES_CML_PASSWORD\n  -replace\n    \treplace the address of a node already in the inventory as the same device type\n  -server string\n    \tthe CML controller's base URL, e.g. https://cml.lab\n  -tls-ca string\n    \ta PEM file of the CAs the controller's certificate must chain to\n  -tls-fingerprint string\n    \ttrust only the controller certificate with this SHA-256 fingerprint (sha256:\u003chex\u003e), whatever its issuer or dates\n  -trust-first-connect\n    \ttrust whatever host keys answer at each node's address, unverified, as trust-host --first-connect does\n  -username string\n    \tthe controller account to log in as\n  -via string\n    \thow the nodes are reached: ssh; telnet for a lab whose nodes run no SSH server (a login crossing in cleartext); or console, through the --controller device's console server, for nodes with no address reachable from here (default \"ssh\")\n"
+  },
+  "import-containerlab --help": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "Usage of import-containerlab:\n  -api string\n    \tinstead of --topology: the inventory device of a containerlab API server (onboarded, with its login stored), whose inspect of --lab is read\n  -dir string\n    \tproject directory (default \".\")\n  -json\n    \tprint the result as one JSON document\n  -key string\n    \ta private key file stored as every imported node's credential\n  -lab string\n    \tthe lab's name, which the file must be for\n  -nodes string\n    \tcomma-separated nodes to import; every node when empty\n  -onboard\n    \tonboard each node once it is imported (needs a credential and trusted host keys)\n  -replace\n    \treplace the address of a node already in the inventory as a generic_ssh device\n  -topology string\n    \tcontainerlab's topology-data.json for the lab, written on deploy\n  -trust-first-connect\n    \ttrust whatever host keys answer at each node's address, unverified, as trust-host --first-connect does\n  -username string\n    \twith --key, the account every node is reached as\n"
+  },
+  "import-containerlab -h": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "Usage of import-containerlab:\n  -api string\n    \tinstead of --topology: the inventory device of a containerlab API server (onboarded, with its login stored), whose inspect of --lab is read\n  -dir string\n    \tproject directory (default \".\")\n  -json\n    \tprint the result as one JSON document\n  -key string\n    \ta private key file stored as every imported node's credential\n  -lab string\n    \tthe lab's name, which the file must be for\n  -nodes string\n    \tcomma-separated nodes to import; every node when empty\n  -onboard\n    \tonboard each node once it is imported (needs a credential and trusted host keys)\n  -replace\n    \treplace the address of a node already in the inventory as a generic_ssh device\n  -topology string\n    \tcontainerlab's topology-data.json for the lab, written on deploy\n  -trust-first-connect\n    \ttrust whatever host keys answer at each node's address, unverified, as trust-host --first-connect does\n  -username string\n    \twith --key, the account every node is reached as\n"
+  },
+  "import-gns3 --help": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "Usage of import-gns3:\n  -allow-plaintext\n    \tsend the password over plain HTTP to a server that is not this machine\n  -dir string\n    \tproject directory (default \".\")\n  -json\n    \tprint the result as one JSON document\n  -nodes string\n    \tcomma-separated nodes to import; every node when empty\n  -password-stdin\n    \tread the password from the first line of standard input, instead of PLEIADES_GNS3_PASSWORD\n  -project string\n    \tthe project to import, by name or id\n  -replace\n    \treplace the console address of a node already in the inventory as a console_device\n  -server string\n    \tthe GNS3 server's base URL, e.g. http://gns3.lab:3080\n  -username string\n    \tthe account to log in as (a 3.x server needs one; a 2.2 server takes it as basic auth)\n"
+  },
+  "import-gns3 -h": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "Usage of import-gns3:\n  -allow-plaintext\n    \tsend the password over plain HTTP to a server that is not this machine\n  -dir string\n    \tproject directory (default \".\")\n  -json\n    \tprint the result as one JSON document\n  -nodes string\n    \tcomma-separated nodes to import; every node when empty\n  -password-stdin\n    \tread the password from the first line of standard input, instead of PLEIADES_GNS3_PASSWORD\n  -project string\n    \tthe project to import, by name or id\n  -replace\n    \treplace the console address of a node already in the inventory as a console_device\n  -server string\n    \tthe GNS3 server's base URL, e.g. http://gns3.lab:3080\n  -username string\n    \tthe account to log in as (a 3.x server needs one; a 2.2 server takes it as basic auth)\n"
+  },
+  "import-kubeconfig --help": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "usage: pleiades import-kubeconfig \u003cdevice\u003e --kubeconfig \u003cpath|-\u003e [--context \u003cname\u003e] [--replace] [--json]\n"
+  },
+  "import-kubeconfig -h": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "usage: pleiades import-kubeconfig \u003cdevice\u003e --kubeconfig \u003cpath|-\u003e [--context \u003cname\u003e] [--replace] [--json]\n"
+  },
+  "init --help": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "Usage of init:\n  -dir string\n    \tproject directory to scaffold, made when it does not exist (default \".\")\n"
+  },
+  "init -h": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "Usage of init:\n  -dir string\n    \tproject directory to scaffold, made when it does not exist (default \".\")\n"
+  },
+  "inventory --help": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "usage: pleiades inventory \u003ccommand\u003e [flags]\n\ncommands:\n  sync     pull devices from an external source into the local inventory\n  plugins  list the available inventory sync plugins\n\nSee docs/ in the repository for the sync plugin model.\n"
+  },
+  "inventory -h": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "usage: pleiades inventory \u003ccommand\u003e [flags]\n\ncommands:\n  sync     pull devices from an external source into the local inventory\n  plugins  list the available inventory sync plugins\n\nSee docs/ in the repository for the sync plugin model.\n"
+  },
+  "journal --help": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "usage: pleiades journal list [--since 2h | --since 2026-10-25T16:00:00Z] [--changed] [--dir DIR] [--json] | pleiades journal show \u003crun-id\u003e [--dir DIR] [--json]\n"
+  },
+  "journal -h": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "usage: pleiades journal list [--since 2h | --since 2026-10-25T16:00:00Z] [--changed] [--dir DIR] [--json] | pleiades journal show \u003crun-id\u003e [--dir DIR] [--json]\n"
+  },
+  "journal list --help": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "Usage of journal:\n  -changed\n    \tlist only runs that changed something\n  -dir string\n    \tproject directory (default \".\")\n  -json\n    \tprint one JSON document instead of text\n  -since string\n    \tlist only runs that began this long ago or later (2h, 30m) or at or after this time (RFC 3339)\n"
+  },
+  "journal show -h": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "Usage of journal:\n  -changed\n    \tlist only runs that changed something\n  -dir string\n    \tproject directory (default \".\")\n  -json\n    \tprint one JSON document instead of text\n  -since string\n    \tlist only runs that began this long ago or later (2h, 30m) or at or after this time (RFC 3339)\n"
+  },
+  "list-database-connections --help": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "Usage of list-database-connections:\n  -dir string\n    \tproject directory (default \".\")\n  -json\n    \tprint one JSON document instead of text\n"
+  },
+  "list-database-connections -h": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "Usage of list-database-connections:\n  -dir string\n    \tproject directory (default \".\")\n  -json\n    \tprint one JSON document instead of text\n"
+  },
+  "list-secrets --help": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "Usage of list-secrets:\n  -dir string\n    \tproject directory (default \".\")\n  -json\n    \tprint one JSON document instead of text\n"
+  },
+  "list-secrets -h": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "Usage of list-secrets:\n  -dir string\n    \tproject directory (default \".\")\n  -json\n    \tprint one JSON document instead of text\n"
+  },
+  "onboard --help": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "usage: pleiades onboard \u003cname\u003e [--json] [--timeout 30s]\n"
+  },
+  "onboard -h": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "usage: pleiades onboard \u003cname\u003e [--json] [--timeout 30s]\n"
+  },
+  "remove-credential --help": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "usage: pleiades remove-credential \u003cdevice\u003e [--dir DIR]\n"
+  },
+  "remove-credential -h": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "usage: pleiades remove-credential \u003cdevice\u003e [--dir DIR]\n"
+  },
+  "remove-database-connection --help": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "usage: pleiades remove-database-connection \u003cname\u003e [--dir DIR]\n"
+  },
+  "remove-database-connection -h": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "usage: pleiades remove-database-connection \u003cname\u003e [--dir DIR]\n"
+  },
+  "remove-host --help": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "usage: pleiades remove-host \u003cname\u003e [--credential] [--forget-host-keys] [--leave-references] [--dir DIR] [--json]\n"
+  },
+  "remove-host -h": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "usage: pleiades remove-host \u003cname\u003e [--credential] [--forget-host-keys] [--leave-references] [--dir DIR] [--json]\n"
+  },
+  "remove-host web1 -h": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "Usage of remove-host:\n  -credential\n    \talso remove the host's stored credential\n  -dir string\n    \tproject directory (default \".\")\n  -forget-host-keys\n    \talso remove the known_hosts lines trusting the host's SSH address, unless another device is reached there\n  -json\n    \tprint one JSON document instead of text\n  -leave-references\n    \tremove the host even when another host names it in a property\n"
+  },
+  "remove-secret --help": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "usage: pleiades remove-secret \u003cname\u003e [--field \u003cfield\u003e] [--dir DIR]\n"
+  },
+  "remove-secret -h": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "usage: pleiades remove-secret \u003cname\u003e [--field \u003cfield\u003e] [--dir DIR]\n"
+  },
+  "revoke-capability --help": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "usage: pleiades revoke-capability \u003cdevice\u003e \u003ccapability\u003e\n"
+  },
+  "revoke-capability -h": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "usage: pleiades revoke-capability \u003cdevice\u003e \u003ccapability\u003e\n"
+  },
+  "rollback --help": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "usage: pleiades rollback \u003crun-id\u003e [--allow-partial X] [--allow-skew X] [--allow-unchecked X] [--allow-unknown X] [--despite-run X] [--dir X] [--fail-on-rescue] [--forks X] [--json] [--leave X] [--limit X] [--mode X] [--persist-connections] [--runbook X] [--setting X] [--verbose]\n"
+  },
+  "rollback -h": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "usage: pleiades rollback \u003crun-id\u003e [--allow-partial X] [--allow-skew X] [--allow-unchecked X] [--allow-unknown X] [--despite-run X] [--dir X] [--fail-on-rescue] [--forks X] [--json] [--leave X] [--limit X] [--mode X] [--persist-connections] [--runbook X] [--setting X] [--verbose]\n"
+  },
+  "rollback run-1 --help": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "Usage of rollback:\n  -allow-partial value\n    \ta node whose partial undo to run anyway (repeatable)\n  -allow-skew value\n    \ta node whose recorded undo to replay although its Collection's declarations differ from this build's (repeatable)\n  -allow-unchecked value\n    \ta method whose tasks may go unchecked without making the check incomplete (repeatable)\n  -allow-unknown value\n    \ta node whose unknown effect to accept, or unsealed for a journal with no seal (repeatable)\n  -despite-run value\n    \ta later run whose changes to the same devices to undo beneath (repeatable)\n  -dir string\n    \tproject directory (default \".\")\n  -fail-on-rescue\n    \tend with status 4 when a block's rescue: answered a failure, so a gate never passes through a fallback\n  -forks int\n    \thow many devices are worked on at once, 1 to 1000 (Ansible's forks, with the same default) (default 5)\n  -json\n    \tprint the run as one JSON document, with every task's output, instead of text\n  -leave value\n    \ta node whose change to leave in place rather than undo (repeatable)\n  -limit string\n    \trun on only these of the runbook's devices: names, tags or globs, comma separated, ! to exclude and \u0026 to intersect (Ansible's --limit)\n  -mode string\n    \texecute applies changes; check reports what each task would change and changes nothing (default \"execute\")\n  -persist-connections\n    \tkeep one SSH connection per device open between its tasks; =false logs in afresh for every task (default true)\n  -runbook string\n    \tthe runbook the run ran, when a task's undo is its rollback: list (found in DIR/runbooks when unset)\n  -setting value\n    \ta run setting, \u003cmethod\u003e.\u003cparameter\u003e=\u003cvalue\u003e (file.remove.check_forbidden=warn), for every task that leaves the parameter out (repeatable)\n  -v\tshorthand for --verbose\n  -verbose\n    \tprint each task's own output (stdout, exit status, diffs), not just whether it changed\n"
+  },
+  "run --help": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "usage: pleiades run \u003crunbook.yaml\u003e [--allow-unchecked X] [--dir X] [--extra-vars X] [--fail-on-rescue] [--forks X] [--json] [--limit X] [--mode X] [--persist-connections] [--setting X] [--skip-tags X] [--tags X] [--verbose]\n"
+  },
+  "run -h": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "usage: pleiades run \u003crunbook.yaml\u003e [--allow-unchecked X] [--dir X] [--extra-vars X] [--fail-on-rescue] [--forks X] [--json] [--limit X] [--mode X] [--persist-connections] [--setting X] [--skip-tags X] [--tags X] [--verbose]\n"
+  },
+  "seal --help": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "Usage of seal:\n  -out string\n    \tthe file to write, which must not exist\n  -passphrase\n    \tseal to a passphrase, typed at a prompt, instead of a key\n  -passphrase-stdin\n    \tseal to a passphrase read as one line on standard input\n  -purpose string\n    \twhat the secret is for (default \"password\")\n  -secret-stdin\n    \tread the secret as one line on standard input instead of a prompt\n  -to pleiades seal-key\n    \tthe public seal key to seal to, as pleiades seal-key prints it, or @file holding it\n"
+  },
+  "seal -h": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "Usage of seal:\n  -out string\n    \tthe file to write, which must not exist\n  -passphrase\n    \tseal to a passphrase, typed at a prompt, instead of a key\n  -passphrase-stdin\n    \tseal to a passphrase read as one line on standard input\n  -purpose string\n    \twhat the secret is for (default \"password\")\n  -secret-stdin\n    \tread the secret as one line on standard input instead of a prompt\n  -to pleiades seal-key\n    \tthe public seal key to seal to, as pleiades seal-key prints it, or @file holding it\n"
+  },
+  "seal-key --help": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "Usage of seal-key:\n  -dir string\n    \tproject directory (default \".\")\n  -json\n    \tprint one JSON document instead of text\n"
+  },
+  "seal-key -h": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "Usage of seal-key:\n  -dir string\n    \tproject directory (default \".\")\n  -json\n    \tprint one JSON document instead of text\n"
+  },
+  "set-host --help": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "Usage of set-host:\n  -dir string\n    \tproject directory (default \".\")\n  -set value\n    \tdevice property to add or replace, as key=value (repeatable)\n  -tag value\n    \ttag to add, or several separated by commas (repeatable)\n  -tags value\n    \tsame as --tag\n  -unset value\n    \tdevice property to remove (repeatable)\n  -untag value\n    \ttag to remove, or several separated by commas (repeatable)\n"
+  },
+  "set-host -h": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "Usage of set-host:\n  -dir string\n    \tproject directory (default \".\")\n  -set value\n    \tdevice property to add or replace, as key=value (repeatable)\n  -tag value\n    \ttag to add, or several separated by commas (repeatable)\n  -tags value\n    \tsame as --tag\n  -unset value\n    \tdevice property to remove (repeatable)\n  -untag value\n    \ttag to remove, or several separated by commas (repeatable)\n"
+  },
+  "trust-host --help": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "usage: pleiades trust-host \u003cdevice\u003e (--from-console \u003cvirtualbox host\u003e [--vm \u003cname\u003e] | --first-connect [--reason \u003cwhy\u003e]) [--replace]\n"
+  },
+  "trust-host -h": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "usage: pleiades trust-host \u003cdevice\u003e (--from-console \u003cvirtualbox host\u003e [--vm \u003cname\u003e] | --first-connect [--reason \u003cwhy\u003e]) [--replace]\n"
+  },
+  "validate --help": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "Usage of validate:\n  -dir string\n    \tproject directory (default \".\")\n  -e value\n    \tshorthand for --extra-vars\n  -extra-vars value\n    \ta variable the run starts with, as key=value, key:=yaml or @file.yaml (repeatable); a runbook reads it as vars.\u003cname\u003e\n  -skip-tags value\n    \tleave out the tasks carrying one of these tags, even ones --tags selects (comma-separated, repeatable)\n  -tags value\n    \trun only the tasks carrying one of these tags (comma-separated, repeatable)\n"
+  },
+  "validate -h": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "Usage of validate:\n  -dir string\n    \tproject directory (default \".\")\n  -e value\n    \tshorthand for --extra-vars\n  -extra-vars value\n    \ta variable the run starts with, as key=value, key:=yaml or @file.yaml (repeatable); a runbook reads it as vars.\u003cname\u003e\n  -skip-tags value\n    \tleave out the tasks carrying one of these tags, even ones --tags selects (comma-separated, repeatable)\n  -tags value\n    \trun only the tasks carrying one of these tags (comma-separated, repeatable)\n"
+  },
+  "validate a.yaml -h": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "Usage of validate:\n  -dir string\n    \tproject directory (default \".\")\n  -e value\n    \tshorthand for --extra-vars\n  -extra-vars value\n    \ta variable the run starts with, as key=value, key:=yaml or @file.yaml (repeatable); a runbook reads it as vars.\u003cname\u003e\n  -skip-tags value\n    \tleave out the tasks carrying one of these tags, even ones --tags selects (comma-separated, repeatable)\n  -tags value\n    \trun only the tasks carrying one of these tags (comma-separated, repeatable)\n"
+  },
+  "version --help": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "Usage of version:\n  -json\n    \tprint the version, release name and external Collection protocols as one JSON document\n"
+  },
+  "version -h": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "Usage of version:\n  -json\n    \tprint the version, release name and external Collection protocols as one JSON document\n"
+  }
+}

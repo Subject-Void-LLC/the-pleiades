@@ -23,7 +23,7 @@ func (r *entRepository) Save(ctx context.Context, item inventory.InventoryItem) 
 	// loudly rather than writing unconditionally and hoping.
 	v, ok := item.(versioned)
 	if !ok {
-		return fmt.Errorf("item %s does not report a base version, refusing to write without conflict detection", item.Name())
+		return fmt.Errorf("item %q does not report a base version, refusing to write without conflict detection", item.Name())
 	}
 
 	baseVersion := v.BaseVersion()
@@ -35,7 +35,7 @@ func (r *entRepository) Save(ctx context.Context, item inventory.InventoryItem) 
 		return nil
 	}
 	if current < baseVersion {
-		return fmt.Errorf("item %s has version %d below its loaded version %d, which should be impossible", item.Name(), current, baseVersion)
+		return fmt.Errorf("item %q has version %d below its loaded version %d, which should be impossible", item.Name(), current, baseVersion)
 	}
 
 	// Only the revisions recorded since load are new. Anything at or below
@@ -71,9 +71,9 @@ func (r *entRepository) Save(ctx context.Context, item inventory.InventoryItem) 
 				// The row is gone. Same conclusion as a version that
 				// moved: the change was computed against state that no
 				// longer exists, so the caller must reload.
-				return fmt.Errorf("saving %s at version %d: %w", item.Name(), baseVersion, ErrVersionConflict)
+				return fmt.Errorf("saving %q at version %d: %w", item.Name(), baseVersion, ErrVersionConflict)
 			}
-			return fmt.Errorf("failed to resolve internal id for %s: %w", item.Name(), err)
+			return fmt.Errorf("failed to resolve internal id for %q: %w", item.Name(), err)
 		}
 
 		// The conditional update. Matching on the loaded version is what
@@ -112,9 +112,9 @@ func (r *entRepository) Save(ctx context.Context, item inventory.InventoryItem) 
 				// not-found rather than as zero rows affected, which is
 				// the one behavioural difference from the bulk builder
 				// this call used before Phase 78c.
-				return fmt.Errorf("saving %s at version %d: %w", item.Name(), baseVersion, ErrVersionConflict)
+				return fmt.Errorf("saving %q at version %d: %w", item.Name(), baseVersion, ErrVersionConflict)
 			}
-			return fmt.Errorf("failed to update device %s: %w", item.Name(), err)
+			return fmt.Errorf("failed to update device %q: %w", item.Name(), err)
 		}
 
 		if len(pending) == 0 {
@@ -144,7 +144,7 @@ func (r *entRepository) Save(ctx context.Context, item inventory.InventoryItem) 
 				create = create.SetNewValue(&nv)
 			}
 			if _, err := create.Save(txCtx); err != nil {
-				return fmt.Errorf("failed to record revision %d for %s: %w", rev.Version, item.Name(), err)
+				return fmt.Errorf("failed to record revision %d for %q: %w", rev.Version, item.Name(), err)
 			}
 		}
 		return nil
@@ -157,7 +157,7 @@ func (r *entRepository) Save(ctx context.Context, item inventory.InventoryItem) 
 func loadRevisions(ctx context.Context, dev *ent.Device) ([]inventory.Revision, error) {
 	rows, err := dev.QueryRevisions().All(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load revisions for %s: %w", dev.Name, err)
+		return nil, fmt.Errorf("failed to load revisions for %q: %w", dev.Name, err)
 	}
 
 	revs := make([]inventory.Revision, 0, len(rows))

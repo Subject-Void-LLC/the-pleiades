@@ -36,19 +36,21 @@ type granting interface {
 // properties that do not fit the definition, and a grant the device cannot
 // hold because it lacks a compiled capability the definition requires.
 func runGrantCapability(args []string) error {
-	positional, rest := splitPositionals(args, nil)
-	if len(positional) != 2 {
-		return errors.New("usage: pleiades grant-capability <device> <capability> --reason <text> [--set key=value ...]")
-	}
-	name, capName := positional[0], capability.Name(positional[1])
 	fs := flag.NewFlagSet("grant-capability", flag.ContinueOnError)
 	dir := fs.String("dir", ".", "project directory")
 	reason := fs.String("reason", "", "why this device holds the capability, recorded with the grant (required)")
 	set := &keyValueList{}
 	fs.Var(set, "set", "grant property as key=value (repeatable)")
-	if err := fs.Parse(rest); err != nil {
+	positional, err := parseCheckedArgs(fs, args, func(p []string) error {
+		if len(p) != 2 {
+			return errors.New("usage: pleiades grant-capability <device> <capability> --reason <text> [--set key=value ...]")
+		}
+		return nil
+	})
+	if err != nil {
 		return err
 	}
+	name, capName := positional[0], capability.Name(positional[1])
 	if err := inventory.ValidateGrantReason(*reason); err != nil {
 		return fmt.Errorf("--reason: %w", err)
 	}
@@ -112,16 +114,18 @@ func runGrantCapability(args []string) error {
 // runRevokeCapability removes a device's grant of a capability, however it
 // was made.
 func runRevokeCapability(args []string) error {
-	positional, rest := splitPositionals(args, nil)
-	if len(positional) != 2 {
-		return errors.New("usage: pleiades revoke-capability <device> <capability>")
-	}
-	name, capName := positional[0], capability.Name(positional[1])
 	fs := flag.NewFlagSet("revoke-capability", flag.ContinueOnError)
 	dir := fs.String("dir", ".", "project directory")
-	if err := fs.Parse(rest); err != nil {
+	positional, err := parseCheckedArgs(fs, args, func(p []string) error {
+		if len(p) != 2 {
+			return errors.New("usage: pleiades revoke-capability <device> <capability>")
+		}
+		return nil
+	})
+	if err != nil {
 		return err
 	}
+	name, capName := positional[0], capability.Name(positional[1])
 	ctx := context.Background()
 	factory := inv.NewItemFactory()
 	repo := inv.NewFileRepository(filepath.Join(*dir, inv.DefaultInventoryFilename), factory)

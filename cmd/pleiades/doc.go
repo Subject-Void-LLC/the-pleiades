@@ -94,11 +94,10 @@ func runDoc(args []string) error {
 	dirFlag := fs.String("dir", ".", "project directory whose external Collections are read, as run --dir")
 	skillFlag := fs.Bool("create-skill", false, "create SKILL.md in the current directory, a skill an AI agent reads to learn The Pleiades: its commands, how a runbook is written, and every built-in method")
 	// Flags may follow the method or topic too: pleiades doc conditions --json.
-	positionals, rest := splitPositionals(args, map[string]bool{"list": true, "snippet": true, "json": true, "create-skill": true})
-	if err := fs.Parse(rest); err != nil {
+	positionals, err := parseArgs(fs, args)
+	if err != nil {
 		return err
 	}
-	positionals = append(positionals, fs.Args()...)
 	if len(positionals) > 1 {
 		return fmt.Errorf("%s", docUsage)
 	}

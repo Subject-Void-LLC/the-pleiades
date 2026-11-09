@@ -75,7 +75,6 @@ const setHostUsage = "usage: pleiades set-host <name> [--set key=value ...] [--u
 // revision. A property or tag named by both of its flags is refused as a
 // contradiction.
 func runSetHost(args []string) error {
-	positionals, rest := splitPositionals(args, nil)
 	fs := flag.NewFlagSet("set-host", flag.ContinueOnError)
 	dir := fs.String("dir", ".", "project directory")
 	set := &keyValueList{}
@@ -88,7 +87,8 @@ func runSetHost(args []string) error {
 	fs.Var(tag, "tags", "same as --tag")
 	untag := &tagList{flag: "untag"}
 	fs.Var(untag, "untag", "tag to remove, or several separated by commas (repeatable)")
-	if err := fs.Parse(rest); err != nil {
+	positionals, err := parseArgs(fs, args)
+	if err != nil {
 		return err
 	}
 	switch len(positionals) {

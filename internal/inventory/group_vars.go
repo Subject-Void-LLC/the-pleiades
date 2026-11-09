@@ -178,7 +178,7 @@ func foldDeviceVars(dir string, h HostSpec) (map[string]any, error) {
 	if raw, present := h.Properties[inventory.VarsProperty]; present {
 		own, ok := raw.(map[string]any)
 		if !ok {
-			return nil, fmt.Errorf("host %s: property %s must be a mapping of variable names to values, not %T", h.Name, inventory.VarsProperty, raw)
+			return nil, fmt.Errorf("host %q: property %s must be a mapping of variable names to values, not %T", h.Name, inventory.VarsProperty, raw)
 		}
 		if err := checkDeviceVars(fmt.Sprintf("host %s, properties.%s in %s", h.Name, inventory.VarsProperty, DefaultInventoryFilename), own); err != nil {
 			return nil, err
@@ -203,7 +203,7 @@ func foldDeviceVars(dir string, h HostSpec) (map[string]any, error) {
 func (r *fileRepository) withFoldedVars(h HostSpec) (map[string]any, error) {
 	folded, err := foldDeviceVars(filepath.Dir(r.hostsPath), h)
 	if err != nil {
-		return nil, fmt.Errorf("host %s: %w", h.Name, err)
+		return nil, fmt.Errorf("host %q: %w", h.Name, err)
 	}
 	if folded == nil {
 		return h.Properties, nil
@@ -264,7 +264,7 @@ func readVarsSource(base, name string) (map[string]any, error) {
 		return nil, nil
 	case 1:
 	default:
-		return nil, fmt.Errorf("%s names variables twice: keep one of %s", name, strings.Join(found, ", "))
+		return nil, fmt.Errorf("%q names variables twice: keep one of %s", name, strings.Join(found, ", "))
 	}
 	info, err := os.Stat(found[0])
 	if err != nil {

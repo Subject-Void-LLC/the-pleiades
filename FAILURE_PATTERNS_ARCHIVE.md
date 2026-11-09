@@ -15064,6 +15064,14 @@ flag is one no caller can name, so the premise still fails for it. Only the flag
 **Lesson.** Let the flag set parse before any count of positionals is checked; a splitter that guesses which tokens
 are values will guess wrong for the flag nobody defined, which is the one a user most needs named.
 
+**Resolved 2026-11-09 (fixed in the other commands on `fix/cli-flag-splitting`, `71614896`, with `18c3bf1f`).** The
+splitter is replaced by `parseArgs`, `parseOneArg` and `parseCheckedArgs` (`cmd/pleiades/args.go`), which every command
+that used the splitter now calls. Each parses the flags before any positional is counted, so an unknown flag before a positional
+is reported as `flag provided but not defined`, not as a missing positional argument. A help request is the one
+exception, and is answered as before (1062). Test, shown red on the old code: `TestEveryCommandSplitsItsOwnBoolFlags`
+(`cmd/pleiades/args_test.go`), which gives every splitting command `-vxf` before its positionals and expects the flag
+error.
+
 ## 599. net.ios.command reported a read-only show command as changed, so a second run could not prove it changed nothing (fixed before push)
 
 **Symptom.** 2026-10-23, found when the owner had an agent change a Cisco router through pleiades: the agent's proof
@@ -25187,6 +25195,35 @@ sequences on the operator's terminal when a classify or build step fails. Reason
 
 **Lesson.** Pending the fix. As 1036: escape a remote system's text where it is printed, including inside an error.
 
+**Resolved 2026-11-09 (fixed on `fix/cli-flag-splitting`, `289fbbdf` and `23d89779`; a repeat of 257, 619, 1028 and
+1036; LESSONS 266).** Shown on the old code by a test through the real command line: a Catalyst Center device renamed with
+an ANSI escape and U+202E, synced, reached stderr raw. The reach was wider than the three messages named above. Sync and
+inventory errors carried device names and IDs from a sync source unquoted through `syncplugin.Reconcile`, both
+repositories, `internal/inventory/factory.go`, `internal/inventory/create.go` and `internal/inventory/record/`. A newline
+in a name could start a forged `pleiades:` line on stderr, which an escape at the print site does not stop (1064).
+
+Two layers now. Where each error is built, the 61 verbs that carry a name or ID use `%q`, so a name prints quoted with
+every control character escaped and cannot start a line. Where it is printed, `printError` and `printHelpAnswer`
+(`cmd/pleiades/main.go`) pass the text through `termsafe.Escape`, which leaves plain text, tabs and newlines alone and
+escapes what a terminal acts on. Tests, shown red on the old code: `TestReconcile_QuotesTheUpstreamNameInEveryError`
+(`internal/inventory/syncplugin/reconcile_quoting_test.go`), which stops Reconcile at each of its eight naming steps;
+`TestRun_EscapesAnUpstreamNameInACommandsError` and `TestRun_QuotesAnUpstreamNameInAFailedSave`
+(`cmd/pleiades/cli_error_escape_test.go`), which sync crafted names through the command line, the second into a
+read-only project so the save fails, and assert no line of stderr begins with the forged text; and
+`TestPrintError_EscapesWhatATerminalActsOn` (`cmd/pleiades/print_error_test.go`), which holds the print-site layer on its
+own (1065). Changelog: `changelog/cli-error-escapes-upstream-text.security.md`.
+
+**Why 257, 619, 1028 and 1036 did not prevent it.** Each quoted remote text at the printer its symptom showed. An
+error is built far from where it is printed, and no sweep followed names through the errors that wrap them. The first
+fix on this branch repeated that once more (1063).
+
+Still open: a name holding a control character is accepted at creation (1068).
+
+**Class.** C1 (delimiter injection into a terminal; CWE-150; a forged line is CWE-117's shape on stderr)
+**Portable.** yes: any CLI whose errors name records read from a source it does not control
+**Detector.** sync a name holding ESC, U+202E and a newline followed by a fake program line, make each step that names
+it fail, and assert stderr holds none of them raw and no line begins with the fake text; see ~/vuln-corpus/README.md
+
 ## 1044. Suspected, from reading only: the UI devices view's Update saves the item Bind built with a new random id, and the ent store's Save looks its row up by id, so editing a device in the web UI against a real store probably fails (open, unverified; on main since 9de3c7fe, 2026-08-11)
 
 **Symptom.** Found on this branch, 2026-11-08, by reading; not run. `writer.Update`
@@ -25553,3 +25590,225 @@ gives no signal of a record's existence across organizations.
 
 **Lesson.** A handler that imports no store needs one sentinel of its own for "not stored", which each port wraps, or
 every missing record reads as a server fault. Test it over the whole set of views, so a view added later cannot skip it.
+
+## 1059. About 30 hand-kept lists of each command's bool flags in cmd/pleiades duplicated its FlagSet, and run's list left out --fail-on-rescue, so in run, adhoc and rollback that flag took the next argument as its value (fixed on this branch; the gap on main since c9824c1f, 2026-10-20, and the lists since 90cdb0c7, 2026-08-05; a repeat of 50; the class of LESSONS 114 and 273)
+
+**Symptom.** Found on `fix/cli-flag-splitting`, 2026-11-09. `pleiades run --fail-on-rescue runbooks/x.yaml` read
+`runbooks/x.yaml` as the value of `--fail-on-rescue` and then found no runbook. The same held for `adhoc` and
+`rollback`, which shared run's flags (`addRunFlags`) and its list.
+
+**Root cause.** The shared splitter (`splitPositional` and `splitPositionals`, `cmd/pleiades/addhost.go`) took a
+`map[string]bool` naming the flags that take no value. Each command kept its own map beside its FlagSet, about 30 of
+them, and nothing held a map equal to its FlagSet. `runBoolFlags` (`cmd/pleiades/run.go`) named `verbose`, `v`,
+`persist-connections` and `json`. `--fail-on-rescue` was added to `addRunFlags` in `c9824c1f` and never to the map. A
+check of every other map against its FlagSet found no other drift.
+
+**Earlier entries.** The splitter exists because of 4 (stdlib `flag` stops at the first positional). 50 found it
+swallowing a value after a bool flag, and its fix added the hand-kept lists. 598 found an unknown flag swallowing the
+positional, and 663 a lone `-` read as a flag. All four are the same splitter guessing what a token is.
+
+**Why 50 did not prevent it.** 50's fix was this defect's means: it kept the splitter's guess and gave each caller a
+list to correct it, a second copy of what the FlagSet already knows. LESSONS 114 and 273 say a hand-kept list beside
+the truth drifts and a guard reads the property the list stands for; nothing read the FlagSet here.
+
+**Fix.** `71614896`. `parseArgs`, `parseOneArg` and `parseCheckedArgs` (`cmd/pleiades/args.go`) take the command's
+FlagSet and ask each flag's Value for `IsBoolFlag`, as the flag package does, so `fs.Bool`, `fs.BoolVar`, `fs.BoolFunc`
+and any bool `flag.Value` count. Every hand map is removed. Tests, shown red: `TestEveryCommandSplitsItsOwnBoolFlags`
+(`cmd/pleiades/args_test.go`) drives every splitting command through its real FlagSet with each bool flag before the
+positionals (and after them since `e09aba0b`); `TestNoCommandPassesAHandKeptBoolFlagList` (`cmd/pleiades/args_guard_test.go`) fails on a call
+passing `args` beside a non-empty `map[string]bool`; and `TestEverySplittingCommandIsInTheTable` follows the package's
+call graph and fails on a function that calls the parser and that no command in the test's table reaches.
+
+**Review.** A review of the branch proposed replacing the splitter with spf13/pflag. That would change the syntax the
+CLI accepts: pflag reads `-json` as the shorthands `-j -s -o -n`. Its named edge cases, `-vxf` and `--set arg=-value`,
+were probed against a copy of the splitter and stdlib `flag`, and both already behaved correctly. The real gaps were
+1060 and 598's open half. LESSONS 50, 392 and 419 already say to check a review's remedy and claims before acting.
+
+**Lesson.** As 114 and 273: when one value already says what a list would, read that value. A splitter reads which
+flags are boolean from the FlagSet it splits for.
+
+## 1060. "--" was read as a value flag named "", so it swallowed the next argument instead of ending the flags (fixed on this branch; on main since 57138643, 2026-08-04; a repeat of 663)
+
+**Symptom.** Found on `fix/cli-flag-splitting`, 2026-11-09. `pleiades remove-host -- -web1` passed `["--", "-web1"]`
+to the FlagSet, so a command that read only the positionals never saw `-web1`. The flag package ends the flags at
+`--`; the splitter did not.
+
+**Root cause.** The splitter read any token starting with `-` as a flag, and a flag it did not know as boolean took the
+next token. `--` starts with `-`, and its name is empty.
+
+**Why 663 did not prevent it.** 663's fix made a lone `-` a positional. Its lesson listed `--` among the word shapes a
+hand-written splitter is tested against, and no test was written for it.
+
+**Fix.** `90a0473b`. `splitArgs` (`cmd/pleiades/args.go`) drops `--` and returns every token after it as a positional,
+so `fs.Parse` always consumes all of the flag tokens. The leftover-argument checks in remove-host, remove-credential,
+add-secret, validate and forge migrate-playbook, and doc's append of `fs.Args`, could no longer fire and are removed.
+Tests, shown red: the `--` cases of `TestSplitArgs_ReadsBoolFlagsFromTheFlagSet` (`cmd/pleiades/args_test.go`), and
+`TestEveryCommandSplitsItsOwnBoolFlags`, which gives each command's last positional after `--` with a leading `-`.
+
+**Lesson.** As 663: a word shape a lesson names gets its test in the same change.
+
+## 1061. import awx-credential-types read its export through fs.Arg(0) with stdlib ordering, so a flag after the export (x.json --quiet) was counted as a second argument and failed with a usage error (fixed on this branch; on main since b32b5eb0, 2026-08-14; a repeat of 4)
+
+**Symptom.** Found on `fix/cli-flag-splitting`, 2026-11-09. `pleiades import awx-credential-types export.json --quiet`
+stopped parsing at `export.json`, left `--quiet` as an argument, and failed with a usage error. Every other command
+with a positional accepts flags after it.
+
+**Root cause.** The command was written after 4's fix with plain `fs.Parse(args)` and `fs.Arg(0)`, which stop at the
+first positional.
+
+**Why 4 did not prevent it.** 4's fix was a splitter for add-host. A command written later had to choose to call it,
+and nothing found one that did not.
+
+**Fix.** `e09aba0b`. The command takes its argument through `parseArgs` and is in the test's command table
+(`splitCommands`). `TestEveryCommandSplitsItsOwnBoolFlags` now also places each bool flag after the positionals. Its
+`--help` and `-h` are pinned in the help golden (1062) and unchanged. One output changed on purpose: `--help` after the
+export now prints the flags, as `add-host web1 --help` does, where it printed the usage error.
+
+**Limit.** `TestEverySplittingCommandIsInTheTable` finds functions that call the shared parser. A new command that
+never calls it, and reads its positional through `fs.Arg`, is not found by that test.
+
+**Lesson.** As 4: run each command with a flag after its positional. A shared parser that a command must choose to
+call is held by a test over every command, not by the parser.
+
+## 1062. The first version of the parser changed --help output for every command, adding the flag package's "Usage of X:" list, against the owner's decision of 2026-10-22 that a bare --help stays as designed (fixed before push)
+
+**Symptom.** Found on `fix/cli-flag-splitting`, 2026-11-09, before push. Parsing the flags before counting the
+positionals (598's lesson) sent a bare `--help` to the flag package, so add-host, adhoc, rollback and the others
+printed its "Usage of" list of flags instead of their own usage line. A help request after the positionals printed the
+usage line too. A golden generated from origin/main's own code failed 47 lines against this version.
+
+**Root cause.** The old splitter checked the positional count before the flags parsed, and that ordering was what
+produced each command's help answer. Moving the flag parse first fixed 598 and changed help as a side effect. No test
+pinned the help text, so nothing showed it.
+
+**Earlier entries.** A search by symptom found 562 and 648, which fixed help's exit status. None covers output changed
+as a side effect of a shared change.
+
+**Fix.** `18c3bf1f`. `parseCheckedArgs` (`cmd/pleiades/args.go`) takes a command's positional check, and for a help
+request alone runs it before the flags parse, as the old splitter did. Every other flag error still comes before the
+positional count. `TestHelpOutputIsUnchanged` (`cmd/pleiades/help_golden_test.go`) runs 95 command lines (every
+command's `--help` and `-h`, nested commands, and help after positionals) through the CLI's own `run` and compares exit
+status, stdout and stderr byte for byte with `cmd/pleiades/testdata/help_golden.json`, which was written by running
+origin/main's `cmd/pleiades`.
+
+**Lesson.** Before changing code every command shares, pin each command's output from the base branch's own code, so
+each difference is one someone decided (LESSONS 425).
+
+## 1063. The first quoting of upstream names fixed only Reconcile's own messages; the inner errors it wraps (the Save path's version conflict and write errors, factory.go, create.go) still carried the name raw (fixed before push; LESSONS 244)
+
+**Symptom.** Found by fp-reviewer on `fix/cli-flag-splitting`, 2026-11-09, before push. The branch's first fix for 1043
+quoted the name in `syncplugin.Reconcile`'s own messages. Several of those wrap an inner error from the inventory
+package that names the same device with `%s`: the Save path's version conflict and write errors,
+`internal/inventory/factory.go` line 52, and `internal/inventory/create.go` lines 44 and 48. So a newline in a name
+could still forge a line of stderr when a later sync hit a save conflict.
+
+**Root cause.** The fix was applied to the messages the entry named, not to every error on the path from the name to
+the print.
+
+**Why LESSONS 244 did not prevent it.** 244 says to check the sibling path of a guarded one. Here the sibling was the
+wrapped error inside the guarded one, and the first fix did not follow the wrap.
+
+**Fix.** `23d89779`. Every error in `internal/inventory` and `internal/inventory/record` that names a device or carries
+its ID uses `%q`: the file and ent repositories' get, create, save, retire and remove errors, the read-only repository's
+refusals, the factory, group variables and discovery rules. Tests, shown red: `TestReconcile_QuotesTheUpstreamNameInEveryError`
+(`internal/inventory/syncplugin/reconcile_quoting_test.go`) stops Reconcile at each of its eight naming steps over a
+real file repository and asserts the error holds the name quoted and no newline; `TestRun_QuotesAnUpstreamNameInAFailedSave`
+(`cmd/pleiades/cli_error_escape_test.go`) syncs a crafted name into a read-only project so the file repository's save
+fails, and asserts no line of stderr begins with the forged text.
+
+**Lesson.** As 244: when an error is made safe, follow every error it wraps to where that one is built.
+
+## 1064. The first escape of CLI errors used termsafe.Escape at the print site only, which keeps newlines, so a device name holding a newline could still start a forged "pleiades:" line on stderr (fixed before push; the class of 1036)
+
+**Symptom.** Found on `fix/cli-flag-splitting`, 2026-11-09, before push. `289fbbdf` printed every command error
+through `termsafe.Escape`. That escapes ANSI sequences and direction overrides, and by design keeps tab and newline so
+an error of several lines still reads as lines. A sync source naming a device `sw2` followed by a newline and
+`pleiades: approved` still produced a stderr line that read like the CLI's own.
+
+**Root cause.** The print site cannot tell a newline the program wrote from one a remote system wrote. `EscapeLine`,
+which escapes newlines too, would break every multi-line error. Only the place that builds the error knows which part
+is a remote name.
+
+**Why 1036 did not prevent it.** 1036 printed a name with `strconv.Quote` and a reason with `EscapeLine`, each at the
+place it was printed, where the printer knew what each value was. An error's text reaches `main` as one string, and the
+first fix escaped it there with the function that keeps lines.
+
+**Fix.** `23d89779`, with 1063's: each name or ID is quoted with `%q` where the error is built, and `printError`'s
+escape stays as the second layer. `TestRun_EscapesAnUpstreamNameInACommandsError` and
+`TestRun_QuotesAnUpstreamNameInAFailedSave` (`cmd/pleiades/cli_error_escape_test.go`) sync a name holding a newline and
+a fake `pleiades:` line through the command line and assert no line of stderr begins with it.
+
+**Lesson.** As 266, with one addition: escape a remote value where its boundaries are known. A print site that sees one
+joined string can stop terminal sequences but cannot stop a forged line.
+
+## 1065. printError's escape was untested: with names quoted at the source, removing it changed nothing in any test (fixed before push; a repeat of 1016 and 1039; LESSONS 135)
+
+**Symptom.** Found on `fix/cli-flag-splitting`, 2026-11-09, before push. Once 1063 and 1064 quoted every name where the
+error is built, the CLI tests that synced a crafted name passed with `printError`'s `termsafe.Escape` removed. The
+second layer had no test of its own.
+
+**Root cause.** LESSONS 135's class: two guards in a row, so the later one hides whether the earlier one works, and
+here the earlier one hid the later.
+
+**Why 1016, 1039 and LESSONS 135 did not prevent it.** 1039's rule, make one guard fail loudly to pin the other, is
+applied by hand, and it was applied here only when the mutation was tried.
+
+**Fix.** `18c3bf1f`. `TestPrintError_EscapesWhatATerminalActsOn` (`cmd/pleiades/print_error_test.go`) calls
+`printError` and `printHelpAnswer` directly with an error holding a raw ANSI escape and a raw U+202E, and asserts both
+reach stderr escaped.
+
+**Lesson.** As 135: a guard kept as a second layer gets a test that reaches it with the first layer absent.
+
+## 1066. Three comments claimed more than the code (a test comment named the wrong test, a count said 99 where the golden held 93, and args.go said the bool test "cannot disagree" with the flags), and the table guard special-cased reviewFlags by name (fixed before push; a repeat of 571 and 1029)
+
+**Symptom.** Found in review on `fix/cli-flag-splitting`, 2026-11-09, before push. A test comment named a test other
+than the one it described. A comment counted 99 command lines where the golden held 93. The `cmd/pleiades/args.go`
+package comment said the bool test read from the FlagSet "cannot disagree" with the command's flags, but an undefined
+`-h` is read as taking a value, so `add-host -h web1` takes `web1` as its value. `TestEverySplittingCommandIsInTheTable`
+also accepted `reviewFlags` through a line naming that one helper and its three callers.
+
+**Root cause.** Each sentence was written from intent, not reread against the code. The guard's special case was
+written against the one helper that failed it (LESSONS 114).
+
+**Why 571 and 1029 did not prevent it.** Their rule, reread each sentence a branch adds against the code before review,
+is applied by hand, and it was applied here in review rather than before it.
+
+**Fix.** `18c3bf1f`. The comments were corrected. The package comment now says how `-h` and `-help` differ from the
+flag package and why help output is unchanged anyway. The guard follows the package's call graph, so any helper a
+command in the table reaches is covered, with no name written in.
+
+**Lesson.** As 571 and 1029, and as LESSONS 114 for the guard: state a guard's rule as a predicate, not a list of the
+cases that failed it.
+
+## 1067. A writer's wait loop, while pgrep -f 'monitor.py run'; do sleep N; done, never ended, because pgrep -f matched the loop's own bash -c command line; it ran 33 minutes after the gate ended (open, as 689 is: no guard catches a self-matching pgrep -f; a repeat of 153 and 689)
+
+**Symptom.** 2026-11-09, on `fix/cli-flag-splitting`. A writing agent told to pause while a gate ran waited with
+`while pgrep -f 'monitor.py run'; do sleep N; done`. The loop kept running 33 minutes after the gate had ended. A
+tooling mistake, not a product defect.
+
+**Root cause.** `pgrep -f` matches whole command lines, and the shell running the loop held the pattern in its own. The
+brief that told writers to pause while `pgrep -f 'monitor.py run'` finds a gate handed them the pattern in that form.
+
+**Why 153 and 689 did not prevent it.** 153 found this exact loop, and its fix was a lesson only. 689 found the same
+match killing an agent's shell, and is still open because the guard hook refuses `pkill -f` and `killall` and not
+`pgrep -f`. The brief was written without either, and passed the hazard to every agent that followed it.
+
+**Fix.** The bracket form, `pgrep -f '[m]onitor.py run'`, which matches the real process and not a command line that
+holds the bracketed text. No guard enforces it.
+
+**Lesson.** As 153: a wait loop whose predicate can match the loop never ends. A brief that hands another agent a
+command hands it that command's hazards, so write the safe form there.
+
+## 1068. recordname.Check accepts a device name holding a control character such as a newline, so quoting each error is the only layer between a crafted name and a forged line (open: task 18)
+
+**Symptom.** Found on `fix/cli-flag-splitting`, 2026-11-09, while fixing 1043. `recordname.Check`
+(`internal/recordname/recordname.go`) refuses only `""`, `.` and `..`. A device name holding a newline, an escape or a
+direction override is stored, from a sync source or any other create path, and every error and printer that names it
+must quote it (1043, 1063, 1064).
+
+**Root cause.** The name rule was written for addressability in a URL (1011), not for what a name may hold.
+
+**Status.** Open, task 18: refuse such a name at creation, so the quoting on this branch becomes the second layer. When
+device creation first accepted one has not been traced; `recordname.Check` is on main since `c900b43b`, 2026-11-08.
+
+**Lesson.** Pending the fix.

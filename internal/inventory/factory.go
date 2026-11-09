@@ -49,7 +49,7 @@ func NewItemFactoryWithConstructors(entries map[string]record.Constructor) *Item
 // or a YAML file.
 func (f *ItemFactory) Build(rec record.Record) (inventory.InventoryItem, error) {
 	if rec.Type == "" {
-		return nil, fmt.Errorf("record has no device type: %s", rec.Name)
+		return nil, fmt.Errorf("record has no device type: %q", rec.Name)
 	}
 
 	constructor, exists := f.registry[rec.Type]

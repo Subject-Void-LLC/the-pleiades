@@ -187,7 +187,7 @@ func fromRevisions(revs []inventory.Revision) []sidecarRevision {
 func refuseReservedProperties(h HostSpec) error {
 	for key := range h.Properties {
 		if inventory.IsReservedProperty(key) {
-			return fmt.Errorf("host %s: property %s is written only by %s, never in %s", h.Name, key, inventory.ReservedPropertyWriter(key), DefaultInventoryFilename)
+			return fmt.Errorf("host %q: property %s is written only by %s, never in %s", h.Name, key, inventory.ReservedPropertyWriter(key), DefaultInventoryFilename)
 		}
 	}
 	return nil

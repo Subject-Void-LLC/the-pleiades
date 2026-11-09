@@ -80,15 +80,12 @@ func collectionsDir() (string, error) {
 // build that installs the program later, or a rolling upgrade that
 // approves the next build before it arrives.
 func runCollectionApprove(args []string) error {
-	program, rest, err := splitPositional(args, map[string]bool{"yes": true})
-	if err != nil {
-		return fmt.Errorf("usage: pleiades collection approve <program> [--digest sha256:<hex>] [--yes]: %w", err)
-	}
 	fs := flag.NewFlagSet("collection approve", flag.ContinueOnError)
 	digest := fs.String("digest", "", "approve this build (sha256:<hex>) without inspecting the program")
 	yes := fs.Bool("yes", false, "approve without asking")
-	if err := fs.Parse(rest); err != nil {
-		return err
+	program, err := parseOneArg(fs, args)
+	if err != nil {
+		return fmt.Errorf("usage: pleiades collection approve <program> [--digest sha256:<hex>] [--yes]: %w", err)
 	}
 	dir, err := collectionsDir()
 	if err != nil {
@@ -196,14 +193,11 @@ func approver() string {
 // runCollectionRevoke withdraws a program's approvals: every build, or
 // the one --digest names.
 func runCollectionRevoke(args []string) error {
-	program, rest, err := splitPositional(args, nil)
-	if err != nil {
-		return fmt.Errorf("usage: pleiades collection revoke <program> [--digest sha256:<hex>]: %w", err)
-	}
 	fs := flag.NewFlagSet("collection revoke", flag.ContinueOnError)
 	digest := fs.String("digest", "", "withdraw only this build's approval")
-	if err := fs.Parse(rest); err != nil {
-		return err
+	program, err := parseOneArg(fs, args)
+	if err != nil {
+		return fmt.Errorf("usage: pleiades collection revoke <program> [--digest sha256:<hex>]: %w", err)
 	}
 	dir, err := collectionsDir()
 	if err != nil {

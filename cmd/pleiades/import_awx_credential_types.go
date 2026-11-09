@@ -86,14 +86,17 @@ func runImportAWXCredentialTypes(args []string) error {
 	fs := flag.NewFlagSet("import awx-credential-types", flag.ContinueOnError)
 	out := fs.String("out", "", "directory to write each importable type into as JSON, ready to POST to /credential-types")
 	quiet := fs.Bool("quiet", false, "report only the types this platform would not import")
-	if err := fs.Parse(args); err != nil {
+	// The export may come before or after the flags.
+	positionals, err := parseArgs(fs, args)
+	if err != nil {
 		return err
 	}
-	if fs.NArg() != 1 {
+	if len(positionals) != 1 {
 		return errors.New("usage: pleiades import awx-credential-types [--out <dir>] [--quiet] <export.json>")
 	}
+	exportPath := positionals[0]
 
-	raw, err := os.ReadFile(fs.Arg(0))
+	raw, err := os.ReadFile(exportPath) // #nosec G304 G703 -- the export file the invoking user names on their own command line, read by their own process
 	if err != nil {
 		return fmt.Errorf("reading the export: %w", err)
 	}
@@ -103,7 +106,7 @@ func runImportAWXCredentialTypes(args []string) error {
 		return err
 	}
 	if len(entries) == 0 {
-		return fmt.Errorf("%s holds no credential types", fs.Arg(0))
+		return fmt.Errorf("%s holds no credential types", exportPath)
 	}
 
 	results := classify(entries)

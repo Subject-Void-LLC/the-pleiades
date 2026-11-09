@@ -4,7 +4,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -34,21 +33,15 @@ type removedHost struct {
 // flags its stored credential and the known_hosts lines trusting its SSH
 // address. The journal keeps every run that touched it.
 func runRemoveHost(args []string) error {
-	name, rest, err := splitPositional(args, map[string]bool{"credential": true, "forget-host-keys": true, "leave-references": true, "json": true})
-	if err != nil {
-		return fmt.Errorf("%s: %w", removeHostUsage, err)
-	}
 	fs := flag.NewFlagSet("remove-host", flag.ContinueOnError)
 	dir := fs.String("dir", ".", "project directory")
 	withCredential := fs.Bool("credential", false, "also remove the host's stored credential")
 	forgetKeys := fs.Bool("forget-host-keys", false, "also remove the known_hosts lines trusting the host's SSH address, unless another device is reached there")
 	leaveRefs := fs.Bool("leave-references", false, "remove the host even when another host names it in a property")
 	asJSON := fs.Bool("json", false, "print one JSON document instead of text")
-	if err := fs.Parse(rest); err != nil {
-		return err
-	}
-	if fs.NArg() > 0 {
-		return errors.New(removeHostUsage)
+	name, err := parseOneArg(fs, args)
+	if err != nil {
+		return fmt.Errorf("%s: %w", removeHostUsage, err)
 	}
 
 	hostsPath := filepath.Join(*dir, inv.DefaultInventoryFilename)
@@ -124,17 +117,11 @@ func runRemoveHost(args []string) error {
 // runRemoveCredential removes one device's stored credential, leaving the
 // device itself in the inventory.
 func runRemoveCredential(args []string) error {
-	name, rest, err := splitPositional(args, nil)
-	if err != nil {
-		return fmt.Errorf("usage: pleiades remove-credential <device> [--dir DIR]: %w", err)
-	}
 	fs := flag.NewFlagSet("remove-credential", flag.ContinueOnError)
 	dir := fs.String("dir", ".", "project directory")
-	if err := fs.Parse(rest); err != nil {
-		return err
-	}
-	if fs.NArg() > 0 {
-		return errors.New("usage: pleiades remove-credential <device> [--dir DIR]")
+	name, err := parseOneArg(fs, args)
+	if err != nil {
+		return fmt.Errorf("usage: pleiades remove-credential <device> [--dir DIR]: %w", err)
 	}
 	removed, err := credential.RemoveFileStore(*dir, name)
 	if err != nil {

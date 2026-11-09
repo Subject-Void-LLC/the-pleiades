@@ -86,15 +86,12 @@ func runAIPromptKeygen(args []string) error {
 // table) after showing it to the person signing and asking them to
 // confirm, and writes its detached signature beside it as <file>.sig.
 func runAIPromptSign(args []string) error {
-	file, rest, err := splitPositional(args, nil)
-	if err != nil {
-		return fmt.Errorf("usage: pleiades ai prompt sign <bundle.json> --key <file> [--dir .]: %w", err)
-	}
 	fs := flag.NewFlagSet("ai prompt sign", flag.ContinueOnError)
 	keyFile := fs.String("key", "", "the private key file, as keygen writes it")
 	dir := fs.String("dir", ".", "project directory")
-	if err := fs.Parse(rest); err != nil {
-		return err
+	file, err := parseOneArg(fs, args)
+	if err != nil {
+		return fmt.Errorf("usage: pleiades ai prompt sign <bundle.json> --key <file> [--dir .]: %w", err)
 	}
 	if *keyFile == "" {
 		return errors.New("--key is required: the private key file to sign with")

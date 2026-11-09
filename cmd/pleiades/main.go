@@ -16,6 +16,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/clispec"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/redact"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/termsafe"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/containerengine"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/kubeapi"
 )
@@ -90,7 +91,7 @@ func run(args []string) int {
 	containerengine.AllowLocalCarrier()
 	args, err := applyGlobalOptions(args)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "pleiades: %v\n", err)
+		printError(err)
 		return 2
 	}
 	if len(args) == 0 {
@@ -116,9 +117,7 @@ func run(args []string) int {
 		// the flag package printed its flags, or the usage line is the
 		// error's text, and asking is not a failure.
 		if asksHelp(args[1:]) && (errors.Is(err, flag.ErrHelp) || errors.Is(err, errMissingPositional) || strings.HasPrefix(err.Error(), "usage: ")) {
-			if !errors.Is(err, flag.ErrHelp) {
-				fmt.Fprintln(os.Stderr, strings.TrimSuffix(err.Error(), ": "+errMissingPositional.Error()))
-			}
+			printHelpAnswer(err)
 			return 0
 		}
 		// A nested dispatcher (e.g. forge.go) has already printed its own
@@ -128,7 +127,7 @@ func run(args []string) int {
 		if errors.Is(err, errUnknownCommand) {
 			return 2
 		}
-		fmt.Fprintf(os.Stderr, "pleiades: %v\n", err)
+		printError(err)
 		var coded exitCoder
 		if errors.As(err, &coded) {
 			return coded.ExitCode()
@@ -150,6 +149,27 @@ func asksHelp(args []string) bool {
 		}
 	}
 	return false
+}
+
+// printError writes a command's error to stderr. An error can carry text
+// another system wrote (a device name a sync source sent, a remote
+// command's message), so every character a terminal would act on is
+// escaped visibly; plain text, tabs and newlines print as they are, so an
+// error of several lines still reads as lines.
+func printError(err error) {
+	fmt.Fprintf(os.Stderr, "pleiades: %s\n", termsafe.Escape(err.Error()))
+}
+
+// printHelpAnswer writes the usage line a command answered a help request
+// with, which is its error's text without the missing positional it ends
+// with. The flag package's own help request prints nothing more, since
+// that package has printed the flags already. The text is escaped as
+// printError escapes an error.
+func printHelpAnswer(err error) {
+	if errors.Is(err, flag.ErrHelp) {
+		return
+	}
+	fmt.Fprintln(os.Stderr, termsafe.Escape(strings.TrimSuffix(err.Error(), ": "+errMissingPositional.Error())))
 }
 
 // exitCoder is an error that carries the status the command ends with,

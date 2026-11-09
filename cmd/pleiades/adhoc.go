@@ -30,6 +30,15 @@ const adhocRunbookID = "adhoc"
 // underscores every method's parameters use.
 var paramKey = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
+// withNoHosts is positionals with the no-hosts word put first when they
+// name a method that needs no device first, with no hosts before it.
+func withNoHosts(positionals []string) []string {
+	if len(positionals) >= 1 && needsNoDevice(positionals[0]) && (len(positionals) == 1 || strings.Contains(positionals[1], "=")) {
+		return append([]string{noHosts}, positionals...)
+	}
+	return positionals
+}
+
 // runAdhoc runs one method against hosts, a device name or an inventory
 // tag exactly as a runbook's hosts: takes one, with the parameters given
 // after it.
@@ -43,17 +52,16 @@ func runAdhoc(args []string) error {
 	flags := addRunFlags(fs)
 	var timeout secondsFlag
 	fs.Var(&timeout, "timeout", "how long the call may run on each device before it is stopped and fails, as a task's timeout key: whole seconds (40) or a duration (40s, 5m), up to 86400 seconds (0: no bound)")
-	positionals, rest := splitPositionals(args, runBoolFlags)
-	// A method that needs no device may be named first, with no hosts.
-	if len(positionals) >= 1 && needsNoDevice(positionals[0]) && (len(positionals) == 1 || strings.Contains(positionals[1], "=")) {
-		positionals = append([]string{noHosts}, positionals...)
-	}
-	if len(positionals) < 2 {
-		return fmt.Errorf("%s: %w", usageLine(adhocCommand, fs), errMissingPositional)
-	}
-	if err := fs.Parse(rest); err != nil {
+	positionals, err := parseCheckedArgs(fs, args, func(p []string) error {
+		if len(withNoHosts(p)) < 2 {
+			return fmt.Errorf("%s: %w", usageLine(adhocCommand, fs), errMissingPositional)
+		}
+		return nil
+	})
+	if err != nil {
 		return err
 	}
+	positionals = withNoHosts(positionals)
 	opts, err := flags.options()
 	if err != nil {
 		return err

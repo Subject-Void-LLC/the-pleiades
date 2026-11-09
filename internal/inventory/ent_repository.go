@@ -127,9 +127,9 @@ func (r *entRepository) GetByName(ctx context.Context, name string) (inventory.I
 		// branching on ErrItemNotFound would silently change behavior
 		// depending on which tier it ran at.
 		if ent.IsNotFound(err) {
-			return nil, fmt.Errorf("device %s: %w", name, ErrItemNotFound)
+			return nil, fmt.Errorf("device %q: %w", name, ErrItemNotFound)
 		}
-		return nil, fmt.Errorf("failed to load device %s: %w", name, err)
+		return nil, fmt.Errorf("failed to load device %q: %w", name, err)
 	}
 
 	rec, err := toRecord(dev)
@@ -146,7 +146,7 @@ func (r *entRepository) GetByName(ctx context.Context, name string) (inventory.I
 
 	item, err := r.factory.Build(rec)
 	if err != nil {
-		return nil, fmt.Errorf("factory failed to build item %s: %w", name, err)
+		return nil, fmt.Errorf("factory failed to build item %q: %w", name, err)
 	}
 	return item, nil
 }
@@ -162,7 +162,7 @@ func toRecord(dev *ent.Device) (record.Record, error) {
 	// quarantined or archived device accept work.
 	state, err := inventory.ParseLifecycleState(dev.State)
 	if err != nil {
-		return record.Record{}, fmt.Errorf("device %s: %w", dev.Name, err)
+		return record.Record{}, fmt.Errorf("device %q: %w", dev.Name, err)
 	}
 
 	source := inventory.SourceAuthority{Plugin: dev.Source}
@@ -238,11 +238,11 @@ type entIterator struct {
 func (i *entIterator) build(dev *ent.Device) (inventory.InventoryItem, error) {
 	rec, err := toRecord(dev)
 	if err != nil {
-		return nil, fmt.Errorf("failed to convert device %s: %w", dev.Name, err)
+		return nil, fmt.Errorf("failed to convert device %q: %w", dev.Name, err)
 	}
 	item, err := i.factory.Build(rec)
 	if err != nil {
-		return nil, fmt.Errorf("factory failed to build item %s: %w", dev.Name, err)
+		return nil, fmt.Errorf("factory failed to build item %q: %w", dev.Name, err)
 	}
 	return item, nil
 }

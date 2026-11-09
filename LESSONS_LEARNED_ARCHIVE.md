@@ -7799,3 +7799,23 @@ read returns a copy, a save stores under the same version check and returns the 
 update or a delete of a missing record returns the store's own not-found error. A fake whose write method is `return
 nil` is a defect. Where the real store can run in the test (ent on SQLite, the file store), run the test against it, as
 `TestEditingADeviceUpdatesTheStoredRecord` and `TestEditingADeviceUpdatesTheFileStore` do.
+
+## 425. Before changing code that every command shares, pin each command's output from the base branch's own code and compare it byte for byte, so each difference the change makes is one someone decided rather than a side effect (FAILURE_PATTERNS 1062) (2026-11-09)
+
+**Why.** Branch `fix/cli-flag-splitting`, 2026-11-09. Replacing the CLI's shared argument splitter so that a flag error
+comes before a positional count (FAILURE_PATTERNS 598) also sent a bare `--help` to the flag package. Every command's
+help answer gained the flag package's "Usage of X:" list, against the owner's decision of 2026-10-22 that a bare
+`--help` stays as designed. Every existing test passed. Help text had no test, because no one had meant to change it.
+A golden written by running origin/main's `cmd/pleiades` over every command's `--help` and `-h` failed 47 lines
+against the first version (FAILURE_PATTERNS 1062).
+
+**What is old and what is new.** LESSONS 95 and 213 say a test is trusted only once it has been seen to fail. They are
+about a test of the thing being changed. This is about the outputs a change is not meant to touch: when code is shared
+by every command, its old behavior is part of each command's contract, and nothing pins it until someone writes it
+down. Generated from the base branch's code, the golden records what was, not what the author thinks was.
+
+**Rule in practice.** When a change touches a parser, printer or helper that many commands share, first write a test
+that runs each command's affected outputs (help, usage errors, exit status) through the real entry point and compares
+them byte for byte with a golden file, and generate that file from the base branch's own code before changing
+anything. Keep the update flag (`-update-help-golden` in `cmd/pleiades/help_golden_test.go`) for a change someone has
+decided on, and name each such difference in the commit, as `e09aba0b` names the one help change it made.

@@ -27,10 +27,6 @@ const addSecretUsage = "usage: pleiades add-secret <name> --field <field> (--val
 // --replace, since every device configured with the old value would then
 // disagree with the runbook.
 func runAddSecret(args []string) error {
-	name, rest, err := splitPositional(args, map[string]bool{"value-stdin": true, "passphrase": true, "passphrase-stdin": true, "replace": true})
-	if err != nil {
-		return fmt.Errorf("%s: %w", addSecretUsage, err)
-	}
 	fs := flag.NewFlagSet("add-secret", flag.ContinueOnError)
 	dir := fs.String("dir", ".", "project directory")
 	field := fs.String("field", "", "the field of the secret to store")
@@ -40,11 +36,9 @@ func runAddSecret(args []string) error {
 	stdinPassphrase := fs.Bool("passphrase-stdin", false, "read the passphrase of a passphrase-sealed --value-file as one line on standard input")
 	generate := fs.Int("generate", 0, "generate a random value of this many letters and digits instead of reading one")
 	replace := fs.Bool("replace", false, "replace a value already stored for the field")
-	if err := fs.Parse(rest); err != nil {
-		return err
-	}
-	if fs.NArg() > 0 {
-		return errors.New(addSecretUsage)
+	name, err := parseOneArg(fs, args)
+	if err != nil {
+		return fmt.Errorf("%s: %w", addSecretUsage, err)
 	}
 	if !credential.ValidSecretName(name) {
 		return fmt.Errorf("secret name %q must be a lowercase identifier (a letter, then letters, digits or _), since a runbook names it as {{ secret.<name>.<field> }}", name)
@@ -154,15 +148,15 @@ func runListSecrets(args []string) error {
 
 // runRemoveSecret removes one field of a named secret, or the whole secret.
 func runRemoveSecret(args []string) error {
-	name, rest, err := splitPositional(args, nil)
-	if err != nil || name == "" {
-		return errors.New("usage: pleiades remove-secret <name> [--field <field>] [--dir DIR]")
-	}
 	fs := flag.NewFlagSet("remove-secret", flag.ContinueOnError)
 	dir := fs.String("dir", ".", "project directory")
 	field := fs.String("field", "", "remove only this field; the whole secret when empty")
-	if err := fs.Parse(rest); err != nil {
+	name, err := parseOneArg(fs, args)
+	if err != nil && !isPositionalCountErr(err) {
 		return err
+	}
+	if err != nil || name == "" {
+		return errors.New("usage: pleiades remove-secret <name> [--field <field>] [--dir DIR]")
 	}
 	removed, err := credential.RemoveSecret(*dir, name, *field)
 	if err != nil {

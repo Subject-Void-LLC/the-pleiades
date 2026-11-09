@@ -28,16 +28,13 @@ import (
 // non-zero when the probe failed, after printing the result, which then
 // carries the reason.
 func runOnboard(args []string) error {
-	name, rest, err := splitPositional(args, map[string]bool{"json": true})
-	if err != nil {
-		return fmt.Errorf("usage: pleiades onboard <name> [--json] [--timeout 30s]: %w", err)
-	}
 	fs := flag.NewFlagSet("onboard", flag.ContinueOnError)
 	dir := fs.String("dir", ".", "project directory")
 	asJSON := fs.Bool("json", false, "print the result as JSON")
 	timeout := fs.Duration("timeout", 30*time.Second, "how long the probe may take")
-	if err := fs.Parse(rest); err != nil {
-		return err
+	name, err := parseOneArg(fs, args)
+	if err != nil {
+		return fmt.Errorf("usage: pleiades onboard <name> [--json] [--timeout 30s]: %w", err)
 	}
 	if *timeout <= 0 {
 		return errors.New("--timeout must be positive")

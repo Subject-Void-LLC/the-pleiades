@@ -44,7 +44,13 @@ type importResult struct {
 // is taken (kubeapi.Import refuses each by name), and the kubeconfig is read
 // from the path given, never from KUBECONFIG or a home directory.
 func runImportKubeconfig(args []string) error {
-	name, rest, err := splitPositional(args, map[string]bool{"replace": true, "json": true})
+	fs := flag.NewFlagSet("import-kubeconfig", flag.ContinueOnError)
+	dir := fs.String("dir", ".", "project directory")
+	path := fs.String("kubeconfig", "", "the kubeconfig to read, or - for standard input; never a default location")
+	contextName := fs.String("context", "", "the context to import; the kubeconfig's current context when empty")
+	replace := fs.Bool("replace", false, "replace the connection settings and credential of a cluster already in the inventory")
+	asJSON := fs.Bool("json", false, "print the result as one JSON document")
+	name, err := parseOneArg(fs, args)
 	if err != nil {
 		return fmt.Errorf("usage: pleiades import-kubeconfig <device> --kubeconfig <path|-> [--context <name>] [--replace] [--json]: %w", err)
 	}
@@ -52,15 +58,6 @@ func runImportKubeconfig(args []string) error {
 	// device's name becomes its address once it reaches a Controller.
 	if err := recordname.Check(name); err != nil {
 		return fmt.Errorf("cluster not imported: %w", err)
-	}
-	fs := flag.NewFlagSet("import-kubeconfig", flag.ContinueOnError)
-	dir := fs.String("dir", ".", "project directory")
-	path := fs.String("kubeconfig", "", "the kubeconfig to read, or - for standard input; never a default location")
-	contextName := fs.String("context", "", "the context to import; the kubeconfig's current context when empty")
-	replace := fs.Bool("replace", false, "replace the connection settings and credential of a cluster already in the inventory")
-	asJSON := fs.Bool("json", false, "print the result as one JSON document")
-	if err := fs.Parse(rest); err != nil {
-		return err
 	}
 	if *path == "" {
 		return fmt.Errorf("--kubeconfig is required: the import reads the file it is given, never KUBECONFIG or ~/.kube/config")

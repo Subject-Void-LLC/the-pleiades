@@ -41,11 +41,11 @@ type typed interface {
 func itemDeviceType(item inventory.InventoryItem) (string, error) {
 	t, ok := item.(typed)
 	if !ok {
-		return "", fmt.Errorf("item %s does not report a device type, refusing to create a row nothing can hydrate", item.Name())
+		return "", fmt.Errorf("item %q does not report a device type, refusing to create a row nothing can hydrate", item.Name())
 	}
 	deviceType := t.DeviceType()
 	if deviceType == "" {
-		return "", fmt.Errorf("item %s has an empty device type, refusing to create a row nothing can hydrate", item.Name())
+		return "", fmt.Errorf("item %q has an empty device type, refusing to create a row nothing can hydrate", item.Name())
 	}
 	return deviceType, nil
 }
