@@ -24,7 +24,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -122,9 +121,12 @@ func (s *GitSyncer) Sync(ctx context.Context, p Project, progress io.Writer) (Re
 	// that is how every other refusal a sync makes is reported and it is what
 	// puts the reason on the project's page.
 	if err := s.policy.AdmitsSource(p.SCMURL); err != nil {
+		// AdmitsSource's refusals are fixed phrases naming at most the
+		// protocol (ClassifySource never quotes the URL), so its own text is
+		// recorded rather than scrubbed into the withheld phrase.
 		return Result{
 			Status: SyncFailed,
-			Err:    scrubURL(err.Error(), p.SCMURL),
+			Err:    err.Error(),
 			At:     time.Now().UTC(),
 		}, nil
 	}
@@ -332,7 +334,7 @@ func (s *GitSyncer) resolveAuth(ctx context.Context, p Project) (Auth, error) {
 	if s.auth == nil || p.CredentialID == 0 {
 		return Auth{}, nil
 	}
-	return s.auth.ResolveAuth(ctx, p.CredentialID)
+	return s.auth.ResolveAuth(ctx, p)
 }
 
 // authMethod maps an Auth onto go-git's transport auth, nil for a public
@@ -414,27 +416,25 @@ func isPlaybook(name string) bool {
 	return strings.HasSuffix(lower, ".yml") || strings.HasSuffix(lower, ".yaml")
 }
 
-// scrubURL removes credential material from a message before it is stored
-// or shown.
-//
-// Two things leak. A URL carrying userinfo ("https://user:token@host/repo")
-// is echoed verbatim by transport errors, and go-git's own auth failures
-// sometimes quote the URL they tried. Both are repaired by replacing every
-// occurrence of the configured URL with its userinfo-stripped form, and by
-// refusing to emit anything at all if the stripping itself fails.
-func scrubURL(msg, raw string) string {
-	if raw == "" {
-		return msg
-	}
-	clean := raw
-	if parsed, err := url.Parse(raw); err == nil && parsed.User != nil {
-		parsed.User = nil
-		clean = parsed.String()
-		msg = strings.ReplaceAll(msg, raw, clean)
-	}
+// withheldSyncError is the sync error recorded in place of a transport's own
+// when the project's URL may carry a credential.
+const withheldSyncError = "the sync failed, and its error is withheld because it can quote the project's URL, " +
+	"which may carry a credential; give the credential to this project instead and remove it from the URL"
 
-	// Belt and braces: any remaining "scheme://something:something@" in the
-	// message is userinfo this function did not have the configured URL
-	// for, and it is never safe to keep.
+// scrubURL makes a transport's message about raw safe to store or show.
+//
+// A transport error quotes the URL it dialed (net/http's "Get \"<url>\": ..."),
+// and go-git's auth failures sometimes quote the URL they tried, in whatever
+// form each library re-serialized it. A scrub of that text would have to know
+// every shape a password takes inside every one of those forms, and the shape
+// list it used to rely on missed a password holding a "/". So when raw may
+// carry a credential (HasEmbeddedSecret, an allowlist) the message is
+// withheld whole. Otherwise raw holds no userinfo and no secret-named query
+// parameter, and only userinfo the message quotes from somewhere else (a
+// redirect, say) is stripped, belt and braces.
+func scrubURL(msg, raw string) string {
+	if HasEmbeddedSecret(raw) {
+		return withheldSyncError
+	}
 	return userinfoPattern.ReplaceAllString(msg, "$1://")
 }

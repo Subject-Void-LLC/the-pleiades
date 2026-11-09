@@ -1598,21 +1598,55 @@ refused, each with its own opt-in on the **Controller**, unset meaning refuse:
 - `PLEIADES_PROJECT_ALLOW_LOCAL_SOURCE` admits `file://` URLs and bare paths, which
   is a repository on the Controller's own disk. Note that a URL with no scheme at
   all is a local path, so this also covers `/srv/repos/x` and `../x`.
-- A credential in the URL is refused outright, with no toggle: a password on any
-  URL (`https://user:token@host/repo`), and over http or https a user name alone
-  (`https://<token>@host/repo`), since a forge accepts a token in the user position
-  too. An ssh URL's user (`git@host:org/repo`) is ordinary and allowed. `scm_url` is
-  an ordinary column while a credential is encrypted, so the two are not equivalent
-  places to put a secret. An existing project that already carries one keeps
-  syncing, with a warning in every sync's log; the API and the web UI show its URL
-  with the credential replaced by `redacted`, and it is refused the next time
+- A URL that may carry a credential is refused outright, with no toggle. The rule
+  names what is allowed rather than listing what is not, because every list of
+  credential shapes missed one: a URL with no `@` (written, percent-encoded as
+  `%40`, or a Unicode lookalike), no query and no fragment is accepted, and so is
+  exactly one form of ssh login, `ssh://git@host/org/repo`
+  (also `git+ssh://` or `ssh+git://`) or `git@host:org/repo`, whose user picks the
+  account and holds no password. Any other URL with an `@` in it is refused, which
+  covers a password (`https://user:token@host/repo`), a token in the user position
+  (`https://<token>@host/repo`), a password holding a `/`, and forms no parser reads
+  the same way twice, at the cost of refusing an `@` in a path (rare for a
+  repository URL). So is any query or fragment, whatever it is called
+  (`?access_token=`, an Azure SAS `?sig=`, an S3 `?X-Amz-Signature=`, `#token=`):
+  a repository source needs neither, and a presigned archive URL is itself a
+  credential. Two limits: a token in the path (`https://host/token/abc`) cannot be
+  told from a path and is not caught, and a backup restore writes rows without
+  these checks, so a backup taken before the rule brings back such a URL, which is
+  then shown redacted or withheld and refused at its next save. `scm_url` is an
+  ordinary column while a credential is
+  encrypted, so the two are not equivalent places to put a secret, and this holds
+  for a project of every source type: a manual or archive project, which nothing
+  fetches, is refused one just as a git project is. An existing project that
+  already carries one keeps syncing, with a warning in every sync's log; the API and
+  the web UI show its URL with the credential replaced by `redacted` where the cut
+  is exact, and otherwise withhold it whole as
+  `(withheld: the URL carries a credential)`, and it is refused the next time
   somebody saves that project, which is the moment there is somewhere better to put
-  it.
+  it. Sending back the URL as shown keeps the stored one, so that save is refused
+  until the URL itself is changed. No refusal and no stored sync error repeats a
+  source URL: a URL the parser cannot read is refused in a fixed phrase, and a sync
+  of a URL that may carry a credential records its transport error withheld.
 
 Both toggles are read once at startup and logged as a warning on every start when
 either is on, so an operator reading a boot log sees what a deployment permits. A
 refusal is answered at the write, where somebody can fix it, and again at the sync,
 because a row can predate the rule or the toggle can be taken away.
+
+A project's credential must belong to the project's own organization. Every
+credential belongs to exactly one organization, and a project binds only one its
+organization owns: the API and the web UI refuse another organization's credential
+on the `credential` field, answering it as they answer an id that does not exist,
+and a sync refuses to use one, so a binding stored before the rule fails its syncs,
+saying the credential belongs to another organization, until it is rebound. What
+this stops is a project of one organization using another organization's
+credential. What it does not stop is a caller writing a project in any organization
+they choose: authorization is by token scope, deployment-wide, so whoever holds
+`project:write` can create a project in another organization and bind that
+organization's credential to it, and that project is then consistent with the rule.
+Keeping a caller to their own organization waits on per-organization authorization,
+which is not enforced yet.
 
 Three limits worth knowing, none of which this mechanism claims to cover:
 

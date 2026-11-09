@@ -248,13 +248,15 @@ func realCredential(t *testing.T, client *ent.Client, orgID int, name string) in
 		SaveX(ctx).ID
 }
 
-// scmCredential is a source control credential carrying a stored password.
-func scmCredential(id int) credstore.Credential {
+// scmCredential is a source control credential carrying a stored password,
+// owned by the organization orgID, as the redacted projection reports it.
+func scmCredential(id, orgID int) credstore.Credential {
 	return credstore.Credential{
-		ID:     id,
-		Name:   "forge",
-		Kind:   credtype.KindSCM,
-		Inputs: map[string]string{"username": "svc", "password": "$encrypted$"},
+		ID:             id,
+		Name:           "forge",
+		Kind:           credtype.KindSCM,
+		Inputs:         map[string]string{"username": "svc", "password": "$encrypted$"},
+		OrganizationID: orgID,
 	}
 }
 
@@ -407,7 +409,7 @@ func TestProjects_OnlyASourceControlCredentialMayAuthenticateAClone(t *testing.T
 	external := realCredential(t, f.client, f.orgID, "vault-backed")
 
 	f.creds.creds = []credstore.Credential{
-		scmCredential(withPassword),
+		scmCredential(withPassword, f.orgID),
 		{
 			ID:     machine,
 			Name:   "device access",
@@ -429,7 +431,8 @@ func TestProjects_OnlyASourceControlCredentialMayAuthenticateAClone(t *testing.T
 			// credstore reports an externally sourced value. A check
 			// consulting only Inputs would refuse every credential whose
 			// password lives in a secret manager.
-			External: map[string]string{"password": "vault:/forge#token"},
+			External:       map[string]string{"password": "vault:/forge#token"},
+			OrganizationID: f.orgID,
 		},
 	}
 
@@ -907,8 +910,11 @@ func TestProjects_AnUnexpectedStoreFailureIsAServerError(t *testing.T) {
 			body: map[string]any{"name": "x", "organization": 1, "scm_url": "https://example.invalid/a.git"},
 		},
 		{
+			// No organization: the stored project failingStore reads back
+			// has none, and a different one is a 400 for the fixed field
+			// rather than a store failure.
 			name: "update", method: http.MethodPatch, path: "/api/v1/projects/1",
-			body:  map[string]any{"name": "x", "organization": 1, "scm_url": "https://example.invalid/a.git"},
+			body:  map[string]any{"name": "x", "scm_url": "https://example.invalid/a.git"},
 			getOK: true,
 		},
 		// Claiming the sync is what failed. The clone and its recording
@@ -951,7 +957,8 @@ func TestProjects_AnUnexpectedStoreFailureIsAServerError(t *testing.T) {
 
 // TestProjects_AnUpdateThatCannotBeReadBackIsAServerError covers the
 // second Get inside Update, which a store that writes but cannot read
-// would otherwise reach with nobody watching.
+// would otherwise reach with nobody watching. The first Get, the stored
+// project a partial update is folded over, succeeds.
 func TestProjects_AnUpdateThatCannotBeReadBackIsAServerError(t *testing.T) {
 	store := &writeThenBlindStore{}
 	router := routerOverStore(t, store, &fakeSyncer{})
@@ -970,15 +977,27 @@ func TestProjects_AnUpdateThatCannotBeReadBackIsAServerError(t *testing.T) {
 	if rec.Code != http.StatusInternalServerError {
 		t.Errorf("status %d, want 500 when the written record cannot be read back", rec.Code)
 	}
+	if store.reads != 2 {
+		t.Errorf("Get was called %d times, want 2: the read back after the write is the one under test", store.reads)
+	}
 }
 
-// writeThenBlindStore accepts an update and then cannot read it back.
+// writeThenBlindStore reads a project once, accepts an update, and then
+// cannot read it back.
 type writeThenBlindStore struct {
 	project.Store
+
+	// reads counts Get calls.
+	reads int
 }
 
-// Get always fails.
-func (w *writeThenBlindStore) Get(context.Context, int) (project.Project, error) {
+// Get succeeds the first time and fails every time after.
+func (w *writeThenBlindStore) Get(_ context.Context, id int) (project.Project, error) {
+	w.reads++
+	if w.reads == 1 {
+		return project.Project{ID: id, Name: "readable", OrganizationID: 1,
+			SCMType: project.SCMGit, SCMURL: "https://example.invalid/a.git"}, nil
+	}
 	return project.Project{}, errStoreBroken
 }
 
@@ -1011,7 +1030,8 @@ func TestProjects_EveryIdTakingEndpointRefusesAMalformedId(t *testing.T) {
 }
 
 // TestProjects_AnUpdateIsValidatedLikeACreate proves the body rules are not
-// create-only, which is the obvious way around them.
+// create-only, which is the obvious way around them. PATCH is partial, so
+// each rule is broken by naming the field: leaving it out keeps it.
 func TestProjects_AnUpdateIsValidatedLikeACreate(t *testing.T) {
 	f := newProjectFixture(t)
 	id := f.createProject(t, "editable")
@@ -1020,9 +1040,9 @@ func TestProjects_AnUpdateIsValidatedLikeACreate(t *testing.T) {
 		name string
 		body map[string]any
 	}{
-		{"no name", map[string]any{"organization": f.orgID, "scm_url": "https://example.invalid/a.git"}},
+		{"no name", map[string]any{"name": "", "scm_url": "https://example.invalid/a.git"}},
 		{"an unknown scm type", map[string]any{"name": "x", "organization": f.orgID, "scm_type": "subversion"}},
-		{"a git project stripped of its url", map[string]any{"name": "x", "organization": f.orgID, "scm_type": "git"}},
+		{"a git project stripped of its url", map[string]any{"name": "x", "organization": f.orgID, "scm_url": ""}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			status, body := f.do(t, http.MethodPatch, fmt.Sprintf("/api/v1/projects/%d", id), tc.body)

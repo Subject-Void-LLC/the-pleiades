@@ -37,7 +37,6 @@ package project
 import (
 	"errors"
 	"fmt"
-	"net/url"
 	"sort"
 	"strings"
 
@@ -50,7 +49,7 @@ var (
 	ErrSourceRefused = errors.New("project: this deployment will not fetch from that source")
 
 	// ErrSourceSecretInURL is a URL carrying a password or token in its
-	// userinfo.
+	// userinfo, refused for a project of every type (RefuseEmbeddedSecret).
 	//
 	// Refused at the write rather than at the sync, and the asymmetry is
 	// deliberate: scm_url is an ordinary column while a credential is
@@ -134,50 +133,15 @@ func ClassifySource(raw string) (string, error) {
 
 	endpoint, err := transport.NewEndpoint(trimmed)
 	if err != nil {
-		return "", fmt.Errorf("%w: %s is not a repository address", ErrSourceRefused, scrubURL(err.Error(), trimmed))
+		// A fixed phrase, never the parser's error: go-git's (net/url's)
+		// error quotes the URL it was given, password and all
+		// ("parse \"https://user:pa/ss@host/r\": invalid port"), and this
+		// message reaches a form, an API response, a log and a stored sync
+		// failure. No scrub of that text can know every shape a password
+		// takes inside it.
+		return "", fmt.Errorf("%w: that is not a repository address git can read", ErrSourceRefused)
 	}
 	return endpoint.Protocol, nil
-}
-
-// HasEmbeddedSecret reports whether raw carries a credential in its
-// userinfo: a password on any URL, and on an http or https URL any user name
-// at all.
-//
-// A user on an ssh URL is ordinary and often required: the "git" in
-// git@github.com:org/repo.git is a username, and refusing it would refuse
-// the single most common way of writing an ssh remote. Over HTTP, though, a
-// forge takes a token in the user position as readily as in the password one
-// (https://<token>@github.com/org/repo.git), and git sends it as Basic auth;
-// before 2026-10-14 only the password was checked, so such a token was
-// stored in the plain scm_url column and returned by the API.
-func HasEmbeddedSecret(raw string) bool {
-	endpoint, err := transport.NewEndpoint(strings.TrimSpace(raw))
-	if err != nil {
-		return false
-	}
-	// go-git reads the scp-like form's userinfo whole, so the password in
-	// git:secret@host:path arrives inside the user; no user name holds a colon.
-	if endpoint.Password != "" || strings.Contains(endpoint.User, ":") {
-		return true
-	}
-	return endpoint.User != "" && (endpoint.Protocol == ProtocolHTTPS || endpoint.Protocol == ProtocolHTTP)
-}
-
-// RedactedSourceURL is raw as it may be shown: a URL carrying a credential
-// (HasEmbeddedSecret) has its userinfo replaced by "redacted", so a row
-// stored before the rule never shows its token, and saving the shown value
-// back is refused by the same rule rather than silently dropping the
-// credential the sync relied on. A URL net/url cannot read is withheld whole.
-func RedactedSourceURL(raw string) string {
-	if !HasEmbeddedSecret(raw) {
-		return raw
-	}
-	u, err := url.Parse(strings.TrimSpace(raw))
-	if err != nil || u.User == nil {
-		return "(withheld: the URL carries a credential)"
-	}
-	u.User = url.User("redacted")
-	return u.String()
 }
 
 // embeddedSecretWarning is the line a sync writes to its log for a project

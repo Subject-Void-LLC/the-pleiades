@@ -30,8 +30,12 @@ var projectSchema = map[string]any{
 		"scm_url": stringSchema("The repository to clone. Fetched over https or ssh; plain http, the git " +
 			"daemon protocol and paths on the server's own disk are refused unless the deployment has " +
 			"opted into them, because what a sync produces is code this platform then runs on managed " +
-			"devices. A password in the URL is refused: give the project a credential instead, which is " +
-			"stored encrypted."),
+			"devices. A URL that may carry a credential (any \"@\" outside an ssh login, written or " +
+			"encoded, or any query or fragment) is refused for a project of every type: give the project a " +
+			"credential instead, which is stored encrypted. A URL stored with one before that rule is shown " +
+			"with its credential replaced by " +
+			"\"redacted\", or withheld whole as \"(withheld: the URL carries a credential)\" when it cannot " +
+			"be cut out precisely."),
 		"scm_branch":  stringSchema("The branch, tag or commit to check out. Empty means the remote's own default."),
 		"credential":  map[string]any{"type": "integer", "description": "The credential the clone authenticates as, absent for a public repository."},
 		"revision":    stringSchema("The commit the working tree is at. Empty until a sync has succeeded once."),
@@ -97,10 +101,12 @@ var CreateProject = Endpoint{
 	Summary: "Create a project",
 	Responses: []Response{
 		{Status: http.StatusCreated, Description: "The project as stored.", Schema: projectSchema},
-		{Status: http.StatusBadRequest, Description: "A required field is missing, a git project carries no URL, the URL names a source this deployment will not fetch from, or it carries a password.", Schema: errorSchema("")},
+		{Status: http.StatusBadRequest, Description: "A required field is missing, a field is longer than its bound or holds a NUL character, a git project carries no URL, the URL names a source this deployment will not fetch from or carries a password, or the credential is not one the project's organization owns (answered as no credential with that id in the project's organization) or cannot authenticate a clone.", Schema: errorSchema("")},
 		{Status: http.StatusConflict, Description: "The name is taken in that organization.", Schema: errorSchema("")},
 	},
-	Description: "Registers a source repository. Nothing is fetched until a sync runs.",
+	Description:        "Registers a source repository. Nothing is fetched until a sync runs.",
+	RequestContentType: "application/json",
+	RequestSchema:      projectWriteSchema,
 }
 
 // UpdateProject is PATCH /projects/{id}.
@@ -113,14 +119,22 @@ var UpdateProject = Endpoint{
 	Summary: "Update a project",
 	Responses: []Response{
 		{Status: http.StatusOK, Description: "The project as stored.", Schema: projectSchema},
-		{Status: http.StatusBadRequest, Description: "A required field is missing, a git project carries no URL, the URL names a source this deployment will not fetch from, or it carries a password.", Schema: errorSchema("")},
+		{Status: http.StatusBadRequest, Description: "The body is malformed, sets a field to null or changes the organization, or the project it would leave has a blank name, a field longer than its bound or holding a NUL character, a git source with no URL, a URL this deployment will not fetch from or that carries a password, or a credential the project's organization does not own (answered as no credential with that id in the project's organization) or that cannot authenticate a clone.", Schema: errorSchema("")},
 		{Status: http.StatusNotFound, Description: "No project with that id.", Schema: errorSchema("")},
 		{Status: http.StatusConflict, Description: "The name is taken in that organization.", Schema: errorSchema("")},
 	},
-	Description: "Changes a project's name, description or source. The checkout is not refetched until a sync runs.",
+	Description: "A partial update of a project's name, description, source and credential. A field left out keeps " +
+		"its stored value and a field present is applied, so a PATCH that does not name the credential keeps it " +
+		"bound (\"credential\": 0 unbinds it) and one that does not name scm_type keeps the project's type. A null " +
+		"on any field is refused. The organization is not updatable: a value that differs from the stored one is " +
+		"refused, and the stored value is accepted as an echo. The project as it would be saved is checked whole, " +
+		"its source and credential included. Sync state is never written here, and the checkout is not refetched " +
+		"until a sync runs. Concurrent PATCHes are last-writer-wins: there is no version check.",
 	Params: []Param{
 		{Name: "id", In: "path", Required: true, Type: "integer", Description: "The project's numeric id."},
 	},
+	RequestContentType: "application/json",
+	RequestSchema:      projectPatchSchema,
 }
 
 // DeleteProject is DELETE /projects/{id}.

@@ -42,18 +42,20 @@ import (
 // Name is this view's registration key and URL segment.
 const Name = "projects"
 
-// declaredFields are the shape.
+// declaredFields are the shape. Each text field's MaxLen is the database's
+// own bound, read from internal/project, and view.Validate enforces it
+// server-side, so an over-long value is a field error beside its control.
 func declaredFields(orgs inventory.OrganizationLister, creds credentialLister) []view.Field {
 	return []view.Field{
 		{
 			Name: "name", Label: "NAME", Kind: view.KindText,
-			Required: true, MaxLen: 253, InList: true, InForm: true, MobilePrimary: true,
+			Required: true, MaxLen: project.MaxNameBytes, InList: true, InForm: true, MobilePrimary: true,
 			Autocomplete: "off",
 			Help:         "What this repository is called here, within its organization.",
 		},
 		{
 			Name: "description", Label: "DESCRIPTION", Kind: view.KindLongText,
-			MaxLen: 1024, InForm: true,
+			MaxLen: project.MaxDescriptionBytes, InForm: true,
 			Help: "What is in it, for somebody who did not add it.",
 		},
 		{
@@ -87,8 +89,14 @@ func declaredFields(orgs inventory.OrganizationLister, creds credentialLister) [
 		},
 		{
 			Name: "scm_url", Label: "URL", Kind: view.KindText,
-			MaxLen: 2048, InList: true, InForm: true, Autocomplete: "off",
-			Help: "The repository to clone. Prefer an https address with a credential over embedding a token in the URL: a URL's userinfo ends up in error messages.",
+			MaxLen: project.MaxSCMURLBytes, InList: true, InForm: true, Autocomplete: "off",
+			// A refused form shows a URL that may carry a credential as it
+			// would be shown stored, redacted or withheld, never as typed.
+			// Not blanked: on an edit, sending back an empty URL would clear
+			// a manual project's stored one, where sending back the redacted
+			// form is an echo the store refuses again until the URL changes.
+			RefusedValue: project.RedactedSourceURL,
+			Help:         "The repository to clone. Prefer an https address with a credential over embedding a token in the URL: a URL's userinfo ends up in error messages.",
 		},
 		{
 			Name: "credential", Label: "CREDENTIAL", Kind: view.KindSelect,
@@ -100,7 +108,7 @@ func declaredFields(orgs inventory.OrganizationLister, creds credentialLister) [
 		},
 		{
 			Name: "scm_branch", Label: "BRANCH", Kind: view.KindText,
-			MaxLen: 255, InForm: true, Autocomplete: "off",
+			MaxLen: project.MaxSCMBranchBytes, InForm: true, Autocomplete: "off",
 			Help: "The branch, tag or commit to check out. Leave empty for whatever the remote's own default branch is.",
 		},
 		{
@@ -179,7 +187,7 @@ type writer struct {
 }
 
 func (w writer) Create(ctx context.Context, p project.Project) (string, error) {
-	if err := usableForGit(ctx, w.creds, p.CredentialID); err != nil {
+	if err := usableForGit(ctx, w.creds, p.OrganizationID, p.CredentialID); err != nil {
 		return "", err
 	}
 	created, err := w.store.Create(ctx, p)
@@ -202,7 +210,10 @@ func (w writer) Update(ctx context.Context, id string, p project.Project) error 
 	// Immutable, so an edit never carries it and the store must not be
 	// told to move the project between tenants.
 	p.OrganizationID = existing.OrganizationID
-	if err := usableForGit(ctx, w.creds, p.CredentialID); err != nil {
+	// The form shows the URL redacted, so saving it unchanged sends the
+	// redacted form back: an echo, which keeps the stored URL.
+	p.SCMURL = project.KeepEchoedSourceURL(existing.SCMURL, p.SCMURL)
+	if err := usableForGit(ctx, w.creds, p.OrganizationID, p.CredentialID); err != nil {
 		return view.WrapNotFound(err, project.ErrNotFound)
 	}
 	return view.WrapNotFound(asFault(w.store.Update(ctx, p)), project.ErrNotFound)
@@ -331,6 +342,12 @@ func Register(store project.Store, syncer project.Syncer, runner syncEnqueuer, o
 				// and reading a failure is a worse way to be told.
 				if p.SCMType == project.SCMGit && p.SCMURL == "" {
 					errs.Add("scm_url", "A git project needs a repository URL.")
+				}
+				// A NUL beside the field rather than at the store, which on
+				// PostgreSQL cannot hold one and fails the write.
+				var nul *project.NULError
+				if errors.As(project.CheckNUL(p), &nul) {
+					errs.Add(nul.Field, "This may not contain a NUL character.")
 				}
 				return p, errs
 			},

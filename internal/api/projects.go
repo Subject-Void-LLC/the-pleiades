@@ -79,14 +79,33 @@ func NewProjectHandler(store project.Store, syncs syncEnqueuer, creds credential
 	return &ProjectHandler{projects: store, syncs: syncs, creds: creds, logger: logger}
 }
 
-// checkCredential refuses a credential that cannot authenticate a clone.
+// checkCredential refuses a credential p may not bind: one of another
+// organization, and one that cannot authenticate a clone.
 //
-// The same rule the UI enforces, through the same predicate, because a rule
-// applied on one of two write paths is not a rule. Answered as a 400 rather
-// than a 422: the id names a real credential and the request is
-// well-formed, it just asks for something that cannot work.
-func (h *ProjectHandler) checkCredential(w http.ResponseWriter, r *http.Request, id int) bool {
-	if id == 0 || h.creds == nil {
+// The same rules the UI enforces, through the same predicates, because a
+// rule applied on one of two write paths is not a rule. Answered as a 400
+// rather than a 422: the request is well-formed, it just asks for something
+// that cannot work. Each message opens with the field it is about, since a
+// PATCH naming only a description is checked against the credential it keeps.
+//
+// A credential belongs to exactly one organization (the schema requires the
+// edge), and a project may bind only one of its own organization's, as an
+// AWX credential is owned by an organization and used by that organization's
+// projects. What the rule stops is a project of one organization using
+// another's credential, which a sync would send to whatever host the project
+// names. What it does not stop is a caller choosing the organization: this
+// route is authorized by token scope across the deployment (role bindings
+// are not enforced, FAILURE_PATTERNS 98), so a caller holding project:write
+// can create a project in another organization and bind that organization's
+// credential, and the binding is then consistent. Keeping a caller to their
+// own organization waits on per-organization authorization. Another
+// organization's credential is answered exactly as a missing one is, so the
+// refusal says nothing about another organization's credentials, not even
+// that the id exists. A nil lister checks nothing here; the sync refuses a
+// cross-organization credential at the moment of use regardless
+// (cmd/controller's projectAuth).
+func (h *ProjectHandler) checkCredential(w http.ResponseWriter, r *http.Request, p project.Project) bool {
+	if p.CredentialID == 0 || h.creds == nil {
 		return true
 	}
 	found, err := h.creds.ListAllCredentials(r.Context())
@@ -97,17 +116,17 @@ func (h *ProjectHandler) checkCredential(w http.ResponseWriter, r *http.Request,
 		return false
 	}
 	for _, c := range found {
-		if c.ID != id {
+		if c.ID != p.CredentialID || c.OrganizationID != p.OrganizationID {
 			continue
 		}
 		if !project.AuthenticatesGit(c.Kind, c.Inputs, c.External) {
 			RespondError(w, r, http.StatusBadRequest,
-				"that is not a source control credential carrying a password, token or SSH key, so it cannot authenticate a clone")
+				"credential: that is not a source control credential carrying a password, token or SSH key, so it cannot authenticate a clone")
 			return false
 		}
 		return true
 	}
-	RespondError(w, r, http.StatusBadRequest, "no credential with that id")
+	RespondError(w, r, http.StatusBadRequest, "credential: no credential with that id in this project's organization")
 	return false
 }
 
@@ -139,7 +158,8 @@ type projectListDTO struct {
 	Projects []projectDTO `json:"projects"`
 }
 
-// projectWriteDTO is a create or update body.
+// projectWriteDTO is the body POST /projects accepts. PATCH /projects/{id}
+// takes projectPatchDTO instead, which is partial in every field.
 type projectWriteDTO struct {
 	Name         string `json:"name"`
 	Description  string `json:"description"`
@@ -215,15 +235,15 @@ func (h *ProjectHandler) Create(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &body) {
 		return
 	}
-	p, ok := h.fromBody(w, r, body)
-	if !ok {
+	p := body.project()
+	if !h.validProject(w, r, &p) {
 		return
 	}
 	if p.OrganizationID < 1 {
 		RespondError(w, r, http.StatusBadRequest, "organization is required")
 		return
 	}
-	if !h.checkCredential(w, r, p.CredentialID) {
+	if !h.checkCredential(w, r, p) {
 		return
 	}
 
@@ -234,38 +254,6 @@ func (h *ProjectHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 	dto := toProjectDTO(created)
 	Respond(w, r, http.StatusCreated, &dto)
-}
-
-// Update changes a project's own fields, never its sync state.
-func (h *ProjectHandler) Update(w http.ResponseWriter, r *http.Request) {
-	id, ok := h.parseID(w, r)
-	if !ok {
-		return
-	}
-	var body projectWriteDTO
-	if !decodeJSON(w, r, &body) {
-		return
-	}
-	p, ok := h.fromBody(w, r, body)
-	if !ok {
-		return
-	}
-	p.ID = id
-	if !h.checkCredential(w, r, p.CredentialID) {
-		return
-	}
-
-	if err := h.projects.Update(r.Context(), p); err != nil {
-		h.respondStoreError(w, r, "update", err)
-		return
-	}
-	updated, err := h.projects.Get(r.Context(), id)
-	if err != nil {
-		h.respondStoreError(w, r, "read", err)
-		return
-	}
-	dto := toProjectDTO(updated)
-	Respond(w, r, http.StatusOK, &dto)
 }
 
 // Delete removes a project, leaving its working tree on disk.
@@ -447,20 +435,41 @@ func (h *ProjectHandler) respondSyncError(w http.ResponseWriter, r *http.Request
 	}
 }
 
-// fromBody validates a write body into a domain project.
-func (h *ProjectHandler) fromBody(w http.ResponseWriter, r *http.Request, body projectWriteDTO) (project.Project, bool) {
-	p := project.Project{
-		Name:           strings.TrimSpace(body.Name),
-		Description:    strings.TrimSpace(body.Description),
-		OrganizationID: body.Organization,
-		SCMType:        project.SCMType(strings.TrimSpace(body.SCMType)),
-		SCMURL:         strings.TrimSpace(body.SCMURL),
-		SCMBranch:      strings.TrimSpace(body.SCMBranch),
-		CredentialID:   body.Credential,
+// project builds the domain value from a create body, trimmed as the store
+// keeps it.
+func (d projectWriteDTO) project() project.Project {
+	return project.Project{
+		Name:           strings.TrimSpace(d.Name),
+		Description:    strings.TrimSpace(d.Description),
+		OrganizationID: d.Organization,
+		SCMType:        project.SCMType(strings.TrimSpace(d.SCMType)),
+		SCMURL:         strings.TrimSpace(d.SCMURL),
+		SCMBranch:      strings.TrimSpace(d.SCMBranch),
+		CredentialID:   d.Credential,
 	}
+}
+
+// validProject holds a project about to be saved, created or merged by a
+// PATCH, to the rules every saved project is held to, defaulting an empty
+// scm_type to git. It answers 400 and returns false when p breaks one.
+func (h *ProjectHandler) validProject(w http.ResponseWriter, r *http.Request, p *project.Project) bool {
 	if p.Name == "" {
 		RespondError(w, r, http.StatusBadRequest, "name is required")
-		return project.Project{}, false
+		return false
+	}
+	// Each length bound is the database's own (project.CheckLengths), and
+	// refused here because past it ent's validator answers 500
+	// (FAILURE_PATTERNS 1076). The message names the field and the bound and
+	// repeats nothing the caller sent.
+	if err := project.CheckLengths(*p); err != nil {
+		RespondError(w, r, http.StatusBadRequest, err.Error())
+		return false
+	}
+	// A NUL is refused before the store for the same reason: PostgreSQL
+	// cannot store one and answers 500 (FAILURE_PATTERNS 371, 1079).
+	if err := project.CheckNUL(*p); err != nil {
+		RespondError(w, r, http.StatusBadRequest, err.Error())
+		return false
 	}
 	if p.SCMType == "" {
 		p.SCMType = project.SCMGit
@@ -469,7 +478,7 @@ func (h *ProjectHandler) fromBody(w http.ResponseWriter, r *http.Request, body p
 	case project.SCMGit, project.SCMArchive, project.SCMManual:
 	default:
 		RespondError(w, r, http.StatusBadRequest, "scm_type must be one of git, archive or manual")
-		return project.Project{}, false
+		return false
 	}
 	// Refused here rather than at sync time, for the reason the UI's own
 	// binder gives: a git project with no URL can never do the one thing it
@@ -477,9 +486,9 @@ func (h *ProjectHandler) fromBody(w http.ResponseWriter, r *http.Request, body p
 	// be told.
 	if p.SCMType == project.SCMGit && p.SCMURL == "" {
 		RespondError(w, r, http.StatusBadRequest, "a git project needs scm_url")
-		return project.Project{}, false
+		return false
 	}
-	return p, true
+	return true
 }
 
 // parseID reads the path parameter.

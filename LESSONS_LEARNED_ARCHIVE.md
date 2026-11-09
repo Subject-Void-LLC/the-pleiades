@@ -4515,6 +4515,21 @@ the bytes: it lives in what the automation does with them, and a runbook may alr
 neither is settable by the person launching the job -- and saying so in the file is what stops the
 next reader from mistaking a guardrail for a sandbox.
 
+**Note 2026-11-09 (FAILURE_PATTERNS 1089, a repeat of 458).** The same rule, learned again on a different detector:
+after a content detector misses a second time, replace the list of bad shapes with an allowlist of what is proved
+clean, rather than adding the shape that was missed. `project.HasEmbeddedSecret`, the check that a project's source URL
+carries no credential, was a list of credential shapes. 458 found it missed a token in the user position, and its fix
+added that position and others to the list, following LESSONS 277's advice to list where the protocol accepts a
+credential. On `fix/patch-projects-partial` three review passes each found more shapes it missed: URLs no parser reads,
+compound and lenient schemes, a password holding `/`, `%40` and Unicode lookalikes of `@`, and query parameters no
+secret-name list covered. Each extension of the list was followed by another miss. The fix named the few URLs that carry
+no credential (no `@` at all, or one clean ssh login) and refused the rest, at the cost of refusing an `@` in a path
+and any query or fragment. Two second-order points carry over from this entry. A parser's reading of an input is one
+program's opinion, so an allowlist states its rule on the raw text and uses the parser only to confirm a clean match.
+And the display half of such a check (here `RedactedSourceURL`) follows the same allowlist: show the value as written
+only when it is clean, cut out a part only on an exact structural match, and otherwise withhold it whole. LESSONS 277
+still holds for deciding what counts as a credential; it is not a way to build the check.
+
 ## 191. A gate that is only checked when a record is authored is not a gate; check it where the thing happens, and make the caller unable to supply it
 
 The `file` question's system-level permission is an environment variable the Controller reads at

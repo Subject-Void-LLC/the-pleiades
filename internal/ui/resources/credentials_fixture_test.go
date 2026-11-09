@@ -19,6 +19,11 @@ import (
 // page is a real result rather than a coincidence.
 const credentialCanary = "sk-live-UI-CANARY-4c3b2a1908f7e6d5"
 
+// conformanceOtherTenantCredentialID is a Source Control credential owned by
+// the second seeded organization, captured at registration so the Projects
+// view's tests can submit it for a project of the first and see it refused.
+var conformanceOtherTenantCredentialID int
+
 // newTestCredentialStore builds the credential store the two credential
 // views are registered over.
 //
@@ -128,6 +133,23 @@ func newTestCredentialStore(t *testing.T) credstore.Store {
 		nil); err != nil {
 		t.Fatalf("CreateCredential(machine) error = %v", err)
 	}
+
+	// A Source Control credential the second organization owns. It carries
+	// everything a clone needs and must still be refused for a project of the
+	// first organization: a credential is its owner's, and a project of one
+	// tenant that could bind another's would send it to a host it chose.
+	otherOrg, err := client.Organization.Query().Order(ent.Asc("id")).Offset(1).First(ctx)
+	if err != nil {
+		t.Fatalf("reading the second seeded organization: %v", err)
+	}
+	otherCred, err := store.CreateCredential(ctx, otherOrg.ID, scmType.ID,
+		"other tenant scm credential", "clones the second organization's repositories",
+		map[string]string{"username": "git", "password": "ghp-other-tenant-token"},
+		nil)
+	if err != nil {
+		t.Fatalf("CreateCredential(other tenant scm) error = %v", err)
+	}
+	conformanceOtherTenantCredentialID = otherCred.ID
 
 	// Bound to the first template the template fixture seeded, which is
 	// what makes the launch form's credential prompt reachable at all. The

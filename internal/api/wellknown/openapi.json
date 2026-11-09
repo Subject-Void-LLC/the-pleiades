@@ -9682,7 +9682,7 @@
                             "type": "string"
                           },
                           "scm_url": {
-                            "description": "The repository to clone. Fetched over https or ssh; plain http, the git daemon protocol and paths on the server's own disk are refused unless the deployment has opted into them, because what a sync produces is code this platform then runs on managed devices. A password in the URL is refused: give the project a credential instead, which is stored encrypted.",
+                            "description": "The repository to clone. Fetched over https or ssh; plain http, the git daemon protocol and paths on the server's own disk are refused unless the deployment has opted into them, because what a sync produces is code this platform then runs on managed devices. A URL that may carry a credential (any \"@\" outside an ssh login, written or encoded, or any query or fragment) is refused for a project of every type: give the project a credential instead, which is stored encrypted. A URL stored with one before that rule is shown with its credential replaced by \"redacted\", or withheld whole as \"(withheld: the URL carries a credential)\" when it cannot be cut out precisely.",
                             "type": "string"
                           },
                           "sync_error": {
@@ -9719,6 +9719,50 @@
       "post": {
         "description": "Registers a source repository. Nothing is fetched until a sync runs.",
         "operationId": "create_project",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "credential": {
+                    "description": "A source control credential carrying a password, token or SSH key, owned by the project's own organization; another organization's is refused as if it did not exist. 0 or absent for a public repository.",
+                    "type": "integer"
+                  },
+                  "description": {
+                    "description": "What is in this repository. At most 1024 bytes once trimmed; a longer value is refused with 400.",
+                    "type": "string"
+                  },
+                  "name": {
+                    "description": "Unique within its organization. At most 253 bytes once trimmed; a longer value is refused with 400.",
+                    "type": "string"
+                  },
+                  "organization": {
+                    "description": "The tenancy boundary this project belongs to. Not updatable.",
+                    "type": "integer"
+                  },
+                  "scm_branch": {
+                    "description": "The branch, tag or commit to check out. Empty means the remote's own default. At most 255 bytes once trimmed; a longer value is refused with 400.",
+                    "type": "string"
+                  },
+                  "scm_type": {
+                    "description": "git, archive or manual. Empty or absent means git.",
+                    "type": "string"
+                  },
+                  "scm_url": {
+                    "description": "The repository to clone. Fetched over https or ssh; plain http, the git daemon protocol and paths on the server's own disk are refused unless the deployment has opted into them. A URL that may carry a credential is refused for a project of every type, manual and archive included: any \"@\" outside one ssh login (ssh://user@host/... or user@host:path, with no password), written, percent-encoded or a Unicode lookalike, and any query or fragment, since a repository source needs neither and a presigned URL is itself a credential. Give the project a credential instead. Required for git. At most 2048 bytes once trimmed; a longer value is refused with 400.",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "name",
+                  "organization"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "201": {
             "content": {
@@ -9781,7 +9825,7 @@
                       "type": "string"
                     },
                     "scm_url": {
-                      "description": "The repository to clone. Fetched over https or ssh; plain http, the git daemon protocol and paths on the server's own disk are refused unless the deployment has opted into them, because what a sync produces is code this platform then runs on managed devices. A password in the URL is refused: give the project a credential instead, which is stored encrypted.",
+                      "description": "The repository to clone. Fetched over https or ssh; plain http, the git daemon protocol and paths on the server's own disk are refused unless the deployment has opted into them, because what a sync produces is code this platform then runs on managed devices. A URL that may carry a credential (any \"@\" outside an ssh login, written or encoded, or any query or fragment) is refused for a project of every type: give the project a credential instead, which is stored encrypted. A URL stored with one before that rule is shown with its credential replaced by \"redacted\", or withheld whole as \"(withheld: the URL carries a credential)\" when it cannot be cut out precisely.",
                       "type": "string"
                     },
                     "sync_error": {
@@ -9813,7 +9857,7 @@
                 }
               }
             },
-            "description": "A required field is missing, a git project carries no URL, the URL names a source this deployment will not fetch from, or it carries a password."
+            "description": "A required field is missing, a field is longer than its bound or holds a NUL character, a git project carries no URL, the URL names a source this deployment will not fetch from or carries a password, or the credential is not one the project's organization owns (answered as no credential with that id in the project's organization) or cannot authenticate a clone."
           },
           "409": {
             "content": {
@@ -9965,7 +10009,7 @@
                       "type": "string"
                     },
                     "scm_url": {
-                      "description": "The repository to clone. Fetched over https or ssh; plain http, the git daemon protocol and paths on the server's own disk are refused unless the deployment has opted into them, because what a sync produces is code this platform then runs on managed devices. A password in the URL is refused: give the project a credential instead, which is stored encrypted.",
+                      "description": "The repository to clone. Fetched over https or ssh; plain http, the git daemon protocol and paths on the server's own disk are refused unless the deployment has opted into them, because what a sync produces is code this platform then runs on managed devices. A URL that may carry a credential (any \"@\" outside an ssh login, written or encoded, or any query or fragment) is refused for a project of every type: give the project a credential instead, which is stored encrypted. A URL stored with one before that rule is shown with its credential replaced by \"redacted\", or withheld whole as \"(withheld: the URL carries a credential)\" when it cannot be cut out precisely.",
                       "type": "string"
                     },
                     "sync_error": {
@@ -10027,7 +10071,7 @@
         "x-link-relation": "self"
       },
       "patch": {
-        "description": "Changes a project's name, description or source. The checkout is not refetched until a sync runs.",
+        "description": "A partial update of a project's name, description, source and credential. A field left out keeps its stored value and a field present is applied, so a PATCH that does not name the credential keeps it bound (\"credential\": 0 unbinds it) and one that does not name scm_type keeps the project's type. A null on any field is refused. The organization is not updatable: a value that differs from the stored one is refused, and the stored value is accepted as an echo. The project as it would be saved is checked whole, its source and credential included. Sync state is never written here, and the checkout is not refetched until a sync runs. Concurrent PATCHes are last-writer-wins: there is no version check.",
         "operationId": "update_project",
         "parameters": [
           {
@@ -10040,6 +10084,47 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "description": "A partial update. A field left out keeps its stored value and a field present is applied; an empty value clears description, scm_url and scm_branch, and \"credential\": 0 unbinds the credential. No field may be null: leave it out to keep it. The project as it would be saved is checked whole, so setting scm_type to git on a project with no scm_url is refused, and a kept credential is checked again. Unknown fields, the read-only sync fields among them, are refused.",
+                "properties": {
+                  "credential": {
+                    "description": "Rebinds the project to this source control credential, which the project's own organization must own. 0 unbinds it; leaving the key out keeps it, and a kept credential is checked again.",
+                    "type": "integer"
+                  },
+                  "description": {
+                    "description": "What is in this repository. \"\" clears it. At most 1024 bytes once trimmed; a longer value is refused with 400.",
+                    "type": "string"
+                  },
+                  "name": {
+                    "description": "Unique within its organization. May not be blank. At most 253 bytes once trimmed; a longer value is refused with 400.",
+                    "type": "string"
+                  },
+                  "organization": {
+                    "description": "Not updatable: accepted only as the stored value, and any other is refused with 400.",
+                    "type": "integer"
+                  },
+                  "scm_branch": {
+                    "description": "The branch, tag or commit to check out. \"\" means the remote's own default. At most 255 bytes once trimmed; a longer value is refused with 400.",
+                    "type": "string"
+                  },
+                  "scm_type": {
+                    "description": "git, archive or manual. Empty means git, as on create.",
+                    "type": "string"
+                  },
+                  "scm_url": {
+                    "description": "The repository to clone. Fetched over https or ssh; plain http, the git daemon protocol and paths on the server's own disk are refused unless the deployment has opted into them. A URL that may carry a credential is refused for a project of every type, manual and archive included: any \"@\" outside one ssh login (ssh://user@host/... or user@host:path, with no password), written, percent-encoded or a Unicode lookalike, and any query or fragment, since a repository source needs neither and a presigned URL is itself a credential. Give the project a credential instead. A git project may not clear it. GET shows a URL that carries a credential redacted or withheld whole, and sending back exactly what GET showed keeps the stored URL. At most 2048 bytes once trimmed; a longer value is refused with 400.",
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
         "responses": {
           "200": {
             "content": {
@@ -10102,7 +10187,7 @@
                       "type": "string"
                     },
                     "scm_url": {
-                      "description": "The repository to clone. Fetched over https or ssh; plain http, the git daemon protocol and paths on the server's own disk are refused unless the deployment has opted into them, because what a sync produces is code this platform then runs on managed devices. A password in the URL is refused: give the project a credential instead, which is stored encrypted.",
+                      "description": "The repository to clone. Fetched over https or ssh; plain http, the git daemon protocol and paths on the server's own disk are refused unless the deployment has opted into them, because what a sync produces is code this platform then runs on managed devices. A URL that may carry a credential (any \"@\" outside an ssh login, written or encoded, or any query or fragment) is refused for a project of every type: give the project a credential instead, which is stored encrypted. A URL stored with one before that rule is shown with its credential replaced by \"redacted\", or withheld whole as \"(withheld: the URL carries a credential)\" when it cannot be cut out precisely.",
                       "type": "string"
                     },
                     "sync_error": {
@@ -10134,7 +10219,7 @@
                 }
               }
             },
-            "description": "A required field is missing, a git project carries no URL, the URL names a source this deployment will not fetch from, or it carries a password."
+            "description": "The body is malformed, sets a field to null or changes the organization, or the project it would leave has a blank name, a field longer than its bound or holding a NUL character, a git source with no URL, a URL this deployment will not fetch from or that carries a password, or a credential the project's organization does not own (answered as no credential with that id in the project's organization) or that cannot authenticate a clone."
           },
           "404": {
             "content": {
@@ -10257,7 +10342,7 @@
                       "type": "string"
                     },
                     "scm_url": {
-                      "description": "The repository to clone. Fetched over https or ssh; plain http, the git daemon protocol and paths on the server's own disk are refused unless the deployment has opted into them, because what a sync produces is code this platform then runs on managed devices. A password in the URL is refused: give the project a credential instead, which is stored encrypted.",
+                      "description": "The repository to clone. Fetched over https or ssh; plain http, the git daemon protocol and paths on the server's own disk are refused unless the deployment has opted into them, because what a sync produces is code this platform then runs on managed devices. A URL that may carry a credential (any \"@\" outside an ssh login, written or encoded, or any query or fragment) is refused for a project of every type: give the project a credential instead, which is stored encrypted. A URL stored with one before that rule is shown with its credential replaced by \"redacted\", or withheld whole as \"(withheld: the URL carries a credential)\" when it cannot be cut out precisely.",
                       "type": "string"
                     },
                     "sync_error": {
@@ -10412,7 +10497,7 @@
                       "type": "string"
                     },
                     "scm_url": {
-                      "description": "The repository to clone. Fetched over https or ssh; plain http, the git daemon protocol and paths on the server's own disk are refused unless the deployment has opted into them, because what a sync produces is code this platform then runs on managed devices. A password in the URL is refused: give the project a credential instead, which is stored encrypted.",
+                      "description": "The repository to clone. Fetched over https or ssh; plain http, the git daemon protocol and paths on the server's own disk are refused unless the deployment has opted into them, because what a sync produces is code this platform then runs on managed devices. A URL that may carry a credential (any \"@\" outside an ssh login, written or encoded, or any query or fragment) is refused for a project of every type: give the project a credential instead, which is stored encrypted. A URL stored with one before that rule is shown with its credential replaced by \"redacted\", or withheld whole as \"(withheld: the URL carries a credential)\" when it cannot be cut out precisely.",
                       "type": "string"
                     },
                     "sync_error": {

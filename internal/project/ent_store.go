@@ -65,26 +65,27 @@ func NewEntStore(client *ent.Client, policy SourcePolicy, opts ...StoreOption) S
 	return s
 }
 
-// checkSource refuses a source this deployment will not fetch from, and a URL
-// carrying a password.
+// checkSource refuses a URL carrying a password, for a project of any type,
+// and a source this deployment will not fetch from.
 //
-// Only a git project is checked, because only a git project is ever dialed.
-// The predicate itself deliberately does not look at the type (see
-// source.go), so the day the archive type ships its URL gets the same
-// treatment by moving this one condition.
+// Only a git project's source is checked against the policy, because only a
+// git project is ever dialed. The predicate itself deliberately does not look
+// at the type (see source.go), so the day the archive type ships its URL gets
+// the same treatment by moving this one condition. The credential refusal
+// comes first and ignores the type, since the column stores a secret in
+// plain text whether or not anything fetches from it.
 func (s *entStore) checkSource(p Project) error {
+	// A credential in the URL first, and for every type: the column is
+	// unencrypted whatever the type, so this is about storing a secret, not
+	// fetching one. Refused at the write only; see ErrSourceSecretInURL for
+	// why an existing row that already carries one keeps working.
+	if err := RefuseEmbeddedSecret(p.SCMURL); err != nil {
+		return err
+	}
 	if p.SCMType != SCMGit {
 		return nil
 	}
-	if err := s.policy.AdmitsSource(p.SCMURL); err != nil {
-		return err
-	}
-	if HasEmbeddedSecret(p.SCMURL) {
-		// Refused at the write only. See ErrSourceSecretInURL for why an
-		// existing row that already carries one keeps working.
-		return fmt.Errorf("%w: give the credential to this project instead, where it is encrypted", ErrSourceSecretInURL)
-	}
-	return nil
+	return s.policy.AdmitsSource(p.SCMURL)
 }
 
 // Create stores a new project.

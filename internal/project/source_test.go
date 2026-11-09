@@ -215,10 +215,89 @@ func TestHasEmbeddedSecret(t *testing.T) {
 		// go-git reads an scp-like userinfo whole, password included.
 		{"git:password@github.com:org/repo.git", true},
 
+		// Shapes a parser misreads or refuses, each of which passed and was
+		// then shown raw: neither parser reads a bad port or a space in the
+		// host; go-git calls git+https its own protocol; go-git reads a
+		// scheme-less authority as a local path; and with a space in the host
+		// go-git reads the scp-like form as a local path while net/url reads
+		// "git:" as an opaque scheme, so neither sees the userinfo.
+		{"https://svc:hunter2@host:badport/x", true},
+		{"https://svc:hunter2@exa mple.invalid/x", true},
+		{"https://svc:hunter2@[::1:bad/x", true},
+		{"git+https://ghp_TOKEN@github.com/org/repo.git", true},
+		{"//bot:hunter2@host/org/repo", true},
+		{"//ghp_TOKEN@host/org/repo", true},
+		{"git:hunter2@ho st:team/repo", true},
+		// An empty password still says where one goes.
+		{"https://svc:@github.com/org/repo.git", true},
+		// A user alone is ordinary only for ssh, whose user picks the
+		// account; under any other scheme it may be a token.
+		{"git://ghp_TOKEN@git.internal/org/repo.git", true},
+		{"HTTPS://ghp_TOKEN@github.com/org/repo.git", true},
+
+		// Shapes the second review found past the shape list, now refused
+		// because the rule names what is clean rather than what is not: a
+		// password holding a "/" (net/url reads "user:1234" as a host and
+		// port and puts the "@" in the path), compound schemes, lenient
+		// slash forms, a password-shaped ssh user, and a second "@".
+		{"https://user:pa/ss@host/r", true},
+		{"https://user:1234/ss@host/r", true},
+		{"https://user:pa?ss@host/r", true},
+		{"https://user:pa#ss@host/r", true},
+		{"git+ssh+https://ghp_TOKEN@host/r", true},
+		{"https+ssh://ghp_TOKEN@host/r", true},
+		{"https:/user:pw@host/r", true},
+		{"https:///user:pw@host/r", true},
+		{`https:\/ghp_TOKEN@host/r`, true},
+		{"ssh:/git@host/r", true},
+		{"ssh://git:@host/r", true},
+		{"ssh://git%3Apw@host/r", true},
+		{"ssh://git@host/r@x", true},
+		{"git@host:org/r@v1.git", true},
+		{"a@b@host:org/r", true},
+		// A token in the query, which a forge takes as readily as one in
+		// the userinfo.
+		{"https://github.com/org/repo.git?access_token=ghp_TOKEN", true},
+		{"https://gitlab.example/group/repo.git?private_token=glpat-TOKEN", true},
+		{"https://github.com/org/repo.git?ref=main&token=ghp_TOKEN", true},
+		{"git@github.com:org/repo.git?token=ghp_TOKEN", true},
+		// An "@" in a path is refused too: the rule accepts the rare
+		// over-refusal rather than a shape test.
+		{"https://github.com/org/repo@v1.git", true},
+		{"https://github.com/org/repo.git?ref=a@b", true},
+
+		// An encoded or lookalike "@" is read as one: a URL holding any of
+		// them is not clean, since some reader may decode it into a
+		// separator, and a lookalike reached sync_error whole through a DNS
+		// error.
+		{"https://ghp_TOK%40github.com/r", true},
+		{"https://user:pass%40github.com/r", true},
+		{"https://user:pass%40github.com/r?", true},
+		{"https://ghp_TOK" + fullwidthAt + "github.com/org/repo.git", true},
+		{"https://ghp_TOK" + smallAt + "github.com/org/repo.git", true},
+		{"ssh://git@github.com/org%40x/repo.git", true},
+
+		// Any query or fragment, whatever its names: no list of secret
+		// names covers an Azure SAS sig, an X-Amz-Signature or an apikey.
+		{"https://acct.blob.example/c/repo.tar?sv=2024&sig=SIGNATURE", true},
+		{"https://bucket.example/repo.tar?X-Amz-Signature=abc", true},
+		{"https://host/r.git?apikey=abc", true},
+		{"https://host/r.git?pwd=abc", true},
+		{"https://host/r.git#token=abc", true},
+		{"https://github.com/org/repo.git?ref=main", true},
+		{"https://github.com/org/repo.git#readme", true},
+		{"git@github.com:org/repo.git#main", true},
+		{"/srv/repos/automation.git?x", true},
+
 		// A user with no password: ordinary, and required for an ssh remote
 		// written the usual way.
 		{"git@github.com:org/repo.git", false},
 		{"ssh://git@github.com/org/repo.git", false},
+		{"git+ssh://git@github.com/org/repo.git", false},
+		{"ssh+git://git@github.com/org/repo.git", false},
+		{"SSH://git@github.com/org/repo.git", false},
+		{"ssh://git@github.com:2222/org/repo.git", false},
+		{"ssh://git@[::1]:2222/org/repo.git", false},
 		{"https://github.com/org/repo.git", false},
 		{"/srv/repos/automation.git", false},
 		{"", false},
@@ -242,12 +321,41 @@ func TestRedactedSourceURL(t *testing.T) {
 		"git@github.com:org/repo.git":                 "git@github.com:org/repo.git",
 		"ssh://git@github.com/org/repo.git":           "ssh://git@github.com/org/repo.git",
 		"git:secret@github.com:org/repo.git":          "(withheld: the URL carries a credential)",
+
+		// Redacted precisely where net/url reads the userinfo, and withheld
+		// whole where neither parser can say where it ends.
+		"git+https://TOKEN@github.com/org/repo.git": "git+https://redacted@github.com/org/repo.git",
+		"//bot:secret@host/org/repo":                "//redacted@host/org/repo",
+		"https://svc:secret@host:badport/x":         "(withheld: the URL carries a credential)",
+		"https://svc:secret@exa mple.invalid/x":     "(withheld: the URL carries a credential)",
+		"https://svc:secret@[::1:bad/x":             "(withheld: the URL carries a credential)",
+		"git:secret@ho st:team/repo":                "(withheld: the URL carries a credential)",
+
+		// The second review's shapes: none can be cut exactly, so each is
+		// withheld whole.
+		"https://user:pa/secret@host/r":                "(withheld: the URL carries a credential)",
+		"https://user:1234/secret@host/r":              "(withheld: the URL carries a credential)",
+		"git+ssh+https://TOKEN@host/r":                 "git+ssh+https://redacted@host/r",
+		"https:/user:secret@host/r":                    "(withheld: the URL carries a credential)",
+		"https:///user:secret@host/r":                  "(withheld: the URL carries a credential)",
+		`https:\/TOKEN@host/r`:                         "(withheld: the URL carries a credential)",
+		"https://host/r.git?access_token=TOKEN":        "(withheld: the URL carries a credential)",
+		"https://host/r.git?private_token=TOKEN":       "(withheld: the URL carries a credential)",
+		"ssh://git:secret@host/r":                      "(withheld: the URL carries a credential)",
+		"https://host/org/repo@v1.git":                 "(withheld: the URL carries a credential)",
+		"https://TOKEN%40github.com/r":                 "(withheld: the URL carries a credential)",
+		"https://user:secret%40github.com/r":           "(withheld: the URL carries a credential)",
+		"https://TOKEN" + fullwidthAt + "github.com/r": "(withheld: the URL carries a credential)",
+		"https://TOKEN" + smallAt + "github.com/r":     "(withheld: the URL carries a credential)",
+		"https://acct.example/repo.tar?sig=TOKEN":      "(withheld: the URL carries a credential)",
+		"https://host/r.git#token=TOKEN":               "(withheld: the URL carries a credential)",
+		"https://redacted:secret@host/r?x":             "(withheld: the URL carries a credential)",
 	} {
 		got := project.RedactedSourceURL(raw)
 		if got != want {
 			t.Errorf("RedactedSourceURL(%q) = %q, want %q", raw, got, want)
 		}
-		if strings.Contains(got, "TOKEN") || strings.Contains(got, "secret") {
+		if strings.Contains(got, "TOKEN") || strings.Contains(got, "secret") || strings.Contains(got, "pa/") {
 			t.Errorf("RedactedSourceURL(%q) = %q, which still carries the credential", raw, got)
 		}
 		// A redacted URL saved back is refused, never stored without its

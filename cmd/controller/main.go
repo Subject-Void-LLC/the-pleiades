@@ -1090,7 +1090,7 @@ func main() {
 	}
 
 	projectStore := project.NewEntStore(client, sourcePolicy, project.WithOwner(members.id()))
-	projectSyncer := project.NewGitSyncer(projectRoot(), projectAuth{credentialResolver}, sourcePolicy)
+	projectSyncer := project.NewGitSyncer(projectRoot(), projectAuth{resolver: credentialResolver, owners: credentialStore}, sourcePolicy)
 
 	// projectRunner clones asynchronously, so a slow fetch no longer holds a
 	// page or an API call open while it runs. RecoverInterrupted clears any
@@ -2013,42 +2013,4 @@ func projectRoot() string {
 		return dir
 	}
 	return "/var/lib/pleiades/projects"
-}
-
-// projectAuth resolves a project's credential into the values one clone
-// needs.
-//
-// It maps AWX's Source Control input names, which is the vocabulary
-// internal/credtype/managed/types/scm.json declares and an AWX export
-// already uses. A credential of some other type is not rejected: an ssh
-// type carries the same ssh_key_data and username, and refusing it would
-// be this bridge inventing a rule the credential system does not have.
-type projectAuth struct{ resolver resolve.Resolver }
-
-// ResolveAuth reads one credential's real values.
-func (a projectAuth) ResolveAuth(ctx context.Context, credentialID int) (project.Auth, error) {
-	if credentialID == 0 {
-		return project.Auth{}, nil
-	}
-	found, err := a.resolver.Resolve(ctx, []int{credentialID})
-	if err != nil {
-		// Deliberately not wrapped: the resolver's error can name the
-		// credential and its inputs, and this string is on its way to a
-		// stored sync_error that an operator reads.
-		return project.Auth{}, fmt.Errorf("the project's credential could not be read")
-	}
-	if len(found) != 1 {
-		return project.Auth{}, fmt.Errorf("the project's credential could not be read")
-	}
-
-	in := found[0].Inputs
-	auth := project.Auth{
-		Username:   in[project.InputUsername],
-		Password:   in[project.InputPassword],
-		Passphrase: in[project.InputPassphrase],
-	}
-	if key := in[project.InputPrivateKey]; key != "" {
-		auth.PrivateKey = []byte(key)
-	}
-	return auth, nil
 }
