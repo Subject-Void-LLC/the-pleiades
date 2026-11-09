@@ -16,6 +16,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/clispec"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/redact"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/termsafe"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/containerengine"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/kubeapi"
 )
@@ -90,7 +91,7 @@ func run(args []string) int {
 	containerengine.AllowLocalCarrier()
 	args, err := applyGlobalOptions(args)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "pleiades: %v\n", err)
+		printError(err)
 		return 2
 	}
 	if len(args) == 0 {
@@ -117,7 +118,7 @@ func run(args []string) int {
 		// error's text, or both, and asking is not a failure.
 		if asksHelp(args[1:]) && (errors.Is(err, flag.ErrHelp) || errors.Is(err, errMissingPositional) || strings.HasPrefix(err.Error(), "usage: ")) {
 			if usage := helpUsage(err); usage != "" {
-				fmt.Fprintln(os.Stderr, usage)
+				fmt.Fprintln(os.Stderr, termsafe.Escape(usage))
 			}
 			return 0
 		}
@@ -128,7 +129,7 @@ func run(args []string) int {
 		if errors.Is(err, errUnknownCommand) {
 			return 2
 		}
-		fmt.Fprintf(os.Stderr, "pleiades: %v\n", err)
+		printError(err)
 		var coded exitCoder
 		if errors.As(err, &coded) {
 			return coded.ExitCode()
@@ -150,6 +151,15 @@ func asksHelp(args []string) bool {
 		}
 	}
 	return false
+}
+
+// printError writes a command's error to stderr. An error can carry text
+// another system wrote (a device name a sync source sent, a remote
+// command's message), so every character a terminal would act on is
+// escaped visibly; plain text, tabs and newlines print as they are, so an
+// error of several lines still reads as lines.
+func printError(err error) {
+	fmt.Fprintf(os.Stderr, "pleiades: %s\n", termsafe.Escape(err.Error()))
 }
 
 // helpUsage is the usage line a command's error carries when it was asked

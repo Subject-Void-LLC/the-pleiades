@@ -1,0 +1,1 @@
+Low severity: `pleiades` printed a failed command's error as written, and some errors carry text another system sent, such as a device name from an inventory sync source, so that source could send escape sequences to the operator's terminal. Every error is now printed with the characters a terminal acts on escaped.
