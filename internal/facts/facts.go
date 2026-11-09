@@ -118,13 +118,27 @@ func Hash(key string, value any) (string, error) {
 }
 
 // ValidKey reports whether key may name a new fact: well formed
-// (wellFormedKey), so it reads the same in a report, a URL and a file, and
-// not "." or "..". A key is the last segment of its history's URL,
-// /inventory/devices/{name}/facts/{key}, and no URL can carry either of
-// those as a segment (internal/recordname), so a fact named one could be stored
-// but never read back by its address.
+// (wellFormedKey), so it reads the same in a report, a URL and a file, not
+// "." or "..", and holding no character that would keep it from showing as
+// itself (recordname.ShowsAsItself), the rule a device's name is held to. A
+// key is the last segment of its history's URL,
+// /inventory/devices/{name}/facts/{key}, and no URL can carry "." or ".." as
+// a segment (internal/recordname), so a fact named one could be stored but
+// never read back by its address.
+//
+// ShowsAsItself reads Go's unicode tables, so only a new fact is held to
+// ValidKey: a reader holds a stored key to wellFormedKey alone (LESSONS 415).
 func ValidKey(key string) bool {
-	return wellFormedKey(key) && recordname.Addressable(key)
+	return wellFormedKey(key) && recordname.Addressable(key) && recordname.ShowsAsItself(key) == nil
+}
+
+// ReadableKey reports whether key has the shape every stored key has had
+// (wellFormedKey), the rule a reader asks of a key it is given to look up,
+// such as the {key} of a fact's history. It is never ValidKey, which a
+// release or a Go upgrade may grow: a fact stored under a key ValidKey now
+// refuses must stay readable by its address (LESSONS 415).
+func ReadableKey(key string) bool {
+	return wellFormedKey(key)
 }
 
 // wellFormedKey is the shape every stored key has had: non-empty, within

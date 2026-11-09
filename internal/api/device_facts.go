@@ -39,7 +39,10 @@ func (h *DeviceHandler) Facts(w http.ResponseWriter, r *http.Request) {
 // FactHistory serves GET /inventory/devices/{name}/facts/{key}.
 func (h *DeviceHandler) FactHistory(w http.ResponseWriter, r *http.Request) {
 	key, err := PathParam(r, "key")
-	if err != nil || !facts.ValidKey(key) {
+	// Held to the shape a stored key has, never to what a new fact may be
+	// named (facts.ValidKey), so a key stored before that rule grew is
+	// still read back (LESSONS 415).
+	if err != nil || !facts.ReadableKey(key) {
 		// Not echoed: it is the caller's text (FAILURE_PATTERNS.md #72).
 		RespondError(w, r, http.StatusBadRequest, "invalid fact name")
 		return

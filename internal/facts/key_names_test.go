@@ -81,17 +81,16 @@ func TestFileStore_StillReadsADotKeyAnEarlierReleaseStored(t *testing.T) {
 	}
 }
 
-// TestValidKey_RefusesEveryCharacterADeviceNameCannotHold sweeps the code
-// points where recordname.Check's refused ranges lie (the Basic
-// Multilingual Plane, the next two planes, and the tag plane) and holds
-// ValidKey to refusing a key wherever Check refuses a device name holding
-// the same character. A fact key is printed where a device name is, so it
-// needs the same rule, and it already has a stricter one: wellFormedKey
-// takes printable characters only, and no space. This pins that, so a
-// later change to either rule cannot quietly leave keys behind names.
+// TestValidKey_RefusesEveryCharacterADeviceNameCannotHold sweeps every
+// code point and holds ValidKey to refusing a key wherever recordname.Check
+// refuses a device name holding the same character. A fact key is printed
+// where a device name is, so it needs the same rule: ValidKey asks
+// recordname.ShowsAsItself as Check does, on top of wellFormedKey's
+// printable characters and no space. This pins that, so a later change to
+// either rule cannot quietly leave keys behind names.
 func TestValidKey_RefusesEveryCharacterADeviceNameCannotHold(t *testing.T) {
 	refused := 0
-	for _, span := range [][2]rune{{0, 0x2FFFF}, {0xE0000, 0xE0FFF}} {
+	for _, span := range [][2]rune{{0, 0x10FFFF}} {
 		for r := span[0]; r <= span[1]; r++ {
 			if r >= 0xD800 && r <= 0xDFFF {
 				continue // a surrogate is no character; string(r) is U+FFFD

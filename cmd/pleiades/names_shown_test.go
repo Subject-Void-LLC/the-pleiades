@@ -18,8 +18,9 @@ import (
 )
 
 // TestAddHost_RefusesANameThatWouldNotShowAsItself: each name is refused
-// with the reason naming the character and nothing is written; a name in a
-// real script with the joiner its spelling needs is added.
+// with the reason naming the character and nothing is written, the Persian
+// one holding the zero width non-joiner among them; the same word in the
+// same script without it is added.
 func TestAddHost_RefusesANameThatWouldNotShowAsItself(t *testing.T) {
 	dir := t.TempDir()
 	if err := runInit([]string{"--dir", dir}); err != nil {
@@ -30,6 +31,8 @@ func TestAddHost_RefusesANameThatWouldNotShowAsItself(t *testing.T) {
 		{"sw\x1b[2J1", "U+001B at byte 2"},
 		{"abc" + string(rune(0x202E)) + "def", "U+202E at byte 3"},
 		{"web1" + string(rune(0x200B)), "U+200B at byte 4"},
+		{"web" + string(rune(0x00A0)) + "1", "U+00A0 at byte 3"},
+		{"sw-" + string([]rune{0x0645, 0x06CC, 0x200C, 0x062E}), "U+200C at byte 7"},
 	} {
 		err := runAddHost([]string{tc.name, "--dir", dir, "--type", "linux_server", "--set", "host=10.0.0.1"})
 		if err == nil || !strings.Contains(err.Error(), "host not added") || !strings.Contains(err.Error(), tc.says) {
@@ -39,7 +42,7 @@ func TestAddHost_RefusesANameThatWouldNotShowAsItself(t *testing.T) {
 	if names := writtenHostNames(t, dir); len(names) != 0 {
 		t.Errorf("refused add-hosts wrote %v", names)
 	}
-	persian := "sw-" + string([]rune{0x0645, 0x06CC, 0x200C, 0x062E})
+	persian := "sw-" + string([]rune{0x0645, 0x06CC, 0x062E})
 	if err := runAddHost([]string{persian, "--dir", dir, "--type", "linux_server", "--set", "host=10.0.0.1"}); err != nil {
 		t.Fatalf("add-host %q = %v, want nil", persian, err)
 	}

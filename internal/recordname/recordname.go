@@ -72,13 +72,15 @@ func Segment(name string, static map[string]bool) string {
 // Check returns nil for a name a record may be created under, and otherwise
 // an error that says why and matches ErrUnusable. It refuses what
 // Addressable refuses, and a name that would not show as itself
-// (shownAsItself): one holding invalid UTF-8, a control code, a line
-// break, a direction control or an invisible character listed there.
+// (ShowsAsItself): one holding invalid UTF-8, a control code, a line
+// break, a format character, an invisible or blank character, a space
+// other than U+0020, or spaces alone.
 //
 // Check is for the moment a name is chosen: a create, an import, a sync
-// adding a record. A reader never holds a stored name to it. The rule may
-// grow in a later release, and a record stored before must keep being
-// read, changed and deleted (LESSONS 415).
+// adding a record. A reader never holds a stored name to it. The rule
+// reads Go's unicode tables, so it may grow with a Go release as well as
+// with a release of this program, and a record stored before must keep
+// being read, changed and deleted (LESSONS 415).
 //
 // Its message quotes the name only when it is "." or "..", and otherwise
 // names a character by its code point and byte offset, so it never echoes
@@ -90,7 +92,7 @@ func Check(name string) error {
 	case ".", "..":
 		return unusable{msg: fmt.Sprintf("the name %q cannot be used: a URL reads \".\" and \"..\" as steps between folders, however they are escaped, so no address could reach the record", name)}
 	}
-	if err := shownAsItself(name); err != nil {
+	if err := ShowsAsItself(name); err != nil {
 		return unusable{msg: "the name cannot be used: " + err.Error() + " (a name is printed wherever the record is named, so it must be one line that shows as itself)"}
 	}
 	return nil

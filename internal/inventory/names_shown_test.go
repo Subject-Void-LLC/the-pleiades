@@ -28,7 +28,8 @@ import (
 // unshownNames are device names recordname.Check refuses for what they
 // hold rather than for what they are: a newline that would print a line of
 // its own, an escape sequence, a direction override, a zero width space, a
-// byte order mark, a tag character and a byte that is not UTF-8.
+// byte order mark, a tag character, a byte that is not UTF-8, a no-break
+// space and a zero width non-joiner.
 func unshownNames() []string {
 	return []string{
 		"sw2\npleiades: approved",
@@ -38,13 +39,15 @@ func unshownNames() []string {
 		string(rune(0xFEFF)) + "web1",
 		"web1" + string(rune(0xE0041)),
 		"sw\xff1",
+		"web" + string(rune(0x00A0)) + "1",
+		"sw-" + string([]rune{0x0645, 0x06CC, 0x200C, 0x062E}),
 	}
 }
 
 // TestRepositoryConformance_CreateRefusesANameThatWouldNotShowAsItself
 // proves both stores refuse each name with the error that says why, and
-// store nothing under it, while a name in a real script beside them is
-// created.
+// store nothing under it, while a name in a real script beside them, with
+// no joiner, is created.
 func TestRepositoryConformance_CreateRefusesANameThatWouldNotShowAsItself(t *testing.T) {
 	for _, backend := range repositoryBackends() {
 		t.Run(backend.name, func(t *testing.T) {
@@ -62,9 +65,9 @@ func TestRepositoryConformance_CreateRefusesANameThatWouldNotShowAsItself(t *tes
 					t.Errorf("GetByName(%q) after a refused Create = %v, want ErrItemNotFound", name, err)
 				}
 			}
-			persian := "sw-" + string([]rune{0x0645, 0x06CC, 0x200C, 0x062E})
+			persian := "sw-" + string([]rune{0x0645, 0x06CC, 0x062E})
 			if err := repo.Create(ctx, newConformanceItem(t, persian, map[string]interface{}{"host": "10.0.1.99"})); err != nil {
-				t.Fatalf("Create(%q) = %v, want nil: the zero width non-joiner is part of the word", persian, err)
+				t.Fatalf("Create(%q) = %v, want nil", persian, err)
 			}
 		})
 	}

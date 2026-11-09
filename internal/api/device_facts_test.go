@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -110,6 +111,25 @@ func TestDeviceFacts_ReadsByDeviceIDAndAnswersEachOutcome(t *testing.T) {
 	}
 	if rr := factsGet(factsRouter(t, &stubDeviceRepo{item: item}, nil), "/inventory/devices/web1/facts"); rr.Code != http.StatusNotImplemented {
 		t.Errorf("no reader: %d", rr.Code)
+	}
+}
+
+// TestDeviceFactHistory_ReadsAKeyANewFactMayNotTake: a key stored before the
+// name rule, holding the Hangul filler U+3164 (a printable letter, so well
+// formed, which a new fact may no longer take), is still read back by its
+// address: a reader holds a stored key to the shape every stored key has
+// had, never to the rule a new one is held to (LESSONS 415).
+func TestDeviceFactHistory_ReadsAKeyANewFactMayNotTake(t *testing.T) {
+	key := "pkg.k" + string(rune(0x3164)) + "1"
+	if facts.ValidKey(key) {
+		t.Fatalf("ValidKey(%q) = true; the test needs a key a new fact may not take", key)
+	}
+	item := &inventorytest.Stub{StubID: "8d1e3c2c-0670-40cc-a914-e1194ff5857e", StubName: "web1"}
+	reader := &factReader{}
+	router := factsRouter(t, &stubDeviceRepo{item: item}, reader)
+	rr := factsGet(router, "/inventory/devices/web1/facts/"+url.PathEscape(key))
+	if rr.Code != http.StatusOK || reader.asked != string(item.ID())+"/"+key {
+		t.Errorf("history of a stored key ValidKey refuses: %d %s (asked %q)", rr.Code, rr.Body.String(), reader.asked)
 	}
 }
 
