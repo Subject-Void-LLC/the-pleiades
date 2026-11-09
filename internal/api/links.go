@@ -115,12 +115,10 @@ func paramKey(seg string) string {
 	return key
 }
 
-// samePrefix reports whether two patterns' leading segments name the same
-// route node: equal fixed segments, and a parameter beside a parameter.
+// samePrefix reports whether two patterns' leading segments, of one length
+// (staticSiblings slices both at the same place), name the same route node:
+// equal fixed segments, and a parameter beside a parameter.
 func samePrefix(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
 	for i := range a {
 		if isParamSegment(a[i]) && isParamSegment(b[i]) {
 			continue

@@ -58,3 +58,30 @@ func TestHrefFor_ALinkToAValueEqualToAFixedSegmentReachesItsOwnRoute(t *testing.
 		t.Errorf("a name beside the fixed segment links to %s, want it as it is", got)
 	}
 }
+
+// TestStaticSiblings_ReadsEachShapeOfPattern tables the derivation: a
+// sibling under a parameter of the prefix, a parameter with a pattern, and
+// what is not a sibling (a deeper fixed segment, another prefix).
+func TestStaticSiblings_ReadsEachShapeOfPattern(t *testing.T) {
+	statics := staticSiblings([]string{
+		"/devices/{name}/facts/{key}",
+		"/devices/{device}/facts/summary",
+		"/things/{id:[0-9]+}",
+		"/things/new",
+		"/things/new/deeper",
+		"/other/{id}",
+	})
+	for _, tc := range []struct {
+		pattern, key, sibling string
+		want                  bool
+	}{
+		{"/devices/{name}/facts/{key}", "key", "summary", true},
+		{"/devices/{name}/facts/{key}", "name", "summary", false},
+		{"/things/{id:[0-9]+}", "id", "new", true},
+		{"/other/{id}", "id", "new", false},
+	} {
+		if got := statics[tc.pattern][tc.key][tc.sibling]; got != tc.want {
+			t.Errorf("staticSiblings: %s's {%s} has sibling %q = %v, want %v", tc.pattern, tc.key, tc.sibling, got, tc.want)
+		}
+	}
+}
