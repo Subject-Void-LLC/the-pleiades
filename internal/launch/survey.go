@@ -228,6 +228,16 @@ func (s Survey) Validate() error {
 		}
 		seen[variable] = true
 
+		// A question with nothing to read is one a form asks blank. The
+		// database refuses it too (survey_question.label is NotEmpty), and
+		// before this check that refusal reached a caller as a 500 from the
+		// insert rather than as this 400. Spaces alone are refused for the
+		// same reason, though the database would store them.
+		if strings.TrimSpace(q.Label) == "" {
+			return fmt.Errorf("%w: question %q has no label, so the form would ask it with nothing to read",
+				ErrInvalidSurvey, variable)
+		}
+
 		if !validQuestionTypes[q.Type] {
 			return fmt.Errorf("%w: question %q has unknown type %q", ErrInvalidSurvey, variable, q.Type)
 		}

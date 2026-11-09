@@ -173,9 +173,9 @@ func FuzzSurveyAnswers(f *testing.F) {
 			Survey: launch.Survey{
 				Enabled: true,
 				Questions: []launch.Question{
-					{Variable: "version", Type: launch.QuestionChoice, Required: true,
+					{Variable: "version", Label: "VERSION", Type: launch.QuestionChoice, Required: true,
 						Choices: []string{"17.3", "17.6"}},
-					{Variable: "batch", Type: launch.QuestionInteger, Min: 1, Max: 50},
+					{Variable: "batch", Label: "BATCH", Type: launch.QuestionInteger, Min: 1, Max: 50},
 				},
 			},
 		}

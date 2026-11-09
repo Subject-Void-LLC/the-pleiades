@@ -3,8 +3,13 @@ package launch_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
+	_ "github.com/Subject-Void-LLC/the-pleiades/internal/ent"
+	entlaunchable "github.com/Subject-Void-LLC/the-pleiades/internal/ent/launchable"
+	entsurveyquestion "github.com/Subject-Void-LLC/the-pleiades/internal/ent/surveyquestion"
+	enttemplate "github.com/Subject-Void-LLC/the-pleiades/internal/ent/template"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/launch"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/launch/kinds"
 )
@@ -63,6 +68,12 @@ func TestTemplate_RefusesWhatCouldNeverBeLaunched(t *testing.T) {
 			tm.Prompts = []string{"colour"}
 			return tm
 		},
+		// The launchable row copies the name and holds 253 bytes, so a longer
+		// one failed at the insert and answered 500.
+		"a name longer than a launchable row holds": func(tm launch.Template) launch.Template {
+			tm.Name = strings.Repeat("n", launch.MaxNameBytes+1)
+			return tm
+		},
 	}
 
 	for name, mutate := range cases {
@@ -78,39 +89,63 @@ func TestTemplate_RefusesWhatCouldNeverBeLaunched(t *testing.T) {
 	}
 }
 
+// TestSurvey_RefusesWhatNobodyCouldAnswerCorrectly pins each refusal to its
+// own rule by the message it gives. Every question but the one at fault is
+// otherwise valid, labels included: a case that only checked for
+// ErrInvalidSurvey passed just as well when an earlier rule refused it first,
+// and once a question needed a label every label-less case here did exactly
+// that while the rule it named went untested.
 func TestSurvey_RefusesWhatNobodyCouldAnswerCorrectly(t *testing.T) {
-	cases := map[string]launch.Survey{
-		"a question writing nowhere": {Enabled: true, Questions: []launch.Question{
-			{Variable: " ", Type: launch.QuestionText},
-		}},
-		"two questions writing to one variable": {Enabled: true, Questions: []launch.Question{
-			{Variable: "version", Type: launch.QuestionText},
-			{Variable: "version", Type: launch.QuestionInteger},
-		}},
-		"an unknown question type": {Enabled: true, Questions: []launch.Question{
-			{Variable: "version", Type: launch.QuestionType("colour")},
-		}},
-		"a choice between nothing": {Enabled: true, Questions: []launch.Question{
-			{Variable: "version", Type: launch.QuestionChoice},
-		}},
-		"a default outside its own choices": {Enabled: true, Questions: []launch.Question{
-			{Variable: "version", Type: launch.QuestionChoice, Choices: []string{"a", "b"}, Default: "c"},
-		}},
+	cases := map[string]struct {
+		survey launch.Survey
+		want   string
+	}{
+		"a question writing nowhere": {launch.Survey{Enabled: true, Questions: []launch.Question{
+			{Variable: " ", Label: "NOWHERE", Type: launch.QuestionText},
+		}}, "writes its answer nowhere"},
+		"two questions writing to one variable": {launch.Survey{Enabled: true, Questions: []launch.Question{
+			{Variable: "version", Label: "VERSION", Type: launch.QuestionText},
+			{Variable: "version", Label: "VERSION AGAIN", Type: launch.QuestionInteger},
+		}}, "both write to"},
+		"an unknown question type": {launch.Survey{Enabled: true, Questions: []launch.Question{
+			{Variable: "version", Label: "VERSION", Type: launch.QuestionType("colour")},
+		}}, "unknown type"},
+		"a choice between nothing": {launch.Survey{Enabled: true, Questions: []launch.Question{
+			{Variable: "version", Label: "VERSION", Type: launch.QuestionChoice},
+		}}, "choice between nothing"},
+		"a default outside its own choices": {launch.Survey{Enabled: true, Questions: []launch.Question{
+			{Variable: "version", Label: "VERSION", Type: launch.QuestionChoice, Choices: []string{"a", "b"}, Default: "c"},
+		}}, "not one of its choices"},
 		// A default password is a credential sitting in the template
 		// record, readable by anybody who may edit the template and copied
 		// into every duplicate of it.
-		"a password with a default": {Enabled: true, Questions: []launch.Question{
-			{Variable: "token", Type: launch.QuestionPassword, Default: "hunter2"},
-		}},
-		"a minimum above its maximum": {Enabled: true, Questions: []launch.Question{
-			{Variable: "batch", Type: launch.QuestionInteger, Min: 50, Max: 10},
-		}},
+		"a password with a default": {launch.Survey{Enabled: true, Questions: []launch.Question{
+			{Variable: "token", Label: "TOKEN", Type: launch.QuestionPassword, Default: "hunter2"},
+		}}, "must not carry a default"},
+		"a minimum above its maximum": {launch.Survey{Enabled: true, Questions: []launch.Question{
+			{Variable: "batch", Label: "BATCH", Type: launch.QuestionInteger, Min: 50, Max: 10},
+		}}, "minimum above its maximum"},
+		// A form would ask it with nothing to read, and the database refuses
+		// it (survey_question.label is NotEmpty), which reached a caller as a
+		// 500 rather than as this refusal. Named by its variable, not the
+		// labelled question beside it.
+		"a question with no label": {launch.Survey{Enabled: true, Questions: []launch.Question{
+			{Variable: "batch", Label: "BATCH", Type: launch.QuestionInteger},
+			{Variable: "reason", Type: launch.QuestionText},
+		}}, `question "reason" has no label`},
+		"a question whose label is only spaces": {launch.Survey{Enabled: true, Questions: []launch.Question{
+			{Variable: "reason", Label: "  ", Type: launch.QuestionText},
+		}}, `question "reason" has no label`},
 	}
 
-	for name, survey := range cases {
+	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			if err := survey.Validate(); !errors.Is(err, launch.ErrInvalidSurvey) {
-				t.Errorf("Validate returned %v for %s, want ErrInvalidSurvey", err, name)
+			err := tc.survey.Validate()
+			if !errors.Is(err, launch.ErrInvalidSurvey) {
+				t.Fatalf("Validate returned %v for %s, want ErrInvalidSurvey", err, name)
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("Validate refused %s with %q, want the rule saying %q", name, err, tc.want)
 			}
 		})
 	}
@@ -277,5 +312,26 @@ func TestDescriptor_NormalizeIsTheOneDefinitionOfWhatAFieldAccepts(t *testing.T)
 	}
 	if len(ignored) != 1 || ignored[0].Name != "forks" {
 		t.Fatalf("Resolve reported %+v for a value Normalize refuses, want forks alone", ignored)
+	}
+}
+
+// TestMaxNameBytes_IsTheLaunchableRowsOwnBound holds launch.MaxNameBytes to
+// the bound the database enforces on the launchable row that copies a
+// template's name. internal/launch cannot read the ent schema's MaxLen, so
+// this is what keeps the two in step: if the schema's bound moves, this
+// fails instead of a write answering 500 again.
+func TestMaxNameBytes_IsTheLaunchableRowsOwnBound(t *testing.T) {
+	if err := entlaunchable.NameValidator(strings.Repeat("n", launch.MaxNameBytes)); err != nil {
+		t.Errorf("the launchable row refuses a name of launch.MaxNameBytes (%d) bytes: %v", launch.MaxNameBytes, err)
+	}
+	if err := entlaunchable.NameValidator(strings.Repeat("n", launch.MaxNameBytes+1)); err == nil {
+		t.Errorf("the launchable row accepts a name of %d bytes, so launch.MaxNameBytes is tighter than it", launch.MaxNameBytes+1)
+	}
+
+	// The question label and the template name are NotEmpty in the
+	// database, and Validate refuses them blank: a blank one passing
+	// Validate is what answered 500.
+	if entsurveyquestion.LabelValidator("") == nil || enttemplate.NameValidator("") == nil {
+		t.Error("the database no longer refuses an empty label or name; Validate's refusals may be stricter than it")
 	}
 }
