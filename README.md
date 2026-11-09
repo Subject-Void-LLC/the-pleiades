@@ -1,6 +1,16 @@
 # The Pleiades
 
-An object-oriented, strongly typed automation mesh that also runs Ansible. Ansible
+**The Pleiades brings software engineering discipline to infrastructure operations.**
+
+Validate before execution.\
+Predict before change.\
+Record rollback before risk.\
+Run from a single binary.\
+Keep credentials out of AI hands.
+
+Because operational uncertainty is not success.
+
+It is an object-oriented, strongly typed automation mesh that also runs Ansible. Ansible
 support is the migration on-ramp, not the destination: a workload lands unchanged,
 then converts to native typed collections at its own pace.
 
