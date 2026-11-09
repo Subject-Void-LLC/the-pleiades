@@ -139,7 +139,8 @@ type projectListDTO struct {
 	Projects []projectDTO `json:"projects"`
 }
 
-// projectWriteDTO is a create or update body.
+// projectWriteDTO is the body POST /projects accepts. PATCH /projects/{id}
+// takes projectPatchDTO instead, which is partial in every field.
 type projectWriteDTO struct {
 	Name         string `json:"name"`
 	Description  string `json:"description"`
@@ -215,8 +216,8 @@ func (h *ProjectHandler) Create(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &body) {
 		return
 	}
-	p, ok := h.fromBody(w, r, body)
-	if !ok {
+	p := body.project()
+	if !h.validProject(w, r, &p) {
 		return
 	}
 	if p.OrganizationID < 1 {
@@ -234,38 +235,6 @@ func (h *ProjectHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 	dto := toProjectDTO(created)
 	Respond(w, r, http.StatusCreated, &dto)
-}
-
-// Update changes a project's own fields, never its sync state.
-func (h *ProjectHandler) Update(w http.ResponseWriter, r *http.Request) {
-	id, ok := h.parseID(w, r)
-	if !ok {
-		return
-	}
-	var body projectWriteDTO
-	if !decodeJSON(w, r, &body) {
-		return
-	}
-	p, ok := h.fromBody(w, r, body)
-	if !ok {
-		return
-	}
-	p.ID = id
-	if !h.checkCredential(w, r, p.CredentialID) {
-		return
-	}
-
-	if err := h.projects.Update(r.Context(), p); err != nil {
-		h.respondStoreError(w, r, "update", err)
-		return
-	}
-	updated, err := h.projects.Get(r.Context(), id)
-	if err != nil {
-		h.respondStoreError(w, r, "read", err)
-		return
-	}
-	dto := toProjectDTO(updated)
-	Respond(w, r, http.StatusOK, &dto)
 }
 
 // Delete removes a project, leaving its working tree on disk.
@@ -447,20 +416,27 @@ func (h *ProjectHandler) respondSyncError(w http.ResponseWriter, r *http.Request
 	}
 }
 
-// fromBody validates a write body into a domain project.
-func (h *ProjectHandler) fromBody(w http.ResponseWriter, r *http.Request, body projectWriteDTO) (project.Project, bool) {
-	p := project.Project{
-		Name:           strings.TrimSpace(body.Name),
-		Description:    strings.TrimSpace(body.Description),
-		OrganizationID: body.Organization,
-		SCMType:        project.SCMType(strings.TrimSpace(body.SCMType)),
-		SCMURL:         strings.TrimSpace(body.SCMURL),
-		SCMBranch:      strings.TrimSpace(body.SCMBranch),
-		CredentialID:   body.Credential,
+// project builds the domain value from a create body, trimmed as the store
+// keeps it.
+func (d projectWriteDTO) project() project.Project {
+	return project.Project{
+		Name:           strings.TrimSpace(d.Name),
+		Description:    strings.TrimSpace(d.Description),
+		OrganizationID: d.Organization,
+		SCMType:        project.SCMType(strings.TrimSpace(d.SCMType)),
+		SCMURL:         strings.TrimSpace(d.SCMURL),
+		SCMBranch:      strings.TrimSpace(d.SCMBranch),
+		CredentialID:   d.Credential,
 	}
+}
+
+// validProject holds a project about to be saved, created or merged by a
+// PATCH, to the rules every saved project is held to, defaulting an empty
+// scm_type to git. It answers 400 and returns false when p breaks one.
+func (h *ProjectHandler) validProject(w http.ResponseWriter, r *http.Request, p *project.Project) bool {
 	if p.Name == "" {
 		RespondError(w, r, http.StatusBadRequest, "name is required")
-		return project.Project{}, false
+		return false
 	}
 	if p.SCMType == "" {
 		p.SCMType = project.SCMGit
@@ -469,7 +445,7 @@ func (h *ProjectHandler) fromBody(w http.ResponseWriter, r *http.Request, body p
 	case project.SCMGit, project.SCMArchive, project.SCMManual:
 	default:
 		RespondError(w, r, http.StatusBadRequest, "scm_type must be one of git, archive or manual")
-		return project.Project{}, false
+		return false
 	}
 	// Refused here rather than at sync time, for the reason the UI's own
 	// binder gives: a git project with no URL can never do the one thing it
@@ -477,9 +453,9 @@ func (h *ProjectHandler) fromBody(w http.ResponseWriter, r *http.Request, body p
 	// be told.
 	if p.SCMType == project.SCMGit && p.SCMURL == "" {
 		RespondError(w, r, http.StatusBadRequest, "a git project needs scm_url")
-		return project.Project{}, false
+		return false
 	}
-	return p, true
+	return true
 }
 
 // parseID reads the path parameter.

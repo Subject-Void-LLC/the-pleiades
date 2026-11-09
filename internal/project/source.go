@@ -165,9 +165,11 @@ func HasEmbeddedSecret(raw string) bool {
 
 // RedactedSourceURL is raw as it may be shown: a URL carrying a credential
 // (HasEmbeddedSecret) has its userinfo replaced by "redacted", so a row
-// stored before the rule never shows its token, and saving the shown value
-// back is refused by the same rule rather than silently dropping the
-// credential the sync relied on. A URL net/url cannot read is withheld whole.
+// stored before the rule never shows its token. Saving the shown value back
+// is an echo that keeps the stored URL (KeepEchoedSourceURL), which for a git
+// project the store then refuses for the credential it carries, rather than
+// silently dropping the credential the sync relied on. A URL net/url cannot
+// read is withheld whole.
 func RedactedSourceURL(raw string) string {
 	if !HasEmbeddedSecret(raw) {
 		return raw
@@ -178,6 +180,26 @@ func RedactedSourceURL(raw string) string {
 	}
 	u.User = url.User("redacted")
 	return u.String()
+}
+
+// KeepEchoedSourceURL is the URL an edit saves when it submits submitted
+// over stored: stored when submitted is exactly what RedactedSourceURL shows
+// for stored, and submitted otherwise.
+//
+// Every edit surface shows the URL redacted (the API's GET, the UI's edit
+// form), so a client that reads a project, changes one field and sends the
+// rest back sends the redacted form. Read as a new URL it replaced the stored
+// one with "https://redacted@...", or with the withheld placeholder, which
+// for a project the store does not dial (manual, archive) was saved as it
+// was. A URL with no credential redacts to itself, so for one of those this
+// is plain equality, and any other value is a real change. Nothing here
+// reads or returns the stored URL anywhere but into the record being saved,
+// so it never reaches an error or a log.
+func KeepEchoedSourceURL(stored, submitted string) string {
+	if submitted == RedactedSourceURL(stored) {
+		return stored
+	}
+	return submitted
 }
 
 // embeddedSecretWarning is the line a sync writes to its log for a project
