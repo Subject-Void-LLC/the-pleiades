@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/syncplugin"
 )
 
 // TestRunInventorySync_RefusesANameNoURLCarries syncs a Catalyst Center
@@ -52,6 +53,30 @@ func TestRunInventorySync_RefusesANameNoURLCarries(t *testing.T) {
 	for _, name := range []string{".", ".."} {
 		if written[name] {
 			t.Errorf("the refused record %q was written to the inventory", name)
+		}
+	}
+}
+
+// TestPrintReconciliation_EscapesWhatTheUpstreamWrote: the review list shows
+// every name and reason a sync source sent with nothing a terminal acts on.
+// A hostname holding an ANSI escape, one holding a direction override and a
+// quarantine reason quoting an upstream software type each reach the
+// terminal escaped, and an empty name shows as "".
+func TestPrintReconciliation_EscapesWhatTheUpstreamWrote(t *testing.T) {
+	report := syncplugin.Reconciliation{Results: []syncplugin.DeviceResult{
+		{Name: "sw\x1b[2Jevil", Outcome: syncplugin.OutcomeQuarantined, Reason: "no classification rule for software type \"\x1b[31mIOS\""},
+		{Name: "abc\u202edef", Outcome: syncplugin.OutcomeConflict, Reason: "device is owned by sync plugin \"netbox\""},
+		{Name: "", Outcome: syncplugin.OutcomeRefused, Reason: "a name is required"},
+	}}
+	out := captureStdout(t, func() { printReconciliation(report) })
+	for _, raw := range []string{"\x1b", "\u202e"} {
+		if strings.Contains(out, raw) {
+			t.Errorf("the review list reached the terminal with %q raw:\n%q", raw, out)
+		}
+	}
+	for _, want := range []string{`"sw\x1b[2Jevil"`, `"abc\u202edef"`, `""`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the review list does not show %s:\n%s", want, out)
 		}
 	}
 }

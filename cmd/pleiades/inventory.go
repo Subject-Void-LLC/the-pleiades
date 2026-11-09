@@ -19,6 +19,7 @@ import (
 	inv "github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/inventory/plugins"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/syncplugin"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/termsafe"
 )
 
 // inventoryCommands maps each `inventory` subcommand to its handler,
@@ -230,6 +231,8 @@ func runInventorySync(args []string) error {
 // record is one whose name no URL can carry ("", "." or ".."), and it is
 // counted on the summary line only when there is one, so the common line
 // reads as it always has.
+// Each name is shown quoted and each reason escaped, since both are the
+// upstream source's text.
 //
 // A read-only sync gets the same list. It used to return after its summary,
 // so the preview an operator runs before letting a sync write was the one
@@ -274,12 +277,11 @@ func printReconciliation(report syncplugin.Reconciliation) {
 	})
 	fmt.Println("\ndevices needing review:")
 	for _, res := range needsAttention {
-		name := res.Name
-		if res.Outcome == syncplugin.OutcomeRefused {
-			// Quoted, so an empty name is a visible "" rather than a blank
-			// column.
-			name = strconv.Quote(name)
-		}
-		fmt.Printf("  %-28s %-12s %s\n", name, res.Outcome, res.Reason)
+		// Every name and reason here is the upstream source's text (a
+		// hostname, a software type in a quarantine's reason), which a
+		// terminal must not act on: a name is quoted, which escapes a control
+		// character, a direction override and invalid UTF-8 and shows an
+		// empty name as "", and a reason is escaped onto one line.
+		fmt.Printf("  %-28s %-12s %s\n", strconv.Quote(res.Name), res.Outcome, termsafe.EscapeLine(res.Reason))
 	}
 }
