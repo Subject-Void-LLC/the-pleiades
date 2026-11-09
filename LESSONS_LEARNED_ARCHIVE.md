@@ -7760,3 +7760,19 @@ check reads. Hold the value to what no release changes (`CheckDeliveredCollectio
 release data (group routing, a catalog, a reserved namespace, a fact floor) to the process that made it. Where the two
 releases disagree, log the difference at info and store the value as sent. Test it with one task's value fed to every
 store on the receiving side, as `TestStores_KeepTheSameIdentityForOneTask` does.
+
+## 423. Never use git stash to set a file aside in an agent's worktree: the stash list is one list shared by every worktree of the repository, a push with nothing to save makes no entry, and the pop after it takes whatever entry is on top; copy the file aside and restore it with git checkout (the class of LESSONS 268 and FAILURE_PATTERNS 433; FAILURE_PATTERNS 1042) (2026-11-08)
+
+**Why.** Branch `fix/addressable-names`, 2026-11-08. A writer in an agent's worktree ran `git stash push -- <path>` on
+a committed file with no changes. Git saved nothing and made no entry. The `git stash pop` after it popped and dropped
+the repository's only stash, the owner's parked GNS3 work (`e0362a27`), which the handoff said never to drop. It was
+recovered from the unreachable objects with `git stash store` under its original message (FAILURE_PATTERNS 1042).
+
+**What is old and what is new.** FAILURE_PATTERNS 433 and LESSONS 268 say worktrees share branch refs, so an auxiliary
+worktree never switches branches. The stash list is shared the same way, and no record said so. A handoff note that
+names a stash protects it only from a reader, not from a command.
+
+**Rule in practice.** To set a file aside in an agent's worktree, copy it to a path outside the tree, restore the
+committed version with `git checkout -- <path>`, and copy it back when done. Never run `git stash push`, `pop`, `drop`
+or `clear` in an agent's worktree. If a stash entry is lost, look for it in `git fsck --unreachable` output before
+anything runs `git gc`, and store it again with `git stash store -m "<original message>" <sha>`.
