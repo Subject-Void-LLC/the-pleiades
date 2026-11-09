@@ -161,7 +161,7 @@ func Reconcile(
 			// Classify is contractually required to quarantine rather than
 			// error, so an error here is a plugin defect and stopping is
 			// the honest response: continuing would silently skip devices.
-			return report, fmt.Errorf("sync plugin %q: classifying %s: %w", cfg.Name, raw.Name, err)
+			return report, fmt.Errorf("sync plugin %q: classifying %q: %w", cfg.Name, raw.Name, err)
 		}
 
 		if cls.Quarantined() {
@@ -198,7 +198,7 @@ func reconcileOne(
 	existing, err := repo.GetByName(ctx, raw.Name)
 	if err != nil {
 		if !errors.Is(err, inv.ErrItemNotFound) {
-			return "", "", fmt.Errorf("sync plugin %q: loading %s: %w", cfg.Name, raw.Name, err)
+			return "", "", fmt.Errorf("sync plugin %q: loading %q: %w", cfg.Name, raw.Name, err)
 		}
 		return createDevice(ctx, cfg, repo, factory, raw, cls, source)
 	}
@@ -225,7 +225,7 @@ func createDevice(
 ) (Outcome, string, error) {
 	for key := range raw.Properties {
 		if inventory.IsReservedProperty(key) {
-			return "", "", fmt.Errorf("sync plugin %q: %s sets property %s, which only %s writes", cfg.Name, raw.Name, key, inventory.ReservedPropertyWriter(key))
+			return "", "", fmt.Errorf("sync plugin %q: %q sets property %s, which only %s writes", cfg.Name, raw.Name, key, inventory.ReservedPropertyWriter(key))
 		}
 	}
 	rec := raw
@@ -236,13 +236,13 @@ func createDevice(
 
 	item, err := factory.Build(rec)
 	if err != nil {
-		return "", "", fmt.Errorf("sync plugin %q: building %s: %w", cfg.Name, raw.Name, err)
+		return "", "", fmt.Errorf("sync plugin %q: building %q: %w", cfg.Name, raw.Name, err)
 	}
 	if err := repo.Create(ctx, item); err != nil {
 		if errors.Is(err, inv.ErrInventoryReadOnly) {
 			return OutcomeWouldAdd, "inventory is open read-only", nil
 		}
-		return "", "", fmt.Errorf("sync plugin %q: creating %s: %w", cfg.Name, raw.Name, err)
+		return "", "", fmt.Errorf("sync plugin %q: creating %q: %w", cfg.Name, raw.Name, err)
 	}
 	return OutcomeAdded, "", nil
 }
@@ -287,7 +287,7 @@ func updateDevice(
 
 	item, err := factory.Build(rec)
 	if err != nil {
-		return "", "", fmt.Errorf("sync plugin %q: rebuilding %s: %w", cfg.Name, raw.Name, err)
+		return "", "", fmt.Errorf("sync plugin %q: rebuilding %q: %w", cfg.Name, raw.Name, err)
 	}
 
 	for key, upstream := range raw.Properties {
@@ -295,7 +295,7 @@ func updateDevice(
 			continue
 		}
 		if err := item.AddInfo(key, upstream, true); err != nil {
-			return "", "", fmt.Errorf("sync plugin %q: updating %s property %q: %w", cfg.Name, raw.Name, key, err)
+			return "", "", fmt.Errorf("sync plugin %q: updating %q property %q: %w", cfg.Name, raw.Name, key, err)
 		}
 	}
 
@@ -310,7 +310,7 @@ func updateDevice(
 		if errors.Is(err, inv.ErrInventoryReadOnly) {
 			return OutcomeWouldUpdate, "inventory is open read-only", nil
 		}
-		return "", "", fmt.Errorf("sync plugin %q: saving %s: %w", cfg.Name, raw.Name, err)
+		return "", "", fmt.Errorf("sync plugin %q: saving %q: %w", cfg.Name, raw.Name, err)
 	}
 	return OutcomeUpdated, "", nil
 }

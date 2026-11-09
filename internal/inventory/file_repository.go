@@ -119,7 +119,7 @@ func (r *fileRepository) GetGroup(ctx context.Context, sel inventory.Selector) (
 		}
 		item, err := r.factory.Build(rec)
 		if err != nil {
-			return nil, fmt.Errorf("factory failed to build item %s: %w", h.Name, err)
+			return nil, fmt.Errorf("factory failed to build item %q: %w", h.Name, err)
 		}
 		items = append(items, item)
 	}
@@ -183,7 +183,7 @@ func (r *fileRepository) GetByName(ctx context.Context, name string) (inventory.
 		}
 	}
 	if found == nil {
-		return nil, fmt.Errorf("host %s: %w", name, ErrItemNotFound)
+		return nil, fmt.Errorf("host %q: %w", name, ErrItemNotFound)
 	}
 
 	sidecar, err := readSidecar(r.sidecarPath)
@@ -198,7 +198,7 @@ func (r *fileRepository) GetByName(ctx context.Context, name string) (inventory.
 
 	item, err := r.factory.Build(rec)
 	if err != nil {
-		return nil, fmt.Errorf("factory failed to build item %s: %w", name, err)
+		return nil, fmt.Errorf("factory failed to build item %q: %w", name, err)
 	}
 	return item, nil
 }
@@ -295,7 +295,7 @@ func (r *fileRepository) buildRecord(h HostSpec, sidecar sidecarDocument, withHi
 		// work.
 		state, err := inventory.ParseLifecycleState(entry.State)
 		if err != nil {
-			return record.Record{}, fmt.Errorf("host %s: %w", h.Name, err)
+			return record.Record{}, fmt.Errorf("host %q: %w", h.Name, err)
 		}
 		rec.State = state
 	}

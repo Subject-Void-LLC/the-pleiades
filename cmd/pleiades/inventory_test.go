@@ -42,6 +42,14 @@ func fakeController(t *testing.T) *httptest.Server {
 // with devices, a network-device response body.
 func fakeControllerServing(t *testing.T, devices string) *httptest.Server {
 	t.Helper()
+	return fakeControllerAnswering(t, func() string { return devices })
+}
+
+// fakeControllerAnswering is fakeControllerServing answering the device
+// listing with whatever devices returns at the time, so one controller can
+// report a change between two syncs.
+func fakeControllerAnswering(t *testing.T, devices func() string) *httptest.Server {
+	t.Helper()
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -58,7 +66,7 @@ func fakeControllerServing(t *testing.T, devices string) *httptest.Server {
 		case strings.HasPrefix(r.URL.Path, "/dna/intent/api/v1/network-device/count"):
 			_, _ = w.Write([]byte(`{"response":1}`))
 		case strings.HasPrefix(r.URL.Path, "/dna/intent/api/v1/network-device"):
-			_, _ = w.Write([]byte(devices))
+			_, _ = w.Write([]byte(devices()))
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}

@@ -31,9 +31,9 @@ func (r *entRepository) Retire(ctx context.Context, name string) error {
 				// tell "this device is already gone" from "the backend
 				// failed", which is the same distinction GetByName's own
 				// sentinel exists for.
-				return fmt.Errorf("retiring %s: %w", name, ErrItemNotFound)
+				return fmt.Errorf("retiring %q: %w", name, ErrItemNotFound)
 			}
-			return fmt.Errorf("failed to load device %s for retirement: %w", name, err)
+			return fmt.Errorf("failed to load device %q for retirement: %w", name, err)
 		}
 
 		// Parse rather than compare strings: an unrecognized state in the
@@ -42,7 +42,7 @@ func (r *entRepository) Retire(ctx context.Context, name string) error {
 		// it as something it is not.
 		current, err := inventory.ParseLifecycleState(row.State)
 		if err != nil {
-			return fmt.Errorf("device %s holds an unrecognized lifecycle state: %w", name, err)
+			return fmt.Errorf("device %q holds an unrecognized lifecycle state: %w", name, err)
 		}
 
 		// Idempotent by design, matching the HTTP verb this backs. A second
@@ -61,10 +61,10 @@ func (r *entRepository) Retire(ctx context.Context, name string) error {
 			SetVersion(nextVersion).
 			Save(txCtx)
 		if err != nil {
-			return fmt.Errorf("failed to retire device %s: %w", name, err)
+			return fmt.Errorf("failed to retire device %q: %w", name, err)
 		}
 		if affected == 0 {
-			return fmt.Errorf("retiring %s at version %d: %w", name, row.Version, ErrVersionConflict)
+			return fmt.Errorf("retiring %q at version %d: %w", name, row.Version, ErrVersionConflict)
 		}
 
 		// The lifecycle change is itself an auditable event. Recording it
@@ -80,7 +80,7 @@ func (r *entRepository) Retire(ctx context.Context, name string) error {
 			SetNewValue(propertyValuePtr(inventory.StateArchived.String())).
 			SetDeviceID(row.ID).
 			Save(txCtx); err != nil {
-			return fmt.Errorf("failed to record retirement revision for %s: %w", name, err)
+			return fmt.Errorf("failed to record retirement revision for %q: %w", name, err)
 		}
 
 		return nil

@@ -41,10 +41,10 @@ func (r *entRepository) Create(ctx context.Context, item inventory.InventoryItem
 				device.NameEQ(item.Name()),
 			)).Exist(txCtx)
 		if err != nil {
-			return fmt.Errorf("failed to check whether device %s already exists: %w", item.Name(), err)
+			return fmt.Errorf("failed to check whether device %q already exists: %w", item.Name(), err)
 		}
 		if exists {
-			return fmt.Errorf("creating %s: %w", item.Name(), ErrItemExists)
+			return fmt.Errorf("creating %q: %w", item.Name(), ErrItemExists)
 		}
 
 		create := client.Device.Create().
@@ -69,9 +69,9 @@ func (r *entRepository) Create(ctx context.Context, item inventory.InventoryItem
 		row, err := create.Save(txCtx)
 		if err != nil {
 			if ent.IsConstraintError(err) {
-				return fmt.Errorf("creating %s: %w", item.Name(), ErrItemExists)
+				return fmt.Errorf("creating %q: %w", item.Name(), ErrItemExists)
 			}
-			return fmt.Errorf("failed to create device %s: %w", item.Name(), err)
+			return fmt.Errorf("failed to create device %q: %w", item.Name(), err)
 		}
 
 		// A created item may already carry history when it was built from a
@@ -107,7 +107,7 @@ func createRevisions(ctx context.Context, client *ent.Client, row *ent.Device, r
 		}
 
 		if _, err := create.Save(ctx); err != nil {
-			return fmt.Errorf("failed to write revision %d for device %s: %w", rev.Version, row.Name, err)
+			return fmt.Errorf("failed to write revision %d for device %q: %w", rev.Version, row.Name, err)
 		}
 	}
 	return nil

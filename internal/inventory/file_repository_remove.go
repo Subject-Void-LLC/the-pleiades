@@ -27,12 +27,12 @@ func RemoveHost(hostsPath, name string, leaveReferences bool) (HostSpec, error) 
 	}
 	at := slices.IndexFunc(hosts, func(h HostSpec) bool { return h.Name == name })
 	if at < 0 {
-		return HostSpec{}, fmt.Errorf("host %s: %w", name, ErrItemNotFound)
+		return HostSpec{}, fmt.Errorf("host %q: %w", name, ErrItemNotFound)
 	}
 	removed := hosts[at]
 	if !leaveReferences {
 		if names := namedBy(hosts, name); len(names) > 0 {
-			return HostSpec{}, fmt.Errorf("host %s is named by %s; remove or change those first, or remove it anyway with --leave-references", name, strings.Join(names, ", "))
+			return HostSpec{}, fmt.Errorf("host %q is named by %s; remove or change those first, or remove it anyway with --leave-references", name, strings.Join(names, ", "))
 		}
 	}
 	// The sidecar is read before anything is removed: a state file that cannot
@@ -43,7 +43,7 @@ func RemoveHost(hostsPath, name string, leaveReferences bool) (HostSpec, error) 
 	sidecarPath := filepath.Join(filepath.Dir(hostsPath), sidecarFileName)
 	doc, err := readSidecar(sidecarPath)
 	if err != nil {
-		return HostSpec{}, fmt.Errorf("host %s was not removed, because its state in %s could not be read: %w", name, filepath.Base(sidecarPath), err)
+		return HostSpec{}, fmt.Errorf("host %q was not removed, because its state in %s could not be read: %w", name, filepath.Base(sidecarPath), err)
 	}
 	if err := WriteHosts(hostsPath, slices.Delete(slices.Clone(hosts), at, at+1)); err != nil {
 		return HostSpec{}, err
@@ -58,7 +58,7 @@ func RemoveHost(hostsPath, name string, leaveReferences bool) (HostSpec, error) 
 	}
 	doc.Hosts = kept
 	if err := writeSidecar(sidecarPath, doc); err != nil {
-		return removed, fmt.Errorf("host %s was removed from %s, but not its state: %w", name, filepath.Base(hostsPath), err)
+		return removed, fmt.Errorf("host %q was removed from %s, but not its state: %w", name, filepath.Base(hostsPath), err)
 	}
 	return removed, nil
 }

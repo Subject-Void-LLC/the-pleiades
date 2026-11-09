@@ -53,7 +53,7 @@ func (r *fileRepository) Retire(_ context.Context, name string) error {
 		break
 	}
 	if !found {
-		return fmt.Errorf("host %s: %w", name, ErrItemNotFound)
+		return fmt.Errorf("host %q: %w", name, ErrItemNotFound)
 	}
 
 	sidecar, err := readSidecar(r.sidecarPath)
@@ -71,7 +71,7 @@ func (r *fileRepository) Retire(_ context.Context, name string) error {
 	if entry.State != "" {
 		current, err = inventory.ParseLifecycleState(entry.State)
 		if err != nil {
-			return fmt.Errorf("host %s holds an unrecognized lifecycle state: %w", name, err)
+			return fmt.Errorf("host %q holds an unrecognized lifecycle state: %w", name, err)
 		}
 	}
 
@@ -102,7 +102,7 @@ func (r *fileRepository) Retire(_ context.Context, name string) error {
 	}
 
 	if err := writeSidecar(r.sidecarPath, sidecar); err != nil {
-		return fmt.Errorf("failed to write inventory state for %s: %w", name, err)
+		return fmt.Errorf("failed to write inventory state for %q: %w", name, err)
 	}
 	return nil
 }

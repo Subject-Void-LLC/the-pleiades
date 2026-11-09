@@ -136,7 +136,7 @@ func declaredByDiscovery(deviceType string, rec Record, baseline []capability.Na
 	props := inventory.NewProperties(rec.Properties)
 	d, ok, err := inventory.DiscoveryFrom(props)
 	if err != nil {
-		return nil, "", fmt.Errorf("%s %s: %w", deviceType, rec.Name, err)
+		return nil, "", fmt.Errorf("%s %q: %w", deviceType, rec.Name, err)
 	}
 	if !ok {
 		return baseline, "", nil
@@ -144,7 +144,7 @@ func declaredByDiscovery(deviceType string, rec Record, baseline []capability.Na
 	rules, _ := discoveryRules.Get(deviceType)
 	for _, c := range d.Capabilities {
 		if !slices.Contains(rules.Grants, c) {
-			return nil, "", fmt.Errorf("%s %s: its discovery grants %s, which onboarding may not grant this type", deviceType, rec.Name, c)
+			return nil, "", fmt.Errorf("%s %q: its discovery grants %s, which onboarding may not grant this type", deviceType, rec.Name, c)
 		}
 	}
 	// Checked after the capabilities, so a corrupted record is still
