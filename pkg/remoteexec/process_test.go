@@ -397,6 +397,20 @@ func TestProcess_LeavesNoGoroutinesBehind(t *testing.T) {
 		t.Fatalf("Connect() error = %v", err)
 	}
 
+	// One round trip before the snapshot. Connect returns as soon as the
+	// client's handshake does, and the in-process server's serveConn may not
+	// yet have started its own request-discarding goroutine, so a snapshot
+	// taken now would count that goroutine, which lives as long as the
+	// connection, as one this test leaked. The server answers a command only
+	// after it has finished setting the connection up, so once this returns
+	// every goroutine the server owns for the connection already exists and
+	// the snapshot ignores it. Ignoring DiscardRequests by name instead
+	// would hide a real leak of the same goroutine on the client side.
+	if _, err := conn.Run(context.Background(), "true"); err != nil {
+		conn.Close()
+		t.Fatalf("Run() error = %v", err)
+	}
+
 	leakOpts := goleak.IgnoreCurrent()
 
 	proc, err := conn.Start(context.Background(), "cat")
