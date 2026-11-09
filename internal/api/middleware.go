@@ -207,7 +207,8 @@ func MetricsMiddleware(m *Metrics) func(http.Handler) http.Handler {
 }
 
 // requestPath is the path a request log line and trace span record: the
-// path as the client escaped it (url.URL.EscapedPath), never r.URL.Path.
+// path as the client escaped it, which is what chi matched (SentPath),
+// never r.URL.Path.
 //
 // r.URL.Path is decoded, so a name holding an escaped slash reads as one
 // segment more: GET /inventory/devices/sw%2Ffacts, the device "sw/facts",
@@ -216,7 +217,7 @@ func MetricsMiddleware(m *Metrics) func(http.Handler) http.Handler {
 // tell the two requests apart, and the route field alone does not say
 // which record was named.
 func requestPath(r *http.Request) string {
-	return r.URL.EscapedPath()
+	return SentPath(r.URL)
 }
 
 // routePattern returns the chi route pattern that matched r, which is the

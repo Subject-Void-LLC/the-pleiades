@@ -48,6 +48,9 @@ func TestSafeReturn_CannotBeRedirectedOffOrigin(t *testing.T) {
 		"/ui/%2E/../admin",
 		// An escaped slash that would make an empty segment once decoded.
 		"/ui/%2F%2Fevil.example/ui",
+		// A raw backslash inside the prefix, which a browser reads as a
+		// slash, beside a raw | that makes the escaping invalid.
+		"/ui/x\\evil.example|",
 		// Prefix look-alikes: inside the string but not the path root.
 		"/uiadmin/secrets",
 		"/not-ui/ui/inventories",
@@ -110,6 +113,9 @@ func TestSafeReturn_KeepsAGenuineInternalPath(t *testing.T) {
 		{"/ui/devices/sw%2F1", "/ui/devices/sw%2F1"},
 		{"https://pleiades.example/ui/devices/sw%2F1/edit?tab=access", "/ui/devices/sw%2F1/edit?tab=access"},
 		{"/ui/devices/50%25", "/ui/devices/50%25"},
+		// A raw | makes the escaping invalid, which EscapedPath would
+		// re-escape, splitting the %2F; the record's one segment is kept.
+		{"/ui/devices/a%2Fb|c", "/ui/devices/a%2Fb%7Cc"},
 	} {
 		t.Run(tc.referer, func(t *testing.T) {
 			r := httptest.NewRequest(http.MethodPost, "/ui/theme", nil)

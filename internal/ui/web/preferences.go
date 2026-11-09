@@ -19,6 +19,7 @@ import (
 	"path"
 	"strings"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/api"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ui/session"
 )
 
@@ -200,7 +201,11 @@ func (h *Handler) constrain(raw string) string {
 	// every browser resolve: a browser reads %2E%2E as "..", which
 	// path.Clean on the escaped form does not, so a path whose decoded form
 	// holds a dot segment or an empty one is refused rather than cleaned.
-	cleaned := path.Clean("/" + strings.TrimPrefix(parsed.EscapedPath(), "/"))
+	// api.SentPath rather than EscapedPath, which would re-escape a path
+	// holding a raw | and turn each %2F in it into a separator; SentPath
+	// keeps the escapes and encodes the raw byte, so a backslash never
+	// reaches the Location header raw either.
+	cleaned := path.Clean("/" + strings.TrimPrefix(api.SentPath(parsed), "/"))
 	decoded, err := url.PathUnescape(cleaned)
 	if err != nil || path.Clean(decoded) != decoded {
 		return ""
@@ -227,11 +232,12 @@ func (h *Handler) currentURL(r *http.Request) string {
 	if r.URL == nil {
 		return h.cfg.Prefix
 	}
-	// Escaped as the request was, so a record whose name holds a "/" is
-	// returned to by its own address (constrain keeps it that way).
+	// Escaped as the request was (api.SentPath), so a record whose name
+	// holds a "/" is returned to by its own address (constrain keeps it that
+	// way).
 	query := navigationQuery(r.URL.Query())
 	if query == "" {
-		return r.URL.EscapedPath()
+		return api.SentPath(r.URL)
 	}
-	return r.URL.EscapedPath() + "?" + query
+	return api.SentPath(r.URL) + "?" + query
 }

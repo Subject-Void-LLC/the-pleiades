@@ -8,9 +8,9 @@
 // package under internal/api, internal/ui and cmd/controller it refuses,
 // by type, a read of a *url.URL's Path, RawPath, EscapedPath or RequestURI,
 // an *http.Request's RequestURI or PathValue, and a *chi.Context's
-// RoutePath, except at the sites its allowedReads names with a reason (two
-// of them in this file: routedValue and routedPath). It does not see
-// reflection or a URL turned into text first.
+// RoutePath, except at the sites its allowedReads names with a reason
+// (three of them in this file: routedValue, routedPath and SentPath). It
+// does not see reflection or a URL turned into text first.
 //
 // The reason is chi's own behavior, pinned by tests here: chi v5 matches a
 // route against r.URL.RawPath whenever the request has one and records each
@@ -25,6 +25,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -142,6 +143,41 @@ func routedValue(r *http.Request, value string) (string, error) {
 		return value, nil
 	}
 	return url.PathUnescape(value)
+}
+
+// SentPath is u's path as the client escaped it, which is what chi
+// matched: RawPath when the request had one, and otherwise EscapedPath,
+// which is then the request's own spelling.
+//
+// url.URL.EscapedPath alone is not that. It ignores a RawPath that is not a
+// valid escaping, one holding a raw |, ^, backtick, {, }, < or >, and
+// escapes the decoded path afresh, in which each %2F has become a
+// separator: /devices/a%2Fb|c, one segment to chi, reads /devices/a/b%7Cc.
+// SentPath keeps the RawPath and percent-encodes only such raw bytes
+// (escapeRawBytes), so it is always a valid escaping, with chi's segments,
+// that decodes to u.Path.
+func SentPath(u *url.URL) string {
+	if u.RawPath != "" {
+		return escapeRawBytes(u.RawPath)
+	}
+	return u.EscapedPath()
+}
+
+// escapeRawBytes percent-encodes each byte of an escaped path that a valid
+// escaping cannot hold raw, leaving every existing escape, every / and
+// every byte RFC 3986 allows in a path segment as it is.
+func escapeRawBytes(p string) string {
+	const keep = "-._~!$&'()*+,;=:@/%"
+	var b strings.Builder
+	for i := 0; i < len(p); i++ {
+		c := p[i]
+		if 'a' <= c && c <= 'z' || 'A' <= c && c <= 'Z' || '0' <= c && c <= '9' || strings.IndexByte(keep, c) >= 0 {
+			b.WriteByte(c)
+			continue
+		}
+		fmt.Fprintf(&b, "%%%02X", c)
+	}
+	return b.String()
 }
 
 // routedPath is the path chi matches a request against: r.URL.RawPath when

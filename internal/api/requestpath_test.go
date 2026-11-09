@@ -46,9 +46,20 @@ func TestRequestLog_RecordsThePathAsSent(t *testing.T) {
 		t.Errorf("log line route is %v, want the device route", line["route"])
 	}
 
+	// A raw | makes the RawPath an invalid escaping, which EscapedPath
+	// would drop, splitting the %2F; the log keeps chi's one segment.
+	logBuf.Reset()
+	const raw = api.APIVersionPrefix + "/inventory/devices/sw%2Ffacts|x"
+	if rr := get(t, router, http.MethodGet, raw); rr.Code != http.StatusOK {
+		t.Fatalf("GET %s = %d, want 200", raw, rr.Code)
+	}
+	if line := decodeLogLine(t, logBuf.Bytes()); line["path"] != api.APIVersionPrefix+"/inventory/devices/sw%2Ffacts%7Cx" {
+		t.Errorf("log line path for %s is %v, want its one segment kept", raw, line["path"])
+	}
+
 	spans := recorder.Ended()
-	if len(spans) != 1 {
-		t.Fatalf("recorded %d spans, want 1", len(spans))
+	if len(spans) != 2 {
+		t.Fatalf("recorded %d spans, want 2", len(spans))
 	}
 	var traced string
 	for _, attr := range spans[0].Attributes() {

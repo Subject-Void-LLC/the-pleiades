@@ -6,6 +6,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 
 	"github.com/go-chi/chi/v5"
@@ -97,5 +98,29 @@ func TestRoutedPath_IsThePathChiMatched(t *testing.T) {
 	r = httptest.NewRequest(http.MethodGet, "/d/plain", nil)
 	if got := routedPath(r); got != "/d/plain" {
 		t.Errorf("routedPath() = %q, want the Path", got)
+	}
+}
+
+// TestSentPath_IsWhatChiMatchedAndAValidEscaping holds SentPath to the path a
+// request was routed on, and to a valid escaping of it: a raw | is encoded,
+// every existing escape (%2F, %6E) is kept, and a request with no RawPath is
+// its own default escaping. EscapedPath alone splits the first row's %2F.
+func TestSentPath_IsWhatChiMatchedAndAValidEscaping(t *testing.T) {
+	for _, tc := range []struct{ target, want string }{
+		{"/devices/a%2Fb|c", "/devices/a%2Fb%7Cc"},
+		{"/devices/sw%2F1", "/devices/sw%2F1"},
+		{"/devices/%6Eew", "/devices/%6Eew"},
+		{"/devices/plain", "/devices/plain"},
+		{"/devices/50%25", "/devices/50%25"},
+		{"/devices/caf%C3%A9", "/devices/caf%C3%A9"},
+	} {
+		r := httptest.NewRequest(http.MethodGet, tc.target, nil)
+		got := SentPath(r.URL)
+		if got != tc.want {
+			t.Errorf("SentPath(%s) = %q, want %q", tc.target, got, tc.want)
+		}
+		if back, err := url.PathUnescape(got); err != nil || back != r.URL.Path {
+			t.Errorf("SentPath(%s) = %q decodes to %q, %v; want the request's Path %q", tc.target, got, back, err, r.URL.Path)
+		}
 	}
 }
