@@ -3,6 +3,8 @@ package web
 import (
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"path"
 	"strings"
 	"testing"
 )
@@ -39,6 +41,13 @@ func TestSafeReturn_CannotBeRedirectedOffOrigin(t *testing.T) {
 		// Traversal out of the prefix.
 		"/ui/../../etc/passwd",
 		"/ui/inventories/../../../admin",
+		// Escaped traversal: a browser resolves %2E%2E as "..", and the
+		// return address keeps its escapes, so the check reads it decoded.
+		"/ui/%2E%2E/admin",
+		"/ui/inventories/%2e%2e/%2e%2e/admin",
+		"/ui/%2E/../admin",
+		// An escaped slash that would make an empty segment once decoded.
+		"/ui/%2F%2Fevil.example/ui",
 		// Prefix look-alikes: inside the string but not the path root.
 		"/uiadmin/secrets",
 		"/not-ui/ui/inventories",
@@ -69,6 +78,11 @@ func TestSafeReturn_CannotBeRedirectedOffOrigin(t *testing.T) {
 			if strings.Contains(got, "..") {
 				t.Fatalf("safeReturn(%q) = %q, which still contains a traversal", referer, got)
 			}
+			// Read as a browser and the router will: decoded, a dot or
+			// empty segment hidden behind an escape is still one.
+			if decoded, err := url.PathUnescape(got); err != nil || path.Clean(decoded) != decoded {
+				t.Fatalf("safeReturn(%q) = %q, which holds a dot or empty segment once decoded", referer, got)
+			}
 			if strings.ContainsAny(got, ":\\") {
 				t.Fatalf("safeReturn(%q) = %q, which carries a scheme or a backslash", referer, got)
 			}
@@ -91,6 +105,11 @@ func TestSafeReturn_KeepsAGenuineInternalPath(t *testing.T) {
 		{"/ui/inventories/core-router-01", "/ui/inventories/core-router-01"},
 		{"http://localhost:8080/ui/inventories", "/ui/inventories"},
 		{"https://pleiades.example/ui", "/ui"},
+		// A record whose name holds a "/" is returned to by its own
+		// address. Decoded, /ui/devices/sw/1 is another page.
+		{"/ui/devices/sw%2F1", "/ui/devices/sw%2F1"},
+		{"https://pleiades.example/ui/devices/sw%2F1/edit?tab=access", "/ui/devices/sw%2F1/edit?tab=access"},
+		{"/ui/devices/50%25", "/ui/devices/50%25"},
 	} {
 		t.Run(tc.referer, func(t *testing.T) {
 			r := httptest.NewRequest(http.MethodPost, "/ui/theme", nil)
