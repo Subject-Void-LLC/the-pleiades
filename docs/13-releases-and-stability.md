@@ -160,20 +160,26 @@ naming the unknown `format` key rather than the version.
 From 0.4.0 each entry also names the Collection its method came from: the group, the
 version of The Pleiades it was linked into, and a digest of the group's method
 declarations, with a digest of the undo's own declaration beside it. A rollback
-compares the undo's digest with its own build's, and only when none was recorded the
-group's. The same digest replays as before. A different one is refused, naming both
-versions and both digests, until `pleiades rollback --allow-skew <node>` (the API's
-`allow_skew`) accepts it by node. A group whose documentation alone changed moves only
-the group's digest, so it needs no flag, and a method a later release moves to another
-group is a warning, never a refusal.
+compares the undo's digest with its own build's. That digest covers the undo's
+declaration and every part of its method's parameters that decides how it replays
+(each one's type, whether it is required, its default, the parameter it is an alias of,
+its choices and its format), so a changed default under a parameter the undo does not
+record reads as a difference too. The same digest replays as before. A different one is
+refused, naming both versions and both digests, until `pleiades rollback --allow-skew
+<node>` (the API's `allow_skew`) accepts it by node. A group whose documentation alone
+changed moves only the group's digest, so it needs no flag. A method a later release
+moves to another group is a warning, and a refusal only where the entry recorded no
+undo digest: then the group's digest is compared, the digest of the group the entry
+recorded while this build still has that group (else the one this build places the
+method in), and a group a method moved out of has changed, so such an entry is refused
+until named.
 
 Whatever is named, every recorded value is still held to the build's own
 declarations, and only `--leave` answers what fails: a value under a parameter the undo
 does not record, a value of another type than the parameter takes or outside the
 choices it declares, and a parameter the undo's method requires that the run did not
-record, unless the undo's digest is this build's exactly. So an entry with no identity
-(a journal from before 0.4.0) is checked against the build's declarations alone, and
-the plan says so.
+record. So an entry with no identity (a journal from before 0.4.0) is checked against
+the build's declarations alone, and the plan says so.
 
 What a plan wants read without refusing (a Collection whose declarations changed while
 the undo's did not, an entry checked against this build alone, a skew accepted and the
@@ -189,17 +195,17 @@ journal lacks, one that ran without a change, one that failed with an effect nob
 knows), since nothing of it is replayed.
 
 The Controller stores a Runner's journal rows and facts with only an identity that
-passes the writer's check: any other is stored as none, with a warning, and the row is
-kept. It never holds a Runner's identity to its own grouping of methods, which a later
+passes the writer's check: any other is stored as none, with a warning naming the job,
+device, node and method, and the row is kept. It never holds a Runner's identity to its own grouping of methods, which a later
 release may change; a difference is logged at info level and the identity is kept as
 sent.
 
 Builds of two releases side by side do not refuse each other's rows, but one may
-refuse what the other would run. A Runner of this release under an older Controller,
-which has no `allow_skew`, refuses every step recorded under other declarations than
-its own, and its advice names a field that Controller does not take. A newer
-Controller may refuse, with `--leave` the only answer, a recorded value only its own
-newer declarations reject.
+refuse what the other would run. A Controller of an earlier release sends a
+rollback's steps with no Collection identity or undo digest, so a Runner of this
+release under it compares nothing and holds each step to its own declarations alone.
+A newer Controller may refuse, with `--leave` the only answer, a recorded value only
+its own newer declarations reject.
 
 **`--allow-skew` is advisory until Collection identities are signed.** The digests are
 computed from public declarations, so whoever can write a journal can write the
