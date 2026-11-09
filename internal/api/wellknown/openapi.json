@@ -1094,7 +1094,7 @@
         "x-link-relation": "self"
       },
       "patch": {
-        "description": "Edits one role binding. Fields that would re-scope an existing grant are never updatable.",
+        "description": "A partial update of one grant's role or effect. A field left out keeps its stored value and a field present is applied; a null on any field is refused. The team, scope_type and scope_id are not updatable: a value for one that differs from the stored one is refused, because re-pointing a grant is revoking one and issuing another, and the stored value is accepted as an echo. Editing the last system-scope allow into a deny is refused. Concurrent PATCHes are last-writer-wins: there is no version check.",
         "operationId": "update_role_binding",
         "parameters": [
           {
@@ -1188,7 +1188,7 @@
                 }
               }
             },
-            "description": "The submission is not valid."
+            "description": "The body is malformed, sets a field to null or changes the team or the scope, or the grant it would leave names an unknown role or effect."
           },
           "404": {
             "content": {
@@ -1205,6 +1205,22 @@
               }
             },
             "description": "No record with that id."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The edit would leave the deployment with no system-scope allow, so nobody could administer it."
           }
         },
         "security": [
@@ -1698,7 +1714,7 @@
         "x-link-relation": "self"
       },
       "patch": {
-        "description": "Changes a contact's details. The owner is carried forward from storage: re-pointing an accountability record is indistinguishable from deleting one and creating another.",
+        "description": "A partial update of a contact's details. A field left out keeps its stored value and a field present is applied; a null on any field is refused. The contact as it would be saved is checked whole, so clearing its only channel is refused. The owner (organization and team) is not updatable: a value that differs from the stored one is refused, because re-pointing an accountability record is deleting one and creating another, and the stored value is accepted as an echo. Concurrent PATCHes are last-writer-wins: there is no version check.",
         "operationId": "update_contact",
         "parameters": [
           {
@@ -1800,7 +1816,7 @@
                 }
               }
             },
-            "description": "The submission is not a valid contact."
+            "description": "The body is malformed, sets a field to null or changes the owner, or the contact it would leave has no name, an unknown role or no way to reach anybody."
           },
           "404": {
             "content": {
@@ -8867,7 +8883,7 @@
         "x-link-relation": "self"
       },
       "patch": {
-        "description": "Edits one organization. Fields that would re-scope an existing grant are never updatable.",
+        "description": "A partial update of one organization. A field left out keeps its stored value and a field present is applied, so a PATCH naming only the name leaves the freeze and the change-management fields as they are, and frozen: false is the explicit unfreeze. A null on any field is refused. The organization as it would be saved is checked whole. Concurrent PATCHes are last-writer-wins: there is no version check.",
         "operationId": "update_organization",
         "parameters": [
           {
@@ -8974,7 +8990,7 @@
                 }
               }
             },
-            "description": "The submission is not valid."
+            "description": "The body is malformed or sets a field to null, or the organization it would leave has a blank name or an unknown classification."
           },
           "404": {
             "content": {
@@ -8991,6 +9007,22 @@
               }
             },
             "description": "No record with that id."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "That name is already taken."
           }
         },
         "security": [
@@ -11829,7 +11861,7 @@
         "x-link-relation": "self"
       },
       "patch": {
-        "description": "Edits one team. Fields that would re-scope an existing grant are never updatable.",
+        "description": "A partial update of one team's name, description and membership. A field left out keeps its stored value and a field present is applied; a null on any field is refused. The organization is not updatable: a value for it that differs from the stored one is refused, because moving a team between tenants would silently re-scope every grant it holds, and the stored value is accepted as an echo. Concurrent PATCHes are last-writer-wins: there is no version check.",
         "operationId": "update_team",
         "parameters": [
           {
@@ -11923,7 +11955,7 @@
                 }
               }
             },
-            "description": "The submission is not valid."
+            "description": "The body is malformed, sets a field to null or changes the organization, or the team it would leave has a blank name."
           },
           "404": {
             "content": {
@@ -11940,6 +11972,22 @@
               }
             },
             "description": "No record with that id."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "That name is already taken in this organization."
           }
         },
         "security": [
