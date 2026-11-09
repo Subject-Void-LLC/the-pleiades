@@ -51,7 +51,7 @@ func TestRollbackDAG_RunsOnlyStepsThatHoldAgainstTheRunbook(t *testing.T) {
 	step := wire.RollbackStep{Node: "tasks[0]", Emitter: "rbtest.make", Method: "rbtest.remove", Params: map[string]any{"path": "/tmp/made"}, Name: "undo tasks[0]", Source: "recorded"}
 	payload := wire.DispatchPayload{RunbookID: "ran", DeviceName: "web1", Rollback: &wire.Rollback{Of: "job-1", DAGVersion: ran.Version, Steps: []wire.RollbackStep{step}}}
 
-	dag, option, err := rollbackDAG(nil, ran, payload)
+	dag, option, _, err := rollbackDAG(nil, ran, payload)
 	if err != nil {
 		t.Fatalf("rollbackDAG: %v", err)
 	}
@@ -77,7 +77,7 @@ func TestRollbackDAG_RunsOnlyStepsThatHoldAgainstTheRunbook(t *testing.T) {
 			rb.Steps = append([]wire.RollbackStep(nil), payload.Rollback.Steps...)
 			p.Rollback = &rb
 			tc.edit(&p)
-			if _, _, err := rollbackDAG(nil, ran, p); err == nil || !strings.Contains(err.Error(), tc.want) {
+			if _, _, _, err := rollbackDAG(nil, ran, p); err == nil || !strings.Contains(err.Error(), tc.want) {
 				t.Errorf("rollbackDAG = %v, want a refusal mentioning %q", err, tc.want)
 			}
 		})

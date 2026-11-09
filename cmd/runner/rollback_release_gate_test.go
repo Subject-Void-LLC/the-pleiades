@@ -348,6 +348,14 @@ func TestRollbackReleaseGate_AControllerJobIsUndoneOnItsDevice(t *testing.T) {
 	} else if len(tasks) != 1 || tasks[0].Result != dispatch.ResultSucceeded {
 		t.Errorf("the skewed rollback reported %s; want the Runner to have run the accepted steps", jobRows(store, skewID))
 	}
+	// And what the Runner accepted is in the job's log, where an operator
+	// reads it: a task.warning for each step, naming the recorded digest.
+	logged := jobEvents(t, h, skewID)
+	for _, node := range []string{"tasks[0]", "tasks[1]"} {
+		if !strings.Contains(logged, "task.warning ok WARNING: node "+node+": the undo of") || !strings.Contains(logged, "sha256:"+strings.Repeat("b", 64)) {
+			t.Errorf("the skewed rollback's log does not warn of %s's accepted skew:\n%s", node, logged)
+		}
+	}
 }
 
 // recordedElsewhere rewrites the stored rows of jobID's nodes as an older

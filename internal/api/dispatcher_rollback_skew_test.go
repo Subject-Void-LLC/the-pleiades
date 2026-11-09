@@ -6,6 +6,7 @@ package api_test
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -127,6 +128,53 @@ func TestRollback_AllowSkewNamingANodeTheJournalLacksIsRefused(t *testing.T) {
 	problems := refusal(t, err)
 	if len(problems) != 1 || problems[0].Node != "tasks[9]" || problems[0].Field != "" {
 		t.Errorf("problems %+v, want one for tasks[9] that no field accepts", problems)
+	}
+}
+
+// TestRollbackJob_AnswersWithThePlansWarnings: the 202 body carries what
+// the plan says to read, always as a list: a recorded undo checked against
+// this Controller's declarations alone, and a skew allow_skew accepted,
+// naming the digests compared.
+func TestRollbackJob_AnswersWithThePlansWarnings(t *testing.T) {
+	type warning struct {
+		Node    string `json:"node"`
+		Device  string `json:"device"`
+		Message string `json:"message"`
+	}
+	post := func(t *testing.T, f *rollbackFixture, body string) []warning {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodPost, "/jobs/"+f.jobID+"/rollback", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		rctx := chi.NewRouteContext()
+		rctx.URLParams.Add("id", f.jobID)
+		req = req.WithContext(context.WithValue(contextWithIdentity(req, dispatchTestIdentity), chi.RouteCtxKey, rctx))
+		rec := httptest.NewRecorder()
+		f.dispatcher.RollbackJob(rec, req)
+		var accepted struct {
+			JobID    string     `json:"job_id"`
+			Warnings *[]warning `json:"warnings"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &accepted); err != nil || rec.Code != http.StatusAccepted || accepted.Warnings == nil {
+			t.Fatalf("POST %s: %d %s, want 202 with a warnings list", body, rec.Code, rec.Body)
+		}
+		return *accepted.Warnings
+	}
+
+	f := newRollbackFixture(t, nil, nil)
+	got := post(t, f, `{"leave": ["tasks[1]"]}`)
+	if len(got) != 1 || got[0].Node != "tasks[0]" || got[0].Device != "web1" || !strings.Contains(got[0].Message, "no Collection identity") {
+		t.Errorf("warnings %+v, want one for tasks[0] on web1 saying it was recorded with no Collection identity", got)
+	}
+
+	f = newRollbackFixture(t, nil, nil)
+	id, undo := directoryDeclarations(t)
+	older := id
+	older.Version, older.Manifests = "0.3.9", wire.ManifestDigestPrefix+strings.Repeat("a", 64)
+	recorded := wire.ManifestDigestPrefix + strings.Repeat("b", 64)
+	f.recordedUnder(older, recorded)
+	got = post(t, f, `{"leave": ["tasks[1]"], "allow_skew": ["tasks[0]"]}`)
+	if len(got) != 1 || !strings.Contains(got[0].Message, "allow_skew accepted") || !strings.Contains(got[0].Message, recorded) || !strings.Contains(got[0].Message, undo) {
+		t.Errorf("warnings %+v, want one naming the undo digests allow_skew accepted", got)
 	}
 }
 

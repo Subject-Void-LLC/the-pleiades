@@ -178,6 +178,32 @@ var launchAcceptedSchema = map[string]any{
 	},
 }
 
+// rollbackAcceptedSchema is a created rollback's 202 body: a launch's, and
+// the warnings of the plan the Controller stood behind.
+var rollbackAcceptedSchema = map[string]any{
+	"type": "object",
+	"properties": map[string]any{
+		"status":         launchAcceptedSchema["properties"].(map[string]any)["status"],
+		"job_id":         launchAcceptedSchema["properties"].(map[string]any)["job_id"],
+		"ignored_fields": launchAcceptedSchema["properties"].(map[string]any)["ignored_fields"],
+		"warnings": map[string]any{
+			"type": "array",
+			"description": "What the plan wants read without refusing it, always present and empty when there is nothing: an undo checked against " +
+				"this Controller's declarations alone, a Collection whose declarations changed while the undo's own did not, or a skew allow_skew " +
+				"accepted, naming the versions and digests compared. A Runner's own comparison reaches the job's log as a task.warning event.",
+			"items": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"node":    stringSchema("The node of the job's runbook the warning is about."),
+					"device":  stringSchema("The device, by name."),
+					"message": stringSchema("What to know."),
+				},
+			},
+		},
+		"_links": linksSchema(),
+	},
+}
+
 // ListTemplates is GET /templates.
 var ListTemplates = Endpoint{
 	Name:    "list_templates",
@@ -566,7 +592,7 @@ var RollbackJob = Endpoint{
 		},
 	},
 	Responses: []Response{
-		{Status: http.StatusAccepted, Description: "A rollback job was persisted and will fan out asynchronously.", Schema: launchAcceptedSchema},
+		{Status: http.StatusAccepted, Description: "A rollback job was persisted and will fan out asynchronously.", Schema: rollbackAcceptedSchema},
 		{Status: http.StatusBadRequest, Description: "id is not a UUID, the body is malformed, mode is neither execute nor check, or a method setting names no run setting or a value outside its choices.", Schema: errorSchema("")},
 		{Status: http.StatusUnauthorized, Description: "No identity on the request context.", Schema: errorSchema("")},
 		{Status: http.StatusNotFound, Description: "No job with that id.", Schema: errorSchema("")},

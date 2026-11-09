@@ -8210,6 +8210,27 @@
                     "status": {
                       "description": "Always \"accepted\".",
                       "type": "string"
+                    },
+                    "warnings": {
+                      "description": "What the plan wants read without refusing it, always present and empty when there is nothing: an undo checked against this Controller's declarations alone, a Collection whose declarations changed while the undo's own did not, or a skew allow_skew accepted, naming the versions and digests compared. A Runner's own comparison reaches the job's log as a task.warning event.",
+                      "items": {
+                        "properties": {
+                          "device": {
+                            "description": "The device, by name.",
+                            "type": "string"
+                          },
+                          "message": {
+                            "description": "What to know.",
+                            "type": "string"
+                          },
+                          "node": {
+                            "description": "The node of the job's runbook the warning is about.",
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
                     }
                   },
                   "type": "object"

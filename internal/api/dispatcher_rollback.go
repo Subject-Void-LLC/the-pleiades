@@ -116,6 +116,17 @@ type RollbackProblem struct {
 	UnknownEffects []string `json:"unknown_effects,omitempty"`
 }
 
+// RollbackWarning is something a rollback's plan wants its caller to read,
+// which does not stop it: an undo checked against this Controller's
+// declarations alone, a Collection whose declarations changed while the
+// undo's did not, or a skew allow_skew accepted, naming the digests. A
+// Runner's own comparison reaches the job's log as a task.warning event.
+type RollbackWarning struct {
+	Node    string `json:"node"`
+	Device  string `json:"device,omitempty"`
+	Message string `json:"message"`
+}
+
 // acceptFields maps the planner's flag spelling to the request's fields.
 var acceptFields = map[string]string{
 	"--leave":         "leave",
@@ -141,15 +152,22 @@ func problemFrom(p rollback.Problem) RollbackProblem {
 // actor is the caller's own: a rollback is a new decision by whoever made
 // it.
 func (d *Dispatcher) Rollback(ctx context.Context, actor, jobID string, req RollbackRequest) (string, error) {
+	id, _, err := d.rollback(ctx, actor, jobID, req)
+	return id, err
+}
+
+// rollback is Rollback, also returning what the plan says to read
+// (rollback.Plan.Warnings), which POST /jobs/{id}/rollback answers with.
+func (d *Dispatcher) rollback(ctx context.Context, actor, jobID string, req RollbackRequest) (string, []RollbackWarning, error) {
 	if d.rollbackJournal == nil || d.deviceNames == nil {
-		return "", fmt.Errorf("rolling back is not wired on this controller")
+		return "", nil, fmt.Errorf("rolling back is not wired on this controller")
 	}
 	job, tasks, err := d.jobs.Get(ctx, jobID)
 	if err != nil {
-		return "", fmt.Errorf("load job %s: %w", jobID, err)
+		return "", nil, fmt.Errorf("load job %s: %w", jobID, err)
 	}
 	if err := rollbackable(job); err != nil {
-		return "", err
+		return "", nil, err
 	}
 
 	// What a template bound, as a relaunch reads it: the template as it is
@@ -158,24 +176,24 @@ func (d *Dispatcher) Rollback(ctx context.Context, actor, jobID string, req Roll
 	var tmpl launch.Template
 	if job.TemplateID != 0 {
 		if d.templates == nil {
-			return "", fmt.Errorf("launching by template is not wired on this controller")
+			return "", nil, fmt.Errorf("launching by template is not wired on this controller")
 		}
 		if tmpl, err = d.templates.Get(ctx, job.TemplateID); err != nil {
-			return "", fmt.Errorf("resolve template %d: %w", job.TemplateID, err)
+			return "", nil, fmt.Errorf("resolve template %d: %w", job.TemplateID, err)
 		}
 		if err := d.refuseUnrepeatableCredentials(ctx, tmpl); err != nil {
-			return "", fmt.Errorf("%w: %w", ErrNotRollbackable, err)
+			return "", nil, fmt.Errorf("%w: %w", ErrNotRollbackable, err)
 		}
 		// A rollback's settings are a launch's, held to the same lock: a
 		// template that does not open method_settings keeps its own.
 		if len(req.MethodSettings) > 0 && !tmpl.Promptable(launch.MethodSettingsField) {
-			return "", ErrSettingLocked
+			return "", nil, ErrSettingLocked
 		}
 	}
 
-	plan, err := d.planRollback(ctx, job, tasks, req)
+	plan, warnings, err := d.planRollback(ctx, job, tasks, req)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 
 	fields := maps.Clone(job.Fields)
@@ -214,12 +232,12 @@ func (d *Dispatcher) Rollback(ctx context.Context, actor, jobID string, req Roll
 		Rollback:       plan,
 	}
 	if err := d.jobs.Create(ctx, rb); err != nil {
-		return "", fmt.Errorf("create the rollback of job %s: %w", jobID, err)
+		return "", nil, fmt.Errorf("create the rollback of job %s: %w", jobID, err)
 	}
 	if err := d.publishRequested(ctx, actor, rb.JobID, nil); err != nil {
-		return "", err
+		return "", nil, err
 	}
-	return rb.JobID, nil
+	return rb.JobID, warnings, nil
 }
 
 // rollbackable refuses a job no request could roll back.
@@ -246,14 +264,15 @@ func journals(kind string) bool {
 }
 
 // planRollback plans job's undo and holds every step to the runbook it
-// ran, returning the plan a rollback job stores or a refusal.
-func (d *Dispatcher) planRollback(ctx context.Context, job *dispatch.Job, tasks []dispatch.JobTask, req RollbackRequest) (*dispatch.RollbackPlan, error) {
+// ran, returning the plan a rollback job stores and what the plan says to
+// read, or a refusal.
+func (d *Dispatcher) planRollback(ctx context.Context, job *dispatch.Job, tasks []dispatch.JobTask, req RollbackRequest) (*dispatch.RollbackPlan, []RollbackWarning, error) {
 	entries, err := d.rollbackJournal.AllForJob(ctx, job.JobID)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if len(entries) == 0 {
-		return nil, fmt.Errorf("%w: it journaled nothing, so there is nothing to undo", ErrNotRollbackable)
+		return nil, nil, fmt.Errorf("%w: it journaled nothing, so there is nothing to undo", ErrNotRollbackable)
 	}
 
 	// The journal must name one version of the runbook, and the runbook
@@ -263,26 +282,26 @@ func (d *Dispatcher) planRollback(ctx context.Context, job *dispatch.Job, tasks 
 	version := entries[0].DAGVersion
 	for _, e := range entries {
 		if e.DAGVersion != version {
-			return nil, &RollbackRefusedError{Problems: []RollbackProblem{{Reason: "the journal records more than one version of the runbook for this job, which no run writes"}}}
+			return nil, nil, &RollbackRefusedError{Problems: []RollbackProblem{{Reason: "the journal records more than one version of the runbook for this job, which no run writes"}}}
 		}
 	}
 	dag, err := d.runbooks.GetDAG(ctx, job.RunbookID)
 	if err != nil {
-		return nil, fmt.Errorf("%w: the runbook it ran cannot be read: %w", ErrNotRollbackable, err)
+		return nil, nil, fmt.Errorf("%w: the runbook it ran cannot be read: %w", ErrNotRollbackable, err)
 	}
 	if dag.Version != version {
-		return nil, &RollbackRefusedError{Problems: []RollbackProblem{{Reason: fmt.Sprintf(
+		return nil, nil, &RollbackRefusedError{Problems: []RollbackProblem{{Reason: fmt.Sprintf(
 			"runbook %s has changed since this job ran, so the Controller cannot hold the journal to it; put it back as it was to roll the job back (adding or editing a rollback: list is not a change)", job.RunbookID)}}}
 	}
 
 	devices, since, fromRevision, epoch := journaledDevices(entries)
 	later, err := d.rollbackJournal.OnDevicesSince(ctx, job.JobID, devices, since, fromRevision, epoch)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	names, err := d.deviceNames(ctx, devices)
 	if err != nil {
-		return nil, fmt.Errorf("resolve the devices job %s changed: %w", job.JobID, err)
+		return nil, nil, fmt.Errorf("resolve the devices job %s changed: %w", job.JobID, err)
 	}
 
 	plan, err := rollback.Build(rollback.Request{
@@ -313,7 +332,7 @@ func (d *Dispatcher) planRollback(ctx context.Context, job *dispatch.Job, tasks 
 			problems = append(problems, problemFrom(p))
 		}
 	case err != nil:
-		return nil, err
+		return nil, nil, err
 	}
 
 	// An effect nobody can vouch for is a refusal here, where the Crawl
@@ -339,7 +358,7 @@ func (d *Dispatcher) planRollback(ctx context.Context, job *dispatch.Job, tasks 
 		}
 	}
 	if len(problems) > 0 {
-		return nil, &RollbackRefusedError{Problems: problems}
+		return nil, nil, &RollbackRefusedError{Problems: problems}
 	}
 	// What the plan says to read (an undo checked against this Controller's
 	// declarations alone, a Collection whose declarations changed while the
@@ -350,14 +369,16 @@ func (d *Dispatcher) planRollback(ctx context.Context, job *dispatch.Job, tasks 
 	if !ok {
 		logger = slog.Default()
 	}
+	warnings := make([]RollbackWarning, 0, len(plan.Warnings))
 	for _, w := range plan.Warnings {
 		logger.WarnContext(ctx, "rollback plan warning", slog.String("job_id", job.JobID), slog.String("node", w.Node),
 			slog.String("device", w.DeviceName), slog.String("warning", w.Message))
+		warnings = append(warnings, RollbackWarning{Node: w.Node, Device: w.DeviceName, Message: w.Message})
 	}
 	if len(out.Devices) == 0 {
-		return nil, fmt.Errorf("%w: nothing is left to run, since every change is left in place as named or its rollback: list says there is nothing to undo", ErrNotRollbackable)
+		return nil, nil, fmt.Errorf("%w: nothing is left to run, since every change is left in place as named or its rollback: list says there is nothing to undo", ErrNotRollbackable)
 	}
-	return out, nil
+	return out, warnings, nil
 }
 
 // addStep appends s to its device's steps in plan, in the order they run.
@@ -498,7 +519,7 @@ func (d *Dispatcher) RollbackJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	newJobID, err := d.Rollback(r.Context(), identity.Subject, jobID, RollbackRequest{
+	newJobID, warnings, err := d.rollback(r.Context(), identity.Subject, jobID, RollbackRequest{
 		Mode: mode, Leave: body.Leave, AllowPartial: body.AllowPartial,
 		AllowUnknown: body.AllowUnknown, AllowSkew: body.AllowSkew, DespiteJobs: body.DespiteJob, MethodSettings: settings,
 	})
@@ -529,5 +550,16 @@ func (d *Dispatcher) RollbackJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Location", APIVersionPrefix+"/jobs/"+newJobID)
-	Respond(w, r, http.StatusAccepted, &launchAcceptedDTO{Status: "accepted", JobID: newJobID, IgnoredFields: []ignoredFieldDTO{}})
+	Respond(w, r, http.StatusAccepted, &rollbackAcceptedDTO{Status: "accepted", JobID: newJobID, IgnoredFields: []ignoredFieldDTO{}, Warnings: warnings})
+}
+
+// rollbackAcceptedDTO is a created rollback's answer: a launch's, and what
+// its plan says to read, always present and empty when there is nothing.
+type rollbackAcceptedDTO struct {
+	LinkSet
+
+	Status        string            `json:"status"`
+	JobID         string            `json:"job_id"`
+	IgnoredFields []ignoredFieldDTO `json:"ignored_fields"`
+	Warnings      []RollbackWarning `json:"warnings"`
 }

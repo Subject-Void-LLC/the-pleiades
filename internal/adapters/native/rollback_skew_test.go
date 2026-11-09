@@ -8,6 +8,7 @@ package native
 import (
 	"bytes"
 	"context"
+	"io"
 	"log/slog"
 	"strings"
 	"testing"
@@ -71,12 +72,12 @@ func TestRollbackDAG_AForeignUndoRunsOnlyWhenAcceptedAndIsLogged(t *testing.T) {
 
 	var logged bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&logged, nil))
-	if _, _, err := rollbackDAG(logger, ran, payload); err == nil || !strings.Contains(err.Error(), "allow_skew") || !strings.Contains(err.Error(), undo) {
+	if _, _, _, err := rollbackDAG(logger, ran, payload); err == nil || !strings.Contains(err.Error(), "allow_skew") || !strings.Contains(err.Error(), undo) {
 		t.Fatalf("a foreign undo, not accepted: %v, want a refusal naming allow_skew and this Runner's undo digest", err)
 	}
 
 	payload.Rollback.Steps[0].SkewAccepted = true
-	if _, _, err := rollbackDAG(logger, ran, payload); err != nil {
+	if _, _, _, err := rollbackDAG(logger, ran, payload); err != nil {
 		t.Fatalf("a foreign undo the rollback accepted by name: %v", err)
 	}
 	for _, want := range []string{"under other declarations", "job=job-2", "rollback_of=job-1", "node=tasks[0]", recorded, undo} {
@@ -85,10 +86,47 @@ func TestRollbackDAG_AForeignUndoRunsOnlyWhenAcceptedAndIsLogged(t *testing.T) {
 		}
 	}
 
+	// The note it returns, which Execute publishes to the job's log.
+	if _, _, notes, err := rollbackDAG(nil, ran, payload); err != nil || len(notes) != 1 || !strings.Contains(notes[0], "node tasks[0]") || !strings.Contains(notes[0], recorded) {
+		t.Errorf("rollbackDAG's notes %q, %v; want one for tasks[0] naming the recorded undo digest", notes, err)
+	}
+
 	// The Runner's own declarations: nothing to accept, nothing logged.
 	logged.Reset()
 	payload.Rollback.Steps[0].Collection, payload.Rollback.Steps[0].UndoDigest = id, undo
-	if _, _, err := rollbackDAG(logger, ran, payload); err != nil || logged.Len() != 0 {
+	if _, _, _, err := rollbackDAG(logger, ran, payload); err != nil || logged.Len() != 0 {
 		t.Errorf("a step under this Runner's declarations: %v, logged %q", err, logged.String())
+	}
+}
+
+// TestAdapter_Execute_PublishesTheSkewItAccepted: a rollback dispatch
+// whose step the plan accepted under other declarations than this Runner's
+// puts the note of what was accepted in the job's log as a task.warning,
+// where an operator reads it, as well as in the Runner's.
+func TestAdapter_Execute_PublishesTheSkewItAccepted(t *testing.T) {
+	ran, id, _ := skewFixture(t)
+	older := id
+	older.Version, older.Manifests = "0.3.9", wire.ManifestDigestPrefix+strings.Repeat("a", 64)
+	recorded := wire.ManifestDigestPrefix + strings.Repeat("b", 64)
+	bus := &mockBus{}
+	adapter, err := NewAdapter(bus, writeRunbook(t, "ran", "id: ran\ntasks:\n  - name: make it\n    file.rbmake:\n      path: /tmp/made\n"),
+		slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	step := wire.RollbackStep{Node: "tasks[0]", Emitter: "file.rbmake", Method: "file.rbremove", Params: map[string]any{"path": "/tmp/made"},
+		Name: "undo tasks[0]", Source: "recorded", Collection: older, UndoDigest: recorded, SkewAccepted: true}
+	// What the run does after its checks does not matter here: the warning
+	// is published before any task runs.
+	_, _ = adapter.Execute(context.Background(), wire.DispatchPayload{JobID: "job-1", RunbookID: "ran", DeviceName: "web1", DeviceHost: "10.0.0.1",
+		Rollback: &wire.Rollback{Of: "job-0", DAGVersion: ran.Version, Steps: []wire.RollbackStep{step}}})
+	var warned []string
+	for _, w := range jobWarnings(t, bus) {
+		if strings.Contains(w, "under other declarations") {
+			warned = append(warned, w)
+		}
+	}
+	if len(warned) != 1 || !strings.HasPrefix(warned[0], "WARNING: node tasks[0]: ") || !strings.Contains(warned[0], recorded) || !strings.Contains(warned[0], `"0.3.9"`) {
+		t.Errorf("the job's log carried %q, want one task.warning naming the skew accepted for tasks[0]", warned)
 	}
 }
