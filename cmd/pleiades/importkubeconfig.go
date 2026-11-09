@@ -54,13 +54,36 @@ func runImportKubeconfig(args []string) error {
 	if err != nil {
 		return fmt.Errorf("usage: pleiades import-kubeconfig <device> --kubeconfig <path|-> [--context <name>] [--replace] [--json]: %w", err)
 	}
-	// Refused before the kubeconfig is read or a credential stored: the
-	// device's name becomes its address once it reaches a Controller.
-	if err := recordname.Check(name); err != nil {
-		return fmt.Errorf("cluster not imported: %w", err)
-	}
 	if *path == "" {
 		return fmt.Errorf("--kubeconfig is required: the import reads the file it is given, never KUBECONFIG or ~/.kube/config")
+	}
+
+	invPath := filepath.Join(*dir, inventory.DefaultInventoryFilename)
+	hosts, err := inventory.ReadHosts(invPath)
+	if err != nil {
+		return fmt.Errorf("failed to read inventory (did you run 'pleiades init'?): %w", err)
+	}
+	index := -1
+	for i, h := range hosts {
+		if h.Name == name {
+			index = i
+		}
+	}
+	switch {
+	case index >= 0 && !*replace:
+		return fmt.Errorf("host %q already exists; pass --replace to replace its connection settings and credential", name)
+	case index >= 0 && hosts[index].Type != kubernetes.TypeCluster:
+		return fmt.Errorf("host %q is a %s, not a %s, so an import cannot replace it", name, hosts[index].Type, kubernetes.TypeCluster)
+	case index < 0:
+		// A new cluster's name is refused before the kubeconfig is read or
+		// a credential stored: it becomes the device's address once it
+		// reaches a Controller, and is printed wherever the device is named
+		// (recordname.Check). A cluster already stored under such a name is
+		// replaced like any other: only a create is held to the rule
+		// (LESSONS 415).
+		if err := recordname.Check(name); err != nil {
+			return fmt.Errorf("cluster not imported: %w", err)
+		}
 	}
 
 	data, err := readKubeconfig(*path)
@@ -83,23 +106,6 @@ func runImportKubeconfig(args []string) error {
 		props[kubernetes.NamespaceProperty] = imported.Namespace
 	}
 
-	invPath := filepath.Join(*dir, inventory.DefaultInventoryFilename)
-	hosts, err := inventory.ReadHosts(invPath)
-	if err != nil {
-		return fmt.Errorf("failed to read inventory (did you run 'pleiades init'?): %w", err)
-	}
-	index := -1
-	for i, h := range hosts {
-		if h.Name == name {
-			index = i
-		}
-	}
-	switch {
-	case index >= 0 && !*replace:
-		return fmt.Errorf("host %q already exists; pass --replace to replace its connection settings and credential", name)
-	case index >= 0 && hosts[index].Type != kubernetes.TypeCluster:
-		return fmt.Errorf("host %q is a %s, not a %s, so an import cannot replace it", name, hosts[index].Type, kubernetes.TypeCluster)
-	}
 	spec := inventory.HostSpec{ID: uuid.New().String(), Name: name, Type: kubernetes.TypeCluster, Properties: props}
 	if index >= 0 {
 		// A replacement keeps the record's identity, tags and every

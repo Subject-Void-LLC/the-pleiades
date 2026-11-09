@@ -10,8 +10,11 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
 )
 
 // TestAddHost_RefusesANameThatWouldNotShowAsItself: each name is refused
@@ -119,5 +122,75 @@ func TestRunInventorySync_RefusesANameThatWouldNotShowAsItself(t *testing.T) {
 		if names[name] {
 			t.Errorf("the refused record %q was written to the inventory", name)
 		}
+	}
+}
+
+// TestImportKubeconfig_ReplacesAClusterStoredUnderANameTheRuleNowRefuses
+// writes hosts.yaml by hand with a cluster whose name holds an escape
+// sequence, as a release before the rule could have stored it, and imports
+// a kubeconfig over it with --replace. A replacement changes a stored
+// device rather than creating one, so it is made: the cluster takes the
+// kubeconfig's server and its credential is stored.
+func TestImportKubeconfig_ReplacesAClusterStoredUnderANameTheRuleNowRefuses(t *testing.T) {
+	dir := t.TempDir()
+	if err := runInit([]string{"--dir", dir}); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	legacy := "prod\x1b[2Jx"
+	doc := "hosts:\n  - id: legacy-1\n    name: " + strconv.Quote(legacy) + "\n    type: kubernetes_cluster\n    properties:\n      api_server: https://k-old.example:6443\n"
+	if err := os.WriteFile(filepath.Join(dir, inventory.DefaultInventoryFilename), []byte(doc), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "config")
+	if err := os.WriteFile(path, []byte(kubeconfigText("https://k.example:6443", clusterCAPEM(t), "", "    token: imported-token-value\n")), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	before := readOrEmpty(t, credentialsPath(dir))
+
+	if err := runImportKubeconfig([]string{legacy, "--dir", dir, "--kubeconfig", path, "--replace"}); err != nil {
+		t.Fatalf("import-kubeconfig --replace over the stored %q = %v, want nil", legacy, err)
+	}
+	hosts, err := inventory.ReadHosts(filepath.Join(dir, inventory.DefaultInventoryFilename))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hosts) != 1 || hosts[0].Name != legacy || hosts[0].ID != "legacy-1" || hosts[0].Properties["api_server"] != "https://k.example:6443" {
+		t.Errorf("hosts after the replacement = %+v, want the one stored cluster at the new server", hosts)
+	}
+	if after := readOrEmpty(t, credentialsPath(dir)); after == before {
+		t.Errorf("the replacement stored no credential")
+	}
+
+	// A new cluster under such a name is still refused, before the
+	// kubeconfig is read, even with --replace.
+	if err := runImportKubeconfig([]string{"new\x1b[2Jx", "--dir", dir, "--kubeconfig", path, "--replace"}); err == nil || !strings.Contains(err.Error(), "U+001B at byte 3") {
+		t.Errorf("import-kubeconfig of a new cluster under an escape = %v, want the name refused", err)
+	}
+}
+
+// TestSetHost_ChangesAHostStoredUnderANameTheRuleNowRefuses writes
+// hosts.yaml by hand with a host whose name holds a newline, as a release
+// before the rule could have stored it, and sets a property on it. A change
+// to a stored host is not a create, so it is made and written back with
+// the name as it was.
+func TestSetHost_ChangesAHostStoredUnderANameTheRuleNowRefuses(t *testing.T) {
+	dir := t.TempDir()
+	if err := runInit([]string{"--dir", dir}); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	legacy := "sw2\npleiades: approved"
+	doc := "hosts:\n  - id: legacy-1\n    name: " + strconv.Quote(legacy) + "\n    type: linux_server\n    properties:\n      host: 10.0.0.1\n"
+	if err := os.WriteFile(filepath.Join(dir, inventory.DefaultInventoryFilename), []byte(doc), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := runSetHost([]string{legacy, "--dir", dir, "--set", "port=2200"}); err != nil {
+		t.Fatalf("set-host on the stored %q = %v, want nil", legacy, err)
+	}
+	hosts, err := inventory.ReadHosts(filepath.Join(dir, inventory.DefaultInventoryFilename))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hosts) != 1 || hosts[0].Name != legacy || hosts[0].Properties["port"] == nil {
+		t.Errorf("hosts after set-host = %+v, want the stored host with its new port", hosts)
 	}
 }
