@@ -303,11 +303,12 @@ func TestContacts_RefusalsCarryTheStatusACallerActsOn(t *testing.T) {
 
 	// An update that would make an existing contact unreachable is refused
 	// on the same terms a create is: the rule belongs to the record, not to
-	// the verb that reached it.
+	// the verb that reached it. PATCH is partial, so the only channel is
+	// removed by naming it empty; leaving it out would keep it.
 	id := createdID(t, router, "/api/v1/contacts", fmt.Sprintf(
 		`{"name":"Dana","role":"owner","email":"dana@example.com","organization":%d}`, orgID))
 	if rec := doJSON(t, router, http.MethodPatch, fmt.Sprintf("/api/v1/contacts/%d", id),
-		`{"name":"Dana","role":"owner"}`); rec.Code != http.StatusBadRequest {
+		`{"name":"Dana","role":"owner","email":""}`); rec.Code != http.StatusBadRequest {
 		t.Errorf("an edit that removed every channel: status = %d, want 400", rec.Code)
 	}
 }

@@ -45,25 +45,24 @@ type teamListDTO struct {
 	Teams []teamDTO `json:"teams"`
 }
 
+// teamWriteDTO is the body POST /teams accepts. PATCH /teams/{id} takes
+// teamPatchDTO instead, which is partial in every field.
 type teamWriteDTO struct {
 	Name         string `json:"name"`
 	Organization int    `json:"organization"`
 	Description  string `json:"description"`
 
-	// Users is a pointer because PATCH means partial. A plain slice cannot
-	// distinguish "the caller said nothing about membership" from "the
-	// caller said the membership is now empty", and decoding both as nil
-	// meant a PATCH renaming a team silently removed everybody from it.
+	// Users is a pointer so an absent key and an explicit [] both create a
+	// team with no members, the way this body has always read them.
 	Users *[]int `json:"users"`
 }
 
-// members reads a submitted membership, reporting whether the caller
-// mentioned it at all.
-func (d teamWriteDTO) members() ([]int, bool) {
+// members reads a submitted membership, nil when the body left it out.
+func (d teamWriteDTO) members() []int {
 	if d.Users == nil {
-		return nil, false
+		return nil
 	}
-	return *d.Users, true
+	return *d.Users
 }
 
 func toTeamDTO(team access.Team, withMembers bool) teamDTO {
@@ -126,12 +125,11 @@ func (h *AccessHandler) CreateTeam(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &body) {
 		return
 	}
-	members, _ := body.members()
 	created, err := h.store.CreateTeam(r.Context(), access.Team{
 		Name:           body.Name,
 		OrganizationID: body.Organization,
 		Description:    body.Description,
-		UserIDs:        members,
+		UserIDs:        body.members(),
 	})
 	if err != nil {
 		h.respondAccessError(w, r, "create team", 0, err)
@@ -143,18 +141,24 @@ func (h *AccessHandler) CreateTeam(w http.ResponseWriter, r *http.Request) {
 	Respond(w, r, http.StatusCreated, &dto)
 }
 
-// UpdateTeam renames a team and replaces its membership.
+// UpdateTeam serves PATCH /teams/{id}: a partial update of a team's name,
+// description and membership. A field the body leaves out keeps its stored
+// value; see teamPatchDTO and access_patch.go for the rules.
 //
-// The organization is carried forward from storage rather than taken from
-// the body: moving a team between tenants would silently re-scope every
-// grant it holds, which is a migration rather than an edit.
+// The organization is fixed: moving a team between tenants would silently
+// re-scope every grant it holds, which is a migration rather than an edit,
+// so a body naming a different one is refused.
 func (h *AccessHandler) UpdateTeam(w http.ResponseWriter, r *http.Request) {
 	id, ok := h.accessID(w, r)
 	if !ok {
 		return
 	}
-	var body teamWriteDTO
+	var body teamPatchDTO
 	if !decodeJSON(w, r, &body) {
+		return
+	}
+	if len(body.nulls) > 0 {
+		RespondError(w, r, http.StatusBadRequest, patchNullRefusal(teamNoun, body.nulls))
 		return
 	}
 
@@ -163,15 +167,14 @@ func (h *AccessHandler) UpdateTeam(w http.ResponseWriter, r *http.Request) {
 		h.respondAccessError(w, r, "read team", id, err)
 		return
 	}
-	existing.Name = body.Name
-	existing.Description = body.Description
-	// Only replaced when the caller actually mentioned it. Omitting the key
-	// leaves the membership exactly as it was.
-	if members, mentioned := body.members(); mentioned {
-		existing.UserIDs = members
+	if refusal := body.fixedFieldRefusal(existing); refusal != "" {
+		RespondError(w, r, http.StatusBadRequest, refusal)
+		return
 	}
 
-	if err := h.store.UpdateTeam(r.Context(), existing); err != nil {
+	// Membership is replaced only when the body named it; leaving the key
+	// out keeps it exactly as it was.
+	if err := h.store.UpdateTeam(r.Context(), body.apply(existing)); err != nil {
 		h.respondAccessError(w, r, "update team", id, err)
 		return
 	}

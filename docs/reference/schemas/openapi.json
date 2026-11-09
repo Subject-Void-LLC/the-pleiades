@@ -400,6 +400,46 @@
       "post": {
         "description": "Puts a message in front of every operator who can see it. The author is taken from the caller's identity and cannot be set.",
         "operationId": "create_announcement",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "body": {
+                    "description": "The message.",
+                    "type": "string"
+                  },
+                  "ends_at": {
+                    "description": "RFC 3339. Omit for no expiry.",
+                    "type": "string"
+                  },
+                  "level": {
+                    "description": "One of info, changed, warning, critical. Defaults to info.",
+                    "type": "string"
+                  },
+                  "organization": {
+                    "description": "Omit for a system-wide announcement.",
+                    "type": "integer"
+                  },
+                  "starts_at": {
+                    "description": "RFC 3339. Omit to show immediately.",
+                    "type": "string"
+                  },
+                  "title": {
+                    "description": "The headline.",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "title",
+                  "body"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "201": {
             "content": {
@@ -550,6 +590,46 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "body": {
+                    "description": "The message.",
+                    "type": "string"
+                  },
+                  "ends_at": {
+                    "description": "RFC 3339. Omit for no expiry.",
+                    "type": "string"
+                  },
+                  "level": {
+                    "description": "One of info, changed, warning, critical. Defaults to info.",
+                    "type": "string"
+                  },
+                  "organization": {
+                    "description": "Omit for a system-wide announcement.",
+                    "type": "integer"
+                  },
+                  "starts_at": {
+                    "description": "RFC 3339. Omit to show immediately.",
+                    "type": "string"
+                  },
+                  "title": {
+                    "description": "The headline.",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "title",
+                  "body"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {
@@ -812,6 +892,44 @@
       "post": {
         "description": "Creates one grant: a team, a role, a place in the containment hierarchy, and allow or deny.",
         "operationId": "create_role_binding",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "effect": {
+                    "description": "allow or deny.",
+                    "type": "string"
+                  },
+                  "role": {
+                    "description": "viewer, operator or admin.",
+                    "type": "string"
+                  },
+                  "scope_id": {
+                    "description": "Required and positive at every scope except system, where it must be absent. A zero at a real scope would match every request naming nothing at that level.",
+                    "type": "integer"
+                  },
+                  "scope_type": {
+                    "description": "system, organization, inventory, group or device.",
+                    "type": "string"
+                  },
+                  "team": {
+                    "description": "Required.",
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "team",
+                  "role",
+                  "scope_type",
+                  "effect"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "201": {
             "content": {
@@ -1094,7 +1212,7 @@
         "x-link-relation": "self"
       },
       "patch": {
-        "description": "Edits one role binding. Fields that would re-scope an existing grant are never updatable.",
+        "description": "A partial update of one grant's role or effect. A field left out keeps its stored value and a field present is applied; a null on any field is refused. The team, scope_type and scope_id are not updatable: a value for one that differs from the stored one is refused, because re-pointing a grant is revoking one and issuing another, and the stored value is accepted as an echo. Editing the last system-scope allow into a deny is refused. Concurrent PATCHes are last-writer-wins: there is no version check.",
         "operationId": "update_role_binding",
         "parameters": [
           {
@@ -1107,6 +1225,39 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "description": "A partial update. A field left out keeps its stored value and a field present is applied; an empty value clears a field that can be empty. No field may be null: leave it out to keep it. Unknown fields are refused, so a GET response cannot be sent back as it is; send the fields a create takes. Only the role and the effect can change: re-pointing a grant is revoking one and issuing another, which leaves two legible events.",
+                "properties": {
+                  "effect": {
+                    "description": "allow or deny.",
+                    "type": "string"
+                  },
+                  "role": {
+                    "description": "viewer, operator or admin.",
+                    "type": "string"
+                  },
+                  "scope_id": {
+                    "description": "Not updatable: accepted only as the stored value, and any other is refused with 400. A system grant's stored value is 0.",
+                    "type": "integer"
+                  },
+                  "scope_type": {
+                    "description": "Not updatable: accepted only as the stored value, and any other is refused with 400.",
+                    "type": "string"
+                  },
+                  "team": {
+                    "description": "Not updatable: accepted only as the stored value, and any other is refused with 400.",
+                    "type": "integer"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
         "responses": {
           "200": {
             "content": {
@@ -1188,7 +1339,7 @@
                 }
               }
             },
-            "description": "The submission is not valid."
+            "description": "The body is malformed, sets a field to null or changes the team or the scope, or the grant it would leave names an unknown role or effect."
           },
           "404": {
             "content": {
@@ -1205,6 +1356,22 @@
               }
             },
             "description": "No record with that id."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The edit would leave the deployment with no system-scope allow, so nobody could administer it."
           }
         },
         "security": [
@@ -1416,6 +1583,58 @@
       "post": {
         "description": "Records who is accountable for one organization or one team, and how to reach them. Exactly one owner, and at least one of email, phone or url.",
         "operationId": "create_contact",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "email": {
+                    "description": "At least one of email, phone or url is required: a contact nobody can reach records that somebody is responsible without recording how to tell them.",
+                    "type": "string"
+                  },
+                  "name": {
+                    "description": "The person or, preferably, the rota. An individual's name in an escalation field is a page that goes unanswered the week they are on leave.",
+                    "type": "string"
+                  },
+                  "notes": {
+                    "description": "The conditions under which this is the right contact.",
+                    "type": "string"
+                  },
+                  "order": {
+                    "description": "Who is tried first. Lower is earlier.",
+                    "type": "integer"
+                  },
+                  "organization": {
+                    "description": "Set exactly one of this and team. Not updatable: an accountability record cannot change what it is accountable for.",
+                    "type": "integer"
+                  },
+                  "phone": {
+                    "description": "See email.",
+                    "type": "string"
+                  },
+                  "role": {
+                    "description": "One of owner, escalation, security, billing.",
+                    "type": "string"
+                  },
+                  "team": {
+                    "description": "Set exactly one of this and organization. Not updatable.",
+                    "type": "integer"
+                  },
+                  "url": {
+                    "description": "See email.",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "name",
+                  "role"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "201": {
             "content": {
@@ -1698,7 +1917,7 @@
         "x-link-relation": "self"
       },
       "patch": {
-        "description": "Changes a contact's details. The owner is carried forward from storage: re-pointing an accountability record is indistinguishable from deleting one and creating another.",
+        "description": "A partial update of a contact's details. A field left out keeps its stored value and a field present is applied; a null on any field is refused. The contact as it would be saved is checked whole, so clearing its only channel is refused. The owner (organization and team) is not updatable: a value that differs from the stored one is refused, because re-pointing an accountability record is deleting one and creating another, and the stored value is accepted as an echo. Concurrent PATCHes are last-writer-wins: there is no version check.",
         "operationId": "update_contact",
         "parameters": [
           {
@@ -1711,6 +1930,55 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "description": "A partial update. A field left out keeps its stored value and a field present is applied; an empty value clears a field that can be empty. No field may be null: leave it out to keep it. Unknown fields are refused, so a GET response cannot be sent back as it is; send the fields a create takes. The contact as it would be saved is checked whole, so clearing its only way to reach somebody is refused.",
+                "properties": {
+                  "email": {
+                    "description": "\"\" clears it, while at least one of email, phone or url remains.",
+                    "type": "string"
+                  },
+                  "name": {
+                    "description": "The person or, preferably, the rota. May not be blank.",
+                    "type": "string"
+                  },
+                  "notes": {
+                    "description": "The conditions under which this is the right contact. \"\" clears it.",
+                    "type": "string"
+                  },
+                  "order": {
+                    "description": "Who is tried first. Lower is earlier, and 0 is first.",
+                    "type": "integer"
+                  },
+                  "organization": {
+                    "description": "Not updatable: accepted only as the stored value, and any other is refused with 400. An accountability record cannot change what it is accountable for. 0 is the stored value of a team's contact.",
+                    "type": "integer"
+                  },
+                  "phone": {
+                    "description": "See email.",
+                    "type": "string"
+                  },
+                  "role": {
+                    "description": "One of owner, escalation, security, billing.",
+                    "type": "string"
+                  },
+                  "team": {
+                    "description": "Not updatable: accepted only as the stored value, and any other is refused with 400. 0 is the stored value of an organization's contact.",
+                    "type": "integer"
+                  },
+                  "url": {
+                    "description": "See email.",
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
         "responses": {
           "200": {
             "content": {
@@ -1800,7 +2068,7 @@
                 }
               }
             },
-            "description": "The submission is not a valid contact."
+            "description": "The body is malformed, sets a field to null or changes the owner, or the contact it would leave has no name, an unknown role or no way to reach anybody."
           },
           "404": {
             "content": {
@@ -4738,6 +5006,48 @@
       "post": {
         "description": "Creates a named set of devices within one organization. The name must be unique in that organization.",
         "operationId": "create_inventory",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "description": {
+                    "description": "What this inventory is for.",
+                    "type": "string"
+                  },
+                  "devices": {
+                    "description": "Device ids attached directly, with no intervening group.",
+                    "items": {
+                      "type": "integer"
+                    },
+                    "type": "array"
+                  },
+                  "groups": {
+                    "description": "Group ids this inventory contains.",
+                    "items": {
+                      "type": "integer"
+                    },
+                    "type": "array"
+                  },
+                  "name": {
+                    "description": "Unique within its organization.",
+                    "type": "string"
+                  },
+                  "organization": {
+                    "description": "Required. An inventory belonging to no organization could be resolved against no organization scope.",
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "name",
+                  "organization"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "201": {
             "content": {
@@ -4999,6 +5309,48 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "description": {
+                    "description": "What this inventory is for.",
+                    "type": "string"
+                  },
+                  "devices": {
+                    "description": "Device ids attached directly, with no intervening group.",
+                    "items": {
+                      "type": "integer"
+                    },
+                    "type": "array"
+                  },
+                  "groups": {
+                    "description": "Group ids this inventory contains.",
+                    "items": {
+                      "type": "integer"
+                    },
+                    "type": "array"
+                  },
+                  "name": {
+                    "description": "Unique within its organization.",
+                    "type": "string"
+                  },
+                  "organization": {
+                    "description": "Required. An inventory belonging to no organization could be resolved against no organization scope.",
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "name",
+                  "organization"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {
@@ -8559,6 +8911,57 @@
       "post": {
         "description": "Creates the tenancy boundary everything ownable belongs to.",
         "operationId": "create_organization",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "change_window": {
+                    "description": "When this tenant permits automation to run, written for a human.",
+                    "type": "string"
+                  },
+                  "classification": {
+                    "description": "One of unclassified, cui, confidential, secret, topsecret, topsecret-sci, or empty for unmarked. An environment marking is refused: an organization is not \"staging\", the deployment is.",
+                    "type": "string"
+                  },
+                  "cmdb_id": {
+                    "description": "Opaque reference into the customer's own CMDB.",
+                    "type": "string"
+                  },
+                  "cost_centre": {
+                    "description": "Opaque reference into the customer's own system of record.",
+                    "type": "string"
+                  },
+                  "description": {
+                    "description": "What this tenant is, in a sentence.",
+                    "type": "string"
+                  },
+                  "freeze_reason": {
+                    "description": "Why the freeze is in place.",
+                    "type": "string"
+                  },
+                  "frozen": {
+                    "description": "An operator-declared stop on this tenant.",
+                    "type": "boolean"
+                  },
+                  "name": {
+                    "description": "Unique across the deployment. Trimmed on write, so two tenants cannot differ only by surrounding whitespace.",
+                    "type": "string"
+                  },
+                  "ticket_key": {
+                    "description": "Opaque reference into the customer's own ticketing system.",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "name"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "201": {
             "content": {
@@ -8867,7 +9270,7 @@
         "x-link-relation": "self"
       },
       "patch": {
-        "description": "Edits one organization. Fields that would re-scope an existing grant are never updatable.",
+        "description": "A partial update of one organization. A field left out keeps its stored value and a field present is applied, so a PATCH naming only the name leaves the freeze and the change-management fields as they are, and frozen: false is the explicit unfreeze. A null on any field is refused. The organization as it would be saved is checked whole. Concurrent PATCHes are last-writer-wins: there is no version check.",
         "operationId": "update_organization",
         "parameters": [
           {
@@ -8880,6 +9283,55 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "description": "A partial update. A field left out keeps its stored value and a field present is applied; an empty value clears a field that can be empty. No field may be null: leave it out to keep it. Unknown fields are refused, so a GET response cannot be sent back as it is; send the fields a create takes. frozen: false is the explicit unfreeze. The attestation cannot be sent.",
+                "properties": {
+                  "change_window": {
+                    "description": "When this tenant permits automation to run, written for a human. \"\" clears it.",
+                    "type": "string"
+                  },
+                  "classification": {
+                    "description": "One of unclassified, cui, confidential, secret, topsecret, topsecret-sci, or \"\" for unmarked. An environment marking is refused.",
+                    "type": "string"
+                  },
+                  "cmdb_id": {
+                    "description": "Opaque reference into the customer's own CMDB. \"\" clears it.",
+                    "type": "string"
+                  },
+                  "cost_centre": {
+                    "description": "Opaque reference into the customer's own system of record. \"\" clears it.",
+                    "type": "string"
+                  },
+                  "description": {
+                    "description": "What this tenant is, in a sentence. \"\" clears it.",
+                    "type": "string"
+                  },
+                  "freeze_reason": {
+                    "description": "Why the freeze is in place. Kept when frozen changes, unless sent too.",
+                    "type": "string"
+                  },
+                  "frozen": {
+                    "description": "An operator-declared stop on this tenant. false lifts it.",
+                    "type": "boolean"
+                  },
+                  "name": {
+                    "description": "Unique across the deployment, trimmed on write. May not be blank.",
+                    "type": "string"
+                  },
+                  "ticket_key": {
+                    "description": "Opaque reference into the customer's own ticketing system. \"\" clears it.",
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
         "responses": {
           "200": {
             "content": {
@@ -8974,7 +9426,7 @@
                 }
               }
             },
-            "description": "The submission is not valid."
+            "description": "The body is malformed or sets a field to null, or the organization it would leave has a blank name or an unknown classification."
           },
           "404": {
             "content": {
@@ -8991,6 +9443,22 @@
               }
             },
             "description": "No record with that id."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "That name is already taken."
           }
         },
         "security": [
@@ -11547,6 +12015,41 @@
       "post": {
         "description": "Creates a group of users, and the only thing a role is ever granted to.",
         "operationId": "create_team",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "description": {
+                    "description": "What this team is responsible for. The name is a noun and the grants hanging off it are consequences; neither says why the team exists.",
+                    "type": "string"
+                  },
+                  "name": {
+                    "description": "What this team is called.",
+                    "type": "string"
+                  },
+                  "organization": {
+                    "description": "Required, and not updatable: moving a team between tenants would silently re-scope every grant it holds.",
+                    "type": "integer"
+                  },
+                  "users": {
+                    "description": "Member user ids. Omitted or [], the team starts with no members.",
+                    "items": {
+                      "type": "integer"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "name",
+                  "organization"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "201": {
             "content": {
@@ -11829,7 +12332,7 @@
         "x-link-relation": "self"
       },
       "patch": {
-        "description": "Edits one team. Fields that would re-scope an existing grant are never updatable.",
+        "description": "A partial update of one team's name, description and membership. A field left out keeps its stored value and a field present is applied; a null on any field is refused. The organization is not updatable: a value for it that differs from the stored one is refused, because moving a team between tenants would silently re-scope every grant it holds, and the stored value is accepted as an echo. Concurrent PATCHes are last-writer-wins: there is no version check.",
         "operationId": "update_team",
         "parameters": [
           {
@@ -11842,6 +12345,38 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "description": "A partial update. A field left out keeps its stored value and a field present is applied; an empty value clears a field that can be empty. No field may be null: leave it out to keep it. Unknown fields are refused, so a GET response cannot be sent back as it is; send the fields a create takes.",
+                "properties": {
+                  "description": {
+                    "description": "What this team is responsible for. \"\" clears it.",
+                    "type": "string"
+                  },
+                  "name": {
+                    "description": "Unique within its organization. May not be blank.",
+                    "type": "string"
+                  },
+                  "organization": {
+                    "description": "Not updatable: accepted only as the stored value, and any other is refused with 400. Moving a team between tenants would silently re-scope every grant it holds.",
+                    "type": "integer"
+                  },
+                  "users": {
+                    "description": "Member user ids, replacing the membership wholesale. [] empties it; leaving the key out keeps it.",
+                    "items": {
+                      "type": "integer"
+                    },
+                    "type": "array"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
         "responses": {
           "200": {
             "content": {
@@ -11923,7 +12458,7 @@
                 }
               }
             },
-            "description": "The submission is not valid."
+            "description": "The body is malformed, sets a field to null or changes the organization, or the team it would leave has a blank name."
           },
           "404": {
             "content": {
@@ -11940,6 +12475,22 @@
               }
             },
             "description": "No record with that id."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "That name is already taken in this organization."
           }
         },
         "security": [
@@ -14968,6 +15519,25 @@
       "post": {
         "description": "Creates an identity, joined to a token's subject by its email address.",
         "operationId": "create_user",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "email": {
+                    "description": "Lowercased on write, because two rows differing only in case would be two identities for one person.",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "email"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "201": {
             "content": {
@@ -15221,6 +15791,25 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "email": {
+                    "description": "Lowercased on write, because two rows differing only in case would be two identities for one person.",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "email"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {

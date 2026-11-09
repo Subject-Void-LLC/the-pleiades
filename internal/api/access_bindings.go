@@ -169,27 +169,41 @@ func (h *AccessHandler) CreateBinding(w http.ResponseWriter, r *http.Request) {
 	Respond(w, r, http.StatusCreated, &dto)
 }
 
-// UpdateBinding changes a grant's role or effect.
+// UpdateBinding serves PATCH /bindings/{id}: a partial update of a grant's
+// role or effect. A field the body leaves out keeps its stored value; see
+// bindingPatchDTO and access_patch.go for the rules.
 //
-// The scope and the team are carried forward from storage. Re-pointing a
-// grant is indistinguishable from revoking one and issuing another, and an
-// audit trail showing a grant quietly changing what it covers, or who holds
-// it, is one nobody can reconstruct afterwards.
+// The scope and the team are fixed, and a body naming a different one is
+// refused. Re-pointing a grant is indistinguishable from revoking one and
+// issuing another, and an audit trail showing a grant quietly changing what
+// it covers, or who holds it, is one nobody can reconstruct afterwards.
 func (h *AccessHandler) UpdateBinding(w http.ResponseWriter, r *http.Request) {
 	id, ok := h.accessID(w, r)
 	if !ok {
 		return
 	}
-	var body bindingWriteDTO
+	var body bindingPatchDTO
 	if !decodeJSON(w, r, &body) {
 		return
 	}
+	if len(body.nulls) > 0 {
+		RespondError(w, r, http.StatusBadRequest, patchNullRefusal(bindingNoun, body.nulls))
+		return
+	}
 
-	if err := h.store.UpdateBinding(r.Context(), access.Binding{
-		ID:     id,
-		Role:   auth.Role(body.Role),
-		Effect: auth.Effect(body.Effect),
-	}); err != nil {
+	stored, err := h.store.GetBinding(r.Context(), id)
+	if err != nil {
+		h.respondAccessError(w, r, "read role binding", id, err)
+		return
+	}
+	if refusal := body.fixedFieldRefusal(stored); refusal != "" {
+		RespondError(w, r, http.StatusBadRequest, refusal)
+		return
+	}
+
+	// The store validates the merged grant whole, including the guard that
+	// refuses editing the last system-scope allow into a deny.
+	if err := h.store.UpdateBinding(r.Context(), body.apply(stored)); err != nil {
 		h.respondAccessError(w, r, "update role binding", id, err)
 		return
 	}

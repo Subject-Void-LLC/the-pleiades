@@ -75,27 +75,33 @@ var CreateOrganization = Endpoint{
 		{Status: http.StatusBadRequest, Description: "The submission is not a valid organization.", Schema: errorSchema("")},
 		{Status: http.StatusConflict, Description: "That name is already taken.", Schema: errorSchema("")},
 	},
-	RequestSchema: organizationWriteSchema,
+	RequestContentType: "application/json",
+	RequestSchema:      organizationWriteSchema,
 }
 
 // UpdateOrganization edits an existing record.
 var UpdateOrganization = Endpoint{
-	Name:        "update_organization",
-	Method:      http.MethodPatch,
-	Pattern:     "/organizations/{id}",
-	Scope:       auth.ScopeAccessWrite,
-	Rel:         auth.RelUpdate,
-	Summary:     "Update a organization",
-	Description: "Edits one organization. Fields that would re-scope an existing grant are never updatable.",
+	Name:    "update_organization",
+	Method:  http.MethodPatch,
+	Pattern: "/organizations/{id}",
+	Scope:   auth.ScopeAccessWrite,
+	Rel:     auth.RelUpdate,
+	Summary: "Update a organization",
+	Description: "A partial update of one organization. A field left out keeps its stored value and a field " +
+		"present is applied, so a PATCH naming only the name leaves the freeze and the change-management fields " +
+		"as they are, and frozen: false is the explicit unfreeze. A null on any field is refused. The organization " +
+		"as it would be saved is checked whole. Concurrent PATCHes are last-writer-wins: there is no version check.",
 	Params: []Param{
 		{Name: "id", In: "path", Required: true, Type: "integer", Description: "The record's id."},
 	},
 	Responses: []Response{
 		{Status: http.StatusOK, Description: "The updated record.", Schema: organizationSchema},
-		{Status: http.StatusBadRequest, Description: "The submission is not valid.", Schema: errorSchema("")},
+		{Status: http.StatusBadRequest, Description: "The body is malformed or sets a field to null, or the organization it would leave has a blank name or an unknown classification.", Schema: errorSchema("")},
 		{Status: http.StatusNotFound, Description: "No record with that id.", Schema: errorSchema("")},
+		{Status: http.StatusConflict, Description: "That name is already taken.", Schema: errorSchema("")},
 	},
-	RequestSchema: organizationWriteSchema,
+	RequestContentType: "application/json",
+	RequestSchema:      organizationPatchSchema,
 }
 
 // DeleteOrganization removes a record.
@@ -176,27 +182,34 @@ var CreateTeam = Endpoint{
 		{Status: http.StatusBadRequest, Description: "The submission is not a valid team.", Schema: errorSchema("")},
 		{Status: http.StatusConflict, Description: "That name is already taken.", Schema: errorSchema("")},
 	},
-	RequestSchema: teamWriteSchema,
+	RequestContentType: "application/json",
+	RequestSchema:      teamWriteSchema,
 }
 
 // UpdateTeam edits an existing record.
 var UpdateTeam = Endpoint{
-	Name:        "update_team",
-	Method:      http.MethodPatch,
-	Pattern:     "/teams/{id}",
-	Scope:       auth.ScopeAccessWrite,
-	Rel:         auth.RelUpdate,
-	Summary:     "Update a team",
-	Description: "Edits one team. Fields that would re-scope an existing grant are never updatable.",
+	Name:    "update_team",
+	Method:  http.MethodPatch,
+	Pattern: "/teams/{id}",
+	Scope:   auth.ScopeAccessWrite,
+	Rel:     auth.RelUpdate,
+	Summary: "Update a team",
+	Description: "A partial update of one team's name, description and membership. A field left out keeps its " +
+		"stored value and a field present is applied; a null on any field is refused. The organization is not " +
+		"updatable: a value for it that differs from the stored one is refused, because moving a team between " +
+		"tenants would silently re-scope every grant it holds, and the stored value is accepted as an echo. " +
+		"Concurrent PATCHes are last-writer-wins: there is no version check.",
 	Params: []Param{
 		{Name: "id", In: "path", Required: true, Type: "integer", Description: "The record's id."},
 	},
 	Responses: []Response{
 		{Status: http.StatusOK, Description: "The updated record.", Schema: teamSchema},
-		{Status: http.StatusBadRequest, Description: "The submission is not valid.", Schema: errorSchema("")},
+		{Status: http.StatusBadRequest, Description: "The body is malformed, sets a field to null or changes the organization, or the team it would leave has a blank name.", Schema: errorSchema("")},
 		{Status: http.StatusNotFound, Description: "No record with that id.", Schema: errorSchema("")},
+		{Status: http.StatusConflict, Description: "That name is already taken in this organization.", Schema: errorSchema("")},
 	},
-	RequestSchema: teamWriteSchema,
+	RequestContentType: "application/json",
+	RequestSchema:      teamPatchSchema,
 }
 
 // DeleteTeam removes a record.
@@ -277,7 +290,8 @@ var CreateUser = Endpoint{
 		{Status: http.StatusBadRequest, Description: "The submission is not a valid user.", Schema: errorSchema("")},
 		{Status: http.StatusConflict, Description: "That name is already taken.", Schema: errorSchema("")},
 	},
-	RequestSchema: userWriteSchema,
+	RequestContentType: "application/json",
+	RequestSchema:      userWriteSchema,
 }
 
 // UpdateUser edits an existing record.
@@ -297,7 +311,8 @@ var UpdateUser = Endpoint{
 		{Status: http.StatusBadRequest, Description: "The submission is not valid.", Schema: errorSchema("")},
 		{Status: http.StatusNotFound, Description: "No record with that id.", Schema: errorSchema("")},
 	},
-	RequestSchema: userWriteSchema,
+	RequestContentType: "application/json",
+	RequestSchema:      userWriteSchema,
 }
 
 // DeleteUser removes a record.
@@ -378,27 +393,34 @@ var CreateBinding = Endpoint{
 		{Status: http.StatusBadRequest, Description: "The submission is not a valid role binding.", Schema: errorSchema("")},
 		{Status: http.StatusConflict, Description: "That name is already taken.", Schema: errorSchema("")},
 	},
-	RequestSchema: bindingWriteSchema,
+	RequestContentType: "application/json",
+	RequestSchema:      bindingWriteSchema,
 }
 
 // UpdateBinding edits an existing record.
 var UpdateBinding = Endpoint{
-	Name:        "update_role_binding",
-	Method:      http.MethodPatch,
-	Pattern:     "/bindings/{id}",
-	Scope:       auth.ScopeAccessWrite,
-	Rel:         auth.RelUpdate,
-	Summary:     "Update a role binding",
-	Description: "Edits one role binding. Fields that would re-scope an existing grant are never updatable.",
+	Name:    "update_role_binding",
+	Method:  http.MethodPatch,
+	Pattern: "/bindings/{id}",
+	Scope:   auth.ScopeAccessWrite,
+	Rel:     auth.RelUpdate,
+	Summary: "Update a role binding",
+	Description: "A partial update of one grant's role or effect. A field left out keeps its stored value and a " +
+		"field present is applied; a null on any field is refused. The team, scope_type and scope_id are not " +
+		"updatable: a value for one that differs from the stored one is refused, because re-pointing a grant is " +
+		"revoking one and issuing another, and the stored value is accepted as an echo. Editing the last " +
+		"system-scope allow into a deny is refused. Concurrent PATCHes are last-writer-wins: there is no version check.",
 	Params: []Param{
 		{Name: "id", In: "path", Required: true, Type: "integer", Description: "The record's id."},
 	},
 	Responses: []Response{
 		{Status: http.StatusOK, Description: "The updated record.", Schema: bindingSchema},
-		{Status: http.StatusBadRequest, Description: "The submission is not valid.", Schema: errorSchema("")},
+		{Status: http.StatusBadRequest, Description: "The body is malformed, sets a field to null or changes the team or the scope, or the grant it would leave names an unknown role or effect.", Schema: errorSchema("")},
 		{Status: http.StatusNotFound, Description: "No record with that id.", Schema: errorSchema("")},
+		{Status: http.StatusConflict, Description: "The edit would leave the deployment with no system-scope allow, so nobody could administer it.", Schema: errorSchema("")},
 	},
-	RequestSchema: bindingWriteSchema,
+	RequestContentType: "application/json",
+	RequestSchema:      bindingPatchSchema,
 }
 
 // DeleteBinding removes a record.
@@ -527,27 +549,34 @@ var CreateContact = Endpoint{
 		{Status: http.StatusBadRequest, Description: "The submission names no owner, names two, or gives no way to reach anybody.", Schema: errorSchema("")},
 		{Status: http.StatusNotFound, Description: "The named owner does not exist.", Schema: errorSchema("")},
 	},
-	RequestSchema: contactWriteSchema,
+	RequestContentType: "application/json",
+	RequestSchema:      contactWriteSchema,
 }
 
-// UpdateContact replaces a record's details.
+// UpdateContact is a partial update of a record's details.
 var UpdateContact = Endpoint{
-	Name:        "update_contact",
-	Method:      http.MethodPatch,
-	Pattern:     "/contacts/{id}",
-	Scope:       auth.ScopeAccessWrite,
-	Rel:         auth.RelUpdate,
-	Summary:     "Update a contact",
-	Description: "Changes a contact's details. The owner is carried forward from storage: re-pointing an accountability record is indistinguishable from deleting one and creating another.",
+	Name:    "update_contact",
+	Method:  http.MethodPatch,
+	Pattern: "/contacts/{id}",
+	Scope:   auth.ScopeAccessWrite,
+	Rel:     auth.RelUpdate,
+	Summary: "Update a contact",
+	Description: "A partial update of a contact's details. A field left out keeps its stored value and a field " +
+		"present is applied; a null on any field is refused. The contact as it would be saved is checked whole, " +
+		"so clearing its only channel is refused. The owner (organization and team) is not updatable: a value " +
+		"that differs from the stored one is refused, because re-pointing an accountability record is deleting " +
+		"one and creating another, and the stored value is accepted as an echo. Concurrent PATCHes are " +
+		"last-writer-wins: there is no version check.",
 	Params: []Param{
 		{Name: "id", In: "path", Required: true, Type: "integer", Description: "The record's id."},
 	},
 	Responses: []Response{
 		{Status: http.StatusOK, Description: "The updated record.", Schema: contactSchema},
-		{Status: http.StatusBadRequest, Description: "The submission is not a valid contact.", Schema: errorSchema("")},
+		{Status: http.StatusBadRequest, Description: "The body is malformed, sets a field to null or changes the owner, or the contact it would leave has no name, an unknown role or no way to reach anybody.", Schema: errorSchema("")},
 		{Status: http.StatusNotFound, Description: "No record with that id.", Schema: errorSchema("")},
 	},
-	RequestSchema: contactWriteSchema,
+	RequestContentType: "application/json",
+	RequestSchema:      contactPatchSchema,
 }
 
 // DeleteContact removes a record.
@@ -643,8 +672,8 @@ var contactWriteSchema = map[string]any{
 		"url":          stringSchema("See email."),
 		"notes":        stringSchema("The conditions under which this is the right contact."),
 		"order":        map[string]any{"type": "integer", "description": "Who is tried first. Lower is earlier."},
-		"organization": map[string]any{"type": "integer", "description": "Set exactly one of this and team. Ignored on update: an accountability record cannot change what it is accountable for."},
-		"team":         map[string]any{"type": "integer", "description": "Set exactly one of this and organization. Ignored on update."},
+		"organization": map[string]any{"type": "integer", "description": "Set exactly one of this and team. Not updatable: an accountability record cannot change what it is accountable for."},
+		"team":         map[string]any{"type": "integer", "description": "Set exactly one of this and organization. Not updatable."},
 	},
 }
 
@@ -671,7 +700,7 @@ var teamWriteSchema = map[string]any{
 		"name":         stringSchema("What this team is called."),
 		"organization": map[string]any{"type": "integer", "description": "Required, and not updatable: moving a team between tenants would silently re-scope every grant it holds."},
 		"description":  stringSchema("What this team is responsible for. The name is a noun and the grants hanging off it are consequences; neither says why the team exists."),
-		"users":        map[string]any{"type": "array", "items": map[string]any{"type": "integer"}, "description": "Member user ids, replaced wholesale rather than merged. Omitting the key leaves the membership untouched."},
+		"users":        map[string]any{"type": "array", "items": map[string]any{"type": "integer"}, "description": "Member user ids. Omitted or [], the team starts with no members."},
 	},
 }
 
