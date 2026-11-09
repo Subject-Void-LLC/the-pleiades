@@ -110,7 +110,7 @@ var templateWriteSchema = map[string]any{
 	"type":     "object",
 	"required": []any{"name", "kind", "definition", "inventory"},
 	"properties": map[string]any{
-		"name":        stringSchema("Unique within the organization the inventory belongs to."),
+		"name":        stringSchema("Unique within the organization the inventory belongs to. At most 253 bytes."),
 		"description": stringSchema("What this template is for."),
 		"kind":        stringSchema("A registered kind: runbook, playbook. Read on create, ignored on update."),
 		"definition":  stringSchema("A runbook id or a playbook path, whichever the kind resolves. Read on create, ignored on update."),
@@ -133,6 +133,46 @@ var templateWriteSchema = map[string]any{
 			"items": map[string]any{"type": "string"},
 			"description": "An optional plan-time hint. This API does not compute it: read GET /runbooks/{id} for a " +
 				"runbook's real compiled requirements and submit those.",
+		},
+	},
+}
+
+// templatePatchSchema is the body PATCH /templates/{id} accepts: the create
+// body's fields, every one optional, since a PATCH is partial.
+var templatePatchSchema = map[string]any{
+	"type": "object",
+	"description": "A partial update. A field left out keeps its stored value and a field present is applied. An " +
+		"empty value clears description (\"\"), defaults ({}), prompts and required_capabilities ([]); a name may " +
+		"not be blank; a survey is cleared with {\"enabled\": false, \"questions\": []}, since survey: {} keeps it. " +
+		"None of these fields, nor survey.enabled or survey.questions, may be null: leave it out to keep it. Inside " +
+		"a question, fields are read as a create reads them. Unknown fields are refused, so a GET response cannot " +
+		"be sent back as it is; send the fields a create takes.",
+	"properties": map[string]any{
+		"name":        stringSchema("Unique within the template's organization. May not be blank, and at most 253 bytes."),
+		"description": stringSchema("What this template is for."),
+		"kind":        stringSchema("Not updatable: accepted only as the stored value, and any other is refused with 400."),
+		"definition":  stringSchema("Not updatable: accepted only as the stored value (compared trimmed), and any other is refused with 400."),
+		"inventory":   map[string]any{"type": "integer", "description": "Not updatable: accepted only as the stored value, and any other is refused with 400."},
+		"defaults": map[string]any{
+			"type":        "object",
+			"description": "Replaces the saved values whole, keyed by launch field name. {} clears them.",
+		},
+		"prompts": map[string]any{
+			"type":        "array",
+			"items":       map[string]any{"type": "string"},
+			"description": "Replaces which fields a launch may override. [] locks every field.",
+		},
+		"survey": map[string]any{
+			"type": "object",
+			"description": "Partial in its own right: enabled and questions are each kept when left out, so turning a " +
+				"survey off keeps its questions. questions, when present, replaces the whole list in the order given.",
+			"properties": surveySchema["properties"],
+		},
+		"allow_simultaneous": map[string]any{"type": "boolean"},
+		"required_capabilities": map[string]any{
+			"type":        "array",
+			"items":       map[string]any{"type": "string"},
+			"description": "Replaces the plan-time hint. [] clears it.",
 		},
 	},
 }
@@ -268,7 +308,7 @@ var CreateTemplate = Endpoint{
 	RequestSchema:      templateWriteSchema,
 	Responses: []Response{
 		{Status: http.StatusCreated, Description: "The created template.", Schema: templateSchema},
-		{Status: http.StatusBadRequest, Description: "The body is malformed, names no registered kind, or declares a default or a prompt the kind has no field for.", Schema: errorSchema("")},
+		{Status: http.StatusBadRequest, Description: "The body is malformed, names no registered kind, names the template with nothing or with more than 253 bytes, declares a default or a prompt the kind has no field for, or carries a survey nobody could answer.", Schema: errorSchema("")},
 		{Status: http.StatusForbidden, Description: "The named inventory belongs to another organization.", Schema: errorSchema("")},
 		{Status: http.StatusNotFound, Description: "No inventory with that id.", Schema: errorSchema("")},
 		{Status: http.StatusConflict, Description: "A template with that name already exists in that organization.", Schema: errorSchema("")},
@@ -283,18 +323,24 @@ var UpdateTemplate = Endpoint{
 	Scope:   auth.ScopeTemplateWrite,
 	Rel:     auth.RelUpdate,
 	Summary: "Update a template",
-	Description: "Replaces a template's name, description, defaults, prompts, survey and flags. The kind, the " +
-		"definition and the inventory are not updatable: re-pointing a template at different code or a " +
-		"different fleet, while it keeps its name, its access grants and its job history, is how a reviewed " +
-		"thing quietly becomes an unreviewed one. Copy it instead, which leaves two legible records.",
+	Description: "A partial update of a template's name, description, defaults, prompts, survey and flags, as " +
+		"AWX's PATCH is. A field left out keeps its stored value and a field present is applied; the request " +
+		"schema says how each one is cleared, and a null on any of them is refused. The template as it would be " +
+		"saved, kept fields and all, is checked whole, so a PATCH naming one field is refused for a kept value a " +
+		"full edit would be refused for. There is no PUT. Concurrent PATCHes are last-writer-wins: there is no " +
+		"version check, so of two at once the second's write covers the first's for every field. The kind, the " +
+		"definition and the inventory are not updatable, and a value for one that differs from the stored one is " +
+		"refused rather than ignored: re-pointing a template at different code or a different fleet, while it " +
+		"keeps its name, its access grants and its job history, is how a reviewed thing quietly becomes an " +
+		"unreviewed one. Copy it instead, which leaves two legible records.",
 	Params: []Param{
 		{Name: "id", In: "path", Required: true, Type: "integer", Description: "The template's numeric id."},
 	},
 	RequestContentType: "application/json",
-	RequestSchema:      templateWriteSchema,
+	RequestSchema:      templatePatchSchema,
 	Responses: []Response{
 		{Status: http.StatusOK, Description: "The updated template.", Schema: templateSchema},
-		{Status: http.StatusBadRequest, Description: "The body is malformed, or declares a default or a prompt the kind has no field for.", Schema: errorSchema("")},
+		{Status: http.StatusBadRequest, Description: "The body is malformed, sets a field to null or changes the kind, the definition or the inventory, or the template it would leave has a blank name or one over 253 bytes, declares a default or a prompt the kind has no field for, or carries a survey nobody could answer.", Schema: errorSchema("")},
 		{Status: http.StatusNotFound, Description: "No template with that id.", Schema: errorSchema("")},
 		{Status: http.StatusConflict, Description: "That name is already taken in this organization.", Schema: errorSchema("")},
 	},
@@ -309,10 +355,10 @@ var SetTemplateSurvey = Endpoint{
 	Rel:     auth.RelSetSurvey,
 	Summary: "Replace a template's survey",
 	Description: "Replaces the whole survey, leaving the template's metadata, defaults and prompts as they are. " +
-		"It is the same store update PATCH performs, narrowed to the survey so a client that edits only the " +
-		"questions does not round-trip the rest of the template. The questions are stored in the order given, " +
+		"It is the same store update PATCH performs, narrowed to the survey, and unlike a PATCH it replaces " +
+		"the survey whole: an absent survey, or one without questions, clears them. The questions are stored in the order given, " +
 		"which is the order the launch form asks them in. A survey nobody could answer correctly is refused: a " +
-		"question writing to no variable, two questions writing to one variable, a choice question offering " +
+		"question writing to no variable, a question with no label, two questions writing to one variable, a choice question offering " +
 		"nothing, a default that is not one of the choices, a password question carrying a default, a file " +
 		"question carrying a default or a maximum above 32768, allow_program_content set on a question that is " +
 		"not a file, or a minimum above its maximum.",

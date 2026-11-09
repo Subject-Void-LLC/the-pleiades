@@ -1,0 +1,1 @@
+Saving a template whose survey has a question with no label, or whose name is longer than 253 bytes, is now refused with a 400 that names the question or states the bound, on create, `PUT /templates/{id}/survey` and `PATCH /templates/{id}` alike, where it used to answer 500 "internal error". A label of only spaces is refused the same way.

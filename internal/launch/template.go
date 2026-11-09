@@ -180,6 +180,16 @@ func (t Template) Promptable(name string) bool {
 	return false
 }
 
+// MaxNameBytes is the longest template name, in bytes, that can be saved.
+//
+// It is the launchable row's bound, not the template row's: the store copies
+// a template's name into its launchable row (the one a schedule points at)
+// in the same transaction, and that column is MaxLen(253) in
+// internal/ent/schema/launchable.go. A longer name passed Validate, failed
+// at that insert, and answered 500. TestMaxNameBytes_IsTheLaunchableRowsOwnBound
+// holds the two equal.
+const MaxNameBytes = 253
+
 // Validate refuses a template that could not be launched by anybody.
 //
 // Checked at the write rather than at the launch, for the reason every
@@ -187,8 +197,15 @@ func (t Template) Promptable(name string) bool {
 // will find out about at the worst possible moment, which for a template is
 // the moment they are trying to run something.
 func (t Template) Validate() error {
-	if strings.TrimSpace(t.Name) == "" {
+	name := strings.TrimSpace(t.Name)
+	if name == "" {
 		return fmt.Errorf("%w: a template needs a name", ErrInvalidTemplate)
+	}
+	// Measured trimmed, because the store saves it trimmed, and in bytes,
+	// because that is what the database's bound counts.
+	if len(name) > MaxNameBytes {
+		return fmt.Errorf("%w: a template name may be at most %d bytes, and this one is %d",
+			ErrInvalidTemplate, MaxNameBytes, len(name))
 	}
 
 	d, err := t.Descriptor()

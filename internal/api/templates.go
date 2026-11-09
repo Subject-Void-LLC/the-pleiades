@@ -130,7 +130,10 @@ type templateListDTO struct {
 	Templates []templateDTO `json:"templates"`
 }
 
-// templateWriteDTO is the request body create, update and copy accept.
+// templateWriteDTO is the request body create and copy accept. An update
+// takes templatePatchDTO (templates_patch.go) instead, whose fields are
+// pointers, because an update is partial and a plain field cannot tell an
+// absent key from a zero value.
 //
 // Kind, Definition and Inventory are read on create and ignored on update,
 // which the store enforces rather than trusts: re-pointing a template at
@@ -219,9 +222,16 @@ func fromSurveyDTO(dto *surveyDTO) launch.Survey {
 	if dto == nil {
 		return launch.Survey{}
 	}
-	survey := launch.Survey{Enabled: dto.Enabled, Questions: make([]launch.Question, 0, len(dto.Questions))}
-	for _, q := range dto.Questions {
-		survey.Questions = append(survey.Questions, launch.Question{
+	return launch.Survey{Enabled: dto.Enabled, Questions: fromQuestionDTOs(dto.Questions)}
+}
+
+// fromQuestionDTOs converts submitted questions to the domain's, in the
+// order given. Shared by a whole survey's conversion and by a PATCH that
+// names only the questions, so the two cannot disagree about a field.
+func fromQuestionDTOs(dtos []questionDTO) []launch.Question {
+	questions := make([]launch.Question, 0, len(dtos))
+	for _, q := range dtos {
+		questions = append(questions, launch.Question{
 			Variable: q.Variable,
 			Label:    q.Label,
 			Help:     q.Help,
@@ -235,7 +245,7 @@ func fromSurveyDTO(dto *surveyDTO) launch.Survey {
 			AllowProgramContent: q.AllowProgramContent,
 		})
 	}
-	return survey
+	return questions
 }
 
 // toTemplateDTO projects a template onto the wire.
@@ -385,36 +395,43 @@ func (h *TemplateHandler) Create(w http.ResponseWriter, r *http.Request) {
 	Respond(w, r, http.StatusCreated, &dto)
 }
 
-// Update replaces a template's editable half.
+// Update serves PATCH /templates/{id}: a partial update of a template's
+// editable half. A field the body leaves out keeps its stored value; see
+// templatePatchDTO for the rules.
 func (h *TemplateHandler) Update(w http.ResponseWriter, r *http.Request) {
 	id, ok := parseTemplateID(w, r)
 	if !ok {
 		return
 	}
 
-	var body templateWriteDTO
+	var body templatePatchDTO
 	if !decodeJSON(w, r, &body) {
 		return
 	}
-
-	// Read first, so an update to a missing template is a 404 rather than a
-	// store error. The kind, definition and inventory are carried forward
-	// by the store from what is stored, whatever the body says.
-	if _, err := h.templates.Get(r.Context(), id); err != nil {
-		h.respondStoreError(w, r, "read", id, err)
+	if len(body.nulls) > 0 {
+		RespondError(w, r, http.StatusBadRequest, body.nullRefusal())
 		return
 	}
 
-	if err := h.templates.Update(r.Context(), launch.Template{
-		ID:                id,
-		Name:              body.Name,
-		Description:       body.Description,
-		Defaults:          launch.Fields(body.Defaults),
-		Prompts:           body.Prompts,
-		Survey:            fromSurveyDTO(body.Survey),
-		AllowSimultaneous: body.AllowSimultaneous,
-		RequiredCaps:      body.RequiredCapabilities,
-	}); err != nil {
+	// Read first, both so an update to a missing template is a 404 rather
+	// than a store error, and because the stored template is what the body
+	// is folded over: every field it does not name is written back as it
+	// was, and a kind, definition or inventory it names is compared against
+	// it.
+	stored, err := h.templates.Get(r.Context(), id)
+	if err != nil {
+		h.respondStoreError(w, r, "read", id, err)
+		return
+	}
+	if refusal := body.fixedFieldRefusal(stored); refusal != "" {
+		RespondError(w, r, http.StatusBadRequest, refusal)
+		return
+	}
+
+	// The store validates the merged template whole, so a PATCH naming one
+	// field is still refused for a value it keeps that a full update would
+	// be refused for.
+	if err := h.templates.Update(r.Context(), body.apply(stored)); err != nil {
 		h.respondStoreError(w, r, "update", id, err)
 		return
 	}

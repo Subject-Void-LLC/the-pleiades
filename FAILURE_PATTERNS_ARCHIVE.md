@@ -25525,6 +25525,12 @@ comment), which is the same shape whatever its reason.
 
 **Lesson.** Pending the fix. 1054's rule applies to each: refuse a differing value of a field the update cannot apply.
 
+**Note 2026-11-09 (`fix/template-patch-partial`, `e82caa70`).** Templates leave this entry's list. A `kind`,
+`definition` or `inventory` that differs from the stored one is now refused with 400 naming the field, and an echo is
+accepted, as 1054 does for devices (1069). The entry stays open, task 17, for the other eight: announcements, bindings,
+contacts, credential types, credentials, inventories, projects and teams. The sweep on that branch also found seven of
+those (all but bindings), and organizations, to be full replaces, the other shape, recorded as 1075.
+
 ## 1056. PATCH /templates/{id} replaces a template's editable half from the body, so a client that omits survey deletes the survey, omitting defaults, prompts or required_capabilities blanks them, and omitting allow_simultaneous writes false (open, read in code and not reproduced: task 16; on main since 5dbc35bc, 2026-08-12; a repeat in kind of 103)
 
 **Symptom.** Found by reading on `fix/ui-device-edit`, 2026-11-09; not run. `TemplateHandler.Update`
@@ -25545,6 +25551,36 @@ template handler, written beside them, takes plain values and a map, and nothing
 template back.
 
 **Lesson.** Pending the fix. LESSONS 98 applies to every field of a PATCH body, not only to lists.
+
+**Resolved 2026-11-09 (fixed on `fix/template-patch-partial`, `e82caa70`, with `67c752aa` for the route text).
+Reproduced, and worse than read.** Run through the real router over the ent store on SQLite, `PATCH {"name":
+"renamed"}` on a full template answered 200 and erased the description, the defaults `{forks: 5, limit: edge-*}`, the
+prompts `[limit forks]` and the required capabilities `[ssh apt]`. It set `allow_simultaneous` from true to false, and
+it deleted both survey questions and set the survey's `enabled` to false. A PATCH without `name` was refused with 400 "a
+template needs a name", so no real partial PATCH could succeed at all. The full replace also hid a check: a stored
+default that the kind no longer declares was wiped by the good data the body carried, so it was never refused.
+
+**Fix.** `TemplateHandler.Update` decodes `templatePatchDTO` (`internal/api/templates_patch.go`), which tracks presence
+with one pointer per field, as `deviceWriteRequest` and `scheduleWriteDTO` do. It folds the fields the body names over
+the stored template and hands the merged template to the store, which validates it whole, so a kept default the kind
+no longer declares is now refused. The survey is partial in its own right: `enabled` and `questions` are each kept when
+left out, and a survey is cleared with `{"enabled": false, "questions": []}`. Other fields are cleared per field with
+`""`, `{}` or `[]`. A JSON `null` on one of the template's own fields, or on `survey.enabled` or `survey.questions`, is
+refused with 400 naming the field; a null inside a question decodes as a create decodes it. The strict decode is
+repeated inside the custom unmarshalers, since `decodeJSON`'s `DisallowUnknownFields` does not reach into one, so an
+unknown key is still a malformed body. This matches AWX, whose PATCH is partial. Tests, shown red on the old handler:
+`TestTemplateAPI_PatchKeepsEveryFieldItDoesNotName`, `TestTemplateAPI_PatchClearsAFieldSentEmpty`,
+`TestTemplateAPI_PatchRefusesNull`, `TestTemplateAPI_PatchRefusesABodyThatIsNotAnObjectOfKnownFields` and
+`TestTemplateAPI_PatchValidatesTheMergedTemplate` (`internal/api/templates_patch_test.go`). The refusal of a null is a
+breaking change, and its changelog fragment says so. The same branch refuses a changed kind, definition or inventory
+(1069) and two store bounds that answered 500 (1070, 1071).
+
+**Limits, unchanged.** Concurrent PATCHes are last-writer-wins: there is no version check, so of two at once the second
+covers the first for every field. A template edit does not re-run a schedule's Preflight. Eight other PATCH handlers are
+full replaces in the same way (1075, open).
+
+**Lesson.** As LESSONS 98, for every field of a PATCH body: track presence per field and fold the body over the stored
+record, and validate the merged record, not only the fields the body names.
 
 ## 1057. TestUI_FullCRUDRoundTrip's doc comment said it drove create, read, edit and delete through the rendered pages, and the test had no edit step (fixed on this branch; on main since 9de3c7fe, 2026-08-11; the class of 228, 1029 and 1041)
 
@@ -25812,3 +25848,184 @@ must quote it (1043, 1063, 1064).
 device creation first accepted one has not been traced; `recordname.Check` is on main since `c900b43b`, 2026-11-08.
 
 **Lesson.** Pending the fix.
+
+## 1069. PATCH /templates/{id} answered 200 for a kind, definition or inventory that differed from the stored one, and stored nothing for it (fixed on this branch; on main since 5dbc35bc, 2026-08-12; a repeat of 111, 261 and 1054)
+
+**Symptom.** Fixed on `fix/template-patch-partial`, 2026-11-09, while fixing 1056; 1055 had listed it. The PATCH body
+decoded `kind`, `definition` and `inventory`, and the update never applied them, since the store carries all three
+forward from storage. A request asking to re-point a template answered 200 and changed nothing.
+
+**Root cause.** As 1054: one request type, `templateWriteDTO`, served create and update, and the update read only what
+it could apply. Its doc comment called the ignoring deliberate. Nothing refused a value that differed.
+
+**Why 111, 261 and 1054 did not prevent it.** It was known, not missed. 1054's fix was applied to the device endpoint
+only. The sweep after it found this endpoint and eight others and passed them to task 17 as 1055, open.
+
+**Fix.** `e82caa70`. `templatePatchDTO.fixedFieldRefusal` (`internal/api/templates_patch.go`) compares each of the three
+with the stored template, the definition trimmed because it is stored trimmed. A differing value is refused with 400
+naming the field. An echo of the stored value is accepted, as the device PATCH accepts one. Test, shown red on the old
+handler: `TestTemplateAPI_PatchRefusesAChangeToAFixedField` (`internal/api/templates_patch_test.go`). The route's
+description in `internal/apispec/template_endpoints.go` says so (`67c752aa`). A client that relied on a differing value
+being dropped now gets a 400.
+
+**Lesson.** As 1054.
+
+## 1070. A survey question with no label answered 500 on create, PUT /templates/{id}/survey and PATCH, because the database's NotEmpty refused it while Survey.Validate did not; a label of spaces alone was accepted and stored (fixed on this branch; on main since 5dbc35bc, 2026-08-12; a repeat in kind of 974)
+
+**Symptom.** Found on `fix/template-patch-partial`, 2026-11-09. A question with an empty `label` passed
+`launch.Survey.Validate` and failed at the insert, where `survey_question.label` is `NotEmpty()`
+(`internal/ent/schema/survey_question.go`). Each of the three write paths answered 500 "internal error". A label of
+spaces alone passed both checks and was stored, so the launch form would ask a question with nothing to read.
+
+**Root cause.** A store constraint the validator in front of it did not mirror. The handler does not map the store's
+validation error, so it reached the caller as a fault rather than as a refusal.
+
+**Earlier entries.** A search of the index and the archive for a store bound that the layer before it does not check,
+by symptom (a 500 on a write) and by cause (an ent `NotEmpty` or `MaxLen`), found 974 as the nearest: an order source
+longer than its column's `MaxLen(256)` failed ent's validator inside the facts consumer. 267 and 1058 are 500s from
+other causes (a foreign key, a missing record).
+
+**Why 974 did not prevent it.** 974's fix and lesson covered one new column fed from a batch, and asked where that bound
+is refused before the consumer meets it. Nothing holds a domain validator to the ent schema's validators, so the rule
+never reached the API's write paths.
+
+**Fix.** `034e4050`. `Survey.Validate` (`internal/launch/survey.go`) refuses a label that is empty or only spaces with
+400, naming the question by its variable. Test, shown red on the old code:
+`TestTemplateAPI_RefusesAQuestionWithNoLabelOnEveryWritePath` (`internal/api/templates_store_limits_test.go`), which
+drives create, PUT /survey and PATCH. The route descriptions name the refusal (`3f9ee50f`).
+
+**Lesson.** LESSONS 426.
+
+## 1071. A template name over 253 bytes answered 500 on create and PATCH, because the launchable row the store copies it into is MaxLen(253) and Template.Validate had no bound (fixed on this branch; on main since b044f0c2, 2026-09-20; a sibling of 1070, a repeat in kind of 974)
+
+**Symptom.** Found on `fix/template-patch-partial`, 2026-11-09, beside 1070. The template row's `name` is `NotEmpty()`
+only. The store also writes the name into the template's `launchables` row in the same transaction, and that column is
+`MaxLen(253)` (`internal/ent/schema/launchable.go`). A longer name passed `Template.Validate`, failed at that insert,
+and answered 500.
+
+**Root cause.** As 1070. The bound came with the launchable row in `b044f0c2` (Phase 21's C1 seam), on a table other
+than the template's own, so a reader of the template schema would not see it.
+
+**Why 974 did not prevent it.** As for 1070.
+
+**Fix.** `034e4050`. `launch.MaxNameBytes` is 253, and `Template.Validate` (`internal/launch/template.go`) refuses a
+trimmed name longer than that, in bytes, with 400. `TestMaxNameBytes_IsTheLaunchableRowsOwnBound`
+(`internal/launch/template_test.go`) calls ent's generated `launchable.NameValidator` at the bound and one past it, so
+the constant cannot drift from the schema unseen. Test, shown red on the old code:
+`TestTemplateAPI_RefusesANameLongerThanTheLaunchableRowHolds` (`internal/api/templates_store_limits_test.go`).
+
+**Lesson.** LESSONS 426. A project's name has the same bound and is suspected of the same 500 (1076).
+
+## 1072. Two of the branch's first PATCH tests passed with their protection removed, because the new label rule refused their unlabelled questions before the rule under test ran, and the survey refusal table had the same masking, seen only as a coverage drop (fixed before push; a repeat of 1016, 1039 and 1048; LESSONS 213 and 261)
+
+**Symptom.** Found on `fix/template-patch-partial`, 2026-11-09, before push. The "an unknown question field" case of
+`TestTemplateAPI_PatchRefusesABodyThatIsNotAnObjectOfKnownFields` and the "a survey nobody could answer" case of
+`TestTemplateAPI_PatchValidatesTheMergedTemplate` (`internal/api/templates_patch_test.go`) sent questions with no
+label. Once 1070's rule existed, each body was refused for its missing label, a 400 like the one each case expected,
+so each passed with the strict decode or the duplicate-variable rule removed. The survey refusal table the branch
+extended with its two label cases, `TestSurvey_RefusesWhatNobodyCouldAnswerCorrectly` (`internal/launch/template_test.go`,
+older than the branch), had the same masking: its questions had no labels, so every case failed on the new rule first. That showed only as a coverage drop in
+`internal/launch`, from 91.5 to 90.6 percent.
+
+**Root cause.** A new refusal that runs before older ones, and test data it refuses. The tests checked a status, or
+that some error came back, rather than which rule refused.
+
+**Why 1016, 1039, 1048 and LESSONS 261 did not prevent it.** LESSONS 261 is this rule: after adding a refusal, confirm
+each negative test near it still fails for its own reason. 1016, 1039 and 1048 are the same check, a test seen to fail
+with its protection removed. All are applied by hand, and here they were applied after the coverage number moved, not
+when the rule was added.
+
+**Fix.** Before push. Every question in those tests has a label, and each case asserts its own rule's message: the
+malformed-body refusal for the strict decode, "both write to" for the duplicate-variable rule, and in the survey table
+each case's own message.
+
+**Lesson.** As LESSONS 261, which covers it: when a refusal is added, read every test table whose data it could refuse,
+and make each case assert its own message. No new lesson.
+
+## 1073. The first test of the fixed-field refusal sent the template's stored inventory id, so it could not see whether a changed inventory was ignored or refused (fixed before push; the class of 1016; LESSONS 213)
+
+**Symptom.** Found on `fix/template-patch-partial`, 2026-11-09, before push. The "ignored fields" case written for 1069
+sent an `inventory` equal to the stored one. With the refusal removed, the body was still an accepted echo, so the case
+passed either way for the inventory.
+
+**Root cause.** The test data matched the stored value it was meant to differ from.
+
+**Why 1016 did not prevent it.** Its rule, see the test fail with the protection removed, is applied by hand.
+
+**Fix.** Before push. `TestTemplateAPI_PatchRefusesAChangeToAFixedField` sends a second inventory's id (`f.invB`) for the
+"a different inventory" case, and a separate case checks that an echo of the stored values is accepted.
+
+**Lesson.** As LESSONS 213.
+
+## 1074. Text the branch wrote claimed more than the code did: that a client can send a template back as it reads it, that an empty value clears every field, that null is refused everywhere, and that inventoryWriteDTO tracks presence with a pointer per field (fixed before push; a repeat of 228, 571, 1029 and 1041)
+
+**Symptom.** Found in review on `fix/template-patch-partial`, 2026-11-09, before push. Four claims in the branch's
+comments and route text were wrong:
+
+- that a client can send the whole record back with one field changed: a GET body carries read-only fields, which the
+  strict decode refuses as unknown;
+- that an empty value clears every field: an empty name is refused, and `"survey": {}` keeps the survey;
+- that a null is refused everywhere: a null inside a question is accepted, read as that field's zero value;
+- that `inventoryWriteDTO` tracks presence with a pointer per field, as a precedent: its name and description are plain
+  strings.
+
+**Root cause.** Each sentence was written from intent, not reread against the code.
+
+**Why 228, 571, 1029 and 1041 did not prevent it.** Their rule, reread each sentence a branch adds against the code
+before review, is applied by hand, and here it was applied in review.
+
+**Fix.** Before push. `internal/api/templates_patch.go` cites `deviceWriteRequest` and `scheduleWriteDTO` as the
+precedent, says how each field is cleared, that a name may not be blank and that `"survey": {}` keeps both survey
+fields, and that the fields inside a question decode as a create decodes them. The route's description
+(`internal/apispec/template_endpoints.go`) says unknown fields are refused, so a GET body cannot be sent back as it is.
+
+**Lesson.** As 571 and 1029.
+
+## 1075. Eight more PATCH handlers are full replaces, as 1056 was: organizations, teams, inventories, contacts, announcements, credential types, credentials and projects each write a field the body leaves out as empty (open: task 17; the class of 1056; a repeat in kind of 103)
+
+**Symptom.** Found by a sweep of the PATCH handlers on `fix/template-patch-partial`, 2026-11-09, after 1056. No test on
+this branch reproduces them. A body that leaves a field out writes that field's zero value:
+
+- organizations blank `classification`, `change_window`, `freeze_reason`, `cost_centre`, `ticket_key` and `cmdb_id`,
+  and set `frozen` to false. The review found nothing in dispatch that reads `frozen`, so this is data loss, not a lifted
+  guard;
+- teams, inventories, contacts, announcements and credential types blank what is left out; for inventories, a PATCH
+  naming only the membership blanks the name and the description;
+- credentials blank `external`, the record's secret references;
+- projects set `credential` to 0, which unbinds the project's credential.
+
+**Root cause.** As 1056: the update builds the record from the body alone, so absent reads as empty.
+
+**Why 1056 and LESSONS 98 did not prevent it.** 1056's fix covered templates only. LESSONS 98 says a PATCH needs three
+states for a field whose absence differs from its emptiness, and nothing holds every PATCH handler to it.
+
+**Status.** Open, task 17. This is a sibling entry rather than an extension of 1055, because 1055 is the other shape: a
+field the body sends is ignored, where here a field the body leaves out is erased, and the fix differs (a pointer per
+field folded over the stored record, as `templatePatchDTO` does). Task 17 holds both. When each was introduced has not
+been traced.
+
+**Lesson.** Pending the fix. LESSONS 98 applies to every field of every PATCH body.
+
+## 1076. Suspected: a project name over 253 bytes answers 500, as a template's did (open, suspected from reading; a sibling of 1071)
+
+**Symptom.** Found by reading on `fix/template-patch-partial`, 2026-11-09; not run. `project.name` is `MaxLen(253)`
+(`internal/ent/schema/project.go`), and a bounded search of `internal/project` and `internal/api/projects.go` found no
+length check before the store. If that holds, a longer name fails ent's validator at the insert and answers 500, as
+1071 did.
+
+**Status.** Open, unverified. The next step is a test that creates and renames a project with a 254-byte name through
+the real router and store.
+
+**Lesson.** Pending. LESSONS 426 says what a fix would hold.
+
+## 1077. Suspected: the UI's template edit form round-trips extra variables through %v, so a typed value is saved back as a string (open, suspected from reading: task 19)
+
+**Symptom.** Found by reading on `fix/template-patch-partial`, 2026-11-09; not run. `joinVariables`
+(`internal/ui/resources/templates/defaults.go`) renders each stored extra variable as `key=value` with `%v`, and
+`parseVariables` (`internal/ui/resources/templates/actions.go`) reads every value back as a string. Read, saving the
+edit form unchanged turns a stored number or boolean into its text.
+
+**Status.** Open, unverified (task 19). The next step is a test that seeds a template with typed extra variables, saves
+its edit form unchanged through the real UI handler and store, and reads the template back.
+
+**Lesson.** Pending.
