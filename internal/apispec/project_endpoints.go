@@ -97,10 +97,12 @@ var CreateProject = Endpoint{
 	Summary: "Create a project",
 	Responses: []Response{
 		{Status: http.StatusCreated, Description: "The project as stored.", Schema: projectSchema},
-		{Status: http.StatusBadRequest, Description: "A required field is missing, a git project carries no URL, the URL names a source this deployment will not fetch from, or it carries a password.", Schema: errorSchema("")},
+		{Status: http.StatusBadRequest, Description: "A required field is missing, a field is longer than its bound, a git project carries no URL, the URL names a source this deployment will not fetch from or carries a password, or the credential cannot authenticate a clone.", Schema: errorSchema("")},
 		{Status: http.StatusConflict, Description: "The name is taken in that organization.", Schema: errorSchema("")},
 	},
-	Description: "Registers a source repository. Nothing is fetched until a sync runs.",
+	Description:        "Registers a source repository. Nothing is fetched until a sync runs.",
+	RequestContentType: "application/json",
+	RequestSchema:      projectWriteSchema,
 }
 
 // UpdateProject is PATCH /projects/{id}.
@@ -113,14 +115,22 @@ var UpdateProject = Endpoint{
 	Summary: "Update a project",
 	Responses: []Response{
 		{Status: http.StatusOK, Description: "The project as stored.", Schema: projectSchema},
-		{Status: http.StatusBadRequest, Description: "A required field is missing, a git project carries no URL, the URL names a source this deployment will not fetch from, or it carries a password.", Schema: errorSchema("")},
+		{Status: http.StatusBadRequest, Description: "The body is malformed, sets a field to null or changes the organization, or the project it would leave has a blank name, a field longer than its bound, a git source with no URL, a URL this deployment will not fetch from or that carries a password, or a credential that cannot authenticate a clone.", Schema: errorSchema("")},
 		{Status: http.StatusNotFound, Description: "No project with that id.", Schema: errorSchema("")},
 		{Status: http.StatusConflict, Description: "The name is taken in that organization.", Schema: errorSchema("")},
 	},
-	Description: "Changes a project's name, description or source. The checkout is not refetched until a sync runs.",
+	Description: "A partial update of a project's name, description, source and credential. A field left out keeps " +
+		"its stored value and a field present is applied, so a PATCH that does not name the credential keeps it " +
+		"bound (\"credential\": 0 unbinds it) and one that does not name scm_type keeps the project's type. A null " +
+		"on any field is refused. The organization is not updatable: a value that differs from the stored one is " +
+		"refused, and the stored value is accepted as an echo. The project as it would be saved is checked whole, " +
+		"its source and credential included. Sync state is never written here, and the checkout is not refetched " +
+		"until a sync runs. Concurrent PATCHes are last-writer-wins: there is no version check.",
 	Params: []Param{
 		{Name: "id", In: "path", Required: true, Type: "integer", Description: "The project's numeric id."},
 	},
+	RequestContentType: "application/json",
+	RequestSchema:      projectPatchSchema,
 }
 
 // DeleteProject is DELETE /projects/{id}.
