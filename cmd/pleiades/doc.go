@@ -98,7 +98,6 @@ func runDoc(args []string) error {
 	if err != nil {
 		return err
 	}
-	positionals = append(positionals, fs.Args()...)
 	if len(positionals) > 1 {
 		return fmt.Errorf("%s", docUsage)
 	}

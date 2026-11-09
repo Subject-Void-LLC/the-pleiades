@@ -72,6 +72,24 @@ func TestSplitArgs_ReadsBoolFlagsFromTheFlagSet(t *testing.T) {
 			wantRest:        []string{"--dir", "x"},
 		},
 		{
+			name:            "-- ends the flags, and is dropped",
+			args:            []string{"--dir", "x", "--", "-name1", "--tags", "web"},
+			wantPositionals: []string{"-name1", "--tags", "web"},
+			wantRest:        []string{"--dir", "x"},
+		},
+		{
+			name:            "-- after a bool flag ends the flags too",
+			args:            []string{"name1", "--requires-elevation", "--", "--dir"},
+			wantPositionals: []string{"name1", "--dir"},
+			wantRest:        []string{"--requires-elevation"},
+		},
+		{
+			name:            "-- as a value flag's value is its value",
+			args:            []string{"--tags", "--", "name1"},
+			wantPositionals: []string{"name1"},
+			wantRest:        []string{"--tags", "--"},
+		},
+		{
 			name:     "flags alone leave no positional",
 			args:     []string{"--dir", "x"},
 			wantRest: []string{"--dir", "x"},
@@ -206,8 +224,9 @@ func silenceStderr(t *testing.T) {
 // TestEveryCommandSplitsItsOwnBoolFlags drives every command in
 // splitCommands through its real FlagSet. For each bool flag that FlagSet
 // declares, the flag placed before the positionals leaves them all
-// positional and is set true; an unknown flag before them is reported as
-// the flag error it is, not as a missing or extra positional.
+// positional and is set true; "--" makes the token after it a positional
+// though it starts with "-"; and an unknown flag before them is reported
+// as the flag error it is, not as a missing or extra positional.
 func TestEveryCommandSplitsItsOwnBoolFlags(t *testing.T) {
 	silenceStderr(t)
 	t.Chdir(t.TempDir())
@@ -240,6 +259,17 @@ func TestEveryCommandSplitsItsOwnBoolFlags(t *testing.T) {
 						t.Errorf("%s %s: the flag is %q, want true", c.name, spelled, v)
 					}
 				}
+			}
+
+			// "--" ends the flags: the last positional, given after it
+			// with a leading dash, is still a positional.
+			last := len(c.positionals) - 1
+			dashed := append(slices.Clone(c.positionals[:last]), "-"+c.positionals[last])
+			ended := append(slices.Clone(c.positionals[:last]), "--", dashed[last])
+			if got, err := parseWith(t, c, ended); got == nil {
+				t.Errorf("%s %q did not parse: %v", c.name, ended, err)
+			} else if !reflect.DeepEqual(got.positionals, dashed) {
+				t.Errorf("%s %q: positionals %q, want %q", c.name, ended, got.positionals, dashed)
 			}
 
 			got, err := parseWith(t, c, append([]string{"-vxf"}, c.positionals...))

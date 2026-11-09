@@ -37,7 +37,8 @@ var parsedHook func(fs *flag.FlagSet, positionals []string) error
 
 // parseArgs parses args for a command whose flags are declared on fs. The
 // positionals may come before, between or after the flags, and are
-// returned in the order given. A flag error (an unknown flag, a bad value,
+// returned in the order given; "--" ends the flags, so every token after
+// it is a positional, even one that starts with "-". A flag error (an unknown flag, a bad value,
 // -h) is returned before anything about the positionals is decided, so the
 // command reports what is really wrong with its arguments.
 func parseArgs(fs *flag.FlagSet, args []string) ([]string, error) {
@@ -80,11 +81,18 @@ func isPositionalCountErr(err error) bool {
 // tokens with their values for fs.Parse. A token starting with "-" (but
 // not a lone "-", which names standard input or no hosts) is a flag. A
 // flag written "--flag=value" carries its value; a bare "--flag" takes the
-// next token as its value unless fs declares it boolean.
+// next token as its value unless fs declares it boolean. A "--" ends the
+// flags, as it does for the flag package: it is dropped, and every token
+// after it is a positional. So fs.Parse(rest) always consumes all of rest,
+// and fs.Args() is empty after it.
 func splitArgs(fs *flag.FlagSet, args []string) (positionals, rest []string) {
 	rest = make([]string, 0, len(args))
 	for i := 0; i < len(args); i++ {
 		a := args[i]
+		if a == "--" {
+			positionals = append(positionals, args[i+1:]...)
+			break
+		}
 		if !strings.HasPrefix(a, "-") || a == "-" {
 			positionals = append(positionals, a)
 			continue

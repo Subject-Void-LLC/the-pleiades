@@ -40,9 +40,6 @@ func runAddSecret(args []string) error {
 	if err != nil {
 		return fmt.Errorf("%s: %w", addSecretUsage, err)
 	}
-	if fs.NArg() > 0 {
-		return errors.New(addSecretUsage)
-	}
 	if !credential.ValidSecretName(name) {
 		return fmt.Errorf("secret name %q must be a lowercase identifier (a letter, then letters, digits or _), since a runbook names it as {{ secret.<name>.<field> }}", name)
 	}

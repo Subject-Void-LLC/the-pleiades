@@ -71,9 +71,6 @@ func runValidate(args []string) error {
 	if err != nil {
 		return err
 	}
-	if fs.NArg() > 0 {
-		return fmt.Errorf("usage: pleiades validate [runbook.yaml ...] [--tags a,b] [--skip-tags c] [--extra-vars key=value] [--dir .]")
-	}
 	variables, err := extraVars.variables()
 	if err != nil {
 		return err

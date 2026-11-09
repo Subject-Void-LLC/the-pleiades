@@ -35,9 +35,6 @@ func runForgeMigratePlaybook(args []string) error {
 	if err != nil {
 		return fmt.Errorf("%s: %w", usage, err)
 	}
-	if flags.NArg() > 0 {
-		return fmt.Errorf("%s: unexpected argument %s", usage, termsafe.EscapeLine(flags.Arg(0)))
-	}
 
 	src, err := os.OpenRoot(filepath.Dir(path))
 	if err != nil {

@@ -4,7 +4,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -43,9 +42,6 @@ func runRemoveHost(args []string) error {
 	name, err := parseOneArg(fs, args)
 	if err != nil {
 		return fmt.Errorf("%s: %w", removeHostUsage, err)
-	}
-	if fs.NArg() > 0 {
-		return errors.New(removeHostUsage)
 	}
 
 	hostsPath := filepath.Join(*dir, inv.DefaultInventoryFilename)
@@ -126,9 +122,6 @@ func runRemoveCredential(args []string) error {
 	name, err := parseOneArg(fs, args)
 	if err != nil {
 		return fmt.Errorf("usage: pleiades remove-credential <device> [--dir DIR]: %w", err)
-	}
-	if fs.NArg() > 0 {
-		return errors.New("usage: pleiades remove-credential <device> [--dir DIR]")
 	}
 	removed, err := credential.RemoveFileStore(*dir, name)
 	if err != nil {
