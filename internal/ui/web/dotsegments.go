@@ -7,7 +7,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/Subject-Void-LLC/the-pleiades/internal/ui/view"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/recordname"
 )
 
 // refuseDotSegments answers 404 to a request whose path, as it was sent,
@@ -43,7 +43,7 @@ func (h *Handler) refuseDotSegments(next http.Handler) http.Handler {
 				}
 				continue
 			}
-			if decoded, err := url.PathUnescape(seg); err == nil && !view.Addressable(decoded) {
+			if decoded, err := url.PathUnescape(seg); err == nil && !recordname.Addressable(decoded) {
 				h.notFound(w, r)
 				return
 			}

@@ -11,6 +11,8 @@ import (
 	"path"
 	"strconv"
 	"strings"
+
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/recordname"
 )
 
 // TableModel is every table this UI draws.
@@ -460,7 +462,7 @@ func (m DetailModel) SectionViews() []SectionView {
 // the store would refuse, is the same "control that can only fail" the
 // affordance layer exists to withhold.
 func (d Descriptor) sectionActions(spec Section, prefix string, parent Row, aff Affordances) []ChromeAction {
-	if !Addressable(parent.ID) || len(spec.Actions) == 0 {
+	if !recordname.Addressable(parent.ID) || len(spec.Actions) == 0 {
 		return nil
 	}
 	out := make([]ChromeAction, 0, len(spec.Actions))
@@ -499,7 +501,7 @@ func (d Descriptor) sectionActions(spec Section, prefix string, parent Row, aff 
 //
 // The fourth is the row's own, and it is the only one evaluated per row.
 func (d Descriptor) rowControls(s LoadedSection, prefix string, parent Row, aff Affordances) [][]RowControl {
-	if !Addressable(parent.ID) || len(s.Spec.RowActions) == 0 || len(s.Rows) == 0 {
+	if !recordname.Addressable(parent.ID) || len(s.Spec.RowActions) == 0 || len(s.Rows) == 0 {
 		return nil
 	}
 
@@ -519,7 +521,7 @@ func (d Descriptor) rowControls(s LoadedSection, prefix string, parent Row, aff 
 
 	out := make([][]RowControl, len(s.Rows))
 	for i, row := range s.Rows {
-		if !Addressable(row.ID) {
+		if !recordname.Addressable(row.ID) {
 			// There is nothing to address. A control here would post to
 			// the parent's own action route with a trailing empty
 			// segment, which is a 404 at best.

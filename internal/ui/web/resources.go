@@ -1162,7 +1162,7 @@ func (h *Handler) formValues(w http.ResponseWriter, r *http.Request, fields []vi
 // so an identifier of "../.." would not be a path segment, it would delete
 // the prefix in front of it and send the caller somewhere else entirely.
 // gosec's taint analysis is what noticed it was missing here. An id no URL
-// can address ("", "." or "..", view.Addressable) has no page, so a write
+// can address ("", "." or "..", recordname) has no page, so a write
 // to one returns to the resource's list instead.
 func resourcePath(prefix, resource, id string) string {
 	if p := view.RecordPath(prefix, resource, id); p != "" {

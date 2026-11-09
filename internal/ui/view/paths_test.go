@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ui/view"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/recordname"
 )
 
 // unaddressable are the ids path.Join and every browser resolve away.
@@ -72,8 +73,8 @@ func TestRecordPath_JoinsLiteralSegmentsAfterTheID(t *testing.T) {
 		if got := view.RowPath("/ui", "devices", "sw1", "remove", id); got != "" {
 			t.Errorf("RowPath with row %q = %q, want none", id, got)
 		}
-		if view.Addressable(id) {
-			t.Errorf("Addressable(%q) = true", id)
+		if recordname.Addressable(id) {
+			t.Errorf("recordname.Addressable(%q) = true", id)
 		}
 	}
 }
