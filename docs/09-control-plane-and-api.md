@@ -116,6 +116,32 @@ or `..`. No URL can carry them as a path segment, since browsers and most client
 and `..`, escaped or not, as steps between folders, so such a record could never be read,
 changed or deleted by its address. The refusal is a 400 that says why.
 
+A device's name is also printed in every error, log line, report and page that names the
+device, so a device cannot be created under a name that would not show as itself on one
+line. The name may not hold:
+
+| What | Code points | Why |
+|---|---|---|
+| A byte that is not UTF-8 | | A reader shows it as U+FFFD, so two names would print as one. |
+| A control code | U+0000 to U+001F, U+007F to U+009F | A terminal or a log acts on it: a newline starts a line that looks like the program's own, and an escape recolors or clears the screen. |
+| A direction control | U+061C, U+200E, U+200F, U+202A to U+202E, U+2066 to U+2069 | It changes the order the name is displayed in, so one name can show as another. Arabic and Hebrew names need none. |
+| A line or paragraph separator | U+2028, U+2029 | A browser breaks the line there. |
+| An invisible character a name picks up by accident | U+00AD, U+200B, U+2060, U+FEFF | It shows as nothing, so the name looks like the same name without it and never matches what you type. |
+| A tag character | U+E0000 to U+E007F | It shows as nothing but spells out text a program or a model reading the name sees. |
+
+Spaces, accented letters and every other script are allowed, and so are the zero width
+joiner and non-joiner (U+200D, U+200C), which Persian, Urdu and the Indic scripts need, and
+the variation selectors an emoji or a Chinese or Japanese character uses. The rule does not
+try to stop two names that only look alike, such as a Latin `a` and a Cyrillic one. The
+refusal is a 400 naming the character by its code point and position, and never repeats the
+name. The web UI's device form, `pleiades add-host`, the imports and `pleiades inventory sync`
+refuse the same names, and a sync reports such an upstream device as refused, quoted, and
+adds the rest. Only a new name is checked: a device stored under such a name before this rule
+is kept, listed, changed and retired as before. (The by-name routes,
+`/inventory/devices/{name}` and those under it, already refused a name holding a NUL, a
+carriage return or a newline, and still do.) A fact key already obeys a stricter rule
+(printable characters only, and no space), so it refuses all of these too.
+
 ## Hypermedia and link relations
 
 A successful response embeds a `_links` array: every affordance the calling identity
