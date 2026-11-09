@@ -165,7 +165,8 @@ type inputSourceSetDTO struct {
 	InputSources []inputSourceWriteDTO `json:"input_sources"`
 }
 
-// credentialTypeWriteDTO is the body create and update accept.
+// credentialTypeWriteDTO is the body create accepts. PATCH takes
+// credentialTypePatchDTO (credentials_patch.go).
 type credentialTypeWriteDTO struct {
 	Name         string               `json:"name"`
 	Description  string               `json:"description"`
@@ -176,7 +177,8 @@ type credentialTypeWriteDTO struct {
 	Injectors    credtype.Injectors   `json:"injectors"`
 }
 
-// credentialWriteDTO is the body create and update accept.
+// credentialWriteDTO is the body create accepts. PATCH takes
+// credentialPatchDTO (credentials_patch.go).
 type credentialWriteDTO struct {
 	Name           string            `json:"name"`
 	Description    string            `json:"description"`
@@ -253,19 +255,41 @@ func (h *CredentialHandler) CreateCredentialType(w http.ResponseWriter, r *http.
 	Respond(w, r, http.StatusCreated, &dto)
 }
 
-// UpdateCredentialType serves PATCH /credential-types/{id}.
+// UpdateCredentialType serves PATCH /credential-types/{id}: a partial update
+// of a custom type. See credentialTypePatchDTO and credentials_patch.go for
+// the rules.
 func (h *CredentialHandler) UpdateCredentialType(w http.ResponseWriter, r *http.Request) {
 	id, ok := parsePathID(w, r, "credential type")
 	if !ok {
 		return
 	}
 
-	var body credentialTypeWriteDTO
+	var body credentialTypePatchDTO
 	if !decodeJSON(w, r, &body) {
 		return
 	}
+	if len(body.nulls) > 0 {
+		RespondError(w, r, http.StatusBadRequest, body.nullRefusal())
+		return
+	}
 
-	ct, err := h.store.UpdateType(r.Context(), id, writeDTOToType(body))
+	// Read first: a missing type is a 404, and the stored type is what the
+	// body is folded over.
+	stored, err := h.store.GetType(r.Context(), id)
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	if refusal := body.fixedFieldRefusal(stored); refusal != "" {
+		RespondError(w, r, http.StatusBadRequest, refusal)
+		return
+	}
+
+	merged := body.apply(stored.CredentialType)
+
+	// The store validates the merged type whole and refuses a managed one,
+	// so a PATCH naming one field is held to every rule a full write is.
+	ct, err := h.store.UpdateType(r.Context(), id, merged)
 	if err != nil {
 		h.fail(w, r, err)
 		return
@@ -355,19 +379,41 @@ func (h *CredentialHandler) CreateCredential(w http.ResponseWriter, r *http.Requ
 	Respond(w, r, http.StatusCreated, &dto)
 }
 
-// UpdateCredential serves PATCH /credentials/{id}.
+// UpdateCredential serves PATCH /credentials/{id}: a partial update of a
+// credential. See credentialPatchDTO and credentials_patch.go for the rules.
 func (h *CredentialHandler) UpdateCredential(w http.ResponseWriter, r *http.Request) {
 	id, ok := parsePathID(w, r, "credential")
 	if !ok {
 		return
 	}
 
-	var body credentialWriteDTO
+	var body credentialPatchDTO
 	if !decodeJSON(w, r, &body) {
 		return
 	}
+	if refusal := body.nullRefusal(); refusal != "" {
+		RespondError(w, r, http.StatusBadRequest, refusal)
+		return
+	}
 
-	cred, err := h.store.UpdateCredential(r.Context(), id, body.Name, body.Description, body.Inputs, body.External)
+	// Read first: a missing credential is a 404, and the stored one is what
+	// the body is folded over. It is the redacted read, which is all this
+	// package can hold; the store merges the inputs over the real values.
+	stored, err := h.store.GetCredential(r.Context(), id)
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	if refusal := body.fixedFieldRefusal(stored); refusal != "" {
+		RespondError(w, r, http.StatusBadRequest, refusal)
+		return
+	}
+
+	merged := body.apply(stored)
+
+	// The store checks the merged credential whole against its type, so a
+	// PATCH naming one field is held to every rule a full write is.
+	cred, err := h.store.UpdateCredential(r.Context(), id, merged.name, merged.description, merged.inputs, merged.external)
 	if err != nil {
 		h.fail(w, r, err)
 		return
