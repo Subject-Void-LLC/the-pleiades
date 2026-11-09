@@ -112,8 +112,14 @@ func TestSubscriberStoresNoIdentityTheEngineWouldNotWrite(t *testing.T) {
 
 // TestEntStoreSavesNoIdentityTheEngineWouldNotWrite: the store holds any
 // caller to the same rule, so no path writes a row a reader is not meant to
-// see.
+// see, and says what it cleared, naming the job, device, node and method.
+// The store logs to the process default unless given a logger, which is
+// what a caller other than the subscriber gets.
 func TestEntStoreSavesNoIdentityTheEngineWouldNotWrite(t *testing.T) {
+	var logged bytes.Buffer
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logged, nil)))
+	t.Cleanup(func() { slog.SetDefault(previous) })
 	store, _ := newEntStore(t)
 	var entries []engine.JournalEntry
 	for i, c := range identityCases() {
@@ -136,5 +142,17 @@ func TestEntStoreSavesNoIdentityTheEngineWouldNotWrite(t *testing.T) {
 		if !kept[e.NodeID] && !e.Collection.IsZero() {
 			t.Errorf("%s: saved %+v, an identity no build writes", e.NodeID, e.Collection)
 		}
+	}
+	for node, keep := range kept {
+		said := strings.Contains(logged.String(), "node="+node)
+		if said == keep {
+			t.Errorf("%s: logged %v, want a warning only for what was cleared:\n%s", node, said, logged.String())
+		}
+	}
+	if !strings.Contains(logged.String(), "job=job-2") || !strings.Contains(logged.String(), "device=device-1") || !strings.Contains(logged.String(), "fqcn=exec.command") {
+		t.Errorf("the warnings do not name the job, device and method:\n%s", logged.String())
+	}
+	if strings.Contains(logged.String(), string(rune(0x202e))) {
+		t.Errorf("a warning prints a group's format character raw:\n%s", logged.String())
 	}
 }
