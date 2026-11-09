@@ -40,13 +40,11 @@ type contactListDTO struct {
 	Contacts []contactDTO `json:"contacts"`
 }
 
-// contactWriteDTO is a submitted contact.
+// contactWriteDTO is the body POST /contacts accepts. PATCH /contacts/{id}
+// takes contactPatchDTO instead, which is partial in every field.
 //
-// Order is a pointer for the reason every other partial field on this
-// surface is: zero is a meaningful order, so a plain int cannot distinguish
-// "put this first" from "the caller said nothing about ordering" and a PATCH
-// renaming a contact would silently promote it to the top of the escalation
-// path.
+// Order is a pointer, as it was when this body also served PATCH: zero is a
+// meaningful order, and a create that leaves it out puts the contact first.
 type contactWriteDTO struct {
 	Name         string `json:"name"`
 	Role         string `json:"role"`
@@ -59,13 +57,12 @@ type contactWriteDTO struct {
 	Team         int    `json:"team"`
 }
 
-// order reads a submitted position, reporting whether the caller mentioned
-// it at all.
-func (d contactWriteDTO) order() (int, bool) {
+// order reads a submitted position, 0 (first) when the body left it out.
+func (d contactWriteDTO) order() int {
 	if d.Order == nil {
-		return 0, false
+		return 0
 	}
-	return *d.Order, true
+	return *d.Order
 }
 
 func toContactDTO(c access.Contact) contactDTO {
@@ -136,7 +133,6 @@ func (h *AccessHandler) CreateContact(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &body) {
 		return
 	}
-	position, _ := body.order()
 	created, err := h.store.CreateContact(r.Context(), access.Contact{
 		Name:           body.Name,
 		Role:           access.ContactRole(body.Role),
@@ -144,7 +140,7 @@ func (h *AccessHandler) CreateContact(w http.ResponseWriter, r *http.Request) {
 		Phone:          body.Phone,
 		URL:            body.URL,
 		Notes:          body.Notes,
-		Order:          position,
+		Order:          body.order(),
 		OrganizationID: body.Organization,
 		TeamID:         body.Team,
 	})
@@ -158,17 +154,23 @@ func (h *AccessHandler) CreateContact(w http.ResponseWriter, r *http.Request) {
 	Respond(w, r, http.StatusCreated, &dto)
 }
 
-// UpdateContact changes a contact's details.
+// UpdateContact serves PATCH /contacts/{id}: a partial update of a contact's
+// details. A field the body leaves out keeps its stored value; see
+// contactPatchDTO and access_patch.go for the rules.
 //
-// The owner is not read from the body at all. The store carries it forward
-// from storage, and sending one here would look like it worked.
+// The owner is fixed. A body naming a different organization or team is
+// refused, and the store carries the owner forward from storage regardless.
 func (h *AccessHandler) UpdateContact(w http.ResponseWriter, r *http.Request) {
 	id, ok := h.accessID(w, r)
 	if !ok {
 		return
 	}
-	var body contactWriteDTO
+	var body contactPatchDTO
 	if !decodeJSON(w, r, &body) {
+		return
+	}
+	if len(body.nulls) > 0 {
+		RespondError(w, r, http.StatusBadRequest, patchNullRefusal(contactNoun, body.nulls))
 		return
 	}
 
@@ -177,15 +179,14 @@ func (h *AccessHandler) UpdateContact(w http.ResponseWriter, r *http.Request) {
 		h.respondAccessError(w, r, "read contact", id, err)
 		return
 	}
-	existing.Name = body.Name
-	existing.Role = access.ContactRole(body.Role)
-	existing.Email, existing.Phone, existing.URL = body.Email, body.Phone, body.URL
-	existing.Notes = body.Notes
-	if position, mentioned := body.order(); mentioned {
-		existing.Order = position
+	if refusal := body.fixedFieldRefusal(existing); refusal != "" {
+		RespondError(w, r, http.StatusBadRequest, refusal)
+		return
 	}
 
-	if err := h.store.UpdateContact(r.Context(), existing); err != nil {
+	// The store validates the merged contact whole, so a PATCH that blanks
+	// the only way to reach somebody is refused as a full edit would be.
+	if err := h.store.UpdateContact(r.Context(), body.apply(existing)); err != nil {
 		h.respondAccessError(w, r, "update contact", id, err)
 		return
 	}

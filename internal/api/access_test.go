@@ -192,9 +192,17 @@ func TestAccess_TeamCarriesMembershipAndKeepsItsOrganization(t *testing.T) {
 		t.Fatalf("membership = %v, want one member", team.Users)
 	}
 
-	// The submitted organization is ignored: moving a team between tenants
-	// would silently re-scope every grant it holds.
+	// A different organization is refused, naming the field: moving a team
+	// between tenants would silently re-scope every grant it holds. It used
+	// to be ignored with a 200, which told the caller the move happened.
 	body := fmt.Sprintf(`{"name":"netops-renamed","organization":%d,"users":[]}`, otherOrg)
+	rec = doJSON(t, router, http.MethodPatch, fmt.Sprintf("/api/v1/teams/%d", teamID), body)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "organization cannot be changed") {
+		t.Fatalf("moving a team: status = %d, want 400 naming the organization: %s", rec.Code, rec.Body.String())
+	}
+
+	// The stored organization, sent back, is an echo and is accepted.
+	body = fmt.Sprintf(`{"name":"netops-renamed","organization":%d,"users":[]}`, orgID)
 	if rec := doJSON(t, router, http.MethodPatch, fmt.Sprintf("/api/v1/teams/%d", teamID), body); rec.Code != http.StatusOK {
 		t.Fatalf("update: status = %d: %s", rec.Code, rec.Body.String())
 	}
@@ -203,7 +211,7 @@ func TestAccess_TeamCarriesMembershipAndKeepsItsOrganization(t *testing.T) {
 		t.Fatalf("decoding team: %v", err)
 	}
 	if team.Organization != orgID {
-		t.Errorf("organization = %d, want the stored %d rather than the submitted %d",
+		t.Errorf("organization = %d, want the stored %d, never the refused %d",
 			team.Organization, orgID, otherOrg)
 	}
 	// An emptied membership must render as [] rather than vanishing, which
@@ -364,6 +372,12 @@ func TestAccess_LastSystemGrantCannotBeRemoved(t *testing.T) {
 // TestAccess_BindingUpdateCannotRepointAGrant pins the deliberate narrowing:
 // re-pointing is revoke-plus-issue, and an audit trail showing a grant
 // quietly changing what it covers is one nobody can reconstruct.
+//
+// A body re-pointing the grant used to be answered 200 with the team and
+// scope ignored, which told the caller the grant moved when it had not
+// (FAILURE_PATTERNS 1055). It is now refused with 400, naming the field,
+// and the grant is left exactly as stored; a body echoing the stored team
+// and scope is still accepted and its role change lands.
 func TestAccess_BindingUpdateCannotRepointAGrant(t *testing.T) {
 	router, _ := accessRouter(t)
 	orgID := createdID(t, router, "/api/v1/organizations", `{"name":"acme"}`)
@@ -372,28 +386,54 @@ func TestAccess_BindingUpdateCannotRepointAGrant(t *testing.T) {
 		fmt.Sprintf(`{"team":%d,"role":"admin","scope_type":"system","effect":"allow"}`, teamID))
 	scopedID := createdID(t, router, "/api/v1/bindings",
 		fmt.Sprintf(`{"team":%d,"role":"viewer","scope_type":"organization","scope_id":%d,"effect":"allow"}`, teamID, orgID))
+	target := fmt.Sprintf("/api/v1/bindings/%d", scopedID)
 
-	body := fmt.Sprintf(`{"team":9999,"role":"admin","scope_type":"device","scope_id":4242,"effect":"allow"}`)
-	if rec := doJSON(t, router, http.MethodPatch, fmt.Sprintf("/api/v1/bindings/%d", scopedID), body); rec.Code != http.StatusOK {
-		t.Fatalf("update: status = %d: %s", rec.Code, rec.Body.String())
-	}
-
-	rec := doJSON(t, router, http.MethodGet, fmt.Sprintf("/api/v1/bindings/%d", scopedID), "")
-	var got struct {
+	type grant struct {
 		Team      int    `json:"team"`
 		Role      string `json:"role"`
 		ScopeType string `json:"scope_type"`
 		ScopeID   *int   `json:"scope_id"`
 	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
-		t.Fatalf("decoding: %v", err)
+	read := func() grant {
+		t.Helper()
+		var got grant
+		rec := doJSON(t, router, http.MethodGet, target, "")
+		if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+			t.Fatalf("decoding: %v", err)
+		}
+		return got
 	}
-	if got.Role != "admin" {
-		t.Errorf("role = %q, want the update to have landed", got.Role)
+	assertStillPointed := func(wantRole string) {
+		t.Helper()
+		got := read()
+		if got.Role != wantRole {
+			t.Errorf("role = %q, want %q", got.Role, wantRole)
+		}
+		if got.Team != teamID || got.ScopeType != "organization" || got.ScopeID == nil || *got.ScopeID != orgID {
+			t.Errorf("the grant was re-pointed to team %d, %s %v", got.Team, got.ScopeType, got.ScopeID)
+		}
 	}
-	if got.Team != teamID || got.ScopeType != "organization" || got.ScopeID == nil || *got.ScopeID != orgID {
-		t.Errorf("the grant was re-pointed to team %d, %s %v", got.Team, got.ScopeType, got.ScopeID)
+
+	// Each re-point, alone and all at once, is refused naming the field it
+	// tried first, and the role change beside it does not land either.
+	for _, tc := range []struct{ body, field string }{
+		{`{"team":9999,"role":"admin","scope_type":"device","scope_id":4242,"effect":"allow"}`, "team"},
+		{fmt.Sprintf(`{"team":%d,"role":"admin","scope_type":"device"}`, teamID), "scope_type"},
+		{`{"role":"admin","scope_id":4242}`, "scope_id"},
+	} {
+		rec := doJSON(t, router, http.MethodPatch, target, tc.body)
+		if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), tc.field+" cannot be changed") {
+			t.Errorf("PATCH %s: status = %d, want 400 naming %s: %s", tc.body, rec.Code, tc.field, rec.Body.String())
+		}
+		assertStillPointed("viewer")
 	}
+
+	// The stored team and scope, sent back, are an echo.
+	body := fmt.Sprintf(`{"team":%d,"role":"admin","scope_type":"organization","scope_id":%d,"effect":"allow"}`, teamID, orgID)
+	if rec := doJSON(t, router, http.MethodPatch, target, body); rec.Code != http.StatusOK {
+		t.Fatalf("an echo of the stored scope: status = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	assertStillPointed("admin")
 }
 
 // TestAccess_BindingsFilterByTeamAndScope covers the two questions an
@@ -680,14 +720,14 @@ func TestAccess_ReReadFailureAfterAWriteIsAServerError(t *testing.T) {
 		// failFrom is how many reads succeed before the failure. It counts
 		// only the handler's own reads: the store's internal ones go
 		// straight to the wrapped value, not back through this wrapper.
-		// Team is the one handler that reads twice, once to carry the
-		// organization forward and once to render.
+		// Organization, team and binding read twice, once for the stored
+		// record a partial update is folded over and once to render.
 		failFrom int
 	}{
-		{"organization", fmt.Sprintf("/api/v1/organizations/%d", orgID), `{"name":"renamed"}`, 0},
-		{"team", fmt.Sprintf("/api/v1/teams/%d", teamID), `{"name":"renamed","organization":1}`, 1},
+		{"organization", fmt.Sprintf("/api/v1/organizations/%d", orgID), `{"name":"renamed"}`, 1},
+		{"team", fmt.Sprintf("/api/v1/teams/%d", teamID), fmt.Sprintf(`{"name":"renamed","organization":%d}`, orgID), 1},
 		{"user", fmt.Sprintf("/api/v1/users/%d", userID), `{"email":"renamed@example.com"}`, 0},
-		{"binding", fmt.Sprintf("/api/v1/bindings/%d", bindingID), `{"role":"operator","effect":"allow"}`, 0},
+		{"binding", fmt.Sprintf("/api/v1/bindings/%d", bindingID), `{"role":"admin","effect":"allow"}`, 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			failing := &readFailingStore{Store: store, failFrom: tc.failFrom}

@@ -241,22 +241,36 @@ func (h *AccessHandler) CreateOrganization(w http.ResponseWriter, r *http.Reques
 	Respond(w, r, http.StatusCreated, &dto)
 }
 
-// UpdateOrganization edits a tenancy boundary.
+// UpdateOrganization serves PATCH /organizations/{id}: a partial update of a
+// tenancy boundary. A field the body leaves out keeps its stored value; see
+// organizationPatchDTO and access_patch.go for the rules.
 //
-// The attestation is untouched: it is not on the write DTO at all, so an
+// The attestation is untouched: it is not on the patch body at all, so an
 // edit cannot carry a claim about who confirmed what.
 func (h *AccessHandler) UpdateOrganization(w http.ResponseWriter, r *http.Request) {
 	id, ok := h.accessID(w, r)
 	if !ok {
 		return
 	}
-	var body organizationWriteDTO
+	var body organizationPatchDTO
 	if !decodeJSON(w, r, &body) {
 		return
 	}
-	org := body.organization()
-	org.ID = id
-	if err := h.store.UpdateOrganization(r.Context(), org); err != nil {
+	if len(body.nulls) > 0 {
+		RespondError(w, r, http.StatusBadRequest, patchNullRefusal(organizationNoun, body.nulls))
+		return
+	}
+
+	// Read first: a missing organization is a 404, and the stored record is
+	// what the body is folded over, so every field it does not name is
+	// written back as it was.
+	stored, err := h.store.GetOrganization(r.Context(), id)
+	if err != nil {
+		h.respondAccessError(w, r, "read organization", id, err)
+		return
+	}
+	// The store validates the merged record whole, as it does a full one.
+	if err := h.store.UpdateOrganization(r.Context(), body.apply(stored)); err != nil {
 		h.respondAccessError(w, r, "update organization", id, err)
 		return
 	}
