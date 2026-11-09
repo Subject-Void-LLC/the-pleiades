@@ -1,5 +1,9 @@
 # The Pleiades
 
+Infrastructure tooling designed for humans and AI agents: a system of record for
+operational intent, execution, provenance, and governance, built toward GitOps
+promotion.
+
 **The Pleiades brings software engineering discipline to infrastructure operations.**
 
 Validate before execution.\
@@ -10,9 +14,11 @@ Keep credentials out of AI hands.
 
 Because operational uncertainty is not success.
 
-It is an object-oriented, strongly typed automation mesh that also runs Ansible. Ansible
-support is the migration on-ramp, not the destination: a workload lands unchanged,
-then converts to native typed collections at its own pace.
+The Pleiades is provenance-oriented orchestration: it treats infrastructure operations
+as a sequence of verifiable observations and declared changes rather than a sequence of
+imperative commands. It is an object-oriented, strongly typed automation mesh that also
+runs Ansible. Ansible support is the migration on-ramp, not the destination: a workload
+lands unchanged, then converts to native typed collections at its own pace.
 
 The offline tier is a single static binary with no server, no database and no message
 broker, and it reaches real devices over real SSH. Every implemented method declares
