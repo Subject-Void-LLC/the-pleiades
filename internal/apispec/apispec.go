@@ -963,7 +963,8 @@ var CreateInventory = Endpoint{
 		{Status: http.StatusBadRequest, Description: "Missing name or organization.", Schema: errorSchema("")},
 		{Status: http.StatusConflict, Description: "That name is already taken in that organization.", Schema: errorSchema("")},
 	},
-	RequestSchema: inventoryWriteSchema,
+	RequestContentType: "application/json",
+	RequestSchema:      inventoryWriteSchema,
 }
 
 // UpdateInventory is PATCH /inventories/{id}.
@@ -985,7 +986,8 @@ var UpdateInventory = Endpoint{
 		{Status: http.StatusNotFound, Description: "No inventory with that id.", Schema: errorSchema("")},
 		{Status: http.StatusConflict, Description: "That name is already taken in that organization.", Schema: errorSchema("")},
 	},
-	RequestSchema: inventoryWriteSchema,
+	RequestContentType: "application/json",
+	RequestSchema:      inventoryWriteSchema,
 }
 
 // DeleteInventory is DELETE /inventories/{id}.
@@ -1078,7 +1080,8 @@ var CreateAnnouncement = Endpoint{
 		{Status: http.StatusCreated, Description: "The created announcement.", Schema: announcementSchema},
 		{Status: http.StatusBadRequest, Description: "Missing title or body.", Schema: errorSchema("")},
 	},
-	RequestSchema: announcementWriteSchema,
+	RequestContentType: "application/json",
+	RequestSchema:      announcementWriteSchema,
 }
 
 // UpdateAnnouncement is PATCH /announcements/{id}.
@@ -1097,7 +1100,8 @@ var UpdateAnnouncement = Endpoint{
 		{Status: http.StatusOK, Description: "The updated announcement.", Schema: announcementSchema},
 		{Status: http.StatusNotFound, Description: "No announcement with that id.", Schema: errorSchema("")},
 	},
-	RequestSchema: announcementWriteSchema,
+	RequestContentType: "application/json",
+	RequestSchema:      announcementWriteSchema,
 }
 
 // DeleteAnnouncement is DELETE /announcements/{id}.

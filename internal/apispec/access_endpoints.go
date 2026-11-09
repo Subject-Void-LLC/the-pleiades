@@ -75,7 +75,8 @@ var CreateOrganization = Endpoint{
 		{Status: http.StatusBadRequest, Description: "The submission is not a valid organization.", Schema: errorSchema("")},
 		{Status: http.StatusConflict, Description: "That name is already taken.", Schema: errorSchema("")},
 	},
-	RequestSchema: organizationWriteSchema,
+	RequestContentType: "application/json",
+	RequestSchema:      organizationWriteSchema,
 }
 
 // UpdateOrganization edits an existing record.
@@ -99,7 +100,8 @@ var UpdateOrganization = Endpoint{
 		{Status: http.StatusNotFound, Description: "No record with that id.", Schema: errorSchema("")},
 		{Status: http.StatusConflict, Description: "That name is already taken.", Schema: errorSchema("")},
 	},
-	RequestSchema: organizationPatchSchema,
+	RequestContentType: "application/json",
+	RequestSchema:      organizationPatchSchema,
 }
 
 // DeleteOrganization removes a record.
@@ -180,7 +182,8 @@ var CreateTeam = Endpoint{
 		{Status: http.StatusBadRequest, Description: "The submission is not a valid team.", Schema: errorSchema("")},
 		{Status: http.StatusConflict, Description: "That name is already taken.", Schema: errorSchema("")},
 	},
-	RequestSchema: teamWriteSchema,
+	RequestContentType: "application/json",
+	RequestSchema:      teamWriteSchema,
 }
 
 // UpdateTeam edits an existing record.
@@ -205,7 +208,8 @@ var UpdateTeam = Endpoint{
 		{Status: http.StatusNotFound, Description: "No record with that id.", Schema: errorSchema("")},
 		{Status: http.StatusConflict, Description: "That name is already taken in this organization.", Schema: errorSchema("")},
 	},
-	RequestSchema: teamPatchSchema,
+	RequestContentType: "application/json",
+	RequestSchema:      teamPatchSchema,
 }
 
 // DeleteTeam removes a record.
@@ -286,7 +290,8 @@ var CreateUser = Endpoint{
 		{Status: http.StatusBadRequest, Description: "The submission is not a valid user.", Schema: errorSchema("")},
 		{Status: http.StatusConflict, Description: "That name is already taken.", Schema: errorSchema("")},
 	},
-	RequestSchema: userWriteSchema,
+	RequestContentType: "application/json",
+	RequestSchema:      userWriteSchema,
 }
 
 // UpdateUser edits an existing record.
@@ -306,7 +311,8 @@ var UpdateUser = Endpoint{
 		{Status: http.StatusBadRequest, Description: "The submission is not valid.", Schema: errorSchema("")},
 		{Status: http.StatusNotFound, Description: "No record with that id.", Schema: errorSchema("")},
 	},
-	RequestSchema: userWriteSchema,
+	RequestContentType: "application/json",
+	RequestSchema:      userWriteSchema,
 }
 
 // DeleteUser removes a record.
@@ -387,7 +393,8 @@ var CreateBinding = Endpoint{
 		{Status: http.StatusBadRequest, Description: "The submission is not a valid role binding.", Schema: errorSchema("")},
 		{Status: http.StatusConflict, Description: "That name is already taken.", Schema: errorSchema("")},
 	},
-	RequestSchema: bindingWriteSchema,
+	RequestContentType: "application/json",
+	RequestSchema:      bindingWriteSchema,
 }
 
 // UpdateBinding edits an existing record.
@@ -412,7 +419,8 @@ var UpdateBinding = Endpoint{
 		{Status: http.StatusNotFound, Description: "No record with that id.", Schema: errorSchema("")},
 		{Status: http.StatusConflict, Description: "The edit would leave the deployment with no system-scope allow, so nobody could administer it.", Schema: errorSchema("")},
 	},
-	RequestSchema: bindingPatchSchema,
+	RequestContentType: "application/json",
+	RequestSchema:      bindingPatchSchema,
 }
 
 // DeleteBinding removes a record.
@@ -541,7 +549,8 @@ var CreateContact = Endpoint{
 		{Status: http.StatusBadRequest, Description: "The submission names no owner, names two, or gives no way to reach anybody.", Schema: errorSchema("")},
 		{Status: http.StatusNotFound, Description: "The named owner does not exist.", Schema: errorSchema("")},
 	},
-	RequestSchema: contactWriteSchema,
+	RequestContentType: "application/json",
+	RequestSchema:      contactWriteSchema,
 }
 
 // UpdateContact is a partial update of a record's details.
@@ -566,7 +575,8 @@ var UpdateContact = Endpoint{
 		{Status: http.StatusBadRequest, Description: "The body is malformed, sets a field to null or changes the owner, or the contact it would leave has no name, an unknown role or no way to reach anybody.", Schema: errorSchema("")},
 		{Status: http.StatusNotFound, Description: "No record with that id.", Schema: errorSchema("")},
 	},
-	RequestSchema: contactPatchSchema,
+	RequestContentType: "application/json",
+	RequestSchema:      contactPatchSchema,
 }
 
 // DeleteContact removes a record.

@@ -151,7 +151,17 @@ func TestOpenAPIPaths_EveryDeclaredRequestSchemaIsPublished(t *testing.T) {
 
 	published := 0
 	for _, ep := range apispec.Endpoints {
-		if ep.RequestContentType == "" || len(ep.RequestSchema) == 0 {
+		if len(ep.RequestSchema) == 0 {
+			continue
+		}
+		// A schema with no content type is a second shape of the same
+		// defect: openAPIRequestBody has no media type to publish it under,
+		// so it is dropped. Fourteen access, inventory and announcement
+		// endpoints were declared that way, and this guard used to skip
+		// them rather than fail.
+		if ep.RequestContentType == "" {
+			t.Errorf("%s %s declares a request schema with no RequestContentType, so the document does not publish it",
+				ep.Method, ep.Pattern)
 			continue
 		}
 
