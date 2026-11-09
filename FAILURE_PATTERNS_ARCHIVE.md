@@ -26126,7 +26126,7 @@ hand, and nothing compares a route's error text with the check that answers it.
 **Lesson.** As 1029. When a change alters what a check refuses, search the route table for each route that check
 answers, and reread its error text.
 
-## 1081. The name rule refuses U+00AD, U+200B, U+2060 and U+FEFF because each shows as nothing, and passes other characters that show as nothing (open: owner decision; a sibling of 905; LESSONS 114)
+## 1081. The name rule refuses U+00AD, U+200B, U+2060 and U+FEFF because each shows as nothing, and passes other characters that show as nothing (fixed on fix/name-control-chars by the owner's decision of 2026-11-09: the rule reads Go's unicode tables at creation only; a sibling of 905; LESSONS 114)
 
 **Symptom.** Found by the fp-reviewer agent on `fix/name-control-chars`, 2026-11-09 (its finding F2); reasoned, not run.
 `hidden` (`internal/recordname/shown.go`) refuses four characters by name because a reader cannot see them. Others a
@@ -26139,11 +26139,23 @@ for. 905 is the same gap in the source check, which was closed with Unicode's De
 deliberately reads no Go Unicode table (LESSONS 415, FAILURE_PATTERNS 1003), so it cannot reuse that answer and needs the
 ranges written out.
 
-**Status.** Open, for the owner. Widening is cheap (more fixed ranges in `hidden`), but it changes the rule the owner
-decided, so it waits for that decision. The zero width joiner and non-joiner stay allowed either way, since scripts use
-them.
+**Status.** Open, for the owner, until 2026-11-09.
 
-**Lesson.** Pending. LESSONS 114 applies: a guard written against the examples is not a guard against the rule.
+**Fixed (2026-11-09, `07f25792`, branch `fix/name-control-chars`).** The owner decided the rule should name the
+property, not the examples, and read it from Go's standard `unicode` tables rather than `golang.org/x/text/secure/precis`
+(whose API is still marked unstable, whose `Identifier` profile refuses the ASCII space names already use, and whose
+`Freeform` profile passes U+2800). `recordname.ShowsAsItself`, asked by `Check` and by `facts.ValidKey`, refuses after
+`termsafe.CheckLine`: `unicode.Cc`, `Cf`, `Cs`, `Co`, `Other_Default_Ignorable_Code_Point`, `Variation_Selector`,
+`Noncharacter_Code_Point`, `Zl`, `Zp`, every `Zs` but U+0020, U+2800 (the blank braille pattern, filed as a symbol), and a
+name of spaces alone. A real U+FFFD stays allowed (932). The cost, owner-accepted: the zero width joiner and non-joiner and
+the variation selectors are now refused, so a Persian name spelled with the non-joiner or an emoji in its color form must
+be written without it (`TestCheck_RefusesTheJoinersAndSelectorsRealNamesCanHold` pins this). Reading Go's tables here is
+safe for the reason LESSONS 415 gives and 1003 lacked: only a create asks the rule, so a Go upgrade can refuse a new name
+and never a stored one. Checking that claim found 1083. Evidence: `internal/recordname/recordname_shown_test.go` (both
+edges of every range and the neighbour kept), `internal/facts/key_names_test.go` (every code point to U+10FFFF).
+
+**Lesson.** LESSONS 114: a guard written against the examples is not a guard against the rule. A rule may read a table a
+release can grow only where nothing reading a stored value asks it; check every reference of the rule before widening.
 
 ## 1082. A test list built with rg inside a git rebase -x script came out empty, because the script's PATH had no rg, so go test -run matched no test and reported ok with "no tests to run" (open, as 374 is: nothing fails a -run that matches no test; a repeat in kind of 374)
 
@@ -26163,3 +26175,26 @@ by hand, and a script reading only the exit status cannot make it.
 sure of (an absolute path, or `go test -list`), stop on an empty list, and treat "no tests to run" as a failure.
 
 **Lesson.** As 374. A pass from `go test -run` proves something only when the run names the tests it ran.
+
+## 1083. The fact history route held the {key} it was asked to read to facts.ValidKey, the rule a new fact's key is held to, so a key stored before that rule grew would answer 400 at its own address (fixed before push; a repeat of 988 and 1003)
+
+**Symptom.** Found on `fix/name-control-chars`, 2026-11-09, by listing `facts.ValidKey`'s references (gopls) before
+making it ask `recordname.ShowsAsItself`. `DeviceHandler.FactHistory` (`internal/api/device_facts.go`) refused any
+`{key}` `ValidKey` refused. Until then `ValidKey` added only "." and ".." to the reader's `wellFormedKey`, neither of
+which a URL carries, so nothing showed. Once `ValidKey` read Go's unicode tables, a fact stored under a key holding
+U+3164 (printable, so well formed) became unreadable by `GET /inventory/devices/{name}/facts/{key}`, and a Go upgrade
+could have done the same to any stored key.
+
+**Root cause.** A reader asked the creation rule. `ValidKey`'s own doc said a reader holds a stored key to
+`wellFormedKey`, but `wellFormedKey` was unexported, so the route outside the package had only `ValidKey` to call.
+
+**Why 988 and 1003 did not prevent it.** Each fixed the readers it found (the fact stores' Collection identity, the
+Crawl journal's strict reader) and stated the rule; nothing lists which callers of a creation rule are readers, and a
+route looking up a stored record by a caller's text is a reader that does not look like one.
+
+**Fix.** `facts.ReadableKey`, exported, is the reader's rule (`wellFormedKey`); the route asks it. RED first:
+`TestDeviceFactHistory_ReadsAKeyANewFactMayNotTake` (`internal/api/device_facts_test.go`) answered 400 before the
+fix and 200 after.
+
+**Lesson.** As LESSONS 415. When a creation rule exists, export the reader's rule beside it, so a reader outside the
+package is never left with only the creation rule to call.
