@@ -831,10 +831,21 @@ func (it *sliceIterator) Close() error                     { return nil }
 // fakeSetStore.Update now does: a store that discards writes cannot fail an
 // assertion about a write, and "the sync recorded what it found" is exactly
 // such an assertion.
+//
+// Create and Update refuse a URL carrying a credential by calling
+// project.RefuseEmbeddedSecret, the function the ent store's own write check
+// calls, so a form's handling of that refusal is tested against the real
+// rule rather than a copy of it. The fake applies none of the store's other
+// source checks.
 type fakeProjectStore struct {
 	mu       sync.Mutex
 	projects []project.Project
 	runs     map[int][]project.SyncRun
+
+	// lastID is the highest id handed out. Ids come from it rather than from
+	// the slice's length, which Delete shrinks, so an id is never handed out
+	// twice, as the database's sequence never does.
+	lastID int
 
 	// claimedActor is who the last claim said asked for the sync, so a test
 	// can assert the Sync control passes the caller's identity through.
@@ -858,10 +869,19 @@ func newFakeProjectStore() *fakeProjectStore {
 		OrganizationID: 1, OrganizationName: "acme",
 		SCMType: project.SCMGit, SCMURL: "https://git.example.test/team/playbooks.git",
 		SyncStatus: project.SyncNever,
-	}}}
+	}}, lastID: 1}
+}
+
+// nextID hands out the next id. The caller holds s.mu.
+func (s *fakeProjectStore) nextID() int {
+	s.lastID++
+	return s.lastID
 }
 
 func (s *fakeProjectStore) Create(_ context.Context, p project.Project) (project.Project, error) {
+	if err := project.RefuseEmbeddedSecret(p.SCMURL); err != nil {
+		return project.Project{}, err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, existing := range s.projects {
@@ -869,13 +889,28 @@ func (s *fakeProjectStore) Create(_ context.Context, p project.Project) (project
 			return project.Project{}, project.ErrExists
 		}
 	}
-	p.ID = len(s.projects) + 1
+	p.ID = s.nextID()
 	p.OrganizationName = "acme"
 	if p.SyncStatus == "" {
 		p.SyncStatus = project.SyncNever
 	}
 	s.projects = append(s.projects, p)
 	return p, nil
+}
+
+// seedRaw stores p as a row an older release could have written, past every
+// rule a write applies, the way a test writes one through the ent client
+// against the real store. It returns the stored project with its id.
+func (s *fakeProjectStore) seedRaw(p project.Project) project.Project {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	p.ID = s.nextID()
+	p.OrganizationName = "acme"
+	if p.SyncStatus == "" {
+		p.SyncStatus = project.SyncNever
+	}
+	s.projects = append(s.projects, p)
+	return p
 }
 
 func (s *fakeProjectStore) Get(_ context.Context, id int) (project.Project, error) {
@@ -896,6 +931,9 @@ func (s *fakeProjectStore) List(_ context.Context, _ project.Query) ([]project.P
 }
 
 func (s *fakeProjectStore) Update(_ context.Context, p project.Project) error {
+	if err := project.RefuseEmbeddedSecret(p.SCMURL); err != nil {
+		return err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for i, existing := range s.projects {

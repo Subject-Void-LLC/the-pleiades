@@ -20,7 +20,10 @@ func projectBound(limit int) string {
 // projectSourceRules is what scm_url says on both writes.
 const projectSourceRules = "The repository to clone. Fetched over https or ssh; plain http, the git daemon " +
 	"protocol and paths on the server's own disk are refused unless the deployment has opted into them. A " +
-	"password in the URL is refused: give the project a credential instead."
+	"URL that may carry a credential is refused for a project of every type, manual and archive included: " +
+	"any \"@\" outside one ssh login (ssh://user@host/... or user@host:path, with no password), " +
+	"written, percent-encoded or a Unicode lookalike, and any query or fragment, since a repository source " +
+	"needs neither and a presigned URL is itself a credential. Give the project a credential instead."
 
 // projectWriteSchema is the body POST /projects accepts.
 var projectWriteSchema = map[string]any{
@@ -51,7 +54,8 @@ var projectPatchSchema = map[string]any{
 		"organization": map[string]any{"type": "integer", "description": "Not updatable: accepted only as the stored value, and any other is refused with 400."},
 		"scm_type":     stringSchema("git, archive or manual. Empty means git, as on create."),
 		"scm_url": stringSchema(projectSourceRules + " A git project may not clear it. GET shows a URL that carries a " +
-			"credential redacted, and sending back exactly what GET showed keeps the stored URL." + projectBound(project.MaxSCMURLBytes)),
+			"credential redacted or withheld whole, and sending back exactly what GET showed keeps the stored URL." +
+			projectBound(project.MaxSCMURLBytes)),
 		"scm_branch": stringSchema("The branch, tag or commit to check out. \"\" means the remote's own default." + projectBound(project.MaxSCMBranchBytes)),
 		"credential": map[string]any{"type": "integer", "description": "Rebinds the project to this source control credential. 0 unbinds it; leaving the key out keeps it."},
 	},

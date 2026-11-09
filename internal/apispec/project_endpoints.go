@@ -30,8 +30,12 @@ var projectSchema = map[string]any{
 		"scm_url": stringSchema("The repository to clone. Fetched over https or ssh; plain http, the git " +
 			"daemon protocol and paths on the server's own disk are refused unless the deployment has " +
 			"opted into them, because what a sync produces is code this platform then runs on managed " +
-			"devices. A password in the URL is refused: give the project a credential instead, which is " +
-			"stored encrypted."),
+			"devices. A URL that may carry a credential (any \"@\" outside an ssh login, written or " +
+			"encoded, or any query or fragment) is refused for a project of every type: give the project a " +
+			"credential instead, which is stored encrypted. A URL stored with one before that rule is shown " +
+			"with its credential replaced by " +
+			"\"redacted\", or withheld whole as \"(withheld: the URL carries a credential)\" when it cannot " +
+			"be cut out precisely."),
 		"scm_branch":  stringSchema("The branch, tag or commit to check out. Empty means the remote's own default."),
 		"credential":  map[string]any{"type": "integer", "description": "The credential the clone authenticates as, absent for a public repository."},
 		"revision":    stringSchema("The commit the working tree is at. Empty until a sync has succeeded once."),

@@ -225,14 +225,18 @@ func TestProjectPatch_TheOrganizationIsFixed(t *testing.T) {
 // form an older release stored before the store began refusing it.
 const legacySecretURL = "https://svc:hunter2@example.invalid/legacy.git"
 
-// seedLegacySecretURL creates a project of the given type and then writes
-// legacySecretURL into its row directly through the ent client, as a row
-// stored before the rule would hold it, and returns the project's id.
-func (f *projectFixture) seedLegacySecretURL(t *testing.T, name, scmType string) int {
+// legacyWithheldURL is an scp-like URL carrying a password, which net/url
+// cannot read, so GET withholds it whole rather than redacting its userinfo.
+const legacyWithheldURL = "git:hunter2@example.invalid:team/legacy.git"
+
+// seedLegacyURL creates a project of the given type and then writes url into
+// its row directly through the ent client, as a row stored before the rule
+// would hold it, and returns the project's id.
+func (f *projectFixture) seedLegacyURL(t *testing.T, name, scmType, url string) int {
 	t.Helper()
 	id := f.create(t, fmt.Sprintf(`{"name":%q,"organization":%d,"scm_type":%q,"scm_url":"https://example.invalid/clean.git"}`,
 		name, f.orgID, scmType))
-	f.client.Project.UpdateOneID(id).SetScmURL(legacySecretURL).ExecX(context.Background())
+	f.client.Project.UpdateOneID(id).SetScmURL(url).ExecX(context.Background())
 	return id
 }
 
@@ -247,64 +251,141 @@ func (f *projectFixture) storedSourceURL(t *testing.T, id int) string {
 	return p.SCMURL
 }
 
-// TestProjectPatch_AnEchoedRedactedURLKeepsTheStoredOne covers the ordinary
-// client flow the fixed-field rule invites: GET a project, change one field,
-// PATCH the create fields back. GET shows scm_url redacted, so the scm_url
-// sent back is the redacted form, and it used to replace the stored URL.
-// It is an echo, and keeps the stored URL; a real change still applies.
-func TestProjectPatch_AnEchoedRedactedURLKeepsTheStoredOne(t *testing.T) {
-	f := newProjectFixture(t)
-	id := f.seedLegacySecretURL(t, "hand-placed", "manual")
-
-	shown, _ := f.readProject(t, id)["scm_url"].(string)
-	if shown == legacySecretURL || strings.Contains(shown, "hunter2") {
-		t.Fatalf("GET showed the stored password: %q", shown)
-	}
-
-	body, err := json.Marshal(map[string]any{"description": "changed", "scm_url": shown})
-	if err != nil {
-		t.Fatal(err)
-	}
-	status, resp := f.do(t, http.MethodPatch, projectPath(id), json.RawMessage(body))
-	if status != http.StatusOK {
-		t.Fatalf("PATCH echoing the shown URL: status %d, want 200; body %s", status, resp)
+// assertCredentialRefusal checks a write was refused for the credential in
+// its URL, saying to use a credential and repeating no part of the secret.
+func assertCredentialRefusal(t *testing.T, what string, status int, resp []byte) {
+	t.Helper()
+	if status != http.StatusBadRequest || !strings.Contains(string(resp), "credential") {
+		t.Errorf("%s: status %d, want 400 saying to use a credential; body %s", what, status, resp)
 	}
 	if strings.Contains(string(resp), "hunter2") {
-		t.Errorf("the response repeats the stored password: %s", resp)
-	}
-	if got := f.storedSourceURL(t, id); got != legacySecretURL {
-		t.Errorf("stored scm_url = %q after an echo of the shown one, want it kept as stored", got)
-	}
-	assertProjectFields(t, f.readProject(t, id), map[string]any{"description": "changed"})
-
-	// A different URL is a real change, and applies.
-	f.patchOK(t, id, `{"scm_url":"https://example.invalid/fresh.git"}`)
-	if got := f.storedSourceURL(t, id); got != "https://example.invalid/fresh.git" {
-		t.Errorf("stored scm_url = %q, want the new URL", got)
+		t.Errorf("%s: the response repeats the password: %s", what, resp)
 	}
 }
 
-// TestProjectPatch_AGitProjectWithAStoredPasswordIsStillRefused keeps the
-// store's rule for a git row: the echo keeps the stored URL, which carries a
-// password, so the save is refused until the URL is changed. The refusal and
-// the stored row hold no trace of the password changing hands.
-func TestProjectPatch_AGitProjectWithAStoredPasswordIsStillRefused(t *testing.T) {
-	f := newProjectFixture(t)
-	id := f.seedLegacySecretURL(t, "legacy-git", "git")
-	shown, _ := f.readProject(t, id)["scm_url"].(string)
+// TestProjectPatch_AnEchoedRedactedURLNeverReplacesTheStoredOne covers the
+// ordinary client flow the fixed-field rule invites: GET a project, change one
+// field, PATCH the create fields back. GET shows a URL carrying a credential
+// redacted (or withheld whole), so the scm_url sent back is that form. It is
+// an echo of the stored URL, never a new value: the stored URL is kept, and a
+// stored URL carrying a credential is refused on save for every type until it
+// is changed. It used to be read as a new URL, which for a manual project
+// replaced the real one with the redacted form or the placeholder.
+func TestProjectPatch_AnEchoedRedactedURLNeverReplacesTheStoredOne(t *testing.T) {
+	for _, scmType := range []string{"git", "manual"} {
+		for name, url := range map[string]string{
+			"a password":     legacySecretURL,
+			"a withheld URL": legacyWithheldURL,
+			// Shapes a parser misreads, which GET used to show raw.
+			"a bad port":                 "https://svc:hunter2@example.invalid:badport/legacy.git",
+			"git+https with a token":     "git+https://hunter2@example.invalid/legacy.git",
+			"a scheme-less authority":    "//bot:hunter2@example.invalid/legacy.git",
+			"scp-like with a host space": "git:hunter2@example invalid:team/legacy.git",
+			"a password holding a slash": "https://svc:pa/hunter2@example.invalid/legacy.git",
+			"a token in the query":       "https://example.invalid/legacy.git?access_token=hunter2",
+		} {
+			t.Run(scmType+", "+name, func(t *testing.T) {
+				f := newProjectFixture(t)
+				id := f.seedLegacyURL(t, "legacy", scmType, url)
 
-	body, err := json.Marshal(map[string]any{"description": "changed", "scm_url": shown})
+				shown, _ := f.readProject(t, id)["scm_url"].(string)
+				if shown == url || strings.Contains(shown, "hunter2") {
+					t.Fatalf("GET showed the stored password: %q", shown)
+				}
+
+				body, err := json.Marshal(map[string]any{"description": "changed", "scm_url": shown})
+				if err != nil {
+					t.Fatal(err)
+				}
+				status, resp := f.do(t, http.MethodPatch, projectPath(id), json.RawMessage(body))
+				assertCredentialRefusal(t, "PATCH echoing the shown URL", status, resp)
+				if got := f.storedSourceURL(t, id); got != url {
+					t.Errorf("stored scm_url = %q after an echo of the shown one, want it kept as stored", got)
+				}
+
+				// A clean URL is a real change, and applies.
+				f.patchOK(t, id, `{"scm_url":"https://example.invalid/fresh.git"}`)
+				if got := f.storedSourceURL(t, id); got != "https://example.invalid/fresh.git" {
+					t.Errorf("stored scm_url = %q, want the new URL", got)
+				}
+			})
+		}
+	}
+}
+
+// TestProjects_ACredentialInTheURLIsRefusedForEveryType holds the store's
+// refusal on both writes for a manual and an archive project, as for a git
+// one: it used to sit behind the git-only check, so a manual project stored a
+// password in the plain scm_url column. A row that already holds one stays
+// readable, redacted, and must be changed before its next edit.
+func TestProjects_ACredentialInTheURLIsRefusedForEveryType(t *testing.T) {
+	f := newProjectFixture(t)
+
+	for _, scmType := range []string{"manual", "archive"} {
+		status, resp := f.do(t, http.MethodPost, "/api/v1/projects", json.RawMessage(fmt.Sprintf(
+			`{"name":"secret-%s","organization":%d,"scm_type":%q,"scm_url":%q}`, scmType, f.orgID, scmType, legacySecretURL)))
+		assertCredentialRefusal(t, "creating a "+scmType+" project", status, resp)
+	}
+
+	manual := f.create(t, fmt.Sprintf(`{"name":"hand-placed","organization":%d,"scm_type":"manual",
+		"scm_url":"https://example.invalid/clean.git"}`, f.orgID))
+	body, err := json.Marshal(map[string]string{"scm_url": legacySecretURL})
 	if err != nil {
 		t.Fatal(err)
 	}
-	status, resp := f.do(t, http.MethodPatch, projectPath(id), json.RawMessage(body))
-	if status != http.StatusBadRequest || !strings.Contains(string(resp), "credential") {
-		t.Fatalf("PATCH of a git row whose URL carries a password: status %d, want 400 saying to use a credential; body %s", status, resp)
+	status, resp := f.do(t, http.MethodPatch, projectPath(manual), json.RawMessage(body))
+	assertCredentialRefusal(t, "PATCH of a manual project to a URL carrying a password", status, resp)
+	if got := f.storedSourceURL(t, manual); got != "https://example.invalid/clean.git" {
+		t.Errorf("stored scm_url = %q after a refused PATCH", got)
 	}
-	if strings.Contains(string(resp), "hunter2") {
-		t.Errorf("the refusal repeats the stored password: %s", resp)
+
+	legacy := f.seedLegacyURL(t, "legacy-manual", "manual", legacySecretURL)
+	for _, path := range []string{projectPath(legacy), "/api/v1/projects"} {
+		status, resp := f.do(t, http.MethodGet, path, nil)
+		if status != http.StatusOK || strings.Contains(string(resp), "hunter2") || !strings.Contains(string(resp), "redacted@") {
+			t.Errorf("GET %s with a legacy row: status %d, want 200 with the URL redacted; body %s", path, status, resp)
+		}
 	}
-	if got := f.storedSourceURL(t, id); got != legacySecretURL {
-		t.Errorf("stored scm_url = %q, want it unchanged by a refused PATCH", got)
+	status, resp = f.do(t, http.MethodPatch, projectPath(legacy), json.RawMessage(`{"description":"changed"}`))
+	assertCredentialRefusal(t, "PATCH of a legacy row changing only the description", status, resp)
+	f.patchOK(t, legacy, `{"scm_url":"https://example.invalid/fresh.git","description":"changed"}`)
+	if got := f.storedSourceURL(t, legacy); got != "https://example.invalid/fresh.git" {
+		t.Errorf("stored scm_url = %q, want the clean URL", got)
+	}
+}
+
+// TestProjects_ASourceURLMayCarryNoQueryOrFragment refuses a query or a
+// fragment in a source URL for every type, whatever its names: no list of
+// secret names covers an Azure SAS sig or an S3 signature, and a repository
+// source needs neither. A stored URL holding one is withheld whole.
+func TestProjects_ASourceURLMayCarryNoQueryOrFragment(t *testing.T) {
+	f := newProjectFixture(t)
+	for name, url := range map[string]string{
+		"an Azure SAS signature":  "https://example.invalid/c/repo.tar?sv=2024&sig=hunter2",
+		"a token in the fragment": "https://example.invalid/r.git#token=hunter2",
+		"an ordinary query":       "https://example.invalid/r.git?ref=main",
+	} {
+		for _, scmType := range []string{"git", "manual", "archive"} {
+			t.Run(name+", "+scmType, func(t *testing.T) {
+				body, err := json.Marshal(map[string]any{
+					"name": name + " " + scmType, "organization": f.orgID, "scm_type": scmType, "scm_url": url,
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+				status, resp := f.do(t, http.MethodPost, "/api/v1/projects", json.RawMessage(body))
+				if status != http.StatusBadRequest || !strings.Contains(string(resp), "query or a fragment") {
+					t.Errorf("status %d, want 400 saying a source URL may not carry a query or a fragment; body %s", status, resp)
+				}
+				if strings.Contains(string(resp), "hunter2") {
+					t.Errorf("the refusal repeats the URL: %s", resp)
+				}
+			})
+		}
+	}
+
+	legacy := f.seedLegacyURL(t, "legacy-query", "manual", "https://example.invalid/repo.tar?sig=hunter2")
+	if shown, _ := f.readProject(t, legacy)["scm_url"].(string); shown != "(withheld: the URL carries a credential)" {
+		t.Errorf("GET shows a stored URL with a query as %q, want it withheld whole", shown)
 	}
 }

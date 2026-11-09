@@ -1598,16 +1598,34 @@ refused, each with its own opt-in on the **Controller**, unset meaning refuse:
 - `PLEIADES_PROJECT_ALLOW_LOCAL_SOURCE` admits `file://` URLs and bare paths, which
   is a repository on the Controller's own disk. Note that a URL with no scheme at
   all is a local path, so this also covers `/srv/repos/x` and `../x`.
-- A credential in the URL is refused outright, with no toggle: a password on any
-  URL (`https://user:token@host/repo`), and over http or https a user name alone
-  (`https://<token>@host/repo`), since a forge accepts a token in the user position
-  too. An ssh URL's user (`git@host:org/repo`) is ordinary and allowed. `scm_url` is
-  an ordinary column while a credential is encrypted, so the two are not equivalent
-  places to put a secret. An existing project that already carries one keeps
-  syncing, with a warning in every sync's log; the API and the web UI show its URL
-  with the credential replaced by `redacted`, and it is refused the next time
+- A URL that may carry a credential is refused outright, with no toggle. The rule
+  names what is allowed rather than listing what is not, because every list of
+  credential shapes missed one: a URL with no `@` (written, percent-encoded as
+  `%40`, or a Unicode lookalike), no query and no fragment is accepted, and so is
+  exactly one form of ssh login, `ssh://git@host/org/repo`
+  (also `git+ssh://` or `ssh+git://`) or `git@host:org/repo`, whose user picks the
+  account and holds no password. Any other URL with an `@` in it is refused, which
+  covers a password (`https://user:token@host/repo`), a token in the user position
+  (`https://<token>@host/repo`), a password holding a `/`, and forms no parser reads
+  the same way twice, at the cost of refusing an `@` in a path (rare for a
+  repository URL). So is any query or fragment, whatever it is called
+  (`?access_token=`, an Azure SAS `?sig=`, an S3 `?X-Amz-Signature=`, `#token=`):
+  a repository source needs neither, and a presigned archive URL is itself a
+  credential. Two limits: a token in the path (`https://host/token/abc`) cannot be
+  told from a path and is not caught, and a backup restore writes rows without
+  these checks, so a backup taken before the rule brings back such a URL, which is
+  then shown redacted or withheld and refused at its next save. `scm_url` is an
+  ordinary column while a credential is
+  encrypted, so the two are not equivalent places to put a secret, and this holds
+  for a project of every source type: a manual or archive project, which nothing
+  fetches, is refused one just as a git project is. An existing project that
+  already carries one keeps syncing, with a warning in every sync's log; the API and
+  the web UI show its URL with the credential replaced by `redacted` where the cut
+  is exact, and otherwise withhold it whole as
+  `(withheld: the URL carries a credential)`, and it is refused the next time
   somebody saves that project, which is the moment there is somewhere better to put
-  it.
+  it. Sending back the URL as shown keeps the stored one, so that save is refused
+  until the URL itself is changed.
 
 Both toggles are read once at startup and logged as a warning on every start when
 either is on, so an operator reading a boot log sees what a deployment permits. A
