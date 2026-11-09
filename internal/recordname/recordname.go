@@ -19,6 +19,7 @@ package recordname
 import (
 	"errors"
 	"fmt"
+	"net/url"
 )
 
 // ErrUnaddressable is what Check's error matches under errors.Is: the name
@@ -31,6 +32,26 @@ var ErrUnaddressable = errors.New("not a name a URL can carry")
 // record: anything but "", "." and "..".
 func Addressable(name string) bool {
 	return name != "" && name != "." && name != ".."
+}
+
+// Segment is name escaped as one URL path segment, url.PathEscape's form,
+// and with its first byte percent-encoded too when that form equals one of
+// static: a fixed segment the router matches before a parameter at the same
+// place, such as "new" beside /ui/{resource}/{id}.
+//
+// A router matches a static segment first, so the device named "new" linked
+// as /ui/devices/new would open the create form. Linked as
+// /ui/devices/%6Eew, the request has a RawPath, the router matches the
+// escaped text against "new", finds it different, and hands it to {id},
+// where api.PathParam decodes it back to "new". Such a name stays usable:
+// it is a legitimate hostname. Segment does not judge Addressable; call it
+// first.
+func Segment(name string, static map[string]bool) string {
+	seg := url.PathEscape(name)
+	if !static[seg] {
+		return seg
+	}
+	return fmt.Sprintf("%%%02X", seg[0]) + seg[1:]
 }
 
 // Check returns nil for an Addressable name, and otherwise an error that

@@ -9,10 +9,10 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"net/url"
 	"strings"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/auth"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/recordname"
 )
 
 // affordance is one route's hypermedia projection: everything needed to
@@ -36,6 +36,9 @@ type affordance struct {
 type linkBuilder struct {
 	byPattern map[string][]affordance
 	generator auth.HATEOASGenerator
+	// statics is, for each pattern, the fixed segments the route table
+	// registers beside each of its parameters (staticSiblings).
+	statics routeStatics
 }
 
 // newLinkBuilder indexes routes by pattern so a request costs one map
@@ -43,15 +46,90 @@ type linkBuilder struct {
 // rather than a scan of the whole table.
 func newLinkBuilder(routes []Route, generator auth.HATEOASGenerator) *linkBuilder {
 	byPattern := make(map[string][]affordance, len(routes))
+	patterns := make([]string, 0, len(routes))
 	for _, route := range routes {
 		full := APIVersionPrefix + route.Pattern
+		if _, seen := byPattern[full]; !seen {
+			patterns = append(patterns, full)
+		}
 		byPattern[full] = append(byPattern[full], affordance{
 			rel:    route.Rel,
 			method: route.Method,
 			scope:  route.Scope,
 		})
 	}
-	return &linkBuilder{byPattern: byPattern, generator: generator}
+	return &linkBuilder{byPattern: byPattern, generator: generator, statics: staticSiblings(patterns)}
+}
+
+// routeStatics maps a route pattern to, for each of its parameters by name,
+// the set of fixed segments another pattern registers at the same place.
+type routeStatics map[string]map[string]map[string]bool
+
+// staticSiblings is, for each pattern, every fixed segment another pattern
+// registers where one of its parameters goes, under the same segments
+// before it: "preview" for {id} of /schedules/{id}, from /schedules/preview.
+// chi matches a fixed segment before a parameter, so a value equal to one
+// would route to the other handler; hrefFor encodes its first byte instead
+// (recordname.Segment). It reads the route table NewRouter registers, so a
+// route added there is counted with no list kept by hand.
+func staticSiblings(patterns []string) routeStatics {
+	split := make([][]string, len(patterns))
+	for i, p := range patterns {
+		split[i] = strings.Split(strings.Trim(p, "/"), "/")
+	}
+	out := routeStatics{}
+	for i, segs := range split {
+		for j, seg := range segs {
+			if !isParamSegment(seg) {
+				continue
+			}
+			for k, other := range split {
+				if k == i || len(other) <= j || isParamSegment(other[j]) || !samePrefix(segs[:j], other[:j]) {
+					continue
+				}
+				if out[patterns[i]] == nil {
+					out[patterns[i]] = map[string]map[string]bool{}
+				}
+				key := paramKey(seg)
+				if out[patterns[i]][key] == nil {
+					out[patterns[i]][key] = map[string]bool{}
+				}
+				out[patterns[i]][key][other[j]] = true
+			}
+		}
+	}
+	return out
+}
+
+// isParamSegment reports whether one pattern segment is a chi parameter.
+func isParamSegment(seg string) bool {
+	return strings.HasPrefix(seg, "{") && strings.HasSuffix(seg, "}")
+}
+
+// paramKey is a parameter segment's name: {id} and {id:[0-9]+} are both id.
+func paramKey(seg string) string {
+	key := strings.TrimSuffix(strings.TrimPrefix(seg, "{"), "}")
+	if i := strings.IndexByte(key, ':'); i >= 0 {
+		key = key[:i]
+	}
+	return key
+}
+
+// samePrefix reports whether two patterns' leading segments name the same
+// route node: equal fixed segments, and a parameter beside a parameter.
+func samePrefix(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if isParamSegment(a[i]) && isParamSegment(b[i]) {
+			continue
+		}
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // linkBuilderContextKey is the private key the builder travels under.
@@ -132,7 +210,7 @@ func (b *linkBuilder) linksFor(r *http.Request, id *auth.Identity, applies func(
 		permitted[rel] = true
 	}
 
-	href, err := hrefFor(r, pattern)
+	href, err := hrefFor(r, pattern, b.statics[pattern])
 	if err != nil {
 		return nil, err
 	}
@@ -207,7 +285,7 @@ func (b *linkBuilder) allowedMethods(r *http.Request, id *auth.Identity, pattern
 // escaped as a path segment, so a parameter containing a slash, a quote,
 // or a percent cannot change the shape of the URL a client is invited to
 // follow.
-func hrefFor(r *http.Request, pattern string) (string, error) {
+func hrefFor(r *http.Request, pattern string, statics map[string]map[string]bool) (string, error) {
 	// Every value decoded once (routeParams, pathparam.go), so escaping it
 	// once below names the record the request named. chi's "*" key for a
 	// wildcard match is left out there; validateRoutes refuses wildcard
@@ -219,7 +297,7 @@ func hrefFor(r *http.Request, pattern string) (string, error) {
 
 	href := pattern
 	for _, p := range params {
-		href = strings.ReplaceAll(href, "{"+p.key+"}", url.PathEscape(p.value))
+		href = strings.ReplaceAll(href, "{"+p.key+"}", recordname.Segment(p.value, statics[p.key]))
 	}
 	return href, nil
 }

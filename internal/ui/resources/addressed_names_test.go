@@ -132,3 +132,32 @@ func TestDevices_CreateRefusesANameNoURLCarries(t *testing.T) {
 		t.Errorf("the store holds %d devices after the refused creates, want %d", after, before)
 	}
 }
+
+// TestDevices_ANameEqualToAFixedSegmentOpensItsOwnPage creates devices named
+// "new" and "chart.json", the fixed segments the router matches beside a
+// record's {id}, and follows the link the UI answers with. Linked as written,
+// "new" opened the create form and "chart.json" a chart's data; each must
+// open its own page. Neither name is refused: both are legitimate hostnames.
+func TestDevices_ANameEqualToAFixedSegmentOpensItsOwnPage(t *testing.T) {
+	h := newHarness(t, adminIdentity)
+	for _, name := range []string{"new", "chart.json"} {
+		t.Run(name, func(t *testing.T) {
+			rec := h.post(t, "/ui/devices", map[string]string{"name": name, "type": "linux_server"})
+			if rec.Code != http.StatusSeeOther {
+				t.Fatalf("creating %q = %d, want 303: %s", name, rec.Code, rec.Body.String())
+			}
+			link := rec.Header().Get("Location")
+			page := h.get(t, link)
+			if page.Code != http.StatusOK {
+				t.Fatalf("GET %s = %d, want 200", link, page.Code)
+			}
+			if got := pageTitle(page.Body.String()); !strings.HasPrefix(got, name+" ") {
+				t.Fatalf("the link %s for the device %q opened %q, not the device's own page", link, name, got)
+			}
+			list := h.get(t, "/ui/devices")
+			if !strings.Contains(list.Body.String(), `href="`+link+`"`) {
+				t.Errorf("the device list does not link %q as %s", name, link)
+			}
+		})
+	}
+}

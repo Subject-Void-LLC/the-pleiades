@@ -6,6 +6,7 @@ package recordname_test
 import (
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -68,5 +69,31 @@ func TestCheck_SaysWhy(t *testing.T) {
 		if !strings.Contains(msg, fmt.Sprintf("%q cannot be used", name)) || !strings.Contains(msg, "steps between folders") {
 			t.Errorf("Check(%q) says %q, want it to name the name and say why", name, msg)
 		}
+	}
+}
+
+// TestSegment_EscapesANameEqualToAStaticSibling: a name equal to a fixed
+// segment beside its parameter has its first byte encoded, so the router
+// reads it as the parameter; it decodes back to the name; every other name
+// is url.PathEscape's form.
+func TestSegment_EscapesANameEqualToAStaticSibling(t *testing.T) {
+	static := map[string]bool{"new": true, "chart.json": true}
+	for name, want := range map[string]string{
+		"new":        "%6Eew",
+		"chart.json": "%63hart.json",
+		"news":       "news",
+		"sw/1":       "sw%2F1",
+		"New":        "New",
+	} {
+		got := recordname.Segment(name, static)
+		if got != want {
+			t.Errorf("Segment(%q) = %q, want %q", name, got, want)
+		}
+		if back, err := url.PathUnescape(got); err != nil || back != name {
+			t.Errorf("Segment(%q) = %q, which decodes to %q, %v", name, got, back, err)
+		}
+	}
+	if got := recordname.Segment("new", nil); got != "new" {
+		t.Errorf("Segment with no static siblings = %q, want the name as it is", got)
 	}
 }

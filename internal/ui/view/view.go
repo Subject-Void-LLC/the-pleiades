@@ -879,9 +879,10 @@ const minRefreshInterval = time.Second
 const idToken = "{id}"
 
 // StreamPath builds one record's stream URL, escaping the identifier, or ""
-// when the identifier is not Addressable.
+// when the identifier is not addressable. The pattern is an API route, so
+// the UI's own fixed segments do not apply to it.
 func (s StreamSpec) StreamPath(id string) string {
-	seg, ok := segment(id)
+	seg, ok := segment(id, nil)
 	if !ok {
 		return ""
 	}
