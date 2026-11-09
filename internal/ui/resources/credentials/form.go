@@ -272,20 +272,21 @@ func (w writer) Create(ctx context.Context, c credstore.Credential) (string, err
 
 // Update renames a credential and applies whatever inputs were supplied.
 //
-// It reads the stored record first to carry External forward. The store's
-// update writes External wholesale, so passing the nil this form has no
-// control for would silently drop every external secret reference the
-// credential holds, turning a rename into an outage.
+// It folds the form over the stored record, read under the type's lock, to
+// carry External forward. The store writes External wholesale, so passing
+// the nil this form has no control for would silently drop every external
+// secret reference the credential holds, turning a rename into an outage,
+// and carrying a copy read before the write would put back a reference a
+// type edit had just deleted (internal/credstore/type_inputs.go).
 func (w writer) Update(ctx context.Context, id string, c credstore.Credential) error {
 	numeric, err := strconv.Atoi(id)
 	if err != nil {
 		return fmt.Errorf("%w: credentials: unreadable credential id %q: %w", view.ErrNotFound, id, err)
 	}
-	stored, err := w.store.GetCredential(ctx, numeric)
-	if err != nil {
-		return view.WrapNotFound(err, credstore.ErrNotFound)
-	}
-	if _, err := w.store.UpdateCredential(ctx, numeric, c.Name, c.Description, c.Inputs, stored.External); err != nil {
+	if _, err := w.store.UpdateCredentialWith(ctx, numeric, func(stored credstore.Credential) (credstore.Credential, error) {
+		stored.Name, stored.Description, stored.Inputs = c.Name, c.Description, c.Inputs
+		return stored, nil
+	}); err != nil {
 		return view.WrapNotFound(writeFault(err), credstore.ErrNotFound)
 	}
 	return nil

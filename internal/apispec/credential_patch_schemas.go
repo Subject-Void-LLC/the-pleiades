@@ -18,7 +18,7 @@ var credentialTypePatchSchema = map[string]any{
 	"type": "object",
 	"description": patchBodyRules + " inputs and injectors, when present, each replace the stored document whole, " +
 		"as PUT .../inputs and PUT .../injectors do. The type as it would be saved is validated whole, so an " +
-		"inputs document dropping an input an injector still reads is refused.",
+		"inputs document dropping an input an injector still reads is refused. " + typeEditRule,
 	"properties": map[string]any{
 		"name":         stringSchema("Unique within the organization. May not be blank."),
 		"description":  stringSchema("\"\" clears it."),

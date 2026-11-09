@@ -2226,7 +2226,7 @@
                                       "type": "boolean"
                                     },
                                     "secret": {
-                                      "description": "Whether this field's value is a secret. It is the single most consequential flag here: it decides encryption at rest and whether the value reads back as a marker or as itself.",
+                                      "description": "Whether this field's value is a secret. It is the single most consequential flag here: it decides encryption at rest and whether the value reads back as a marker or as itself. Once a saved type marks an input secret the flag cannot be cleared: remove the input and add it again, which deletes every value stored for it.",
                                       "type": "boolean"
                                     },
                                     "type": {
@@ -2380,7 +2380,7 @@
                               "type": "boolean"
                             },
                             "secret": {
-                              "description": "Whether this field's value is a secret. It is the single most consequential flag here: it decides encryption at rest and whether the value reads back as a marker or as itself.",
+                              "description": "Whether this field's value is a secret. It is the single most consequential flag here: it decides encryption at rest and whether the value reads back as a marker or as itself. Once a saved type marks an input secret the flag cannot be cleared: remove the input and add it again, which deletes every value stored for it.",
                               "type": "boolean"
                             },
                             "type": {
@@ -2523,7 +2523,7 @@
                                 "type": "boolean"
                               },
                               "secret": {
-                                "description": "Whether this field's value is a secret. It is the single most consequential flag here: it decides encryption at rest and whether the value reads back as a marker or as itself.",
+                                "description": "Whether this field's value is a secret. It is the single most consequential flag here: it decides encryption at rest and whether the value reads back as a marker or as itself. Once a saved type marks an input secret the flag cannot be cleared: remove the input and add it again, which deletes every value stored for it.",
                                 "type": "boolean"
                               },
                               "type": {
@@ -2586,7 +2586,7 @@
                 }
               }
             },
-            "description": "The body is malformed, or the type does not validate or holds a NUL character in its name or description."
+            "description": "The body is malformed, or the type does not validate or holds a NUL character anywhere in its text."
           },
           "409": {
             "content": {
@@ -2800,7 +2800,7 @@
                                 "type": "boolean"
                               },
                               "secret": {
-                                "description": "Whether this field's value is a secret. It is the single most consequential flag here: it decides encryption at rest and whether the value reads back as a marker or as itself.",
+                                "description": "Whether this field's value is a secret. It is the single most consequential flag here: it decides encryption at rest and whether the value reads back as a marker or as itself. Once a saved type marks an input secret the flag cannot be cleared: remove the input and add it again, which deletes every value stored for it.",
                                 "type": "boolean"
                               },
                               "type": {
@@ -2893,7 +2893,7 @@
         "x-link-relation": "self"
       },
       "patch": {
-        "description": "A partial update of a custom type. A field left out keeps its stored value and a field present is applied; inputs and injectors, when present, each replace the stored document whole. A null on any field is refused. The namespace and the organization are not updatable: a value that differs from the stored one is refused, and the stored value is accepted as an echo. The type as it would be saved is validated whole, every injector compiled against the input schema it would have. A managed type is refused. Concurrent PATCHes are last-writer-wins: there is no version check.",
+        "description": "A partial update of a custom type. A field left out keeps its stored value and a field present is applied; inputs and injectors, when present, each replace the stored document whole. A null on any field is refused. The namespace and the organization are not updatable: a value that differs from the stored one is refused, and the stored value is accepted as an echo. The type as it would be saved is validated whole, every injector compiled against the input schema it would have. A managed type is refused. An input marked secret cannot be made non-secret: remove it and add it again, which deletes its stored values. After every edit a credential of the type keeps a stored value, an external reference or an input source only for an input the type still declares, and for an input the edit adds only when it adds it as secret, where anything already stored reads back only as \"$encrypted$\". So removing an input deletes what credentials hold for it, and adding one as non-secret finds nothing stored under its id. A value stored as secret therefore never reads back as itself. An edit is refused with 409 while a credential of the type cannot be decrypted with this Controller's key. Concurrent PATCHes are last-writer-wins: there is no version check.",
         "operationId": "update_credential_type",
         "parameters": [
           {
@@ -2910,7 +2910,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "description": "A partial update. A field left out keeps its stored value and a field present is applied; an empty value clears a field that can be empty. No field may be null: leave it out to keep it. Unknown fields are refused, so a GET response cannot be sent back as it is; send the fields a create takes. inputs and injectors, when present, each replace the stored document whole, as PUT .../inputs and PUT .../injectors do. The type as it would be saved is validated whole, so an inputs document dropping an input an injector still reads is refused.",
+                "description": "A partial update. A field left out keeps its stored value and a field present is applied; an empty value clears a field that can be empty. No field may be null: leave it out to keep it. Unknown fields are refused, so a GET response cannot be sent back as it is; send the fields a create takes. inputs and injectors, when present, each replace the stored document whole, as PUT .../inputs and PUT .../injectors do. The type as it would be saved is validated whole, so an inputs document dropping an input an injector still reads is refused. An input marked secret cannot be made non-secret: remove it and add it again, which deletes its stored values. After every edit a credential of the type keeps a stored value, an external reference or an input source only for an input the type still declares, and for an input the edit adds only when it adds it as secret, where anything already stored reads back only as \"$encrypted$\". So removing an input deletes what credentials hold for it, and adding one as non-secret finds nothing stored under its id. A value stored as secret therefore never reads back as itself. An edit is refused with 409 while a credential of the type cannot be decrypted with this Controller's key.",
                 "properties": {
                   "description": {
                     "description": "\"\" clears it.",
@@ -2977,7 +2977,7 @@
                               "type": "boolean"
                             },
                             "secret": {
-                              "description": "Whether this field's value is a secret. It is the single most consequential flag here: it decides encryption at rest and whether the value reads back as a marker or as itself.",
+                              "description": "Whether this field's value is a secret. It is the single most consequential flag here: it decides encryption at rest and whether the value reads back as a marker or as itself. Once a saved type marks an input secret the flag cannot be cleared: remove the input and add it again, which deletes every value stored for it.",
                               "type": "boolean"
                             },
                             "type": {
@@ -3114,7 +3114,7 @@
                                 "type": "boolean"
                               },
                               "secret": {
-                                "description": "Whether this field's value is a secret. It is the single most consequential flag here: it decides encryption at rest and whether the value reads back as a marker or as itself.",
+                                "description": "Whether this field's value is a secret. It is the single most consequential flag here: it decides encryption at rest and whether the value reads back as a marker or as itself. Once a saved type marks an input secret the flag cannot be cleared: remove the input and add it again, which deletes every value stored for it.",
                                 "type": "boolean"
                               },
                               "type": {
@@ -3177,7 +3177,7 @@
                 }
               }
             },
-            "description": "The body is malformed, sets a field to null or changes the namespace or the organization, or the type it would leave does not validate or holds a NUL character in its name or description."
+            "description": "The body is malformed, sets a field to null or changes the namespace or the organization, or the type it would leave does not validate, clears an input's secret flag, or holds a NUL character anywhere in its text."
           },
           "403": {
             "content": {
@@ -3225,7 +3225,7 @@
                 }
               }
             },
-            "description": "The name is taken in that organization."
+            "description": "The name is taken in that organization, or a credential of the type cannot be decrypted with this Controller's key."
           }
         },
         "security": [
@@ -3241,7 +3241,7 @@
     },
     "/credential-types/{id}/injectors": {
       "put": {
-        "description": "Replaces the injectors, leaving the type's metadata and input schema as they are. Every template is compiled here against the type's own inputs, and an environment variable name that would change how the run executes (PATH, LD_PRELOAD and their relatives) is refused, because the customer's playbook runs in the same container. It is the same store update PATCH performs, narrowed to the injectors. A managed type is refused.",
+        "description": "Replaces the injectors, leaving the type's metadata and input schema as they are. Every template is compiled here against the type's own inputs, and an environment variable name that would change how the run executes (PATH, LD_PRELOAD and their relatives) is refused, because the customer's playbook runs in the same container. It is the same store update PATCH performs, narrowed to the injectors. A managed type is refused. The input schema is unchanged, so no value stored for a declared input is lost, but the edit still deletes any value a credential of the type holds for an input the type does not declare, and is refused with 409 while a credential of the type cannot be decrypted with this Controller's key.",
         "operationId": "set_credential_type_injectors",
         "parameters": [
           {
@@ -3376,7 +3376,7 @@
                                 "type": "boolean"
                               },
                               "secret": {
-                                "description": "Whether this field's value is a secret. It is the single most consequential flag here: it decides encryption at rest and whether the value reads back as a marker or as itself.",
+                                "description": "Whether this field's value is a secret. It is the single most consequential flag here: it decides encryption at rest and whether the value reads back as a marker or as itself. Once a saved type marks an input secret the flag cannot be cleared: remove the input and add it again, which deletes every value stored for it.",
                                 "type": "boolean"
                               },
                               "type": {
@@ -3439,7 +3439,7 @@
                 }
               }
             },
-            "description": "The body is malformed, or an injector does not validate."
+            "description": "The body is malformed, or an injector does not validate or holds a NUL character."
           },
           "403": {
             "content": {
@@ -3472,6 +3472,22 @@
               }
             },
             "description": "No credential type with that id."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "A credential of the type cannot be decrypted with this Controller's key."
           }
         },
         "security": [
@@ -3487,7 +3503,7 @@
     },
     "/credential-types/{id}/inputs": {
       "put": {
-        "description": "Replaces the whole input schema, leaving the type's metadata and injectors as they are. It is the same store update PATCH performs, narrowed to the inputs so a client that only edits the schema does not round-trip the injector document. A managed type is refused, as is a schema an injector already depends on that this would remove.",
+        "description": "Replaces the whole input schema, leaving the type's metadata and injectors as they are. It is the same store update PATCH performs, narrowed to the inputs so a client that only edits the schema does not round-trip the injector document. A managed type is refused, as is a schema an injector already depends on that this would remove. An input marked secret cannot be made non-secret: remove it and add it again, which deletes its stored values. After every edit a credential of the type keeps a stored value, an external reference or an input source only for an input the type still declares, and for an input the edit adds only when it adds it as secret, where anything already stored reads back only as \"$encrypted$\". So removing an input deletes what credentials hold for it, and adding one as non-secret finds nothing stored under its id. A value stored as secret therefore never reads back as itself. An edit is refused with 409 while a credential of the type cannot be decrypted with this Controller's key.",
         "operationId": "set_credential_type_inputs",
         "parameters": [
           {
@@ -3548,7 +3564,7 @@
                               "type": "boolean"
                             },
                             "secret": {
-                              "description": "Whether this field's value is a secret. It is the single most consequential flag here: it decides encryption at rest and whether the value reads back as a marker or as itself.",
+                              "description": "Whether this field's value is a secret. It is the single most consequential flag here: it decides encryption at rest and whether the value reads back as a marker or as itself. Once a saved type marks an input secret the flag cannot be cleared: remove the input and add it again, which deletes every value stored for it.",
                               "type": "boolean"
                             },
                             "type": {
@@ -3669,7 +3685,7 @@
                                 "type": "boolean"
                               },
                               "secret": {
-                                "description": "Whether this field's value is a secret. It is the single most consequential flag here: it decides encryption at rest and whether the value reads back as a marker or as itself.",
+                                "description": "Whether this field's value is a secret. It is the single most consequential flag here: it decides encryption at rest and whether the value reads back as a marker or as itself. Once a saved type marks an input secret the flag cannot be cleared: remove the input and add it again, which deletes every value stored for it.",
                                 "type": "boolean"
                               },
                               "type": {
@@ -3732,7 +3748,7 @@
                 }
               }
             },
-            "description": "The body is malformed, or the schema does not validate."
+            "description": "The body is malformed, or the schema does not validate, clears an input's secret flag or holds a NUL character."
           },
           "403": {
             "content": {
@@ -3765,6 +3781,22 @@
               }
             },
             "description": "No credential type with that id."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "A credential of the type cannot be decrypted with this Controller's key."
           }
         },
         "security": [
@@ -3988,7 +4020,7 @@
                             "type": "integer"
                           },
                           "inputs": {
-                            "description": "The credential's values, keyed by input id. A value for an input the type marks secret reads back as \"$encrypted$\" and never as itself. There is no endpoint, parameter or header that returns the real value: it is decrypted only at dispatch, inside the process that injects it. Submitting the marker back on an update leaves the stored value alone, so editing an unrelated field does not destroy a secret.",
+                            "description": "The credential's values, keyed by input id. A value for an input the type marks secret reads back as \"$encrypted$\" and never as itself. There is no endpoint, parameter or header that returns the real value: it is decrypted only at dispatch, inside the process that injects it. An edit of the type cannot change that: a secret flag cannot be cleared, and removing an input deletes every value stored for it. Submitting the marker back on an update leaves the stored value alone, so editing an unrelated field does not destroy a secret.",
                             "type": "object"
                           },
                           "kind": {
@@ -4139,7 +4171,7 @@
                       "type": "integer"
                     },
                     "inputs": {
-                      "description": "The credential's values, keyed by input id. A value for an input the type marks secret reads back as \"$encrypted$\" and never as itself. There is no endpoint, parameter or header that returns the real value: it is decrypted only at dispatch, inside the process that injects it. Submitting the marker back on an update leaves the stored value alone, so editing an unrelated field does not destroy a secret.",
+                      "description": "The credential's values, keyed by input id. A value for an input the type marks secret reads back as \"$encrypted$\" and never as itself. There is no endpoint, parameter or header that returns the real value: it is decrypted only at dispatch, inside the process that injects it. An edit of the type cannot change that: a secret flag cannot be cleared, and removing an input deletes every value stored for it. Submitting the marker back on an update leaves the stored value alone, so editing an unrelated field does not destroy a secret.",
                       "type": "object"
                     },
                     "kind": {
@@ -4350,7 +4382,7 @@
                       "type": "integer"
                     },
                     "inputs": {
-                      "description": "The credential's values, keyed by input id. A value for an input the type marks secret reads back as \"$encrypted$\" and never as itself. There is no endpoint, parameter or header that returns the real value: it is decrypted only at dispatch, inside the process that injects it. Submitting the marker back on an update leaves the stored value alone, so editing an unrelated field does not destroy a secret.",
+                      "description": "The credential's values, keyed by input id. A value for an input the type marks secret reads back as \"$encrypted$\" and never as itself. There is no endpoint, parameter or header that returns the real value: it is decrypted only at dispatch, inside the process that injects it. An edit of the type cannot change that: a secret flag cannot be cleared, and removing an input deletes every value stored for it. Submitting the marker back on an update leaves the stored value alone, so editing an unrelated field does not destroy a secret.",
                       "type": "object"
                     },
                     "kind": {
@@ -4519,7 +4551,7 @@
                       "type": "integer"
                     },
                     "inputs": {
-                      "description": "The credential's values, keyed by input id. A value for an input the type marks secret reads back as \"$encrypted$\" and never as itself. There is no endpoint, parameter or header that returns the real value: it is decrypted only at dispatch, inside the process that injects it. Submitting the marker back on an update leaves the stored value alone, so editing an unrelated field does not destroy a secret.",
+                      "description": "The credential's values, keyed by input id. A value for an input the type marks secret reads back as \"$encrypted$\" and never as itself. There is no endpoint, parameter or header that returns the real value: it is decrypted only at dispatch, inside the process that injects it. An edit of the type cannot change that: a secret flag cannot be cleared, and removing an input deletes every value stored for it. Submitting the marker back on an update leaves the stored value alone, so editing an unrelated field does not destroy a secret.",
                       "type": "object"
                     },
                     "kind": {
@@ -14778,7 +14810,7 @@
                             "type": "integer"
                           },
                           "inputs": {
-                            "description": "The credential's values, keyed by input id. A value for an input the type marks secret reads back as \"$encrypted$\" and never as itself. There is no endpoint, parameter or header that returns the real value: it is decrypted only at dispatch, inside the process that injects it. Submitting the marker back on an update leaves the stored value alone, so editing an unrelated field does not destroy a secret.",
+                            "description": "The credential's values, keyed by input id. A value for an input the type marks secret reads back as \"$encrypted$\" and never as itself. There is no endpoint, parameter or header that returns the real value: it is decrypted only at dispatch, inside the process that injects it. An edit of the type cannot change that: a secret flag cannot be cleared, and removing an input deletes every value stored for it. Submitting the marker back on an update leaves the stored value alone, so editing an unrelated field does not destroy a secret.",
                             "type": "object"
                           },
                           "kind": {
@@ -14958,7 +14990,7 @@
                             "type": "integer"
                           },
                           "inputs": {
-                            "description": "The credential's values, keyed by input id. A value for an input the type marks secret reads back as \"$encrypted$\" and never as itself. There is no endpoint, parameter or header that returns the real value: it is decrypted only at dispatch, inside the process that injects it. Submitting the marker back on an update leaves the stored value alone, so editing an unrelated field does not destroy a secret.",
+                            "description": "The credential's values, keyed by input id. A value for an input the type marks secret reads back as \"$encrypted$\" and never as itself. There is no endpoint, parameter or header that returns the real value: it is decrypted only at dispatch, inside the process that injects it. An edit of the type cannot change that: a secret flag cannot be cleared, and removing an input deletes every value stored for it. Submitting the marker back on an update leaves the stored value alone, so editing an unrelated field does not destroy a secret.",
                             "type": "object"
                           },
                           "kind": {

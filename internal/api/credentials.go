@@ -273,25 +273,20 @@ func (h *CredentialHandler) UpdateCredentialType(w http.ResponseWriter, r *http.
 		return
 	}
 
-	// Read first: a missing type is a 404, and the stored type is what the
-	// body is folded over.
-	stored, err := h.store.GetType(r.Context(), id)
+	// The body is folded over the type as the store reads it under the
+	// type's lock, never over a copy read before, so an edit landing in
+	// between is not undone by this one. The store then validates the merged
+	// type whole and has already refused a managed one, so a PATCH naming
+	// one field is held to every rule a full write is. A missing type is the
+	// store's 404.
+	ct, err := h.store.UpdateTypeWith(r.Context(), id, func(stored credstore.CredentialType) (credtype.CredentialType, error) {
+		if refusal := body.fixedFieldRefusal(stored); refusal != "" {
+			return credtype.CredentialType{}, patchRefusal(refusal)
+		}
+		return body.apply(stored.CredentialType), nil
+	})
 	if err != nil {
-		h.fail(w, r, err)
-		return
-	}
-	if refusal := body.fixedFieldRefusal(stored); refusal != "" {
-		RespondError(w, r, http.StatusBadRequest, refusal)
-		return
-	}
-
-	merged := body.apply(stored.CredentialType)
-
-	// The store validates the merged type whole and refuses a managed one,
-	// so a PATCH naming one field is held to every rule a full write is.
-	ct, err := h.store.UpdateType(r.Context(), id, merged)
-	if err != nil {
-		h.fail(w, r, err)
+		h.failPatch(w, r, err)
 		return
 	}
 
@@ -396,26 +391,22 @@ func (h *CredentialHandler) UpdateCredential(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Read first: a missing credential is a 404, and the stored one is what
-	// the body is folded over. It is the redacted read, which is all this
-	// package can hold; the store merges the inputs over the real values.
-	stored, err := h.store.GetCredential(r.Context(), id)
+	// The body is folded over the credential as the store reads it under its
+	// type's lock, never over a copy read before: a type edit landing in
+	// between used to have its deleted references written back by this
+	// write. The read is the redacted one, which is all this package can
+	// hold; the store merges the inputs over the real values and checks the
+	// merged credential whole against its type, so a PATCH naming one field
+	// is held to every rule a full write is. A missing credential is the
+	// store's 404.
+	cred, err := h.store.UpdateCredentialWith(r.Context(), id, func(stored credstore.Credential) (credstore.Credential, error) {
+		if refusal := body.fixedFieldRefusal(stored); refusal != "" {
+			return credstore.Credential{}, patchRefusal(refusal)
+		}
+		return body.apply(stored), nil
+	})
 	if err != nil {
-		h.fail(w, r, err)
-		return
-	}
-	if refusal := body.fixedFieldRefusal(stored); refusal != "" {
-		RespondError(w, r, http.StatusBadRequest, refusal)
-		return
-	}
-
-	merged := body.apply(stored)
-
-	// The store checks the merged credential whole against its type, so a
-	// PATCH naming one field is held to every rule a full write is.
-	cred, err := h.store.UpdateCredential(r.Context(), id, merged.name, merged.description, merged.inputs, merged.external)
-	if err != nil {
-		h.fail(w, r, err)
+		h.failPatch(w, r, err)
 		return
 	}
 
@@ -675,13 +666,14 @@ func (h *CredentialHandler) TestCredentialType(w http.ResponseWriter, r *http.Re
 
 // SetCredentialTypeInputs serves PUT /credential-types/{id}/inputs.
 //
-// It replaces the type's input schema and nothing else. The store's own
-// UpdateType writes the whole type, so this reads the stored one first and
-// carries its metadata and injectors forward, which is what keeps a schema
-// edit from blanking the injector document beside it. Every rule the store
+// It replaces the type's input schema and nothing else. The store writes the
+// whole type, so this folds the schema over the stored type, read under the
+// type's lock, carrying its metadata and injectors forward, which is what
+// keeps a schema edit from blanking the injector document beside it. Every rule the store
 // enforces on a full update -- a valid identifier, no duplicate, no secret
 // carrying a default, no injector left referencing an input this removes,
-// no managed type -- still applies, because it is the same update.
+// no secret input made non-secret, no managed type -- still applies, and a
+// removed input's stored values are deleted, because it is the same update.
 func (h *CredentialHandler) SetCredentialTypeInputs(w http.ResponseWriter, r *http.Request) {
 	id, ok := parsePathID(w, r, "credential type")
 	if !ok {
@@ -693,16 +685,13 @@ func (h *CredentialHandler) SetCredentialTypeInputs(w http.ResponseWriter, r *ht
 		return
 	}
 
-	stored, err := h.store.GetType(r.Context(), id)
-	if err != nil {
-		h.fail(w, r, err)
-		return
-	}
-
-	updated := stored.CredentialType
-	updated.Inputs = body.Inputs
-
-	ct, err := h.store.UpdateType(r.Context(), id, updated)
+	// Folded under the type's lock, so the injectors carried forward are
+	// the ones stored when the write runs, not a copy read before it.
+	ct, err := h.store.UpdateTypeWith(r.Context(), id, func(stored credstore.CredentialType) (credtype.CredentialType, error) {
+		updated := stored.CredentialType
+		updated.Inputs = body.Inputs
+		return updated, nil
+	})
 	if err != nil {
 		h.fail(w, r, err)
 		return
@@ -720,9 +709,9 @@ type credentialTypeInputsDTO struct {
 
 // SetCredentialTypeInjectors serves PUT /credential-types/{id}/injectors.
 //
-// It replaces the injector document and nothing else, reading the stored
-// type first so the metadata and input schema beside it are carried
-// forward. It is the injector twin of SetCredentialTypeInputs, and the same
+// It replaces the injector document and nothing else, folding it over the
+// stored type, read under the type's lock, so the metadata and input schema
+// beside it are carried forward. It is the injector twin of SetCredentialTypeInputs, and the same
 // whole-type validation applies: every template is compiled against the
 // type's own inputs and a dangerous environment variable name is refused,
 // so a miswritten or hostile injector is caught here rather than inside a
@@ -738,16 +727,13 @@ func (h *CredentialHandler) SetCredentialTypeInjectors(w http.ResponseWriter, r 
 		return
 	}
 
-	stored, err := h.store.GetType(r.Context(), id)
-	if err != nil {
-		h.fail(w, r, err)
-		return
-	}
-
-	updated := stored.CredentialType
-	updated.Injectors = body.Injectors
-
-	ct, err := h.store.UpdateType(r.Context(), id, updated)
+	// Folded under the type's lock, so the input schema carried forward is
+	// the one stored when the write runs, not a copy read before it.
+	ct, err := h.store.UpdateTypeWith(r.Context(), id, func(stored credstore.CredentialType) (credtype.CredentialType, error) {
+		updated := stored.CredentialType
+		updated.Injectors = body.Injectors
+		return updated, nil
+	})
 	if err != nil {
 		h.fail(w, r, err)
 		return

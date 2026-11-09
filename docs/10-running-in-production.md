@@ -1714,9 +1714,9 @@ credential was injected into. A type that could set `LD_PRELOAD`, `PYTHONPATH`,
 inside the run it was meant to authenticate, so those names and their relatives are
 refused when the type is saved and again when a dispatch reaches it. The container
 being single use does not help: the code would run before the container is destroyed.
-For the same reason the web UI lists and tests credential types but does not author
-them; that stays on the API, where a caller had to construct the request
-deliberately.
+The web UI creates credential types and adds or removes one input or injector entry at
+a time, and every one of those writes goes through the same store checks as the API,
+so a name refused over the API is refused on the page too.
 
 **Binding is a higher privilege than editing.** Changing what a template runs is
 `template:write`. Changing what it runs *as* is `credential:write`, granted
@@ -1730,6 +1730,57 @@ there is no endpoint, parameter or header that returns the real thing. It is
 decrypted only at dispatch, inside the process that injects it. Submitting the marker
 back on an update leaves the stored value alone, so editing an unrelated field does
 not destroy a secret.
+
+An edit of the credential type cannot change that either. A read decides what to
+redact from the type's current input schema, so the store holds every type edit to
+three rules. An input marked secret cannot be made non-secret: remove it and add it
+again instead. Removing an input deletes the value, the external reference and the
+input source every credential of the type holds for it, in the same transaction as
+the edit. Adding one as non-secret deletes anything stored under its id before it
+existed, and adding one as secret keeps it, shown only as `$encrypted$`, so a value
+stored as secret is never read back under an input that is not. And an edit is
+refused while a credential of the type cannot be decrypted with this Controller's key,
+rather than rewriting that ciphertext blind. A deployment upgraded from a release
+without these rules can still hold values an earlier removal left behind; the next
+edit of the type, of any field, deletes them.
+
+Every credential create, update and input-source write of a type, and every edit of
+the type, first takes a lock on the type's row, and an edit made through the API or
+the web UI is applied to the record as it stands under that lock, so the two never
+interleave and neither undoes the other. Two writers take no lock: deleting a
+credential, which a purge running at the same time simply skips, and key rotation,
+which rewrites the same values under a new key and steps aside for any write made
+since it read the row. Reads take no lock either, so no read waits behind a purge.
+Each read of a credential, and the resolution that hands one to a run, reads the
+credential and its type as they stood at one moment, in one read-only transaction
+(repeatable read on PostgreSQL; on SQLite a read transaction already reads one
+snapshot): read in two statements, an edit committed between them that removed a
+secret input and added it back non-secret would pair a value stored as secret with a
+schema that shows it. The lock is exclusive, which has a cost worth knowing about: credential
+writes of one type queue behind one another across every organization, and behind an
+edit's purge, which reads every credential of the type. On a SQLite file database a
+credential write held it for about 0.35 milliseconds, and a purge read a credential in
+about 4 microseconds and read and rewrote one in about 35, so a type with ten thousand
+credentials holds its writers for about a third of a second when an input is removed.
+On PostgreSQL each rewrite is a round trip, so expect several times that.
+
+A managed type's release reconcile follows the same rules with one difference. A
+shipped input marked secret cannot become non-secret, an input a release adds as
+non-secret starts empty, and one it adds as secret keeps what is stored under it,
+shown only as `$encrypted$`; but a reconcile never deletes what credentials hold for an
+input the release does not ship: while two releases run side by side the stored type
+may be the newer one's, and its newer inputs are not the older release's to delete.
+So rolling a deployment back and forward loses nothing for a secret input. It does
+lose a non-secret input's values written by the newer release, which are deleted when
+the newer release adds the input back after the older one's reconcile left it out;
+stopping that needs each managed type to record the release that wrote it, which is
+not built. One credential of a managed type that this Controller cannot decrypt stops
+that type's reconcile when the release adds a non-secret input, for every
+organization: the type is left
+as it was, the Controller still starts, and it logs
+`level=ERROR msg="failed to reconcile a managed credential type" namespace=<type>`
+with an error saying which credential's stored values cannot be read. Restore the key
+that sealed it, or delete the credential.
 
 **A prompted input is never stored.** A type may declare an input asked at launch
 rather than saved. The answer travels with that one job and is written nowhere, which

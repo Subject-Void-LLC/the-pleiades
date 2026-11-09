@@ -106,7 +106,7 @@ func (w writer) Create(ctx context.Context, ct credstore.CredentialType) (string
 // Update rewrites a type's metadata, carrying its inputs and injectors
 // forward unchanged.
 //
-// UpdateType writes both wholesale, so passing the empty schema this
+// The store writes both wholesale, so passing the empty schema this
 // metadata form has no controls for would blank a type's inputs and
 // injectors on a rename, turning an edit into data loss. The section
 // editors are the only writers that change those.
@@ -115,13 +115,14 @@ func (w writer) Update(ctx context.Context, id string, ct credstore.CredentialTy
 	if err != nil {
 		return fmt.Errorf("%w: credentialtypes: unreadable credential type id %q: %w", view.ErrNotFound, id, err)
 	}
-	stored, err := w.store.GetType(ctx, numeric)
-	if err != nil {
-		return view.WrapNotFound(err, credstore.ErrNotFound)
-	}
-	ct.Inputs = stored.Inputs
-	ct.Injectors = stored.Injectors
-	if _, err := w.store.UpdateType(ctx, numeric, ct.CredentialType); err != nil {
+	// Folded over the type the store reads under its lock, so the inputs
+	// and injectors carried forward are the stored ones, not a copy read
+	// before the write (internal/credstore/type_inputs.go).
+	if _, err := w.store.UpdateTypeWith(ctx, numeric, func(stored credstore.CredentialType) (credtype.CredentialType, error) {
+		ct.Inputs = stored.Inputs
+		ct.Injectors = stored.Injectors
+		return ct.CredentialType, nil
+	}); err != nil {
 		return view.WrapNotFound(writeFault(err), credstore.ErrNotFound)
 	}
 	return nil

@@ -25,6 +25,7 @@
  "internal/catalog/scan": 15,
  "internal/catalog/virt/clab": 23,
  "internal/catalog/wait": 70,
+ "internal/credstore/locktest": 8,
  "internal/credstore/resolve": 10,
  "internal/election": 15,
  "internal/ent": 33,

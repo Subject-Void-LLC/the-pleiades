@@ -214,13 +214,19 @@ import awx-credential-types` tells you which of them your own export actually
 contains, offline, before a migration window. See
 [Migrating credentials](03-migrating-from-ansible.md#migrating-credentials).
 
-**The web UI reads the credential surface and does not author it.** Credentials and
-credential types are listed, a type's injectors can be tested against sample values
-you supply, a template's page offers a control for what it runs as, and its launch
-form prompts for inputs that are asked at launch and never stored. Creating and
-editing a credential type stays on the API deliberately: an injector document decides
-what environment the customer's playbook runs with, which is closer to code than to
-configuration.
+**The web UI authors the credential surface through the same store as the API.**
+Credentials and credential types can be created and edited, a type's inputs and
+injector entries added or removed one at a time, its injectors tested against sample
+values you supply, a template's page offers a control for what it runs as, and its
+launch form prompts for inputs that are asked at launch and never stored. The rules a
+write is held to live in the store both reach, so the page refuses what the API
+refuses: a blank credential name, a NUL character anywhere in a credential's or a
+type's text, an environment variable name that would change how a run executes, and
+every check a type's inputs and injectors must pass. What stays the API's own is how a
+PATCH reads its body: a field left out is kept, a null is refused, and a field no
+update can change (a credential's type and organization, a type's namespace and
+organization) is refused when it differs from the stored one. The page's forms have
+no control for any of those.
 
 **An unconverted Ansible playbook can also really run, against one device at a time,
 once something wires the adapter in.** A second execution adapter now exists alongside

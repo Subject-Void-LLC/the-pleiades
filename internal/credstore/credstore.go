@@ -275,9 +275,25 @@ type Store interface {
 	// taken within the organization.
 	CreateType(ctx context.Context, organizationID int, ct credtype.CredentialType) (CredentialType, error)
 
-	// UpdateType replaces a custom type's editable fields. It refuses a
-	// managed type outright.
+	// UpdateType replaces a custom type's editable fields with ct's. It is
+	// UpdateTypeWith with a fold that ignores the stored type, for a caller
+	// that means to replace them all.
 	UpdateType(ctx context.Context, id int, ct credtype.CredentialType) (CredentialType, error)
+
+	// UpdateTypeWith reads a custom type under its lock, folds a change over
+	// it and writes the result. It refuses a managed type before fold runs,
+	// and an input the stored type marks secret made non-secret
+	// (credtype.ErrInvalidType). In the same transaction it deletes, from
+	// every credential of the type, each stored value, external reference
+	// and input source for an input the edit removes or adds as non-secret,
+	// and for one the type no longer declares; an input added as secret keeps
+	// what is stored under it, shown only as the marker. It refuses the edit
+	// (ErrInUse) while a credential of the type cannot be decrypted. type_inputs.go explains why
+	// these rules, not the reader, keep a value written as secret from being
+	// shown as plain, and why a change is folded under the lock rather than
+	// over a copy read before it. fold's error is returned as it is; fold
+	// runs inside the transaction and must not call the store.
+	UpdateTypeWith(ctx context.Context, id int, fold func(stored CredentialType) (credtype.CredentialType, error)) (CredentialType, error)
 
 	// DeleteType removes a custom type. It refuses a managed type, and a
 	// type that credentials still reference, because a credential whose
@@ -288,10 +304,16 @@ type Store interface {
 	// EnsureManagedType creates or updates a type this platform ships,
 	// keyed on namespace.
 	//
-	// This is the one method permitted to write a managed row, and it
-	// exists because managed types are reconciled at startup rather than
-	// installed by a migration: a migration cannot be re-run when a later
-	// release adds a managed type, and a reconcile can.
+	// This is the one method permitted to change a managed type's
+	// definition (a credential write's lock on the type row writes only its
+	// updated_at, which nothing reads), and it exists because managed types
+	// are reconciled at startup rather than installed by a migration: a
+	// migration cannot be re-run when a later release adds a managed type,
+	// and a reconcile can. A release is held to UpdateType's rules, with one
+	// difference adoptExistingType explains: a shipped secret input cannot
+	// become non-secret, and an input the release adds as non-secret starts
+	// empty, but a reconcile never deletes what credentials hold for an input
+	// it does not ship, since that input may be a newer build's.
 	EnsureManagedType(ctx context.Context, ct credtype.CredentialType) (CredentialType, error)
 
 	// GetCredential returns one credential, redacted.
@@ -342,7 +364,28 @@ type Store interface {
 	// ordinary edit of a name or an unrelated field cannot silently unbind
 	// an input. When it is passed it replaces the whole set, matching
 	// SetCredentialInputSources.
+	//
+	// It is UpdateCredentialWith with a fold that sets these values: inputs
+	// are merged over the stored ones, and external replaces the stored
+	// references whole, so a nil external removes them all. The kubeconfig
+	// import relies on that, since an imported identity reads nothing from
+	// an external source. A caller editing some fields and keeping the
+	// references uses UpdateCredentialWith, which reads them under the lock.
 	UpdateCredential(ctx context.Context, id int, name, description string, inputs, external map[string]string, opts ...CredentialOption) (Credential, error)
+
+	// UpdateCredentialWith reads a credential under its type's lock, folds a
+	// change over it and writes the result, so a type edit cannot land
+	// between the read the change is made from and the write
+	// (type_inputs.go).
+	//
+	// fold receives the redacted read and returns the credential as it
+	// should be: its Name, Description and External are written as
+	// returned, and its Inputs are merged over the real stored values as
+	// UpdateCredential merges them, so the marker, or an input left out,
+	// keeps the stored value. Every other field is ignored. fold's error is
+	// returned as it is; fold runs inside the transaction and must not call
+	// the store.
+	UpdateCredentialWith(ctx context.Context, id int, fold func(stored Credential) (Credential, error), opts ...CredentialOption) (Credential, error)
 
 	// DeleteCredential removes a credential and every binding to it.
 	DeleteCredential(ctx context.Context, id int) error

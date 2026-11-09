@@ -95,7 +95,13 @@ func (s *entStore) SetCredentialInputSources(
 	}
 
 	if err := storage.NewEntUnitOfWork(s.client).WithTx(ctx, func(txCtx context.Context) error {
-		return s.writeInputSources(txCtx, credentialID, ct.Inputs, org.ID, bindings)
+		// Checked against the schema read under the type's lock, so a type
+		// edit cannot land between the check and the write (type_inputs.go).
+		locked, err := s.lockType(txCtx, ct.ID)
+		if err != nil {
+			return err
+		}
+		return s.writeInputSources(txCtx, credentialID, locked.Inputs, org.ID, bindings)
 	}); err != nil {
 		return nil, err
 	}

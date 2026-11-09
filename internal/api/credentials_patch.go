@@ -42,24 +42,28 @@
 // Each used to be decoded and ignored, answering 200 for a change that was
 // never made (FAILURE_PATTERNS 1055).
 //
-// The handler reads the stored record, folds the body over it and hands the
-// whole merged record to the store method a full update calls, so every rule
-// still runs on what would be saved: Validate for a type (its inputs, its
-// injectors compiled against them, its kind), CheckValues for a credential
-// (every required input still supplied, every value within its choices, every
-// input and reference one the type declares), the managed refusal, and a
-// taken name. The store methods still write exactly what they are given, and
-// the UI's edit forms call them with full records.
+// The handler hands the store a fold, which the store runs on the record it
+// reads under the type's lock and then writes (UpdateTypeWith,
+// UpdateCredentialWith), so a type edit landing between a read and a write
+// cannot be undone by the write, and every rule still runs on what would be
+// saved: Validate for a type (its inputs, its injectors compiled against
+// them, its kind), CheckValues for a credential (every required input still
+// supplied, every value within its choices, every input and reference one
+// the type declares), the text rules (a blank name, a NUL), the managed
+// refusal, and a taken name. The web UI's forms fold their changes the same
+// way.
 //
-// Concurrent PATCHes are last-writer-wins, as they were: each reads the
-// stored record, folds its fields over it and writes the result, with no
-// version check, so of two at once the second's write covers the first's for
-// every field it carries.
+// Two PATCHes of one type's records are serialized by the type's lock, and
+// each folds over what the other wrote, so neither undoes a field the other
+// set that it does not name itself. There is still no version check: of two
+// PATCHes naming the same field, the second's value wins.
 package api
 
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
+	"net/http"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credstore"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credtype"
@@ -257,26 +261,38 @@ func (d credentialPatchDTO) fixedFieldRefusal(stored credstore.Credential) strin
 	return ""
 }
 
-// credentialWrite is what the store's UpdateCredential is given for a PATCH:
-// the merged name, description and references, and only the inputs the body
-// supplied, which the store merges over the real stored values itself.
-type credentialWrite struct {
-	name, description string
-	inputs, external  map[string]string
-}
-
-// apply folds the fields the body named over stored, the redacted read. It
-// never carries stored.Inputs forward: those are the redacted projection, and
-// the store's merge already keeps every input the body did not name.
-func (d credentialPatchDTO) apply(stored credstore.Credential) credentialWrite {
-	out := credentialWrite{name: stored.Name, description: stored.Description, external: stored.External}
-	patchField(&out.name, d.Name)
-	patchField(&out.description, d.Description)
+// apply folds the fields the body named over stored, the redacted read the
+// store took under the type's lock. Inputs carries only the values the body
+// supplied, never stored.Inputs: those are the redacted projection, and the
+// store's merge already keeps every input the body did not name.
+func (d credentialPatchDTO) apply(stored credstore.Credential) credstore.Credential {
+	patchField(&stored.Name, d.Name)
+	patchField(&stored.Description, d.Description)
+	stored.Inputs = nil
 	if d.Inputs != nil {
-		out.inputs = d.Inputs.values
+		stored.Inputs = d.Inputs.values
 	}
 	if d.External != nil {
-		out.external = d.External.values
+		stored.External = d.External.values
 	}
-	return out
+	return stored
+}
+
+// patchRefusal is a refusal a PATCH's fold makes inside the store's
+// transaction, answered with 400 and its own text by failPatch. Its text is
+// the handler's own sentence, never the caller's bytes.
+type patchRefusal string
+
+// Error returns the refusal's text.
+func (p patchRefusal) Error() string { return string(p) }
+
+// failPatch answers a refusal a PATCH's fold made with 400, and any other
+// error as fail does.
+func (h *CredentialHandler) failPatch(w http.ResponseWriter, r *http.Request, err error) {
+	var refusal patchRefusal
+	if errors.As(err, &refusal) {
+		RespondError(w, r, http.StatusBadRequest, string(refusal))
+		return
+	}
+	h.fail(w, r, err)
 }

@@ -764,6 +764,14 @@ func (f failingCredentialStore) UpdateType(context.Context, int, credtype.Creden
 	return credstore.CredentialType{}, f.err
 }
 
+func (f failingCredentialStore) UpdateTypeWith(context.Context, int, func(credstore.CredentialType) (credtype.CredentialType, error)) (credstore.CredentialType, error) {
+	return credstore.CredentialType{}, f.err
+}
+
+func (f failingCredentialStore) UpdateCredentialWith(context.Context, int, func(credstore.Credential) (credstore.Credential, error), ...credstore.CredentialOption) (credstore.Credential, error) {
+	return credstore.Credential{}, f.err
+}
+
 func (f failingCredentialStore) DeleteType(context.Context, int) error { return f.err }
 
 func (f failingCredentialStore) EnsureManagedType(context.Context, credtype.CredentialType) (credstore.CredentialType, error) {

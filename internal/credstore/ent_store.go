@@ -12,6 +12,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/predicate"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/redact"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/render"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/storage"
 )
 
 // entStore is the ent-backed Store.
@@ -66,7 +67,7 @@ func (s *entStore) GetTypeByNamespace(ctx context.Context, namespace string) (Cr
 // custom type as belonging to organization zero, which a caller would have
 // read as "managed, usable by everyone".
 func (s *entStore) loadType(ctx context.Context, where predicate.CredentialType) (CredentialType, error) {
-	row, err := s.client.CredentialType.Query().
+	row, err := s.db(ctx).CredentialType.Query().
 		Where(where).
 		WithOrganization().
 		Only(ctx)
@@ -126,9 +127,9 @@ func (s *entStore) CreateType(ctx context.Context, organizationID int, ct credty
 		return CredentialType{}, err
 	}
 	if ct.Managed {
-		// EnsureManagedType is the one method permitted to write a managed
-		// row. Letting this one do it would mean an API caller could mint
-		// a type nobody can subsequently edit or delete.
+		// EnsureManagedType is the one method permitted to change a managed
+		// type's definition. Letting this one create one would mean an API
+		// caller could mint a type nobody can subsequently edit or delete.
 		return CredentialType{}, fmt.Errorf("%w: use the managed-type reconcile instead", ErrManaged)
 	}
 
@@ -148,37 +149,69 @@ func (s *entStore) CreateType(ctx context.Context, organizationID int, ct credty
 	return s.loadType(ctx, credentialtype.IDEQ(row.ID))
 }
 
-// UpdateType replaces a custom type's editable fields.
+// UpdateType replaces a custom type's editable fields with ct's: an
+// UpdateTypeWith whose fold ignores the stored type.
 func (s *entStore) UpdateType(ctx context.Context, id int, ct credtype.CredentialType) (CredentialType, error) {
-	existing, err := s.client.CredentialType.Get(ctx, id)
-	if err != nil {
-		return CredentialType{}, wrapNotFound(err, "credential type")
-	}
-	if existing.Managed {
-		return CredentialType{}, fmt.Errorf("%w: %q is shipped by this platform", ErrManaged, existing.Name)
-	}
+	return s.UpdateTypeWith(ctx, id, func(CredentialType) (credtype.CredentialType, error) { return ct, nil })
+}
 
-	// The namespace is immutable in the schema, so the caller's value is
-	// ignored rather than refused: an update that omits it should not fail
-	// on a field it was never allowed to change. Validation runs against
-	// the stored one so a caller cannot validate against a namespace that
-	// will not be written.
-	ct.Namespace = existing.Namespace
-	if err := ct.Validate(s.engine); err != nil {
+// UpdateTypeWith folds a change over a custom type read under the type
+// row's lock, and writes the result.
+//
+// It is held to the rule in type_inputs.go: a managed type is refused before
+// fold runs, an input the stored type marks secret may not become
+// non-secret, and in the same transaction every credential of the type loses
+// what it stores for an input the edit removes or adds as non-secret, and
+// for one the new schema does not declare; one added as secret keeps it,
+// shown only as the marker (addedPlain). fold may refuse the change by returning an error, which
+// is returned as it is; it runs inside the transaction and must not call the
+// store.
+func (s *entStore) UpdateTypeWith(ctx context.Context, id int, fold func(stored CredentialType) (credtype.CredentialType, error)) (CredentialType, error) {
+	if err := storage.NewEntUnitOfWork(s.client).WithTx(ctx, func(txCtx context.Context) error {
+		existing, err := s.lockType(txCtx, id)
+		if err != nil {
+			return err
+		}
+		if existing.Managed {
+			return fmt.Errorf("%w: %q is shipped by this platform", ErrManaged, existing.Name)
+		}
+		// fold gets a deep copy: the stored schema is compared with what
+		// fold returns below, and a fold editing the slices it was handed in
+		// place would otherwise edit the stored one too and compare the edit
+		// with itself, a cleared secret flag included.
+		stored := typeFromRow(existing)
+		stored.CredentialType = stored.CredentialType.Clone()
+		ct, err := fold(stored)
+		if err != nil {
+			return err
+		}
+
+		// The namespace is immutable in the schema, so the stored one is
+		// written back whatever the fold returned. The API refuses a
+		// different one inside its fold; this is what keeps any other caller
+		// from validating against a namespace that will not be written.
+		ct.Namespace = existing.Namespace
+		if err := ct.Validate(s.engine); err != nil {
+			return err
+		}
+		if err := checkSecretKept(existing.Inputs, ct.Inputs); err != nil {
+			return err
+		}
+
+		if err := ent.FromContext(txCtx).CredentialType.UpdateOneID(id).
+			SetName(ct.Name).
+			SetDescription(ct.Description).
+			SetKind(string(ct.Kind)).
+			SetInputs(ct.Inputs).
+			SetInjectors(ct.Injectors).
+			Exec(txCtx); err != nil {
+			return wrapConstraint(err, "credential type")
+		}
+		return s.purgeInputs(txCtx, id, droppedByEdit(existing.Inputs, ct.Inputs))
+	}); err != nil {
 		return CredentialType{}, err
 	}
-
-	row, err := s.client.CredentialType.UpdateOneID(id).
-		SetName(ct.Name).
-		SetDescription(ct.Description).
-		SetKind(string(ct.Kind)).
-		SetInputs(ct.Inputs).
-		SetInjectors(ct.Injectors).
-		Save(ctx)
-	if err != nil {
-		return CredentialType{}, wrapConstraint(err, "credential type")
-	}
-	return s.loadType(ctx, credentialtype.IDEQ(row.ID))
+	return s.loadType(ctx, credentialtype.IDEQ(id))
 }
 
 // DeleteType removes a custom type.
@@ -215,7 +248,10 @@ func (s *entStore) DeleteType(ctx context.Context, id int) error {
 // Keyed on namespace and idempotent, because managed types are reconciled
 // at every startup rather than installed once: a migration cannot be re-run
 // when a later release adds a type, and a reconcile can. The managed=true
-// refusal on the other methods is what keeps this the only writer.
+// refusal on the other methods is what keeps this the only method that
+// changes a managed type's definition; lockType's write to its updated_at,
+// which every credential write of the type makes, changes nothing a reader
+// sees.
 func (s *entStore) EnsureManagedType(ctx context.Context, ct credtype.CredentialType) (CredentialType, error) {
 	ct.Managed = true
 	if err := ct.Validate(s.engine); err != nil {
@@ -289,6 +325,24 @@ func (s *entStore) EnsureManagedType(ctx context.Context, ct credtype.Credential
 // row was there when I looked" and "the row appeared while I was writing"
 // is timing, and an operator reading the result should not be able to tell
 // which happened.
+//
+// A release is held to the rule in type_inputs.go, with one difference. A
+// shipped input marked secret cannot become non-secret, and an input this
+// release adds as non-secret starts empty: anything stored under its id
+// before it existed is deleted, since keeping it could show a value written
+// as secret under an input that is not. An input it adds as secret keeps
+// what is stored under it, shown only as the marker (addedPlain says why
+// that cannot leak). And a reconcile never deletes what credentials hold for
+// an input this release does not ship. In a mixed-version window the stored
+// type may be a newer build's, and the values for its newer input are that
+// build's release data: LESSONS 415 and 422 say a rule on release data runs
+// only in the process whose release made the value, and an older build
+// deleting them would destroy them in every organization. Together these
+// make a rollback window lose nothing for a secret input; a non-secret
+// input's values are still deleted when the newer build adds it back
+// (addedPlain names the fix that would end that). The purge runs only when
+// this release adds a non-secret input, so an ordinary startup does not read
+// every credential of every shipped type.
 func (s *entStore) adoptExistingType(ctx context.Context, existing *ent.CredentialType, ct credtype.CredentialType) (CredentialType, error) {
 	if !existing.Managed {
 		// A custom type already holds this namespace. Overwriting it
@@ -298,17 +352,32 @@ func (s *entStore) adoptExistingType(ctx context.Context, existing *ent.Credenti
 			"%w: the namespace %q is held by a custom credential type", ErrExists, ct.Namespace)
 	}
 
-	row, updateErr := s.client.CredentialType.UpdateOneID(existing.ID).
-		SetName(ct.Name).
-		SetDescription(ct.Description).
-		SetKind(string(ct.Kind)).
-		SetInputs(ct.Inputs).
-		SetInjectors(ct.Injectors).
-		Save(ctx)
-	if updateErr != nil {
-		return CredentialType{}, fmt.Errorf("credstore: reconciling managed type %q: %w", ct.Namespace, updateErr)
+	if err := storage.NewEntUnitOfWork(s.client).WithTx(ctx, func(txCtx context.Context) error {
+		locked, err := s.lockType(txCtx, existing.ID)
+		if err != nil {
+			return err
+		}
+		if err := checkSecretKept(locked.Inputs, ct.Inputs); err != nil {
+			return fmt.Errorf("credstore: reconciling managed type %q: %w", ct.Namespace, err)
+		}
+		if err := ent.FromContext(txCtx).CredentialType.UpdateOneID(existing.ID).
+			SetName(ct.Name).
+			SetDescription(ct.Description).
+			SetKind(string(ct.Kind)).
+			SetInputs(ct.Inputs).
+			SetInjectors(ct.Injectors).
+			Exec(txCtx); err != nil {
+			return fmt.Errorf("credstore: reconciling managed type %q: %w", ct.Namespace, err)
+		}
+		added, drop := addedPlain(locked.Inputs, ct.Inputs)
+		if added == 0 {
+			return nil
+		}
+		return s.purgeInputs(txCtx, existing.ID, drop)
+	}); err != nil {
+		return CredentialType{}, err
 	}
-	return s.loadType(ctx, credentialtype.IDEQ(row.ID))
+	return s.loadType(ctx, credentialtype.IDEQ(existing.ID))
 }
 
 // wrapNotFound turns ent's own not-found into this package's sentinel.

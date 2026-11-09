@@ -10,6 +10,7 @@ package credentialtypes
 
 import (
 	"context"
+	"errors"
 	"strconv"
 	"strings"
 
@@ -187,8 +188,9 @@ func inputFormFields() []view.Field {
 // from the metadata edit's "update": the affordance layer keys one relation
 // to one endpoint per resource, so a section write action cannot reuse the
 // relation the record's own edit already owns. The Submit does the work
-// through the same store the API endpoint does, reading the stored type so
-// the injector document beside the schema is carried forward unchanged.
+// through the same store the API endpoint does, folding the new input over
+// the stored type so the injector document beside the schema is carried
+// forward unchanged.
 //
 // The form is blank, which is why this is an ADD rather than an edit: a
 // record action's form prefills nothing, so editing an existing input in
@@ -205,11 +207,6 @@ func addInputAction(store credstore.Store) view.RecordAction {
 			if err != nil {
 				return "", nil, credstore.ErrNotFound
 			}
-			ct, err := store.GetType(ctx, numeric)
-			if err != nil {
-				return "", nil, err
-			}
-
 			field := credtype.InputField{
 				ID:        strings.TrimSpace(v.Get("id")),
 				Label:     strings.TrimSpace(v.Get("label")),
@@ -219,12 +216,21 @@ func addInputAction(store credstore.Store) view.RecordAction {
 				Help:      strings.TrimSpace(v.Get("help")),
 				Default:   strings.TrimSpace(v.Get("default")),
 			}
-			ct.Inputs.Fields = append(ct.Inputs.Fields, field)
-			if v.Bool("required") {
-				ct.Inputs.Required = append(ct.Inputs.Required, field.ID)
-			}
+			required := v.Bool("required")
 
-			if _, err := store.UpdateType(ctx, numeric, ct.CredentialType); err != nil {
+			// Folded over the type the store reads under its lock, so the
+			// injectors carried forward are the stored ones, not a copy read
+			// before the write (internal/credstore/type_inputs.go).
+			if _, err := store.UpdateTypeWith(ctx, numeric, func(ct credstore.CredentialType) (credtype.CredentialType, error) {
+				ct.Inputs.Fields = append(ct.Inputs.Fields, field)
+				if required {
+					ct.Inputs.Required = append(ct.Inputs.Required, field.ID)
+				}
+				return ct.CredentialType, nil
+			}); err != nil {
+				if errors.Is(err, credstore.ErrNotFound) {
+					return "", nil, err
+				}
 				return "", inputFault(err), nil
 			}
 			return "/ui/" + Name + "/" + id + "?tab=" + view.TabSlug(inputsTitle), nil, nil

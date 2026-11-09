@@ -55,6 +55,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credtype"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/credential"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/storage"
 )
 
 // maxSourceDepth is the most source hops one resolution may take.
@@ -95,13 +96,23 @@ func (r *entResolver) resolveCredential(ctx context.Context, id int, chain []int
 			credtype.ErrLookupDepth, formatChain(chain), len(chain)-1, maxSourceDepth)
 	}
 
-	row, err := r.client.Credential.Query().
-		Where(credential.IDEQ(id)).
-		WithCredentialType().
-		WithInputSources(func(q *ent.CredentialInputSourceQuery) {
-			q.WithSourceCredential()
-		}).
-		Only(ctx)
+	// One snapshot, because the masking ruleset is built from the type's
+	// schema: read in two, a type edit committed between the credential's
+	// read and its type's, removing a secret input and adding it back plain,
+	// would hand the run a secret nothing masks. The lookups below run
+	// outside it, so no transaction stays open across a network round trip.
+	var row *ent.Credential
+	err := storage.ReadSnapshot(ctx, r.client, func(ctx context.Context, db *ent.Client) error {
+		var err error
+		row, err = db.Credential.Query().
+			Where(credential.IDEQ(id)).
+			WithCredentialType().
+			WithInputSources(func(q *ent.CredentialInputSourceQuery) {
+				q.WithSourceCredential()
+			}).
+			Only(ctx)
+		return err
+	})
 	if err != nil {
 		if ent.IsNotFound(err) {
 			// Named by id rather than by name, because the name is not
