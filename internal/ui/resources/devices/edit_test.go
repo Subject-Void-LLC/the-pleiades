@@ -285,13 +285,21 @@ func TestAnUnchangedEditStoresNothing(t *testing.T) {
 	}
 }
 
-// TestEditingAMissingDeviceFails is the edit of a device that is not stored:
-// the writer reads before it writes, so nothing is created in its place.
-func TestEditingAMissingDeviceFails(t *testing.T) {
+// TestEditingAMissingDeviceIsNotFound is the edit, and the delete, of a
+// device that is not stored. Each answers 404, as opening its edit form
+// does, rather than 500: the record is missing, the server is not broken.
+// The writer reads before it writes, so nothing is created in its place.
+func TestEditingAMissingDeviceIsNotFound(t *testing.T) {
 	repo := newEntRepo(t)
 	h := newHarness(t, repo)
-	if rec := h.post(t, "/ui/devices/nowhere", url.Values{"tags": {"edge"}}); rec.Code == http.StatusSeeOther {
-		t.Fatalf("editing a device that is not stored = 303, want a failure")
+	if rec := h.get(t, "/ui/devices/nowhere/edit"); rec.Code != http.StatusNotFound {
+		t.Errorf("opening the edit form of a device that is not stored = %d, want 404", rec.Code)
+	}
+	if rec := h.post(t, "/ui/devices/nowhere", url.Values{"tags": {"edge"}}); rec.Code != http.StatusNotFound {
+		t.Errorf("editing a device that is not stored = %d, want 404", rec.Code)
+	}
+	if rec := h.post(t, "/ui/devices/nowhere", url.Values{"_method": {http.MethodDelete}}); rec.Code != http.StatusNotFound {
+		t.Errorf("deleting a device that is not stored = %d, want 404", rec.Code)
 	}
 	if _, err := repo.GetByName(context.Background(), "nowhere"); !errors.Is(err, inventory.ErrItemNotFound) {
 		t.Errorf("GetByName(nowhere) = %v, want ErrItemNotFound: an edit must not create", err)

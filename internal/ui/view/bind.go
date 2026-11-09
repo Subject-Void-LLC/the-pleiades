@@ -15,6 +15,16 @@ import (
 // this project has already shipped twice.
 var ErrNotImplemented = errors.New("view resource is declared but not implemented")
 
+// ErrNotFound is what a write port returns, or wraps, when the record it was
+// asked to change or remove is not stored. The handler answers it with 404,
+// as it answers an edit form for a record it cannot read, rather than with
+// a 500 telling somebody whose record was removed that the server is broken.
+//
+// It is the view's own sentinel rather than each store's, so the handler
+// reads one error and imports no store: a port wraps its store's not-found
+// error in it, the same way a port returns a FieldFault.
+var ErrNotFound = errors.New("view record not found")
+
 // FieldFault is a write failure a port can blame on one declared field.
 //
 // It exists because some failures are only knowable at the port. A runbook

@@ -1019,6 +1019,12 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 	}
 
 	errs, err := d.Handlers.Update(r.Context(), id, values)
+	// A record that is not stored is a 404, as its edit form is, rather
+	// than a server fault (view.ErrNotFound).
+	if errors.Is(err, view.ErrNotFound) {
+		h.notFound(w, r)
+		return
+	}
 	if err != nil {
 		h.serverError(w, r, "update "+d.Name, err)
 		return
@@ -1046,6 +1052,12 @@ func (h *Handler) destroy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := d.Handlers.Delete(r.Context(), id); err != nil {
+		// A record already gone is a 404, as its edit form is, rather
+		// than a server fault (view.ErrNotFound).
+		if errors.Is(err, view.ErrNotFound) {
+			h.notFound(w, r)
+			return
+		}
 		h.serverError(w, r, "delete "+d.Name, err)
 		return
 	}
