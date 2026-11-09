@@ -50,6 +50,14 @@ Append a rule when a diagnosis teaches one; name the failure patterns it comes f
     every command as detached on the FreeBSD leg, and the tests had reached `main` that way. Read what the shell
     itself holds (`$0`, a file the test wrote), and give the probe a control that reads both answers.
     FAILURE_PATTERNS 505, 906.
+32. **A list a job sets for the tests to read is checked against the names the tests know.** A name that matches
+    nothing turns its check off and says nothing: `PLEIADES_TEST_REQUIRE` listing a typo required nothing. Register
+    a new need in `need.Names` when a test first calls `Require` with it; `Require` fails on an unknown name in the
+    list, and `need`'s tests parse the module's `Require` calls and `ci.yml`'s lists. FAILURE_PATTERNS 930, 1047.
+33. **A CI cache is keyed on what its entry holds, or saved only when it holds everything its key names.** A save that
+    runs only on a miss makes an incomplete entry a permanent hit: a leftover temporary file, or a file only another
+    shard fetches, is saved once under the key and never refilled. Keep temporary files out of a cached directory, and
+    add the shard to a key when what is saved differs by shard. FAILURE_PATTERNS 1049.
 
 ## Tests that do not fail by luck
 
@@ -81,6 +89,16 @@ Append a rule when a diagnosis teaches one; name the failure patterns it comes f
     substring search for `0644` over an entry carrying a random hex run ID finds it a few times in a thousand runs,
     with nothing leaked. Plant letters outside the random alphabet, and have the helper refuse a planted value made
     only of that alphabet. FAILURE_PATTERNS 236, 890.
+30. **A file a test downloads comes from a cache named by its digest, never from the publisher on every run.** A pin
+    fixes the bytes, not the server's availability. Pin the file in `internal/testsupport/pins.go` and fetch it with
+    `testsupport.Download`, which checks the SHA-256 on every use, skips as `needs <what>` on a cold cache with no
+    network, and fails where `PLEIADES_TEST_REQUIRE` names the need; a CI job that counts on the test requires it.
+    FAILURE_PATTERNS 1045, 1048.
+31. **A goleak snapshot is taken after a round trip with the far side, not when the connecting call returns.** The
+    return proves the caller's side is set up; an in-process server starts its own goroutines on its own schedule, and
+    one that starts after the snapshot reads as the test's leak. Order the snapshot after a call the far side answers
+    only once it is set up, rather than ignoring its goroutine by name. Reproduce by delaying the far side's goroutine,
+    as in 7. FAILURE_PATTERNS 169, 1046.
 
 ## Docker Desktop on this machine
 

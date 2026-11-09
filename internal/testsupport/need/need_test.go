@@ -72,3 +72,32 @@ func TestPOSIXShell(t *testing.T) {
 		t.Fatalf("this machine has no %s, and the skip is %q", ShellPath, r.skip)
 	}
 }
+
+// TestRequire_UnknownNameInEnvFails shows a name Env lists that no test
+// needs (a typo, or a need that was renamed) fails the run at its first
+// Require, whether or not that Require's own need is available, instead of
+// requiring nothing.
+func TestRequire_UnknownNameInEnvFails(t *testing.T) {
+	for _, available := range []bool{true, false} {
+		t.Setenv(Env, "userns, docekr")
+		r := &recordingTB{}
+		Require(r, "userns", available, "unshare refused")
+		if !strings.Contains(r.fatal, `"docekr"`) || !strings.Contains(r.fatal, Env) {
+			t.Errorf("available=%v: failure %q does not name the unknown entry and the variable", available, r.fatal)
+		}
+		if r.skip != "" {
+			t.Errorf("available=%v: skipped (%q) instead of failing", available, r.skip)
+		}
+	}
+}
+
+// TestRequire_EveryKnownNameAndAllAreAccepted shows the registry does not
+// reject what CI legitimately lists.
+func TestRequire_EveryKnownNameAndAllAreAccepted(t *testing.T) {
+	t.Setenv(Env, strings.Join(append([]string{All}, Names...), ","))
+	r := &recordingTB{}
+	Require(r, Userns, true, "unused")
+	if r.fatal != "" || r.skip != "" {
+		t.Fatalf("a list of known names stopped the test: fatal %q, skip %q", r.fatal, r.skip)
+	}
+}

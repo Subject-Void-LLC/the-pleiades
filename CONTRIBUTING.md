@@ -151,6 +151,16 @@ Runner printed, masked, as the `test-logs-containers-<shard>` artifact, since th
 quotes only a failure's end. To keep those files from a local run, point
 `PLEIADES_TEST_ARTIFACTS` at a directory.
 
+A test that downloads a pinned file (`internal/testsupport`'s `pins.go`, fetched by
+`testsupport.Download`) checks its SHA-256 on every use and keeps the file in the directory
+`PLEIADES_TEST_DOWNLOADS` names, which must be an absolute path. CI sets it to a directory
+it caches. When it is unset, a local run writes the file under your user cache directory
+(`pleiades-test-downloads` in `os.UserCacheDir()`, `~/.cache` on Linux) and reuses it, so a
+run fetches each file once. A file that is neither cached nor fetchable skips as
+`needs <what>`, and fails when `PLEIADES_TEST_REQUIRE` names it. That variable lists needs
+by name, and a name no test uses (a typo) fails the run at its first `Require`; a new need's
+name goes in `internal/testsupport/need`'s `Names`.
+
 The `containers` job restores its images from a cache and only pulls on a miss. A
 maintainer can set a read-only `DOCKERHUB_TOKEN` (and `DOCKERHUB_USERNAME`) secret to
 raise Docker Hub's pull limit; a pull request from a fork runs without it. No job runs

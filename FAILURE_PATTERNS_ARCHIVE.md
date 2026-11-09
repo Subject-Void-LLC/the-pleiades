@@ -25198,3 +25198,192 @@ row up by id, so the save would find no row. No test has shown it.
 ent repository.
 
 **Lesson.** Pending.
+
+## 1045. The toybox chmod test downloaded toybox 0.8.13 from landley.net on every run, so a CI containers shard failed when that server timed out, with nothing in the repository changed (fixed on this branch; on main since 17d17f8b, 2026-09-28)
+
+**Symptom.** 2026-11-08, a CI run of PR #135, the converter's (run 42506735140, `containers (3)`, at `d963453c`):
+`internal/catalog/file`'s `TestToyboxChmod_FiveDigitModesMeanWhatTheySay` failed at `toybox_chmod_test.go:80` with
+`downloading toybox 0.8.13: Get "https://landley.net/toybox/downloads/binaries/0.8.13/toybox-x86_64": dial tcp
+<ip>:443: i/o timeout`, and the run was rerun. `tools/failures` records it as a real failure that only Actions saw, in a
+package pr-check did not test at that commit.
+
+**Root cause.** `fetchToybox` fetched the pinned build from the toybox project's own server every time the test ran,
+and failed the test on any download error so that a skip would not read as a pass. The pin (version and SHA-256) fixed
+the bytes, not their availability: every container run depended on a third party's server answering during the run.
+CI has cached its container images since Phase 118 (LESSONS 262), and nothing did the same for a file a test fetches
+for itself.
+
+**Earlier entries.** No earlier entry records a test failing because a publisher's server did not answer. The nearest
+are 917 (a fixture's `apk add` from Alpine's moving index) and 966 (rolling image tags), where a third-party source
+changed what a test got rather than failing to answer. This is new in kind for files a test downloads.
+
+**Fix.** `6adebb59`, `25134a51`, `dd1ec192`. `internal/testsupport/pins.go` holds every file a test downloads as a
+`testsupport.Pin` (`ToyboxChmod`), and `testsupport.Download` serves it from a cache whose file names are the SHA-256
+(`PLEIADES_TEST_DOWNLOADS` in CI, `os.UserCacheDir()/pleiades-test-downloads` locally), checking the digest on every
+use. A bad cached copy is discarded and fetched again. A changed upstream file fails, whichever way the bytes arrived,
+and is never cached. With a cold cache and no network the test skips as `needs toybox`, or fails where
+`PLEIADES_TEST_REQUIRE` names toybox, as the containers, branch-containers and nightly jobs now do. The containers jobs
+restore and save the directory through `actions/cache`; nightly only restores it. Tests:
+`TestFetchPinned_CacheWorksWithTheNetworkGone`, `TestFetchPinned_CorruptCacheIsDiscardedAndRefetched`,
+`TestFetchPinned_WrongChecksumFromTheNetworkIsRefusedAndNotCached`, `TestDownload_UnavailableFailsWhenTheRunRequiresIt`.
+
+**Lesson.** A pin fixes a download's bytes, not its availability. A file a test fetches comes from a cache named by its
+digest and checked on every use, and a CI job that counts on the test requires its need, so a cold cache during an
+outage fails rather than quietly shrinking the run (CI_LESSONS 30).
+
+## 1046. TestProcess_LeavesNoGoroutinesBehind took its goleak snapshot as soon as Connect returned, before the in-process test server had started its own DiscardRequests goroutine, so that goroutine read as a leak on fast-macos (a repeat of 169) (fixed on this branch; on main since 662ffb17, 2026-09-23)
+
+**Symptom.** PR #138, run 42545199991, `fast-macos (3)`, on the test's third repeat: `pkg/remoteexec`'s
+`TestProcess_LeavesNoGoroutinesBehind` reported a leaked goroutine. It passed on rerun.
+
+**Root cause.** The test took `goleak.IgnoreCurrent()` right after `Connect`, which returns when the client's handshake
+does. The in-process server's `serveConn` (`pkg/remoteexec/remoteexectest/server.go`) starts `go
+cryptossh.DiscardRequests(reqs)` only after its own side of the handshake (line 370 at this commit), on its own
+schedule. When the server reached that line after the snapshot, its goroutine, which lives as long as the connection,
+was missing from the baseline, and goleak reported it as the test's leak. A slow runner widens the window.
+
+**Why 169 did not prevent it.** 169 is the same class: a goleak baseline taken before everything it should ignore had
+started. Its fix took the test's own snapshot after its own setup and after a full dial-and-close cycle, and its lesson
+said to take the snapshot after the test's own setup. This test did take its own snapshot after its own setup, as the
+client saw it. Nothing said that the far side finishes its setup on another goroutine, or that the round trip in 169's
+fix was what made the snapshot safe, and no sweep of goleak snapshots followed it.
+
+**Fix.** `241d4a86`. One `conn.Run("true")` before the snapshot. The server accepts a session only inside its channel
+loop, after line 370, so once the command returns the goroutine already exists. This is ordered by program order, not
+by timing. `DiscardRequests` is not ignored by name, since that would also hide a real leak of the same goroutine on the
+client side. Shown red with a temporary 300 ms sleep before line 370, which gave the CI failure's signature; with the
+sleep still in place the fixed test passed 5 of 5, and `-count=30` under `-race` passed.
+
+**Lesson.** A goleak snapshot is taken after a round trip with the far side, not when the connecting call returns: the
+return proves the caller's side is set up, and the other side's goroutines start on their own schedule (CI_LESSONS
+31).
+
+## 1047. need.Require ignored a name in PLEIADES_TEST_REQUIRE that no test needs, so a typo or a renamed need turned a CI requirement off and the job stayed green (fixed on this branch; on main since dd0346ce, 2026-09-29; the class of LESSONS 417 and FAILURE_PATTERNS 930)
+
+**Symptom.** Found on this branch. `required` only reported whether the list named the need being asked about, so a
+name no `Require` call used matched nothing and said nothing. A job listing `docekr` for `docker`, or a need still
+listed under its old name after a rename, required nothing: every test that should have failed for the missing tool
+skipped, and the job stayed green.
+
+**Root cause.** The list was read only to answer "is this need required?", never checked as a whole, and there was no
+registry to check it against: each need existed only as a string literal at its `Require` calls.
+
+**Fix.** `e42a6cbe`. `need.Names` registers every need as a constant (`need.Toybox`, `need.RefusingPort` and the rest),
+and `Require` fails at its first call when the variable lists a name that is neither in `Names` nor `all`
+(`TestRequire_UnknownNameInEnvFails`). `TestEveryRequireCallNamesAKnownNeed` parses every Go file in the module and
+checks each `Require` call whose need is a string literal against `Names`; it fails if it finds none of three known
+calls, so a walk that sees nothing cannot pass. `TestCIRequireListsOnlyKnownNeeds` parses `.github/workflows/ci.yml`'s
+lists. Assembling the registry by parsing every Go file found seven names a text search had missed: "a CML
+controller", docker-desktop, landlock, landlock-scoping, linux, pty and timeout.
+
+**Limits.** The module walk reads string literals only. A need passed as a constant is held to `Names` by the compiler
+only when the constant comes from `need`, as `refusing.Need` now does.
+
+**Earlier entries.** LESSONS 417 (a scanner's silence is not a pass) and 930 (a filter naming a family alone passed the
+typo refusal and matched nothing) are this class: a name that matches nothing reads as success. The seven missed names
+are the case LESSONS 157 and 273 already name: a search written from what one call looks like finds the calls that
+look like it, and a guard over a list reads the code, not a sign of it. The repository's rule to answer questions about
+Go code with the language server or the syntax tree, not a text search, covers it, so no new lesson was written.
+
+**Lesson.** A list that turns checks on is checked against the names its readers know, so a name that matches nothing
+fails instead of turning a check off (CI_LESSONS 32).
+
+## 1048. testsupport.Download's verdict had no test: all six of the cache's first tests called fetchPinned, so the branch that fails on a changed checksum and the one that skips or fails on an outage could each be deleted with every test green (fixed before push; a repeat in kind of 1016 and 1039; LESSONS 158 and 213)
+
+**Symptom.** fp-reviewer, on this branch, before push. `6adebb59` added six tests of the download cache. Each called
+the internal `fetchPinned`, which returns an error. None called `Download`, which turns that error into the test's
+verdict: `Fatalf` on a changed checksum, and `Require` (a skip, or a failure where the run requires the need) on an
+outage. Deleting either branch left every test green.
+
+**Root cause.** The tests were written against the function that does the work, and the decision a caller sees sat one
+level up with no test. LESSONS 158's second half says a skip needs a control of its own; the outage skip had none.
+
+**Why 1016, 1039 and LESSONS 213 did not prevent it.** Their rule, run each new test with its fix removed, is applied
+by hand, and it was not applied to `Download` before review.
+
+**Fix.** `dd1ec192`. `TestDownload_ChecksumMismatchFailsTheTest`, `TestDownload_UnavailableSkipsNamingTheNeed` and
+`TestDownload_UnavailableFailsWhenTheRunRequiresIt` call `Download` itself; each was shown red by removing its branch.
+
+**Lesson.** As 1016: a test of a verdict calls the function that reaches the verdict. A test one level down proves the
+parts, not the decision.
+
+## 1049. The CI download cache was keyed on pins.go, the list of what should be cached, not on what the entry holds, and it is saved only on a miss, so an incomplete entry would have been a permanent hit that never refilled (fixed before push; the shard case is a written rule, not a guard)
+
+**Symptom.** fp-reviewer, on this branch, before push. `6adebb59` keyed the containers jobs' download cache on
+`hashFiles('internal/testsupport/pins.go')` and saved `.ci/downloads` only when the restore missed. Two ways to save an
+incomplete entry under that key:
+- A test binary killed mid-download leaves a `.download-*` temporary file in the directory, and the save step runs under
+  `always()`. `@actions/glob` matches dotfiles, so the leftover is saved, with or without the real file.
+- Every shard restores the same key, and the first to miss saves only what it downloaded. A second pin used only in
+  another shard is missing from that entry, and that shard downloads it on every run and never saves it.
+
+Either way every later run hits the key and nothing saves again until pins.go changes.
+
+**Root cause.** The key named what the entry should hold, and nothing checked that it did. The image cache beside it is
+keyed on each shard's own image list and saved only after every image in that list is pulled, so its key does describe
+its contents.
+
+**Earlier entries.** None of this class. 127 is the opposite error: a key holding a value that changes by itself, so a
+good entry is thrown away on a schedule nobody chose. LESSONS 374 is about cached predictions of state, not CI caches.
+
+**Fix.** `dd1ec192` makes the temporary file in the cache directory's parent, so the directory holds only digest-named
+files (`TestNewTempFile_IsOutsideTheCacheDirectory`, `TestFetchPinned_CacheDirectoryHoldsOnlyTheDigestNamedFile`).
+`a971dc8d` adds to pins.go that a pin used in a different shard from an earlier one needs the shard number in the key.
+That second case is a rule written beside the key, not a guard; today one test uses the one pin.
+
+**Lesson.** A cache key derived from the list of what should be cached, not from what the entry holds, makes an
+incomplete entry a permanent hit. Save an entry only when it holds everything its key names, or key it on what it holds
+(CI_LESSONS 33).
+
+## 1050. A relative PLEIADES_TEST_DOWNLOADS was used as given, so each test package wrote a download cache into its own directory inside the module tree (fixed before push; the class of 53 and 463)
+
+**Symptom.** fp-reviewer, on this branch, before push. `go test` runs each package in that package's directory, so a
+relative value named a different directory for each package, every one of them under the module tree. A mutation run
+left a stray `relative/dir/<digest>` file in the tree.
+
+**Root cause.** The value was used as the cache directory with no check that it was absolute.
+
+**Fix.** `dd1ec192`. A relative value is refused with `ErrRelativeDownloadsDir` (`TestDownloadsDir_RelativeEnvIsRefused`,
+`TestDownload_RelativeEnvAndBadPinFail`).
+
+**Lesson.** As 463: a directory a test writes to is absolute, or it lands in the module tree, where other tests read.
+
+## 1051. Download's messages named the wrong cause three ways: a malformed pin read as "the published file changed", a machine with no cache directory as "not cached and cannot be fetched" though no fetch was tried, and a body over 16 MiB as a changed checksum (fixed before push; in kind of 126 and 492)
+
+**Symptom.** fp-reviewer, on this branch, before push.
+- A pin's SHA256 became the cached file's name with no check of its form. An uppercase or truncated digest can never
+  match, so it failed as a changed upstream file.
+- With no cache directory, the message said the file was not cached and could not be fetched, when no fetch had been
+  tried.
+- A body over the 16 MiB read limit was cut at the limit, its digest then did not match, and it was reported as a
+  changed checksum.
+
+**Security.** vuln-corpus's sweep flagged the digest used as a file name as its class C4. It is not reachable: the pin
+is a constant in the source, not input. Reasoned from the code.
+
+**Root cause.** Each case was reported by the last check that failed, not by the first thing that was wrong.
+
+**Fix.** `dd1ec192`. `ErrBadPin` is raised before any fetch when the SHA256 is not 64 lowercase hex characters, which
+also keeps the file name inside the directory (`TestFetchPinned_RefusesAMalformedDigest`). With no cache directory,
+`Download` fetches without caching and logs that (`TestDownload_NoCacheDirectoryFetchesWithoutCaching`,
+`TestFetchPinned_EmptyDirMeansNoCache`). A body over the limit is `ErrDownloadTooLarge`
+(`TestFetchPinned_BodyOverTheLimitIsTooLargeNotAChecksumError`, `TestDownload_OversizedBodyFailsAsTooLarge`).
+
+**Lesson.** As 126 and 492: a refusal names the first thing that was wrong. Check a value's form before using it, and
+report a limit as the limit.
+
+## 1052. Two ci.yml comments said a test whose download is missing skips, above a step that requires toybox, where it fails (fixed before push; a repeat of 1029 and 1041, the class of 228)
+
+**Symptom.** fp-reviewer, on this branch, before push. `25134a51` set `PLEIADES_TEST_REQUIRE: toybox` on the containers
+step, and the comments above the download cache steps still said the test skips when the file is neither cached nor
+fetchable.
+
+**Why 1029 and 1041 did not prevent it.** Their rule, reread each sentence the branch added against the code it
+describes, is still checked only by review. A comment written one commit before the behavior under it changed was not
+reread.
+
+**Fix.** `a971dc8d` rewords both: the test skips in a run that does not require the need and fails in one that does,
+and the step below requires toybox.
+
+**Lesson.** As 1041: before review, reread each sentence the branch added against the code it describes, including
+comments in workflow files.
