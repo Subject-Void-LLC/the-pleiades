@@ -412,7 +412,7 @@ var deviceWriteSchema = map[string]any{
 	"type":     "object",
 	"required": []any{"name", "type"},
 	"properties": map[string]any{
-		"name":  stringSchema("The device's unique name, which is its address: \"\", \".\" and \"..\" are refused, since no URL can carry one as a path segment. Fixed once the device exists: an update refuses a different name."),
+		"name":  stringSchema("The device's unique name, which is its address and is printed wherever the device is named: \"\", \".\" and \"..\" are refused, since no URL can carry one as a path segment, and so is a name holding invalid UTF-8, a control character, a direction control, a line or paragraph separator, U+00AD, U+200B, U+2060, U+FEFF or a tag character, since it would not show as itself. Fixed once the device exists: an update refuses a different name."),
 		"type":  stringSchema("A registered device type, e.g. \"linux_server\". Fixed once the device exists: an update refuses a different type."),
 		"tags":  map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
 		"state": stringSchema("One of the eight lifecycle states. Defaults to \"active\" on create."),
@@ -458,7 +458,7 @@ var CreateDevice = Endpoint{
 	RequestSchema:      deviceWriteSchema,
 	Responses: []Response{
 		{Status: http.StatusCreated, Description: "The created device.", Schema: deviceResponseSchema},
-		{Status: http.StatusBadRequest, Description: "The body is malformed, or name or type is missing or unusable. A name of \".\" or \"..\" is unusable, and the message says why.", Schema: errorSchema("")},
+		{Status: http.StatusBadRequest, Description: "The body is malformed, or name or type is missing or unusable. A name of \".\" or \"..\", or one holding invalid UTF-8, a control code, a line break, a direction control or an invisible character, is unusable, and the message says why.", Schema: errorSchema("")},
 		{Status: http.StatusConflict, Description: "A device with that name already exists, or the inventory is read-only.", Schema: errorSchema("")},
 		{Status: http.StatusUnprocessableEntity, Description: "type names no registered device type.", Schema: errorSchema("")},
 	},
@@ -509,7 +509,7 @@ var GetDevice = Endpoint{
 	},
 	Responses: []Response{
 		{Status: http.StatusOK, Description: "The device.", Schema: deviceResponseSchema},
-		{Status: http.StatusBadRequest, Description: "name is empty, too long, or contains a control character.", Schema: errorSchema("")},
+		{Status: http.StatusBadRequest, Description: "name is empty, too long, does not decode, or holds a NUL, a carriage return or a line feed.", Schema: errorSchema("")},
 		{Status: http.StatusNotFound, Description: "No device with that name exists.", Schema: errorSchema("")},
 	},
 }
@@ -603,7 +603,7 @@ var ListDeviceFacts = Endpoint{
 	},
 	Responses: []Response{
 		{Status: http.StatusOK, Description: "The device's current facts, by key.", Schema: factsResponseSchema},
-		{Status: http.StatusBadRequest, Description: "name is empty, too long, or contains a control character.", Schema: errorSchema("")},
+		{Status: http.StatusBadRequest, Description: "name is empty, too long, does not decode, or holds a NUL, a carriage return or a line feed.", Schema: errorSchema("")},
 		{Status: http.StatusNotFound, Description: "No device with that name exists.", Schema: errorSchema("")},
 	},
 }
@@ -648,7 +648,7 @@ var VerifyDeviceFactChain = Endpoint{
 	},
 	Responses: []Response{
 		{Status: http.StatusOK, Description: "What the check found; a break is reported in the body, not as an error status.", Schema: factChainResponseSchema},
-		{Status: http.StatusBadRequest, Description: "name is empty, too long, or contains a control character.", Schema: errorSchema("")},
+		{Status: http.StatusBadRequest, Description: "name is empty, too long, does not decode, or holds a NUL, a carriage return or a line feed.", Schema: errorSchema("")},
 		{Status: http.StatusNotFound, Description: "No device with that name exists.", Schema: errorSchema("")},
 	},
 }
@@ -669,7 +669,7 @@ var DeleteDevice = Endpoint{
 	},
 	Responses: []Response{
 		{Status: http.StatusNoContent, Description: "The device was retired."},
-		{Status: http.StatusBadRequest, Description: "name is empty, too long, or contains a control character.", Schema: errorSchema("")},
+		{Status: http.StatusBadRequest, Description: "name is empty, too long, does not decode, or holds a NUL, a carriage return or a line feed.", Schema: errorSchema("")},
 		{Status: http.StatusNotFound, Description: "No device with that name exists.", Schema: errorSchema("")},
 	},
 }
@@ -718,7 +718,7 @@ var OnboardDevice = Endpoint{
 	},
 	Responses: []Response{
 		{Status: http.StatusOK, Description: "The probe succeeded; the result says what was recorded.", Schema: onboardResultSchema},
-		{Status: http.StatusBadRequest, Description: "name is empty, too long, or contains a control character.", Schema: errorSchema("")},
+		{Status: http.StatusBadRequest, Description: "name is empty, too long, does not decode, or holds a NUL, a carriage return or a line feed.", Schema: errorSchema("")},
 		{Status: http.StatusNotFound, Description: "No device with that name exists.", Schema: errorSchema("")},
 		{Status: http.StatusConflict, Description: "The device is in a state an administrator set (quarantined, simulate-locked, decommissioning, archived), was modified concurrently, or the inventory is read-only.", Schema: errorSchema("")},
 		{Status: http.StatusUnprocessableEntity, Description: "The device's type has no prober, so its capabilities come from its Go type; the message lists the types that have one.", Schema: errorSchema("")},
@@ -834,7 +834,7 @@ var ImportKubeconfig = Endpoint{
 		"type":     "object",
 		"required": []string{"name", "kubeconfig", "organization"},
 		"properties": map[string]any{
-			"name":         stringSchema("The cluster device's name, which is its address: \"\", \".\" and \"..\" are refused."),
+			"name":         stringSchema("The cluster device's name, which is its address: \"\", \".\" and \"..\" are refused, and so is a name the device create refuses for what it holds."),
 			"kubeconfig":   stringSchema("The kubeconfig, YAML or JSON, at most one mebibyte."),
 			"context":      stringSchema("The context to import; the kubeconfig's current context when empty."),
 			"organization": map[string]any{"type": "integer", "description": "The organization the credential belongs to."},
@@ -844,7 +844,7 @@ var ImportKubeconfig = Endpoint{
 	Responses: []Response{
 		{Status: http.StatusCreated, Description: "The cluster and its credential.", Schema: kubeconfigImportSchema},
 		{Status: http.StatusOK, Description: "The cluster and its credential, replaced.", Schema: kubeconfigImportSchema},
-		{Status: http.StatusBadRequest, Description: "The body is malformed, or name or organization is missing or unusable. A name of \".\" or \"..\" is unusable, and the message says why.", Schema: errorSchema("")},
+		{Status: http.StatusBadRequest, Description: "The body is malformed, or name or organization is missing or unusable. A name of \".\" or \"..\", or one holding invalid UTF-8, a control code, a line break, a direction control or an invisible character, is unusable, and the message says why.", Schema: errorSchema("")},
 		{Status: http.StatusForbidden, Description: "The caller lacks inventory:write.", Schema: errorSchema("")},
 		{Status: http.StatusConflict, Description: "The device or the credential already exists and replace is not set, the device is not a cluster, it was modified concurrently, or the inventory is read-only.", Schema: errorSchema("")},
 		{Status: http.StatusRequestEntityTooLarge, Description: "The body is too large.", Schema: errorSchema("")},
