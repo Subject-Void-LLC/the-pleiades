@@ -209,6 +209,16 @@
     "stdout": "",
     "stderr": "usage: pleiades import \u003ccommand\u003e [flags]\n\ncommands:\n  awx-credential-types  check an AWX credential type export against this platform, before a migration\n\nSee docs/ in the repository for the migration guidance these commands support.\n"
   },
+  "import awx-credential-types --help": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "Usage of import awx-credential-types:\n  -out string\n    \tdirectory to write each importable type into as JSON, ready to POST to /credential-types\n  -quiet\n    \treport only the types this platform would not import\n"
+  },
+  "import awx-credential-types -h": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "Usage of import awx-credential-types:\n  -out string\n    \tdirectory to write each importable type into as JSON, ready to POST to /credential-types\n  -quiet\n    \treport only the types this platform would not import\n"
+  },
   "import-cml --help": {
     "code": 0,
     "stdout": "",

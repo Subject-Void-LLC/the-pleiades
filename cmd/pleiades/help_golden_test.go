@@ -91,6 +91,8 @@ func helpCommandLines() [][]string {
 		[]string{"facts", "web1", "--help"},
 		[]string{"doc", "exec.command", "--help"},
 		[]string{"validate", "a.yaml", "-h"},
+		[]string{"import", "awx-credential-types", "--help"},
+		[]string{"import", "awx-credential-types", "-h"},
 	)
 }
 

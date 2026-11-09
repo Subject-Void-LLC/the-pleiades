@@ -174,6 +174,7 @@ var splitCommands = []splitCommand{
 	{name: "forge new-view", call: runForgeNewView, positionals: []string{"widgets"}},
 	{name: "forge new-plugin", call: runForgeNewPlugin, positionals: []string{"acme"}},
 	{name: "forge migrate-playbook", call: runForgeMigratePlaybook, positionals: []string{"site.yml"}},
+	{name: "import awx-credential-types", call: runImportAWXCredentialTypes, positionals: []string{"export.json"}},
 }
 
 // errStopAfterParse is what the hook returns to stop a command once its
@@ -222,8 +223,8 @@ func silenceStderr(t *testing.T) {
 
 // TestEveryCommandSplitsItsOwnBoolFlags drives every command in
 // splitCommands through its real FlagSet. For each bool flag that FlagSet
-// declares, the flag placed before the positionals leaves them all
-// positional and is set true; "--" makes the token after it a positional
+// declares, the flag placed before or after the positionals leaves them
+// all positional and is set true; "--" makes the token after it a positional
 // though it starts with "-"; and an unknown flag before them is reported
 // as the flag error it is, not as a missing or extra positional.
 func TestEveryCommandSplitsItsOwnBoolFlags(t *testing.T) {
@@ -245,14 +246,22 @@ func TestEveryCommandSplitsItsOwnBoolFlags(t *testing.T) {
 				}
 			})
 			for _, b := range bools {
-				for _, spelled := range []string{"--" + b, "-" + b} {
-					got, err := parseWith(t, c, append([]string{spelled}, c.positionals...))
+				// Before the positionals, where a swallowed one goes
+				// missing, and after them, where the flag package alone
+				// would stop at the first positional.
+				for _, args := range [][]string{
+					append([]string{"--" + b}, c.positionals...),
+					append([]string{"-" + b}, c.positionals...),
+					append(slices.Clone(c.positionals), "--"+b),
+				} {
+					spelled := strings.Join(args, " ")
+					got, err := parseWith(t, c, args)
 					if got == nil {
-						t.Errorf("%s %s %q did not parse: %v", c.name, spelled, c.positionals, err)
+						t.Errorf("%s %s did not parse: %v", c.name, spelled, err)
 						continue
 					}
 					if !reflect.DeepEqual(got.positionals, c.positionals) {
-						t.Errorf("%s %s %q: positionals %q, want %q (the flag swallowed one)", c.name, spelled, c.positionals, got.positionals, c.positionals)
+						t.Errorf("%s %s: positionals %q, want %q (the flag swallowed one)", c.name, spelled, got.positionals, c.positionals)
 					}
 					if v := got.fs.Lookup(b).Value.String(); v != "true" {
 						t.Errorf("%s %s: the flag is %q, want true", c.name, spelled, v)
