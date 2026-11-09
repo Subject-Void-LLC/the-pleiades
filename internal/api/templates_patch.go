@@ -29,10 +29,6 @@
 package api
 
 import (
-	"bytes"
-	"encoding/json"
-	"errors"
-	"reflect"
 	"sort"
 	"strings"
 
@@ -98,22 +94,21 @@ type surveyPatchDTO struct {
 	nulls []string
 }
 
-// errPatchNotAnObject refuses a PATCH body, or a survey within one, that is
-// not a JSON object: a bare null would otherwise decode as an empty patch.
-var errPatchNotAnObject = errors.New("a template patch must be a JSON object")
+// templateNoun names a template in the shared PATCH refusals (patch.go).
+const templateNoun = "a template"
 
 // UnmarshalJSON decodes a PATCH body strictly and records which fields it set
 // to null.
 //
 // decodeJSON's DisallowUnknownFields does not reach inside a custom
-// unmarshaler, so the strict decode is repeated here; an unknown key is still
-// refused as a malformed body, as it was before this type existed.
+// unmarshaler, so the strict decode is repeated in decodePatch; an unknown
+// key is still refused as a malformed body, as it was before this type
+// existed.
 func (d *templatePatchDTO) UnmarshalJSON(data []byte) error {
 	// fields is the same struct without this method, so decoding into it
 	// does not recurse back here.
 	type fields templatePatchDTO
-	var decoded fields
-	nulls, err := decodePatchObject(data, &decoded, reflect.TypeOf(decoded))
+	decoded, nulls, err := decodePatch[fields](data, templateNoun)
 	if err != nil {
 		return err
 	}
@@ -135,8 +130,7 @@ func (d *templatePatchDTO) UnmarshalJSON(data []byte) error {
 // of its fields were null.
 func (s *surveyPatchDTO) UnmarshalJSON(data []byte) error {
 	type fields surveyPatchDTO
-	var decoded fields
-	nulls, err := decodePatchObject(data, &decoded, reflect.TypeOf(decoded))
+	decoded, nulls, err := decodePatch[fields](data, templateNoun)
 	if err != nil {
 		return err
 	}
@@ -145,58 +139,9 @@ func (s *surveyPatchDTO) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// decodePatchObject strictly decodes one JSON object into dst, and returns
-// the json names of shape's fields that the object set to null, sorted.
-//
-// The names returned are the field's own tags rather than the keys as sent.
-// encoding/json matches a key to a field without regard to case, so the key
-// as sent could be any spelling of it, and echoing caller bytes into an
-// error is the reflection shape FAILURE_PATTERNS 72 records.
-func decodePatchObject(data []byte, dst any, shape reflect.Type) ([]string, error) {
-	var raw map[string]json.RawMessage
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return nil, err
-	}
-	if raw == nil {
-		// The literal null: Unmarshal leaves the map nil without an error.
-		return nil, errPatchNotAnObject
-	}
-
-	dec := json.NewDecoder(bytes.NewReader(data))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(dst); err != nil {
-		return nil, err
-	}
-
-	var nulls []string
-	for key, value := range raw {
-		if string(bytes.TrimSpace(value)) != "null" {
-			continue
-		}
-		nulls = append(nulls, patchFieldName(shape, key))
-	}
-	sort.Strings(nulls)
-	return nulls, nil
-}
-
-// patchFieldName finds the json name of the field in shape that key decodes
-// into, matching as encoding/json does, without regard to case.
-//
-// The strict decode has already refused a key that matches no field, so the
-// fallback is never expected to be reached. It is a fixed phrase rather than
-// the key, so even then nothing the caller sent is echoed, and the null is
-// still refused rather than skipped.
-func patchFieldName(shape reflect.Type, key string) string {
-	name := "an unrecognized field"
-	for i := range shape.NumField() {
-		tag, _, _ := strings.Cut(shape.Field(i).Tag.Get("json"), ",")
-		if tag != "" && strings.EqualFold(tag, key) {
-			name = tag
-			break
-		}
-	}
-	return name
-}
+// templateRemedy is what a refused change to a fixed template field says to
+// do instead.
+const templateRemedy = "copy the template instead"
 
 // fixedFieldRefusal is the 400 message for a body that asks to change the
 // kind, the definition or the inventory, or "" when it asks none of that.
@@ -206,23 +151,18 @@ func patchFieldName(shape reflect.Type, key string) string {
 func (d templatePatchDTO) fixedFieldRefusal(stored launch.Template) string {
 	switch {
 	case d.Kind != nil && *d.Kind != stored.KindName:
-		return "kind cannot be changed: a template's kind is fixed once it exists; copy the template instead"
+		return fixedFieldMessage("kind", templateNoun, templateRemedy)
 	case d.Definition != nil && strings.TrimSpace(*d.Definition) != stored.Definition:
-		return "definition cannot be changed: a template's definition is fixed once it exists; copy the template instead"
+		return fixedFieldMessage("definition", templateNoun, templateRemedy)
 	case d.Inventory != nil && *d.Inventory != stored.InventoryID:
-		return "inventory cannot be changed: a template's inventory is fixed once it exists; copy the template instead"
+		return fixedFieldMessage("inventory", templateNoun, templateRemedy)
 	}
 	return ""
 }
 
 // nullRefusal is the 400 message for a body that set fields to null.
 func (d templatePatchDTO) nullRefusal() string {
-	quoted := make([]string, len(d.nulls))
-	for i, name := range d.nulls {
-		quoted[i] = `"` + name + `"`
-	}
-	return "a template field may not be null: " + strings.Join(quoted, ", ") +
-		"; leave a field out to keep it, or send an empty value to clear it"
+	return patchNullRefusal(templateNoun, d.nulls)
 }
 
 // apply folds the fields the body named over stored, leaving every other
