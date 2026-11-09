@@ -18,6 +18,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent"
@@ -48,11 +49,32 @@ type EntStore struct {
 	// same database, in the same process, as everything else the
 	// Controller persists.
 	client *ent.Client
+
+	// logger says what Save clears of an entry it stores (identity.go),
+	// since a cleared identity leaves no other trace.
+	logger *slog.Logger
+}
+
+// EntStoreOption configures an EntStore.
+type EntStoreOption func(*EntStore)
+
+// WithStoreLogger sends what the store clears of an entry it stores to
+// logger, rather than to the process default.
+func WithStoreLogger(logger *slog.Logger) EntStoreOption {
+	return func(s *EntStore) {
+		if logger != nil {
+			s.logger = logger
+		}
+	}
 }
 
 // NewEntStore builds the ent-backed store over client.
-func NewEntStore(client *ent.Client) *EntStore {
-	return &EntStore{client: client}
+func NewEntStore(client *ent.Client, opts ...EntStoreOption) *EntStore {
+	s := &EntStore{client: client, logger: slog.Default()}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
 }
 
 // Save writes every entry, skipping any that is already recorded.
@@ -95,6 +117,18 @@ func (s *EntStore) saveOne(ctx context.Context, entry engine.JournalEntry) (bool
 	// are jsonb, and PostgreSQL refuses jsonb_array_length on the scalar
 	// null that a nil slice marshals to. See normalize (record.go).
 	entry = normalize(entry)
+
+	// The store writes only the identity and undo digest the engine's
+	// projection writes, whoever calls it (identity.go). The subscriber, the
+	// path a Runner's batch takes, has already cleared and logged what fails,
+	// so this finds nothing there; any other caller is held to the same rule
+	// here, and what is cleared is said, as the subscriber says it.
+	entry, reasons := identityProblems(entry)
+	for _, reason := range reasons {
+		s.logger.Warn("storing a run journal entry without what it names, which no build writes for it",
+			slog.String("job", entry.JobID), slog.String("device", entry.DeviceID),
+			slog.String("node", entry.NodeID), slog.String("fqcn", entry.FQCN), slog.String("reason", reason))
+	}
 
 	create := s.client.JournalEntry.Create().
 		SetJobID(entry.JobID).

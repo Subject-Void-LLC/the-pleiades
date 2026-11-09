@@ -24352,6 +24352,18 @@ went to the engine, which projects the identity on the Runner. The Controller's 
 **Lesson.** Pending the fix. The facts subscriber's rule applies here too: a process that stores a received identity is
 a writer of its store and holds it to `Valid` (1006).
 
+**Resolved 2026-11-08 (fixed on `feat/provider-identity-136b-5`, Phase 136b PR 5, `b62e4d37`, with `8b7f1b6e` from
+review).** The journal's ent store holds each entry it saves, from the subscriber or any other caller, to what the
+engine's projection writes (`identityProblems`, `internal/journal/identity.go`): an identity that passes `Valid`, a
+program's identity only on an entry a program ran and a first-party one only on an entry none ran, and an undo digest
+of a digest's shape. What fails is stored as none and the entry is kept, as the facts subscriber keeps a fact whose
+identity it clears. Since `8b7f1b6e` the store itself logs each cleared identity or undo digest with the job, device,
+node, method and reason (1030). Tests, red on the old code: `TestSubscriberStoresNoIdentityTheEngineWouldNotWrite` and
+`TestEntStoreSavesNoIdentityTheEngineWouldNotWrite` (`internal/journal/subscriber_identity_test.go`), and
+`TestEntStoreLogsToTheLoggerItIsGiven` (`internal/journal/ent_store_logger_test.go`). The store does not hold the
+identity to this Controller's group routing, for the reason in 1019. `TestStores_KeepTheSameIdentityForOneTask` holds
+the journal store and the fact store to the same identity for one task.
+
 ## 1008. httpapi.Join decoded the ref it was given and then cleared RawPath, so a caller's url.PathEscape("r1/mgmt") reached the server as r1/mgmt, one name as two segments; catalystcenter.New did the same to its base path (fixed on this branch; on main since 35f391a1, 2026-09-24, and in catalystcenter since ad1ff164, 2026-08-06; the mirror of 998, the class of 72 and 438)
 
 **Symptom.** Found by the escaping sweep on `fix/url-escaping`, 2026-11-08: a review through the Batch API (Fable,
@@ -24588,3 +24600,306 @@ concatenation, in both packages and their subpackages.
 
 **Lesson.** As 114: state the rule as what may not happen (a path built from an id outside `paths.go`), then list
 each way to write it and hold the guard to each.
+
+## 1018. A recorded undo value was never held to its parameter's declared Choices, since ParamFits checks only the type, the engine skips ChoiceProblem for a value with no template, and a rollback runbook is never validated, so a probe planned state: purged where the choices were [absent] (fixed on this branch; on main since 27f72c8f, 2026-09-28, Phase 40's planner; a sibling of 534)
+
+**Symptom.** Phase 136b PR 5 (`feat/provider-identity-136b-5`), 2026-11-08, found in review. A probe journal entry
+recorded `state: purged` for an undo method whose `state` parameter declares the choices `[absent]`, and the rollback
+planner planned it.
+
+**Security.** Low. Writing the journal needs the operator's account (Crawl) or a Runner (Walk), and each can already
+act on its devices. This is a validation fix, not a security one.
+
+**Root cause.** Three gaps lined up. `collection.ParamFits` checks only the type. `internal/engine/render_params.go`
+skips `ChoiceProblem` for a value with no template, since validation is expected to have checked a literal. A rollback
+runbook is built from the journal and never validated. Before the branch, the planner checked a recorded value's type
+only for being a list (`recordableValue`).
+
+**Why 534 did not prevent it.** 534 held every value to its declared type at validation and at dispatch. The choices
+rule (`collection.ChoiceProblem`, on main since `2dbfa586`) runs in validation and the engine's render path. A value the
+planner builds from stored data reaches neither.
+
+**Fix.** `e3bb4cbc`. `checkParamValue` (`internal/rollback/recorded.go`) holds every recorded value to `ParamFits` and
+`ChoiceProblem`, on every entry, in the planner and in the Runner's `Verify`. `--leave` is the only answer; no
+`--allow-skew` accepts it. Tests, red on the old code: `TestBuild_AValueOutsideTheDeclaredChoicesIsLeaveOnly` and
+`TestVerify_ARunnerHoldsRequiredParametersAndChoicesWhateverIsAccepted` (`internal/rollback/skew_review_test.go`).
+
+**Lesson.** A value the system builds from stored data skips validation, so it is held to every rule a written value
+meets, at the place that builds it.
+
+## 1019. The Controller's facts subscriber erased a correct Runner's Collection identity in a mixed-version window, since CheckCollection compared the Runner's group with the Controller's own FirstPartyGroupOf, and logged that it "names one no build writes", which was false (fixed on this branch; on main since 7bee73af, 2026-11-08, merged in #134; a repeat in kind of 988, LESSONS 415)
+
+**Symptom.** Phase 136b PR 5, 2026-11-08, found in review. When a release adds a group or moves a method to another
+group, a Runner and its Controller route the method to different groups. `facts.Provenance.CheckCollection` then failed
+on the Controller, and its facts subscriber (`internal/facts/entstore/subscriber.go`, lines 172 to 176 on main) zeroed
+the identity with the warning "storing facts with no Collection identity, since the batch names one no build writes for
+its method". The ent store's `Record` refused the same observation outright. The chain hashed the empty identity, so
+the provenance cannot be recovered.
+
+**Root cause.** A rule on release data (the first-party group list) ran in a process of another release than the one
+that made the value. 988's fix moved `CheckCollection` to where a value is written, and the Controller writes its own
+store, so it kept the check. vuln-corpus finding C19_auto-roboto_2026-11-08 had kept that write-side check on purpose.
+
+**Why 988 did not prevent it.** 988 and LESSONS 415 say a rule on release data runs only where the value is written,
+and both looked at one process across two releases. Here two processes of two releases run at once. The Controller
+writes the row, but the Runner's build made the identity, so the Controller's release data says nothing about it.
+
+**Fix.** `0928e94b`. `CheckCollection` is now `CheckDeliveredCollection` (`Valid` only) plus `CollectionRouting` (the
+group rule), in `internal/facts/provenance.go`. The Controller's subscriber and ent store hold a delivered identity to
+`CheckDeliveredCollection`, log a routing difference at info, and store the identity as sent. `CheckCollection`, both
+parts, stays on the Runner's engine and the CLI's file store, whose own build routed the method. Test, red on the old
+code: `TestStores_KeepTheSameIdentityForOneTask` (`internal/facts/entstore/identity_agree_test.go`) feeds one task's
+identity to the Controller's journal store and its fact store and finds the two agree.
+
+**Lesson.** LESSONS 422: in a mixed-version window, a rule on release data runs only in the process whose release made
+the value.
+
+## 1020. The Controller's facts subscriber drops every fact under collection.FactFloor() from a method missing from its catalog, with a warning that calls them spoofed, so a Runner newer than its Controller loses its new built-ins' facts (open: an owner decision; on main since f61076b7, 2026-11-07, Phase 135b; the class of 1019)
+
+**Symptom.** Found by two reviewers reading the code during Phase 136b PR 5, 2026-11-08. Not run. `builtinProvenance`
+(`internal/facts/entstore/provenance.go`, lines 64 to 78) keeps a fact whose key falls under `collection.FactFloor()`
+only when the Controller's catalog holds the batch's method. Otherwise the subscriber drops it and logs "dropping facts
+a built-in holds that a batch says a method outside the catalog emitted". Two cases follow:
+- A Runner newer than its Controller runs a built-in that the Controller's catalog lacks, and the facts it gathers under
+  the floor are dropped. That happens only against the documented upgrade order.
+- The Controller's FactFloor may grow on a minor release. An older Runner's external program whose namespace a newer
+  Controller has since reserved would have its facts dropped.
+
+**Root cause.** Reasoned, not measured: the same shape as 1019. The Controller judges a Runner's batch by its own
+release's catalog and floor.
+
+**Status.** Open. It is an owner decision (task #11). Nothing was changed on this branch.
+
+**Lesson.** Pending the decision. LESSONS 422 names the class.
+
+## 1021. The PR 5 plan deadlocked: its section 4 refused a needless --allow-skew, while its section 6 told the operator to add one where the Controller's declarations match the recording and the Runner's may not (fixed before push)
+
+**Symptom.** Found in review of the PR 5 plan, before push. On the Walk tier the Controller
+plans and a Runner runs. Where the Controller's declarations matched the recording, the plan's section 4 refused an
+`allow_skew` name as needless, and section 6 told the operator to add that name so a Runner whose declarations differ
+would replay the step. No request could satisfy both.
+
+**Root cause.** The "needless" rule judged by the planner's declarations. Only on the CLI, which plans and runs in one
+process, are those the executor's declarations too.
+
+**Fix.** `74afeaa9`. `rollback.Request.ExecutorIsPlanner` (`internal/rollback/plan.go`). The CLI sets it
+(`cmd/pleiades/rollback.go`) and refuses a needless name. The Controller marks each named node `SkewAccepted`
+(`wire.RollbackStep.SkewAccepted`) even where its own declarations match. On the Runner, `SkewAccepted` relaxes only the
+digest comparison. Tests: `TestBuild_AllowSkewNamingNoSkewDependsOnWhoRunsIt` (`internal/rollback/skew_test.go`),
+`TestRollback_AllowSkewMarksANodeTheControllerFindsUnskewed` (`internal/api/dispatcher_rollback_skew_test.go`),
+`TestRollbackCommand_RefusesANeedlessAllowSkew` (`cmd/pleiades/rollback_skew_internal_test.go`), and the Walk rollback
+gate (`cmd/runner/rollback_release_gate_test.go`).
+
+**Lesson.** When one process plans and another runs, a rule that calls a request needless says whose data it judges by.
+A planner cannot call a name needless for an executor whose declarations it has not seen.
+
+## 1022. The required-parameter check ran only once a skew was found, so an entry with no identity, or one on the group-digest fallback, planned an undo missing a parameter its method requires; the first fix still waived it when the undo digest matched (fixed before push, a repeat in kind of 557 and 823; LESSONS 244)
+
+**Symptom.** Found in review on this branch, before push. The check that a recorded undo gives every parameter
+its method requires sat inside the skew branch. An entry with no identity, or one with an identity and no undo digest
+(the group-digest fallback), never reached that branch. The first fix (`e3bb4cbc`) ran the check unless the undo digest
+matched this build's. A second review (Fable) found that this still waived it for a forged entry carrying a matching
+digest.
+
+**Root cause.** The guard was placed on one branch of a comparison, so it ran only where a difference was found. The
+cases where nothing could be compared were the sibling path.
+
+**Why 557, 823 and LESSONS 244 did not prevent it.** Each is about a guard on one path and not on its sibling: two
+callers, or validation and the run. Here both paths were branches of one function, and the missing case was the one
+where the comparison had no input. That does not read as a second path until it is listed.
+
+**Fix.** `9b701120`. The required check is unconditional on both tiers, in the planner and in the Runner's `Verify`. Of
+the four built-in undos that leave a required parameter out of `Record`, all four withhold it, so that case is already
+refused as "not recorded in full"; the check costs a real undo nothing. Tests, red on the old code:
+`TestBuild_ARequiredParameterIsAlwaysHeld` and `TestVerify_ARunnerHoldsRequiredParametersAndChoicesWhateverIsAccepted`
+(`internal/rollback/skew_review_test.go`).
+
+**Lesson.** LESSONS 421: a rule that holds in every case runs beside a comparison, never inside the branch a difference
+opens.
+
+## 1023. The rollback planner and the Runner's Verify first held a stored Collection identity to Valid, whose format-character check reads Go's Unicode tables (fixed before push, a repeat of 1003 and 988; LESSONS 415)
+
+**Symptom.** Found in review on this branch, before push. The two new readers of a stored identity, the planner and the
+Runner's `Verify`, called `wire.CollectionIdentity.Valid`. A Go release that updates the Unicode tables could make an
+identity one build wrote fail another build's reader, and refuse its rollback.
+
+**Root cause.** 1003's class exactly: a writer's rule used by a reader.
+
+**Why 1003 and 988 did not prevent it.** 1003 was fixed one day earlier, in Phase 136b PR 4, and LESSONS 415's
+correction says a reader holds an identity to `Shape`. Both fixed the readers that existed then. The planner and
+`Verify` were new readers, and nothing makes a new reader call `Shape`; the rule lives in a lesson and a doc comment.
+
+**Fix.** `74afeaa9`, as committed. `checkIdentity` (`internal/rollback/recorded.go`) holds a stored identity to `Shape`,
+and the package text in `internal/rollback/skew.go` says why. `TestBuild_AGroupHoldingAFormatCharacterIsPrintedEscaped`
+(`internal/rollback/skew_test.go`) stores a group holding U+202E, which `Shape` accepts and `Valid` refuses, and holds
+the planner to reading it.
+
+**Lesson.** As 1003: a new reader of a stored value calls the reader's rule, and its test stores a value only the
+writer's rule refuses.
+
+## 1024. A fragment change moves an undo's UndoDigest but not its GroupDigest, since a manifest names its fragments as strings, so the plan's rule "group digests equal means no skew" would have missed it (fixed before push)
+
+**Symptom.** Found in review of the PR 5 plan and design, before push. `collection.UndoDigest` expands the parameter
+fragments an undo method uses. `GroupDigest` hashes the group's manifests, which name their fragments by string, so a
+change inside a fragment leaves it equal. The plan compared group digests first and called equal group digests no skew.
+
+**Root cause.** The plan treated the coarser digest as a summary of the finer one. It is not: the two digests cover
+different inputs.
+
+**Fix.** `74afeaa9`. The undo digest decides. The group digest is used only for an entry that recorded no undo digest
+(`internal/rollback/skew.go`). Tests of the order: `TestBuild_AChangedGroupWithAnUnchangedUndoReplaysWithAWarning` and
+`TestBuild_AChangedUndoIsRefusedUntilAcceptedByName` (`internal/rollback/skew_test.go`).
+
+**Refuted.** Fable said `UndoDigest` misses a parameter's `Default`. It already hashes `Type`, `Required`, `Default`,
+`AliasOf`, `Choices`, `ChoicesIgnoreCase`, `Format`, `RunSetting` and `SecretRefs` (`pkg/collection/identity.go`, lines
+150 to 184; 986's fix added the last three).
+
+**Lesson.** Before ordering two digests, list what each one hashes. A digest that names a part by string does not move
+when the part changes.
+
+## 1025. The group-digest fallback compared a recorded group digest with the digest of the group this build routes the method to, which is release data (fixed before push, the class of 988 and 1019; LESSONS 415)
+
+**Symptom.** Found in review on this branch, before push. For an entry with an identity and no undo digest, the
+planner compared the recorded group digest with the digest of the group this build's `FirstPartyGroupOf` names. After a
+release moves the method, that is another group's digest, and the comparison reads as a skew for a reason that has
+nothing to do with the undo.
+
+**Root cause.** 988's class: the reader compared against a value its own release decides.
+
+**Fix.** `9b701120`. The fallback compares the recorded digest with the digest of the group the entry recorded, while
+this build holds methods of that group. Only when this build holds none of that group's methods is the routed group
+compared. Test, red on the old code: `TestBuild_TheGroupFallbackComparesTheGroupTheEntryRecorded`
+(`internal/rollback/skew_review_test.go`).
+
+**Lesson.** LESSONS 422: compare a stored value with what its own release said, not with this release's routing.
+
+## 1026. The plan's warnings and the Runner's skew note reached only process logs, so a Walk operator never saw what a rollback accepted (fixed before push; two parts left open by design)
+
+**Symptom.** Found in review on this branch, before push. The Controller's plan warnings and the Runner's note for a
+step run under an accepted skew went only to the process logs, which a Walk operator does not read.
+
+**Root cause.** The warnings were written for the CLI, where the operator reads the process's output. The owner's rule
+for the dispatch's identity warnings (PR 4: the Runner's log plus a `task.warning` job event) had not been applied here.
+
+**Fix.** `baa22d2c`. The Runner publishes a `task.warning` job event for each step it runs under an accepted skew,
+beside its own log line. `POST /jobs/{id}/rollback` answers 202 with `warnings`, always a list, each with its node,
+device and message. Tests: `TestAdapter_Execute_PublishesTheSkewItAccepted`
+(`internal/adapters/native/rollback_skew_test.go`), `TestRollbackJob_AnswersWithThePlansWarnings`
+(`internal/api/dispatcher_rollback_skew_test.go`), and the Walk rollback gate, which reads the skewed rollback's job log
+and finds each step's warning.
+
+**Open, by design.** The Controller does not post the plan's warnings as job events: its NATS grant
+(`meshid.ControllerGrant`) does not publish on job log subjects, which only a Runner does, so under operator mode such a
+publish would be denied with no reply. The UI's record action can only redirect, and no notice survives a redirect.
+
+**Lesson.** A warning is written where the person who acts on it reads, on each tier.
+
+## 1027. The Controller computed GroupDigest eagerly for every rollback step, about 1 ms each, or about 5 s for 1,000 devices (fixed before push, the class of 490 and 855)
+
+**Symptom.** Found in review on this branch, before push. The Controller's planner digested a step's whole group
+for every step, whether or not the result was compared or printed.
+
+**Root cause.** A per-item cost that grows with the group, paid where most items never use it.
+
+**Fix.** `e3bb4cbc`. The group digest is computed only for an entry that recorded no undo digest, or for a message.
+Test: `TestSkew_DigestsTheGroupOnlyWhenItMustCompareOrSayIt` (`internal/rollback/skew_lazy_internal_test.go`).
+
+**Lesson.** As 490 and 855: a cost paid once per item is measured against the largest job, and computed only where its
+answer is read.
+
+## 1028. Stored FQCNs and node ids were printed raw in rollback refusals, warnings, job events and the API's problem and warning fields, so a U+202E reached the 422 body (fixed before push, a repeat of 257 and 619)
+
+**Symptom.** Found in review on this branch, before push. A Walk journal row is a Runner's to write. Neither the
+Controller's subscriber nor the planner holds its FQCN, undo FQCN or node id to a shape, so a direction override or a
+zero-width character in one reached a refusal, a warning, the API body and the job's log as written. A U+202E reached
+the 422 body.
+
+**Root cause.** `internal/termsafe` escapes only what a terminal acts on, and JSON escapes only control characters. A
+format character passes both.
+
+**Why 257 and 619 did not prevent it.** Both were third-party text printed raw, and each fix quoted the text at the
+place that printed it. The rollback's text comes from a stored row, and the new messages were written without asking
+where their names came from.
+
+**Fix.** `4a9de8bd`. `rollback.Printable` (`internal/rollback/printable.go`) passes plain visible ASCII as it is, which
+every registered method and graph node id is, and quotes anything else. Every rollback message uses it, as do the API's
+problem and warning node fields, a Runner's skew note and the CLI's accept hints. Tests:
+`TestPrintable_QuotesOnlyWhatIsNotAPlainName`, `TestBuild_PrintsAStoredMethodNameAndNodeIdEscaped`
+(`internal/rollback`), `TestRollbackJob_PrintsAStoredGroupAndNodeEscaped` (`internal/api`),
+`TestAdapter_Execute_PrintsADispatchedNameEscapedInTheJobLog` (`internal/adapters/native`), and
+`TestRollbackCommand_PrintsAGroupEscaped` (`cmd/pleiades`).
+
+**Lesson.** A name read from a stored row is third-party text. Print it through one helper that passes only what a
+reader can see as written.
+
+## 1029. Text claimed more than the code did: "every recorded value is still checked", "a moved group is never a refusal", "a Runner under an older Controller refuses every changed step", a "matches" warning when nothing was compared, and a test comment citing "finding 1's deadlock" (fixed before push, a repeat of 228, 571 and 1006)
+
+**Symptom.** Found in review on this branch, before push.
+- "Every recorded value is still checked" was said in three places while the planner held a recorded value to its type
+  and not its choices.
+- "A moved group is never a refusal" was true only off the group-digest fallback.
+- "A Runner under an older Controller refuses every changed step": an older Controller sends no digests, so nothing is
+  compared.
+- The warning for a node `allow_skew` named with no digests said the undo "matches" this Controller's declarations,
+  when nothing was compared.
+- A test comment cited "finding 1's deadlock", which no record holds.
+
+**Root cause.** 228's class: sentences written to the plan rather than to the code, and not reread when the code
+changed.
+
+**Why 228, 571 and 1006 did not prevent it.** Their rule is still checked only by a review. 1006 was the day before, in
+PR 4 of the same phase.
+
+**Fix.** The first claim became true with 1018's fix (`e3bb4cbc`), which holds every recorded value to its type and its
+choices. The "matches" warning now says nothing was compared, and the test comment is gone (`e3bb4cbc`;
+`TestBuild_AllowSkewOnANodeWithNoDigestsSaysNothingWasCompared`). The guide's moved-group and older-Controller sentences
+were corrected in `044cf7b4`.
+
+**Lesson.** As 1006: before review, reread each sentence the branch added against the code it describes, and say each
+exception in the same sentence.
+
+## 1030. The journal's EntStore.saveOne cleared an identity with no log, so a caller other than the subscriber lost an identity with no trace (fixed before push, a repeat in kind of 883; LESSONS 244)
+
+**Symptom.** Found in review on this branch, before push. `b62e4d37` (1007's fix) held each saved entry to the identity
+rule in the store and logged the reasons in the subscriber only. The store's `Save` dropped them, so any other caller
+cleared an identity silently.
+
+**Root cause.** The rule moved into the store, and its report stayed with one caller.
+
+**Why 883 did not prevent it.** 883's lesson says each drop names what it dropped. The drop here was named on the
+subscriber's path and not on its sibling (LESSONS 244).
+
+**Fix.** `8b7f1b6e`. The store logs each cleared identity or undo digest with the job, device, node, fqcn and reason,
+through the logger `cmd/controller` hands it (`WithStoreLogger`) or the process default. Test:
+`TestEntStoreLogsToTheLoggerItIsGiven` (`internal/journal/ent_store_logger_test.go`).
+
+**Lesson.** A drop is reported where the drop happens, so every caller of that code gets the report.
+
+## 1031. The Controller holds a Runner's delivered Collection identity to wire.CollectionIdentity.Valid, whose format-character check reads Go's Unicode tables, so a Controller built with a newer Go could clear an identity an older Runner's Valid accepted (open: an owner decision; low severity; in the facts subscriber on main since 7bee73af, 2026-11-08, and in the journal store since b62e4d37 on this branch; the class of 1003 and 1019)
+
+**Symptom.** Found by records-keeper on `feat/provider-identity-136b-5`, 2026-11-08, while writing 1019 and 1007's
+resolution. Reasoned from the code, not run. Two places on the Controller hold an identity a Runner sent to `Valid`:
+the journal store (`identityProblems`, `internal/journal/identity.go`) and the facts subscriber
+(`facts.Provenance.CheckDeliveredCollection`, `internal/facts/provenance.go`). `Valid`'s format-character check reads
+Go's Unicode tables (1003). Unicode can move an assigned code point into another category: U+180E MONGOLIAN VOWEL
+SEPARATOR went from Zs to Cf in Unicode 6.3. So a Controller built with a newer Go than its Runner could refuse, under
+`Valid`, an identity the Runner's `Valid` accepted, and clear it.
+
+**Severity.** Low. The identity is cleared and logged, never refused. The facts and the journal row are kept. Every
+first-party group name is ASCII (the 30 in `pkg/collection/firstparty.go`), so only a group named by an external program
+could carry such a character.
+
+**Root cause.** LESSONS 422's class, with the toolchain as the release data. 1019's fix moved the Controller from
+`CheckCollection` to `CheckDeliveredCollection` and kept `Valid` there, on the view that `Valid` depends on no release.
+1003 showed it reads the Unicode tables, and LESSONS 415's correction says the same of readers. A Controller storing a
+Runner's value is in the reader's position for the release data its check reads.
+
+**Remedy options, for the owner.**
+- At the Controller, hold a delivered identity to `Shape` plus the Program and ProviderProgram rule, and keep `Valid`
+  only where the identity is made (the Runner's engine and the loader).
+- Or accept it, and say so in `docs/13-releases-and-stability.md`.
+
+**Status.** Open. Nothing was changed on this branch.
+
+**Lesson.** Pending the decision. LESSONS 415 and 422: a check on a value another process made reads only what no
+release, the toolchain's included, can change.

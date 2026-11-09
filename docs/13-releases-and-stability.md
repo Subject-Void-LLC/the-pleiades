@@ -157,6 +157,62 @@ change that adds a format keeps every earlier one readable, and a frozen format-
 journal holding every kind of entry is read back by every build's tests. 0.3.0 predates the field: it refuses a journal 0.4.0 wrote,
 naming the unknown `format` key rather than the version.
 
+From 0.4.0 each entry also names the Collection its method came from: the group, the
+version of The Pleiades it was linked into, and a digest of the group's method
+declarations, with a digest of the undo's own declaration beside it. A rollback
+compares the undo's digest with its own build's. That digest covers the undo's
+declaration and every part of its method's parameters that decides how it replays
+(each one's type, whether it is required, its default, the parameter it is an alias of,
+its choices and its format), so a changed default under a parameter the undo does not
+record reads as a difference too. The same digest replays as before. A different one is
+refused, naming both versions and both digests, until `pleiades rollback --allow-skew
+<node>` (the API's `allow_skew`) accepts it by node. A group whose documentation alone
+changed moves only the group's digest, so it needs no flag. A method a later release
+moves to another group is a warning, and a refusal only where the entry recorded no
+undo digest: then the group's digest is compared, the digest of the group the entry
+recorded while this build still has that group (else the one this build places the
+method in), and a group a method moved out of has changed, so such an entry is refused
+until named.
+
+Whatever is named, every recorded value is still held to the build's own
+declarations, and only `--leave` answers what fails: a value under a parameter the undo
+does not record, a value of another type than the parameter takes or outside the
+choices it declares, and a parameter the undo's method requires that the run did not
+record. So an entry with no identity (a journal from before 0.4.0) is checked against
+the build's declarations alone, and the plan says so.
+
+What a plan wants read without refusing (a Collection whose declarations changed while
+the undo's did not, an entry checked against this build alone, a skew accepted and the
+digests it accepted) is printed by `pleiades rollback` before its plan and listed under
+`rollback.warnings` in its `--json` report, and `POST /jobs/{id}/rollback` returns it in
+its `202` answer's `warnings`. On the Walk tier the Runner makes the same comparison
+against its own build, and each step it runs under a skew the rollback accepted is a
+warning in the job's log. So a node named in `allow_skew` is accepted even where the
+Controller's declarations match the recording. The CLI, which plans and runs in one
+process, refuses `--allow-skew` naming a node with no skew to accept, or one also named
+to `--leave`. Both tiers refuse a name for a node the run did not change (one the
+journal lacks, one that ran without a change, one that failed with an effect nobody
+knows), since nothing of it is replayed.
+
+The Controller stores a Runner's journal rows and facts with only an identity that
+passes the writer's check: any other is stored as none, with a warning naming the job,
+device, node and method, and the row is kept. It never holds a Runner's identity to its own grouping of methods, which a later
+release may change; a difference is logged at info level and the identity is kept as
+sent.
+
+Builds of two releases side by side do not refuse each other's rows, but one may
+refuse what the other would run. A Controller of an earlier release sends a
+rollback's steps with no Collection identity or undo digest, so a Runner of this
+release under it compares nothing and holds each step to its own declarations alone.
+A newer Controller may refuse, with `--leave` the only answer, a recorded value only
+its own newer declarations reject.
+
+**`--allow-skew` is advisory until Collection identities are signed.** The digests are
+computed from public declarations, so whoever can write a journal can write the
+digests a build computes and suppress the comparison. It keeps an operator from
+replaying an undo recorded under other declarations unawares; the checks of each
+recorded value against the build's declarations are what hold either way.
+
 ### Dispatch payload
 
 The message a Controller sends a Runner for each device of a job. It carries

@@ -751,6 +751,12 @@ func TestEntStoreRoundTripsEveryFieldByReflection(t *testing.T) {
 	// anything else.
 	want.Outcome, want.FailureStage, want.SkipKind = engine.OutcomeFailed, engine.FailureStageAction, engine.SkipKindWhenCEL
 	want.JobID = "job-reflect"
+	// And the identity is one the engine writes, which is all the store
+	// keeps (identity.go): a program's (Program and ProviderProgram are both
+	// set above), so no version, and digests of a digest's shape.
+	want.Collection.Version = ""
+	want.Collection.Manifests = "sha256:" + strings.Repeat("c", 64)
+	want.InverseSpecDigest = "sha256:" + strings.Repeat("d", 64)
 
 	if _, err := store.Save(ctx, []engine.JournalEntry{want}); err != nil {
 		t.Fatalf("Save: %v", err)

@@ -21,7 +21,10 @@ func TestRollback_AStepCarriesItsJournalIdentity(t *testing.T) {
 	made := &f.journal.entries[f.jobID][0]
 	made.Collection, made.InverseSpecDigest = identity, undo
 
-	id, err := f.dispatcher.Rollback(t.Context(), "grace@example.com", f.jobID, api.RollbackRequest{Mode: collection.ModeExecute, Leave: []string{"tasks[1]"}})
+	// Digests no build computes, so the plan stands only with allow_skew
+	// naming the node (dispatcher_rollback_skew_test.go covers that rule).
+	id, err := f.dispatcher.Rollback(t.Context(), "grace@example.com", f.jobID, api.RollbackRequest{Mode: collection.ModeExecute,
+		Leave: []string{"tasks[1]"}, AllowSkew: []string{"tasks[0]"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -32,7 +35,7 @@ func TestRollback_AStepCarriesItsJournalIdentity(t *testing.T) {
 	if job.Rollback == nil || len(job.Rollback.Devices) != 1 || len(job.Rollback.Devices[0].Steps) != 1 {
 		t.Fatalf("the rollback plan %+v", job.Rollback)
 	}
-	if step := job.Rollback.Devices[0].Steps[0]; step.Collection != identity || step.UndoDigest != undo {
+	if step := job.Rollback.Devices[0].Steps[0]; step.Collection != identity || step.UndoDigest != undo || !step.SkewAccepted {
 		t.Errorf("the step carries %+v and %q, want %+v and %q as the journal recorded them", step.Collection, step.UndoDigest, identity, undo)
 	}
 }

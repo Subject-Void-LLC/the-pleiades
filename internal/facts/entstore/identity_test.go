@@ -4,10 +4,12 @@
 package entstore_test
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -26,26 +28,36 @@ import (
 var gatherIdentity = wire.CollectionIdentity{Group: "facts", Version: "0.4.0", Manifests: "sha256:" + strings.Repeat("ab", 32)}
 
 // TestSubscriber_KeepsARunnersIdentityAndDropsOneNoBuildWrites: a batch
-// naming the identity of the group its method belongs to is stored with it;
-// one naming another group's, or one that is not an identity's shape, is
-// stored with its facts and no identity.
+// naming an identity that passes Valid is stored with it as sent, whichever
+// group this controller's build routes its method to, since a group list
+// grown or a method moved between the Runner's build and this one reads
+// differently here (LESSONS 415), and that difference is logged at info; one
+// that fails Valid (a digest of the wrong shape, a format character in its
+// group) is stored with its facts and no identity, with a warning.
 func TestSubscriber_KeepsARunnersIdentityAndDropsOneNoBuildWrites(t *testing.T) {
 	ctx := context.Background()
 	admitted := func(context.Context, string, string) (journal.Admission, error) { return journal.AdmitDispatched, nil }
+	formatChar := gatherIdentity
+	formatChar.Group = "fa" + string(rune(0x202e)) + "cts"
 	for _, c := range []struct {
-		name string
-		id   wire.CollectionIdentity
-		want wire.CollectionIdentity
+		name  string
+		id    wire.CollectionIdentity
+		want  wire.CollectionIdentity
+		level string
 	}{
-		{"the method's group", gatherIdentity, gatherIdentity},
-		{"another group", wire.CollectionIdentity{Group: "file", Version: "0.4.0", Manifests: gatherIdentity.Manifests}, wire.CollectionIdentity{}},
-		{"a program's, for a first-party method", wire.CollectionIdentity{Group: "facts", Program: true, Manifests: gatherIdentity.Manifests}, wire.CollectionIdentity{}},
-		{"a digest of the wrong shape", wire.CollectionIdentity{Group: "facts", Version: "0.4.0", Manifests: "sha256:ABC"}, wire.CollectionIdentity{}},
+		{name: "the method's group", id: gatherIdentity, want: gatherIdentity},
+		{name: "another group", id: wire.CollectionIdentity{Group: "file", Version: "0.4.0", Manifests: gatherIdentity.Manifests},
+			want: wire.CollectionIdentity{Group: "file", Version: "0.4.0", Manifests: gatherIdentity.Manifests}, level: "INFO"},
+		{name: "a program's, for a first-party method", id: wire.CollectionIdentity{Group: "facts", Program: true, Manifests: gatherIdentity.Manifests},
+			want: wire.CollectionIdentity{Group: "facts", Program: true, Manifests: gatherIdentity.Manifests}, level: "INFO"},
+		{name: "a digest of the wrong shape", id: wire.CollectionIdentity{Group: "facts", Version: "0.4.0", Manifests: "sha256:ABC"}, level: "WARN"},
+		{name: "a format character in the group", id: formatChar, level: "WARN"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			client, device := open(t)
 			store := entstore.New(client)
-			sub := entstore.NewSubscriber(store, nil, admitted)
+			var logged bytes.Buffer
+			sub := entstore.NewSubscriber(store, slog.New(slog.NewTextHandler(&logged, &slog.HandlerOptions{Level: slog.LevelDebug})), admitted)
 			batch := facts.Batch{JobID: "job-1", DeviceID: device, Attempt: 1, ObservedAt: time.Now(),
 				Entries: prepared(t, map[string]any{"os.kernel.release": "6.18.33"}),
 				By:      facts.Provenance{Run: "run-1", Node: "tasks[0]", Method: "facts.gather", Runner: "r1", Collection: c.id}}
@@ -62,8 +74,28 @@ func TestSubscriber_KeepsARunnersIdentityAndDropsOneNoBuildWrites(t *testing.T) 
 			if v, err := store.Verify(ctx, device); err != nil || v.Break != nil || v.Values != 1 {
 				t.Fatalf("Verify = %+v, %v; want one chained value", v, err)
 			}
+			said := identityLines(logged.String())
+			switch {
+			case c.level == "" && len(said) != 0:
+				t.Errorf("logged %q about an identity this build routes the same way", said)
+			case c.level != "" && (len(said) != 1 || !strings.Contains(said[0], "level="+c.level)):
+				t.Errorf("logged %q, want one %s line about the identity", said, c.level)
+			case strings.Contains(logged.String(), string(rune(0x202e))):
+				t.Errorf("a log line holds the group's format character raw:\n%s", logged.String())
+			}
 		})
 	}
+}
+
+// identityLines returns the log lines that speak of a Collection identity.
+func identityLines(log string) []string {
+	var out []string
+	for _, line := range strings.Split(log, "\n") {
+		if strings.Contains(line, "Collection identity") {
+			out = append(out, line)
+		}
+	}
+	return out
 }
 
 // TestStore_ARowEditedToAnotherIdentityBreaksTheChain: the chain covers the

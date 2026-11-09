@@ -134,6 +134,26 @@
         "device": "name-of-h1",
         "reason": "its rollback: list is empty, which says undoing it means doing nothing"
       }
+    ],
+    "warnings": [
+      {
+        "node": "tasks[6]",
+        "device_id": "h2",
+        "device": "name-of-h2",
+        "message": "rb.copy was recorded with no Collection identity, so its undo was checked against this build's declarations only"
+      },
+      {
+        "node": "tasks[0]",
+        "device_id": "h1",
+        "device": "name-of-h1",
+        "message": "rb.make was recorded with no Collection identity, so its undo was checked against this build's declarations only"
+      },
+      {
+        "node": "tasks[0]",
+        "device_id": "h2",
+        "device": "name-of-h2",
+        "message": "rb.make was recorded with no Collection identity, so its undo was checked against this build's declarations only"
+      }
     ]
   }
 }

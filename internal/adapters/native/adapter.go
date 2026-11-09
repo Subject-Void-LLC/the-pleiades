@@ -204,9 +204,22 @@ func (a *Adapter) Execute(ctx context.Context, payload wire.DispatchPayload) (wi
 	// held to this Runner's copy of the runbook first (rollback.go).
 	var rollbackOption engine.ExecutorOption = func(*engine.Executor) {}
 	if payload.Rollback != nil {
-		dag, rollbackOption, err = rollbackDAG(dag, payload)
+		var skews []string
+		dag, rollbackOption, skews, err = rollbackDAG(a.logger, dag, payload)
 		if err != nil {
 			return wire.Outcome{}, a.refuse(ctx, payload, err)
+		}
+		// Each step run under other declarations than it was recorded under,
+		// which the rollback accepted by name, goes to the job's log as a
+		// task.warning as well as to the Runner's: only this Runner knows what
+		// the name accepted here, and the job's log is where an operator reads.
+		for _, skew := range skews {
+			event := wire.JobEvent{Status: "ok", Host: payload.DeviceHost, Task: "task.warning"}
+			event.Timestamp = time.Now().UTC().Format(time.RFC3339)
+			event.EventData.Message = "WARNING: " + skew
+			if err := a.publish(ctx, payload.JobID, event); err != nil {
+				return wire.Outcome{}, fmt.Errorf("failed to publish a warning: %w", err)
+			}
 		}
 	}
 

@@ -1208,7 +1208,7 @@ func main() {
 	// Named rather than inlined, because the UI's Tasks tab reads the same
 	// store the subscriber writes. One value, so a deployment cannot end
 	// up recording into one database and reading from another.
-	journalStore := journal.NewEntStore(client)
+	journalStore := journal.NewEntStore(client, journal.WithStoreLogger(logger))
 	// A batch is stored only for a device this Controller dispatched: any
 	// Runner may publish on any job's journal subject (internal/journal's
 	// admission.go says what that does and does not close).

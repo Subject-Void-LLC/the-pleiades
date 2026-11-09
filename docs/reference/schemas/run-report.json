@@ -354,6 +354,16 @@
             "array",
             "null"
           ]
+        },
+        "warnings": {
+          "description": "Warnings are what to read about the changes the rollback undoes: an undo checked against this build's declarations alone, a Collection whose declarations changed while the undo's did not, or a skew accepted by --allow-skew, naming the digests it accepted.",
+          "items": {
+            "$ref": "#/$defs/Warning"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
         }
       },
       "required": [
@@ -471,7 +481,7 @@
         },
         "collection": {
           "$ref": "#/$defs/CollectionIdentity",
-          "description": "Collection and UndoDigest are what the journal recorded for a recorded undo: the identity of the Collection the node's method came from (engine.JournalEntry.Collection) and the digest of the undo's declaration (JournalEntry.InverseSpecDigest). Both are empty for an authored step and for an entry that recorded neither. The plan carries them to a Runner (wire.RollbackStep) and decides nothing by them yet."
+          "description": "Collection and UndoDigest are what the journal recorded for a recorded undo: the identity of the Collection the node's method came from (engine.JournalEntry.Collection) and the digest of the undo's declaration (JournalEntry.InverseSpecDigest). Both are empty for an authored step and for an entry that recorded neither. The planner compares them with this build's declarations (skew.go), and the plan carries them to a Runner (wire.RollbackStep), which compares them with its own."
         },
         "device": {
           "description": "DeviceID and DeviceName name the device the step runs on: the one the node changed.",
@@ -510,12 +520,16 @@
           "description": "Partial marks a recorded undo that does not put everything back, run because the operator named it in AllowPartial.",
           "type": "boolean"
         },
+        "skew_accepted": {
+          "description": "SkewAccepted marks a recorded undo whose node the operator named in AllowSkew: run although its declarations differ from this build's, or, on the Walk tier, from the Runner's.",
+          "type": "boolean"
+        },
         "source": {
           "description": "Source says where the step came from: \"recorded\" or \"authored\".",
           "type": "string"
         },
         "undo_digest": {
-          "description": "Collection and UndoDigest are what the journal recorded for a recorded undo: the identity of the Collection the node's method came from (engine.JournalEntry.Collection) and the digest of the undo's declaration (JournalEntry.InverseSpecDigest). Both are empty for an authored step and for an entry that recorded neither. The plan carries them to a Runner (wire.RollbackStep) and decides nothing by them yet.",
+          "description": "Collection and UndoDigest are what the journal recorded for a recorded undo: the identity of the Collection the node's method came from (engine.JournalEntry.Collection) and the digest of the undo's declaration (JournalEntry.InverseSpecDigest). Both are empty for an authored step and for an entry that recorded neither. The planner compares them with this build's declarations (skew.go), and the plan carries them to a Runner (wire.RollbackStep), which compares them with its own.",
           "type": "string"
         }
       },
@@ -669,6 +683,32 @@
       },
       "required": [
         "rule",
+        "node",
+        "message"
+      ],
+      "type": "object"
+    },
+    "Warning": {
+      "description": "Warning is something the planner wants an operator to read about a change it plans to undo, which does not stop the plan: an undo checked against this build's declarations alone, a Collection whose declarations changed while the undo's own did not, or a skew accepted by name.",
+      "properties": {
+        "device": {
+          "description": "DeviceID and DeviceName name the device the node changed, when one.",
+          "type": "string"
+        },
+        "device_id": {
+          "description": "DeviceID and DeviceName name the device the node changed, when one.",
+          "type": "string"
+        },
+        "message": {
+          "description": "Message says what to know.",
+          "type": "string"
+        },
+        "node": {
+          "description": "Node is the node, in the run being undone, the warning is about.",
+          "type": "string"
+        }
+      },
+      "required": [
         "node",
         "message"
       ],

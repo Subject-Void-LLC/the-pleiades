@@ -32,11 +32,12 @@ import (
 func newRollbackFlags() (*flag.FlagSet, *runFlags, rollbackFlags) {
 	fs := flag.NewFlagSet("rollback", flag.ContinueOnError)
 	flags := addRunFlags(fs)
-	rf := rollbackFlags{leave: map[string]bool{}, allowPartial: map[string]bool{}, allowUnknown: map[string]bool{}, despite: map[string]bool{}}
+	rf := rollbackFlags{leave: map[string]bool{}, allowPartial: map[string]bool{}, allowUnknown: map[string]bool{}, allowSkew: map[string]bool{}, despite: map[string]bool{}}
 	rf.runbook = fs.String("runbook", "", "the runbook the run ran, when a task's undo is its rollback: list (found in DIR/runbooks when unset)")
 	namedList(fs, "leave", "a node whose change to leave in place rather than undo", rf.leave)
 	namedList(fs, "allow-partial", "a node whose partial undo to run anyway", rf.allowPartial)
 	namedList(fs, "allow-unknown", "a node whose unknown effect to accept, or unsealed for a journal with no seal", rf.allowUnknown)
+	namedList(fs, "allow-skew", "a node whose recorded undo to replay although its Collection's declarations differ from this build's", rf.allowSkew)
 	namedList(fs, "despite-run", "a later run whose changes to the same devices to undo beneath", rf.despite)
 	return fs, flags, rf
 }
@@ -83,8 +84,8 @@ func provisionalSteps(levels [][]rollback.Step, nodes map[string]string) []provi
 
 // rollbackFlags are the flags only rollback takes.
 type rollbackFlags struct {
-	runbook                                    *string
-	leave, allowPartial, allowUnknown, despite map[string]bool
+	runbook                                               *string
+	leave, allowPartial, allowUnknown, allowSkew, despite map[string]bool
 }
 
 // namedList registers a repeatable flag collecting names into set.
@@ -134,7 +135,7 @@ func runRollback(args []string) error {
 	plan, err := planRollback(opts.dir, runID, rf)
 	report := &rollbackReport{Of: runID, Levels: plan.Levels, Left: plan.Left, Unknown: plan.Unknown,
 		UnacceptedUnknown: plan.UnacceptedUnknown, AlreadyUndone: plan.AlreadyUndone, NothingToUndo: plan.NothingToUndo,
-		OrderedByClock: plan.OrderedByClock}
+		OrderedByClock: plan.OrderedByClock, Warnings: plan.Warnings}
 	var refused *rollback.RefusedError
 	switch {
 	case errors.As(err, &refused):
@@ -202,6 +203,9 @@ func planRollback(dir, runID string, rf rollbackFlags) (rollback.Plan, error) {
 		Target: rollback.Run{ID: target.ID, Entries: target.Entries, Sealed: target.Sealed, EndTick: target.EndTick},
 		Others: others, Devices: devices,
 		Leave: rf.leave, AllowPartial: rf.allowPartial, AllowUnknown: rf.allowUnknown, DespiteRuns: rf.despite,
+		// This process plans and runs every step, so a node named to
+		// --allow-skew that has no skew is refused rather than carried.
+		AllowSkew: rf.allowSkew, ExecutorIsPlanner: true,
 	}
 	req.Authored = authoredFrom(dir, *rf.runbook, target.Entries)
 	return rollback.Build(req)
@@ -353,7 +357,7 @@ func printRefusal(runID string, problems []rollback.Problem) {
 	for _, p := range problems {
 		fmt.Printf("  %s\n", problemText(p))
 		if p.Accept != "" {
-			fmt.Printf("    accept it with %s\n", p.Accept)
+			fmt.Printf("    accept it with %s\n", termsafe.EscapeLine(p.Accept))
 		}
 	}
 }
@@ -378,7 +382,7 @@ func problemLines(problems []rollback.Problem) []string {
 	for _, p := range problems {
 		line := problemText(p)
 		if p.Accept != "" {
-			line += " (accept it with " + p.Accept + ")"
+			line += " (accept it with " + termsafe.EscapeLine(p.Accept) + ")"
 		}
 		out = append(out, line)
 	}
@@ -398,6 +402,15 @@ func printGaps(plan rollback.Plan) {
 			}
 			fmt.Printf("%s: %s: %s\n", list.title, termsafe.EscapeLine(where), termsafe.EscapeLine(g.Reason))
 		}
+	}
+	// Each warning names the Collection and digests the plan compared,
+	// escaped: a stored group may hold a character a terminal acts on.
+	for _, w := range plan.Warnings {
+		where := w.Node
+		if w.DeviceName != "" {
+			where += " on " + w.DeviceName
+		}
+		fmt.Printf("warning: %s: %s\n", termsafe.EscapeLine(where), termsafe.EscapeLine(w.Message))
 	}
 	for _, id := range plan.OrderedByClock {
 		fmt.Printf("ordered by clock: run %s's journal, or this run's, predates the project's run counter, so whether it came later was read from the journals' clock times\n", termsafe.EscapeLine(id))

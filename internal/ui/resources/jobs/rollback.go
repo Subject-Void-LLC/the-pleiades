@@ -37,6 +37,7 @@ const (
 	rollbackLeave        = "leave"
 	rollbackAllowPartial = "allow_partial"
 	rollbackAllowUnknown = "allow_unknown"
+	rollbackAllowSkew    = "allow_skew"
 	rollbackDespiteJob   = "despite_job"
 	rollbackSettings     = "method_settings"
 )
@@ -63,6 +64,10 @@ var rollbackFields = []view.Field{
 	{
 		Name: rollbackAllowUnknown, Label: "ACCEPT AN UNKNOWN EFFECT", Kind: view.KindTags, InForm: true,
 		Help: "Nodes that failed partway, whose effect nobody can know, to leave as they are; and unsealed, for a job a device never reported back from.",
+	},
+	{
+		Name: rollbackAllowSkew, Label: "ACCEPT OTHER DECLARATIONS", Kind: view.KindTags, InForm: true,
+		Help: "Nodes whose recorded undo to replay although its Collection's declarations changed since the job ran. Every recorded value is still checked.",
 	},
 	{
 		Name: rollbackDespiteJob, Label: "UNDO BENEATH A LATER JOB", Kind: view.KindTags, InForm: true,
@@ -113,6 +118,7 @@ func rollbackAction(rollbacker Rollbacker) view.RecordAction {
 				Leave:          v.Tags(rollbackLeave),
 				AllowPartial:   v.Tags(rollbackAllowPartial),
 				AllowUnknown:   v.Tags(rollbackAllowUnknown),
+				AllowSkew:      v.Tags(rollbackAllowSkew),
 				DespiteJobs:    v.Tags(rollbackDespiteJob),
 				MethodSettings: settings,
 			})

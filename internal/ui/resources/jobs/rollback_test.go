@@ -58,7 +58,11 @@ func TestRollbackProblems_WritesEachUnderTheFieldThatAcceptsIt(t *testing.T) {
 		{Node: "tasks[1]", Device: "web1", Reason: "its undo was not recorded in full", Field: "leave", Value: "tasks[1]"},
 		{Reason: "job j-9 changed web1 after this job began", Field: "despite_job", Value: "j-9"},
 		{Node: "tasks[0]", Device: "web1", Reason: "node tasks[0] runs file.directory"},
+		{Node: "tasks[2]", Device: "web1", Reason: "its undo was recorded under other declarations", Field: "allow_skew", Value: "tasks[2]"},
 	})
+	if got := errs["allow_skew"]; len(got) != 1 || !strings.Contains(got[0], "Add tasks[2] here") {
+		t.Errorf("allow_skew: %q", got)
+	}
 	if got := errs["leave"]; len(got) != 1 || !strings.HasPrefix(got[0], "tasks[1] on web1: its undo") || !strings.HasSuffix(got[0], "Add tasks[1] here to accept it.") {
 		t.Errorf("leave: %q", got)
 	}

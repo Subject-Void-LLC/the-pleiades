@@ -6,11 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"slices"
 	"sort"
 	"strings"
 
-	"github.com/Subject-Void-LLC/the-pleiades/internal/catalog/fragment"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 )
@@ -100,14 +98,28 @@ var errNothingToUndo = errors.New("its rollback: list is empty, which says undoi
 
 // stepsFor returns the steps that undo one change: the runbook's authored
 // rollback: steps when the entry says the task had them, otherwise the
-// undo the method recorded, checked against what the method declares. A
+// undo the method recorded, checked against what the method declares and
+// against the declarations it was recorded under (skew.go), with what the
+// operator should read about it, reading group digests through groups. A
 // present, empty rollback: list is errNothingToUndo; Authored tells it from
 // no list by nil, as the engine does.
-func stepsFor(req Request, e engine.JournalEntry) ([]Step, error) {
+func stepsFor(req Request, e engine.JournalEntry, groups groupDigests) ([]Step, []string, error) {
 	leave := "--leave " + e.NodeID
 	if e.AuthoredRollback {
-		return authoredSteps(req, e, leave)
+		steps, err := authoredSteps(req, e, leave)
+		return steps, nil, err
 	}
+	steps, warnings, err := recordedSteps(req, e, leave, groups)
+	var se *stepError
+	if err != nil && !errors.As(err, &se) && !errors.Is(err, errNothingToUndo) {
+		err = &stepError{reason: err.Error(), accept: leave}
+	}
+	return steps, warnings, err
+}
+
+// recordedSteps is stepsFor for an entry whose task had no rollback: list
+// when it ran: one written since, or the undo its method recorded.
+func recordedSteps(req Request, e engine.JournalEntry, leave string, groups groupDigests) ([]Step, []string, error) {
 	// A rollback: list written after the run counts too. The runbook's
 	// version does not hash rollback:, so a runbook found at the journal's
 	// version is still the one that ran, and its author's undo wins over a
@@ -117,57 +129,67 @@ func stepsFor(req Request, e engine.JournalEntry) ([]Step, error) {
 		tasks, err := req.Authored(e.NodeID)
 		switch {
 		case err == nil && tasks != nil && len(tasks) == 0:
-			return nil, errNothingToUndo
+			return nil, nil, errNothingToUndo
 		case err == nil && len(tasks) > 0:
-			return authoredList(e, tasks), nil
+			return authoredList(e, tasks), nil, nil
 		case errors.Is(err, ErrNoRunbook):
 			notFound = err
 		case err != nil:
-			return nil, &stepError{reason: err.Error(), accept: leave}
+			return nil, nil, &stepError{reason: err.Error(), accept: leave}
 		}
 	}
 	if e.InverseFQCN == "" {
-		reason := fmt.Sprintf("%s changed the device and recorded no undo", e.FQCN)
+		reason := fmt.Sprintf("%s changed the device and recorded no undo", Printable(e.FQCN))
 		if manifest, ok := collection.ManifestOf(e.FQCN); ok && !manifest.Reversibility.Reversible && manifest.Reversibility.Notes != "" {
-			reason = fmt.Sprintf("%s changed the device and cannot be undone (%s)", e.FQCN, strings.TrimSuffix(manifest.Reversibility.Notes, "."))
+			reason = fmt.Sprintf("%s changed the device and cannot be undone (%s)", Printable(e.FQCN), strings.TrimSuffix(manifest.Reversibility.Notes, "."))
 		}
 		reason += "; give the task a rollback: list in its runbook, or leave the change in place"
 		if notFound != nil {
 			reason += " (" + notFound.Error() + ")"
 		}
-		return nil, &stepError{reason: reason, accept: leave, noRunbook: notFound != nil}
+		return nil, nil, &stepError{reason: reason, accept: leave, noRunbook: notFound != nil}
 	}
-	if err := checkRecorded(e); err != nil {
-		return nil, &stepError{reason: err.Error(), accept: leave}
+	spec, target, err := checkRecorded(e)
+	if err != nil {
+		return nil, nil, err
 	}
 	if !e.InverseComplete && !e.InversePartial {
 		withheld := missingKeys(e)
-		return nil, &stepError{
+		return nil, nil, &stepError{
 			reason: fmt.Sprintf("%s's undo through %s was not recorded in full (%s kept out of the journal), so it cannot be replayed; give the task a rollback: list, or leave the change in place",
-				e.FQCN, e.InverseFQCN, strings.Join(withheld, ", ")),
+				Printable(e.FQCN), Printable(e.InverseFQCN), strings.Join(withheld, ", ")),
 			accept: leave,
 		}
 	}
 	if e.InversePartial && !req.AllowPartial[e.NodeID] {
-		return nil, &stepError{
-			reason: fmt.Sprintf("%s's undo through %s is partial: it does not put back everything the task overwrote", e.FQCN, e.InverseFQCN),
+		return nil, nil, &stepError{
+			reason: fmt.Sprintf("%s's undo through %s is partial: it does not put back everything the task overwrote", Printable(e.FQCN), Printable(e.InverseFQCN)),
 			accept: "--allow-partial " + e.NodeID,
 		}
 	}
 	if e.InversePartial && len(missingKeys(e)) > 0 {
-		return nil, &stepError{reason: fmt.Sprintf("%s's partial undo through %s was not recorded in full, so it cannot be replayed", e.FQCN, e.InverseFQCN), accept: leave}
+		return nil, nil, &stepError{reason: fmt.Sprintf("%s's partial undo through %s was not recorded in full, so it cannot be replayed", Printable(e.FQCN), Printable(e.InverseFQCN)), accept: leave}
 	}
 	params := map[string]any{}
+	have := map[string]bool{}
 	for _, p := range e.InverseParams {
 		v, _ := p.Value()
-		params[p.Key] = v
+		params[p.Key], have[p.Key] = v, true
+	}
+	// Only now, with every recorded value held to this build's declarations,
+	// does the comparison with the declarations it was recorded under run:
+	// what it may accept is a difference those checks have already passed.
+	k := skewOf(e.FQCN, e.Collection, e.InverseSpecDigest, *spec, target, groups)
+	accepted, warnings, err := judgeSkew(req, e.NodeID, k, e.FQCN, e.InverseFQCN, target, have)
+	if err != nil {
+		return nil, nil, err
 	}
 	return []Step{{
 		Node: e.NodeID, Index: 0, Emitter: e.FQCN, FQCN: e.InverseFQCN, Params: params, Source: SourceRecorded, Become: e.Become,
-		Name: fmt.Sprintf("undo %s (%s)", e.NodeID, labelOf(e)), Partial: e.InversePartial,
+		Name: fmt.Sprintf("undo %s (%s)", Printable(e.NodeID), labelOf(e)), Partial: e.InversePartial,
 		// Carried as recorded, for the Runner that runs the undo.
-		Collection: e.Collection, UndoDigest: e.InverseSpecDigest,
-	}}, nil
+		Collection: e.Collection, UndoDigest: e.InverseSpecDigest, SkewAccepted: accepted,
+	}}, warnings, nil
 }
 
 // authoredSteps returns an entry's authored rollback: steps from the
@@ -199,7 +221,7 @@ func authoredList(e engine.JournalEntry, tasks []engine.Task) []Step {
 		}
 		steps = append(steps, Step{
 			Node: e.NodeID, Index: i, Emitter: e.FQCN, FQCN: task.FQCN, Params: maps.Clone(task.Params), Source: SourceAuthored, Become: e.Become,
-			Name: fmt.Sprintf("undo %s (%s), step %d: %s", e.NodeID, labelOf(e), i+1, name),
+			Name: fmt.Sprintf("undo %s (%s), step %d: %s", Printable(e.NodeID), labelOf(e), i+1, name),
 		})
 	}
 	return steps
@@ -211,7 +233,7 @@ func labelOf(e engine.JournalEntry) string {
 	if e.TaskName != "" {
 		return e.TaskName
 	}
-	return e.FQCN
+	return Printable(e.FQCN)
 }
 
 // missingKeys returns the undo's parameter names whose values the journal
@@ -231,70 +253,4 @@ func missingKeys(e engine.JournalEntry) []string {
 		missing = append(missing, fmt.Sprintf("%d undeclared", e.UndeclaredInverseParamCount))
 	}
 	return missing
-}
-
-// checkRecorded holds a journaled undo to what its method declares,
-// rather than trusting the journal: a file an operator's account can
-// write, or a row a Runner published. The method must be a built-in one
-// this build knows, run by no external program, declaring an undo through
-// the recorded method; every
-// recorded value must sit under a key it declares recordable and the
-// target reads, and be a value the journal's own projection could have
-// written.
-func checkRecorded(e engine.JournalEntry) error {
-	// An external Collection's undo is never replayed, whatever the name
-	// reads as here: a Controller judges by its own catalog, and a method
-	// one build ran from a program could be built in to another
-	// (FAILURE_PATTERNS 841's review). The Runner holds every step again.
-	if e.ProviderProgram != "" {
-		return fmt.Errorf("the journal records %s as run by the external program %s, whose recorded undo is never replayed", e.FQCN, e.ProviderProgram)
-	}
-	spec, target, err := declaredUndo(e.FQCN, e.InverseFQCN)
-	if err != nil {
-		return err
-	}
-	if e.InversePartial && !spec.MayBePartial {
-		return fmt.Errorf("the journal marks %s's undo through %s partial, which %s never declares it can be, so it is not trusted", e.FQCN, e.InverseFQCN, e.FQCN)
-	}
-	declared := fragment.DeclaredIn(target)
-	seen := map[string]bool{}
-	for _, p := range e.InverseParams {
-		switch {
-		case seen[p.Key]:
-			return fmt.Errorf("the journal records undo parameter %q twice", p.Key)
-		case collection.IsReservedParam(p.Key) || !slices.Contains(spec.Record, p.Key) || !declared[p.Key]:
-			return fmt.Errorf("the journal records a value for undo parameter %q, which %s does not declare recordable for %s, so it is not trusted", p.Key, e.FQCN, e.InverseFQCN)
-		}
-		seen[p.Key] = true
-		if err := checkValue(p, engine.ListParam(e.InverseFQCN, p.Key)); err != nil {
-			return fmt.Errorf("undo parameter %q: %w", p.Key, err)
-		}
-	}
-	return nil
-}
-
-// checkValue holds one recorded value to the projection's own rules: a
-// list only for a parameter the undo method declares one (asList).
-func checkValue(p engine.InverseParam, asList bool) error {
-	set := 0
-	for _, isSet := range []bool{p.Text != nil, p.Number != nil, p.Bool != nil, p.Texts != nil} {
-		if isSet {
-			set++
-		}
-	}
-	if set != 1 {
-		return fmt.Errorf("holds %d values, want one", set)
-	}
-	if p.Text != nil && !engine.RecordableText(*p.Text) {
-		return fmt.Errorf("holds text the journal would never record")
-	}
-	if p.Texts != nil {
-		if _, ok := engine.RecordableTexts(p.Texts); !ok || !asList {
-			return fmt.Errorf("holds a list the journal would never record")
-		}
-	}
-	if _, ok := p.Value(); !ok {
-		return fmt.Errorf("holds a number that is not one")
-	}
-	return nil
 }

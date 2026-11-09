@@ -119,7 +119,7 @@ func TestBuild_RefusesAnExternalProgramsRecordedUndo(t *testing.T) {
 		_, err := rollback.Build(rollback.Request{Target: run, Devices: inventoryOf("h1")})
 		return err
 	}())
-	if len(problems) != 1 || !strings.Contains(problems[0].Reason, "external program acme-collection") {
+	if len(problems) != 1 || !strings.Contains(problems[0].Reason, `external program "acme-collection"`) {
 		t.Fatalf("problems = %+v, want the external program's undo refused", problems)
 	}
 }

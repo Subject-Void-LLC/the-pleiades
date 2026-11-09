@@ -15,7 +15,9 @@ import (
 // carries the identity and undo digest its entry recorded, as recorded, for
 // the Runner that runs it; an entry that recorded neither (one written
 // before the journal did) gives a step with neither, and an authored step,
-// which the runbook rather than a manifest describes, carries neither.
+// which the runbook rather than a manifest describes, carries neither. The
+// identity is one no build of the fixture computes, so the step is planned
+// only because allow_skew names it (skew_test.go covers that).
 func TestBuild_ARecordedStepCarriesItsJournalIdentity(t *testing.T) {
 	registerShapes(t)
 	identity := wire.CollectionIdentity{Group: "rb", Version: "0.4.0", Manifests: wire.ManifestDigestPrefix + strings.Repeat("e", 64)}
@@ -25,7 +27,7 @@ func TestBuild_ARecordedStepCarriesItsJournalIdentity(t *testing.T) {
 	started := undo(entry("run-A", "tasks[1]", "h1", 2, "rb.start", engine.OutcomeChanged), "rb.stop", map[string]any{"name": "bsd"})
 	run := rollback.Run{ID: "run-A", Sealed: true, Entries: []engine.JournalEntry{made, started}}
 
-	plan, err := rollback.Build(rollback.Request{Target: run, Devices: inventoryOf("h1")})
+	plan, err := rollback.Build(rollback.Request{Target: run, Devices: inventoryOf("h1"), AllowSkew: map[string]bool{"tasks[0]": true}})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -33,7 +35,7 @@ func TestBuild_ARecordedStepCarriesItsJournalIdentity(t *testing.T) {
 	for _, s := range plan.Steps() {
 		byNode[s.Node] = s
 	}
-	if s := byNode["tasks[0]"]; s.Collection != identity || s.UndoDigest != undoDigest {
+	if s := byNode["tasks[0]"]; s.Collection != identity || s.UndoDigest != undoDigest || !s.SkewAccepted {
 		t.Errorf("the recorded step carries %+v and %q, want %+v and %q as the journal recorded them", s.Collection, s.UndoDigest, identity, undoDigest)
 	}
 	if s := byNode["tasks[1]"]; !s.Collection.IsZero() || s.UndoDigest != "" {

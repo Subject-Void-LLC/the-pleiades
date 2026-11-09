@@ -51,7 +51,7 @@ func Runbook(id string, levels [][]Step, targets bool) ([]byte, map[string]engin
 			children = append(children, stepTask(s))
 			undoes[NodeID(levels, i, j)] = engine.Undo{Node: s.Node, Step: s.Index}
 		}
-		tasks = append(tasks, map[string]any{"name": fmt.Sprintf("undo %s on %d devices", level[0].Node, len(level)), "parallel": children})
+		tasks = append(tasks, map[string]any{"name": fmt.Sprintf("undo %s on %d devices", Printable(level[0].Node), len(level)), "parallel": children})
 	}
 	payload, err := yaml.Marshal(map[string]any{"id": id, "tasks": tasks})
 	if err != nil {

@@ -311,6 +311,11 @@ type RollbackReport struct {
 	// was read from the journals' clock times, because a journal predates the
 	// project's run counter; every other run was ordered by the counter.
 	OrderedByClock []string `json:"ordered_by_clock,omitempty"`
+	// Warnings are what to read about the changes the rollback undoes: an
+	// undo checked against this build's declarations alone, a Collection
+	// whose declarations changed while the undo's did not, or a skew
+	// accepted by --allow-skew, naming the digests it accepted.
+	Warnings []rollback.Warning `json:"warnings,omitempty"`
 	// Problems are why the rollback was refused, when it was.
 	Problems []rollback.Problem `json:"problems,omitempty"`
 	// Provisional are, in a check, the steps on a device an earlier step of

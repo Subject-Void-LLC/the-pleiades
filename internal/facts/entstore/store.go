@@ -52,9 +52,13 @@ func (s *Store) Record(ctx context.Context, device string, obs facts.Observation
 	if len(obs.Entries) == 0 {
 		return nil
 	}
-	// The file store's rule (Phase 136b): a provenance naming a Collection
-	// identity no build writes for its method is never stored.
-	if err := obs.By.CheckCollection(); err != nil {
+	// A provenance naming a Collection identity no engine writes is never
+	// stored (Phase 136b). Unlike the file store, which keeps what its own
+	// build's engine made, this store keeps what a Runner of any build made,
+	// so it holds the identity only to the part of the rule no build's group
+	// list changes (CheckDeliveredCollection): how that Runner routed the
+	// method is its build's to say.
+	if err := obs.By.CheckDeliveredCollection(); err != nil {
 		return fmt.Errorf("%w: %w", facts.ErrInvalid, err)
 	}
 	tx, err := s.client.Tx(ctx)

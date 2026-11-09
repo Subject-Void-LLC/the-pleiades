@@ -7719,3 +7719,44 @@ the code that resolves that address (the handler, the remote server, the store l
 the round trip through the real resolver: build the address for a name holding the hard characters (`/`, `;`, `%`, a
 space, `..`) and check that resolving it reaches that same name. When the resolver is out of scope, as N1 was here,
 record it as an open failure pattern in the same change, so the fixed side is not read as the whole fix.
+
+## 421. A rule that must hold in every case runs beside a comparison, never inside the branch a difference opens: that branch never runs where nothing could be compared, so list the cases with no input to compare and hold each to the rule (a refinement in kind of 244; FAILURE_PATTERNS 1022)
+
+**Why.** Phase 136b PR 5 (`feat/provider-identity-136b-5`, 2026-11-08). The rollback planner checked that a recorded
+undo gives every parameter its method requires, but only once it found a skew between the recorded declarations and
+this build's. An entry with no Collection identity, and one with an identity and no undo digest, could not be compared,
+so they skipped the check and planned an undo missing a required parameter. The first fix ran the check unless the undo
+digest matched this build's, and a second review found that this still waived it for a forged entry carrying a
+matching digest. The check is now unconditional on both tiers (FAILURE_PATTERNS 1022).
+
+**What is old and what is new.** LESSONS 244 says a guard on one path is checked for on its sibling, and LESSONS 138
+says "I could not look" is a third answer, apart from "it is not there". Here the paths were branches of one comparison.
+Its "no difference" answer held two cases, compared and equal, and nothing to compare, and the rule was skipped in
+both. An equal digest was not proof either, since a stored digest is only what the writer put there.
+
+**Rule in practice.** When a check sits inside a comparison's branch, ask whether it depends on the comparison. If it
+does not, move it out. List the inputs where the comparison has nothing to read (no identity, no digest, a fallback, a
+record from before the field), and test each against every rule that does not depend on the comparison.
+
+## 422. In a mixed-version window, a rule on release data runs only in the process whose release made the value: a process that stores or reads another process's value holds it to rules no release changes, and notes a difference from its own release data without refusing or editing the value (a refinement of 415; FAILURE_PATTERNS 1019, 1020, 1025)
+
+**Why.** Phase 136b PR 5, 2026-11-08. The Controller's facts subscriber held a Runner's Collection identity to
+`facts.Provenance.CheckCollection`, which compares the identity's group with the Controller's own
+`collection.FirstPartyGroupOf`. When a release adds a group or moves a method, a correct Runner and its Controller
+disagree, and the subscriber erased the identity with a warning that called it one no build writes. The chain hashed
+the empty identity, so the provenance could not be recovered (FAILURE_PATTERNS 1019). The rollback planner's
+group-digest fallback compared with the group this build routes the method to (1025). `builtinProvenance` drops a newer
+Runner's built-in facts by the Controller's own catalog and fact floor, which is still open (1020).
+
+**What is old and what is new.** LESSONS 415 says a rule that depends on data a later release may change runs only where
+the value is written, and 988's fix applied it to one process across two releases. vuln-corpus finding
+C19_auto-roboto_2026-11-08 kept the subscriber's check on purpose, since the Controller writes its own store. LESSONS
+397 names the mixed-release pair for a value whose meaning changes. The new part: when two processes of two releases run
+at once, "where the value is written" means the process whose build made it. The process that stores it is a writer of
+the bytes (LESSONS 413) but not of the release data the value was judged by.
+
+**Rule in practice.** For each check a process makes on a value another process sent, ask which release's data the
+check reads. Hold the value to what no release changes (`CheckDeliveredCollection`, `Valid`), and leave rules on
+release data (group routing, a catalog, a reserved namespace, a fact floor) to the process that made it. Where the two
+releases disagree, log the difference at info and store the value as sent. Test it with one task's value fed to every
+store on the receiving side, as `TestStores_KeepTheSameIdentityForOneTask` does.

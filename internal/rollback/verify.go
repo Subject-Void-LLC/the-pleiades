@@ -22,8 +22,10 @@ const (
 // Verify holds one step to dag, the runbook the undone run ran, at the
 // version its journal records: the node exists and runs the step's
 // emitter; a recorded step is an undo that method declares, carrying only
-// values it declares recordable, each one the journal could have held; an
-// authored step is that node's rollback: list entry exactly as written.
+// values it declares recordable, each one the journal could have held and
+// of the type its method declares, recorded under this build's
+// declarations unless the plan accepted the skew by name (SkewAccepted);
+// an authored step is that node's rollback: list entry exactly as written.
 //
 // The journal a plan is read from was published by Runners, so on the
 // Walk tier the Controller asks this before it creates a rollback job and
@@ -32,45 +34,78 @@ const (
 func Verify(dag *engine.DAG, s Step) error {
 	task, ok := dag.NodeFor(s.Node)
 	if !ok {
-		return fmt.Errorf("the runbook has no node %s", s.Node)
+		return fmt.Errorf("the runbook has no node %s", Printable(s.Node))
 	}
 	if task.FQCN != s.Emitter {
-		return fmt.Errorf("node %s runs %s, and the rollback says it ran %s", s.Node, task.FQCN, s.Emitter)
+		return fmt.Errorf("node %s runs %s, and the rollback says it ran %s", Printable(s.Node), Printable(task.FQCN), Printable(s.Emitter))
 	}
 	switch s.Source {
 	case SourceRecorded:
 		if s.Index != 0 {
-			return fmt.Errorf("a recorded undo of node %s is one step, and this is step %d", s.Node, s.Index)
+			return fmt.Errorf("a recorded undo of node %s is one step, and this is step %d", Printable(s.Node), s.Index)
 		}
 		return verifyRecorded(s)
 	case SourceAuthored:
 		if s.Index < 0 || s.Index >= len(task.Rollback) {
-			return fmt.Errorf("node %s has %d rollback: step(s), and this is step %d", s.Node, len(task.Rollback), s.Index)
+			return fmt.Errorf("node %s has %d rollback: step(s), and this is step %d", Printable(s.Node), len(task.Rollback), s.Index)
 		}
 		want := task.Rollback[s.Index]
 		if want.FQCN != s.FQCN || !sameParams(want.Params, s.Params) {
-			return fmt.Errorf("step %d of node %s's rollback: list is not what the runbook says", s.Index, s.Node)
+			return fmt.Errorf("step %d of node %s's rollback: list is not what the runbook says", s.Index, Printable(s.Node))
 		}
 		return nil
 	default:
-		return fmt.Errorf("a step of node %s comes from %q, which is neither recorded nor authored", s.Node, s.Source)
+		return fmt.Errorf("a step of node %s comes from %q, which is neither recorded nor authored", Printable(s.Node), s.Source)
 	}
 }
 
-// verifyRecorded holds a recorded step to what its emitter declares.
+// verifyRecorded holds a recorded step to what its emitter declares in
+// this build, and to the declarations it was recorded under (skew.go): a
+// step whose undo digest (or, with none recorded, whose Collection digest)
+// is not this build's runs only when the plan accepted the skew by name.
+// SkewAccepted relaxes that comparison alone, never the checks of each
+// value against this build's declarations (its type and choices), nor a
+// parameter this build's undo method requires that the step does not carry.
+// The identity is held
+// to Shape, never Valid, and a group this build routes elsewhere is not
+// refused: a minor release may move a method (FAILURE_PATTERNS 988).
 func verifyRecorded(s Step) error {
+	// No program's undo is ever planned, so a step carrying a program's
+	// identity is not one a Controller made.
+	if err := checkIdentity(s.Emitter, s.Collection, ""); err != nil {
+		return err
+	}
 	spec, target, err := declaredUndo(s.Emitter, s.FQCN)
 	if err != nil {
 		return err
 	}
-	declared := fragment.DeclaredIn(target)
+	declared := fragment.ByNameIn(target)
+	have := map[string]bool{}
 	for k, v := range s.Params {
-		if collection.IsReservedParam(k) || !slices.Contains(spec.Record, k) || !declared[k] {
-			return fmt.Errorf("the undo of %s through %s carries parameter %q, which %s does not declare recordable", s.Emitter, s.FQCN, k, s.Emitter)
+		param, isDeclared := declared[k]
+		if collection.IsReservedParam(k) || !slices.Contains(spec.Record, k) || !isDeclared {
+			return fmt.Errorf("the undo of %s through %s carries parameter %q, which %s does not declare recordable", Printable(s.Emitter), Printable(s.FQCN), k, Printable(s.Emitter))
 		}
 		if !recordableValue(v, engine.ListParam(s.FQCN, k)) {
-			return fmt.Errorf("the undo of %s through %s carries a value for %q the journal would never hold", s.Emitter, s.FQCN, k)
+			return fmt.Errorf("the undo of %s through %s carries a value for %q the journal would never hold", Printable(s.Emitter), Printable(s.FQCN), k)
 		}
+		if err := checkParamValue(k, v, param, s.FQCN); err != nil {
+			return err
+		}
+		have[k] = true
+	}
+	// No group cache: a skew digests the group only for a step that recorded
+	// no undo digest, or for a message (groupDigests).
+	k := skewOf(s.Emitter, s.Collection, s.UndoDigest, *spec, target, nil)
+	if err := k.missingRequired(s.Emitter, s.FQCN, target, have); err != nil {
+		return err
+	}
+	if !k.skewed() {
+		return nil
+	}
+	if !s.SkewAccepted {
+		return fmt.Errorf("the undo of %s through %s was recorded under other declarations than this Runner's, and the rollback was not planned with allow_skew naming %s (--allow-skew on the CLI): %s",
+			Printable(s.Emitter), Printable(s.FQCN), Printable(s.Node), k.describe())
 	}
 	return nil
 }
@@ -86,7 +121,7 @@ func verifyRecorded(s Step) error {
 func declaredUndo(emitter, target string) (*sdk.InverseSpec, collection.Manifest, error) {
 	emits, ok := collection.BuiltinManifest(emitter)
 	if !ok || emits.Status != collection.StatusImplemented {
-		return nil, collection.Manifest{}, fmt.Errorf("the journal names %s, which is not a built-in method this build runs, so the undo it records is not trusted", emitter)
+		return nil, collection.Manifest{}, fmt.Errorf("the journal names %s, which is not a built-in method this build runs, so the undo it records is not trusted", Printable(emitter))
 	}
 	var spec *sdk.InverseSpec
 	for i := range emits.Reversibility.Inverses {
@@ -95,11 +130,11 @@ func declaredUndo(emitter, target string) (*sdk.InverseSpec, collection.Manifest
 		}
 	}
 	if spec == nil {
-		return nil, collection.Manifest{}, fmt.Errorf("the journal records an undo of %s through %s, which %s does not declare, so it is not trusted", emitter, target, emitter)
+		return nil, collection.Manifest{}, fmt.Errorf("the journal records an undo of %s through %s, which %s does not declare, so it is not trusted", Printable(emitter), Printable(target), Printable(emitter))
 	}
 	undo, ok := collection.ManifestOf(target)
 	if !ok || undo.Status != collection.StatusImplemented {
-		return nil, collection.Manifest{}, fmt.Errorf("the undo method %s is not an implemented method in this build", target)
+		return nil, collection.Manifest{}, fmt.Errorf("the undo method %s is not an implemented method in this build", Printable(target))
 	}
 	return spec, undo, nil
 }

@@ -8112,6 +8112,13 @@
                     },
                     "type": "array"
                   },
+                  "allow_skew": {
+                    "description": "Node ids whose recorded undo to replay although it was recorded under Collection declarations other than this Controller's or the Runner's. Each recorded value is still held to the declarations it runs under; a node named here is accepted even where this Controller finds no difference, since a Runner of another build may.",
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
                   "allow_unknown": {
                     "description": "Node ids whose unknown effect to accept, and \"unsealed\" for a job some device never reported back from.",
                     "items": {
@@ -8203,6 +8210,27 @@
                     "status": {
                       "description": "Always \"accepted\".",
                       "type": "string"
+                    },
+                    "warnings": {
+                      "description": "What the plan wants read without refusing it, always present and empty when there is nothing: an undo checked against this Controller's declarations alone, a Collection whose declarations changed while the undo's own did not, or a skew allow_skew accepted, naming the versions and digests compared. A Runner's own comparison reaches the job's log as a task.warning event.",
+                      "items": {
+                        "properties": {
+                          "device": {
+                            "description": "The device, by name.",
+                            "type": "string"
+                          },
+                          "message": {
+                            "description": "What to know.",
+                            "type": "string"
+                          },
+                          "node": {
+                            "description": "The node of the job's runbook the warning is about.",
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
                     }
                   },
                   "type": "object"
