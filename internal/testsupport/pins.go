@@ -1,6 +1,13 @@
 // Package testsupport: every file a test downloads, in one place. CI keys its
 // download cache on a hash of this file, so a changed pin is a new cache
 // entry and an unchanged one is fetched once.
+//
+// The key is made from this file alone, and every container shard restores
+// the same entry. The first shard to miss saves it, holding only what that
+// shard downloaded, so a pin that only another shard uses is missing from the
+// entry and is downloaded by that shard on every run without being saved.
+// Today one test uses the one pin. When a pin is used in a different shard
+// from an earlier one, add the shard number to the key in ci.yml.
 package testsupport
 
 import "github.com/Subject-Void-LLC/the-pleiades/internal/testsupport/need"
