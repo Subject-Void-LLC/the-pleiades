@@ -5275,7 +5275,7 @@
               "schema": {
                 "properties": {
                   "name": {
-                    "description": "The device's unique name, which is its address and is printed wherever the device is named: \"\", \".\" and \"..\" are refused, since no URL can carry one as a path segment, and so is a name holding invalid UTF-8, a control character, a direction control, a line or paragraph separator, U+00AD, U+200B, U+2060, U+FEFF or a tag character, since it would not show as itself. Fixed once the device exists: an update refuses a different name.",
+                    "description": "The device's unique name, which is its address and is printed wherever the device is named: \"\", \".\" and \"..\" are refused, since no URL can carry one as a path segment, and so is a name that would not show as itself: one holding invalid UTF-8, a control character, a format character (a direction control, a zero width space, joiner or non-joiner, a tag character among them), another default-ignorable character, a variation selector, a space other than U+0020, a line or paragraph separator, the blank braille pattern, a private-use character or a noncharacter, or spaces alone. Fixed once the device exists: an update refuses a different name.",
                     "type": "string"
                   },
                   "state": {
@@ -5376,7 +5376,7 @@
                 }
               }
             },
-            "description": "The body is malformed, or name or type is missing or unusable. A name of \".\" or \"..\", or one holding invalid UTF-8, a control code, a line break, a direction control or an invisible character, is unusable, and the message says why."
+            "description": "The body is malformed, or name or type is missing or unusable. A name of \".\" or \"..\", or one that would not show as itself (holding invalid UTF-8, a control code, a line break, a format, invisible or blank character, a space other than U+0020, or spaces alone), is unusable, and the message says why."
           },
           "409": {
             "content": {
@@ -5620,7 +5620,7 @@
               "schema": {
                 "properties": {
                   "name": {
-                    "description": "The device's unique name, which is its address and is printed wherever the device is named: \"\", \".\" and \"..\" are refused, since no URL can carry one as a path segment, and so is a name holding invalid UTF-8, a control character, a direction control, a line or paragraph separator, U+00AD, U+200B, U+2060, U+FEFF or a tag character, since it would not show as itself. Fixed once the device exists: an update refuses a different name.",
+                    "description": "The device's unique name, which is its address and is printed wherever the device is named: \"\", \".\" and \"..\" are refused, since no URL can carry one as a path segment, and so is a name that would not show as itself: one holding invalid UTF-8, a control character, a format character (a direction control, a zero width space, joiner or non-joiner, a tag character among them), another default-ignorable character, a variation selector, a space other than U+0020, a line or paragraph separator, the blank braille pattern, a private-use character or a noncharacter, or spaces alone. Fixed once the device exists: an update refuses a different name.",
                     "type": "string"
                   },
                   "state": {
@@ -7180,7 +7180,7 @@
                 }
               }
             },
-            "description": "The body is malformed, or name or organization is missing or unusable. A name of \".\" or \"..\", or one holding invalid UTF-8, a control code, a line break, a direction control or an invisible character, is unusable, and the message says why."
+            "description": "The body is malformed, or name or organization is missing or unusable. A name of \".\" or \"..\", or one that would not show as itself (holding invalid UTF-8, a control code, a line break, a format, invisible or blank character, a space other than U+0020, or spaces alone), is unusable, and the message says why."
           },
           "403": {
             "content": {

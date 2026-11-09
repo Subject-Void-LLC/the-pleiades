@@ -412,7 +412,7 @@ var deviceWriteSchema = map[string]any{
 	"type":     "object",
 	"required": []any{"name", "type"},
 	"properties": map[string]any{
-		"name":  stringSchema("The device's unique name, which is its address and is printed wherever the device is named: \"\", \".\" and \"..\" are refused, since no URL can carry one as a path segment, and so is a name holding invalid UTF-8, a control character, a direction control, a line or paragraph separator, U+00AD, U+200B, U+2060, U+FEFF or a tag character, since it would not show as itself. Fixed once the device exists: an update refuses a different name."),
+		"name":  stringSchema("The device's unique name, which is its address and is printed wherever the device is named: \"\", \".\" and \"..\" are refused, since no URL can carry one as a path segment, and so is a name that would not show as itself: one holding invalid UTF-8, a control character, a format character (a direction control, a zero width space, joiner or non-joiner, a tag character among them), another default-ignorable character, a variation selector, a space other than U+0020, a line or paragraph separator, the blank braille pattern, a private-use character or a noncharacter, or spaces alone. Fixed once the device exists: an update refuses a different name."),
 		"type":  stringSchema("A registered device type, e.g. \"linux_server\". Fixed once the device exists: an update refuses a different type."),
 		"tags":  map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
 		"state": stringSchema("One of the eight lifecycle states. Defaults to \"active\" on create."),
@@ -458,7 +458,7 @@ var CreateDevice = Endpoint{
 	RequestSchema:      deviceWriteSchema,
 	Responses: []Response{
 		{Status: http.StatusCreated, Description: "The created device.", Schema: deviceResponseSchema},
-		{Status: http.StatusBadRequest, Description: "The body is malformed, or name or type is missing or unusable. A name of \".\" or \"..\", or one holding invalid UTF-8, a control code, a line break, a direction control or an invisible character, is unusable, and the message says why.", Schema: errorSchema("")},
+		{Status: http.StatusBadRequest, Description: "The body is malformed, or name or type is missing or unusable. A name of \".\" or \"..\", or one that would not show as itself (holding invalid UTF-8, a control code, a line break, a format, invisible or blank character, a space other than U+0020, or spaces alone), is unusable, and the message says why.", Schema: errorSchema("")},
 		{Status: http.StatusConflict, Description: "A device with that name already exists, or the inventory is read-only.", Schema: errorSchema("")},
 		{Status: http.StatusUnprocessableEntity, Description: "type names no registered device type.", Schema: errorSchema("")},
 	},
@@ -844,7 +844,7 @@ var ImportKubeconfig = Endpoint{
 	Responses: []Response{
 		{Status: http.StatusCreated, Description: "The cluster and its credential.", Schema: kubeconfigImportSchema},
 		{Status: http.StatusOK, Description: "The cluster and its credential, replaced.", Schema: kubeconfigImportSchema},
-		{Status: http.StatusBadRequest, Description: "The body is malformed, or name or organization is missing or unusable. A name of \".\" or \"..\", or one holding invalid UTF-8, a control code, a line break, a direction control or an invisible character, is unusable, and the message says why.", Schema: errorSchema("")},
+		{Status: http.StatusBadRequest, Description: "The body is malformed, or name or organization is missing or unusable. A name of \".\" or \"..\", or one that would not show as itself (holding invalid UTF-8, a control code, a line break, a format, invisible or blank character, a space other than U+0020, or spaces alone), is unusable, and the message says why.", Schema: errorSchema("")},
 		{Status: http.StatusForbidden, Description: "The caller lacks inventory:write.", Schema: errorSchema("")},
 		{Status: http.StatusConflict, Description: "The device or the credential already exists and replace is not set, the device is not a cluster, it was modified concurrently, or the inventory is read-only.", Schema: errorSchema("")},
 		{Status: http.StatusRequestEntityTooLarge, Description: "The body is too large.", Schema: errorSchema("")},
