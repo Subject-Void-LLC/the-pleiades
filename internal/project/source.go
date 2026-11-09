@@ -133,7 +133,13 @@ func ClassifySource(raw string) (string, error) {
 
 	endpoint, err := transport.NewEndpoint(trimmed)
 	if err != nil {
-		return "", fmt.Errorf("%w: %s is not a repository address", ErrSourceRefused, scrubURL(err.Error(), trimmed))
+		// A fixed phrase, never the parser's error: go-git's (net/url's)
+		// error quotes the URL it was given, password and all
+		// ("parse \"https://user:pa/ss@host/r\": invalid port"), and this
+		// message reaches a form, an API response, a log and a stored sync
+		// failure. No scrub of that text can know every shape a password
+		// takes inside it.
+		return "", fmt.Errorf("%w: that is not a repository address git can read", ErrSourceRefused)
 	}
 	return endpoint.Protocol, nil
 }

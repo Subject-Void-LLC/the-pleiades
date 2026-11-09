@@ -1625,7 +1625,9 @@ refused, each with its own opt-in on the **Controller**, unset meaning refuse:
   `(withheld: the URL carries a credential)`, and it is refused the next time
   somebody saves that project, which is the moment there is somewhere better to put
   it. Sending back the URL as shown keeps the stored one, so that save is refused
-  until the URL itself is changed.
+  until the URL itself is changed. No refusal and no stored sync error repeats a
+  source URL: a URL the parser cannot read is refused in a fixed phrase, and a sync
+  of a URL that may carry a credential records its transport error withheld.
 
 Both toggles are read once at startup and logged as a warning on every start when
 either is on, so an operator reading a boot log sees what a deployment permits. A
