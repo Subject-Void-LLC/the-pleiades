@@ -12935,7 +12935,7 @@
         "x-link-relation": "self"
       },
       "patch": {
-        "description": "Replaces a template's name, description, defaults, prompts, survey and flags. The kind, the definition and the inventory are not updatable: re-pointing a template at different code or a different fleet, while it keeps its name, its access grants and its job history, is how a reviewed thing quietly becomes an unreviewed one. Copy it instead, which leaves two legible records.",
+        "description": "A partial update of a template's name, description, defaults, prompts, survey and flags, as AWX's PATCH is. A field left out keeps its stored value and a field present is applied; the request schema says how each one is cleared, and a null on any of them is refused. The template as it would be saved, kept fields and all, is checked whole, so a PATCH naming one field is refused for a kept value a full edit would be refused for. There is no PUT. Concurrent PATCHes are last-writer-wins: there is no version check, so of two at once the second's write covers the first's for every field. The kind, the definition and the inventory are not updatable, and a value for one that differs from the stored one is refused rather than ignored: re-pointing a template at different code or a different fleet, while it keeps its name, its access grants and its job history, is how a reviewed thing quietly becomes an unreviewed one. Copy it instead, which leaves two legible records.",
         "operationId": "update_template",
         "parameters": [
           {
@@ -12952,16 +12952,17 @@
           "content": {
             "application/json": {
               "schema": {
+                "description": "A partial update. A field left out keeps its stored value and a field present is applied. An empty value clears description (\"\"), defaults ({}), prompts and required_capabilities ([]); a name may not be blank; a survey is cleared with {\"enabled\": false, \"questions\": []}, since survey: {} keeps it. None of these fields, nor survey.enabled or survey.questions, may be null: leave it out to keep it. Inside a question, fields are read as a create reads them. Unknown fields are refused, so a GET response cannot be sent back as it is; send the fields a create takes.",
                 "properties": {
                   "allow_simultaneous": {
                     "type": "boolean"
                   },
                   "defaults": {
-                    "description": "The values to save this template with, keyed by launch field name.",
+                    "description": "Replaces the saved values whole, keyed by launch field name. {} clears them.",
                     "type": "object"
                   },
                   "definition": {
-                    "description": "A runbook id or a playbook path, whichever the kind resolves. Read on create, ignored on update.",
+                    "description": "Not updatable: accepted only as the stored value (compared trimmed), and any other is refused with 400.",
                     "type": "string"
                   },
                   "description": {
@@ -12969,32 +12970,33 @@
                     "type": "string"
                   },
                   "inventory": {
-                    "description": "The device set to run against. Required, and it is what gives a launched job its organization. Read on create, ignored on update: re-pointing a saved definition at another fleet while it keeps its name, its grants and its job history is a copy, not an edit.",
+                    "description": "Not updatable: accepted only as the stored value, and any other is refused with 400.",
                     "type": "integer"
                   },
                   "kind": {
-                    "description": "A registered kind: runbook, playbook. Read on create, ignored on update.",
+                    "description": "Not updatable: accepted only as the stored value, and any other is refused with 400.",
                     "type": "string"
                   },
                   "name": {
-                    "description": "Unique within the organization the inventory belongs to.",
+                    "description": "Unique within the template's organization. May not be blank.",
                     "type": "string"
                   },
                   "prompts": {
-                    "description": "Which of those fields a launch may override. A field this kind does not declare is refused rather than stored.",
+                    "description": "Replaces which fields a launch may override. [] locks every field.",
                     "items": {
                       "type": "string"
                     },
                     "type": "array"
                   },
                   "required_capabilities": {
-                    "description": "An optional plan-time hint. This API does not compute it: read GET /runbooks/{id} for a runbook's real compiled requirements and submit those.",
+                    "description": "Replaces the plan-time hint. [] clears it.",
                     "items": {
                       "type": "string"
                     },
                     "type": "array"
                   },
                   "survey": {
+                    "description": "Partial in its own right: enabled and questions are each kept when left out, so turning a survey off keeps its questions. questions, when present, replaces the whole list in the order given.",
                     "properties": {
                       "enabled": {
                         "description": "Whether the survey prompts. Separate from having no questions: a survey written and turned off says something different from no survey at all.",
@@ -13055,17 +13057,11 @@
                     "type": "object"
                   }
                 },
-                "required": [
-                  "name",
-                  "kind",
-                  "definition",
-                  "inventory"
-                ],
                 "type": "object"
               }
             }
           },
-          "required": true
+          "required": false
         },
         "responses": {
           "200": {
@@ -13234,7 +13230,7 @@
                 }
               }
             },
-            "description": "The body is malformed, or declares a default or a prompt the kind has no field for."
+            "description": "The body is malformed, sets a field to null or changes the kind, the definition or the inventory, or the template it would leave declares a default or a prompt the kind has no field for, or a survey nobody could answer."
           },
           "404": {
             "content": {
@@ -14539,7 +14535,7 @@
     },
     "/templates/{id}/survey": {
       "put": {
-        "description": "Replaces the whole survey, leaving the template's metadata, defaults and prompts as they are. It is the same store update PATCH performs, narrowed to the survey so a client that edits only the questions does not round-trip the rest of the template. The questions are stored in the order given, which is the order the launch form asks them in. A survey nobody could answer correctly is refused: a question writing to no variable, two questions writing to one variable, a choice question offering nothing, a default that is not one of the choices, a password question carrying a default, a file question carrying a default or a maximum above 32768, allow_program_content set on a question that is not a file, or a minimum above its maximum.",
+        "description": "Replaces the whole survey, leaving the template's metadata, defaults and prompts as they are. It is the same store update PATCH performs, narrowed to the survey, and unlike a PATCH it replaces the survey whole: an absent survey, or one without questions, clears them. The questions are stored in the order given, which is the order the launch form asks them in. A survey nobody could answer correctly is refused: a question writing to no variable, two questions writing to one variable, a choice question offering nothing, a default that is not one of the choices, a password question carrying a default, a file question carrying a default or a maximum above 32768, allow_program_content set on a question that is not a file, or a minimum above its maximum.",
         "operationId": "set_template_survey",
         "parameters": [
           {
