@@ -5,22 +5,24 @@
 package rollback_test
 
 import (
+	"context"
 	"strings"
 	"testing"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/rollback"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
 
-// TestBuild_ARequiredParameterIsHeldUnlessTheUndoIsThisBuilds: an undo
-// that does not give a parameter its method requires is refused with
-// --leave alone wherever nothing says the requirement is the one it was
-// recorded under: no identity and no undo digest, and an identity with no
-// undo digest (the group's digest fallback), whether or not that digest is
-// this build's. Only an undo digest equal to this build's lets it through,
-// for the method's own check to answer when it runs.
-func TestBuild_ARequiredParameterIsHeldUnlessTheUndoIsThisBuilds(t *testing.T) {
+// TestBuild_ARequiredParameterIsAlwaysHeld: an undo that does not give a
+// parameter its method requires is refused with --leave alone, whatever its
+// digests say: with none, on the group's digest fallback, under another
+// undo declaration, and under this build's own, since replaying it cannot
+// work and only a forged entry reaches the last.
+func TestBuild_ARequiredParameterIsAlwaysHeld(t *testing.T) {
 	in := registerSkew(t)
 	noPath := map[string]any{"mode": 420}
 	for name, e := range map[string]engine.JournalEntry{
@@ -28,6 +30,7 @@ func TestBuild_ARequiredParameterIsHeldUnlessTheUndoIsThisBuilds(t *testing.T) {
 		"this build's identity, no undo digest": madeEntry(in.identity, "", noPath),
 		"another identity, no undo digest":      madeEntry(olderBuild(in), "", noPath),
 		"another undo digest":                   madeEntry(in.identity, other("b"), noPath),
+		"this build's undo digest":              madeEntry(in.identity, in.undo, noPath),
 	} {
 		t.Run(name, func(t *testing.T) {
 			for _, allow := range []bool{false, true} {
@@ -42,9 +45,6 @@ func TestBuild_ARequiredParameterIsHeldUnlessTheUndoIsThisBuilds(t *testing.T) {
 				}
 			}
 		})
-	}
-	if _, err := planOf([]engine.JournalEntry{madeEntry(in.identity, in.undo, noPath)}, nil); err != nil {
-		t.Errorf("an undo whose declaration is this build's: %v", err)
 	}
 }
 
@@ -99,6 +99,7 @@ func TestVerify_ARunnerHoldsRequiredParametersAndChoicesWhateverIsAccepted(t *te
 		"no path, no digests":              {madeStep(wire.CollectionIdentity{}, "", map[string]any{"mode": 420}), `"path"`},
 		"no path, the group's digest only": {madeStep(in.identity, "", map[string]any{"mode": 420}), `"path"`},
 		"a state outside the choices":      {madeStep(in.identity, in.undo, map[string]any{"path": "/x", "state": "purged"}), "absent"},
+		"no path, this Runner's own undo":  {madeStep(in.identity, in.undo, map[string]any{"mode": 420}), `"path"`},
 	} {
 		t.Run(name, func(t *testing.T) {
 			for _, accepted := range []bool{false, true} {
@@ -110,8 +111,50 @@ func TestVerify_ARunnerHoldsRequiredParametersAndChoicesWhateverIsAccepted(t *te
 			}
 		})
 	}
-	if err := rollback.Verify(dag, madeStep(in.identity, in.undo, map[string]any{"mode": 420})); err != nil {
-		t.Errorf("no path under this Runner's own undo declaration: %v", err)
+	// Every value as a dispatch delivers it, a number become a float64: one
+	// that fits its declaration in every respect passes.
+	if err := rollback.Verify(dag, throughJSON(t, madeStep(in.identity, in.undo, map[string]any{"path": "/x", "mode": 420, "state": "absent"}))); err != nil {
+		t.Errorf("a step every value of which fits, through JSON: %v", err)
+	}
+}
+
+// TestBuild_TheGroupFallbackComparesTheGroupTheEntryRecorded: an entry
+// that recorded an identity and no undo digest is compared with the digest
+// of the group it recorded while this build holds that group, never with
+// the group this build routes the method to, which a later release may
+// change; only when this build holds none of the recorded group's methods
+// is the routed group's digest compared.
+func TestBuild_TheGroupFallbackComparesTheGroupTheEntryRecorded(t *testing.T) {
+	in := registerSkew(t)
+	run := func(context.Context, sdk.RunbookContext, inventory.InventoryItem, map[string]any) (collection.Result, error) {
+		return collection.Result{}, nil
+	}
+	if err := collection.Register(collection.Descriptor{Name: "exec.rbother", Invoke: run, Manifest: collection.Manifest{Status: collection.StatusImplemented,
+		Reversibility: collection.Reversibility{Notes: "a fixture"}}}); err != nil {
+		t.Fatal(err)
+	}
+	execDigest, err := collection.GroupDigest("exec")
+	if err != nil {
+		t.Fatal(err)
+	}
+	recordedUnderExec := wire.CollectionIdentity{Group: "exec", Version: "0.3.9", Manifests: execDigest}
+	plan, err := planOf([]engine.JournalEntry{madeEntry(recordedUnderExec, "", map[string]any{"path": "/x"})}, nil)
+	if err != nil {
+		t.Fatalf("an entry recorded under a group this build holds at the digest it recorded: %v", err)
+	}
+	if len(plan.Warnings) == 0 || !strings.Contains(plan.Warnings[0].Message, `"exec"`) {
+		t.Errorf("warnings %+v, want the group this build routes the method to named", plan.Warnings)
+	}
+	// The recorded group's declarations changed: a skew.
+	changed := recordedUnderExec
+	changed.Manifests = other("c")
+	if _, err := planOf([]engine.JournalEntry{madeEntry(changed, "", map[string]any{"path": "/x"})}, nil); err == nil {
+		t.Error("an entry recorded under the exec group at other declarations was planned")
+	}
+	// A group this build holds no method of: the routed group decides.
+	absent := wire.CollectionIdentity{Group: "net", Version: "0.3.9", Manifests: in.identity.Manifests}
+	if _, err := planOf([]engine.JournalEntry{madeEntry(absent, "", map[string]any{"path": "/x"})}, nil); err != nil {
+		t.Errorf("an entry naming a group this build lacks, at the routed group's digest: %v", err)
 	}
 }
 

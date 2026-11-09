@@ -6,20 +6,19 @@
 // declarations) and the digest of the undo's own declaration
 // (InverseSpecDigest). A later build compares each with its own. The undo's
 // digest decides, since it covers exactly what decides whether a recorded
-// undo replays as it was recorded (collection.UndoDigest): a corrected
+// undo replays as it was recorded (collection.UndoDigest, each parameter's
+// type, requirement, default, alias and choices among it): a corrected
 // sentence elsewhere in the group moves the group's digest and not the
 // undo's, and needs no flag. Only an entry that recorded no undo digest
-// falls back to the group's.
+// falls back to a group's (comparedGroup says which).
 //
 // What the comparison may relax is narrow. Every recorded value is still
 // held to this build's declarations (checkRecorded): declared, recordable,
 // of the declared type and inside the declared choices. A parameter this
 // build's undo method requires that the run did not record is refused
-// whatever the operator names, unless the undo's declaration is this
-// build's exactly (its digest matches), when the method recorded it so. What
-// remains is a digest difference that adds only optional declarations or
-// changes ones the entry does not record, which --allow-skew (the API's
-// allow_skew) accepts by node.
+// whatever the operator names. What remains is a digest difference that adds
+// only optional declarations or changes ones the entry does not record,
+// which --allow-skew (the API's allow_skew) accepts by node.
 //
 // Every stored identity is read through wire.CollectionIdentity.Shape,
 // never Valid, since Valid depends on the Unicode tables of the Go release
@@ -99,13 +98,33 @@ func skewOf(emitter string, id wire.CollectionIdentity, recordedUndo string, spe
 	return k
 }
 
-// groupDigest is this build's digest of the group it routes the emitter
-// to, "" when it routes it to none or holds none of the group's methods.
-func (k skew) groupDigest() string {
-	if k.group == "" {
-		return ""
+// comparedGroup is the group whose digest in this build a recorded identity
+// is compared with, and that digest ("" for none). It is the group the
+// entry recorded, whenever this build holds methods of it: a stored identity
+// is held to its own group's declarations, not to how this build routes the
+// method, which a later release may change (FAILURE_PATTERNS 988). Only when
+// this build holds no method of the recorded group (one a later release
+// left out, or an entry naming no group, which an entry with no identity
+// does) is it the group this build routes the emitter to. A method moved
+// out of a group leaves that group's declarations changed, so an entry
+// recorded before the move and with no undo digest reads as a skew either
+// way, which only --allow-skew accepts.
+func (k skew) comparedGroup() (string, string) {
+	if !k.recorded.IsZero() {
+		if digest := k.groups.of(k.recorded.Group); digest != "" {
+			return k.recorded.Group, digest
+		}
 	}
-	return k.groups.of(k.group)
+	if k.group == "" {
+		return "", ""
+	}
+	return k.group, k.groups.of(k.group)
+}
+
+// groupDigest is comparedGroup's digest.
+func (k skew) groupDigest() string {
+	_, digest := k.comparedGroup()
+	return digest
 }
 
 // unknown reports whether the entry recorded neither digest, so nothing
@@ -130,15 +149,12 @@ func (k skew) skewed() bool {
 }
 
 // missingRequired refuses an undo that does not give a parameter target
-// requires, unless its declaration is this build's exactly: then the method
-// recorded it as declared, and the method's own check answers at run time.
-// Everywhere else (no undo digest, or another one) nothing says the
-// requirement was there when the run recorded the undo, and replaying it
-// without the value cannot work whatever is accepted.
+// requires in this build, whatever its digests: replaying it cannot work,
+// so no name accepts it. Under this build's own undo declaration only a
+// forged entry, or a declaration whose Record leaves a required parameter
+// out (which no built-in's does without withholding it, and a withheld value
+// already makes the undo one not recorded in full), reaches it.
 func (k skew) missingRequired(emitter, method string, target collection.Manifest, have map[string]bool) error {
-	if k.undoMatches() {
-		return nil
-	}
 	missing := requiredMissing(target, have)
 	if len(missing) == 0 {
 		return nil
@@ -158,9 +174,9 @@ func (k skew) describe() string {
 	if k.recordedUndo != "" {
 		undo = fmt.Sprintf("%q", k.recordedUndo)
 	}
-	here := "routes it to no first-party group"
-	if k.group != "" {
-		here = fmt.Sprintf("has the %q Collection's manifests %q", k.group, k.groupDigest())
+	here := "holds no first-party group to compare it with"
+	if group, digest := k.comparedGroup(); group != "" {
+		here = fmt.Sprintf("has the %q Collection's manifests %q", group, digest)
 	}
 	return fmt.Sprintf("it was recorded %s with undo digest %s, and this build is %q, %s and undo digest %q",
 		recorded, undo, coreVersion(), here, k.undoDigest)

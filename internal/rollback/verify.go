@@ -65,8 +65,8 @@ func Verify(dag *engine.DAG, s Step) error {
 // is not this build's runs only when the plan accepted the skew by name.
 // SkewAccepted relaxes that comparison alone, never the checks of each
 // value against this build's declarations (its type and choices), nor a
-// parameter this build's undo method requires that the step does not carry
-// (refused unless the step's undo digest is this build's). The identity is held
+// parameter this build's undo method requires that the step does not carry.
+// The identity is held
 // to Shape, never Valid, and a group this build routes elsewhere is not
 // refused: a minor release may move a method (FAILURE_PATTERNS 988).
 func verifyRecorded(s Step) error {
