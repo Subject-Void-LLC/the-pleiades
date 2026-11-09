@@ -7819,3 +7819,25 @@ that runs each command's affected outputs (help, usage errors, exit status) thro
 them byte for byte with a golden file, and generate that file from the base branch's own code before changing
 anything. Keep the update flag (`-update-help-golden` in `cmd/pleiades/help_golden_test.go`) for a change someone has
 decided on, and name each such difference in the commit, as `e09aba0b` names the one help change it made.
+
+## 426. Every bound a store's schema puts on a value a caller writes is checked by the validator in front of the store, and a test holds the two equal by calling the store's own generated validator; a store bound with no mirror answers 500 (FAILURE_PATTERNS 1070, 1071) (2026-11-09)
+
+**Why.** Branch `fix/template-patch-partial`, 2026-11-09. A survey question with no label passed `Survey.Validate` and
+failed ent's `NotEmpty` on `survey_question.label`; a template name over 253 bytes passed `Template.Validate` and failed
+`MaxLen(253)` on the launchable row the store writes the name into. Both reached the caller as 500 "internal error" on
+every write path, where each was a plain refusal the caller could act on (FAILURE_PATTERNS 1070, 1071). Reading for the
+same shape found a project name with the same bound and, as far as a search shows, no check before the store
+(FAILURE_PATTERNS 1076).
+
+**What is old and what is new.** FAILURE_PATTERNS 974's lesson says a column bound on a value from a batch is a
+refusal, decided before the consumer meets it. LESSONS 184 says a rule the operator can satisfy is shown in the store's
+own words. Neither says who keeps the domain validator and the schema in step. The schema is not the contract a caller
+sees; the validator is. A bound only the schema holds is a fault the caller sees as the server breaking. And the bound
+can sit on a table the record's own schema does not show: the template name's limit was on the launchable row, added a
+phase later.
+
+**Rule in practice.** When a column a request writes has `NotEmpty`, `MaxLen` or a similar validator, the domain
+`Validate` refuses the same values with a 400 that names the field. Count every table the store writes the value into,
+not only the record's own. Hold the two equal with a test that calls ent's generated validator at the bound and one past
+it, as `TestMaxNameBytes_IsTheLaunchableRowsOwnBound` (`internal/launch/template_test.go`) does with
+`launchable.NameValidator` and `launch.MaxNameBytes`, so a schema change fails a test instead of a write.
