@@ -7,9 +7,10 @@
 // a value for one is accepted only when it equals the stored one.
 package apispec
 
-// accessPatchRules is the sentence every access PATCH body opens with, so
-// the four cannot describe the rule differently.
-const accessPatchRules = "A partial update. A field left out keeps its stored value and a field present is " +
+// patchBodyRules is the sentence every access PATCH body opens with, and
+// the credential and credential type bodies too (credential_patch_schemas.go),
+// so they cannot describe the rule differently.
+const patchBodyRules = "A partial update. A field left out keeps its stored value and a field present is " +
 	"applied; an empty value clears a field that can be empty. No field may be null: leave it out to keep it. " +
 	"Unknown fields are refused, so a GET response cannot be sent back as it is; send the fields a create takes."
 
@@ -19,7 +20,7 @@ const fixedFieldNote = "Not updatable: accepted only as the stored value, and an
 // organizationPatchSchema is the body PATCH /organizations/{id} accepts.
 var organizationPatchSchema = map[string]any{
 	"type":        "object",
-	"description": accessPatchRules + " frozen: false is the explicit unfreeze. The attestation cannot be sent.",
+	"description": patchBodyRules + " frozen: false is the explicit unfreeze. The attestation cannot be sent.",
 	"properties": map[string]any{
 		"name":           stringSchema("Unique across the deployment, trimmed on write. May not be blank."),
 		"description":    stringSchema("What this tenant is, in a sentence. \"\" clears it."),
@@ -36,7 +37,7 @@ var organizationPatchSchema = map[string]any{
 // teamPatchSchema is the body PATCH /teams/{id} accepts.
 var teamPatchSchema = map[string]any{
 	"type":        "object",
-	"description": accessPatchRules,
+	"description": patchBodyRules,
 	"properties": map[string]any{
 		"name":         stringSchema("Unique within its organization. May not be blank."),
 		"description":  stringSchema("What this team is responsible for. \"\" clears it."),
@@ -48,7 +49,7 @@ var teamPatchSchema = map[string]any{
 // contactPatchSchema is the body PATCH /contacts/{id} accepts.
 var contactPatchSchema = map[string]any{
 	"type": "object",
-	"description": accessPatchRules + " The contact as it would be saved is checked whole, so clearing its only " +
+	"description": patchBodyRules + " The contact as it would be saved is checked whole, so clearing its only " +
 		"way to reach somebody is refused.",
 	"properties": map[string]any{
 		"name":         stringSchema("The person or, preferably, the rota. May not be blank."),
@@ -66,7 +67,7 @@ var contactPatchSchema = map[string]any{
 // bindingPatchSchema is the body PATCH /bindings/{id} accepts.
 var bindingPatchSchema = map[string]any{
 	"type": "object",
-	"description": accessPatchRules + " Only the role and the effect can change: re-pointing a grant is revoking one " +
+	"description": patchBodyRules + " Only the role and the effect can change: re-pointing a grant is revoking one " +
 		"and issuing another, which leaves two legible events.",
 	"properties": map[string]any{
 		"role":       stringSchema("viewer, operator or admin."),

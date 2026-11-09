@@ -96,9 +96,8 @@ var credentialTypeSchema = map[string]any{
 		"id":          map[string]any{"type": "integer"},
 		"name":        stringSchema("What a reader picks it by, unique within an organization."),
 		"description": stringSchema(""),
-		"kind": stringSchema("The coarse grouping: ssh, vault, net, scm, cloud, token, insights, external, " +
-			"kubernetes, galaxy, cryptography or registry. It is what the binding rule keys on."),
-		"namespace": stringSchema("The stable identifier an import keys on to decide whether this type already exists. Immutable."),
+		"kind":        stringSchema("The coarse grouping: " + kindList + ". It is what the binding rule keys on."),
+		"namespace":   stringSchema("The stable identifier an import keys on to decide whether this type already exists. Immutable."),
 		"managed": map[string]any{
 			"type": "boolean",
 			"description": "Whether this platform ships the type. A managed type cannot be edited or deleted, which an " +
@@ -207,7 +206,7 @@ var CreateCredentialType = Endpoint{
 		"properties": map[string]any{
 			"name":         stringSchema("Unique within the organization."),
 			"description":  stringSchema(""),
-			"kind":         stringSchema("One of the twelve kinds."),
+			"kind":         stringSchema("One of " + kindList + "."),
 			"namespace":    stringSchema("The stable identifier. Immutable once set."),
 			"organization": map[string]any{"type": "integer", "description": "The owning tenant."},
 			"inputs":       inputsSchema,
@@ -216,7 +215,7 @@ var CreateCredentialType = Endpoint{
 	},
 	Responses: []Response{
 		{Status: http.StatusCreated, Description: "The created type.", Schema: credentialTypeSchema},
-		{Status: http.StatusBadRequest, Description: "The body is malformed, or the type does not validate.", Schema: errorSchema("")},
+		{Status: http.StatusBadRequest, Description: "The body is malformed, or the type does not validate or holds a NUL character in its name or description.", Schema: errorSchema("")},
 		{Status: http.StatusConflict, Description: "That name or namespace is already taken.", Schema: errorSchema("")},
 	},
 }
@@ -229,28 +228,23 @@ var UpdateCredentialType = Endpoint{
 	Scope:   auth.ScopeCredentialWrite,
 	Rel:     auth.RelUpdate,
 	Summary: "Update a credential type",
-	Description: "Replaces a custom type's editable fields. The namespace is immutable and a supplied one is ignored " +
-		"rather than refused, so a form that round-trips every field it rendered does not fail on a field it was " +
-		"never allowed to change. A managed type is refused outright.",
+	Description: "A partial update of a custom type. A field left out keeps its stored value and a field present is " +
+		"applied; inputs and injectors, when present, each replace the stored document whole. A null on any field " +
+		"is refused. The namespace and the organization are not updatable: a value that differs from the stored " +
+		"one is refused, and the stored value is accepted as an echo. The type as it would be saved is validated " +
+		"whole, every injector compiled against the input schema it would have. A managed type is refused. " +
+		"Concurrent PATCHes are last-writer-wins: there is no version check.",
 	Params: []Param{
 		{Name: "id", In: "path", Required: true, Type: "integer", Description: "The type's numeric id."},
 	},
 	RequestContentType: "application/json",
-	RequestSchema: map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			"name":        stringSchema(""),
-			"description": stringSchema(""),
-			"kind":        stringSchema(""),
-			"inputs":      inputsSchema,
-			"injectors":   injectorsSchema,
-		},
-	},
+	RequestSchema:      credentialTypePatchSchema,
 	Responses: []Response{
 		{Status: http.StatusOK, Description: "The updated type.", Schema: credentialTypeSchema},
-		{Status: http.StatusBadRequest, Description: "The body is malformed, or the type does not validate.", Schema: errorSchema("")},
+		{Status: http.StatusBadRequest, Description: "The body is malformed, sets a field to null or changes the namespace or the organization, or the type it would leave does not validate or holds a NUL character in its name or description.", Schema: errorSchema("")},
 		{Status: http.StatusForbidden, Description: "The type is managed and cannot be modified.", Schema: errorSchema("")},
 		{Status: http.StatusNotFound, Description: "No credential type with that id.", Schema: errorSchema("")},
+		{Status: http.StatusConflict, Description: "The name is taken in that organization.", Schema: errorSchema("")},
 	},
 }
 
@@ -343,7 +337,8 @@ var CreateCredential = Endpoint{
 	},
 	Responses: []Response{
 		{Status: http.StatusCreated, Description: "The created credential, redacted.", Schema: credentialSchema},
-		{Status: http.StatusBadRequest, Description: "The body is malformed, or the values do not satisfy the type.", Schema: errorSchema("")},
+		{Status: http.StatusBadRequest, Description: "The body is malformed, the name is blank, the name, description or a reference holds a NUL character, or the values do not satisfy the type.", Schema: errorSchema("")},
+		{Status: http.StatusForbidden, Description: "The credential type is another organization's custom type. The refusal names it by the id sent.", Schema: errorSchema("")},
 		{Status: http.StatusConflict, Description: "That name is already taken in the organization.", Schema: errorSchema("")},
 		{Status: http.StatusNotFound, Description: "No credential type with that id.", Schema: errorSchema("")},
 	},
@@ -357,26 +352,25 @@ var UpdateCredential = Endpoint{
 	Scope:   auth.ScopeCredentialWrite,
 	Rel:     auth.RelUpdate,
 	Summary: "Update a credential",
-	Description: "Replaces a credential's values. An input submitted as \"$encrypted$\" is left at whatever is stored, " +
-		"which is what lets a form round-trip: it renders the marker for a secret, an operator edits an unrelated " +
-		"field, and submitting does not overwrite the secret with the marker text. Submit a real value to rotate one.",
+	Description: "A partial update of a credential. A field left out keeps its stored value and a field present is " +
+		"applied. inputs merges over the stored values: an input left out keeps its value, one submitted as " +
+		"\"$encrypted$\" is left at whatever is stored, which is what lets a form round-trip, and \"\" clears an " +
+		"input; submit a real value to rotate one. external, when present, replaces the stored references whole, " +
+		"so an input left out of it no longer reads from an external source and {} removes every reference. A " +
+		"null on any field, or on a value inside inputs or external, is refused. The credential type and the " +
+		"organization are not updatable: a value that differs from the stored one is refused, and the stored " +
+		"value is accepted as an echo. The credential as it would be saved is checked whole against its type. " +
+		"The response is the redacted read. Concurrent PATCHes are last-writer-wins: there is no version check.",
 	Params: []Param{
 		{Name: "id", In: "path", Required: true, Type: "integer", Description: "The credential's numeric id."},
 	},
 	RequestContentType: "application/json",
-	RequestSchema: map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			"name":        stringSchema(""),
-			"description": stringSchema(""),
-			"inputs":      map[string]any{"type": "object"},
-			"external":    map[string]any{"type": "object"},
-		},
-	},
+	RequestSchema:      credentialPatchSchema,
 	Responses: []Response{
 		{Status: http.StatusOK, Description: "The updated credential, redacted.", Schema: credentialSchema},
-		{Status: http.StatusBadRequest, Description: "The body is malformed, or the values do not satisfy the type.", Schema: errorSchema("")},
+		{Status: http.StatusBadRequest, Description: "The body is malformed, sets a field or a value inside inputs or external to null, or changes the credential type or the organization, or the credential it would leave has a blank name, a NUL character in its name, description or a reference, or values that do not satisfy its type.", Schema: errorSchema("")},
 		{Status: http.StatusNotFound, Description: "No credential with that id.", Schema: errorSchema("")},
+		{Status: http.StatusConflict, Description: "The name is taken in the organization.", Schema: errorSchema("")},
 	},
 }
 
@@ -467,6 +461,7 @@ var SetTemplateCredentials = Endpoint{
 			},
 		}},
 		{Status: http.StatusBadRequest, Description: "The body is malformed.", Schema: errorSchema("")},
+		{Status: http.StatusForbidden, Description: "A credential belongs to an organization other than the template's. The refusal names it by the id sent.", Schema: errorSchema("")},
 		{Status: http.StatusConflict, Description: "Two of the supplied credentials cannot be bound together.", Schema: errorSchema("")},
 		{Status: http.StatusNotFound, Description: "No template with that id, or one credential does not exist.", Schema: errorSchema("")},
 	},
@@ -576,7 +571,8 @@ var SetCredentialInputSources = Endpoint{
 				"_links":        linksSchema(),
 			},
 		}},
-		{Status: http.StatusBadRequest, Description: "The body is malformed.", Schema: errorSchema("")},
+		{Status: http.StatusBadRequest, Description: "The body is malformed, or a binding's metadata holds a NUL character.", Schema: errorSchema("")},
+		{Status: http.StatusForbidden, Description: "A source credential belongs to another organization. The refusal names it by the id sent.", Schema: errorSchema("")},
 		{Status: http.StatusConflict, Description: "The set would close a resolution cycle, or binds one input twice.", Schema: errorSchema("")},
 		{Status: http.StatusNotFound, Description: "No credential with that id, no such source, or an input this type does not declare.", Schema: errorSchema("")},
 	},

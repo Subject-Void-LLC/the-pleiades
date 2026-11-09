@@ -2249,7 +2249,7 @@
                             "type": "object"
                           },
                           "kind": {
-                            "description": "The coarse grouping: ssh, vault, net, scm, cloud, token, insights, external, kubernetes, galaxy, cryptography or registry. It is what the binding rule keys on.",
+                            "description": "The coarse grouping: cloud, cryptography, database, external, galaxy, insights, kubernetes, net, registry, scm, ssh, token or vault. It is what the binding rule keys on.",
                             "type": "string"
                           },
                           "managed": {
@@ -2403,7 +2403,7 @@
                     "type": "object"
                   },
                   "kind": {
-                    "description": "One of the twelve kinds.",
+                    "description": "One of cloud, cryptography, database, external, galaxy, insights, kubernetes, net, registry, scm, ssh, token or vault.",
                     "type": "string"
                   },
                   "name": {
@@ -2546,7 +2546,7 @@
                       "type": "object"
                     },
                     "kind": {
-                      "description": "The coarse grouping: ssh, vault, net, scm, cloud, token, insights, external, kubernetes, galaxy, cryptography or registry. It is what the binding rule keys on.",
+                      "description": "The coarse grouping: cloud, cryptography, database, external, galaxy, insights, kubernetes, net, registry, scm, ssh, token or vault. It is what the binding rule keys on.",
                       "type": "string"
                     },
                     "managed": {
@@ -2586,7 +2586,7 @@
                 }
               }
             },
-            "description": "The body is malformed, or the type does not validate."
+            "description": "The body is malformed, or the type does not validate or holds a NUL character in its name or description."
           },
           "409": {
             "content": {
@@ -2823,7 +2823,7 @@
                       "type": "object"
                     },
                     "kind": {
-                      "description": "The coarse grouping: ssh, vault, net, scm, cloud, token, insights, external, kubernetes, galaxy, cryptography or registry. It is what the binding rule keys on.",
+                      "description": "The coarse grouping: cloud, cryptography, database, external, galaxy, insights, kubernetes, net, registry, scm, ssh, token or vault. It is what the binding rule keys on.",
                       "type": "string"
                     },
                     "managed": {
@@ -2893,7 +2893,7 @@
         "x-link-relation": "self"
       },
       "patch": {
-        "description": "Replaces a custom type's editable fields. The namespace is immutable and a supplied one is ignored rather than refused, so a form that round-trips every field it rendered does not fail on a field it was never allowed to change. A managed type is refused outright.",
+        "description": "A partial update of a custom type. A field left out keeps its stored value and a field present is applied; inputs and injectors, when present, each replace the stored document whole. A null on any field is refused. The namespace and the organization are not updatable: a value that differs from the stored one is refused, and the stored value is accepted as an echo. The type as it would be saved is validated whole, every injector compiled against the input schema it would have. A managed type is refused. Concurrent PATCHes are last-writer-wins: there is no version check.",
         "operationId": "update_credential_type",
         "parameters": [
           {
@@ -2910,9 +2910,10 @@
           "content": {
             "application/json": {
               "schema": {
+                "description": "A partial update. A field left out keeps its stored value and a field present is applied; an empty value clears a field that can be empty. No field may be null: leave it out to keep it. Unknown fields are refused, so a GET response cannot be sent back as it is; send the fields a create takes. inputs and injectors, when present, each replace the stored document whole, as PUT .../inputs and PUT .../injectors do. The type as it would be saved is validated whole, so an inputs document dropping an input an injector still reads is refused.",
                 "properties": {
                   "description": {
-                    "description": "",
+                    "description": "\"\" clears it.",
                     "type": "string"
                   },
                   "injectors": {
@@ -2999,12 +3000,20 @@
                     "type": "object"
                   },
                   "kind": {
-                    "description": "",
+                    "description": "One of cloud, cryptography, database, external, galaxy, insights, kubernetes, net, registry, scm, ssh, token or vault.",
                     "type": "string"
                   },
                   "name": {
-                    "description": "",
+                    "description": "Unique within the organization. May not be blank.",
                     "type": "string"
+                  },
+                  "namespace": {
+                    "description": "Not updatable: accepted only as the stored value, and any other is refused with 400. It is the stable identifier an import keys on.",
+                    "type": "string"
+                  },
+                  "organization": {
+                    "description": "Not updatable: accepted only as the stored value, and any other is refused with 400.",
+                    "type": "integer"
                   }
                 },
                 "type": "object"
@@ -3128,7 +3137,7 @@
                       "type": "object"
                     },
                     "kind": {
-                      "description": "The coarse grouping: ssh, vault, net, scm, cloud, token, insights, external, kubernetes, galaxy, cryptography or registry. It is what the binding rule keys on.",
+                      "description": "The coarse grouping: cloud, cryptography, database, external, galaxy, insights, kubernetes, net, registry, scm, ssh, token or vault. It is what the binding rule keys on.",
                       "type": "string"
                     },
                     "managed": {
@@ -3168,7 +3177,7 @@
                 }
               }
             },
-            "description": "The body is malformed, or the type does not validate."
+            "description": "The body is malformed, sets a field to null or changes the namespace or the organization, or the type it would leave does not validate or holds a NUL character in its name or description."
           },
           "403": {
             "content": {
@@ -3201,6 +3210,22 @@
               }
             },
             "description": "No credential type with that id."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The name is taken in that organization."
           }
         },
         "security": [
@@ -3374,7 +3399,7 @@
                       "type": "object"
                     },
                     "kind": {
-                      "description": "The coarse grouping: ssh, vault, net, scm, cloud, token, insights, external, kubernetes, galaxy, cryptography or registry. It is what the binding rule keys on.",
+                      "description": "The coarse grouping: cloud, cryptography, database, external, galaxy, insights, kubernetes, net, registry, scm, ssh, token or vault. It is what the binding rule keys on.",
                       "type": "string"
                     },
                     "managed": {
@@ -3667,7 +3692,7 @@
                       "type": "object"
                     },
                     "kind": {
-                      "description": "The coarse grouping: ssh, vault, net, scm, cloud, token, insights, external, kubernetes, galaxy, cryptography or registry. It is what the binding rule keys on.",
+                      "description": "The coarse grouping: cloud, cryptography, database, external, galaxy, insights, kubernetes, net, registry, scm, ssh, token or vault. It is what the binding rule keys on.",
                       "type": "string"
                     },
                     "managed": {
@@ -4156,7 +4181,23 @@
                 }
               }
             },
-            "description": "The body is malformed, or the values do not satisfy the type."
+            "description": "The body is malformed, the name is blank, the name, description or a reference holds a NUL character, or the values do not satisfy the type."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The credential type is another organization's custom type. The refusal names it by the id sent."
           },
           "404": {
             "content": {
@@ -4381,7 +4422,7 @@
         "x-link-relation": "self"
       },
       "patch": {
-        "description": "Replaces a credential's values. An input submitted as \"$encrypted$\" is left at whatever is stored, which is what lets a form round-trip: it renders the marker for a secret, an operator edits an unrelated field, and submitting does not overwrite the secret with the marker text. Submit a real value to rotate one.",
+        "description": "A partial update of a credential. A field left out keeps its stored value and a field present is applied. inputs merges over the stored values: an input left out keeps its value, one submitted as \"$encrypted$\" is left at whatever is stored, which is what lets a form round-trip, and \"\" clears an input; submit a real value to rotate one. external, when present, replaces the stored references whole, so an input left out of it no longer reads from an external source and {} removes every reference. A null on any field, or on a value inside inputs or external, is refused. The credential type and the organization are not updatable: a value that differs from the stored one is refused, and the stored value is accepted as an echo. The credential as it would be saved is checked whole against its type. The response is the redacted read. Concurrent PATCHes are last-writer-wins: there is no version check.",
         "operationId": "update_credential",
         "parameters": [
           {
@@ -4398,20 +4439,31 @@
           "content": {
             "application/json": {
               "schema": {
+                "description": "A partial update. A field left out keeps its stored value and a field present is applied; an empty value clears a field that can be empty. No field may be null: leave it out to keep it. Unknown fields are refused, so a GET response cannot be sent back as it is; send the fields a create takes. The credential as it would be saved is checked whole against its type, so removing the only value or reference a required input has is refused.",
                 "properties": {
+                  "credential_type": {
+                    "description": "Not updatable: accepted only as the stored value, and any other is refused with 400.",
+                    "type": "integer"
+                  },
                   "description": {
-                    "description": "",
+                    "description": "\"\" clears it.",
                     "type": "string"
                   },
                   "external": {
+                    "description": "External secret-manager references keyed by input id, each written <source>:<reference>. When present it replaces the stored set whole: an input left out of it no longer reads from an external source, and {} removes every reference. Leave it out to keep them. No value may be null.",
                     "type": "object"
                   },
                   "inputs": {
+                    "description": "Values keyed by input id, merged over the stored ones: an input left out keeps its value, one sent as \"$encrypted$\" keeps the stored secret, which is what lets a form that shows the marker send it back, and \"\" clears an input. Send a real value to rotate a secret. No value may be null.",
                     "type": "object"
                   },
                   "name": {
-                    "description": "",
+                    "description": "Unique within the organization. May not be blank.",
                     "type": "string"
+                  },
+                  "organization": {
+                    "description": "Not updatable: accepted only as the stored value, and any other is refused with 400.",
+                    "type": "integer"
                   }
                 },
                 "type": "object"
@@ -4509,7 +4561,7 @@
                 }
               }
             },
-            "description": "The body is malformed, or the values do not satisfy the type."
+            "description": "The body is malformed, sets a field or a value inside inputs or external to null, or changes the credential type or the organization, or the credential it would leave has a blank name, a NUL character in its name, description or a reference, or values that do not satisfy its type."
           },
           "404": {
             "content": {
@@ -4526,6 +4578,22 @@
               }
             },
             "description": "No credential with that id."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The name is taken in the organization."
           }
         },
         "security": [
@@ -4797,7 +4865,23 @@
                 }
               }
             },
-            "description": "The body is malformed."
+            "description": "The body is malformed, or a binding's metadata holds a NUL character."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "A source credential belongs to another organization. The refusal names it by the id sent."
           },
           "404": {
             "content": {
@@ -14922,6 +15006,22 @@
               }
             },
             "description": "The body is malformed."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "A credential belongs to an organization other than the template's. The refusal names it by the id sent."
           },
           "404": {
             "content": {
