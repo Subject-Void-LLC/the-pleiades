@@ -357,7 +357,7 @@ func printRefusal(runID string, problems []rollback.Problem) {
 	for _, p := range problems {
 		fmt.Printf("  %s\n", problemText(p))
 		if p.Accept != "" {
-			fmt.Printf("    accept it with %s\n", p.Accept)
+			fmt.Printf("    accept it with %s\n", termsafe.EscapeLine(p.Accept))
 		}
 	}
 }
@@ -382,7 +382,7 @@ func problemLines(problems []rollback.Problem) []string {
 	for _, p := range problems {
 		line := problemText(p)
 		if p.Accept != "" {
-			line += " (accept it with " + p.Accept + ")"
+			line += " (accept it with " + termsafe.EscapeLine(p.Accept) + ")"
 		}
 		out = append(out, line)
 	}

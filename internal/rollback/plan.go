@@ -309,7 +309,7 @@ func Build(req Request) (Plan, error) {
 	changed, unknown := changesOf(req.Target)
 	for _, u := range unknown {
 		gap := Gap{Node: u.NodeID, DeviceID: u.DeviceID, DeviceName: deviceName(req, u.DeviceID),
-			Reason: fmt.Sprintf("%s failed during its action, so it may have changed part of what it meant to; the journal cannot say what, and nothing undoes it", u.FQCN)}
+			Reason: fmt.Sprintf("%s failed during its action, so it may have changed part of what it meant to; the journal cannot say what, and nothing undoes it", Printable(u.FQCN))}
 		plan.Unknown = append(plan.Unknown, gap)
 		if !req.AllowUnknown[u.NodeID] {
 			plan.UnacceptedUnknown++
@@ -347,7 +347,7 @@ func Build(req Request) (Plan, error) {
 			// so the skew name accepts nothing (Request.ExecutorIsPlanner).
 			if req.ExecutorIsPlanner && req.AllowSkew[e.NodeID] {
 				problems = append(problems, Problem{Node: e.NodeID, DeviceID: e.DeviceID, DeviceName: name,
-					Reason: fmt.Sprintf("node %s is named to --leave, so nothing of it is replayed and --allow-skew accepts nothing; drop --allow-skew %s", e.NodeID, e.NodeID)})
+					Reason: fmt.Sprintf("node %s is named to --leave, so nothing of it is replayed and --allow-skew accepts nothing; drop --allow-skew %s", Printable(e.NodeID), Printable(e.NodeID))})
 				continue
 			}
 			reason := "named to leave in place"

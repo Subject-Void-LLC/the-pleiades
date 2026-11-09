@@ -139,9 +139,9 @@ func recordedSteps(req Request, e engine.JournalEntry, leave string, groups grou
 		}
 	}
 	if e.InverseFQCN == "" {
-		reason := fmt.Sprintf("%s changed the device and recorded no undo", e.FQCN)
+		reason := fmt.Sprintf("%s changed the device and recorded no undo", Printable(e.FQCN))
 		if manifest, ok := collection.ManifestOf(e.FQCN); ok && !manifest.Reversibility.Reversible && manifest.Reversibility.Notes != "" {
-			reason = fmt.Sprintf("%s changed the device and cannot be undone (%s)", e.FQCN, strings.TrimSuffix(manifest.Reversibility.Notes, "."))
+			reason = fmt.Sprintf("%s changed the device and cannot be undone (%s)", Printable(e.FQCN), strings.TrimSuffix(manifest.Reversibility.Notes, "."))
 		}
 		reason += "; give the task a rollback: list in its runbook, or leave the change in place"
 		if notFound != nil {
@@ -157,18 +157,18 @@ func recordedSteps(req Request, e engine.JournalEntry, leave string, groups grou
 		withheld := missingKeys(e)
 		return nil, nil, &stepError{
 			reason: fmt.Sprintf("%s's undo through %s was not recorded in full (%s kept out of the journal), so it cannot be replayed; give the task a rollback: list, or leave the change in place",
-				e.FQCN, e.InverseFQCN, strings.Join(withheld, ", ")),
+				Printable(e.FQCN), Printable(e.InverseFQCN), strings.Join(withheld, ", ")),
 			accept: leave,
 		}
 	}
 	if e.InversePartial && !req.AllowPartial[e.NodeID] {
 		return nil, nil, &stepError{
-			reason: fmt.Sprintf("%s's undo through %s is partial: it does not put back everything the task overwrote", e.FQCN, e.InverseFQCN),
+			reason: fmt.Sprintf("%s's undo through %s is partial: it does not put back everything the task overwrote", Printable(e.FQCN), Printable(e.InverseFQCN)),
 			accept: "--allow-partial " + e.NodeID,
 		}
 	}
 	if e.InversePartial && len(missingKeys(e)) > 0 {
-		return nil, nil, &stepError{reason: fmt.Sprintf("%s's partial undo through %s was not recorded in full, so it cannot be replayed", e.FQCN, e.InverseFQCN), accept: leave}
+		return nil, nil, &stepError{reason: fmt.Sprintf("%s's partial undo through %s was not recorded in full, so it cannot be replayed", Printable(e.FQCN), Printable(e.InverseFQCN)), accept: leave}
 	}
 	params := map[string]any{}
 	have := map[string]bool{}
@@ -186,7 +186,7 @@ func recordedSteps(req Request, e engine.JournalEntry, leave string, groups grou
 	}
 	return []Step{{
 		Node: e.NodeID, Index: 0, Emitter: e.FQCN, FQCN: e.InverseFQCN, Params: params, Source: SourceRecorded, Become: e.Become,
-		Name: fmt.Sprintf("undo %s (%s)", e.NodeID, labelOf(e)), Partial: e.InversePartial,
+		Name: fmt.Sprintf("undo %s (%s)", Printable(e.NodeID), labelOf(e)), Partial: e.InversePartial,
 		// Carried as recorded, for the Runner that runs the undo.
 		Collection: e.Collection, UndoDigest: e.InverseSpecDigest, SkewAccepted: accepted,
 	}}, warnings, nil
@@ -221,7 +221,7 @@ func authoredList(e engine.JournalEntry, tasks []engine.Task) []Step {
 		}
 		steps = append(steps, Step{
 			Node: e.NodeID, Index: i, Emitter: e.FQCN, FQCN: task.FQCN, Params: maps.Clone(task.Params), Source: SourceAuthored, Become: e.Become,
-			Name: fmt.Sprintf("undo %s (%s), step %d: %s", e.NodeID, labelOf(e), i+1, name),
+			Name: fmt.Sprintf("undo %s (%s), step %d: %s", Printable(e.NodeID), labelOf(e), i+1, name),
 		})
 	}
 	return steps
@@ -233,7 +233,7 @@ func labelOf(e engine.JournalEntry) string {
 	if e.TaskName != "" {
 		return e.TaskName
 	}
-	return e.FQCN
+	return Printable(e.FQCN)
 }
 
 // missingKeys returns the undo's parameter names whose values the journal

@@ -160,7 +160,7 @@ func (k skew) missingRequired(emitter, method string, target collection.Manifest
 		return nil
 	}
 	return fmt.Errorf("%s requires %s in this build, which the undo of %s through %s does not give, so it cannot be replayed whatever is accepted: %s",
-		method, quoted(missing), emitter, method, k.describe())
+		Printable(method), quoted(missing), Printable(emitter), Printable(method), k.describe())
 }
 
 // describe says what the undo was recorded under and what this build has,
@@ -230,7 +230,7 @@ func judgeSkew(req Request, node string, k skew, emitter, method string, target 
 	if !k.recorded.IsZero() && k.recorded.Group != k.group {
 		// A minor release may move a method to another group, so a stored
 		// group is never held to this build's routing (FAILURE_PATTERNS 988).
-		warnings = append(warnings, fmt.Sprintf("the journal records %s under the %q Collection, and this build routes it to %s; its undo is held to this build's declarations", emitter, k.recorded.Group, k.routedTo()))
+		warnings = append(warnings, fmt.Sprintf("the journal records %s under the %q Collection, and this build routes it to %s; its undo is held to this build's declarations", Printable(emitter), k.recorded.Group, k.routedTo()))
 	}
 	if err := k.missingRequired(emitter, method, target, have); err != nil {
 		return false, nil, err
@@ -238,11 +238,11 @@ func judgeSkew(req Request, node string, k skew, emitter, method string, target 
 	if !k.skewed() {
 		switch {
 		case k.unknown():
-			warnings = append(warnings, fmt.Sprintf("%s was recorded with no Collection identity, so its undo was checked against this build's declarations only", emitter))
+			warnings = append(warnings, fmt.Sprintf("%s was recorded with no Collection identity, so its undo was checked against this build's declarations only", Printable(emitter)))
 		case k.recorded.IsZero():
-			warnings = append(warnings, fmt.Sprintf("%s was recorded with no Collection identity, and its undo's declaration is this build's (undo digest %q)", emitter, k.undoDigest))
+			warnings = append(warnings, fmt.Sprintf("%s was recorded with no Collection identity, and its undo's declaration is this build's (undo digest %q)", Printable(emitter), k.undoDigest))
 		case k.recorded.Manifests != k.groupDigest():
-			warnings = append(warnings, fmt.Sprintf("%s's Collection declarations changed since the run, and its undo's own declaration is unchanged, so it replays as recorded: %s", emitter, k.describe()))
+			warnings = append(warnings, fmt.Sprintf("%s's Collection declarations changed since the run, and its undo's own declaration is unchanged, so it replays as recorded: %s", Printable(emitter), k.describe()))
 		}
 		if named && !req.ExecutorIsPlanner {
 			// A Runner of another build may hold other declarations than this
@@ -257,7 +257,7 @@ func judgeSkew(req Request, node string, k skew, emitter, method string, target 
 	if !named {
 		return false, nil, &stepError{
 			reason: fmt.Sprintf("the undo of %s through %s was recorded under other declarations than this build's, and every value it recorded fits this build's: %s",
-				emitter, method, k.describe()),
+				Printable(emitter), Printable(method), k.describe()),
 			accept: "--allow-skew " + node,
 		}
 	}
@@ -267,7 +267,7 @@ func judgeSkew(req Request, node string, k skew, emitter, method string, target 
 	if !req.ExecutorIsPlanner {
 		by = "allow_skew"
 	}
-	warnings = append(warnings, fmt.Sprintf("%s accepted the undo of %s through %s under other declarations: %s", by, emitter, method, k.describe()))
+	warnings = append(warnings, fmt.Sprintf("%s accepted the undo of %s through %s under other declarations: %s", by, Printable(emitter), Printable(method), k.describe()))
 	return true, warnings, nil
 }
 
@@ -276,11 +276,11 @@ func judgeSkew(req Request, node string, k skew, emitter, method string, target 
 func namedUnskewed(emitter string, k skew) string {
 	switch {
 	case k.recordedUndo != "":
-		return fmt.Sprintf("allow_skew names this node, and the undo digest %s's entry recorded (%q) is this Controller's; the step is marked so that a Runner whose own declarations differ replays it", emitter, k.recordedUndo)
+		return fmt.Sprintf("allow_skew names this node, and the undo digest %s's entry recorded (%q) is this Controller's; the step is marked so that a Runner whose own declarations differ replays it", Printable(emitter), k.recordedUndo)
 	case !k.recorded.IsZero():
-		return fmt.Sprintf("allow_skew names this node, and %s's Collection digest as recorded (%q) is this Controller's; the step is marked so that a Runner whose own declarations differ replays it", emitter, k.recorded.Manifests)
+		return fmt.Sprintf("allow_skew names this node, and %s's Collection digest as recorded (%q) is this Controller's; the step is marked so that a Runner whose own declarations differ replays it", Printable(emitter), k.recorded.Manifests)
 	}
-	return fmt.Sprintf("allow_skew names this node, and %s was recorded with no Collection identity or undo digest, so nothing was compared, on this Controller or on a Runner; the name changes nothing", emitter)
+	return fmt.Sprintf("allow_skew names this node, and %s was recorded with no Collection identity or undo digest, so nothing was compared, on this Controller or on a Runner; the name changes nothing", Printable(emitter))
 }
 
 // quoted is names, each quoted, joined for a sentence.
@@ -310,7 +310,7 @@ func needlessSkew(node string, steps []Step) string {
 	case steps[0].Collection.IsZero() && steps[0].UndoDigest == "":
 		why = "it was recorded with no Collection identity, so nothing tells its declarations from this build's"
 	}
-	return fmt.Sprintf("node %s has no skew to accept: %s; drop --allow-skew %s", node, why, node)
+	return fmt.Sprintf("node %s has no skew to accept: %s; drop --allow-skew %s", Printable(node), why, Printable(node))
 }
 
 // unplannedSkews refuses, on either tier, each node AllowSkew names that
@@ -361,5 +361,5 @@ func SkewNote(s Step) string {
 	if !k.skewed() {
 		return ""
 	}
-	return fmt.Sprintf("the undo of %s through %s replays under other declarations, accepted by name: %s", s.Emitter, s.FQCN, k.describe())
+	return fmt.Sprintf("the undo of %s through %s replays under other declarations, accepted by name: %s", Printable(s.Emitter), Printable(s.FQCN), k.describe())
 }

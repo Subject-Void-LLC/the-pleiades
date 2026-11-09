@@ -193,13 +193,13 @@ func laterRunProblems(req Request, changed []engine.JournalEntry) ([]Problem, []
 			case e.AuthoredRollbackEmpty:
 			case e.AuthoredRollback || e.InverseFQCN != "":
 				undoable = true
-			case !slices.Contains(irreversible, e.FQCN):
-				irreversible = append(irreversible, e.FQCN)
+			case !slices.Contains(irreversible, Printable(e.FQCN)):
+				irreversible = append(irreversible, Printable(e.FQCN))
 			}
 		}
 		for _, e := range failedActing {
-			if share(e, &mayHaveOn) && !slices.Contains(unknown, e.FQCN) {
-				unknown = append(unknown, e.FQCN)
+			if share(e, &mayHaveOn) && !slices.Contains(unknown, Printable(e.FQCN)) {
+				unknown = append(unknown, Printable(e.FQCN))
 			}
 		}
 		if len(changedOn) == 0 && len(mayHaveOn) == 0 {

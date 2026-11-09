@@ -198,3 +198,48 @@ func TestRollbackJob_TakesAllowSkew(t *testing.T) {
 		t.Errorf("steps %+v, want the undo allow_skew named marked accepted", steps)
 	}
 }
+
+// TestRollbackJob_PrintsAStoredGroupAndNodeEscaped: a Runner's row may hold
+// a direction override in its Collection group or its node id, which JSON
+// carries raw; the 202 answer's warnings and a refusal's problems hold
+// neither raw.
+func TestRollbackJob_PrintsAStoredGroupAndNodeEscaped(t *testing.T) {
+	override := string(rune(0x202e))
+	post := func(t *testing.T, f *rollbackFixture, body string, status int) string {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodPost, "/jobs/"+f.jobID+"/rollback", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		rctx := chi.NewRouteContext()
+		rctx.URLParams.Add("id", f.jobID)
+		req = req.WithContext(context.WithValue(contextWithIdentity(req, dispatchTestIdentity), chi.RouteCtxKey, rctx))
+		rec := httptest.NewRecorder()
+		f.dispatcher.RollbackJob(rec, req)
+		if rec.Code != status {
+			t.Fatalf("POST %s: %d %s, want %d", body, rec.Code, rec.Body, status)
+		}
+		var decoded any
+		if err := json.Unmarshal(rec.Body.Bytes(), &decoded); err != nil {
+			t.Fatal(err)
+		}
+		text, _ := json.Marshal(decoded)
+		return string(text)
+	}
+
+	// A warning naming a group the Runner recorded.
+	f := newRollbackFixture(t, nil, nil)
+	id, undo := directoryDeclarations(t)
+	id.Group = "fi" + override + "le"
+	f.recordedUnder(id, undo)
+	body := post(t, f, `{"leave": ["tasks[1]"]}`, http.StatusAccepted)
+	if strings.Contains(body, override) || !strings.Contains(body, "warnings") {
+		t.Errorf("the 202 answer holds the group raw or no warning: %s", body)
+	}
+
+	// A refusal naming a node id the Runner wrote.
+	f = newRollbackFixture(t, nil, nil)
+	f.journal.entries[f.jobID][0].NodeID = "tasks[0]" + override
+	body = post(t, f, `{"leave": ["tasks[1]"]}`, http.StatusUnprocessableEntity)
+	if strings.Contains(body, override) || !strings.Contains(body, "tasks[0]") {
+		t.Errorf("the refusal holds the node id raw, or does not name it: %s", body)
+	}
+}

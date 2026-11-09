@@ -50,7 +50,7 @@ func rollbackDAG(logger *slog.Logger, ran *engine.DAG, payload wire.DispatchPayl
 		// declarations, so only here is it known what the name accepted. The
 		// note quotes every group, version and digest it names.
 		if note := rollback.SkewNote(s); s.SkewAccepted && note != "" {
-			notes = append(notes, fmt.Sprintf("node %s: %s", s.Node, note))
+			notes = append(notes, fmt.Sprintf("node %s: %s", rollback.Printable(s.Node), note))
 			if logger != nil {
 				logger.Warn("running a recorded undo under other declarations than it was recorded under, as the rollback accepted by name",
 					slog.String("job", payload.JobID), slog.String("rollback_of", rb.Of), slog.String("device", payload.DeviceName),

@@ -35,7 +35,7 @@ func checkRecorded(e engine.JournalEntry) (*sdk.InverseSpec, collection.Manifest
 	// one build ran from a program could be built in to another
 	// (FAILURE_PATTERNS 841's review). The Runner holds every step again.
 	if e.ProviderProgram != "" {
-		return nil, collection.Manifest{}, fmt.Errorf("the journal records %s as run by the external program %q, whose recorded undo is never replayed", e.FQCN, e.ProviderProgram)
+		return nil, collection.Manifest{}, fmt.Errorf("the journal records %s as run by the external program %q, whose recorded undo is never replayed", Printable(e.FQCN), e.ProviderProgram)
 	}
 	at := versions(e.Collection)
 	spec, target, err := declaredUndo(e.FQCN, e.InverseFQCN)
@@ -43,7 +43,7 @@ func checkRecorded(e engine.JournalEntry) (*sdk.InverseSpec, collection.Manifest
 		return nil, collection.Manifest{}, fmt.Errorf("%w%s", err, at)
 	}
 	if e.InversePartial && !spec.MayBePartial {
-		return nil, collection.Manifest{}, fmt.Errorf("the journal marks %s's undo through %s partial, which %s never declares it can be, so it is not trusted%s", e.FQCN, e.InverseFQCN, e.FQCN, at)
+		return nil, collection.Manifest{}, fmt.Errorf("the journal marks %s's undo through %s partial, which %s never declares it can be, so it is not trusted%s", Printable(e.FQCN), Printable(e.InverseFQCN), Printable(e.FQCN), at)
 	}
 	declared := fragment.ByNameIn(target)
 	seen := map[string]bool{}
@@ -53,7 +53,7 @@ func checkRecorded(e engine.JournalEntry) (*sdk.InverseSpec, collection.Manifest
 		case seen[p.Key]:
 			return nil, collection.Manifest{}, fmt.Errorf("the journal records undo parameter %q twice", p.Key)
 		case collection.IsReservedParam(p.Key) || !slices.Contains(spec.Record, p.Key) || !isDeclared:
-			return nil, collection.Manifest{}, fmt.Errorf("the journal records a value for undo parameter %q, which %s does not declare recordable for %s, so it is not trusted%s", p.Key, e.FQCN, e.InverseFQCN, at)
+			return nil, collection.Manifest{}, fmt.Errorf("the journal records a value for undo parameter %q, which %s does not declare recordable for %s, so it is not trusted%s", p.Key, Printable(e.FQCN), Printable(e.InverseFQCN), at)
 		}
 		seen[p.Key] = true
 		if err := checkValue(p, engine.ListParam(e.InverseFQCN, p.Key)); err != nil {
@@ -104,13 +104,13 @@ func checkIdentity(fqcn string, id wire.CollectionIdentity, program string) erro
 		return nil
 	}
 	if err := id.Shape(); err != nil {
-		return fmt.Errorf("the journal records a Collection identity for %s that no build writes (%w), so its undo is not trusted", fqcn, err)
+		return fmt.Errorf("the journal records a Collection identity for %s that no build writes (%w), so its undo is not trusted", Printable(fqcn), err)
 	}
 	switch {
 	case id.Program && program == "":
-		return fmt.Errorf("the journal records %s's Collection as the external program %q and names no program that ran it, which no build writes, so its undo is not trusted", fqcn, id.Group)
+		return fmt.Errorf("the journal records %s's Collection as the external program %q and names no program that ran it, which no build writes, so its undo is not trusted", Printable(fqcn), id.Group)
 	case !id.Program && program != "":
-		return fmt.Errorf("the journal records %s as run by the external program %q under the first-party %q Collection's identity, which no build writes, so its undo is not trusted", fqcn, program, id.Group)
+		return fmt.Errorf("the journal records %s as run by the external program %q under the first-party %q Collection's identity, which no build writes, so its undo is not trusted", Printable(fqcn), program, id.Group)
 	}
 	return nil
 }
@@ -126,12 +126,12 @@ func checkParamValue(key string, value any, param collection.Param, method strin
 	fits, err := collection.ParamFits(param.Type, value)
 	switch {
 	case err != nil:
-		return fmt.Errorf("undo parameter %q: %s declares it of a type this build does not know: %w", key, method, err)
+		return fmt.Errorf("undo parameter %q: %s declares it of a type this build does not know: %w", key, Printable(method), err)
 	case !fits:
-		return fmt.Errorf("the journal records undo parameter %q as %s, and %s declares it %s, so it is not trusted", key, collection.ValueKind(value), method, param.Type)
+		return fmt.Errorf("the journal records undo parameter %q as %s, and %s declares it %s, so it is not trusted", key, collection.ValueKind(value), Printable(method), param.Type)
 	}
 	if problem := collection.ChoiceProblem(param, value); problem != "" {
-		return fmt.Errorf("the journal records a value for undo parameter %q that %s does not take (%s), so it is not trusted", key, method, problem)
+		return fmt.Errorf("the journal records a value for undo parameter %q that %s does not take (%s), so it is not trusted", key, Printable(method), problem)
 	}
 	return nil
 }

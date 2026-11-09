@@ -138,10 +138,13 @@ var acceptFields = map[string]string{
 
 // problemFrom renders a planner problem for the API.
 func problemFrom(p rollback.Problem) RollbackProblem {
-	out := RollbackProblem{Node: p.Node, Device: p.DeviceName, Reason: p.Reason, Kind: p.Kind, UnknownEffects: p.UnknownEffects}
+	// A node id is printed as rollback.Printable has it: a Runner wrote the
+	// row it came from, and a format character in it would otherwise reach
+	// the body raw.
+	out := RollbackProblem{Node: rollback.Printable(p.Node), Device: p.DeviceName, Reason: p.Reason, Kind: p.Kind, UnknownEffects: p.UnknownEffects}
 	if flag, value, ok := strings.Cut(p.Accept, " "); ok {
 		if field, known := acceptFields[flag]; known {
-			out.Field, out.Value = field, value
+			out.Field, out.Value = field, rollback.Printable(value)
 		}
 	}
 	return out
@@ -311,7 +314,7 @@ func (d *Dispatcher) planRollback(ctx context.Context, job *dispatch.Job, tasks 
 		Authored: func(node string) ([]engine.Task, error) {
 			task, ok := dag.NodeFor(node)
 			if !ok {
-				return nil, fmt.Errorf("runbook %s has no node %s", job.RunbookID, node)
+				return nil, fmt.Errorf("runbook %s has no node %s", job.RunbookID, rollback.Printable(node))
 			}
 			return task.Rollback, nil
 		},
@@ -339,7 +342,7 @@ func (d *Dispatcher) planRollback(ctx context.Context, job *dispatch.Job, tasks 
 	// tier ends incomplete: a job that ran would read as a rollback done.
 	for _, gap := range plan.Unknown {
 		if !slices.Contains(req.AllowUnknown, gap.Node) {
-			problems = append(problems, RollbackProblem{Node: gap.Node, Device: gap.DeviceName, Reason: gap.Reason, Field: "allow_unknown", Value: gap.Node})
+			problems = append(problems, RollbackProblem{Node: rollback.Printable(gap.Node), Device: gap.DeviceName, Reason: gap.Reason, Field: "allow_unknown", Value: rollback.Printable(gap.Node)})
 		}
 	}
 
@@ -347,11 +350,11 @@ func (d *Dispatcher) planRollback(ctx context.Context, job *dispatch.Job, tasks 
 	for _, level := range plan.Levels {
 		for _, s := range level {
 			if s.DeviceID == "" {
-				problems = append(problems, RollbackProblem{Node: s.Node, Reason: "a change made on no device cannot be undone through the Controller", Field: "leave", Value: s.Node})
+				problems = append(problems, RollbackProblem{Node: rollback.Printable(s.Node), Reason: "a change made on no device cannot be undone through the Controller", Field: "leave", Value: rollback.Printable(s.Node)})
 				continue
 			}
 			if err := rollback.Verify(dag, s); err != nil {
-				problems = append(problems, RollbackProblem{Node: s.Node, Device: s.DeviceName, Reason: err.Error()})
+				problems = append(problems, RollbackProblem{Node: rollback.Printable(s.Node), Device: s.DeviceName, Reason: err.Error()})
 				continue
 			}
 			addStep(out, s)
@@ -373,7 +376,7 @@ func (d *Dispatcher) planRollback(ctx context.Context, job *dispatch.Job, tasks 
 	for _, w := range plan.Warnings {
 		logger.WarnContext(ctx, "rollback plan warning", slog.String("job_id", job.JobID), slog.String("node", w.Node),
 			slog.String("device", w.DeviceName), slog.String("warning", w.Message))
-		warnings = append(warnings, RollbackWarning{Node: w.Node, Device: w.DeviceName, Message: w.Message})
+		warnings = append(warnings, RollbackWarning{Node: rollback.Printable(w.Node), Device: w.DeviceName, Message: w.Message})
 	}
 	if len(out.Devices) == 0 {
 		return nil, nil, fmt.Errorf("%w: nothing is left to run, since every change is left in place as named or its rollback: list says there is nothing to undo", ErrNotRollbackable)
