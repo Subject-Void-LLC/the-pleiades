@@ -7,7 +7,8 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/Subject-Void-LLC/the-pleiades/internal/ui/view"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/api"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/recordname"
 )
 
 // refuseDotSegments answers 404 to a request whose path, as it was sent,
@@ -34,7 +35,10 @@ import (
 // is this one.
 func (h *Handler) refuseDotSegments(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		segs := strings.Split(r.URL.EscapedPath(), "/")
+		// The path as sent (api.SentPath), which chi splits, rather than
+		// EscapedPath, which re-escapes a path holding a raw | and so
+		// splits its escaped slashes.
+		segs := strings.Split(api.SentPath(r.URL), "/")
 		for i, seg := range segs {
 			if seg == "" {
 				if i != 0 && i != len(segs)-1 {
@@ -43,7 +47,7 @@ func (h *Handler) refuseDotSegments(next http.Handler) http.Handler {
 				}
 				continue
 			}
-			if decoded, err := url.PathUnescape(seg); err == nil && !view.Addressable(decoded) {
+			if decoded, err := url.PathUnescape(seg); err == nil && !recordname.Addressable(decoded) {
 				h.notFound(w, r)
 				return
 			}

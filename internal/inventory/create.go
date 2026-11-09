@@ -3,8 +3,25 @@ package inventory
 import (
 	"fmt"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/recordname"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 )
+
+// checkNewDevice is what both stores require of a device before they create
+// it, and returns the type Create stores.
+//
+// Its name must be able to be its address. A device is addressed by name in
+// the API and the UI, so "", "." and ".." (recordname) would be a record
+// stored but never opened, changed or deleted by its URL. Create is the one
+// place a device's name is chosen (Save never changes it), so refusing here
+// covers every caller: the API, the UI, a sync, an import. The error
+// matches recordname.ErrUnaddressable and says why.
+func checkNewDevice(item inventory.InventoryItem) (string, error) {
+	if err := recordname.Check(item.Name()); err != nil {
+		return "", fmt.Errorf("creating device: %w", err)
+	}
+	return itemDeviceType(item)
+}
 
 // typed is satisfied by any item that can report the registry key it was
 // hydrated through, which Create needs in order to store a new row's

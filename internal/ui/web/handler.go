@@ -193,11 +193,16 @@ func (h *Handler) Routes() http.Handler {
 
 		r.Get("/", h.index)
 		r.Get("/{resource}", h.list)
-		r.Get("/{resource}/new", h.newForm)
-		// Static segments before the {id} parameter, which chi resolves in
-		// that order, so a record can never be named "new" or "chart.json"
-		// and shadow one of these.
-		r.Get("/{resource}/chart.json", h.chartData)
+		// Two fixed segments beside the {id} parameter. chi matches a static
+		// segment before a parameter, so /ui/devices/new is the create form
+		// even when a device is named "new". Such a record keeps its name (it
+		// is a legitimate hostname): view.RecordPath links it as
+		// /ui/devices/%6Eew, which chi hands to {id} and the handler decodes
+		// back to "new". Both are registered from view's constants, the one
+		// list RecordPath escapes against, and
+		// TestRecordSiblings_AreTheRoutersOwn holds the two equal.
+		r.Get("/{resource}/"+view.NewSegment, h.newForm)
+		r.Get("/{resource}/"+view.ChartSegment, h.chartData)
 		r.Post("/{resource}", h.create)
 		r.Get("/{resource}/{id}", h.detail)
 		r.Get("/{resource}/{id}/edit", h.editForm)
@@ -339,15 +344,6 @@ func identityFrom(ctx context.Context) *auth.Identity {
 func tokenFrom(ctx context.Context) string {
 	tok, _ := ctx.Value(tokenCtxKey).(string)
 	return tok
-}
-
-// resourceOf resolves the {resource} path parameter to a descriptor.
-//
-// The parameter reaches a registry lookup and nothing else -- never a
-// filesystem path, never a query fragment -- so an unregistered name is a
-// map miss and a 404 rather than a traversal question.
-func (h *Handler) resourceOf(r *http.Request) (view.Descriptor, bool) {
-	return view.Lookup(chi.URLParam(r, "resource"))
 }
 
 // page assembles the chrome for a request.

@@ -23,6 +23,8 @@ import (
 	"time"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/Subject-Void-LLC/the-pleiades/internal/recordname"
 )
 
 // Bounds on what one observation may hold. A fact is device-supplied data
@@ -115,12 +117,25 @@ func Hash(key string, value any) (string, error) {
 	return hex.EncodeToString(sum[:]), nil
 }
 
-// ValidKey reports whether key may name a fact: non-empty, within
-// MaxKeyBytes, valid UTF-8, and printable with no space, so a key reads the
-// same in a report, a URL and a file. Ranging over a string reads a byte that
-// is not UTF-8 as U+FFFD, which is printable, so validity is asked first
-// (FAILURE_PATTERNS 932).
+// ValidKey reports whether key may name a new fact: well formed
+// (wellFormedKey), so it reads the same in a report, a URL and a file, and
+// not "." or "..". A key is the last segment of its history's URL,
+// /inventory/devices/{name}/facts/{key}, and no URL can carry either of
+// those as a segment (internal/recordname), so a fact named one could be stored
+// but never read back by its address.
 func ValidKey(key string) bool {
+	return wellFormedKey(key) && recordname.Addressable(key)
+}
+
+// wellFormedKey is the shape every stored key has had: non-empty, within
+// MaxKeyBytes, valid UTF-8, and printable with no space or slash. Ranging
+// over a string reads a byte that is not UTF-8 as U+FFFD, which is
+// printable, so validity is asked first (FAILURE_PATTERNS 932).
+//
+// A reader holds a stored line to this and never to ValidKey, which a
+// release may grow (this one refused "." and ".."): a key an earlier release
+// stored keeps reading, and its chain keeps verifying (LESSONS 415).
+func wellFormedKey(key string) bool {
 	if key == "" || len(key) > MaxKeyBytes || !utf8.ValidString(key) {
 		return false
 	}
@@ -139,8 +154,8 @@ type Problem struct {
 }
 
 // Guard is what keeps a secret out of storage: the values the run knows to be
-// secrets, and two checks a caller supplies from internal/redact (this package
-// imports no internal package): Shaped, whether text holds something
+// secrets, and two checks a caller supplies from internal/redact, which this
+// package does not import: Shaped, whether text holds something
 // shaped like a secret (a private key, a bearer token, a URL with a
 // password), and SecretName, whether a name marks one (password,
 // token), asked of a fact's key and of every field name inside its value.
@@ -196,7 +211,7 @@ func Prepare(observed map[string]any, guard Guard) ([]Entry, []Problem, error) {
 		// No digest nothing keyed is stored, whatever path brought it here.
 		value = ScrubDigests(value, guard.AllowSealed)
 		if !ValidKey(key) {
-			problems = append(problems, Problem{Key: key, Reason: "not a fact name: empty, too long, or holding a space, a slash or an unprintable character"})
+			problems = append(problems, Problem{Key: key, Reason: `not a fact name: empty, too long, "." or "..", or holding a space, a slash or an unprintable character`})
 			continue
 		}
 		if guard.SecretName != nil && guard.SecretName(nameOf(key, guard)) {

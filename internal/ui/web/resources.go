@@ -13,7 +13,6 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/apispec"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ui/render"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ui/view"
-	"github.com/go-chi/chi/v5"
 )
 
 // defaultPageSize bounds a rendered list. It is the server's, not the
@@ -28,9 +27,8 @@ const defaultPageSize = 50
 // declares an authorization requirement of its own -- it reads the one the
 // router already enforces on the JSON route for the same operation.
 func (h *Handler) resolve(w http.ResponseWriter, r *http.Request, op func(view.Ops) *apispec.Endpoint) (view.Descriptor, bool) {
-	d, ok := h.resourceOf(r)
+	d, ok := h.resourceOf(w, r)
 	if !ok {
-		h.notFound(w, r)
 		return view.Descriptor{}, false
 	}
 
@@ -168,8 +166,11 @@ func (h *Handler) chartData(w http.ResponseWriter, r *http.Request) {
 	// asked for chart data is worse than a 404: a caller parses it, fails,
 	// and reports that the chart is broken rather than that it does not
 	// exist.
-	d, ok := h.resourceOf(r)
-	if !ok || d.Chart == nil {
+	d, ok := h.resourceOf(w, r)
+	if !ok {
+		return
+	}
+	if d.Chart == nil {
 		h.notFound(w, r)
 		return
 	}
@@ -206,14 +207,23 @@ func (h *Handler) chartData(w http.ResponseWriter, r *http.Request) {
 // logged. A partial file is the one outcome worth working to avoid here,
 // since the caller has no way to tell one from a complete one.
 func (h *Handler) download(w http.ResponseWriter, r *http.Request) {
-	d, ok := h.resourceOf(r)
-	if !ok || len(d.Downloads) == 0 {
+	d, ok := h.resourceOf(w, r)
+	if !ok {
+		return
+	}
+	if len(d.Downloads) == 0 {
 		h.notFound(w, r)
 		return
 	}
 
-	id := chi.URLParam(r, "id")
-	format := chi.URLParam(r, "format")
+	id, ok := h.param(w, r, "id")
+	if !ok {
+		return
+	}
+	format, ok := h.param(w, r, "format")
+	if !ok {
+		return
+	}
 
 	var spec *view.DownloadSpec
 	for i := range d.Downloads {
@@ -282,7 +292,10 @@ func (h *Handler) stream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	id := chi.URLParam(r, "id")
+	id, ok := h.param(w, r, "id")
+	if !ok {
+		return
+	}
 	if d.Handlers != nil && d.Handlers.Get != nil {
 		// Resolve the record first, so a stream page for something that
 		// does not exist is a 404 rather than a page that connects and
@@ -316,9 +329,8 @@ func (h *Handler) stream(w http.ResponseWriter, r *http.Request) {
 // UI invented -- and an action nobody declared is a 404 rather than a
 // route that falls through to something else.
 func (h *Handler) lookupAction(w http.ResponseWriter, r *http.Request) (view.Descriptor, view.RecordAction, bool) {
-	d, ok := h.resourceOf(r)
+	d, ok := h.resourceOf(w, r)
 	if !ok {
-		h.notFound(w, r)
 		return view.Descriptor{}, view.RecordAction{}, false
 	}
 	if !d.Implemented() {
@@ -326,7 +338,10 @@ func (h *Handler) lookupAction(w http.ResponseWriter, r *http.Request) (view.Des
 		return view.Descriptor{}, view.RecordAction{}, false
 	}
 
-	name := chi.URLParam(r, "action")
+	name, ok := h.param(w, r, "action")
+	if !ok {
+		return view.Descriptor{}, view.RecordAction{}, false
+	}
 	for _, a := range d.Actions {
 		if a.Name != name {
 			continue
@@ -349,15 +364,18 @@ func (h *Handler) actionForm(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	id, ok := h.param(w, r, "id")
+	if !ok {
+		return
+	}
 	if !action.Prompts() {
 		// An action with no prompt is still a state change, so it must not
 		// happen on a GET. Redirect to the record and let the rendered
 		// button post; a GET that ran a job is one a link prefetcher or a
 		// corporate scanner would eventually run for somebody.
-		h.redirect(w, r, resourcePath(h.cfg.Prefix, d.Name, chi.URLParam(r, "id")))
+		h.redirect(w, r, resourcePath(h.cfg.Prefix, d.Name, id))
 		return
 	}
-	id := chi.URLParam(r, "id")
 	fields, ok := h.actionFields(w, r, d, action, id)
 	if !ok {
 		return
@@ -453,7 +471,10 @@ func (h *Handler) runAction(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	id := chi.URLParam(r, "id")
+	id, ok := h.param(w, r, "id")
+	if !ok {
+		return
+	}
 
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "malformed form submission", http.StatusBadRequest)
@@ -513,9 +534,8 @@ func (h *Handler) runAction(w http.ResponseWriter, r *http.Request) {
 // two cannot come to different conclusions about what the URL named or who
 // is allowed to reach it.
 func (h *Handler) lookupRowAction(w http.ResponseWriter, r *http.Request) (view.Descriptor, view.RowAction, string, string, bool) {
-	d, ok := h.resourceOf(r)
+	d, ok := h.resourceOf(w, r)
 	if !ok {
-		h.notFound(w, r)
 		return view.Descriptor{}, view.RowAction{}, "", "", false
 	}
 	if !d.Implemented() {
@@ -523,7 +543,11 @@ func (h *Handler) lookupRowAction(w http.ResponseWriter, r *http.Request) (view.
 		return view.Descriptor{}, view.RowAction{}, "", "", false
 	}
 
-	action, found := d.RowAction(chi.URLParam(r, "action"))
+	name, ok := h.param(w, r, "action")
+	if !ok {
+		return view.Descriptor{}, view.RowAction{}, "", "", false
+	}
+	action, found := d.RowAction(name)
 	if !found {
 		h.notFound(w, r)
 		return view.Descriptor{}, view.RowAction{}, "", "", false
@@ -533,7 +557,14 @@ func (h *Handler) lookupRowAction(w http.ResponseWriter, r *http.Request) (view.
 		return view.Descriptor{}, view.RowAction{}, "", "", false
 	}
 
-	id, row := chi.URLParam(r, "id"), chi.URLParam(r, "row")
+	id, ok := h.param(w, r, "id")
+	if !ok {
+		return view.Descriptor{}, view.RowAction{}, "", "", false
+	}
+	row, ok := h.param(w, r, "row")
+	if !ok {
+		return view.Descriptor{}, view.RowAction{}, "", "", false
+	}
 	if row == "" {
 		h.notFound(w, r)
 		return view.Descriptor{}, view.RowAction{}, "", "", false
@@ -729,7 +760,11 @@ func (h *Handler) detail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	row, err := d.Handlers.Get(r.Context(), chi.URLParam(r, "id"))
+	id, ok := h.param(w, r, "id")
+	if !ok {
+		return
+	}
+	row, err := d.Handlers.Get(r.Context(), id)
 	if err != nil {
 		h.notFound(w, r)
 		return
@@ -740,7 +775,7 @@ func (h *Handler) detail(w http.ResponseWriter, r *http.Request) {
 		Descriptor: d,
 		Row:        row,
 		Aff:        h.affordances(r.Context(), identityFrom(r.Context()), d),
-		Sections:   h.loadSections(r, d, chi.URLParam(r, "id")),
+		Sections:   h.loadSections(r, d, id),
 		// Unvalidated on purpose: this arrives from the query string, and
 		// DetailModel.CurrentTab is the one place that decides what an
 		// unrecognised value means. Sanitising it twice would give two
@@ -844,7 +879,10 @@ func (h *Handler) editForm(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	id := chi.URLParam(r, "id")
+	id, ok := h.param(w, r, "id")
+	if !ok {
+		return
+	}
 	values, err := d.Handlers.Form(r.Context(), id)
 	if err != nil {
 		h.notFound(w, r)
@@ -961,7 +999,10 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	id := chi.URLParam(r, "id")
+	id, ok := h.param(w, r, "id")
+	if !ok {
+		return
+	}
 	fields, ok := h.resolveFields(w, r, d, id)
 	if !ok {
 		return
@@ -1000,7 +1041,11 @@ func (h *Handler) destroy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := d.Handlers.Delete(r.Context(), chi.URLParam(r, "id")); err != nil {
+	id, ok := h.param(w, r, "id")
+	if !ok {
+		return
+	}
+	if err := d.Handlers.Delete(r.Context(), id); err != nil {
 		h.serverError(w, r, "delete "+d.Name, err)
 		return
 	}
@@ -1117,7 +1162,7 @@ func (h *Handler) formValues(w http.ResponseWriter, r *http.Request, fields []vi
 // so an identifier of "../.." would not be a path segment, it would delete
 // the prefix in front of it and send the caller somewhere else entirely.
 // gosec's taint analysis is what noticed it was missing here. An id no URL
-// can address ("", "." or "..", view.Addressable) has no page, so a write
+// can address ("", "." or "..", recordname) has no page, so a write
 // to one returns to the resource's list instead.
 func resourcePath(prefix, resource, id string) string {
 	if p := view.RecordPath(prefix, resource, id); p != "" {

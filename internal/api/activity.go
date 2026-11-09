@@ -7,8 +7,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/go-chi/chi/v5"
-
 	"github.com/Subject-Void-LLC/the-pleiades/internal/activity"
 )
 
@@ -120,8 +118,8 @@ func (h *ActivityHandler) ListActivity(w http.ResponseWriter, r *http.Request) {
 
 // GetActivityEntry serves one recorded change.
 func (h *ActivityHandler) GetActivityEntry(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.Atoi(chi.URLParam(r, "id"))
-	if err != nil || id < 1 {
+	id, err := pathID(r, "id")
+	if err != nil {
 		RespondError(w, r, http.StatusBadRequest, "id must be a positive integer")
 		return
 	}

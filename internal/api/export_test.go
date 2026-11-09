@@ -33,3 +33,10 @@ const IdentityKeyForTest = identityKey
 func ContextWithLoggerForTest(ctx context.Context, logger *slog.Logger) context.Context {
 	return context.WithValue(ctx, loggerKey, logger)
 }
+
+// StaticSiblingsForTest exposes staticSiblings to the black-box tests, which
+// read apispec's route table: apispec imports this package, so a test inside
+// it cannot.
+func StaticSiblingsForTest(patterns []string) map[string]map[string]map[string]bool {
+	return staticSiblings(patterns)
+}

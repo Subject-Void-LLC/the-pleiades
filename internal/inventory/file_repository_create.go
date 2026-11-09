@@ -23,7 +23,9 @@ import (
 // sidecar entry with no host is an orphan that findHostIndex can never
 // match and no later write can clean up.
 func (r *fileRepository) Create(ctx context.Context, item inventory.InventoryItem) error {
-	if _, err := itemDeviceType(item); err != nil {
+	// The same refusals the ent store makes, from the same function, so the
+	// two adapters agree on what may be created (checkNewDevice).
+	if _, err := checkNewDevice(item); err != nil {
 		return err
 	}
 

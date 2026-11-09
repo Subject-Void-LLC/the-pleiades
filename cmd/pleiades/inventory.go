@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/clispec"
@@ -18,6 +19,7 @@ import (
 	inv "github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/inventory/plugins"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/syncplugin"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/termsafe"
 )
 
 // inventoryCommands maps each `inventory` subcommand to its handler,
@@ -222,10 +224,15 @@ func runInventorySync(args []string) error {
 // printReconciliation writes the sync report: a summary line, then every
 // device whose outcome an operator has to act on.
 //
-// Added and unchanged devices are counted but not listed. Quarantined and
-// conflicted ones are listed individually with their reason, because those
-// are the two outcomes that need a human decision, and a summary count
-// alone would make them easy to miss in a fleet of hundreds.
+// Added and unchanged devices are counted but not listed. Quarantined,
+// conflicted and refused ones are listed individually with their reason,
+// because those are the outcomes that need a human decision, and a summary
+// count alone would make them easy to miss in a fleet of hundreds. A refused
+// record is one whose name no URL can carry ("", "." or ".."), and it is
+// counted on the summary line only when there is one, so the common line
+// reads as it always has.
+// Each name is shown quoted and each reason escaped, since both are the
+// upstream source's text.
 //
 // A read-only sync gets the same list. It used to return after its summary,
 // so the preview an operator runs before letting a sync write was the one
@@ -233,14 +240,14 @@ func runInventorySync(args []string) error {
 // record is shown nowhere else, since it is never stored.
 func printReconciliation(report syncplugin.Reconciliation) {
 	if wouldAdd, wouldUpdate := report.Count(syncplugin.OutcomeWouldAdd), report.Count(syncplugin.OutcomeWouldUpdate); wouldAdd+wouldUpdate > 0 {
-		fmt.Printf("read-only: discovered %d device(s): %d would be added, %d would be updated, %d unchanged, %d quarantined, %d conflicted\n",
+		fmt.Printf("read-only: discovered %d device(s): %d would be added, %d would be updated, %d unchanged, %d quarantined, %d conflicted",
 			report.Total(), wouldAdd, wouldUpdate,
 			report.Count(syncplugin.OutcomeUnchanged),
 			report.Count(syncplugin.OutcomeQuarantined),
 			report.Count(syncplugin.OutcomeConflict),
 		)
 	} else {
-		fmt.Printf("discovered %d device(s): %d added, %d updated, %d unchanged, %d quarantined, %d conflicted\n",
+		fmt.Printf("discovered %d device(s): %d added, %d updated, %d unchanged, %d quarantined, %d conflicted",
 			report.Total(),
 			report.Count(syncplugin.OutcomeAdded),
 			report.Count(syncplugin.OutcomeUpdated),
@@ -249,10 +256,15 @@ func printReconciliation(report syncplugin.Reconciliation) {
 			report.Count(syncplugin.OutcomeConflict),
 		)
 	}
+	if refused := report.Count(syncplugin.OutcomeRefused); refused > 0 {
+		fmt.Printf(", %d refused", refused)
+	}
+	fmt.Println()
 
 	needsAttention := make([]syncplugin.DeviceResult, 0)
 	for _, res := range report.Results {
-		if res.Outcome == syncplugin.OutcomeQuarantined || res.Outcome == syncplugin.OutcomeConflict {
+		switch res.Outcome {
+		case syncplugin.OutcomeQuarantined, syncplugin.OutcomeConflict, syncplugin.OutcomeRefused:
 			needsAttention = append(needsAttention, res)
 		}
 	}
@@ -265,6 +277,11 @@ func printReconciliation(report syncplugin.Reconciliation) {
 	})
 	fmt.Println("\ndevices needing review:")
 	for _, res := range needsAttention {
-		fmt.Printf("  %-28s %-12s %s\n", res.Name, res.Outcome, res.Reason)
+		// Every name and reason here is the upstream source's text (a
+		// hostname, a software type in a quarantine's reason), which a
+		// terminal must not act on: a name is quoted, which escapes a control
+		// character, a direction override and invalid UTF-8 and shows an
+		// empty name as "", and a reason is escaped onto one line.
+		fmt.Printf("  %-28s %-12s %s\n", strconv.Quote(res.Name), res.Outcome, termsafe.EscapeLine(res.Reason))
 	}
 }

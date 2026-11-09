@@ -74,7 +74,11 @@ hosts:
 ```
 
 The device is built as its type before it is written, so a property that type refuses is
-refused here, not on the first run. To change a host later, `set-host` adds or replaces a
+refused here, not on the first run. A name may hold almost any character, `/` included, but
+not be empty, `.` or `..`: a device's name is its address in the Controller's API and web UI,
+and no URL can carry those three as a path segment. `add-host`, the imports, the API, the web
+UI and `pleiades inventory sync` all refuse them and say why; a sync reports such an upstream
+device as refused and adds the rest. To change a host later, `set-host` adds or replaces a
 property with `--set` and removes one with `--unset`, each change a revision in the host's
 history:
 

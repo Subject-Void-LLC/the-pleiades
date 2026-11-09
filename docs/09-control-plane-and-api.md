@@ -94,6 +94,28 @@ underlying storage error is logged server-side, never echoed into the response b
 since it can name tables, columns, or filesystem paths an authenticated caller
 holding only a narrow scope has no business reading.
 
+## Names in a path
+
+Some records are addressed by a name someone chose, each one path segment: a device by its
+name (`/inventory/devices/{name}`), a fact by its key (`.../facts/{key}`), a granted
+capability by its name (`.../capabilities/{capability}`), and a runbook by the id its author
+gave it (`/runbooks/{id}`). A job and a schedule are addressed by the id the platform
+generated, and every other record by its numeric id.
+
+Escape a name as one segment, as the API's own links do: the device `sw/1` is
+`/inventory/devices/sw%2F1`, and `50%` is `/inventory/devices/50%25`. The API decodes each
+segment once, however a client spells its escapes, so `sw%2f1` and `sw%2F1` name the same
+device. That holds for the path as it arrives. A client that sends a raw `|`, `^`, backtick,
+`{`, `}`, `<` or `>` beside an escaped `/` may not send the path you wrote: Go's own HTTP
+client, given `/inventory/devices/a%2Fb|c`, re-escapes it as `/inventory/devices/a/b%7Cc`,
+in which the `%2F` has become a separator, and the request names another path. Escape
+those bytes too (`%7C` for `|`), as `url.PathEscape` does.
+
+A device cannot be created with the name `""`, `.` or `..`, and a fact cannot be named `.`
+or `..`. No URL can carry them as a path segment, since browsers and most clients read `.`
+and `..`, escaped or not, as steps between folders, so such a record could never be read,
+changed or deleted by its address. The refusal is a 400 that says why.
+
 ## Hypermedia and link relations
 
 A successful response embeds a `_links` array: every affordance the calling identity

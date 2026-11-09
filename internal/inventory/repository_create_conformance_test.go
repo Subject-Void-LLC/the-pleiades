@@ -9,6 +9,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/recordname"
 	pkginventory "github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory/inventorytest"
 )
@@ -116,6 +117,32 @@ func TestRepositoryConformance_CreateRejectsDuplicateName(t *testing.T) {
 			}
 			if host, _ := got.Properties().String("host"); host != "10.0.0.9" {
 				t.Errorf("host property = %q, want the original 10.0.0.9", host)
+			}
+		})
+	}
+}
+
+// TestRepositoryConformance_CreateRefusesANameNoURLCarries proves both
+// stores refuse a device named "", "." or "..", with the error that says
+// why, and store nothing. A device is addressed by its name in the API and
+// the UI, so such a record could never be opened, changed or deleted.
+func TestRepositoryConformance_CreateRefusesANameNoURLCarries(t *testing.T) {
+	for _, backend := range repositoryBackends() {
+		t.Run(backend.name, func(t *testing.T) {
+			repo := backend.newRepo(t)
+			ctx := context.Background()
+			for _, name := range []string{"", ".", ".."} {
+				err := repo.Create(ctx, newConformanceItem(t, name, map[string]interface{}{"host": "10.0.0.7"}))
+				if !errors.Is(err, recordname.ErrUnaddressable) {
+					t.Fatalf("Create(%q) = %v, want an error matching recordname.ErrUnaddressable", name, err)
+				}
+				if _, err := repo.GetByName(ctx, name); !errors.Is(err, inventory.ErrItemNotFound) {
+					t.Errorf("GetByName(%q) after a refused Create = %v, want ErrItemNotFound", name, err)
+				}
+			}
+			// A near miss stays usable: three dots is a name a URL carries.
+			if err := repo.Create(ctx, newConformanceItem(t, "...", map[string]interface{}{"host": "10.0.0.8"})); err != nil {
+				t.Fatalf("Create(\"...\") = %v, want nil", err)
 			}
 		})
 	}

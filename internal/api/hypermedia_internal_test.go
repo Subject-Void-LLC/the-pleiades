@@ -75,7 +75,7 @@ func TestSplitPath_DiscardsEmptySegments(t *testing.T) {
 func TestHrefFor_WithNoRouteContext(t *testing.T) {
 	r := httptest.NewRequest(http.MethodGet, "/jobs/abc", nil)
 
-	got, err := hrefFor(r, "/jobs/{id}")
+	got, err := hrefFor(r, "/jobs/{id}", nil)
 	if err != nil {
 		t.Fatalf("hrefFor() = %v, want nil", err)
 	}
@@ -107,7 +107,7 @@ func TestHrefFor_SubstitutesAndEscapes(t *testing.T) {
 			r := httptest.NewRequest(http.MethodGet, "/irrelevant", nil)
 			r = r.WithContext(context.WithValue(r.Context(), chi.RouteCtxKey, rctx))
 
-			got, err := hrefFor(r, tc.pattern)
+			got, err := hrefFor(r, tc.pattern, nil)
 			if err != nil {
 				t.Fatalf("hrefFor() = %v, want nil", err)
 			}
@@ -131,7 +131,7 @@ func TestHrefFor_SubstitutesAndEscapes(t *testing.T) {
 func TestHrefFor_EscapesARoutedNameOnce(t *testing.T) {
 	router := chi.NewRouter()
 	router.Get("/devices/{name}", func(w http.ResponseWriter, r *http.Request) {
-		href, err := hrefFor(r, "/devices/{name}")
+		href, err := hrefFor(r, "/devices/{name}", nil)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -172,7 +172,7 @@ func TestHrefFor_RefusesAnUndecodableEscapedValue(t *testing.T) {
 	rctx.URLParams.Add("id", "a%zz")
 	r := httptest.NewRequest(http.MethodGet, "/jobs/a%2Fb", nil)
 	r = r.WithContext(context.WithValue(r.Context(), chi.RouteCtxKey, rctx))
-	if got, err := hrefFor(r, "/jobs/{id}"); err == nil {
+	if got, err := hrefFor(r, "/jobs/{id}", nil); err == nil {
 		t.Fatalf("hrefFor() = %q, want an error for a value that does not decode", got)
 	}
 }
@@ -189,7 +189,7 @@ func TestHrefFor_SkipsWildcardKeys(t *testing.T) {
 	r := httptest.NewRequest(http.MethodGet, "/irrelevant", nil)
 	r = r.WithContext(context.WithValue(r.Context(), chi.RouteCtxKey, rctx))
 
-	got, err := hrefFor(r, "/jobs/{id}")
+	got, err := hrefFor(r, "/jobs/{id}", nil)
 	if err != nil {
 		t.Fatalf("hrefFor() = %v, want nil", err)
 	}
@@ -209,7 +209,7 @@ func TestHrefFor_RefusesAnInconsistentRouteContext(t *testing.T) {
 	r := httptest.NewRequest(http.MethodGet, "/irrelevant", nil)
 	r = r.WithContext(context.WithValue(r.Context(), chi.RouteCtxKey, rctx))
 
-	if _, err := hrefFor(r, "/jobs/{id}"); err == nil {
+	if _, err := hrefFor(r, "/jobs/{id}", nil); err == nil {
 		t.Fatal("hrefFor() accepted a route context with more keys than values")
 	}
 }

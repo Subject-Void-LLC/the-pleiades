@@ -35,6 +35,7 @@ type stubDeviceRepo struct {
 	retireErr error
 
 	retiredName string
+	lookedUp    string
 	created     pkginventory.InventoryItem
 	saved       pkginventory.InventoryItem
 }
@@ -50,7 +51,8 @@ func (s *stubDeviceRepo) GetGroup(_ context.Context, sel pkginventory.Selector) 
 	return &stubIterator{items: items}, nil
 }
 
-func (s *stubDeviceRepo) GetByName(_ context.Context, _ string) (pkginventory.InventoryItem, error) {
+func (s *stubDeviceRepo) GetByName(_ context.Context, name string) (pkginventory.InventoryItem, error) {
+	s.lookedUp = name
 	return s.item, s.getErr
 }
 
@@ -204,15 +206,12 @@ func TestDeviceHandler_RejectsUnusableNamesWithoutEchoingThem(t *testing.T) {
 	// must never happen is the rejected value coming back in the body,
 	// which is the reflected shape FAILURE_PATTERNS.md #72 names.
 	//
-	// The cases below are the ones that actually reach a handler, which
-	// is narrower than it looks and was measured rather than assumed.
-	// chi hands a handler the percent-encoded segment for "%0a", "%0d",
-	// and "%2f" (they stay as the literal text "%0a" and cannot introduce
-	// a newline or a path separator), but it decodes "%00" into a real NUL
-	// byte. So NUL is the one control character that genuinely arrives,
-	// and it is the one this guard has to catch. See
-	// TestDeviceHandler_PercentEncodedControlsArriveEncoded below for the
-	// other half of that finding.
+	// Every escape reaches the handler decoded (api.PathParam), whichever
+	// way the client spelled it, so "%00" arrives as a NUL byte and "%0a"
+	// as a newline, and the guard refuses both. See
+	// TestDeviceHandler_PercentEncodedControlsAreDecodedAndRefused below for
+	// the escaped controls, and why chi alone used to hand some of them over
+	// still escaped.
 	for _, tc := range []struct {
 		name  string
 		param string
@@ -272,26 +271,33 @@ func TestDeviceHandler_DeleteMapsRepositoryErrors(t *testing.T) {
 	}
 }
 
-// TestDeviceHandler_PercentEncodedControlsArriveEncoded pins down behavior
-// this package depends on but does not implement, so a future chi or
-// net/url upgrade that changes it fails here rather than silently widening
-// what reaches a handler.
+// TestDeviceHandler_PercentEncodedControlsAreDecodedAndRefused pins how an
+// escaped name reaches the handler, so a chi or net/url upgrade that
+// changes it fails here rather than silently changing which record a name
+// reaches.
 //
-// Measured, not assumed: chi decodes "%00" into a literal NUL byte, and
-// leaves "%0a", "%0d", and "%2f" as the three-character text they were
-// written as. That asymmetry is why the name guard checks for a real NUL
-// rather than for the string "%00", and why a percent-encoded newline is
-// not a rejection case: no newline exists to reject. A device named
-// "edge%0a-01" is an ordinary, if strange, name and is looked up as one.
-func TestDeviceHandler_PercentEncodedControlsArriveEncoded(t *testing.T) {
+// Every escape is decoded once (api.PathParam), however the client spelled
+// it. This test used to assert the opposite for "%0a", "%0d" and "%2f",
+// reading them arriving as three characters as a property of chi. It was a
+// property of the request: a lowercase escape differs from Go's default
+// encoding, so the request had a RawPath, chi routed on it and recorded
+// the value still escaped, while "%00" matched the default encoding and
+// arrived decoded. That is FAILURE_PATTERNS 1013, and it meant "edge%0a-01"
+// was looked up as a name nobody could have created through a client that
+// escapes in upper case. Decoded, an escaped newline is a newline, and the
+// name guard refuses it exactly as it refuses a raw one.
+func TestDeviceHandler_PercentEncodedControlsAreDecodedAndRefused(t *testing.T) {
 	for _, tc := range []struct {
-		name  string
-		param string
-		want  string
+		name       string
+		param      string
+		wantStatus int
+		wantLookup string
 	}{
-		{"encoded newline", "edge%0a-01", "edge%0a-01"},
-		{"encoded carriage return", "edge%0d-01", "edge%0d-01"},
-		{"encoded slash", "edge%2f-01", "edge%2f-01"},
+		{"encoded newline", "edge%0a-01", http.StatusBadRequest, ""},
+		{"encoded carriage return", "edge%0d-01", http.StatusBadRequest, ""},
+		{"encoded NUL", "edge%00-01", http.StatusBadRequest, ""},
+		{"encoded slash in lower case", "edge%2f-01", http.StatusNotFound, "edge/-01"},
+		{"encoded slash in upper case", "edge%2F-01", http.StatusNotFound, "edge/-01"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			repo := &stubDeviceRepo{getErr: inventory.ErrItemNotFound}
@@ -300,18 +306,17 @@ func TestDeviceHandler_PercentEncodedControlsArriveEncoded(t *testing.T) {
 			rr := httptest.NewRecorder()
 			router.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, api.APIVersionPrefix+"/inventory/devices/"+tc.param, nil))
 
-			// Treated as an ordinary name: looked up, and absent.
-			if rr.Code != http.StatusNotFound {
-				t.Errorf("status is %d, want 404: the encoded value is a legal name, not a rejection case", rr.Code)
+			if rr.Code != tc.wantStatus {
+				t.Errorf("status is %d, want %d", rr.Code, tc.wantStatus)
 			}
-			// And whatever it was, it is not echoed back.
+			// The name the repository was asked for, decoded once, and
+			// never a control character, which the guard refuses first.
+			if repo.lookedUp != tc.wantLookup {
+				t.Errorf("repository was asked for %q, want %q", repo.lookedUp, tc.wantLookup)
+			}
+			// Whatever it was, it is not echoed back.
 			if strings.Contains(rr.Body.String(), tc.param) {
 				t.Errorf("response echoes the requested name: %s", rr.Body.String())
-			}
-			// The property that matters: no raw control character ever
-			// reached the handler's own view of the name.
-			if strings.ContainsAny(tc.want, "\r\n\x00") {
-				t.Fatalf("expectation %q itself contains a raw control character", tc.want)
 			}
 		})
 	}

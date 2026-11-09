@@ -7,8 +7,6 @@ import (
 	"sort"
 	"strconv"
 
-	"github.com/go-chi/chi/v5"
-
 	"github.com/Subject-Void-LLC/the-pleiades/internal/adapters/routing"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credstore"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credtype"
@@ -848,8 +846,8 @@ func writeDTOToType(body credentialTypeWriteDTO) credtype.CredentialType {
 // the error tells a caller which id was wrong on a route that carries more
 // than one kind.
 func parsePathID(w http.ResponseWriter, r *http.Request, what string) (int, bool) {
-	id, err := strconv.Atoi(chi.URLParam(r, "id"))
-	if err != nil || id < 1 {
+	id, err := pathID(r, "id")
+	if err != nil {
 		RespondError(w, r, http.StatusBadRequest, what+" id must be a positive integer")
 		return 0, false
 	}

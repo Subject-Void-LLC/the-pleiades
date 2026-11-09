@@ -23,8 +23,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/go-chi/chi/v5"
-
 	"github.com/Subject-Void-LLC/the-pleiades/internal/launch"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/launchable"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/schedule"
@@ -241,7 +239,10 @@ func (h *ScheduleHandler) List(w http.ResponseWriter, r *http.Request) {
 
 // Get serves GET /schedules/{id}.
 func (h *ScheduleHandler) Get(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
+	id, ok := pathParam(w, r, "id")
+	if !ok {
+		return
+	}
 	s, err := h.schedules.Get(r.Context(), schedule.AnyOrganization, id)
 	if err != nil {
 		h.respondStoreError(w, r, "get", id, err)
@@ -310,7 +311,10 @@ func (h *ScheduleHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 // Update serves PATCH /schedules/{id}.
 func (h *ScheduleHandler) Update(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
+	id, ok := pathParam(w, r, "id")
+	if !ok {
+		return
+	}
 
 	existing, err := h.schedules.Get(r.Context(), schedule.AnyOrganization, id)
 	if err != nil {
@@ -342,7 +346,10 @@ func (h *ScheduleHandler) Update(w http.ResponseWriter, r *http.Request) {
 
 // Delete serves DELETE /schedules/{id}.
 func (h *ScheduleHandler) Delete(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
+	id, ok := pathParam(w, r, "id")
+	if !ok {
+		return
+	}
 	if err := h.schedules.Delete(r.Context(), schedule.AnyOrganization, id); err != nil {
 		h.respondStoreError(w, r, "delete", id, err)
 		return
@@ -352,7 +359,10 @@ func (h *ScheduleHandler) Delete(w http.ResponseWriter, r *http.Request) {
 
 // ListOccurrences serves GET /schedules/{id}/occurrences.
 func (h *ScheduleHandler) ListOccurrences(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
+	id, ok := pathParam(w, r, "id")
+	if !ok {
+		return
+	}
 	limit, ok := intQuery(w, r, "limit")
 	if !ok {
 		return

@@ -8,8 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/go-chi/chi/v5"
-
 	"github.com/Subject-Void-LLC/the-pleiades/internal/redact"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	pkginventory "github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
@@ -131,8 +129,9 @@ func (h *DeviceHandler) RevokeCapability(w http.ResponseWriter, r *http.Request)
 	if !ok {
 		return
 	}
-	capName := capability.Name(chi.URLParam(r, "capability"))
-	if !capability.IsDataName(capName) {
+	raw, err := PathParam(r, "capability")
+	capName := capability.Name(raw)
+	if err != nil || !capability.IsDataName(capName) {
 		RespondError(w, r, http.StatusBadRequest, "invalid capability")
 		return
 	}

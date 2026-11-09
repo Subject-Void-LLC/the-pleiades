@@ -11,6 +11,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/classification"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/recordname"
 	pkginventory "github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/google/uuid"
 )
@@ -161,6 +162,12 @@ func runAddHost(args []string) error {
 	name, rest, err := splitPositional(args, nil)
 	if err != nil {
 		return fmt.Errorf("usage: pleiades add-host <name> (--type <type> | --classify a,b,c) [--set key=value ...] [--tags a,b | --tag a ...]: %w", err)
+	}
+	// The name becomes the device's address once it reaches a Controller,
+	// so "", "." and ".." are refused here, with the reason, before the
+	// inventory is read.
+	if err := recordname.Check(name); err != nil {
+		return fmt.Errorf("host not added: %w", err)
 	}
 
 	fs := flag.NewFlagSet("add-host", flag.ContinueOnError)

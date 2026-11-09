@@ -21,7 +21,6 @@ import (
 	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/access"
-	"github.com/go-chi/chi/v5"
 )
 
 // AccessRepository is the slice of access.Store these handlers need, which
@@ -51,8 +50,8 @@ func NewAccessHandler(store AccessRepository, logger *slog.Logger) *AccessHandle
 // every other numeric id here is: the value reaches a primary-key lookup,
 // and checking its shape once is cheaper than trusting every layer beneath.
 func (h *AccessHandler) accessID(w http.ResponseWriter, r *http.Request) (int, bool) {
-	id, err := strconv.Atoi(chi.URLParam(r, "id"))
-	if err != nil || id < 1 {
+	id, err := pathID(r, "id")
+	if err != nil {
 		RespondError(w, r, http.StatusBadRequest, "id must be a positive integer")
 		return 0, false
 	}

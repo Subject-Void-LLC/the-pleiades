@@ -15,7 +15,6 @@ import (
 	"net/http"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/runbook"
-	"github.com/go-chi/chi/v5"
 )
 
 // RunbookRepository is the narrow slice of runbook.Source the catalog
@@ -98,7 +97,10 @@ func (h *RunbookHandler) List(w http.ResponseWriter, r *http.Request) {
 
 // Get serves one catalog entry, compiling it to report what it requires.
 func (h *RunbookHandler) Get(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
+	id, ok := pathParam(w, r, "id")
+	if !ok {
+		return
+	}
 
 	rb, err := h.runbooks.Get(r.Context(), id)
 	if err != nil {

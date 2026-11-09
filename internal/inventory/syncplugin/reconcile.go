@@ -9,6 +9,7 @@ import (
 
 	inv "github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/recordname"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 )
 
@@ -54,6 +55,14 @@ const (
 
 	// OutcomeWouldUpdate is OutcomeUpdated under a read-only inventory.
 	OutcomeWouldUpdate Outcome = "would update"
+	// OutcomeRefused means the upstream name cannot name a device: it is
+	// "", "." or ".." (internal/recordname), which no URL can carry, so the
+	// device could be stored but never opened, changed or deleted by its
+	// address. It is reported with the reason and not stored, and the sync
+	// goes on with the rest. Failing the whole sync instead would let one
+	// record nobody here controls stop every other device's updates on
+	// every run until someone renamed it upstream.
+	OutcomeRefused Outcome = "refused"
 )
 
 // DeviceResult is one device's reconciliation outcome and, when the outcome
@@ -65,7 +74,9 @@ type DeviceResult struct {
 	// Outcome is what reconciliation did about it.
 	Outcome Outcome
 
-	// Reason explains a quarantine or a conflict, and is empty otherwise.
+	// Reason explains a quarantine, a conflict, a refused name
+	// (recordname's reason) or a write a read-only inventory turned into a
+	// would-add or would-update, and is empty otherwise.
 	Reason string
 }
 
@@ -136,6 +147,14 @@ func Reconcile(
 
 	for it.Next(ctx) {
 		raw := it.Record()
+
+		// Before classifying, since no classification makes such a name
+		// usable, and before any lookup, so a record of that name stored
+		// before this rule is not updated under it either.
+		if err := recordname.Check(raw.Name); err != nil {
+			report.add(raw.Name, OutcomeRefused, err.Error())
+			continue
+		}
 
 		cls, err := p.Classify(ctx, raw)
 		if err != nil {

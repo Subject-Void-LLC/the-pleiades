@@ -412,7 +412,7 @@ var deviceWriteSchema = map[string]any{
 	"type":     "object",
 	"required": []any{"name", "type"},
 	"properties": map[string]any{
-		"name":  stringSchema("The device's unique name."),
+		"name":  stringSchema("The device's unique name, which is its address: \"\", \".\" and \"..\" are refused, since no URL can carry one as a path segment."),
 		"type":  stringSchema("A registered device type, e.g. \"linux_server\"."),
 		"tags":  map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
 		"state": stringSchema("One of the eight lifecycle states. Defaults to \"active\" on create."),
@@ -458,7 +458,7 @@ var CreateDevice = Endpoint{
 	RequestSchema:      deviceWriteSchema,
 	Responses: []Response{
 		{Status: http.StatusCreated, Description: "The created device.", Schema: deviceResponseSchema},
-		{Status: http.StatusBadRequest, Description: "The body is malformed, or name or type is missing or unusable.", Schema: errorSchema("")},
+		{Status: http.StatusBadRequest, Description: "The body is malformed, or name or type is missing or unusable. A name of \".\" or \"..\" is unusable, and the message says why.", Schema: errorSchema("")},
 		{Status: http.StatusConflict, Description: "A device with that name already exists, or the inventory is read-only.", Schema: errorSchema("")},
 		{Status: http.StatusUnprocessableEntity, Description: "type names no registered device type.", Schema: errorSchema("")},
 	},
@@ -832,7 +832,7 @@ var ImportKubeconfig = Endpoint{
 		"type":     "object",
 		"required": []string{"name", "kubeconfig", "organization"},
 		"properties": map[string]any{
-			"name":         stringSchema("The cluster device's name."),
+			"name":         stringSchema("The cluster device's name, which is its address: \"\", \".\" and \"..\" are refused."),
 			"kubeconfig":   stringSchema("The kubeconfig, YAML or JSON, at most one mebibyte."),
 			"context":      stringSchema("The context to import; the kubeconfig's current context when empty."),
 			"organization": map[string]any{"type": "integer", "description": "The organization the credential belongs to."},
@@ -842,7 +842,7 @@ var ImportKubeconfig = Endpoint{
 	Responses: []Response{
 		{Status: http.StatusCreated, Description: "The cluster and its credential.", Schema: kubeconfigImportSchema},
 		{Status: http.StatusOK, Description: "The cluster and its credential, replaced.", Schema: kubeconfigImportSchema},
-		{Status: http.StatusBadRequest, Description: "The body is malformed, or name or organization is missing or unusable.", Schema: errorSchema("")},
+		{Status: http.StatusBadRequest, Description: "The body is malformed, or name or organization is missing or unusable. A name of \".\" or \"..\" is unusable, and the message says why.", Schema: errorSchema("")},
 		{Status: http.StatusForbidden, Description: "The caller lacks inventory:write.", Schema: errorSchema("")},
 		{Status: http.StatusConflict, Description: "The device or the credential already exists and replace is not set, the device is not a cluster, it was modified concurrently, or the inventory is read-only.", Schema: errorSchema("")},
 		{Status: http.StatusRequestEntityTooLarge, Description: "The body is too large.", Schema: errorSchema("")},

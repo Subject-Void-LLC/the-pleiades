@@ -98,7 +98,13 @@ func (h *DeviceHandler) ImportKubeconfig(w http.ResponseWriter, r *http.Request)
 	if !decodeJSONWithin(w, r, &req, maxKubeconfigImportBody) {
 		return
 	}
-	if req.Name == "" || len(req.Name) > maxDeviceNameLength || strings.ContainsAny(req.Name, "\x00\r\n") {
+	// The name becomes the cluster's address, so one no URL can carry is
+	// refused with the reason (refuseUnaddressable) before anything is read
+	// or written.
+	if !refuseUnaddressable(w, r, req.Name) {
+		return
+	}
+	if len(req.Name) > maxDeviceNameLength || strings.ContainsAny(req.Name, "\x00\r\n") {
 		RespondError(w, r, http.StatusBadRequest, "invalid device name")
 		return
 	}

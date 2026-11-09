@@ -22,9 +22,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/go-chi/chi/v5"
-	"github.com/google/uuid"
-
 	"github.com/Subject-Void-LLC/the-pleiades/internal/dispatch"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/journal"
@@ -498,8 +495,8 @@ func (d *Dispatcher) RollbackJob(w http.ResponseWriter, r *http.Request) {
 		RespondError(w, r, http.StatusUnauthorized, "unauthorized")
 		return
 	}
-	jobID := chi.URLParam(r, "id")
-	if _, err := uuid.Parse(jobID); err != nil {
+	jobID, err := pathUUID(r, "id")
+	if err != nil {
 		RespondError(w, r, http.StatusBadRequest, "job id must be a UUID")
 		return
 	}

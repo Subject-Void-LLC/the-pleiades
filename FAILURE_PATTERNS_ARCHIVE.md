@@ -24529,6 +24529,23 @@ checked.
 
 **Lesson.** Pending the fix. LESSONS 420: a fix to one side of an encode and decode pair names and tests the other.
 
+**Resolved 2026-11-08 (fixed on `fix/addressable-names`, `bdba8259` and `fb7f98dc`, with `3a952e13` from review).**
+Every value chi routes is decoded once, through `api.PathParam` (`internal/api/pathparam.go`), which decodes only when
+the request has a RawPath, so a literal `%` in a value chi already decoded is never read as an escape. The UI's handlers
+read theirs through `Handler.param` (`internal/ui/web/params.go`), which calls it. An escape that does not decode is a
+400, never a 404. `TestOnlyPathParamReadsARoutedValue` (`internal/archtest/routed_value_test.go`) refuses chi's
+`URLParam` outside that file and holds every other read of a routed path by type (1038). Tests, red on the old code:
+`TestDeviceRoutes_FetchTheDeviceTheURLNames`, `TestDeviceRoutes_UpdateTheDeviceTheURLNames` and
+`TestDeviceRoutes_DeleteTheDeviceTheURLNames` (`internal/api/pathparam_router_test.go`), which run GET, PATCH and DELETE
+through `api.NewRouter` over a real ent repository on SQLite, with each name seeded beside a decoy record named as its
+escaped form, the record the old handlers acted on instead; `TestPathParam_DecodesOnlyWhatChiRecordedEscaped`
+(`internal/api/pathparam_internal_test.go`); `TestRoutedHandlers_AnswerAnUndecodableEscapeWith400`; and, for the UI,
+`TestDevices_ANameAURLMustEscapeIsReachedByItsLink` (`internal/ui/resources/addressed_names_test.go`) and
+`TestRoutes_AnswerAnUndecodableEscapeWith400` (`internal/ui/web/params_test.go`). The same branch refuses `""`, `.` and
+`..` as a new device name or fact key (`internal/recordname`), in both stores, the hosts.yaml backstop, the API, the UI
+form, the CLI and sync (`OutcomeRefused`), since 1011 showed no URL can carry them. Whether the old reads had a
+security effect was not checked. Defects found while fixing it: 1032 to 1041.
+
 ## 1014. Keeping catalystcenter's base path as written gave one controller two BaseURL() values, a%2fb and a%2Fb, and BaseURL is the synced controller's DeviceID (fixed before push)
 
 **Symptom.** Found on `fix/url-escaping`, 2026-11-08, before push. `520f18f6` (1008) kept the operator's own spelling
@@ -24903,3 +24920,281 @@ Runner's value is in the reader's position for the release data its check reads.
 
 **Lesson.** Pending the decision. LESSONS 415 and 422: a check on a value another process made reads only what no
 release, the toolchain's included, can change.
+
+## 1032. The API's request log and trace span recorded the decoded r.URL.Path, so GET /inventory/devices/sw%2Ffacts, the device "sw/facts", was logged as /inventory/devices/sw/facts, the facts of the device "sw" (fixed on this branch; on main since d907d123, 2026-08-01, in the log, and 25e59f3d, 2026-08-06, in the trace; the class of 1012)
+
+**Symptom.** Found on `fix/addressable-names`, 2026-11-08, while fixing 1013. `StructuredLoggerMiddleware` and
+`TracingMiddleware` (`internal/api/middleware.go`) recorded `r.URL.Path`, which is decoded, so a name holding an
+escaped slash read as one segment more. The request log is close to an audit record: an operator reading it after an
+incident could not tell the two requests apart, and its `route` field alone does not say which record was named.
+
+**Root cause.** 1012's class: code beside the router read another form of the path than the one chi matched.
+
+**Why 1012 did not prevent it.** 1012's fix moved the code that resolves a route (the link builder and the 405 handler)
+to the form chi routed on. The logger and the tracer record a path rather than resolve one, so they were not on its
+list. Since this branch the typed archtest (1038) holds every read of a URL's path in the routed packages.
+
+**Fix.** `c0f86091`, then `8462a125`. `requestPath` records the path as the client sent it (`api.SentPath`, 1035).
+Test, red on the old code: `TestRequestLog_RecordsThePathAsSent` (`internal/api/requestpath_test.go`).
+
+**Lesson.** As 1012: whatever records a request records the path the router matched.
+
+## 1033. The UI's appearance forms built their return address from the decoded path, so a theme change on the page of "sw/1" returned to /ui/devices/sw/1, and on the page of "50%" sent Location: /ui/devices/50%, which is not a valid URL (fixed on this branch; on main since db3b8b9f, 2026-09-13; the class of 1012)
+
+**Symptom.** Found on this branch, 2026-11-08. `currentURL` and `constrain` (`internal/ui/web/preferences.go`) built the
+return address from `r.URL.Path` and `parsed.Path`, both decoded. The reader landed on another page, or on a
+`Location` header no client can read as written.
+
+**Root cause.** A decoded path cannot be turned back into the address it came from: decoded, `sw/1` is two segments
+and `50%` is a broken escape.
+
+**Fix.** `27b1351b`, then `8462a125`. The return address keeps the path as it was escaped (`api.SentPath`). `constrain`
+judges the decoded form, which is what a browser resolves, and refuses a path whose decoded form holds a dot or an empty
+segment rather than cleaning it, so keeping the escapes opens no redirect. Tests, red on the old code:
+`TestThemeChange_ReturnsToTheRecordItWasMadeOn` (`internal/ui/web/returnaddr_test.go`), and escaped-traversal rows
+(`%2E%2E`, `%2F%2F`, a raw backslash beside a raw `|`) in `TestSafeReturn_CannotBeRedirectedOffOrigin`
+(`internal/ui/web/safereturn_test.go`).
+
+**Lesson.** An address handed back to a client is built from the path as it was sent, and judged in the form the client
+will resolve.
+
+## 1034. A record named like a fixed segment beside {id}, "new" or "chart.json", linked to the UI's create form or chart data rather than its own page, under a comment in handler.go saying such a name could not exist (fixed on this branch; on main since 9de3c7fe, 2026-08-11; a sibling of 1011)
+
+**Symptom.** Found on this branch, 2026-11-08. `internal/ui/web/handler.go` registers `/{resource}/new` and
+`/{resource}/chart.json` beside `/{resource}/{id}`. chi matches a fixed segment before a parameter, so
+`/ui/devices/new` is always the create form. The comment beside them said "a record can never be named "new" or
+"chart.json"", but nothing refused either name, and `new` is a legitimate hostname. Such a device's links went to the
+create form or the chart JSON. The API's `hrefFor` had the same shape in one place, `/schedules/preview` beside
+`/schedules/{id}`; schedule ids are generated, so no link reached it.
+
+**Root cause.** The comment stated an effect of route order as if it were a rule on names.
+
+**Why 1011 did not prevent it.** 1011 found the names no escaping can carry (`""`, `.` and `..`) and refused them. A
+name equal to a fixed sibling can be carried, but only by an escaping `url.PathEscape` does not make, and 1011's sweep
+did not read the route order.
+
+**Fix.** `44192e90`, with `2f9d1023`. The names are kept. `recordname.Segment` (`internal/recordname/recordname.go`)
+percent-encodes the first byte of a name equal to a fixed sibling (`new` becomes `%6Eew`), so chi hands it to `{id}`
+and the handler decodes it back to `new`. The UI registers both segments from `view`'s constants, the one list
+`view.RecordPath` escapes against, and `TestRecordSiblings_AreTheRoutersOwn` (`internal/ui/web/siblings_test.go`)
+walks the built router and holds the two equal. The API derives each pattern's fixed siblings from the route table
+`NewRouter` registers (`staticSiblings`, `internal/api/links.go`) and applies the same rule in `hrefFor`. Tests:
+`TestDevices_ANameEqualToAFixedSegmentOpensItsOwnPage` (`internal/ui/resources/addressed_names_test.go`),
+`TestSegment_EscapesANameEqualToAStaticSibling` (`internal/recordname/recordname_test.go`),
+`TestHrefFor_ALinkToAValueEqualToAFixedSegmentReachesItsOwnRoute` and `TestStaticSiblings_ReadsEachShapeOfPattern`
+(`internal/api/siblings_internal_test.go`), and `TestStaticSiblings_OfTheAPIsOwnRouteTable`
+(`internal/api/siblings_table_test.go`).
+
+**Lesson.** Where a fixed segment sits beside a parameter, a value equal to it is a name the router does not hand to
+the parameter. Derive the list of such segments from the router's own registrations, and escape a link to such a name
+rather than refuse it.
+
+## 1035. url.URL.EscapedPath ignores a RawPath holding a raw |, ^, backtick, {, }, < or > and escapes the decoded path afresh, so each %2F became a separator: the UI's dot-segment refusal, and the branch's first request log and return address, judged a different path from the one chi routed (fixed on this branch; on main since 910123c3, 2026-11-08, in dotsegments.go, merged in #138; the class of 438 and 1009)
+
+**Symptom.** Found on this branch, 2026-11-08. Go's `EscapedPath` returns `RawPath` only when it is a valid escaping of
+`Path` (`validEncoded`); otherwise it escapes `Path` again, in which each `%2F` has become a `/`. chi routes on
+`RawPath` whenever it is set, and served the right device. Measured: a Go client given `/devices/a%2Fb|c` sends
+`/devices/a/b%7Cc`. Three sites read `EscapedPath` and so judged a different path from chi's: the UI's dot-segment
+refusal (`internal/ui/web/dotsegments.go`, on main from #138), and this branch's first request log (`c0f86091`) and
+return address (`27b1351b`).
+
+**Root cause.** The class of 438 and 1009: a check made on one form of a path while the action uses another.
+`EscapedPath` reads as "the path as sent", and it is that except in the case its doc names.
+
+**Why 438 and 1009 did not prevent it.** Both say to decide on the bytes the far side reads. Each site here took
+`EscapedPath` for those bytes, which it is for every path a Go client sends. No test sent a path holding such a raw
+byte, which another client can send.
+
+**Fix.** `8462a125`. `api.SentPath` (`internal/api/pathparam.go`) returns `RawPath` when the request had one, with only
+the raw bytes a valid escaping cannot hold percent-encoded, and otherwise `EscapedPath`. It is always a valid escaping,
+with chi's segments, that decodes to `Path`. The request log, the dot-segment refusal and the return address use it,
+and the archtest's allowlist names it in place of their own reads. Tests, red on the old code:
+`TestSentPath_IsWhatChiMatchedAndAValidEscaping` (`internal/api/pathparam_internal_test.go`),
+`TestRawBytePath_IsReadAsChiSplitsIt` (`internal/ui/web/rawpath_test.go`), and new rows in
+`TestRequestLog_RecordsThePathAsSent` and `TestSafeReturn_CannotBeRedirectedOffOrigin`.
+
+**Lesson.** Read the exceptions in the doc of an accessor named for the form you want. Code that must agree with a
+router reads what the router reads, and its test sends a path a Go client would not.
+
+## 1036. pleiades inventory sync printed each quarantined and conflicted device's name and reason raw from the upstream source, so a crafted Catalyst Center hostname or AWS tag could send ANSI or direction-override sequences to the operator's terminal (fixed on this branch; on main since ad1ff164, 2026-08-06; a repeat of 257, 619 and 1028; LESSONS 266)
+
+**Symptom.** Found on this branch, 2026-11-08, while adding the refused outcome to the sync review list.
+`printReconciliation` (`cmd/pleiades/inventory.go`) printed `res.Name` and `res.Reason` with `%s`. Both are the
+upstream source's text: a device's hostname, or a software type inside a quarantine's reason.
+
+**Security.** Low severity. An attacker needs control of a name or a classified field in a source the operator syncs
+(a Catalyst Center hostname, an AWS tag). It gets control sequences onto the operator's terminal: a line rewritten or
+hidden, or text shown in another order. The bytes reaching the output were shown by the test on the old code; no
+terminal was attacked. Changelog: `changelog/sync-report-escapes-upstream-text.security.md`.
+
+**Root cause.** The list was written with the sync port itself, before any rule on printing remote text.
+
+**Why 257, 619, 1028 and LESSONS 266 did not prevent it.** Each fix quoted the text at the place that printed it, and
+no sweep went back over printers that already existed. This one is older than all of them.
+
+**Fix.** `b0db594b`. Each name is printed through `strconv.Quote`, which escapes a control character, a direction
+override and invalid UTF-8 and shows an empty name as `""`, and each reason through `termsafe.EscapeLine`. Test, red on
+the old code: `TestPrintReconciliation_EscapesWhatTheUpstreamWrote` (`cmd/pleiades/inventory_names_test.go`). The same
+class is still open in the CLI's error print (1043).
+
+**Lesson.** As 266. When a rule on printing remote text is written, sweep the printers that already exist, not only
+the new one.
+
+**Class.** C1 (delimiter injection into a terminal; CWE-150)
+**Portable.** yes: any CLI report that prints names or reasons read from an inventory source it does not control
+**Detector.** table-test names and reasons holding ESC, U+202E and invalid UTF-8 through each report printer, and
+assert the output holds none of them raw; see ~/vuln-corpus/README.md
+
+## 1037. TestDeviceHandler_PercentEncodedControlsArriveEncoded pinned 1013's defect as chi's behavior, asserting that a handler receives "%0a", "%0d" and "%2f" still escaped (fixed on this branch; on main since 5387aaa8, 2026-08-07; a repeat in kind of 751; LESSONS 213)
+
+**Symptom.** Found on this branch, 2026-11-08, when 1013's fix turned the test red. It asserted that a lowercase escape
+reaches the handler as three characters, and called that a property of chi. It was a property of the request: a
+lowercase escape differs from Go's default encoding, so the request had a RawPath, and chi recorded the value still
+escaped (1012). `%00`, which matches the default encoding, arrived decoded. So `edge%0a-01` was looked up as a name no
+client escaping in upper case could have created.
+
+**Root cause.** The expected value was what the code did, not what the handler should act on.
+
+**Why 751 and LESSONS 213 did not prevent it.** The test is older than both, and nothing reads old tests again against a
+newer rule. It was found only because the fix it pinned against was made.
+
+**Fix.** `bdba8259`. Rewritten as `TestDeviceHandler_PercentEncodedControlsAreDecodedAndRefused`
+(`internal/api/devices_test.go`): every escape is decoded once, however the client spelled it, and the name guard
+refuses an escaped newline exactly as it refuses a raw one.
+
+**Lesson.** As 751: a test that pins a third party's behavior says why that behavior is the intended one, and is held
+by a second case that contradicts the lazy answer (here, the same escape in upper case).
+
+## 1038. The first TestOnlyPathParamReadsARoutedValue was narrower than its rule: it judged "chi routes this package" by an import of chi in the same directory, though chi sets each value still escaped through r.SetPathValue, and it missed a copied URL, a helper taking a *url.URL, RequestURI, RoutePath and a split EscapedPath (fixed before push, a repeat of 1017 and 194; LESSONS 114, 273 and 343)
+
+**Symptom.** Found in review on this branch, 2026-11-08, before push. `38cd196f`'s test said it refused every other
+way to read a routed value, and held only packages that import chi. chi v5.4.0's `Mux.routeHTTP` (`mux.go` line 487)
+calls `r.SetPathValue(key, value)` with the value it recorded, still escaped, so `r.PathValue` in a package with no
+chi import, mounted under chi, reads escaped text. It also matched syntax, so `u := r.URL; u.Path` and a helper taking
+a `*url.URL` passed, and `RequestURI`, `RoutePath` and `strings.Split(r.URL.EscapedPath(), "/")` were not held.
+
+**Root cause.** The test decided which code its rule covers by a proxy, an import, rather than by what the runtime does,
+and it matched spellings rather than types.
+
+**Why 1017, 194, LESSONS 114, 273 and 343 did not prevent it.** 1017 was found the same day, on #138, in the UI's path
+guard; its fix widened that guard's spellings, and this test was written fresh for a new rule, again from the incident.
+273 and 343 say to read the property, not a proxy for it. The import looked like the property ("chi routes this code")
+until chi's own source was read.
+
+**Fix.** `3a952e13`, with `8462a125`. The test type-checks, with go/types over compiled export data, every package under
+`internal/api`, `internal/ui` and `cmd/controller` (`routedRoots`, `internal/archtest/routed_types_test.go`). In every
+non-test file of the module it refuses chi's `URLParam`, `URLParamFromCtx`, `URLParams` and `RouteCtxKey` outside
+`internal/api/pathparam.go`. In the routed packages it refuses, by type, a read of a `*url.URL`'s `Path`, `RawPath`,
+`EscapedPath` or `RequestURI`, an `*http.Request`'s `RequestURI` or `PathValue`, and a `*chi.Context`'s `RoutePath`,
+except at the sites `allowedReads` names, each with its reason; an entry nothing reads fails. Reflection and a URL
+turned into text first are not held, and the test's doc and `pathparam.go`'s say so. Tests of the test:
+`TestTypedReadsFindsEveryWay`, `TestRoutedValueReadsFindsEveryWay` and `TestIsRoutedCoversEachRoot`
+(`internal/archtest/routed_value_test.go`).
+
+**Lesson.** As 273 and 343, applied to a rule's scope: decide which code a rule covers from what the runtime does (here,
+which handlers chi sets a value for), not from an import that usually goes with it.
+
+## 1039. TestDeviceCreate_RefusesANameNoURLCarries passed with the create handler's name guard removed, since the store's guard refused the same names and mapped to the same 400 (fixed before push, a repeat in kind of 1016; LESSONS 135 and 213)
+
+**Symptom.** Found on this branch, 2026-11-08, before push. `8948dfb0` added a name guard to the API's create handler
+and a test posting `""`, `.` and `..`. The inventory stores refuse the same names (`ca679684`), and that refusal maps to
+400 too, so the test passed with the handler's guard removed.
+
+**Root cause.** LESSONS 135's class: two identical guards in a row, so removing the first changes no outcome.
+
+**Why 1016 and LESSONS 135 did not prevent it.** 1016 was on the branch before this one (#138). Its rule, run each new
+test with its fix removed, is applied by hand, and it was not applied here before review.
+
+**Fix.** `06aad2ab`. The test runs against a store stub (`unreachableStore`, `internal/api/devices_names_test.go`) that
+fails the test if the handler reaches it, so only the handler's guard can pass it.
+`TestDeviceCreate_MapsTheStoresNameRefusalTo400` holds the store's refusal to 400 on its own.
+
+**Lesson.** As 135: to pin the earlier of two identical guards, make the later one fail loudly when it is reached.
+
+## 1040. The record-name rule was first put in a new pkg/recordname, public SDK surface, because internal/facts was said to import no internal package, a habit no record gave a reason for (fixed before push)
+
+**Symptom.** Found on this branch, 2026-11-08, before push. `c900b43b` moved `view.Addressable` into a new
+`pkg/recordname`, so that the inventory stores, the API, the CLI, sync and `internal/facts` could share it. `pkg/` is
+the surface a Collection compiles against, which the planned split of first-party Collections will freeze, and no
+Collection uses the rule. The only reason given was a comment saying `internal/facts` imports no internal package.
+Nothing gave a reason for that, and no plan moves the facts package out of the module; `7bee73af` had only reworded a
+note about it.
+
+**Root cause.** An unwritten constraint was obeyed as if it had a reason, and what obeying it cost (a public package)
+was not weighed.
+
+**Fix.** `9924bfe3`. The package is `internal/recordname`. `internal/facts` imports it, and its comment now says only
+what is true: it takes `internal/redact`'s two checks from its caller rather than importing that package.
+
+**Lesson.** Before adding to `pkg/`, name the caller outside `internal/` that needs it. A constraint with no recorded
+reason is asked about before it is obeyed.
+
+## 1041. Text the branch wrote claimed more than the code did: docs/09 said every other record is addressed by numeric id, a sentence said each segment is decoded once however a client spells its escapes, Reconcile's Reason doc left out refusals, and a gosec waiver cited the removed view.Addressable (fixed before push, a repeat of 571, 789 and 1029)
+
+**Symptom.** Found in review on this branch, 2026-11-08, before push.
+- `docs/09-control-plane-and-api.md` said every record but a device is addressed by numeric id. Runbook ids and
+  capability names are addressed by name too.
+- "Decodes each segment once, however a client spells its escapes" left out the case where Go drops a RawPath that is
+  not a valid escaping (1035).
+- The doc of `syncplugin`'s `Reason` did not mention the new refused outcome.
+- `gosec-waivers.json`'s waiver for `Handler.redirect` cited `view.Addressable`, which `c900b43b` removed.
+
+**Root cause.** 228's class: sentences written to the plan, or left in place while the code under them moved.
+
+**Why 571, 789 and 1029 did not prevent it.** Their rule is still checked only by a review. 1029 was written earlier the
+same day, on #139.
+
+**Fix.** `1063049f`: the docs name each record addressed by name and the dropped-RawPath case, `Reason`'s doc names
+refusals, and the waiver names `recordname`.
+
+**Lesson.** As 1029: before review, reread each sentence the branch added against the code it describes, and search
+the records and waivers for each name the branch removed.
+
+## 1042. An agent ran git stash push -- <path> on a committed file with no changes, which saved nothing and made no stash entry, and its git stash pop then popped and dropped the repository's only stash, the owner's parked GNS3 work, which the handoff said never to drop (recovered the same session; the class of 433)
+
+**Symptom.** On this branch, 2026-11-08, in an agent's worktree. A writer set a committed, unchanged file aside with
+`git stash push -- <path>`. With nothing to save, git made no entry. The `git stash pop` after it took the entry on top
+of the list, which was `stash@{0}`, the owner's GNS3 link suspend and capture work (`e0362a27`, "On
+lab-captures-129b: gns3 link suspend and capture (back burner, 2026-10-25)"), and dropped it. The handoff said never
+to drop that stash.
+
+**Recovery.** The commit was found among the repository's unreachable objects and stored again with `git stash store`
+under its original message. Nothing was lost. The owner later parked the GNS3 work deliberately, and it is saved in
+`~/pleiades-gns`; the stash list is now empty.
+
+**Root cause.** The stash list is one list for the whole repository, shared by every worktree, and `pop` takes the entry
+on top, not the one the same process pushed. A push that saves nothing pushes no entry, so the pop took the next one
+down.
+
+**Why 433 and LESSONS 268 did not prevent it.** Both name shared branch refs only. Nothing named the stash list as
+shared, and the handoff's "never drop it" was a note to readers, not a guard.
+
+**Fix.** A rule for agents (LESSONS 423).
+
+**Lesson.** LESSONS 423: never use git stash to set a file aside in an agent's worktree; copy it aside and restore it
+with git checkout.
+
+## 1043. cmd/pleiades/main.go prints a command's error with %v, and some Reconcile errors carry an upstream name raw ("classifying %s", "building %s", "rebuilding %s"), so a crafted upstream name can still reach the operator's terminal unescaped (open: passed to a later CLI pull request; the error print on main since 94ef873c, 2026-08-04, and the Reconcile errors since ad1ff164, 2026-08-06; the class of 1036)
+
+**Symptom.** Found on this branch, 2026-11-08, by reading; not run. `cmd/pleiades/main.go` prints errors with `%v` at
+lines 93 and 131. `internal/inventory/syncplugin/reconcile.go` wraps `raw.Name`, the upstream source's name, with `%s`
+at lines 164, 239 and 290. An error from those paths reaches the terminal at line 131 with the name as written.
+
+**Security.** Low severity, the same as 1036: an attacker who controls a name in a synced source could put control
+sequences on the operator's terminal when a classify or build step fails. Reasoned from the code, not measured.
+
+**Status.** Open. Passed to a later CLI pull request (task 14).
+
+**Lesson.** Pending the fix. As 1036: escape a remote system's text where it is printed, including inside an error.
+
+## 1044. Suspected, from reading only: the UI devices view's Update saves the item Bind built with a new random id, and the ent store's Save looks its row up by id, so editing a device in the web UI against a real store probably fails (open, unverified; on main since 9de3c7fe, 2026-08-11)
+
+**Symptom.** Found on this branch, 2026-11-08, by reading; not run. `writer.Update`
+(`internal/ui/resources/devices/devices.go`, line 131) ignores its `id` and calls `repo.Save(ctx, item)` with the item
+the form's `Bind` built. Read, `Bind` builds that item with a new random id, and the ent repository's `Save` looks its
+row up by id, so the save would find no row. No test has shown it.
+
+**Status.** Open, unverified (task 15). The next step is a test that edits a seeded device through the UI over the real
+ent repository.
+
+**Lesson.** Pending.

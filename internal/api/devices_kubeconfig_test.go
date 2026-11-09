@@ -198,6 +198,10 @@ func TestImportKubeconfig_Refusals(t *testing.T) {
 		{"without inventory:write", map[string]any{"name": "a", "organization": f.org, "kubeconfig": token}, []auth.Scope{auth.ScopeCredentialWrite}, http.StatusForbidden, "inventory:write"},
 		{"no organization", map[string]any{"name": "a", "kubeconfig": token}, both, http.StatusBadRequest, "organization"},
 		{"no name", map[string]any{"organization": f.org, "kubeconfig": token}, both, http.StatusBadRequest, "name"},
+		// A name no URL can carry, refused with the reason before the
+		// credential is written (the check after the loop holds that).
+		{"a dot name", map[string]any{"name": ".", "organization": f.org, "kubeconfig": token}, both, http.StatusBadRequest, `the name \".\" cannot be used`},
+		{"a dot-dot name", map[string]any{"name": "..", "organization": f.org, "kubeconfig": token}, both, http.StatusBadRequest, `the name \"..\" cannot be used`},
 		{"an exec kubeconfig", map[string]any{"name": "a", "organization": f.org,
 			"kubeconfig": kubeconfigFor("https://k8s.example.com", ca, "    exec:\n      apiVersion: client.authentication.k8s.io/v1\n      command: evil\n")}, both, http.StatusUnprocessableEntity, "exec"},
 		{"plain http", map[string]any{"name": "a", "organization": f.org,

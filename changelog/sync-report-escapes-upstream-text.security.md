@@ -1,0 +1,1 @@
+Low severity: `pleiades inventory sync` printed each quarantined or conflicted device's name, and a quarantine's reason, as the sync source sent them, so a source able to name a device could send escape sequences to the operator's terminal. Every name in the review list is now quoted and every reason escaped.

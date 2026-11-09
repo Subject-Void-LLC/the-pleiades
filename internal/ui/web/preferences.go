@@ -19,6 +19,7 @@ import (
 	"path"
 	"strings"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/api"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ui/session"
 )
 
@@ -193,8 +194,23 @@ func (h *Handler) constrain(raw string) string {
 
 	// Only the path and the query. Everything that could point at another
 	// origin is dropped here rather than inspected.
-	cleaned := path.Clean("/" + strings.TrimPrefix(parsed.Path, "/"))
-	if cleaned != h.cfg.Prefix && !strings.HasPrefix(cleaned, h.cfg.Prefix+"/") {
+	//
+	// The path is kept as it was escaped, so the page of the device "sw/1",
+	// /ui/devices/sw%2F1, is returned to rather than /ui/devices/sw/1, which
+	// is another page. The checks read it decoded, the form the router and
+	// every browser resolve: a browser reads %2E%2E as "..", which
+	// path.Clean on the escaped form does not, so a path whose decoded form
+	// holds a dot segment or an empty one is refused rather than cleaned.
+	// api.SentPath rather than EscapedPath, which would re-escape a path
+	// holding a raw | and turn each %2F in it into a separator; SentPath
+	// keeps the escapes and encodes the raw byte, so a backslash never
+	// reaches the Location header raw either.
+	cleaned := path.Clean("/" + strings.TrimPrefix(api.SentPath(parsed), "/"))
+	decoded, err := url.PathUnescape(cleaned)
+	if err != nil || path.Clean(decoded) != decoded {
+		return ""
+	}
+	if decoded != h.cfg.Prefix && !strings.HasPrefix(decoded, h.cfg.Prefix+"/") {
 		return ""
 	}
 	query := navigationQuery(parsed.Query())
@@ -216,9 +232,12 @@ func (h *Handler) currentURL(r *http.Request) string {
 	if r.URL == nil {
 		return h.cfg.Prefix
 	}
+	// Escaped as the request was (api.SentPath), so a record whose name
+	// holds a "/" is returned to by its own address (constrain keeps it that
+	// way).
 	query := navigationQuery(r.URL.Query())
 	if query == "" {
-		return r.URL.Path
+		return api.SentPath(r.URL)
 	}
-	return r.URL.Path + "?" + query
+	return api.SentPath(r.URL) + "?" + query
 }

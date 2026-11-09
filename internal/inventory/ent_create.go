@@ -17,9 +17,10 @@ import (
 // device is created with is the classification it keeps. That is deliberate
 // (see the schema's own comment) and it means Create is the only chance to
 // get the type right, which is why an item carrying no resolvable type is
-// rejected here rather than stored as a row nothing can hydrate later.
+// rejected here rather than stored as a row nothing can hydrate later. A
+// name no URL can carry is refused here too (checkNewDevice).
 func (r *entRepository) Create(ctx context.Context, item inventory.InventoryItem) error {
-	deviceType, err := itemDeviceType(item)
+	deviceType, err := checkNewDevice(item)
 	if err != nil {
 		return err
 	}

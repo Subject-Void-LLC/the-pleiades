@@ -9,6 +9,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/apispec"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/auth"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/recordname"
 )
 
 // The models below are what a template receives. Each one is fully
@@ -391,7 +392,7 @@ func (d DownloadLink) NoteID() string {
 // "this is yours, but not now", where the truth for an expired log window
 // is that it is gone and waiting will not bring it back.
 func (m DetailModel) ResolveDownloads(ctx context.Context) []DownloadLink {
-	if len(m.Descriptor.Downloads) == 0 || !Addressable(m.Row.ID) {
+	if len(m.Descriptor.Downloads) == 0 || !recordname.Addressable(m.Row.ID) {
 		return nil
 	}
 	base := RecordPath(m.Page.Prefix, m.Descriptor.Name, m.Row.ID, "download")
