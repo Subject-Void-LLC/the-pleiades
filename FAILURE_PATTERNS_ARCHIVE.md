@@ -25531,6 +25531,16 @@ accepted, as 1054 does for devices (1069). The entry stays open, task 17, for th
 contacts, credential types, credentials, inventories, projects and teams. The sweep on that branch also found seven of
 those (all but bindings), and organizations, to be full replaces, the other shape, recorded as 1075.
 
+**Note 2026-11-09 (`fix/patch-access-partial`, `93db918f`, with `1f51e3d8` for the shared helpers).** Teams, contacts
+and role bindings leave this entry's list. Each PATCH now refuses, with 400 naming the field, a value that differs from
+the stored one for a field no update can change: a team's `organization`; a contact's `organization` and `team`; a
+binding's `team`, `scope_type` and `scope_id`. The stored value sent back is accepted. Until then each was decoded and
+ignored, so a re-point answered 200 and changed nothing. `TestAccessPatch_FixedFieldsAreRefusedUnlessEchoed`
+(`internal/api/access_patch_test.go`) holds each one, and `TestAccess_BindingUpdateCannotRepointAGrant`
+(`internal/api/access_test.go`) now expects 400 for a re-point. The refusal is a breaking change, and its changelog
+fragment says so. The entry stays open, task 17, for five: announcements, credential types, credentials, inventories
+and projects. The same branch made the four access routes partial updates (1075's note).
+
 ## 1056. PATCH /templates/{id} replaces a template's editable half from the body, so a client that omits survey deletes the survey, omitting defaults, prompts or required_capabilities blanks them, and omitting allow_simultaneous writes false (open, read in code and not reproduced: task 16; on main since 5dbc35bc, 2026-08-12; a repeat in kind of 103)
 
 **Symptom.** Found by reading on `fix/ui-device-edit`, 2026-11-09; not run. `TemplateHandler.Update`
@@ -26023,6 +26033,31 @@ been traced.
 
 **Lesson.** Pending the fix. LESSONS 98 applies to every field of every PATCH body.
 
+**Note 2026-11-09 (`fix/patch-access-partial`, `93db918f`, with `1f51e3d8` for the shared helpers and `7bc22e7d` for
+the route text).** Organizations, teams and contacts leave this entry's list. Role bindings were a full replace too,
+which the sweep's list missed: a PATCH naming only a grant's role sent its effect empty and was refused. Each of the
+four routes, `PATCH /organizations|teams|contacts|bindings/{id}`, now reads the stored record and folds one pointer per
+field over it (`internal/api/access_patch.go`, with the decode and refusal helpers it shares with the template PATCH in
+`internal/api/patch.go`). A JSON `null` on any of a resource's own fields is refused with 400 naming the field. A field
+no update can change is refused when it differs and accepted as an echo (1055's note). The merged record goes to the
+unchanged store method, so the store's own checks run on what would be saved: the contact one-channel rule, the guard
+on the last system-scope grant, the classification and duplicate names. The UI's edit forms call the store directly
+with full records and are unchanged. Tests, shown red on the old handlers, in `internal/api/access_patch_test.go`:
+`TestAccessPatch_OrganizationKeepsWhatItDoesNotName` (a PATCH naming only the name came back with every other field
+empty and `frozen` false), `TestAccessPatch_OrganizationIsValidatedWhole`, `TestAccessPatch_TeamKeepsWhatItDoesNotName`,
+`TestAccessPatch_ContactKeepsWhatItDoesNotName`, `TestAccessPatch_ContactIsValidatedWhole`,
+`TestAccessPatch_BindingKeepsWhatItDoesNotName`, `TestAccessPatch_RefusesNull`,
+`TestAccessPatch_RefusesABodyThatIsNotAnObjectOfKnownFields` and `TestAccessPatch_FixedFieldsAreRefusedUnlessEchoed`.
+The refusal of a null is a breaking change, and its changelog fragment says so.
+
+An empty PATCH `{}`, or one that only echoes fixed fields, now answers 200, writes the stored record back and records
+an "updated" activity entry (`internal/access/audited_store.go`), as the template PATCH already did. That is accepted.
+Concurrent PATCHes are last-writer-wins, now for the fields a body leaves out as well (1085, open).
+
+The entry stays open, task 17, for five: inventories, announcements, credential types, credentials and projects. The
+inventory and announcement write schemas the OpenAPI document now publishes (1084) still describe a full-replace body,
+which is accurate until those routes are fixed.
+
 ## 1076. Suspected: a project name over 253 bytes answers 500, as a template's did (open, suspected from reading; a sibling of 1071)
 
 **Symptom.** Found by reading on `fix/template-patch-partial`, 2026-11-09; not run. `project.name` is `MaxLen(253)`
@@ -26198,3 +26233,86 @@ fix and 200 after.
 
 **Lesson.** As LESSONS 415. When a creation rule exists, export the reader's rule beside it, so a reader outside the
 package is never left with only the creation rule to call.
+
+## 1084. Fourteen endpoints declared a request schema with no RequestContentType, so the OpenAPI document never published the body they take, and TestOpenAPIPaths_EveryDeclaredRequestSchemaIsPublished skipped each of them (fixed on this branch; on main since 5dbc35bc, 2026-08-12; a repeat of 116; LESSONS 114; the class of 1038)
+
+**Symptom.** Found by the fp-reviewer agent on `fix/patch-access-partial`, 2026-11-09. Ten access routes in
+`internal/apispec/access_endpoints.go` (organization, team, contact, user and binding create and update) and four in
+`internal/apispec/apispec.go` (inventory and announcement create and update) set `RequestSchema` and left
+`RequestContentType` empty. `openAPIRequestBody` (`tools/gendocs/openapi.go`) returns nil when the content type is
+empty, so none of the fourteen had a request body in `docs/reference/schemas/openapi.json` or
+`internal/api/wellknown/openapi.json`. The field-level contract of those bodies existed only in Go. A client generated
+from the document could not tell what to send to create an organization or edit a grant.
+
+**Root cause.** The generator needs two fields to publish a body, and the declarations set one. The guard written for
+this generator read only endpoints that set both: its loop skipped any endpoint with an empty content type or an empty
+schema, so an endpoint with a schema and no content type was outside it.
+
+**Why 116 did not prevent it.** The guard was written in `18fcb6394` (2026-08-13, Phase 22b) for this exact shape: its
+doc comment names FAILURE_PATTERNS 116, after more than twenty endpoints declared a content type and a schema that the
+generator never emitted. It was written against that incident's literal, both fields declared and nothing emitted,
+rather than against its own name, every declared schema published (LESSONS 114). The fourteen schemas date from
+`5dbc35bc`, one day before the guard, so the guard never covered them. As in 1038, the test was narrower than its
+name, and nothing checked the test against the declarations it skipped.
+
+**Fix.** `3a898605`. The guard now fails an endpoint that declares a schema with no content type; it failed with
+exactly these fourteen before the fix. Each of the fourteen sets `application/json`, and both OpenAPI documents were
+regenerated. The inventory and announcement write schemas now published describe a full-replace body, which is what
+those routes still do (1075, open).
+
+The first `make pr-check` on the branch (7c8b26c0) stopped at `schema-compat`: publishing a body the v0.3.0 document did
+not describe reads as `request-body-added-required` on ten of the routes, though each always required its body. The
+writer had run gendocs and the apispec tests but not `make schema-compat`. Fixed by
+`changelog/openapi-request-bodies.breaking.md`, naming each token, folded into the commit that published the bodies.
+
+**Lesson.** As LESSONS 114: a guard that skips an input skips it on purpose, so each `continue` in a guard's loop is a
+claim to check against its name. A skip for a half-made declaration hides the defect the guard exists to find.
+
+## 1085. A partial PATCH reads the stored record, folds the body over it and writes every column, with no compare-and-swap, so a PATCH naming only a name that races an edit setting frozen writes frozen back to false (open; low severity while nothing reads frozen; a repeat in kind of 45 and 135)
+
+**Symptom.** Found by the fp-reviewer agent on `fix/patch-access-partial`, 2026-11-09, by reading; not run. The access
+PATCH handlers (`internal/api/access_patch.go`) read the stored record, apply the fields the body names and send the
+whole merged record to the store. `entStore.UpdateOrganization` (`internal/access/ent_store.go`) sets every column. A
+PATCH `{"name":"x"}` that reads the record before a UI edit, or a second PATCH, sets `frozen: true` and writes after it
+puts `frozen=false` back, with the old `freeze_reason` and `ticket_key`. The same holds for every partial PATCH: teams,
+contacts, bindings, and templates since 1056's fix.
+
+**Root cause.** A read-modify-write with no version check. A field the body did not name is written from a read that
+another writer may have overtaken. Before the partial PATCH, a body's empty fields were written whatever the stored
+record held, which lost more; the partial PATCH narrowed the loss to a race, and did not close it.
+
+**Why 45 and 135 did not prevent it.** 45 fixed one write, the key rotation's, with the compare-and-swap
+`entRepository.Save` already used for devices; 135 fixed a provenance file. Neither made a version check a property of
+every store write. The access and template stores have no version column, and the template PATCH's own spec text and
+changelog already said "last-writer-wins" as a limit, without a pattern to track it.
+
+**Status.** Open. Low severity today: the review found no dispatcher, scheduler or guard that reads `frozen` or the
+other change-management fields, so a lost freeze lifts nothing that is enforced. That changes once anything enforces
+a freeze. The code (`internal/api/access_patch.go`), the route text (`internal/apispec/access_endpoints.go`) and the
+changelog say last-writer-wins. Two fixes were named: a field mask in the store, so an update writes only the fields
+the body named, or a precondition on `updated_at` (every one of these schemas has it, through `TimestampMixin`), so a
+write over a newer record is refused.
+
+**Lesson.** Pending the fix. A partial update that writes the whole record is a read-modify-write, and it needs a
+version check or a field mask, as a store write did in 45.
+
+## 1086. A code-writing agent ran git stash push --keep-index and git stash pop to test a commit alone, which LESSONS 423 forbids, because the rule was in the records, the handoff and memory but not in the agent's brief (open: nothing holds an agent's brief to the rule; nothing was lost; a repeat of 1042)
+
+**Symptom.** On `fix/patch-access-partial`, 2026-11-09. To test one commit by itself, a code-writing agent set its
+other changes aside with `git stash push --keep-index` and restored them with `git stash pop`. That is the command
+pair 1042 lost the owner's stash with. This time the stash list held nothing else, and it was checked empty after, so
+nothing was lost. The follow-up brief forbade git stash, and the agent then tested the commit with `git rebase -x`.
+
+**Root cause.** The rule reached the main thread and never reached the agent. LESSONS 423, the handoff and the
+session's memory each say not to use git stash. A code-writing agent is briefed by the main thread and reads none of
+them. The first brief did not say it.
+
+**Why 1042 and LESSONS 423 did not prevent it.** Their fix was a rule for agents, written where the main thread reads
+it. 1042 itself said a handoff note protects a stash only from a reader, not from a command; the same holds for the
+rule, which protects the stash list only from an agent that is told it.
+
+**Status.** Open. Each brief to a code-writing agent now has to name the rule, and nothing checks that it does. A
+guard that refuses `git stash` in an agent's shell would hold it whatever the brief says.
+
+**Lesson.** LESSONS 423, with its note of 2026-11-09: a brief to a code-writing agent states the rule, and names the
+way to test a commit alone (`git rebase -x`, or a copy set aside and restored with `git checkout`).

@@ -7777,6 +7777,14 @@ committed version with `git checkout -- <path>`, and copy it back when done. Nev
 or `clear` in an agent's worktree. If a stash entry is lost, look for it in `git fsck --unreachable` output before
 anything runs `git gc`, and store it again with `git stash store -m "<original message>" <sha>`.
 
+**Note 2026-11-09 (`fix/patch-access-partial`, FAILURE_PATTERNS 1086).** The rule did not hold. A code-writing agent
+ran `git stash push --keep-index` and `git stash pop` to test one commit alone. The stash list held nothing else, so
+nothing was lost. The rule was in this file, the handoff and the session's memory, and an agent briefed by the main
+thread reads none of them; its first brief did not name the rule, and its follow-up brief did, after which it used
+`git rebase -x`. So the rule in practice gains a step: every brief to a code-writing agent states it, and names the
+way to test a commit alone (`git rebase -x`, or a file copied aside and restored with `git checkout`). A rule an agent
+must follow is held only where the agent reads it.
+
 ## 424. A fake standing in for a store keeps the store's contract: it copies on read, stores on save under the same version check, and returns the store's own not-found errors, because a fake more permissive than its store passes exactly the failures the store would show (a repeat in kind of FAILURE_PATTERNS 261's stub; FAILURE_PATTERNS 1044, 1053 and 1058) (2026-11-09)
 
 **Why.** Branch `fix/ui-device-edit`, 2026-11-09. Editing a device in the web UI answered 303 and stored nothing
