@@ -480,25 +480,31 @@ func TestTemplateAPI_UpdateCannotRepointATemplateAtDifferentCode(t *testing.T) {
 		"name": "patch", "kind": "playbook", "definition": "other", "inventory": %d,
 		"defaults": {"limit": "edge-*"}, "prompts": ["limit"]
 	}`, f.invB))
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200: %s", rec.Code, rec.Body.String())
+
+	// Refused, naming the field, rather than answered 200 with the three
+	// ignored: a caller asking to re-point a template must not be told it
+	// did. Re-pointing a template at different code while it keeps its
+	// name, its grants and its job history is how a reviewed thing quietly
+	// becomes an unreviewed one; Copy is the supported way.
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "kind cannot be changed") {
+		t.Errorf("the refusal %s does not name the kind", rec.Body.String())
 	}
 
-	var updated decodedTemplate
-	if err := json.Unmarshal(rec.Body.Bytes(), &updated); err != nil {
+	rec = doJSON(t, f.router, http.MethodGet, "/api/v1/templates/"+strconv.Itoa(tmpl.ID), "")
+	var stored decodedTemplate
+	if err := json.Unmarshal(rec.Body.Bytes(), &stored); err != nil {
 		t.Fatalf("decoding: %v", err)
 	}
-
-	// The editable half changed; the three that decide what actually runs
-	// did not. Re-pointing a template at different code while it keeps its
-	// name, its grants and its job history is how a reviewed thing quietly
-	// becomes an unreviewed one.
-	if updated.Kind != "runbook" || updated.Definition != "patch-edge" || updated.Inventory != f.invA {
-		t.Errorf("the update re-pointed the template to %s/%s/inventory %d",
-			updated.Kind, updated.Definition, updated.Inventory)
+	if stored.Kind != "runbook" || stored.Definition != "patch-edge" || stored.Inventory != f.invA {
+		t.Errorf("the refused update re-pointed the template to %s/%s/inventory %d",
+			stored.Kind, stored.Definition, stored.Inventory)
 	}
-	if len(updated.Defaults) != 1 {
-		t.Errorf("defaults = %v, want the submitted single value", updated.Defaults)
+	// Refused whole: the defaults beside the re-point were not applied.
+	if len(stored.Defaults) != 4 {
+		t.Errorf("defaults = %v, want the four the template was created with", stored.Defaults)
 	}
 }
 
