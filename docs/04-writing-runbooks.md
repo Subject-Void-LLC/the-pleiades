@@ -200,7 +200,8 @@ the run:
   for that task. It names none for a method in no first-party group or a program
   whose file name cannot be recorded faithfully, and the Controller stores none for
   a batch from a Runner before this was kept or one naming an identity no build
-  writes for its method. A value stored before this was kept has none, and its
+  writes. An identity a Runner's build routes to another group than the
+  Controller's would is stored as sent. A value stored before this was kept has none, and its
   chain is unchanged. Confirming a value writes nothing to it: each task that
   stores facts adds one record of the gather (its run, its time and the keys it
   covered), and the last confirmation is read from those, so a stored value is

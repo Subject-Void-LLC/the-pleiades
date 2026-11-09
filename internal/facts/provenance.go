@@ -67,34 +67,60 @@ type Provenance struct {
 // build writes for its method.
 var ErrCollectionIdentity = errors.New("a collection identity no build writes for its method")
 
-// CheckCollection holds p's Collection to what the engine writes: zero, or
-// an identity that passes wire.CollectionIdentity.Valid and agrees with
-// Method. A first-party group's identity names the group Method belongs to
-// (collection.FirstPartyGroupOf); a program's names a method in no
-// first-party group, since a program may not use one's namespace. The rule
-// reads only the static group list, so a Controller, which links no
-// Collection, holds a Runner's batch to it as the CLI holds its own writes.
+// CheckCollection holds p's Collection to what this build's engine writes:
+// CheckDeliveredCollection, and an identity that agrees with this build's
+// routing of Method (CollectionRouting). It is the rule for a provenance the
+// process itself made, the engine stamping it and the CLI's file store
+// keeping it, where the build that routed the method is this one.
 //
 // It is a rule for writing, never for reading: the group list may grow on a
 // minor release, so a program's identity stored today could fail it later.
 // A reader hashes and returns what was stored, and the chain, which covers
 // the identity, is what finds one edited.
 func (p Provenance) CheckCollection() error {
+	if err := p.CheckDeliveredCollection(); err != nil {
+		return err
+	}
+	return p.CollectionRouting()
+}
+
+// CheckDeliveredCollection holds p's Collection to the part of what an
+// engine writes that does not depend on which build reads it: zero, or an
+// identity that passes wire.CollectionIdentity.Valid. It is the rule for a
+// provenance another process made: the Controller storing a Runner's batch
+// is that batch's writer (LESSONS 413) and holds it to Valid, while how the
+// Runner's build routed the method to a group is that build's to say, since
+// the group list may grow, and a method move, between it and this one
+// (LESSONS 415).
+func (p Provenance) CheckDeliveredCollection() error {
+	if id := p.Collection; !id.IsZero() {
+		if err := id.Valid(); err != nil {
+			return fmt.Errorf("%w: %w", ErrCollectionIdentity, err)
+		}
+	}
+	return nil
+}
+
+// CollectionRouting reports how p's Collection disagrees with this build's
+// routing of Method: a first-party group's identity names the group Method
+// belongs to (collection.FirstPartyGroupOf), and a program's names a method
+// in no first-party group, since a program may not use one's namespace. Nil
+// for a zero identity and one that agrees. The rule reads only the static
+// group list, so a Controller, which links no Collection, can say it of a
+// Runner's batch, as a sign the two builds differ rather than a refusal.
+func (p Provenance) CollectionRouting() error {
 	id := p.Collection
 	if id.IsZero() {
 		return nil
 	}
-	if err := id.Valid(); err != nil {
-		return fmt.Errorf("%w: %w", ErrCollectionIdentity, err)
-	}
 	group, firstParty := collection.FirstPartyGroupOf(p.Method)
 	switch {
 	case id.Program && firstParty:
-		return fmt.Errorf("%w: a program's identity for %q, a method of the first-party group %s", ErrCollectionIdentity, p.Method, group.Name)
+		return fmt.Errorf("%w: a program's identity for %q, a method of the first-party group %q", ErrCollectionIdentity, p.Method, group.Name)
 	case !id.Program && !firstParty:
-		return fmt.Errorf("%w: group %s for %q, a method in no first-party group", ErrCollectionIdentity, id.Group, p.Method)
+		return fmt.Errorf("%w: group %q for %q, a method in no first-party group", ErrCollectionIdentity, id.Group, p.Method)
 	case !id.Program && group.Name != id.Group:
-		return fmt.Errorf("%w: group %s for %q, a method of %s", ErrCollectionIdentity, id.Group, p.Method, group.Name)
+		return fmt.Errorf("%w: group %q for %q, a method of %q", ErrCollectionIdentity, id.Group, p.Method, group.Name)
 	}
 	return nil
 }

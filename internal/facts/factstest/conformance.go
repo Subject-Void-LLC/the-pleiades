@@ -357,7 +357,7 @@ var gatherIdentity = wire.CollectionIdentity{Group: "facts", Version: "0.4.0", M
 // values stored with one share one chain; each value, stable or volatile,
 // reads back with the identity of the run that first saw it and of the one
 // that last confirmed it; and an observation whose identity no build writes
-// for its method is refused whole, before anything is written.
+// (one failing Valid) is refused whole, before anything is written.
 func collectionIdentity(t *testing.T, newStore NewStore) {
 	s, dev := newStore(t)
 	with := func(run string, token uint64) facts.Provenance {
@@ -388,12 +388,16 @@ func collectionIdentity(t *testing.T, newStore NewStore) {
 		t.Fatalf("verdict = %+v, want two chained values across the identity and no break", v)
 	}
 
-	// The identity of another group, for a method of the facts group.
+	// An identity no engine writes under any build: a manifest digest of the
+	// wrong shape, which fails Valid. Both stores refuse it; only the file
+	// store, which keeps what its own build's engine made, also refuses one
+	// its build routes to another group (facts.Provenance.CheckCollection),
+	// since the Controller's store keeps another build's routing as sent.
 	wrong := with("wrong", 4)
-	wrong.Collection.Group = "file"
+	wrong.Collection.Manifests = "sha256:ABC"
 	err = s.Record(context.Background(), dev, facts.Observation{Entries: entries(t, facts.KindStable, map[string]any{"a": "3"}), At: base.Add(3 * time.Minute), By: wrong})
 	if !errors.Is(err, facts.ErrInvalid) || !errors.Is(err, facts.ErrCollectionIdentity) {
-		t.Fatalf("Record with another group's identity = %v, want ErrInvalid and ErrCollectionIdentity", err)
+		t.Fatalf("Record with an identity no build writes = %v, want ErrInvalid and ErrCollectionIdentity", err)
 	}
 	if h := history(t, s, dev, "a"); len(h) != 2 {
 		t.Fatalf("a refused observation wrote a value: %+v", h)
