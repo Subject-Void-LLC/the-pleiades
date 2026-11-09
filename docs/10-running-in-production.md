@@ -43,9 +43,10 @@ it says so.
 
 ### Nothing is published, so you build the images first
 
-There is no registry hosting a Pleiades image and no tagged release of this
-repository. That is the single most important fact about installing it, because
-every other instruction follows from it.
+There is no registry hosting a Pleiades image. Tagged releases (v0.3.0 onward) ship
+the `pleiades` CLI as archives with a checksum list, but no Controller or Runner
+image, so you build the images yourself. That is the single most important fact
+about installing the Walk tier, because every other instruction follows from it.
 
 Build both images from the commit you intend to run:
 
