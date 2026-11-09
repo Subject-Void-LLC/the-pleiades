@@ -36,15 +36,15 @@ func TestEncodeHosts_RefusesOnlyANewUnaddressableHost(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := inventory.EncodeHosts(tc.original, tc.hosts)
 			switch {
-			case tc.refused && !errors.Is(err, recordname.ErrUnaddressable):
-				t.Fatalf("EncodeHosts = %v, want a refusal matching recordname.ErrUnaddressable", err)
+			case tc.refused && !errors.Is(err, recordname.ErrUnusable):
+				t.Fatalf("EncodeHosts = %v, want a refusal matching recordname.ErrUnusable", err)
 			case !tc.refused && err != nil:
 				t.Fatalf("EncodeHosts = %v, want nil", err)
 			}
 		})
 	}
 
-	if _, err := inventory.EncodeHosts([]byte("hosts: [unclosed"), []inventory.HostSpec{dot}); err == nil || errors.Is(err, recordname.ErrUnaddressable) {
+	if _, err := inventory.EncodeHosts([]byte("hosts: [unclosed"), []inventory.HostSpec{dot}); err == nil || errors.Is(err, recordname.ErrUnusable) {
 		t.Errorf("EncodeHosts over a file that does not parse = %v, want the parse error", err)
 	}
 }
@@ -60,7 +60,7 @@ func TestWriteHosts_LeavesTheFileAsItWasOnARefusal(t *testing.T) {
 		{ID: "b", Name: "web-01", Type: "linux_server"},
 		{ID: "c", Name: "..", Type: "linux_server"},
 	})
-	if !errors.Is(err, recordname.ErrUnaddressable) {
+	if !errors.Is(err, recordname.ErrUnusable) {
 		t.Fatalf("WriteHosts with a new host named \"..\" = %v, want a refusal", err)
 	}
 	hosts, err := inventory.ReadHosts(path)

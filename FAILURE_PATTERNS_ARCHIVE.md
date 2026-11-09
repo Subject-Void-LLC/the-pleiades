@@ -25849,6 +25849,23 @@ device creation first accepted one has not been traced; `recordname.Check` is on
 
 **Lesson.** Pending the fix.
 
+**Fixed (2026-11-09, `64329eb1`, branch `fix/name-control-chars`, task 18).** `internal/recordname/shown.go` refuses a
+name holding invalid UTF-8, a C0 control, DEL, a C1 control, a direction control, U+2028 or U+2029, U+00AD, U+200B,
+U+2060, U+FEFF or a tag character. The control codes, line breaks and direction controls are refused through
+`termsafe.CheckLine`; `hidden` adds the rest as fixed code-point ranges, none read from Go's Unicode tables, so the
+answer does not change with a Go release (LESSONS 415). Only creation refuses. A device already stored under such a name
+is still updated by a sync (`storedUnder`, `internal/inventory/syncplugin/reconcile.go`), still written back to a hosts file
+(`refuseNewUnusable`, `internal/inventory/yaml_plugin.go`, refuses only such a name the file did not hold before), and still
+replaced by a kubeconfig import with replace (`internal/api/devices_kubeconfig.go`, `7d79abf6`;
+`cmd/pleiades/importkubeconfig.go`, `19c82f5c`). The quoting from 1043, 1063 and 1064 stays, as the second layer.
+Evidence: `internal/recordname/recordname_shown_test.go`, `internal/inventory/syncplugin/reconcile_stored_names_test.go`,
+`internal/api/devices_stored_names_test.go` and `cmd/pleiades/names_shown_test.go`. The fix's own defects are 1078,
+1079 and 1080; the set it refuses is open to the owner as 1081.
+
+**Lesson (on the fix).** A name rule covers what the name may hold as well as whether a URL can carry it, because the
+name is printed wherever the record is named. A rule that tightens what may be stored runs where the value is created,
+not where a stored value is read or updated, so a record made under an older rule stays reachable (LESSONS 415, 422).
+
 ## 1069. PATCH /templates/{id} answered 200 for a kind, definition or inventory that differed from the stored one, and stored nothing for it (fixed on this branch; on main since 5dbc35bc, 2026-08-12; a repeat of 111, 261 and 1054)
 
 **Symptom.** Fixed on `fix/template-patch-partial`, 2026-11-09, while fixing 1056; 1055 had listed it. The PATCH body
@@ -26029,3 +26046,155 @@ edit form unchanged turns a stored number or boolean into its text.
 its edit form unchanged through the real UI handler and store, and reads the template back.
 
 **Lesson.** Pending.
+
+## 1078. Closing a create path to a crafted name broke three tests that stored the name through that path to reach an error, so every case ended "Reconcile succeeded" (fixed before push; a repeat in kind of 42; LESSONS 43)
+
+**Symptom.** Found on `fix/name-control-chars`, 2026-11-09, after rebasing onto #143. Three tests failed:
+`TestReconcile_QuotesTheUpstreamNameInEveryError` (`internal/inventory/syncplugin/reconcile_quoting_test.go`), and
+`TestRun_EscapesAnUpstreamNameInACommandsError` and `TestRun_QuotesAnUpstreamNameInAFailedSave`
+(`cmd/pleiades/cli_error_escape_test.go`). Each stored a crafted name (a newline, an ANSI escape, a right-to-left
+override) through a sync, then drove an error that names it. The new rule (1068) refuses such a name at the sync, so no
+case reached its error and each ended "Reconcile succeeded". The rebase itself applied cleanly apart from
+`cmd/pleiades/importkubeconfig.go`; running the affected tests afterwards is what found them.
+
+**Root cause.** The tests used the create path as their way into the store. A rule that closes that path for the input
+also closes the tests' only route to the state they assert on, and nothing ties the rule's change to the tests that
+relied on the old path.
+
+**Why 42 and LESSONS 43 did not prevent it.** 42 is this shape: a new fail-closed startup check broke an older test
+that started the binary without the new variable. LESSONS 43 was written for that case, a required environment
+variable and the tests that spawn the binary, so it names spawn sites and environment lists. It does not say that any
+new refusal breaks every test that reached its state through the refused input, which is the general form (LESSONS 114:
+a rule written against the incident's literal).
+
+**Fix.** Before push. Steps that need a stored device seed the crafted name the way an older release could have stored
+it: a hand-written `hosts.yaml`, or the inventory file renamed as text after a first sync, since `EncodeHosts` refuses
+adding such a name. Steps that only create use a name the rule allows that `%q` still changes (`web1" scripted:
+approved`), and each also checks that the raw name never appears beside its quoted form. The CLI test now skips on
+Windows and as root for both rows, because it reaches its error through a read-only directory's save failure; that
+loses the end-to-end proof there. `print_error_test.go` still covers `printError`'s escape on every platform.
+
+**Lesson.** LESSONS 427.
+
+## 1079. Moving a store lookup ahead of a validation, so a stored cluster under a refused name could be replaced, sent a NUL name to the database and would have answered 500 on PostgreSQL where main answered 400 (fixed before push; a repeat of 371 and 919, through the same dialect gap)
+
+**Symptom.** Found by the fp-reviewer agent on `fix/name-control-chars`, 2026-11-09, reasoned from 371's measurement.
+To let `ImportKubeconfig` (`internal/api/devices_kubeconfig.go`) replace a cluster stored under a name the new rule
+refuses, the branch moved `GetByName` ahead of `refuseUnusableName` and dropped main's
+`strings.ContainsAny(req.Name, "\x00\r\n")`, there since `d5011ea7` (2026-10-14). A name holding NUL then reached the
+store's query. On PostgreSQL, lib/pq sends a NUL in a text parameter and the server refuses it, so the request would
+have answered 500 "internal error" with an ERROR log, where main answered 400. On SQLite the lookup just matches no row,
+so the SQLite-backed tests passed.
+
+**Root cause.** Reordering a guard and a lookup changed what the lookup is given. The removed check was doing two jobs:
+refusing a name no URL can carry, and keeping a value no PostgreSQL row can hold away from the query.
+
+**Why 371 and 919 did not prevent it.** Both say a NUL that reaches a PostgreSQL query is an error, not a miss, and both
+fixed it at their own site (sign-in, the facts and journal consumers). Neither leaves a check that every lookup is
+given a value its dialect can hold, and the branch's tests ran on SQLite. Here the guard existed on main and was
+removed for a different reason, so nothing new was missing a guard; an old guard lost one of its jobs.
+
+**Fix.** Before push, in `7d79abf6`. A name holding NUL is refused with the reason before the lookup, since no
+PostgreSQL row can hold one, so no stored cluster can be under it. CR and LF stay allowed past that point, so a cluster
+stored under a name holding one can still be replaced. `TestImportKubeconfig_RefusesANULNameBeforeTheStore`
+(`internal/api/devices_kubeconfig_test.go`) uses a repository that answers a NUL as lib/pq does; written first, it
+answered 500 before the fix.
+
+**Lesson.** As 371: whether a value is legal differs by database. When a change moves a lookup ahead of a check, list
+each job the check did and keep the ones the lookup still needs, here a value the production dialect can hold.
+
+## 1080. API text said a create refuses only "." and "..", and the five device {name} routes said a name "contains a control character" where deviceName refuses only NUL, CR and LF (fixed on this branch; the {name} text on main since fda1792d, 2026-09-24, or earlier; the class of 228, 1029, 1041 and 1074)
+
+**Symptom.** Found on `fix/name-control-chars`, 2026-11-09. Two kinds of stale text in `internal/apispec/apispec.go`:
+
+- the 400 descriptions of CreateDevice and ImportKubeconfig said a name of "." or ".." is unusable, and nothing else.
+  That was true on main and became false when 1068's fix refused more;
+- the 400 descriptions of the five `{name}` routes (get, facts, fact chain, delete, onboard) said "name is empty, too
+  long, or contains a control character". `deviceName` (`internal/api/devices.go`) refuses only an empty, too long or
+  undecodable name, or one holding NUL, CR or LF. It did the same at `fda1792d`, so that text was not true when written
+  there; whether an earlier version made it true has not been traced.
+
+**Root cause.** As 1074: route text written from intent and not reread against the code, and text that described a rule
+the branch then changed.
+
+**Why 228, 1029, 1041 and 1074 did not prevent it.** Their rule, reread each sentence against the code, is applied by
+hand, and nothing compares a route's error text with the check that answers it.
+
+**Fix.** `00db02de`. Both kinds are corrected, and `docs/reference/schemas/openapi.json` and
+`internal/api/wellknown/openapi.json` regenerated.
+
+**Lesson.** As 1029. When a change alters what a check refuses, search the route table for each route that check
+answers, and reread its error text.
+
+## 1081. The name rule refuses U+00AD, U+200B, U+2060 and U+FEFF because each shows as nothing, and passes other characters that show as nothing (fixed on fix/name-control-chars by the owner's decision of 2026-11-09: the rule reads Go's unicode tables at creation only; a sibling of 905; LESSONS 114)
+
+**Symptom.** Found by the fp-reviewer agent on `fix/name-control-chars`, 2026-11-09 (its finding F2); reasoned, not run.
+`hidden` (`internal/recordname/shown.go`) refuses four characters by name because a reader cannot see them. Others a
+reader cannot see pass: U+034F, U+115F, U+1160, U+17B4 to U+17B5, U+180E, U+2061 to U+2064, U+206A to U+206F, U+3164,
+U+FFA0, U+FFF9 to U+FFFB, U+1BCA0 to U+1BCA3, and U+1D173 to U+1D17A. A device name holding one would print as a
+different name, or as another device's name.
+
+**Root cause.** The list was built from the characters the decided rule named, not from the property the rule exists
+for. 905 is the same gap in the source check, which was closed with Unicode's Default_Ignorable property; the name rule
+deliberately reads no Go Unicode table (LESSONS 415, FAILURE_PATTERNS 1003), so it cannot reuse that answer and needs the
+ranges written out.
+
+**Status.** Open, for the owner, until 2026-11-09.
+
+**Fixed (2026-11-09, `07f25792`, branch `fix/name-control-chars`).** The owner decided the rule should name the
+property, not the examples, and read it from Go's standard `unicode` tables rather than `golang.org/x/text/secure/precis`
+(whose API is still marked unstable, whose `Identifier` profile refuses the ASCII space names already use, and whose
+`Freeform` profile passes U+2800). `recordname.ShowsAsItself`, asked by `Check` and by `facts.ValidKey`, refuses after
+`termsafe.CheckLine`: `unicode.Cc`, `Cf`, `Cs`, `Co`, `Other_Default_Ignorable_Code_Point`, `Variation_Selector`,
+`Noncharacter_Code_Point`, `Zl`, `Zp`, every `Zs` but U+0020, U+2800 (the blank braille pattern, filed as a symbol), and a
+name of spaces alone. A real U+FFFD stays allowed (932). The cost, owner-accepted: the zero width joiner and non-joiner and
+the variation selectors are now refused, so a Persian name spelled with the non-joiner or an emoji in its color form must
+be written without it (`TestCheck_RefusesTheJoinersAndSelectorsRealNamesCanHold` pins this). Reading Go's tables here is
+safe for the reason LESSONS 415 gives and 1003 lacked: only a create asks the rule, so a Go upgrade can refuse a new name
+and never a stored one. Checking that claim found 1083. Evidence: `internal/recordname/recordname_shown_test.go` (both
+edges of every range and the neighbour kept), `internal/facts/key_names_test.go` (every code point to U+10FFFF).
+
+**Lesson.** LESSONS 114: a guard written against the examples is not a guard against the rule. A rule may read a table a
+release can grow only where nothing reading a stored value asks it; check every reference of the rule before widening.
+
+## 1082. A test list built with rg inside a git rebase -x script came out empty, because the script's PATH had no rg, so go test -run matched no test and reported ok with "no tests to run" (open, as 374 is: nothing fails a -run that matches no test; a repeat in kind of 374)
+
+**Symptom.** On `fix/name-control-chars`, 2026-11-09. A script run by `git rebase -x` built its `go test -run` pattern
+from a list of test names made with `rg`. `rg` is on the agent's PATH, not on the PATH a script started by git gets, so
+the list was empty. `go test` printed "no tests to run" and reported ok for each commit. Once noticed, each commit
+touching `cmd/pleiades` (the rule commit, the import-kubeconfig fix and the tip, before the rebase onto #144) was re-run with a name
+pattern and `-v`, counting the passes (75, 77 and 77 tests), and all passed.
+
+**Root cause.** Two things that each fail silently: a command substitution whose command is not found yields an empty
+string, and `go test -run` with a pattern that matches nothing is a pass.
+
+**Why 374 did not prevent it.** 374's lesson is to read `-v` output when a new test does not appear. It is a check made
+by hand, and a script reading only the exit status cannot make it.
+
+**Status.** Open, as a practice rather than a guard. A script that builds a test list should use commands it can be
+sure of (an absolute path, or `go test -list`), stop on an empty list, and treat "no tests to run" as a failure.
+
+**Lesson.** As 374. A pass from `go test -run` proves something only when the run names the tests it ran.
+
+## 1083. The fact history route held the {key} it was asked to read to facts.ValidKey, the rule a new fact's key is held to, so a key stored before that rule grew would answer 400 at its own address (fixed before push; a repeat of 988 and 1003)
+
+**Symptom.** Found on `fix/name-control-chars`, 2026-11-09, by listing `facts.ValidKey`'s references (gopls) before
+making it ask `recordname.ShowsAsItself`. `DeviceHandler.FactHistory` (`internal/api/device_facts.go`) refused any
+`{key}` `ValidKey` refused. Until then `ValidKey` added only "." and ".." to the reader's `wellFormedKey`, neither of
+which a URL carries, so nothing showed. Once `ValidKey` read Go's unicode tables, a fact stored under a key holding
+U+3164 (printable, so well formed) became unreadable by `GET /inventory/devices/{name}/facts/{key}`, and a Go upgrade
+could have done the same to any stored key.
+
+**Root cause.** A reader asked the creation rule. `ValidKey`'s own doc said a reader holds a stored key to
+`wellFormedKey`, but `wellFormedKey` was unexported, so the route outside the package had only `ValidKey` to call.
+
+**Why 988 and 1003 did not prevent it.** Each fixed the readers it found (the fact stores' Collection identity, the
+Crawl journal's strict reader) and stated the rule; nothing lists which callers of a creation rule are readers, and a
+route looking up a stored record by a caller's text is a reader that does not look like one.
+
+**Fix.** `facts.ReadableKey`, exported, is the reader's rule (`wellFormedKey`); the route asks it. RED first:
+`TestDeviceFactHistory_ReadsAKeyANewFactMayNotTake` (`internal/api/device_facts_test.go`) answered 400 before the
+fix and 200 after.
+
+**Lesson.** As LESSONS 415. When a creation rule exists, export the reader's rule beside it, so a reader outside the
+package is never left with only the creation rule to call.

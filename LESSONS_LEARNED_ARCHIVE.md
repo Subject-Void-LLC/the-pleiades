@@ -7841,3 +7841,25 @@ phase later.
 not only the record's own. Hold the two equal with a test that calls ent's generated validator at the bound and one past
 it, as `TestMaxNameBytes_IsTheLaunchableRowsOwnBound` (`internal/launch/template_test.go`) does with
 `launchable.NameValidator` and `launch.MaxNameBytes`, so a schema change fails a test instead of a write.
+
+## 427. When a change refuses an input at creation, every test that used that input as a fixture loses its route to the store: seed it the way an older release stored it, and run every test of the error sites the input reached, not only the tests of the code the change touched (a generalization of 43; FAILURE_PATTERNS 42 and 1078) (2026-11-09)
+
+**Why.** Branch `fix/name-control-chars`, 2026-11-09. The branch refused a device name holding a control character at
+creation (FAILURE_PATTERNS 1068). Three older tests stored a crafted name through a sync, the one path into the store
+they had, and then drove the error that names it. Once the sync refused the name, each case ended "Reconcile succeeded"
+and none reached its error (FAILURE_PATTERNS 1078). Nothing in the change pointed at them: they test the quoting of
+errors, not the name rule. They were found by running the tests of every error site a crafted name reaches.
+
+**What is old and what is new.** LESSONS 43 says this for one case: a new required environment variable breaks every
+test that spawns the binary, so update each spawn site. LESSONS 415 says a rule that may change runs only where the
+value is written, and pins that with a test that stores a value the rule refuses. LESSONS 218 says list the states a
+fixture can take, including the ones the authoring branch cannot produce. None says what happens to the tests that
+already used the input: a refusal at creation turns a stored crafted value into a state only an older release, or a
+hand-edited file, can produce, and each test that needs it must now make it that way.
+
+**Rule in practice.** Before a change refuses an input at creation, find each test that uses the input as a fixture
+(bounded `rg -l` for the literal and its escapes) and each error site the input can reach. Run all of them after the
+change, not only the tests of the package changed. Where a test needs the value stored, seed it as an older release
+could have stored it (a hand-written file, a row inserted beneath the rule, a file renamed as text after a first write),
+and say so in the test. Where a test only needs the error path, use an input the rule allows that still shows the
+property under test, as `web1" scripted: approved` still shows that `%q` changed the name.

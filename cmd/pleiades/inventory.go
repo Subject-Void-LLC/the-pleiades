@@ -228,9 +228,11 @@ func runInventorySync(args []string) error {
 // conflicted and refused ones are listed individually with their reason,
 // because those are the outcomes that need a human decision, and a summary
 // count alone would make them easy to miss in a fleet of hundreds. A refused
-// record is one whose name no URL can carry ("", "." or ".."), and it is
-// counted on the summary line only when there is one, so the common line
-// reads as it always has.
+// record is one whose name no device can be created under (recordname.Check:
+// "", "." or "..", or a name holding a control code, a line break, a
+// direction control or an invisible character), and it is counted on the
+// summary line only when there is one, so the common line reads as it
+// always has.
 // Each name is shown quoted and each reason escaped, since both are the
 // upstream source's text.
 //

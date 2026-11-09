@@ -116,6 +116,40 @@ or `..`. No URL can carry them as a path segment, since browsers and most client
 and `..`, escaped or not, as steps between folders, so such a record could never be read,
 changed or deleted by its address. The refusal is a 400 that says why.
 
+A device's name is also printed in every error, log line, report and page that names the
+device, so a device cannot be created under a name that would not show as itself on one
+line. The name may not hold:
+
+| What | Code points | Why |
+|---|---|---|
+| A byte that is not UTF-8 | | A reader shows it as U+FFFD, so two names would print as one. U+FFFD written as itself is allowed. |
+| A control code | U+0000 to U+001F, U+007F to U+009F | A terminal or a log acts on it: a newline starts a line that looks like the program's own, and an escape recolors or clears the screen. |
+| A format character (Unicode category Cf) | the direction controls (U+061C, U+200E, U+200F, U+202A to U+202E, U+2066 to U+2069), U+00AD, U+200B to U+200D, U+2060 to U+2064, U+FEFF, the tag characters U+E0001 and U+E0020 to U+E007F, and the rest of the category | It shows as nothing, or changes how the name is displayed, so one name can show as another and never matches what you type. A direction control can reorder a name; a tag character spells out text a program or a model sees and a person does not. |
+| A character Unicode marks default-ignorable that is not a format character | such as U+034F, U+115F, U+1160, U+17B4, U+17B5, U+3164, U+FFA0 | A font draws it as nothing, though Unicode files it as a letter or a mark. |
+| A variation selector | U+180B to U+180D, U+180F, U+FE00 to U+FE0F, U+E0100 to U+E01EF | It shows as nothing and changes only how the character before it is drawn. |
+| A space other than U+0020, or a line or paragraph separator | such as U+00A0, U+1680, U+2000 to U+200A, U+202F, U+205F, U+3000; U+2028, U+2029 | It looks like a space and never matches one you type, and a browser breaks the line at a separator. |
+| The blank braille pattern | U+2800 | Every font draws it as empty space. |
+| A private-use character or a noncharacter | U+E000 to U+F8FF, planes 15 and 16, U+FDD0 to U+FDEF, and the last two code points of every plane | It shows as whatever a font chooses, or as nothing. |
+| Spaces alone | | The name shows as nothing. |
+
+U+0020, accented letters and every other script are allowed. The zero width joiner and
+non-joiner (U+200D, U+200C) and the variation selectors are refused, so a name written with
+one, such as a Persian word spelled with the non-joiner or an emoji in its color form, must be
+written without it. The rule does not try to stop two names that only look alike, such as a
+Latin `a` and a Cyrillic one, or a name and the same name with a space after it. The
+categories are read from the Unicode tables of the Go release that built the program, so a
+later release can refuse a character an earlier one allowed; that never touches a stored
+device, since only a new name is checked. The refusal is a 400 naming the character by its
+code point and position, and never repeats the name. The web UI's device form,
+`pleiades add-host`, the imports and `pleiades inventory sync` refuse the same names, and a
+sync reports such an upstream device as refused, quoted, and adds the rest. Only a new name is
+checked: a device stored under such a name before this rule is kept, listed, changed and
+retired as before, a sync that sends it again updates it, and a kubeconfig import with
+`replace` replaces it. (The by-name routes, `/inventory/devices/{name}` and those under it,
+already refused a name holding a NUL, a carriage return or a newline, and still do.) A new
+fact key is held to the same rule, on top of its own (printable characters only, and no
+space); a stored one is read back as it was.
+
 ## Hypermedia and link relations
 
 A successful response embeds a `_links` array: every affordance the calling identity

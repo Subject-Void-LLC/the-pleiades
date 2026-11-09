@@ -120,3 +120,57 @@ func TestDeviceCreate_MapsTheStoresNameRefusalTo400(t *testing.T) {
 		t.Errorf("the body says %q, want recordname's reason", msg)
 	}
 }
+
+// shownNameCases are device names the API must refuse for what they hold,
+// each with the code point and byte offset the refusal names. Every
+// character outside printable ASCII is built from its code point, so this
+// file holds none (FAILURE_PATTERNS 256, 834).
+func shownNameCases() []struct{ name, says string } {
+	return []struct{ name, says string }{
+		{"sw2\npleiades: approved", "U+000A at byte 3"},
+		{"sw\x1b[2J1", "U+001B at byte 2"},
+		{"abc" + string(rune(0x202E)) + "def", "U+202E at byte 3"},
+		{"web1" + string(rune(0x2028)) + "approved", "U+2028 at byte 4"},
+		{"web1" + string(rune(0x200B)), "U+200B at byte 4"},
+		{"web1" + string(rune(0xE0041)), "U+E0041 at byte 4"},
+	}
+}
+
+// TestDeviceCreate_RefusesANameThatWouldNotShowAsItself posts a device
+// whose name holds a newline, an escape, a direction override, a line
+// separator, a zero width space and a tag character. Each is refused by the
+// handler itself with 400 and the reason, naming the character by its code
+// point, before the store is asked anything; the body never carries the
+// character or the text after it.
+func TestDeviceCreate_RefusesANameThatWouldNotShowAsItself(t *testing.T) {
+	post := createRouter(t, unreachableStore{stubDeviceRepo: &stubDeviceRepo{}, t: t})
+	for _, tc := range shownNameCases() {
+		t.Run(tc.says, func(t *testing.T) {
+			rr := post(tc.name)
+			if rr.Code != http.StatusBadRequest {
+				t.Fatalf("POST a device named %q = %d, want 400: %s", tc.name, rr.Code, rr.Body.String())
+			}
+			msg := errorMessage(t, rr)
+			if !strings.Contains(msg, "the name cannot be used") || !strings.Contains(msg, tc.says) {
+				t.Errorf("the refusal says %q, want the reason naming %s", msg, tc.says)
+			}
+			if strings.Contains(msg, "approved") || strings.Contains(msg, "def") || strings.ContainsAny(msg, "\n\x1b") {
+				t.Errorf("the refusal echoes the name: %q", msg)
+			}
+		})
+	}
+}
+
+// TestDeviceCreate_RefusesANameOverTheLengthBound: a name the rule accepts
+// but longer than a DNS name may be is still refused, with the fixed
+// message, before the store is asked anything.
+func TestDeviceCreate_RefusesANameOverTheLengthBound(t *testing.T) {
+	post := createRouter(t, unreachableStore{stubDeviceRepo: &stubDeviceRepo{}, t: t})
+	rr := post(strings.Repeat("a", 254))
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("POST a 254-byte name = %d, want 400: %s", rr.Code, rr.Body.String())
+	}
+	if msg := errorMessage(t, rr); msg != "invalid device name" {
+		t.Errorf("the refusal says %q, want the fixed message", msg)
+	}
+}

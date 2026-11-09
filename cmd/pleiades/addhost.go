@@ -118,8 +118,9 @@ func runAddHost(args []string) error {
 		return fmt.Errorf("usage: pleiades add-host <name> (--type <type> | --classify a,b,c) [--set key=value ...] [--tags a,b | --tag a ...]: %w", err)
 	}
 	// The name becomes the device's address once it reaches a Controller,
-	// so "", "." and ".." are refused here, with the reason, before the
-	// inventory is read.
+	// and is printed wherever the device is named, so "", "." and "..", and
+	// a name that would not show as itself (recordname.Check), are refused
+	// here, with the reason, before the inventory is read.
 	if err := recordname.Check(name); err != nil {
 		return fmt.Errorf("host not added: %w", err)
 	}

@@ -133,8 +133,8 @@ func TestRepositoryConformance_CreateRefusesANameNoURLCarries(t *testing.T) {
 			ctx := context.Background()
 			for _, name := range []string{"", ".", ".."} {
 				err := repo.Create(ctx, newConformanceItem(t, name, map[string]interface{}{"host": "10.0.0.7"}))
-				if !errors.Is(err, recordname.ErrUnaddressable) {
-					t.Fatalf("Create(%q) = %v, want an error matching recordname.ErrUnaddressable", name, err)
+				if !errors.Is(err, recordname.ErrUnusable) {
+					t.Fatalf("Create(%q) = %v, want an error matching recordname.ErrUnusable", name, err)
 				}
 				if _, err := repo.GetByName(ctx, name); !errors.Is(err, inventory.ErrItemNotFound) {
 					t.Errorf("GetByName(%q) after a refused Create = %v, want ErrItemNotFound", name, err)

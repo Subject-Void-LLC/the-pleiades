@@ -74,13 +74,17 @@ hosts:
 ```
 
 The device is built as its type before it is written, so a property that type refuses is
-refused here, not on the first run. A name may hold almost any character, `/` included, but
-not be empty, `.` or `..`: a device's name is its address in the Controller's API and web UI,
-and no URL can carry those three as a path segment. `add-host`, the imports, the API, the web
-UI and `pleiades inventory sync` all refuse them and say why; a sync reports such an upstream
-device as refused and adds the rest. To change a host later, `set-host` adds or replaces a
-property with `--set` and removes one with `--unset`, each change a revision in the host's
-history:
+refused here, not on the first run. A name may hold almost any character, `/` and spaces
+included, but not be empty, `.` or `..`: a device's name is its address in the Controller's
+API and web UI, and no URL can carry those three as a path segment. Nor may it hold a newline
+or other control character, a text direction control, an invisible character such as a zero
+width space or joiner, a variation selector or a space other than an ordinary one, or be
+spaces alone, since the name is printed wherever the device is named and must show as itself
+(the full list is in [Names in a path](09-control-plane-and-api.md#names-in-a-path)).
+`add-host`, the imports, the API, the web UI and `pleiades inventory sync` all refuse such a
+name and say why; a sync reports such an upstream device as refused and adds the rest. To
+change a host later, `set-host` adds or replaces a property with `--set` and removes one with
+`--unset`, each change a revision in the host's history:
 
 ```console
 $ pleiades set-host web1 --set port=2200
