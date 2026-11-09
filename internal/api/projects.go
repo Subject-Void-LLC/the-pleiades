@@ -438,6 +438,14 @@ func (h *ProjectHandler) validProject(w http.ResponseWriter, r *http.Request, p 
 		RespondError(w, r, http.StatusBadRequest, "name is required")
 		return false
 	}
+	// Each length bound is the database's own (project.CheckLengths), and
+	// refused here because past it ent's validator answers 500
+	// (FAILURE_PATTERNS 1076). The message names the field and the bound and
+	// repeats nothing the caller sent.
+	if err := project.CheckLengths(*p); err != nil {
+		RespondError(w, r, http.StatusBadRequest, err.Error())
+		return false
+	}
 	if p.SCMType == "" {
 		p.SCMType = project.SCMGit
 	}

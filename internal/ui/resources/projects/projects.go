@@ -42,18 +42,20 @@ import (
 // Name is this view's registration key and URL segment.
 const Name = "projects"
 
-// declaredFields are the shape.
+// declaredFields are the shape. Each text field's MaxLen is the database's
+// own bound, read from internal/project, and view.Validate enforces it
+// server-side, so an over-long value is a field error beside its control.
 func declaredFields(orgs inventory.OrganizationLister, creds credentialLister) []view.Field {
 	return []view.Field{
 		{
 			Name: "name", Label: "NAME", Kind: view.KindText,
-			Required: true, MaxLen: 253, InList: true, InForm: true, MobilePrimary: true,
+			Required: true, MaxLen: project.MaxNameBytes, InList: true, InForm: true, MobilePrimary: true,
 			Autocomplete: "off",
 			Help:         "What this repository is called here, within its organization.",
 		},
 		{
 			Name: "description", Label: "DESCRIPTION", Kind: view.KindLongText,
-			MaxLen: 1024, InForm: true,
+			MaxLen: project.MaxDescriptionBytes, InForm: true,
 			Help: "What is in it, for somebody who did not add it.",
 		},
 		{
@@ -87,7 +89,7 @@ func declaredFields(orgs inventory.OrganizationLister, creds credentialLister) [
 		},
 		{
 			Name: "scm_url", Label: "URL", Kind: view.KindText,
-			MaxLen: 2048, InList: true, InForm: true, Autocomplete: "off",
+			MaxLen: project.MaxSCMURLBytes, InList: true, InForm: true, Autocomplete: "off",
 			Help: "The repository to clone. Prefer an https address with a credential over embedding a token in the URL: a URL's userinfo ends up in error messages.",
 		},
 		{
@@ -100,7 +102,7 @@ func declaredFields(orgs inventory.OrganizationLister, creds credentialLister) [
 		},
 		{
 			Name: "scm_branch", Label: "BRANCH", Kind: view.KindText,
-			MaxLen: 255, InForm: true, Autocomplete: "off",
+			MaxLen: project.MaxSCMBranchBytes, InForm: true, Autocomplete: "off",
 			Help: "The branch, tag or commit to check out. Leave empty for whatever the remote's own default branch is.",
 		},
 		{
