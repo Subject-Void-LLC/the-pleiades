@@ -20,6 +20,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
 	pkginventory "github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/kubeapi"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/recordname"
 )
 
 // maxKubeconfigRead bounds what the command reads before kubeapi.Import
@@ -46,6 +47,11 @@ func runImportKubeconfig(args []string) error {
 	name, rest, err := splitPositional(args, map[string]bool{"replace": true, "json": true})
 	if err != nil {
 		return fmt.Errorf("usage: pleiades import-kubeconfig <device> --kubeconfig <path|-> [--context <name>] [--replace] [--json]: %w", err)
+	}
+	// Refused before the kubeconfig is read or a credential stored: the
+	// device's name becomes its address once it reaches a Controller.
+	if err := recordname.Check(name); err != nil {
+		return fmt.Errorf("cluster not imported: %w", err)
 	}
 	fs := flag.NewFlagSet("import-kubeconfig", flag.ContinueOnError)
 	dir := fs.String("dir", ".", "project directory")
