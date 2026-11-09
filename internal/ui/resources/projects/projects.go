@@ -192,28 +192,28 @@ func (w writer) Create(ctx context.Context, p project.Project) (string, error) {
 func (w writer) Update(ctx context.Context, id string, p project.Project) error {
 	numeric, err := strconv.Atoi(id)
 	if err != nil {
-		return project.ErrNotFound
+		return view.ErrNotFound
 	}
 	existing, err := w.store.Get(ctx, numeric)
 	if err != nil {
-		return err
+		return view.WrapNotFound(err, project.ErrNotFound)
 	}
 	p.ID = numeric
 	// Immutable, so an edit never carries it and the store must not be
 	// told to move the project between tenants.
 	p.OrganizationID = existing.OrganizationID
 	if err := usableForGit(ctx, w.creds, p.CredentialID); err != nil {
-		return err
+		return view.WrapNotFound(err, project.ErrNotFound)
 	}
-	return asFault(w.store.Update(ctx, p))
+	return view.WrapNotFound(asFault(w.store.Update(ctx, p)), project.ErrNotFound)
 }
 
 func (w writer) Delete(ctx context.Context, id string) error {
 	numeric, err := strconv.Atoi(id)
 	if err != nil {
-		return project.ErrNotFound
+		return view.ErrNotFound
 	}
-	return w.store.Delete(ctx, numeric)
+	return view.WrapNotFound(w.store.Delete(ctx, numeric), project.ErrNotFound)
 }
 
 // asFault blames a name collision on the control that caused it, rather

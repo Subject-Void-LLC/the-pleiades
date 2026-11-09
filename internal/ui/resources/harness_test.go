@@ -533,7 +533,20 @@ func (s *fakeSetStore) Update(_ context.Context, set inventory.Set) error {
 	return inventory.ErrSetNotFound
 }
 
-func (s *fakeSetStore) Delete(context.Context, int) error { return nil }
+// Delete really removes, and answers a missing id as the real store does,
+// so a delete of an inventory that is not stored can be told from one that
+// is.
+func (s *fakeSetStore) Delete(_ context.Context, id int) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i, set := range s.sets {
+		if set.ID == id {
+			s.sets = append(s.sets[:i], s.sets[i+1:]...)
+			return nil
+		}
+	}
+	return inventory.ErrSetNotFound
+}
 
 func (s *fakeSetStore) SetsForDevice(context.Context, int) ([]int, error) { return []int{1}, nil }
 
@@ -775,11 +788,18 @@ func (r *fakeRepository) Save(_ context.Context, item pkginventory.InventoryItem
 	return inventory.ErrVersionConflict
 }
 
+// Retire records the name it was asked for, and answers a device that is
+// not stored with ErrItemNotFound, as the real repositories do.
 func (r *fakeRepository) Retire(_ context.Context, name string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.retired = append(r.retired, name)
-	return nil
+	for _, item := range r.items {
+		if item.Name() == name {
+			return nil
+		}
+	}
+	return inventory.ErrItemNotFound
 }
 func (r *fakeRepository) GroupAncestry(context.Context, string) ([]inventory.HierarchyLayer, error) {
 	return nil, nil

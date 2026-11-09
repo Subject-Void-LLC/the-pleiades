@@ -211,10 +211,10 @@ func (w writer) Create(ctx context.Context, org access.Organization) (string, er
 func (w writer) Update(ctx context.Context, id string, org access.Organization) error {
 	numeric, err := strconv.Atoi(id)
 	if err != nil {
-		return access.ErrNotFound
+		return view.ErrNotFound
 	}
 	org.ID = numeric
-	return nameTaken(w.store.UpdateOrganization(ctx, org))
+	return view.WrapNotFound(nameTaken(w.store.UpdateOrganization(ctx, org)), access.ErrNotFound)
 }
 
 // nameTaken turns the store's uniqueness refusal into a fault the form can
@@ -242,9 +242,9 @@ func nameTaken(err error) error {
 func (w writer) Delete(ctx context.Context, id string) error {
 	numeric, err := strconv.Atoi(id)
 	if err != nil {
-		return access.ErrNotFound
+		return view.ErrNotFound
 	}
-	return w.store.DeleteOrganization(ctx, numeric)
+	return view.WrapNotFound(w.store.DeleteOrganization(ctx, numeric), access.ErrNotFound)
 }
 
 // store is the slice of the access surface this view adapts: the

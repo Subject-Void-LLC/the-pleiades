@@ -25,6 +25,17 @@ var ErrNotImplemented = errors.New("view resource is declared but not implemente
 // error in it, the same way a port returns a FieldFault.
 var ErrNotFound = errors.New("view record not found")
 
+// WrapNotFound wraps err in ErrNotFound when it is, or wraps, storeNotFound,
+// the store's own not-found error, and returns any other error, nil
+// included, unchanged. Each write port calls it with its store's sentinel,
+// so the rule lives once rather than in every port.
+func WrapNotFound(err, storeNotFound error) error {
+	if err != nil && errors.Is(err, storeNotFound) {
+		return fmt.Errorf("%w: %w", ErrNotFound, err)
+	}
+	return err
+}
+
 // FieldFault is a write failure a port can blame on one declared field.
 //
 // It exists because some failures are only knowable at the port. A runbook

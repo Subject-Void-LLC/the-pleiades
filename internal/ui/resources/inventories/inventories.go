@@ -161,7 +161,7 @@ func (w writer) Create(ctx context.Context, set inventory.Set) (string, error) {
 func (w writer) Update(ctx context.Context, id string, set inventory.Set) error {
 	numeric, err := strconv.Atoi(id)
 	if err != nil {
-		return inventory.ErrSetNotFound
+		return view.ErrNotFound
 	}
 
 	// The organization is read from storage rather than from the
@@ -170,7 +170,7 @@ func (w writer) Update(ctx context.Context, id string, set inventory.Set) error 
 	// rather than an edit.
 	existing, err := w.sets.Get(ctx, numeric)
 	if err != nil {
-		return err
+		return view.WrapNotFound(err, inventory.ErrSetNotFound)
 	}
 	set.ID = numeric
 	set.OrganizationID = existing.OrganizationID
@@ -180,15 +180,15 @@ func (w writer) Update(ctx context.Context, id string, set inventory.Set) error 
 	// was the only way an edit could avoid clearing them. Both are real
 	// controls now, so the submission is the authority and a deselection
 	// has to be able to mean what it says.
-	return w.sets.Update(ctx, set)
+	return view.WrapNotFound(w.sets.Update(ctx, set), inventory.ErrSetNotFound)
 }
 
 func (w writer) Delete(ctx context.Context, id string) error {
 	numeric, err := strconv.Atoi(id)
 	if err != nil {
-		return inventory.ErrSetNotFound
+		return view.ErrNotFound
 	}
-	return w.sets.Delete(ctx, numeric)
+	return view.WrapNotFound(w.sets.Delete(ctx, numeric), inventory.ErrSetNotFound)
 }
 
 // Register wires this view over the live set store.

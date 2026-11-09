@@ -385,7 +385,7 @@ func nameTaken(err error) error {
 func (w writer) Update(ctx context.Context, id string, tmpl launch.Template) error {
 	numeric, err := strconv.Atoi(id)
 	if err != nil {
-		return launch.ErrNotFound
+		return view.ErrNotFound
 	}
 
 	// The survey is carried forward from storage rather than from the
@@ -398,20 +398,20 @@ func (w writer) Update(ctx context.Context, id string, tmpl launch.Template) err
 	// itself for a stronger reason.
 	existing, err := w.store.Get(ctx, numeric)
 	if err != nil {
-		return err
+		return view.WrapNotFound(err, launch.ErrNotFound)
 	}
 	tmpl.ID = numeric
 	tmpl.Survey = existing.Survey
 	tmpl.RequiredCaps = existing.RequiredCaps
-	return nameTaken(w.store.Update(ctx, tmpl))
+	return view.WrapNotFound(nameTaken(w.store.Update(ctx, tmpl)), launch.ErrNotFound)
 }
 
 func (w writer) Delete(ctx context.Context, id string) error {
 	numeric, err := strconv.Atoi(id)
 	if err != nil {
-		return launch.ErrNotFound
+		return view.ErrNotFound
 	}
-	return w.store.Delete(ctx, numeric)
+	return view.WrapNotFound(w.store.Delete(ctx, numeric), launch.ErrNotFound)
 }
 
 // projector turns a template into the rows, forms and submissions the

@@ -114,7 +114,7 @@ func (w writer) Create(ctx context.Context, d device) (string, error) {
 func (w writer) Update(ctx context.Context, id string, d device) error {
 	stored, err := w.repo.GetByName(ctx, id)
 	if err != nil {
-		return notFound(err)
+		return view.WrapNotFound(err, inventory.ErrItemNotFound)
 	}
 	changer, ok := stored.(tagChanger)
 	if !ok {
@@ -133,15 +133,5 @@ func (w writer) Delete(ctx context.Context, id string) error {
 	// Retirement, not row removal: every Revision is immutable by schema
 	// and the revisions edge carries no cascade, so a real delete would
 	// mean destroying the audit trail the schema exists to protect.
-	return notFound(w.repo.Retire(ctx, id))
-}
-
-// notFound wraps the repository's not-found error in view.ErrNotFound, so
-// the handler answers a device that is not stored with 404 rather than 500.
-// Any other error passes through unchanged.
-func notFound(err error) error {
-	if errors.Is(err, inventory.ErrItemNotFound) {
-		return fmt.Errorf("%w: %w", view.ErrNotFound, err)
-	}
-	return err
+	return view.WrapNotFound(w.repo.Retire(ctx, id), inventory.ErrItemNotFound)
 }

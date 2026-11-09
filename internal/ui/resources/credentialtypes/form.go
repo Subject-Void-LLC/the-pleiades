@@ -112,16 +112,16 @@ func (w writer) Create(ctx context.Context, ct credstore.CredentialType) (string
 func (w writer) Update(ctx context.Context, id string, ct credstore.CredentialType) error {
 	numeric, err := strconv.Atoi(id)
 	if err != nil {
-		return fmt.Errorf("credentialtypes: unreadable credential type id %q: %w", id, err)
+		return fmt.Errorf("%w: credentialtypes: unreadable credential type id %q: %w", view.ErrNotFound, id, err)
 	}
 	stored, err := w.store.GetType(ctx, numeric)
 	if err != nil {
-		return err
+		return view.WrapNotFound(err, credstore.ErrNotFound)
 	}
 	ct.Inputs = stored.Inputs
 	ct.Injectors = stored.Injectors
 	if _, err := w.store.UpdateType(ctx, numeric, ct.CredentialType); err != nil {
-		return writeFault(err)
+		return view.WrapNotFound(writeFault(err), credstore.ErrNotFound)
 	}
 	return nil
 }
@@ -133,9 +133,9 @@ func (w writer) Update(ctx context.Context, id string, ct credstore.CredentialTy
 func (w writer) Delete(ctx context.Context, id string) error {
 	numeric, err := strconv.Atoi(id)
 	if err != nil {
-		return fmt.Errorf("credentialtypes: unreadable credential type id %q: %w", id, err)
+		return fmt.Errorf("%w: credentialtypes: unreadable credential type id %q: %w", view.ErrNotFound, id, err)
 	}
-	return w.store.DeleteType(ctx, numeric)
+	return view.WrapNotFound(w.store.DeleteType(ctx, numeric), credstore.ErrNotFound)
 }
 
 // writeFault turns a store refusal into a message against the control that

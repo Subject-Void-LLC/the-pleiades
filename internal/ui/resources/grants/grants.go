@@ -199,18 +199,18 @@ func (w writer) Create(ctx context.Context, b access.Binding) (string, error) {
 func (w writer) Update(ctx context.Context, id string, b access.Binding) error {
 	numeric, err := strconv.Atoi(id)
 	if err != nil {
-		return access.ErrNotFound
+		return view.ErrNotFound
 	}
 	b.ID = numeric
-	return w.store.UpdateBinding(ctx, b)
+	return view.WrapNotFound(w.store.UpdateBinding(ctx, b), access.ErrNotFound)
 }
 
 func (w writer) Delete(ctx context.Context, id string) error {
 	numeric, err := strconv.Atoi(id)
 	if err != nil {
-		return access.ErrNotFound
+		return view.ErrNotFound
 	}
-	return w.store.DeleteBinding(ctx, numeric)
+	return view.WrapNotFound(w.store.DeleteBinding(ctx, numeric), access.ErrNotFound)
 }
 
 // Register wires the Access view over the access store.

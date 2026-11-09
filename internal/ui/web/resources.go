@@ -1140,6 +1140,11 @@ func (h *Handler) resolveFields(w http.ResponseWriter, r *http.Request, d view.D
 	}
 	driving, _ := view.NewValues(static, r.Form, id != "")
 	fields, err := d.ResolveFormFields(r.Context(), view.Resolve{ID: id, Values: driving})
+	// A form for a record that is not stored is a 404 (view.ErrNotFound).
+	if errors.Is(err, view.ErrNotFound) {
+		h.notFound(w, r)
+		return nil, false
+	}
 	if err != nil {
 		h.serverError(w, r, "resolve fields for "+d.Name, err)
 		return nil, false

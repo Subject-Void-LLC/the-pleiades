@@ -194,25 +194,25 @@ func (w writer) Create(ctx context.Context, team access.Team) (string, error) {
 func (w writer) Update(ctx context.Context, id string, team access.Team) error {
 	numeric, err := strconv.Atoi(id)
 	if err != nil {
-		return access.ErrNotFound
+		return view.ErrNotFound
 	}
 	// The organization comes from storage rather than the submission, for
 	// the reason the field's own help text gives.
 	current, err := w.store.GetTeam(ctx, numeric)
 	if err != nil {
-		return err
+		return view.WrapNotFound(err, access.ErrNotFound)
 	}
 	current.Name, current.UserIDs = team.Name, team.UserIDs
 	current.Description = team.Description
-	return w.store.UpdateTeam(ctx, current)
+	return view.WrapNotFound(w.store.UpdateTeam(ctx, current), access.ErrNotFound)
 }
 
 func (w writer) Delete(ctx context.Context, id string) error {
 	numeric, err := strconv.Atoi(id)
 	if err != nil {
-		return access.ErrNotFound
+		return view.ErrNotFound
 	}
-	return w.store.DeleteTeam(ctx, numeric)
+	return view.WrapNotFound(w.store.DeleteTeam(ctx, numeric), access.ErrNotFound)
 }
 
 // Register wires the Teams view over the access store.
