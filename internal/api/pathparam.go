@@ -1,9 +1,16 @@
 // This file is the one place a value chi routed is read. Every handler in
 // this package and in internal/ui/web reads a path parameter through
-// PathParam or a helper over it, never through chi.URLParam, and
-// internal/archtest's TestOnlyPathParamReadsARoutedValue refuses every
-// other way to reach chi's recorded values (and a decoded r.URL.Path in a
-// package chi routes) anywhere else.
+// PathParam or a helper over it, never through chi.URLParam.
+//
+// internal/archtest's TestOnlyPathParamReadsARoutedValue holds that. In
+// every non-test file of the module it refuses, by name, chi's URLParam,
+// URLParamFromCtx, URLParams and RouteCtxKey outside this file. In every
+// package under internal/api, internal/ui and cmd/controller it refuses,
+// by type, a read of a *url.URL's Path, RawPath, EscapedPath or RequestURI,
+// an *http.Request's RequestURI or PathValue, and a *chi.Context's
+// RoutePath, except at the sites its allowedReads names with a reason (two
+// of them in this file: routedValue and routedPath). It does not see
+// reflection or a URL turned into text first.
 //
 // The reason is chi's own behavior, pinned by tests here: chi v5 matches a
 // route against r.URL.RawPath whenever the request has one and records each
