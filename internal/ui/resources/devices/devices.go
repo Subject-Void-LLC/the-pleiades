@@ -18,8 +18,6 @@
 package devices
 
 import (
-	"context"
-
 	"github.com/Subject-Void-LLC/the-pleiades/internal/apispec"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/auth"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
@@ -38,7 +36,12 @@ var fields = []view.Field{
 	{
 		Name: "name", Label: "NAME", Kind: view.KindText,
 		Required: true, MaxLen: 253, Autocomplete: "off",
-		Help:          "The device's unique name, as the inventory knows it.",
+		// Fixed once the device exists. The name is the device's address
+		// (/ui/devices/{name}) and neither repository's Save writes a new
+		// one, so an edit form offering it would take a rename and store
+		// nothing.
+		Immutable:     true,
+		Help:          "The device's unique name, as the inventory knows it. Fixed once saved.",
 		InList:        true,
 		InForm:        true,
 		Sortable:      true,
@@ -47,8 +50,11 @@ var fields = []view.Field{
 	{
 		Name: "type", Label: "TYPE", Kind: view.KindText,
 		Required: true, MaxLen: 64, Autocomplete: "off",
-		Help:   "A registered device type, for example linux_server.",
-		InList: true, InForm: true,
+		// Fixed once the device exists: the stored type column is
+		// immutable, and the type decides what the device can do.
+		Immutable: true,
+		Help:      "A registered device type, for example linux_server. Fixed once saved.",
+		InList:    true, InForm: true,
 	},
 	{
 		Name: "state", Label: "STATE", Kind: view.KindBadge,
@@ -77,68 +83,6 @@ func stateBadge(state string) string {
 	}
 }
 
-// reader adapts the inventory.Repository port to the view's Reader.
-type reader struct {
-	repo    inventory.Repository
-	factory *inventory.ItemFactory
-}
-
-func (r reader) List(ctx context.Context, q view.Query) (view.Page[pkginventory.InventoryItem], error) {
-	limit := q.Limit
-	if limit <= 0 {
-		limit = 50
-	}
-
-	// One more than asked for, so a next page is observed rather than
-	// guessed at from a full page.
-	it, err := r.repo.GetGroup(ctx, pkginventory.Selector{
-		After: pkginventory.DeviceID(q.Cursor),
-		Limit: limit + 1,
-	})
-	if err != nil {
-		return view.Page[pkginventory.InventoryItem]{}, err
-	}
-	defer func() { _ = it.Close() }()
-
-	var page view.Page[pkginventory.InventoryItem]
-	for it.Next(ctx) {
-		if len(page.Items) == limit {
-			page.NextCursor = string(page.Items[limit-1].ID())
-			break
-		}
-		page.Items = append(page.Items, it.Item())
-	}
-	return page, it.Error()
-}
-
-func (r reader) Get(ctx context.Context, id string) (pkginventory.InventoryItem, error) {
-	return r.repo.GetByName(ctx, id)
-}
-
-// writer adapts the same port's write half.
-type writer struct {
-	repo    inventory.Repository
-	factory *inventory.ItemFactory
-}
-
-func (w writer) Create(ctx context.Context, item pkginventory.InventoryItem) (string, error) {
-	if err := w.repo.Create(ctx, item); err != nil {
-		return "", err
-	}
-	return item.Name(), nil
-}
-
-func (w writer) Update(ctx context.Context, id string, item pkginventory.InventoryItem) error {
-	return w.repo.Save(ctx, item)
-}
-
-func (w writer) Delete(ctx context.Context, id string) error {
-	// Retirement, not row removal: every Revision is immutable by schema
-	// and the revisions edge carries no cascade, so a real delete would
-	// mean destroying the audit trail the schema exists to protect.
-	return w.repo.Retire(ctx, id)
-}
-
 // Register wires this view over a live repository.
 //
 // It takes its dependencies rather than reaching for a global, so the
@@ -146,25 +90,36 @@ func (w writer) Delete(ctx context.Context, id string) error {
 // is also why this is a function rather than an init(): a view backed by a
 // port needs the port, and there is none at package-initialisation time.
 func Register(repo inventory.Repository, factory *inventory.ItemFactory) error {
-	projector := view.Projector[pkginventory.InventoryItem]{
-		Row: func(d pkginventory.InventoryItem) view.Row {
-			return view.Row{ID: d.Name(), Cells: view.Cells{
-				"name":    d.Name(),
-				"type":    deviceType(d),
-				"state":   d.State().String(),
-				"tags":    joinTags(d.Tags()),
-				"version": itoa(d.Version()),
+	projector := view.Projector[device]{
+		Row: func(d device) view.Row {
+			item := d.item
+			return view.Row{ID: item.Name(), Cells: view.Cells{
+				"name":    item.Name(),
+				"type":    deviceType(item),
+				"state":   item.State().String(),
+				"tags":    joinTags(item.Tags()),
+				"version": itoa(item.Version()),
 			}}
 		},
-		Form: func(d pkginventory.InventoryItem) map[string]string {
-			return map[string]string{
-				"name": d.Name(),
-				"type": deviceType(d),
-				"tags": joinTags(d.Tags()),
-			}
+		// Form prefills the edit form, which offers the tags alone: the
+		// name and type are Immutable, so the form renders no control for
+		// either and a prefill naming them would be refused.
+		Form: func(d device) map[string]string {
+			return map[string]string{"tags": joinTags(d.item.Tags())}
 		},
-		Bind: func(v view.Values) (pkginventory.InventoryItem, view.FieldErrors) {
+		Bind: func(v view.Values) (device, view.FieldErrors) {
 			errs := view.FieldErrors{}
+			tags := make([]pkginventory.Tag, 0)
+			for _, t := range v.Tags("tags") {
+				tags = append(tags, pkginventory.Tag(t))
+			}
+			// An edit carries the tags and nothing else; the writer applies
+			// them to the stored device. Building a device here, as a
+			// create does, is what made every edit store nothing
+			// (FAILURE_PATTERNS 1044).
+			if v.Editing() {
+				return device{tags: tags}, errs
+			}
 			// A device's name is its address (/ui/devices/{name}), so one no
 			// URL can carry is refused on the field, with the reason, before
 			// anything is built or stored. The shared validator answers an
@@ -172,11 +127,7 @@ func Register(repo inventory.Repository, factory *inventory.ItemFactory) error {
 			// adds "." and "..".
 			if err := recordname.Check(v.Get("name")); err != nil {
 				errs.Add("name", err.Error())
-				return nil, errs
-			}
-			tags := make([]pkginventory.Tag, 0)
-			for _, t := range v.Tags("tags") {
-				tags = append(tags, pkginventory.Tag(t))
+				return device{}, errs
 			}
 			item, err := factory.Build(record.Record{
 				ID:   newDeviceID(),
@@ -201,9 +152,9 @@ func Register(repo inventory.Repository, factory *inventory.ItemFactory) error {
 				} else {
 					errs.Add("type", "That device type is not registered in this build.")
 				}
-				return nil, errs
+				return device{}, errs
 			}
-			return item, errs
+			return device{item: item}, errs
 		},
 	}
 
@@ -273,7 +224,7 @@ func Register(repo inventory.Repository, factory *inventory.ItemFactory) error {
 			Delete: &apispec.DeleteDevice,
 		},
 		Applies:  applies,
-		Handlers: view.MustBind(reader{repo, factory}, writer{repo, factory}, projector),
+		Handlers: view.MustBind(reader{repo}, writer{repo}, projector),
 	})
 }
 
