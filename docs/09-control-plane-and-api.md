@@ -94,6 +94,20 @@ underlying storage error is logged server-side, never echoed into the response b
 since it can name tables, columns, or filesystem paths an authenticated caller
 holding only a narrow scope has no business reading.
 
+## Names in a path
+
+A device is addressed by its name (`/inventory/devices/{name}`) and a fact by its key
+(`/inventory/devices/{name}/facts/{key}`), each one path segment. Escape a name as one
+segment, as the API's own links do: the device `sw/1` is `/inventory/devices/sw%2F1`, and
+`50%` is `/inventory/devices/50%25`. The API decodes each segment once, however a client
+spells its escapes, so `sw%2f1` and `sw%2F1` name the same device. Every other record is
+addressed by its numeric id, or by its generated id for a job or a schedule.
+
+A device cannot be created with the name `""`, `.` or `..`, and a fact cannot be named `.`
+or `..`. No URL can carry them as a path segment, since browsers and most clients read `.`
+and `..`, escaped or not, as steps between folders, so such a record could never be read,
+changed or deleted by its address. The refusal is a 400 that says why.
+
 ## Hypermedia and link relations
 
 A successful response embeds a `_links` array: every affordance the calling identity
