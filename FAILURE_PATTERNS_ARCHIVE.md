@@ -2758,6 +2758,12 @@ So the resolved role is thrown away. A binding granting `viewer` at a target and
 
 **Lesson.** A function returning three values where the caller uses one is worth a second look, especially when the discarded one is the entire subject of the table it came from. This survived review because the call site reads naturally - `_, effect, err :=` looks like idiomatic Go, and nothing about it says "the role column is now meaningless".
 
+**Note 2026-11-09 (`fix/patch-projects-partial`).** Still open, and now named as the limit of a security fix. 1091 keeps
+a project and its credential in one organization, but project writes are authorized by token scope across the whole
+deployment, since resource-scoped role bindings are not enforced. So a caller holding `project:write` can still create
+a project in another organization and bind that organization's credential, and its sync then uses it. Who may write a
+project in which organization waits on per-organization authorization, which is this entry's open question.
+
 ---
 
 ## 99. A RoleBinding with `scope_id = 0` is a system-wide Allow, and nothing rejects one
@@ -12102,6 +12108,10 @@ user and passed too (probed 2026-10-14).
 syncing with a warning, and the API and UI show them through `RedactedSourceURL`.
 
 **Lesson.** See LESSONS 277.
+
+**Note 2026-11-09 (`fix/patch-projects-partial`, `b9395276`).** This fix did not hold. It kept the detector a list of
+credential shapes, and review on that branch found many more it missed (1089). Both functions were rewritten as an
+allowlist in `internal/project/secret_url.go`. The check also ran for git projects only (1088).
 
 ## 459. The README and start-here counts drifted 22 methods behind the registry with nothing to notice
 
@@ -25541,6 +25551,13 @@ ignored, so a re-point answered 200 and changed nothing. `TestAccessPatch_FixedF
 fragment says so. The entry stays open, task 17, for five: announcements, credential types, credentials, inventories
 and projects. The same branch made the four access routes partial updates (1075's note).
 
+**Note 2026-11-09 (`fix/patch-projects-partial`, `862a5aad`).** Projects leave this entry's list. A PATCH's
+`organization` was decoded and ignored, so a re-point answered 200 and changed nothing. It is now refused with 400
+naming the field when it differs from the stored one, and the stored value sent back is accepted.
+`TestProjectPatch_TheOrganizationIsFixed` (`internal/api/projects_patch_test.go`) holds it. The refusal is a breaking
+change, and its changelog fragment says so. The same branch made the project PATCH a partial update (1075's note). The
+entry stays open, task 17, for four: announcements, credential types, credentials and inventories.
+
 ## 1056. PATCH /templates/{id} replaces a template's editable half from the body, so a client that omits survey deletes the survey, omitting defaults, prompts or required_capabilities blanks them, and omitting allow_simultaneous writes false (open, read in code and not reproduced: task 16; on main since 5dbc35bc, 2026-08-12; a repeat in kind of 103)
 
 **Symptom.** Found by reading on `fix/ui-device-edit`, 2026-11-09; not run. `TemplateHandler.Update`
@@ -26058,6 +26075,19 @@ The entry stays open, task 17, for five: inventories, announcements, credential 
 inventory and announcement write schemas the OpenAPI document now publishes (1084) still describe a full-replace body,
 which is accurate until those routes are fixed.
 
+**Note 2026-11-09 (`fix/patch-projects-partial`, `862a5aad`).** Projects leave this entry's list. The full replace did
+more than the sweep listed: a PATCH that left out `credential` unbound the project (0 ran `ClearCredential`), and one
+that left out `scm_type` turned a manual or archive project into git. `PATCH /projects/{id}`
+(`internal/api/projects_patch.go`) now reads the stored project and folds one pointer per field over it. `"credential": 0`
+unbinds explicitly. A JSON `null` on any field is refused with 400 naming it. The project as it would be saved is
+checked whole, so setting `scm_type` to git on a project with no URL is refused. The behavior was shown red on the old
+handler; the tests, in `internal/api/projects_patch_test.go`, are `TestProjectPatch_KeepsWhatItDoesNotName`, `TestProjectPatch_IsValidatedWhole`,
+`TestProjectPatch_RefusesNull`, `TestProjectPatch_RefusesABodyThatIsNotAnObjectOfKnownFields` and
+`TestProjectPatch_TheOrganizationIsFixed`. The refusal of a null is a breaking change, and its changelog fragment says
+so. Concurrent PATCHes are last-writer-wins, as 1085 records. The same branch found that sending back the URL a GET
+showed replaced the stored one (1087). The entry stays open, task 17, for four: inventories, announcements, credential
+types and credentials.
+
 ## 1076. Suspected: a project name over 253 bytes answers 500, as a template's did (open, suspected from reading; a sibling of 1071)
 
 **Symptom.** Found by reading on `fix/template-patch-partial`, 2026-11-09; not run. `project.name` is `MaxLen(253)`
@@ -26069,6 +26099,19 @@ length check before the store. If that holds, a longer name fails ent's validato
 the real router and store.
 
 **Lesson.** Pending. LESSONS 426 says what a fix would hold.
+
+**Resolution 2026-11-09 (`fix/patch-projects-partial`, `6fa14dac`).** Confirmed and fixed. Proven red through the real
+router and ent store: nine 500s, from four over-long creates (name, description, `scm_url`, `scm_branch`), a
+127-character name of two-byte characters (254 bytes), and four full-body PATCHes. The bounds were wider than the name:
+`internal/project/bounds.go` holds name 253, description 1024, `scm_url` 2048 and `scm_branch` 255 bytes, measured after
+trimming, and `project.CheckLengths` refuses an over-long field with 400 naming the field before the store, on create
+and PATCH. One source feeds the API's check, the UI form's `MaxLen` and the OpenAPI text (`c68a7b07`).
+`TestFieldBounds_AreTheDatabasesOwn` holds the four equal to the generated ent validators, as LESSONS 426 asks. The UI
+form already refused over-long values through `view.Validate`; it now reads the same bounds. Other tests:
+`TestCheckLengths_NamesTheFirstFieldOverItsBound` (`internal/project`),
+`TestProjects_RefuseAFieldLongerThanTheDatabaseHolds` (`internal/api`),
+`TestProjectsView_RefusesAFieldLongerThanTheDatabaseHolds` (`internal/ui/resources`). The same branch refuses a NUL in
+the same four fields (1092).
 
 ## 1077. Suspected: the UI's template edit form round-trips extra variables through %v, so a typed value is saved back as a string (open, suspected from reading: task 19)
 
@@ -26316,3 +26359,232 @@ guard that refuses `git stash` in an agent's shell would hold it whatever the br
 
 **Lesson.** LESSONS 423, with its note of 2026-11-09: a brief to a code-writing agent states the rule, and names the
 way to test a commit alone (`git rebase -x`, or a copy set aside and restored with `git checkout`).
+
+## 1087. Sending back the scm_url a project's GET showed replaced the stored URL with its redacted form, through PATCH /projects/{id} and through the UI's edit form, which prefills that text (fixed on this branch; on main; a repeat in kind of 580)
+
+**Symptom.** Found by the writer on `fix/patch-projects-partial`, 2026-11-09. `GET /projects/{id}`, the list and the UI
+show a stored `scm_url` that may carry a credential through `project.RedactedSourceURL`: the userinfo replaced, or the
+URL withheld whole. The UI's edit form prefills its URL control with that same text, and a client that edits a project
+by reading it, changing one field and sending the body back sends it too. The write took the text it was sent as the
+new URL. For a manual or archive project, whose source main's store did not check (1088), the redacted text was saved
+and the real URL was lost.
+
+**Root cause.** The read path redacts, and the write path did not know the redacted form when it came back. As in 580,
+nothing asked whether the value being written was a masked copy of the stored one.
+
+**Why 580 did not prevent it.** 580's fix is `net.frr.config` refusing its own mask's marker, a rule for one method's
+data. The project redaction came later, in 458's fix (`f5512ff5`, 2026-10-14), as a read rule with no write rule
+beside it, and nothing ties a redacting read to the write that takes its output back.
+
+**Shown red first.** The first versions of `TestProjectPatch_AnEchoedRedactedURLNeverReplacesTheStoredOne` (real router and ent store) and `TestProjectsView_SavingTheEditFormNeverReplacesAStoredURLItShowsRedacted` (the UI form), then named for keeping the stored URL, found it replaced by `https://redacted@example.invalid/legacy.git`. Once 1088 refused a stored credential URL on every save, both were rewritten to expect that refusal with the stored URL unchanged.
+
+**Fix.** `862a5aad` (the API) and `d8f39e06` (the UI form). `project.KeepEchoedSourceURL`
+(`internal/project/secret_url.go`): a submitted value equal to `RedactedSourceURL(stored)` keeps the stored URL; any
+other value is the new URL and goes through the source checks. The project as it would be saved is still checked
+whole, so a stored URL that carries a credential is kept by the echo and then refused on save until it is changed
+(1088). Tests: `TestKeepEchoedSourceURL_KeepsTheStoredURLOnlyForWhatItRedactsTo` (`internal/project`),
+`TestProjectPatch_AnEchoedRedactedURLNeverReplacesTheStoredOne` (`internal/api`),
+`TestProjectsView_SavingTheEditFormNeverReplacesAStoredURLItShowsRedacted` (`internal/ui/resources`).
+
+**Lesson.** As 580: a redacted copy is never accepted where the real value is. A write behind a read that redacts
+recognizes the exact text the read showed and keeps the stored value for it.
+
+## 1088. A manual or archive project stored a source URL carrying a credential in plain text, because entStore.checkSource returned for every type but git before its embedded-secret check (fixed on this branch; on main; a sibling of 458, whose check it skipped)
+
+**Symptom.** Found by the writer on `fix/patch-projects-partial`, 2026-11-09. `POST /projects`, the PATCH and the UI's
+project form accepted a manual or archive project whose `scm_url` carried a credential (`https://user:token@host/repo`),
+stored it in the unencrypted `scm_url` column, and served it back: redacted for the shapes the detector knew, raw for
+the shapes 1089 lists.
+
+**Root cause.** `entStore.checkSource` (`internal/project/ent_store.go`) opened with
+`if p.SCMType != SCMGit { return nil }`. That early return was for the source policy (`AdmitsSource`), which is about
+where git may fetch from. The embedded-secret refusal, which is about what the column may store, sat after it, so it
+ran for git projects only.
+
+**Why 458 did not prevent it.** 458's fix changed what `HasEmbeddedSecret` counts as a credential, not which projects
+reach it.
+
+**Shown red first.** `TestStore_RefusesACredentialInTheURLForEveryType` and `TestStore_AStoredCredentialInTheURLIsReadableAndMustBeChanged` (real ent store) returned nil for manual and archive; `TestProjects_ACredentialInTheURLIsRefusedForEveryType` answered 201 for a manual or archive create and 200 for a manual PATCH; the UI form answered 303.
+
+**Fix.** `b9395276`. `checkSource` refuses a credential in the URL first, for every type, and only then returns early
+for a type that is not git. The refusal also runs in the UI form. A row stored before the rule stays readable, its URL
+shown redacted or withheld, and its next save is refused until its URL changes. Tests:
+`TestStore_RefusesACredentialInTheURLForEveryType` and `TestStore_AStoredCredentialInTheURLIsReadableAndMustBeChanged`
+(`internal/project`), `TestProjects_ACredentialInTheURLIsRefusedForEveryType` (`internal/api`),
+`TestProjectsView_RefusesACredentialInTheURLForEveryType` (`internal/ui/resources`). The refusal is a breaking change,
+and its changelog fragment says so.
+
+**Lesson.** A rule about what a store may hold runs for every record the store writes. Placed after an early return
+written for a different rule, it inherits that rule's scope.
+
+## 1089. HasEmbeddedSecret and RedactedSourceURL were a list of credential shapes, and three review passes each found shapes the list missed, each one stored in plain text for a manual or archive project and shown raw by GET, the list and the UI (fixed on this branch by an allowlist; a repeat of 458; LESSONS 190 and 277)
+
+**Symptom.** Found across three review passes on `fix/patch-projects-partial`, 2026-11-09, once 1088 let a manual or
+archive project's URL reach the detector. Each shape below passed `HasEmbeddedSecret`, so it was stored as written for
+a manual or archive project, and `RedactedSourceURL` returned it raw to `GET /projects/{id}`, the list and the UI:
+
+- first: URLs no parser reads (`https://svc:PW@host:badport/x`, a space in the host), `git+https://TOKEN@host`, and a
+  scheme-relative `//bot:PW@host`;
+- then: a password holding `/`, `?` or `#`; compound schemes with an ssh part (`git+ssh+https://TOKEN@host`); lenient
+  slash forms (`https:/user:pw@host`); and tokens in a query string;
+- then: an `@` written as `%40`, as the fullwidth U+FF20 or as the small U+FE6B, and query names
+  `redact.SecretName` does not match (`sig`, `X-Amz-Signature`, `apikey`).
+
+**Root cause.** The detector named the shapes that carry a credential. A shape nobody listed passed, and each pass of
+review could only add the shapes it thought of. Its parse of a URL was also one parser's reading, so a URL that parser
+rejects or reads another way than git does fell outside every listed shape.
+
+**Why 458's fix did not hold.** `f5512ff5` fixed 458 by adding positions to the list (any password, any user over http
+or https, a colon in an ssh user), as LESSONS 277 advises: list where the protocol accepts a credential and check each.
+That kept the detector a denylist, which LESSONS 190 had already said fails open on every shape nobody listed. The first
+two review passes on this branch extended the list again, and each next pass found more.
+
+**Fix.** `b9395276` replaced the list with an allowlist, `internal/project/secret_url.go`:
+
+- any `?` or `#` in the URL is refused, for every type, since a repository source needs neither and no list of secret
+  parameter names covers them all;
+- a URL holding `%40` or a lookalike `@` (U+FF20, U+FE6B, or their percent encodings) is refused;
+- a URL with no `@` is clean;
+- a URL with an `@` is clean only as a clean `ssh://`, `git+ssh://` or `ssh+git://` login (one `@`, a user with no `:`
+  or `%`, parsed cleanly) or an scp-like `user@host:path` as go-git reads it; every other URL with an `@` is refused.
+
+Redaction follows the same rule: a URL is shown as written only when it is clean, its userinfo is cut out only on an
+exact structural match, and otherwise it is withheld whole as `(withheld: the URL carries a credential)`. Tests:
+`TestStore_RefusesACredentialInAURLAParserMisreads` and the tables in `internal/project/source_test.go` and
+`internal/project/source_secret_test.go`, `TestProjects_ACredentialInTheURLIsRefusedForEveryType` and
+`TestProjects_ASourceURLMayCarryNoQueryOrFragment` (`internal/api`).
+
+Known limits, written in the file's comment: a token in the path (`https://host/token/abc`) cannot be told from a path
+and is not caught; a token used as an ssh login name is allowed by design; and a backup restore (`pg_restore`, or a
+SQLite file copy) writes rows without the store's checks, so a row the rule refuses can come back, and every reader then
+shows it redacted or withheld.
+
+Over-refusal accepted by design: an `@` in a path (`https://host/org/repo@v1`) and any query or fragment (`?ref=main`,
+`#readme`) are now refused. The test rows that pinned them as clean were changed. The owner may revisit this.
+
+**Lesson.** LESSONS 190, with its note of 2026-11-09: after a content detector misses a second time, replace the list
+of bad shapes with an allowlist of what is proved clean, rather than adding the shape that was missed.
+
+## 1090. A refused git source and a recorded sync error repeated the caller's URL, password included, because ClassifySource built its message from go-git's parse error and scrubURL could not clean a URL it could not parse (fixed on this branch; on main; a repeat of 457 and 626; in kind of 72)
+
+**Symptom.** Found by the writer on `fix/patch-projects-partial`, 2026-11-09. A source URL go-git cannot parse was
+refused with go-git's own error inside the message, and that error quotes the URL:
+`parse "https://user:pa/ss@host/r": invalid port ":pa"`. The text reached the API's 400, the UI's form error and a
+sync's stored `sync_error`. A sync of a stored URL that may carry a credential recorded its transport error after
+`scrubURL`'s pattern scrub, which a password holding a `/` passed.
+
+**Root cause.** A refusal quoted what it refused, through a third-party error that quotes its input, and the scrub meant
+to clean it depended on the URL having a shape it could parse.
+
+**Why 457 and 626 did not prevent it.** 457 fixed `kubeapi.checkServer`, and 626 the CML and GNS3 login errors. Each fix
+was at its own site; every validator and client writes its own error path, and nothing checks the others. 72 is the
+same class in kind: a response that repeats caller input.
+
+**Fix.** `21e76857`. `ClassifySource` refuses a parse failure in a fixed phrase ("that is not a repository address git
+can read"). `scrubURL` (`internal/project/git.go`) withholds the transport error whole when the URL may carry a
+credential (`HasEmbeddedSecret`, the allowlist of 1089), and otherwise strips only userinfo quoted from elsewhere.
+`AdmitsSource`'s refusals are fixed phrases. Tests, shown red on the old code:
+`TestProjects_ARefusedSourceNeverRepeatsItsURL` (`internal/api`), `TestSync_NeverRecordsAStoredCredentialInItsError`
+and `TestSync_WithholdsATransportErrorQuotingALookalikeAt` (`internal/project`).
+
+**Lesson.** As 457: when the input can carry a secret, an error names the problem and never quotes the input, and a
+parser's error is the input quoted.
+
+## 1091. A project could bind another organization's git credential, and a sync sent it to the host the project named (fixed on this branch on create, PATCH, the UI form and at sync; on main; a repeat of 456; LESSONS 276)
+
+**Symptom.** Found on `fix/patch-projects-partial`, 2026-11-09. The API's `checkCredential` and the UI's `usableForGit`
+searched `ListAllCredentials` across every organization and never compared the credential's organization with the
+project's, and `projectAuth.ResolveAuth` (then in `cmd/controller/main.go`) resolved a credential by its id alone. So a
+project in organization A could bind organization B's source control credential, and its sync sent B's secret to
+whatever host A's project named. Proven red: the API answered 201 and 200 over the real credential store, the UI
+answered 303, and the resolver returned organization B's password.
+
+**Root cause.** The facts that decide where a stored secret goes were taken from the borrowing record. The lookup checked
+that the id existed and was usable for git, not whose it was.
+
+**Why 456 did not prevent it.** 456's fix was in `resolve.BorrowedKubernetesSecrets`, the one lookup it found. The
+project lookups were separate code with their own search, and nothing holds every credential lookup to the owner's
+organization.
+
+**Fix.** `7b717e94`. Create, PATCH and the UI form refuse a credential the project's organization does not own, answered
+exactly like an id that does not exist, so a caller learns nothing about another organization's credentials.
+`projectAuth.ResolveAuth` (`cmd/controller/project_auth.go`) checks the owner before the resolver runs, so another
+organization's secret is never decrypted for the project; a project already bound to one stays readable and its syncs
+fail with a fixed message. Tests, shown red on the old code: `TestProjects_BindOnlyACredentialOfTheirOwnOrganization`
+(`internal/api`), `TestProjectsView_BindsOnlyACredentialOfTheProjectsOwnOrganization` (`internal/ui/resources`),
+`TestProjectAuth_RefusesACredentialOfAnotherOrganization` (`cmd/controller`).
+
+**Limits.** This keeps a project and its credential in one organization. It does not keep a caller to theirs:
+authorization is by token scope across the deployment, so a caller holding `project:write` can still create a project
+in the victim organization and bind that organization's credential. Who may write a project in which organization waits
+on per-organization authorization (98, open; see its note of 2026-11-09). The UI's credential chooser still lists every
+organization's credentials, now labelled with their organization, because `view.Field.Options` sees no record and so
+cannot narrow the list to the project's organization; that needs a framework hook, and is the owner's decision.
+
+**Lesson.** LESSONS 276 applies to every lookup that lends a stored secret, not only the one that taught it.
+
+## 1092. A NUL in a project's name, description, scm_url or scm_branch reached the store, where on PostgreSQL it would answer 500 (fixed on this branch; on main; a sibling of 371, 919 and 1079)
+
+**Symptom.** Found on `fix/patch-projects-partial`, 2026-11-09, beside 1076's bounds. Nothing in the API or the UI form
+refused a NUL in a project's text fields. lib/pq sends a NUL in a text parameter and PostgreSQL refuses it, as 371
+measured, so the write would fail at the database and answer 500. SQLite keeps the NUL, so the SQLite-backed tests
+could not see it. The 500 on PostgreSQL is reasoned from 371's and 1079's measurements; this branch's tests check the
+refusal, not a PostgreSQL write.
+
+**Root cause.** As 371: whether a value is legal differs by database, and the check in front of the store did not
+cover the production dialect's rule.
+
+**Why 371, 919 and 1079 did not prevent it.** Each fixed its own site (sign-in, the facts and journal consumers, the
+kubeconfig import). Nothing holds every text field a caller writes to a NUL check before a PostgreSQL write.
+
+**Fix.** `2392263c`. `project.CheckNUL` (`internal/project/bounds.go`) refuses a NUL with 400 naming the field on create
+and PATCH, and the UI form refuses it beside the field. Tests: `TestCheckNUL_NamesTheFirstFieldHoldingANUL`
+(`internal/project`), `TestProjects_RefuseANULInATextField` (`internal/api`),
+`TestProjectsView_RefusesANULInATextField` (`internal/ui/resources`).
+
+**Lesson.** As 371 and LESSONS 426: the validator in front of a store holds each value to what the production dialect
+can store, NUL included.
+
+## 1093. A refused UI project create or edit re-rendered the submitted scm_url raw, so the 422 page held the password just typed (fixed on this branch; on main; low severity)
+
+**Symptom.** Found on `fix/patch-projects-partial`, 2026-11-09. A UI form refused for any reason is redisplayed with what
+was submitted. A project create or edit refused for a URL like `https://user:token@host/repo` therefore put the
+credential back into the page, in the URL control's value.
+
+**Root cause.** The form framework redisplays each submitted value as typed, with no way for a field to say its value
+may carry a secret.
+
+**Fix.** `f51df2a1`. `view.Field.RefusedValue` (`internal/ui/view/field.go`), applied at the four refusal re-renders in
+`internal/ui/web/resources.go`. The project form's URL field declares it as `RedactedSourceURL`, so a refused form shows
+the URL redacted or withheld, as a stored URL is shown. It is not blanked, because a blank would let a second save
+clear a manual project's URL. Test: `TestProjectsView_ARefusedFormNeverShowsATypedCredentialURL`
+(`internal/ui/resources`).
+
+**Limit.** Every other UI form still re-renders what was submitted; only a field that declares `RefusedValue` is covered.
+
+No earlier entry is this class. The nearest is 226, whose fix refused a prefill for a password control because
+`field.templ` writes a password into a value attribute.
+
+**Lesson.** A form that redisplays what was submitted redisplays a secret too; a field whose value may carry one says
+how it is shown when refused.
+
+## 1094. The UI harness's fake project store handed out len+1 ids while its Delete compacted the slice, so an id could repeat after a delete (fixed for the project fake on this branch; open: the inventory fake hands out ids the same way, and the announcement fake's Update and Delete keep nothing; a repeat in kind of 1053; LESSONS 424)
+
+**Symptom.** Found on `fix/patch-projects-partial`, 2026-11-09. `fakeProjectStore.Create`
+(`internal/ui/resources/harness_test.go`) set `p.ID = len(s.projects) + 1`, and its `Delete` removed the entry from the
+slice. After a delete, the next create could take the id of a project still stored. The real store never reuses an id.
+
+**Root cause.** As 1053: the fake was written to let the handlers run, not to keep the store's contract.
+
+**Why 1053 did not prevent it.** 1053 swept the device fake and the device retire and inventory delete fakes for
+copy-on-read, save under a version check and the store's not-found errors. How a fake hands out ids was not on its list,
+and the project fake was not swept.
+
+**Fix.** `b9395276`. The project fake hands out ids from a counter (`nextID`), never reusing one. Test:
+`TestFakeProjectStore_NeverHandsOutAnIDTwice` (`internal/ui/resources/fake_projects_test.go`).
+
+**Status.** Open for two other fakes in the same file, found while writing this record, from reading; not run.
+`fakeSetStore.Create` sets `set.ID = len(s.sets) + 1` beside a `Delete` that compacts the slice, the same rule.
+`fakeAnnouncementStore`'s `Update` and `Delete` answer nil and keep nothing, 1053's shape.
+
+**Lesson.** LESSONS 424. A fake keeps the store's id rule too: an id is never handed out twice.
