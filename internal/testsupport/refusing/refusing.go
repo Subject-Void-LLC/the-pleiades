@@ -23,7 +23,7 @@ import (
 // Need is the need.Require name Addr skips under where the kernel cannot
 // give one. CI's Linux jobs require it, since Linux always can, so a runner
 // that stops refusing turns the job red.
-const Need = "refusing-port"
+const Need = need.RefusingPort
 
 // refusalWait bounds the one dial Addr makes to learn whether the
 // kernel refuses. A refusal on loopback is answered inside the connect

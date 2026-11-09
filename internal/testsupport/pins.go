@@ -3,13 +3,15 @@
 // entry and an unchanged one is fetched once.
 package testsupport
 
+import "github.com/Subject-Void-LLC/the-pleiades/internal/testsupport/need"
+
 // ToyboxChmod is the toybox project's own static x86_64 build, which the
 // toybox chmod test copies into an Alpine sshd container (Alpine ships toybox
 // only in its moving edge/testing repository). Pinned by version and by the
 // SHA-256 read when the pin was written (2026-09-27; the project publishes no
 // checksum file).
 var ToyboxChmod = Pin{
-	What:   "toybox",
+	What:   need.Toybox,
 	URL:    "https://landley.net/toybox/downloads/binaries/0.8.13/toybox-x86_64",
 	SHA256: "8c98795a15db31ea55c8065fed379db3669766b7a714c46b009d8bfb87b25ffd",
 }
