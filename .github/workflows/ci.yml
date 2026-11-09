@@ -314,6 +314,17 @@ jobs:
           path: .ci/images.tar
           key: test-images-${{ hashFiles('.ci/images.txt') }}
 
+      # Files a test downloads (internal/testsupport's pins.go) come from a
+      # cache too, keyed on the file that pins them, so a run does not wait
+      # on the publisher's server. A test that finds neither the cache nor
+      # the server skips as "needs <what>" and checks the SHA-256 of
+      # whatever it uses.
+      - name: Restore cached test downloads
+        id: downloads
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: .ci/downloads
+          key: test-downloads-${{ hashFiles('internal/testsupport/pins.go') }}
       # No LocalStack here: it needs an auth token, and the hosted jobs
       # carry none, so the AWS packages' LocalStack tests skip as "needs
       # localstack" and the coverage job names their floors as unchecked
@@ -322,7 +333,14 @@ jobs:
       - name: make ci-containers
         env:
           PLEIADES_TEST_ARTIFACTS: ${{ runner.temp }}/test-logs
+          PLEIADES_TEST_DOWNLOADS: ${{ github.workspace }}/.ci/downloads
         run: make ci-containers SHARD="$SHARD"
+      - name: Save the test downloads
+        if: always() && steps.downloads.outputs.cache-hit != 'true' && hashFiles('.ci/downloads/*') != ''
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: .ci/downloads
+          key: test-downloads-${{ hashFiles('internal/testsupport/pins.go') }}
       - name: Keep the coverage for the floor check
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -423,10 +441,28 @@ jobs:
       - name: Pull images
         if: steps.images.outputs.cache-hit != 'true'
         run: make ci-images SHARD="$SHARD" IMAGES=.ci/images.txt PULL=-pull
+      # Files a test downloads (internal/testsupport's pins.go) come from a
+      # cache too, keyed on the file that pins them, so a run does not wait
+      # on the publisher's server. A test that finds neither the cache nor
+      # the server skips as "needs <what>" and checks the SHA-256 of
+      # whatever it uses.
+      - name: Restore cached test downloads
+        id: downloads
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: .ci/downloads
+          key: test-downloads-${{ hashFiles('internal/testsupport/pins.go') }}
       - name: make ci-containers
         env:
           PLEIADES_TEST_ARTIFACTS: ${{ runner.temp }}/test-logs
+          PLEIADES_TEST_DOWNLOADS: ${{ github.workspace }}/.ci/downloads
         run: make ci-containers SHARD="$SHARD"
+      - name: Save the test downloads
+        if: always() && steps.downloads.outputs.cache-hit != 'true' && hashFiles('.ci/downloads/*') != ''
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: .ci/downloads
+          key: test-downloads-${{ hashFiles('internal/testsupport/pins.go') }}
       - name: Keep the process logs of a failed test
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
