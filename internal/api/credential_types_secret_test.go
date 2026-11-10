@@ -114,7 +114,7 @@ func TestCredentialTypePatch_RemovingAnInputDeletesWhatCredentialsHoldForIt(t *t
 		t.Errorf("after removing backup the credential stores %d inputs, want token kept and backup gone", len(stored.Inputs))
 	}
 	if len(stored.External) != 0 {
-		t.Errorf("after removing url the credential keeps external %v", stored.External)
+		t.Errorf("after removing backup the credential keeps external %v", stored.External)
 	}
 	if status, body := f.do(t, http.MethodGet, fmt.Sprintf("/api/v1/credentials/%d/input-sources", id), nil); status != http.StatusOK ||
 		bytes.Contains(body, []byte(`"backup"`)) {

@@ -319,9 +319,19 @@ func (s InputSchema) CheckValues(values, external map[string]string, sourced ...
 		}
 	}
 	for id := range external {
-		if _, ok := s.Field(id); !ok {
+		f, ok := s.Field(id)
+		if !ok {
 			return fmt.Errorf(
 				"%w: %q reads from an external secret source and is not an input this credential type declares",
+				ErrInvalidCredential, id)
+		}
+		// The value an external source resolves to is a secret, and the
+		// masking ruleset is built from the type's secret fields, so in an
+		// input not marked secret it would reach the run in plain text.
+		if !f.Secret {
+			return fmt.Errorf(
+				"%w: input %q reads from an external secret source and is not secret, so the value it resolves to "+
+					"would reach a run unmasked: declare the input secret, or store its value instead",
 				ErrInvalidCredential, id)
 		}
 	}

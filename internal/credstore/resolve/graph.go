@@ -208,6 +208,9 @@ func (r *entResolver) resolveInputSources(
 
 		var value string
 		if resolvedSource.Type.Kind == credtype.KindExternal {
+			if err := plainExternalInput(cred, b.InputID); err != nil {
+				return err
+			}
 			value, err = r.resolveThroughSource(ctx, cred, b, resolvedSource)
 		} else {
 			value, err = resolveFromLinkedCredential(cred, b, resolvedSource)

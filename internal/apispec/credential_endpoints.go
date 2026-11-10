@@ -148,6 +148,8 @@ var credentialSchema = map[string]any{
 		"external": map[string]any{
 			"type": "object",
 			"description": "External secret-manager references, keyed by input id, resolved just in time before a run. " +
+				"Each names an input the type marks secret, since a value read from a secret manager is a secret and " +
+				"masking covers only secret inputs. " +
 				"NOT redacted: a reference is a pointer to a secret rather than a secret, and hiding it would make " +
 				"\"which credentials point at this mount\" unanswerable during a migration.",
 		},
@@ -347,12 +349,12 @@ var CreateCredential = Endpoint{
 			"credential_type": map[string]any{"type": "integer", "description": "The type this credential is of. Immutable once set."},
 			"organization":    map[string]any{"type": "integer", "description": "The owning tenant."},
 			"inputs":          map[string]any{"type": "object", "description": "The values, keyed by input id."},
-			"external":        map[string]any{"type": "object", "description": "External secret-manager references, keyed by input id."},
+			"external":        map[string]any{"type": "object", "description": "External secret-manager references, keyed by input id. Each must name an input the type marks secret."},
 		},
 	},
 	Responses: []Response{
 		{Status: http.StatusCreated, Description: "The created credential, redacted.", Schema: credentialSchema},
-		{Status: http.StatusBadRequest, Description: "The body is malformed, the name is blank, the name, description or a reference holds a NUL character, or the values do not satisfy the type.", Schema: errorSchema("")},
+		{Status: http.StatusBadRequest, Description: "The body is malformed, the name is blank, the name, description or a reference holds a NUL character, a reference names an input the type does not mark secret, or the values do not satisfy the type.", Schema: errorSchema("")},
 		{Status: http.StatusForbidden, Description: "The credential type is another organization's custom type. The refusal names it by the id sent.", Schema: errorSchema("")},
 		{Status: http.StatusConflict, Description: "That name is already taken in the organization.", Schema: errorSchema("")},
 		{Status: http.StatusNotFound, Description: "No credential type with that id.", Schema: errorSchema("")},
@@ -383,7 +385,7 @@ var UpdateCredential = Endpoint{
 	RequestSchema:      credentialPatchSchema,
 	Responses: []Response{
 		{Status: http.StatusOK, Description: "The updated credential, redacted.", Schema: credentialSchema},
-		{Status: http.StatusBadRequest, Description: "The body is malformed, sets a field or a value inside inputs or external to null, or changes the credential type or the organization, or the credential it would leave has a blank name, a NUL character in its name, description or a reference, or values that do not satisfy its type.", Schema: errorSchema("")},
+		{Status: http.StatusBadRequest, Description: "The body is malformed, sets a field or a value inside inputs or external to null, or changes the credential type or the organization, or the credential it would leave has a blank name, a NUL character in its name, description or a reference, a reference naming an input the type does not mark secret, or values that do not satisfy its type.", Schema: errorSchema("")},
 		{Status: http.StatusNotFound, Description: "No credential with that id.", Schema: errorSchema("")},
 		{Status: http.StatusConflict, Description: "The name is taken in the organization.", Schema: errorSchema("")},
 	},
@@ -548,7 +550,8 @@ var SetCredentialInputSources = Endpoint{
 		"other credential, whose named field is read directly. " +
 		"Refused, before anything is written, when an input is not one this credential's type declares, when the " +
 		"source belongs to another organization, when a non-external source does not name a source_field its own " +
-		"type declares, when that field is secret and the input being filled is not, or when the " +
+		"type declares, when that field is secret and the input being filled is not, when the source is " +
+		"external-kind and the input being filled is not secret, or when the " +
 		"result would make resolution return to the credential it started from.",
 	Params: []Param{
 		{Name: "id", In: "path", Required: true, Type: "integer", Description: "The credential's numeric id."},
@@ -588,7 +591,7 @@ var SetCredentialInputSources = Endpoint{
 		}},
 		{Status: http.StatusBadRequest, Description: "The body is malformed, or a binding's metadata holds a NUL character.", Schema: errorSchema("")},
 		{Status: http.StatusForbidden, Description: "A source credential belongs to another organization. The refusal names it by the id sent.", Schema: errorSchema("")},
-		{Status: http.StatusConflict, Description: "The set would close a resolution cycle, or binds one input twice.", Schema: errorSchema("")},
+		{Status: http.StatusConflict, Description: "The set would close a resolution cycle, binds one input twice, or reads a secret into an input that is not secret.", Schema: errorSchema("")},
 		{Status: http.StatusNotFound, Description: "No credential with that id, no such source, or an input this type does not declare.", Schema: errorSchema("")},
 	},
 }

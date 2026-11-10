@@ -48,7 +48,8 @@ var credentialPatchSchema = map[string]any{
 		},
 		"external": map[string]any{
 			"type": "object",
-			"description": "External secret-manager references keyed by input id, each written <source>:<reference>. " +
+			"description": "External secret-manager references keyed by input id, each written <source>:<reference>, " +
+				"each on an input the type marks secret. " +
 				"When present it replaces the stored set whole: an input left out of it no longer reads from an " +
 				"external source, and {} removes every reference. Leave it out to keep them. No value may be null.",
 		},

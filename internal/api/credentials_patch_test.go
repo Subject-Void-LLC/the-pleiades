@@ -98,7 +98,8 @@ func decodeID(t *testing.T, body []byte) int {
 }
 
 // edgeCredential creates the credential most tests here edit: both secrets
-// stored, a region, and the url read from an external reference.
+// stored, a region, and the backup also read from an external reference,
+// which only a secret input may be.
 func (f *credentialFixture) edgeCredential(t *testing.T, typeID int) int {
 	t.Helper()
 	return f.createPatchCredential(t, map[string]any{
@@ -107,7 +108,7 @@ func (f *credentialFixture) edgeCredential(t *testing.T, typeID int) int {
 		"organization":    f.orgA,
 		"credential_type": typeID,
 		"inputs":          map[string]string{"token": patchTokenSecret, "backup": patchBackupSecret, "region": "east"},
-		"external":        map[string]string{"url": "file:edge_url"},
+		"external":        map[string]string{"backup": "file:edge_backup"},
 	})
 }
 
@@ -199,7 +200,7 @@ func TestCredentialPatch_KeepsWhatItDoesNotName(t *testing.T) {
 	want := storedCredential{
 		Name: "edge api", Description: "Edge and core API",
 		Inputs:   map[string]string{"token": patchTokenSecret, "backup": patchBackupSecret, "region": "east"},
-		External: map[string]string{"url": "file:edge_url"},
+		External: map[string]string{"backup": "file:edge_backup"},
 	}
 
 	f.patchCredentialOK(t, id, `{"description":"Edge and core API"}`)
@@ -237,8 +238,8 @@ func TestCredentialPatch_KeepsWhatItDoesNotName(t *testing.T) {
 	if inputs := got["inputs"].(map[string]any); inputs["token"] != redact.Marker || inputs["backup"] != nil {
 		t.Errorf("GET shows inputs %v, want token as the marker and no backup", inputs)
 	}
-	if external := got["external"].(map[string]any); external["url"] != "file:edge_url" {
-		t.Errorf("GET shows external %v, want the url reference kept", external)
+	if external := got["external"].(map[string]any); external["backup"] != "file:edge_backup" {
+		t.Errorf("GET shows external %v, want the backup reference kept", external)
 	}
 }
 
@@ -254,12 +255,12 @@ func TestCredentialPatch_ReplacesExternalWholeWhenNamed(t *testing.T) {
 	id := f.createPatchCredential(t, map[string]any{
 		"name": "referenced", "organization": f.orgA, "credential_type": typeID,
 		"inputs":   map[string]string{"backup": patchBackupSecret},
-		"external": map[string]string{"token": "file:edge_token", "url": "file:edge_url"},
+		"external": map[string]string{"token": "file:edge_token", "backup": "file:edge_backup"},
 	})
 
 	f.patchCredentialOK(t, id, `{"external":{"token":"file:edge_token"}}`)
 	if got := f.stored(t, id).External; !reflect.DeepEqual(got, map[string]string{"token": "file:edge_token"}) {
-		t.Fatalf("after leaving the url out of external, it holds %v", got)
+		t.Fatalf("after leaving the backup out of external, it holds %v", got)
 	}
 	f.patchCredentialOK(t, id, `{"external":{"token":"file:rotated_token"}}`)
 	if got := f.stored(t, id).External; !reflect.DeepEqual(got, map[string]string{"token": "file:rotated_token"}) {
@@ -353,7 +354,7 @@ func TestCredentialPatch_RefusesAChangedTypeOrOrganization(t *testing.T) {
 
 	f.patchCredentialOK(t, id, fmt.Sprintf(`{"description":"echoed","credential_type":%d,"organization":%d}`, typeID, f.orgA))
 	got := f.stored(t, id)
-	if got.Description != "echoed" || got.External["url"] != "file:edge_url" || got.Inputs["token"] != patchTokenSecret {
+	if got.Description != "echoed" || got.External["backup"] != "file:edge_backup" || got.Inputs["token"] != patchTokenSecret {
 		t.Errorf("an echo of the fixed fields stored %+v, want the description applied and everything else kept", got)
 	}
 }

@@ -108,7 +108,7 @@ func TestCredentialPatch_NeverRestoresAReferenceAPurgeDeleted(t *testing.T) {
 	id := f.createPatchCredential(t, map[string]any{
 		"name": "referenced", "organization": f.orgA, "credential_type": typeID,
 		"inputs":   map[string]string{"token": patchTokenSecret},
-		"external": map[string]string{"backup": "file:edge_backup", "url": "file:edge_url"},
+		"external": map[string]string{"backup": "file:edge_backup"},
 	})
 	base, err := f.store.GetType(ctx, typeID)
 	if err != nil {

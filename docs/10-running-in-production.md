@@ -1416,6 +1416,22 @@ volume, a Vault Agent sidecar and the External Secrets Operator, which is how
 secrets arrive in a large fraction of deployments. It needs no client and no
 network call on the dispatch path.
 
+The file source has one stated tenancy limit. It reads from one directory,
+configured once for the whole Controller, and a reference names a file by name, so a
+credential in any organization can name any file in that directory, including one put
+there for another organization. Nothing scopes the directory to a tenant yet. Put a
+file there only if every organization this Controller serves may read it, or run
+organizations that must not share secrets on separate Controllers.
+
+Whichever source a value comes from, it may fill only an input the credential's type
+marks secret. A value read from a secret manager is a secret, and the masking that
+keeps secrets out of a run's output is built from the type's secret inputs, so a
+secret resolved into any other input would reach the run in plain text. A reference
+naming an input that is not secret is refused when the credential is written, and one
+stored before this rule is refused when a job dispatches, naming the credential and
+the input; the credential itself stays readable and editable, and removing the
+reference, or declaring the input secret, fixes it.
+
 The second is **HashiCorp Vault**, reading a key/value secret directly over its
 HTTP API, on either a v1 or a v2 mount. The certificate chain is always verified
 and there is no option anywhere to skip it; a Vault with a private authority is
@@ -1451,11 +1467,12 @@ Rotating the source is the point. Every target that reads through it picks up th
 new value on its next run, with no edit to any of them, because resolution happens
 when a job dispatches rather than when the binding was written.
 
-Four things are refused when you write a binding, rather than when a job later
+Five things are refused when you write a binding, rather than when a job later
 trips over them: an input the credential's type does not declare, a source in
 another organization, a binding to an ordinary credential that does not say which
-of its fields to read, and a set that would make resolution return to the
-credential it started from.
+of its fields to read, a secret read into an input that is not secret (from a secret
+field of an ordinary credential, or from any external-kind source), and a set that
+would make resolution return to the credential it started from.
 
 A source credential's own inputs may themselves be bound to a further source, and
 that chain is bounded at **four hops**. Past that the resolution is refused by name

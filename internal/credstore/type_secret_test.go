@@ -58,7 +58,7 @@ var (
 
 // notedFixture is the shared fixture plus a type with a secret note input
 // and one credential storing a value for it, with the note also read
-// through a source binding and api_url read from an external reference.
+// through a source binding and from an external reference.
 func notedFixture(t *testing.T) (credstore.Store, *ent.Client, int, int) {
 	t.Helper()
 	ctx := context.Background()
@@ -70,7 +70,7 @@ func notedFixture(t *testing.T) (credstore.Store, *ent.Client, int, int) {
 	}
 	cred, err := store.CreateCredential(ctx, orgID, ct.ID, "noted", "",
 		map[string]string{"api_token": theSecret, "note": noteSecret},
-		map[string]string{"api_url": "file:noted_url"},
+		map[string]string{"note": "file:noted_note"},
 		credstore.WithInputSources(bind("note", sourceID)))
 	if err != nil {
 		t.Fatalf("CreateCredential() error = %v", err)
@@ -119,7 +119,7 @@ func TestUpdateTypeRemovingAnInputDeletesWhatCredentialsHoldForIt(t *testing.T) 
 		t.Errorf("after the removal the row holds %d inputs, want api_token kept and note gone", len(row.Inputs))
 	}
 	if len(row.External) != 0 {
-		t.Errorf("after removing api_url the row keeps external %v", row.External)
+		t.Errorf("after removing note the row keeps external %v", row.External)
 	}
 	if sources, err := store.ListCredentialInputSources(ctx, credID); err != nil || len(sources) != 0 {
 		t.Errorf("after removing note its source binding remains: %v, %v", sources, err)

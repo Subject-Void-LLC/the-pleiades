@@ -252,6 +252,18 @@ func checkSourceField(
 	targetSchema credtype.InputSchema,
 ) error {
 	if credtype.Kind(sourceType.Kind) == credtype.KindExternal {
+		// A secret manager's value is a secret whatever it addresses, so it
+		// may only fill an input that is itself secret, for the reason the
+		// field case below gives: the masking ruleset is built from the
+		// target type's secret fields. This used to return before that
+		// check, so a Vault value bound into a plain input reached the run
+		// unmasked.
+		if targetField, ok := targetSchema.Field(b.InputID); !ok || !targetField.Secret {
+			return fmt.Errorf(
+				"%w: credential %q is an external secret source and input %q is not secret, so reading it would "+
+					"move a secret into a value nothing masks: declare the input secret",
+				ErrInUse, sourceName, b.InputID)
+		}
 		return nil
 	}
 
