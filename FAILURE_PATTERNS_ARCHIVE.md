@@ -27036,3 +27036,30 @@ container, through `ent.OpenDatabase` as the Controller does, and `TestMain` ter
 
 **Lesson.** A test that shares a container gets a database of its own on it, and the package that starts the container
 also stops it.
+
+**Note 2026-11-09 (branch-containers).** The first `make branch-containers` run failed shard 4 on
+`internal/testsupport`'s `TestEveryContainerIsTerminatedWhenItsStartFails`: the new `openPostgres` did not terminate a
+container whose start returned an error. The local gate never ran that test, because `internal/testsupport` was unchanged
+and pr-check runs only the packages a branch changes, while that test scans every test file in the module (the gap of
+FAILURE_PATTERNS 631, which branch-containers exists to catch). Fixed in the commit that added the helper.
+
+## 1109. Credential refusals quoted input values a custom type may mark secret (database port, host, sslmode, name; the Kubernetes host; vault and database identifiers in CheckBinding and Combine; the Vault source's url and api_version), so a secret could reach a job's failure reason or an API error (fixed before push; on main for the pre-branch sites; a repeat in kind of 1090 and 1104; vuln-corpus C7)
+
+**Symptom.** Found by a narrow fp-reviewer pass on `fix/patch-credentials-partial`, 2026-11-09, after 1104 had refused a secret vault or database identifier. That rule named two inputs, and the injection errors quoted others: `port %q is not a number`, the database host and sslmode in `pkg/wire`, the Kubernetes API server host, and the binding conflicts. A custom database-kind type marking `port` secret, with a non-numeric value, put the value into the job's failure reason. A type stored before 1104's rule, with a secret `vault_id`, still had it quoted when two of its credentials were bound.
+
+**Root cause.** Refusals were written to help the person who typed the value, by quoting it, without asking whether the value was a secret. 1104 fixed the two cases it was shown rather than the class.
+
+**Fix.** No refusal built from a credential's input values quotes a value: `wire.ConnectionProblem` names the field, the injector maps it to the input id (`input "port" is not a number`), and the Kubernetes, binding, combine and Vault source refusals name inputs. `checkIdentifierPlain` stays, and nothing depends on it for secrecy. RED for every site listed, and for a pre-rule vault type seeded through the ent client.
+
+**Lesson.** As LESSONS 190: a rule listing the inputs that may not be secret fails open on the next input; the structural rule is that an error never carries a value at all.
+
+## 1110. The binding check read carried, undeclared inputs the run never uses, and carried references and input-source bindings were shown and then dropped on the next binding write (fixed before push; a repeat in kind of 113 and 1087)
+
+**Symptom.** Found by the same pass. `boundFor` read a credential's stored inputs, including values carried for an input its type no longer declares (1103), while the run reads the resolver's declared-only map, so a bind the check accepted failed at run time. Carried references were shown by GET, carried bindings by the input-sources list, a client sending back what it listed was refused, and any binding write deleted the carried binding.
+
+**Root cause.** 1103 carried values through an update but not the other two shapes of the same data, and the two readings of "the inputs this credential holds" (check and run) were written separately.
+
+**Fix.** `credtype.InputSchema.Declared` is the one filter, used by the resolver and `boundFor`; readers hide undeclared references and bindings; an update carries both; `writeInputSources` replaces only the bindings of declared inputs. RED for each.
+
+**Lesson.** When a value is carried rather than checked, carry every shape it takes (value, reference, binding) and have every reader agree on the one filter.
+

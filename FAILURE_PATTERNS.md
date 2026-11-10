@@ -1112,6 +1112,8 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 1106. Text claimed more than the code did: the credential type bodies said "one of the twelve kinds" where there are thirteen, the read schema's kind list left out database, and comments said the managed reconcile was the only writer of a managed row once the type lock wrote that row (fixed on this branch; the kind text on main, the writer comments before push; a repeat of 459 and 1074)
 1107. UpdateTypeWith handed its fold slices shared with the stored record it compares against, so a fold clearing secret in place would have passed the secret-flag rule (fixed before push; the class of 1053's read by pointer)
 1108. The type lock's first PostgreSQL tests shared one database and left their container to the reaper, and put internal/credstore in the container tier (fixed before push; the class of 188 and 423)
+1109. Credential refusals quoted input values a custom type may mark secret, so a secret could reach a job's failure reason or an API error (fixed before push; a repeat in kind of 1090 and 1104; vuln-corpus C7)
+1110. The binding check read carried, undeclared inputs the run never uses, and carried references and input-source bindings were shown and then dropped on the next binding write (fixed before push; a repeat in kind of 113 and 1087)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 
