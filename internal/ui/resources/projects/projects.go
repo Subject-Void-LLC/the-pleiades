@@ -94,7 +94,7 @@ func declaredFields(orgs inventory.OrganizationLister, creds credentialLister) [
 			// would be shown stored, redacted or withheld, never as typed.
 			// Not blanked: on an edit, sending back an empty URL would clear
 			// a manual project's stored one, where sending back the redacted
-			// form is an echo the store refuses again until the URL changes.
+			// form is an echo that keeps it (project.KeepEchoedSourceURL).
 			RefusedValue: project.RedactedSourceURL,
 			Help:         "The repository to clone. Prefer an https address with a credential over embedding a token in the URL: a URL's userinfo ends up in error messages.",
 		},
@@ -300,7 +300,7 @@ func Register(store project.Store, syncer project.Syncer, runner syncEnqueuer, o
 						"scm_branch":   p.SCMBranch,
 						"sync_status":  string(p.SyncStatus),
 						"revision":     p.ShortRevision(),
-						"sync_error":   p.SyncError,
+						"sync_error":   project.ShownSyncError(p.SyncError, p.SCMURL),
 						"last_synced":  timestamp(p),
 					},
 				}

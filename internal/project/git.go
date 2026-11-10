@@ -433,8 +433,27 @@ const withheldSyncError = "the sync failed, and its error is withheld because it
 // parameter, and only userinfo the message quotes from somewhere else (a
 // redirect, say) is stripped, belt and braces.
 func scrubURL(msg, raw string) string {
+	if msg == "" {
+		return ""
+	}
 	if HasEmbeddedSecret(raw) {
 		return withheldSyncError
 	}
 	return userinfoPattern.ReplaceAllString(msg, "$1://")
+}
+
+// ShownSyncError is a stored sync error as it may be shown beside the
+// project's current source URL: scrubURL applied again at read time.
+//
+// A sync scrubs its error before storing it, but by the rules of the release
+// that ran it, so an error stored before a rule existed keeps whatever that
+// rule now catches: a failed sync of ".../r.git%3Fsig=..." stored go-git's
+// message quoting the signature, because the old check read only a literal
+// "?". Every reader of a stored error (the API's project, the web UI's row
+// and sync history) shows it through this, so a URL the current rules flag
+// withholds its errors whatever release stored them. An error recorded
+// against an earlier URL of the project is judged by the current one, which
+// is the limit of what a read can know.
+func ShownSyncError(msg, sourceURL string) string {
+	return scrubURL(msg, sourceURL)
 }

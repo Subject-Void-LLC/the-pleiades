@@ -24,6 +24,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/announce"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/project"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/storage/rowlocktest"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
 )
@@ -188,4 +189,13 @@ func TestAnnouncementUpdatesNeverInterleave_PostgreSQL(t *testing.T) {
 	if got.Title != "Freeze, extended" || got.Level != announce.LevelCritical {
 		t.Errorf("after both updates: %+v, want the first's title and the second's level", got)
 	}
+}
+
+// TestProjectEditsNeverInterleave_PostgreSQL runs the project scenario on
+// PostgreSQL, where read committed let an edit write a legacy URL back over a
+// fix it never saw.
+func TestProjectEditsNeverInterleave_PostgreSQL(t *testing.T) {
+	client := openPostgres(t)
+	rowlocktest.ProjectEditsNeverInterleave(t, client, project.NewEntStore(client, project.SourcePolicy{}),
+		"https://svc:hunter2@git.example.invalid/team/legacy.git")
 }

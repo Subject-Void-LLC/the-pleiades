@@ -31,8 +31,9 @@ var projectSchema = map[string]any{
 			"daemon protocol and paths on the server's own disk are refused unless the deployment has " +
 			"opted into them, because what a sync produces is code this platform then runs on managed " +
 			"devices. A URL that may carry a credential (any \"@\" outside an ssh login, written or " +
-			"encoded, or any query or fragment) is refused for a project of every type: give the project a " +
-			"credential instead, which is stored encrypted. A URL stored with one before that rule is shown " +
+			"encoded, or any query or fragment, written, encoded or a lookalike) is refused for a project of " +
+			"every type: give the project a credential instead, which is stored encrypted. A URL stored with " +
+			"one before that rule keeps working, an edit that leaves it saves, and it is shown " +
 			"with its credential replaced by " +
 			"\"redacted\", or withheld whole as \"(withheld: the URL carries a credential)\" when it cannot " +
 			"be cut out precisely."),

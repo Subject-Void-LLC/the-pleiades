@@ -7946,3 +7946,63 @@ what its standard input is, so the same command reads different things in a term
 **Rule in practice.** Every rg in a background shell, a script or a `git rebase -x` step names its path (`rg ... .`).
 Put `< /dev/null` on commands that must not read input, and leave it off a command that reads a pipe. A background
 verification shows progress (a line per commit) early, so a step that is waiting is seen in minutes, not after the run.
+
+## 431. Check a forbidden character on the text as a reader could come to read it, never against a list of the forms it may take: normalize and decode to a fixed point, bound the rounds, and refuse text that does not settle (a refinement of 190; 375; FAILURE_PATTERNS 1089 and 1123) (2026-11-10)
+
+**Why.** Branch `fix/source-url-encoded-query`, 2026-11-10. A project's source URL may hold no `?`, `#` or `@` beyond a
+clean ssh login (FAILURE_PATTERNS 1089). The check read the raw text, so `%3F` and a Unicode lookalike of `?` passed,
+and a signature behind one was stored and shown raw (1123). The first fix listed those forms. Two review passes found
+nine more: further NFKC lookalikes (U+FE16, U+2047 to U+2049), double encodings (`%253F`, `%2523`, `%2540`), and
+fullwidth and small percent signs, each of which turns any escape into a new form. The final fix, `revealed`
+(`internal/project/url_reveal.go`), applies NFKC and a lenient percent decode until the text stops changing, at most
+eight rounds, and treats text that has not settled as carrying every character the rule forbids.
+
+**What is old and what is new.** LESSONS 190 says a denylist of bad shapes fails open on every shape nobody listed and
+to write an allowlist instead. 1089 did, but its terms were characters, and it read them from the raw text, so a list
+of each character's forms crept back in below the allowlist. LESSONS 375 says to change the design after the second
+review of a family; this family had been patched by list five times. 190 also says to refuse a byte-order mark rather
+than strip it and re-check, since two passes over two strings drift apart. The fixed point answers that worry for
+decoding: the check reads the last form, so no further round of the same transforms can reveal a form it did not see,
+and text that will not settle within the bound is refused, not read on. The stored value is unchanged; only the check
+reads the canonical form.
+
+**Rule in practice.** When a rule forbids a character, ask which transforms a reader along the way may apply (percent
+decoding, Unicode compatibility normalization, others the format has), apply them in a loop to a fixed point with a
+small bound, check the result, and refuse what does not settle. Say in the code which transforms are covered: a
+transform the loop does not apply is a form the check does not see. Test with the forms the reviews found, plus a
+scan of every code point the normalization maps to a forbidden character, rather than a hand-picked list.
+
+## 432. When a rule moves under "only when the value changes", a change is any edit that changes what the value does, not only an edit of the value: list the fields that change its use and run the rule when any of them changes (a refinement of 421; FAILURE_PATTERNS 1124 and 1125) (2026-11-10)
+
+**Why.** Branch `fix/source-url-encoded-query`, 2026-11-10. The owner decided that only creation refuses a stored
+value, so the project store's source rules moved under "the URL changed" (FAILURE_PATTERNS 1124). The first version
+skipped them when only the type changed. A manual project's URL is only stored; a git project's URL is dialed. Turning
+a manual project whose stored URL carries a password into a git one would have saved, and the next sync would have
+sent the password (1125). The fix runs every rule when the project becomes git.
+
+**What is old and what is new.** LESSONS 421 says a rule that must hold in every case does not run inside the branch a
+comparison opens, and to list the inputs with nothing to compare. Here the comparison had both values and they were
+equal. What 421 does not name is a second field that changes what the compared value is used for, so an unchanged value
+meets the rule for the first time.
+
+**Rule in practice.** Before narrowing a rule to "only when the value changes", write down what the rule protects (here:
+a credential reaching a host), and list every field whose change makes the stored value reach that place for the first
+time (a type, a mode, an enabled flag, a target). Treat a change of any of them as a change of the value, and test each.
+
+## 433. A mask is applied where stored text is shown, by the current rules, as well as where it is written: a scrub at write time keeps the rules of the release that wrote it, and a mask on read changes nothing stored, so it is one rule on newer data a reader may apply (a refinement of 415 and 422; FAILURE_PATTERNS 1090 and 1128) (2026-11-10)
+
+**Why.** Branch `fix/source-url-encoded-query`, 2026-11-10. A sync's transport error is scrubbed when it is stored,
+withheld whole when the URL may carry a credential (FAILURE_PATTERNS 1090). An error stored before 1123's rule, for a
+URL holding `%3Fsig=...`, kept the signature, and the API, the UI row and the UI history showed it raw (1128). The fix,
+`project.ShownSyncError`, applies the scrub again when each reader shows the error.
+
+**What is old and what is new.** LESSONS 415 and 422 say a rule that depends on data a later release may change runs
+where the value is written, and a reader holds a stored value only to rules no release changes, noting a difference
+without refusing or editing it. A refusal or an edit by a reader would change the record or block it. A mask on display
+does neither: the stored text, and anything that hashes it, are unchanged, and only what a person sees narrows. So the
+writer-only rule does not cover masking, and a mask frozen at write time is the weaker one.
+
+**Rule in practice.** For each stored field a secret rule may cover (an error, a log line, a URL), mask it at write
+time and again at every reader that shows it, through one function. Say in the code what the read-time mask is judged
+against (here the project's current URL, so an error from an earlier URL is judged by the new one) and test it with a
+value stored under the older rule.

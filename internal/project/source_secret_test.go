@@ -25,6 +25,16 @@ var (
 	smallAt     = string(rune(0xFE6B))
 )
 
+// The lookalikes of "?" and "#" (FULLWIDTH QUESTION MARK, SMALL QUESTION
+// MARK, FULLWIDTH NUMBER SIGN, SMALL NUMBER SIGN), built from code points for
+// the same reason.
+var (
+	fullwidthQuestion = string(rune(0xFF1F))
+	smallQuestion     = string(rune(0xFE56))
+	fullwidthHash     = string(rune(0xFF03))
+	smallHash         = string(rune(0xFE5F))
+)
+
 // secretSourceURL carries a password in its userinfo.
 const secretSourceURL = "https://svc:hunter2@git.example.invalid/team/repo.git"
 
@@ -75,11 +85,15 @@ func TestStore_RefusesACredentialInTheURLForEveryType(t *testing.T) {
 	}
 }
 
-// TestStore_AStoredCredentialInTheURLIsReadableAndMustBeChanged covers a row
-// an older release stored, written here through the ent client as it would
-// have been: reading it never refuses, its next save is refused until the URL
-// is changed, and a clean URL is accepted.
-func TestStore_AStoredCredentialInTheURLIsReadableAndMustBeChanged(t *testing.T) {
+// TestStore_AStoredCredentialInTheURLIsReadableAndKeptByAnEditThatLeavesIt
+// covers a row an older release stored, written here through the ent client
+// as it would have been: reading it never refuses, an edit that leaves the URL
+// as it is saves (only creation refuses a stored value, LESSONS 415 and 422),
+// and an edit that changes the URL is held to the rule: another URL carrying a
+// credential is refused and a clean one is accepted. It used to refuse every
+// save of the row until the URL changed, so a rename was refused for a URL it
+// did not touch.
+func TestStore_AStoredCredentialInTheURLIsReadableAndKeptByAnEditThatLeavesIt(t *testing.T) {
 	client := newStoreClient(t)
 	ctx := context.Background()
 	org := client.Organization.Create().SetName("network").SaveX(ctx)
@@ -104,14 +118,75 @@ func TestStore_AStoredCredentialInTheURLIsReadableAndMustBeChanged(t *testing.T)
 
 	edited := stored
 	edited.Description = "edited"
-	assertSecretRefusal(t, "Update changing only the description", store.Update(ctx, edited))
+	if err := store.Update(ctx, edited); err != nil {
+		t.Fatalf("Update changing only the description = %v, want it saved", err)
+	}
+	if got, _ := store.Get(ctx, created.ID); got.SCMURL != secretSourceURL || got.Description != "edited" {
+		t.Errorf("after an edit leaving the URL: %+v, want the URL kept and the description saved", got)
+	}
+
+	edited.SCMURL = "https://svc:other@git.example.invalid/team/repo.git"
+	assertSecretRefusal(t, "Update changing the URL to another carrying a credential", store.Update(ctx, edited))
 
 	edited.SCMURL = "https://git.example.invalid/team/repo.git"
 	if err := store.Update(ctx, edited); err != nil {
 		t.Fatalf("Update changing the URL to a clean one = %v, want it accepted", err)
 	}
-	if got, _ := store.Get(ctx, created.ID); got.SCMURL != edited.SCMURL || got.Description != "edited" {
+	if got, _ := store.Get(ctx, created.ID); got.SCMURL != edited.SCMURL {
 		t.Errorf("after the accepted Update: %+v", got)
+	}
+}
+
+// TestStore_ASourceThePolicyNowRefusesIsKeptByAnEditThatLeavesIt is the same
+// rule for the deployment's source policy: a git project stored with a source
+// the policy now refuses (plain http) can still be renamed, while changing
+// the URL, or turning a manual project into a git one over such a URL, is
+// checked against the policy.
+func TestStore_ASourceThePolicyNowRefusesIsKeptByAnEditThatLeavesIt(t *testing.T) {
+	client := newStoreClient(t)
+	ctx := context.Background()
+	org := client.Organization.Create().SetName("network").SaveX(ctx)
+	store := project.NewEntStore(client, project.SourcePolicy{})
+	const plainHTTP = "http://git.example.invalid/team/repo.git"
+
+	for _, scmType := range []project.SCMType{project.SCMGit, project.SCMManual} {
+		created, err := store.Create(ctx, project.Project{
+			Name: "legacy-" + string(scmType), SCMType: scmType,
+			SCMURL: "https://git.example.invalid/team/repo.git", OrganizationID: org.ID,
+		})
+		if err != nil {
+			t.Fatalf("Create = %v", err)
+		}
+		client.Project.UpdateOneID(created.ID).SetScmURL(plainHTTP).ExecX(ctx)
+		stored, err := store.Get(ctx, created.ID)
+		if err != nil {
+			t.Fatalf("Get = %v", err)
+		}
+
+		renamed := stored
+		renamed.Name = "renamed-" + string(scmType)
+		if err := store.Update(ctx, renamed); err != nil {
+			t.Errorf("%s: a rename leaving a stored plain-http URL = %v, want it saved", scmType, err)
+		}
+		if scmType == project.SCMManual {
+			// Becoming git is the first time the URL is ever fetched, so the
+			// policy is asked even though the URL did not change.
+			renamed.SCMType = project.SCMGit
+			if err := store.Update(ctx, renamed); !errors.Is(err, project.ErrSourceRefused) {
+				t.Errorf("turning a manual project git over a refused URL = %v, want ErrSourceRefused", err)
+			}
+		}
+		moved := renamed
+		moved.SCMType = scmType
+		moved.SCMURL = "http://other.example.invalid/team/repo.git"
+		err = store.Update(ctx, moved)
+		switch {
+		case scmType == project.SCMGit && !errors.Is(err, project.ErrSourceRefused):
+			t.Errorf("git: changing to another plain-http URL = %v, want ErrSourceRefused", err)
+		case scmType == project.SCMManual && err != nil:
+			// Nothing dials a manual project, so the policy does not apply.
+			t.Errorf("manual: changing to another plain-http URL = %v, want it saved", err)
+		}
 	}
 }
 
@@ -150,6 +225,38 @@ var misreadSecretURLs = map[string]string{
 	"an S3 signature":               "https://git.example.invalid/repo.tar?X-Amz-Signature=hunter2",
 	"an apikey":                     "https://git.example.invalid/r.git?apikey=hunter2",
 	"a token in the fragment":       "https://git.example.invalid/r.git#token=hunter2",
+
+	// burn10's shapes: a query or fragment written percent-encoded or with a
+	// lookalike, which some reader along the way (a URL decoder, an NFKC
+	// mapping) can turn into a real one. They used to be stored and shown raw.
+	"an encoded query":                 "https://git.example.invalid/r.git%3Fsig=hunter2",
+	"a lowercase encoded query":        "https://git.example.invalid/r.git%3fsig=hunter2",
+	"an encoded fragment":              "https://git.example.invalid/r.git%23token=hunter2",
+	"a password and an encoded query":  "https://svc:pw@git.example.invalid/r.git%3Fsig=hunter2",
+	"a fullwidth question mark":        "https://git.example.invalid/r.git" + fullwidthQuestion + "sig=hunter2",
+	"a small question mark":            "https://git.example.invalid/r.git" + smallQuestion + "sig=hunter2",
+	"a fullwidth number sign":          "https://git.example.invalid/r.git" + fullwidthHash + "token=hunter2",
+	"a small number sign":              "https://git.example.invalid/r.git" + smallHash + "token=hunter2",
+	"an encoded fullwidth question":    "https://git.example.invalid/r.git%EF%BC%9Fsig=hunter2",
+	"an encoded small question":        "https://git.example.invalid/r.git%ef%b9%96sig=hunter2",
+	"an encoded fullwidth number sign": "https://git.example.invalid/r.git%EF%BC%83token=hunter2",
+	"an encoded small number sign":     "https://git.example.invalid/r.git%ef%b9%9ftoken=hunter2",
+
+	// The reviews' shapes, which the lists above missed and revealed reads:
+	// four more NFKC sources of "?", double encodings, and a fullwidth or
+	// small percent sign standing for "%".
+	"a vertical question mark":           "https://git.example.invalid/r.git" + string(rune(0xFE16)) + "sig=hunter2",
+	"a double question mark":             "https://git.example.invalid/r.git" + string(rune(0x2047)) + "sig=hunter2",
+	"a question exclamation mark":        "https://git.example.invalid/r.git" + string(rune(0x2048)) + "sig=hunter2",
+	"an exclamation question mark":       "https://git.example.invalid/r.git" + string(rune(0x2049)) + "sig=hunter2",
+	"an encoded vertical question mark":  "https://git.example.invalid/r.git%ef%b8%96sig=hunter2",
+	"a password and a vertical question": "https://svc:pw@git.example.invalid/r.git" + string(rune(0xFE16)) + "sig=hunter2",
+	"a double-encoded query":             "https://git.example.invalid/r.git%253Fsig=hunter2",
+	"a double-encoded fragment":          "https://git.example.invalid/r.git%2523token=hunter2",
+	"a double-encoded at":                "https://hunter2%2540git.example.invalid/r",
+	"a fullwidth percent before 3F":      "https://git.example.invalid/r.git" + string(rune(0xFF05)) + "3Fsig=hunter2",
+	"a small percent before 23":          "https://git.example.invalid/r.git" + string(rune(0xFE6A)) + "23token=hunter2",
+	"encoding nested past every round":   "https://git.example.invalid/r.git%" + strings.Repeat("25", 9) + "3Fsig=hunter2",
 }
 
 // TestStore_RefusesACredentialInAURLAParserMisreads holds the refusal on
@@ -173,5 +280,83 @@ func TestStore_RefusesACredentialInAURLAParserMisreads(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// TestStore_TurningAProjectGitHoldsItsStoredURLToEveryRule is the type change
+// checkSourceChange treats as a change of URL: a manual project an older
+// release stored with a password in its URL keeps saving as manual, but
+// becoming git, the first time the URL would be dialed, is refused, so the
+// password is never sent.
+func TestStore_TurningAProjectGitHoldsItsStoredURLToEveryRule(t *testing.T) {
+	client := newStoreClient(t)
+	ctx := context.Background()
+	org := client.Organization.Create().SetName("network").SaveX(ctx)
+	store := project.NewEntStore(client, project.SourcePolicy{})
+
+	for _, from := range []project.SCMType{project.SCMManual, project.SCMArchive} {
+		created, err := store.Create(ctx, project.Project{
+			Name: "legacy-" + string(from), SCMType: from,
+			SCMURL: "https://git.example.invalid/team/repo.git", OrganizationID: org.ID,
+		})
+		if err != nil {
+			t.Fatalf("Create = %v", err)
+		}
+		client.Project.UpdateOneID(created.ID).SetScmURL(secretSourceURL).ExecX(ctx)
+		stored, err := store.Get(ctx, created.ID)
+		if err != nil {
+			t.Fatalf("Get = %v", err)
+		}
+
+		flipped := stored
+		flipped.SCMType = project.SCMGit
+		assertSecretRefusal(t, "Update turning a "+string(from)+" project git over a password URL", store.Update(ctx, flipped))
+		if got, _ := store.Get(ctx, created.ID); got.SCMType != from || got.SCMURL != secretSourceURL {
+			t.Errorf("a refused flip changed the project: %+v", got)
+		}
+	}
+}
+
+// TestStore_RefusesTheWithheldPlaceholderAsAURL covers a stale edit form: it
+// shows a withheld URL as the placeholder, another edit then changes the URL,
+// and the stale form's placeholder no longer echoes what is stored, so it
+// reaches the store as a new URL. It used to be saved as a manual project's
+// source.
+func TestStore_RefusesTheWithheldPlaceholderAsAURL(t *testing.T) {
+	client := newStoreClient(t)
+	ctx := context.Background()
+	org := client.Organization.Create().SetName("network").SaveX(ctx)
+	store := project.NewEntStore(client, project.SourcePolicy{})
+	placeholder := project.RedactedSourceURL("https://git.example.invalid/r.git?sig=hunter2")
+
+	_, err := store.Create(ctx, project.Project{Name: "p", SCMType: project.SCMManual, SCMURL: placeholder, OrganizationID: org.ID})
+	assertSecretRefusal(t, "Create with the placeholder", err)
+
+	created, err := store.Create(ctx, project.Project{
+		Name: "clean", SCMType: project.SCMManual, SCMURL: "https://git.example.invalid/r.git", OrganizationID: org.ID,
+	})
+	if err != nil {
+		t.Fatalf("Create = %v", err)
+	}
+	stale := created
+	stale.SCMURL = project.KeepEchoedSourceURL(created.SCMURL, placeholder)
+	assertSecretRefusal(t, "Update with a stale placeholder", store.Update(ctx, stale))
+}
+
+// TestShownSyncError_WithholdsAnErrorAnOlderReleaseStored holds the read-time
+// scrub: an error a sync stored raw, under a release whose rules did not flag
+// the URL, is withheld when shown beside a URL today's rules flag, and shown
+// as stored beside a clean one.
+func TestShownSyncError_WithholdsAnErrorAnOlderReleaseStored(t *testing.T) {
+	const stored = `Get "https://git.example.invalid/r.git%3Fsig=hunter2/info/refs": dial tcp: connection refused`
+	if shown := project.ShownSyncError(stored, "https://git.example.invalid/r.git%3Fsig=hunter2"); strings.Contains(shown, "hunter2") {
+		t.Errorf("ShownSyncError beside the flagged URL = %q, want it withheld", shown)
+	}
+	const clean = "repository not found"
+	if shown := project.ShownSyncError(clean, "https://git.example.invalid/r.git"); shown != clean {
+		t.Errorf("ShownSyncError beside a clean URL = %q, want %q", shown, clean)
+	}
+	if shown := project.ShownSyncError("", "https://git.example.invalid/r.git?x"); shown != "" {
+		t.Errorf("ShownSyncError of no error = %q, want none", shown)
 	}
 }

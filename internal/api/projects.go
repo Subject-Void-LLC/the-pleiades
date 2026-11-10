@@ -145,8 +145,9 @@ type projectDTO struct {
 	Revision     string `json:"revision,omitempty"`
 	SyncStatus   string `json:"sync_status"`
 
-	// SyncError is already scrubbed of credential material by
-	// internal/project before it is stored. See this file's own comment.
+	// SyncError is scrubbed of credential material by internal/project
+	// before it is stored, and again when shown (project.ShownSyncError), so
+	// one stored under an older release's rules is judged by today's.
 	SyncError    string     `json:"sync_error,omitempty"`
 	LastSyncedAt *time.Time `json:"last_synced_at,omitempty"`
 }
@@ -183,7 +184,7 @@ func toProjectDTO(p project.Project) projectDTO {
 		Credential:   p.CredentialID,
 		Revision:     p.Revision,
 		SyncStatus:   string(p.SyncStatus),
-		SyncError:    p.SyncError,
+		SyncError:    project.ShownSyncError(p.SyncError, p.SCMURL),
 		LastSyncedAt: p.LastSyncedAt,
 	}
 }

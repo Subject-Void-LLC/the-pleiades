@@ -53,6 +53,12 @@ func historySection(store project.Store) view.Section {
 }
 
 // historyRows projects a project's sync attempts onto section rows.
+// withheldForUnknownSource stands in for the source URL when the project
+// cannot be read: a URL HasEmbeddedSecret always flags (it has a query), so
+// ShownSyncError withholds every error rather than showing one it cannot
+// judge.
+const withheldForUnknownSource = "?"
+
 func historyRows(store project.Store) func(context.Context, string) ([]view.Row, error) {
 	return func(ctx context.Context, parentID string) ([]view.Row, error) {
 		// Empty parent: an attempt belongs to a project, not to the
@@ -69,6 +75,14 @@ func historyRows(store project.Store) func(context.Context, string) ([]view.Row,
 		runs, err := store.ListSyncRuns(ctx, numeric, sectionLimit)
 		if err != nil {
 			return nil, err
+		}
+		// Each stored error is shown through ShownSyncError against the
+		// project's current URL, so one stored by an older release's rules
+		// is judged by today's. A project that cannot be read shows its
+		// errors withheld rather than raw.
+		sourceURL := withheldForUnknownSource
+		if p, err := store.Get(ctx, numeric); err == nil {
+			sourceURL = p.SCMURL
 		}
 
 		rows := make([]view.Row, 0, len(runs))
@@ -96,7 +110,7 @@ func historyRows(store project.Store) func(context.Context, string) ([]view.Row,
 					"actor":    actor,
 					"took":     took,
 					"revision": shortRevision(r.Revision),
-					"detail":   r.Err,
+					"detail":   project.ShownSyncError(r.Err, sourceURL),
 				},
 			})
 		}

@@ -37,15 +37,14 @@ const legacyWithheldProjectURL = "git:hunter2@git.example.test:team/legacy.git"
 // is the round trip: open the edit form of a project whose stored URL carries
 // a password, change the description, press Save. The URL control holds the
 // redacted form, or the placeholder for a URL withheld whole, an echo of the
-// stored URL, so the stored URL is kept, and a stored URL carrying a
-// credential is refused on save until it is changed, beside the URL control.
-// A clean URL typed in is a real change and saves.
+// stored URL, so the stored URL is kept and the edit saves: a URL the edit
+// leaves as it is is not held to the rule (LESSONS 415, 422). Another URL
+// carrying a credential is a change, refused beside the URL control, and a
+// clean URL typed in is a change that saves.
 //
-// The withheld case is the one the echo decides. The redacted form
-// "https://redacted@..." carries a user, so it is refused even read as a new
-// URL; the placeholder carries nothing, so read as a new URL it would be
-// saved over the real one, and only the echo keeps the stored URL and its
-// refusal.
+// The withheld case is the one the echo decides. The placeholder carries
+// nothing, so read as a new URL it would be saved over the real one; only
+// the echo keeps the stored URL.
 func TestProjectsView_SavingTheEditFormNeverReplacesAStoredURLItShowsRedacted(t *testing.T) {
 	h := newHarness(t, adminIdentity)
 
@@ -69,17 +68,26 @@ func TestProjectsView_SavingTheEditFormNeverReplacesAStoredURLItShowsRedacted(t 
 			}
 			values["description"] = "edited through the form"
 
-			w := h.post(t, path, values)
-			if w.Code != http.StatusUnprocessableEntity {
-				t.Fatalf("saving the form over a stored URL carrying a password = %d, want 422", w.Code)
+			if w := h.post(t, path, values); w.Code != http.StatusSeeOther {
+				t.Fatalf("saving the form with the URL shown = %d, want a redirect: %s", w.Code, formErrors(w.Body.String()))
 			}
-			assertURLCredentialError(t, w.Body.String())
 			stored, err := conformanceProjectStore.Get(context.Background(), seeded.ID)
 			if err != nil {
 				t.Fatalf("reading the project back: %v", err)
 			}
-			if stored.SCMURL != url || stored.Description == "edited through the form" {
-				t.Errorf("a refused save changed the project: %+v", stored)
+			if stored.SCMURL != url || stored.Description != "edited through the form" {
+				t.Errorf("after saving with the URL shown: %+v, want the stored URL kept and the description saved", stored)
+			}
+
+			// Another URL carrying a credential is a change, and is refused.
+			values["scm_url"] = legacyProjectURL + "x"
+			if w := h.post(t, path, values); w.Code != http.StatusUnprocessableEntity {
+				t.Fatalf("saving another URL carrying a password = %d, want 422", w.Code)
+			} else {
+				assertURLCredentialError(t, w.Body.String())
+			}
+			if stored, _ = conformanceProjectStore.Get(context.Background(), seeded.ID); stored.SCMURL != url {
+				t.Errorf("a refused save changed the stored URL to %q", stored.SCMURL)
 			}
 
 			// A URL typed into the control is a real change, and applies.

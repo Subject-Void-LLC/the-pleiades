@@ -20,8 +20,10 @@
 // The handler reads the stored project, folds the body over it and holds the
 // merged project to every rule a create is held to (validProject, then
 // checkCredential, so a kept credential is checked again on every PATCH),
-// before the unchanged store Update, which checks the source again. Sync
-// state is never written here: the store's Update leaves it to RecordSync.
+// before the store Update, which checks the source again when the edit
+// changes the URL or makes the project git, against the row read under its
+// lock. Sync state is never written here: the store's Update leaves it to
+// RecordSync.
 //
 // Concurrent PATCHes are last-writer-wins, as they were: each reads the
 // stored project, folds its fields over it and writes the result, with no
