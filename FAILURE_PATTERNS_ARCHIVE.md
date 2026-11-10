@@ -27377,6 +27377,45 @@ the body, or decide that a write scope implies its read scope and say so in `Has
 **Lesson.** Pending the decision. When a write answers with the stored record, ask what a write that changes nothing
 shows a caller who may not read.
 
+**Resolution, on this branch, 2026-11-10 (`fix/patch-needs-read-and-write`, `0882d90b`).** Owner decision 2026-11-10,
+after an independent design review (Fable 5.2): a route whose write answers with the stored record needs the record's
+read scope as well as its write scope. Measured red through the real token chain (`internal/api/patch_scopes_test.go`,
+`TestPatch_AWriteScopeAloneIsRefusedBeforeTheBodyIsRead`): a token holding `inventory:write` alone got `PATCH {}` 200
+with the whole inventory, a guessed organization 400, a missing id 404 and a malformed body 400. Each is now one
+identical 403.
+- `api.Route.AlsoScope` (`internal/api/router.go`), enforced by a second `RequireScope` before the handler.
+- `permitted()` in `internal/api/links.go` makes `_links` and the `OPTIONS` `Allow` header require both scopes, with one
+  `Permitted` call per scope set, because the HATEOAS generator reads two affordances for one relation as either one
+  (`TestPatch_IsNotAdvertisedToAWriteScopeAlone`).
+- `apispec.Endpoint.AlsoScope` on 13 PATCH, 5 PUT and 7 POST endpoints (the POSTs are 1134).
+  `internal/apispec/patch_scopes_test.go` guards the list, and `TestAlsoScope_EveryDeclaringRouteRefusesTheFirstScopeAlone`
+  mounts all 25 through the real router.
+- The web UI checks the same declaration (`web.permitsEndpoint`, `view.Descriptor.AlsoCandidates`; 1133).
+- The OpenAPI document lists both scopes, and `changelog/patch-needs-read-and-write.breaking.md` names the 25 scope
+  additions schema-compat reports as breaking.
+- Comments the change made false were corrected: `internal/api/authz.go` ("mounted once per route"),
+  `internal/auth/hateoas.go` ("every real attempt is still recorded exactly once"), `cmd/controller/main.go`, and the
+  doc of `Route.Rel`.
+
+**Known limits.** Reasoned, not run. A route with `AlsoScope` records two authorization Decisions, so a write-only
+caller logs an allowed write and then a denied read. A `Decision` carries no route or request id, so the log does not
+tie the two together.
+
+**Still open, for the owner.** Reasoned by the claim-refuter agent, not run.
+- Every DELETE answers a write-only token 204 for a record that exists and 404 for one that does not, so it shows what
+  exists. This matters most for `DELETE /inventory/devices/{name}`, whose names can be guessed. A template DELETE also
+  answers 409 naming a schedule link.
+- Action scopes show stored state without a read scope. `POST /jobs/{id}/cancel`, the relaunch route and the launch route
+  need `runbook:execute`, not `job:read` or `template:read`. `POST /inventory/devices/{name}/onboard`
+  (`inventory:onboard`) returns the `onboard.Result`. `POST` and `DELETE /inventory/devices/{name}/capabilities`
+  (`inventory:assert`) return the grant list.
+- `PUT /templates/{id}/credentials` needs `credential:read` but reads the template, so it shows a template's existence
+  and kind to a holder without `template:read`. A route can carry only one `AlsoScope`.
+- Informational: `auth.AllScopes()` leaves out `ScopeAccessRead`, `ScopeSettingsRead` and `ScopeSettingsWrite`, though
+  its doc says it covers every constant.
+
+**Lesson, 2026-11-10.** LESSONS 435 for the routes this branch covers. For the routes still open, pending the decision.
+
 ## 1120. The inventory member check answers 400 for an id that does not exist, 403 for another organization's and 200 for one's own, so a token holding inventory:write can learn which device and group ids exist (open: owner decision; on main as 409, 403 and 200; reasoned, not run as an oracle test; the class of 1096)
 
 **Symptom.** Reasoned on `fix/patch-inventories-announcements`, 2026-11-10. Ids are sequential. A caller holding
@@ -27729,3 +27768,72 @@ drifted member is still refused. `checkMembers` runs every check before it retur
 **Lesson.** As 1114 and LESSONS 415 and 422: a write checks what it adds. A member it keeps is stored data, and a rule
 whose input can change after storage is enforced where the data is acted on (LESSONS 434), not by blocking every later
 edit.
+
+## 1133. The web UI read records in process and gated each page only on its endpoint's first scope, so after the branch's first fix a session holding inventory:write alone still opened /ui/inventories/1/edit (200) and saved it (303) while the API refused the same token (fixed before push; caught in review; on main as part of 1119; a repeat of 1130; LESSONS 244, 363 and 434)
+
+**Symptom.** On `fix/patch-needs-read-and-write`, 2026-11-10, before push. The branch's first version put the second
+scope (1119) into the API router only: `api.Route.AlsoScope`, enforced by a second `RequireScope` before the handler.
+The web UI does not serve its pages through that router. It reads records in process, and it checked only
+`apispec.Endpoint.Scope`: in `internal/ui/web/resources.go` (`resolve`, the record actions and the row actions) and, for
+the controls it offers, in `internal/ui/view/view.go` (`Descriptor.Candidates`). So a JWT holding `inventory:write`
+alone, signed in at `/ui`, opened `/ui/inventories/1/edit` (measured 200), which shows the stored record, and saved it
+(303). The JSON API answered the same token 403. The claim-refuter and fp-reviewer agents found it by reading the code,
+and it was then measured.
+
+**Root cause.** One rule, declared once and enforced in two places, was added to one of them. The router is where a
+scope rule lives for the JSON API, so the first version listed the router's routes and stopped there. The UI's readers
+reach the stores without passing through the router.
+
+**Why 1130's fix did not hold.** 1130 and LESSONS 434, recorded the same day, say to list every reader that acts on the
+data from the production call graph before calling a grant closed. They were written for a tenancy rule on stored
+membership. This branch's rule was framed as a route rule, so its places were taken from the route table rather than
+from the readers of the record. LESSONS 244 (a guard on one of two sibling paths) and 363 (every route a mechanism
+takes, tier included) name the same class. None of them was applied to the UI as a second reader of the same records.
+
+**Fix.** On this branch, in `0882d90b`. `web.permitsEndpoint` (`internal/ui/web/handler.go`) checks an endpoint's
+`Scope` and, when it declares one, its `AlsoScope`; `resolve`, the record actions and the row actions call it.
+`view.Descriptor.AlsoCandidates` (`internal/ui/view/view.go`) offers the second scope's affordances to the generator, so
+a caller holding both scopes still sees the control. As in 100 and 220, a gated relation needs a place in the candidate
+set as well as in the gate, and only the gate fails loudly without it. Both tiers read the one declaration,
+`apispec.Endpoint.AlsoScope`. Tests: `TestUI_AWriteScopeAloneCannotOpenAnEditForm`
+(`internal/ui/resources/write_only_session_test.go`), which fails with the second scope removed, and
+`TestDescriptor_AlsoCandidatesOffersEverySecondScope` (`internal/ui/view/alsocandidates_test.go`).
+
+**Lesson.** As LESSONS 434, for any rule and not only tenancy: a rule placed in the router covers only the callers that
+pass through the router. List the readers of the record from the store up (the UI reads in process), not the router's
+route table. LESSONS 435 has the rest. The same class is vuln-corpus finding C10_auto-roboto_2026-11-07 (two tiers
+enforcing one rule drift apart).
+
+## 1134. The branch's first fix required the read scope on PATCH and PUT only, chosen by HTTP method, but seven write-scoped POSTs also answer with the stored record, and its guard test forbade a second scope on any POST under a comment saying only PATCH and PUT answer with a folded record (fixed before push; caught in review with 1133; on main as part of 1119; a repeat in kind of 1089, and of 1115 and 1131 for the comment; LESSONS 155 and 157)
+
+**Symptom.** On `fix/patch-needs-read-and-write`, 2026-11-10, before push. The first version gave every PATCH and PUT
+endpoint the read scope as its `AlsoScope` and left every POST alone. Seven POSTs a write scope reaches answer with the
+record they act on, so a write-only token could still read it: `copy_template` returns the whole template,
+`sync_project` and `cancel_project_sync` return the project, `attest_organization` and `attest_team` return the
+organization or the team, `test_credential_type` returns the stored injectors, and `create_template_config`'s refusals
+judge the body against the stored survey. The guard test (`internal/apispec/patch_scopes_test.go`) failed any POST that
+declared an `AlsoScope`, and its comment said only PATCH and PUT answer with a folded record, which was false. The review
+that found 1133 found these by reading the handlers.
+
+**Root cause.** What a route shows a caller is decided by what its handler answers with, and the first version decided
+it by the verb. The guard test was written from the same premise, so it would have refused the fix.
+
+**Why 1089 and LESSONS 155 and 157 did not prevent it.** 1089 was a list of credential shapes that missed members of its
+class, and LESSONS 155 and 157 say to enumerate a class by what the code does rather than by the instance in hand. Here
+the instance was 1119's `PATCH {}`. Selecting by method looked like a class, because it is a complete filter over the
+route table. It is complete for the verb, not for the property the rule is about. As in 1115 and 1131, the comment
+stated the premise as a fact, and nothing checked it before review.
+
+**Fix.** On this branch, in `0882d90b`. The seven POSTs declare `AlsoScope`, so 25 endpoints do: 13 PATCH, 5 PUT and 7
+POST. The guard test names the seven in `recordAnsweringPosts`, holds each of the 25 to the read scope of its write
+scope, and fails any other endpoint that declares one; its comment now says what it checks.
+`TestAlsoScope_EveryDeclaringRouteRefusesTheFirstScopeAlone` (`internal/api/patch_scopes_test.go`) mounts all 25
+through the real router and refuses each one to its first scope alone. The OpenAPI document lists both scopes, and
+`changelog/patch-needs-read-and-write.breaking.md` names the 25 scope additions schema-compat reports as breaking.
+
+**Known limits.** From the repository. `recordAnsweringPosts` is kept by hand, so a POST added later that answers with a
+stored record passes the guard until someone adds it to the list. DELETE and the routes whose scope is not a `*:write`
+scope (`runbook:execute`, `inventory:onboard`, `inventory:assert`) are outside the rule; 1119's note of 2026-11-10 lists
+what they still show.
+
+**Lesson.** LESSONS 435.
