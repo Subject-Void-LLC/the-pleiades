@@ -34,29 +34,19 @@ const withheldSourceURL = "(withheld: the URL carries a credential)"
 // credential, compared without regard to case.
 var sshSchemes = map[string]bool{"ssh": true, "git+ssh": true, "ssh+git": true}
 
-// atLookalikes are the texts read as an "@" though they are not one: its
-// percent encoding, the two Unicode lookalikes (FULLWIDTH COMMERCIAL AT,
-// U+FF20, and SMALL COMMERCIAL AT, U+FE6B), and their percent encodings.
-// Some reader along the way (a URL decoder, an IDNA or NFKC mapping) can turn
-// any of them into a separator, and none belongs in a repository URL. Built
-// from code points so this source holds no confusable character
-// (FAILURE_PATTERNS 256, 834). The encoded forms are compared lowercased.
-var atLookalikes = []string{
-	"%40",
-	string(rune(0xFF20)), "%ef%bc%a0",
-	string(rune(0xFE6B)), "%ef%b9%ab",
-}
-
 // HasEmbeddedSecret reports whether raw may carry a credential.
 //
 // The rule is an allowlist:
 //
-//   - A URL with a query or a fragment ("?" or "#" anywhere) may carry one,
+//   - A URL with a query or a fragment ("?" or "#" anywhere, written or as
+//     any reader could come to read it: revealed) may carry one,
 //     whatever the parameter is called: an Azure SAS "sig", an S3
 //     "X-Amz-Signature", an "apikey" or a "#token=" are all credentials, no
 //     list of secret names covers them all, and a repository source needs
 //     neither a query nor a fragment.
-//   - A URL holding an encoded or lookalike "@" (atLookalikes) may carry one.
+//   - A URL in which a reader could come to read an "@" that is not written
+//     (percent-encoded, double-encoded, or a lookalike: revealed) may carry
+//     one.
 //   - Otherwise, a URL with no "@" anywhere carries no userinfo credential.
 //   - A URL with an "@" carries none only when it is exactly one of two ssh
 //     logins, where the user picks the account and is not a secret:
@@ -90,21 +80,25 @@ func HasEmbeddedSecret(raw string) bool {
 	return !isSSHLoginURL(trimmed) && !isSCPLikeLogin(trimmed)
 }
 
-// hasQueryOrFragment reports whether raw has a "?" or a "#" anywhere, read
-// from the text so a URL no parser reads is read too.
+// hasQueryOrFragment reports whether raw has a "?" or a "#" anywhere,
+// written or in the text revealed reads out of it, or holds text revealed
+// cannot settle. It reads the text rather than a parse, so a URL no parser
+// reads is read too. RedactedSourceURL asks it directly, so a URL it answers
+// true for is withheld whole rather than shown with its userinfo cut out.
 func hasQueryOrFragment(raw string) bool {
-	return strings.ContainsAny(raw, "?#")
+	if strings.ContainsAny(raw, "?#") {
+		return true
+	}
+	shown, settled := revealed(raw)
+	return !settled || strings.ContainsAny(shown, "?#")
 }
 
-// hasAtLookalike reports whether raw holds any of atLookalikes.
+// hasAtLookalike reports whether a reader could come to read an "@" in raw
+// that is not written there: revealed reads more "@" than raw holds, or
+// cannot settle the text.
 func hasAtLookalike(raw string) bool {
-	lower := strings.ToLower(raw)
-	for _, lookalike := range atLookalikes {
-		if strings.Contains(lower, lookalike) {
-			return true
-		}
-	}
-	return false
+	shown, settled := revealed(raw)
+	return !settled || strings.Count(shown, "@") > strings.Count(raw, "@")
 }
 
 // isSSHLoginURL reports whether raw is case (a) of HasEmbeddedSecret: an ssh
@@ -224,7 +218,7 @@ func RefuseEmbeddedSecret(raw string) error {
 	trimmed := strings.TrimSpace(raw)
 	switch {
 	case hasQueryOrFragment(trimmed):
-		return fmt.Errorf("%w: a source URL may not carry a query or a fragment; "+
+		return fmt.Errorf("%w: a source URL may not carry a query or a fragment, written, encoded or as a lookalike; "+
 			"give the credential to this project instead, where it is encrypted", ErrSourceSecretInURL)
 	case HasEmbeddedSecret(trimmed):
 		return fmt.Errorf("%w: an @ outside an ssh login, written or encoded, is refused; "+

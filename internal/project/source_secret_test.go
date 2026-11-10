@@ -25,6 +25,16 @@ var (
 	smallAt     = string(rune(0xFE6B))
 )
 
+// The lookalikes of "?" and "#" (FULLWIDTH QUESTION MARK, SMALL QUESTION
+// MARK, FULLWIDTH NUMBER SIGN, SMALL NUMBER SIGN), built from code points for
+// the same reason.
+var (
+	fullwidthQuestion = string(rune(0xFF1F))
+	smallQuestion     = string(rune(0xFE56))
+	fullwidthHash     = string(rune(0xFF03))
+	smallHash         = string(rune(0xFE5F))
+)
+
 // secretSourceURL carries a password in its userinfo.
 const secretSourceURL = "https://svc:hunter2@git.example.invalid/team/repo.git"
 
@@ -150,6 +160,38 @@ var misreadSecretURLs = map[string]string{
 	"an S3 signature":               "https://git.example.invalid/repo.tar?X-Amz-Signature=hunter2",
 	"an apikey":                     "https://git.example.invalid/r.git?apikey=hunter2",
 	"a token in the fragment":       "https://git.example.invalid/r.git#token=hunter2",
+
+	// burn10's shapes: a query or fragment written percent-encoded or with a
+	// lookalike, which some reader along the way (a URL decoder, an NFKC
+	// mapping) can turn into a real one. They used to be stored and shown raw.
+	"an encoded query":                 "https://git.example.invalid/r.git%3Fsig=hunter2",
+	"a lowercase encoded query":        "https://git.example.invalid/r.git%3fsig=hunter2",
+	"an encoded fragment":              "https://git.example.invalid/r.git%23token=hunter2",
+	"a password and an encoded query":  "https://svc:pw@git.example.invalid/r.git%3Fsig=hunter2",
+	"a fullwidth question mark":        "https://git.example.invalid/r.git" + fullwidthQuestion + "sig=hunter2",
+	"a small question mark":            "https://git.example.invalid/r.git" + smallQuestion + "sig=hunter2",
+	"a fullwidth number sign":          "https://git.example.invalid/r.git" + fullwidthHash + "token=hunter2",
+	"a small number sign":              "https://git.example.invalid/r.git" + smallHash + "token=hunter2",
+	"an encoded fullwidth question":    "https://git.example.invalid/r.git%EF%BC%9Fsig=hunter2",
+	"an encoded small question":        "https://git.example.invalid/r.git%ef%b9%96sig=hunter2",
+	"an encoded fullwidth number sign": "https://git.example.invalid/r.git%EF%BC%83token=hunter2",
+	"an encoded small number sign":     "https://git.example.invalid/r.git%ef%b9%9ftoken=hunter2",
+
+	// The reviews' shapes, which the lists above missed and revealed reads:
+	// four more NFKC sources of "?", double encodings, and a fullwidth or
+	// small percent sign standing for "%".
+	"a vertical question mark":           "https://git.example.invalid/r.git" + string(rune(0xFE16)) + "sig=hunter2",
+	"a double question mark":             "https://git.example.invalid/r.git" + string(rune(0x2047)) + "sig=hunter2",
+	"a question exclamation mark":        "https://git.example.invalid/r.git" + string(rune(0x2048)) + "sig=hunter2",
+	"an exclamation question mark":       "https://git.example.invalid/r.git" + string(rune(0x2049)) + "sig=hunter2",
+	"an encoded vertical question mark":  "https://git.example.invalid/r.git%ef%b8%96sig=hunter2",
+	"a password and a vertical question": "https://svc:pw@git.example.invalid/r.git" + string(rune(0xFE16)) + "sig=hunter2",
+	"a double-encoded query":             "https://git.example.invalid/r.git%253Fsig=hunter2",
+	"a double-encoded fragment":          "https://git.example.invalid/r.git%2523token=hunter2",
+	"a double-encoded at":                "https://hunter2%2540git.example.invalid/r",
+	"a fullwidth percent before 3F":      "https://git.example.invalid/r.git" + string(rune(0xFF05)) + "3Fsig=hunter2",
+	"a small percent before 23":          "https://git.example.invalid/r.git" + string(rune(0xFE6A)) + "23token=hunter2",
+	"encoding nested past every round":   "https://git.example.invalid/r.git%" + strings.Repeat("25", 9) + "3Fsig=hunter2",
 }
 
 // TestStore_RefusesACredentialInAURLAParserMisreads holds the refusal on
