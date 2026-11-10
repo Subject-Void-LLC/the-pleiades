@@ -8053,3 +8053,27 @@ the list, whatever their verbs. Then find every caller that reaches the same sto
 hold it to the same declaration. Write the guard test from the list, and say in its comment which property it holds, so
 a later reader can check the comment against the handlers. A list kept by hand, as `recordAnsweringPosts` is, misses the
 next route that answers with a record; say so where it is kept.
+
+## 436. A second path to an effect (a schedule, a saved configuration, a relaunch, a rollback, a workflow node once one is built) needs every scope the effect's own route requires, read scopes included: when a route gains a scope, find every other path to its effect in the code and hold each path's gate to the route's declaration in a test, since a copy of one scope kept beside the route holds only until the route's list grows (a refinement of 134 and 363; FAILURE_PATTERNS 268, 939, 1135 and 1136) (2026-11-10)
+
+**Why.** Branch `fix/action-route-read-scopes`, 2026-11-10. The owner decided that an action route needs the read scope
+of each record it reads, so `POST /templates/{id}/launch` came to need `template:read` beside `runbook:execute`. A
+schedule is a second way to make the same run, and its gate (`launchable.Reach.Admits`) checked the one launch scope
+each launchable type declared, a copy made by FAILURE_PATTERNS 268's fix. A token refused the launch by hand could still
+schedule it, read the template's name back, and have the preflight name a bound credential (1136). In the same branch,
+rollback was given the reads of a job action while relaunch, which calls the same template refusal, was given the
+template's read too (1135). The fp-reviewer and claim-refuter agents found both before push.
+
+**What is old and what is new.** 268's lesson says a mechanism that causes work later checks the permission to do that
+work now, and its fix was right for a route that needed one scope. 939's lesson lists the routes that create a job, for a
+launch field's lock. LESSONS 363 says to check a rule along every route a mechanism takes, and 134 says the test that
+compares two copies of a value belongs with the second copy. What is new is that "the permission to do that work" is the
+route's whole scope list, and it grows. A gate written as one copied scope keeps the first permission and silently drops
+the next, and the test that held the copy equal to the route compared only the field the copy had.
+
+**Rule in practice.** When a route gains a scope, list from the code every other path that causes its effect or reads
+the same records: a schedule, a saved configuration, a relaunch, a rollback, a check, a workflow node once one exists,
+and any helper those paths share. Give each path the full list, read scopes included, not a chosen one. Prefer reading
+the route's declaration; where a package must not depend on the route table, restate it and hold the restated copy to
+the declaration in a test of the package that may import both, and say in the copy where it came from. Routes that call
+one helper read what the helper reads, so their rows in any table of reads are the same.
