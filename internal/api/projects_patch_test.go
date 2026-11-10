@@ -394,3 +394,31 @@ func TestProjects_ASourceURLMayCarryNoQueryOrFragment(t *testing.T) {
 		t.Errorf("GET shows a stored URL with a query as %q, want it withheld whole", shown)
 	}
 }
+
+// TestProjects_AStoredSyncErrorIsCheckedAgainWhenShown holds the read-time
+// scrub through the real router: a sync under an older release stored its
+// transport error raw for a URL whose signature hid behind "%3F", which the
+// old rule did not flag. GET now withholds that error, since today's rule
+// flags the URL, and leaves an ordinary error beside a clean URL alone.
+func TestProjects_AStoredSyncErrorIsCheckedAgainWhenShown(t *testing.T) {
+	f := newProjectFixture(t)
+	const flagged = "https://example.invalid/r.git%3Fsig=hunter2"
+	id := f.seedLegacyURL(t, "legacy-query", "git", flagged)
+	f.client.Project.UpdateOneID(id).
+		SetSyncError(`Get "` + flagged + `/info/refs": dial tcp: connection refused`).
+		ExecX(context.Background())
+
+	got := f.readProject(t, id)
+	if shown, _ := got["sync_error"].(string); shown == "" || strings.Contains(shown, "hunter2") {
+		t.Errorf("sync_error = %q, want it present and withheld", shown)
+	}
+	if shown, _ := got["scm_url"].(string); strings.Contains(shown, "hunter2") {
+		t.Errorf("scm_url = %q, want it withheld", shown)
+	}
+
+	clean := f.create(t, fmt.Sprintf(`{"name":"clean","organization":%d,"scm_type":"git","scm_url":"https://example.invalid/c.git"}`, f.orgID))
+	f.client.Project.UpdateOneID(clean).SetSyncError("repository not found").ExecX(context.Background())
+	if shown := f.readProject(t, clean)["sync_error"]; shown != "repository not found" {
+		t.Errorf("sync_error beside a clean URL = %v, want it as stored", shown)
+	}
+}

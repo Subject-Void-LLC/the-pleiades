@@ -300,7 +300,7 @@ func Register(store project.Store, syncer project.Syncer, runner syncEnqueuer, o
 						"scm_branch":   p.SCMBranch,
 						"sync_status":  string(p.SyncStatus),
 						"revision":     p.ShortRevision(),
-						"sync_error":   p.SyncError,
+						"sync_error":   project.ShownSyncError(p.SyncError, p.SCMURL),
 						"last_synced":  timestamp(p),
 					},
 				}

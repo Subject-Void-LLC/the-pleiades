@@ -342,3 +342,21 @@ func TestStore_RefusesTheWithheldPlaceholderAsAURL(t *testing.T) {
 	stale.SCMURL = project.KeepEchoedSourceURL(created.SCMURL, placeholder)
 	assertSecretRefusal(t, "Update with a stale placeholder", store.Update(ctx, stale))
 }
+
+// TestShownSyncError_WithholdsAnErrorAnOlderReleaseStored holds the read-time
+// scrub: an error a sync stored raw, under a release whose rules did not flag
+// the URL, is withheld when shown beside a URL today's rules flag, and shown
+// as stored beside a clean one.
+func TestShownSyncError_WithholdsAnErrorAnOlderReleaseStored(t *testing.T) {
+	const stored = `Get "https://git.example.invalid/r.git%3Fsig=hunter2/info/refs": dial tcp: connection refused`
+	if shown := project.ShownSyncError(stored, "https://git.example.invalid/r.git%3Fsig=hunter2"); strings.Contains(shown, "hunter2") {
+		t.Errorf("ShownSyncError beside the flagged URL = %q, want it withheld", shown)
+	}
+	const clean = "repository not found"
+	if shown := project.ShownSyncError(clean, "https://git.example.invalid/r.git"); shown != clean {
+		t.Errorf("ShownSyncError beside a clean URL = %q, want %q", shown, clean)
+	}
+	if shown := project.ShownSyncError("", "https://git.example.invalid/r.git?x"); shown != "" {
+		t.Errorf("ShownSyncError of no error = %q, want none", shown)
+	}
+}
