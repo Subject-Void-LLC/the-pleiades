@@ -454,8 +454,8 @@ func Combine(arts ...Artifact) (Artifact, error) {
 		for _, db := range a.Databases() {
 			if _, dup := wire.FindDatabaseConnection(out.databases, db.Name); dup {
 				return Artifact{}, fmt.Errorf(
-					"%w: %q is a second database connection named %s, and a task names a connection by its name",
-					ErrInjectorConflict, a.CredentialName, db.Name)
+					"%w: %q is a second database connection with the same %q input, and a task names a connection by it",
+					ErrInjectorConflict, a.CredentialName, DatabaseInputName)
 			}
 			out.databases = append(out.databases, db)
 		}
@@ -481,8 +481,8 @@ func Combine(arts ...Artifact) (Artifact, error) {
 		for _, v := range a.vault {
 			if previous, clash := vaultOwner[v.Identifier]; clash {
 				return Artifact{}, fmt.Errorf(
-					"%w: %q and %q are both vault credentials with the identifier %s",
-					ErrInjectorConflict, previous, a.CredentialName, describeVaultIdentifier(v.Identifier))
+					"%w: %q and %q are both vault credentials with %s",
+					ErrInjectorConflict, previous, a.CredentialName, describeVaultIdentity(v.Identifier))
 			}
 			vaultOwner[v.Identifier] = a.CredentialName
 			out.vault = append(out.vault, v)

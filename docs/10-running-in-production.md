@@ -43,9 +43,10 @@ it says so.
 
 ### Nothing is published, so you build the images first
 
-There is no registry hosting a Pleiades image and no tagged release of this
-repository. That is the single most important fact about installing it, because
-every other instruction follows from it.
+There is no registry hosting a Pleiades image. Tagged releases (v0.3.0 onward) ship
+the `pleiades` CLI as archives with a checksum list, but no Controller or Runner
+image, so you build the images yourself. That is the single most important fact
+about installing the Walk tier, because every other instruction follows from it.
 
 Build both images from the commit you intend to run:
 
@@ -1415,6 +1416,22 @@ volume, a Vault Agent sidecar and the External Secrets Operator, which is how
 secrets arrive in a large fraction of deployments. It needs no client and no
 network call on the dispatch path.
 
+The file source has one stated tenancy limit. It reads from one directory,
+configured once for the whole Controller, and a reference names a file by name, so a
+credential in any organization can name any file in that directory, including one put
+there for another organization. Nothing scopes the directory to a tenant yet. Put a
+file there only if every organization this Controller serves may read it, or run
+organizations that must not share secrets on separate Controllers.
+
+Whichever source a value comes from, it may fill only an input the credential's type
+marks secret. A value read from a secret manager is a secret, and the masking that
+keeps secrets out of a run's output is built from the type's secret inputs, so a
+secret resolved into any other input would reach the run in plain text. A reference
+naming an input that is not secret is refused when the credential is written, and one
+stored before this rule is refused when a job dispatches, naming the credential and
+the input; the credential itself stays readable and editable, and removing the
+reference, or declaring the input secret, fixes it.
+
 The second is **HashiCorp Vault**, reading a key/value secret directly over its
 HTTP API, on either a v1 or a v2 mount. The certificate chain is always verified
 and there is no option anywhere to skip it; a Vault with a private authority is
@@ -1450,11 +1467,12 @@ Rotating the source is the point. Every target that reads through it picks up th
 new value on its next run, with no edit to any of them, because resolution happens
 when a job dispatches rather than when the binding was written.
 
-Four things are refused when you write a binding, rather than when a job later
+Five things are refused when you write a binding, rather than when a job later
 trips over them: an input the credential's type does not declare, a source in
 another organization, a binding to an ordinary credential that does not say which
-of its fields to read, and a set that would make resolution return to the
-credential it started from.
+of its fields to read, a secret read into an input that is not secret (from a secret
+field of an ordinary credential, or from any external-kind source), and a set that
+would make resolution return to the credential it started from.
 
 A source credential's own inputs may themselves be bound to a further source, and
 that chain is bounded at **four hops**. Past that the resolution is refused by name
@@ -1714,9 +1732,9 @@ credential was injected into. A type that could set `LD_PRELOAD`, `PYTHONPATH`,
 inside the run it was meant to authenticate, so those names and their relatives are
 refused when the type is saved and again when a dispatch reaches it. The container
 being single use does not help: the code would run before the container is destroyed.
-For the same reason the web UI lists and tests credential types but does not author
-them; that stays on the API, where a caller had to construct the request
-deliberately.
+The web UI creates credential types and adds or removes one input or injector entry at
+a time, and every one of those writes goes through the same store checks as the API,
+so a name refused over the API is refused on the page too.
 
 **Binding is a higher privilege than editing.** Changing what a template runs is
 `template:write`. Changing what it runs *as* is `credential:write`, granted
@@ -1730,6 +1748,77 @@ there is no endpoint, parameter or header that returns the real thing. It is
 decrypted only at dispatch, inside the process that injects it. Submitting the marker
 back on an update leaves the stored value alone, so editing an unrelated field does
 not destroy a secret.
+
+An edit of the credential type cannot change that either. A read decides what to
+redact from the type's current input schema, so the store holds every type edit to
+three rules. An input marked secret cannot be made non-secret: remove it and add it
+again instead. Removing an input deletes the value, the external reference and the
+input source every credential of the type holds for it, in the same transaction as
+the edit. Adding one as non-secret deletes anything stored under its id before it
+existed, and adding one as secret keeps it, shown only as `$encrypted$`, so a value
+stored as secret is never read back under an input that is not. And an edit is
+refused while a credential of the type cannot be decrypted with this Controller's key,
+rather than rewriting that ciphertext blind. A deployment upgraded from a release
+without these rules can still hold values an earlier removal left behind; the next
+edit of the type, of any field, deletes them.
+
+No refusal built from a credential's values quotes one: binding two credentials,
+injecting one or reading one from a secret manager names the credential, the input and
+the rule it breaks (`input "port" is not a number`), never the value, since a custom
+type may mark any input secret and the refusal reaches an API response or a job's
+failure reason, where nothing masks it. A vault type's `vault_id` input and a database
+type's `name` input also cannot be marked secret: each is a label, a vault's reaching
+`ansible-playbook`'s command line as `--vault-id` and a database connection's being the
+name a task gives it, and a secret one could not be read back to tell two credentials
+apart. A custom type marking either secret is refused when it is saved, including by an
+edit that changes its kind.
+
+Every credential create, update and input-source write of a type, and every edit of
+the type, first takes a lock on the type's row, and an edit made through the API or
+the web UI is applied to the record as it stands under that lock, so the two never
+interleave and neither undoes the other. Two writers take no lock: deleting a
+credential, which a purge running at the same time simply skips, and key rotation,
+which rewrites the same values under a new key and steps aside for any write made
+since it read the row. Reads take no lock either, so no read waits behind a purge.
+Each read of a credential, and the resolution that hands one to a run, reads the
+credential and its type as they stood at one moment, in one read-only transaction
+(repeatable read on PostgreSQL; on SQLite a read transaction already reads one
+snapshot): read in two statements, an edit committed between them that removed a
+secret input and added it back non-secret would pair a value stored as secret with a
+schema that shows it. The lock is exclusive, which has a cost worth knowing about: credential
+writes of one type queue behind one another across every organization, and behind an
+edit's purge, which reads every credential of the type. On a SQLite file database a
+credential write held it for about 0.35 milliseconds, and a purge read a credential in
+about 4 microseconds and read and rewrote one in about 35, so a type with ten thousand
+credentials holds its writers for about a third of a second when an input is removed.
+On PostgreSQL each rewrite is a round trip, so expect several times that.
+
+A managed type's release reconcile follows the same rules with one difference. A
+shipped input marked secret cannot become non-secret, an input a release adds as
+non-secret starts empty, and one it adds as secret keeps what is stored under it,
+shown only as `$encrypted$`; but a reconcile never deletes what credentials hold for an
+input the release does not ship: while two releases run side by side the stored type
+may be the newer one's, and its newer inputs are not the older release's to delete.
+So rolling a deployment back and forward loses nothing for a secret input. It does
+lose a non-secret input's values written by the newer release, which are deleted when
+the newer release adds the input back after the older one's reconcile left it out;
+stopping that needs each managed type to record the release that wrote it, which is
+not built. While the older release runs, a credential holding something for an input
+its type no longer declares stays usable: an update carries that value, external
+reference and input source as they are, unchecked, a read shows none of them, and a
+dispatch hands none of them to the run, so its token can still be rotated and its jobs
+still run. A value or a new reference sent for such an input is refused, and a write
+replacing the credential's input sources replaces those of declared inputs and keeps
+the carried one. The rule binding a template's credentials reads the credential as the
+run will, without them. An update of
+a credential this Controller cannot decrypt is refused with 409 rather than sealing
+its old ciphertext inside a new envelope. One credential of a managed type that this Controller cannot decrypt stops
+that type's reconcile when the release adds a non-secret input, for every
+organization: the type is left
+as it was, the Controller still starts, and it logs
+`level=ERROR msg="failed to reconcile a managed credential type" namespace=<type>`
+with an error saying which credential's stored values cannot be read. Restore the key
+that sealed it, or delete the credential.
 
 **A prompted input is never stored.** A type may declare an input asked at launch
 rather than saved. The answer travels with that one job and is written nowhere, which

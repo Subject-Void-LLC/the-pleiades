@@ -7886,3 +7886,25 @@ change, not only the tests of the package changed. Where a test needs the value 
 could have stored it (a hand-written file, a row inserted beneath the rule, a file renamed as text after a first write),
 and say so in the test. Where a test only needs the error path, use an input the rule allows that still shows the
 property under test, as `web1" scripted: approved` still shows that `%q` changed the name.
+
+## 428. A fix that touches a secret path gets at least two independent review passes, and one of them is by a reader outside the session's framing, given the code rather than the session's account of it (a repeat of 395, refining it; 375; FAILURE_PATTERNS 1089, 1097, 1099 and 1102) (2026-11-09)
+
+**Why.** Branches `fix/patch-projects-partial` and `fix/patch-credentials-partial`, 2026-11-09. Across this sweep each
+review pass of a security fix found something the passes before it had not. Three passes on the URL credential
+detector each found shapes its list missed, and it ended as an allowlist (FAILURE_PATTERNS 1089). Three passes on the
+credential type rules (1097) each found something new, the import's adoption of a custom type among them (1099). Then
+an independent read by a second model (Fable 5.2, through the API) found that readers took the credential and its type
+in two snapshots (1102). Every in-session pass had missed it, and it was proven red here before it was fixed.
+
+**Why 395 did not hold.** 395 asks for an independent design review before a security change and an independent diff
+review after. It counts reviews, and it does not say what makes one independent. The in-session passes here were
+briefed by the session and shared its account of the change and of what was at risk; the outside read was given the
+code. That difference is the one this incident shows. It is one case, so it is the reason the rule names, not a
+measurement.
+
+**Rule in practice.** For a change on a secret path (a value that is or may become secret, its masking, or who may
+read it), plan at least two independent review passes after the code is written, and make one a reader outside the
+session: the API review LESSONS 395 asks for, given the files each guarantee rests on (LESSONS 419) rather than the
+session's summary of them. A pass that finds something means the fix gets another pass. When a pass finds a new hole
+of a family already patched twice, narrow the design instead (LESSONS 375). Verify every outside claim before acting on
+it (LESSONS 50 and 403), and hold each finding red on the old code.

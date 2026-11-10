@@ -440,6 +440,7 @@ DOCKER_DEPENDENT_PACKAGES := \
 	github.com/Subject-Void-LLC/the-pleiades/internal/catalog/scan \
 	github.com/Subject-Void-LLC/the-pleiades/internal/catalog/virt/clab \
 	github.com/Subject-Void-LLC/the-pleiades/internal/catalog/wait \
+	github.com/Subject-Void-LLC/the-pleiades/internal/credstore/locktest \
 	github.com/Subject-Void-LLC/the-pleiades/internal/credstore/resolve \
 	github.com/Subject-Void-LLC/the-pleiades/internal/election \
 	github.com/Subject-Void-LLC/the-pleiades/internal/ent \

@@ -28,26 +28,11 @@ func (s *entStore) GetCredential(ctx context.Context, id int) (Credential, error
 
 // ListCredentials returns an organization's credentials, redacted.
 func (s *entStore) ListCredentials(ctx context.Context, organizationID int) ([]Credential, error) {
-	rows, err := s.client.Credential.Query().
-		Where(credential.HasOrganizationWith(organization.IDEQ(organizationID))).
-		WithCredentialType().
-		WithOrganization().
-		WithTemplates().
-		Order(ent.Asc(credential.FieldName)).
-		All(ctx)
+	rows, err := s.queryCredentials(ctx, credential.HasOrganizationWith(organization.IDEQ(organizationID)))
 	if err != nil {
 		return nil, fmt.Errorf("credstore: listing credentials: %w", err)
 	}
-
-	out := make([]Credential, 0, len(rows))
-	for _, row := range rows {
-		projected, projectErr := s.project(ctx, row)
-		if projectErr != nil {
-			return nil, projectErr
-		}
-		out = append(out, projected)
-	}
-	return out, nil
+	return s.projectAll(ctx, rows)
 }
 
 // ListAllCredentials returns every credential across every tenant,
@@ -58,25 +43,11 @@ func (s *entStore) ListCredentials(ctx context.Context, organizationID int) ([]C
 // matters: the redaction is applied in one function rather than per query,
 // so a new listing cannot be the one that forgets it.
 func (s *entStore) ListAllCredentials(ctx context.Context) ([]Credential, error) {
-	rows, err := s.client.Credential.Query().
-		WithCredentialType().
-		WithOrganization().
-		WithTemplates().
-		Order(ent.Asc(credential.FieldName)).
-		All(ctx)
+	rows, err := s.queryCredentials(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("credstore: listing every credential: %w", err)
 	}
-
-	out := make([]Credential, 0, len(rows))
-	for _, row := range rows {
-		projected, projectErr := s.project(ctx, row)
-		if projectErr != nil {
-			return nil, projectErr
-		}
-		out = append(out, projected)
-	}
-	return out, nil
+	return s.projectAll(ctx, rows)
 }
 
 // CreateCredential stores a new credential.
@@ -87,6 +58,9 @@ func (s *entStore) ListAllCredentials(ctx context.Context) ([]Credential, error)
 // database; nothing here sees ciphertext or plaintext twice.
 func (s *entStore) CreateCredential(ctx context.Context, organizationID, typeID int, name, description string, inputs, external map[string]string, opts ...CredentialOption) (Credential, error) {
 	write := applyCredentialOptions(opts)
+	if err := checkCredentialText(name, description, external); err != nil {
+		return Credential{}, err
+	}
 	ct, err := s.client.CredentialType.Get(ctx, typeID)
 	if err != nil {
 		return Credential{}, wrapNotFound(err, "credential type")
@@ -104,26 +78,12 @@ func (s *entStore) CreateCredential(ctx context.Context, organizationID, typeID 
 			return Credential{}, fmt.Errorf("credstore: reading the credential type's organization: %w", ownerErr)
 		}
 		if owner.ID != organizationID {
+			// Named by the id the caller sent, never by name: the type is
+			// another tenant's record, and a caller may hold the write scope
+			// without the read scope that would show it.
 			return Credential{}, fmt.Errorf(
-				"%w: the credential type %q belongs to another organization", ErrCrossOrganization, ct.Name)
+				"%w: the credential type %d belongs to another organization", ErrCrossOrganization, typeID)
 		}
-	}
-
-	// One check, both maps. CheckValues validates the stored values and the
-	// external references against the same schema, including the rule that
-	// a required input may be satisfied by an external reference rather
-	// than by a stored value. This package used to run a second, separate
-	// check over external alone; it was the same rule written twice, which
-	// is the duplication PLAN.md Section 25 forbids, and it was deleted
-	// rather than kept in sync.
-	//
-	// A required input supplied by a source binding is the fourth
-	// exemption, alongside a default, an external reference and a launch
-	// prompt. It has to be passed in here rather than read back, because
-	// on a create the bindings do not exist yet: that ordering is the
-	// whole reason WithInputSources exists.
-	if err := ct.Inputs.CheckValues(inputs, external, sourcedIDs(write.sources)...); err != nil {
-		return Credential{}, err
 	}
 
 	// The credential and its bindings are one transaction. A partial
@@ -131,6 +91,31 @@ func (s *entStore) CreateCredential(ctx context.Context, organizationID, typeID 
 	// value and no source, which fails at injection rather than here.
 	var createdID int
 	if err := storage.NewEntUnitOfWork(s.client).WithTx(ctx, func(txCtx context.Context) error {
+		// The values are checked against the schema read under the type's
+		// lock, so a type edit cannot land between the check and the write
+		// (type_inputs.go): a value checked as secret is written as secret.
+		locked, err := s.lockType(txCtx, typeID)
+		if err != nil {
+			return err
+		}
+
+		// One check, both maps. CheckValues validates the stored values and
+		// the external references against the same schema, including the
+		// rule that a required input may be satisfied by an external
+		// reference rather than by a stored value. This package used to run
+		// a second, separate check over external alone; it was the same rule
+		// written twice, which is the duplication PLAN.md Section 25 forbids,
+		// and it was deleted rather than kept in sync.
+		//
+		// A required input supplied by a source binding is the fourth
+		// exemption, alongside a default, an external reference and a launch
+		// prompt. It has to be passed in here rather than read back, because
+		// on a create the bindings do not exist yet: that ordering is the
+		// whole reason WithInputSources exists.
+		if err := locked.Inputs.CheckValues(inputs, external, sourcedIDs(write.sources)...); err != nil {
+			return err
+		}
+
 		tx := ent.FromContext(txCtx)
 		row, createErr := tx.Credential.Create().
 			SetName(name).
@@ -148,7 +133,7 @@ func (s *entStore) CreateCredential(ctx context.Context, organizationID, typeID 
 		if !write.hasSources {
 			return nil
 		}
-		return s.writeInputSources(txCtx, row.ID, ct.Inputs, organizationID, write.sources)
+		return s.writeInputSources(txCtx, row.ID, locked.Inputs, organizationID, write.sources)
 	}); err != nil {
 		return Credential{}, err
 	}
@@ -169,9 +154,25 @@ func (s *entStore) CreateCredential(ctx context.Context, organizationID, typeID 
 // "$encrypted$". Without this the first edit of any credential would
 // destroy every secret on it, which is a data-loss bug that looks like a
 // successful save.
+//
+// It is UpdateCredentialWith with a fold that sets exactly these values, so
+// external replaces the stored references whole and nil removes them all.
 func (s *entStore) UpdateCredential(ctx context.Context, id int, name, description string, inputs, external map[string]string, opts ...CredentialOption) (Credential, error) {
+	return s.UpdateCredentialWith(ctx, id, func(stored Credential) (Credential, error) {
+		stored.Name, stored.Description, stored.Inputs, stored.External = name, description, inputs, external
+		return stored, nil
+	}, opts...)
+}
+
+// UpdateCredentialWith folds a change over a credential read under its
+// type's lock and writes the result. See the Store interface for what fold
+// receives and returns.
+func (s *entStore) UpdateCredentialWith(ctx context.Context, id int, fold func(stored Credential) (Credential, error), opts ...CredentialOption) (Credential, error) {
 	write := applyCredentialOptions(opts)
 
+	// Read first for the type's id, which is immutable, and the owner, which
+	// no update changes: everything checked or written back is read again
+	// under the lock below.
 	row, err := s.loadCredential(ctx, credential.IDEQ(id))
 	if err != nil {
 		return Credential{}, err
@@ -182,32 +183,68 @@ func (s *entStore) UpdateCredential(ctx context.Context, id int, name, descripti
 		return Credential{}, fmt.Errorf("credstore: credential %d was read without its type or organization", id)
 	}
 
-	// Which inputs count as sourced depends on whether this write replaces
-	// the bindings. When it does not, the stored ones still stand, and
-	// reading them back is what stops an ordinary rename from failing the
-	// required check on an input that has a source it is not touching.
-	sourced := sourcedIDs(write.sources)
-	if !write.hasSources {
-		existing, listErr := s.ListCredentialInputSources(ctx, id)
-		if listErr != nil {
-			return Credential{}, listErr
-		}
-		sourced = sourced[:0]
-		for _, e := range existing {
-			sourced = append(sourced, e.InputID)
-		}
-	}
-
-	merged := mergeInputs(row.Inputs, inputs)
-	if err := ct.Inputs.CheckValues(merged, external, sourced...); err != nil {
-		return Credential{}, err
-	}
-
 	if err := storage.NewEntUnitOfWork(s.client).WithTx(ctx, func(txCtx context.Context) error {
+		// Everything the change is made from and checked against is read
+		// under the type's lock, so a type edit cannot land between the read
+		// and the write (type_inputs.go): fold sees the references and the
+		// values a purge left, and a value checked as secret is written as
+		// secret.
+		locked, err := s.lockType(txCtx, ct.ID)
+		if err != nil {
+			return err
+		}
+		current, err := s.loadCredential(txCtx, credential.IDEQ(id))
+		if err != nil {
+			return err
+		}
+		if sealed(current.Inputs) {
+			return unreadable(id, "they cannot be carried into this update")
+		}
+		// fold gets the projection, whose maps are its own (project builds
+		// the redacted inputs and copies the references), so nothing a fold
+		// edits in place reaches current, the row the merge reads below.
+		stored, err := s.project(txCtx, current)
+		if err != nil {
+			return err
+		}
+		next, err := fold(stored)
+		if err != nil {
+			return err
+		}
+		if err := checkCredentialText(next.Name, next.Description, next.External); err != nil {
+			return err
+		}
+
+		// Which inputs count as sourced depends on whether this write
+		// replaces the bindings. When it does not, the stored ones still
+		// stand, and reading them back is what stops an ordinary rename from
+		// failing the required check on an input that has a source it is not
+		// touching. One for an input the type no longer declares is carried
+		// (carried.go).
+		sourced := sourcedIDs(write.sources)
+		if !write.hasSources {
+			existing, listErr := s.ListCredentialInputSources(txCtx, id)
+			if listErr != nil {
+				return listErr
+			}
+			sourced = sourced[:0]
+			for _, e := range existing {
+				sourced = append(sourced, e.InputID)
+			}
+		}
+
+		// What the credential stores for an input its type no longer declares
+		// is carried as it is, not checked (carried.go).
+		merged := mergeInputs(current.Inputs, next.Inputs)
+		if err := locked.Inputs.CheckValues(uncarried(locked.Inputs, current, merged, next), next.External, sourced...); err != nil {
+			return err
+		}
+		external := withCarriedReferences(locked.Inputs, current.External, next.External)
+
 		tx := ent.FromContext(txCtx)
 		if _, updateErr := tx.Credential.UpdateOneID(id).
-			SetName(name).
-			SetDescription(description).
+			SetName(next.Name).
+			SetDescription(next.Description).
 			SetInputs(merged).
 			SetExternal(external).
 			Save(txCtx); updateErr != nil {
@@ -216,7 +253,7 @@ func (s *entStore) UpdateCredential(ctx context.Context, id int, name, descripti
 		if !write.hasSources {
 			return nil
 		}
-		return s.writeInputSources(txCtx, id, ct.Inputs, org.ID, write.sources)
+		return s.writeInputSources(txCtx, id, locked.Inputs, org.ID, write.sources)
 	}); err != nil {
 		return Credential{}, err
 	}
@@ -244,26 +281,11 @@ func (s *entStore) DeleteCredential(ctx context.Context, id int) error {
 
 // TemplateCredentials returns the credentials bound to a template.
 func (s *entStore) TemplateCredentials(ctx context.Context, templateID int) ([]Credential, error) {
-	rows, err := s.client.Credential.Query().
-		Where(credential.HasTemplatesWith(template.IDEQ(templateID))).
-		WithCredentialType().
-		WithOrganization().
-		WithTemplates().
-		Order(ent.Asc(credential.FieldName)).
-		All(ctx)
+	rows, err := s.queryCredentials(ctx, credential.HasTemplatesWith(template.IDEQ(templateID)))
 	if err != nil {
 		return nil, fmt.Errorf("credstore: listing a template's credentials: %w", err)
 	}
-
-	out := make([]Credential, 0, len(rows))
-	for _, row := range rows {
-		projected, projectErr := s.project(ctx, row)
-		if projectErr != nil {
-			return nil, projectErr
-		}
-		out = append(out, projected)
-	}
-	return out, nil
+	return s.projectAll(ctx, rows)
 }
 
 // SetTemplateCredentials replaces a template's bindings.
@@ -323,11 +345,19 @@ func (s *entStore) boundFor(ctx context.Context, ids []int, organizationID int) 
 			return nil, fmt.Errorf("credstore: credential %d was read without its type or organization", id)
 		}
 		if org.ID != organizationID {
+			// Named by the id the caller sent, never by name, as
+			// CreateCredential's own cross-tenant refusal is.
 			return nil, fmt.Errorf(
-				"%w: the credential %q belongs to another organization", ErrCrossOrganization, row.Name)
+				"%w: the credential %d belongs to another organization", ErrCrossOrganization, id)
 		}
 
 		kind := credtype.Kind(ct.Kind)
+		// The values the run will read, which are only those the type
+		// declares (credtype.InputSchema.Declared, as the resolver reads
+		// them): a value carried for an input it no longer declares
+		// (carried.go) would make this rule judge a credential the run never
+		// sees.
+		inputs := ct.Inputs.Declared(row.Inputs)
 		out = append(out, credtype.Bound{
 			CredentialID:   id,
 			CredentialName: row.Name,
@@ -336,17 +366,17 @@ func (s *entStore) boundFor(ctx context.Context, ids []int, organizationID int) 
 			// store rather than at the handler: the handler only ever
 			// holds the redacted projection, and vault_id may itself be a
 			// secret field.
-			VaultIdentifier: credtype.VaultIdentifierOf(kind, row.Inputs),
+			VaultIdentifier: credtype.VaultIdentifierOf(kind, inputs),
 			// The name a task gives a database connection, which several
 			// on one definition must not share.
-			DatabaseName: credtype.DatabaseNameOf(kind, row.Inputs),
+			DatabaseName: credtype.DatabaseNameOf(kind, inputs),
 			// Also read from the real values, and for the same reason: whether
 			// a cryptography credential is a client-certificate identity or a
 			// signing key is a fact about what it holds, and the certificate
 			// input is secret so only this side can see it.
 			PresentsCertificate: credtype.PresentsCertificateFor(credtype.Credential{
 				Type:   credtype.CredentialType{Kind: kind},
-				Inputs: row.Inputs,
+				Inputs: inputs,
 			}),
 		})
 	}
@@ -354,18 +384,61 @@ func (s *entStore) boundFor(ctx context.Context, ids []int, organizationID int) 
 }
 
 // loadCredential fetches one credential with the edges every projection
-// needs.
+// needs, in one snapshot (queryCredentials).
 func (s *entStore) loadCredential(ctx context.Context, where predicate.Credential) (*ent.Credential, error) {
-	row, err := s.client.Credential.Query().
-		Where(where).
-		WithCredentialType().
-		WithOrganization().
-		WithTemplates().
-		Only(ctx)
+	var row *ent.Credential
+	err := storage.ReadSnapshot(ctx, s.client, func(ctx context.Context, db *ent.Client) error {
+		var err error
+		row, err = db.Credential.Query().
+			Where(where).
+			WithCredentialType().
+			WithOrganization().
+			WithTemplates().
+			Only(ctx)
+		return err
+	})
 	if err != nil {
 		return nil, wrapNotFound(err, "credential")
 	}
 	return row, nil
+}
+
+// queryCredentials fetches the credentials matching where, ordered by name,
+// with the edges every projection needs.
+//
+// The read is one snapshot (storage.ReadSnapshot), and has to be: ent reads
+// each edge in a statement after the credentials', and the projection
+// redacts the values by the type's schema, so a type edit committed between
+// the two statements, removing a secret input and adding it back plain,
+// would show a value written as secret in plain text. The type lock does not
+// cover this: a reader takes no lock, so that no read waits behind a purge.
+func (s *entStore) queryCredentials(ctx context.Context, where ...predicate.Credential) ([]*ent.Credential, error) {
+	var rows []*ent.Credential
+	err := storage.ReadSnapshot(ctx, s.client, func(ctx context.Context, db *ent.Client) error {
+		var err error
+		rows, err = db.Credential.Query().
+			Where(where...).
+			WithCredentialType().
+			WithOrganization().
+			WithTemplates().
+			Order(ent.Asc(credential.FieldName)).
+			All(ctx)
+		return err
+	})
+	return rows, err
+}
+
+// projectAll projects every row, stopping at the first that cannot be.
+func (s *entStore) projectAll(ctx context.Context, rows []*ent.Credential) ([]Credential, error) {
+	out := make([]Credential, 0, len(rows))
+	for _, row := range rows {
+		projected, err := s.project(ctx, row)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, projected)
+	}
+	return out, nil
 }
 
 // project converts a stored row into the redacted read projection.
@@ -395,7 +468,7 @@ func (s *entStore) project(ctx context.Context, row *ent.Credential) (Credential
 		OrganizationID:   org.ID,
 		OrganizationName: org.Name,
 		Inputs:           redactInputs(ct.Inputs, row.Inputs),
-		External:         cloneStrings(row.External),
+		External:         ct.Inputs.Declared(row.External),
 		TemplateIDs:      templateIDs,
 	}, nil
 }

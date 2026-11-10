@@ -460,6 +460,7 @@ story, per `.AGENTS/AGENTS.md`.
 425. Before changing code that every command shares, pin each command's output from the base branch's own code and compare it byte for byte, so each difference the change makes is one someone decided rather than a side effect (FAILURE_PATTERNS 1062) (2026-11-09).
 426. Every bound a store's schema puts on a value a caller writes is checked by the validator in front of the store, and a test holds the two equal by calling the store's own generated validator; a store bound with no mirror answers 500 (FAILURE_PATTERNS 1070, 1071) (2026-11-09).
 427. When a change refuses an input at creation, every test that used that input as a fixture loses its route to the store: seed it the way an older release stored it, and run every test of the error sites the input reached, not only the tests of the code the change touched (a generalization of 43; FAILURE_PATTERNS 42 and 1078) (2026-11-09).
+428. A fix that touches a secret path gets at least two independent review passes, and one of them is by a reader outside the session's framing, given the code rather than the session's account of it (a repeat of 395, refining it; 375; FAILURE_PATTERNS 1089, 1097, 1099 and 1102) (2026-11-09).
 
 Each entry above is the rule only. Full reasoning and the incident that produced it lives in [`LESSONS_LEARNED_ARCHIVE.md`](LESSONS_LEARNED_ARCHIVE.md), same entry numbers. Read an archive entry when its rule is directly relevant to what you're doing and you need the *why*; the rule sentence above is usually enough on its own.
 

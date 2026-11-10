@@ -1229,7 +1229,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "description": "A partial update. A field left out keeps its stored value and a field present is applied; an empty value clears a field that can be empty. No field may be null: leave it out to keep it. Unknown fields are refused, so a GET response cannot be sent back as it is; send the fields a create takes. Only the role and the effect can change: re-pointing a grant is revoking one and issuing another, which leaves two legible events.",
+                "description": "A partial update. A field left out keeps its stored value and a field present is applied; an empty value clears a field that can be empty. No field may be null: leave it out to keep it. Unknown fields are refused, so a GET response cannot be sent back as it is; send the fields a create takes. A field named twice, in any mix of upper and lower case, is refused, naming it. Only the role and the effect can change: re-pointing a grant is revoking one and issuing another, which leaves two legible events.",
                 "properties": {
                   "effect": {
                     "description": "allow or deny.",
@@ -1934,7 +1934,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "description": "A partial update. A field left out keeps its stored value and a field present is applied; an empty value clears a field that can be empty. No field may be null: leave it out to keep it. Unknown fields are refused, so a GET response cannot be sent back as it is; send the fields a create takes. The contact as it would be saved is checked whole, so clearing its only way to reach somebody is refused.",
+                "description": "A partial update. A field left out keeps its stored value and a field present is applied; an empty value clears a field that can be empty. No field may be null: leave it out to keep it. Unknown fields are refused, so a GET response cannot be sent back as it is; send the fields a create takes. A field named twice, in any mix of upper and lower case, is refused, naming it. The contact as it would be saved is checked whole, so clearing its only way to reach somebody is refused.",
                 "properties": {
                   "email": {
                     "description": "\"\" clears it, while at least one of email, phone or url remains.",
@@ -2226,7 +2226,7 @@
                                       "type": "boolean"
                                     },
                                     "secret": {
-                                      "description": "Whether this field's value is a secret. It is the single most consequential flag here: it decides encryption at rest and whether the value reads back as a marker or as itself.",
+                                      "description": "Whether this field's value is a secret. It is the single most consequential flag here: it decides encryption at rest and whether the value reads back as a marker or as itself. Once a saved type marks an input secret the flag cannot be cleared: remove the input and add it again, which deletes every value stored for it.",
                                       "type": "boolean"
                                     },
                                     "type": {
@@ -2249,7 +2249,7 @@
                             "type": "object"
                           },
                           "kind": {
-                            "description": "The coarse grouping: ssh, vault, net, scm, cloud, token, insights, external, kubernetes, galaxy, cryptography or registry. It is what the binding rule keys on.",
+                            "description": "The coarse grouping: cloud, cryptography, database, external, galaxy, insights, kubernetes, net, registry, scm, ssh, token or vault. It is what the binding rule keys on.",
                             "type": "string"
                           },
                           "managed": {
@@ -2380,7 +2380,7 @@
                               "type": "boolean"
                             },
                             "secret": {
-                              "description": "Whether this field's value is a secret. It is the single most consequential flag here: it decides encryption at rest and whether the value reads back as a marker or as itself.",
+                              "description": "Whether this field's value is a secret. It is the single most consequential flag here: it decides encryption at rest and whether the value reads back as a marker or as itself. Once a saved type marks an input secret the flag cannot be cleared: remove the input and add it again, which deletes every value stored for it.",
                               "type": "boolean"
                             },
                             "type": {
@@ -2403,7 +2403,7 @@
                     "type": "object"
                   },
                   "kind": {
-                    "description": "One of the twelve kinds.",
+                    "description": "One of cloud, cryptography, database, external, galaxy, insights, kubernetes, net, registry, scm, ssh, token or vault.",
                     "type": "string"
                   },
                   "name": {
@@ -2523,7 +2523,7 @@
                                 "type": "boolean"
                               },
                               "secret": {
-                                "description": "Whether this field's value is a secret. It is the single most consequential flag here: it decides encryption at rest and whether the value reads back as a marker or as itself.",
+                                "description": "Whether this field's value is a secret. It is the single most consequential flag here: it decides encryption at rest and whether the value reads back as a marker or as itself. Once a saved type marks an input secret the flag cannot be cleared: remove the input and add it again, which deletes every value stored for it.",
                                 "type": "boolean"
                               },
                               "type": {
@@ -2546,7 +2546,7 @@
                       "type": "object"
                     },
                     "kind": {
-                      "description": "The coarse grouping: ssh, vault, net, scm, cloud, token, insights, external, kubernetes, galaxy, cryptography or registry. It is what the binding rule keys on.",
+                      "description": "The coarse grouping: cloud, cryptography, database, external, galaxy, insights, kubernetes, net, registry, scm, ssh, token or vault. It is what the binding rule keys on.",
                       "type": "string"
                     },
                     "managed": {
@@ -2586,7 +2586,7 @@
                 }
               }
             },
-            "description": "The body is malformed, or the type does not validate."
+            "description": "The body is malformed, or the type does not validate, marks secret a vault type's vault_id or a database type's name, or holds a NUL character anywhere in its text."
           },
           "409": {
             "content": {
@@ -2800,7 +2800,7 @@
                                 "type": "boolean"
                               },
                               "secret": {
-                                "description": "Whether this field's value is a secret. It is the single most consequential flag here: it decides encryption at rest and whether the value reads back as a marker or as itself.",
+                                "description": "Whether this field's value is a secret. It is the single most consequential flag here: it decides encryption at rest and whether the value reads back as a marker or as itself. Once a saved type marks an input secret the flag cannot be cleared: remove the input and add it again, which deletes every value stored for it.",
                                 "type": "boolean"
                               },
                               "type": {
@@ -2823,7 +2823,7 @@
                       "type": "object"
                     },
                     "kind": {
-                      "description": "The coarse grouping: ssh, vault, net, scm, cloud, token, insights, external, kubernetes, galaxy, cryptography or registry. It is what the binding rule keys on.",
+                      "description": "The coarse grouping: cloud, cryptography, database, external, galaxy, insights, kubernetes, net, registry, scm, ssh, token or vault. It is what the binding rule keys on.",
                       "type": "string"
                     },
                     "managed": {
@@ -2893,7 +2893,7 @@
         "x-link-relation": "self"
       },
       "patch": {
-        "description": "Replaces a custom type's editable fields. The namespace is immutable and a supplied one is ignored rather than refused, so a form that round-trips every field it rendered does not fail on a field it was never allowed to change. A managed type is refused outright.",
+        "description": "A partial update of a custom type. A field left out keeps its stored value and a field present is applied; inputs and injectors, when present, each replace the stored document whole. A null on any field is refused. The namespace and the organization are not updatable: a value that differs from the stored one is refused, and the stored value is accepted as an echo. The type as it would be saved is validated whole, every injector compiled against the input schema it would have. A managed type is refused. An input marked secret cannot be made non-secret: remove it and add it again, which deletes its stored values. After every edit a credential of the type keeps a stored value, an external reference or an input source only for an input the type still declares, and for an input the edit adds only when it adds it as secret, where anything already stored reads back only as \"$encrypted$\". So removing an input deletes what credentials hold for it, and adding one as non-secret finds nothing stored under its id. A value stored as secret therefore never reads back as itself. An edit is refused with 409 while a credential of the type cannot be decrypted with this Controller's key. Concurrent PATCHes are last-writer-wins: there is no version check.",
         "operationId": "update_credential_type",
         "parameters": [
           {
@@ -2910,9 +2910,10 @@
           "content": {
             "application/json": {
               "schema": {
+                "description": "A partial update. A field left out keeps its stored value and a field present is applied; an empty value clears a field that can be empty. No field may be null: leave it out to keep it. Unknown fields are refused, so a GET response cannot be sent back as it is; send the fields a create takes. A field named twice, in any mix of upper and lower case, is refused, naming it. inputs and injectors, when present, each replace the stored document whole, as PUT .../inputs and PUT .../injectors do. The type as it would be saved is validated whole, so an inputs document dropping an input an injector still reads is refused. An input marked secret cannot be made non-secret: remove it and add it again, which deletes its stored values. After every edit a credential of the type keeps a stored value, an external reference or an input source only for an input the type still declares, and for an input the edit adds only when it adds it as secret, where anything already stored reads back only as \"$encrypted$\". So removing an input deletes what credentials hold for it, and adding one as non-secret finds nothing stored under its id. A value stored as secret therefore never reads back as itself. An edit is refused with 409 while a credential of the type cannot be decrypted with this Controller's key.",
                 "properties": {
                   "description": {
-                    "description": "",
+                    "description": "\"\" clears it.",
                     "type": "string"
                   },
                   "injectors": {
@@ -2976,7 +2977,7 @@
                               "type": "boolean"
                             },
                             "secret": {
-                              "description": "Whether this field's value is a secret. It is the single most consequential flag here: it decides encryption at rest and whether the value reads back as a marker or as itself.",
+                              "description": "Whether this field's value is a secret. It is the single most consequential flag here: it decides encryption at rest and whether the value reads back as a marker or as itself. Once a saved type marks an input secret the flag cannot be cleared: remove the input and add it again, which deletes every value stored for it.",
                               "type": "boolean"
                             },
                             "type": {
@@ -2999,12 +3000,20 @@
                     "type": "object"
                   },
                   "kind": {
-                    "description": "",
+                    "description": "One of cloud, cryptography, database, external, galaxy, insights, kubernetes, net, registry, scm, ssh, token or vault.",
                     "type": "string"
                   },
                   "name": {
-                    "description": "",
+                    "description": "Unique within the organization. May not be blank.",
                     "type": "string"
+                  },
+                  "namespace": {
+                    "description": "Not updatable: accepted only as the stored value, and any other is refused with 400. It is the stable identifier an import keys on.",
+                    "type": "string"
+                  },
+                  "organization": {
+                    "description": "Not updatable: accepted only as the stored value, and any other is refused with 400.",
+                    "type": "integer"
                   }
                 },
                 "type": "object"
@@ -3105,7 +3114,7 @@
                                 "type": "boolean"
                               },
                               "secret": {
-                                "description": "Whether this field's value is a secret. It is the single most consequential flag here: it decides encryption at rest and whether the value reads back as a marker or as itself.",
+                                "description": "Whether this field's value is a secret. It is the single most consequential flag here: it decides encryption at rest and whether the value reads back as a marker or as itself. Once a saved type marks an input secret the flag cannot be cleared: remove the input and add it again, which deletes every value stored for it.",
                                 "type": "boolean"
                               },
                               "type": {
@@ -3128,7 +3137,7 @@
                       "type": "object"
                     },
                     "kind": {
-                      "description": "The coarse grouping: ssh, vault, net, scm, cloud, token, insights, external, kubernetes, galaxy, cryptography or registry. It is what the binding rule keys on.",
+                      "description": "The coarse grouping: cloud, cryptography, database, external, galaxy, insights, kubernetes, net, registry, scm, ssh, token or vault. It is what the binding rule keys on.",
                       "type": "string"
                     },
                     "managed": {
@@ -3168,7 +3177,7 @@
                 }
               }
             },
-            "description": "The body is malformed, or the type does not validate."
+            "description": "The body is malformed, sets a field to null or changes the namespace or the organization, or the type it would leave does not validate, clears an input's secret flag, marks secret a vault type's vault_id or a database type's name, or holds a NUL character anywhere in its text."
           },
           "403": {
             "content": {
@@ -3201,6 +3210,22 @@
               }
             },
             "description": "No credential type with that id."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The name is taken in that organization, or a credential of the type cannot be decrypted with this Controller's key."
           }
         },
         "security": [
@@ -3216,7 +3241,7 @@
     },
     "/credential-types/{id}/injectors": {
       "put": {
-        "description": "Replaces the injectors, leaving the type's metadata and input schema as they are. Every template is compiled here against the type's own inputs, and an environment variable name that would change how the run executes (PATH, LD_PRELOAD and their relatives) is refused, because the customer's playbook runs in the same container. It is the same store update PATCH performs, narrowed to the injectors. A managed type is refused.",
+        "description": "Replaces the injectors, leaving the type's metadata and input schema as they are. Every template is compiled here against the type's own inputs, and an environment variable name that would change how the run executes (PATH, LD_PRELOAD and their relatives) is refused, because the customer's playbook runs in the same container. It is the same store update PATCH performs, narrowed to the injectors. A managed type is refused. The input schema is unchanged, so no value stored for a declared input is lost, but the edit still deletes any value a credential of the type holds for an input the type does not declare, and is refused with 409 while a credential of the type cannot be decrypted with this Controller's key.",
         "operationId": "set_credential_type_injectors",
         "parameters": [
           {
@@ -3351,7 +3376,7 @@
                                 "type": "boolean"
                               },
                               "secret": {
-                                "description": "Whether this field's value is a secret. It is the single most consequential flag here: it decides encryption at rest and whether the value reads back as a marker or as itself.",
+                                "description": "Whether this field's value is a secret. It is the single most consequential flag here: it decides encryption at rest and whether the value reads back as a marker or as itself. Once a saved type marks an input secret the flag cannot be cleared: remove the input and add it again, which deletes every value stored for it.",
                                 "type": "boolean"
                               },
                               "type": {
@@ -3374,7 +3399,7 @@
                       "type": "object"
                     },
                     "kind": {
-                      "description": "The coarse grouping: ssh, vault, net, scm, cloud, token, insights, external, kubernetes, galaxy, cryptography or registry. It is what the binding rule keys on.",
+                      "description": "The coarse grouping: cloud, cryptography, database, external, galaxy, insights, kubernetes, net, registry, scm, ssh, token or vault. It is what the binding rule keys on.",
                       "type": "string"
                     },
                     "managed": {
@@ -3414,7 +3439,7 @@
                 }
               }
             },
-            "description": "The body is malformed, or an injector does not validate."
+            "description": "The body is malformed, or an injector does not validate or holds a NUL character."
           },
           "403": {
             "content": {
@@ -3447,6 +3472,22 @@
               }
             },
             "description": "No credential type with that id."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "A credential of the type cannot be decrypted with this Controller's key."
           }
         },
         "security": [
@@ -3462,7 +3503,7 @@
     },
     "/credential-types/{id}/inputs": {
       "put": {
-        "description": "Replaces the whole input schema, leaving the type's metadata and injectors as they are. It is the same store update PATCH performs, narrowed to the inputs so a client that only edits the schema does not round-trip the injector document. A managed type is refused, as is a schema an injector already depends on that this would remove.",
+        "description": "Replaces the whole input schema, leaving the type's metadata and injectors as they are. It is the same store update PATCH performs, narrowed to the inputs so a client that only edits the schema does not round-trip the injector document. A managed type is refused, as is a schema an injector already depends on that this would remove. An input marked secret cannot be made non-secret: remove it and add it again, which deletes its stored values. After every edit a credential of the type keeps a stored value, an external reference or an input source only for an input the type still declares, and for an input the edit adds only when it adds it as secret, where anything already stored reads back only as \"$encrypted$\". So removing an input deletes what credentials hold for it, and adding one as non-secret finds nothing stored under its id. A value stored as secret therefore never reads back as itself. An edit is refused with 409 while a credential of the type cannot be decrypted with this Controller's key.",
         "operationId": "set_credential_type_inputs",
         "parameters": [
           {
@@ -3523,7 +3564,7 @@
                               "type": "boolean"
                             },
                             "secret": {
-                              "description": "Whether this field's value is a secret. It is the single most consequential flag here: it decides encryption at rest and whether the value reads back as a marker or as itself.",
+                              "description": "Whether this field's value is a secret. It is the single most consequential flag here: it decides encryption at rest and whether the value reads back as a marker or as itself. Once a saved type marks an input secret the flag cannot be cleared: remove the input and add it again, which deletes every value stored for it.",
                               "type": "boolean"
                             },
                             "type": {
@@ -3644,7 +3685,7 @@
                                 "type": "boolean"
                               },
                               "secret": {
-                                "description": "Whether this field's value is a secret. It is the single most consequential flag here: it decides encryption at rest and whether the value reads back as a marker or as itself.",
+                                "description": "Whether this field's value is a secret. It is the single most consequential flag here: it decides encryption at rest and whether the value reads back as a marker or as itself. Once a saved type marks an input secret the flag cannot be cleared: remove the input and add it again, which deletes every value stored for it.",
                                 "type": "boolean"
                               },
                               "type": {
@@ -3667,7 +3708,7 @@
                       "type": "object"
                     },
                     "kind": {
-                      "description": "The coarse grouping: ssh, vault, net, scm, cloud, token, insights, external, kubernetes, galaxy, cryptography or registry. It is what the binding rule keys on.",
+                      "description": "The coarse grouping: cloud, cryptography, database, external, galaxy, insights, kubernetes, net, registry, scm, ssh, token or vault. It is what the binding rule keys on.",
                       "type": "string"
                     },
                     "managed": {
@@ -3707,7 +3748,7 @@
                 }
               }
             },
-            "description": "The body is malformed, or the schema does not validate."
+            "description": "The body is malformed, or the schema does not validate, clears an input's secret flag or holds a NUL character."
           },
           "403": {
             "content": {
@@ -3740,6 +3781,22 @@
               }
             },
             "description": "No credential type with that id."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "A credential of the type cannot be decrypted with this Controller's key."
           }
         },
         "security": [
@@ -3956,14 +4013,14 @@
                             "type": "string"
                           },
                           "external": {
-                            "description": "External secret-manager references, keyed by input id, resolved just in time before a run. NOT redacted: a reference is a pointer to a secret rather than a secret, and hiding it would make \"which credentials point at this mount\" unanswerable during a migration.",
+                            "description": "External secret-manager references, keyed by input id, resolved just in time before a run. Each names an input the type marks secret, since a value read from a secret manager is a secret and masking covers only secret inputs. NOT redacted: a reference is a pointer to a secret rather than a secret, and hiding it would make \"which credentials point at this mount\" unanswerable during a migration.",
                             "type": "object"
                           },
                           "id": {
                             "type": "integer"
                           },
                           "inputs": {
-                            "description": "The credential's values, keyed by input id. A value for an input the type marks secret reads back as \"$encrypted$\" and never as itself. There is no endpoint, parameter or header that returns the real value: it is decrypted only at dispatch, inside the process that injects it. Submitting the marker back on an update leaves the stored value alone, so editing an unrelated field does not destroy a secret.",
+                            "description": "The credential's values, keyed by input id. A value for an input the type marks secret reads back as \"$encrypted$\" and never as itself. There is no endpoint, parameter or header that returns the real value: it is decrypted only at dispatch, inside the process that injects it. An edit of the type cannot change that: a secret flag cannot be cleared, and removing an input deletes every value stored for it. Submitting the marker back on an update leaves the stored value alone, so editing an unrelated field does not destroy a secret.",
                             "type": "object"
                           },
                           "kind": {
@@ -4040,7 +4097,7 @@
                     "type": "string"
                   },
                   "external": {
-                    "description": "External secret-manager references, keyed by input id.",
+                    "description": "External secret-manager references, keyed by input id. Each must name an input the type marks secret.",
                     "type": "object"
                   },
                   "inputs": {
@@ -4107,14 +4164,14 @@
                       "type": "string"
                     },
                     "external": {
-                      "description": "External secret-manager references, keyed by input id, resolved just in time before a run. NOT redacted: a reference is a pointer to a secret rather than a secret, and hiding it would make \"which credentials point at this mount\" unanswerable during a migration.",
+                      "description": "External secret-manager references, keyed by input id, resolved just in time before a run. Each names an input the type marks secret, since a value read from a secret manager is a secret and masking covers only secret inputs. NOT redacted: a reference is a pointer to a secret rather than a secret, and hiding it would make \"which credentials point at this mount\" unanswerable during a migration.",
                       "type": "object"
                     },
                     "id": {
                       "type": "integer"
                     },
                     "inputs": {
-                      "description": "The credential's values, keyed by input id. A value for an input the type marks secret reads back as \"$encrypted$\" and never as itself. There is no endpoint, parameter or header that returns the real value: it is decrypted only at dispatch, inside the process that injects it. Submitting the marker back on an update leaves the stored value alone, so editing an unrelated field does not destroy a secret.",
+                      "description": "The credential's values, keyed by input id. A value for an input the type marks secret reads back as \"$encrypted$\" and never as itself. There is no endpoint, parameter or header that returns the real value: it is decrypted only at dispatch, inside the process that injects it. An edit of the type cannot change that: a secret flag cannot be cleared, and removing an input deletes every value stored for it. Submitting the marker back on an update leaves the stored value alone, so editing an unrelated field does not destroy a secret.",
                       "type": "object"
                     },
                     "kind": {
@@ -4156,7 +4213,23 @@
                 }
               }
             },
-            "description": "The body is malformed, or the values do not satisfy the type."
+            "description": "The body is malformed, the name is blank, the name, description or a reference holds a NUL character, a reference names an input the type does not mark secret, or the values do not satisfy the type."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The credential type is another organization's custom type. The refusal names it by the id sent."
           },
           "404": {
             "content": {
@@ -4302,14 +4375,14 @@
                       "type": "string"
                     },
                     "external": {
-                      "description": "External secret-manager references, keyed by input id, resolved just in time before a run. NOT redacted: a reference is a pointer to a secret rather than a secret, and hiding it would make \"which credentials point at this mount\" unanswerable during a migration.",
+                      "description": "External secret-manager references, keyed by input id, resolved just in time before a run. Each names an input the type marks secret, since a value read from a secret manager is a secret and masking covers only secret inputs. NOT redacted: a reference is a pointer to a secret rather than a secret, and hiding it would make \"which credentials point at this mount\" unanswerable during a migration.",
                       "type": "object"
                     },
                     "id": {
                       "type": "integer"
                     },
                     "inputs": {
-                      "description": "The credential's values, keyed by input id. A value for an input the type marks secret reads back as \"$encrypted$\" and never as itself. There is no endpoint, parameter or header that returns the real value: it is decrypted only at dispatch, inside the process that injects it. Submitting the marker back on an update leaves the stored value alone, so editing an unrelated field does not destroy a secret.",
+                      "description": "The credential's values, keyed by input id. A value for an input the type marks secret reads back as \"$encrypted$\" and never as itself. There is no endpoint, parameter or header that returns the real value: it is decrypted only at dispatch, inside the process that injects it. An edit of the type cannot change that: a secret flag cannot be cleared, and removing an input deletes every value stored for it. Submitting the marker back on an update leaves the stored value alone, so editing an unrelated field does not destroy a secret.",
                       "type": "object"
                     },
                     "kind": {
@@ -4381,7 +4454,7 @@
         "x-link-relation": "self"
       },
       "patch": {
-        "description": "Replaces a credential's values. An input submitted as \"$encrypted$\" is left at whatever is stored, which is what lets a form round-trip: it renders the marker for a secret, an operator edits an unrelated field, and submitting does not overwrite the secret with the marker text. Submit a real value to rotate one.",
+        "description": "A partial update of a credential. A field left out keeps its stored value and a field present is applied. inputs merges over the stored values: an input left out keeps its value, one submitted as \"$encrypted$\" is left at whatever is stored, which is what lets a form round-trip, and \"\" clears an input; submit a real value to rotate one. external, when present, replaces the stored references whole, so an input left out of it no longer reads from an external source and {} removes every reference. A null on any field, or on a value inside inputs or external, is refused. The credential type and the organization are not updatable: a value that differs from the stored one is refused, and the stored value is accepted as an echo. The credential as it would be saved is checked whole against its type, except what it stores for an input its type no longer declares (an older release's reconcile leaves that in place): the value, reference and input source are carried as they are and never shown, and a value or a new reference the body sends for such an input is refused. The response is the redacted read. Concurrent PATCHes are last-writer-wins: there is no version check.",
         "operationId": "update_credential",
         "parameters": [
           {
@@ -4398,20 +4471,31 @@
           "content": {
             "application/json": {
               "schema": {
+                "description": "A partial update. A field left out keeps its stored value and a field present is applied; an empty value clears a field that can be empty. No field may be null: leave it out to keep it. Unknown fields are refused, so a GET response cannot be sent back as it is; send the fields a create takes. A field named twice, in any mix of upper and lower case, is refused, naming it. The credential as it would be saved is checked whole against its type, so removing the only value or reference a required input has is refused.",
                 "properties": {
+                  "credential_type": {
+                    "description": "Not updatable: accepted only as the stored value, and any other is refused with 400.",
+                    "type": "integer"
+                  },
                   "description": {
-                    "description": "",
+                    "description": "\"\" clears it.",
                     "type": "string"
                   },
                   "external": {
+                    "description": "External secret-manager references keyed by input id, each written <source>:<reference>, each on an input the type marks secret. When present it replaces the stored set whole: an input left out of it no longer reads from an external source, and {} removes every reference. Leave it out to keep them. No value may be null.",
                     "type": "object"
                   },
                   "inputs": {
+                    "description": "Values keyed by input id, merged over the stored ones: an input left out keeps its value, one sent as \"$encrypted$\" keeps the stored secret, which is what lets a form that shows the marker send it back, and \"\" clears an input. Send a real value to rotate a secret. No value may be null.",
                     "type": "object"
                   },
                   "name": {
-                    "description": "",
+                    "description": "Unique within the organization. May not be blank.",
                     "type": "string"
+                  },
+                  "organization": {
+                    "description": "Not updatable: accepted only as the stored value, and any other is refused with 400.",
+                    "type": "integer"
                   }
                 },
                 "type": "object"
@@ -4460,14 +4544,14 @@
                       "type": "string"
                     },
                     "external": {
-                      "description": "External secret-manager references, keyed by input id, resolved just in time before a run. NOT redacted: a reference is a pointer to a secret rather than a secret, and hiding it would make \"which credentials point at this mount\" unanswerable during a migration.",
+                      "description": "External secret-manager references, keyed by input id, resolved just in time before a run. Each names an input the type marks secret, since a value read from a secret manager is a secret and masking covers only secret inputs. NOT redacted: a reference is a pointer to a secret rather than a secret, and hiding it would make \"which credentials point at this mount\" unanswerable during a migration.",
                       "type": "object"
                     },
                     "id": {
                       "type": "integer"
                     },
                     "inputs": {
-                      "description": "The credential's values, keyed by input id. A value for an input the type marks secret reads back as \"$encrypted$\" and never as itself. There is no endpoint, parameter or header that returns the real value: it is decrypted only at dispatch, inside the process that injects it. Submitting the marker back on an update leaves the stored value alone, so editing an unrelated field does not destroy a secret.",
+                      "description": "The credential's values, keyed by input id. A value for an input the type marks secret reads back as \"$encrypted$\" and never as itself. There is no endpoint, parameter or header that returns the real value: it is decrypted only at dispatch, inside the process that injects it. An edit of the type cannot change that: a secret flag cannot be cleared, and removing an input deletes every value stored for it. Submitting the marker back on an update leaves the stored value alone, so editing an unrelated field does not destroy a secret.",
                       "type": "object"
                     },
                     "kind": {
@@ -4509,7 +4593,7 @@
                 }
               }
             },
-            "description": "The body is malformed, or the values do not satisfy the type."
+            "description": "The body is malformed, sets a field or a value inside inputs or external to null, or changes the credential type or the organization, or the credential it would leave has a blank name, a NUL character in its name, description or a reference, a reference naming an input the type does not mark secret, or values that do not satisfy its type."
           },
           "404": {
             "content": {
@@ -4526,6 +4610,22 @@
               }
             },
             "description": "No credential with that id."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The name is taken in the organization, or the credential's stored values cannot be decrypted with this Controller's key."
           }
         },
         "security": [
@@ -4663,7 +4763,7 @@
         "x-link-relation": "collection"
       },
       "put": {
-        "description": "Replaces the whole set, so an empty list makes every input read from stored values again. A source is either an external-kind credential, read through that secret manager's own client, or any other credential, whose named field is read directly. Refused, before anything is written, when an input is not one this credential's type declares, when the source belongs to another organization, when a non-external source does not name a source_field its own type declares, when that field is secret and the input being filled is not, or when the result would make resolution return to the credential it started from.",
+        "description": "Replaces the whole set, so an empty list makes every input read from stored values again. A source bound to an input the type no longer declares, which an older release's reconcile leaves in place and no read lists, is kept. A source is either an external-kind credential, read through that secret manager's own client, or any other credential, whose named field is read directly. Refused, before anything is written, when an input is not one this credential's type declares, when the source belongs to another organization, when a non-external source does not name a source_field its own type declares, when that field is secret and the input being filled is not, when the source is external-kind and the input being filled is not secret, or when the result would make resolution return to the credential it started from.",
         "operationId": "set_credential_input_sources",
         "parameters": [
           {
@@ -4797,7 +4897,23 @@
                 }
               }
             },
-            "description": "The body is malformed."
+            "description": "The body is malformed, or a binding's metadata holds a NUL character."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "A source credential belongs to another organization. The refusal names it by the id sent."
           },
           "404": {
             "content": {
@@ -4829,7 +4945,7 @@
                 }
               }
             },
-            "description": "The set would close a resolution cycle, or binds one input twice."
+            "description": "The set would close a resolution cycle, binds one input twice, or reads a secret into an input that is not secret."
           }
         },
         "security": [
@@ -9287,7 +9403,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "description": "A partial update. A field left out keeps its stored value and a field present is applied; an empty value clears a field that can be empty. No field may be null: leave it out to keep it. Unknown fields are refused, so a GET response cannot be sent back as it is; send the fields a create takes. frozen: false is the explicit unfreeze. The attestation cannot be sent.",
+                "description": "A partial update. A field left out keeps its stored value and a field present is applied; an empty value clears a field that can be empty. No field may be null: leave it out to keep it. Unknown fields are refused, so a GET response cannot be sent back as it is; send the fields a create takes. A field named twice, in any mix of upper and lower case, is refused, naming it. frozen: false is the explicit unfreeze. The attestation cannot be sent.",
                 "properties": {
                   "change_window": {
                     "description": "When this tenant permits automation to run, written for a human. \"\" clears it.",
@@ -10088,7 +10204,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "description": "A partial update. A field left out keeps its stored value and a field present is applied; an empty value clears description, scm_url and scm_branch, and \"credential\": 0 unbinds the credential. No field may be null: leave it out to keep it. The project as it would be saved is checked whole, so setting scm_type to git on a project with no scm_url is refused, and a kept credential is checked again. Unknown fields, the read-only sync fields among them, are refused.",
+                "description": "A partial update. A field left out keeps its stored value and a field present is applied; an empty value clears description, scm_url and scm_branch, and \"credential\": 0 unbinds the credential. No field may be null: leave it out to keep it. The project as it would be saved is checked whole, so setting scm_type to git on a project with no scm_url is refused, and a kept credential is checked again. Unknown fields, the read-only sync fields among them, are refused, and so is a field named twice in any mix of upper and lower case.",
                 "properties": {
                   "credential": {
                     "description": "Rebinds the project to this source control credential, which the project's own organization must own. 0 unbinds it; leaving the key out keeps it, and a kept credential is checked again.",
@@ -12434,7 +12550,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "description": "A partial update. A field left out keeps its stored value and a field present is applied; an empty value clears a field that can be empty. No field may be null: leave it out to keep it. Unknown fields are refused, so a GET response cannot be sent back as it is; send the fields a create takes.",
+                "description": "A partial update. A field left out keeps its stored value and a field present is applied; an empty value clears a field that can be empty. No field may be null: leave it out to keep it. Unknown fields are refused, so a GET response cannot be sent back as it is; send the fields a create takes. A field named twice, in any mix of upper and lower case, is refused, naming it.",
                 "properties": {
                   "description": {
                     "description": "What this team is responsible for. \"\" clears it.",
@@ -13588,7 +13704,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "description": "A partial update. A field left out keeps its stored value and a field present is applied. An empty value clears description (\"\"), defaults ({}), prompts and required_capabilities ([]); a name may not be blank; a survey is cleared with {\"enabled\": false, \"questions\": []}, since survey: {} keeps it. None of these fields, nor survey.enabled or survey.questions, may be null: leave it out to keep it. Inside a question, fields are read as a create reads them. Unknown fields are refused, so a GET response cannot be sent back as it is; send the fields a create takes.",
+                "description": "A partial update. A field left out keeps its stored value and a field present is applied. An empty value clears description (\"\"), defaults ({}), prompts and required_capabilities ([]); a name may not be blank; a survey is cleared with {\"enabled\": false, \"questions\": []}, since survey: {} keeps it. None of these fields, nor survey.enabled or survey.questions, may be null: leave it out to keep it. Inside a question, fields are read as a create reads them. Unknown fields are refused, so a GET response cannot be sent back as it is; send the fields a create takes. A field named twice, in any mix of upper and lower case, is refused, naming it, and so is one named twice inside the survey.",
                 "properties": {
                   "allow_simultaneous": {
                     "type": "boolean"
@@ -14687,14 +14803,14 @@
                             "type": "string"
                           },
                           "external": {
-                            "description": "External secret-manager references, keyed by input id, resolved just in time before a run. NOT redacted: a reference is a pointer to a secret rather than a secret, and hiding it would make \"which credentials point at this mount\" unanswerable during a migration.",
+                            "description": "External secret-manager references, keyed by input id, resolved just in time before a run. Each names an input the type marks secret, since a value read from a secret manager is a secret and masking covers only secret inputs. NOT redacted: a reference is a pointer to a secret rather than a secret, and hiding it would make \"which credentials point at this mount\" unanswerable during a migration.",
                             "type": "object"
                           },
                           "id": {
                             "type": "integer"
                           },
                           "inputs": {
-                            "description": "The credential's values, keyed by input id. A value for an input the type marks secret reads back as \"$encrypted$\" and never as itself. There is no endpoint, parameter or header that returns the real value: it is decrypted only at dispatch, inside the process that injects it. Submitting the marker back on an update leaves the stored value alone, so editing an unrelated field does not destroy a secret.",
+                            "description": "The credential's values, keyed by input id. A value for an input the type marks secret reads back as \"$encrypted$\" and never as itself. There is no endpoint, parameter or header that returns the real value: it is decrypted only at dispatch, inside the process that injects it. An edit of the type cannot change that: a secret flag cannot be cleared, and removing an input deletes every value stored for it. Submitting the marker back on an update leaves the stored value alone, so editing an unrelated field does not destroy a secret.",
                             "type": "object"
                           },
                           "kind": {
@@ -14867,14 +14983,14 @@
                             "type": "string"
                           },
                           "external": {
-                            "description": "External secret-manager references, keyed by input id, resolved just in time before a run. NOT redacted: a reference is a pointer to a secret rather than a secret, and hiding it would make \"which credentials point at this mount\" unanswerable during a migration.",
+                            "description": "External secret-manager references, keyed by input id, resolved just in time before a run. Each names an input the type marks secret, since a value read from a secret manager is a secret and masking covers only secret inputs. NOT redacted: a reference is a pointer to a secret rather than a secret, and hiding it would make \"which credentials point at this mount\" unanswerable during a migration.",
                             "type": "object"
                           },
                           "id": {
                             "type": "integer"
                           },
                           "inputs": {
-                            "description": "The credential's values, keyed by input id. A value for an input the type marks secret reads back as \"$encrypted$\" and never as itself. There is no endpoint, parameter or header that returns the real value: it is decrypted only at dispatch, inside the process that injects it. Submitting the marker back on an update leaves the stored value alone, so editing an unrelated field does not destroy a secret.",
+                            "description": "The credential's values, keyed by input id. A value for an input the type marks secret reads back as \"$encrypted$\" and never as itself. There is no endpoint, parameter or header that returns the real value: it is decrypted only at dispatch, inside the process that injects it. An edit of the type cannot change that: a secret flag cannot be cleared, and removing an input deletes every value stored for it. Submitting the marker back on an update leaves the stored value alone, so editing an unrelated field does not destroy a secret.",
                             "type": "object"
                           },
                           "kind": {
@@ -14922,6 +15038,22 @@
               }
             },
             "description": "The body is malformed."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "A credential belongs to an organization other than the template's. The refusal names it by the id sent."
           },
           "404": {
             "content": {

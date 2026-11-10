@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -116,15 +117,18 @@ func CheckBinding(bound []Bound) error {
 			continue
 		}
 
+		// Neither refusal quotes the identifier the two share: it is an input
+		// value, and a type stored before checkIdentifierPlain may mark it
+		// secret. The credentials' names and the input say where to look.
 		if b.Kind == KindVault {
 			return fmt.Errorf(
-				"%w: %q and %q are both vault credentials with the identifier %s, and a definition can carry at most one vault credential per identifier",
-				ErrBindingConflict, previous.CredentialName, b.CredentialName, describeVaultIdentifier(b.VaultIdentifier))
+				"%w: %q and %q are both vault credentials with %s, and a definition can carry at most one vault credential per identity",
+				ErrBindingConflict, previous.CredentialName, b.CredentialName, describeVaultIdentity(b.VaultIdentifier))
 		}
 		if b.Kind == KindDatabase {
 			return fmt.Errorf(
-				"%w: %q and %q are both database connections named %q, and a task names a connection by its name",
-				ErrBindingConflict, previous.CredentialName, b.CredentialName, b.DatabaseName)
+				"%w: %q and %q are both database connections with the same %q input, and a task names a connection by it",
+				ErrBindingConflict, previous.CredentialName, b.CredentialName, DatabaseInputName)
 		}
 		return fmt.Errorf(
 			"%w: %q and %q are both %s credentials, and a definition can carry at most one credential of each kind",
@@ -174,16 +178,15 @@ func checkOneMachineIdentity(seen map[string]Bound) error {
 		ErrBindingConflict, machine.CredentialName, certificate.CredentialName)
 }
 
-// describeVaultIdentifier renders an identifier for a message, naming the
-// empty case rather than printing nothing.
-//
-// An operator who bound two vault credentials and left both identifiers
-// blank would otherwise read "with the identifier " and have to guess.
-func describeVaultIdentifier(id string) string {
+// describeVaultIdentity says which vault identity two credentials share
+// without naming it: the identifier is an input value, which a refusal never
+// quotes. The default identity is said as such, since an operator who left
+// both identifiers blank would otherwise have to guess what is shared.
+func describeVaultIdentity(id string) string {
 	if id == "" {
-		return "(the default, unnamed vault identity)"
+		return "the default, unnamed vault identity"
 	}
-	return `"` + id + `"`
+	return "the same " + strconv.Quote(VaultIdentifierInput) + " input"
 }
 
 // VaultIdentifierOf extracts the vault identifier from a credential's input
@@ -198,6 +201,38 @@ func VaultIdentifierOf(kind Kind, inputs map[string]string) string {
 		return ""
 	}
 	return strings.TrimSpace(inputs[VaultIdentifierInput])
+}
+
+// identifierInputs names, per kind, the input whose value tells two
+// credentials of that kind apart when one definition binds both.
+var identifierInputs = map[Kind]string{
+	KindVault:    VaultIdentifierInput,
+	KindDatabase: DatabaseInputName,
+}
+
+// checkIdentifierPlain refuses a type that marks secret the input its kind
+// reads as an identifier.
+//
+// An identifier is a label, not a secret: a vault's reaches ansible-playbook's
+// command line as --vault-id, and a task names a database connection by it.
+// No refusal depends on this for secrecy, since none quotes an input's value
+// (CheckBinding names the input, not the identifier), but a secret identifier
+// is one no operator can read back, so two credentials sharing one would be
+// refused with nothing to tell them apart by. A custom type may take either
+// kind, at its creation or by an edit changing its kind, and both reach this
+// check.
+func (ct CredentialType) checkIdentifierPlain() error {
+	id, ok := identifierInputs[ct.Kind]
+	if !ok {
+		return nil
+	}
+	if field, declared := ct.Inputs.Field(id); declared && field.Secret {
+		return fmt.Errorf(
+			"%w: input %q is how a %s credential is told apart from the others a definition binds, and is shown "+
+				"where it does that, so it cannot be secret",
+			ErrInvalidType, id, ct.Kind)
+	}
+	return nil
 }
 
 // BindingSummary describes a set of bindings for a message or a UI, sorted

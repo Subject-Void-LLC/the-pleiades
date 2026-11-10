@@ -30,6 +30,7 @@ const maxKubeconfigImportBody = 3 << 20
 // KubeconfigCredentials is the credential store an import keeps a
 // cluster's token or certificate in: credstore.Store's own methods.
 type KubeconfigCredentials interface {
+	GetTypeByNamespace(ctx context.Context, namespace string) (credstore.CredentialType, error)
 	EnsureManagedType(ctx context.Context, ct credtype.CredentialType) (credstore.CredentialType, error)
 	ListCredentials(ctx context.Context, organizationID int) ([]credstore.Credential, error)
 	CreateCredential(ctx context.Context, organizationID, typeID int, name, description string, inputs, external map[string]string, opts ...credstore.CredentialOption) (credstore.Credential, error)
@@ -311,13 +312,9 @@ func (h *DeviceHandler) storeKubeconfigCredential(ctx context.Context, req kubec
 	if len(imported.CAPEM) > 0 {
 		inputs[credtype.KubernetesInputCACert] = string(imported.CAPEM)
 	}
-	ct, ok := managed.Type(namespace)
-	if !ok {
-		return credstore.Credential{}, nil, fmt.Errorf("this build ships no %s credential type", namespace)
-	}
-	typ, err := h.kubeconfigCredentials.EnsureManagedType(ctx, ct)
+	typ, err := h.kubeconfigType(ctx, namespace)
 	if err != nil {
-		return credstore.Credential{}, nil, fmt.Errorf("the %s credential type: %w", namespace, err)
+		return credstore.Credential{}, nil, err
 	}
 
 	name := req.Name + " (kubeconfig)"
@@ -349,4 +346,40 @@ func (h *DeviceHandler) storeKubeconfigCredential(ctx context.Context, req kubec
 		return credstore.Credential{}, nil, fmt.Errorf("storing credential %q: %w", name, err)
 	}
 	return created, func() { _ = h.kubeconfigCredentials.DeleteCredential(context.WithoutCancel(ctx), created.ID) }, nil
+}
+
+// kubeconfigType returns the managed credential type an import's credential
+// is made of, as it is stored, ensuring it only when no build has installed
+// it yet, and refusing a custom type that holds its namespace.
+//
+// It used to ensure it on every import, with this build's schema. In a
+// mixed-version window the stored type may be a newer build's, and ensuring
+// it rewrote that type to this build's schema; a rule on release data runs
+// only in the process whose release made it (LESSONS 415 and 422), and the
+// startup reconcile is that process's own job.
+func (h *DeviceHandler) kubeconfigType(ctx context.Context, namespace string) (credstore.CredentialType, error) {
+	stored, err := h.kubeconfigCredentials.GetTypeByNamespace(ctx, namespace)
+	switch {
+	case err == nil && !stored.Managed:
+		// A custom type holds the namespace: one made before an upgrade, or
+		// one whose reconcile failed. Its author decides which inputs are
+		// secret, so adopting it could store the cluster's token under an
+		// input that reads back in plain text. Refused in the words the
+		// reconcile uses for the same holder, naming only the namespace.
+		return credstore.CredentialType{}, fmt.Errorf(
+			"%w: the namespace %q is held by a custom credential type", credstore.ErrExists, namespace)
+	case err == nil:
+		return stored, nil
+	case !errors.Is(err, credstore.ErrNotFound):
+		return credstore.CredentialType{}, fmt.Errorf("the %s credential type: %w", namespace, err)
+	}
+	ct, ok := managed.Type(namespace)
+	if !ok {
+		return credstore.CredentialType{}, fmt.Errorf("this build ships no %s credential type", namespace)
+	}
+	typ, err := h.kubeconfigCredentials.EnsureManagedType(ctx, ct)
+	if err != nil {
+		return credstore.CredentialType{}, fmt.Errorf("the %s credential type: %w", namespace, err)
+	}
+	return typ, nil
 }

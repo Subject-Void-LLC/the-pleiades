@@ -29,6 +29,7 @@
 package api
 
 import (
+	"errors"
 	"sort"
 	"strings"
 
@@ -132,6 +133,12 @@ func (s *surveyPatchDTO) UnmarshalJSON(data []byte) error {
 	type fields surveyPatchDTO
 	decoded, nulls, err := decodePatch[fields](data, templateNoun)
 	if err != nil {
+		// A field named twice inside the survey is reported under the
+		// survey's name, as its nulls are.
+		var repeated *patchRepeatedFieldError
+		if errors.As(err, &repeated) {
+			repeated.Field = "survey." + repeated.Field
+		}
 		return err
 	}
 	*s = surveyPatchDTO(decoded)

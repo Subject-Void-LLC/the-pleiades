@@ -632,8 +632,10 @@ func TestDeleteRemovesTheCredentialType(t *testing.T) {
 	}
 }
 
-// TestUpdateCredentialTypeSucceeds covers the update success path, and that
-// the immutable namespace survives a body that carries a different one.
+// TestUpdateCredentialTypeSucceeds covers the update success path with a
+// body carrying every field a create takes, the immutable namespace echoed.
+// A different namespace used to be ignored with a 200 and is now refused
+// (TestCredentialTypePatch_RefusesAChangedNamespaceOrOrganization).
 func TestUpdateCredentialTypeSucceeds(t *testing.T) {
 	t.Parallel()
 
@@ -642,7 +644,7 @@ func TestUpdateCredentialTypeSucceeds(t *testing.T) {
 	status, body := f.do(t, http.MethodPatch, fmt.Sprintf("/api/v1/credential-types/%d", f.typeID), map[string]any{
 		"name":      "Renamed",
 		"kind":      "cloud",
-		"namespace": "a_different_namespace",
+		"namespace": fmt.Sprintf("custom_api_%d", f.orgA),
 		"inputs": map[string]any{
 			"fields": []map[string]any{{"id": "api_token", "label": "Token", "secret": true}},
 		},
@@ -662,8 +664,8 @@ func TestUpdateCredentialTypeSucceeds(t *testing.T) {
 	if decoded.Name != "Renamed" {
 		t.Errorf("name = %q, want the update applied", decoded.Name)
 	}
-	if decoded.Namespace == "a_different_namespace" {
-		t.Error("the immutable namespace was changed by an update")
+	if decoded.Namespace != fmt.Sprintf("custom_api_%d", f.orgA) {
+		t.Errorf("namespace = %q, want the stored one", decoded.Namespace)
 	}
 }
 
@@ -760,6 +762,14 @@ func (f failingCredentialStore) CreateType(context.Context, int, credtype.Creden
 
 func (f failingCredentialStore) UpdateType(context.Context, int, credtype.CredentialType) (credstore.CredentialType, error) {
 	return credstore.CredentialType{}, f.err
+}
+
+func (f failingCredentialStore) UpdateTypeWith(context.Context, int, func(credstore.CredentialType) (credtype.CredentialType, error)) (credstore.CredentialType, error) {
+	return credstore.CredentialType{}, f.err
+}
+
+func (f failingCredentialStore) UpdateCredentialWith(context.Context, int, func(credstore.Credential) (credstore.Credential, error), ...credstore.CredentialOption) (credstore.Credential, error) {
+	return credstore.Credential{}, f.err
 }
 
 func (f failingCredentialStore) DeleteType(context.Context, int) error { return f.err }

@@ -446,12 +446,32 @@ func bindBehindTheStore(t testing.TB, client *ent.Client, targetID, sourceID int
 	}
 }
 
+// twoSecretsTypeID adds a target type with two secret inputs, since only a
+// secret input may read from an external secret source.
+func twoSecretsTypeID(t *testing.T, store credstore.Store, orgID int) int {
+	t.Helper()
+	ct, err := store.CreateType(context.Background(), orgID, credtype.CredentialType{
+		Name:      "Two Secrets",
+		Kind:      credtype.KindCloud,
+		Namespace: "two_secrets",
+		Inputs: credtype.InputSchema{
+			Fields:   []credtype.InputField{{ID: "api_token", Label: "Token", Secret: true}, {ID: "session", Label: "Session", Secret: true}},
+			Required: []string{"api_token"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateType() for the two-secret type error = %v", err)
+	}
+	return ct.ID
+}
+
 // TestTwoBindingsOnOneCredentialBothResolve covers the ordinary case of a
 // credential reading more than one input from a source, which is also what
 // makes the deterministic ordering observable.
 func TestTwoBindingsOnOneCredentialBothResolve(t *testing.T) {
 	ctx := context.Background()
-	store, client, lookups, orgID, targetTypeID, sourceTypeID := graphFixture(t)
+	store, client, lookups, orgID, _, sourceTypeID := graphFixture(t)
+	targetTypeID := twoSecretsTypeID(t, store, orgID)
 
 	source, err := store.CreateCredential(ctx, orgID, sourceTypeID, "vault", "",
 		map[string]string{"token": "s.t"}, nil)
@@ -463,7 +483,7 @@ func TestTwoBindingsOnOneCredentialBothResolve(t *testing.T) {
 			// Deliberately out of sorted order, so the store and the
 			// resolver are both seen to order them rather than to inherit
 			// whatever the caller sent.
-			{InputID: "region", SourceCredentialID: source.ID, Metadata: map[string]string{"path": "r"}},
+			{InputID: "session", SourceCredentialID: source.ID, Metadata: map[string]string{"path": "s"}},
 			{InputID: "api_token", SourceCredentialID: source.ID, Metadata: map[string]string{"path": "t"}},
 		}))
 	if err != nil {
@@ -477,9 +497,42 @@ func TestTwoBindingsOnOneCredentialBothResolve(t *testing.T) {
 	if got[0].Inputs["api_token"] != "s.t/t" {
 		t.Errorf("api_token = %q, want its own binding's value", got[0].Inputs["api_token"])
 	}
-	// region declares a default, so this also proves a binding wins over a
-	// default rather than the other way round.
-	if got[0].Inputs["region"] != "s.t/r" {
+	if got[0].Inputs["session"] != "s.t/s" {
+		t.Errorf("session = %q, want its own binding's value", got[0].Inputs["session"])
+	}
+}
+
+// TestABindingWinsOverADefault binds region, which declares a default, to a
+// field of an ordinary credential. A plain input may read a plain field;
+// only an external secret source is refused into one.
+func TestABindingWinsOverADefault(t *testing.T) {
+	ctx := context.Background()
+	store, client, lookups, orgID, targetTypeID, _ := graphFixture(t)
+
+	settings, err := store.CreateType(ctx, orgID, credtype.CredentialType{
+		Name: "Settings", Kind: credtype.KindCloud, Namespace: "settings",
+		Inputs: credtype.InputSchema{Fields: []credtype.InputField{{ID: "zone", Label: "Zone"}}},
+	})
+	if err != nil {
+		t.Fatalf("CreateType() error = %v", err)
+	}
+	source, err := store.CreateCredential(ctx, orgID, settings.ID, "settings", "", map[string]string{"zone": "eu-west-1"}, nil)
+	if err != nil {
+		t.Fatalf("CreateCredential() error = %v", err)
+	}
+	target, err := store.CreateCredential(ctx, orgID, targetTypeID, "api", "", map[string]string{"api_token": "stored"}, nil,
+		credstore.WithInputSources([]credstore.InputSourceBinding{{
+			InputID: "region", SourceCredentialID: source.ID, Metadata: map[string]string{credtype.SourceFieldMetadataKey: "zone"},
+		}}))
+	if err != nil {
+		t.Fatalf("CreateCredential() error = %v", err)
+	}
+
+	got, err := resolve.NewEntResolver(client, resolve.WithLookups(lookups)).Resolve(ctx, []int{target.ID})
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+	if got[0].Inputs["region"] != "eu-west-1" {
 		t.Errorf("region = %q, want its binding's value rather than the type default", got[0].Inputs["region"])
 	}
 }
@@ -528,7 +581,8 @@ func TestAnIndirectCycleIsRefusedAtTheWrite(t *testing.T) {
 // revisit the shared node forever.
 func TestADiamondIsWalkedOnceAndAccepted(t *testing.T) {
 	ctx := context.Background()
-	store, _, _, orgID, targetTypeID, sourceTypeID := graphFixture(t)
+	store, _, _, orgID, _, sourceTypeID := graphFixture(t)
+	targetTypeID := twoSecretsTypeID(t, store, orgID)
 
 	shared, err := store.CreateCredential(ctx, orgID, sourceTypeID, "shared vault", "",
 		map[string]string{"token": "s.shared"}, nil)
@@ -554,7 +608,7 @@ func TestADiamondIsWalkedOnceAndAccepted(t *testing.T) {
 	if _, err := store.CreateCredential(ctx, orgID, targetTypeID, "api", "", nil, nil,
 		credstore.WithInputSources([]credstore.InputSourceBinding{
 			{InputID: "api_token", SourceCredentialID: left.ID, Metadata: map[string]string{"path": "p"}},
-			{InputID: "region", SourceCredentialID: right.ID, Metadata: map[string]string{"path": "p"}},
+			{InputID: "session", SourceCredentialID: right.ID, Metadata: map[string]string{"path": "p"}},
 		})); err != nil {
 		t.Fatalf("a diamond must be accepted, got error = %v", err)
 	}

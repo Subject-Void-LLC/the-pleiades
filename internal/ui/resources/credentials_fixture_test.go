@@ -24,6 +24,15 @@ const credentialCanary = "sk-live-UI-CANARY-4c3b2a1908f7e6d5"
 // view's tests can submit it for a project of the first and see it refused.
 var conformanceOtherTenantCredentialID int
 
+// conformanceCredentialStore and conformanceCredentialOrgID are the real store
+// the two credential views run on and the organization its records belong
+// to, captured at registration so a test can seed a credential the views did
+// not create and read back what the store holds after a view's action.
+var (
+	conformanceCredentialStore credstore.Store
+	conformanceCredentialOrgID int
+)
+
 // newTestCredentialStore builds the credential store the two credential
 // views are registered over.
 //
@@ -56,6 +65,7 @@ func newTestCredentialStore(t *testing.T) credstore.Store {
 	}
 
 	store := credstore.NewEntStore(client, render.New())
+	conformanceCredentialStore, conformanceCredentialOrgID = store, org.ID
 
 	// The types this build ships, installed the way the controller
 	// installs them, so the view renders the real catalog rather than an

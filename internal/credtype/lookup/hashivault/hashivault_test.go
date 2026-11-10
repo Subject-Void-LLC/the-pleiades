@@ -356,14 +356,18 @@ func TestAnOversizedResponseIsRefusedRatherThanRead(t *testing.T) {
 
 // TestTheFactoryRefusesAnUnusableSourceCredential covers every way a source
 // credential can be wrong, reported to whoever wrote it rather than to
-// whoever launched the job.
+// whoever launched the job, and never with a value of its inputs: a custom
+// type may mark any of them secret.
 func TestTheFactoryRefusesAnUnusableSourceCredential(t *testing.T) {
 	const token = "s.secret"
+	const canary = "skquotecanaryfiftyeight"
 
 	tests := []struct {
 		name   string
 		inputs map[string]string
 	}{
+		{name: "a scheme that is not http", inputs: map[string]string{"url": canary + "://v.example.com", "token": token}},
+		{name: "an api version that is not one", inputs: map[string]string{"url": "https://v.example.com", "token": token, "api_version": canary}},
 		{name: "no url", inputs: map[string]string{"token": token}},
 		{name: "an unparseable url", inputs: map[string]string{"url": "http://[::1", "token": token}},
 		{name: "a file scheme", inputs: map[string]string{"url": "file:///etc/passwd", "token": token}},
@@ -381,6 +385,9 @@ func TestTheFactoryRefusesAnUnusableSourceCredential(t *testing.T) {
 			}
 			if strings.Contains(err.Error(), token) {
 				t.Errorf("the error carries the token: %v", err)
+			}
+			if strings.Contains(err.Error(), canary) {
+				t.Errorf("the error quotes an input's value: %v", err)
 			}
 		})
 	}

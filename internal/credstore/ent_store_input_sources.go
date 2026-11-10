@@ -38,18 +38,41 @@ import (
 
 // ListCredentialInputSources returns one credential's input bindings,
 // ordered by input id so a caller rendering them gets a stable list.
+//
+// A binding for an input the credential's type does not declare is left out
+// (carried.go): a caller could not send it back, and a write replacing the
+// bindings keeps it anyway. The type and the bindings are read in one
+// snapshot, so the list matches one schema.
 func (s *entStore) ListCredentialInputSources(ctx context.Context, credentialID int) ([]InputSource, error) {
-	rows, err := s.db(ctx).CredentialInputSource.Query().
-		Where(credentialinputsource.HasTargetCredentialWith(credential.IDEQ(credentialID))).
-		WithSourceCredential(func(q *ent.CredentialQuery) { q.WithCredentialType() }).
-		Order(ent.Asc(credentialinputsource.FieldInputID)).
-		All(ctx)
+	var (
+		rows   []*ent.CredentialInputSource
+		schema credtype.InputSchema
+		typed  bool
+	)
+	err := storage.ReadSnapshot(ctx, s.client, func(ctx context.Context, db *ent.Client) error {
+		ct, err := db.Credential.Query().Where(credential.IDEQ(credentialID)).QueryCredentialType().Only(ctx)
+		switch {
+		case err == nil:
+			schema, typed = ct.Inputs, true
+		case !ent.IsNotFound(err):
+			return err
+		}
+		rows, err = db.CredentialInputSource.Query().
+			Where(credentialinputsource.HasTargetCredentialWith(credential.IDEQ(credentialID))).
+			WithSourceCredential(func(q *ent.CredentialQuery) { q.WithCredentialType() }).
+			Order(ent.Asc(credentialinputsource.FieldInputID)).
+			All(ctx)
+		return err
+	})
 	if err != nil {
 		return nil, fmt.Errorf("credstore: listing input sources for credential %d: %w", credentialID, err)
 	}
 
 	out := make([]InputSource, 0, len(rows))
 	for _, row := range rows {
+		if !typed || !declares(schema, row.InputID) {
+			continue
+		}
 		source := row.Edges.SourceCredential
 		if source == nil {
 			return nil, fmt.Errorf("credstore: input source %d was read without its source credential", row.ID)
@@ -95,7 +118,13 @@ func (s *entStore) SetCredentialInputSources(
 	}
 
 	if err := storage.NewEntUnitOfWork(s.client).WithTx(ctx, func(txCtx context.Context) error {
-		return s.writeInputSources(txCtx, credentialID, ct.Inputs, org.ID, bindings)
+		// Checked against the schema read under the type's lock, so a type
+		// edit cannot land between the check and the write (type_inputs.go).
+		locked, err := s.lockType(txCtx, ct.ID)
+		if err != nil {
+			return err
+		}
+		return s.writeInputSources(txCtx, credentialID, locked.Inputs, org.ID, bindings)
 	}); err != nil {
 		return nil, err
 	}
@@ -122,11 +151,16 @@ func (s *entStore) writeInputSources(
 		return err
 	}
 
+	// Only the bindings of inputs the type declares are replaced: one for an
+	// input it no longer declares is carried, as its value is (carried.go).
 	db := s.db(ctx)
-	if _, err := db.CredentialInputSource.Delete().
-		Where(credentialinputsource.HasTargetCredentialWith(credential.IDEQ(credentialID))).
-		Exec(ctx); err != nil {
-		return fmt.Errorf("credstore: clearing input sources for credential %d: %w", credentialID, err)
+	if declared := schema.IDs(); len(declared) > 0 {
+		if _, err := db.CredentialInputSource.Delete().
+			Where(credentialinputsource.HasTargetCredentialWith(credential.IDEQ(credentialID)),
+				credentialinputsource.InputIDIn(declared...)).
+			Exec(ctx); err != nil {
+			return fmt.Errorf("credstore: clearing input sources for credential %d: %w", credentialID, err)
+		}
 	}
 
 	for _, b := range bindings {
@@ -169,6 +203,9 @@ func (s *entStore) checkBindings(
 ) error {
 	seen := make(map[string]struct{}, len(bindings))
 	for _, b := range bindings {
+		if err := checkMetadataText(b.Metadata); err != nil {
+			return err
+		}
 		if _, dup := seen[b.InputID]; dup {
 			return fmt.Errorf("%w: input %q is bound to a source twice in one request", ErrExists, b.InputID)
 		}
@@ -203,9 +240,10 @@ func (s *entStore) checkBindings(
 		if sourceOrg.ID != organizationID {
 			// The same refusal boundFor makes, for the same reason: a
 			// credential reading its values through another tenant's Vault
-			// authenticates as somebody else.
-			return fmt.Errorf("%w: the source credential %q belongs to another organization",
-				ErrCrossOrganization, source.Name)
+			// authenticates as somebody else. Named by the id the caller
+			// sent, never by name, as boundFor's is.
+			return fmt.Errorf("%w: the source credential %d belongs to another organization",
+				ErrCrossOrganization, b.SourceCredentialID)
 		}
 		if err := checkSourceField(b, source.Name, sourceType, schema); err != nil {
 			return err
@@ -242,6 +280,18 @@ func checkSourceField(
 	targetSchema credtype.InputSchema,
 ) error {
 	if credtype.Kind(sourceType.Kind) == credtype.KindExternal {
+		// A secret manager's value is a secret whatever it addresses, so it
+		// may only fill an input that is itself secret, for the reason the
+		// field case below gives: the masking ruleset is built from the
+		// target type's secret fields. This used to return before that
+		// check, so a Vault value bound into a plain input reached the run
+		// unmasked.
+		if targetField, ok := targetSchema.Field(b.InputID); !ok || !targetField.Secret {
+			return fmt.Errorf(
+				"%w: credential %q is an external secret source and input %q is not secret, so reading it would "+
+					"move a secret into a value nothing masks: declare the input secret",
+				ErrInUse, sourceName, b.InputID)
+		}
 		return nil
 	}
 

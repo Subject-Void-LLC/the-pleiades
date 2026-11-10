@@ -538,6 +538,13 @@ func decodeJSONWithin(w http.ResponseWriter, r *http.Request, dst any, limit int
 			RespondError(w, r, http.StatusRequestEntityTooLarge, "request body too large")
 			return false
 		}
+		// A PATCH body naming one field twice is told which field, by its
+		// own tag; the text repeats nothing the caller sent (patch.go).
+		var repeated *patchRepeatedFieldError
+		if errors.As(err, &repeated) {
+			RespondError(w, r, http.StatusBadRequest, repeated.Error())
+			return false
+		}
 		// The decoder's message can quote the caller's own bytes back at
 		// them, which is the reflection shape FAILURE_PATTERNS.md #72
 		// records, so only the category is reported.

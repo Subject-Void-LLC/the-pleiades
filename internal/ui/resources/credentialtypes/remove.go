@@ -9,9 +9,12 @@
 //
 // Both controls carry a confirmation, and both confirmations say what the
 // removal costs rather than only asking whether you are sure. Removing an
-// input that credentials of the type already store a value for leaves those
-// credentials unsaveable, which is not obvious from the button and is not
-// something this page can undo for you.
+// input deletes the value, the external reference and the input source every
+// credential of the type holds for it (the store does this in the same
+// transaction, internal/credstore/type_inputs.go), which is not obvious from
+// the button and is not something this page can undo for you. That deletion
+// is also why removing an input and adding it back is the way to make it
+// non-secret: the store refuses clearing the flag in place.
 package credentialtypes
 
 import (
@@ -46,8 +49,8 @@ func removeInputAction(store credstore.Store) view.RowAction {
 		Name:     removeInputName,
 		Label:    "Remove",
 		Endpoint: &apispec.SetCredentialTypeInputs,
-		Confirm: "Any credential of this type that stores a value for this input can no longer be saved, " +
-			"because the value it holds will name an input the type no longer declares. " +
+		Confirm: "Every credential of this type loses the value it stores for this input, and any external " +
+			"reference or source it reads the input from. Adding the input back does not restore them. " +
 			"An injector that references it refuses the change outright.",
 		Submit: func(ctx context.Context, parentID, rowID string, _ view.Values) (string, view.FieldErrors, error) {
 			redirect, err := withType(ctx, store, parentID, inputsTitle, func(ct *credstore.CredentialType) error {
@@ -82,9 +85,9 @@ func removeInjectorAction(store credstore.Store) view.RowAction {
 
 // withType is the read, edit, write both controls share.
 //
-// It reads the stored type so the document the control is not editing is
-// carried forward unchanged, which is the same reason the add controls read
-// it: set-inputs leaves the injectors alone and set-injectors leaves the
+// It edits the stored type so the document the control is not editing is
+// carried forward unchanged, which is the same reason the add controls fold
+// over it: set-inputs leaves the injectors alone and set-injectors leaves the
 // schema alone, and a write built from the form alone would blank whichever
 // it did not carry.
 func withType(ctx context.Context, store credstore.Store, parentID, tab string,
@@ -94,16 +97,17 @@ func withType(ctx context.Context, store credstore.Store, parentID, tab string,
 	if err != nil {
 		return "", credstore.ErrNotFound
 	}
-	ct, err := store.GetType(ctx, numeric)
-	if err != nil {
-		return "", err
-	}
 
-	if err := edit(&ct); err != nil {
-		return "", err
-	}
-
-	if _, err := store.UpdateType(ctx, numeric, ct.CredentialType); err != nil {
+	// Folded over the type the store reads under its lock, so the document
+	// this control is not editing is the stored one, not a copy read before
+	// the write (internal/credstore/type_inputs.go). A refusal edit makes is
+	// returned through the store as it is.
+	if _, err := store.UpdateTypeWith(ctx, numeric, func(ct credstore.CredentialType) (credtype.CredentialType, error) {
+		if err := edit(&ct); err != nil {
+			return credtype.CredentialType{}, err
+		}
+		return ct.CredentialType, nil
+	}); err != nil {
 		return "", removalFault(err)
 	}
 	return "/ui/" + Name + "/" + parentID + "?tab=" + view.TabSlug(tab), nil

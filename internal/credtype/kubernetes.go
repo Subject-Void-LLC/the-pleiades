@@ -4,6 +4,7 @@
 package credtype
 
 import (
+	"errors"
 	"fmt"
 	"net/url"
 	"strings"
@@ -106,7 +107,7 @@ func KubernetesCredentialOf(cred Credential) (KubernetesCredential, error) {
 		return KubernetesCredential{}, fmt.Errorf("%w: credential %q: a Kubernetes credential needs its API server (host)", ErrInjection, cred.Name)
 	}
 	if _, err := apiServerHost(k.Host); err != nil {
-		return KubernetesCredential{}, fmt.Errorf("%w: credential %q: %v", ErrInjection, cred.Name, err)
+		return KubernetesCredential{}, fmt.Errorf("%w: credential %q: input %q %v", ErrInjection, cred.Name, KubernetesInputHost, err)
 	}
 	certificate := k.ClientCertPEM != "" || k.ClientKeyPEM != ""
 	switch {
@@ -159,17 +160,19 @@ func (k KubernetesCredential) ForServer(apiServer string) bool {
 
 // apiServerHost is an API server address's host and port, the port
 // defaulting to 443; a bare host:port is read as https, as AWX's host
-// input is often written.
+// input is often written. Its refusal never repeats the address, which is a
+// credential's host input and may be marked secret by a custom type; it is
+// a clause following the input's name.
 func apiServerHost(server string) (string, error) {
 	if !strings.Contains(server, "://") {
 		server = "https://" + server
 	}
 	u, err := url.Parse(server)
 	if err != nil || u.Host == "" {
-		return "", fmt.Errorf("the API server %q is not a URL with a host", server)
+		return "", errors.New("is not a URL with a host")
 	}
 	if u.Scheme != "https" {
-		return "", fmt.Errorf("the API server %q is not https; a cluster is reached over TLS only", server)
+		return "", errors.New("is not https; a cluster is reached over TLS only")
 	}
 	port := u.Port()
 	if port == "" {

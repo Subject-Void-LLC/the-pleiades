@@ -272,20 +272,21 @@ func (w writer) Create(ctx context.Context, c credstore.Credential) (string, err
 
 // Update renames a credential and applies whatever inputs were supplied.
 //
-// It reads the stored record first to carry External forward. The store's
-// update writes External wholesale, so passing the nil this form has no
-// control for would silently drop every external secret reference the
-// credential holds, turning a rename into an outage.
+// It folds the form over the stored record, read under the type's lock, to
+// carry External forward. The store writes External wholesale, so passing
+// the nil this form has no control for would silently drop every external
+// secret reference the credential holds, turning a rename into an outage,
+// and carrying a copy read before the write would put back a reference a
+// type edit had just deleted (internal/credstore/type_inputs.go).
 func (w writer) Update(ctx context.Context, id string, c credstore.Credential) error {
 	numeric, err := strconv.Atoi(id)
 	if err != nil {
 		return fmt.Errorf("%w: credentials: unreadable credential id %q: %w", view.ErrNotFound, id, err)
 	}
-	stored, err := w.store.GetCredential(ctx, numeric)
-	if err != nil {
-		return view.WrapNotFound(err, credstore.ErrNotFound)
-	}
-	if _, err := w.store.UpdateCredential(ctx, numeric, c.Name, c.Description, c.Inputs, stored.External); err != nil {
+	if _, err := w.store.UpdateCredentialWith(ctx, numeric, func(stored credstore.Credential) (credstore.Credential, error) {
+		stored.Name, stored.Description, stored.Inputs = c.Name, c.Description, c.Inputs
+		return stored, nil
+	}); err != nil {
 		return view.WrapNotFound(writeFault(err), credstore.ErrNotFound)
 	}
 	return nil
@@ -311,6 +312,19 @@ func writeFault(err error) error {
 	if err == nil {
 		return nil
 	}
+	// The store's text rule names the field it refused (credtype.TextError),
+	// so a NUL is answered on the box it was typed into rather than with a
+	// 500 from a database that cannot store one.
+	if field, message, ok := textFault(err); ok {
+		return view.FieldFault{Field: field, Message: message}
+	}
+	// The one refusal an update meets that no control on the form can fix: a
+	// credential whose stored values this Controller cannot decrypt. It is
+	// answered beside the name with what can fix it, rather than as a 500.
+	if errors.Is(err, credstore.ErrInUse) {
+		return view.FieldFault{Field: "name", Message: "This credential's stored values cannot be read with this " +
+			"Controller's key, so it cannot be saved: restore the key that sealed them, or delete the credential."}
+	}
 	msg := err.Error()
 	switch {
 	case strings.Contains(msg, "already exists"):
@@ -320,4 +334,17 @@ func writeFault(err error) error {
 	default:
 		return err
 	}
+}
+
+// textFault returns the control and message for a refusal of the store's
+// text rule on a field this form has a control for, and whether err is one.
+func textFault(err error) (string, string, bool) {
+	var text *credtype.TextError
+	if !errors.As(err, &text) || (text.Field != "name" && text.Field != "description") {
+		return "", "", false
+	}
+	if text.Blank {
+		return text.Field, "This is required.", true
+	}
+	return text.Field, "This may not contain a NUL character.", true
 }

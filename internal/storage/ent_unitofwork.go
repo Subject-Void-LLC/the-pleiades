@@ -46,7 +46,12 @@ func (u *entUnitOfWork) WithTx(ctx context.Context, fn func(ctx context.Context)
 	// ent.FromContext(ctx), rather than holding a client reference handed
 	// to it directly, transparently participates in this same
 	// transaction instead of the top-level client.
-	txCtx := ent.NewContext(ctx, tx.Client())
+	//
+	// It carries the transaction itself too (ent.NewTxContext), which is
+	// what says a transaction is open: a client in a context may be the
+	// root one, and code that must run inside a transaction (ReadSnapshot,
+	// credstore's type lock) asks ent.TxFromContext rather than trusting it.
+	txCtx := ent.NewTxContext(ent.NewContext(ctx, tx.Client()), tx)
 
 	// A panic must roll back before propagating, or the transaction is
 	// left open (and, depending on the driver, the connection pinned)

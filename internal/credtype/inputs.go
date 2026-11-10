@@ -154,6 +154,27 @@ func (s InputSchema) Field(id string) (InputField, bool) {
 	return InputField{}, false
 }
 
+// Declared returns a copy of m holding only the entries whose ids s
+// declares; it is never nil.
+//
+// A credential can hold a value, a reference or a source binding for an
+// input its type does not declare: the rollback window, where a newer build
+// wrote it and an older build's reconcile left the input out of the type
+// (internal/credstore's carried.go). Nothing the type declares reads such an
+// entry, and its secrecy is unknown, so whatever acts on a credential's
+// values by its schema reads it through this: the resolver, so a run is
+// handed none of it; the binding rule, so it judges a credential as the run
+// will; and the readers, which show none of it.
+func (s InputSchema) Declared(m map[string]string) map[string]string {
+	out := make(map[string]string, len(m))
+	for id, v := range m {
+		if _, declared := s.Field(id); declared {
+			out[id] = v
+		}
+	}
+	return out
+}
+
 // IDs returns every declared input id, in declaration order.
 func (s InputSchema) IDs() []string {
 	out := make([]string, 0, len(s.Fields))
@@ -319,9 +340,19 @@ func (s InputSchema) CheckValues(values, external map[string]string, sourced ...
 		}
 	}
 	for id := range external {
-		if _, ok := s.Field(id); !ok {
+		f, ok := s.Field(id)
+		if !ok {
 			return fmt.Errorf(
 				"%w: %q reads from an external secret source and is not an input this credential type declares",
+				ErrInvalidCredential, id)
+		}
+		// The value an external source resolves to is a secret, and the
+		// masking ruleset is built from the type's secret fields, so in an
+		// input not marked secret it would reach the run in plain text.
+		if !f.Secret {
+			return fmt.Errorf(
+				"%w: input %q reads from an external secret source and is not secret, so the value it resolves to "+
+					"would reach a run unmasked: declare the input secret, or store its value instead",
 				ErrInvalidCredential, id)
 		}
 	}

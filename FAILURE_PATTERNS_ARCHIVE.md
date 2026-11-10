@@ -2764,6 +2764,14 @@ deployment, since resource-scoped role bindings are not enforced. So a caller ho
 a project in another organization and bind that organization's credential, and its sync then uses it. Who may write a
 project in which organization waits on per-organization authorization, which is this entry's open question.
 
+**Note 2026-11-09 (`fix/patch-credentials-partial`).** Still open, and the limit of two more findings. 1097's exposure
+reached every organization because the credential and credential type routes are authorized by token scope across the
+deployment: a caller holding the ordinary operator scopes could edit another organization's custom type and then read
+its credentials' secret values. 1097's fix closes that exposure in the store for every caller, but it does not keep a
+caller to their own organization. And the `file` secret source reads one directory for the whole Controller, so a
+credential in any organization can name a file put there for another (1101). The production guide states that as a
+tenancy limit; the owner's decision on scoping it waits with this entry's.
+
 ---
 
 ## 99. A RoleBinding with `scope_id = 0` is a system-wide Allow, and nothing rejects one
@@ -25558,6 +25566,15 @@ naming the field when it differs from the stored one, and the stored value sent 
 change, and its changelog fragment says so. The same branch made the project PATCH a partial update (1075's note). The
 entry stays open, task 17, for four: announcements, credential types, credentials and inventories.
 
+**Note 2026-11-09 (`fix/patch-credentials-partial`, `7c3fed71`).** Credentials and credential types leave this entry's
+list. A credential PATCH's `credential_type` and `organization`, and a credential type PATCH's `namespace` and
+`organization`, were decoded and ignored, so a change answered 200 and stored nothing. Each is now refused with 400
+naming the field when it differs from the stored one, and the stored value sent back is accepted.
+`TestCredentialPatch_RefusesAChangedTypeOrOrganization` and
+`TestCredentialTypePatch_RefusesAChangedNamespaceOrOrganization` (`internal/api`) hold it. The refusal is a breaking
+change, and its changelog fragment says so. The same branch made both routes partial updates (1075's note). The entry
+stays open, task 17, for two: announcements and inventories.
+
 ## 1056. PATCH /templates/{id} replaces a template's editable half from the body, so a client that omits survey deletes the survey, omitting defaults, prompts or required_capabilities blanks them, and omitting allow_simultaneous writes false (open, read in code and not reproduced: task 16; on main since 5dbc35bc, 2026-08-12; a repeat in kind of 103)
 
 **Symptom.** Found by reading on `fix/ui-device-edit`, 2026-11-09; not run. `TemplateHandler.Update`
@@ -26088,6 +26105,28 @@ so. Concurrent PATCHes are last-writer-wins, as 1085 records. The same branch fo
 showed replaced the stored one (1087). The entry stays open, task 17, for four: inventories, announcements, credential
 types and credentials.
 
+**Note 2026-11-09 (`fix/patch-credentials-partial`, `7c3fed71`, with `50319b68` for the fold under the type lock).**
+Credentials and credential types leave this entry's list. The full replace did more than the sweep listed. A credential
+PATCH that did not name `external` erased every external secret reference the credential held: data loss that saved
+cleanly and failed the next run that needed the secret. One that did not name `name` answered 500. A `null` inside
+`inputs` decoded as `""` and cleared a stored optional secret with a 200. A credential type PATCH that did not name
+`name` or `kind` was refused for the one it blanked, and one naming both erased the input schema and the injector
+document. `PATCH /credentials/{id}` and `PATCH /credential-types/{id}` (`internal/api/credentials_patch.go`) now fold one
+pointer per field over the stored record. The store runs the fold inside its own transaction, under the type row's
+lock, over the record it reads there (`UpdateCredentialWith`, `UpdateTypeWith`; 1100 says why), and the merged record
+still meets `Validate` and `CheckValues`. A credential's `inputs` merges. Its `external`, when named, replaces the
+stored references whole, so `{}` removes them all. A type's `inputs` and `injectors`, when named, each replace their
+document whole. A `null` on any field, or inside `inputs` or `external`, is refused with 400 naming it. The web UI's
+credential and credential type forms use the same store methods. Tests, in `internal/api`:
+`TestCredentialPatch_KeepsWhatItDoesNotName`, `TestCredentialPatch_ReplacesExternalWholeWhenNamed`,
+`TestCredentialPatch_RefusesNull`, `TestCredentialPatch_RefusesABodyThatIsNotAnObjectOfKnownFields`,
+`TestCredentialPatch_IsValidatedWhole`, `TestCredentialPatch_NeverShowsASecret`,
+`TestCredentialTypePatch_KeepsWhatItDoesNotName`, `TestCredentialTypePatch_ReplacesInputsAndInjectorsWhole`,
+`TestCredentialTypePatch_IsValidatedWhole`, `TestCredentialTypePatch_RefusesNull` and
+`TestCredentialTypePatch_RefusesABodyThatIsNotAnObjectOfKnownFields`. The refusal of a null is a breaking change, and
+its changelog fragment says so. The same branch also refuses a body naming a field twice (1105). The entry stays open,
+task 17, for two: inventories and announcements.
+
 ## 1076. Suspected: a project name over 253 bytes answers 500, as a template's did (open, suspected from reading; a sibling of 1071)
 
 **Symptom.** Found by reading on `fix/template-patch-partial`, 2026-11-09; not run. `project.name` is `MaxLen(253)`
@@ -26339,6 +26378,15 @@ write over a newer record is refused.
 **Lesson.** Pending the fix. A partial update that writes the whole record is a read-modify-write, and it needs a
 version check or a field mask, as a store write did in 45.
 
+**Note 2026-11-09 (`fix/patch-credentials-partial`, `50319b68`).** Credentials and credential types no longer read
+before they write. Their PATCH and PUT handlers, and the web UI's credential and credential type forms and input and
+injector controls, hand the store a fold, and the store runs it over the record it reads under the type row's write
+lock, inside the write's own transaction (`UpdateCredentialWith`, `UpdateTypeWith`). So a field the body does not name
+is written from the record as it stands under that lock, not from an earlier read. On these routes the race was not
+low severity: a stale read written back restored a secret reference a type edit had deleted (1100). Two concurrent
+PATCHes naming the same field are still last-writer-wins, as the changelog says. The entry stays open for the other
+partial PATCHes: organizations, teams, contacts, bindings, templates and projects.
+
 ## 1086. A code-writing agent ran git stash push --keep-index and git stash pop to test a commit alone, which LESSONS 423 forbids, because the rule was in the records, the handoff and memory but not in the agent's brief (open: nothing holds an agent's brief to the rule; nothing was lost; a repeat of 1042)
 
 **Symptom.** On `fix/patch-access-partial`, 2026-11-09. To test one commit by itself, a code-writing agent set its
@@ -26588,3 +26636,430 @@ and the project fake was not swept.
 `fakeAnnouncementStore`'s `Update` and `Delete` answer nil and keep nothing, 1053's shape.
 
 **Lesson.** LESSONS 424. A fake keeps the store's id rule too: an id is never handed out twice.
+
+## 1095. A blank credential name answered 500, and a NUL in a credential's or a credential type's text, or in an input source's metadata, reached the store, where on PostgreSQL it would answer 500 (fixed on this branch; on main; a sibling of 1092, 371 and 1079)
+
+**Symptom.** Found on `fix/patch-credentials-partial`, 2026-11-09, beside the partial PATCH (1075's note). A blank
+credential name passed every check in front of the store and failed ent's `NotEmpty` validator, so create and PATCH
+answered 500. Nothing refused a NUL in a credential's name, description or external reference, in an input source
+binding's metadata, or anywhere in a credential type: its name, description, input schema or injector document. SQLite
+stores a NUL. PostgreSQL refuses one in a `character varying` column and in `jsonb`, which holds a credential's
+external references, a binding's metadata, and a type's input schema and injector document, so the write would fail at
+the database and answer 500. The PostgreSQL 500 is reasoned from 371's and 1079's measurements; this branch's tests
+check the refusals. Neither ent schema bounds these names beyond `NotEmpty` (there is no `MaxLen`), so there was no
+length rule to mirror.
+
+**Root cause.** As 1092 and LESSONS 426: a rule the store held with no mirror in front of it, and 371's dialect gap.
+
+**Why 1092, 371 and 1079 did not prevent it.** Each fixed its own site. 1092, one branch earlier, covered projects, and
+its entry said nothing holds every text field a caller writes to a NUL check. The credential and credential type writes
+were not swept.
+
+**Fix.** `84428cdc`. The rules sit where every writer meets them, so the web UI's forms are held to them as the API
+is. The credential store refuses a blank name and a NUL in a credential's name, description or external reference, and
+a NUL in an input source's metadata (`internal/credstore/text.go`). `credtype.CredentialType.Validate` refuses a NUL
+anywhere in a type (`internal/credtype/text.go`). Each refusal is a `credtype.TextError` that names the field and
+repeats nothing the caller sent. The API answers it with 400, and the forms show it beside the box it was typed into.
+Tests: `TestCredentialWritesRefuseABlankNameAndANUL` and `TestInputSourceMetadataRefusesANUL` (`internal/credstore`),
+`TestValidateRefusesANULAnywhere` and `TestTextErrorSaysABlankNameIsRequired` (`internal/credtype`),
+`TestCredentialCreate_RefusesABlankNameAndNUL` and `TestCredentialTypeCreate_RefusesNUL` (`internal/api`),
+`TestCredentialForms_RefuseANULBesideTheField` (`internal/ui/resources`).
+
+**Lesson.** LESSONS 426. Put the rule in the store or the domain validator, where a new writer cannot pass it by.
+
+## 1096. Three 403 refusals quoted another organization's credential or credential type by name, so a token holding credential:write without credential:read learned names it had no scope to read (fixed on this branch; on main; the class of 1091 and 72)
+
+**Symptom.** Found on `fix/patch-credentials-partial`, 2026-11-09. Three credential store refusals named another
+organization's record by its name: a credential of another organization's custom credential type, a template binding
+another organization's credential (`PUT /templates/{id}/credentials`), and a credential reading an input through
+another organization's source credential (`PUT /credentials/{id}/input-sources`). The API answers each with 403 and the
+store's text. `credential:write` does not imply `credential:read`, so a token holding only the write scope learned
+names it had no scope to read.
+
+**Root cause.** Each refusal was written in the words an operator of the refused record would want, and the caller was
+not that operator.
+
+**Why 1091 and 72 did not prevent it.** 1091 answered another organization's git credential exactly as an id that does
+not exist, in the project code it fixed. 72 kept a caller's own path out of a response. Neither swept the credential
+store's refusals for text naming a record the caller may not read.
+
+**Fix.** `87e3c529`. Each refusal names the record by the id the request sent, which tells the caller which one was
+refused and nothing else, the rule `PATCH /projects/{id}` already keeps for a credential. The API description lists
+the 403 on `POST /credentials`, `PUT /templates/{id}/credentials` and `PUT /credentials/{id}/input-sources`
+(`e327ef1c`). Test: `TestCredentials_ACrossOrganizationRefusalNamesNothingOfTheirs`
+(`internal/api/credentials_cross_org_test.go`).
+
+**Lesson.** A refusal names only what the caller sent or may read. The store's refusals are held to that as a
+handler's are, because the API passes their text through.
+
+## 1097. A credential type edit made every stored value of a secret input readable in plain text through GET /credentials/{id} and the UI's edit form: clearing the input's secret flag did it in one request, and removing the input and adding it back as non-secret in two (fixed on this branch; on main; across organizations with the ordinary operator scopes, through 98)
+
+**Symptom.** Found on `fix/patch-credentials-partial`, 2026-11-09. A read decides what to redact from the credential
+type's current input schema. An edit of a custom type could change that schema under the values its credentials had
+already stored, and the API answered 200 each time. Clearing `secret` on an input through `PATCH /credential-types/{id}`
+or `PUT /credential-types/{id}/inputs` did it in one request. Removing the input, through those routes or the web UI's
+Remove input control, left its values in every credential of the type, and adding it back as non-secret showed them:
+two requests. `GET /credentials/{id}` and the credential's edit form then showed the stored secret. These routes need
+only the ordinary operator scopes, and authorization is by token scope across the deployment (98), so a caller could
+do this to a type, and read its credentials, in any organization. The values a removal left behind also made each such
+credential refuse every later update, naming the input its type no longer declared.
+
+**Root cause.** Whether a stored value is secret was read from the schema at display time rather than kept with the
+value, and nothing tied a schema edit to the values stored under it. The schema could move from secret to not secret
+while the values stayed.
+
+**Earlier entries.** None is this class. Searches of the archive for a secret flag, a non-secret input, redaction from
+the current schema and an edit of a credential type found none. 221 is about a managed type's input controls in the UI,
+and 120 is masking too much, the other direction.
+
+**Fix.** `50319b68`, in the store (`internal/credstore/type_inputs.go`), so the API and the UI meet it alike. An edit of
+a custom type is held to three rules. First, an input the stored type marks secret cannot become non-secret; the 400
+names the input and says to remove it and add it again. Second, in the same transaction, every credential of the type
+keeps a value, an external reference and an input source only for an input the type declared both before and after
+the edit, with one exception: an input added as secret keeps what is stored under its id, read back only as
+`$encrypted$`. So a removal deletes what credentials held for the input, an add as non-secret deletes anything stored
+under its id, and any edit deletes values an earlier removal left behind, which makes a credential stuck on one
+editable again. Third, an edit is refused with 409 while a credential of the type cannot be decrypted, rather than
+rewriting its ciphertext blind. The purge pages through the credentials and rewrites each through the same encryption
+hook as every write.
+
+Every type edit, and every credential create, update and input-source write, first takes the type row's write lock
+inside its transaction (`lockType`) and reads what it checks under it, so a credential write checked against a secret
+input is never committed under a plain one. On PostgreSQL the lock is a row lock: read committed reads each statement
+afresh, so without it a type edit commits in the middle of a credential write. The type lock tests race type edits
+against credential writes, and land an edit inside a write through a seam to prove the edit waits:
+`TestTypeEditsRacingCredentialWritesNeverShowASecret_SQLite` and `TestACredentialWriteHoldsTypeEditsOff_SQLite`
+(`internal/credstore`), and their `_PostgreSQL` twins (`internal/credstore/locktest`). With the lock removed, the
+PostgreSQL run shows a value written as secret in plain text. Other tests: `TestUpdateTypeRefusesMakingASecretInputPlain`,
+`TestUpdateTypeRemovingAnInputDeletesWhatCredentialsHoldForIt`, `TestUpdateTypeDeletesValuesAnEarlierRemovalLeftBehind`,
+`TestUpdateTypeReAddingARemovedInputFindsNothing` and `TestUpdateTypeRefusesWhileACredentialCannotBeRead`
+(`internal/credstore/type_secret_test.go`); `TestCredentialTypePatch_RefusesMakingASecretInputPlain`,
+`TestCredentialTypePatch_RemovingAnInputDeletesWhatCredentialsHoldForIt` and
+`TestCredentialTypePatch_PurgesValuesAnEarlierRemovalLeftBehind` (`internal/api`);
+`TestCredentialTypes_RemovingAndAddingBackAnInputNeverShowsItsSecret` (`internal/ui/resources`). The production guide,
+the start-here guide, the API description and the UI's removal confirmation say what an edit now does. The refusals and
+the purge are breaking changes, and their changelog fragment says so.
+
+**Cost.** The lock is exclusive, so one type's credential writes queue behind one another across every organization,
+and behind an edit's purge. Measured on a SQLite file database and stated in the production guide: a credential write
+held it for about 0.35 milliseconds, and a purge read and rewrote a credential in about 35 microseconds, so a type with
+ten thousand credentials holds its writers for about a third of a second when an input is removed.
+
+**Checked and not a defect.** Two writers take no lock. Deleting a credential takes none, and a purge running at the
+same time skips the deleted credential. Key rotation writes outside the store, as one conditional `UPDATE` on
+`updated_at`, so a rotation that read a credential before a purge rewrote it is skipped rather than writing the old
+values back. `TestRotate_StaleWriteAfterPurgeIsSkipped` (`internal/credstore/rotate_test.go`) pins that.
+
+**Found while fixing it.** 1098, 1099, 1100, 1102 and 1107, each recorded on its own.
+
+**Limits.** The fix does not keep a caller to their own organization; that is 98, open. A managed type's reconcile
+follows the same rules, except that it never deletes what credentials hold for an input it does not ship (1098).
+
+**Lesson.** When a read decides from a schema what is secret, an edit of that schema is a write to every value under
+it. Hold it to the rule a value write meets, in the same transaction, under a lock the value writers take, and never
+let an input move from secret to not secret.
+
+## 1098. The type-edit rule's first version also ran in a managed type's reconcile, so in a mixed-version window an older build, at startup or through the kubeconfig import, deleted a newer build's input values in every organization (fixed before push; the import's rewrite of a stored managed type is on main; open: an older build still rewrites the managed row to its own schema, and the newer build's re-add then deletes non-secret values; a repeat in kind of 1019 and 1025; LESSONS 163 and 422)
+
+**Symptom.** Found on `fix/patch-credentials-partial`, 2026-11-09, before push. 1097's rule, that a credential keeps
+values only for inputs its type declares before and after an edit, was first applied to the managed type reconcile
+too, in `adoptExistingType`. A reconcile ensures the type with the schema its own build ships. In a mixed-version
+window the stored type may be a newer build's, with inputs the older build lacks, so the older build's reconcile
+deleted what every credential held for those inputs. A managed type is shared by every organization, so the loss was
+too. The kubeconfig import made one import enough: it ensured the managed Kubernetes type with its own build's schema
+on every import. Main's `adoptExistingType` deletes nothing, since main has no purge, but its import still rewrites a
+newer build's stored type to the older schema.
+
+**Root cause.** A rule on release data, which inputs a type ships, ran in a process whose release did not make the
+stored value (LESSONS 422). And the import reshaped shared infrastructure it only needed to read (LESSONS 163).
+
+**Why 1019, 1025 and LESSONS 422 did not prevent it.** 1019 and 1025 were in the facts subscriber and the group
+digest, and LESSONS 422 was written from them. The managed type reconcile is the same shape at another site. The purge
+was written as a new rule and not checked against 422, and the import was a second caller of the reconcile that
+nothing named.
+
+**Fix.** `50319b68`. A reconcile refuses to clear a shipped secret flag, empties an input it adds as non-secret, keeps
+what is stored under one it adds as secret, and never deletes what credentials hold for an input it does not ship.
+Tests: `TestEnsureManagedTypeHoldsTheSameRule`, `TestEnsureManagedTypeNeverDeletesValuesOfAnInputItDoesNotShip` and
+`TestEnsureManagedTypeRoundTripKeepsASecretInputsValues` (`internal/credstore/type_secret_test.go`). The kubeconfig
+import uses the managed type as stored and ensures it only when no build has installed it yet (`kubeconfigType`,
+`internal/api/devices_kubeconfig.go`; `TestImportKubeconfig_LeavesANewerBuildsTypeAlone`), create-if-absent as LESSONS
+163 asks. One credential of a managed type that this Controller cannot decrypt stops that type's reconcile when the
+release adds a non-secret input, for every organization; the type is left as it was, the Controller still starts, and
+it logs which credential cannot be read (`TestReconcileStopsAtAnUnreadableCredentialAndSaysSo`). A credential holding
+values for an input the older build left out stays usable (1103).
+
+**Status.** Open, for one residual. An older build's reconcile still rewrites the managed row to its own schema,
+leaving out the newer build's inputs. When the newer build starts again it adds them back, and an input added as
+non-secret starts empty, so a non-secret input's values written by the newer build are lost on a roll back and
+forward. A secret input loses nothing. The production guide states this. The complete fix is a release ordinal on each
+managed row, so a build never rewrites a row a newer build wrote (LESSONS 422); it is queued and not built.
+
+**Lesson.** LESSONS 422 holds for a deletion as for a refusal: a process deletes only what its own release made.
+
+## 1099. Fixing 1098, the kubeconfig import first used whatever type held the managed Kubernetes namespace, so a custom type there could have stored a cluster's token under an input that reads back in plain text (fixed before push; caught in review; LESSONS 244)
+
+**Symptom.** Caught in review on `fix/patch-credentials-partial`, 2026-11-09, before push. To stop the import
+rewriting a newer build's type (1098), the import was changed to read the type stored under the namespace and use it.
+Main's path through `EnsureManagedType` refuses a custom type holding the namespace (`adoptExistingType` answers
+`ErrExists`). The new read did not ask whether the stored type was managed. A custom type made before an upgrade, or
+left by a failed reconcile, would then have been adopted, and its author decides which inputs are secret, so the
+import could have stored the cluster's token or key under an input that reads back in plain text.
+
+**Root cause.** The fix replaced a call with a read, and kept the call's purpose but not its guard.
+
+**Fix.** In `50319b68`. `kubeconfigType` (`internal/api/devices_kubeconfig.go`) refuses a custom holder in the words
+the reconcile uses for it, naming only the namespace. Test: `TestImportKubeconfig_RefusesACustomTypeHoldingTheNamespace`
+(`internal/api/devices_kubeconfig_newer_test.go`).
+
+**Lesson.** LESSONS 244: when a fix moves a path off a call that carried a guard, the new path carries the guard.
+
+## 1100. A credential PATCH or UI form wrote back a record read before the type lock, so a reference a concurrent type edit's purge had deleted came back, and the secret it resolved to would fill an input nothing masks (fixed before push; the class of 1085 and 45)
+
+**Symptom.** Found on `fix/patch-credentials-partial`, 2026-11-09, before push. With 1097's purge in place, the
+credential PATCH handler and the UI's credential form read the stored credential, folded the change over it, and
+handed the whole record to the store, which took the type lock only then. A type edit committed between the read and
+the write could remove a secret input and add it back as non-secret. Its purge deleted the credential's external
+reference for that input, and the stale record put the reference back. The reference would then resolve a secret into
+an input the type no longer marks secret, which a run's masking does not cover. A type had the same shape: a PATCH or
+UI control read the type, and a write from that read dropped an input another edit had added meanwhile.
+
+**Root cause.** As 1085: a read-modify-write with the read outside the write's lock.
+
+**Why 1085 and 45 did not prevent it.** 1085 is open, and was recorded as low severity because nothing reads the
+field its race can lose. Here the lost write is a deletion that keeps a secret masked, so the same race discloses one.
+
+**Fix.** `50319b68`. `UpdateCredentialWith` and `UpdateTypeWith` take a fold and run it over the record they read under
+the type lock, inside the write's transaction. The API's PATCH and PUT handlers and the UI's forms and input and
+injector controls use them. Tests: `TestCredentialPatch_NeverRestoresAReferenceAPurgeDeleted` and
+`TestCredentialTypePatch_NeverDropsAnInputAddedMeanwhile` (`internal/api/credentials_stale_test.go`). Since `0d88fd85`
+a reference on a non-secret input is also refused at the write and at dispatch (1101), a second guard on the same
+outcome.
+
+**Lesson.** A read whose result is written back is taken under the lock the write takes. A fold the store runs does
+that by construction.
+
+## 1101. A secret resolved from an external source into an input its type does not mark secret was never masked, because CheckValues took a reference on any declared input and checkSourceField returned early for an external-kind source (fixed on this branch; on main; open: the file source's one directory lets a credential in any organization name a file put there for another, owner decision pending with 98; a repeat in kind of 1088; LESSONS 244)
+
+**Symptom.** Found on `fix/patch-credentials-partial`, 2026-11-09. A credential's external reference, or an input
+source bound to an external-kind credential such as a HashiCorp Vault one, could name an input its type does not mark
+secret. The value it resolved to filled that plain input at dispatch. The masking ruleset is built from the type's
+secret inputs, so that secret reached the run in plain text. The linked-credential branch of the same check already
+refused moving a secret field into a plain input.
+
+**Root cause.** The secret-into-plain check was written for one source kind and placed after an early return for the
+other, and the reference check took any declared input.
+
+**Why 1088 did not prevent it.** 1088 was an early return ahead of an embedded-secret check in the project store, one
+branch earlier, and its fix was in that function. Nothing swept other functions for an early return ahead of a secret
+check, and LESSONS 244's sibling-path rule was not applied to the source kinds.
+
+**Fix.** `0d88fd85`. `CheckValues` refuses a reference on an input that is not secret (400), and `checkSourceField`
+(`internal/credstore/ent_store_input_sources.go`) refuses an external-kind source bound into one (409), so credential
+create, PATCH, `PUT /credentials/{id}/input-sources` and the web UI's form all meet it. A reference stored before this
+is refused at dispatch, before anything is fetched, naming the credential by id and the input by the type's id, in the
+string form and the row form alike; the credential stays readable and editable (LESSONS 415). Tests:
+`TestCredentials_RefuseAnExternalSourceIntoAPlainInput` (`internal/api`) and
+`TestAnExternalReferenceIntoAPlainInputIsRefusedAtDispatch` (`internal/credstore/resolve`). Tests that put references
+on plain inputs now use secret ones, and the graph tests' proof that a binding wins over a default moved to a linked
+ordinary credential (`TestABindingWinsOverADefault`), the one source a plain input may still read. The refusal is a
+breaking change, and its changelog fragment says so.
+
+**Status.** Open, for one stated limit. The `file` secret source reads one directory for the whole Controller, and a
+reference names a file by name, so a credential in any organization can name any file in it, one put there for another
+organization included. The production guide (`docs/10-running-in-production.md`) now states it as a tenancy limit.
+Scoping it is the owner's decision, pending with 98's.
+
+**Lesson.** A secret check runs for every source kind; where one kind returns early, the check comes first.
+
+## 1102. Reads of a credential and its resolution for a run read the credential and its type in two snapshots, so a type edit committed between them paired a value stored as secret with a schema that showed it (fixed before push; the two reads are on main, where 1097 needed no race; found by an outside review; the class of 283)
+
+**Symptom.** Found on `fix/patch-credentials-partial`, 2026-11-09, before push, by an independent review of the
+type-edit fix (Fable 5.2, through the API), and proven red here; every in-session review pass had missed it. The
+credential reads and the resolver read the credential and then its type in separate statements, outside a
+transaction. On PostgreSQL read committed gives each statement its own snapshot, and SQLite in WAL mode does the same
+for each statement outside a transaction. So an edit committed between the two that removed a secret input and added it
+back as non-secret, with 1097's purge in the same transaction, was seen half done: the credential's values from before
+the purge and the type's schema from after it. A read then showed the secret, and the resolver would have handed it to
+a run unmasked.
+
+**Root cause.** As 283: a decision spread over two statements is only as current as the first one.
+
+**Why 283 did not prevent it.** 283 fixed the project sync sweep, a write that depended on a read. Here two reads
+depended on each other, and 1097's fix assumed a reader sees an edit's purge and its schema change together, which only
+one snapshot gives.
+
+**Fix.** In `50319b68`. `storage.ReadSnapshot` (`internal/storage/snapshot.go`) runs each read of a credential, and the
+resolution that hands one to a run, in one read-only transaction: repeatable read on PostgreSQL, and on SQLite a read
+transaction, which already reads one snapshot. Reads take no lock, so no read waits behind a purge. Tests:
+`TestReadsTakeOneSnapshot_SQLite` (`internal/credstore`) and `TestReadsTakeOneSnapshot_PostgreSQL`
+(`internal/credstore/locktest`); `TestReadSnapshot_ReadsOneMoment`, `TestReadSnapshot_RunsInsideATransactionItIsGiven`
+and `TestReadSnapshot_ReturnsWhatReadReturns` (`internal/storage`).
+
+**Lesson.** LESSONS 428. As 283's lesson, for reads: when one read's meaning depends on another, take both in one
+snapshot.
+
+## 1103. In a rollback window a credential of a managed type whose input the older build left out could not be updated at all, rotating a compromised token included, and every run binding it failed (fixed on this branch; on main; a repeat in kind of 1019; LESSONS 415 and 422)
+
+**Symptom.** Found on `fix/patch-credentials-partial`, 2026-11-09, from 1098. An older build's reconcile leaves out an
+input a newer build shipped, and keeps what credentials hold for it. Every update of such a credential then failed,
+rotating a compromised token included, because the merged values were checked against the current schema and named the
+dropped input. Every run binding it failed too, at the injector, and its reference or source binding failed earlier, at
+resolution.
+
+**Root cause.** A rule on release data, the current schema, was applied on the update path to values another release
+wrote (LESSONS 422).
+
+**Why 1019 did not prevent it.** LESSONS 422 came from 1019 and 1025 in the facts code. Credential updates were not
+swept for it.
+
+**Fix.** `091d7a69`. An update carries the value, the reference and the source binding a credential stores for an
+input its type does not declare, neither checked nor dropped (`internal/credstore/carried.go`), and still refuses a
+value or a new reference a caller sends for one. Reads already left such ids out, and the resolver now hands none of
+them to a run: their secrecy is unknown and the masking ruleset would not cover them. A sealed credential, which would
+otherwise be carried as one undeclared key, is refused with 409, and so is an update of a credential this Controller
+cannot decrypt. Tests: `TestACredentialWhoseTypeDroppedAnInputCanStillBeUpdated`,
+`TestAnUpdateNamingAnInputTheTypeDoesNotDeclareIsRefused` and `TestUpdatingACredentialThisControllerCannotReadIsRefused`
+(`internal/credstore`), `TestACredentialWhoseTypeDroppedInputsStillResolves` (`internal/credstore/resolve`), and
+`TestUpdatingAnUnreadableCredentialIsAFieldFault` (`internal/ui/resources/credentials`).
+
+**Lesson.** LESSONS 422 on a write path: carry what another release stored, unchecked and unread, rather than refuse
+the whole record.
+
+## 1104. A custom credential type of kind vault or database could mark its identifier input (vault_id, name) secret, and refusing to bind two such credentials to one template then quoted the secret value (fixed on this branch; on main; a repeat in kind of 1090)
+
+**Symptom.** Found on `fix/patch-credentials-partial`, 2026-11-09. The binding rule tells two vault credentials apart
+by `vault_id` and two database connections by `name`, and its refusal quotes the one they share. A custom type could
+take either kind, when created or by an edit changing its kind, and mark that input secret. Binding two of its
+credentials to one template then put the secret value in the refusal `PUT /templates/{id}/credentials` answered with.
+The shipped vault and `pleiades_postgres` types already mark those inputs non-secret.
+
+**Root cause.** The refusal treated the identifier as a label, and nothing held a type to that.
+
+**Why 1090 did not prevent it.** 1090 kept a caller's URL out of an error in the git source classifier. The binding
+refusal quotes a stored value, and nothing checked that the value could not be secret.
+
+**Fix.** `fb1cabde`. `credtype.CredentialType.Validate` refuses a vault type whose `vault_id` is secret and a database
+type whose `name` is secret (`checkIdentifierPlain`, `internal/credtype/binding.go`), at creation and at every edit,
+an edit changing the kind included. A vault's identifier also reaches `ansible-playbook`'s command line as
+`--vault-id`. Tests: two new cases in `TestCredentialTypeValidateRefusals` (`internal/credtype/validate_test.go`), and
+`TestNoBindingRefusalQuotesASecretInput` (`internal/credstore/identifier_test.go`). The refusal is a breaking change,
+and its changelog fragment says so.
+
+**Not covered (from reading, not run).** The rule is checked when a type is written. A custom type stored before it
+with a secret identifier is left as it is, and from reading, binding two of its credentials would still quote the
+value. Suspected; no test covers it.
+
+**Lesson.** A refusal that quotes a stored value holds every writer of that value to "never secret".
+
+## 1105. A PATCH body naming a field twice, in any mix of case and through the Kelvin sign, was accepted: a later key won for most fields, and a template's survey and a credential's external took both values (fixed on this branch; on main; a repeat in kind of 473 and 486)
+
+**Symptom.** Found on `fix/patch-credentials-partial`, 2026-11-09. `encoding/json` matches a key to a field without
+regard to case and lets a later key win, and a field decoded by its own unmarshaler into a pointer it already set
+decodes the second value into the first. So every PATCH body accepted a field named twice. For most fields the later
+value won. For a template's survey both halves were applied, and a credential body naming `external` twice stored both
+sets of references. The routes: templates, organizations, teams, contacts, role bindings, projects, credential types
+and credentials.
+
+**Root cause.** The strict decode refuses an unknown field, and `encoding/json` has no refusal for a repeated one.
+
+**Why 473 and 486 did not prevent it.** 473 was yaml.v3 decoding into nodes, refused in `pkg/docedit`, and 486 the
+build-file reader. Each fixed its own parser. The API's JSON decode was not checked for the same gap.
+
+**Fix.** `bf0e31a7`. `decodePatchObject` (`internal/api/patch.go`), which every PATCH body decodes through, scans the
+top level of the object after the strict decode and refuses a field named twice, matching keys to fields as
+`encoding/json` does, the Kelvin sign (U+212A) included. `decodeJSON` answers it with a 400 naming the field by its own
+tag (`survey.enabled` inside the survey), repeating nothing the caller sent. Tests: `TestPatch_RefusesAFieldNamedTwice`
+(`internal/api/patch_repeated_test.go`) and `TestRepeatedPatchField_ReportsNoRepeatForAnUnreadableBody`
+(`internal/api/patch_internal_test.go`). The refusal is a breaking change, and its changelog fragment says so. Whether
+create and PUT bodies accept a repeated field was not checked here.
+
+**Lesson.** As 473: a decoder that keeps one value of a repeated key is made to refuse it, wherever two readers could
+disagree about which value counts.
+
+## 1106. Text claimed more than the code did: the credential type bodies said "one of the twelve kinds" where there are thirteen, the read schema's kind list left out database, and comments said the managed reconcile was the only writer of a managed row once the type lock wrote that row (fixed on this branch; the kind text on main, the writer comments before push; a repeat of 459 and 1074)
+
+**Symptom.** Found on `fix/patch-credentials-partial`, 2026-11-09. The create and PATCH bodies of a credential type
+said `kind` was "one of the twelve kinds"; `credtype.Kinds` returns thirteen. The read schema's own list of kinds left
+out `database`. And once every credential write took the type lock, which writes the type row's `updated_at`,
+comments saying the managed reconcile was the only writer of a managed row (`EnsureManagedType`'s doc among them) were
+false.
+
+**Root cause.** A hand-written count and list beside the code they describe, and a comment not reread when the code
+under it changed.
+
+**Why 459 and 1074 did not prevent it.** 459 was the README's counts, and this count was in the API description, which
+nothing compared with `credtype.Kinds`. 1074's class has no check for a comment.
+
+**Fix.** `e327ef1c` builds each kind description from `credtype.Kinds()`
+(`TestCredentialKindDescriptionsNameEveryKind`, `internal/apispec/credential_kinds_test.go`). `50319b68` says
+`EnsureManagedType` is the only method that changes a managed type's definition, and that the lock's write to
+`updated_at` changes nothing a reader sees.
+
+**Lesson.** As 459: a count or list in text is built from the code, or a test holds it equal.
+
+## 1107. UpdateTypeWith handed its fold slices shared with the stored record it compares against, so a fold clearing secret in place would have passed the secret-flag rule (fixed before push; the class of 1053's read by pointer)
+
+**Symptom.** Found on `fix/patch-credentials-partial`, 2026-11-09, before push. The new fold methods handed their fold
+a record whose slices were the same ones the store kept to check the edit against. A type fold that edited in place,
+setting `Secret` to false on each input and returning the record, changed both sides of the comparison, so 1097's
+first rule saw no input move from secret to not secret.
+
+**Root cause.** As 1053's device fake, which handed out the stored item by pointer: a caller given state to change
+shared it with the copy that judges the change.
+
+**Fix.** `credtype.CredentialType.Clone`, with the input schema's and injector document's own `Clone`
+(`internal/credtype/clone.go`), so a fold gets a copy that shares no slice or map with the stored record. Tests:
+`TestUpdateTypeWithHoldsAFoldThatEditsInPlace` (`internal/credstore/type_secret_test.go`) and `TestCloneSharesNothing`
+(`internal/credtype`).
+
+**Lesson.** A callback handed a record to edit gets a copy that shares nothing with what the caller compares against.
+
+## 1108. The type lock's first PostgreSQL tests shared one database and left their container to the reaper, and put internal/credstore in the container tier (fixed before push; the class of 188 and 423)
+
+**Symptom.** Found on `fix/patch-credentials-partial`, 2026-11-09, before push. The first PostgreSQL tests of the type
+lock opened one database for every test, so a run of the package twice, or a neighboring test, found the rows an
+earlier test left, and they left their container to testcontainers' reaper, which some container hosts run without, so
+it could outlive the run. And because they lived in `internal/credstore`, the branch listed that package as a
+container package, which would have moved the whole package out of the fast tier.
+
+**Root cause.** Test isolation was taken from one shared container rather than given to each test, and cleanup was
+left to a process the host may not run.
+
+**Why 188 and 423 did not prevent it.** 188 found packages whose tests could not run twice in one process, and 423
+containers that were never terminated. Both are rules for each new test that nothing checks when one is written.
+
+**Fix.** The PostgreSQL tests moved to `internal/credstore/locktest` (`internal/credstore/locktest/postgres_test.go`),
+listed in the Makefile's `DOCKER_DEPENDENT_PACKAGES` with a duration in `tools/testgate/durations.json`, so
+`internal/credstore` stays in the fast tier. Each test opens a migrated database of its own on the package's one
+container, through `ent.OpenDatabase` as the Controller does, and `TestMain` terminates the container.
+
+**Lesson.** A test that shares a container gets a database of its own on it, and the package that starts the container
+also stops it.
+
+**Note 2026-11-09 (branch-containers).** The first `make branch-containers` run failed shard 4 on
+`internal/testsupport`'s `TestEveryContainerIsTerminatedWhenItsStartFails`: the new `openPostgres` did not terminate a
+container whose start returned an error. The local gate never ran that test, because `internal/testsupport` was unchanged
+and pr-check runs only the packages a branch changes, while that test scans every test file in the module (the gap of
+FAILURE_PATTERNS 631, which branch-containers exists to catch). Fixed in the commit that added the helper.
+
+## 1109. Credential refusals quoted input values a custom type may mark secret (database port, host, sslmode, name; the Kubernetes host; vault and database identifiers in CheckBinding and Combine; the Vault source's url and api_version), so a secret could reach a job's failure reason or an API error (fixed before push; on main for the pre-branch sites; a repeat in kind of 1090 and 1104; vuln-corpus C7)
+
+**Symptom.** Found by a narrow fp-reviewer pass on `fix/patch-credentials-partial`, 2026-11-09, after 1104 had refused a secret vault or database identifier. That rule named two inputs, and the injection errors quoted others: `port %q is not a number`, the database host and sslmode in `pkg/wire`, the Kubernetes API server host, and the binding conflicts. A custom database-kind type marking `port` secret, with a non-numeric value, put the value into the job's failure reason. A type stored before 1104's rule, with a secret `vault_id`, still had it quoted when two of its credentials were bound.
+
+**Root cause.** Refusals were written to help the person who typed the value, by quoting it, without asking whether the value was a secret. 1104 fixed the two cases it was shown rather than the class.
+
+**Fix.** No refusal built from a credential's input values quotes a value: `wire.ConnectionProblem` names the field, the injector maps it to the input id (`input "port" is not a number`), and the Kubernetes, binding, combine and Vault source refusals name inputs. `checkIdentifierPlain` stays, and nothing depends on it for secrecy. RED for every site listed, and for a pre-rule vault type seeded through the ent client.
+
+**Lesson.** As LESSONS 190: a rule listing the inputs that may not be secret fails open on the next input; the structural rule is that an error never carries a value at all.
+
+## 1110. The binding check read carried, undeclared inputs the run never uses, and carried references and input-source bindings were shown and then dropped on the next binding write (fixed before push; a repeat in kind of 113 and 1087)
+
+**Symptom.** Found by the same pass. `boundFor` read a credential's stored inputs, including values carried for an input its type no longer declares (1103), while the run reads the resolver's declared-only map, so a bind the check accepted failed at run time. Carried references were shown by GET, carried bindings by the input-sources list, a client sending back what it listed was refused, and any binding write deleted the carried binding.
+
+**Root cause.** 1103 carried values through an update but not the other two shapes of the same data, and the two readings of "the inputs this credential holds" (check and run) were written separately.
+
+**Fix.** `credtype.InputSchema.Declared` is the one filter, used by the resolver and `boundFor`; readers hide undeclared references and bindings; an update carries both; `writeInputSources` replaces only the bindings of declared inputs. RED for each.
+
+**Lesson.** When a value is carried rather than checked, carry every shape it takes (value, reference, binding) and have every reader agree on the one filter.
+

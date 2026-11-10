@@ -50,7 +50,7 @@ type DatabaseStore interface {
 // at the run.
 func SaveDatabaseConnection(dir string, key []byte, conn wire.DatabaseConnection) error {
 	if err := conn.Validate(); err != nil {
-		return err
+		return fmt.Errorf("connection %q: %w", conn.Name, err)
 	}
 	svc, err := crypto.NewAESService(key)
 	if err != nil {

@@ -95,6 +95,25 @@ func TestCredentialTypeValidateRefusals(t *testing.T) {
 			mutate: func(ct *credtype.CredentialType) { ct.Inputs.Fields[0].Default = "prefilled-secret" },
 		},
 		{
+			name: "a vault type whose vault identifier is secret",
+			// The identifier names the credential among the others a
+			// definition binds: a refusal to bind two quotes it, and a run
+			// passes it on ansible-playbook's command line.
+			mutate: func(ct *credtype.CredentialType) {
+				ct.Kind = credtype.KindVault
+				ct.Inputs.Fields[1] = credtype.InputField{ID: credtype.VaultIdentifierInput, Label: "Vault ID", Secret: true}
+			},
+		},
+		{
+			name: "a database type whose connection name is secret",
+			// A task names the connection by it, and a refusal to bind two
+			// quotes it.
+			mutate: func(ct *credtype.CredentialType) {
+				ct.Kind = credtype.KindDatabase
+				ct.Inputs.Fields[1] = credtype.InputField{ID: credtype.DatabaseInputName, Label: "Name", Secret: true}
+			},
+		},
+		{
 			name:   "required naming an input that does not exist",
 			mutate: func(ct *credtype.CredentialType) { ct.Inputs.Required = []string{"nonexistent"} },
 		},

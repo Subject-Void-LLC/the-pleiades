@@ -16,6 +16,17 @@ import (
 // forbidden from importing. The schemas below describe what a caller
 // actually gets, which is a redaction marker.
 
+// typeEditRule is what every write to a credential type's inputs is held
+// to, said once so the three routes that reach it cannot describe it
+// differently.
+const typeEditRule = "An input marked secret cannot be made non-secret: remove it and add it again, which deletes " +
+	"its stored values. After every edit a credential of the type keeps a stored value, an external reference or an " +
+	"input source only for an input the type still declares, and for an input the edit adds only when it adds it as " +
+	"secret, where anything already stored reads back only as \"$encrypted$\". So removing an input deletes what " +
+	"credentials hold for it, and adding one as non-secret finds nothing stored under its id. A value stored " +
+	"as secret therefore never reads back as itself. An edit is refused with 409 while a credential of the type " +
+	"cannot be decrypted with this Controller's key."
+
 // inputFieldSchema is one field a credential of a given type holds.
 var inputFieldSchema = map[string]any{
 	"type": "object",
@@ -26,7 +37,9 @@ var inputFieldSchema = map[string]any{
 		"secret": map[string]any{
 			"type": "boolean",
 			"description": "Whether this field's value is a secret. It is the single most consequential flag here: " +
-				"it decides encryption at rest and whether the value reads back as a marker or as itself.",
+				"it decides encryption at rest and whether the value reads back as a marker or as itself. Once a saved " +
+				"type marks an input secret the flag cannot be cleared: remove the input and add it again, which " +
+				"deletes every value stored for it.",
 		},
 		"multiline": map[string]any{"type": "boolean", "description": "Whether a form should render a text area."},
 		"format":    stringSchema("An optional content hint: ssh_private_key, url, or vault_id."),
@@ -96,9 +109,8 @@ var credentialTypeSchema = map[string]any{
 		"id":          map[string]any{"type": "integer"},
 		"name":        stringSchema("What a reader picks it by, unique within an organization."),
 		"description": stringSchema(""),
-		"kind": stringSchema("The coarse grouping: ssh, vault, net, scm, cloud, token, insights, external, " +
-			"kubernetes, galaxy, cryptography or registry. It is what the binding rule keys on."),
-		"namespace": stringSchema("The stable identifier an import keys on to decide whether this type already exists. Immutable."),
+		"kind":        stringSchema("The coarse grouping: " + kindList + ". It is what the binding rule keys on."),
+		"namespace":   stringSchema("The stable identifier an import keys on to decide whether this type already exists. Immutable."),
 		"managed": map[string]any{
 			"type": "boolean",
 			"description": "Whether this platform ships the type. A managed type cannot be edited or deleted, which an " +
@@ -127,13 +139,17 @@ var credentialSchema = map[string]any{
 			"type": "object",
 			"description": "The credential's values, keyed by input id. A value for an input the type marks secret " +
 				"reads back as \"$encrypted$\" and never as itself. There is no endpoint, parameter or header that " +
-				"returns the real value: it is decrypted only at dispatch, inside the process that injects it. " +
+				"returns the real value: it is decrypted only at dispatch, inside the process that injects it. An " +
+				"edit of the type cannot change that: a secret flag cannot be cleared, and removing an input deletes " +
+				"every value stored for it. " +
 				"Submitting the marker back on an update leaves the stored value alone, so editing an unrelated " +
 				"field does not destroy a secret.",
 		},
 		"external": map[string]any{
 			"type": "object",
 			"description": "External secret-manager references, keyed by input id, resolved just in time before a run. " +
+				"Each names an input the type marks secret, since a value read from a secret manager is a secret and " +
+				"masking covers only secret inputs. " +
 				"NOT redacted: a reference is a pointer to a secret rather than a secret, and hiding it would make " +
 				"\"which credentials point at this mount\" unanswerable during a migration.",
 		},
@@ -207,7 +223,7 @@ var CreateCredentialType = Endpoint{
 		"properties": map[string]any{
 			"name":         stringSchema("Unique within the organization."),
 			"description":  stringSchema(""),
-			"kind":         stringSchema("One of the twelve kinds."),
+			"kind":         stringSchema("One of " + kindList + "."),
 			"namespace":    stringSchema("The stable identifier. Immutable once set."),
 			"organization": map[string]any{"type": "integer", "description": "The owning tenant."},
 			"inputs":       inputsSchema,
@@ -216,7 +232,7 @@ var CreateCredentialType = Endpoint{
 	},
 	Responses: []Response{
 		{Status: http.StatusCreated, Description: "The created type.", Schema: credentialTypeSchema},
-		{Status: http.StatusBadRequest, Description: "The body is malformed, or the type does not validate.", Schema: errorSchema("")},
+		{Status: http.StatusBadRequest, Description: "The body is malformed, or the type does not validate, marks secret a vault type's vault_id or a database type's name, or holds a NUL character anywhere in its text.", Schema: errorSchema("")},
 		{Status: http.StatusConflict, Description: "That name or namespace is already taken.", Schema: errorSchema("")},
 	},
 }
@@ -229,28 +245,23 @@ var UpdateCredentialType = Endpoint{
 	Scope:   auth.ScopeCredentialWrite,
 	Rel:     auth.RelUpdate,
 	Summary: "Update a credential type",
-	Description: "Replaces a custom type's editable fields. The namespace is immutable and a supplied one is ignored " +
-		"rather than refused, so a form that round-trips every field it rendered does not fail on a field it was " +
-		"never allowed to change. A managed type is refused outright.",
+	Description: "A partial update of a custom type. A field left out keeps its stored value and a field present is " +
+		"applied; inputs and injectors, when present, each replace the stored document whole. A null on any field " +
+		"is refused. The namespace and the organization are not updatable: a value that differs from the stored " +
+		"one is refused, and the stored value is accepted as an echo. The type as it would be saved is validated " +
+		"whole, every injector compiled against the input schema it would have. A managed type is refused. " +
+		typeEditRule + " Concurrent PATCHes are last-writer-wins: there is no version check.",
 	Params: []Param{
 		{Name: "id", In: "path", Required: true, Type: "integer", Description: "The type's numeric id."},
 	},
 	RequestContentType: "application/json",
-	RequestSchema: map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			"name":        stringSchema(""),
-			"description": stringSchema(""),
-			"kind":        stringSchema(""),
-			"inputs":      inputsSchema,
-			"injectors":   injectorsSchema,
-		},
-	},
+	RequestSchema:      credentialTypePatchSchema,
 	Responses: []Response{
 		{Status: http.StatusOK, Description: "The updated type.", Schema: credentialTypeSchema},
-		{Status: http.StatusBadRequest, Description: "The body is malformed, or the type does not validate.", Schema: errorSchema("")},
+		{Status: http.StatusBadRequest, Description: "The body is malformed, sets a field to null or changes the namespace or the organization, or the type it would leave does not validate, clears an input's secret flag, marks secret a vault type's vault_id or a database type's name, or holds a NUL character anywhere in its text.", Schema: errorSchema("")},
 		{Status: http.StatusForbidden, Description: "The type is managed and cannot be modified.", Schema: errorSchema("")},
 		{Status: http.StatusNotFound, Description: "No credential type with that id.", Schema: errorSchema("")},
+		{Status: http.StatusConflict, Description: "The name is taken in that organization, or a credential of the type cannot be decrypted with this Controller's key.", Schema: errorSchema("")},
 	},
 }
 
@@ -338,12 +349,13 @@ var CreateCredential = Endpoint{
 			"credential_type": map[string]any{"type": "integer", "description": "The type this credential is of. Immutable once set."},
 			"organization":    map[string]any{"type": "integer", "description": "The owning tenant."},
 			"inputs":          map[string]any{"type": "object", "description": "The values, keyed by input id."},
-			"external":        map[string]any{"type": "object", "description": "External secret-manager references, keyed by input id."},
+			"external":        map[string]any{"type": "object", "description": "External secret-manager references, keyed by input id. Each must name an input the type marks secret."},
 		},
 	},
 	Responses: []Response{
 		{Status: http.StatusCreated, Description: "The created credential, redacted.", Schema: credentialSchema},
-		{Status: http.StatusBadRequest, Description: "The body is malformed, or the values do not satisfy the type.", Schema: errorSchema("")},
+		{Status: http.StatusBadRequest, Description: "The body is malformed, the name is blank, the name, description or a reference holds a NUL character, a reference names an input the type does not mark secret, or the values do not satisfy the type.", Schema: errorSchema("")},
+		{Status: http.StatusForbidden, Description: "The credential type is another organization's custom type. The refusal names it by the id sent.", Schema: errorSchema("")},
 		{Status: http.StatusConflict, Description: "That name is already taken in the organization.", Schema: errorSchema("")},
 		{Status: http.StatusNotFound, Description: "No credential type with that id.", Schema: errorSchema("")},
 	},
@@ -357,26 +369,28 @@ var UpdateCredential = Endpoint{
 	Scope:   auth.ScopeCredentialWrite,
 	Rel:     auth.RelUpdate,
 	Summary: "Update a credential",
-	Description: "Replaces a credential's values. An input submitted as \"$encrypted$\" is left at whatever is stored, " +
-		"which is what lets a form round-trip: it renders the marker for a secret, an operator edits an unrelated " +
-		"field, and submitting does not overwrite the secret with the marker text. Submit a real value to rotate one.",
+	Description: "A partial update of a credential. A field left out keeps its stored value and a field present is " +
+		"applied. inputs merges over the stored values: an input left out keeps its value, one submitted as " +
+		"\"$encrypted$\" is left at whatever is stored, which is what lets a form round-trip, and \"\" clears an " +
+		"input; submit a real value to rotate one. external, when present, replaces the stored references whole, " +
+		"so an input left out of it no longer reads from an external source and {} removes every reference. A " +
+		"null on any field, or on a value inside inputs or external, is refused. The credential type and the " +
+		"organization are not updatable: a value that differs from the stored one is refused, and the stored " +
+		"value is accepted as an echo. The credential as it would be saved is checked whole against its type, " +
+		"except what it stores for an input its type no longer declares (an older release's reconcile leaves " +
+		"that in place): the value, reference and input source are carried as they are and never shown, and a " +
+		"value or a new reference the body sends for such an input is refused. The response is the redacted " +
+		"read. Concurrent PATCHes are last-writer-wins: there is no version check.",
 	Params: []Param{
 		{Name: "id", In: "path", Required: true, Type: "integer", Description: "The credential's numeric id."},
 	},
 	RequestContentType: "application/json",
-	RequestSchema: map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			"name":        stringSchema(""),
-			"description": stringSchema(""),
-			"inputs":      map[string]any{"type": "object"},
-			"external":    map[string]any{"type": "object"},
-		},
-	},
+	RequestSchema:      credentialPatchSchema,
 	Responses: []Response{
 		{Status: http.StatusOK, Description: "The updated credential, redacted.", Schema: credentialSchema},
-		{Status: http.StatusBadRequest, Description: "The body is malformed, or the values do not satisfy the type.", Schema: errorSchema("")},
+		{Status: http.StatusBadRequest, Description: "The body is malformed, sets a field or a value inside inputs or external to null, or changes the credential type or the organization, or the credential it would leave has a blank name, a NUL character in its name, description or a reference, a reference naming an input the type does not mark secret, or values that do not satisfy its type.", Schema: errorSchema("")},
 		{Status: http.StatusNotFound, Description: "No credential with that id.", Schema: errorSchema("")},
+		{Status: http.StatusConflict, Description: "The name is taken in the organization, or the credential's stored values cannot be decrypted with this Controller's key.", Schema: errorSchema("")},
 	},
 }
 
@@ -467,6 +481,7 @@ var SetTemplateCredentials = Endpoint{
 			},
 		}},
 		{Status: http.StatusBadRequest, Description: "The body is malformed.", Schema: errorSchema("")},
+		{Status: http.StatusForbidden, Description: "A credential belongs to an organization other than the template's. The refusal names it by the id sent.", Schema: errorSchema("")},
 		{Status: http.StatusConflict, Description: "Two of the supplied credentials cannot be bound together.", Schema: errorSchema("")},
 		{Status: http.StatusNotFound, Description: "No template with that id, or one credential does not exist.", Schema: errorSchema("")},
 	},
@@ -534,11 +549,14 @@ var SetCredentialInputSources = Endpoint{
 	Rel:     auth.RelCredentials,
 	Summary: "Replace a credential's input sources",
 	Description: "Replaces the whole set, so an empty list makes every input read from stored values again. " +
+		"A source bound to an input the type no longer declares, which an older release's reconcile leaves in " +
+		"place and no read lists, is kept. " +
 		"A source is either an external-kind credential, read through that secret manager's own client, or any " +
 		"other credential, whose named field is read directly. " +
 		"Refused, before anything is written, when an input is not one this credential's type declares, when the " +
 		"source belongs to another organization, when a non-external source does not name a source_field its own " +
-		"type declares, when that field is secret and the input being filled is not, or when the " +
+		"type declares, when that field is secret and the input being filled is not, when the source is " +
+		"external-kind and the input being filled is not secret, or when the " +
 		"result would make resolution return to the credential it started from.",
 	Params: []Param{
 		{Name: "id", In: "path", Required: true, Type: "integer", Description: "The credential's numeric id."},
@@ -576,8 +594,9 @@ var SetCredentialInputSources = Endpoint{
 				"_links":        linksSchema(),
 			},
 		}},
-		{Status: http.StatusBadRequest, Description: "The body is malformed.", Schema: errorSchema("")},
-		{Status: http.StatusConflict, Description: "The set would close a resolution cycle, or binds one input twice.", Schema: errorSchema("")},
+		{Status: http.StatusBadRequest, Description: "The body is malformed, or a binding's metadata holds a NUL character.", Schema: errorSchema("")},
+		{Status: http.StatusForbidden, Description: "A source credential belongs to another organization. The refusal names it by the id sent.", Schema: errorSchema("")},
+		{Status: http.StatusConflict, Description: "The set would close a resolution cycle, binds one input twice, or reads a secret into an input that is not secret.", Schema: errorSchema("")},
 		{Status: http.StatusNotFound, Description: "No credential with that id, no such source, or an input this type does not declare.", Schema: errorSchema("")},
 	},
 }
@@ -637,7 +656,7 @@ var SetCredentialTypeInputs = Endpoint{
 	Description: "Replaces the whole input schema, leaving the type's metadata and injectors as they are. It is the " +
 		"same store update PATCH performs, narrowed to the inputs so a client that only edits the schema does not " +
 		"round-trip the injector document. A managed type is refused, as is a schema an injector already depends on " +
-		"that this would remove.",
+		"that this would remove. " + typeEditRule,
 	Params: []Param{
 		{Name: "id", In: "path", Required: true, Type: "integer", Description: "The type's numeric id."},
 	},
@@ -648,9 +667,10 @@ var SetCredentialTypeInputs = Endpoint{
 	},
 	Responses: []Response{
 		{Status: http.StatusOK, Description: "The updated type.", Schema: credentialTypeSchema},
-		{Status: http.StatusBadRequest, Description: "The body is malformed, or the schema does not validate.", Schema: errorSchema("")},
+		{Status: http.StatusBadRequest, Description: "The body is malformed, or the schema does not validate, clears an input's secret flag or holds a NUL character.", Schema: errorSchema("")},
 		{Status: http.StatusForbidden, Description: "The type is managed and cannot be modified.", Schema: errorSchema("")},
 		{Status: http.StatusNotFound, Description: "No credential type with that id.", Schema: errorSchema("")},
+		{Status: http.StatusConflict, Description: "A credential of the type cannot be decrypted with this Controller's key.", Schema: errorSchema("")},
 	},
 }
 
@@ -665,7 +685,10 @@ var SetCredentialTypeInjectors = Endpoint{
 	Description: "Replaces the injectors, leaving the type's metadata and input schema as they are. Every template is " +
 		"compiled here against the type's own inputs, and an environment variable name that would change how the run " +
 		"executes (PATH, LD_PRELOAD and their relatives) is refused, because the customer's playbook runs in the same " +
-		"container. It is the same store update PATCH performs, narrowed to the injectors. A managed type is refused.",
+		"container. It is the same store update PATCH performs, narrowed to the injectors. A managed type is refused. " +
+		"The input schema is unchanged, so no value stored for a declared input is lost, but the edit still deletes " +
+		"any value a credential of the type holds for an input the type does not declare, and is refused with 409 " +
+		"while a credential of the type cannot be decrypted with this Controller's key.",
 	Params: []Param{
 		{Name: "id", In: "path", Required: true, Type: "integer", Description: "The type's numeric id."},
 	},
@@ -676,8 +699,9 @@ var SetCredentialTypeInjectors = Endpoint{
 	},
 	Responses: []Response{
 		{Status: http.StatusOK, Description: "The updated type.", Schema: credentialTypeSchema},
-		{Status: http.StatusBadRequest, Description: "The body is malformed, or an injector does not validate.", Schema: errorSchema("")},
+		{Status: http.StatusBadRequest, Description: "The body is malformed, or an injector does not validate or holds a NUL character.", Schema: errorSchema("")},
 		{Status: http.StatusForbidden, Description: "The type is managed and cannot be modified.", Schema: errorSchema("")},
 		{Status: http.StatusNotFound, Description: "No credential type with that id.", Schema: errorSchema("")},
+		{Status: http.StatusConflict, Description: "A credential of the type cannot be decrypted with this Controller's key.", Schema: errorSchema("")},
 	},
 }

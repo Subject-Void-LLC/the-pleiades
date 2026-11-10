@@ -167,3 +167,24 @@ func TestNestedExtraVarsWalkReachesEveryLeaf(t *testing.T) {
 		t.Fatal("Validate() accepted a nested extra var referencing an undeclared input")
 	}
 }
+
+// TestDeclaredKeepsOnlyWhatTheSchemaDeclares: an entry for an input the
+// schema does not declare is left out, the result is a copy, and an empty or
+// nil map gives an empty one rather than nil.
+func TestDeclaredKeepsOnlyWhatTheSchemaDeclares(t *testing.T) {
+	t.Parallel()
+	schema := credtype.InputSchema{Fields: []credtype.InputField{{ID: "a", Label: "A"}, {ID: "b", Label: "B"}}}
+	stored := map[string]string{"a": "1", "dropped": "2"}
+
+	got := schema.Declared(stored)
+	if len(got) != 1 || got["a"] != "1" {
+		t.Fatalf("Declared() = %v, want only a", got)
+	}
+	got["a"] = "changed"
+	if stored["a"] != "1" {
+		t.Error("Declared() returned the map it was given, not a copy")
+	}
+	if empty := schema.Declared(nil); empty == nil || len(empty) != 0 {
+		t.Errorf("Declared(nil) = %#v, want an empty map", empty)
+	}
+}

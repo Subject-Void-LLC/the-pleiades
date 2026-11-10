@@ -55,6 +55,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credtype"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/credential"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/storage"
 )
 
 // maxSourceDepth is the most source hops one resolution may take.
@@ -95,13 +96,23 @@ func (r *entResolver) resolveCredential(ctx context.Context, id int, chain []int
 			credtype.ErrLookupDepth, formatChain(chain), len(chain)-1, maxSourceDepth)
 	}
 
-	row, err := r.client.Credential.Query().
-		Where(credential.IDEQ(id)).
-		WithCredentialType().
-		WithInputSources(func(q *ent.CredentialInputSourceQuery) {
-			q.WithSourceCredential()
-		}).
-		Only(ctx)
+	// One snapshot, because the masking ruleset is built from the type's
+	// schema: read in two, a type edit committed between the credential's
+	// read and its type's, removing a secret input and adding it back plain,
+	// would hand the run a secret nothing masks. The lookups below run
+	// outside it, so no transaction stays open across a network round trip.
+	var row *ent.Credential
+	err := storage.ReadSnapshot(ctx, r.client, func(ctx context.Context, db *ent.Client) error {
+		var err error
+		row, err = db.Credential.Query().
+			Where(credential.IDEQ(id)).
+			WithCredentialType().
+			WithInputSources(func(q *ent.CredentialInputSourceQuery) {
+				q.WithSourceCredential()
+			}).
+			Only(ctx)
+		return err
+	})
 	if err != nil {
 		if ent.IsNotFound(err) {
 			// Named by id rather than by name, because the name is not
@@ -131,8 +142,14 @@ func (r *entResolver) resolveCredential(ctx context.Context, id int, chain []int
 			Inputs:      ct.Inputs,
 			Injectors:   ct.Injectors,
 		},
-		Inputs:   cloneStrings(row.Inputs),
-		External: cloneStrings(row.External),
+		// Copies, so a caller cannot mutate what ent holds: the injector fills
+		// prompted values and resolved lookups into this map, and doing that to
+		// ent's cached entity would leave a plaintext secret on a live object.
+		// Only what the type declares (credtype.InputSchema.Declared): no run is
+		// handed a value or a reference for an input it does not, which the
+		// masking ruleset would not cover and the injector would refuse.
+		Inputs:   ct.Inputs.Declared(row.Inputs),
+		External: ct.Inputs.Declared(row.External),
 	}
 
 	// Defaults are filled in here rather than at the injector, so the
@@ -175,6 +192,11 @@ func (r *entResolver) resolveInputSources(
 	sortBindingsByInputID(bindings)
 
 	for _, b := range bindings {
+		// A binding for an input the type does not declare is left out, as
+		// its value is.
+		if _, declared := cred.Type.Inputs.Field(b.InputID); !declared {
+			continue
+		}
 		source := b.Edges.SourceCredential
 		if source == nil {
 			return fmt.Errorf("resolve: credential %d: input %q was read without its source credential",
@@ -197,6 +219,9 @@ func (r *entResolver) resolveInputSources(
 
 		var value string
 		if resolvedSource.Type.Kind == credtype.KindExternal {
+			if err := plainExternalInput(cred, b.InputID); err != nil {
+				return err
+			}
 			value, err = r.resolveThroughSource(ctx, cred, b, resolvedSource)
 		} else {
 			value, err = resolveFromLinkedCredential(cred, b, resolvedSource)

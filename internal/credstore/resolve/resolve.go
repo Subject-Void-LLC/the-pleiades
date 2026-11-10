@@ -196,6 +196,14 @@ func (r *entResolver) resolveExternal(ctx context.Context, cred *credtype.Creden
 	}
 
 	for _, inputID := range sortedKeys(cred.External) {
+		// Refused before anything is fetched: the value would land in an
+		// input the masking ruleset does not cover (plainExternalInput). The
+		// store refuses writing such a reference; this is the row a write
+		// made before it did, which stays readable and editable, and is
+		// never resolved.
+		if err := plainExternalInput(cred, inputID); err != nil {
+			return err
+		}
 		value, err := r.lookups.Resolve(ctx, inputID, cred.External[inputID])
 		if err != nil {
 			// The credential is named by id rather than by name: this error
@@ -219,16 +227,22 @@ func sortedKeys(m map[string]string) []string {
 	return out
 }
 
-// cloneStrings copies a map so a caller cannot mutate what ent holds.
+// plainExternalInput refuses resolving an external secret source into an
+// input the credential's type does not mark secret.
 //
-// It matters more here than in an ordinary accessor: the injector fills
-// prompted values and resolved external lookups into this map, and doing
-// that to ent's own cached entity would leave a plaintext secret attached
-// to a live object for as long as that entity is referenced.
-func cloneStrings(in map[string]string) map[string]string {
-	out := make(map[string]string, len(in))
-	for k, v := range in {
-		out[k] = v
+// The masking ruleset is built from the type's secret fields
+// (credtype.Credential.SecretValues), so a value resolved into any other
+// input would render into the run, and appear in captured output, in plain
+// text. The linked-credential branch refuses the same move for a secret
+// field (resolveFromLinkedCredential); a secret manager's value is a secret
+// whatever it addresses. The error names the credential by id and the input
+// by the type's own id, and never the reference or a value.
+func plainExternalInput(cred *credtype.Credential, inputID string) error {
+	if targetSecret(cred, inputID) {
+		return nil
 	}
-	return out
+	return fmt.Errorf(
+		"%w: credential %d input %q is not declared secret and reads from an external secret source, so the "+
+			"value would reach the run unmasked: declare the input secret, or store the value instead",
+		credtype.ErrLookupReference, cred.ID, inputID)
 }

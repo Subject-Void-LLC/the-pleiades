@@ -14,6 +14,7 @@ package credentialtypes
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strconv"
@@ -181,16 +182,19 @@ func addInjectorAction(store credstore.Store) view.RecordAction {
 			if err != nil {
 				return "", nil, credstore.ErrNotFound
 			}
-			ct, err := store.GetType(ctx, numeric)
-			if err != nil {
-				return "", nil, err
-			}
-
 			name := strings.TrimSpace(v.Get("name"))
 			template := strings.TrimSpace(v.Get("template"))
-			addInjector(&ct.Injectors, v.Get("target"), name, template)
 
-			if _, err := store.UpdateType(ctx, numeric, ct.CredentialType); err != nil {
+			// Folded over the type the store reads under its lock, so the
+			// schema carried forward is the stored one, not a copy read
+			// before the write (internal/credstore/type_inputs.go).
+			if _, err := store.UpdateTypeWith(ctx, numeric, func(ct credstore.CredentialType) (credtype.CredentialType, error) {
+				addInjector(&ct.Injectors, v.Get("target"), name, template)
+				return ct.CredentialType, nil
+			}); err != nil {
+				if errors.Is(err, credstore.ErrNotFound) {
+					return "", nil, err
+				}
 				return "", injectorFault(err), nil
 			}
 			return "/ui/" + Name + "/" + id + "?tab=" + view.TabSlug(injectorsTitle), nil, nil

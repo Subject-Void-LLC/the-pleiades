@@ -402,7 +402,7 @@ func TestAnIndirectCycleIsRefused(t *testing.T) {
 // revisit the shared node forever.
 func TestADiamondIsAccepted(t *testing.T) {
 	ctx := context.Background()
-	store, _, orgID, targetTypeID, sharedID := sourceFixture(t)
+	store, _, orgID, _, sharedID := sourceFixture(t)
 
 	left, err := store.CreateCredential(ctx, orgID, vaultTypeID(t, store, orgID), "left", "", nil, nil,
 		credstore.WithInputSources([]credstore.InputSourceBinding{{
@@ -419,10 +419,22 @@ func TestADiamondIsAccepted(t *testing.T) {
 		t.Fatalf("CreateCredential() error = %v", err)
 	}
 
-	if _, err := store.CreateCredential(ctx, orgID, targetTypeID, "api", "", nil, nil,
+	// Two secret inputs, since only a secret input may read from an
+	// external secret source.
+	twoSecrets, err := store.CreateType(ctx, orgID, credtype.CredentialType{
+		Name: "Two Secrets", Kind: credtype.KindCloud, Namespace: "two_secrets",
+		Inputs: credtype.InputSchema{
+			Fields:   []credtype.InputField{{ID: "api_token", Label: "Token", Secret: true}, {ID: "session", Label: "Session", Secret: true}},
+			Required: []string{"api_token"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateType() error = %v", err)
+	}
+	if _, err := store.CreateCredential(ctx, orgID, twoSecrets.ID, "api", "", nil, nil,
 		credstore.WithInputSources([]credstore.InputSourceBinding{
 			{InputID: "api_token", SourceCredentialID: left.ID, Metadata: map[string]string{"path": "p"}},
-			{InputID: "api_url", SourceCredentialID: right.ID, Metadata: map[string]string{"path": "p"}},
+			{InputID: "session", SourceCredentialID: right.ID, Metadata: map[string]string{"path": "p"}},
 		})); err != nil {
 		t.Fatalf("a diamond must be accepted, got error = %v", err)
 	}
