@@ -28,6 +28,7 @@ import (
 	"fmt"
 	"io"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -141,17 +142,25 @@ func (d Descriptor) Candidates() []auth.Affordance {
 }
 
 // AlsoCandidates is, for every affordance in Candidates whose endpoint
-// declares an AlsoScope, the same relation offered under that second scope.
-// An affordance is available only when the generator permits it in both
-// lists: the JSON API's router admits such a route only to a caller holding
-// both scopes, and a generator reads two affordances offered for one
-// relation as either rather than both, so the second scope is asked about
-// in a list of its own (as internal/api's links.go does).
-func (d Descriptor) AlsoCandidates() []auth.Affordance {
-	var out []auth.Affordance
+// declares AlsoScopes, the same relation offered under each of those scopes,
+// one list per scope position (the first list holds every first further
+// scope, the second every second, and so on). An affordance is available
+// only when the generator permits it in Candidates and in every list it
+// appears in: the JSON API's router admits such a route only to a caller
+// holding every scope, and a generator reads two affordances offered for one
+// relation in one list as either rather than both (as internal/api's
+// links.go does).
+func (d Descriptor) AlsoCandidates() [][]auth.Affordance {
+	var out [][]auth.Affordance
 	add := func(e *apispec.Endpoint) {
-		if e != nil && e.AlsoScope != "" {
-			out = append(out, auth.Affordance{Rel: e.Rel, Scope: e.AlsoScope})
+		if e == nil {
+			return
+		}
+		for k, also := range e.AlsoScopes {
+			for len(out) <= k {
+				out = append(out, nil)
+			}
+			out[k] = append(out[k], auth.Affordance{Rel: e.Rel, Scope: also})
 		}
 	}
 	for _, e := range d.Ops.all() {
@@ -1652,7 +1661,7 @@ func validateOps(name string, ops Ops, actions []RecordAction, sections []Sectio
 		// stale copy of an endpoint would render the old scope's
 		// buttons against the new scope's route.
 		if declared.Method != e.Method || declared.Pattern != e.Pattern ||
-			declared.Scope != e.Scope || declared.AlsoScope != e.AlsoScope || declared.Rel != e.Rel {
+			declared.Scope != e.Scope || !slices.Equal(declared.AlsoScopes, e.AlsoScopes) || declared.Rel != e.Rel {
 			return fmt.Errorf("view %q holds a stale copy of endpoint %q", name, e.Name)
 		}
 		if e.Rel == "" {

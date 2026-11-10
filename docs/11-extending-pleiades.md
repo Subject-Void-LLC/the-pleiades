@@ -55,7 +55,7 @@ device needs) are described in [Running in production](10-running-in-production.
 
 A vendor type's capabilities are backed by its Go code. A generic type cannot do that, so
 beyond its baseline its capabilities come from the device itself: `pleiades onboard <host>`
-(or `POST /api/v1/inventory/devices/{name}/onboard`, scope `inventory:onboard`) probes it over
+(or `POST /api/v1/inventory/devices/{name}/onboard`, scopes `inventory:onboard` and `inventory:read`) probes it over
 its protocol with its stored credential and records what the device's own answers prove, as
 a revision in its history. The SSH probe runs one fixed script (no inventory value reaches
 it) and grants a package manager only when both its tools answer; the NETCONF probe reads the
@@ -932,7 +932,8 @@ made:
 - **An assertion** is a person saying so, with a reason:
   `pleiades grant-capability <device> <capability> --set model=x9 --reason "<why>"`, and
   `pleiades revoke-capability`. On the Controller these are `POST` and
-  `DELETE /inventory/devices/{name}/capabilities`, under the scope `inventory:assert`,
+  `DELETE /inventory/devices/{name}/capabilities`, under the scope `inventory:assert` (and
+  `inventory:read`, since both answer with the device's grants),
   which only `admin` holds and `inventory:write` does not imply. A built-in capability
   cannot be asserted: only onboarding grants one.
 

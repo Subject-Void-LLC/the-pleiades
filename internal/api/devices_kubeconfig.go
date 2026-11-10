@@ -91,6 +91,9 @@ func (h *DeviceHandler) ImportKubeconfig(w http.ResponseWriter, r *http.Request)
 		RespondError(w, r, http.StatusNotImplemented, "kubeconfig import is not enabled")
 		return
 	}
+	// The route declares inventory:write (apispec AlsoScopes), so the router
+	// refuses a caller without it before this runs; this check stays as a
+	// second line for a handler mounted any other way.
 	if identity, ok := IdentityFromContext(r.Context()); !ok || !identity.HasScope(auth.ScopeInventoryWrite) {
 		RespondError(w, r, http.StatusForbidden, "a kubeconfig import writes a device, which needs inventory:write")
 		return

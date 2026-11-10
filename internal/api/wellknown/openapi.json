@@ -6448,7 +6448,8 @@
         "security": [
           {
             "bearerAuth": [
-              "inventory:assert"
+              "inventory:assert",
+              "inventory:read"
             ]
           }
         ],
@@ -6584,7 +6585,8 @@
         "security": [
           {
             "bearerAuth": [
-              "inventory:assert"
+              "inventory:assert",
+              "inventory:read"
             ]
           }
         ],
@@ -7423,7 +7425,8 @@
         "security": [
           {
             "bearerAuth": [
-              "inventory:onboard"
+              "inventory:onboard",
+              "inventory:read"
             ]
           }
         ],
@@ -7755,7 +7758,9 @@
         "security": [
           {
             "bearerAuth": [
-              "credential:write"
+              "credential:write",
+              "inventory:write",
+              "inventory:read"
             ]
           }
         ],
@@ -8352,7 +8357,8 @@
         "security": [
           {
             "bearerAuth": [
-              "runbook:execute"
+              "runbook:execute",
+              "job:read"
             ]
           }
         ],
@@ -8582,7 +8588,9 @@
         "security": [
           {
             "bearerAuth": [
-              "runbook:execute"
+              "runbook:execute",
+              "job:read",
+              "template:read"
             ]
           }
         ],
@@ -8871,7 +8879,9 @@
         "security": [
           {
             "bearerAuth": [
-              "runbook:execute"
+              "runbook:execute",
+              "job:read",
+              "template:read"
             ]
           }
         ],
@@ -10034,7 +10044,8 @@
         "security": [
           {
             "bearerAuth": [
-              "project:write"
+              "project:write",
+              "credential:read"
             ]
           }
         ],
@@ -10413,7 +10424,8 @@
           {
             "bearerAuth": [
               "project:write",
-              "project:read"
+              "project:read",
+              "credential:read"
             ]
           }
         ],
@@ -14268,7 +14280,8 @@
         "security": [
           {
             "bearerAuth": [
-              "runbook:check"
+              "runbook:check",
+              "template:read"
             ]
           }
         ],
@@ -15140,7 +15153,8 @@
           {
             "bearerAuth": [
               "credential:write",
-              "credential:read"
+              "credential:read",
+              "template:read"
             ]
           }
         ],
@@ -15342,7 +15356,8 @@
         "security": [
           {
             "bearerAuth": [
-              "runbook:execute"
+              "runbook:execute",
+              "template:read"
             ]
           }
         ],

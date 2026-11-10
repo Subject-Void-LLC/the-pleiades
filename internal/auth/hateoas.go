@@ -232,8 +232,8 @@ type admissionGenerator struct {
 // the Audit Trail means, since nobody asked to delete anything by loading
 // a page. api.RequireScope keeps the recorded Admission, so every real
 // attempt is recorded once per scope its route requires: once for most
-// routes, and twice for a route that also requires a read scope
-// (api.Route.AlsoScope), where a caller holding only the write scope is
+// routes, and once more for each read scope a route also requires
+// (api.Route.AlsoScopes), where a caller holding only the write scope is
 // recorded as allowed for it and then denied the read. A Decision carries no
 // route or request id, so an audit reader pairs the two by time and subject.
 //

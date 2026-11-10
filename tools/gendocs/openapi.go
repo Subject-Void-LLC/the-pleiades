@@ -181,11 +181,11 @@ func openAPIResponses(ep apispec.Endpoint) map[string]any {
 
 // openAPIScopes is the scopes an endpoint's one security requirement lists.
 // OpenAPI reads every scope in one requirement as required together, which
-// is what a route's AlsoScope means.
+// is what a route's AlsoScopes mean.
 func openAPIScopes(ep apispec.Endpoint) []any {
 	scopes := []any{string(ep.Scope)}
-	if ep.AlsoScope != "" {
-		scopes = append(scopes, string(ep.AlsoScope))
+	for _, also := range ep.AlsoScopes {
+		scopes = append(scopes, string(also))
 	}
 	return scopes
 }

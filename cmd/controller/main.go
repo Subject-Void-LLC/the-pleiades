@@ -1545,7 +1545,8 @@ func main() {
 	// that groups onto the returned mux. NewRouter mounts every entry
 	// under api.APIVersionPrefix with auth, the rate limiter, and that
 	// route's own RequireScope(admission, Scope) already applied (and a
-	// second for its AlsoScope, which every PATCH and PUT declares), and
+	// further one for each of its AlsoScopes, which every route answering
+	// with a stored record declares), and
 	// refuses to build at all if any entry omits its Scope or if Admission
 	// is nil, so "every application route is versioned, authenticated,
 	// throttled, and authorized" holds structurally: there is no way to

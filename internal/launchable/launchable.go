@@ -146,6 +146,16 @@ type Descriptor struct {
 	// #268).
 	LaunchScope auth.Scope
 
+	// ReadScopes are the read scopes a caller must also hold to make this
+	// run: the read scope of every record the type's own launch route reads,
+	// which that route requires beside LaunchScope (apispec AlsoScopes). A
+	// schedule is a second way to make the same run, and it reads the same
+	// records (its preflight judges the request against the stored template,
+	// and its answer names the target), so it must need what the route needs:
+	// otherwise a token refused the launch by hand could arrange it to run
+	// unattended and repeatedly, and read the target's name back.
+	ReadScopes []auth.Scope
+
 	// AcceptsSavedConfig says whether a launch of this type can carry a
 	// saved launch configuration: a bundle of overrides and survey answers,
 	// which only a template has. A type that takes none refuses one at the

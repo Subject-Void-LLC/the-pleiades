@@ -239,13 +239,13 @@ var CreateCredentialType = Endpoint{
 
 // UpdateCredentialType is PATCH /credential-types/{id}.
 var UpdateCredentialType = Endpoint{
-	Name:      "update_credential_type",
-	Method:    http.MethodPatch,
-	Pattern:   "/credential-types/{id}",
-	Scope:     auth.ScopeCredentialWrite,
-	AlsoScope: auth.ScopeCredentialRead,
-	Rel:       auth.RelUpdate,
-	Summary:   "Update a credential type",
+	Name:       "update_credential_type",
+	Method:     http.MethodPatch,
+	Pattern:    "/credential-types/{id}",
+	Scope:      auth.ScopeCredentialWrite,
+	AlsoScopes: []auth.Scope{auth.ScopeCredentialRead},
+	Rel:        auth.RelUpdate,
+	Summary:    "Update a credential type",
 	Description: "A partial update of a custom type. A field left out keeps its stored value and a field present is " +
 		"applied; inputs and injectors, when present, each replace the stored document whole. A null on any field " +
 		"is refused. The namespace and the organization are not updatable: a value that differs from the stored " +
@@ -364,13 +364,13 @@ var CreateCredential = Endpoint{
 
 // UpdateCredential is PATCH /credentials/{id}.
 var UpdateCredential = Endpoint{
-	Name:      "update_credential",
-	Method:    http.MethodPatch,
-	Pattern:   "/credentials/{id}",
-	Scope:     auth.ScopeCredentialWrite,
-	AlsoScope: auth.ScopeCredentialRead,
-	Rel:       auth.RelUpdate,
-	Summary:   "Update a credential",
+	Name:       "update_credential",
+	Method:     http.MethodPatch,
+	Pattern:    "/credentials/{id}",
+	Scope:      auth.ScopeCredentialWrite,
+	AlsoScopes: []auth.Scope{auth.ScopeCredentialRead},
+	Rel:        auth.RelUpdate,
+	Summary:    "Update a credential",
 	Description: "A partial update of a credential. A field left out keeps its stored value and a field present is " +
 		"applied. inputs merges over the stored values: an input left out keeps its value, one submitted as " +
 		"\"$encrypted$\" is left at whatever is stored, which is what lets a form round-trip, and \"\" clears an " +
@@ -450,13 +450,13 @@ var ListTemplateCredentials = Endpoint{
 // template author decides what runs; whoever binds a credential decides
 // what it runs AS, which is the higher privilege of the two.
 var SetTemplateCredentials = Endpoint{
-	Name:      "set_template_credentials",
-	Method:    http.MethodPut,
-	Pattern:   "/templates/{id}/credentials",
-	Scope:     auth.ScopeCredentialWrite,
-	AlsoScope: auth.ScopeCredentialRead,
-	Rel:       auth.RelCredentials,
-	Summary:   "Replace a template's credentials",
+	Name:       "set_template_credentials",
+	Method:     http.MethodPut,
+	Pattern:    "/templates/{id}/credentials",
+	Scope:      auth.ScopeCredentialWrite,
+	AlsoScopes: []auth.Scope{auth.ScopeCredentialRead, auth.ScopeTemplateRead},
+	Rel:        auth.RelCredentials,
+	Summary:    "Replace a template's credentials",
 	Description: "Replaces the whole set, so an empty list unbinds everything. At most one credential of each kind " +
 		"may be bound, except vault credentials, which may repeat while each carries a distinct vault identifier. " +
 		"A conflicting set is refused with both credentials named, since the caller has to choose which to drop.",
@@ -545,13 +545,13 @@ var ListCredentialInputSources = Endpoint{
 // SetTemplateCredentials gives about its own scope: binding decides what a
 // run authenticates AS, which is the higher privilege.
 var SetCredentialInputSources = Endpoint{
-	Name:      "set_credential_input_sources",
-	Method:    http.MethodPut,
-	Pattern:   "/credentials/{id}/input-sources",
-	Scope:     auth.ScopeCredentialWrite,
-	AlsoScope: auth.ScopeCredentialRead,
-	Rel:       auth.RelCredentials,
-	Summary:   "Replace a credential's input sources",
+	Name:       "set_credential_input_sources",
+	Method:     http.MethodPut,
+	Pattern:    "/credentials/{id}/input-sources",
+	Scope:      auth.ScopeCredentialWrite,
+	AlsoScopes: []auth.Scope{auth.ScopeCredentialRead},
+	Rel:        auth.RelCredentials,
+	Summary:    "Replace a credential's input sources",
 	Description: "Replaces the whole set, so an empty list makes every input read from stored values again. " +
 		"A source bound to an input the type no longer declares, which an older release's reconcile leaves in " +
 		"place and no read lists, is kept. " +
@@ -615,13 +615,13 @@ var SetCredentialInputSources = Endpoint{
 // document is wrong when an operator launches a job. It touches no stored
 // credential, so it discloses nothing about one.
 var TestCredentialType = Endpoint{
-	Name:      "test_credential_type",
-	Method:    http.MethodPost,
-	Pattern:   "/credential-types/{id}/test",
-	Scope:     auth.ScopeCredentialWrite,
-	AlsoScope: auth.ScopeCredentialRead,
-	Rel:       auth.RelExecute,
-	Summary:   "Test a credential type's injectors",
+	Name:       "test_credential_type",
+	Method:     http.MethodPost,
+	Pattern:    "/credential-types/{id}/test",
+	Scope:      auth.ScopeCredentialWrite,
+	AlsoScopes: []auth.Scope{auth.ScopeCredentialRead},
+	Rel:        auth.RelExecute,
+	Summary:    "Test a credential type's injectors",
 	Description: "Renders this type's injectors against values the caller supplies, and reports what it would " +
 		"produce with every value masked. No stored credential is read and nothing is written. It is how an author " +
 		"finds a miswritten injector before a run does.",
@@ -652,13 +652,13 @@ var TestCredentialType = Endpoint{
 
 // SetCredentialTypeInputs is PUT /credential-types/{id}/inputs.
 var SetCredentialTypeInputs = Endpoint{
-	Name:      "set_credential_type_inputs",
-	Method:    http.MethodPut,
-	Pattern:   "/credential-types/{id}/inputs",
-	Scope:     auth.ScopeCredentialWrite,
-	AlsoScope: auth.ScopeCredentialRead,
-	Rel:       auth.RelSetInputs,
-	Summary:   "Replace a credential type's input schema",
+	Name:       "set_credential_type_inputs",
+	Method:     http.MethodPut,
+	Pattern:    "/credential-types/{id}/inputs",
+	Scope:      auth.ScopeCredentialWrite,
+	AlsoScopes: []auth.Scope{auth.ScopeCredentialRead},
+	Rel:        auth.RelSetInputs,
+	Summary:    "Replace a credential type's input schema",
 	Description: "Replaces the whole input schema, leaving the type's metadata and injectors as they are. It is the " +
 		"same store update PATCH performs, narrowed to the inputs so a client that only edits the schema does not " +
 		"round-trip the injector document. A managed type is refused, as is a schema an injector already depends on " +
@@ -682,13 +682,13 @@ var SetCredentialTypeInputs = Endpoint{
 
 // SetCredentialTypeInjectors is PUT /credential-types/{id}/injectors.
 var SetCredentialTypeInjectors = Endpoint{
-	Name:      "set_credential_type_injectors",
-	Method:    http.MethodPut,
-	Pattern:   "/credential-types/{id}/injectors",
-	Scope:     auth.ScopeCredentialWrite,
-	AlsoScope: auth.ScopeCredentialRead,
-	Rel:       auth.RelSetInjectors,
-	Summary:   "Replace a credential type's injector document",
+	Name:       "set_credential_type_injectors",
+	Method:     http.MethodPut,
+	Pattern:    "/credential-types/{id}/injectors",
+	Scope:      auth.ScopeCredentialWrite,
+	AlsoScopes: []auth.Scope{auth.ScopeCredentialRead},
+	Rel:        auth.RelSetInjectors,
+	Summary:    "Replace a credential type's injector document",
 	Description: "Replaces the injectors, leaving the type's metadata and input schema as they are. Every template is " +
 		"compiled here against the type's own inputs, and an environment variable name that would change how the run " +
 		"executes (PATH, LD_PRELOAD and their relatives) is refused, because the customer's playbook runs in the same " +

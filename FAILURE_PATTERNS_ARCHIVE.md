@@ -27416,6 +27416,34 @@ tie the two together.
 
 **Lesson, 2026-11-10.** LESSONS 435 for the routes this branch covers. For the routes still open, pending the decision.
 
+**Resolution of the action routes, 2026-11-10 (`fix/action-route-read-scopes`, `8a3449d3`).** Owner decisions
+2026-11-10: an action route needs the read scope of each record it reads, and a route may require several scopes
+(`AlsoScopes`), rather than answering 204, because a 204 still reads the template first. The `DELETE` 204 and 404 are
+left as they are.
+- `api.Route.AlsoScope` and `apispec.Endpoint.AlsoScope` became `AlsoScopes []auth.Scope`. The router mounts one
+  `RequireScope` per scope (`internal/api/router.go`). `permitted()` in `internal/api/links.go` and the UI's affordances
+  (`internal/ui/view/view.go`, `internal/ui/web/handler.go`) ask the HATEOAS generator once per scope position, any
+  affordance within one position's list being enough, since the generator reads two affordances for one relation as
+  either one.
+- The routes 1119 listed now declare what they read: `cancel_job` (`job:read`), `relaunch_job` and `rollback_job`
+  (`job:read`, `template:read`; rollback is 1135), `launch_template` and `check_template` (`template:read`),
+  `onboard_device`, `grant_capability` and `revoke_capability` (`inventory:read`), `set_template_credentials`
+  (`credential:read`, `template:read`, so three scopes with its write scope) and `import_kubeconfig` (`inventory:write`,
+  `inventory:read`; 1138). Review on the branch added `create_project` and `update_project` (`credential:read`; 1137) and
+  the schedule path (1136).
+- Each route's reads are an explicit table, `requiredReads` in `internal/apispec/patch_scopes_test.go`.
+  `TestAlsoScopes_EveryDeclaringRouteRefusesAMissingScope` (`internal/api/patch_scopes_test.go`) drops each declared
+  scope in turn for all 36 routes that declare one, and checks the `Allow` header for the three-scope `PUT`.
+  `TestAffordances_RequireEveryFurtherScope` (`internal/ui/web/also_scopes_internal_test.go`) was measured red when the
+  loop read only the first position: Relaunch was offered without `template:read`.
+- `changelog/action-routes-need-read-scopes.breaking.md` names the change.
+
+**Known limits, updated.** A route now records one authorization Decision per scope, so a three-scope route records
+three, still with no route or request id to tie them together. `auth.AllScopes()` (`internal/auth/rolescopes.go`) still
+leaves out `ScopeAccessRead`, `ScopeSettingsRead` and `ScopeSettingsWrite`.
+
+**Still open.** Creates and forms that name another resource without its read scope: 1139.
+
 ## 1120. The inventory member check answers 400 for an id that does not exist, 403 for another organization's and 200 for one's own, so a token holding inventory:write can learn which device and group ids exist (open: owner decision; on main as 409, 403 and 200; reasoned, not run as an oracle test; the class of 1096)
 
 **Symptom.** Reasoned on `fix/patch-inventories-announcements`, 2026-11-10. Ids are sequential. A caller holding
@@ -27452,6 +27480,11 @@ a caller holding `inventory:write` can still map ids and their owners:
 
 The changelog fragment (`changelog/inventory-member-one-refusal.breaking.md`) says the change removes the difference
 between the two answers only, and does not make ids private.
+
+**See also, 2026-11-10.** 1139 records the wider class found on `fix/action-route-read-scopes`: creates, forms and
+refusals across the API and the UI that name, list or count another store's records to a caller without its read scope,
+existence answers for referenced ids among them. It is a separate entry because most of it is about read scopes, not
+member ids.
 
 ## 1121. The web UI answers every inventory store refusal to an edit with a 500, as though the server were broken (open; on main; reasoned, not run; the class of 1058)
 
@@ -27837,3 +27870,156 @@ scope (`runbook:execute`, `inventory:onboard`, `inventory:assert`) are outside t
 what they still show.
 
 **Lesson.** LESSONS 435.
+
+## 1135. The branch's first version gave POST /jobs/{id}/rollback only job:read, though a rollback reads the job's template and names a bound credential in a refusal exactly as a relaunch does, which got job:read and template:read; the guard test's table of reads held the gap in place (fixed before push; caught in review; a repeat of 939, and of 1134's class; LESSONS 244, 363 and 436)
+
+**Symptom.** On `fix/action-route-read-scopes`, 2026-11-10, before push. Owner decision 2026-11-10: an action route
+needs the read scope of each record it reads (1119's open list). The branch's first version wrote each route's reads
+into a table in the guard test (`requiredReads`, `internal/apispec/patch_scopes_test.go`). It gave `relaunch_job`
+`job:read` and `template:read`, and `rollback_job` `job:read` alone. `Dispatcher.Rollback`
+(`internal/api/dispatcher_rollback.go`) reads the job's template and calls `refuseUnrepeatableCredentials`
+(`internal/api/dispatcher.go`) on it, as a relaunch does, and that refusal names the bound credential. So a token
+holding `runbook:execute` and `job:read` without `template:read` could still have the template read for it, and a bound
+credential's name answered back. The guard test holds every route to the table, so it passed. The fp-reviewer and
+claim-refuter agents found it by reading the handlers.
+
+**Root cause.** The table was written route by route, and a rollback was given the reads of a job action (the job)
+rather than the reads of the code it shares with relaunch. 1119's open note named cancel, relaunch and launch, and not
+rollback, so nothing pointed at the template read inside it.
+
+**Why 939 and 1134 did not prevent it.** 939 found that the rollback route is a second door into a job that applies the
+template's rules by hand (it calls `refuseUnrepeatableCredentials` itself), and its lesson says to list the routes that
+create a job (launch, saved configuration, schedule, relaunch, rollback, check) when a launch field is added. It was
+written for a launch field, and this branch's rule was a scope rule, so the list was taken from 1119's note instead.
+1134 is a guard test written from an incomplete premise, which then holds the gap in. Here the premise was one row of
+the table rather than a filter by verb, and the test held it in the same way.
+
+**Fix.** On this branch, in `8a3449d3`. `rollback_job` (`internal/apispec/template_endpoints.go`) declares `job:read`
+and `template:read` in `AlsoScopes`, and the table says the same.
+`TestAlsoScopes_EveryDeclaringRouteRefusesAMissingScope` (`internal/api/patch_scopes_test.go`) drops each declared scope
+in turn, for all 36 routes that declare one, rollback included.
+
+**Known limits.** From the repository. The table is still kept by hand, as LESSONS 435 says of `recordAnsweringPosts`: a
+route whose handler starts to read another record passes the guard until its row changes.
+
+**Lesson.** Routes that call the same helper read what the helper reads: take each route's reads from the code it calls,
+and give routes sharing a helper the same rows. LESSONS 436 has the rule for a second path to one effect.
+
+## 1136. A schedule's write was gated only on the one launch scope its target's type declares, so after this branch's first version a token refused POST /templates/{id}/launch for want of template:read could still schedule that template to run unattended, read its name back, and have the schedule's preflight refusals name its bound credentials (fixed before push; caught in review; a repeat of 268, and of 1133; LESSONS 134, 435 and 436)
+
+**Symptom.** On `fix/action-route-read-scopes`, 2026-11-10, before push. The branch's first version gave
+`launch_template` `template:read` beside `runbook:execute`, and `sync_project` already needed `project:read` beside
+`project:write` (1134). A schedule's write is gated by `launchable.Reach.Admits` (`internal/launchable/reach.go`), which
+the schedule store calls at the write and the UI picker calls when it decides what to offer (268). `Admits` checked only
+`launchable.Descriptor.LaunchScope`. So a token holding `schedule:write` and `runbook:execute` without `template:read`,
+refused the launch route by hand, could still create a schedule that runs the template repeatedly. The schedule's answer
+names its target, and its preflight refusals call `refuseUnrepeatableCredentials` (`internal/api/dispatcher_launchable.go`),
+which names a bound credential (1135). The same held for a project without `project:read`. The fp-reviewer and
+claim-refuter agents found it by reading the code.
+
+**Root cause.** A second way to make a run kept a copy of the launch route's scope rather than reading the route's
+declaration, and the copy had room for one scope, as `Route.AlsoScope` once did. When the route gained a read scope,
+nothing on the schedule side could say so.
+
+**Why 268 and 1133 did not hold.** 268's fix made each launchable type declare the scope needed to launch it, and
+`TestBuiltins_DeclareTheScopeTheirOwnRouteRequires` (`internal/launchable/types/builtins_test.go`) held that one scope
+equal to the route's one scope. Its rule is that a mechanism causing work later checks the permission to do that work
+now. It was right, and the permission it encoded was one scope, so it held only while the route needed one. 1133 found
+that the UI reads the same records outside the router; the schedule store is another such reader, through `launchable`,
+and this branch's list of places did not include it.
+
+**Fix.** On this branch, in `8a3449d3`. `launchable.Descriptor.ReadScopes` (`internal/launchable/launchable.go`) names
+the read scopes a type's own launch route requires (`job_template`: `template:read`; `project`: `project:read`), and
+`Reach.Admits` requires each one. `TestBuiltins_DeclareTheScopeTheirOwnRouteRequires` holds them to the routes'
+`AlsoScopes`. `TestReach_Admits` (`internal/launchable/launchable_test.go`) and
+`TestSchedules_WritingOneNeedsPermissionToLaunchWhatItLaunches` (`internal/api/schedules_launchable_test.go`) gained cases
+for a caller missing a read scope.
+
+**Known limits.** From the repository. `TestBuiltins_DeclareTheScopeTheirOwnRouteRequires` restates the routes' scopes in
+its own map rather than reading `apispec`, deliberately, so the package does not depend on the route table; a scope added
+to `LaunchTemplate` or `SyncProject` later passes it until someone edits the map too. A schedule is authorized when it is
+written and not judged again when it fires (`Reach`'s doc comment), so a schedule written before this branch by a token
+without the read scope keeps firing.
+
+**Lesson.** LESSONS 436.
+
+## 1137. POST /projects and PATCH /projects/{id} read the credential they bind, and checkCredential's three answers told a caller without credential:read which organization owns a credential id and whether it can authenticate a clone (fixed before push; caught in review; a repeat in kind of 1091 and 1096; LESSONS 435)
+
+**Symptom.** On `fix/action-route-read-scopes`, 2026-11-10, before push. `ProjectHandler.checkCredential`
+(`internal/api/projects.go`) lists every credential and answers in one of three ways: 400 "no credential with that id in
+this project's organization" for a missing id or another organization's, 400 "not a source control credential" for one
+of the organization that cannot authenticate a clone, and success otherwise. The caller chooses the project's
+organization (the function's own comment says so, 98). So by trying organizations, a token holding `project:write`
+without `credential:read` could learn which organization owns a credential id and whether it is a git credential. The
+routes needed `project:write`, and `PATCH` also `project:read` (1119). The fp-reviewer and claim-refuter agents found it
+by reading the handlers.
+
+**Root cause.** A refusal that judges the body against a stored record shows that record, and the record here belongs to
+another store, whose read scope the route did not require.
+
+**Why 1091, 1096 and LESSONS 435 did not prevent it.** 1091 answered another organization's credential exactly as a
+missing one, and 1096 took names out of refusals. Both worked on what one answer says. While the caller can choose the
+organization, the merged answer still tells the owner by trial, and the kind refusal is a third answer. LESSONS 435 lists
+"a refusal that judges the body against one" among what a route shows, but this branch's first version took its list
+from 1119's open note, which named action routes.
+
+**Fix.** On this branch, in `8a3449d3`. `create_project` declares `credential:read`, and `update_project` declares
+`project:read` and `credential:read` (`internal/apispec/project_endpoints.go`), with the same rows in `requiredReads`.
+
+**Known limits.** From the repository. A caller holding `credential:read` still gets the three answers, which is
+information that scope can read. Keeping a caller to its own organization waits on per-organization authorization (98).
+
+**Lesson.** LESSONS 435, with its whole list: sweep every handler for refusals that judge the body against another
+store's record, not only the routes an open note names.
+
+## 1138. POST /inventory/kubeconfig-imports checked inventory:write in its handler only, so the OpenAPI document, the OPTIONS Allow header and _links offered it to a token the handler then refused (fixed before push; caught in review; the class of 1106 and 1131)
+
+**Symptom.** On `fix/action-route-read-scopes`, 2026-11-10, before push. `import_kubeconfig`
+(`internal/apispec/apispec.go`) declared `credential:write` only. `DeviceHandler.ImportKubeconfig`
+(`internal/api/devices_kubeconfig.go`) refused a caller without `inventory:write` with 403 "a kubeconfig import writes a
+device, which needs inventory:write". The OpenAPI document, the `Allow` header and `_links` are built from the
+declaration, so each said less than the code required, and a client following them was refused. The fp-reviewer and
+claim-refuter agents found it.
+
+**Root cause.** A route needing two scopes could declare one (`Route.AlsoScope` held a single scope, and that one was
+wanted for the read), so the second was checked by hand inside the handler, where the contract cannot see it.
+
+**Why 1106 and 1131 did not prevent it.** Both are text claiming something the code does not do, found and fixed one
+claim at a time. Here the claim is generated from the declaration, so the declaration was the text that was wrong, and
+no check compared it with the handler's own scope test.
+
+**Fix.** On this branch, in `8a3449d3`. `import_kubeconfig` declares `inventory:write` and `inventory:read` in
+`AlsoScopes` beside `credential:write`. The handler's check stays as a second line for a handler mounted another way,
+with a comment saying so. `TestAlsoScopes_EveryDeclaringRouteRefusesAMissingScope` drops each of the three in turn.
+
+**Known limits.** From the repository. Nothing finds another handler that checks a scope its route does not declare.
+
+**Lesson.** A scope a handler checks for itself belongs in its route's declaration, so the contract built from it says
+the same. When a declaration cannot say it, widen the declaration rather than checking in the handler.
+
+## 1139. Creates, create and edit forms, and some refusals name, list or count another store's records to a caller holding no read scope for them (open: owner decision; on main; reasoned by the claim-refuter agent, not run; the class of 1119, 1120 and 1096)
+
+**Symptom.** Reasoned by the claim-refuter agent on `fix/action-route-read-scopes`, 2026-11-10, from the code; not run.
+- The web UI's create and edit forms list other stores' records with no read check. A `project:write` session sees every
+  git credential's name, type and organization, across organizations; `template:write` sees every inventory and
+  organization; `access:write` every user's email; the grant forms list team names.
+- `POST /templates` answers with the named inventory's name and organization, and refuses on an unknown runbook.
+- `POST /bindings` answers with device, inventory and group names.
+- `POST /credentials` answers with the type's name, namespace and kind.
+- `DELETE /credential-types/{id}` answers 409 naming the type and counting its credentials, and a template or project
+  `DELETE` answers 409 showing a schedule.
+- Creates answer differently for a referenced id that exists and one that does not (teams, inventories, contacts; a user
+  create tells whether an email exists; a kubeconfig import names an existing credential).
+- Launch and rollback show one bit about the runbook without `runbook:read`.
+- The claim-refuter's list also named the schedule form listing every launchable and `POST /schedules` answering with its
+  target's name. Both were listed with the review of the branch's first version, before 1136's fix, which now requires
+  the target's read scope at the write and in the picker. Whether anything is left there is not checked.
+
+**Root cause.** A create or a form that names another resource reads that resource under the creating scope alone, as
+1119's write routes once answered with their own record. The owner's decision of 2026-11-10 covers routes that read
+records of their own resource and action routes; creates that name another resource were left out of it.
+
+**Status.** Open, for the owner. The owner decided on 2026-11-10 to leave the `DELETE` 204 and 404 as they are (1119).
+Per-organization authorization (98) would narrow the cross-organization part of each item.
+
+**Lesson.** Pending the decision. As 1096: a response names only what the caller sent or may read.

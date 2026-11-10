@@ -1,5 +1,5 @@
 // This file holds Descriptor.AlsoCandidates to its contract: every endpoint
-// a descriptor reaches that declares an AlsoScope (an operation, a record
+// a descriptor reaches that declares AlsoScopes (an operation, a record
 // action or a section's row action) is offered under that second scope, and
 // nothing else is, so the UI can require both scopes as the API router does.
 package view_test
@@ -16,7 +16,7 @@ import (
 // TestDescriptor_AlsoCandidatesOffersEverySecondScope builds a descriptor
 // whose update operation, record action and row action each declare a read
 // scope beside their write scope, and one action without an endpoint, and
-// requires exactly those three under their AlsoScope.
+// requires exactly those three under their AlsoScopes.
 func TestDescriptor_AlsoCandidatesOffersEverySecondScope(t *testing.T) {
 	d := rowActionDescriptor()
 	d.Ops.Update = &apispec.UpdateInventory
@@ -32,8 +32,10 @@ func TestDescriptor_AlsoCandidatesOffersEverySecondScope(t *testing.T) {
 		scope auth.Scope
 	}
 	var got []pair
-	for _, a := range d.AlsoCandidates() {
-		got = append(got, pair{a.Rel, a.Scope})
+	for _, list := range d.AlsoCandidates() {
+		for _, a := range list {
+			got = append(got, pair{a.Rel, a.Scope})
+		}
 	}
 	want := []pair{
 		{apispec.UpdateInventory.Rel, auth.ScopeInventoryRead},
