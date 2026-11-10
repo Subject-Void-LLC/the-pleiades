@@ -533,6 +533,28 @@ func (s *fakeSetStore) Update(_ context.Context, set inventory.Set) error {
 	return inventory.ErrSetNotFound
 }
 
+// UpdateWith folds a change over the stored set and saves it through
+// Update, which keeps the organization and owner as the real store does.
+func (s *fakeSetStore) UpdateWith(ctx context.Context, id int, fold func(inventory.Set) (inventory.Set, error)) (inventory.Set, error) {
+	stored, err := s.Get(ctx, id)
+	if err != nil {
+		return inventory.Set{}, err
+	}
+	// The fold gets its own copies of the member lists, as from the real
+	// store, so a fold editing them in place cannot reach the stored set.
+	stored.GroupIDs = append([]int(nil), stored.GroupIDs...)
+	stored.DeviceIDs = append([]int(nil), stored.DeviceIDs...)
+	next, err := fold(stored)
+	if err != nil {
+		return inventory.Set{}, err
+	}
+	next.ID = id
+	if err := s.Update(ctx, next); err != nil {
+		return inventory.Set{}, err
+	}
+	return s.Get(ctx, id)
+}
+
 // Delete really removes, and answers a missing id as the real store does,
 // so a delete of an inventory that is not stored can be told from one that
 // is.
@@ -584,7 +606,27 @@ func (s *fakeAnnouncementStore) List(context.Context, announce.Query) ([]announc
 }
 
 func (s *fakeAnnouncementStore) Update(context.Context, announce.Announcement) error { return nil }
-func (s *fakeAnnouncementStore) Delete(context.Context, int) error                   { return nil }
+
+// UpdateWith folds a change over a held announcement and keeps the result,
+// keeping the id, author and organization as stored as the real store does,
+// and answers announce.ErrNotFound for an id it does not hold. No UI view
+// edits one today.
+func (s *fakeAnnouncementStore) UpdateWith(_ context.Context, id int, fold func(announce.Announcement) (announce.Announcement, error)) (announce.Announcement, error) {
+	for i, stored := range s.items {
+		if stored.ID != id {
+			continue
+		}
+		next, err := fold(stored)
+		if err != nil {
+			return announce.Announcement{}, err
+		}
+		next.ID, next.Author, next.OrganizationID = stored.ID, stored.Author, stored.OrganizationID
+		s.items[i] = next
+		return next, nil
+	}
+	return announce.Announcement{}, announce.ErrNotFound
+}
+func (s *fakeAnnouncementStore) Delete(context.Context, int) error { return nil }
 
 // fakeJobStore serves a fixed set of jobs covering every state the
 // dashboard buckets, so the chart's figures are checkable rather than

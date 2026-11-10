@@ -890,18 +890,6 @@ var inventorySchema = map[string]any{
 	},
 }
 
-var inventoryWriteSchema = map[string]any{
-	"type":     "object",
-	"required": []any{"name", "organization"},
-	"properties": map[string]any{
-		"name":         stringSchema("Unique within its organization."),
-		"description":  stringSchema("What this inventory is for."),
-		"organization": map[string]any{"type": "integer", "description": "Required. An inventory belonging to no organization could be resolved against no organization scope."},
-		"groups":       map[string]any{"type": "array", "items": map[string]any{"type": "integer"}, "description": "Group ids this inventory contains."},
-		"devices":      map[string]any{"type": "array", "items": map[string]any{"type": "integer"}, "description": "Device ids attached directly, with no intervening group."},
-	},
-}
-
 // ListInventories is GET /inventories.
 var ListInventories = Endpoint{
 	Name:    "list_inventories",
@@ -960,7 +948,8 @@ var CreateInventory = Endpoint{
 	Description: "Creates a named set of devices within one organization. The name must be unique in that organization.",
 	Responses: []Response{
 		{Status: http.StatusCreated, Description: "The created inventory.", Schema: inventorySchema},
-		{Status: http.StatusBadRequest, Description: "Missing name or organization.", Schema: errorSchema("")},
+		{Status: http.StatusBadRequest, Description: "A blank name, no organization or one that does not exist, or a group or device that does not exist.", Schema: errorSchema("")},
+		{Status: http.StatusForbidden, Description: "A group or device belongs to another organization.", Schema: errorSchema("")},
 		{Status: http.StatusConflict, Description: "That name is already taken in that organization.", Schema: errorSchema("")},
 	},
 	RequestContentType: "application/json",
@@ -975,19 +964,21 @@ var UpdateInventory = Endpoint{
 	Scope:   auth.ScopeInventoryWrite,
 	Rel:     auth.RelUpdate,
 	Summary: "Update an inventory",
-	Description: "Replaces an inventory's name, description and membership. The organization is not updatable: " +
-		"moving one between tenants would silently re-scope every role binding pointing at it, which is a " +
-		"migration rather than an edit.",
+	Description: "A partial update of an inventory's name, description and membership: a field left out keeps " +
+		"its stored value. The organization is not updatable: moving one between tenants would silently " +
+		"re-scope every role binding pointing at it, which is a migration rather than an edit.",
 	Params: []Param{
 		{Name: "id", In: "path", Required: true, Type: "integer", Description: "The inventory's numeric id."},
 	},
 	Responses: []Response{
 		{Status: http.StatusOK, Description: "The updated inventory.", Schema: inventorySchema},
+		{Status: http.StatusBadRequest, Description: "A null, unknown or repeated field, a blank name, another organization, or a group or device that does not exist.", Schema: errorSchema("")},
+		{Status: http.StatusForbidden, Description: "A group or device belongs to another organization.", Schema: errorSchema("")},
 		{Status: http.StatusNotFound, Description: "No inventory with that id.", Schema: errorSchema("")},
 		{Status: http.StatusConflict, Description: "That name is already taken in that organization.", Schema: errorSchema("")},
 	},
 	RequestContentType: "application/json",
-	RequestSchema:      inventoryWriteSchema,
+	RequestSchema:      inventoryPatchSchema,
 }
 
 // DeleteInventory is DELETE /inventories/{id}.
@@ -1028,19 +1019,6 @@ var announcementSchema = map[string]any{
 	},
 }
 
-var announcementWriteSchema = map[string]any{
-	"type":     "object",
-	"required": []any{"title", "body"},
-	"properties": map[string]any{
-		"title":        stringSchema("The headline."),
-		"body":         stringSchema("The message."),
-		"level":        stringSchema("One of info, changed, warning, critical. Defaults to info."),
-		"organization": map[string]any{"type": "integer", "description": "Omit for a system-wide announcement."},
-		"starts_at":    stringSchema("RFC 3339. Omit to show immediately."),
-		"ends_at":      stringSchema("RFC 3339. Omit for no expiry."),
-	},
-}
-
 // ListAnnouncements is GET /announcements.
 var ListAnnouncements = Endpoint{
 	Name:    "list_announcements",
@@ -1078,7 +1056,7 @@ var CreateAnnouncement = Endpoint{
 	Description: "Puts a message in front of every operator who can see it. The author is taken from the caller's identity and cannot be set.",
 	Responses: []Response{
 		{Status: http.StatusCreated, Description: "The created announcement.", Schema: announcementSchema},
-		{Status: http.StatusBadRequest, Description: "Missing title or body.", Schema: errorSchema("")},
+		{Status: http.StatusBadRequest, Description: "A blank title or body, a malformed timestamp, a window that ends before it starts, or an organization that does not exist.", Schema: errorSchema("")},
 	},
 	RequestContentType: "application/json",
 	RequestSchema:      announcementWriteSchema,
@@ -1092,16 +1070,17 @@ var UpdateAnnouncement = Endpoint{
 	Scope:       auth.ScopeAnnouncementWrite,
 	Rel:         auth.RelUpdate,
 	Summary:     "Edit an announcement",
-	Description: "Updates the title, body, level or active window. The author is immutable: an attribution somebody can rewrite is one nobody can rely on.",
+	Description: "A partial update of the title, body, level or active window: a field left out keeps its stored value. The author and the organization are immutable: an attribution somebody can rewrite is one nobody can rely on, and moving an announcement between tenants would change who it reaches.",
 	Params: []Param{
 		{Name: "id", In: "path", Required: true, Type: "integer", Description: "The announcement's numeric id."},
 	},
 	Responses: []Response{
 		{Status: http.StatusOK, Description: "The updated announcement.", Schema: announcementSchema},
+		{Status: http.StatusBadRequest, Description: "A null, unknown or repeated field, a blank title or body, another organization, a malformed timestamp, or a window that would end before it starts.", Schema: errorSchema("")},
 		{Status: http.StatusNotFound, Description: "No announcement with that id.", Schema: errorSchema("")},
 	},
 	RequestContentType: "application/json",
-	RequestSchema:      announcementWriteSchema,
+	RequestSchema:      announcementPatchSchema,
 }
 
 // DeleteAnnouncement is DELETE /announcements/{id}.

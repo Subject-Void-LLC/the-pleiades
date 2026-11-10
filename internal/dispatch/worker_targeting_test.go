@@ -54,7 +54,12 @@ func (s fakeSetStore) List(context.Context, inventory.SetQuery) ([]inventory.Set
 	return nil, nil
 }
 func (s fakeSetStore) Update(context.Context, inventory.Set) error { return nil }
-func (s fakeSetStore) Delete(context.Context, int) error           { return nil }
+
+// UpdateWith is never called by the dispatcher; it answers the stored set.
+func (s fakeSetStore) UpdateWith(context.Context, int, func(inventory.Set) (inventory.Set, error)) (inventory.Set, error) {
+	return s.set, s.err
+}
+func (s fakeSetStore) Delete(context.Context, int) error { return nil }
 func (s fakeSetStore) SetsForDevice(context.Context, int) ([]int, error) {
 	return nil, nil
 }

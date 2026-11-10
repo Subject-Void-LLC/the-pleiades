@@ -7908,3 +7908,41 @@ session: the API review LESSONS 395 asks for, given the files each guarantee res
 session's summary of them. A pass that finds something means the fix gets another pass. When a pass finds a new hole
 of a family already patched twice, narrow the design instead (LESSONS 375). Verify every outside claim before acting on
 it (LESSONS 50 and 403), and hold each finding red on the old code.
+
+## 429. A lock around a store's fold protects only what the fold reads under it: a value the caller read earlier and sends whole (a form rendered before, a list from an earlier GET) still replaces what another writer committed, so the doc, the route text and the changelog say so, and only a version token closes it (a refinement of FAILURE_PATTERNS 1100's lesson; 1085, 1112 and 1115) (2026-11-10)
+
+**Why.** Branch `fix/patch-inventories-announcements`, 2026-11-10. The inventory PATCH was a read-modify-write, and a
+PATCH naming only the name could put back a device another PATCH had removed (FAILURE_PATTERNS 1112). The fix moved the
+fold into the store, under a row lock, as 1100 had for credentials, and the PostgreSQL test proved two folds no longer
+interleave. The first doc comments then said that neither PATCH could undo a membership change the other made. The
+claim-refuter agent refuted that (1115): a PATCH naming a full member list, and the UI form, which calls `Update` with a
+whole submission, both replace the list with what the caller read before the lock. The lock ordered the writes; it did
+not make the caller's own value current.
+
+**What is old and what is new.** 1100's lesson says a read whose result is written back is taken under the write's
+lock, and that a fold the store runs does that by construction. That is true of the fields the fold carries from the
+row it reads. It is not true of a field the fold sets from the request, when the request's value was itself built from
+an earlier read. 1085 names the two remedies, a field mask or a precondition on `updated_at`; neither is a lock.
+
+**Rule in practice.** When a fix puts a fold under a lock, list each field the fold sets from the request rather than
+from the row, and for each say in the doc comment, the route text and the changelog that it replaces the stored value
+whole, from whatever the caller read. Test the lock with two folds, and do not let that test's name or the doc claim
+more than it shows. Where such a field is a grant or a revocation, record the gap as open with the remedy (a version
+token: `If-Match`, or a version column) for the owner to decide.
+
+## 430. In a background or scripted command, give rg an explicit path, and give `< /dev/null` to a command that must not read input, never to the reader of a pipe: with no path and no terminal, rg waits on its standard input, and with that input closed it searches the working directory instead of the pipe (a repeat in kind of FAILURE_PATTERNS 245's lesson; 1082 and 1118) (2026-11-10)
+
+**Why.** Branch `fix/patch-inventories-announcements`, 2026-11-10. A `git rebase -x` verification started in a
+background shell began with `rg PATTERN` and no path. rg searches standard input when it is not a terminal, and a
+background shell's is not one, so it waited 40 minutes and checked nothing (FAILURE_PATTERNS 1118). While that entry was
+written, the opposite mistake was measured: `git show REV:FILE | rg PATTERN < /dev/null` searched the working tree,
+because the redirect replaced the pipe as rg's input, and the output showed the branch's code as the base commit's.
+
+**What is old and what is new.** FAILURE_PATTERNS 245's lesson says to give every step that must not read input nothing
+to read; it came from `docker compose run` draining a piped password. 1082 found a `git rebase -x` script failing
+silently on a missing tool. Neither says that a search tool decides what to read from whether it was given a path and
+what its standard input is, so the same command reads different things in a terminal, a background shell, and a pipe.
+
+**Rule in practice.** Every rg in a background shell, a script or a `git rebase -x` step names its path (`rg ... .`).
+Put `< /dev/null` on commands that must not read input, and leave it off a command that reads a pipe. A background
+verification shows progress (a line per commit) early, so a step that is waiting is seen in minutes, not after the run.

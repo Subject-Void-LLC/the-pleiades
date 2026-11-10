@@ -29,8 +29,8 @@ func NewEntSetStore(client *ent.Client) SetStore { return &entSetStore{client: c
 
 // Create persists a new Set.
 func (s *entSetStore) Create(ctx context.Context, set Set) (Set, error) {
-	if strings.TrimSpace(set.Name) == "" {
-		return Set{}, fmt.Errorf("inventory: a set needs a name")
+	if err := checkSetText(set, nil); err != nil {
+		return Set{}, err
 	}
 	if set.OrganizationID == 0 {
 		// Refused rather than defaulted. A set with no organization would
@@ -38,10 +38,21 @@ func (s *entSetStore) Create(ctx context.Context, set Set) (Set, error) {
 		// reachable by everyone or by nobody would depend on which way the
 		// resolver failed -- neither is an acceptable answer to arrive at
 		// by accident.
-		return Set{}, fmt.Errorf("inventory: a set must belong to an organization")
+		return Set{}, ErrSetOrganizationRequired
+	}
+	exists, err := s.client.Organization.Query().Where(entorg.IDEQ(set.OrganizationID)).Exist(ctx)
+	if err != nil {
+		return Set{}, fmt.Errorf("inventory: checking organization %d: %w", set.OrganizationID, err)
+	}
+	if !exists {
+		// Checked before the insert, because the foreign key failure the
+		// insert would hit is a constraint error, which reads below as a
+		// name already taken.
+		return Set{}, fmt.Errorf("%w: %d", ErrUnknownOrganization, set.OrganizationID)
 	}
 
-	if err := s.assertMembersInOrganization(ctx, set.OrganizationID, set.GroupIDs, set.DeviceIDs); err != nil {
+	set.GroupIDs, set.DeviceIDs = distinctIDs(set.GroupIDs), distinctIDs(set.DeviceIDs)
+	if err := checkMembers(ctx, s.client, set.OrganizationID, set.GroupIDs, set.DeviceIDs); err != nil {
 		return Set{}, err
 	}
 
@@ -124,42 +135,6 @@ func (s *entSetStore) List(ctx context.Context, q SetQuery) ([]Set, error) {
 	return out, nil
 }
 
-// Update saves a Set's editable fields and replaces its membership.
-//
-// Membership is replaced rather than merged, because the caller submits the
-// whole list: a merge would make removing the last device impossible, since
-// an empty submission would be indistinguishable from "no change".
-func (s *entSetStore) Update(ctx context.Context, set Set) error {
-	// The organization is read from storage rather than trusted from the
-	// caller, so membership is validated against the tenant that actually
-	// owns this inventory rather than one a submission claimed.
-	current, err := s.Get(ctx, set.ID)
-	if err != nil {
-		return err
-	}
-	if err := s.assertMembersInOrganization(ctx, current.OrganizationID, set.GroupIDs, set.DeviceIDs); err != nil {
-		return err
-	}
-
-	err = s.client.Inventory.UpdateOneID(set.ID).
-		SetName(set.Name).
-		SetDescription(set.Description).
-		ClearGroups().
-		ClearDevices().
-		AddGroupIDs(set.GroupIDs...).
-		AddDeviceIDs(set.DeviceIDs...).
-		Exec(ctx)
-	switch {
-	case ent.IsNotFound(err):
-		return fmt.Errorf("%w: %d", ErrSetNotFound, set.ID)
-	case ent.IsConstraintError(err):
-		return fmt.Errorf("%w: %q", ErrSetExists, set.Name)
-	case err != nil:
-		return fmt.Errorf("inventory: updating set %d: %w", set.ID, err)
-	}
-	return nil
-}
-
 // Delete removes a Set.
 //
 // The devices and groups it referenced are untouched. An inventory is a
@@ -204,9 +179,9 @@ var ErrCrossTenantMember = errors.New("inventory member belongs to another organ
 // refusing those would make this feature unusable for the deployments most
 // likely to try it first; they belong to no tenant, so admitting them
 // crosses no boundary.
-func (s *entSetStore) assertMembersInOrganization(ctx context.Context, orgID int, groupIDs, deviceIDs []int) error {
+func assertMembersInOrganization(ctx context.Context, db *ent.Client, orgID int, groupIDs, deviceIDs []int) error {
 	if len(deviceIDs) > 0 {
-		foreign, err := s.client.Device.Query().
+		foreign, err := db.Device.Query().
 			Where(
 				entdevice.IDIn(deviceIDs...),
 				entdevice.HasOrganization(),
@@ -228,7 +203,7 @@ func (s *entSetStore) assertMembersInOrganization(ctx context.Context, orgID int
 		// A group has no organization edge of its own, so its tenancy is
 		// its devices'. A group holding a foreign device would smuggle
 		// that device in exactly the way the direct check above prevents.
-		foreign, err := s.client.Group.Query().
+		foreign, err := db.Group.Query().
 			Where(
 				entgroup.IDIn(groupIDs...),
 				entgroup.HasDevicesWith(

@@ -40,6 +40,7 @@
  "internal/lock": 9,
  "internal/meshid": 57,
  "internal/runner": 363,
+ "internal/storage/rowlocktest": 4,
  "internal/testsupport": 35,
  "internal/topology": 37,
  "internal/transport/ssh": 66,

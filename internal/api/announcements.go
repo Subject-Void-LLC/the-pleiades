@@ -25,7 +25,7 @@ type AnnouncementRepository interface {
 	Create(ctx context.Context, a announce.Announcement) (announce.Announcement, error)
 	Get(ctx context.Context, id int) (announce.Announcement, error)
 	List(ctx context.Context, q announce.Query) ([]announce.Announcement, error)
-	Update(ctx context.Context, a announce.Announcement) error
+	UpdateWith(ctx context.Context, id int, fold func(stored announce.Announcement) (announce.Announcement, error)) (announce.Announcement, error)
 	Delete(ctx context.Context, id int) error
 }
 
@@ -66,7 +66,8 @@ type announcementListDTO struct {
 	Announcements []announcementDTO `json:"announcements"`
 }
 
-// announcementWriteDTO is the request body create and update accept.
+// announcementWriteDTO is the request body create accepts; PATCH accepts
+// announcementPatchDTO (announcements_patch.go).
 //
 // There is no author field, and that is the point: it is taken from the
 // caller's identity. An attribution a submitter could name is an
@@ -172,47 +173,34 @@ func (h *AnnouncementHandler) Create(w http.ResponseWriter, r *http.Request) {
 	Respond(w, r, http.StatusCreated, &dto)
 }
 
-// Update edits an existing announcement.
+// Update serves PATCH /announcements/{id}: a partial update of an
+// announcement. See announcementPatchDTO and announcements_patch.go's
+// comment for the rules.
 func (h *AnnouncementHandler) Update(w http.ResponseWriter, r *http.Request) {
 	id, ok := h.parseID(w, r)
 	if !ok {
 		return
 	}
 
-	var body announcementWriteDTO
+	var body announcementPatchDTO
 	if !decodeJSON(w, r, &body) {
 		return
 	}
-
-	// Read first, so the immutable fields come from what is stored rather
-	// than from what was submitted, and so editing something that does not
-	// exist is a 404 rather than a store error.
-	existing, err := h.announcements.Get(r.Context(), id)
-	if err != nil {
-		h.respondStoreError(w, r, "read", id, err)
+	if len(body.nulls) > 0 {
+		RespondError(w, r, http.StatusBadRequest, patchNullRefusal(announcementNoun, body.nulls))
 		return
 	}
-
-	updated, ok := h.fromWrite(w, r, body)
+	win, ok := h.window(w, r, body)
 	if !ok {
 		return
 	}
-	updated.ID = existing.ID
-	// Author and organization are carried forward, never taken from the
-	// body. Rewriting an attribution is exactly what makes one worthless,
-	// and moving an announcement between tenants would silently change who
-	// it reaches.
-	updated.Author = existing.Author
-	updated.OrganizationID = existing.OrganizationID
 
-	if err := h.announcements.Update(r.Context(), updated); err != nil {
-		h.respondStoreError(w, r, "update", id, err)
-		return
-	}
-
-	stored, err := h.announcements.Get(r.Context(), id)
+	// The store runs the fold on the announcement it reads under the row's
+	// lock, so a missing one is a 404 and a concurrent PATCH's change is
+	// folded over rather than written back over.
+	stored, err := h.announcements.UpdateWith(r.Context(), id, body.fold(win))
 	if err != nil {
-		h.respondStoreError(w, r, "read", id, err)
+		h.respondStoreError(w, r, "update", id, err)
 		return
 	}
 	dto := toAnnouncementDTO(stored)
@@ -252,12 +240,9 @@ func (h *AnnouncementHandler) fromWrite(w http.ResponseWriter, r *http.Request, 
 	}
 	a.StartsAt, a.EndsAt = starts, ends
 
-	// Refused rather than silently swapped or accepted. A window that ends
-	// before it starts is never live, so accepting it would mean posting an
-	// urgent notice that is invisible from the moment it is written -- the
-	// worst possible failure for a control whose entire job is being seen.
-	if a.StartsAt != nil && a.EndsAt != nil && !a.EndsAt.After(*a.StartsAt) {
-		RespondError(w, r, http.StatusBadRequest, "ends_at must be after starts_at")
+	// windowRefusal says why a window that ends before it starts is refused.
+	if refusal := windowRefusal(a); refusal != "" {
+		RespondError(w, r, http.StatusBadRequest, refusal)
 		return announce.Announcement{}, false
 	}
 	return a, true
@@ -289,8 +274,28 @@ func (h *AnnouncementHandler) parseID(w http.ResponseWriter, r *http.Request) (i
 // respondStoreError maps a store error onto its status, logging anything it
 // cannot classify rather than passing the store's own text to a caller.
 func (h *AnnouncementHandler) respondStoreError(w http.ResponseWriter, r *http.Request, op string, id int, err error) {
-	if errors.Is(err, announce.ErrNotFound) {
+	var refusal patchRefusal
+	var nul *announce.NULError
+	switch {
+	case errors.As(err, &refusal):
+		// A PATCH's own refusal, made inside the store's transaction.
+		RespondError(w, r, http.StatusBadRequest, string(refusal))
+		return
+	case errors.As(err, &nul):
+		// The store's own sentence, naming the field and nothing sent.
+		RespondError(w, r, http.StatusBadRequest, nul.Error())
+		return
+	case errors.Is(err, announce.ErrNotFound):
 		RespondError(w, r, http.StatusNotFound, "announcement not found")
+		return
+	case errors.Is(err, announce.ErrTitleRequired):
+		RespondError(w, r, http.StatusBadRequest, "an announcement needs a title that is not blank")
+		return
+	case errors.Is(err, announce.ErrBodyRequired):
+		RespondError(w, r, http.StatusBadRequest, "an announcement needs a body that is not blank")
+		return
+	case errors.Is(err, announce.ErrUnknownOrganization):
+		RespondError(w, r, http.StatusBadRequest, "the organization does not exist")
 		return
 	}
 	h.logger.ErrorContext(r.Context(), "announcement store operation failed",

@@ -278,14 +278,6 @@ func (d credentialPatchDTO) apply(stored credstore.Credential) credstore.Credent
 	return stored
 }
 
-// patchRefusal is a refusal a PATCH's fold makes inside the store's
-// transaction, answered with 400 and its own text by failPatch. Its text is
-// the handler's own sentence, never the caller's bytes.
-type patchRefusal string
-
-// Error returns the refusal's text.
-func (p patchRefusal) Error() string { return string(p) }
-
 // failPatch answers a refusal a PATCH's fold made with 400, and any other
 // error as fail does.
 func (h *CredentialHandler) failPatch(w http.ResponseWriter, r *http.Request, err error) {
