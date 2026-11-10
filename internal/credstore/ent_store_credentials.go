@@ -197,6 +197,9 @@ func (s *entStore) UpdateCredentialWith(ctx context.Context, id int, fold func(s
 		if err != nil {
 			return err
 		}
+		if sealed(current.Inputs) {
+			return unreadable(id, "they cannot be carried into this update")
+		}
 		// fold gets the projection, whose maps are its own (project builds
 		// the redacted inputs and copies the references), so nothing a fold
 		// edits in place reaches current, the row the merge reads below.
@@ -216,7 +219,8 @@ func (s *entStore) UpdateCredentialWith(ctx context.Context, id int, fold func(s
 		// replaces the bindings. When it does not, the stored ones still
 		// stand, and reading them back is what stops an ordinary rename from
 		// failing the required check on an input that has a source it is not
-		// touching.
+		// touching. One for an input the type no longer declares is carried
+		// (carried.go).
 		sourced := sourcedIDs(write.sources)
 		if !write.hasSources {
 			existing, listErr := s.ListCredentialInputSources(txCtx, id)
@@ -229,17 +233,20 @@ func (s *entStore) UpdateCredentialWith(ctx context.Context, id int, fold func(s
 			}
 		}
 
+		// What the credential stores for an input its type no longer declares
+		// is carried as it is, not checked (carried.go).
 		merged := mergeInputs(current.Inputs, next.Inputs)
-		if err := locked.Inputs.CheckValues(merged, next.External, sourced...); err != nil {
+		if err := locked.Inputs.CheckValues(uncarried(locked.Inputs, current, merged, next), next.External, sourced...); err != nil {
 			return err
 		}
+		external := withCarriedReferences(locked.Inputs, current.External, next.External)
 
 		tx := ent.FromContext(txCtx)
 		if _, updateErr := tx.Credential.UpdateOneID(id).
 			SetName(next.Name).
 			SetDescription(next.Description).
 			SetInputs(merged).
-			SetExternal(next.External).
+			SetExternal(external).
 			Save(txCtx); updateErr != nil {
 			return wrapConstraint(updateErr, "credential")
 		}
@@ -345,6 +352,12 @@ func (s *entStore) boundFor(ctx context.Context, ids []int, organizationID int) 
 		}
 
 		kind := credtype.Kind(ct.Kind)
+		// The values the run will read, which are only those the type
+		// declares (credtype.InputSchema.Declared, as the resolver reads
+		// them): a value carried for an input it no longer declares
+		// (carried.go) would make this rule judge a credential the run never
+		// sees.
+		inputs := ct.Inputs.Declared(row.Inputs)
 		out = append(out, credtype.Bound{
 			CredentialID:   id,
 			CredentialName: row.Name,
@@ -353,17 +366,17 @@ func (s *entStore) boundFor(ctx context.Context, ids []int, organizationID int) 
 			// store rather than at the handler: the handler only ever
 			// holds the redacted projection, and vault_id may itself be a
 			// secret field.
-			VaultIdentifier: credtype.VaultIdentifierOf(kind, row.Inputs),
+			VaultIdentifier: credtype.VaultIdentifierOf(kind, inputs),
 			// The name a task gives a database connection, which several
 			// on one definition must not share.
-			DatabaseName: credtype.DatabaseNameOf(kind, row.Inputs),
+			DatabaseName: credtype.DatabaseNameOf(kind, inputs),
 			// Also read from the real values, and for the same reason: whether
 			// a cryptography credential is a client-certificate identity or a
 			// signing key is a fact about what it holds, and the certificate
 			// input is secret so only this side can see it.
 			PresentsCertificate: credtype.PresentsCertificateFor(credtype.Credential{
 				Type:   credtype.CredentialType{Kind: kind},
-				Inputs: row.Inputs,
+				Inputs: inputs,
 			}),
 		})
 	}
@@ -455,7 +468,7 @@ func (s *entStore) project(ctx context.Context, row *ent.Credential) (Credential
 		OrganizationID:   org.ID,
 		OrganizationName: org.Name,
 		Inputs:           redactInputs(ct.Inputs, row.Inputs),
-		External:         cloneStrings(row.External),
+		External:         ct.Inputs.Declared(row.External),
 		TemplateIDs:      templateIDs,
 	}, nil
 }

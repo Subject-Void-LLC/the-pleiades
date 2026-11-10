@@ -1792,7 +1792,16 @@ So rolling a deployment back and forward loses nothing for a secret input. It do
 lose a non-secret input's values written by the newer release, which are deleted when
 the newer release adds the input back after the older one's reconcile left it out;
 stopping that needs each managed type to record the release that wrote it, which is
-not built. One credential of a managed type that this Controller cannot decrypt stops
+not built. While the older release runs, a credential holding something for an input
+its type no longer declares stays usable: an update carries that value, external
+reference and input source as they are, unchecked, a read shows none of them, and a
+dispatch hands none of them to the run, so its token can still be rotated and its jobs
+still run. A value or a new reference sent for such an input is refused, and a write
+replacing the credential's input sources replaces those of declared inputs and keeps
+the carried one. The rule binding a template's credentials reads the credential as the
+run will, without them. An update of
+a credential this Controller cannot decrypt is refused with 409 rather than sealing
+its old ciphertext inside a new envelope. One credential of a managed type that this Controller cannot decrypt stops
 that type's reconcile when the release adds a non-secret input, for every
 organization: the type is left
 as it was, the Controller still starts, and it logs

@@ -376,8 +376,11 @@ var UpdateCredential = Endpoint{
 		"so an input left out of it no longer reads from an external source and {} removes every reference. A " +
 		"null on any field, or on a value inside inputs or external, is refused. The credential type and the " +
 		"organization are not updatable: a value that differs from the stored one is refused, and the stored " +
-		"value is accepted as an echo. The credential as it would be saved is checked whole against its type. " +
-		"The response is the redacted read. Concurrent PATCHes are last-writer-wins: there is no version check.",
+		"value is accepted as an echo. The credential as it would be saved is checked whole against its type, " +
+		"except what it stores for an input its type no longer declares (an older release's reconcile leaves " +
+		"that in place): the value, reference and input source are carried as they are and never shown, and a " +
+		"value or a new reference the body sends for such an input is refused. The response is the redacted " +
+		"read. Concurrent PATCHes are last-writer-wins: there is no version check.",
 	Params: []Param{
 		{Name: "id", In: "path", Required: true, Type: "integer", Description: "The credential's numeric id."},
 	},
@@ -387,7 +390,7 @@ var UpdateCredential = Endpoint{
 		{Status: http.StatusOK, Description: "The updated credential, redacted.", Schema: credentialSchema},
 		{Status: http.StatusBadRequest, Description: "The body is malformed, sets a field or a value inside inputs or external to null, or changes the credential type or the organization, or the credential it would leave has a blank name, a NUL character in its name, description or a reference, a reference naming an input the type does not mark secret, or values that do not satisfy its type.", Schema: errorSchema("")},
 		{Status: http.StatusNotFound, Description: "No credential with that id.", Schema: errorSchema("")},
-		{Status: http.StatusConflict, Description: "The name is taken in the organization.", Schema: errorSchema("")},
+		{Status: http.StatusConflict, Description: "The name is taken in the organization, or the credential's stored values cannot be decrypted with this Controller's key.", Schema: errorSchema("")},
 	},
 }
 
@@ -546,6 +549,8 @@ var SetCredentialInputSources = Endpoint{
 	Rel:     auth.RelCredentials,
 	Summary: "Replace a credential's input sources",
 	Description: "Replaces the whole set, so an empty list makes every input read from stored values again. " +
+		"A source bound to an input the type no longer declares, which an older release's reconcile leaves in " +
+		"place and no read lists, is kept. " +
 		"A source is either an external-kind credential, read through that secret manager's own client, or any " +
 		"other credential, whose named field is read directly. " +
 		"Refused, before anything is written, when an input is not one this credential's type declares, when the " +

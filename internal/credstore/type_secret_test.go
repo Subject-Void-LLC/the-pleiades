@@ -140,8 +140,8 @@ func TestUpdateTypeRemovingAnInputDeletesWhatCredentialsHoldForIt(t *testing.T) 
 // by a removal made before this rule, seeded by writing the type row through
 // the ent client as the old store did. Any later write to the type that does
 // not add the input back as secret deletes it. Adding it back as secret keeps
-// it, and that is safe: it reads back only as the marker, and the credential
-// can be edited again, since its key is declared once more.
+// it, and that is safe: it reads back only as the marker. Before and after,
+// the credential stays editable, an update carrying the value (carried.go).
 func TestUpdateTypeDeletesValuesAnEarlierRemovalLeftBehind(t *testing.T) {
 	ctx := context.Background()
 	for name, tc := range map[string]struct {
@@ -155,8 +155,11 @@ func TestUpdateTypeDeletesValuesAnEarlierRemovalLeftBehind(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			store, client, typeID, credID := notedFixture(t)
 			client.CredentialType.UpdateOneID(typeID).SetInputs(noteSchema(nil)).ExecX(ctx)
-			if _, err := store.UpdateCredential(ctx, credID, "renamed", "", nil, nil); !errors.Is(err, credtype.ErrInvalidCredential) {
-				t.Fatalf("UpdateCredential() with a stale value = %v, want the old refusal", err)
+			if _, err := store.UpdateCredential(ctx, credID, "renamed", "", nil, nil); err != nil {
+				t.Fatalf("UpdateCredential() with a stale value = %v, want the value carried", err)
+			}
+			if client.Credential.GetX(ctx, credID).Inputs["note"] != noteSecret {
+				t.Fatal("the update did not carry the stale value")
 			}
 
 			if _, err := store.UpdateType(ctx, typeID, tc.edit); err != nil {

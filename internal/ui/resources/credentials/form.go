@@ -318,6 +318,13 @@ func writeFault(err error) error {
 	if field, message, ok := textFault(err); ok {
 		return view.FieldFault{Field: field, Message: message}
 	}
+	// The one refusal an update meets that no control on the form can fix: a
+	// credential whose stored values this Controller cannot decrypt. It is
+	// answered beside the name with what can fix it, rather than as a 500.
+	if errors.Is(err, credstore.ErrInUse) {
+		return view.FieldFault{Field: "name", Message: "This credential's stored values cannot be read with this " +
+			"Controller's key, so it cannot be saved: restore the key that sealed them, or delete the credential."}
+	}
 	msg := err.Error()
 	switch {
 	case strings.Contains(msg, "already exists"):

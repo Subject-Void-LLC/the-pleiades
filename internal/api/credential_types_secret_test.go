@@ -145,9 +145,10 @@ func TestCredentialTypePatch_RemovingAnInputDeletesWhatCredentialsHoldForIt(t *t
 // TestCredentialTypePatch_PurgesValuesAnEarlierRemovalLeftBehind covers a
 // credential whose type dropped an input before this rule existed, seeded by
 // editing the type row through the ent client as the old store did: the
-// value stays behind, and every PATCH of the credential is refused for it.
-// The next write to the type, of any field, deletes it, unless that write
-// adds the input back as secret, which keeps it and shows only the marker.
+// value stays behind, and a PATCH of the credential carries it, shown
+// nowhere. The next write to the type, of any field, deletes it, unless that
+// write adds the input back as secret, which keeps it and shows only the
+// marker.
 func TestCredentialTypePatch_PurgesValuesAnEarlierRemovalLeftBehind(t *testing.T) {
 	t.Parallel()
 	f := newCredentialFixture(t)
@@ -176,7 +177,12 @@ func TestCredentialTypePatch_PurgesValuesAnEarlierRemovalLeftBehind(t *testing.T
 
 	t.Run("any type write deletes it", func(t *testing.T) {
 		typeID, id := legacy(t, "legacy_patch")
-		f.credentialRefusedUnchanged(t, id, `{"name":"renamed"}`, http.StatusBadRequest, "backup")
+		f.patchCredentialOK(t, id, `{"name":"renamed"}`)
+		if f.stored(t, id).Inputs["backup"] != patchBackupSecret {
+			t.Fatal("the PATCH did not carry the value the type no longer declares")
+		}
+		_, body := f.do(t, http.MethodGet, credentialPath(id), nil)
+		assertNoSecret(t, "GET", body)
 		f.patchCredentialTypeOK(t, typeID, `{"description":"cleaned"}`)
 		if _, held := f.stored(t, id).Inputs["backup"]; held {
 			t.Error("a type PATCH left the value an earlier removal left behind")

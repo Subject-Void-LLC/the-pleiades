@@ -227,20 +227,6 @@ func sortedKeys(m map[string]string) []string {
 	return out
 }
 
-// cloneStrings copies a map so a caller cannot mutate what ent holds.
-//
-// It matters more here than in an ordinary accessor: the injector fills
-// prompted values and resolved external lookups into this map, and doing
-// that to ent's own cached entity would leave a plaintext secret attached
-// to a live object for as long as that entity is referenced.
-func cloneStrings(in map[string]string) map[string]string {
-	out := make(map[string]string, len(in))
-	for k, v := range in {
-		out[k] = v
-	}
-	return out
-}
-
 // plainExternalInput refuses resolving an external secret source into an
 // input the credential's type does not mark secret.
 //

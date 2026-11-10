@@ -38,18 +38,41 @@ import (
 
 // ListCredentialInputSources returns one credential's input bindings,
 // ordered by input id so a caller rendering them gets a stable list.
+//
+// A binding for an input the credential's type does not declare is left out
+// (carried.go): a caller could not send it back, and a write replacing the
+// bindings keeps it anyway. The type and the bindings are read in one
+// snapshot, so the list matches one schema.
 func (s *entStore) ListCredentialInputSources(ctx context.Context, credentialID int) ([]InputSource, error) {
-	rows, err := s.db(ctx).CredentialInputSource.Query().
-		Where(credentialinputsource.HasTargetCredentialWith(credential.IDEQ(credentialID))).
-		WithSourceCredential(func(q *ent.CredentialQuery) { q.WithCredentialType() }).
-		Order(ent.Asc(credentialinputsource.FieldInputID)).
-		All(ctx)
+	var (
+		rows   []*ent.CredentialInputSource
+		schema credtype.InputSchema
+		typed  bool
+	)
+	err := storage.ReadSnapshot(ctx, s.client, func(ctx context.Context, db *ent.Client) error {
+		ct, err := db.Credential.Query().Where(credential.IDEQ(credentialID)).QueryCredentialType().Only(ctx)
+		switch {
+		case err == nil:
+			schema, typed = ct.Inputs, true
+		case !ent.IsNotFound(err):
+			return err
+		}
+		rows, err = db.CredentialInputSource.Query().
+			Where(credentialinputsource.HasTargetCredentialWith(credential.IDEQ(credentialID))).
+			WithSourceCredential(func(q *ent.CredentialQuery) { q.WithCredentialType() }).
+			Order(ent.Asc(credentialinputsource.FieldInputID)).
+			All(ctx)
+		return err
+	})
 	if err != nil {
 		return nil, fmt.Errorf("credstore: listing input sources for credential %d: %w", credentialID, err)
 	}
 
 	out := make([]InputSource, 0, len(rows))
 	for _, row := range rows {
+		if !typed || !declares(schema, row.InputID) {
+			continue
+		}
 		source := row.Edges.SourceCredential
 		if source == nil {
 			return nil, fmt.Errorf("credstore: input source %d was read without its source credential", row.ID)
@@ -128,11 +151,16 @@ func (s *entStore) writeInputSources(
 		return err
 	}
 
+	// Only the bindings of inputs the type declares are replaced: one for an
+	// input it no longer declares is carried, as its value is (carried.go).
 	db := s.db(ctx)
-	if _, err := db.CredentialInputSource.Delete().
-		Where(credentialinputsource.HasTargetCredentialWith(credential.IDEQ(credentialID))).
-		Exec(ctx); err != nil {
-		return fmt.Errorf("credstore: clearing input sources for credential %d: %w", credentialID, err)
+	if declared := schema.IDs(); len(declared) > 0 {
+		if _, err := db.CredentialInputSource.Delete().
+			Where(credentialinputsource.HasTargetCredentialWith(credential.IDEQ(credentialID)),
+				credentialinputsource.InputIDIn(declared...)).
+			Exec(ctx); err != nil {
+			return fmt.Errorf("credstore: clearing input sources for credential %d: %w", credentialID, err)
+		}
 	}
 
 	for _, b := range bindings {

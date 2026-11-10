@@ -24,9 +24,10 @@
 //     declare). A secret add keeps it, shown only as the marker (addedPlain
 //     says why that cannot leak). And a value under an id the new schema
 //     does not declare, left by such an earlier removal, is deleted by the
-//     next edit of the type of any kind, which is what makes a credential
-//     stuck on one editable again. A release's reconcile of a managed type
-//     deletes only on a non-secret add (adoptExistingType says why).
+//     next edit of the type of any kind; until then a credential update
+//     carries it untouched and no read shows it (carried.go). A release's
+//     reconcile of a managed type deletes only on a non-secret add
+//     (adoptExistingType says why).
 //  3. A type edit and a credential create, update or input-source write of
 //     that type never interleave (lockType). Each takes the type row's write
 //     lock inside its transaction before it reads anything it checks or
@@ -80,7 +81,6 @@ import (
 	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credtype"
-	"github.com/Subject-Void-LLC/the-pleiades/internal/crypto"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/credential"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/credentialinputsource"
@@ -250,14 +250,10 @@ func (s *entStore) purgeInputs(ctx context.Context, typeID int, drop func(string
 // purgeCredential rewrites one credential without the inputs and references
 // drop names, writing nothing when it holds none.
 func (s *entStore) purgeCredential(ctx context.Context, row *ent.Credential, drop func(string) bool) error {
-	// The interceptor leaves a row it cannot decrypt sealed. Filtering that
-	// map by input id would drop the sealed value and save the credential
-	// empty, so the edit is refused instead.
-	if _, sealed := row.Inputs[crypto.EncryptedKeyMarker]; sealed {
-		return fmt.Errorf(
-			"%w: credential %d's stored values cannot be read with this Controller's key, so they cannot be "+
-				"checked against this change; restore the key that sealed them or delete the credential, then try again",
-			ErrInUse, row.ID)
+	// The interceptor leaves a row it cannot decrypt sealed, and the edit is
+	// refused rather than filtering the sealed map (unreadable).
+	if sealed(row.Inputs) {
+		return unreadable(row.ID, "they cannot be checked against this change")
 	}
 	inputs, inputsChanged := without(row.Inputs, drop)
 	external, externalChanged := without(row.External, drop)

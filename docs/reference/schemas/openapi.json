@@ -4454,7 +4454,7 @@
         "x-link-relation": "self"
       },
       "patch": {
-        "description": "A partial update of a credential. A field left out keeps its stored value and a field present is applied. inputs merges over the stored values: an input left out keeps its value, one submitted as \"$encrypted$\" is left at whatever is stored, which is what lets a form round-trip, and \"\" clears an input; submit a real value to rotate one. external, when present, replaces the stored references whole, so an input left out of it no longer reads from an external source and {} removes every reference. A null on any field, or on a value inside inputs or external, is refused. The credential type and the organization are not updatable: a value that differs from the stored one is refused, and the stored value is accepted as an echo. The credential as it would be saved is checked whole against its type. The response is the redacted read. Concurrent PATCHes are last-writer-wins: there is no version check.",
+        "description": "A partial update of a credential. A field left out keeps its stored value and a field present is applied. inputs merges over the stored values: an input left out keeps its value, one submitted as \"$encrypted$\" is left at whatever is stored, which is what lets a form round-trip, and \"\" clears an input; submit a real value to rotate one. external, when present, replaces the stored references whole, so an input left out of it no longer reads from an external source and {} removes every reference. A null on any field, or on a value inside inputs or external, is refused. The credential type and the organization are not updatable: a value that differs from the stored one is refused, and the stored value is accepted as an echo. The credential as it would be saved is checked whole against its type, except what it stores for an input its type no longer declares (an older release's reconcile leaves that in place): the value, reference and input source are carried as they are and never shown, and a value or a new reference the body sends for such an input is refused. The response is the redacted read. Concurrent PATCHes are last-writer-wins: there is no version check.",
         "operationId": "update_credential",
         "parameters": [
           {
@@ -4625,7 +4625,7 @@
                 }
               }
             },
-            "description": "The name is taken in the organization."
+            "description": "The name is taken in the organization, or the credential's stored values cannot be decrypted with this Controller's key."
           }
         },
         "security": [
@@ -4763,7 +4763,7 @@
         "x-link-relation": "collection"
       },
       "put": {
-        "description": "Replaces the whole set, so an empty list makes every input read from stored values again. A source is either an external-kind credential, read through that secret manager's own client, or any other credential, whose named field is read directly. Refused, before anything is written, when an input is not one this credential's type declares, when the source belongs to another organization, when a non-external source does not name a source_field its own type declares, when that field is secret and the input being filled is not, when the source is external-kind and the input being filled is not secret, or when the result would make resolution return to the credential it started from.",
+        "description": "Replaces the whole set, so an empty list makes every input read from stored values again. A source bound to an input the type no longer declares, which an older release's reconcile leaves in place and no read lists, is kept. A source is either an external-kind credential, read through that secret manager's own client, or any other credential, whose named field is read directly. Refused, before anything is written, when an input is not one this credential's type declares, when the source belongs to another organization, when a non-external source does not name a source_field its own type declares, when that field is secret and the input being filled is not, when the source is external-kind and the input being filled is not secret, or when the result would make resolution return to the credential it started from.",
         "operationId": "set_credential_input_sources",
         "parameters": [
           {

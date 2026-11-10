@@ -142,8 +142,14 @@ func (r *entResolver) resolveCredential(ctx context.Context, id int, chain []int
 			Inputs:      ct.Inputs,
 			Injectors:   ct.Injectors,
 		},
-		Inputs:   cloneStrings(row.Inputs),
-		External: cloneStrings(row.External),
+		// Copies, so a caller cannot mutate what ent holds: the injector fills
+		// prompted values and resolved lookups into this map, and doing that to
+		// ent's cached entity would leave a plaintext secret on a live object.
+		// Only what the type declares (credtype.InputSchema.Declared): no run is
+		// handed a value or a reference for an input it does not, which the
+		// masking ruleset would not cover and the injector would refuse.
+		Inputs:   ct.Inputs.Declared(row.Inputs),
+		External: ct.Inputs.Declared(row.External),
 	}
 
 	// Defaults are filled in here rather than at the injector, so the
@@ -186,6 +192,11 @@ func (r *entResolver) resolveInputSources(
 	sortBindingsByInputID(bindings)
 
 	for _, b := range bindings {
+		// A binding for an input the type does not declare is left out, as
+		// its value is.
+		if _, declared := cred.Type.Inputs.Field(b.InputID); !declared {
+			continue
+		}
 		source := b.Edges.SourceCredential
 		if source == nil {
 			return fmt.Errorf("resolve: credential %d: input %q was read without its source credential",
