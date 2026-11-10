@@ -455,6 +455,7 @@ DOCKER_DEPENDENT_PACKAGES := \
 	github.com/Subject-Void-LLC/the-pleiades/internal/lock \
 	github.com/Subject-Void-LLC/the-pleiades/internal/meshid \
 	github.com/Subject-Void-LLC/the-pleiades/internal/runner \
+	github.com/Subject-Void-LLC/the-pleiades/internal/storage/rowlocktest \
 	github.com/Subject-Void-LLC/the-pleiades/internal/testsupport \
 	github.com/Subject-Void-LLC/the-pleiades/internal/topology \
 	github.com/Subject-Void-LLC/the-pleiades/internal/transport/ssh \

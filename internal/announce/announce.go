@@ -120,6 +120,36 @@ func (a Announcement) SystemWide() bool { return a.OrganizationID == 0 }
 // ErrNotFound is returned when an id names no announcement.
 var ErrNotFound = errors.New("announcement not found")
 
+// ErrTitleRequired and ErrBodyRequired are returned when an announcement's
+// title or body is empty or only white space: by Create, and by an update
+// that changes that field. An update used to reach the database's own
+// NotEmpty check, which a caller saw as a 500, and passed a title of spaces,
+// which the create refused. An update that leaves a stored value as it is
+// never refuses it (LESSONS 415, 422).
+var (
+	ErrTitleRequired = errors.New("an announcement needs a title")
+	ErrBodyRequired  = errors.New("an announcement needs a body")
+)
+
+// NULError is the refusal of an announcement's title or body holding a NUL
+// byte, which PostgreSQL cannot store in a text column (the dialect gap of
+// FAILURE_PATTERNS 371 and 1079): it answered 500 there and was stored by
+// SQLite. Its text names the field and repeats nothing the caller sent.
+type NULError struct {
+	// Field is the field's wire name, "title" or "body".
+	Field string
+}
+
+// Error says which field holds the NUL and why it is refused.
+func (e *NULError) Error() string {
+	return e.Field + " may not contain a NUL character: the database cannot store one"
+}
+
+// ErrUnknownOrganization is returned when a new announcement names an
+// organization that does not exist, which used to reach the database as a
+// foreign key failure and a 500.
+var ErrUnknownOrganization = errors.New("the organization does not exist")
+
 // Query is a list request.
 type Query struct {
 	// OrganizationIDs restricts tenant-scoped messages to these tenants.
@@ -142,6 +172,21 @@ type Store interface {
 	Create(ctx context.Context, a Announcement) (Announcement, error)
 	Get(ctx context.Context, id int) (Announcement, error)
 	List(ctx context.Context, q Query) ([]Announcement, error)
+
+	// Update saves a's editable fields: an UpdateWith whose fold returns a.
 	Update(ctx context.Context, a Announcement) error
+
+	// UpdateWith folds a change over the announcement with id as it stands
+	// under the row's write lock, and saves the result, which it returns.
+	// fold may refuse by returning an error, which is returned as it is; it
+	// runs inside the transaction and must not call the store. The id, the
+	// author and the organization are kept as stored whatever fold returns,
+	// and a title or body the update changes is held to the text rules. Two
+	// UpdateWith calls on one announcement never interleave, so neither
+	// writes back a field the other changed that it did not change itself;
+	// of two that change the same field, the second wins. The announcement
+	// returned is the one read after the commit.
+	UpdateWith(ctx context.Context, id int, fold func(stored Announcement) (Announcement, error)) (Announcement, error)
+
 	Delete(ctx context.Context, id int) error
 }

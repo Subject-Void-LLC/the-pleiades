@@ -23,8 +23,8 @@ func NewEntStore(client *ent.Client) Store { return &entStore{client: client} }
 
 // Create persists a new announcement.
 func (s *entStore) Create(ctx context.Context, a Announcement) (Announcement, error) {
-	if strings.TrimSpace(a.Title) == "" || strings.TrimSpace(a.Body) == "" {
-		return Announcement{}, fmt.Errorf("announce: an announcement needs a title and a body")
+	if err := checkText(a, nil); err != nil {
+		return Announcement{}, err
 	}
 	if strings.TrimSpace(a.Author) == "" {
 		// Refused rather than defaulted to something like "system". An
@@ -42,6 +42,15 @@ func (s *entStore) Create(ctx context.Context, a Announcement) (Announcement, er
 		SetNillableEndsAt(a.EndsAt)
 
 	if a.OrganizationID != 0 {
+		// Checked before the insert, whose foreign key failure would
+		// otherwise be the caller's only answer, as a 500.
+		exists, err := s.client.Organization.Query().Where(entorg.IDEQ(a.OrganizationID)).Exist(ctx)
+		if err != nil {
+			return Announcement{}, fmt.Errorf("announce: checking organization %d: %w", a.OrganizationID, err)
+		}
+		if !exists {
+			return Announcement{}, fmt.Errorf("%w: %d", ErrUnknownOrganization, a.OrganizationID)
+		}
 		builder = builder.SetOrganizationID(a.OrganizationID)
 	}
 
@@ -123,40 +132,6 @@ func (s *entStore) List(ctx context.Context, q Query) ([]Announcement, error) {
 		out = append(out, hydrate(row))
 	}
 	return out, nil
-}
-
-// Update saves an announcement's editable fields.
-//
-// The author is not among them: it is immutable by schema, because an
-// attribution somebody can rewrite is an attribution nobody can rely on.
-func (s *entStore) Update(ctx context.Context, a Announcement) error {
-	update := s.client.Announcement.UpdateOneID(a.ID).
-		SetTitle(a.Title).
-		SetBody(a.Body).
-		SetLevel(string(ParseLevel(string(a.Level))))
-
-	// Clear-then-set, so removing an end date is expressible. Without the
-	// clear, a nil pointer would be indistinguishable from "leave it alone"
-	// and an announcement could never be made permanent again.
-	if a.StartsAt != nil {
-		update = update.SetStartsAt(*a.StartsAt)
-	} else {
-		update = update.ClearStartsAt()
-	}
-	if a.EndsAt != nil {
-		update = update.SetEndsAt(*a.EndsAt)
-	} else {
-		update = update.ClearEndsAt()
-	}
-
-	err := update.Exec(ctx)
-	if ent.IsNotFound(err) {
-		return fmt.Errorf("%w: %d", ErrNotFound, a.ID)
-	}
-	if err != nil {
-		return fmt.Errorf("announce: updating announcement %d: %w", a.ID, err)
-	}
-	return nil
 }
 
 // Delete removes an announcement.

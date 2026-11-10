@@ -117,6 +117,41 @@ var ErrSetNotFound = errors.New("inventory set not found")
 // organization.
 var ErrSetExists = errors.New("inventory set already exists in this organization")
 
+// ErrSetNameRequired is returned when a Set's name is empty or only white
+// space: by Create, and by an update that changes the name. An update that
+// leaves a stored name as it is never refuses it, so a name an older build
+// stored blank cannot block a membership change (LESSONS 415, 422).
+var ErrSetNameRequired = errors.New("an inventory needs a name")
+
+// NULError is the refusal of a Set text field holding a NUL byte. PostgreSQL
+// cannot store one in a text column and answers with an error the store
+// could only report as a failure, a 500, while SQLite stores it (the dialect
+// gap of FAILURE_PATTERNS 371 and 1079). Its text names the field and
+// repeats nothing the caller sent.
+type NULError struct {
+	// Field is the field's wire name, "name" or "description".
+	Field string
+}
+
+// Error says which field holds the NUL and why it is refused.
+func (e *NULError) Error() string {
+	return e.Field + " may not contain a NUL character: the database cannot store one"
+}
+
+// ErrSetOrganizationRequired is returned when a new Set names no
+// organization.
+var ErrSetOrganizationRequired = errors.New("an inventory must belong to an organization")
+
+// ErrUnknownOrganization is returned when a new Set names an organization
+// that does not exist. It used to reach the database as a foreign key
+// failure, which the store reported as ErrSetExists, so the caller was told
+// the name was taken.
+var ErrUnknownOrganization = errors.New("the organization does not exist")
+
+// ErrUnknownMember is returned when a Set's membership names a group or a
+// device that does not exist, which also used to read as ErrSetExists.
+var ErrUnknownMember = errors.New("an inventory member does not exist")
+
 // SetQuery is a list request against SetStore.
 type SetQuery struct {
 	// OrganizationIDs restricts the result to these tenants. Empty means
@@ -147,7 +182,10 @@ type SetStore interface {
 	OrganizationLister
 
 	// Create persists a new Set and returns it with its assigned ID.
-	// It returns ErrSetExists if the name is taken in that organization.
+	// It returns ErrSetExists if the name is taken in that organization,
+	// ErrSetNameRequired, ErrSetOrganizationRequired or
+	// ErrUnknownOrganization for what it cannot save, and ErrUnknownMember
+	// or ErrCrossTenantMember for a member it may not hold.
 	Create(ctx context.Context, set Set) (Set, error)
 
 	// Get returns one Set by id, or ErrSetNotFound.
@@ -159,8 +197,28 @@ type SetStore interface {
 	// Update saves a Set's name, description and membership. The
 	// organization is not updatable: moving an inventory between tenants
 	// would silently re-scope every RoleBinding pointing at it, which is a
-	// migration rather than an edit.
+	// migration rather than an edit. It is an UpdateWith whose fold
+	// returns set, so it refuses what UpdateWith refuses.
 	Update(ctx context.Context, set Set) error
+
+	// UpdateWith folds a change over the Set with id as it stands under the
+	// row's write lock, and saves the result, which it returns.
+	//
+	// fold sees the stored Set and returns what should be saved; it may
+	// refuse by returning an error, which is returned as it is, and it runs
+	// inside the transaction, so it must not call the store. The id, the
+	// organization and the owner are kept as stored whatever fold returns.
+	// The result is held to the rules Create holds a new Set to: the name
+	// and description's text rules when the update changes them, and the
+	// membership's existence and tenancy, read in the same transaction. Two
+	// UpdateWith calls on one Set never interleave, so a fold never writes
+	// back a field it did not change over another update's change to it:
+	// a PATCH that does not name the members cannot revert a revocation.
+	// A fold that replaces a field whole from what a caller saw earlier
+	// (Update, and so the UI's edit form, or a PATCH naming the members)
+	// still wins over a change made since; nothing checks a version. The
+	// Set returned is the one read after the commit.
+	UpdateWith(ctx context.Context, id int, fold func(stored Set) (Set, error)) (Set, error)
 
 	// Delete removes a Set. The devices and groups it referenced are
 	// untouched -- an inventory is a view onto them, not their owner, and
