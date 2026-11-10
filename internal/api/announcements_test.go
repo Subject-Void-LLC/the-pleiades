@@ -36,9 +36,6 @@ type stubAnnounceStore struct {
 	gotQuery announce.Query
 	gotItem  announce.Announcement
 
-	getCalls    int
-	getErrAfter int
-
 	createErr error
 	getErr    error
 	listErr   error
@@ -71,18 +68,9 @@ func (s *stubAnnounceStore) Create(_ context.Context, a announce.Announcement) (
 }
 
 // Get returns one stored announcement, or announce.ErrNotFound.
-//
-// getErrAfter, when positive, fails every call past that many. Update reads
-// twice (once to carry the author and organization forward, once to render
-// what was stored), and the second read is the only way to reach the branch
-// where a write lands but the response cannot be built.
 func (s *stubAnnounceStore) Get(_ context.Context, id int) (announce.Announcement, error) {
-	s.getCalls++
 	if s.getErr != nil {
 		return announce.Announcement{}, s.getErr
-	}
-	if s.getErrAfter > 0 && s.getCalls > s.getErrAfter {
-		return announce.Announcement{}, errors.New("deliberate re-read failure")
 	}
 	a, ok := s.items[id]
 	if !ok {
@@ -106,14 +94,25 @@ func (s *stubAnnounceStore) List(_ context.Context, q announce.Query) ([]announc
 	return out, nil
 }
 
-// Update replaces a stored announcement.
-func (s *stubAnnounceStore) Update(_ context.Context, a announce.Announcement) error {
-	s.gotItem = a
-	if s.updateErr != nil {
-		return s.updateErr
+// UpdateWith folds a change over a stored announcement and stores the
+// result, keeping the fields the real store keeps, and fails with updateErr
+// when it is set.
+func (s *stubAnnounceStore) UpdateWith(_ context.Context, id int, fold func(announce.Announcement) (announce.Announcement, error)) (announce.Announcement, error) {
+	stored, ok := s.items[id]
+	if !ok {
+		return announce.Announcement{}, announce.ErrNotFound
 	}
-	s.items[a.ID] = a
-	return nil
+	next, err := fold(stored)
+	if err != nil {
+		return announce.Announcement{}, err
+	}
+	next.ID, next.Author, next.OrganizationID = stored.ID, stored.Author, stored.OrganizationID
+	s.gotItem = next
+	if s.updateErr != nil {
+		return announce.Announcement{}, s.updateErr
+	}
+	s.items[id] = next
+	return next, nil
 }
 
 // Delete removes a stored announcement.
@@ -405,35 +404,27 @@ func TestAnnouncementHandler_CreateStoreFailureIsAGeneric500(t *testing.T) {
 	}
 }
 
-// TestAnnouncementHandler_UpdateCarriesAuthorAndOrganizationForward proves
-// the two facts an edit must not be able to rewrite. Rewriting an
-// attribution is what makes one worthless, and moving an announcement
-// between tenants would silently change who it reaches.
-func TestAnnouncementHandler_UpdateCarriesAuthorAndOrganizationForward(t *testing.T) {
+// TestAnnouncementHandler_UpdateHandsTheStoreTheFieldsTheBodyNamed is the
+// handler's wiring: the fold it hands the store applies what the body named,
+// and an empty bound clears it. The stub keeps the id, author and
+// organization as the real store does, so this test cannot show that they
+// are kept; the real store's own test and announcements_patch_test.go do.
+func TestAnnouncementHandler_UpdateHandsTheStoreTheFieldsTheBodyNamed(t *testing.T) {
 	store := newStubAnnounceStore(testAnnouncement(1))
 	router := announcementRouter(t, store)
 
-	body := `{"title":"lifted","body":"freeze over","level":"info","organization":999}`
+	body := `{"title":"lifted","body":"freeze over","level":"info","organization":7,"starts_at":"","ends_at":""}`
 	rec := doJSON(t, router, http.MethodPatch, "/api/v1/announcements/1", body)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200: %s", rec.Code, rec.Body.String())
 	}
-	if store.gotItem.Author != "admin@example.com" {
-		t.Errorf("author = %q, want the stored value carried forward", store.gotItem.Author)
-	}
-	if store.gotItem.OrganizationID != 7 {
-		t.Errorf("organization = %d, want the stored 7 rather than the submitted 999", store.gotItem.OrganizationID)
-	}
-	if store.gotItem.ID != 1 {
-		t.Errorf("id = %d, want 1", store.gotItem.ID)
-	}
-	if store.gotItem.Title != "lifted" {
-		t.Errorf("title = %q, want the submitted value", store.gotItem.Title)
+	if store.gotItem.Title != "lifted" || store.gotItem.Body != "freeze over" || store.gotItem.Level != announce.LevelInfo {
+		t.Errorf("stored %+v, want the submitted title, body and level", store.gotItem)
 	}
 	// A cleared window must actually clear, so an announcement can be made
 	// permanent by removing its end date rather than only by deleting it.
 	if store.gotItem.StartsAt != nil || store.gotItem.EndsAt != nil {
-		t.Errorf("window survived an edit that omitted it: %+v", store.gotItem)
+		t.Errorf("window survived an edit that cleared it: %+v", store.gotItem)
 	}
 }
 
@@ -485,21 +476,6 @@ func TestAnnouncementHandler_UpdateErrorBranches(t *testing.T) {
 		}
 	})
 
-	// The write lands and the read back to render it fails. Reported as a
-	// 500 rather than a 200 carrying the pre-edit record, which would tell
-	// the caller their change did not apply when it did.
-	t.Run("re-read after a successful write", func(t *testing.T) {
-		store := newStubAnnounceStore(testAnnouncement(1))
-		store.getErrAfter = 1
-		router := announcementRouter(t, store)
-		rec := doJSON(t, router, http.MethodPatch, "/api/v1/announcements/1", `{"title":"lifted","body":"b"}`)
-		if rec.Code != http.StatusInternalServerError {
-			t.Fatalf("status = %d, want 500: %s", rec.Code, rec.Body.String())
-		}
-		if store.items[1].Title != "lifted" {
-			t.Error("the write did not land, so this test is not exercising the branch it claims to")
-		}
-	})
 }
 
 // TestAnnouncementHandler_CreateFailsClosedWithoutAnIdentity calls the
