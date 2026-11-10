@@ -22,6 +22,10 @@ type affordance struct {
 	rel    auth.LinkRel
 	method string
 	scope  auth.Scope
+
+	// alsoScope is the route's AlsoScope: when set, the affordance is offered
+	// only to a caller admitted for both.
+	alsoScope auth.Scope
 }
 
 // linkBuilder maps a chi route pattern to every affordance registered on
@@ -53,9 +57,10 @@ func newLinkBuilder(routes []Route, generator auth.HATEOASGenerator) *linkBuilde
 			patterns = append(patterns, full)
 		}
 		byPattern[full] = append(byPattern[full], affordance{
-			rel:    route.Rel,
-			method: route.Method,
-			scope:  route.Scope,
+			rel:       route.Rel,
+			method:    route.Method,
+			scope:     route.Scope,
+			alsoScope: route.AlsoScope,
 		})
 	}
 	return &linkBuilder{byPattern: byPattern, generator: generator, statics: staticSiblings(patterns)}
@@ -187,25 +192,9 @@ func (b *linkBuilder) linksFor(r *http.Request, id *auth.Identity, applies func(
 		return []Link{}, nil
 	}
 
-	offered := make([]auth.Affordance, 0, len(candidates))
-	for _, c := range candidates {
-		offered = append(offered, auth.Affordance{Rel: c.rel, Scope: c.scope})
-	}
-
-	permittedRels, err := b.generator.Permitted(r.Context(), id, offered)
+	permitted, err := b.permitted(r, id, candidates)
 	if err != nil {
 		return nil, fmt.Errorf("computing affordances for %s: %w", pattern, err)
-	}
-
-	// Re-intersect against our own candidates rather than trusting the
-	// generator's answer directly. The port returns relation names
-	// precisely so an implementation cannot invent one, and this is where
-	// that guarantee is actually enforced: a relation we never offered
-	// never reaches a response body, whatever a third-party generator
-	// returns.
-	permitted := make(map[auth.LinkRel]bool, len(permittedRels))
-	for _, rel := range permittedRels {
-		permitted[rel] = true
 	}
 
 	href, err := hrefFor(r, pattern, b.statics[pattern])
@@ -249,18 +238,9 @@ func (b *linkBuilder) allowedMethods(r *http.Request, id *auth.Identity, pattern
 		return methods, nil
 	}
 
-	offered := make([]auth.Affordance, 0, len(candidates))
-	for _, c := range candidates {
-		offered = append(offered, auth.Affordance{Rel: c.rel, Scope: c.scope})
-	}
-
-	permittedRels, err := b.generator.Permitted(r.Context(), id, offered)
+	permitted, err := b.permitted(r, id, candidates)
 	if err != nil {
 		return nil, fmt.Errorf("computing allowed methods for %s: %w", pattern, err)
-	}
-	permitted := make(map[auth.LinkRel]bool, len(permittedRels))
-	for _, rel := range permittedRels {
-		permitted[rel] = true
 	}
 
 	for _, c := range candidates {
@@ -309,4 +289,54 @@ func sortMethods(methods []string) {
 			methods[j-1], methods[j] = methods[j], methods[j-1]
 		}
 	}
+}
+
+// permitted is the set of candidates' relations id may exercise: the
+// generator's answer for each candidate's scope, and, for a candidate with
+// an alsoScope, its answer for that scope too, since the router admits such
+// a route only to a caller holding both. One Permitted call per scope set,
+// because the generator reports a relation permitted when any affordance
+// offered for it is, which for two scopes would read as either rather than
+// both.
+//
+// The answer is re-intersected against our own candidates rather than
+// trusting the generator directly. The port returns relation names
+// precisely so an implementation cannot invent one, and this is where that
+// guarantee is enforced: a relation we never offered never reaches a
+// response body or an Allow header, whatever a third-party generator
+// returns.
+func (b *linkBuilder) permitted(r *http.Request, id *auth.Identity, candidates []affordance) (map[auth.LinkRel]bool, error) {
+	offered := make([]auth.Affordance, 0, len(candidates))
+	var offeredAlso []auth.Affordance
+	for _, c := range candidates {
+		offered = append(offered, auth.Affordance{Rel: c.rel, Scope: c.scope})
+		if c.alsoScope != "" {
+			offeredAlso = append(offeredAlso, auth.Affordance{Rel: c.rel, Scope: c.alsoScope})
+		}
+	}
+	rels, err := b.generator.Permitted(r.Context(), id, offered)
+	if err != nil {
+		return nil, err
+	}
+	permitted := make(map[auth.LinkRel]bool, len(rels))
+	for _, rel := range rels {
+		permitted[rel] = true
+	}
+	if len(offeredAlso) == 0 {
+		return permitted, nil
+	}
+	alsoRels, err := b.generator.Permitted(r.Context(), id, offeredAlso)
+	if err != nil {
+		return nil, err
+	}
+	alsoPermitted := make(map[auth.LinkRel]bool, len(alsoRels))
+	for _, rel := range alsoRels {
+		alsoPermitted[rel] = true
+	}
+	for _, c := range candidates {
+		if c.alsoScope != "" && !alsoPermitted[c.rel] {
+			delete(permitted, c.rel)
+		}
+	}
+	return permitted, nil
 }

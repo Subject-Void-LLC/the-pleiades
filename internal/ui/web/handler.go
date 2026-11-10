@@ -25,6 +25,7 @@ import (
 	"strings"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/api"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/apispec"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/auth"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ui/render"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ui/session"
@@ -403,6 +404,18 @@ func (h *Handler) permits(ctx context.Context, id *auth.Identity, scope auth.Sco
 	return h.cfg.Admission.Evaluate(ctx, id, auth.AdmissionRequest{RequiredScope: scope}) == nil
 }
 
+// permitsEndpoint is permits for an apispec endpoint: its Scope and, when it
+// declares one, its AlsoScope, as the JSON API's router requires. Every UI
+// gate on an endpoint asks this, so a session holding a resource's write
+// scope without its read cannot open an edit form or run an action the API
+// would refuse it, and so read the stored record through the UI instead.
+func (h *Handler) permitsEndpoint(ctx context.Context, id *auth.Identity, e *apispec.Endpoint) bool {
+	if e == nil || !h.permits(ctx, id, e.Scope) {
+		return false
+	}
+	return e.AlsoScope == "" || h.permits(ctx, id, e.AlsoScope)
+}
+
 // affordances computes which relations this identity may exercise on a
 // descriptor, from the same generator the JSON API's _links uses.
 func (h *Handler) affordances(ctx context.Context, id *auth.Identity, d view.Descriptor) view.Affordances {
@@ -420,6 +433,32 @@ func (h *Handler) affordances(ctx context.Context, id *auth.Identity, d view.Des
 		h.cfg.Logger.ErrorContext(ctx, "failed to evaluate UI affordances",
 			slog.String("resource", d.Name), slog.String("error", err.Error()))
 		return view.UnknownAffordances()
+	}
+
+	// A relation whose endpoint declares an AlsoScope is kept only when the
+	// generator permits that scope too (Descriptor.AlsoCandidates).
+	if also := d.AlsoCandidates(); len(also) > 0 {
+		alsoPermitted, err := h.cfg.HATEOAS.Permitted(ctx, id, also)
+		if err != nil {
+			h.cfg.Logger.ErrorContext(ctx, "failed to evaluate UI affordances",
+				slog.String("resource", d.Name), slog.String("error", err.Error()))
+			return view.UnknownAffordances()
+		}
+		both := make(map[auth.LinkRel]bool, len(alsoPermitted))
+		for _, rel := range alsoPermitted {
+			both[rel] = true
+		}
+		needsBoth := make(map[auth.LinkRel]bool, len(also))
+		for _, c := range also {
+			needsBoth[c.Rel] = true
+		}
+		kept := permitted[:0:0]
+		for _, rel := range permitted {
+			if !needsBoth[rel] || both[rel] {
+				kept = append(kept, rel)
+			}
+		}
+		permitted = kept
 	}
 
 	// Re-intersect against our own candidate set, exactly as links.go

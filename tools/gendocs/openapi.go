@@ -64,7 +64,7 @@ func openAPIPaths() map[string]any {
 			"parameters":  openAPIParameters(ep.Params),
 			"responses":   openAPIResponses(ep),
 			"security": []any{
-				map[string]any{"bearerAuth": []any{string(ep.Scope)}},
+				map[string]any{"bearerAuth": openAPIScopes(ep)},
 			},
 			"x-link-relation": string(ep.Rel),
 		}
@@ -177,4 +177,15 @@ func openAPIResponses(ep apispec.Endpoint) map[string]any {
 		out[fmt.Sprintf("%d", r.Status)] = resp
 	}
 	return out
+}
+
+// openAPIScopes is the scopes an endpoint's one security requirement lists.
+// OpenAPI reads every scope in one requirement as required together, which
+// is what a route's AlsoScope means.
+func openAPIScopes(ep apispec.Endpoint) []any {
+	scopes := []any{string(ep.Scope)}
+	if ep.AlsoScope != "" {
+		scopes = append(scopes, string(ep.AlsoScope))
+	}
+	return scopes
 }

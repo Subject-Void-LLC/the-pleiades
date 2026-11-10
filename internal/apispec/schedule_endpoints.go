@@ -205,12 +205,13 @@ var CreateSchedule = Endpoint{
 
 // UpdateSchedule is PATCH /schedules/{id}.
 var UpdateSchedule = Endpoint{
-	Name:    "update_schedule",
-	Method:  http.MethodPatch,
-	Pattern: "/schedules/{id}",
-	Scope:   auth.ScopeScheduleWrite,
-	Rel:     auth.RelUpdate,
-	Summary: "Update a schedule",
+	Name:      "update_schedule",
+	Method:    http.MethodPatch,
+	Pattern:   "/schedules/{id}",
+	Scope:     auth.ScopeScheduleWrite,
+	AlsoScope: auth.ScopeScheduleRead,
+	Rel:       auth.RelUpdate,
+	Summary:   "Update a schedule",
 	Description: "Replaces the supplied fields and recomputes the next run. next_run is always recomputed and " +
 		"never accepted from the caller: every field an edit can touch changes what it should be, so a stale " +
 		"form post could otherwise pin a schedule to a time its own rule no longer produces.",

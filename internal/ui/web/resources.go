@@ -54,7 +54,7 @@ func (h *Handler) resolve(w http.ResponseWriter, r *http.Request, op func(view.O
 		return view.Descriptor{}, false
 	}
 
-	if !h.permits(r.Context(), identityFrom(r.Context()), endpoint.Scope) {
+	if !h.permitsEndpoint(r.Context(), identityFrom(r.Context()), endpoint) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return view.Descriptor{}, false
 	}
@@ -346,7 +346,7 @@ func (h *Handler) lookupAction(w http.ResponseWriter, r *http.Request) (view.Des
 		if a.Name != name {
 			continue
 		}
-		if !h.permits(r.Context(), identityFrom(r.Context()), a.Endpoint.Scope) {
+		if !h.permitsEndpoint(r.Context(), identityFrom(r.Context()), a.Endpoint) {
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return view.Descriptor{}, view.RecordAction{}, false
 		}
@@ -552,7 +552,7 @@ func (h *Handler) lookupRowAction(w http.ResponseWriter, r *http.Request) (view.
 		h.notFound(w, r)
 		return view.Descriptor{}, view.RowAction{}, "", "", false
 	}
-	if !h.permits(r.Context(), identityFrom(r.Context()), action.Endpoint.Scope) {
+	if !h.permitsEndpoint(r.Context(), identityFrom(r.Context()), action.Endpoint) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return view.Descriptor{}, view.RowAction{}, "", "", false
 	}

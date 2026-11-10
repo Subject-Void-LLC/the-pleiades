@@ -69,7 +69,11 @@ type Endpoint struct {
 	Method  string
 	Pattern string // relative to api.APIVersionPrefix, matching api.Route.Pattern
 	Scope   auth.Scope
-	Rel     auth.LinkRel
+	// AlsoScope is a second scope the caller must hold (api.Route.AlsoScope):
+	// every PATCH and PUT declares the resource's read scope, since its
+	// response is the stored record and its refusals are judged against it.
+	AlsoScope auth.Scope
+	Rel       auth.LinkRel
 
 	Summary     string
 	Description string
@@ -100,7 +104,7 @@ type Endpoint struct {
 // connect: nothing here can silently drift, because both come from the
 // same struct fields.
 func (e Endpoint) Route(h http.HandlerFunc) api.Route {
-	return api.Route{Method: e.Method, Pattern: e.Pattern, Scope: e.Scope, Rel: e.Rel, Handler: h}
+	return api.Route{Method: e.Method, Pattern: e.Pattern, Scope: e.Scope, AlsoScope: e.AlsoScope, Rel: e.Rel, Handler: h}
 }
 
 func stringSchema(description string) map[string]any {
@@ -467,12 +471,13 @@ var CreateDevice = Endpoint{
 // UpdateDevice is PATCH /inventory/devices/{name}: modify a device in
 // place.
 var UpdateDevice = Endpoint{
-	Name:    "update_device",
-	Method:  http.MethodPatch,
-	Pattern: "/inventory/devices/{name}",
-	Scope:   auth.ScopeInventoryWrite,
-	Rel:     auth.RelUpdate,
-	Summary: "Update an inventory device",
+	Name:      "update_device",
+	Method:    http.MethodPatch,
+	Pattern:   "/inventory/devices/{name}",
+	Scope:     auth.ScopeInventoryWrite,
+	AlsoScope: auth.ScopeInventoryRead,
+	Rel:       auth.RelUpdate,
+	Summary:   "Update an inventory device",
 	Description: "Applies tag and lifecycle-state changes to an existing device, and is how a device is " +
 		"promoted out of quarantined or simulate-locked. Each change is recorded as a revision in the " +
 		"device's history, and setting what the device already has records nothing. A sync that later " +
@@ -957,12 +962,13 @@ var CreateInventory = Endpoint{
 
 // UpdateInventory is PATCH /inventories/{id}.
 var UpdateInventory = Endpoint{
-	Name:    "update_inventory",
-	Method:  http.MethodPatch,
-	Pattern: "/inventories/{id}",
-	Scope:   auth.ScopeInventoryWrite,
-	Rel:     auth.RelUpdate,
-	Summary: "Update an inventory",
+	Name:      "update_inventory",
+	Method:    http.MethodPatch,
+	Pattern:   "/inventories/{id}",
+	Scope:     auth.ScopeInventoryWrite,
+	AlsoScope: auth.ScopeInventoryRead,
+	Rel:       auth.RelUpdate,
+	Summary:   "Update an inventory",
 	Description: "A partial update of an inventory's name, description and membership: a field left out keeps " +
 		"its stored value. The organization is not updatable: moving one between tenants would silently " +
 		"re-scope every role binding pointing at it, which is a migration rather than an edit.",
@@ -1066,6 +1072,7 @@ var UpdateAnnouncement = Endpoint{
 	Method:      http.MethodPatch,
 	Pattern:     "/announcements/{id}",
 	Scope:       auth.ScopeAnnouncementWrite,
+	AlsoScope:   auth.ScopeAnnouncementRead,
 	Rel:         auth.RelUpdate,
 	Summary:     "Edit an announcement",
 	Description: "A partial update of the title, body, level or active window: a field left out keeps its stored value. The author and the organization are immutable: an attribution somebody can rewrite is one nobody can rely on, and moving an announcement between tenants would change who it reaches.",

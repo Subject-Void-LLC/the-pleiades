@@ -112,12 +112,13 @@ var CreateProject = Endpoint{
 
 // UpdateProject is PATCH /projects/{id}.
 var UpdateProject = Endpoint{
-	Name:    "update_project",
-	Method:  http.MethodPatch,
-	Pattern: "/projects/{id}",
-	Scope:   auth.ScopeProjectWrite,
-	Rel:     auth.RelUpdate,
-	Summary: "Update a project",
+	Name:      "update_project",
+	Method:    http.MethodPatch,
+	Pattern:   "/projects/{id}",
+	Scope:     auth.ScopeProjectWrite,
+	AlsoScope: auth.ScopeProjectRead,
+	Rel:       auth.RelUpdate,
+	Summary:   "Update a project",
 	Responses: []Response{
 		{Status: http.StatusOK, Description: "The project as stored.", Schema: projectSchema},
 		{Status: http.StatusBadRequest, Description: "The body is malformed, sets a field to null or changes the organization, or the project it would leave has a blank name, a field longer than its bound or holding a NUL character, a git source with no URL, a URL this deployment will not fetch from or that carries a password, or a credential the project's organization does not own (answered as no credential with that id in the project's organization) or that cannot authenticate a clone.", Schema: errorSchema("")},
@@ -166,12 +167,13 @@ var DeleteProject = Endpoint{
 // this codebase already has for "an action, not a mutation of the record",
 // and a one-off rel would be a second word for the same idea.
 var SyncProject = Endpoint{
-	Name:    "sync_project",
-	Method:  http.MethodPost,
-	Pattern: "/projects/{id}/sync",
-	Scope:   auth.ScopeProjectWrite,
-	Rel:     auth.RelExecute,
-	Summary: "Sync a project",
+	Name:      "sync_project",
+	Method:    http.MethodPost,
+	Pattern:   "/projects/{id}/sync",
+	Scope:     auth.ScopeProjectWrite,
+	AlsoScope: auth.ScopeProjectRead,
+	Rel:       auth.RelExecute,
+	Summary:   "Sync a project",
 	Responses: []Response{
 		{Status: http.StatusAccepted, Description: "The sync was accepted and is running. The project is returned as it now stands, its sync_status moved to running; the clone happens off this request, so poll the project for the outcome, which lands in sync_status and sync_error.", Schema: projectSchema},
 		{Status: http.StatusBadRequest, Description: "The project has no fetchable source.", Schema: errorSchema("")},
@@ -190,12 +192,13 @@ var SyncProject = Endpoint{
 // changes what the controller is doing and what the project ends up
 // recording.
 var CancelProjectSync = Endpoint{
-	Name:    "cancel_project_sync",
-	Method:  http.MethodPost,
-	Pattern: "/projects/{id}/sync/cancel",
-	Scope:   auth.ScopeProjectWrite,
-	Rel:     auth.RelCancel,
-	Summary: "Cancel a project's running sync",
+	Name:      "cancel_project_sync",
+	Method:    http.MethodPost,
+	Pattern:   "/projects/{id}/sync/cancel",
+	Scope:     auth.ScopeProjectWrite,
+	AlsoScope: auth.ScopeProjectRead,
+	Rel:       auth.RelCancel,
+	Summary:   "Cancel a project's running sync",
 	Description: "Stops a clone that is in flight and returns at once; the goroutine running it records the " +
 		"outcome, so the project settles to failed with a reason naming the cancellation rather than whatever the " +
 		"transport said when its connection went away. A project with no sync running is a 409, because reporting " +
