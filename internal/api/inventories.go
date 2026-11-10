@@ -31,7 +31,7 @@ type InventoryRepository interface {
 	Create(ctx context.Context, set inventory.Set) (inventory.Set, error)
 	Get(ctx context.Context, id int) (inventory.Set, error)
 	List(ctx context.Context, q inventory.SetQuery) ([]inventory.Set, error)
-	Update(ctx context.Context, set inventory.Set) error
+	UpdateWith(ctx context.Context, id int, fold func(stored inventory.Set) (inventory.Set, error)) (inventory.Set, error)
 	Delete(ctx context.Context, id int) error
 }
 
@@ -87,36 +87,14 @@ type inventoryListDTO struct {
 	Inventories []inventoryDTO `json:"inventories"`
 }
 
-// inventoryWriteDTO is the request body create and update accept.
-//
-// Organization is required on create and ignored on update: moving an
-// inventory between tenants would silently re-scope every RoleBinding
-// pointing at it, which is a migration rather than an edit.
+// inventoryWriteDTO is the request body create accepts; PATCH accepts
+// inventoryPatchDTO (inventories_patch.go). Organization is required.
 type inventoryWriteDTO struct {
 	Name         string `json:"name"`
 	Description  string `json:"description"`
 	Organization int    `json:"organization"`
-
-	// Groups and Devices are pointers because PATCH means partial. A plain
-	// slice decodes an absent key and an explicit [] identically, so a
-	// caller renaming an inventory would silently empty its membership.
-	// That matters more here than anywhere else in this API: an inventory
-	// is a grant surface, so its membership is a permission, and emptying
-	// it changes what every share of it covers.
-	Groups  *[]int `json:"groups"`
-	Devices *[]int `json:"devices"`
-}
-
-// members reads the submitted membership, reporting for each list whether
-// the caller mentioned it at all.
-func (d inventoryWriteDTO) members() (groups []int, groupsSet bool, devices []int, devicesSet bool) {
-	if d.Groups != nil {
-		groups, groupsSet = *d.Groups, true
-	}
-	if d.Devices != nil {
-		devices, devicesSet = *d.Devices, true
-	}
-	return groups, groupsSet, devices, devicesSet
+	Groups       []int  `json:"groups"`
+	Devices      []int  `json:"devices"`
 }
 
 func toInventoryDTO(set inventory.Set, withMembers bool) inventoryDTO {
@@ -211,7 +189,6 @@ func (h *InventoryHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	groups, _, devices, _ := body.members()
 	set, err := h.sets.Create(r.Context(), inventory.Set{
 		Name:           body.Name,
 		Description:    body.Description,
@@ -220,8 +197,8 @@ func (h *InventoryHandler) Create(w http.ResponseWriter, r *http.Request) {
 		// owner a submitter could name is an audit trail a submitter could
 		// forge.
 		Owner:     identity.Subject,
-		GroupIDs:  groups,
-		DeviceIDs: devices,
+		GroupIDs:  body.Groups,
+		DeviceIDs: body.Devices,
 	})
 	if err != nil {
 		h.respondStoreError(w, r, "create", 0, err)
@@ -233,47 +210,30 @@ func (h *InventoryHandler) Create(w http.ResponseWriter, r *http.Request) {
 	Respond(w, r, http.StatusCreated, &dto)
 }
 
-// Update replaces an inventory's editable fields and its membership.
+// Update serves PATCH /inventories/{id}: a partial update of an
+// inventory's name, description and membership. See inventoryPatchDTO and
+// inventories_patch.go's comment for the rules.
 func (h *InventoryHandler) Update(w http.ResponseWriter, r *http.Request) {
 	id, ok := h.parseID(w, r)
 	if !ok {
 		return
 	}
 
-	var body inventoryWriteDTO
+	var body inventoryPatchDTO
 	if !decodeJSON(w, r, &body) {
 		return
 	}
-
-	// Read first, so an update to a missing inventory is a 404 rather than
-	// a store error, and so the organization is carried forward from what
-	// is stored rather than from what was submitted.
-	existing, err := h.sets.Get(r.Context(), id)
-	if err != nil {
-		h.respondStoreError(w, r, "read", id, err)
+	if len(body.nulls) > 0 {
+		RespondError(w, r, http.StatusBadRequest, patchNullRefusal(inventoryNoun, body.nulls))
 		return
 	}
 
-	existing.Name = body.Name
-	existing.Description = body.Description
-	// Each list is replaced only when the caller mentioned it. Omitting one
-	// leaves that half of the membership untouched.
-	groups, groupsSet, devices, devicesSet := body.members()
-	if groupsSet {
-		existing.GroupIDs = groups
-	}
-	if devicesSet {
-		existing.DeviceIDs = devices
-	}
-
-	if err := h.sets.Update(r.Context(), existing); err != nil {
+	// The store runs the fold on the inventory it reads under the row's
+	// lock, so a missing inventory is a 404 and a concurrent PATCH's change
+	// is folded over rather than written back over.
+	updated, err := h.sets.UpdateWith(r.Context(), id, body.fold)
+	if err != nil {
 		h.respondStoreError(w, r, "update", id, err)
-		return
-	}
-
-	updated, err := h.sets.Get(r.Context(), id)
-	if err != nil {
-		h.respondStoreError(w, r, "read", id, err)
 		return
 	}
 	dto := toInventoryDTO(updated, true)
@@ -319,7 +279,25 @@ func (h *InventoryHandler) parseID(w http.ResponseWriter, r *http.Request) (int,
 // caller has no business reading, so only the category crosses the
 // boundary -- the same posture devices.go and runbooks.go already take.
 func (h *InventoryHandler) respondStoreError(w http.ResponseWriter, r *http.Request, op string, id int, err error) {
+	var refusal patchRefusal
+	var nul *inventory.NULError
 	switch {
+	case errors.As(err, &refusal):
+		// A PATCH's own refusal, made inside the store's transaction.
+		RespondError(w, r, http.StatusBadRequest, string(refusal))
+	case errors.As(err, &nul):
+		// The store's own sentence, naming the field and nothing sent.
+		RespondError(w, r, http.StatusBadRequest, nul.Error())
+	case errors.Is(err, inventory.ErrSetNameRequired):
+		RespondError(w, r, http.StatusBadRequest, "an inventory needs a name that is not blank")
+	case errors.Is(err, inventory.ErrSetOrganizationRequired):
+		RespondError(w, r, http.StatusBadRequest, "an inventory must belong to an organization")
+	case errors.Is(err, inventory.ErrUnknownOrganization):
+		RespondError(w, r, http.StatusBadRequest, "the organization does not exist")
+	case errors.Is(err, inventory.ErrUnknownMember):
+		// Fixed text, as for a cross-tenant member: which ids were missing
+		// is the caller's own list, and the store's text is not theirs.
+		RespondError(w, r, http.StatusBadRequest, "one or more of the groups or devices do not exist")
 	case errors.Is(err, inventory.ErrSetNotFound):
 		RespondError(w, r, http.StatusNotFound, "inventory not found")
 	case errors.Is(err, inventory.ErrCrossTenantMember):

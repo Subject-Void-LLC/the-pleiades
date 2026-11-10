@@ -180,3 +180,12 @@ func fixedFieldMessage(field, noun, remedy string) string {
 	}
 	return msg
 }
+
+// patchRefusal is a refusal a PATCH's fold makes inside the store's
+// transaction, answered with 400 and its own text (the credential handler's
+// failPatch, and the inventory handler's respondStoreError). Its text is the
+// handler's own sentence, never the caller's bytes.
+type patchRefusal string
+
+// Error returns the refusal's text.
+func (p patchRefusal) Error() string { return string(p) }

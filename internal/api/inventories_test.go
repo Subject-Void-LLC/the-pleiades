@@ -40,9 +40,6 @@ type stubSetStore struct {
 	gotQuery inventory.SetQuery
 	gotSet   inventory.Set
 
-	getCalls    int
-	getErrAfter int
-
 	createErr error
 	getErr    error
 	listErr   error
@@ -75,18 +72,9 @@ func (s *stubSetStore) Create(_ context.Context, set inventory.Set) (inventory.S
 }
 
 // Get returns one stored set, or inventory.ErrSetNotFound.
-//
-// getErrAfter, when positive, makes every call past that many succeed-then-
-// fail. Update reads twice (once to carry the organization forward, once to
-// render what was stored), and the second read is the only way to reach the
-// branch where a write lands but the response cannot be built.
 func (s *stubSetStore) Get(_ context.Context, id int) (inventory.Set, error) {
-	s.getCalls++
 	if s.getErr != nil {
 		return inventory.Set{}, s.getErr
-	}
-	if s.getErrAfter > 0 && s.getCalls > s.getErrAfter {
-		return inventory.Set{}, errors.New("deliberate re-read failure")
 	}
 	set, ok := s.sets[id]
 	if !ok {
@@ -114,14 +102,28 @@ func (s *stubSetStore) List(_ context.Context, q inventory.SetQuery) ([]inventor
 	return out, nil
 }
 
-// Update replaces a stored set.
-func (s *stubSetStore) Update(_ context.Context, set inventory.Set) error {
-	s.gotSet = set
-	if s.updateErr != nil {
-		return s.updateErr
+// UpdateWith folds a change over a stored set and stores the result, keeping
+// the fields the real store keeps, and fails with updateErr when it is set.
+func (s *stubSetStore) UpdateWith(_ context.Context, id int, fold func(inventory.Set) (inventory.Set, error)) (inventory.Set, error) {
+	stored, ok := s.sets[id]
+	if !ok {
+		return inventory.Set{}, inventory.ErrSetNotFound
 	}
-	s.sets[set.ID] = set
-	return nil
+	// fold gets its own copies of the member lists, as from the real store.
+	stored.GroupIDs = append([]int(nil), stored.GroupIDs...)
+	stored.DeviceIDs = append([]int(nil), stored.DeviceIDs...)
+	next, err := fold(stored)
+	if err != nil {
+		return inventory.Set{}, err
+	}
+	// The real store keeps these as stored whatever the fold returns.
+	next.ID, next.OrganizationID, next.Owner = stored.ID, stored.OrganizationID, stored.Owner
+	s.gotSet = next
+	if s.updateErr != nil {
+		return inventory.Set{}, s.updateErr
+	}
+	s.sets[id] = next
+	return next, nil
 }
 
 // Delete removes a stored set.
@@ -435,30 +437,29 @@ func TestInventoryHandler_StoreErrorsMapToTheirStatus(t *testing.T) {
 	}
 }
 
-// TestInventoryHandler_UpdateKeepsTheStoredOrganizationAndOwner proves the
-// two immutable facts survive an edit that tries to change them. Moving an
-// inventory between tenants would silently re-scope every RoleBinding
-// pointing at it, which is a migration rather than an edit.
-func TestInventoryHandler_UpdateKeepsTheStoredOrganizationAndOwner(t *testing.T) {
+// TestInventoryHandler_UpdateHandsTheStoreTheFieldsTheBodyNamed is the
+// handler's wiring: the fold it hands the store applies what the body named.
+// The stub keeps the id, organization and owner as the real store does, so
+// this test cannot show that they are kept; the real store's own test
+// (TestEntSetStore_UpdateWithHoldsTheResultToTheCreateRules) and the PATCH
+// tests over it (inventories_patch_test.go) do.
+func TestInventoryHandler_UpdateHandsTheStoreTheFieldsTheBodyNamed(t *testing.T) {
 	store := newStubSetStore(testSet(1, "production"))
 	router := inventoryRouter(t, store)
 
-	body := `{"name":"renamed","description":"new","organization":999,"groups":[5],"devices":[6]}`
+	body := `{"name":"renamed","description":"new","organization":7,"groups":[5],"devices":[6]}`
 	rec := doJSON(t, router, http.MethodPatch, "/api/v1/inventories/1", body)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200: %s", rec.Code, rec.Body.String())
 	}
-	if store.gotSet.OrganizationID != 7 {
-		t.Errorf("organization = %d, want the stored 7 rather than the submitted 999", store.gotSet.OrganizationID)
-	}
-	if store.gotSet.Owner != "owner@example.com" {
-		t.Errorf("owner = %q, want the stored value", store.gotSet.Owner)
-	}
-	if store.gotSet.Name != "renamed" {
-		t.Errorf("name = %q, want the submitted \"renamed\"", store.gotSet.Name)
+	if store.gotSet.Name != "renamed" || store.gotSet.Description != "new" {
+		t.Errorf("name %q description %q, want the submitted values", store.gotSet.Name, store.gotSet.Description)
 	}
 	if len(store.gotSet.GroupIDs) != 1 || store.gotSet.GroupIDs[0] != 5 {
 		t.Errorf("groups = %v, want the submitted [5] replacing the stored set", store.gotSet.GroupIDs)
+	}
+	if len(store.gotSet.DeviceIDs) != 1 || store.gotSet.DeviceIDs[0] != 6 {
+		t.Errorf("devices = %v, want the submitted [6]", store.gotSet.DeviceIDs)
 	}
 }
 
@@ -497,22 +498,6 @@ func TestInventoryHandler_UpdateErrorBranches(t *testing.T) {
 		}
 	})
 
-	// The write lands and the read back to render it fails. Reported as a
-	// 500 rather than a 200 with stale content, because answering with the
-	// pre-edit record would tell the caller their change did not apply when
-	// it did.
-	t.Run("re-read after a successful write", func(t *testing.T) {
-		store := newStubSetStore(testSet(1, "production"))
-		store.getErrAfter = 1
-		router := inventoryRouter(t, store)
-		rec := doJSON(t, router, http.MethodPatch, "/api/v1/inventories/1", `{"name":"renamed"}`)
-		if rec.Code != http.StatusInternalServerError {
-			t.Fatalf("status = %d, want 500: %s", rec.Code, rec.Body.String())
-		}
-		if store.sets[1].Name != "renamed" {
-			t.Error("the write did not land, so this test is not exercising the branch it claims to")
-		}
-	})
 }
 
 // TestInventoryHandler_CreateFailsClosedWithoutAnIdentity calls the handler
