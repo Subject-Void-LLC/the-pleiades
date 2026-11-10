@@ -2772,6 +2772,12 @@ caller to their own organization. And the `file` secret source reads one directo
 credential in any organization can name a file put there for another (1101). The production guide states that as a
 tenancy limit; the owner's decision on scoping it waits with this entry's.
 
+**Note 2026-11-10 (`fix/patch-inventories-announcements`).** Still open, and the limit of that branch's fixes too. The
+inventory and announcement routes are authorized by token scope across the deployment: `cmd/controller` hands the
+handlers the raw stores, and `ScopeTarget.InventoryIDs` is set nowhere outside tests. So a caller holding
+`inventory:write` can PATCH any organization's inventory, its membership included. Reasoned from the code, not run.
+It waits on the same per-organization authorization work as the notes above.
+
 ---
 
 ## 99. A RoleBinding with `scope_id = 0` is a system-wide Allow, and nothing rejects one
@@ -25575,6 +25581,17 @@ naming the field when it differs from the stored one, and the stored value sent 
 change, and its changelog fragment says so. The same branch made both routes partial updates (1075's note). The entry
 stays open, task 17, for two: announcements and inventories.
 
+**Resolved 2026-11-10 (`fix/patch-inventories-announcements`, `a9d76653` for inventories, `2e2f3481` for
+announcements).** The last two leave this entry's list, which closes it. Each PATCH decoded an `organization` and
+ignored it, so a different organization answered 200 and changed nothing. `inventoryPatchDTO`
+(`internal/api/inventories_patch.go`) and `announcementPatchDTO` (`internal/api/announcements_patch.go`), on the shared
+helpers in `internal/api/patch.go`, now refuse with 400 naming the field an `organization` that differs from the stored
+one, and accept the stored value sent back (0 for a system-wide announcement). Tests:
+`TestInventoryPatch_RefusesWhatItCannotApply`, `TestInventoryPatch_AcceptsTheStoredOrganizationAsAnEcho`,
+`TestAnnouncementPatch_RefusesWhatItCannotApply` and `TestAnnouncementPatch_AcceptsTheStoredOrganizationAsAnEcho`
+(`internal/api`), red on the old handlers. The refusal is a breaking change, and its changelog fragment says so. The
+same branch made both routes partial updates (1075's note).
+
 ## 1056. PATCH /templates/{id} replaces a template's editable half from the body, so a client that omits survey deletes the survey, omitting defaults, prompts or required_capabilities blanks them, and omitting allow_simultaneous writes false (open, read in code and not reproduced: task 16; on main since 5dbc35bc, 2026-08-12; a repeat in kind of 103)
 
 **Symptom.** Found by reading on `fix/ui-device-edit`, 2026-11-09; not run. `TemplateHandler.Update`
@@ -26127,6 +26144,32 @@ credential and credential type forms use the same store methods. Tests, in `inte
 its changelog fragment says so. The same branch also refuses a body naming a field twice (1105). The entry stays open,
 task 17, for two: inventories and announcements.
 
+**Resolved 2026-11-10 (`fix/patch-inventories-announcements`, `a9d76653` and `2e2f3481`, with `a74957af` for the folds
+under the row lock and `a6e6bb09` for the route text).** Inventories and announcements leave this entry's list, which
+closes it. Both routes decoded their create body, so a PATCH was a full replace, and it did more than the sweep listed.
+Measured on the old handlers, through the real router and the ent store:
+
+- inventories: a PATCH naming only `devices` answered 500, because the blank name it wrote reached ent's `NotEmpty`;
+  one naming only `name` erased the description; a `null` member list read as absent and answered 200 (the shape of
+  103); `{"name":"   "}` was stored with 200;
+- announcements: a PATCH without `title` or `body` answered 500; one naming both reset `level` to `info` and erased
+  `starts_at` and `ends_at`, so a scheduled change freeze started showing at once and never ended.
+
+`PATCH /inventories/{id}` and `PATCH /announcements/{id}` now fold one pointer per field over the stored record
+(`inventoryPatchDTO`, `announcementPatchDTO`, on `internal/api/patch.go`'s shared helpers). The store runs the fold
+inside its own transaction, over the record it reads under the row's lock (`SetStore.UpdateWith`,
+`announce.Store.UpdateWith`; 1112 says why). An empty description, an empty member list, and an empty `starts_at` or
+`ends_at` clear that field. A member list a PATCH names replaces the stored one whole. A `null` on any field is refused
+with 400 naming it. The record as it would be saved is still checked whole: every member again, and an announcement's
+window. Tests, 41 failures red on the old handlers: `internal/api/inventories_patch_test.go` and
+`internal/api/announcements_patch_test.go` (`TestInventoryPatch_KeepsWhatItDoesNotName`,
+`TestInventoryPatch_AnEmptyValueClears`, `TestInventoryPatch_RefusesWhatItCannotApply`,
+`TestAnnouncementPatch_KeepsWhatItDoesNotName`, `TestAnnouncementPatch_AnEmptyBoundClearsIt`,
+`TestAnnouncementPatch_RefusesWhatItCannotApply` among them). The refusal of a null is a breaking change, and its
+changelog fragment says so. The write schemas the OpenAPI document publishes for both routes now describe a partial
+body (`internal/apispec/inventory_announcement_write_schemas.go`). `{}` now answers 200 with the stored record and
+changes only `updated_at` (1119).
+
 ## 1076. Suspected: a project name over 253 bytes answers 500, as a template's did (open, suspected from reading; a sibling of 1071)
 
 **Symptom.** Found by reading on `fix/template-patch-partial`, 2026-11-09; not run. `project.name` is `MaxLen(253)`
@@ -26387,6 +26430,17 @@ low severity: a stale read written back restored a secret reference a type edit 
 PATCHes naming the same field are still last-writer-wins, as the changelog says. The entry stays open for the other
 partial PATCHes: organizations, teams, contacts, bindings, templates and projects.
 
+**Note 2026-11-10 (`fix/patch-inventories-announcements`, `a74957af`).** The inventory and announcement PATCH routes no
+longer read before they write: the store runs the body's fold over the row it reads under a lock, inside the write's
+transaction (1112). On the inventory route the race was not low severity either, since an inventory is a grant surface
+(97) and a lost write could undo a device's removal. Two gaps stay, and the entry stays open for them as well as for
+the routes listed above. The web UI's inventory edit form (`internal/ui/resources/inventories/inventories.go`, the
+`writer.Update` method) still calls `Update` with a full submission rendered earlier, so a stale form puts back a
+member a PATCH removed after the form was drawn. And an API PATCH naming a full member list built from a stale GET does
+the same, since a named list replaces the stored one whole. Neither has a version token (no `If-Match`, no version
+column). Whether to add one is the owner's decision. The changelog and the route text say that a named list replaces
+the stored one and that there is no version check (1115).
+
 ## 1086. A code-writing agent ran git stash push --keep-index and git stash pop to test a commit alone, which LESSONS 423 forbids, because the rule was in the records, the handoff and memory but not in the agent's brief (open: nothing holds an agent's brief to the rule; nothing was lost; a repeat of 1042)
 
 **Symptom.** On `fix/patch-access-partial`, 2026-11-09. To test one commit by itself, a code-writing agent set its
@@ -26636,6 +26690,16 @@ and the project fake was not swept.
 `fakeAnnouncementStore`'s `Update` and `Delete` answer nil and keep nothing, 1053's shape.
 
 **Lesson.** LESSONS 424. A fake keeps the store's id rule too: an id is never handed out twice.
+
+**Note 2026-11-10 (`fix/patch-inventories-announcements`).** Still open. The branch added `UpdateWith` to both fakes in
+`internal/ui/resources/harness_test.go`. `fakeSetStore.UpdateWith` hands its fold copies of the member lists, as the
+real store does, and saves through the fake's `Update`. `fakeAnnouncementStore.UpdateWith` answers
+`announce.ErrNotFound`. Both clauses of the status above still hold: `fakeSetStore.Create` still sets
+`len(s.sets) + 1` beside a `Delete` that compacts the slice, and `fakeAnnouncementStore`'s `Update` and `Delete` still
+answer nil and keep nothing. Found while writing this note, by reading, not run: the comment on
+`fakeAnnouncementStore.UpdateWith` says the fake "holds none", but `newFakeAnnouncementStore` seeds announcement 1, so
+an `UpdateWith` of id 1 answers not found where the real store would fold over it. No UI view edits an announcement
+today, so nothing reads that answer yet.
 
 ## 1095. A blank credential name answered 500, and a NUL in a credential's or a credential type's text, or in an input source's metadata, reached the store, where on PostgreSQL it would answer 500 (fixed on this branch; on main; a sibling of 1092, 371 and 1079)
 
@@ -27063,3 +27127,275 @@ FAILURE_PATTERNS 631, which branch-containers exists to catch). Fixed in the com
 
 **Lesson.** When a value is carried rather than checked, carry every shape it takes (value, reference, binding) and have every reader agree on the one filter.
 
+## 1111. Inventory and announcement creates answered 500 for a blank name, title or body or a missing organization, and an unknown organization, an unknown member or a member listed twice reached a database constraint the inventory store read as a taken name, so the caller got 409 "already exists" (fixed on this branch; on main; a repeat of 106; a sibling of 1095)
+
+**Symptom.** Found on `fix/patch-inventories-announcements`, 2026-11-10. `POST /inventories` with a blank name or no
+organization answered 500: the store returned "inventory: a set needs a name" untyped, and the handler had no mapping
+for it. An unknown organization, an unknown device or group id, or a device listed twice reached the foreign key or the
+join table's primary key as a constraint error, which the store mapped to `ErrSetExists`, so the caller was told "an
+inventory with that name already exists" and asked, in effect, to pick another name. `POST /announcements` with a blank
+title or body or an unknown organization answered 500.
+
+**Root cause.** Two shapes. A store rule with no typed error, so the handler could only answer 500 (LESSONS 426's
+class, as 1095's blank credential name). And, as 106, one branch reading every `ent.IsConstraintError` as the unique
+index on `(name, organization)`, written when a duplicate name was the only constraint a create could hit.
+
+**Why 106 did not prevent it.** 106's fix separated the foreign key reading in `internal/access`'s store, and its lesson
+says the fallback is a decision. Nothing swept the other stores' constraint branches, and the inventory set store kept
+the one branch on create and on update.
+
+**Fix.** `a74957af`. Typed errors the API maps to 400: `inventory.ErrSetNameRequired`, `ErrSetOrganizationRequired`,
+`ErrUnknownOrganization`, `ErrUnknownMember`; `announce.ErrTitleRequired`, `ErrBodyRequired`, `ErrUnknownOrganization`.
+The stores check that the organization and every member exist before the write (`checkMembers`, by count,
+`internal/inventory/ent_set_store_update.go`), and drop a repeated id first (`distinctIDs`), so a device listed twice is
+kept once. The constraint fallback still reads as a taken name. Reasoned, not run: an organization or member deleted
+between the check and the write would still reach it, most plainly on create, which runs no transaction. Tests:
+`TestEntSetStore_CreateRefusesWhatItCannotSave` and `TestEntSetStore_UpdateWithHoldsTheResultToTheCreateRules`
+(`internal/inventory`), `TestEntStore_CreateRefusesAnUnknownOrganization` and
+`TestEntStore_StoreFailuresAreReportedNotMisread` (`internal/announce`), `TestInventoryCreate_RefusesWhatTheStoreCannotSave`
+and `TestAnnouncementCreate_RefusesWhatTheStoreCannotSave` (`internal/api`).
+
+**Lesson.** As 106 and LESSONS 426. A store that maps a constraint error names the one constraint it means, and checks
+the others before the write, so a refusal it does not expect is never read as the one it does.
+
+## 1112. An inventory PATCH wrote back the membership it read before another PATCH committed, so a PATCH naming only the name could put back a device another PATCH had just removed, undoing a revocation on a grant surface (fixed on this branch for the API PATCH; on main; open: the UI's inventory edit form and a PATCH naming a full list from a stale GET still write from an earlier read, 1085; the class of 1085 and 1100; 97)
+
+**Symptom.** Found on `fix/patch-inventories-announcements`, 2026-11-10. The inventory PATCH handler read the Set,
+applied the body, then called the store's `Update` with the whole Set. Of two concurrent PATCHes, the second wrote back
+the membership it had read before the first committed. A rename-only PATCH racing a PATCH that removed a device put the
+device back. An inventory is a grant surface (97), so the lost write is a revocation undone. On main the announcement
+PATCH took every editable field from the body and read only its author and organization, which never change, so it had
+no stale field to write back; a partial announcement PATCH that read first would have had the race, which is why it
+takes the same lock.
+
+**Root cause.** As 1085 and 1100: a read-modify-write with the read outside the write's lock. 1085 recorded the class
+as low severity because nothing reads the field its race loses; here the field is who an inventory grants.
+
+**Why 1085 and 1100 did not prevent it.** 1100 fixed the credential routes and stated the lesson; 1085 stayed open for
+the other partial PATCHes, and inventories and announcements were then still full replaces, waiting on task 17.
+
+**Fix.** `a74957af`. `SetStore.UpdateWith` (`internal/inventory/ent_set_store_update.go`) and
+`announce.Store.UpdateWith` (`internal/announce/ent_store_update.go`) run the caller's fold inside a transaction
+(`storage.NewEntUnitOfWork`). They take the row lock by writing `updated_at` first, as credstore's `lockType` does, and
+fold over the row read under the lock with the transaction's client. Proven on SQLite
+(`TestEntSetStore_UpdateWithFoldsOverTheOtherUpdatesWrite`, `TestEntStore_UpdateWithFoldsOverTheOtherUpdatesWrite`, via
+`ent.OpenEmbedded`) and on PostgreSQL in a new container package, `internal/storage/rowlocktest`
+(`TestInventoryUpdatesNeverInterleave_PostgreSQL`, `TestAnnouncementUpdatesNeverInterleave_PostgreSQL`), listed in the
+Makefile's `DOCKER_DEPENDENT_PACKAGES`. With the lock write removed, measured: the PostgreSQL test fails and the
+revoked device comes back (devices `[1 2]`, want `[1]`), and the SQLite test fails with "database is locked".
+`TestLockSetRefusesToRunOutsideATransaction` and `TestLockAnnouncementRefusesToRunOutsideATransaction` hold the lock
+helpers to a transaction.
+
+**Status.** Open for what the lock cannot reach (1085's note). The lock orders folds; it does not protect a value the
+caller read earlier and sends whole. The UI's inventory edit form (`internal/ui/resources/inventories/inventories.go`,
+`writer.Update`) calls `Update` with a submission rendered earlier, and a PATCH naming a full member list replaces the
+stored one, so either can still put back a member another write removed. There is no version token. The owner decides
+whether to add one.
+
+**Lesson.** LESSONS 429. A lock around a fold protects only what the fold reads under it.
+
+## 1113. A NUL in an inventory's name or description, or in an announcement's title or body, reached the store, where on PostgreSQL it would answer 500 (fixed on this branch; on main; a repeat of 1092 and 1095; the class of 371 and 1079)
+
+**Symptom.** Found by the fp-reviewer agent on `fix/patch-inventories-announcements`, 2026-11-10. Nothing in front of
+the inventory or announcement store refused a NUL in a text field. SQLite stores it. PostgreSQL refuses a NUL in a
+`character varying` column, so the write would fail at the database and answer 500. The PostgreSQL 500 is reasoned from
+371's and 1079's measurements; the branch's tests check the refusal on SQLite, where it now happens before the database.
+
+**Root cause.** As 371: the production dialect's rule had no mirror in front of the store.
+
+**Why 1092 and 1095 did not prevent it.** Each swept its own resource (projects, then credentials and credential
+types), and each entry said nothing holds every text field a caller writes to a NUL check. The inventory and
+announcement writes were not swept.
+
+**Fix.** `a74957af`. `inventory.NULError` and `announce.NULError` name the field and repeat nothing the caller sent; the
+stores refuse a NUL on create and in `UpdateWith`, and the API answers 400. Tests: the NUL cases of
+`TestInventoryPatch_RefusesWhatItCannotApply`, `TestInventoryCreate_RefusesWhatTheStoreCannotSave`,
+`TestAnnouncementPatch_RefusesWhatItCannotApply` and `TestAnnouncementCreate_RefusesWhatTheStoreCannotSave`
+(`internal/api`), and `TestEntStore_UpdateWithLeavesAStoredBlankTitleAlone` (`internal/announce`).
+
+**Lesson.** As 1095 and LESSONS 426. The rule sits in the store, where every writer meets it. A sweep by resource
+leaves the next resource out; the open question is a check over every text column the schema has.
+
+## 1114. The store's first blank-name rule was held to the merged record, so an inventory whose stored name was all spaces, which the old PATCH could store, refused a PATCH that only removed a device (fixed before push; caught in review; a repeat of 1103, and of the rule in 1068's fix; LESSONS 415 and 422)
+
+**Symptom.** Found in review on `fix/patch-inventories-announcements`, 2026-11-10, before push. The first version of
+`UpdateWith` checked the record as it would be saved against the new rule that a name is not blank. The old PATCH
+stored `{"name":"   "}` with 200 (1075's note), so such an inventory exists. A members-only PATCH on it, a revocation
+included, answered 400 for a name the caller did not send.
+
+**Root cause.** A writer held a field it was keeping, not changing, to a rule newer than the stored value. The field
+was read from storage and written back, so the rule acted on stored data.
+
+**Why 1103 and 1068 did not prevent it.** 1103's lesson says a write path carries what another release stored, and
+1068's says a rule that tightens what may be stored runs where the value is created, not where a stored value is
+updated. Both were framed by their incidents: release data in a mixed-version window, and names a sync updates. Here
+the stored value came from an older code path in the same release, and the update was a revocation, so neither
+framing matched. LESSONS 415 and 422 speak of release data, and their rule sentences do not name the fields an update
+keeps.
+
+**Fix.** Before push. The text rules hold only the fields the update changes: `checkSetText`
+(`internal/inventory/ent_set_store_update.go`) and `checkText` (`internal/announce/ent_store_update.go`) take the stored
+record and skip a field whose value is unchanged. Tests: `TestEntSetStore_UpdateWithLeavesAStoredBlankNameAlone`
+(`internal/inventory`), `TestEntStore_UpdateWithLeavesAStoredBlankTitleAlone` (`internal/announce`).
+
+**Lesson.** As 1068's fix: a new rule on a write holds only the fields that write changes. A field it keeps is stored
+data, however it came to be stored.
+
+## 1115. Doc comments, the route text and the changelog said two UpdateWith calls never interleave, so neither can undo a membership change the other made, but Update and any PATCH naming a full list from an earlier read still replace the list whole (fixed before push; refuted by the claim-refuter agent; a repeat of 1074 and 1106)
+
+**Symptom.** Found by the claim-refuter agent on `fix/patch-inventories-announcements`, 2026-11-10, before push. The
+first doc comments on the lock said that two `UpdateWith` calls never interleave, "so neither can undo a membership
+change the other made". The first half is what the lock proves. The second is false: `Update`, which the UI form calls,
+and any PATCH naming a full member list built from an earlier GET replace the list whole, so either undoes a change
+committed after its read (1112's status).
+
+**Root cause.** The claim was written from the fix's own test, which races two folds, rather than from every writer of
+the field.
+
+**Why 1074 and 1106 did not prevent it.** Their class has no check for a comment's claim. The review pass that refutes
+claims is what caught it, which is the check they ask for.
+
+**Fix.** Before push. The claim was narrowed in `internal/inventory/set.go`, `internal/inventory/ent_set_store_update.go`,
+`internal/api/inventories_patch.go`, the apispec schema text
+(`internal/apispec/inventory_announcement_write_schemas.go`) and the changelog fragment: folds apply one after the
+other; a named list replaces the stored one whole; there is no version check.
+
+**Lesson.** As 1074 and LESSONS 429: a doc claim about a lock names what the lock orders, and says plainly what it
+leaves to the caller's read.
+
+## 1116. The first row-lock tests proved the wait only by a 200 ms sleep, and could block forever if the first update failed before its fold (fixed before push; caught in review; a repeat of 211 and 788)
+
+**Symptom.** Found in review on `fix/patch-inventories-announcements`, 2026-11-10, before push. The lock tests started
+one update, waited for its fold to signal that it was inside, and started the second. A plain receive on the inside
+channel would never return if the first update failed before it reached its fold, so the test would hang to the
+package timeout rather than fail. And the only proof that the second update waited was a 200 ms sleep.
+
+**Root cause.** As 211 and 788: ordering taken from a fixed sleep, and a receive with no way out.
+
+**Why 211 and 788 did not prevent it.** Their rule is for each new test, and nothing checks a test when it is written.
+
+**Fix.** Before push, in `internal/storage/rowlocktest/rowlocktest.go`: the test selects on the inside channel or the
+first update's done channel, so a failed first update fails the test, and a started channel marks the second update's
+start. The sleep stays as a margin. A slow start can only make the test pass without proving the lock; it cannot make
+the test fail while the lock holds. The test was shown to fail with the lock write removed (1112).
+
+**Lesson.** As 211: a test's wait names what it waits for and has a way out for every way the waited thing can fail. A
+sleep that remains is said to be a margin, with which way it can mislead.
+
+## 1117. Two stub-backed handler tests could not fail once the stub's UpdateWith reset the organization and owner itself (fixed before push; caught in review; a repeat of 54 and 1016; LESSONS 213 and 424)
+
+**Symptom.** Found in review on `fix/patch-inventories-announcements`, 2026-11-10, before push.
+`TestInventoryHandler_UpdateKeepsTheStoredOrganizationAndOwner` and
+`TestAnnouncementHandler_UpdateCarriesAuthorAndOrganizationForward` (`internal/api`) ran against a stub store. Once the
+stub's `UpdateWith` kept the immutable fields itself, as the real store does, the handler had no way to lose them, so
+the tests passed with or without the behavior their names claimed.
+
+**Root cause.** As 54 and 1016: a test's fixture did the work the test was named for.
+
+**Why 54 and 1016 did not prevent it.** LESSONS 213 asks for a run with the protection removed. Moving the protection
+from the handler into the store moved it out of what the stub test could see, and nobody reran that question after
+the move.
+
+**Fix.** Before push. Both were renamed `...UpdateHandsTheStoreTheFieldsTheBodyNamed` and reframed as wiring tests:
+they check what the handler passes the store. What the store keeps is held by the store tests against ent
+(1112, 1114). The UI fakes' new `UpdateWith` methods were written to act as the stores do:
+`fakeSetStore.UpdateWith` hands the fold copies of the member lists, and `fakeAnnouncementStore.UpdateWith` answers
+`announce.ErrNotFound` (1094's note, which also records a gap in that fake's comment).
+
+**Lesson.** As LESSONS 213. When a protection moves from one layer to another, recheck that each test named for it can
+still fail, and rename the ones that can no longer see it.
+
+## 1118. A background rg with no path read its standard input, which was not a terminal, and waited 40 minutes as the first step of a git rebase -x verification, so nothing was checked (open, as a practice: nothing stops a command in a background shell from reading its stdin; a repeat in kind of 245 and 1082)
+
+**Symptom.** On `fix/patch-inventories-announcements`, 2026-11-10. A background shell ran a `git rebase -x`
+verification whose first step was `rg PATTERN` with no path. With no path, rg searches its standard input when that
+input is not a terminal, and a background shell's input is not one. It waited for input for 40 minutes. No commit was
+checked in that time.
+
+**Root cause.** As 245: a command handed a standard input it should not read. A missing path, which in a terminal
+searches the working directory, became a wait when the same command ran in the background.
+
+**Why 245 and 1082 did not prevent it.** 245's lesson ("give every step that must not read input nothing to read") is
+in the archive under `make up`, and was not applied to a session's own commands. 1082 found that a tool inside a
+`git rebase -x` script can fail silently, and its practice is about PATH and empty test lists, not stdin. The session's
+command guard asks for bounded rg output (`-l`, `-c`, `-m`, or a `head`), not for a path.
+
+**Fix.** A practice, not a guard: pass rg an explicit path (`rg ... .`) in every background or scripted command, and
+close the stdin of a command that must not read input (`< /dev/null`). Measured while writing this entry: the redirect
+must not go on the reader of a pipe. `git show REV:FILE | rg PATTERN < /dev/null` searched the working tree, because the
+redirect replaced the pipe as rg's input, and printed the branch's code as though it were the base commit's.
+
+**Lesson.** LESSONS 430.
+
+## 1119. PATCH with an empty body answers the full stored record and changes only updated_at, so a token holding inventory:write or announcement:write without the matching read scope can read any inventory or announcement (open: owner decision; new on this branch for these two routes; reasoned to hold for the earlier partial PATCH routes too; the class of 1096)
+
+**Symptom.** Reasoned on `fix/patch-inventories-announcements`, 2026-11-10, from the code; not run as a scope test.
+Since the partial PATCH, `{}` folds nothing over the stored record, writes it back with a new `updated_at`, and answers
+200 with the whole record. `Identity.HasScope` (`internal/auth/evaluator.go`) lets no `*:write` scope imply `*:read`:
+its only implication is `runbook:check` from `runbook:execute`. So a token holding `inventory:write` alone can read
+every inventory, members included, and one holding `announcement:write` every announcement, each without a change a
+reader would notice. Before this branch `{}` on these routes answered 500. The same holds, by the same reasoning, for
+the routes made partial earlier (templates, organizations, teams, contacts, bindings, projects, credentials and
+credential types; 1075's notes), where 1075 recorded `{}` answering 200 as accepted without the read-scope question.
+Together with 1111's 400 for an unknown member and 1120, a write-only token can map what exists.
+
+**Root cause.** A write route answers with the record it wrote, which is the ordinary REST shape, and an empty write
+makes that a read. Whether a write-only token is a real role here has not been decided.
+
+**Status.** Open, for the owner. Options seen: refuse a PATCH that names no field, answer a write-only caller without
+the body, or decide that a write scope implies its read scope and say so in `HasScope`.
+
+**Lesson.** Pending the decision. When a write answers with the stored record, ask what a write that changes nothing
+shows a caller who may not read.
+
+## 1120. The inventory member check answers 400 for an id that does not exist, 403 for another organization's and 200 for one's own, so a token holding inventory:write can learn which device and group ids exist (open: owner decision; on main as 409, 403 and 200; reasoned, not run as an oracle test; the class of 1096)
+
+**Symptom.** Reasoned on `fix/patch-inventories-announcements`, 2026-11-10. Ids are sequential. A caller holding
+`inventory:write` can PATCH its own inventory's member list with a guessed id and read the answer: 400 "does not
+exist" (1111's `ErrUnknownMember`), 403 for a member in another organization, 200 for its own. On main the first case
+answered 409 (the constraint error read as a taken name), so the oracle was there before this branch; the branch
+changed its wording, not its substance.
+
+**Root cause.** Two refusals that tell different callers different things about records they may not read.
+
+**Status.** Open, for the owner: whether to merge "does not exist" and "another organization's" into one 400.
+Per-organization authorization (98's notes) would narrow who can ask.
+
+**Lesson.** Pending the decision. As 1096: a refusal tells a caller nothing about a record they could not read.
+
+## 1121. The web UI answers every inventory store refusal to an edit with a 500, as though the server were broken (open; on main; reasoned, not run; the class of 1058)
+
+**Symptom.** Reasoned on `fix/patch-inventories-announcements`, 2026-11-10, from `internal/ui/web/resources.go`'s update
+handler. The handler turns `view.ErrNotFound` into a 404 and any other error from the view's `Update` into a server
+error page. The inventory view's writer (`internal/ui/resources/inventories/inventories.go`) passes the store's errors
+through unmapped, so a store refusal the form's own checks do not catch first (a taken name, an unknown member, a NUL)
+renders as a 500, not as a refusal beside the field. The create path was not traced. The branch's new typed errors (1111, 1113) make the mapping possible; the branch did not
+add it.
+
+**Root cause.** As 1058: the UI's generic handler knows one store error, not found, and the view maps nothing else.
+
+**Status.** Open.
+
+**Lesson.** Pending the fix. As 1058: a refusal the caller can correct is shown as one, beside the field it concerns.
+
+
+## 1122. PR 149's coverage job failed although every test passed, because the new container package internal/storage/rowlocktest had no recorded time in durations.json (fixed on the branch; a repeat of 745)
+
+**Symptom.** PR 149 (`fix/patch-inventories-announcements`), run 42836825606, 2026-11-10: every test job passed, and
+the `coverage` job failed in 19 seconds at `make coverage-measured`. The floor check passed ("none below their
+recorded floor" bar the four LocalStack packages CI never checks); the next command, `testgate -durations-check
+.coverage/containers*.json`, printed that `internal/storage/rowlocktest` had no time in `tools/testgate/durations.json`
+and exited 1. The local `make pr-check` passed, and `make branch-containers` passed.
+
+**Root cause.** As 745: a branch adding a container package must add its time to `durations.json`, and nothing in the
+commit that adds the package asks for it. 745's time was caught by a local pr-check run with containers on. This
+time pr-check left container packages to Actions (its default since FAILURE_PATTERNS 755), so with no
+`.coverage/pr/containers.json` its `durations` step never ran, and the CI `coverage` job, which reads the shards'
+records, was the first to see the package. `branch-containers` runs the package's tests but not the durations check.
+
+**Fix.** Added `"internal/storage/rowlocktest": 4,` (the measured time) to `tools/testgate/durations.json`, folded
+into the commit that adds the package.
+
+**Lesson.** A branch that adds a package to `DOCKER_DEPENDENT_PACKAGES` adds its `durations.json` line in the same
+commit. Until a check enforces it (prscope or commitgate could flag a listed package with no time), add it by hand
+whenever the Makefile's container list grows.
