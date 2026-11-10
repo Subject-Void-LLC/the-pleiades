@@ -8006,3 +8006,28 @@ writer-only rule does not cover masking, and a mask frozen at write time is the 
 time and again at every reader that shows it, through one function. Say in the code what the read-time mask is judged
 against (here the project's current URL, so an error from an earlier URL is judged by the new one) and test it with a
 value stored under the older rule.
+
+## 434. A tenancy rule on stored membership whose facts can change after the write (an owner set later, a group that grows) runs in every reader that acts on the membership, dispatch first, not only in the resolver a design names: list those readers by reference from the production call graph before calling a grant closed, since a guard in a reader nothing calls closes nothing (a refinement of 191 and 244; 76; FAILURE_PATTERNS 97, 1130 and 1131) (2026-11-10)
+
+**Why.** Branch `fix/inventory-member-checks`, 2026-11-10. FAILURE_PATTERNS 97 checked an inventory's members against
+its organization when the membership is written, and said the write was the only place it could be stopped. Two paths
+later changed the facts that check read: `inventory.AssignDeviceOrganization` puts an unowned device in an
+organization, and a group can gain another organization's device. Dispatch read the stored membership with no filter,
+so a job against organization A's inventory reached organization B's device with its own credential (1130). The
+branch's first fix filtered `SetsForDevice`, the resolver the design names for inventory grants. gopls showed it has no
+production caller, and nothing in production fills `ScopeTarget.InventoryIDs`. The reader that acted on the membership,
+`Set.Selector` through the repository's `GetGroup`, was untouched, and three texts said the drift "grants nothing"
+(1131). The claim-refuter and fp-reviewer agents found it independently.
+
+**What is old and what is new.** LESSONS 191 says check a gate where the thing happens, not when the record is
+authored. LESSONS 244 says when one of two sibling paths has a guard, check the other. LESSONS 76 says a mechanism with
+no production caller is not adopted. Each was known. What none says is how to find "where the thing happens" when the
+design names one place and the code acts in another: the design's resolver and the running reader were different
+functions, and the guard went to the one the writer was reading.
+
+**Rule in practice.** When a fix keeps a tenant's data from another tenant, list every reader of that data that acts on
+it (dispatches, lends a secret, grants a scope, shows it) with `go_symbol_references` from the store method up to a
+composition root, and name each in the fix. Put the filter in each one that a production path reaches, dispatch
+first, and test it there. A reader with no production caller gets the filter too, but its test proves nothing about the
+running system, and a claim that the data "grants nothing" waits until every listed reader is covered. Keep the write
+check for what a write adds (FAILURE_PATTERNS 1132), since it gives the caller an answer at once.
