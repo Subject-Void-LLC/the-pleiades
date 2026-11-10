@@ -74,8 +74,9 @@ func ReachOf(identity *auth.Identity, organizationID int) Reach {
 // returning the reason if not.
 //
 // Three conditions, in the order whose message is most useful: the type has
-// to be one this build knows, the caller has to hold the scope that type
-// declares, and the target has to be in the caller's own organization. A
+// to be one this build knows, the caller has to hold the scopes that type
+// declares (its launch scope and every read scope), and the target has to be
+// in the caller's own organization. A
 // Reach with no Grants admits nothing, which is the refusing zero value: a
 // caller nobody authenticated is not a caller who may launch everything.
 func (r Reach) Admits(target Target) error {
@@ -86,6 +87,11 @@ func (r Reach) Admits(target Target) error {
 
 	if r.Grants == nil || !r.Grants(d.LaunchScope) {
 		return fmt.Errorf("%w: launching a %s needs %s", ErrNotPermitted, d.Label, d.LaunchScope)
+	}
+	for _, read := range d.ReadScopes {
+		if !r.Grants(read) {
+			return fmt.Errorf("%w: launching a %s needs %s", ErrNotPermitted, d.Label, read)
+		}
 	}
 
 	// Organization zero on the Reach means "not narrowed to one tenant",

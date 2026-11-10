@@ -81,13 +81,13 @@ var CreateOrganization = Endpoint{
 
 // UpdateOrganization edits an existing record.
 var UpdateOrganization = Endpoint{
-	Name:      "update_organization",
-	Method:    http.MethodPatch,
-	Pattern:   "/organizations/{id}",
-	Scope:     auth.ScopeAccessWrite,
-	AlsoScope: auth.ScopeAccessRead,
-	Rel:       auth.RelUpdate,
-	Summary:   "Update a organization",
+	Name:       "update_organization",
+	Method:     http.MethodPatch,
+	Pattern:    "/organizations/{id}",
+	Scope:      auth.ScopeAccessWrite,
+	AlsoScopes: []auth.Scope{auth.ScopeAccessRead},
+	Rel:        auth.RelUpdate,
+	Summary:    "Update a organization",
 	Description: "A partial update of one organization. A field left out keeps its stored value and a field " +
 		"present is applied, so a PATCH naming only the name leaves the freeze and the change-management fields " +
 		"as they are, and frozen: false is the explicit unfreeze. A null on any field is refused. The organization " +
@@ -189,13 +189,13 @@ var CreateTeam = Endpoint{
 
 // UpdateTeam edits an existing record.
 var UpdateTeam = Endpoint{
-	Name:      "update_team",
-	Method:    http.MethodPatch,
-	Pattern:   "/teams/{id}",
-	Scope:     auth.ScopeAccessWrite,
-	AlsoScope: auth.ScopeAccessRead,
-	Rel:       auth.RelUpdate,
-	Summary:   "Update a team",
+	Name:       "update_team",
+	Method:     http.MethodPatch,
+	Pattern:    "/teams/{id}",
+	Scope:      auth.ScopeAccessWrite,
+	AlsoScopes: []auth.Scope{auth.ScopeAccessRead},
+	Rel:        auth.RelUpdate,
+	Summary:    "Update a team",
 	Description: "A partial update of one team's name, description and membership. A field left out keeps its " +
 		"stored value and a field present is applied; a null on any field is refused. The organization is not " +
 		"updatable: a value for it that differs from the stored one is refused, because moving a team between " +
@@ -302,7 +302,7 @@ var UpdateUser = Endpoint{
 	Method:      http.MethodPatch,
 	Pattern:     "/users/{id}",
 	Scope:       auth.ScopeAccessWrite,
-	AlsoScope:   auth.ScopeAccessRead,
+	AlsoScopes:  []auth.Scope{auth.ScopeAccessRead},
 	Rel:         auth.RelUpdate,
 	Summary:     "Update a user",
 	Description: "Edits one user. Fields that would re-scope an existing grant are never updatable.",
@@ -402,13 +402,13 @@ var CreateBinding = Endpoint{
 
 // UpdateBinding edits an existing record.
 var UpdateBinding = Endpoint{
-	Name:      "update_role_binding",
-	Method:    http.MethodPatch,
-	Pattern:   "/bindings/{id}",
-	Scope:     auth.ScopeAccessWrite,
-	AlsoScope: auth.ScopeAccessRead,
-	Rel:       auth.RelUpdate,
-	Summary:   "Update a role binding",
+	Name:       "update_role_binding",
+	Method:     http.MethodPatch,
+	Pattern:    "/bindings/{id}",
+	Scope:      auth.ScopeAccessWrite,
+	AlsoScopes: []auth.Scope{auth.ScopeAccessRead},
+	Rel:        auth.RelUpdate,
+	Summary:    "Update a role binding",
 	Description: "A partial update of one grant's role or effect. A field left out keeps its stored value and a " +
 		"field present is applied; a null on any field is refused. The team, scope_type and scope_id are not " +
 		"updatable: a value for one that differs from the stored one is refused, because re-pointing a grant is " +
@@ -460,7 +460,7 @@ var AttestOrganization = Endpoint{
 	Method:      http.MethodPost,
 	Pattern:     "/organizations/{id}/attest",
 	Scope:       auth.ScopeAccessWrite,
-	AlsoScope:   auth.ScopeAccessRead,
+	AlsoScopes:  []auth.Scope{auth.ScopeAccessRead},
 	Rel:         auth.RelExecute,
 	Summary:     "Attest an organization's ownership information",
 	Description: "Records that the calling identity confirmed this tenant's contacts and escalation path are current, as of now. The subject is taken from the caller's token and cannot be supplied.",
@@ -481,7 +481,7 @@ var AttestTeam = Endpoint{
 	Method:      http.MethodPost,
 	Pattern:     "/teams/{id}/attest",
 	Scope:       auth.ScopeAccessWrite,
-	AlsoScope:   auth.ScopeAccessRead,
+	AlsoScopes:  []auth.Scope{auth.ScopeAccessRead},
 	Rel:         auth.RelExecute,
 	Summary:     "Attest a team's ownership information",
 	Description: "Records that the calling identity confirmed this team's owner and escalation path are current, as of now. The subject is taken from the caller's token and cannot be supplied.",
@@ -561,13 +561,13 @@ var CreateContact = Endpoint{
 
 // UpdateContact is a partial update of a record's details.
 var UpdateContact = Endpoint{
-	Name:      "update_contact",
-	Method:    http.MethodPatch,
-	Pattern:   "/contacts/{id}",
-	Scope:     auth.ScopeAccessWrite,
-	AlsoScope: auth.ScopeAccessRead,
-	Rel:       auth.RelUpdate,
-	Summary:   "Update a contact",
+	Name:       "update_contact",
+	Method:     http.MethodPatch,
+	Pattern:    "/contacts/{id}",
+	Scope:      auth.ScopeAccessWrite,
+	AlsoScopes: []auth.Scope{auth.ScopeAccessRead},
+	Rel:        auth.RelUpdate,
+	Summary:    "Update a contact",
 	Description: "A partial update of a contact's details. A field left out keeps its stored value and a field " +
 		"present is applied; a null on any field is refused. The contact as it would be saved is checked whole, " +
 		"so clearing its only channel is refused. The owner (organization and team) is not updatable: a value " +

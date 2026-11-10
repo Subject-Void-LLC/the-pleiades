@@ -47,19 +47,20 @@ type Route struct {
 	// subtree, since two routes can require two different scopes.
 	Scope auth.Scope
 
-	// AlsoScope, when set, is a second scope the caller must also be
-	// admitted for, enforced the same way and before the handler reads the
-	// body. A route that answers with the stored record, or validates the
-	// body against it (every PATCH and PUT, and the write-scoped POSTs that
-	// return the record they act on), declares the resource's read scope
-	// here: the write scope alone would otherwise read any record by
-	// id through the response, or probe it through a refusal. The OPTIONS
-	// Allow header and the _links array offer the route only to a caller
-	// holding both.
-	AlsoScope auth.Scope
+	// AlsoScopes are further scopes the caller must also be admitted for,
+	// each enforced the same way and before the handler reads the body. A
+	// route that answers with a stored record, or judges its request against
+	// one, declares the read scope of every record it reads: a PATCH or PUT,
+	// or a write-scoped POST that returns the record it acts on, declares its
+	// resource's read scope, and an action route (launch, relaunch, cancel,
+	// onboard) the read scope of each record it reads. The write or action
+	// scope alone would otherwise read a record by id through the response,
+	// or probe it through a refusal. The OPTIONS Allow header and the _links
+	// array offer the route only to a caller holding every one.
+	AlsoScopes []auth.Scope
 
 	// Rel is the hypermedia relation name this route appears under in a
-	// response's _links array, and, with Scope and AlsoScope, is what the
+	// response's _links array, and, with Scope and AlsoScopes, is what the
 	// OPTIONS handler filters the Allow header by.
 	//
 	// It is not optional, for the same reason Scope is not: a route with
@@ -288,11 +289,11 @@ func NewRouter(cfg RouterConfig) (*chi.Mux, error) {
 
 		for _, route := range cfg.Routes {
 			scoped := api.With(RequireScope(cfg.Admission, route.Scope))
-			if route.AlsoScope != "" {
-				// Both scopes are checked before the handler runs, so a
-				// caller holding one gets the same 403 for an existing id, a
-				// missing one and a malformed body.
-				scoped = scoped.With(RequireScope(cfg.Admission, route.AlsoScope))
+			for _, also := range route.AlsoScopes {
+				// Every scope is checked before the handler runs, so a
+				// caller missing any one gets the same 403 for an existing
+				// id, a missing one and a malformed body.
+				scoped = scoped.With(RequireScope(cfg.Admission, also))
 			}
 			scoped.Method(route.Method, route.Pattern, route.Handler)
 		}

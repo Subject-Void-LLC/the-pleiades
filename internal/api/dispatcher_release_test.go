@@ -219,13 +219,15 @@ func TestDispatcher_ReleaseGate(t *testing.T) {
 		t.Fatalf("NewRouter: %v", err)
 	}
 
-	// runbook:execute and job:read, and deliberately NOT template:write.
-	// Launching a saved definition must not require the right to change
-	// what it runs, which is the whole reason the two scopes are separate.
+	// runbook:execute, job:read and template:read, and deliberately NOT
+	// template:write. Launching a saved definition must not require the
+	// right to change what it runs, which is the whole reason the two scopes
+	// are separate; it does need the right to read it, since a launch
+	// answers with refusals judged against the stored template.
 	identity := &auth.Identity{
 		Subject: "release-gate-operator@example.com",
 		Role:    auth.RoleOperator,
-		Scopes:  []auth.Scope{auth.ScopeRunbookExecute, auth.ScopeJobRead},
+		Scopes:  []auth.Scope{auth.ScopeRunbookExecute, auth.ScopeJobRead, auth.ScopeTemplateRead},
 	}
 
 	target := api.APIVersionPrefix + "/templates/" + strconv.Itoa(template.ID) + "/launch"

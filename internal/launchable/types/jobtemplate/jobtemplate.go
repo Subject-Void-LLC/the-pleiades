@@ -34,12 +34,14 @@ func init() {
 		// holds and what a job id names.
 		UnifiedJobType: launchable.UnifiedJobJob,
 
-		// The same scope the launch route itself requires
-		// (apispec.LaunchTemplate). Stated here so that a schedule, and
-		// later a workflow node, cannot be a way around it: arranging for
-		// something to run repeatedly must need at least what running it
-		// once needs.
+		// The same scopes the launch route itself requires
+		// (apispec.LaunchTemplate: its Scope and its AlsoScopes). Stated here
+		// so that a schedule, and later a workflow node, cannot be a way
+		// around it: arranging for something to run repeatedly must need at
+		// least what running it once needs, including reading the template
+		// it runs.
 		LaunchScope: auth.ScopeRunbookExecute,
+		ReadScopes:  []auth.Scope{auth.ScopeTemplateRead},
 
 		// A template is the one thing a saved launch configuration is
 		// meaningful against: the overrides it holds are keyed by the

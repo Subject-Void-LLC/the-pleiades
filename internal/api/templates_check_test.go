@@ -188,8 +188,10 @@ func TestCheckRoute_ACheckOnlyCallerMayCheckAndNotRun(t *testing.T) {
 		return job.ExternalChecks
 	}
 
-	checker := &auth.Identity{Subject: "auditor@example.com", Role: auth.RoleViewer, Scopes: []auth.Scope{auth.ScopeRunbookCheck}}
-	runner := &auth.Identity{Subject: "operator@example.com", Role: auth.RoleOperator, Scopes: []auth.Scope{auth.ScopeRunbookExecute}}
+	// Each holds template:read, which launching and checking need beside
+	// their action scope (the answer is judged against the stored template).
+	checker := &auth.Identity{Subject: "auditor@example.com", Role: auth.RoleViewer, Scopes: []auth.Scope{auth.ScopeRunbookCheck, auth.ScopeTemplateRead}}
+	runner := &auth.Identity{Subject: "operator@example.com", Role: auth.RoleOperator, Scopes: []auth.Scope{auth.ScopeRunbookExecute, auth.ScopeTemplateRead}}
 	nobody := &auth.Identity{Subject: "viewer@example.com", Role: auth.RoleViewer, Scopes: []auth.Scope{auth.ScopeTemplateRead}}
 
 	if rr := post(launchPath(tmpl.ID), checker); rr.Code != http.StatusForbidden {

@@ -28,6 +28,7 @@ func testTypes(t *testing.T) {
 		Label:              "Test template",
 		UnifiedJobType:     launchable.UnifiedJobJob,
 		LaunchScope:        auth.ScopeRunbookExecute,
+		ReadScopes:         []auth.Scope{auth.ScopeTemplateRead},
 		AcceptsSavedConfig: true,
 	}); err != nil {
 		t.Fatalf("registering the template type: %v", err)
@@ -141,9 +142,18 @@ func TestReach_Admits(t *testing.T) {
 		wantErr error
 	}{
 		{
-			name:   "the scope the type declares admits it",
-			reach:  launchable.ReachOf(identity(auth.ScopeScheduleWrite, auth.ScopeRunbookExecute), 1),
+			name:   "the scopes the type declares admit it",
+			reach:  launchable.ReachOf(identity(auth.ScopeScheduleWrite, auth.ScopeRunbookExecute, auth.ScopeTemplateRead), 1),
 			target: target("test_template"),
+		},
+		{
+			// The type's launch route also requires template:read, so a
+			// schedule, a second way to make the same run, does too: the
+			// launch scope alone arranged a run its holder could not start.
+			name:    "the launch scope without the type's read scope is refused",
+			reach:   launchable.ReachOf(identity(auth.ScopeScheduleWrite, auth.ScopeRunbookExecute), 1),
+			target:  target("test_template"),
+			wantErr: launchable.ErrNotPermitted,
 		},
 		{
 			name:    "schedule:write alone launches nothing",
@@ -164,13 +174,13 @@ func TestReach_Admits(t *testing.T) {
 		},
 		{
 			name:    "another organization's target is refused",
-			reach:   launchable.ReachOf(identity(auth.ScopeRunbookExecute), 2),
+			reach:   launchable.ReachOf(identity(auth.ScopeRunbookExecute, auth.ScopeTemplateRead), 2),
 			target:  target("test_template"),
 			wantErr: launchable.ErrCrossTenant,
 		},
 		{
 			name:    "a target in no organization is refused rather than treated as a wildcard",
-			reach:   launchable.ReachOf(identity(auth.ScopeRunbookExecute), 0),
+			reach:   launchable.ReachOf(identity(auth.ScopeRunbookExecute, auth.ScopeTemplateRead), 0),
 			target:  launchable.Target{ID: 7, Type: "test_template", Name: "orphan"},
 			wantErr: launchable.ErrCrossTenant,
 		},

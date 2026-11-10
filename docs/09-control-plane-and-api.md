@@ -360,7 +360,7 @@ no partial-failure state, and a job whose devices all failed is still `completed
 task's `outcome` and `result` for what happened on each device. `failed` means the fan-out
 itself could not run, and `canceled` means somebody stopped the job.
 
-`POST /jobs/{id}/cancel` (`runbook:execute`) records the cancellation first, then signals
+`POST /jobs/{id}/cancel` (`runbook:execute` and `job:read`) records the cancellation first, then signals
 the Runners. The fan-out stops at the next device, and at most one more device may already
 have received its dispatch. A result that arrives afterwards does not bring the job back.
 Cancelling a finished job answers 409.
@@ -372,7 +372,7 @@ only if every device was dispatched, succeeded, and left no task unchecked.
 
 ### Rolling a job back
 
-`POST /jobs/{id}/rollback` (`runbook:execute`) undoes what a finished `runbook` job
+`POST /jobs/{id}/rollback` (`runbook:execute`, `job:read` and `template:read`) undoes what a finished `runbook` job
 changed. The body is optional: `mode` (`execute`, the default, or `check`), and five lists
 that accept problems by name, `leave`, `allow_partial`, `allow_unknown`, `allow_skew` and
 `despite_job`. `allow_skew` accepts replaying an undo recorded under Collection
@@ -456,7 +456,8 @@ that would be absent for a project sync is one every reader has to special-case.
 
 `schedule:write` decides who may arrange for things to run. It does not decide what may be
 run: that is the scope the thing's own sort declares, `runbook:execute` for a job template
-and `project:write` for a project, and the write path requires it as well.
+and `project:write` for a project, together with the read scope its own launch route needs
+(`template:read`, `project:read`), and the write path requires those as well.
 
 This closes a real hole rather than adding ceremony. Before it, `schedule:write` alone was
 enough, so a token that could not run a template by hand could arrange for it to run

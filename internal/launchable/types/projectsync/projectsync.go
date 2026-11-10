@@ -35,12 +35,14 @@ func init() {
 		// AWX's name for one run of a project.
 		UnifiedJobType: launchable.UnifiedJobProjectUpdate,
 
-		// The same scope the sync route requires (apispec.SyncProject).
+		// The same scopes the sync route requires (apispec.SyncProject: its
+		// Scope and its AlsoScopes).
 		// Syncing is a write rather than a read because it runs a network
 		// operation as the deployment, against an address the project names,
 		// and writes the result to local disk; scheduling one must need no
 		// less.
 		LaunchScope: auth.ScopeProjectWrite,
+		ReadScopes:  []auth.Scope{auth.ScopeProjectRead},
 
 		// A sync takes no launch-time overrides. There is nothing to
 		// override: what to fetch and from where is the project's own

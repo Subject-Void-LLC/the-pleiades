@@ -63,11 +63,11 @@ func TestOpenAPIPaths_EverySecurityScopeMatchesEndpoint(t *testing.T) {
 			t.Fatalf("%s %s: security[0] is not an object", ep.Method, ep.Pattern)
 		}
 		// One requirement listing every scope the route needs: its Scope,
-		// and its AlsoScope when it has one (OpenAPI reads the scopes of one
-		// requirement as required together).
+		// then its AlsoScopes (OpenAPI reads the scopes of one requirement as
+		// required together).
 		want := []any{string(ep.Scope)}
-		if ep.AlsoScope != "" {
-			want = append(want, string(ep.AlsoScope))
+		for _, also := range ep.AlsoScopes {
+			want = append(want, string(also))
 		}
 		scopes, ok := req["bearerAuth"].([]any)
 		if !ok || !reflect.DeepEqual(scopes, want) {

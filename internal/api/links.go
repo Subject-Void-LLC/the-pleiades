@@ -23,9 +23,9 @@ type affordance struct {
 	method string
 	scope  auth.Scope
 
-	// alsoScope is the route's AlsoScope: when set, the affordance is offered
-	// only to a caller admitted for both.
-	alsoScope auth.Scope
+	// alsoScopes are the route's AlsoScopes: the affordance is offered only
+	// to a caller admitted for its scope and every one of these.
+	alsoScopes []auth.Scope
 }
 
 // linkBuilder maps a chi route pattern to every affordance registered on
@@ -57,10 +57,10 @@ func newLinkBuilder(routes []Route, generator auth.HATEOASGenerator) *linkBuilde
 			patterns = append(patterns, full)
 		}
 		byPattern[full] = append(byPattern[full], affordance{
-			rel:       route.Rel,
-			method:    route.Method,
-			scope:     route.Scope,
-			alsoScope: route.AlsoScope,
+			rel:        route.Rel,
+			method:     route.Method,
+			scope:      route.Scope,
+			alsoScopes: route.AlsoScopes,
 		})
 	}
 	return &linkBuilder{byPattern: byPattern, generator: generator, statics: staticSiblings(patterns)}
@@ -293,11 +293,11 @@ func sortMethods(methods []string) {
 
 // permitted is the set of candidates' relations id may exercise: the
 // generator's answer for each candidate's scope, and, for a candidate with
-// an alsoScope, its answer for that scope too, since the router admits such
-// a route only to a caller holding both. One Permitted call per scope set,
-// because the generator reports a relation permitted when any affordance
-// offered for it is, which for two scopes would read as either rather than
-// both.
+// alsoScopes, its answer for each of those too, since the router admits such
+// a route only to a caller holding every one. One Permitted call per scope
+// position, because the generator reports a relation permitted when any
+// affordance offered for it is, which for two scopes would read as either
+// rather than both.
 //
 // The answer is re-intersected against our own candidates rather than
 // trusting the generator directly. The port returns relation names
@@ -307,36 +307,44 @@ func sortMethods(methods []string) {
 // returns.
 func (b *linkBuilder) permitted(r *http.Request, id *auth.Identity, candidates []affordance) (map[auth.LinkRel]bool, error) {
 	offered := make([]auth.Affordance, 0, len(candidates))
-	var offeredAlso []auth.Affordance
+	positions := 0
 	for _, c := range candidates {
 		offered = append(offered, auth.Affordance{Rel: c.rel, Scope: c.scope})
-		if c.alsoScope != "" {
-			offeredAlso = append(offeredAlso, auth.Affordance{Rel: c.rel, Scope: c.alsoScope})
+		positions = max(positions, len(c.alsoScopes))
+	}
+	permitted, err := b.permittedSet(r, id, offered)
+	if err != nil {
+		return nil, err
+	}
+	for k := range positions {
+		var also []auth.Affordance
+		for _, c := range candidates {
+			if k < len(c.alsoScopes) {
+				also = append(also, auth.Affordance{Rel: c.rel, Scope: c.alsoScopes[k]})
+			}
+		}
+		alsoPermitted, err := b.permittedSet(r, id, also)
+		if err != nil {
+			return nil, err
+		}
+		for _, c := range candidates {
+			if k < len(c.alsoScopes) && !alsoPermitted[c.rel] {
+				delete(permitted, c.rel)
+			}
 		}
 	}
+	return permitted, nil
+}
+
+// permittedSet asks the generator once and returns its answer as a set.
+func (b *linkBuilder) permittedSet(r *http.Request, id *auth.Identity, offered []auth.Affordance) (map[auth.LinkRel]bool, error) {
 	rels, err := b.generator.Permitted(r.Context(), id, offered)
 	if err != nil {
 		return nil, err
 	}
-	permitted := make(map[auth.LinkRel]bool, len(rels))
+	set := make(map[auth.LinkRel]bool, len(rels))
 	for _, rel := range rels {
-		permitted[rel] = true
+		set[rel] = true
 	}
-	if len(offeredAlso) == 0 {
-		return permitted, nil
-	}
-	alsoRels, err := b.generator.Permitted(r.Context(), id, offeredAlso)
-	if err != nil {
-		return nil, err
-	}
-	alsoPermitted := make(map[auth.LinkRel]bool, len(alsoRels))
-	for _, rel := range alsoRels {
-		alsoPermitted[rel] = true
-	}
-	for _, c := range candidates {
-		if c.alsoScope != "" && !alsoPermitted[c.rel] {
-			delete(permitted, c.rel)
-		}
-	}
-	return permitted, nil
+	return set, nil
 }

@@ -318,13 +318,13 @@ var CreateTemplate = Endpoint{
 
 // UpdateTemplate is PATCH /templates/{id}.
 var UpdateTemplate = Endpoint{
-	Name:      "update_template",
-	Method:    http.MethodPatch,
-	Pattern:   "/templates/{id}",
-	Scope:     auth.ScopeTemplateWrite,
-	AlsoScope: auth.ScopeTemplateRead,
-	Rel:       auth.RelUpdate,
-	Summary:   "Update a template",
+	Name:       "update_template",
+	Method:     http.MethodPatch,
+	Pattern:    "/templates/{id}",
+	Scope:      auth.ScopeTemplateWrite,
+	AlsoScopes: []auth.Scope{auth.ScopeTemplateRead},
+	Rel:        auth.RelUpdate,
+	Summary:    "Update a template",
 	Description: "A partial update of a template's name, description, defaults, prompts, survey and flags, as " +
 		"AWX's PATCH is. A field left out keeps its stored value and a field present is applied; the request " +
 		"schema says how each one is cleared, and a null on any of them is refused. The template as it would be " +
@@ -350,13 +350,13 @@ var UpdateTemplate = Endpoint{
 
 // SetTemplateSurvey is PUT /templates/{id}/survey.
 var SetTemplateSurvey = Endpoint{
-	Name:      "set_template_survey",
-	Method:    http.MethodPut,
-	Pattern:   "/templates/{id}/survey",
-	Scope:     auth.ScopeTemplateWrite,
-	AlsoScope: auth.ScopeTemplateRead,
-	Rel:       auth.RelSetSurvey,
-	Summary:   "Replace a template's survey",
+	Name:       "set_template_survey",
+	Method:     http.MethodPut,
+	Pattern:    "/templates/{id}/survey",
+	Scope:      auth.ScopeTemplateWrite,
+	AlsoScopes: []auth.Scope{auth.ScopeTemplateRead},
+	Rel:        auth.RelSetSurvey,
+	Summary:    "Replace a template's survey",
 	Description: "Replaces the whole survey, leaving the template's metadata, defaults and prompts as they are. " +
 		"It is the same store update PATCH performs, narrowed to the survey, and unlike a PATCH it replaces " +
 		"the survey whole: an absent survey, or one without questions, clears them. The questions are stored in the order given, " +
@@ -403,13 +403,13 @@ var DeleteTemplate = Endpoint{
 
 // CopyTemplate is POST /templates/{id}/copy.
 var CopyTemplate = Endpoint{
-	Name:      "copy_template",
-	Method:    http.MethodPost,
-	Pattern:   "/templates/{id}/copy",
-	Scope:     auth.ScopeTemplateWrite,
-	AlsoScope: auth.ScopeTemplateRead,
-	Rel:       auth.RelCopy,
-	Summary:   "Copy a template",
+	Name:       "copy_template",
+	Method:     http.MethodPost,
+	Pattern:    "/templates/{id}/copy",
+	Scope:      auth.ScopeTemplateWrite,
+	AlsoScopes: []auth.Scope{auth.ScopeTemplateRead},
+	Rel:        auth.RelCopy,
+	Summary:    "Copy a template",
 	Description: "Duplicates a template under a new name, defaulting to \"<name> (copy)\". The survey travels " +
 		"with it, because the questions are part of how the template runs; the saved launch configurations do " +
 		"not, because those are one operator's answers, secrets among them, and duplicating them would move a " +
@@ -431,12 +431,13 @@ var CopyTemplate = Endpoint{
 
 // LaunchTemplate is POST /templates/{id}/launch.
 var LaunchTemplate = Endpoint{
-	Name:    "launch_template",
-	Method:  http.MethodPost,
-	Pattern: "/templates/{id}/launch",
-	Scope:   auth.ScopeRunbookExecute,
-	Rel:     auth.RelExecute,
-	Summary: "Launch a template",
+	Name:       "launch_template",
+	Method:     http.MethodPost,
+	Pattern:    "/templates/{id}/launch",
+	Scope:      auth.ScopeRunbookExecute,
+	AlsoScopes: []auth.Scope{auth.ScopeTemplateRead},
+	Rel:        auth.RelExecute,
+	Summary:    "Launch a template",
 	Description: "Runs a saved definition, applying whichever of its fields the template opened and reporting " +
 		"every value it did not. Responds 202 immediately; the per-device fan-out happens later, off this " +
 		"request entirely, and the job carries the template's organization so a dispatch is tenanted rather " +
@@ -481,12 +482,13 @@ var LaunchTemplate = Endpoint{
 
 // CheckTemplate is POST /templates/{id}/check.
 var CheckTemplate = Endpoint{
-	Name:    "check_template",
-	Method:  http.MethodPost,
-	Pattern: "/templates/{id}/check",
-	Scope:   auth.ScopeRunbookCheck,
-	Rel:     auth.RelCheck,
-	Summary: "Check a template",
+	Name:       "check_template",
+	Method:     http.MethodPost,
+	Pattern:    "/templates/{id}/check",
+	Scope:      auth.ScopeRunbookCheck,
+	AlsoScopes: []auth.Scope{auth.ScopeTemplateRead},
+	Rel:        auth.RelCheck,
+	Summary:    "Check a template",
 	Description: "Launches a template exactly as launch_template does, except that the run is a check: each task " +
 		"reports what it would change and changes nothing, and a task whose method cannot be checked is named " +
 		"as unchecked rather than run. The request body is launch_template's. A check can be asked for without " +
@@ -538,13 +540,13 @@ var ListTemplateConfigs = Endpoint{
 
 // CreateTemplateConfig is POST /templates/{id}/configs.
 var CreateTemplateConfig = Endpoint{
-	Name:      "create_template_config",
-	Method:    http.MethodPost,
-	Pattern:   "/templates/{id}/configs",
-	Scope:     auth.ScopeTemplateWrite,
-	AlsoScope: auth.ScopeTemplateRead,
-	Rel:       auth.RelCreate,
-	Summary:   "Save a launch configuration",
+	Name:       "create_template_config",
+	Method:     http.MethodPost,
+	Pattern:    "/templates/{id}/configs",
+	Scope:      auth.ScopeTemplateWrite,
+	AlsoScopes: []auth.Scope{auth.ScopeTemplateRead},
+	Rel:        auth.RelCreate,
+	Summary:    "Save a launch configuration",
 	Description: "Stores a named bundle of overrides and answers against a template, for launching from later. " +
 		"Supplied answers are validated against the survey before anything is stored, but absent required " +
 		"answers are not: a saved configuration is legitimately partial, since it may carry the routine " +
@@ -572,12 +574,13 @@ var CreateTemplateConfig = Endpoint{
 
 // RelaunchJob is POST /jobs/{id}/relaunch.
 var RelaunchJob = Endpoint{
-	Name:    "relaunch_job",
-	Method:  http.MethodPost,
-	Pattern: "/jobs/{id}/relaunch",
-	Scope:   auth.ScopeRunbookExecute,
-	Rel:     auth.RelExecute,
-	Summary: "Relaunch a job",
+	Name:       "relaunch_job",
+	Method:     http.MethodPost,
+	Pattern:    "/jobs/{id}/relaunch",
+	Scope:      auth.ScopeRunbookExecute,
+	AlsoScopes: []auth.Scope{auth.ScopeJobRead, auth.ScopeTemplateRead},
+	Rel:        auth.RelExecute,
+	Summary:    "Relaunch a job",
 	Description: "Runs a job's template again with the configuration that job ran with, resolving everything " +
 		"from the job rather than from the caller. The new job is attributed to whoever asked for it, not to " +
 		"whoever launched the original: a relaunch is a new decision. A job that answered a password survey " +
@@ -604,12 +607,13 @@ func namesSchema(description string) map[string]any {
 
 // RollbackJob is POST /jobs/{id}/rollback.
 var RollbackJob = Endpoint{
-	Name:    "rollback_job",
-	Method:  http.MethodPost,
-	Pattern: "/jobs/{id}/rollback",
-	Scope:   auth.ScopeRunbookExecute,
-	Rel:     auth.RelRollback,
-	Summary: "Roll a job back",
+	Name:       "rollback_job",
+	Method:     http.MethodPost,
+	Pattern:    "/jobs/{id}/rollback",
+	Scope:      auth.ScopeRunbookExecute,
+	AlsoScopes: []auth.Scope{auth.ScopeJobRead, auth.ScopeTemplateRead},
+	Rel:        auth.RelRollback,
+	Summary:    "Roll a job back",
 	Description: "Undoes what a finished runbook job changed, device by device, newest change first. Each change is " +
 		"undone by its task's own rollback: list when the runbook has one, and otherwise by the undo its method " +
 		"recorded in the job's journal. The Controller plans the whole rollback when it is asked, from the journal, " +

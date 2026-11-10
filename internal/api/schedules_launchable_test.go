@@ -239,9 +239,22 @@ func TestSchedules_WritingOneNeedsPermissionToLaunchWhatItLaunches(t *testing.T)
 
 	// The same caller, holding the scope the template's own type declares,
 	// succeeds. That is what makes this a check rather than a ban.
-	allowed := newLaunchableScheduleFixture(t, operator(auth.ScopeScheduleWrite, auth.ScopeRunbookExecute))
+	allowed := newLaunchableScheduleFixture(t, operator(auth.ScopeScheduleWrite, auth.ScopeRunbookExecute, auth.ScopeTemplateRead))
 	if status, body := allowed.post(t, scheduleBody("nightly", allowed.templateLaunchable, "")); status != http.StatusCreated {
 		t.Errorf("status %d for a caller holding runbook:execute, want 201; body %s", status, body)
+	}
+
+	// The launch scope without the template's read scope is refused too, as
+	// the launch route refuses it: a schedule is a second way to make the
+	// same run, and its answer names the template and judges the request
+	// against it, so it must need what launching by hand needs.
+	blind := newLaunchableScheduleFixture(t, operator(auth.ScopeScheduleWrite, auth.ScopeRunbookExecute))
+	status, body = blind.post(t, scheduleBody("nightly", blind.templateLaunchable, ""))
+	if status != http.StatusForbidden || !strings.Contains(body, string(auth.ScopeTemplateRead)) {
+		t.Errorf("status %d for a caller without template:read, want 403 naming it; body %s", status, body)
+	}
+	if n := blind.client.Schedule.Query().CountX(context.Background()); n != 0 {
+		t.Errorf("%d schedules were written for a caller without template:read", n)
 	}
 }
 
@@ -249,7 +262,7 @@ func TestSchedules_WritingOneNeedsPermissionToLaunchWhatItLaunches(t *testing.T)
 // declaration rather than one blanket permission: syncing a project is
 // project:write, and holding runbook:execute does not grant it.
 func TestSchedules_EachTypeNeedsItsOwnScope(t *testing.T) {
-	f := newLaunchableScheduleFixture(t, operator(auth.ScopeScheduleWrite, auth.ScopeRunbookExecute))
+	f := newLaunchableScheduleFixture(t, operator(auth.ScopeScheduleWrite, auth.ScopeRunbookExecute, auth.ScopeTemplateRead))
 
 	status, body := f.post(t, scheduleBody("nightly-sync", f.projectLaunchable, ""))
 	if status != http.StatusForbidden {
@@ -259,7 +272,7 @@ func TestSchedules_EachTypeNeedsItsOwnScope(t *testing.T) {
 		t.Errorf("the refusal does not name project:write: %s", body)
 	}
 
-	allowed := newLaunchableScheduleFixture(t, operator(auth.ScopeScheduleWrite, auth.ScopeProjectWrite))
+	allowed := newLaunchableScheduleFixture(t, operator(auth.ScopeScheduleWrite, auth.ScopeProjectWrite, auth.ScopeProjectRead))
 	if status, body := allowed.post(t, scheduleBody("nightly-sync", allowed.projectLaunchable, "")); status != http.StatusCreated {
 		t.Errorf("status %d for a caller holding project:write, want 201; body %s", status, body)
 	}
@@ -313,7 +326,8 @@ func TestSchedules_RefusalsThatUsedToSurfaceAtThreeInTheMorning(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			f := newLaunchableScheduleFixture(t, operator(
-				auth.ScopeScheduleWrite, auth.ScopeRunbookExecute, auth.ScopeProjectWrite))
+				auth.ScopeScheduleWrite, auth.ScopeRunbookExecute, auth.ScopeTemplateRead,
+				auth.ScopeProjectWrite, auth.ScopeProjectRead))
 
 			status, body := f.post(t, tc.body(f))
 			if status != tc.wantStatus {
@@ -339,7 +353,7 @@ func TestSchedules_RefusalsThatUsedToSurfaceAtThreeInTheMorning(t *testing.T) {
 // a future tenant-aware request both go through, and is covered in
 // internal/schedule.
 func TestSchedules_ATargetInAnotherOrganizationIsStillAccepted(t *testing.T) {
-	f := newLaunchableScheduleFixture(t, operator(auth.ScopeScheduleWrite, auth.ScopeRunbookExecute))
+	f := newLaunchableScheduleFixture(t, operator(auth.ScopeScheduleWrite, auth.ScopeRunbookExecute, auth.ScopeTemplateRead))
 
 	status, body := f.post(t, scheduleBody("cross", f.otherOrgLaunchable, ""))
 	if status != http.StatusCreated {
@@ -377,7 +391,7 @@ func TestSchedules_AnUnattributableWriteIsRefused(t *testing.T) {
 // path, and the one case it must not silently resolve: two fields naming
 // different things.
 func TestSchedules_TheDeprecatedTemplateFieldStillWorks(t *testing.T) {
-	f := newLaunchableScheduleFixture(t, operator(auth.ScopeScheduleWrite, auth.ScopeRunbookExecute))
+	f := newLaunchableScheduleFixture(t, operator(auth.ScopeScheduleWrite, auth.ScopeRunbookExecute, auth.ScopeTemplateRead))
 
 	// The old spelling names a TEMPLATE id and is resolved to its launchable.
 	status, body := f.post(t, fmt.Sprintf(
@@ -432,7 +446,7 @@ func TestSchedules_TheDeprecatedTemplateFieldStillWorks(t *testing.T) {
 // why they are worth separating: a caller still using it needs to know whether
 // the template is missing or whether this deployment cannot resolve one at all.
 func TestSchedules_TheDeprecatedFieldsRefusals(t *testing.T) {
-	f := newLaunchableScheduleFixture(t, operator(auth.ScopeScheduleWrite, auth.ScopeRunbookExecute))
+	f := newLaunchableScheduleFixture(t, operator(auth.ScopeScheduleWrite, auth.ScopeRunbookExecute, auth.ScopeTemplateRead))
 
 	// A template id that names nothing.
 	status, body := f.post(t, `{"name":"gone","template":99999,`+
@@ -473,7 +487,7 @@ func TestSchedules_TheDeprecatedFieldsRefusals(t *testing.T) {
 // of the three possible behaviors: the caller believes a schedule now launches
 // something it does not.
 func TestSchedules_AHandlerWithNoTemplateReaderRefusesTheDeprecatedField(t *testing.T) {
-	f := newLaunchableScheduleFixture(t, operator(auth.ScopeScheduleWrite, auth.ScopeRunbookExecute))
+	f := newLaunchableScheduleFixture(t, operator(auth.ScopeScheduleWrite, auth.ScopeRunbookExecute, auth.ScopeTemplateRead))
 	handler := api.NewScheduleHandler(f.store, nil, slog.New(slog.NewJSONHandler(io.Discard, nil)))
 
 	router, err := api.NewRouter(api.RouterConfig{
@@ -511,7 +525,7 @@ func TestSchedules_AHandlerWithNoTemplateReaderRefusesTheDeprecatedField(t *test
 // the guard inside them is exercised rather than assumed: it is what stands
 // between a mounting mistake and a schedule written with nobody's permissions.
 func TestSchedules_TheHandlersOwnIdentityGuard(t *testing.T) {
-	f := newLaunchableScheduleFixture(t, operator(auth.ScopeScheduleWrite, auth.ScopeRunbookExecute))
+	f := newLaunchableScheduleFixture(t, operator(auth.ScopeScheduleWrite, auth.ScopeRunbookExecute, auth.ScopeTemplateRead))
 	handler := api.NewScheduleHandler(f.store, nil, slog.New(slog.NewJSONHandler(io.Discard, nil)))
 
 	body := scheduleBody("unattributed", f.templateLaunchable, "")

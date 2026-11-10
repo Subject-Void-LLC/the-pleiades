@@ -404,8 +404,8 @@ func (h *Handler) permits(ctx context.Context, id *auth.Identity, scope auth.Sco
 	return h.cfg.Admission.Evaluate(ctx, id, auth.AdmissionRequest{RequiredScope: scope}) == nil
 }
 
-// permitsEndpoint is permits for an apispec endpoint: its Scope and, when it
-// declares one, its AlsoScope, as the JSON API's router requires. Every UI
+// permitsEndpoint is permits for an apispec endpoint: its Scope and every
+// one of its AlsoScopes, as the JSON API's router requires. Every UI
 // gate on an endpoint asks this, so a session holding a resource's write
 // scope without its read cannot open an edit form or run an action the API
 // would refuse it, and so read the stored record through the UI instead.
@@ -413,7 +413,12 @@ func (h *Handler) permitsEndpoint(ctx context.Context, id *auth.Identity, e *api
 	if e == nil || !h.permits(ctx, id, e.Scope) {
 		return false
 	}
-	return e.AlsoScope == "" || h.permits(ctx, id, e.AlsoScope)
+	for _, also := range e.AlsoScopes {
+		if !h.permits(ctx, id, also) {
+			return false
+		}
+	}
+	return true
 }
 
 // affordances computes which relations this identity may exercise on a
@@ -435,9 +440,10 @@ func (h *Handler) affordances(ctx context.Context, id *auth.Identity, d view.Des
 		return view.UnknownAffordances()
 	}
 
-	// A relation whose endpoint declares an AlsoScope is kept only when the
-	// generator permits that scope too (Descriptor.AlsoCandidates).
-	if also := d.AlsoCandidates(); len(also) > 0 {
+	// A relation whose endpoint declares AlsoScopes is kept only when the
+	// generator permits every one of them too, asked one scope position at a
+	// time (Descriptor.AlsoCandidates).
+	for _, also := range d.AlsoCandidates() {
 		alsoPermitted, err := h.cfg.HATEOAS.Permitted(ctx, id, also)
 		if err != nil {
 			h.cfg.Logger.ErrorContext(ctx, "failed to evaluate UI affordances",

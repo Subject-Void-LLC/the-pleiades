@@ -14,6 +14,8 @@
 package types_test
 
 import (
+	"reflect"
+	"slices"
 	"testing"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/auth"
@@ -30,6 +32,7 @@ func TestBuiltins_AreRegisteredAsDeclared(t *testing.T) {
 			Label:              "Job template",
 			UnifiedJobType:     launchable.UnifiedJobJob,
 			LaunchScope:        auth.ScopeRunbookExecute,
+			ReadScopes:         []auth.Scope{auth.ScopeTemplateRead},
 			AcceptsSavedConfig: true,
 		},
 		"project": {
@@ -37,6 +40,7 @@ func TestBuiltins_AreRegisteredAsDeclared(t *testing.T) {
 			Label:              "Project sync",
 			UnifiedJobType:     launchable.UnifiedJobProjectUpdate,
 			LaunchScope:        auth.ScopeProjectWrite,
+			ReadScopes:         []auth.Scope{auth.ScopeProjectRead},
 			AcceptsSavedConfig: false,
 		},
 	}
@@ -51,7 +55,7 @@ func TestBuiltins_AreRegisteredAsDeclared(t *testing.T) {
 			t.Errorf("type %q is registered and this test does not know about it; if it is new, pin it here", d.Type)
 			continue
 		}
-		if d != expected {
+		if !reflect.DeepEqual(d, expected) {
 			t.Errorf("type %q = %+v, want %+v", d.Type, d, expected)
 		}
 	}
@@ -72,6 +76,12 @@ func TestBuiltins_DeclareTheScopeTheirOwnRouteRequires(t *testing.T) {
 		"job_template": auth.ScopeRunbookExecute,
 		"project":      auth.ScopeProjectWrite,
 	}
+	// And the read scopes each route requires beside it (their AlsoScopes),
+	// restated for the same reason.
+	routeReads := map[string][]auth.Scope{
+		"job_template": {auth.ScopeTemplateRead},
+		"project":      {auth.ScopeProjectRead},
+	}
 
 	for _, d := range launchable.Types() {
 		want, ok := routeScopes[d.Type]
@@ -81,6 +91,9 @@ func TestBuiltins_DeclareTheScopeTheirOwnRouteRequires(t *testing.T) {
 		}
 		if d.LaunchScope != want {
 			t.Errorf("type %q launches on %q, but its own route requires %q", d.Type, d.LaunchScope, want)
+		}
+		if !slices.Equal(d.ReadScopes, routeReads[d.Type]) {
+			t.Errorf("type %q needs reads %v, but its own route requires %v", d.Type, d.ReadScopes, routeReads[d.Type])
 		}
 		// Neither type may launch on a schedule-writing scope, which is the
 		// hole this seam closes: schedule:write decides who may arrange a

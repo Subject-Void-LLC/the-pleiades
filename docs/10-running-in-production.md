@@ -1198,7 +1198,12 @@ an operator.
   every write-scoped `POST` that answers with the record it acts on (a template copy, a project
   sync, an attestation), needs the resource's read scope as well as its write scope, checked
   before the body is read, since it answers with the stored record: a token holding a write
-  scope alone gets one `403` for any id and any body, and the web UI refuses it the edit form. Each change is recorded as a revision in the device's
+  scope alone gets one `403` for any id and any body, and the web UI refuses it the edit form.
+  Routes that act on a record they read need its read scope too: launching or checking a
+  template needs `template:read`, cancelling a job `job:read`, relaunching or rolling one back
+  both, onboarding a device or changing its capabilities `inventory:read`, and a schedule the
+  read scope its target's own launch route needs. A plain delete needs only the write scope.
+  Each change is recorded as a revision in the device's
   history, and setting the state a device already has records nothing. An operator can
   also quarantine a device this way, which stops it taking any work. No command-line
   command or web UI control changes a state yet.
@@ -1304,15 +1309,16 @@ leaves the check incomplete, since it was not looked at. Each device's result re
 also says "check incomplete: N task(s) could not be checked", which a Controller older
 than the count still shows.
 
-The check route needs `runbook:check`, which `runbook:execute` implies, so a token can be
-minted for drift checks alone: it may check any template it could otherwise launch and
-may not launch one for real. No built-in role holds `runbook:check` without
-`runbook:execute`, so a check-only principal is a token issued with exactly that scope.
+The check route needs `runbook:check`, which `runbook:execute` implies, and `template:read`,
+so a token can be minted for drift checks alone: it may check any template it could
+otherwise launch and may not launch one for real. No built-in role holds `runbook:check`
+without `runbook:execute`, so a check-only principal is a token issued with exactly
+`runbook:check` and `template:read`.
 A check still connects to devices with their real credentials and reads them. What a
 check-only caller's check never does is run an external Collection program's check,
 which nothing has proven only reads: those tasks are reported unchecked, and the check
-is incomplete. Relaunching a job still needs `runbook:execute`; a check-only caller runs
-the check again through the check route.
+is incomplete. Relaunching a job still needs `runbook:execute`, with `job:read` and
+`template:read`; a check-only caller runs the check again through the check route.
 
 **Upgrading Runners.** A check travels to Runners on its own subject,
 `pleiades.jobs.check.<device>`, through its own durable consumer, `runner-check`, which a
@@ -2659,8 +2665,8 @@ connection settings, the credential, nothing else on the record (a `route` or
 `pleiades add-credential <cluster> --token-stdin`.
 
 On the Controller, `POST /inventory/kubeconfig-imports` takes `name`,
-`kubeconfig`, `context`, `organization` and `replace`, and needs both
-`credential:write` and `inventory:write`. It writes the record and a
+`kubeconfig`, `context`, `organization` and `replace`, and needs
+`credential:write`, `inventory:write` and `inventory:read`. It writes the record and a
 credential in the organization named `<name> (kubeconfig)`: a
 `kubernetes_bearer_token` for a token, or a
 `pleiades_kubernetes_client_certificate` for a certificate. The response names

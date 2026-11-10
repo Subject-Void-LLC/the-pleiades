@@ -147,13 +147,14 @@ func TestPatch_IsNotAdvertisedToAWriteScopeAlone(t *testing.T) {
 	}
 }
 
-// TestAlsoScope_EveryDeclaringRouteRefusesTheFirstScopeAlone mounts every
-// apispec endpoint that declares an AlsoScope through the real router and
+// TestAlsoScopes_EveryDeclaringRouteRefusesAMissingScope mounts every
+// apispec endpoint that declares AlsoScopes through the real router and
 // admission chain, with a handler that records being reached, and holds each
-// to the rule: a token holding only the route's Scope gets 403 and never
-// reaches the handler, and one holding both does. It covers every route the
-// table names, where the inventory tests above cover one end to end.
-func TestAlsoScope_EveryDeclaringRouteRefusesTheFirstScopeAlone(t *testing.T) {
+// to the rule: a token missing any one of the route's scopes gets 403 and
+// never reaches the handler, and one holding all of them does. It covers
+// every route the table names, where the inventory tests above cover one end
+// to end.
+func TestAlsoScopes_EveryDeclaringRouteRefusesAMissingScope(t *testing.T) {
 	t.Parallel()
 	issuer := authtest.New(t, "also-issuer", "also-audience")
 	chain := auth.AdmissionChain{auth.NewTokenScopeRule(issuer.Evaluator())}
@@ -170,12 +171,12 @@ func TestAlsoScope_EveryDeclaringRouteRefusesTheFirstScopeAlone(t *testing.T) {
 			reached.Add(1)
 			w.WriteHeader(http.StatusNoContent)
 		}))
-		if ep.AlsoScope != "" {
+		if len(ep.AlsoScopes) > 0 {
 			declaring = append(declaring, ep)
 		}
 	}
-	if len(declaring) < 25 {
-		t.Fatalf("%d endpoints declare an AlsoScope, want every PATCH, PUT and record-answering POST", len(declaring))
+	if len(declaring) < 34 {
+		t.Fatalf("%d endpoints declare AlsoScopes, want every PATCH, PUT, record-answering POST and action route", len(declaring))
 	}
 	router, err := api.NewRouter(api.RouterConfig{
 		Logger:    slog.New(slog.NewJSONHandler(io.Discard, nil)),
@@ -200,12 +201,36 @@ func TestAlsoScope_EveryDeclaringRouteRefusesTheFirstScopeAlone(t *testing.T) {
 			router.ServeHTTP(rec, req)
 			return rec.Code
 		}
-		before := reached.Load()
-		if code := send(ep.Scope); code != http.StatusForbidden || reached.Load() != before {
-			t.Errorf("%s %s with %s alone = %d (handler reached: %v), want 403 and no handler", ep.Method, ep.Pattern, ep.Scope, code, reached.Load() != before)
+		all := append([]auth.Scope{ep.Scope}, ep.AlsoScopes...)
+		// Each scope left out in turn: every one is required.
+		for skip := range all {
+			held := append(append([]auth.Scope(nil), all[:skip]...), all[skip+1:]...)
+			before := reached.Load()
+			if code := send(held...); code != http.StatusForbidden || reached.Load() != before {
+				t.Errorf("%s %s without %s = %d (handler reached: %v), want 403 and no handler", ep.Method, ep.Pattern, all[skip], code, reached.Load() != before)
+			}
 		}
-		if code := send(ep.Scope, ep.AlsoScope); code != http.StatusNoContent {
-			t.Errorf("%s %s with %s and %s = %d, want the handler's 204", ep.Method, ep.Pattern, ep.Scope, ep.AlsoScope, code)
+		if code := send(all...); code != http.StatusNoContent {
+			t.Errorf("%s %s with %v = %d, want the handler's 204", ep.Method, ep.Pattern, all, code)
 		}
+	}
+
+	// The advertising half for a route with two further scopes: binding a
+	// template's credentials needs credential:write, credential:read and
+	// template:read, so Allow names PUT only for a caller holding all three.
+	allow := func(scopes ...auth.Scope) string {
+		req := httptest.NewRequest(http.MethodOptions, api.APIVersionPrefix+"/templates/1/credentials", nil)
+		req.Header.Set("Authorization", issuer.BearerToken(t, &auth.Identity{
+			Subject: "probe@example.com", Role: auth.RoleOperator, Scopes: scopes,
+		}))
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		return rec.Header().Get("Allow")
+	}
+	if got := allow(auth.ScopeCredentialWrite, auth.ScopeCredentialRead); strings.Contains(got, http.MethodPut) {
+		t.Errorf("Allow without template:read = %q, want no PUT", got)
+	}
+	if got := allow(auth.ScopeCredentialWrite, auth.ScopeCredentialRead, auth.ScopeTemplateRead); !strings.Contains(got, http.MethodPut) {
+		t.Errorf("Allow with all three scopes = %q, want PUT", got)
 	}
 }

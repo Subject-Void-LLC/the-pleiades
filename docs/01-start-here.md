@@ -323,7 +323,8 @@ checks too: a template's check route (`POST /api/v1/templates/{id}/check`), or i
 form's mode, makes a job whose every device is checked by a Runner that changes nothing,
 and the job records and shows that it was a check, and whether it was complete: every
 device checked with no task left unchecked. A check needs `runbook:check`, which
-`runbook:execute` implies, so drift checks can be granted without granting changes. See
+`runbook:execute` implies, and `template:read`, so drift checks can be granted without
+granting changes. See
 [Running in production](10-running-in-production.md#safety-versus-dry-run).
 
 **External Collections load and run.** A Collection method can now be built as a

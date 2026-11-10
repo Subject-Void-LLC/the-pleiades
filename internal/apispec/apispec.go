@@ -69,11 +69,12 @@ type Endpoint struct {
 	Method  string
 	Pattern string // relative to api.APIVersionPrefix, matching api.Route.Pattern
 	Scope   auth.Scope
-	// AlsoScope is a second scope the caller must hold (api.Route.AlsoScope):
-	// every PATCH and PUT declares the resource's read scope, since its
-	// response is the stored record and its refusals are judged against it.
-	AlsoScope auth.Scope
-	Rel       auth.LinkRel
+	// AlsoScopes are further scopes the caller must hold (api.Route.AlsoScopes):
+	// a route that answers with a stored record, or judges its request
+	// against one, declares the read scope of every record it reads (a PATCH
+	// its resource's; a relaunch the job's and the template's).
+	AlsoScopes []auth.Scope
+	Rel        auth.LinkRel
 
 	Summary     string
 	Description string
@@ -104,7 +105,7 @@ type Endpoint struct {
 // connect: nothing here can silently drift, because both come from the
 // same struct fields.
 func (e Endpoint) Route(h http.HandlerFunc) api.Route {
-	return api.Route{Method: e.Method, Pattern: e.Pattern, Scope: e.Scope, AlsoScope: e.AlsoScope, Rel: e.Rel, Handler: h}
+	return api.Route{Method: e.Method, Pattern: e.Pattern, Scope: e.Scope, AlsoScopes: e.AlsoScopes, Rel: e.Rel, Handler: h}
 }
 
 func stringSchema(description string) map[string]any {
@@ -228,12 +229,13 @@ var GetJob = Endpoint{
 // of the same authority, and RelaunchJob on this same resource already
 // reads that way.
 var CancelJob = Endpoint{
-	Name:    "cancel_job",
-	Method:  http.MethodPost,
-	Pattern: "/jobs/{id}/cancel",
-	Scope:   auth.ScopeRunbookExecute,
-	Rel:     auth.RelCancel,
-	Summary: "Cancel a running job",
+	Name:       "cancel_job",
+	Method:     http.MethodPost,
+	Pattern:    "/jobs/{id}/cancel",
+	Scope:      auth.ScopeRunbookExecute,
+	AlsoScopes: []auth.Scope{auth.ScopeJobRead},
+	Rel:        auth.RelCancel,
+	Summary:    "Cancel a running job",
 	Description: "Stops a job and returns at once. What this guarantees is the record and the fan-out: the " +
 		"job settles to \"canceled\" naming whoever stopped it, and no device the job has not already reached " +
 		"is dispatched to. What it cannot guarantee is work already running on a device. That is signalled " +
@@ -471,13 +473,13 @@ var CreateDevice = Endpoint{
 // UpdateDevice is PATCH /inventory/devices/{name}: modify a device in
 // place.
 var UpdateDevice = Endpoint{
-	Name:      "update_device",
-	Method:    http.MethodPatch,
-	Pattern:   "/inventory/devices/{name}",
-	Scope:     auth.ScopeInventoryWrite,
-	AlsoScope: auth.ScopeInventoryRead,
-	Rel:       auth.RelUpdate,
-	Summary:   "Update an inventory device",
+	Name:       "update_device",
+	Method:     http.MethodPatch,
+	Pattern:    "/inventory/devices/{name}",
+	Scope:      auth.ScopeInventoryWrite,
+	AlsoScopes: []auth.Scope{auth.ScopeInventoryRead},
+	Rel:        auth.RelUpdate,
+	Summary:    "Update an inventory device",
 	Description: "Applies tag and lifecycle-state changes to an existing device, and is how a device is " +
 		"promoted out of quarantined or simulate-locked. Each change is recorded as a revision in the " +
 		"device's history, and setting what the device already has records nothing. A sync that later " +
@@ -701,12 +703,13 @@ var onboardResultSchema = map[string]any{
 // OnboardDevice is POST /inventory/devices/{name}/onboard: probe a generic
 // device and record what it proved.
 var OnboardDevice = Endpoint{
-	Name:    "onboard_device",
-	Method:  http.MethodPost,
-	Pattern: "/inventory/devices/{name}/onboard",
-	Scope:   auth.ScopeInventoryOnboard,
-	Rel:     auth.RelOnboard,
-	Summary: "Onboard a device",
+	Name:       "onboard_device",
+	Method:     http.MethodPost,
+	Pattern:    "/inventory/devices/{name}/onboard",
+	Scope:      auth.ScopeInventoryOnboard,
+	AlsoScopes: []auth.Scope{auth.ScopeInventoryRead},
+	Rel:        auth.RelOnboard,
+	Summary:    "Onboard a device",
 	Description: "Probes a device whose capabilities onboarding proves (generic_ssh, generic_netconf, generic_http, " +
 		"generic_grpc, linux_server, container_host, kubernetes_cluster) over its protocol from the Controller, " +
 		"authenticating with the device's stored credential (for a kubernetes_cluster with none, the one stored " +
@@ -758,12 +761,13 @@ var grantsSchema = map[string]any{
 // GrantCapability is POST /inventory/devices/{name}/capabilities: assert
 // that a device holds a capability an external program defines.
 var GrantCapability = Endpoint{
-	Name:    "grant_capability",
-	Method:  http.MethodPost,
-	Pattern: "/inventory/devices/{name}/capabilities",
-	Scope:   auth.ScopeInventoryAssert,
-	Rel:     auth.RelGrant,
-	Summary: "Grant a device a program's capability",
+	Name:       "grant_capability",
+	Method:     http.MethodPost,
+	Pattern:    "/inventory/devices/{name}/capabilities",
+	Scope:      auth.ScopeInventoryAssert,
+	AlsoScopes: []auth.Scope{auth.ScopeInventoryRead},
+	Rel:        auth.RelGrant,
+	Summary:    "Grant a device a program's capability",
 	Description: "Records an operator's assertion that a device holds a capability an external program defines " +
 		"(<namespace>.<name>), with the grant's properties and a required reason, as a revision naming who made it. " +
 		"The Controller loads no program, so it checks the grant's shape here (the name, the reason, and properties " +
@@ -799,6 +803,7 @@ var RevokeCapability = Endpoint{
 	Method:      http.MethodDelete,
 	Pattern:     "/inventory/devices/{name}/capabilities/{capability}",
 	Scope:       auth.ScopeInventoryAssert,
+	AlsoScopes:  []auth.Scope{auth.ScopeInventoryRead},
 	Rel:         auth.RelGrant,
 	Summary:     "Revoke a device's grant of a program's capability",
 	Description: "Removes a device's grant of a capability an external program defines, however it was made, as a revision. It needs inventory:assert.",
@@ -817,12 +822,13 @@ var RevokeCapability = Endpoint{
 // ImportKubeconfig is POST /inventory/kubeconfig-imports: one kubeconfig
 // context made a kubernetes_cluster device and its stored credential.
 var ImportKubeconfig = Endpoint{
-	Name:    "import_kubeconfig",
-	Method:  http.MethodPost,
-	Pattern: "/inventory/kubeconfig-imports",
-	Scope:   auth.ScopeCredentialWrite,
-	Rel:     auth.RelCreate,
-	Summary: "Import a cluster from a kubeconfig",
+	Name:       "import_kubeconfig",
+	Method:     http.MethodPost,
+	Pattern:    "/inventory/kubeconfig-imports",
+	Scope:      auth.ScopeCredentialWrite,
+	AlsoScopes: []auth.Scope{auth.ScopeInventoryWrite, auth.ScopeInventoryRead},
+	Rel:        auth.RelCreate,
+	Summary:    "Import a cluster from a kubeconfig",
 	Description: "Reads one context of a kubeconfig and makes it a kubernetes_cluster device (its API server, " +
 		"pinned authority, server name and namespace) and a Kubernetes credential in the organization, named " +
 		"\"<device> (kubeconfig)\": a kubernetes_bearer_token for a token, or a " +
@@ -962,13 +968,13 @@ var CreateInventory = Endpoint{
 
 // UpdateInventory is PATCH /inventories/{id}.
 var UpdateInventory = Endpoint{
-	Name:      "update_inventory",
-	Method:    http.MethodPatch,
-	Pattern:   "/inventories/{id}",
-	Scope:     auth.ScopeInventoryWrite,
-	AlsoScope: auth.ScopeInventoryRead,
-	Rel:       auth.RelUpdate,
-	Summary:   "Update an inventory",
+	Name:       "update_inventory",
+	Method:     http.MethodPatch,
+	Pattern:    "/inventories/{id}",
+	Scope:      auth.ScopeInventoryWrite,
+	AlsoScopes: []auth.Scope{auth.ScopeInventoryRead},
+	Rel:        auth.RelUpdate,
+	Summary:    "Update an inventory",
 	Description: "A partial update of an inventory's name, description and membership: a field left out keeps " +
 		"its stored value. The organization is not updatable: moving one between tenants would silently " +
 		"re-scope every role binding pointing at it, which is a migration rather than an edit.",
@@ -1072,7 +1078,7 @@ var UpdateAnnouncement = Endpoint{
 	Method:      http.MethodPatch,
 	Pattern:     "/announcements/{id}",
 	Scope:       auth.ScopeAnnouncementWrite,
-	AlsoScope:   auth.ScopeAnnouncementRead,
+	AlsoScopes:  []auth.Scope{auth.ScopeAnnouncementRead},
 	Rel:         auth.RelUpdate,
 	Summary:     "Edit an announcement",
 	Description: "A partial update of the title, body, level or active window: a field left out keeps its stored value. The author and the organization are immutable: an attribution somebody can rewrite is one nobody can rely on, and moving an announcement between tenants would change who it reaches.",

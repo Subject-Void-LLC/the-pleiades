@@ -1,7 +1,7 @@
 // This file holds the web UI to the owner's decision of 2026-11-10, which
 // the JSON API enforces on its router: a resource's write scope alone does
 // not let a session read a stored record. The UI reads the same records in
-// process, not through the API router, so it checks an endpoint's AlsoScope
+// process, not through the API router, so it checks an endpoint's AlsoScopes
 // itself (web's permitsEndpoint). Without that, a token holding only
 // inventory:write, signed in at the UI, read any inventory through its edit
 // form, the leak the API now refuses on PATCH.
