@@ -66,7 +66,8 @@ func NewEntStore(client *ent.Client, policy SourcePolicy, opts ...StoreOption) S
 }
 
 // checkSource refuses a URL carrying a password, for a project of any type,
-// and a source this deployment will not fetch from.
+// and a source this deployment will not fetch from. Create asks it of every
+// project; Update asks checkSourceChange, which asks it only of what changed.
 //
 // Only a git project's source is checked against the policy, because only a
 // git project is ever dialed. The predicate itself deliberately does not look
@@ -86,6 +87,22 @@ func (s *entStore) checkSource(p Project) error {
 		return nil
 	}
 	return s.policy.AdmitsSource(p.SCMURL)
+}
+
+// checkSourceChange is checkSource for an edit: p is what would be saved and
+// stored is the row as it stands, read under the row's lock. A URL the edit
+// leaves as it is, on a project whose use of it the edit does not change, is
+// not held to a rule a release changed since it was stored (LESSONS 415,
+// 422), so a rename never fails for a URL it did not touch. Every rule runs
+// when the URL changes, and when the project becomes git, since that is the
+// first time the URL will be dialed: a manual project holding a password in
+// its URL must not start sending it because its type was flipped.
+func (s *entStore) checkSourceChange(stored, p Project) error {
+	becomesGit := p.SCMType == SCMGit && stored.SCMType != SCMGit
+	if p.SCMURL == stored.SCMURL && !becomesGit {
+		return nil
+	}
+	return s.checkSource(p)
 }
 
 // Create stores a new project.
@@ -209,13 +226,6 @@ func (s *entStore) List(ctx context.Context, q Query) ([]Project, error) {
 // not put a stale revision back, and a sync finishing must not revert a
 // rename.
 func (s *entStore) Update(ctx context.Context, p Project) error {
-	// Checked on every edit, not only at create: an edit can repoint a
-	// project at another source, and a row stored before this rule existed is
-	// corrected the first time somebody saves it.
-	if err := s.checkSource(p); err != nil {
-		return err
-	}
-
 	// One transaction, because the launchable row carries a copy of the name:
 	// a rename that reached only one of the two would leave a schedule picker
 	// offering a name this project no longer has.
@@ -229,6 +239,35 @@ func (s *entStore) Update(ctx context.Context, p Project) error {
 			_ = tx.Rollback()
 		}
 	}()
+
+	// The source is checked against the row as it stands, read under the
+	// row's write lock: an edit that repoints the project at another source is
+	// held to every rule, and one that leaves a URL an older release stored is
+	// not (checkSourceChange). The lock is a write to updated_at, as the
+	// inventory and announcement stores take theirs, and comes before the
+	// read: without it, on PostgreSQL's read committed, an edit could read a
+	// legacy URL, another edit replace it with a clean one and commit, and the
+	// first then write the legacy URL back unchecked, as unchanged.
+	if err := tx.Project.UpdateOneID(p.ID).SetUpdatedAt(time.Now()).Exec(ctx); err != nil {
+		if ent.IsNotFound(err) {
+			return ErrNotFound
+		}
+		return fmt.Errorf("project: locking %d to update it: %w", p.ID, err)
+	}
+	current, err := tx.Project.Query().
+		Where(entproject.IDEQ(p.ID)).
+		Select(entproject.FieldScmType, entproject.FieldScmURL).
+		Only(ctx)
+	if err != nil {
+		if ent.IsNotFound(err) {
+			return ErrNotFound
+		}
+		return fmt.Errorf("project: reading %d to update it: %w", p.ID, err)
+	}
+	stored := Project{SCMType: SCMType(current.ScmType), SCMURL: current.ScmURL}
+	if err := s.checkSourceChange(stored, p); err != nil {
+		return err
+	}
 
 	update := tx.Project.UpdateOneID(p.ID).
 		SetName(p.Name).

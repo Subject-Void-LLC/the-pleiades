@@ -15,7 +15,8 @@
 // a dump, or a SQLite file copy) writes rows without the store's checks, so a
 // backup taken before a rule existed brings back a URL the rule now refuses;
 // every reader still reads such a row and shows its URL redacted or withheld
-// (RedactedSourceURL), and its next save is refused until the URL changes.
+// (RedactedSourceURL), and an edit that leaves the URL saves while one that
+// changes it is held to the rule (the store's Update; LESSONS 415, 422).
 package project
 
 import (
@@ -165,9 +166,9 @@ func cutAtAny(s, stops string) string {
 // rule never shows its credential, and every reader still reads it.
 //
 // Saving the shown value back is an echo that keeps the stored URL
-// (KeepEchoedSourceURL), which the store then refuses for the credential it
-// may carry, for a project of every type, rather than silently dropping the
-// credential the sync relied on.
+// (KeepEchoedSourceURL), so an edit of another field never replaces the URL
+// with its redacted form, and since the URL did not change the store saves
+// the edit; only a changed URL is held to the rule.
 func RedactedSourceURL(raw string) string {
 	if !HasEmbeddedSecret(raw) {
 		return raw
@@ -217,6 +218,14 @@ func RedactedSourceURL(raw string) string {
 func RefuseEmbeddedSecret(raw string) error {
 	trimmed := strings.TrimSpace(raw)
 	switch {
+	case trimmed == withheldSourceURL:
+		// The placeholder a withheld URL is shown as is not a URL. An echo of
+		// it over the URL it stands for is kept before this is asked
+		// (KeepEchoedSourceURL); one that reaches here came from a stale form
+		// whose URL has since changed, and saving it would store the
+		// placeholder as the project's source.
+		return fmt.Errorf("%w: that is the placeholder shown for a URL carrying a credential, not a URL; "+
+			"type the repository URL, and give the credential to this project instead", ErrSourceSecretInURL)
 	case hasQueryOrFragment(trimmed):
 		return fmt.Errorf("%w: a source URL may not carry a query or a fragment, written, encoded or as a lookalike; "+
 			"give the credential to this project instead, where it is encrypted", ErrSourceSecretInURL)

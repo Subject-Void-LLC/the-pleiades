@@ -267,10 +267,11 @@ func assertCredentialRefusal(t *testing.T, what string, status int, resp []byte)
 // ordinary client flow the fixed-field rule invites: GET a project, change one
 // field, PATCH the create fields back. GET shows a URL carrying a credential
 // redacted (or withheld whole), so the scm_url sent back is that form. It is
-// an echo of the stored URL, never a new value: the stored URL is kept, and a
-// stored URL carrying a credential is refused on save for every type until it
-// is changed. It used to be read as a new URL, which for a manual project
-// replaced the real one with the redacted form or the placeholder.
+// an echo of the stored URL, never a new value: the stored URL is kept, and
+// since the edit leaves it, the edit saves (LESSONS 415, 422). It used to be
+// read as a new URL, which for a manual project replaced the real one with
+// the redacted form or the placeholder, and then every edit of such a row was
+// refused until its URL changed.
 func TestProjectPatch_AnEchoedRedactedURLNeverReplacesTheStoredOne(t *testing.T) {
 	for _, scmType := range []string{"git", "manual"} {
 		for name, url := range map[string]string{
@@ -297,10 +298,12 @@ func TestProjectPatch_AnEchoedRedactedURLNeverReplacesTheStoredOne(t *testing.T)
 				if err != nil {
 					t.Fatal(err)
 				}
-				status, resp := f.do(t, http.MethodPatch, projectPath(id), json.RawMessage(body))
-				assertCredentialRefusal(t, "PATCH echoing the shown URL", status, resp)
+				f.patchOK(t, id, string(body))
 				if got := f.storedSourceURL(t, id); got != url {
 					t.Errorf("stored scm_url = %q after an echo of the shown one, want it kept as stored", got)
+				}
+				if got := f.readProject(t, id)["description"]; got != "changed" {
+					t.Errorf("description = %v after the echo, want the edit saved", got)
 				}
 
 				// A clean URL is a real change, and applies.
@@ -317,7 +320,7 @@ func TestProjectPatch_AnEchoedRedactedURLNeverReplacesTheStoredOne(t *testing.T)
 // refusal on both writes for a manual and an archive project, as for a git
 // one: it used to sit behind the git-only check, so a manual project stored a
 // password in the plain scm_url column. A row that already holds one stays
-// readable, redacted, and must be changed before its next edit.
+// readable, redacted, and an edit leaving its URL saves.
 func TestProjects_ACredentialInTheURLIsRefusedForEveryType(t *testing.T) {
 	f := newProjectFixture(t)
 
@@ -346,8 +349,10 @@ func TestProjects_ACredentialInTheURLIsRefusedForEveryType(t *testing.T) {
 			t.Errorf("GET %s with a legacy row: status %d, want 200 with the URL redacted; body %s", path, status, resp)
 		}
 	}
-	status, resp = f.do(t, http.MethodPatch, projectPath(legacy), json.RawMessage(`{"description":"changed"}`))
-	assertCredentialRefusal(t, "PATCH of a legacy row changing only the description", status, resp)
+	f.patchOK(t, legacy, `{"description":"changed"}`)
+	if got := f.storedSourceURL(t, legacy); got != legacySecretURL {
+		t.Errorf("stored scm_url = %q after an edit leaving it, want it kept", got)
+	}
 	f.patchOK(t, legacy, `{"scm_url":"https://example.invalid/fresh.git","description":"changed"}`)
 	if got := f.storedSourceURL(t, legacy); got != "https://example.invalid/fresh.git" {
 		t.Errorf("stored scm_url = %q, want the clean URL", got)

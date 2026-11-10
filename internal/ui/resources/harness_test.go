@@ -874,11 +874,12 @@ func (it *sliceIterator) Close() error                     { return nil }
 // assertion about a write, and "the sync recorded what it found" is exactly
 // such an assertion.
 //
-// Create and Update refuse a URL carrying a credential by calling
-// project.RefuseEmbeddedSecret, the function the ent store's own write check
-// calls, so a form's handling of that refusal is tested against the real
-// rule rather than a copy of it. The fake applies none of the store's other
-// source checks.
+// Create, and an Update that changes the URL, refuse a URL carrying a
+// credential by calling project.RefuseEmbeddedSecret, the function the ent
+// store's own write check calls, so a form's handling of that refusal is
+// tested against the real rule rather than a copy of it. An Update that
+// leaves the stored URL as it is saves, as the real store's does. The fake
+// applies none of the store's other source checks.
 type fakeProjectStore struct {
 	mu       sync.Mutex
 	projects []project.Project
@@ -973,14 +974,17 @@ func (s *fakeProjectStore) List(_ context.Context, _ project.Query) ([]project.P
 }
 
 func (s *fakeProjectStore) Update(_ context.Context, p project.Project) error {
-	if err := project.RefuseEmbeddedSecret(p.SCMURL); err != nil {
-		return err
-	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for i, existing := range s.projects {
 		if existing.ID != p.ID {
 			continue
+		}
+		// Only a changed URL is held to the rule, as in the real store.
+		if p.SCMURL != existing.SCMURL {
+			if err := project.RefuseEmbeddedSecret(p.SCMURL); err != nil {
+				return err
+			}
 		}
 		// The sync half of the row belongs to RecordSync, which is the
 		// same split the real store draws.
