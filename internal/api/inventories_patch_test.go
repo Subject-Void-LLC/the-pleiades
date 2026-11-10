@@ -317,3 +317,42 @@ func TestInventoryCreate_RefusesWhatTheStoreCannotSave(t *testing.T) {
 		t.Errorf("refused creates stored %d inventories, want 0", n)
 	}
 }
+
+// TestInventoryMembers_ForeignAnswersLikeUnknown is the owner's decision of
+// 2026-11-10: a member that belongs to another organization and one that
+// does not exist get the same answer, byte for byte, on create and on PATCH,
+// so probing ids one at a time no longer maps another tenant's fleet. It used
+// to be 403 for the foreign one and 400 for the unknown one.
+func TestInventoryMembers_ForeignAnswersLikeUnknown(t *testing.T) {
+	t.Parallel()
+	f := newInventoryFixture(t)
+	ctx := context.Background()
+	other := f.client.Organization.Create().SetName("globex").SaveX(ctx)
+	foreign := f.client.Device.Create().SetName("their-rtr").SetType("linux_server").SetOrganizationID(other.ID).SaveX(ctx)
+	foreignGroup := f.client.Group.Create().SetName("theirs").AddDeviceIDs(foreign.ID).SaveX(ctx)
+	id := f.create(t)
+
+	answer := func(method, path, body string) string {
+		t.Helper()
+		status, resp := f.do(t, method, path, body)
+		return fmt.Sprintf("%d %s", status, resp)
+	}
+	pairs := map[string][2]string{
+		"create, a device": {
+			answer(http.MethodPost, "/api/v1/inventories", fmt.Sprintf(`{"name":"a","organization":%d,"devices":[%d]}`, f.orgID, foreign.ID)),
+			answer(http.MethodPost, "/api/v1/inventories", fmt.Sprintf(`{"name":"a","organization":%d,"devices":[999999]}`, f.orgID)),
+		},
+		"patch, a group": {
+			answer(http.MethodPatch, inventoryPath(id), fmt.Sprintf(`{"groups":[%d]}`, foreignGroup.ID)),
+			answer(http.MethodPatch, inventoryPath(id), `{"groups":[999999]}`),
+		},
+	}
+	for name, pair := range pairs {
+		if pair[0] != pair[1] {
+			t.Errorf("%s: a foreign member answered %q, an unknown one %q; want the same", name, pair[0], pair[1])
+		}
+		if !strings.HasPrefix(pair[0], "400 ") || !strings.Contains(pair[0], "cannot be added to this inventory") {
+			t.Errorf("%s: answer %q, want the one 400", name, pair[0])
+		}
+	}
+}
