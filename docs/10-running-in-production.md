@@ -1627,12 +1627,15 @@ refused, each with its own opt-in on the **Controller**, unset meaning refuse:
   (`https://<token>@host/repo`), a password holding a `/`, and forms no parser reads
   the same way twice, at the cost of refusing an `@` in a path (rare for a
   repository URL). So is any query or fragment, whatever it is called
-  (`?access_token=`, an Azure SAS `?sig=`, an S3 `?X-Amz-Signature=`, `#token=`):
-  a repository source needs neither, and a presigned archive URL is itself a
-  credential. Two limits: a token in the path (`https://host/token/abc`) cannot be
+  (`?access_token=`, an Azure SAS `?sig=`, an S3 `?X-Amz-Signature=`, `#token=`)
+  and however it is written (`?` and `#`, their percent encodings `%3F` and `%23`,
+  or a Unicode lookalike such as a fullwidth question mark): a repository source
+  needs neither, and a presigned archive URL is itself a credential. Two limits: a token in the path (`https://host/token/abc`) cannot be
   told from a path and is not caught, and a backup restore writes rows without
   these checks, so a backup taken before the rule brings back such a URL, which is
-  then shown redacted or withheld and refused at its next save. `scm_url` is an
+  then shown redacted or withheld. A URL is checked when it is set or changed, so an
+  edit that leaves such a stored URL as it is (a rename, say) saves, and one that
+  changes it is held to the rule. `scm_url` is an
   ordinary column while a credential is
   encrypted, so the two are not equivalent places to put a secret, and this holds
   for a project of every source type: a manual or archive project, which nothing
@@ -1640,12 +1643,14 @@ refused, each with its own opt-in on the **Controller**, unset meaning refuse:
   already carries one keeps syncing, with a warning in every sync's log; the API and
   the web UI show its URL with the credential replaced by `redacted` where the cut
   is exact, and otherwise withhold it whole as
-  `(withheld: the URL carries a credential)`, and it is refused the next time
-  somebody saves that project, which is the moment there is somewhere better to put
-  it. Sending back the URL as shown keeps the stored one, so that save is refused
-  until the URL itself is changed. No refusal and no stored sync error repeats a
-  source URL: a URL the parser cannot read is refused in a fixed phrase, and a sync
-  of a URL that may carry a credential records its transport error withheld.
+  `(withheld: the URL carries a credential)`. Sending back the URL as shown keeps
+  the stored one, so an edit of another field saves; changing the URL, or turning
+  the project into a git one, holds it to every rule, since that is when it would
+  first be dialed. No refusal and no shown sync error repeats a source URL: a URL
+  the parser cannot read is refused in a fixed phrase, a sync of a URL that may
+  carry a credential records its transport error withheld, and a stored error is
+  checked again against the project's URL whenever it is shown, so one stored by an
+  older release is withheld too.
 
 Both toggles are read once at startup and logged as a warning on every start when
 either is on, so an operator reading a boot log sees what a deployment permits. A

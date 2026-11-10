@@ -22,8 +22,11 @@ const projectSourceRules = "The repository to clone. Fetched over https or ssh; 
 	"protocol and paths on the server's own disk are refused unless the deployment has opted into them. A " +
 	"URL that may carry a credential is refused for a project of every type, manual and archive included: " +
 	"any \"@\" outside one ssh login (ssh://user@host/... or user@host:path, with no password), " +
-	"written, percent-encoded or a Unicode lookalike, and any query or fragment, since a repository source " +
-	"needs neither and a presigned URL is itself a credential. Give the project a credential instead."
+	"written, percent-encoded or a Unicode lookalike, and any query or fragment, written, percent-encoded " +
+	"(%3F, %23) or a Unicode lookalike, since a repository source needs neither and a presigned URL is itself a " +
+	"credential. Give the project a credential instead. A URL is checked when it is set or changed, and when " +
+	"the project becomes git: an edit that leaves a stored URL and its use as they are saves, even one stored " +
+	"before a rule refused it."
 
 // projectWriteSchema is the body POST /projects accepts.
 var projectWriteSchema = map[string]any{
