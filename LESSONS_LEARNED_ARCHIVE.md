@@ -8031,3 +8031,25 @@ composition root, and name each in the fix. Put the filter in each one that a pr
 first, and test it there. A reader with no production caller gets the filter too, but its test proves nothing about the
 running system, and a claim that the data "grants nothing" waits until every listed reader is covered. Keep the write
 check for what a write adds (FAILURE_PATTERNS 1132), since it gives the caller an answer at once.
+
+## 435. A rule about what a route shows a caller is keyed to what its handler answers with, never to its HTTP method: list the routes from the handlers' responses (a stored record, part of one, or a refusal that judges the body against one), add every tier that reads the same records outside the router, and write the guard test from that list, since a guard written from the verb locks the gap in (a refinement of 155 and 157; 434; FAILURE_PATTERNS 1119, 1133 and 1134) (2026-11-10)
+
+**Why.** Branch `fix/patch-needs-read-and-write`, 2026-11-10. FAILURE_PATTERNS 1119 found that `PATCH {}` answers a
+write-only token with the whole stored record. The owner decided that such a route needs the read scope too. The
+branch's first version gave it to every PATCH and PUT, chosen by HTTP method, and its guard test refused a second scope
+on any POST, under a comment saying only PATCH and PUT answer with a folded record. Seven POSTs a write scope reaches
+answer with the record they act on (1134). The same version put the rule in the API router only, and the web UI reads
+the same records in process (1133). The claim-refuter and fp-reviewer agents found both before push.
+
+**What is old and what is new.** LESSONS 155 says a guard written against one registry protects only that registry,
+and 157 says to sweep for a construction by what the code is trying to say. LESSONS 434 says to list the readers of the
+data from the call graph. Each was known. What is new is the shape of the mistake: a filter by verb is complete over the
+route table, so it looks like a class, and a test that encodes it looks like a guard. It is complete for the verb, not
+for the property the rule is about.
+
+**Rule in practice.** When a rule depends on what a route discloses, read each handler the scope reaches and write down
+what it answers with: the stored record, a part of it, or a refusal that judges the body against it. Those routes are
+the list, whatever their verbs. Then find every caller that reaches the same store outside the router (the web UI) and
+hold it to the same declaration. Write the guard test from the list, and say in its comment which property it holds, so
+a later reader can check the comment against the handlers. A list kept by hand, as `recordAnsweringPosts` is, misses the
+next route that answers with a record; say so where it is kept.

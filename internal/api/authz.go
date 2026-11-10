@@ -24,9 +24,10 @@ type Admitter interface {
 }
 
 // RequireScope enforces that the identity AuthMiddleware placed in context
-// is admitted for scope, per admitter's chain. It is mounted once per
-// route, keyed on that route's own declared auth.Scope (Route.Scope in
-// router.go), rather than once for the whole /api/v1 subtree: two routes
+// is admitted for scope, per admitter's chain. It is mounted per route,
+// keyed on that route's own declared auth.Scope (Route.Scope in router.go),
+// and a second time for a route that declares Route.AlsoScope, rather than
+// once for the whole /api/v1 subtree: two routes
 // can require two different scopes, and a shared middleware instance
 // cannot know at registration time which one a given request is headed
 // for.

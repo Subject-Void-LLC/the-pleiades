@@ -19,6 +19,7 @@ import (
 	"testing"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/api"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/apispec"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/auth"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/auth/authtest"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/enttest"
@@ -100,7 +101,7 @@ func newPathFixture(t *testing.T, names []string) *pathFixture {
 		HATEOAS:   generator,
 		Routes: []api.Route{
 			{Method: http.MethodGet, Pattern: "/inventory/devices/{name}", Scope: auth.ScopeInventoryRead, Rel: auth.RelSelf, Handler: devices.Get},
-			{Method: http.MethodPatch, Pattern: "/inventory/devices/{name}", Scope: auth.ScopeInventoryWrite, Rel: auth.RelUpdate, Handler: devices.Update},
+			apispec.UpdateDevice.Route(devices.Update),
 			{Method: http.MethodDelete, Pattern: "/inventory/devices/{name}", Scope: auth.ScopeInventoryWrite, Rel: auth.RelDelete, Handler: devices.Delete},
 		},
 	})

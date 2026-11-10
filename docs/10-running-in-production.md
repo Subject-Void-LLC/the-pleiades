@@ -1193,8 +1193,12 @@ an operator.
   `simulate-locked`, `decommissioning` or `archived`. Onboarding an `active` device again
   re-probes it and records only what changed.
 - **Promotion, and any other change.** `PATCH /api/v1/inventory/devices/{name}` with a body
-  such as `{"state": "active"}` sets any of the eight states, and needs `inventory:write`,
-  which operators and admins hold. Each change is recorded as a revision in the device's
+  such as `{"state": "active"}` sets any of the eight states, and needs `inventory:write`
+  and `inventory:read`, which operators and admins hold. Every `PATCH` and `PUT` route, and
+  every write-scoped `POST` that answers with the record it acts on (a template copy, a project
+  sync, an attestation), needs the resource's read scope as well as its write scope, checked
+  before the body is read, since it answers with the stored record: a token holding a write
+  scope alone gets one `403` for any id and any body, and the web UI refuses it the edit form. Each change is recorded as a revision in the device's
   history, and setting the state a device already has records nothing. An operator can
   also quarantine a device this way, which stops it taking any work. No command-line
   command or web UI control changes a state yet.

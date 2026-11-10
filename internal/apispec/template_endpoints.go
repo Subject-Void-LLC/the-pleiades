@@ -318,12 +318,13 @@ var CreateTemplate = Endpoint{
 
 // UpdateTemplate is PATCH /templates/{id}.
 var UpdateTemplate = Endpoint{
-	Name:    "update_template",
-	Method:  http.MethodPatch,
-	Pattern: "/templates/{id}",
-	Scope:   auth.ScopeTemplateWrite,
-	Rel:     auth.RelUpdate,
-	Summary: "Update a template",
+	Name:      "update_template",
+	Method:    http.MethodPatch,
+	Pattern:   "/templates/{id}",
+	Scope:     auth.ScopeTemplateWrite,
+	AlsoScope: auth.ScopeTemplateRead,
+	Rel:       auth.RelUpdate,
+	Summary:   "Update a template",
 	Description: "A partial update of a template's name, description, defaults, prompts, survey and flags, as " +
 		"AWX's PATCH is. A field left out keeps its stored value and a field present is applied; the request " +
 		"schema says how each one is cleared, and a null on any of them is refused. The template as it would be " +
@@ -349,12 +350,13 @@ var UpdateTemplate = Endpoint{
 
 // SetTemplateSurvey is PUT /templates/{id}/survey.
 var SetTemplateSurvey = Endpoint{
-	Name:    "set_template_survey",
-	Method:  http.MethodPut,
-	Pattern: "/templates/{id}/survey",
-	Scope:   auth.ScopeTemplateWrite,
-	Rel:     auth.RelSetSurvey,
-	Summary: "Replace a template's survey",
+	Name:      "set_template_survey",
+	Method:    http.MethodPut,
+	Pattern:   "/templates/{id}/survey",
+	Scope:     auth.ScopeTemplateWrite,
+	AlsoScope: auth.ScopeTemplateRead,
+	Rel:       auth.RelSetSurvey,
+	Summary:   "Replace a template's survey",
 	Description: "Replaces the whole survey, leaving the template's metadata, defaults and prompts as they are. " +
 		"It is the same store update PATCH performs, narrowed to the survey, and unlike a PATCH it replaces " +
 		"the survey whole: an absent survey, or one without questions, clears them. The questions are stored in the order given, " +
@@ -401,12 +403,13 @@ var DeleteTemplate = Endpoint{
 
 // CopyTemplate is POST /templates/{id}/copy.
 var CopyTemplate = Endpoint{
-	Name:    "copy_template",
-	Method:  http.MethodPost,
-	Pattern: "/templates/{id}/copy",
-	Scope:   auth.ScopeTemplateWrite,
-	Rel:     auth.RelCopy,
-	Summary: "Copy a template",
+	Name:      "copy_template",
+	Method:    http.MethodPost,
+	Pattern:   "/templates/{id}/copy",
+	Scope:     auth.ScopeTemplateWrite,
+	AlsoScope: auth.ScopeTemplateRead,
+	Rel:       auth.RelCopy,
+	Summary:   "Copy a template",
 	Description: "Duplicates a template under a new name, defaulting to \"<name> (copy)\". The survey travels " +
 		"with it, because the questions are part of how the template runs; the saved launch configurations do " +
 		"not, because those are one operator's answers, secrets among them, and duplicating them would move a " +
@@ -535,12 +538,13 @@ var ListTemplateConfigs = Endpoint{
 
 // CreateTemplateConfig is POST /templates/{id}/configs.
 var CreateTemplateConfig = Endpoint{
-	Name:    "create_template_config",
-	Method:  http.MethodPost,
-	Pattern: "/templates/{id}/configs",
-	Scope:   auth.ScopeTemplateWrite,
-	Rel:     auth.RelCreate,
-	Summary: "Save a launch configuration",
+	Name:      "create_template_config",
+	Method:    http.MethodPost,
+	Pattern:   "/templates/{id}/configs",
+	Scope:     auth.ScopeTemplateWrite,
+	AlsoScope: auth.ScopeTemplateRead,
+	Rel:       auth.RelCreate,
+	Summary:   "Save a launch configuration",
 	Description: "Stores a named bundle of overrides and answers against a template, for launching from later. " +
 		"Supplied answers are validated against the survey before anything is stored, but absent required " +
 		"answers are not: a saved configuration is legitimately partial, since it may carry the routine " +

@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/api"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/apispec"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/auth"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
 	pkginventory "github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
@@ -110,7 +111,7 @@ func deviceRouter(t *testing.T, repo api.DeviceRepository) http.Handler {
 			{Method: http.MethodGet, Pattern: "/inventory/devices", Scope: auth.ScopeInventoryRead, Rel: auth.RelCollection, Handler: handler.List},
 			{Method: http.MethodPost, Pattern: "/inventory/devices", Scope: auth.ScopeInventoryWrite, Rel: auth.RelCreate, Handler: handler.Create},
 			{Method: http.MethodGet, Pattern: "/inventory/devices/{name}", Scope: auth.ScopeInventoryRead, Rel: auth.RelSelf, Handler: handler.Get},
-			{Method: http.MethodPatch, Pattern: "/inventory/devices/{name}", Scope: auth.ScopeInventoryWrite, Rel: auth.RelUpdate, Handler: handler.Update},
+			apispec.UpdateDevice.Route(handler.Update),
 			{Method: http.MethodDelete, Pattern: "/inventory/devices/{name}", Scope: auth.ScopeInventoryWrite, Rel: auth.RelDelete, Handler: handler.Delete},
 		},
 	})

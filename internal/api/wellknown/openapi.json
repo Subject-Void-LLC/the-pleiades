@@ -725,7 +725,8 @@
         "security": [
           {
             "bearerAuth": [
-              "announcement:write"
+              "announcement:write",
+              "announcement:read"
             ]
           }
         ],
@@ -1390,7 +1391,8 @@
         "security": [
           {
             "bearerAuth": [
-              "access:write"
+              "access:write",
+              "access:read"
             ]
           }
         ],
@@ -2103,7 +2105,8 @@
         "security": [
           {
             "bearerAuth": [
-              "access:write"
+              "access:write",
+              "access:read"
             ]
           }
         ],
@@ -3244,7 +3247,8 @@
         "security": [
           {
             "bearerAuth": [
-              "credential:write"
+              "credential:write",
+              "credential:read"
             ]
           }
         ],
@@ -3506,7 +3510,8 @@
         "security": [
           {
             "bearerAuth": [
-              "credential:write"
+              "credential:write",
+              "credential:read"
             ]
           }
         ],
@@ -3815,7 +3820,8 @@
         "security": [
           {
             "bearerAuth": [
-              "credential:write"
+              "credential:write",
+              "credential:read"
             ]
           }
         ],
@@ -3942,7 +3948,8 @@
         "security": [
           {
             "bearerAuth": [
-              "credential:write"
+              "credential:write",
+              "credential:read"
             ]
           }
         ],
@@ -4644,7 +4651,8 @@
         "security": [
           {
             "bearerAuth": [
-              "credential:write"
+              "credential:write",
+              "credential:read"
             ]
           }
         ],
@@ -4964,7 +4972,8 @@
         "security": [
           {
             "bearerAuth": [
-              "credential:write"
+              "credential:write",
+              "credential:read"
             ]
           }
         ],
@@ -5587,7 +5596,8 @@
         "security": [
           {
             "bearerAuth": [
-              "inventory:write"
+              "inventory:write",
+              "inventory:read"
             ]
           }
         ],
@@ -6269,7 +6279,8 @@
         "security": [
           {
             "bearerAuth": [
-              "inventory:write"
+              "inventory:write",
+              "inventory:read"
             ]
           }
         ],
@@ -9606,7 +9617,8 @@
         "security": [
           {
             "bearerAuth": [
-              "access:write"
+              "access:write",
+              "access:read"
             ]
           }
         ],
@@ -9729,7 +9741,8 @@
         "security": [
           {
             "bearerAuth": [
-              "access:write"
+              "access:write",
+              "access:read"
             ]
           }
         ],
@@ -10399,7 +10412,8 @@
         "security": [
           {
             "bearerAuth": [
-              "project:write"
+              "project:write",
+              "project:read"
             ]
           }
         ],
@@ -10554,7 +10568,8 @@
         "security": [
           {
             "bearerAuth": [
-              "project:write"
+              "project:write",
+              "project:read"
             ]
           }
         ],
@@ -10709,7 +10724,8 @@
         "security": [
           {
             "bearerAuth": [
-              "project:write"
+              "project:write",
+              "project:read"
             ]
           }
         ],
@@ -11947,7 +11963,8 @@
         "security": [
           {
             "bearerAuth": [
-              "schedule:write"
+              "schedule:write",
+              "schedule:read"
             ]
           }
         ],
@@ -12723,7 +12740,8 @@
         "security": [
           {
             "bearerAuth": [
-              "access:write"
+              "access:write",
+              "access:read"
             ]
           }
         ],
@@ -12833,7 +12851,8 @@
         "security": [
           {
             "bearerAuth": [
-              "access:write"
+              "access:write",
+              "access:read"
             ]
           }
         ],
@@ -14046,7 +14065,8 @@
         "security": [
           {
             "bearerAuth": [
-              "template:write"
+              "template:write",
+              "template:read"
             ]
           }
         ],
@@ -14517,7 +14537,8 @@
         "security": [
           {
             "bearerAuth": [
-              "template:write"
+              "template:write",
+              "template:read"
             ]
           }
         ],
@@ -14745,7 +14766,8 @@
         "security": [
           {
             "bearerAuth": [
-              "template:write"
+              "template:write",
+              "template:read"
             ]
           }
         ],
@@ -15117,7 +15139,8 @@
         "security": [
           {
             "bearerAuth": [
-              "credential:write"
+              "credential:write",
+              "credential:read"
             ]
           }
         ],
@@ -15603,7 +15626,8 @@
         "security": [
           {
             "bearerAuth": [
-              "template:write"
+              "template:write",
+              "template:read"
             ]
           }
         ],
@@ -16135,7 +16159,8 @@
         "security": [
           {
             "bearerAuth": [
-              "access:write"
+              "access:write",
+              "access:read"
             ]
           }
         ],

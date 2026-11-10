@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/api"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/apispec"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/auth"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
 	pkginventory "github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
@@ -29,7 +30,7 @@ func writeDisabledRouter(t *testing.T, repo api.DeviceRepository) http.Handler {
 		HATEOAS:   allowAllGenerator(t),
 		Routes: []api.Route{
 			{Method: http.MethodPost, Pattern: "/inventory/devices", Scope: auth.ScopeInventoryWrite, Rel: auth.RelCreate, Handler: handler.Create},
-			{Method: http.MethodPatch, Pattern: "/inventory/devices/{name}", Scope: auth.ScopeInventoryWrite, Rel: auth.RelUpdate, Handler: handler.Update},
+			apispec.UpdateDevice.Route(handler.Update),
 		},
 	})
 	if err != nil {

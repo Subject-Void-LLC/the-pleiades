@@ -140,6 +140,34 @@ func (d Descriptor) Candidates() []auth.Affordance {
 	return out
 }
 
+// AlsoCandidates is, for every affordance in Candidates whose endpoint
+// declares an AlsoScope, the same relation offered under that second scope.
+// An affordance is available only when the generator permits it in both
+// lists: the JSON API's router admits such a route only to a caller holding
+// both scopes, and a generator reads two affordances offered for one
+// relation as either rather than both, so the second scope is asked about
+// in a list of its own (as internal/api's links.go does).
+func (d Descriptor) AlsoCandidates() []auth.Affordance {
+	var out []auth.Affordance
+	add := func(e *apispec.Endpoint) {
+		if e != nil && e.AlsoScope != "" {
+			out = append(out, auth.Affordance{Rel: e.Rel, Scope: e.AlsoScope})
+		}
+	}
+	for _, e := range d.Ops.all() {
+		add(e)
+	}
+	for _, a := range d.Actions {
+		add(a.Endpoint)
+	}
+	for _, s := range d.Sections {
+		for _, a := range s.RowActions {
+			add(a.Endpoint)
+		}
+	}
+	return out
+}
+
 // ChartBucket is one categorical measurement: a label, a count, and the
 // badge class that colours both the chart segment and the table row.
 //
@@ -1624,7 +1652,7 @@ func validateOps(name string, ops Ops, actions []RecordAction, sections []Sectio
 		// stale copy of an endpoint would render the old scope's
 		// buttons against the new scope's route.
 		if declared.Method != e.Method || declared.Pattern != e.Pattern ||
-			declared.Scope != e.Scope || declared.Rel != e.Rel {
+			declared.Scope != e.Scope || declared.AlsoScope != e.AlsoScope || declared.Rel != e.Rel {
 			return fmt.Errorf("view %q holds a stale copy of endpoint %q", name, e.Name)
 		}
 		if e.Rel == "" {

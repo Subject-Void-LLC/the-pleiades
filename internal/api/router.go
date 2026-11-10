@@ -47,9 +47,20 @@ type Route struct {
 	// subtree, since two routes can require two different scopes.
 	Scope auth.Scope
 
+	// AlsoScope, when set, is a second scope the caller must also be
+	// admitted for, enforced the same way and before the handler reads the
+	// body. A route that answers with the stored record, or validates the
+	// body against it (every PATCH and PUT, and the write-scoped POSTs that
+	// return the record they act on), declares the resource's read scope
+	// here: the write scope alone would otherwise read any record by
+	// id through the response, or probe it through a refusal. The OPTIONS
+	// Allow header and the _links array offer the route only to a caller
+	// holding both.
+	AlsoScope auth.Scope
+
 	// Rel is the hypermedia relation name this route appears under in a
-	// response's _links array, and, with Scope, is what the OPTIONS
-	// handler filters the Allow header by.
+	// response's _links array, and, with Scope and AlsoScope, is what the
+	// OPTIONS handler filters the Allow header by.
 	//
 	// It is not optional, for the same reason Scope is not: a route with
 	// no declared relation is a route the API cannot describe to a
@@ -276,7 +287,14 @@ func NewRouter(cfg RouterConfig) (*chi.Mux, error) {
 		api.Use(withLinkBuilder(builder))
 
 		for _, route := range cfg.Routes {
-			api.With(RequireScope(cfg.Admission, route.Scope)).Method(route.Method, route.Pattern, route.Handler)
+			scoped := api.With(RequireScope(cfg.Admission, route.Scope))
+			if route.AlsoScope != "" {
+				// Both scopes are checked before the handler runs, so a
+				// caller holding one gets the same 403 for an existing id, a
+				// missing one and a malformed body.
+				scoped = scoped.With(RequireScope(cfg.Admission, route.AlsoScope))
+			}
+			scoped.Method(route.Method, route.Pattern, route.Handler)
 		}
 
 		// Registered after the application routes so an OPTIONS handler

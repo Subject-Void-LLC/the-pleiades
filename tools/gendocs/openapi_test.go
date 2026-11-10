@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/apispec"
@@ -61,9 +62,16 @@ func TestOpenAPIPaths_EverySecurityScopeMatchesEndpoint(t *testing.T) {
 		if !ok {
 			t.Fatalf("%s %s: security[0] is not an object", ep.Method, ep.Pattern)
 		}
+		// One requirement listing every scope the route needs: its Scope,
+		// and its AlsoScope when it has one (OpenAPI reads the scopes of one
+		// requirement as required together).
+		want := []any{string(ep.Scope)}
+		if ep.AlsoScope != "" {
+			want = append(want, string(ep.AlsoScope))
+		}
 		scopes, ok := req["bearerAuth"].([]any)
-		if !ok || len(scopes) != 1 || scopes[0] != string(ep.Scope) {
-			t.Errorf("%s %s: bearerAuth scopes = %#v, want [%q]", ep.Method, ep.Pattern, req["bearerAuth"], ep.Scope)
+		if !ok || !reflect.DeepEqual(scopes, want) {
+			t.Errorf("%s %s: bearerAuth scopes = %#v, want %#v", ep.Method, ep.Pattern, req["bearerAuth"], want)
 		}
 
 		if op["x-link-relation"] != string(ep.Rel) {

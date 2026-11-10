@@ -231,7 +231,11 @@ type admissionGenerator struct {
 // something, under speculative ones nobody attempted; and it changes what
 // the Audit Trail means, since nobody asked to delete anything by loading
 // a page. api.RequireScope keeps the recorded Admission, so every real
-// attempt is still recorded exactly once.
+// attempt is recorded once per scope its route requires: once for most
+// routes, and twice for a route that also requires a read scope
+// (api.Route.AlsoScope), where a caller holding only the write scope is
+// recorded as allowed for it and then denied the read. A Decision carries no
+// route or request id, so an audit reader pairs the two by time and subject.
 //
 // Both consumers must be built from the same AdmissionChain value at the
 // composition root. That is what makes "the links agree with the
