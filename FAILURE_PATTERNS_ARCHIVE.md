@@ -26491,6 +26491,10 @@ whole, so a stored URL that carries a credential is kept by the echo and then re
 **Lesson.** As 580: a redacted copy is never accepted where the real value is. A write behind a read that redacts
 recognizes the exact text the read showed and keeps the stored value for it.
 
+**Note 2026-11-10 (1127).** The echo rule held only while the stored URL had not changed since the read: a stale form's
+placeholder passed the source checks and was saved as a manual project's URL. `RefuseEmbeddedSecret` now refuses the
+placeholder text too. Since 1124, an echo that keeps a stored credential URL saves rather than being refused.
+
 ## 1088. A manual or archive project stored a source URL carrying a credential in plain text, because entStore.checkSource returned for every type but git before its embedded-secret check (fixed on this branch; on main; a sibling of 458, whose check it skipped)
 
 **Symptom.** Found by the writer on `fix/patch-projects-partial`, 2026-11-09. `POST /projects`, the PATCH and the UI's
@@ -26518,6 +26522,10 @@ and its changelog fragment says so.
 
 **Lesson.** A rule about what a store may hold runs for every record the store writes. Placed after an early return
 written for a different rule, it inherits that rule's scope.
+
+**Note 2026-11-10 (1124, owner decision).** "Its next save is refused until its URL changes" is reversed: only creation
+refuses a stored value. An edit that leaves the URL saves; an edit that changes it, or turns the project git (1125), is
+held to every rule.
 
 ## 1089. HasEmbeddedSecret and RedactedSourceURL were a list of credential shapes, and three review passes each found shapes the list missed, each one stored in plain text for a manual or archive project and shown raw by GET, the list and the UI (fixed on this branch by an allowlist; a repeat of 458; LESSONS 190 and 277)
 
@@ -26567,6 +26575,10 @@ Over-refusal accepted by design: an `@` in a path (`https://host/org/repo@v1`) a
 **Lesson.** LESSONS 190, with its note of 2026-11-09: after a content detector misses a second time, replace the list
 of bad shapes with an allowlist of what is proved clean, rather than adding the shape that was missed.
 
+**Note 2026-11-10 (1123).** "Any `?` or `#` in the URL is refused" held for the literal characters only: the allowlist's
+own terms, and its `@` list, were read from the raw text, so `%3F`, `%23`, double encodings and Unicode lookalikes
+passed. The rules now check the URL as NFKC and percent decoding leave it, to a fixed point (`revealed`, LESSONS 431).
+
 ## 1090. A refused git source and a recorded sync error repeated the caller's URL, password included, because ClassifySource built its message from go-git's parse error and scrubURL could not clean a URL it could not parse (fixed on this branch; on main; a repeat of 457 and 626; in kind of 72)
 
 **Symptom.** Found by the writer on `fix/patch-projects-partial`, 2026-11-09. A source URL go-git cannot parse was
@@ -26591,6 +26603,9 @@ and `TestSync_WithholdsATransportErrorQuotingALookalikeAt` (`internal/project`).
 
 **Lesson.** As 457: when the input can carry a secret, an error names the problem and never quotes the input, and a
 parser's error is the input quoted.
+
+**Note 2026-11-10 (1128).** `scrubURL` ran only when an error was stored, so an error stored under an older rule kept
+what a newer rule withholds. `project.ShownSyncError` applies it again when the error is shown.
 
 ## 1091. A project could bind another organization's git credential, and a sync sent it to the host the project named (fixed on this branch on create, PATCH, the UI form and at sync; on main; a repeat of 456; LESSONS 276)
 
@@ -27399,3 +27414,182 @@ into the commit that adds the package.
 **Lesson.** A branch that adds a package to `DOCKER_DEPENDENT_PACKAGES` adds its `durations.json` line in the same
 commit. Until a check enforces it (prscope or commitgate could flag a listed package with no time), add it by hand
 whenever the Makefile's container list grows.
+
+## 1123. A source URL's query or fragment was refused only as a literal "?" or "#", so a signature written behind "%3F", "%23", a double encoding, a fullwidth percent sign or a Unicode lookalike was stored in plain text and shown raw, even in the redacted form; the branch's first fix, a longer list, still missed nine forms (fixed on this branch; on main since #147; a repeat of 1089 and 458; LESSONS 190 and 375; vuln-corpus C13, as 354)
+
+**Symptom.** Found by an outside review (Fable 5.2, through the API) on `fix/source-url-encoded-query`, 2026-11-10.
+1089's allowlist refuses any query or fragment in a project's source URL, since one may carry a credential (a SAS
+`sig`, an S3 signature, a token). `hasQueryOrFragment` (`internal/project/secret_url.go`) looked for the characters `?`
+and `#` only. A URL holding the same signature behind `%3F` or `%23`, or behind a Unicode lookalike of either, passed,
+was stored as written for a manual or archive project, and was shown raw by `GET /projects/{id}`, the list and the UI.
+Measured red: `RedactedSourceURL("https://svc:pw@host/r.git%3Fsig=hunter2")` returned
+`https://redacted@host/r.git%3Fsig=hunter2`. The password was cut out and the signature beside it was shown.
+
+The branch's first fix added a list: `%3f`, `%23`, U+FF1F, U+FE56, U+FF03, U+FE5F and their percent encodings. Both
+review passes (the fp-reviewer agent, and the claim-refuter agent with a Python scan of every code point NFKC maps to
+`?`, `#`, `@` or `%`) found shapes it still missed: U+FE16 and U+2047 to U+2049, which NFKC also turns into `?`; double
+encodings (`%253F`, `%2523`, and `%2540` for the sibling `@` list, `hasAtLookalike`); and the fullwidth and small
+percent signs (U+FF05, U+FE6A), which turn any escape into a lookalike of one. That was caught before push.
+
+**Root cause.** The check compared the raw text with a list of the forms a forbidden character can take. A reader along
+the way (a browser, a proxy, a server, a log viewer) may decode or normalize the URL before it acts on it, so the
+character the rule forbids can appear in any form that becomes it. A list names the forms someone thought of.
+
+**Why 1089's fix did not hold.** 1089 replaced a list of credential shapes with an allowlist, as LESSONS 190 advises,
+but the allowlist's own terms (`?`, `#`, `@`) were still read from the raw text, and its `@` rule was again a list
+(`%40`, U+FF20, U+FE6B and their encodings). So the allowlist moved the denylist down one level, from shapes of
+credentials to shapes of three characters. Each fix in this family, 458's, 1089's three passes, and this branch's
+first, extended a list, and each next review found a form the list lacked. LESSONS 375 says to stop after the second
+review of a family and change what the check reads; the first fix here was the family's fifth patch of a list. The
+same class is vuln-corpus C13's entry for 354, where an escaper doubled only the ASCII apostrophe and missed the
+typographic quotes PowerShell also reads as one.
+
+**Fix.** `972493c9`. `revealed` (`internal/project/url_reveal.go`) reads a URL as a reader could come to read it: NFKC
+(`golang.org/x/text/unicode/norm`, now a direct requirement in `go.mod`) and then a lenient percent decode, which
+decodes every well-formed `%XX` and leaves any other `%`, repeated until the text stops changing, at most eight rounds.
+Text that has not settled by then is treated as carrying `?`, `#` and `@`. `hasQueryOrFragment` and `hasAtLookalike`
+ask it, so `HasEmbeddedSecret`, `RefuseEmbeddedSecret` and `RedactedSourceURL` refuse such a URL on write and withhold
+it whole on read. Tests: `TestRevealed_SettlesOrSaysItDidNot` and `TestPercentDecoded_DecodesOnlyWellFormedEscapes`
+(`internal/project/url_reveal_internal_test.go`), the rows added to `internal/project/source_secret_test.go`, and
+`TestProjects_ASourceURLMayCarryNoQueryOrFragment` (`internal/api`).
+
+**Lesson.** LESSONS 431. Check a character's ban on the text as a reader could come to read it, not on a list of the
+forms it may take.
+
+## 1124. The project store held every edit to the source rules, so a project stored with a URL a later rule refuses (a credential, or a source the deployment's policy now refuses) could not be renamed or described until its URL changed (fixed on this branch; on main since #147 by design, reversed by owner decision 2026-11-10; a repeat in kind of 1114 and 1103; LESSONS 415 and 422)
+
+**Symptom.** On main, the project store's `Update` (`internal/project/ent_store.go`) ran `checkSource` on the project
+as it would be saved, on every edit. A project stored before a rule existed (a credential in its URL, which 1088 and
+1089 began to refuse, or a source a deployment's policy came to refuse) answered an edit of its name or description
+with the source refusal, for a URL the caller had not sent. This was deliberate: 1088's fix says "its next save is
+refused until its URL changes". The owner decided on 2026-11-10 that only creation refuses a stored value.
+
+**Root cause.** A rule that tightens what may be stored was held to a field the edit kept, read from storage and
+written back, so the rule acted on stored data (LESSONS 415 and 422).
+
+**Why 1114 did not prevent it.** 1114, fixed earlier the same day, is the same mistake: the inventory store's new
+blank-name rule held a stored name to a rule newer than it. Its fix (`checkSetText`, `checkText`) was scoped to the two
+stores its branch touched. The project rule was not an oversight but a recorded design (1088), so a sweep for the
+mistake would not have read it as one; it changed only when the owner decided.
+
+**Fix.** `8e24dc6a`. `checkSourceChange` runs every source rule only when the edit changes the URL or the project
+becomes git (1125). An echo of the redacted or withheld URL (`KeepEchoedSourceURL`, 1087) keeps the stored URL and now
+saves. The UI harness's fake store (`fakeProjectStore.Update`, `internal/ui/resources/harness_test.go`) applies the
+same rule, and the API and UI tests that pinned the old refusal pin the new one
+(`internal/api/projects_patch_test.go`, `internal/ui/resources/projects_edit_test.go`). Tests:
+`TestStore_AStoredCredentialInTheURLIsReadableAndKeptByAnEditThatLeavesIt` and
+`TestStore_ASourceThePolicyNowRefusesIsKeptByAnEditThatLeavesIt` (`internal/project`).
+
+**Lesson.** As 1114, LESSONS 415 and 422. When the owner reverses a recorded design, its entry gets a note (1088's
+now has one).
+
+## 1125. The first checkSourceChange skipped the embedded-secret refusal when an edit changed only the type, so turning a manual project whose stored URL carries a password into a git one would have saved, and its next sync dialed with the password (fixed before push; caught in review; a repeat in kind of 1022; LESSONS 421)
+
+**Symptom.** Found by both review passes (the fp-reviewer and claim-refuter agents) on `fix/source-url-encoded-query`,
+2026-11-10, reasoned from the code; not run before the fix. The first version of 1124's fix ran the source rules only
+when the URL changed. `PATCH {"scm_type":"git"}` on a manual project stored before 1088's rule, whose URL carries a
+password, left the URL unchanged, so no rule ran. The project would have saved as git, and its next sync would have
+sent the password to the host.
+
+**Root cause.** A rule was moved under "only when the value changed", and the change that mattered was in another
+field. For a manual project the URL is only stored; for a git project it is dialed. The type changed what the URL is
+used for while the URL stayed the same.
+
+**Why 1022 and LESSONS 421 did not prevent it.** 421 says a rule that must hold in every case does not run inside the
+branch a comparison opens, and to list the cases with nothing to compare. Here the comparison had both values and found
+them equal. The missed case was not a missing input but a second field that changes what the compared value does, and
+421's rule does not name it.
+
+**Fix.** Before push, in `8e24dc6a`. `checkSourceChange` treats a project becoming git as a change of URL and runs every
+rule (`becomesGit`, `internal/project/ent_store.go`). Test: `TestStore_TurningAProjectGitHoldsItsStoredURLToEveryRule`
+(`internal/project/source_secret_test.go`).
+
+**Lesson.** LESSONS 432.
+
+## 1126. The project store's Update read the stored URL to decide whether its rules run, with no lock, so on PostgreSQL an edit could write back a credential URL another edit had just replaced, unchecked as unchanged (fixed before push; a repeat of 1112 and 1100; LESSONS 429)
+
+**Symptom.** Found by the writer on `fix/source-url-encoded-query`, 2026-11-10, before push. 1124's fix made `Update`
+read the stored type and URL and compare them with the project to be saved. With no row lock, on PostgreSQL's read
+committed: edit A read a project whose stored URL carries a credential; edit B replaced that URL with a clean one and
+committed; A, whose project still held the old URL, compared it with what it had read, found it unchanged, skipped
+every rule, and wrote the credential URL back.
+
+**Root cause.** As 1112 and 1100: a read whose result decides the write, taken outside the write's lock. Here the read
+decided whether a rule runs, not only what is written.
+
+**Why 1112 and 1100 did not prevent it.** The writer had recorded 1112 and LESSONS 429 on the previous branch the same
+day. Their fixes added locks to the stores those branches changed. Before this branch the project `Update` wrote the
+record without reading it, so it had nothing to lock. The read was added by this branch, in a change about which rules
+run, and nothing flags a store read inside an update that is not under the row lock.
+
+**Fix.** Before push, in `8e24dc6a`. `Update` writes `updated_at` first in its transaction, which takes the row lock as
+the inventory and announcement stores do, and reads the stored record after it. Tests:
+`TestProjectEditsNeverInterleave_PostgreSQL` (`internal/storage/rowlocktest/project.go` and `postgres_test.go`) and
+`TestStore_EditsOfOneProjectNeverInterleave_SQLite` (`internal/project/ent_store_lock_test.go`). Measured with the lock
+removed: the PostgreSQL test reports "after both edits the stored URL carries the credential again", and the SQLite test
+fails with "database is locked".
+
+**Lesson.** As 1100 and LESSONS 429. A read added to an update to decide which rules run is a read the write depends
+on, and goes under the lock with the rest.
+
+## 1127. The withheld placeholder "(withheld: the URL carries a credential)" passed RefuseEmbeddedSecret, so a stale UI form, whose URL had changed since it was shown, saved the placeholder as a manual project's source URL (fixed on this branch; on main; a repeat in kind of 1087 and 580)
+
+**Symptom.** Found by the fp-reviewer agent on `fix/source-url-encoded-query`, 2026-11-10, reasoned from the code. The
+UI's edit form prefills a URL that may carry a credential with the text `RedactedSourceURL` shows, which for a URL
+whose userinfo it cannot cut out cleanly is the fixed placeholder. `KeepEchoedSourceURL` (1087) keeps the stored URL only when the submitted text equals
+what the stored URL redacts to now. If the URL changed after the form was rendered, the placeholder no longer matched,
+was taken as a new URL, and passed `RefuseEmbeddedSecret`, which looks for `@`, `?` and `#` and finds none. For a
+manual project, which no source policy checks, the placeholder was saved as the source.
+
+**Root cause.** The write recognized the read's mask only as the echo of the current stored value. The mask's own text
+was not refused as a value.
+
+**Why 1087's fix did not hold.** 1087 cited 580, whose fix refuses the mask's own marker, and chose instead to recognize
+the exact text the read showed for the stored URL. That holds only while the stored URL has not changed since the read.
+609 had already shown, for `net.ios.config`, that a masked placeholder must be refused wherever it can come back.
+
+**Fix.** `8e24dc6a`. `RefuseEmbeddedSecret` refuses the placeholder text. Test:
+`TestStore_RefusesTheWithheldPlaceholderAsAURL` (`internal/project/source_secret_test.go`).
+
+**Lesson.** As 580 and 609: a write behind a redacting read refuses the mask's own text, besides keeping the stored
+value for an exact echo.
+
+## 1128. A sync error stored before this branch's rules kept the signature it quoted, and the API's sync_error, the UI's project row and the UI's sync history showed it raw, because a stored error was scrubbed only when stored, by that release's rules (fixed on this branch; on main; the class of 1090)
+
+**Symptom.** Found by the claim-refuter agent on `fix/source-url-encoded-query`, 2026-11-10, reasoned from the code;
+the fix is tested. 1090's `scrubURL` (`internal/project/git.go`) withholds a sync's transport error when the URL may
+carry a credential, and runs once, when the error is stored. A sync of a URL holding `%3Fsig=...`, recorded before
+1123's rule, was stored with the signature in its text, since the rule of that release did not flag the URL. Every
+reader returned the stored text: `sync_error` in the API, the UI's project row, and the UI's sync history.
+
+**Root cause.** A mask was applied only by the writer, so stored text kept the rules of the release that wrote it.
+
+**Fix.** `ab9b4804`. `project.ShownSyncError` applies `scrubURL` again when an error is shown, against the project's
+current URL. The readers call it: `internal/api/projects.go`, `internal/ui/resources/projects/projects.go` and
+`internal/ui/resources/projects/history.go`. Tests: `TestShownSyncError_WithholdsAnErrorAnOlderReleaseStored`
+(`internal/project`) and `TestProjects_AStoredSyncErrorIsCheckedAgainWhenShown` (`internal/api`).
+
+Known limit: an error recorded against an earlier URL is judged by the current one, so an error from a URL since
+replaced by a clean one is shown as stored.
+
+**Lesson.** LESSONS 433.
+
+## 1129. `head -25 FILE | rg PATTERN < /dev/null` searched the whole working tree instead of the pipe and printed 38 MB, because the redirect replaced the pipe as rg's input (open, as a practice; a repeat of 1118, the case LESSONS 430's second half names)
+
+**Symptom.** On `fix/source-url-encoded-query`, 2026-11-10. The writer ran `head -25 FILE | rg PATTERN < /dev/null`.
+The redirect, not the pipe, became rg's standard input; rg, given no path and no input to read, searched the working
+directory and printed 38 MB.
+
+**Root cause.** As 1118 and LESSONS 430: rg reads stdin or the working directory depending on whether it has a path and
+what its stdin is, and `< /dev/null` on the reader of a pipe takes the pipe away.
+
+**Why 1118 and LESSONS 430 did not prevent it.** 430 was written the same day by the records-keeper agent and names
+this exact case in its second half: put `< /dev/null` on a command that must not read input, never on the reader of a
+pipe. The habit carried from it was its first half alone, "add `< /dev/null`", applied to every rg. A rule with two
+halves was remembered as one. Nothing checks for it: the session's command guard asks for bounded rg output, not for
+where its input comes from.
+
+**Fix.** None in code. The practice is 430's whole rule. A guard could refuse `| rg ... < /dev/null`, which is never
+what a writer means; that is not built.
+
+**Lesson.** As LESSONS 430. A habit drawn from a rule keeps its exceptions or it repeats the failure the rule recorded.
