@@ -272,6 +272,10 @@ func (h *InventoryHandler) parseID(w http.ResponseWriter, r *http.Request) (int,
 	return id, true
 }
 
+// memberRefusal is the one answer for a group or device an inventory may not
+// take in, whether it does not exist or belongs to another organization.
+const memberRefusal = "one or more of the groups or devices do not exist or cannot be added to this inventory"
+
 // respondStoreError maps a store error onto the status it deserves, and
 // logs anything it cannot classify.
 //
@@ -294,18 +298,19 @@ func (h *InventoryHandler) respondStoreError(w http.ResponseWriter, r *http.Requ
 		RespondError(w, r, http.StatusBadRequest, "an inventory must belong to an organization")
 	case errors.Is(err, inventory.ErrUnknownOrganization):
 		RespondError(w, r, http.StatusBadRequest, "the organization does not exist")
-	case errors.Is(err, inventory.ErrUnknownMember):
-		// Fixed text, as for a cross-tenant member: which ids were missing
-		// is the caller's own list, and the store's text is not theirs.
-		RespondError(w, r, http.StatusBadRequest, "one or more of the groups or devices do not exist")
+	case errors.Is(err, inventory.ErrUnknownMember), errors.Is(err, inventory.ErrCrossTenantMember):
+		// One answer for a member that does not exist and one that belongs
+		// to another organization (owner decision 2026-11-10): two answers
+		// let an inventory:write holder probe ids one at a time and map which
+		// devices and groups exist and which are another tenant's. The store
+		// runs both checks before returning. The text is true in both cases,
+		// and names no id. This removes the difference between the two
+		// answers only: until per-organization authorization exists (FP 98),
+		// a caller can still name another organization on create, and the UI
+		// chooser lists every tenant's devices.
+		RespondError(w, r, http.StatusBadRequest, memberRefusal)
 	case errors.Is(err, inventory.ErrSetNotFound):
 		RespondError(w, r, http.StatusNotFound, "inventory not found")
-	case errors.Is(err, inventory.ErrCrossTenantMember):
-		// 403 rather than 400: the submission is well formed and the
-		// caller is authenticated, they are simply not entitled to put
-		// those hosts in their own inventory. The message says what was
-		// refused without naming which devices belong to somebody else.
-		RespondError(w, r, http.StatusForbidden, "one or more members belong to another organization")
 	case errors.Is(err, inventory.ErrSetExists):
 		// A name already taken in that organization is the submitter's
 		// mistake, not the platform's, and 409 is what says so.

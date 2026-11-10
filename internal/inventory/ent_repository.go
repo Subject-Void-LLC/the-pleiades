@@ -7,6 +7,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/device"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/group"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/organization"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/storage"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
@@ -87,6 +88,15 @@ func (r *entRepository) GetGroup(ctx context.Context, sel inventory.Selector) (I
 			device.HasGroupsWith(group.IDIn(sel.Membership.GroupIDs...)),
 			device.IDIn(sel.Membership.DeviceIDs...),
 		))
+		// A member that has since moved to another organization is never
+		// selected: only the collection's own organization's devices and
+		// unowned ones (pkg/inventory.Membership.OrganizationID).
+		if org := sel.Membership.OrganizationID; org != 0 {
+			query = query.Where(device.Or(
+				device.Not(device.HasOrganization()),
+				device.HasOrganizationWith(organization.IDEQ(org)),
+			))
+		}
 	}
 
 	// Keyset-paginated iterator: batches page on device_id, the stable,

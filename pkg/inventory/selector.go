@@ -74,6 +74,16 @@ type Selector struct {
 type Membership struct {
 	GroupIDs  []int
 	DeviceIDs []int
+
+	// OrganizationID, when non-zero, is the organization the collection
+	// belongs to, and the selection keeps only that organization's devices
+	// and devices that belong to none. A device a collection took in while
+	// unowned can later be put in another organization, and a group it holds
+	// can later gain another organization's device; the stored membership
+	// keeps them, and without this a job against the collection would reach
+	// another tenant's device with that device's own credential. Zero means
+	// no organization restriction, for a collection that has no organization.
+	OrganizationID int
 }
 
 // Empty reports whether this membership selects nothing at all.

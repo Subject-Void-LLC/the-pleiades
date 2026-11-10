@@ -398,10 +398,11 @@ func TestInventoryHandler_CreateRejectsMalformedJSON(t *testing.T) {
 }
 
 // TestInventoryHandler_StoreErrorsMapToTheirStatus walks every classified
-// branch of respondStoreError. The cross-tenant case is the one that
-// matters: it must be a 403 rather than a 400, because the submission is
-// well formed and the caller is authenticated, and the message must not
-// name which devices belong to somebody else.
+// branch of respondStoreError. The member cases are the ones that matter: a
+// member of another organization and one that does not exist get the same
+// 400 with the same text (owner decision 2026-11-10; it used to be a 403 for
+// the foreign one), so the answer cannot be used to probe which ids exist
+// or whose they are.
 func TestInventoryHandler_StoreErrorsMapToTheirStatus(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
@@ -409,7 +410,8 @@ func TestInventoryHandler_StoreErrorsMapToTheirStatus(t *testing.T) {
 		want   int
 		absent string
 	}{
-		{"cross tenant member", inventory.ErrCrossTenantMember, http.StatusForbidden, ""},
+		{"cross tenant member", inventory.ErrCrossTenantMember, http.StatusBadRequest, ""},
+		{"unknown member", inventory.ErrUnknownMember, http.StatusBadRequest, ""},
 		{"duplicate name", inventory.ErrSetExists, http.StatusConflict, ""},
 		{"not found", inventory.ErrSetNotFound, http.StatusNotFound, ""},
 		{"unclassified", errors.New("pq: duplicate key value violates unique constraint \"inventories_name_key\""), http.StatusInternalServerError, "constraint"},
@@ -426,11 +428,11 @@ func TestInventoryHandler_StoreErrorsMapToTheirStatus(t *testing.T) {
 			if tc.absent != "" && strings.Contains(rec.Body.String(), tc.absent) {
 				t.Errorf("store error text leaked: %s", rec.Body.String())
 			}
-			if tc.err == inventory.ErrCrossTenantMember {
+			if tc.err == inventory.ErrCrossTenantMember || tc.err == inventory.ErrUnknownMember {
 				// The refusal says what was refused without answering the
-				// question the caller was probing with.
-				if strings.Contains(rec.Body.String(), "device") {
-					t.Errorf("cross-tenant refusal named devices: %s", rec.Body.String())
+				// question the caller was probing with: one text for both.
+				if !strings.Contains(rec.Body.String(), "do not exist or cannot be added to this inventory") {
+					t.Errorf("member refusal = %s, want the one shared text", rec.Body.String())
 				}
 			}
 		})
@@ -493,8 +495,8 @@ func TestInventoryHandler_UpdateErrorBranches(t *testing.T) {
 		store.updateErr = inventory.ErrCrossTenantMember
 		router := inventoryRouter(t, store)
 		rec := doJSON(t, router, http.MethodPatch, "/api/v1/inventories/1", `{"name":"x","devices":[404]}`)
-		if rec.Code != http.StatusForbidden {
-			t.Fatalf("status = %d, want 403", rec.Code)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("status = %d, want 400", rec.Code)
 		}
 	})
 

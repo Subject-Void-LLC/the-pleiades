@@ -5249,23 +5249,7 @@
                 }
               }
             },
-            "description": "A blank name, no organization or one that does not exist, or a group or device that does not exist."
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "description": "",
-                  "properties": {
-                    "error": {
-                      "type": "string"
-                    }
-                  },
-                  "type": "object"
-                }
-              }
-            },
-            "description": "A group or device belongs to another organization."
+            "description": "A blank name, no organization or one that does not exist, or a group or device that does not exist or cannot be added (one belonging to another organization, or a group holding one), answered with the same text either way."
           },
           "409": {
             "content": {
@@ -5458,7 +5442,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "description": "A partial update. A field left out keeps its stored value and a field present is applied. No field may be null: leave it out to keep it. Unknown fields, the read-only ones among them, are refused, and so is a field named twice in any mix of upper and lower case. The inventory as it would be saved is checked whole, so every member is checked again. Two PATCHes of one inventory are applied one after the other, each over what the other saved, so a PATCH that leaves out groups or devices never puts back a member another removed. A list a PATCH names replaces the stored one whole, with no version check.",
+                "description": "A partial update. A field left out keeps its stored value and a field present is applied. No field may be null: leave it out to keep it. Unknown fields, the read-only ones among them, are refused, and so is a field named twice in any mix of upper and lower case. The members the PATCH adds are checked; a member the inventory already holds is not checked again, so one that has since moved to another organization does not block an edit (and no job against this inventory reaches it). Two PATCHes of one inventory are applied one after the other, each over what the other saved, so a PATCH that leaves out groups or devices never puts back a member another removed. A list a PATCH names replaces the stored one whole, with no version check.",
                 "properties": {
                   "description": {
                     "description": "What this inventory is for. \"\" clears it.",
@@ -5565,23 +5549,7 @@
                 }
               }
             },
-            "description": "A null, unknown or repeated field, a blank name, another organization, or a group or device that does not exist."
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "description": "",
-                  "properties": {
-                    "error": {
-                      "type": "string"
-                    }
-                  },
-                  "type": "object"
-                }
-              }
-            },
-            "description": "A group or device belongs to another organization."
+            "description": "A null, unknown or repeated field, a blank name, another organization, or an added group or device that does not exist or cannot be added, answered with the same text either way. Only the members the PATCH adds are checked."
           },
           "404": {
             "content": {

@@ -2742,6 +2742,14 @@ Devices with no organization at all are admitted deliberately: a single-tenant d
 
 Also: this was found by adversarially reviewing a *design* before implementing it, by agents told to break it rather than approve it. The same three lenses rejected the surrounding proposal outright. A review that had been asked "is this good?" would have said yes.
 
+**Note 2026-11-10 (`fix/inventory-member-checks`).** This fix did not hold (1130). The write-time check reads facts
+that can change after the write: `inventory.AssignDeviceOrganization` puts an unowned member in an organization, and a
+group the inventory holds can gain another organization's device. The stored membership kept such a member, and
+dispatch read it with no organization filter, so a job against the inventory reached the other organization's device.
+The sentence above that the write "is the only place it can be stopped" was wrong once those paths existed. The write
+check stays, for the members an update adds (1132); `Set.Selector` and the repository's `GetGroup` now also keep a
+drifted member out of every job, and `SetsForDevice` out of the inventories it answers. LESSONS 434.
+
 ---
 
 ## 98. `scopeRule` discards the Role the resolver returned, so every RoleBinding's role is decorative
@@ -2777,6 +2785,12 @@ inventory and announcement routes are authorized by token scope across the deplo
 handlers the raw stores, and `ScopeTarget.InventoryIDs` is set nowhere outside tests. So a caller holding
 `inventory:write` can PATCH any organization's inventory, its membership included. Reasoned from the code, not run.
 It waits on the same per-organization authorization work as the notes above.
+
+**Note 2026-11-10 (`fix/inventory-member-checks`).** Still open, and the limit of 1120's change. That branch makes
+the inventory routes answer a foreign member and an unknown one alike, but while the routes are authorized by token
+scope across the deployment (`cmd/controller/main.go`'s admission chain checks token scope only), a caller holding
+`inventory:write` can still learn another organization's ids in other ways; 1120's note lists them. The same branch
+found, by gopls, that `SetsForDevice` has no production caller, so nothing yet resolves inventory-scope grants (1130).
 
 ---
 
@@ -27378,6 +27392,28 @@ Per-organization authorization (98's notes) would narrow who can ask.
 
 **Lesson.** Pending the decision. As 1096: a refusal tells a caller nothing about a record they could not read.
 
+**Resolution, in part, 2026-11-10 (`fix/inventory-member-checks`, `a78ffdf4`).** Owner decision 2026-11-10: merge the
+two answers. `POST /inventories` and `PATCH /inventories/{id}` now answer a group or device of another organization (or
+a group holding one) with the same 400 and text as one that does not exist: "one or more of the groups or devices do
+not exist or cannot be added to this inventory" (`memberRefusal`, `internal/api/inventories.go`). `checkMembers` runs
+every check before it returns and joins both sentinels (`errors.Join`), so the order of the checks does not show which
+failed first; the queries' cost still differs a little with what they match. Measured red, then green:
+`TestInventoryMembers_ForeignAnswersLikeUnknown` (`internal/api/inventories_patch_test.go`). The OpenAPI document drops
+the 403.
+
+**Still open.** The claim-refuter agent refuted that the probe is closed. Without per-organization authorization (98)
+a caller holding `inventory:write` can still map ids and their owners:
+- `POST /inventories` naming another organization answers 201 for a member that organization owns and 400 otherwise.
+- `PATCH /inventories/{id}` with `{}` on any inventory returns its member ids (the class of 1119).
+- The GET routes are not filtered by organization.
+- The UI's membership chooser (`ListMembers`) lists every organization's devices and groups.
+- The UI answers an unknown member 422 (`view.Validate`) and a foreign one 500 (the store's refusal; 1121), so the UI
+  still tells the two apart.
+- `POST /inventory/kubeconfig-imports` with replace answers 409 "belongs to another organization" for a cluster name.
+
+The changelog fragment (`changelog/inventory-member-one-refusal.breaking.md`) says the change removes the difference
+between the two answers only, and does not make ids private.
+
 ## 1121. The web UI answers every inventory store refusal to an edit with a 500, as though the server were broken (open; on main; reasoned, not run; the class of 1058)
 
 **Symptom.** Reasoned on `fix/patch-inventories-announcements`, 2026-11-10, from `internal/ui/web/resources.go`'s update
@@ -27392,6 +27428,13 @@ add it.
 **Status.** Open.
 
 **Lesson.** Pending the fix. As 1058: a refusal the caller can correct is shown as one, beside the field it concerns.
+
+**Note 2026-11-10 (`fix/inventory-member-checks`).** Still open. The claim-refuter agent reported that the inventory
+form answers an unknown member 422, from the view's own `Validate`, before the store is reached, so the symptom above
+is narrower for that case: an unknown member is a refusal beside the field, and a member of another organization, which
+only the store refuses, is the 500. The two answers differ, so the UI also tells an unknown id from another
+organization's (1120's note). Mapping the store's `ErrCrossTenantMember` and `ErrUnknownMember` to one refusal would
+close both.
 
 
 ## 1122. PR 149's coverage job failed although every test passed, because the new container package internal/storage/rowlocktest had no recorded time in durations.json (fixed on the branch; a repeat of 745)
@@ -27593,3 +27636,96 @@ where its input comes from.
 what a writer means; that is not built.
 
 **Lesson.** As LESSONS 430. A habit drawn from a rule keeps its exceptions or it repeats the failure the rule recorded.
+
+## 1130. A job launched against one organization's inventory dispatched to another organization's device, because a member the inventory held could later move into that organization and dispatch read the stored membership with no organization filter; the branch's first fix filtered only SetsForDevice, which nothing in production calls (fixed on this branch; on main; the first fix caught in review before push; a repeat of 97; LESSONS 191, 244 and 434)
+
+**Symptom.** Found on `fix/inventory-member-checks`, 2026-11-10. An inventory may hold an unowned device and a group.
+Both can change after the inventory took them in: `inventory.AssignDeviceOrganization` puts an unowned device in an
+organization (a kubeconfig import with replace does), and a group the inventory holds can later gain another
+organization's device. The stored membership kept them. Dispatch (`internal/dispatch/worker.go`'s `targetSelector`,
+then `inventory.Set.Selector`, then the ent repository's `GetGroup` in `internal/inventory/ent_repository.go`) read
+that membership as stored. So a job launched against organization A's inventory, by hand or on a schedule, dispatched
+to organization B's device with that device's own stored credential. Measured red:
+`TestSetSelector_NeverStreamsAMemberOfAnotherOrganization` (`internal/inventory/ent_set_store_members_test.go`)
+streamed `[grouped loose own unowned]`, want `[own unowned]`.
+
+The branch's first version put the drift filter only into `SetsForDevice`. That is the resolver the design names as
+what fills `ScopeTarget.InventoryIDs`, but nothing in production calls it (gopls: only tests), and nothing in
+production fills `ScopeTarget.InventoryIDs` (98's note of 2026-11-10). Dispatch, the reader that acts on the
+membership, was unchanged. The claim-refuter and fp-reviewer agents found this independently, before push.
+
+**Root cause.** 97's fix checks membership once, when it is written. The facts that check reads (a device's
+organization, a group's devices) can change after the write, and no reader that acts on the membership checked them
+again. The first fix then guarded the reader the design named rather than the reader that runs.
+
+**Why 97's fix did not hold.** 97 said the write "is the only place it can be stopped - by the time the resolver sees
+the containment it is a fact". That holds only while the members' organizations never change, and two code paths
+change them. LESSONS 191 already says a gate checked only when a record is authored is a lint, and to check it where
+the thing happens; 97 predates the paths that move a device, and nobody went back to it when they were added. The
+first fix then missed LESSONS 244: of two readers of the same membership (device to inventories, and inventory to
+devices), it guarded one. As in 1091, whose lesson says 456's fix reached "the one lookup it found", the guard went to
+the lookup the writer was looking at.
+
+**Fix.** On this branch, in `266e0f8c`. `pkg/inventory.Membership.OrganizationID` carries the collection's
+organization, `Set.Selector` (`internal/inventory/set.go`) fills it, and `GetGroup` keeps only that organization's
+devices and unowned ones. A drifted member stays in the stored membership and no job reaches it. `SetsForDevice`
+(`internal/inventory/ent_set_store.go`) also answers a device that belongs to an organization only with that
+organization's inventories. Tests: `TestSetSelector_NeverStreamsAMemberOfAnotherOrganization` and
+`TestEntSetStore_SetsForDeviceSkipsAnotherOrganizationsInventory`.
+
+**Known limits.** Reasoned, not run.
+- `SetsForDevice` reads the device and the inventories in two statements, so a device moved between them is answered
+  once by its old organization's inventories. It has no production caller; its comment says so.
+- `Create` checks members and then inserts outside a transaction, so a concurrent `AssignDeviceOrganization` can slip
+  a foreign member into a new inventory. This was there before the branch and is not fixed; dispatch now filters such a
+  member out, and an update does not check it again (1132).
+
+**Lesson.** LESSONS 434.
+
+## 1131. A code comment, the OpenAPI text and the security changelog fragment said a drifted inventory member grants nothing, which was false until dispatch filtered it (fixed before push; caught in review with 1130; a repeat of 1115 and 1074)
+
+**Symptom.** On `fix/inventory-member-checks`, 2026-11-10, before push. The branch's first version filtered a drifted
+member out of `SetsForDevice` only (1130) and said, in three places, that such a member "grants nothing": a code
+comment, the OpenAPI text and the security changelog fragment. A job launched against the inventory still reached the
+member, with its own stored credential, so the claim was false. The review that found 1130 (the claim-refuter and
+fp-reviewer agents) showed it.
+
+**Root cause.** The claim was written from the one reader the fix changed, not from every reader that acts on the
+membership.
+
+**Why 1115 and 1074 did not prevent it.** 1115 was recorded the same day for the same store: a claim written from the
+fix's own test rather than from every writer of the field. This is its mirror, every reader rather than every writer.
+Their class has no check for a comment's claim before review, and the review pass that refutes claims is again what
+caught it.
+
+**Fix.** Before push, in the fixups folded into `266e0f8c` and `a78ffdf4`. The dispatch filter made the claim true
+(1130), and the text now says what each reader does: `SetsForDevice`'s comment points at `Set.Selector`, and
+`changelog/inventory-member-drift.security.md` says a drifted member stays stored and no job reaches it.
+
+**Lesson.** As 1115 and LESSONS 434: a claim that something "grants nothing" is a claim about every reader that acts on
+it. List them by reference before writing it.
+
+## 1132. An inventory update checked every member it held, not only those it added, so a member that had since moved into another organization blocked every edit that kept it, a rename included (fixed on this branch; on main; a repeat of 1114 and 1124; LESSONS 415 and 422)
+
+**Symptom.** On `fix/inventory-member-checks`, 2026-11-10, from the code. `UpdateWith`
+(`internal/inventory/ent_set_store_update.go`), which `Update` and the API PATCH both reach, ran the tenancy check over
+every member of the saved list. A member stored when it was allowed, and since drifted (1130), was refused on every
+later edit that kept it, including a rename or the removal of some other member. The drift itself still reached the
+other organization through dispatch (1130), so the refusal blocked the owner and protected nothing.
+
+**Root cause.** As 1114: a write held data it was keeping, not changing, to a rule. Here the rule was old (97), and the
+stored data it read (the member's organization) changed after the member was stored.
+
+**Why 1114 and 1124 did not prevent it.** 1114's fix, on the previous branch for this same store, moved the text rules
+(`checkSetText`) to the fields an update changes. The membership check on the same update was not read against that
+lesson. 1124, the project store's case the same day, was framed as a rule newer than the stored value; here the rule was
+unchanged and its input moved, which neither title names.
+
+**Fix.** On this branch, in `266e0f8c`. `UpdateWith` checks only the members the update adds (`addedIDs`). Re-adding a
+drifted member is still refused. `checkMembers` runs every check before it returns and joins each sentinel that applies
+(`errors.Join`), so the API can answer both with one sentence (1120). Test:
+`TestEntSetStore_AnUpdateChecksOnlyTheMembersItAdds` (`internal/inventory/ent_set_store_members_test.go`).
+
+**Lesson.** As 1114 and LESSONS 415 and 422: a write checks what it adds. A member it keeps is stored data, and a rule
+whose input can change after storage is enforced where the data is acted on (LESSONS 434), not by blocking every later
+edit.

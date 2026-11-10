@@ -27,8 +27,9 @@ var inventoryWriteSchema = map[string]any{
 // inventoryPatchSchema is the body PATCH /inventories/{id} accepts.
 var inventoryPatchSchema = map[string]any{
 	"type": "object",
-	"description": patchRules + " The inventory as it would be saved is checked whole, so every member is " +
-		"checked again. Two PATCHes of one inventory are applied one after the other, each over what the other " +
+	"description": patchRules + " The members the PATCH adds are checked; a member the inventory already holds " +
+		"is not checked again, so one that has since moved to another organization does not block an edit (and " +
+		"no job against this inventory reaches it). Two PATCHes of one inventory are applied one after the other, each over what the other " +
 		"saved, so a PATCH that leaves out groups or devices never puts back a member another removed. A list " +
 		"a PATCH names replaces the stored one whole, with no version check.",
 	"properties": map[string]any{

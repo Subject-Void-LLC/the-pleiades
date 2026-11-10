@@ -84,10 +84,16 @@ type Set struct {
 // iterator, duplicating the keyset batching and property decryption
 // internal/inventory's repository already does, and the two would drift.
 // The rule lives here; the streaming lives where streaming already lives.
+//
+// It carries the Set's organization, so a member that has since moved to
+// another organization is never selected (pkg/inventory.Membership's
+// OrganizationID): the stored membership keeps it, since an update checks
+// only the members it adds, but a job against this Set never reaches it.
 func (s Set) Selector() pkginventory.Selector {
 	return pkginventory.Selector{Membership: &pkginventory.Membership{
-		GroupIDs:  s.GroupIDs,
-		DeviceIDs: s.DeviceIDs,
+		GroupIDs:       s.GroupIDs,
+		DeviceIDs:      s.DeviceIDs,
+		OrganizationID: s.OrganizationID,
 	}}
 }
 
@@ -210,7 +216,9 @@ type SetStore interface {
 	// organization and the owner are kept as stored whatever fold returns.
 	// The result is held to the rules Create holds a new Set to: the name
 	// and description's text rules when the update changes them, and the
-	// membership's existence and tenancy, read in the same transaction. Two
+	// existence and tenancy of the members the update adds, read in the same
+	// transaction (a member already held is not checked again; Selector
+	// keeps one that has since moved organization out of every job). Two
 	// UpdateWith calls on one Set never interleave, so a fold never writes
 	// back a field it did not change over another update's change to it:
 	// a PATCH that does not name the members cannot revert a revocation.
@@ -226,7 +234,9 @@ type SetStore interface {
 	Delete(ctx context.Context, id int) error
 
 	// SetsForDevice returns the ids of every Set a device is reachable
-	// through, directly or through any group containing it.
+	// through, directly or through any group containing it, leaving out every
+	// Set of an organization other than the device's when the device belongs
+	// to one.
 	//
 	// This is what fills ScopeTarget.InventoryIDs before an access check.
 	// It is a store method rather than something the caller assembles,

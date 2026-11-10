@@ -948,8 +948,7 @@ var CreateInventory = Endpoint{
 	Description: "Creates a named set of devices within one organization. The name must be unique in that organization.",
 	Responses: []Response{
 		{Status: http.StatusCreated, Description: "The created inventory.", Schema: inventorySchema},
-		{Status: http.StatusBadRequest, Description: "A blank name, no organization or one that does not exist, or a group or device that does not exist.", Schema: errorSchema("")},
-		{Status: http.StatusForbidden, Description: "A group or device belongs to another organization.", Schema: errorSchema("")},
+		{Status: http.StatusBadRequest, Description: "A blank name, no organization or one that does not exist, or a group or device that does not exist or cannot be added (one belonging to another organization, or a group holding one), answered with the same text either way.", Schema: errorSchema("")},
 		{Status: http.StatusConflict, Description: "That name is already taken in that organization.", Schema: errorSchema("")},
 	},
 	RequestContentType: "application/json",
@@ -972,8 +971,7 @@ var UpdateInventory = Endpoint{
 	},
 	Responses: []Response{
 		{Status: http.StatusOK, Description: "The updated inventory.", Schema: inventorySchema},
-		{Status: http.StatusBadRequest, Description: "A null, unknown or repeated field, a blank name, another organization, or a group or device that does not exist.", Schema: errorSchema("")},
-		{Status: http.StatusForbidden, Description: "A group or device belongs to another organization.", Schema: errorSchema("")},
+		{Status: http.StatusBadRequest, Description: "A null, unknown or repeated field, a blank name, another organization, or an added group or device that does not exist or cannot be added, answered with the same text either way. Only the members the PATCH adds are checked.", Schema: errorSchema("")},
 		{Status: http.StatusNotFound, Description: "No inventory with that id.", Schema: errorSchema("")},
 		{Status: http.StatusConflict, Description: "That name is already taken in that organization.", Schema: errorSchema("")},
 	},
