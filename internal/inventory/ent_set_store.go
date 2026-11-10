@@ -156,8 +156,10 @@ func (s *entSetStore) Delete(ctx context.Context, id int) error {
 // group or device belonging to another organization.
 var ErrCrossTenantMember = errors.New("inventory member belongs to another organization")
 
-// assertMembersInOrganization refuses membership that crosses a tenancy
-// boundary.
+// assertMembersInOrganization returns a refusal (ErrCrossTenantMember) for
+// each kind of member, devices and groups, that crosses a tenancy boundary,
+// running both queries whatever the first finds, and an error only when a
+// query fails.
 //
 // This closes a real hole rather than tidying an edge case, and it is worth
 // stating plainly because the hole is not obvious from either side on its
@@ -179,7 +181,8 @@ var ErrCrossTenantMember = errors.New("inventory member belongs to another organ
 // refusing those would make this feature unusable for the deployments most
 // likely to try it first; they belong to no tenant, so admitting them
 // crosses no boundary.
-func assertMembersInOrganization(ctx context.Context, db *ent.Client, orgID int, groupIDs, deviceIDs []int) error {
+func assertMembersInOrganization(ctx context.Context, db *ent.Client, orgID int, groupIDs, deviceIDs []int) ([]error, error) {
+	var refusals []error
 	if len(deviceIDs) > 0 {
 		foreign, err := db.Device.Query().
 			Where(
@@ -189,13 +192,13 @@ func assertMembersInOrganization(ctx context.Context, db *ent.Client, orgID int,
 			).
 			Count(ctx)
 		if err != nil {
-			return fmt.Errorf("inventory: checking device tenancy: %w", err)
+			return nil, fmt.Errorf("inventory: checking device tenancy: %w", err)
 		}
 		if foreign > 0 {
 			// The count, never the ids. Reporting which devices belong to
 			// somebody else would answer a question the caller is not
 			// entitled to ask, on the exact request where they tried.
-			return fmt.Errorf("%w: %d device(s)", ErrCrossTenantMember, foreign)
+			refusals = append(refusals, fmt.Errorf("%w: %d device(s)", ErrCrossTenantMember, foreign))
 		}
 	}
 
@@ -213,13 +216,13 @@ func assertMembersInOrganization(ctx context.Context, db *ent.Client, orgID int,
 			).
 			Count(ctx)
 		if err != nil {
-			return fmt.Errorf("inventory: checking group tenancy: %w", err)
+			return nil, fmt.Errorf("inventory: checking group tenancy: %w", err)
 		}
 		if foreign > 0 {
-			return fmt.Errorf("%w: %d group(s) contain devices from another organization", ErrCrossTenantMember, foreign)
+			refusals = append(refusals, fmt.Errorf("%w: %d group(s) contain devices from another organization", ErrCrossTenantMember, foreign))
 		}
 	}
-	return nil
+	return refusals, nil
 }
 
 // SetsForDevice returns every Set a device is reachable through.
@@ -229,15 +232,36 @@ func assertMembersInOrganization(ctx context.Context, db *ent.Client, orgID int,
 // silently denies a legitimate share and an over-inclusion silently grants
 // one -- which is why it is one query in one place rather than something
 // each caller assembles.
+//
+// A device that belongs to an organization is reachable only through that
+// organization's inventories. A device unowned when an inventory took it in
+// can later be put in another organization (AssignDeviceOrganization), and a
+// group can later gain another organization's device; the stored membership
+// stays, since an update no longer re-checks members it does not add, but it
+// grants nothing here (and Set.Selector keeps it out of every job). The
+// device and its inventories are read in two statements, so a device moved
+// between them is answered once by its old organization's inventories; no
+// production path reads this yet. An unowned device is reachable through any inventory
+// holding it, as the membership rule admits it.
 func (s *entSetStore) SetsForDevice(ctx context.Context, deviceID int) ([]int, error) {
-	ids, err := s.client.Inventory.Query().
+	device, err := s.client.Device.Query().Where(entdevice.IDEQ(deviceID)).WithOrganization().Only(ctx)
+	if err != nil {
+		if ent.IsNotFound(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("inventory: resolving sets for device %d: %w", deviceID, err)
+	}
+	query := s.client.Inventory.Query().
 		Where(
 			entinventory.Or(
 				entinventory.HasDevicesWith(entdevice.IDEQ(deviceID)),
 				entinventory.HasGroupsWith(entgroup.HasDevicesWith(entdevice.IDEQ(deviceID))),
 			),
-		).
-		IDs(ctx)
+		)
+	if device.Edges.Organization != nil {
+		query = query.Where(entinventory.HasOrganizationWith(entorg.IDEQ(device.Edges.Organization.ID)))
+	}
+	ids, err := query.IDs(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("inventory: resolving sets for device %d: %w", deviceID, err)
 	}

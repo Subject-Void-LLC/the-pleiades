@@ -71,7 +71,16 @@ func (s *entSetStore) UpdateWith(ctx context.Context, id int, fold func(stored S
 			return err
 		}
 		next.GroupIDs, next.DeviceIDs = distinctIDs(next.GroupIDs), distinctIDs(next.DeviceIDs)
-		if err := checkMembers(txCtx, db, next.OrganizationID, next.GroupIDs, next.DeviceIDs); err != nil {
+		// Only the members this update adds are checked. A member the
+		// inventory already holds is not checked again, so one that has since
+		// drifted (an unowned device put in another organization, a group that
+		// gained another organization's device) does not block a rename. It
+		// is reached by nothing: Set.Selector keeps it out of every job and
+		// SetsForDevice out of every grant. That holds too for a member stored
+		// before the tenancy check existed, or one that moved between Create's
+		// check and its insert, which runs outside a transaction.
+		if err := checkMembers(txCtx, db, next.OrganizationID,
+			addedIDs(next.GroupIDs, stored.GroupIDs), addedIDs(next.DeviceIDs, stored.DeviceIDs)); err != nil {
 			return err
 		}
 
@@ -128,22 +137,28 @@ func lockSet(ctx context.Context, db *ent.Client, id int) (Set, error) {
 }
 
 // checkMembers refuses a membership naming a group or device that does not
-// exist, then one crossing a tenancy boundary (assertMembersInOrganization).
+// exist (ErrUnknownMember) or that crosses a tenancy boundary
+// (ErrCrossTenantMember, assertMembersInOrganization).
 //
-// Existence is checked first and by count, because a missing id reaches the
-// join table's foreign key as a constraint error, which the write reports as
-// ErrSetExists, so the caller was told the name was taken. The error carries
-// how many, never which: the ids are the caller's own, and naming them adds
-// nothing. ids must already be distinct (distinctIDs), or a repeated id
-// would count as missing.
+// Every check runs before any refusal is returned, and the error wraps each
+// sentinel that applies (errors.Join), so how long the answer took does not
+// show which check failed first, and the API, which answers both with one
+// sentence, cannot be told them apart (owner decision 2026-11-10); the
+// queries' cost still differs a little with what they match. The returned
+// error still names each kind, for a caller that wants to know. Existence is
+// counted because a missing id reaches the join
+// table's foreign key as a constraint error, which the write reports as
+// ErrSetExists. The errors carry how many, never which. ids must already be
+// distinct (distinctIDs), or a repeated id would count as missing.
 func checkMembers(ctx context.Context, db *ent.Client, orgID int, groupIDs, deviceIDs []int) error {
+	var refusals []error
 	if len(groupIDs) > 0 {
 		found, err := db.Group.Query().Where(entgroup.IDIn(groupIDs...)).Count(ctx)
 		if err != nil {
 			return fmt.Errorf("inventory: checking groups: %w", err)
 		}
 		if missing := len(groupIDs) - found; missing > 0 {
-			return fmt.Errorf("%w: %d group(s)", ErrUnknownMember, missing)
+			refusals = append(refusals, fmt.Errorf("%w: %d group(s)", ErrUnknownMember, missing))
 		}
 	}
 	if len(deviceIDs) > 0 {
@@ -152,10 +167,30 @@ func checkMembers(ctx context.Context, db *ent.Client, orgID int, groupIDs, devi
 			return fmt.Errorf("inventory: checking devices: %w", err)
 		}
 		if missing := len(deviceIDs) - found; missing > 0 {
-			return fmt.Errorf("%w: %d device(s)", ErrUnknownMember, missing)
+			refusals = append(refusals, fmt.Errorf("%w: %d device(s)", ErrUnknownMember, missing))
 		}
 	}
-	return assertMembersInOrganization(ctx, db, orgID, groupIDs, deviceIDs)
+	foreign, err := assertMembersInOrganization(ctx, db, orgID, groupIDs, deviceIDs)
+	if err != nil {
+		return err
+	}
+	return errors.Join(append(refusals, foreign...)...)
+}
+
+// addedIDs returns the ids in next that stored does not hold, in next's
+// order: the members an update adds.
+func addedIDs(next, stored []int) []int {
+	held := make(map[int]bool, len(stored))
+	for _, id := range stored {
+		held[id] = true
+	}
+	var out []int
+	for _, id := range next {
+		if !held[id] {
+			out = append(out, id)
+		}
+	}
+	return out
 }
 
 // checkSetText holds set's name and description to the text rules: a name
