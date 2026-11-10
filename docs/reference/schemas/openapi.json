@@ -406,19 +406,19 @@
               "schema": {
                 "properties": {
                   "body": {
-                    "description": "The message.",
+                    "description": "The message. May not be blank.",
                     "type": "string"
                   },
                   "ends_at": {
-                    "description": "RFC 3339. Omit for no expiry.",
+                    "description": "RFC 3339, after starts_at. Omit for no expiry.",
                     "type": "string"
                   },
                   "level": {
-                    "description": "One of info, changed, warning, critical. Defaults to info.",
+                    "description": "One of info, changed, warning, critical. Defaults to info, as does an unrecognized value.",
                     "type": "string"
                   },
                   "organization": {
-                    "description": "Omit for a system-wide announcement.",
+                    "description": "Omit for a system-wide announcement. Must exist. Not updatable.",
                     "type": "integer"
                   },
                   "starts_at": {
@@ -426,7 +426,7 @@
                     "type": "string"
                   },
                   "title": {
-                    "description": "The headline.",
+                    "description": "The headline. May not be blank.",
                     "type": "string"
                   }
                 },
@@ -516,7 +516,7 @@
                 }
               }
             },
-            "description": "Missing title or body."
+            "description": "A blank title or body, a malformed timestamp, a window that ends before it starts, or an organization that does not exist."
           }
         },
         "security": [
@@ -577,7 +577,7 @@
         "x-link-relation": "delete"
       },
       "patch": {
-        "description": "Updates the title, body, level or active window. The author is immutable: an attribution somebody can rewrite is one nobody can rely on.",
+        "description": "A partial update of the title, body, level or active window: a field left out keeps its stored value. The author and the organization are immutable: an attribution somebody can rewrite is one nobody can rely on, and moving an announcement between tenants would change who it reaches.",
         "operationId": "update_announcement",
         "parameters": [
           {
@@ -594,41 +594,38 @@
           "content": {
             "application/json": {
               "schema": {
+                "description": "A partial update. A field left out keeps its stored value and a field present is applied. No field may be null: leave it out to keep it. Unknown fields, the read-only ones among them, are refused, and so is a field named twice in any mix of upper and lower case. The window is checked on the announcement as it would be saved, so moving one bound past the stored other is refused.",
                 "properties": {
                   "body": {
-                    "description": "The message.",
+                    "description": "The message. May not be blank.",
                     "type": "string"
                   },
                   "ends_at": {
-                    "description": "RFC 3339. Omit for no expiry.",
+                    "description": "RFC 3339, after starts_at. \"\" removes the end, so the announcement shows until retired.",
                     "type": "string"
                   },
                   "level": {
-                    "description": "One of info, changed, warning, critical. Defaults to info.",
+                    "description": "One of info, changed, warning, critical. \"\" or an unrecognized value is info.",
                     "type": "string"
                   },
                   "organization": {
-                    "description": "Omit for a system-wide announcement.",
+                    "description": "Not updatable: accepted only as the stored value, 0 for a system-wide announcement, and any other is refused with 400.",
                     "type": "integer"
                   },
                   "starts_at": {
-                    "description": "RFC 3339. Omit to show immediately.",
+                    "description": "RFC 3339. \"\" removes the start, so the announcement shows at once.",
                     "type": "string"
                   },
                   "title": {
-                    "description": "The headline.",
+                    "description": "The headline. May not be blank.",
                     "type": "string"
                   }
                 },
-                "required": [
-                  "title",
-                  "body"
-                ],
                 "type": "object"
               }
             }
           },
-          "required": true
+          "required": false
         },
         "responses": {
           "200": {
@@ -691,6 +688,22 @@
               }
             },
             "description": "The updated announcement."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "A null, unknown or repeated field, a blank title or body, another organization, a malformed timestamp, or a window that would end before it starts."
           },
           "404": {
             "content": {
@@ -5132,25 +5145,25 @@
                     "type": "string"
                   },
                   "devices": {
-                    "description": "Device ids attached directly, with no intervening group.",
+                    "description": "Device ids attached directly, with no intervening group. Each must exist and belong to this organization or to none; a repeated id is kept once.",
                     "items": {
                       "type": "integer"
                     },
                     "type": "array"
                   },
                   "groups": {
-                    "description": "Group ids this inventory contains.",
+                    "description": "Group ids this inventory contains. Each must exist and hold no device of another organization; a repeated id is kept once.",
                     "items": {
                       "type": "integer"
                     },
                     "type": "array"
                   },
                   "name": {
-                    "description": "Unique within its organization.",
+                    "description": "Unique within its organization. May not be blank.",
                     "type": "string"
                   },
                   "organization": {
-                    "description": "Required. An inventory belonging to no organization could be resolved against no organization scope.",
+                    "description": "Required, and must exist. An inventory belonging to no organization could be resolved against no organization scope. Not updatable.",
                     "type": "integer"
                   }
                 },
@@ -5236,7 +5249,23 @@
                 }
               }
             },
-            "description": "Missing name or organization."
+            "description": "A blank name, no organization or one that does not exist, or a group or device that does not exist."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "A group or device belongs to another organization."
           },
           "409": {
             "content": {
@@ -5412,7 +5441,7 @@
         "x-link-relation": "self"
       },
       "patch": {
-        "description": "Replaces an inventory's name, description and membership. The organization is not updatable: moving one between tenants would silently re-scope every role binding pointing at it, which is a migration rather than an edit.",
+        "description": "A partial update of an inventory's name, description and membership: a field left out keeps its stored value. The organization is not updatable: moving one between tenants would silently re-scope every role binding pointing at it, which is a migration rather than an edit.",
         "operationId": "update_inventory",
         "parameters": [
           {
@@ -5429,43 +5458,40 @@
           "content": {
             "application/json": {
               "schema": {
+                "description": "A partial update. A field left out keeps its stored value and a field present is applied. No field may be null: leave it out to keep it. Unknown fields, the read-only ones among them, are refused, and so is a field named twice in any mix of upper and lower case. The inventory as it would be saved is checked whole, so every member is checked again. Two PATCHes of one inventory are applied one after the other, each over what the other saved, so a PATCH that leaves out groups or devices never puts back a member another removed. A list a PATCH names replaces the stored one whole, with no version check.",
                 "properties": {
                   "description": {
-                    "description": "What this inventory is for.",
+                    "description": "What this inventory is for. \"\" clears it.",
                     "type": "string"
                   },
                   "devices": {
-                    "description": "Device ids attached directly, with no intervening group.",
+                    "description": "Replaces the devices attached directly; [] empties them. Each must exist and belong to this organization or to none.",
                     "items": {
                       "type": "integer"
                     },
                     "type": "array"
                   },
                   "groups": {
-                    "description": "Group ids this inventory contains.",
+                    "description": "Replaces the groups this inventory contains; [] empties them. Each must exist and hold no device of another organization.",
                     "items": {
                       "type": "integer"
                     },
                     "type": "array"
                   },
                   "name": {
-                    "description": "Unique within its organization.",
+                    "description": "Unique within its organization. May not be blank.",
                     "type": "string"
                   },
                   "organization": {
-                    "description": "Required. An inventory belonging to no organization could be resolved against no organization scope.",
+                    "description": "Not updatable: accepted only as the stored value, and any other is refused with 400.",
                     "type": "integer"
                   }
                 },
-                "required": [
-                  "name",
-                  "organization"
-                ],
                 "type": "object"
               }
             }
           },
-          "required": true
+          "required": false
         },
         "responses": {
           "200": {
@@ -5524,6 +5550,38 @@
               }
             },
             "description": "The updated inventory."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "A null, unknown or repeated field, a blank name, another organization, or a group or device that does not exist."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "A group or device belongs to another organization."
           },
           "404": {
             "content": {
