@@ -165,7 +165,7 @@
     },
     {
       "file": "internal/credtype/kubernetes.go",
-      "line": "32",
+      "line": "33",
       "rule_id": "G101",
       "reason": "Owned by Phase 119c (the Kubernetes credential kind). This is K8sAuthAPIKey, the string \"K8S_AUTH_API_KEY\": the NAME of the environment variable AWX's kubernetes_bearer_token injector sets for kubernetes.core, which the Ansible path sets to the bound token at dispatch. It holds no credential; G101 matches the \"APIKey\" in the identifier and the literal."
     },

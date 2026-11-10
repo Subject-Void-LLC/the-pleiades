@@ -71,7 +71,8 @@ func connectionFor(rc sdk.RunbookContext, params map[string]any, key string) (wi
 		return wire.DatabaseConnection{}, fmt.Errorf("no database connection named %s: add one with `pleiades add-database-connection %s`, or bind a PostgreSQL Connection credential named %s to the template", name, name, name)
 	}
 	if err := conn.Validate(); err != nil {
-		return wire.DatabaseConnection{}, err
+		// The task's own name for it: Validate repeats no field's value.
+		return wire.DatabaseConnection{}, fmt.Errorf("connection %s: %w", name, err)
 	}
 	return conn, nil
 }

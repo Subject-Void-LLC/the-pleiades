@@ -189,10 +189,15 @@ func TestCombineVaultIdentities(t *testing.T) {
 		if err == nil {
 			t.Fatal("Inject() accepted two vault credentials sharing an identifier")
 		}
-		for _, want := range []string{"first", "second", "prod"} {
+		// The credentials and the input, never the identifier itself, which
+		// is an input value a custom type may mark secret.
+		for _, want := range []string{"first", "second", `"vault_id"`} {
 			if !strings.Contains(err.Error(), want) {
 				t.Errorf("the conflict does not name %q: %v", want, err)
 			}
+		}
+		if strings.Contains(err.Error(), "prod") {
+			t.Errorf("the conflict quotes the identifier: %v", err)
 		}
 	})
 

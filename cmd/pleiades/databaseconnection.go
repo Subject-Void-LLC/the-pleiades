@@ -62,7 +62,7 @@ func runAddDatabaseConnection(args []string) error {
 	}
 	// Refused before a password is asked for, so a typo costs no prompt.
 	if err := conn.Validate(); err != nil {
-		return err
+		return fmt.Errorf("connection %q: %w", name, err)
 	}
 	switch {
 	case *noPassword:

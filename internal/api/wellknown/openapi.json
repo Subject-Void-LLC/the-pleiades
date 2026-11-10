@@ -2586,7 +2586,7 @@
                 }
               }
             },
-            "description": "The body is malformed, or the type does not validate or holds a NUL character anywhere in its text."
+            "description": "The body is malformed, or the type does not validate, marks secret a vault type's vault_id or a database type's name, or holds a NUL character anywhere in its text."
           },
           "409": {
             "content": {
@@ -3177,7 +3177,7 @@
                 }
               }
             },
-            "description": "The body is malformed, sets a field to null or changes the namespace or the organization, or the type it would leave does not validate, clears an input's secret flag, or holds a NUL character anywhere in its text."
+            "description": "The body is malformed, sets a field to null or changes the namespace or the organization, or the type it would leave does not validate, clears an input's secret flag, marks secret a vault type's vault_id or a database type's name, or holds a NUL character anywhere in its text."
           },
           "403": {
             "content": {

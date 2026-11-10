@@ -212,6 +212,9 @@ func (ct CredentialType) Validate(eng render.Engine) error {
 	if err := ct.Inputs.Validate(); err != nil {
 		return err
 	}
+	if err := ct.checkIdentifierPlain(); err != nil {
+		return err
+	}
 	return ct.Injectors.Validate(ct.Inputs, eng)
 }
 

@@ -1,0 +1,1 @@
+`POST /credential-types` and every credential type edit now refuse, with 400, a custom type of kind `vault` whose `vault_id` input is secret, or of kind `database` whose `name` input is secret, including an edit that changes a type's kind to one of those. Mark the input non-secret: it is a label, shown in binding refusals and, for a vault, on `ansible-playbook`'s command line.

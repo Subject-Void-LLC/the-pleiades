@@ -5,8 +5,6 @@ package wire
 import (
 	"crypto/x509"
 	"encoding/pem"
-	"errors"
-	"fmt"
 	"net"
 	"net/netip"
 	"path"
@@ -107,47 +105,83 @@ func (c DatabaseConnection) Plaintext() bool {
 	return c.EffectiveSSLMode() == SSLDisable && !c.Local()
 }
 
-// Validate refuses a connection no run could use as written.
+// A ConnectionProblem is why a connection cannot be used: the field it is
+// about, by its JSON name, and what is wrong with it. It never repeats a
+// field's value. A connection bound to a job template is built from a
+// credential's inputs, which a custom credential type may mark secret, and
+// a refusal reaches an API response and a job's failure reason, where
+// nothing masks it; a host written as a URL or as user:password@host
+// carries a password even when it is not marked secret.
+type ConnectionProblem struct {
+	// Field is the field's JSON name: name, host, port, user, sslmode,
+	// ca_pem, server_name, insecure_transport or live.
+	Field string
+	// Problem says what is wrong with it, as a clause following its name.
+	Problem string
+}
+
+// Error reads as the field's name followed by its problem.
+func (p *ConnectionProblem) Error() string { return p.Field + " " + p.Problem }
+
+// problem builds a ConnectionProblem.
+func problem(field, text string) *ConnectionProblem {
+	return &ConnectionProblem{Field: field, Problem: text}
+}
+
+// Validate refuses a connection no run could use as written, with a
+// *ConnectionProblem naming the field and never its value (Problem).
 func (c DatabaseConnection) Validate() error {
+	if p := c.Problem(); p != nil {
+		return p
+	}
+	return nil
+}
+
+// Problem says why no run could use the connection as written, or nil when
+// one can.
+func (c DatabaseConnection) Problem() *ConnectionProblem {
 	switch {
 	case !ValidDatabaseConnectionName(c.Name):
-		return fmt.Errorf("%q is not a connection name (a lowercase letter, then up to 62 lowercase letters, digits, - and _)", c.Name)
+		return problem("name", "is not a connection name: a lowercase letter, then up to 62 lowercase letters, digits, - and _")
 	case hostProblem(c.Host) != "":
-		return fmt.Errorf("connection %s: %s", c.Name, hostProblem(c.Host))
+		return problem("host", hostProblem(c.Host))
 	case c.Port < 0 || c.Port > 65535:
-		return fmt.Errorf("connection %s: %d is not a port", c.Name, c.Port)
+		return problem("port", "is not a port: 1 to 65535, or 0 for the default")
 	case c.User == "" || strings.ContainsAny(c.User, "\x00\r\n"):
-		return fmt.Errorf("connection %s: it needs a user", c.Name)
+		return problem("user", "is empty or holds a NUL or a line break")
 	}
 	switch c.EffectiveSSLMode() {
 	case SSLVerifyFull:
 		if c.Socket() {
-			return fmt.Errorf("connection %s: a socket carries no TLS; use sslmode %s", c.Name, SSLDisable)
+			return problem("sslmode", "is "+SSLVerifyFull+" for a socket, which carries no TLS; use "+SSLDisable)
 		}
 		if c.InsecureTransport {
-			return fmt.Errorf("connection %s: insecure_transport allows nothing with sslmode %s; it is for %s to a host that is not local", c.Name, SSLVerifyFull, SSLDisable)
+			return problem("insecure_transport", "allows nothing with sslmode "+SSLVerifyFull+"; it is for "+SSLDisable+" to a host that is not local")
 		}
 	case SSLDisable:
-		if c.CAPEM != "" || c.ServerName != "" {
-			return fmt.Errorf("connection %s: a CA or server name means nothing with sslmode %s", c.Name, SSLDisable)
+		if c.CAPEM != "" {
+			return problem("ca_pem", "means nothing with sslmode "+SSLDisable)
+		}
+		if c.ServerName != "" {
+			return problem("server_name", "means nothing with sslmode "+SSLDisable)
 		}
 		if c.Plaintext() && !c.InsecureTransport {
-			return fmt.Errorf("connection %s: sslmode %s to %s would send the password and every row across the network in the clear; set insecure_transport to allow it, or use %s", c.Name, SSLDisable, c.Host, SSLVerifyFull)
+			return problem("host", "is not local, and with sslmode "+SSLDisable+" the password and every row would cross the network in the clear; set insecure_transport to allow it, or use "+SSLVerifyFull)
 		}
 		if !c.Plaintext() && c.InsecureTransport {
-			return fmt.Errorf("connection %s: insecure_transport allows nothing for a local server", c.Name)
+			return problem("insecure_transport", "allows nothing for a local server")
 		}
 	default:
-		return fmt.Errorf("connection %s: sslmode %q is not %s or %s", c.Name, c.SSLMode, SSLVerifyFull, SSLDisable)
+		return problem("sslmode", "is not "+SSLVerifyFull+" or "+SSLDisable)
 	}
 	if c.CAPEM != "" {
-		if err := checkCAPEM(c.CAPEM); err != nil {
-			return fmt.Errorf("connection %s: %w", c.Name, err)
+		if text := caProblem(c.CAPEM); text != "" {
+			return problem("ca_pem", text)
 		}
 	}
 	for _, db := range c.Live {
 		if !databaseIdentPattern.MatchString(db) {
-			return fmt.Errorf("connection %s: live database %q is not a database name", c.Name, db)
+			return problem("live", "names a database that is not one: 1 to 63 characters, none a control character")
 		}
 	}
 	return nil
@@ -155,26 +189,24 @@ func (c DatabaseConnection) Validate() error {
 
 // hostProblem says why host cannot be a connection's host, or "" when it
 // can: a name, an address (an IPv6 one bare, with or without a zone), or
-// the absolute directory of a Unix socket. It never repeats the host: one
-// written as a URL or as user:password@host carries a password, which as
-// a host would be stored and shown as an ordinary input, never masked.
+// the absolute directory of a Unix socket. It never repeats the host.
 func hostProblem(host string) string {
 	switch {
 	case host == "":
-		return "it needs a host or a socket directory"
+		return "is empty: give a host or a socket directory"
 	case len(host) > 1024 || strings.ContainsAny(host, "\x00\r\n ,"):
-		return "its host is over 1024 bytes or holds a space, a comma or a line break, so it is not a host or a socket directory"
+		return "is over 1024 bytes or holds a space, a comma or a line break, so it is not a host or a socket directory"
 	case strings.Contains(host, "@") || strings.Contains(host, "://"):
-		return "its host holds an @ or ://, as a URL or a login does; give the server's name or address alone, and the user and password in their own fields, where the password is kept secret"
+		return "holds an @ or ://, as a URL or a login does; give the server's name or address alone, and the user and password in their own fields, where the password is kept secret"
 	case path.IsAbs(host):
 		// A socket directory, the one host that holds a slash.
 		return ""
 	case strings.Contains(host, "/"):
-		return "its host holds a /, which only a socket directory, given as an absolute path, may"
+		return "holds a /, which only a socket directory, given as an absolute path, may"
 	case strings.Contains(host, ":"):
 		// Only an IPv6 address holds a colon; a port has its own field.
 		if _, err := netip.ParseAddr(host); err != nil {
-			return "its host holds a : and is not an IPv6 address; give the port in its own field, and an IPv6 address bare, without brackets"
+			return "holds a : and is not an IPv6 address; give the port in its own field, and an IPv6 address bare, without brackets"
 		}
 	}
 	return ""
@@ -190,8 +222,10 @@ func (c DatabaseConnection) IsLive(database string) bool {
 	return false
 }
 
-// checkCAPEM refuses PEM holding anything but certificates, or none.
-func checkCAPEM(text string) error {
+// caProblem says why text cannot be a connection's CA, or "" when it can:
+// PEM holding certificates only, at least one, each of which parses. It says
+// nothing of the text itself, not even a block's type.
+func caProblem(text string) string {
 	rest := []byte(text)
 	found := 0
 	for {
@@ -201,17 +235,17 @@ func checkCAPEM(text string) error {
 			break
 		}
 		if block.Type != "CERTIFICATE" {
-			return fmt.Errorf("the CA holds a %s block; it may hold certificates only", block.Type)
+			return "holds a PEM block that is not a certificate; it may hold certificates only"
 		}
 		if _, err := x509.ParseCertificate(block.Bytes); err != nil {
-			return fmt.Errorf("the CA holds a certificate that does not parse: %w", err)
+			return "holds a certificate that does not parse"
 		}
 		found++
 	}
 	if found == 0 {
-		return errors.New("the CA holds no PEM certificate")
+		return "holds no PEM certificate"
 	}
-	return nil
+	return ""
 }
 
 // FindDatabaseConnection returns the connection named name in conns.

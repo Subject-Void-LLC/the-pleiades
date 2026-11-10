@@ -232,7 +232,7 @@ var CreateCredentialType = Endpoint{
 	},
 	Responses: []Response{
 		{Status: http.StatusCreated, Description: "The created type.", Schema: credentialTypeSchema},
-		{Status: http.StatusBadRequest, Description: "The body is malformed, or the type does not validate or holds a NUL character anywhere in its text.", Schema: errorSchema("")},
+		{Status: http.StatusBadRequest, Description: "The body is malformed, or the type does not validate, marks secret a vault type's vault_id or a database type's name, or holds a NUL character anywhere in its text.", Schema: errorSchema("")},
 		{Status: http.StatusConflict, Description: "That name or namespace is already taken.", Schema: errorSchema("")},
 	},
 }
@@ -258,7 +258,7 @@ var UpdateCredentialType = Endpoint{
 	RequestSchema:      credentialTypePatchSchema,
 	Responses: []Response{
 		{Status: http.StatusOK, Description: "The updated type.", Schema: credentialTypeSchema},
-		{Status: http.StatusBadRequest, Description: "The body is malformed, sets a field to null or changes the namespace or the organization, or the type it would leave does not validate, clears an input's secret flag, or holds a NUL character anywhere in its text.", Schema: errorSchema("")},
+		{Status: http.StatusBadRequest, Description: "The body is malformed, sets a field to null or changes the namespace or the organization, or the type it would leave does not validate, clears an input's secret flag, marks secret a vault type's vault_id or a database type's name, or holds a NUL character anywhere in its text.", Schema: errorSchema("")},
 		{Status: http.StatusForbidden, Description: "The type is managed and cannot be modified.", Schema: errorSchema("")},
 		{Status: http.StatusNotFound, Description: "No credential type with that id.", Schema: errorSchema("")},
 		{Status: http.StatusConflict, Description: "The name is taken in that organization, or a credential of the type cannot be decrypted with this Controller's key.", Schema: errorSchema("")},

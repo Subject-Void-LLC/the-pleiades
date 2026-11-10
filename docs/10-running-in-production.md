@@ -1762,6 +1762,17 @@ rather than rewriting that ciphertext blind. A deployment upgraded from a releas
 without these rules can still hold values an earlier removal left behind; the next
 edit of the type, of any field, deletes them.
 
+No refusal built from a credential's values quotes one: binding two credentials,
+injecting one or reading one from a secret manager names the credential, the input and
+the rule it breaks (`input "port" is not a number`), never the value, since a custom
+type may mark any input secret and the refusal reaches an API response or a job's
+failure reason, where nothing masks it. A vault type's `vault_id` input and a database
+type's `name` input also cannot be marked secret: each is a label, a vault's reaching
+`ansible-playbook`'s command line as `--vault-id` and a database connection's being the
+name a task gives it, and a secret one could not be read back to tell two credentials
+apart. A custom type marking either secret is refused when it is saved, including by an
+edit that changes its kind.
+
 Every credential create, update and input-source write of a type, and every edit of
 the type, first takes a lock on the type's row, and an edit made through the API or
 the web UI is applied to the record as it stands under that lock, so the two never

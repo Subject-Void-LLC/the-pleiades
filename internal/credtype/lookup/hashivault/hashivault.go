@@ -103,7 +103,7 @@ func (Factory) New(inputs map[string]string) (credtype.Lookup, error) {
 	// and http is permitted only because a Vault reached over a loopback
 	// or a service mesh is an ordinary deployment.
 	if base.Scheme != "https" && base.Scheme != "http" {
-		return nil, fmt.Errorf("%w: url scheme %q is not one of https or http", ErrConfiguration, base.Scheme)
+		return nil, fmt.Errorf("%w: url's scheme is not https or http", ErrConfiguration)
 	}
 	if base.Host == "" {
 		return nil, fmt.Errorf("%w: url names no host", ErrConfiguration)
@@ -119,7 +119,7 @@ func (Factory) New(inputs map[string]string) (credtype.Lookup, error) {
 		version = "v2"
 	}
 	if version != "v1" && version != "v2" {
-		return nil, fmt.Errorf("%w: api_version %q is not one of v1 or v2", ErrConfiguration, version)
+		return nil, fmt.Errorf("%w: api_version is not v1 or v2", ErrConfiguration)
 	}
 
 	client, err := clientFor(inputs["cacert"])

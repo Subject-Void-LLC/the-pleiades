@@ -35,6 +35,15 @@ func DatabaseNameOf(kind Kind, inputs map[string]string) string {
 	return strings.TrimSpace(inputs[DatabaseInputName])
 }
 
+// databaseInputOf names the input a connection's field is read from: the
+// same name, but for the login, which the type calls username.
+func databaseInputOf(field string) string {
+	if field == "user" {
+		return DatabaseInputUsername
+	}
+	return field
+}
+
 // databaseTarget turns a database connection credential into one named
 // wire.DatabaseConnection on the artifact. Like registryTarget it is code:
 // its output is a value a Collection method asks its run for by name
@@ -59,10 +68,14 @@ func (databaseTarget) Apply(req Request, art *Artifact) error {
 		CAPEM: cred.Inputs[DatabaseInputCAPEM], ServerName: in(DatabaseInputServerName),
 		InsecureTransport: in(DatabaseInputInsecureTransport) == "true",
 	}
+	// Every refusal below names the input and the rule it breaks, never the
+	// value (TestNoInjectionRefusalQuotesAnInputValue): a custom type may mark
+	// any of these inputs secret, and the refusal reaches a job's failure
+	// reason, where nothing masks it.
 	if p := in(DatabaseInputPort); p != "" {
 		port, err := strconv.Atoi(p)
 		if err != nil {
-			return fmt.Errorf("%w: credential %q: port %q is not a number", ErrInjection, cred.Name, p)
+			return fmt.Errorf("%w: credential %q: input %q is not a number", ErrInjection, cred.Name, DatabaseInputPort)
 		}
 		conn.Port = port
 	}
@@ -71,11 +84,12 @@ func (databaseTarget) Apply(req Request, art *Artifact) error {
 			conn.Live = append(conn.Live, db)
 		}
 	}
-	if err := conn.Validate(); err != nil {
-		return fmt.Errorf("%w: credential %q: %v", ErrInjection, cred.Name, err)
+	if problem := conn.Problem(); problem != nil {
+		return fmt.Errorf("%w: credential %q: input %q %s", ErrInjection, cred.Name, databaseInputOf(problem.Field), problem.Problem)
 	}
 	if _, dup := wire.FindDatabaseConnection(art.databases, conn.Name); dup {
-		return fmt.Errorf("%w: credential %q: a second database connection named %s", ErrInjection, cred.Name, conn.Name)
+		return fmt.Errorf("%w: credential %q: its %q input is another connection's too, and a task names a connection by it",
+			ErrInjection, cred.Name, DatabaseInputName)
 	}
 	art.databases = append(art.databases, conn)
 	return nil
