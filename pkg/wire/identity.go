@@ -76,19 +76,22 @@ func (id CollectionIdentity) IsZero() bool {
 	return id == CollectionIdentity{}
 }
 
-// Valid holds an identity a build is about to write to the shape it writes:
+// Valid holds an identity a build is about to make to the shape it makes:
 // Shape, and a Group that holds no control or format character.
 //
 // The second half depends on the Unicode tables of the Go release the build
-// was made with, which a later release may change, so it is a rule for
-// writers only: whatever puts an identity into a record, the engine's
-// journal projection and the fact writers among them. A process that
-// receives an identity and stores it (the Controller storing a Runner's
-// facts batch) is a writer of that store, and holds it to Valid. A reader
-// that only uses a stored or delivered identity (the journal's reader, a
-// Runner comparing a dispatch's) holds it to Shape, which no release can
-// change, so an identity written correctly stays readable (LESSONS 415's
-// rule).
+// was made with, which a later release may change, so it is a rule for the
+// process that makes an identity: the Runner's engine stamping its journal
+// projection and its facts, the loader naming a program, the CLI's own
+// fact store. A process that receives an identity another made, whether it
+// stores it (the Controller storing a Runner's facts batch and journal rows)
+// or only uses it, never holds it to Valid, whose answer would then depend
+// on which toolchain built the receiver: a store holds it to Deliverable,
+// Shape and a frozen list of misleading characters, and notes where its own
+// Valid would differ; a reader that only uses a stored or delivered identity
+// (the journal's reader, a Runner comparing a dispatch's) holds it to Shape.
+// Neither can move with a release, so an identity written correctly stays
+// storable and readable (LESSONS 415, 422).
 //
 // The zero identity is not valid: a caller checks IsZero first.
 func (id CollectionIdentity) Valid() error {
@@ -96,10 +99,11 @@ func (id CollectionIdentity) Valid() error {
 		return err
 	}
 	if strings.ContainsFunc(id.Group, controlOrFormat) {
-		// A group is printed in refusals an operator reads: a control or
-		// format character (an escape, a newline, a direction override)
-		// could make it read as something else.
-		return fmt.Errorf("%w: its group %q holds a control or format character", ErrInvalidIdentity, id.Group)
+		// A group is printed where an operator reads it: a control or format
+		// character (an escape, a newline, a direction override) could make
+		// it read as something else. Fixed text, so the refusal repeats none
+		// of it.
+		return fmt.Errorf("%w: its group holds a control or format character", ErrInvalidIdentity)
 	}
 	return nil
 }
@@ -117,6 +121,10 @@ func (id CollectionIdentity) Valid() error {
 // turns away nothing a build wrote.
 //
 // The zero identity does not pass: a reader checks IsZero first.
+//
+// Every refusal is fixed text that repeats none of the identity: its fields
+// are delivered bytes of any length, and a refusal reaches log lines and
+// operators.
 func (id CollectionIdentity) Shape() error {
 	switch {
 	case id.Group == "":
@@ -124,20 +132,20 @@ func (id CollectionIdentity) Shape() error {
 	case len(id.Group) > MaxIdentityGroupBytes:
 		return fmt.Errorf("%w: its group is over %d bytes", ErrInvalidIdentity, MaxIdentityGroupBytes)
 	case !utf8.ValidString(id.Group) || strings.ContainsAny(id.Group, "\x00/"):
-		return fmt.Errorf("%w: its group %q is neither a group name nor a file name", ErrInvalidIdentity, id.Group)
+		return fmt.Errorf("%w: its group is neither a group name nor a file name", ErrInvalidIdentity)
 	case strings.ContainsFunc(id.Group, controlCode):
 		// An escape or a newline acts on the terminal or the log line a group
 		// is printed into, so no reader takes one.
-		return fmt.Errorf("%w: its group %q holds a control code", ErrInvalidIdentity, id.Group)
+		return fmt.Errorf("%w: its group holds a control code", ErrInvalidIdentity)
 	case id.Program && id.Version != "":
 		// No build writes a version for a program: the loader knows none.
-		return fmt.Errorf("%w: a program's identity carries no version, and this one names %q", ErrInvalidIdentity, id.Version)
+		return fmt.Errorf("%w: a program's identity carries no version, and this one names one", ErrInvalidIdentity)
 	case len(id.Version) > MaxIdentityVersionBytes:
 		return fmt.Errorf("%w: its version is over %d bytes", ErrInvalidIdentity, MaxIdentityVersionBytes)
 	case !printableASCII(id.Version):
-		return fmt.Errorf("%w: its version %q holds a character outside printable ASCII", ErrInvalidIdentity, id.Version)
+		return fmt.Errorf("%w: its version holds a character outside printable ASCII", ErrInvalidIdentity)
 	case !manifestDigestPattern.MatchString(id.Manifests):
-		return fmt.Errorf("%w: its manifest digest %q is not sha256:<64 lowercase hex digits>", ErrInvalidIdentity, id.Manifests)
+		return fmt.Errorf("%w: its manifest digest is not sha256:<64 lowercase hex digits>", ErrInvalidIdentity)
 	}
 	return nil
 }

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/termsafe"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
@@ -68,33 +69,39 @@ type Provenance struct {
 var ErrCollectionIdentity = errors.New("a collection identity no build writes for its method")
 
 // CheckCollection holds p's Collection to what this build's engine writes:
-// CheckDeliveredCollection, and an identity that agrees with this build's
-// routing of Method (CollectionRouting). It is the rule for a provenance the
-// process itself made, the engine stamping it and the CLI's file store
-// keeping it, where the build that routed the method is this one.
+// zero, or an identity that passes wire.CollectionIdentity.Valid and agrees
+// with this build's routing of Method (CollectionRouting). It is the rule for
+// a provenance the process itself made, the engine stamping it and the CLI's
+// file store keeping it, where the build that made the identity, with its
+// own Unicode tables and its own group list, is this one.
 //
 // It is a rule for writing, never for reading: the group list may grow on a
 // minor release, so a program's identity stored today could fail it later.
 // A reader hashes and returns what was stored, and the chain, which covers
 // the identity, is what finds one edited.
 func (p Provenance) CheckCollection() error {
-	if err := p.CheckDeliveredCollection(); err != nil {
-		return err
+	if id := p.Collection; !id.IsZero() {
+		if err := id.Valid(); err != nil {
+			return fmt.Errorf("%w: %w", ErrCollectionIdentity, err)
+		}
 	}
 	return p.CollectionRouting()
 }
 
 // CheckDeliveredCollection holds p's Collection to the part of what an
-// engine writes that does not depend on which build reads it: zero, or an
-// identity that passes wire.CollectionIdentity.Valid. It is the rule for a
-// provenance another process made: the Controller storing a Runner's batch
-// is that batch's writer (LESSONS 413) and holds it to Valid, while how the
-// Runner's build routed the method to a group is that build's to say, since
-// the group list may grow, and a method move, between it and this one
-// (LESSONS 415).
+// engine writes that depends on no build: zero, or an identity that passes
+// wire.CollectionIdentity.Deliverable, Shape and a frozen list of characters
+// that would mislead a reader. It is the rule for a provenance another
+// process made: the Controller storing a Runner's batch is that batch's
+// writer (LESSONS 413), and never holds it to Valid, whose Unicode tables
+// are its own toolchain's and may call a character the Runner's build
+// accepted unassigned. How the Runner's build routed the method to a group
+// is that build's to say too, since the group list may grow, and a method
+// move, between it and this one (LESSONS 415, 422). A refusal repeats none
+// of the identity.
 func (p Provenance) CheckDeliveredCollection() error {
 	if id := p.Collection; !id.IsZero() {
-		if err := id.Valid(); err != nil {
+		if err := id.Deliverable(); err != nil {
 			return fmt.Errorf("%w: %w", ErrCollectionIdentity, err)
 		}
 	}
@@ -114,13 +121,16 @@ func (p Provenance) CollectionRouting() error {
 		return nil
 	}
 	group, firstParty := collection.FirstPartyGroupOf(p.Method)
+	// The method and the group are delivered bytes on the Controller, so each
+	// is named bounded and escaped (termsafe.Quote); the first-party group's
+	// name is this build's own.
 	switch {
 	case id.Program && firstParty:
-		return fmt.Errorf("%w: a program's identity for %q, a method of the first-party group %q", ErrCollectionIdentity, p.Method, group.Name)
+		return fmt.Errorf("%w: a program's identity for %s, a method of the first-party group %q", ErrCollectionIdentity, termsafe.Quote(p.Method), group.Name)
 	case !id.Program && !firstParty:
-		return fmt.Errorf("%w: group %q for %q, a method in no first-party group", ErrCollectionIdentity, id.Group, p.Method)
+		return fmt.Errorf("%w: group %s for %s, a method in no first-party group", ErrCollectionIdentity, termsafe.Quote(id.Group), termsafe.Quote(p.Method))
 	case !id.Program && group.Name != id.Group:
-		return fmt.Errorf("%w: group %q for %q, a method of %q", ErrCollectionIdentity, id.Group, p.Method, group.Name)
+		return fmt.Errorf("%w: group %s for %s, a method of %q", ErrCollectionIdentity, termsafe.Quote(id.Group), termsafe.Quote(p.Method), group.Name)
 	}
 	return nil
 }
