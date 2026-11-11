@@ -34,17 +34,21 @@ func (g fakeGit) GitDir() (string, error) { return g.dir, nil }
 // fakeGitHub is GitHub with one earlier dispatched run, which makes a new
 // run when dispatched to and moves it to completed after polls reads. The
 // new run is at head and named by the dispatch's nonce unless runHead or
-// runTitle say otherwise, and the first fail GETs after the dispatch fail.
+// runTitle say otherwise, is listed as already completed with runConclusion
+// when that is set, and the first fail GETs after the dispatch fail. With
+// alsoNamed a second new run, ID 3, carries the nonce beside it.
 type fakeGitHub struct {
-	t          *testing.T
-	head       string
-	conclusion string
-	polls      int
-	runHead    string
-	runTitle   string
-	fail       int
-	dispatched []byte
-	reads      int
+	t             *testing.T
+	head          string
+	conclusion    string
+	polls         int
+	runHead       string
+	runTitle      string
+	runConclusion string
+	alsoNamed     bool
+	fail          int
+	dispatched    []byte
+	reads         int
 }
 
 // sentNonce is the nonce the dispatch carried.
@@ -75,9 +79,17 @@ func (f *fakeGitHub) Get(path string) ([]byte, error) {
 			if f.runTitle != "" {
 				r.Title = f.runTitle
 			}
+			if f.runConclusion != "" {
+				r.Status, r.Conclusion = "completed", f.runConclusion
+			}
 			runs = append([]Run{r}, runs...)
+			if f.alsoNamed {
+				runs = append(runs, Run{ID: 3, HeadSHA: f.head, Title: runName(f.sentNonce()), Status: "completed", Conclusion: "success", URL: "https://example/run/3"})
+			}
 		}
 		return json.Marshal(map[string]any{"workflow_runs": runs})
+	case strings.Contains(path, "/actions/runs/3/jobs"), strings.Contains(path, "/actions/runs/2/jobs") && f.runConclusion == startupFailure:
+		return json.Marshal(map[string]any{"jobs": []Job{}})
 	case strings.HasSuffix(path, "/actions/runs/2"):
 		f.reads++
 		r := Run{ID: 2, HeadSHA: f.head, Status: "in_progress", URL: "https://example/run/2"}
@@ -242,6 +254,55 @@ func TestRun_FollowsOnlyItsOwnRun(t *testing.T) {
 		if _, err := os.Stat(receipt); !errors.Is(err, os.ErrNotExist) {
 			t.Errorf("%s: a receipt is left (%v)", name, err)
 		}
+	}
+}
+
+// TestRun_AStartupFailureIsAFailure: a new dispatched run at the commit that
+// GitHub could not start carries the workflow's name, never the nonce, and is
+// reported as a failure at the first read, with a receipt, rather than
+// waited for until -timeout. One at another commit, or one that was there
+// before the dispatch, is not this dispatch's, and the run carrying the nonce
+// wins when both are listed.
+func TestRun_AStartupFailureIsAFailure(t *testing.T) {
+	start := time.Date(2026, 11, 11, 20, 42, 0, 0, time.UTC)
+	gh := &fakeGitHub{t: t, head: head, runTitle: "CI", runConclusion: startupFailure}
+	c := &clock{now: start}
+	receipt := filepath.Join(t.TempDir(), "r.json")
+	var out strings.Builder
+	err := run([]string{"-packages", pkgA, "-receipt", receipt}, &out, gh, pushed, nonce, c.Now, c.Sleep)
+	if err == nil || !strings.Contains(err.Error(), "could not start the run") || !strings.Contains(err.Error(), "https://example/run/2") {
+		t.Fatalf("err = %v\n%s", err, out.String())
+	}
+	if !c.now.Equal(start) {
+		t.Errorf("waited %s for a run that had already failed", c.now.Sub(start))
+	}
+	if r := readReceipt(t, receipt); r.Commit != head || r.RunID != 2 || r.Conclusion != startupFailure {
+		t.Errorf("receipt %+v", r)
+	}
+
+	// At another commit it is some other dispatch's, and is not followed.
+	other := &fakeGitHub{t: t, head: head, runTitle: "CI", runConclusion: startupFailure, runHead: "fedcba9876543210fedcba9876543210fedcba98"}
+	c = &clock{now: start}
+	err = run([]string{"-packages", pkgA, "-receipt", filepath.Join(t.TempDir(), "r.json"), "-timeout", "2m"}, io.Discard, other, pushed, nonce, c.Now, c.Sleep)
+	if err == nil || !strings.Contains(err.Error(), "no run of the dispatch appeared") {
+		t.Errorf("another commit's startup failure: %v", err)
+	}
+
+	// One listed before the dispatch is an earlier dispatch's.
+	seen := map[int64]bool{1: true, 2: true}
+	if r, err := newRun(other, "feat/x", head, "n", seen); err != nil || r.ID != 0 {
+		t.Errorf("a startup failure from before the dispatch was taken: %+v, %v", r, err)
+	}
+
+	// The run carrying the nonce wins, wherever it is listed.
+	both := &fakeGitHub{t: t, head: head, runTitle: "CI", runConclusion: startupFailure, alsoNamed: true, conclusion: "success"}
+	c = &clock{now: start}
+	receipt = filepath.Join(t.TempDir(), "r.json")
+	if err := run([]string{"-packages", pkgA, "-receipt", receipt}, io.Discard, both, pushed, nonce, c.Now, c.Sleep); err != nil {
+		t.Fatalf("with the named run listed too: %v", err)
+	}
+	if r := readReceipt(t, receipt); r.RunID != 3 || r.Conclusion != "success" {
+		t.Errorf("receipt %+v, want the named run's", r)
 	}
 }
 

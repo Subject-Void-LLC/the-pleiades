@@ -126,11 +126,24 @@ func dispatchRuns(gh github, branch string) (map[int64]bool, error) {
 	return seen, nil
 }
 
+// startupFailure is the conclusion GitHub gives a run it could not start: no
+// job ran, and run-name was never read, so the run carries the workflow's
+// name and not its dispatch's nonce.
+const startupFailure = "startup_failure"
+
 // newRun is the run this command's dispatch made: on branch at head, named
 // by nonce, and not there before. It is a zero Run while GitHub has not made
 // it yet. The name is what ties a run to its dispatch, since another dispatch
 // at the same commit (a nightly by hand, a second make branch-containers)
 // makes a run that differs in nothing else.
+//
+// A run that failed at startup has no such name, and waiting for one that
+// does waits out -timeout (FAILURE_PATTERNS 1173). So when no run carries the
+// nonce, a new dispatched run at head that concluded startup_failure is taken
+// as this dispatch's: it may be another dispatch's at the same commit, which
+// nothing can tell apart, and a run that could not start there is a failure
+// to report either way. The named run is looked for first, so it wins when
+// both are listed.
 func newRun(gh github, branch, head, nonce string, before map[int64]bool) (Run, error) {
 	runs, err := listRuns(gh, branch)
 	if err != nil {
@@ -138,6 +151,11 @@ func newRun(gh github, branch, head, nonce string, before map[int64]bool) (Run, 
 	}
 	for _, r := range runs {
 		if !before[r.ID] && r.HeadSHA == head && r.Title == runName(nonce) {
+			return r, nil
+		}
+	}
+	for _, r := range runs {
+		if !before[r.ID] && r.HeadSHA == head && r.Conclusion == startupFailure {
 			return r, nil
 		}
 	}

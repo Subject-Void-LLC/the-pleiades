@@ -178,6 +178,9 @@ func run(args []string, out io.Writer, gh github, git repository, nonce func() (
 			fmt.Fprintf(out, "  %-28s %s  %s\n", j.Name, j.Conclusion, j.URL)
 		}
 	}
+	if r.Conclusion == startupFailure {
+		return fmt.Errorf("GitHub could not start the run, so no job ran and nothing was tested: read %s for why (a workflow file it refuses, or GitHub itself), then run this again", r.URL)
+	}
 	if r.Conclusion != "success" {
 		return fmt.Errorf("the run concluded %s: fix what failed before the pull request (%s)", r.Conclusion, r.URL)
 	}
