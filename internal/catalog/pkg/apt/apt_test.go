@@ -23,9 +23,9 @@ import (
 // /bin/sh, with apt-get, dpkg-query and apt-cache on PATH as shell
 // scripts. The SSH transport, the shell, the quoting, the argument
 // vector and the exit status are all genuine; only the package database
-// at the far end is not. Proving these against a real apt-get is a
-// container Release Gate's job; svc.systemd.* ships at this same tier
-// with no such gate, and this namespace matches it.
+// at the far end is not. The proof against a real apt-get is
+// cmd/pleiades's TestCLI_AptChecksMatchTheirRealRuns and
+// TestCLI_AptRefusesANameItWouldReadAsAnOption.
 
 // ---------- harness ----------
 
