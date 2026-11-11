@@ -3,18 +3,16 @@ package serial_test
 import (
 	"context"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
-	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport/pseudotty"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/transport"
 	serialtransport "github.com/Subject-Void-LLC/the-pleiades/internal/transport/serial"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/serialexec"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/serialline"
-	realserial "go.bug.st/serial"
 )
 
 // This file closes a real gap Phase 73's own Workstream E found while
@@ -27,112 +25,47 @@ import (
 // discipline that file already established, just against
 // serialtransport.New(...).Exec rather than serialexec.Exec directly.
 
-// testPTYPair starts a real socat process linking two PTYs at fixed
-// paths under t.TempDir(), waits for both to exist, and registers
-// cleanup. Deliberately a local copy of pkg/serialexec's own test
-// helper of the same name rather than a shared export: it is small,
-// test-only, and a cross-package test-helper dependency is not worth
-// the coupling for twenty lines. Without socat it stops through
-// testsupport.Require, as that helper does, so the skip names the need.
-func testPTYPair(t *testing.T) (a, b string) {
+// testPTY returns a pseudo terminal's device path, for the Adapter to
+// open as a serial port, and its master side, which the test plays the far
+// end on. A local wrapper of pkg/serialexec's own test helper of the same
+// name rather than a shared export: both are a few lines over
+// internal/testsupport/pseudotty, and a cross-package test-helper
+// dependency is not worth the coupling. Without a pseudo terminal it stops
+// through need.Require, as that helper does, so the skip names the need.
+func testPTY(t *testing.T) (device string, far *os.File) {
 	t.Helper()
 	if testing.Short() {
 		t.Skip("skipping PTY-backed integration test in short mode")
 	}
-	_, err := exec.LookPath("socat")
-	testsupport.Require(t, "socat", err == nil,
-		"socat links the two pseudo terminals these tests talk across; install it (apt-get install socat)")
-
-	dir := t.TempDir()
-	a = filepath.Join(dir, "a")
-	b = filepath.Join(dir, "b")
-
-	cmd := exec.Command("socat", "-d", "-d",
-		"PTY,link="+a+",raw,echo=0",
-		"PTY,link="+b+",raw,echo=0",
-	)
-	if err := cmd.Start(); err != nil {
-		t.Fatalf("starting socat: %v", err)
-	}
-	// Waited on exactly once, here, so the loop below can tell "socat is
-	// still starting" from "socat is gone". Cleanup drains the result
-	// rather than calling Wait a second time, which would error.
-	waited := make(chan error, 1)
-	go func() { waited <- cmd.Wait() }()
-	t.Cleanup(func() {
-		_ = cmd.Process.Kill()
-		<-waited
-	})
-
-	// Thirty seconds rather than five. This is not a budget for how long
-	// socat SHOULD take -- it takes a few milliseconds on an idle machine
-	// -- it is the point at which waiting longer tells us nothing new.
-	// The old five seconds was inside the range a loaded machine can
-	// delay a subprocess by: `make ci` runs twenty-one container packages
-	// and the whole suite three times over, and this test failed there
-	// while passing alone in under a second. A timeout that fires on load
-	// reports a defect that is not there and hides the next real one.
-	const ptyLinkTimeout = 30 * time.Second
-	started := time.Now()
-	for {
-		_, errA := os.Lstat(a)
-		_, errB := os.Lstat(b)
-		if errA == nil && errB == nil {
-			break
-		}
-		// Asked before the deadline, because socat dying is a DIFFERENT
-		// failure and used to be reported as this one: a process that
-		// exited immediately still produced "never created both PTY
-		// links" after the full wait, which names the symptom and sends
-		// the reader to look at PTYs rather than at socat's own error.
-		select {
-		case err := <-waited:
-			waited <- err // put it back, so Cleanup's drain still returns
-			t.Fatalf("socat exited before creating its PTY links: %v", err)
-		default:
-		}
-		if elapsed := time.Since(started); elapsed > ptyLinkTimeout {
-			t.Fatalf("socat never created both PTY links within %s (a err: %v, b err: %v)",
-				elapsed.Round(time.Second), errA, errB)
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-	return a, b
+	return pseudotty.Open(t)
 }
 
-// TestExec_RoundTripsThroughARealPTYPair proves this Adapter is not just
+// TestExec_RoundTripsThroughARealPseudoTerminal proves this Adapter is not just
 // a type-erased pass-through in name: it actually opens a real serial
 // line via pkg/serialexec, and the far end's response reaches
 // transport.Result.Stdout. Data-path evidence only, the same caveat
 // pkg/serialexec's own PTY test states: a PTY never applies baud/parity/
 // stop-bit settings, so this proves nothing about line control.
-func TestExec_RoundTripsThroughARealPTYPair(t *testing.T) {
-	a, b := testPTYPair(t)
+func TestExec_RoundTripsThroughARealPseudoTerminal(t *testing.T) {
+	device, far := testPTY(t)
 
-	farEnd, err := realserial.Open(b, &realserial.Mode{BaudRate: 9600, DataBits: 8})
-	if err != nil {
-		t.Fatalf("opening far end %s: %v", b, err)
-	}
-	defer farEnd.Close()
-	if err := farEnd.SetReadTimeout(2 * time.Second); err != nil {
-		t.Fatalf("SetReadTimeout: %v", err)
-	}
-
+	// The far end reads the command once and answers it. A master side has
+	// no portable read timeout, so the wait below is a bounded select.
 	received := make(chan string, 1)
 	go func() {
 		buf := make([]byte, 256)
-		n, err := farEnd.Read(buf)
+		n, err := far.Read(buf)
 		if err != nil || n == 0 {
 			received <- ""
 			return
 		}
 		received <- string(buf[:n])
-		_, _ = farEnd.Write([]byte("RESPONSE: ok\r\n"))
+		_, _ = far.Write([]byte("RESPONSE: ok\r\n"))
 	}()
 
 	line := serialline.Config{BaudRate: 9600, DataBits: 8, Parity: serialline.ParityNone, StopBits: serialline.StopBitsOne}
 	tr := serialtransport.New(serialexec.Options{ReadTimeout: 300 * time.Millisecond})
-	target := transport.Target{Endpoint: transport.SerialEndpoint{Device: serialline.Device(a), Line: line}}
+	target := transport.Target{Endpoint: transport.SerialEndpoint{Device: serialline.Device(device), Line: line}}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -141,7 +74,12 @@ func TestExec_RoundTripsThroughARealPTYPair(t *testing.T) {
 		t.Fatalf("Exec: %v", err)
 	}
 
-	gotCommand := <-received
+	var gotCommand string
+	select {
+	case gotCommand = <-received:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the far end never received the command")
+	}
 	if gotCommand != "show version\r\n" {
 		t.Errorf("far end received %q, want %q", gotCommand, "show version\r\n")
 	}

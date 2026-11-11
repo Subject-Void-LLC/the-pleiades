@@ -110,7 +110,7 @@ func TestExec_InvalidLineConfigFailsBeforeAnyOpen(t *testing.T) {
 // readUntilQuiet's branches that a real PTY cannot conveniently drive:
 // unbounded output and context cancellation mid-stream. The main
 // data-path, timeout, and lifecycle claims are proven against a real
-// socat PTY pair in serialexec_pty_test.go, per RULE 0; this fake earns
+// pseudo terminal in serialexec_pty_test.go, per RULE 0; this fake earns
 // its place only for the two branches that need deterministic,
 // instant behavior a real timing-based device would make flaky.
 type fakePort struct {

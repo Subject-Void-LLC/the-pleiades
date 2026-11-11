@@ -27,7 +27,7 @@
 // quiet period, go.bug.st/serial's own documented signal
 // (serial_unix.go: "// Timeout happened; return 0, nil") that no more
 // output is coming for now. That is the same shape this phase's own
-// RULE 0 test proves against a real socat PTY pair: a read timeout
+// RULE 0 test proves against a real pseudo terminal: a read timeout
 // genuinely fires rather than this package hanging forever waiting for
 // a prompt it cannot recognize.
 //
