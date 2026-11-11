@@ -118,9 +118,10 @@ func checkIdentity(fqcn string, id wire.CollectionIdentity, program string) erro
 
 // checkParamValue refuses a recorded value this build's undo method would
 // refuse for its parameter: one of another type than it declares
-// (collection.ParamFits) or outside the choices it declares
-// (collection.ChoiceProblem), the two rules validation and the engine hold
-// every value to. Replaying it would hand the method a value its author
+// (collection.ParamFits), outside the choices it declares
+// (collection.ChoiceProblem), or a name it would pass on as an option or a
+// pattern (collection.OperandProblem), the rules validation and the engine
+// hold every value to. Replaying it would hand the method a value its author
 // never meant, and no flag accepts that. The value itself is never printed:
 // only its kind, and the method's own choices.
 func checkParamValue(key string, value any, param collection.Param, method string) error {
@@ -133,6 +134,9 @@ func checkParamValue(key string, value any, param collection.Param, method strin
 	}
 	if problem := collection.ChoiceProblem(param, value); problem != "" {
 		return fmt.Errorf("the journal records a value for undo parameter %q that %s does not take (%s), so it is not trusted", key, Printable(method), problem)
+	}
+	if problem := collection.OperandProblem(param, value); problem != "" {
+		return fmt.Errorf("the journal records a value for undo parameter %q that %s would not pass on as one name (%s), so it is not trusted", key, Printable(method), problem)
 	}
 	return nil
 }

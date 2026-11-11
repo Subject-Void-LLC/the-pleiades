@@ -79,6 +79,7 @@ type pkgState struct {
 	candidateExit      int    // exit code apt-cache itself returns, default 0
 	noCandidateLine    bool   // apt-cache's output has no Candidate: line at all
 	dpkgStatusOverride string // when set, used verbatim as dpkg-query's Status line, with a successful exit
+	dpkgExit           int    // when set, dpkg-query's exit code for one package's status (2 is its usage error)
 
 	// The installed set dpkg-query -W lists, space-separated: listBefore,
 	// then listAfter once the fake apt-get has run an install (default:
@@ -148,6 +149,9 @@ func newHarnessBudgeted(t *testing.T, state pkgState, budget int) *harness {
 		status = state.dpkgStatusOverride
 		dpkgExit = "0"
 	}
+	if state.dpkgExit != 0 {
+		dpkgExit = strconv.Itoa(state.dpkgExit)
+	}
 	candidate := state.candidate
 	if candidate == "" {
 		candidate = "(none)"
@@ -173,8 +177,10 @@ fi
 case " $* " in *" install "*) [ "$exit_code" = "0" ] && : > "$FAKE_RECORD.installed" ;; esac
 exit "$exit_code"
 `
-	// Two arguments (-W and a format) is the installed listing; three is
-	// one package's status.
+	// Two arguments (-W and a format) is the installed listing; four (-W,
+	// a format, "--" and a name) is one package's status. A status query
+	// without the "--" is refused the way real dpkg-query refuses a word it
+	// reads as an option, so a call that dropped it fails here.
 	dpkgQueryScript := `#!/bin/sh
 if [ "$#" = "2" ]; then
   if [ "${FAKE_LIST_EXIT:-0}" != "0" ]; then printf 'dpkg-query: fake listing failure\n' >&2; exit "$FAKE_LIST_EXIT"; fi
@@ -184,15 +190,18 @@ if [ "$#" = "2" ]; then
   for p in $list; do printf 'ii %s\n' "$p"; done
   exit 0
 fi
+if [ "$3" != "--" ]; then printf 'dpkg-query: error: no -- before the name\n' >&2; exit 2; fi
 printf '%s\t%s' "$FAKE_STATUS" "$FAKE_VERSION"
 exit "$FAKE_DPKG_EXIT"
 `
 	// Package: precedes Candidate: unconditionally, the way apt-cache
 	// policy's real output always carries more than one line, so
 	// queryCandidate's own loop has a non-Candidate line to skip over on
-	// every call, not just a contrived one.
+	// every call, not just a contrived one. Like dpkg-query, it refuses a
+	// name with no "--" before it.
 	aptCacheScript := `#!/bin/sh
-printf 'Package: %s\n' "$2"
+if [ "$2" != "--" ]; then printf 'E: no -- before the name\n' >&2; exit 100; fi
+printf 'Package: %s\n' "$3"
 if [ "$FAKE_NO_CANDIDATE_LINE" != "1" ]; then
   printf 'Candidate: %s\n' "$FAKE_CANDIDATE"
 fi

@@ -79,6 +79,29 @@ func TestBuild_AValueOutsideTheDeclaredChoicesIsLeaveOnly(t *testing.T) {
 	}
 }
 
+// TestBuild_AnOperandAProgramWouldMisreadIsLeaveOnly: a recorded name the
+// undo's method would pass on as an option or a pattern is refused with
+// --leave alone, whatever --allow-skew names, and the value is never
+// printed (FAILURE_PATTERNS 1174).
+func TestBuild_AnOperandAProgramWouldMisreadIsLeaveOnly(t *testing.T) {
+	in := registerSkew(t)
+	for _, path := range []string{"--no-preserve-root", "/srv/*"} {
+		t.Run(path, func(t *testing.T) {
+			for _, allow := range []bool{false, true} {
+				_, err := planOf([]engine.JournalEntry{madeEntry(in.identity, in.undo, map[string]any{"path": path})}, func(r *rollback.Request) {
+					if allow {
+						r.AllowSkew = map[string]bool{"tasks[0]": true}
+					}
+				})
+				problems := refused(t, err)
+				if len(problems) != 1 || problems[0].Accept != "--leave tasks[0]" || !strings.Contains(problems[0].Reason, "would not pass on as one name") || strings.Contains(problems[0].Reason, path) {
+					t.Errorf("allow-skew %v: problems %+v, want one naming the rule and not the value, accepted by --leave alone", allow, problems)
+				}
+			}
+		})
+	}
+}
+
 // TestVerify_ARunnerHoldsRequiredParametersAndChoicesWhateverIsAccepted:
 // the Runner's re-check holds a step to the same two rules, SkewAccepted or
 // not.

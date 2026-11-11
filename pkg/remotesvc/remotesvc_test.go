@@ -279,7 +279,7 @@ func TestStatus_ReadsThroughARealShell(t *testing.T) {
 		t.Fatalf("systemctl was called %d times, want 1: reading state must be one round trip", len(calls))
 	}
 	got := calls[0]
-	want := []string{"show", "nginx", "--property=LoadState", "--property=ActiveState", "--property=UnitFileState"}
+	want := []string{"show", "--property=LoadState", "--property=ActiveState", "--property=UnitFileState", "--", "nginx"}
 	if strings.Join(got, " ") != strings.Join(want, " ") {
 		t.Errorf("systemctl argv = %v, want %v", got, want)
 	}
@@ -329,15 +329,15 @@ func TestOperations_SendTheRightVerb(t *testing.T) {
 		call func(context.Context, *remoteexec.Conn) error
 		want []string
 	}{
-		{name: "start", want: []string{"start", "nginx"},
+		{name: "start", want: []string{"start", "--", "nginx"},
 			call: func(ctx context.Context, c *remoteexec.Conn) error { return Start(ctx, c, "nginx") }},
-		{name: "stop", want: []string{"stop", "nginx"},
+		{name: "stop", want: []string{"stop", "--", "nginx"},
 			call: func(ctx context.Context, c *remoteexec.Conn) error { return Stop(ctx, c, "nginx") }},
-		{name: "restart", want: []string{"restart", "nginx"},
+		{name: "restart", want: []string{"restart", "--", "nginx"},
 			call: func(ctx context.Context, c *remoteexec.Conn) error { return Restart(ctx, c, "nginx") }},
-		{name: "enable", want: []string{"enable", "nginx"},
+		{name: "enable", want: []string{"enable", "--", "nginx"},
 			call: func(ctx context.Context, c *remoteexec.Conn) error { return Enable(ctx, c, "nginx") }},
-		{name: "disable", want: []string{"disable", "nginx"},
+		{name: "disable", want: []string{"disable", "--", "nginx"},
 			call: func(ctx context.Context, c *remoteexec.Conn) error { return Disable(ctx, c, "nginx") }},
 		{name: "daemon-reload", want: []string{"daemon-reload"},
 			call: func(ctx context.Context, c *remoteexec.Conn) error { return DaemonReload(ctx, c) }},
@@ -391,13 +391,43 @@ func TestOperations_QuoteTheUnitName(t *testing.T) {
 			if len(calls) != 1 {
 				t.Fatalf("systemctl was called %d times, want exactly 1: a second call means the name broke out", len(calls))
 			}
-			if len(calls[0]) != 2 {
-				t.Fatalf("systemctl argv = %v, want exactly 2 arguments: the name did not survive as one argument", calls[0])
+			if len(calls[0]) != 3 || calls[0][1] != "--" {
+				t.Fatalf("systemctl argv = %v, want exactly start, --, and the name: the name did not survive as one argument", calls[0])
 			}
-			if calls[0][1] != unit {
-				t.Errorf("systemctl received unit %q, want %q verbatim", calls[0][1], unit)
+			if calls[0][2] != unit {
+				t.Errorf("systemctl received unit %q, want %q verbatim", calls[0][2], unit)
 			}
 		})
+	}
+}
+
+// TestOperations_RefuseANameSystemctlWouldMisread: a unit name systemctl
+// would read as an option, or as a pattern expanded to every loaded unit it
+// matches, is refused by every function here before systemctl is called at
+// all (FAILURE_PATTERNS 1174).
+func TestOperations_RefuseANameSystemctlWouldMisread(t *testing.T) {
+	calls := map[string]func(context.Context, *remoteexec.Conn, string) error{
+		"status":  func(ctx context.Context, c *remoteexec.Conn, u string) error { _, err := Status(ctx, c, u); return err },
+		"start":   Start,
+		"stop":    Stop,
+		"restart": Restart,
+		"enable":  Enable,
+		"disable": Disable,
+	}
+	for _, unit := range []string{"--now", "-H", "s*", "ssh?.service", "sys[a-z]*"} {
+		for name, call := range calls {
+			t.Run(name+" "+unit, func(t *testing.T) {
+				record := fakeSystemctl(t)
+				conn := connect(t)
+				err := call(context.Background(), conn, unit)
+				if err == nil || !strings.Contains(err.Error(), "unit is refused") {
+					t.Fatalf("err = %v, want the unit refused", err)
+				}
+				if got := invocations(t, record); len(got) != 0 {
+					t.Errorf("systemctl ran: %v", got)
+				}
+			})
+		}
 	}
 }
 

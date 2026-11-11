@@ -77,6 +77,9 @@ type pkgState struct {
 	updateExit      int  // dnf check-update's own exit code: 0 none, 100 available, anything else a real error
 	dnfExit         int  // exit code dnf itself returns for a mutating call, default 0
 	rpmEmptyVersion bool // rpm -q exits 0 (it knows the package) but prints no version at all
+	// rpmError, when set, is what rpm -q writes to stderr before it exits 1
+	// without saying the package is not installed: rpm failing to answer.
+	rpmError string
 }
 
 var (
@@ -141,7 +144,13 @@ if [ "$exit_code" != "0" ]; then
 fi
 exit "$exit_code"
 `
+	// rpm -q --qf FORMAT -- NAME: a name with no "--" before it is refused
+	// the way real rpm refuses a word it reads as an option, and an absent
+	// package is reported in real rpm's own words, which queryRPM reads.
 	rpmScript := `#!/bin/sh
+if [ "$4" != "--" ]; then printf 'rpm: %s: unknown option\n' "$4" >&2; exit 1; fi
+if [ -n "$FAKE_RPM_ERROR" ]; then printf '%s\n' "$FAKE_RPM_ERROR" >&2; exit 1; fi
+if [ "$FAKE_RPM_EXIT" = "1" ]; then printf 'package %s is not installed\n' "$5"; exit 1; fi
 printf '%s' "$FAKE_VERSION"
 exit "$FAKE_RPM_EXIT"
 `
@@ -152,6 +161,7 @@ exit "$FAKE_RPM_EXIT"
 	t.Setenv("FAKE_RECORD", record)
 	t.Setenv("FAKE_VERSION", version)
 	t.Setenv("FAKE_RPM_EXIT", rpmExit)
+	t.Setenv("FAKE_RPM_ERROR", state.rpmError)
 	t.Setenv("FAKE_UPDATE_EXIT", strconv.Itoa(state.updateExit))
 	t.Setenv("FAKE_DNF_EXIT", strconv.Itoa(state.dnfExit))
 
@@ -507,6 +517,7 @@ printf 'stdout-only failure explanation\n'
 exit 1
 `
 	rpmScript := `#!/bin/sh
+printf 'package %s is not installed\n' "$5"
 exit 1
 `
 	writeScript(t, dir, "dnf", dnfScript)
@@ -542,6 +553,7 @@ printf -- '---\n' >> "$FAKE_RECORD"
 exit 1
 `
 	rpmScript := `#!/bin/sh
+printf 'package %s is not installed\n' "$5"
 exit 1
 `
 	writeScript(t, dir, "dnf", dnfScript)

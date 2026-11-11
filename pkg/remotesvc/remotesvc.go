@@ -45,6 +45,7 @@ import (
 	"strings"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/farside"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/operand"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 )
 
@@ -147,10 +148,19 @@ func (s State) Map() map[string]any {
 // false), not an error: a method that treated it as a failure could
 // never tell an operator which unit name was wrong, and one that treated
 // it as "stopped" would report success for a typo.
+//
+// A unit name systemctl would read as an option or as a pattern is refused
+// before anything is sent (pkg/operand). systemctl show "s*" answers for
+// every loaded unit starting with s at once, and its last block would then
+// decide whether systemctl stop "s*" stops them all (measured on Rocky
+// Linux 9, FAILURE_PATTERNS 1174). The options come before a "--" and the
+// unit after it, so the unit is read as a unit whatever it holds.
 func Status(ctx context.Context, conn *remoteexec.Conn, unit string) (State, error) {
-	quoted := remoteexec.QuoteArg(unit)
-	cmd := "systemctl show " + quoted +
-		" --property=LoadState --property=ActiveState --property=UnitFileState"
+	if err := operand.Check("unit", unit); err != nil {
+		return State{}, fmt.Errorf("reading the state of a unit: %w", err)
+	}
+	cmd := "systemctl show --property=LoadState --property=ActiveState --property=UnitFileState -- " +
+		remoteexec.QuoteArg(unit)
 
 	result, err := conn.Run(ctx, cmd)
 	if err != nil {
@@ -256,9 +266,16 @@ func DaemonReload(ctx context.Context, conn *remoteexec.Conn) error {
 //
 // The unit name is quoted with remoteexec.QuoteArg before it reaches the
 // remote shell, so a name arriving from a runbook variable is a name
-// rather than syntax. Nothing else is interpolated.
+// rather than syntax, and it follows a "--", so systemctl reads it as a
+// unit rather than an option. A name systemctl would still read as an
+// option or a pattern (start, stop and restart expand one to every loaded
+// unit it matches) is refused before anything is sent (pkg/operand).
+// Nothing else is interpolated.
 func run(ctx context.Context, conn *remoteexec.Conn, op, unit string) error {
-	result, err := conn.Run(ctx, "systemctl "+op+" "+remoteexec.QuoteArg(unit))
+	if err := operand.Check("unit", unit); err != nil {
+		return fmt.Errorf("systemctl %s: %w", op, err)
+	}
+	result, err := conn.Run(ctx, "systemctl "+op+" -- "+remoteexec.QuoteArg(unit))
 	if err != nil {
 		return fmt.Errorf("systemctl %s %s: %w", op, unit, err)
 	}

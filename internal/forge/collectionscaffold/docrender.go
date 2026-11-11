@@ -90,6 +90,8 @@ func renderDoc(doc collection.Doc) string {
 				fields = append(fields, "Format: collection.ParamFormatKubernetesManifest")
 			case collection.ParamFormatProjectPath:
 				fields = append(fields, "Format: collection.ParamFormatProjectPath")
+			case collection.ParamFormatOperand:
+				fields = append(fields, "Format: collection.ParamFormatOperand")
 			default:
 				fields = append(fields, "Format: collection.ParamFormat("+strconv.Quote(string(p.Format))+")")
 			}

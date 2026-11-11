@@ -148,7 +148,7 @@ type unitOp struct {
 // the read-back, and the inverse. Its Changed is the same !converged a
 // real run acts on, and its diff's after half is op.predict's answer.
 func runUnitOp(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any, op unitOp, mode collection.Mode) (collection.Result, error) {
-	unit, err := sdk.RequiredStringParam(params, paramName)
+	unit, err := sdk.RequiredOperandParam(params, paramName)
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", op.fqcn, err)
 	}
@@ -282,7 +282,7 @@ func unitDoc(summary, description string, returns []collection.ReturnField, exam
 		Summary:     summary,
 		Description: description,
 		Params: []collection.Param{
-			{Name: paramName, Type: "string", Required: true, Description: "The systemd unit to act on, such as nginx or nginx.service. This is ansible.builtin.systemd's own parameter name. The unit must already exist: a name systemd does not know is refused rather than reported as already stopped, since that is nearly always a typo."},
+			{Name: paramName, Type: "string", Required: true, Format: collection.ParamFormatOperand, Description: "The systemd unit to act on, such as nginx or nginx.service. This is ansible.builtin.systemd's own parameter name. The unit must already exist: a name systemd does not know is refused rather than reported as already stopped, since that is nearly always a typo."},
 			{Name: sdk.ParamInsecureSkipHostKeyVerify, Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
 		},
 		Returns: append([]collection.ReturnField{

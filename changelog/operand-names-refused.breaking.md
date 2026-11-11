@@ -1,0 +1,1 @@
+A wildcard in a package, unit or service name (`pkg.dnf.install` with `name: "kernel-devel-*"`) is now refused rather than passed to the package or service manager, and so is a `pkg.apt.*` name ending in `-`; name each package or unit on its own task, or loop over the names.

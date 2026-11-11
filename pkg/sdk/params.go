@@ -1,6 +1,10 @@
 package sdk
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/operand"
+)
 
 // Typed readers for a task's params map.
 //
@@ -150,4 +154,41 @@ func RequiredStringParam(params map[string]any, key string) (string, error) {
 		return "", fmt.Errorf("%s is required", key)
 	}
 	return v, nil
+}
+
+// RequiredOperandParam reads a required name the method places on a
+// device's command line after the program's options (a package, a unit, a
+// service), refusing an absent one by name and one the program would read
+// as an option or a pattern (pkg/operand).
+//
+// Validation and the engine already refuse such a value for a parameter
+// declaring collection.ParamFormatOperand. A method reads its name through
+// this anyway, before it connects, because a value can reach it without
+// passing either: a generic dispatcher handing it on, an undo replayed from
+// the journal, a program calling the method directly.
+func RequiredOperandParam(params map[string]any, key string) (string, error) {
+	v, err := RequiredStringParam(params, key)
+	if err != nil {
+		return "", err
+	}
+	if err := operand.Check(key, v); err != nil {
+		return "", err
+	}
+	return v, nil
+}
+
+// OperandSlice reads an optional list of names, each held to the same rule
+// RequiredOperandParam holds one name to, reporting whether the key was
+// present as StringSlice does.
+func OperandSlice(params map[string]any, key string) ([]string, bool, error) {
+	items, present, err := StringSlice(params, key)
+	if err != nil {
+		return nil, present, err
+	}
+	for i, item := range items {
+		if err := operand.Check(fmt.Sprintf("%s[%d]", key, i), item); err != nil {
+			return nil, present, err
+		}
+	}
+	return items, present, nil
 }

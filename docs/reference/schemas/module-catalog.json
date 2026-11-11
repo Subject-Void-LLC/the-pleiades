@@ -13463,7 +13463,8 @@
           "name": "name",
           "type": "string",
           "required": true,
-          "description": "The APT package name to install, such as curl or nginx."
+          "description": "The APT package name to install, such as curl or nginx.",
+          "format": "operand"
         },
         {
           "name": "version",
@@ -13551,12 +13552,14 @@
           "name": "name",
           "type": "string",
           "required": true,
-          "description": "The APT package name to remove."
+          "description": "The APT package name to remove.",
+          "format": "operand"
         },
         {
           "name": "dependencies",
           "type": "list",
-          "description": "Packages installing this one pulled in, as pkg.apt.install's undo names them. Each is removed with the package only while it is still installed, APT would remove it as no longer needed, and removing them takes nothing else with them; any other is kept and named in a warning."
+          "description": "Packages installing this one pulled in, as pkg.apt.install's undo names them. Each is removed with the package only while it is still installed, APT would remove it as no longer needed, and removing them takes nothing else with them; any other is kept and named in a warning.",
+          "format": "operand"
         },
         {
           "name": "insecure_skip_host_key_verify",
@@ -13632,7 +13635,8 @@
           "name": "name",
           "type": "string",
           "required": true,
-          "description": "The APT package to keep current."
+          "description": "The APT package to keep current.",
+          "format": "operand"
         },
         {
           "name": "insecure_skip_host_key_verify",
@@ -13710,7 +13714,8 @@
           "name": "name",
           "type": "string",
           "required": true,
-          "description": "The RPM package name to install, such as curl or nginx."
+          "description": "The RPM package name to install, such as curl or nginx.",
+          "format": "operand"
         },
         {
           "name": "version",
@@ -13798,7 +13803,8 @@
           "name": "name",
           "type": "string",
           "required": true,
-          "description": "The RPM package name to remove."
+          "description": "The RPM package name to remove.",
+          "format": "operand"
         },
         {
           "name": "insecure_skip_host_key_verify",
@@ -13868,7 +13874,8 @@
           "name": "name",
           "type": "string",
           "required": true,
-          "description": "The RPM package to keep current."
+          "description": "The RPM package to keep current.",
+          "format": "operand"
         },
         {
           "name": "insecure_skip_host_key_verify",
@@ -13953,7 +13960,8 @@
           "name": "name",
           "type": "string",
           "required": true,
-          "description": "The package to act on. This is passed straight through to the concrete method for the device's package manager, so it means whatever that manager means by a package name: an APT package name on a Debian-family host, an RPM package name on a Red Hat-family one."
+          "description": "The package to act on. This is passed straight through to the concrete method for the device's package manager, so it means whatever that manager means by a package name: an APT package name on a Debian-family host, an RPM package name on a Red Hat-family one.",
+          "format": "operand"
         },
         {
           "name": "version",
@@ -14044,7 +14052,8 @@
           "name": "name",
           "type": "string",
           "required": true,
-          "description": "The package to act on. This is passed straight through to the concrete method for the device's package manager, so it means whatever that manager means by a package name: an APT package name on a Debian-family host, an RPM package name on a Red Hat-family one."
+          "description": "The package to act on. This is passed straight through to the concrete method for the device's package manager, so it means whatever that manager means by a package name: an APT package name on a Debian-family host, an RPM package name on a Red Hat-family one.",
+          "format": "operand"
         },
         {
           "name": "version",
@@ -14119,7 +14128,8 @@
           "name": "name",
           "type": "string",
           "required": true,
-          "description": "The package to act on. This is passed straight through to the concrete method for the device's package manager, so it means whatever that manager means by a package name: an APT package name on a Debian-family host, an RPM package name on a Red Hat-family one."
+          "description": "The package to act on. This is passed straight through to the concrete method for the device's package manager, so it means whatever that manager means by a package name: an APT package name on a Debian-family host, an RPM package name on a Red Hat-family one.",
+          "format": "operand"
         },
         {
           "name": "version",
@@ -14830,7 +14840,8 @@
           "name": "name",
           "type": "string",
           "required": true,
-          "description": "The service to act on. This is passed straight through to the concrete method for the device's service manager, so it means whatever that manager means by a service name: a systemd unit such as nginx or nginx.service on a Linux host."
+          "description": "The service to act on. This is passed straight through to the concrete method for the device's service manager, so it means whatever that manager means by a service name: a systemd unit such as nginx or nginx.service on a Linux host.",
+          "format": "operand"
         },
         {
           "name": "insecure_skip_host_key_verify",
@@ -14908,7 +14919,8 @@
           "name": "name",
           "type": "string",
           "required": true,
-          "description": "The service to act on. This is passed straight through to the concrete method for the device's service manager, so it means whatever that manager means by a service name: a systemd unit such as nginx or nginx.service on a Linux host."
+          "description": "The service to act on. This is passed straight through to the concrete method for the device's service manager, so it means whatever that manager means by a service name: a systemd unit such as nginx or nginx.service on a Linux host.",
+          "format": "operand"
         },
         {
           "name": "insecure_skip_host_key_verify",
@@ -14972,7 +14984,8 @@
           "name": "name",
           "type": "string",
           "required": true,
-          "description": "The service to act on. This is passed straight through to the concrete method for the device's service manager, so it means whatever that manager means by a service name: a systemd unit such as nginx or nginx.service on a Linux host."
+          "description": "The service to act on. This is passed straight through to the concrete method for the device's service manager, so it means whatever that manager means by a service name: a systemd unit such as nginx or nginx.service on a Linux host.",
+          "format": "operand"
         },
         {
           "name": "insecure_skip_host_key_verify",
@@ -15050,7 +15063,8 @@
           "name": "name",
           "type": "string",
           "required": true,
-          "description": "The service to act on. This is passed straight through to the concrete method for the device's service manager, so it means whatever that manager means by a service name: a systemd unit such as nginx or nginx.service on a Linux host."
+          "description": "The service to act on. This is passed straight through to the concrete method for the device's service manager, so it means whatever that manager means by a service name: a systemd unit such as nginx or nginx.service on a Linux host.",
+          "format": "operand"
         },
         {
           "name": "insecure_skip_host_key_verify",
@@ -15129,7 +15143,8 @@
           "name": "name",
           "type": "string",
           "required": true,
-          "description": "The service to act on. This is passed straight through to the concrete method for the device's service manager, so it means whatever that manager means by a service name: a systemd unit such as nginx or nginx.service on a Linux host."
+          "description": "The service to act on. This is passed straight through to the concrete method for the device's service manager, so it means whatever that manager means by a service name: a systemd unit such as nginx or nginx.service on a Linux host.",
+          "format": "operand"
         },
         {
           "name": "insecure_skip_host_key_verify",
@@ -15242,7 +15257,8 @@
           "name": "name",
           "type": "string",
           "required": true,
-          "description": "The systemd unit to act on, such as nginx or nginx.service. This is ansible.builtin.systemd's own parameter name. The unit must already exist: a name systemd does not know is refused rather than reported as already stopped, since that is nearly always a typo."
+          "description": "The systemd unit to act on, such as nginx or nginx.service. This is ansible.builtin.systemd's own parameter name. The unit must already exist: a name systemd does not know is refused rather than reported as already stopped, since that is nearly always a typo.",
+          "format": "operand"
         },
         {
           "name": "insecure_skip_host_key_verify",
@@ -15313,7 +15329,8 @@
           "name": "name",
           "type": "string",
           "required": true,
-          "description": "The systemd unit to act on, such as nginx or nginx.service. This is ansible.builtin.systemd's own parameter name. The unit must already exist: a name systemd does not know is refused rather than reported as already stopped, since that is nearly always a typo."
+          "description": "The systemd unit to act on, such as nginx or nginx.service. This is ansible.builtin.systemd's own parameter name. The unit must already exist: a name systemd does not know is refused rather than reported as already stopped, since that is nearly always a typo.",
+          "format": "operand"
         },
         {
           "name": "insecure_skip_host_key_verify",
@@ -15376,7 +15393,8 @@
           "name": "name",
           "type": "string",
           "required": true,
-          "description": "The systemd unit to act on, such as nginx or nginx.service. This is ansible.builtin.systemd's own parameter name. The unit must already exist: a name systemd does not know is refused rather than reported as already stopped, since that is nearly always a typo."
+          "description": "The systemd unit to act on, such as nginx or nginx.service. This is ansible.builtin.systemd's own parameter name. The unit must already exist: a name systemd does not know is refused rather than reported as already stopped, since that is nearly always a typo.",
+          "format": "operand"
         },
         {
           "name": "insecure_skip_host_key_verify",
@@ -15447,7 +15465,8 @@
           "name": "name",
           "type": "string",
           "required": true,
-          "description": "The systemd unit to act on, such as nginx or nginx.service. This is ansible.builtin.systemd's own parameter name. The unit must already exist: a name systemd does not know is refused rather than reported as already stopped, since that is nearly always a typo."
+          "description": "The systemd unit to act on, such as nginx or nginx.service. This is ansible.builtin.systemd's own parameter name. The unit must already exist: a name systemd does not know is refused rather than reported as already stopped, since that is nearly always a typo.",
+          "format": "operand"
         },
         {
           "name": "insecure_skip_host_key_verify",
@@ -15523,7 +15542,8 @@
           "name": "name",
           "type": "string",
           "required": true,
-          "description": "The systemd unit to act on, such as nginx or nginx.service. This is ansible.builtin.systemd's own parameter name. The unit must already exist: a name systemd does not know is refused rather than reported as already stopped, since that is nearly always a typo."
+          "description": "The systemd unit to act on, such as nginx or nginx.service. This is ansible.builtin.systemd's own parameter name. The unit must already exist: a name systemd does not know is refused rather than reported as already stopped, since that is nearly always a typo.",
+          "format": "operand"
         },
         {
           "name": "insecure_skip_host_key_verify",
@@ -15598,7 +15618,8 @@
           "name": "name",
           "type": "string",
           "required": true,
-          "description": "The Windows service to act on, its short service name (not its display name), such as Spooler rather than \"Print Spooler\". The service must already exist: a name the Service Control Manager does not know is refused rather than reported as already stopped, since that is nearly always a typo."
+          "description": "The Windows service to act on, its short service name (not its display name), such as Spooler rather than \"Print Spooler\". The service must already exist: a name the Service Control Manager does not know is refused rather than reported as already stopped, since that is nearly always a typo.",
+          "format": "operand"
         }
       ],
       "returns": [
@@ -15667,7 +15688,8 @@
           "name": "name",
           "type": "string",
           "required": true,
-          "description": "The Windows service to act on, its short service name (not its display name), such as Spooler rather than \"Print Spooler\". The service must already exist: a name the Service Control Manager does not know is refused rather than reported as already stopped, since that is nearly always a typo."
+          "description": "The Windows service to act on, its short service name (not its display name), such as Spooler rather than \"Print Spooler\". The service must already exist: a name the Service Control Manager does not know is refused rather than reported as already stopped, since that is nearly always a typo.",
+          "format": "operand"
         }
       ],
       "returns": [
@@ -15724,7 +15746,8 @@
           "name": "name",
           "type": "string",
           "required": true,
-          "description": "The Windows service to act on, its short service name (not its display name), such as Spooler rather than \"Print Spooler\". The service must already exist: a name the Service Control Manager does not know is refused rather than reported as already stopped, since that is nearly always a typo."
+          "description": "The Windows service to act on, its short service name (not its display name), such as Spooler rather than \"Print Spooler\". The service must already exist: a name the Service Control Manager does not know is refused rather than reported as already stopped, since that is nearly always a typo.",
+          "format": "operand"
         }
       ],
       "returns": [
@@ -15789,7 +15812,8 @@
           "name": "name",
           "type": "string",
           "required": true,
-          "description": "The Windows service to act on, its short service name (not its display name), such as Spooler rather than \"Print Spooler\". The service must already exist: a name the Service Control Manager does not know is refused rather than reported as already stopped, since that is nearly always a typo."
+          "description": "The Windows service to act on, its short service name (not its display name), such as Spooler rather than \"Print Spooler\". The service must already exist: a name the Service Control Manager does not know is refused rather than reported as already stopped, since that is nearly always a typo.",
+          "format": "operand"
         }
       ],
       "returns": [
@@ -15859,7 +15883,8 @@
           "name": "name",
           "type": "string",
           "required": true,
-          "description": "The Windows service to act on, its short service name (not its display name), such as Spooler rather than \"Print Spooler\". The service must already exist: a name the Service Control Manager does not know is refused rather than reported as already stopped, since that is nearly always a typo."
+          "description": "The Windows service to act on, its short service name (not its display name), such as Spooler rather than \"Print Spooler\". The service must already exist: a name the Service Control Manager does not know is refused rather than reported as already stopped, since that is nearly always a typo.",
+          "format": "operand"
         }
       ],
       "returns": [

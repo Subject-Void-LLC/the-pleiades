@@ -52,7 +52,7 @@ func installDoc() collection.Doc {
 		Summary:     "Makes sure a package is installed via APT.",
 		Description: "Makes sure a package is present on a Debian-family host, installing it if it is absent. This is ansible.builtin.apt with state=present. Installed state is read from dpkg before anything is sent, so a package that is already present at the requested version (or present at any version, when none is requested) reports no change and no command reaches the device. version pins to an exact version string, the same way apt-get install name=version does; leave it unset to mean whatever apt-get would install unpinned.",
 		Params: []collection.Param{
-			{Name: paramName, Type: "string", Required: true, Description: "The APT package name to install, such as curl or nginx."},
+			{Name: paramName, Type: "string", Required: true, Format: collection.ParamFormatOperand, Description: "The APT package name to install, such as curl or nginx."},
 			{Name: paramVersion, Type: "string", Description: "Install exactly this version rather than whatever is current. A package already installed at a different version is upgraded or downgraded to match."},
 			{Name: sdk.ParamInsecureSkipHostKeyVerify, Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
 		},
@@ -94,7 +94,7 @@ func CheckInstall(ctx context.Context, rc sdk.RunbookContext, device inventory.I
 func install(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any, mode collection.Mode) (collection.Result, error) {
 	const fqcn = "pkg.apt.install"
 
-	name, err := sdk.RequiredStringParam(params, paramName)
+	name, err := packageName(params)
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
@@ -138,7 +138,7 @@ func install(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 				return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 			}
 		}
-		if _, err := runAptGet(ctx, conn, "install", "-y", pkgArg); err != nil {
+		if _, err := runAptGet(ctx, conn, []string{"install", "-y"}, pkgArg); err != nil {
 			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 		}
 		changed = true

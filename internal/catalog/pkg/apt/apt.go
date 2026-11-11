@@ -75,20 +75,58 @@ func (s state) Map() map[string]any {
 	return map[string]any{"installed": s.installed, "version": s.version}
 }
 
+// packageName reads the package a pkg.apt method acts on: a name the
+// operand rule passes (sdk.RequiredOperandParam: no leading "-", no
+// pattern), and one that does not end in "-".
+//
+// The last is APT's own grammar. apt-get install reads a word ending in "-"
+// that names no package as "remove the package before the dash", and
+// dpkg-query reports that word absent first, so pkg.apt.install with
+// "diffutils-" would plan the removal of diffutils (measured on Debian
+// bookworm: "1 to remove", FAILURE_PATTERNS 1174). No Debian package name
+// ends in "-". A trailing "+" is left alone: it means "install" to apt-get
+// remove, but dpkg-query reports such a word absent, so pkg.apt.remove never
+// sends it, and real names such as g++ end in one.
+func packageName(params map[string]any) (string, error) {
+	name, err := sdk.RequiredOperandParam(params, paramName)
+	if err != nil {
+		return "", err
+	}
+	if strings.HasSuffix(name, "-") {
+		return "", fmt.Errorf("%s is refused: it ends in \"-\", which apt-get install reads as \"remove the package before the dash\" rather than as a name", paramName)
+	}
+	return name, nil
+}
+
+// dpkgQueryNoMatch is dpkg-query's exit status for a name it has no record
+// of: a package never installed. Any other non-zero status is a failure to
+// answer at all (2 is a usage error, such as an option it does not know).
+const dpkgQueryNoMatch = 1
+
 // queryDpkg asks dpkg directly for a package's installed state, rather
 // than apt or apt-get, because dpkg IS the package database and answers
 // instantly with no network access; apt-get's own idea of "installed"
 // reads the same database anyway.
+//
+// The "--" ends dpkg-query's options, so the name is read as a name even
+// if one beginning with "-" ever reached here past packageName.
 func queryDpkg(ctx context.Context, conn *remoteexec.Conn, name string) (state, error) {
-	result, err := conn.Run(ctx, "dpkg-query -W -f='${Status}\\t${Version}' "+remoteexec.QuoteArg(name))
+	result, err := conn.Run(ctx, "dpkg-query -W -f='${Status}\\t${Version}' -- "+remoteexec.QuoteArg(name))
 	if err != nil {
 		return state{}, err
 	}
-	if result.ExitCode != 0 {
-		// dpkg-query exits 1 for a package it has never heard of. That is
-		// "not installed," not a failure worth surfacing: installing a
-		// brand-new package always starts here.
+	switch result.ExitCode {
+	case 0:
+	case dpkgQueryNoMatch:
+		// A package dpkg has never heard of is "not installed," not a
+		// failure worth surfacing: installing a brand-new package always
+		// starts here.
 		return state{}, nil
+	default:
+		// Anything else is dpkg-query failing to answer. Reading it as "not
+		// installed" is what let a refused option pass for an absent
+		// package and reach apt-get install (FAILURE_PATTERNS 1174).
+		return state{}, fmt.Errorf("dpkg-query -W %s exited %d: %s", name, result.ExitCode, failureDetail(result))
 	}
 	fields := strings.SplitN(strings.TrimSpace(result.Stdout), "\t", 2)
 	if len(fields) != 2 || !strings.HasPrefix(fields[0], "install ok") {
@@ -107,7 +145,7 @@ func queryDpkg(ctx context.Context, conn *remoteexec.Conn, name string) (state, 
 // means apt-cache reported no candidate at all, which happens for a
 // package APT has never heard of.
 func queryCandidate(ctx context.Context, conn *remoteexec.Conn, name string) (string, error) {
-	result, err := conn.Run(ctx, "apt-cache policy "+remoteexec.QuoteArg(name))
+	result, err := conn.Run(ctx, "apt-cache policy -- "+remoteexec.QuoteArg(name))
 	if err != nil {
 		return "", err
 	}
@@ -183,11 +221,11 @@ func newlyInstalled(before, after map[string]bool, name string) []string {
 // removing pkgs would remove; with autoRemove, also those nothing would
 // need any more. Its "Remv <name> [<version>]" lines are read by name.
 func simulateRemove(ctx context.Context, conn *remoteexec.Conn, autoRemove bool, pkgs ...string) (map[string]bool, error) {
-	args := []string{"-s", "remove"}
+	options := []string{"-s", "remove"}
 	if autoRemove {
-		args = append(args, "--auto-remove")
+		options = append(options, "--auto-remove")
 	}
-	result, err := runAptGet(ctx, conn, append(args, pkgs...)...)
+	result, err := runAptGet(ctx, conn, options, pkgs...)
 	if err != nil {
 		return nil, err
 	}
@@ -275,13 +313,20 @@ func recordDependencies(rc sdk.RunbookContext, removed, kept []string) ([]string
 // runAptGet runs one apt-get invocation non-interactively and treats a
 // non-zero exit as a real error.
 //
+// options is the command and its flags, and operands the package names,
+// which always follow a "--": apt-get then reads each as a name even if one
+// beginning with "-" reached here past packageName, where without it
+// apt-get install -y took such a word as a configuration option and exited
+// 0 having installed nothing (measured on Debian bookworm, FAILURE_PATTERNS
+// 1174).
+//
 // DEBIAN_FRONTEND=noninteractive is set on every call rather than only
 // where a prompt seems likely, because whether a given package's
 // maintainer scripts prompt is not something this platform knows ahead
 // of time, and a task hanging on a terminal that will never answer is a
 // worse failure than a task that never needed to ask.
-func runAptGet(ctx context.Context, conn *remoteexec.Conn, args ...string) (remoteexec.Result, error) {
-	argv := append([]string{"apt-get"}, args...)
+func runAptGet(ctx context.Context, conn *remoteexec.Conn, options []string, operands ...string) (remoteexec.Result, error) {
+	argv := append(append(append([]string{"apt-get"}, options...), "--"), operands...)
 	command := "DEBIAN_FRONTEND=noninteractive " + remoteexec.QuoteCommand(argv)
 	result, err := conn.Run(ctx, command)
 	if err != nil {

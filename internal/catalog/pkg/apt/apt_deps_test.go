@@ -20,7 +20,7 @@ func TestInstall_UndoNamesWhatTheInstallPulledIn(t *testing.T) {
 	if _, err := apt.Install(context.Background(), h.rc, h.device, h.params("jq", nil)); err != nil {
 		t.Fatalf("Install: %v", err)
 	}
-	if calls := h.invocations(t); len(calls) != 1 || calls[0] != "install -y jq" {
+	if calls := h.invocations(t); len(calls) != 1 || calls[0] != "install -y -- jq" {
 		t.Errorf("apt-get calls = %v, want one install", calls)
 	}
 	inv, _ := h.rc.stats[sdk.StatInverse].(map[string]any)
@@ -56,11 +56,11 @@ func TestRemove_TakesItsDependenciesWhileNothingNeedsThem(t *testing.T) {
 		wantKeptInWarnings string
 	}{
 		{name: "both unneeded", simAuto: "jq libjq1 libonig5:amd64", simPlain: "jq libjq1 libonig5",
-			deps: []any{"libonig5", "libjq1", "libjq1", "gone"}, wantRemove: "remove -y jq libjq1 libonig5", wantRemoved: []string{"libjq1", "libonig5"}},
+			deps: []any{"libonig5", "libjq1", "libjq1", "gone"}, wantRemove: "remove -y -- jq libjq1 libonig5", wantRemoved: []string{"libjq1", "libonig5"}},
 		{name: "one still needed", simAuto: "jq libjq1", simPlain: "jq libjq1",
-			deps: []any{"libjq1", "libonig5"}, wantRemove: "remove -y jq libjq1", wantRemoved: []string{"libjq1"}, wantKeptInWarnings: "kept libonig5:"},
+			deps: []any{"libjq1", "libonig5"}, wantRemove: "remove -y -- jq libjq1", wantRemoved: []string{"libjq1"}, wantKeptInWarnings: "kept libonig5:"},
 		{name: "removing them would take another package", simAuto: "jq libjq1 libonig5", simPlain: "jq libjq1 libonig5 other",
-			deps: []any{"libjq1", "libonig5"}, wantRemove: "remove -y jq", wantKeptInWarnings: "kept libjq1, libonig5:"},
+			deps: []any{"libjq1", "libonig5"}, wantRemove: "remove -y -- jq", wantKeptInWarnings: "kept libjq1, libonig5:"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			state := jq
