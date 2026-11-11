@@ -148,7 +148,11 @@ retired as before, a sync that sends it again updates it, and a kubeconfig impor
 `replace` replaces it. (The by-name routes, `/inventory/devices/{name}` and those under it,
 already refused a name holding a NUL, a carriage return or a newline, and still do.) A new
 fact key is held to the same rule, on top of its own (printable characters only, and no
-space); a stored one is read back as it was.
+space); a stored one is read back as it was. Reading a key reads no Unicode table:
+`GET /inventory/devices/{name}/facts/{key}` takes any key of valid UTF-8 within 256 bytes
+that holds no control character, no U+0020 and no slash, so a key a build of another
+toolchain stored still reads. Its answer names the key back only when a value is stored
+under it or a new fact could take it.
 
 ## Hypermedia and link relations
 
