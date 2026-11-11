@@ -4,36 +4,30 @@ Rewrite the "Current Status" section when stopping mid-task or handing off, per 
 
 ## Current Status (this session)
 
-**2026-11-07. `main` at `b8a5e065`, clean. No open pull requests and no branch besides `main` (this records branch,
-`docs/handoff-2026-11-07`, aside). `stash@{0}` (GNS3 link suspend and capture, back burner) is kept.**
+**2026-11-10. Branch `feat/inventory-version` (follow-up (4), inventory concurrency) on `main` at `dc740124` (#153).
+Built and reviewed; the fp-reviewer and claim-refuter findings are fixed. Every change is staged, nothing is
+committed, pushed or opened as a pull request. `make pr-check` has not run on it.**
 
 ### What works
 
-Merged since the last handoff (#125 to #128 tonight, each with every check green the first time):
-
-- **#124** `c55f91e2`, `fix/open-patterns-batch2` (FAILURE_PATTERNS 448, 560, 551, 954 to 958). It merged before the
-  night's queue; the previous entry calls it unpushed.
-- **#125** `c95baf51`, Phase 135a, contracts a release keeps: `docs/13-releases-and-stability.md` (the 0.4.0 line and
-  the point-release rule), the journal's `format` field (`FormatVersion` 1), `wire.DispatchPayload.PayloadVersion` (1),
-  `tools/schemacompat` (direction-aware schema compatibility over the OpenAPI envelope, the module catalog and the
-  protocol window; `changelog/*.breaking.md` tokens; no break accepted on a patch line), and golden tests
-  (`internal/golden`). FAILURE_PATTERNS 959 to 962.
-- **#126** `1d579ebf`, Phase 135b: the external Collection protocol window (`external.Protocols`, `Negotiate`,
-  `Description.Range`, `ChildRequest.Protocol`, `ErrNoCommonProtocol`), advertised through `pleiades version` and
-  `runner version`, and reserved fact families (`collection.CheckExternalFact`). FAILURE_PATTERNS 963 (`list
-  --describe` ran unapproved bytes; submitted to vuln-corpus as C10/CWE-696), 964, 965.
-- **#127** `ccf890c4`, Phase 41h PR 1: native fact names (`os.*`, `host.*`, `hardware.*`, `network.*`, `catalyst.*`),
-  the `pkg/ansiblefacts` mapping and the register rules. Proven in the lab on the Mac, bsd-check and win-check; the
-  live distribution test runs pinned images in CI. FAILURE_PATTERNS 966, 967; LESSONS 409.
-- **#128** `b8a5e065`, Phase 41h PR 2: the playbook converter turns a condition on a known Ansible fact into a native
-  one, over an inserted, always-tagged `facts.gather` read as `nodes.<reg>[device.id]`. Narrow on purpose: only `==`,
-  `!=`, `in` and `not in` against strings convert, with an absent fact guarded as unequal. Orderings, filters (`| int`
-  included), pattern tests, truth reads, values with no single native word, localhost plays, tuned gathers and
-  shadowed facts stay `when.fact`; setup's `filter` is refused. Gate:
-  `TestMigratePlaybook_AFactReadDecidesPerHostAsAnsibleDoes` in `cmd/pleiades` (Debian and Alpine sshds; red without
-  the absence guard). FAILURE_PATTERNS 968, LESSONS 410.
-
-Tonight's gates and their times are in the timings log.
+- **A stale member list can no longer undo a revocation through the API** (FAILURE_PATTERNS 1140). An inventory has a
+  `version` column (sqlite `0046`, postgres `0043`), bumped only in `UpdateWith`'s committing write. `GET`, `POST` and
+  `PATCH /inventories/{id}` send an `ETag`; a PATCH naming `groups` or `devices` needs `If-Match` (428 without, 412 when
+  not exactly the current tag, 404 first), judged under the row lock. The tag also covers the content, for writes from
+  an older build (1144). Proof: `internal/api/inventories_precondition_test.go`
+  (`TestInventoryPatch_AStaleCopyCannotRevertARevocation`, `TestInventoryPatch_IfMatchIsJudgedUnderTheLock`,
+  `TestInventoryPatch_IfMatchMustNameTheCurrentTagExactly`,
+  `TestInventoryPatch_AWriteThatLeavesTheVersionStillMovesTheTag`) and
+  `internal/inventory/ent_set_store_version_test.go`.
+- **The UI inventory edit form merges instead of replacing** (1141, 1145): `view.Field.KeepsOriginal`, a per-element
+  three-way merge under the lock, text compared through `view.Comparable`. Proof:
+  `internal/ui/resources/inventories_merge_test.go`, `internal/ui/resources/inventories/merge_internal_test.go`,
+  `internal/ui/view/originals_internal_test.go`.
+- **A refused form keeps every multi-select choice** (1142), and **store refusals are field errors, not 500s** (1147,
+  closing 1121). Proof: `TestUIEdit_AFieldChangedUnderneathIsRefusedAndStaysRefused`,
+  `TestAsFault_TheStoreRefusalsTheFormShows`.
+- **SQLite migrations from 0046 on cannot reset an AUTOINCREMENT sequence unnoticed** (1143):
+  `TestSQLiteMigrations_ARebuildKeepsItsSequence`.
 
 ### Current blocker
 
@@ -41,48 +35,29 @@ None.
 
 ### Open
 
-- (a) Owner questions on #128: should setup's `filter` ever be translated, or stay refused? Should an ordering over
-  the major version convert by reading the native integer, which differs from Ansible's string comparison ("10" <
-  "8")?
-- (b) OpenBSD: Ansible's `ansible_distribution_release` there is said to be "release", "current", "stable" or "beta"
-  (research, not checked on a host). The converter would convert `== "current"` cleanly, and the run would then fail
-  loudly at the inserted gather, since an OpenBSD host gets no fact-gathering capability. Not a silent wrong answer.
-  Owner call: refuse those words in the converter, or document OpenBSD as unsupported.
-- (c) `examples/virtualbox_lab/README.md` still shows old fact names in a pasted transcript; it needs a fresh lab run.
-- (d) The first-party collection split (cloud and network Collections released apart from the core), raised by the
-  owner on 2026-11-06. Design calls open: an external program or a linked module, Landlock being Linux-only, the trust
-  tier. Not started.
-- (e) Leftover research (2026-11-07, not verified here):
-  - 483 (the CI reaper's 60 s readiness wait): image pull time falls outside the wait, so pre-pulling would not have
-    prevented it, and `TESTCONTAINERS_RYUK_CONNECTION_TIMEOUT` does not change the library's readiness wait. On the
-    next sighting, capture `docker ps -a`, `docker inspect` and `docker logs` of the ryuk container, `docker events`,
-    and `journalctl` for docker and containerd, and run with `TESTCONTAINERS_RYUK_VERBOSE=true`. Several packages
-    failing in the same second with one reaper ID would point at a shared-creation race under a slow daemon.
-  - 690 (a silent `[build failed]` on win-check): `cmd/go` normally prints a tool's exit status even when stderr is
-    empty, so the suspect is capture: since Go 1.24, build output arrives as build-output events keyed by the
-    `pkg [pkg.test]` action. Cheapest experiment: put a syntax error in a `_test.go`, run the win leg's exact
-    invocation, and check that testgate shows it. If it does not, it is a tooling gap in `flakegate.FailureOutput`.
-    If it does, capture Windows Application events 1000 and 1001, Resource-Exhaustion-Detector 2004, Defender
-    Operational 1116 and 1117, and the commit charge before rerunning.
-  - FreeBSD and macOS release: Ansible gives the kernel release (digit-first), which the converter already refuses.
-    No hole there.
-- (f) API credit: spent tonight (claude-fable-5-1, effort high, batch) rcompat $0.31, rv135a $0.70, rv135b $0.36,
-  rv41h $1.04, rv41h2 $0.32, leftover research $0.35; $3.08 in all. The ledger stands at $48.85 of the $92.58 credit,
-  so about $43.70 is left, and it expires 2026-11-08.
-- (g) `stash@{0}` is the GNS3 work set aside on purpose (`lab-captures-129b`, 2026-10-25): never drop it.
+- 1085 stays open: team membership (`PATCH /teams/{id}`'s `users`, the UI teams users lookup) and the UI template
+  credentials lookup still write a whole list from an earlier read.
+- 1143: role bindings are not removed when an inventory is deleted (`role_binding.scope_id` has no foreign key). Owner
+  question. Older rebuilds 0003, 0007 and 0022 are left as written.
+- 1146: `tools/schemacompat` cannot see a header required only for some bodies; the breaking fragment says so.
+- 1139 still waits on the owner.
+- `git stash list` is empty: the GNS3 stash earlier entries kept (`stash@{0}`) is no longer there.
 
 ### Next, in order
 
-1. Phase 41h's last item, "Seen versus changed" (its own PR): insert-only fact history, one observation per gather,
-   last seen read from the latest observation, in both stores (section 3.1 of the fact-name design note). Not
-   started.
-2. Phase 135c (written in the roadmap, not built).
-3. Then 41d and 41e (both now depend on 41h), 117b, 117c and 105, toward 0.4.0. No tag until the owner says.
+1. Commit the staged branch.
+2. `make pr-check` through the monitor, on the clean committed tree.
+3. Push, `make branch-containers`, then open the pull request when it passes.
 
 ### Files changed on this branch
 
-`HANDOFF_DOCUMENT.md` and `HANDOFF_ARCHIVE.md` only (uncommitted).
+Code (staged): `internal/api/inventories*.go`, `internal/apispec/apispec*.go`, `internal/ent/schema/inventory.go` and
+its generated code, migrations `sqlite/0046_inventory_version.sql` and `postgres/0043_inventory_version.sql`,
+`internal/ent/migrate/sequence_guard_internal_test.go`, `internal/inventory/{set.go,ent_set_store*.go}`,
+`internal/ui/view/{field.go,model.go,pagemodels.go}`, `internal/ui/resources/inventories/{inventories.go,merge.go}`,
+`internal/ui/web/resources.go`, `internal/ui/render/views.templ`, `tools/gendocs/openapi.go`, the regenerated OpenAPI
+documents, and the tests beside each. Changelog: `inventory-if-match.breaking.md`, `ui-inventory-edit-merge.fixed.md`.
+Records (unstaged): `FAILURE_PATTERNS*.md` (1140 to 1147; notes on 1085, 1112, 1121), `LESSONS_LEARNED*.md` (437 to
+439), `HANDOFF_DOCUMENT.md`, `HANDOFF_ARCHIVE.md`.
 
-Machine: unchanged. Lab: unchanged. The Mac, bsd-check and win-check were each ACPI-stopped after the #127 lab gates
-and confirmed powered off then. At the end of the night `VBoxManage list runningvms` returned nothing with exit 0, so
-no lab VM is running.
+Lab: no change reported for this branch.
