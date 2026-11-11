@@ -28,17 +28,20 @@ import (
 var gatherIdentity = wire.CollectionIdentity{Group: "facts", Version: "0.4.0", Manifests: "sha256:" + strings.Repeat("ab", 32)}
 
 // TestSubscriber_KeepsARunnersIdentityAndDropsOneNoBuildWrites: a batch
-// naming an identity that passes Valid is stored with it as sent, whichever
-// group this controller's build routes its method to, since a group list
-// grown or a method moved between the Runner's build and this one reads
-// differently here (LESSONS 415), and that difference is logged at info; one
-// that fails Valid (a digest of the wrong shape, a format character in its
-// group) is stored with its facts and no identity, with a warning.
+// naming an identity that passes the frozen rule for a delivered identity
+// (wire's Deliverable) is stored with it as sent, whichever group this
+// controller's build routes its method to, since a group list grown or a
+// method moved between the Runner's build and this one reads differently
+// here (LESSONS 415), and that difference is logged at info; one that fails
+// it (a digest of the wrong shape, a direction override or a tag character
+// in its group) is stored with its facts and no identity, with a warning.
 func TestSubscriber_KeepsARunnersIdentityAndDropsOneNoBuildWrites(t *testing.T) {
 	ctx := context.Background()
 	admitted := func(context.Context, string, string) (journal.Admission, error) { return journal.AdmitDispatched, nil }
 	formatChar := gatherIdentity
 	formatChar.Group = "fa" + string(rune(0x202e)) + "cts"
+	tagged := gatherIdentity
+	tagged.Group = "facts" + string(rune(0xE0041))
 	for _, c := range []struct {
 		name  string
 		id    wire.CollectionIdentity
@@ -52,6 +55,7 @@ func TestSubscriber_KeepsARunnersIdentityAndDropsOneNoBuildWrites(t *testing.T) 
 			want: wire.CollectionIdentity{Group: "facts", Program: true, Manifests: gatherIdentity.Manifests}, level: "INFO"},
 		{name: "a digest of the wrong shape", id: wire.CollectionIdentity{Group: "facts", Version: "0.4.0", Manifests: "sha256:ABC"}, level: "WARN"},
 		{name: "a format character in the group", id: formatChar, level: "WARN"},
+		{name: "a tag character in the group", id: tagged, level: "WARN"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			client, device := open(t)
@@ -80,10 +84,52 @@ func TestSubscriber_KeepsARunnersIdentityAndDropsOneNoBuildWrites(t *testing.T) 
 				t.Errorf("logged %q about an identity this build routes the same way", said)
 			case c.level != "" && (len(said) != 1 || !strings.Contains(said[0], "level="+c.level)):
 				t.Errorf("logged %q, want one %s line about the identity", said, c.level)
-			case strings.Contains(logged.String(), string(rune(0x202e))):
+			case strings.ContainsRune(logged.String(), 0x202e) || strings.ContainsRune(logged.String(), 0xE0041):
 				t.Errorf("a log line holds the group's format character raw:\n%s", logged.String())
 			}
 		})
+	}
+}
+
+// TestSubscriber_KeepsAnIdentityOnlyThisToolchainsTablesRefuse: a program's
+// group holding a code point this toolchain has not assigned, which Valid
+// refuses here and which is what a letter a newer toolchain assigned looks
+// like to this build, passes the frozen rule the Controller holds a
+// delivered identity to. The batch is stored with the identity as sent, its chain
+// verifies, and one info line says this controller's own Valid would differ,
+// repeating none of the group.
+func TestSubscriber_KeepsAnIdentityOnlyThisToolchainsTablesRefuse(t *testing.T) {
+	ctx := context.Background()
+	const marker = "zq9probe"
+	unassigned := unassignedHere(t)
+	id := wire.CollectionIdentity{Group: marker + string(unassigned), Program: true, Manifests: gatherIdentity.Manifests}
+	if id.Valid() == nil || id.Deliverable() != nil {
+		t.Fatal("the fixture needs an identity this build's Valid refuses and the frozen rule keeps")
+	}
+	client, device := open(t)
+	store := entstore.New(client)
+	var logged bytes.Buffer
+	admitted := func(context.Context, string, string) (journal.Admission, error) { return journal.AdmitDispatched, nil }
+	sub := entstore.NewSubscriber(store, slog.New(slog.NewTextHandler(&logged, &slog.HandlerOptions{Level: slog.LevelDebug})), admitted)
+	batch := facts.Batch{JobID: "job-1", DeviceID: device, Attempt: 1, ObservedAt: time.Now(),
+		Entries: prepared(t, map[string]any{"probe.widgets": 3}),
+		By:      facts.Provenance{Run: "run-1", Node: "tasks[0]", Method: "probe.gather", Runner: "r1", Collection: id}}
+	if err := handle(t, sub, batch); err != nil {
+		t.Fatal(err)
+	}
+	current, err := store.Current(ctx, device)
+	if err != nil || len(current) != 1 || current[0].By.Collection != id {
+		t.Fatalf("Current = %+v, %v; want the fact stored under the identity as sent", current, err)
+	}
+	if v, err := store.Verify(ctx, device); err != nil || v.Break != nil || v.Values != 1 {
+		t.Fatalf("Verify = %+v, %v; want one chained value", v, err)
+	}
+	said := identityLines(logged.String())
+	if len(said) != 1 || !strings.Contains(said[0], "level=INFO") {
+		t.Errorf("logged %q, want one info line about the identity", said)
+	}
+	if strings.Contains(logged.String(), marker) || strings.ContainsRune(logged.String(), unassigned) {
+		t.Errorf("a log line repeats the group:\n%s", logged.String())
 	}
 }
 

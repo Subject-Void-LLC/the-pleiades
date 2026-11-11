@@ -330,6 +330,26 @@ func (_c *JobCreate) SetRollback(v jsontext.Value) *JobCreate {
 	return _c
 }
 
+// SetDagVersion sets the "dag_version" field.
+func (_c *JobCreate) SetDagVersion(v string) *JobCreate {
+	_c.mutation.SetDagVersion(v)
+	return _c
+}
+
+// SetNillableDagVersion sets the "dag_version" field if the given value is not nil.
+func (_c *JobCreate) SetNillableDagVersion(v *string) *JobCreate {
+	if v != nil {
+		_c.SetDagVersion(*v)
+	}
+	return _c
+}
+
+// SetNodeGraph sets the "node_graph" field.
+func (_c *JobCreate) SetNodeGraph(v jsontext.Value) *JobCreate {
+	_c.mutation.SetNodeGraph(v)
+	return _c
+}
+
 // AddTaskIDs adds the "tasks" edge to the JobTask entity by IDs.
 func (_c *JobCreate) AddTaskIDs(ids ...int) *JobCreate {
 	_c.mutation.AddTaskIDs(ids...)
@@ -605,6 +625,14 @@ func (_c *JobCreate) createSpec() (*Job, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.Rollback(); ok {
 		_spec.SetField(job.FieldRollback, field.TypeJSON, value)
 		_node.Rollback = value
+	}
+	if value, ok := _c.mutation.DagVersion(); ok {
+		_spec.SetField(job.FieldDagVersion, field.TypeString, value)
+		_node.DagVersion = value
+	}
+	if value, ok := _c.mutation.NodeGraph(); ok {
+		_spec.SetField(job.FieldNodeGraph, field.TypeJSON, value)
+		_node.NodeGraph = value
 	}
 	if nodes := _c.mutation.TasksIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{

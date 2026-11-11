@@ -39,6 +39,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/buildinfo"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/catalog/fragment"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/termsafe"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
@@ -168,11 +169,11 @@ func (k skew) missingRequired(emitter, method string, target collection.Manifest
 func (k skew) describe() string {
 	recorded := "with no Collection identity"
 	if !k.recorded.IsZero() {
-		recorded = fmt.Sprintf("by the %q Collection at %q (manifests %q)", k.recorded.Group, k.recorded.Version, k.recorded.Manifests)
+		recorded = fmt.Sprintf("by the %s Collection at %s (manifests %s)", termsafe.QuoteBounded(k.recorded.Group), termsafe.QuoteBounded(k.recorded.Version), termsafe.QuoteBounded(k.recorded.Manifests))
 	}
 	undo := "none"
 	if k.recordedUndo != "" {
-		undo = fmt.Sprintf("%q", k.recordedUndo)
+		undo = termsafe.QuoteBounded(k.recordedUndo)
 	}
 	here := "holds no first-party group to compare it with"
 	if group, digest := k.comparedGroup(); group != "" {
@@ -198,7 +199,7 @@ func versions(id wire.CollectionIdentity) string {
 	if id.IsZero() {
 		return ""
 	}
-	return fmt.Sprintf(" (recorded by the %q Collection at %q; this build is %q)", id.Group, id.Version, coreVersion())
+	return fmt.Sprintf(" (recorded by the %s Collection at %s; this build is %q)", termsafe.QuoteBounded(id.Group), termsafe.QuoteBounded(id.Version), coreVersion())
 }
 
 // requiredMissing returns, sorted, every parameter target requires (its own
@@ -230,7 +231,7 @@ func judgeSkew(req Request, node string, k skew, emitter, method string, target 
 	if !k.recorded.IsZero() && k.recorded.Group != k.group {
 		// A minor release may move a method to another group, so a stored
 		// group is never held to this build's routing (FAILURE_PATTERNS 988).
-		warnings = append(warnings, fmt.Sprintf("the journal records %s under the %q Collection, and this build routes it to %s; its undo is held to this build's declarations", Printable(emitter), k.recorded.Group, k.routedTo()))
+		warnings = append(warnings, fmt.Sprintf("the journal records %s under the %s Collection, and this build routes it to %s; its undo is held to this build's declarations", Printable(emitter), termsafe.QuoteBounded(k.recorded.Group), k.routedTo()))
 	}
 	if err := k.missingRequired(emitter, method, target, have); err != nil {
 		return false, nil, err
@@ -276,9 +277,9 @@ func judgeSkew(req Request, node string, k skew, emitter, method string, target 
 func namedUnskewed(emitter string, k skew) string {
 	switch {
 	case k.recordedUndo != "":
-		return fmt.Sprintf("allow_skew names this node, and the undo digest %s's entry recorded (%q) is this Controller's; the step is marked so that a Runner whose own declarations differ replays it", Printable(emitter), k.recordedUndo)
+		return fmt.Sprintf("allow_skew names this node, and the undo digest %s's entry recorded (%s) is this Controller's; the step is marked so that a Runner whose own declarations differ replays it", Printable(emitter), termsafe.QuoteBounded(k.recordedUndo))
 	case !k.recorded.IsZero():
-		return fmt.Sprintf("allow_skew names this node, and %s's Collection digest as recorded (%q) is this Controller's; the step is marked so that a Runner whose own declarations differ replays it", Printable(emitter), k.recorded.Manifests)
+		return fmt.Sprintf("allow_skew names this node, and %s's Collection digest as recorded (%s) is this Controller's; the step is marked so that a Runner whose own declarations differ replays it", Printable(emitter), termsafe.QuoteBounded(k.recorded.Manifests))
 	}
 	return fmt.Sprintf("allow_skew names this node, and %s was recorded with no Collection identity or undo digest, so nothing was compared, on this Controller or on a Runner; the name changes nothing", Printable(emitter))
 }

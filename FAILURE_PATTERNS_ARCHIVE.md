@@ -24735,6 +24735,29 @@ release's catalog and floor.
 
 **Lesson.** Pending the decision. LESSONS 422 names the class.
 
+**Resolution, on this branch, 2026-11-10 (`fix/facts-release-skew`, `d7d880d0`; on main until it merges).** Owner
+decision 2026-11-10, after an independent design review weighed five options: keep the facts and note the difference
+(option B). The drop lost an honest Runner's facts whenever its release and the Controller's differ, since which
+methods are built-in is release data (LESSONS 422). The subscriber now stores every fact. Once the batch is stored, it logs at info, for the facts its own
+release reserves for a built-in (a key its catalog declares, or one under `collection.FactFloor()`) from a method its
+catalog lacks: the job, the device, the method through `termsafe.Quote` (bounded and escaped), the count, the families
+sorted, and at most `MaxNotedFacts` (16) of the names, never a value (`builtinDifference` and
+`noteBuiltinDifference`, `internal/facts/entstore/provenance.go`). What keeps an external Collection from writing such
+a fact is the Runner's loader (`collection.CheckExternalFact`), so `docs/13-releases-and-stability.md` now says Runners
+must be of release 0.4.0 or later, the first release whose loader makes that refusal and the first that publishes
+facts. Tests: `TestSubscriber_KeepsBuiltInFactsFromAMethodOutsideTheCatalog` and
+`TestSubscriber_BoundsTheBuiltInFactNote` (`internal/facts/entstore/provenance_test.go`), and
+`TestNewFactsSubscriber_KeepsBuiltInFactsFromAMethodOutsideItsCatalog` (`cmd/controller/builtin_catalog_test.go`).
+Changelog: `changelog/external-facts-built-in-families.security.md`. Lesson: LESSONS 422, as written.
+
+**The catalog-method case, closed by 1164 (2026-11-11, in the working tree, not yet committed).** Under option B alone,
+a Runner that named a catalog method for a node that ran an external one still passed built-in facts, since the
+method was the batch's own claim; `TestCatalogMethodClaimWritesBuiltinKeys` pinned that. 1164 judges every batch under
+the method the Controller dispatched for its node instead. The info note above now covers a node whose first-party
+method this catalog lacks. Facts a built-in holds are dropped, with a warning, from a node that ran an external
+Collection's method, and an unresolved node's facts are stored with no method and none a built-in holds. The pinning
+test is now `TestCatalogMethodClaimNoLongerWritesBuiltinKeys` (`internal/facts/entstore/provenance_test.go`).
+
 ## 1021. The PR 5 plan deadlocked: its section 4 refused a needless --allow-skew, while its section 6 told the operator to add one where the Controller's declarations match the recording and the Runner's may not (fixed before push)
 
 **Symptom.** Found in review of the PR 5 plan, before push. On the Walk tier the Controller
@@ -24966,6 +24989,26 @@ Runner's value is in the reader's position for the release data its check reads.
 
 **Lesson.** Pending the decision. LESSONS 415 and 422: a check on a value another process made reads only what no
 release, the toolchain's included, can change.
+
+**Resolution, on this branch, 2026-11-10 (`fix/facts-release-skew`, `090c786c`; on main until it merges).** Owner
+decision 2026-11-10, after an independent design review: Shape plus a frozen rule (option C). Neither option above was
+taken as written: `Shape` alone would store a group holding U+202E, and keeping `Valid` is the defect.
+`wire.CollectionIdentity.Deliverable` (`pkg/wire/deliverable.go`) is `Shape` plus a fixed list of code points that would
+make a group read as something else or show as nothing: the bidirectional controls, the zero width characters and
+joiners, the line and paragraph separators, the soft hyphen, U+180E, the Hangul fillers, the variation selectors, the
+other invisible format characters, the tag characters and private use. The file imports no unicode package, so every
+build answers the same, and every code point on the list is one `Valid` refuses too, so it turns away nothing a build
+wrote. The list is frozen wire contract. `facts.Provenance.CheckDeliveredCollection` and the journal's
+`identityProblems` use it. Where this Controller's own `Valid` would differ (a code point its tables have not
+assigned), the facts consumer and the journal consumer (`validDiffers`) log it at info and store the identity as sent.
+`docs/13-releases-and-stability.md` lists the frozen characters. Tests: `TestDeliverable_RefusesExactlyTheFrozenList`,
+`TestDeliverable_RefusesATagCharacterGroup`, `TestFrozenRuleIsSubsetOfValid` and `TestDeliverableReadsNoUnicodeTable`
+(`pkg/wire/deliverable_test.go`), `TestDeliveredIdentityKeepsGroupOutsideThisToolchainsTables`
+(`internal/facts/delivered_identity_test.go`), `TestSubscriber_KeepsAnIdentityOnlyThisToolchainsTablesRefuse`
+(`internal/facts/entstore/identity_test.go`) and `TestSubscriberKeepsAnIdentityOnlyThisToolchainsTablesRefuse`
+(`internal/journal/subscriber_frozen_identity_test.go`). The same commit made every refusal of an identity fixed text
+(1160). Changelog: `changelog/delivered-identity-frozen-rule.security.md`. Lesson: LESSONS 415 and 422, as written. The
+fact key reader on the same path was the same class, fixed as 1159 (LESSONS 443).
 
 ## 1032. The API's request log and trace span recorded the decoded r.URL.Path, so GET /inventory/devices/sw%2Ffacts, the device "sw/facts", was logged as /inventory/devices/sw/facts, the facts of the device "sw" (fixed on this branch; on main since d907d123, 2026-08-01, in the log, and 25e59f3d, 2026-08-06, in the trace; the class of 1012)
 
@@ -28463,3 +28506,329 @@ archtest (`TestSpanNamesAndEventsAreFixed` accepts a span name only as a literal
 build it), so a name computed somewhere the scan cannot read would pass the exporter; the docs do not state this one.
 
 **Lesson.** Pending. LESSONS 440: the allowlist holds identifiers only, and adding a key is a reviewed change.
+## 1159. facts.wellFormedKey, the rule a reader holds a stored fact key to (ReadableKey and the file store's line reader), still read unicode.IsPrint and unicode.IsSpace, so a key a build of a newer Go stored could become unreadable to a build of an older one (fixed on this branch; on main until it merges, as wellFormedKey since bc3f6765, 2026-11-08; a repeat of 1003, 1023 and 1031; LESSONS 415, 422 and 443)
+
+**Symptom.** Found on `fix/facts-release-skew`, 2026-11-10, while fixing 1031. Reasoned from the code, then pinned by
+tests. `wellFormedKey` (`internal/facts/facts.go`) is what a reader asks of a stored key: `ReadableKey`, which the fact
+history route holds its `{key}` to since 1083's fix, and `readLines` (`internal/facts/file.go`), which refuses a line
+whose key fails it as "not a stored fact". It asked `unicode.IsPrint` and `unicode.IsSpace`, which read the Unicode
+tables of the Go release that built the binary. A key holding a code point a newer Go assigned passes that build's
+`ValidKey` and is stored. A build of an older Go calls the same key unprintable, so its line reader refuses the line,
+and the device's history fails to read, and the key's own address answers 400.
+
+**Root cause.** LESSONS 415's class, with the toolchain's tables as the release data: a reader's rule whose answer can
+change between builds for the same stored value.
+
+**Why 1003, 1023 and 1031 did not prevent it.** Each fixed the Collection identity at the reader or store it named:
+the Crawl journal's strict reader (1003), the rollback planner and the Runner's `Verify` (1023), and the Controller's
+facts and journal stores (1031, this branch). LESSONS 415's correction already says the rule covers the toolchain's
+data. 1083 moved the history route from `ValidKey` to `ReadableKey`, but `ReadableKey` still asked the table-driven
+half of the old shape. No fix swept the other fields the same readers check, and the fact key sits on the same stored
+line as the identity.
+
+**Fix.** `712aee8c`. `wellFormedKey` reads no Unicode table. It refuses only an empty key, one over `MaxKeyBytes`, one
+that is not UTF-8, and one holding a C0 control (U+0000 to U+001F), U+0020, a slash, DEL (U+007F) or a C1 control
+(U+0080 to U+009F). The table-driven half moved unchanged into `ValidKey` as `graphicKey`, so what a new fact may be
+named is exactly what it was. Tests in `internal/facts/key_frozen_test.go`:
+`TestReadableKey_AsksOnlyACodePointsNumber`, `TestReadableKey_ReadsACodePointThisGoHasNotAssigned`,
+`TestReadableKey_RefusesControlsSpaceAndSlash`, `TestReadableKey_ReadsWhateverClassACharacterLandsIn`,
+`TestReadableKey_KeepsItsFixedShape`, `TestFrozenReader_OnlyWidensReadingAndLeavesCreationAlone` and
+`TestFileStore_ReadsAKeyThisToolchainCallsUnprintable`. Changelog: `changelog/fact-key-reader-frozen.fixed.md`.
+
+**Known limits.** The reader now reads keys that hold a format character, a line separator or a private-use
+character, which only a hand-edited store or a newer toolchain's writer can produce. Two places that print a key had
+to change with it: 1162 (the history answer) and 1163 (`pleiades facts`).
+
+**Lesson.** LESSONS 443: when one field's reader rule is found to read release data, sweep every check that reader
+makes, not only the field the finding named.
+
+## 1160. Refusals and log lines named delivered or recorded bytes unbounded, and some raw: Shape quoted Manifests, the group and the version with %q, identityProblems quoted InverseSpecDigest, the group and the program, and the facts and journal consumers, the journal store, the journal reader, CollectionRouting and the rollback plan named a group, version, digest, program, method or node as written or without a bound (fixed on this branch; on main until it merges; a repeat of 1028, 712 and 257; LESSONS 266)
+
+**Symptom.** The independent design review for 1020 and 1031 (2026-11-10) noted that `Shape` printed
+`id.Manifests` with `%q` and no length bound, and that `identityProblems` printed `InverseSpecDigest` the same way.
+On this branch the sweep found more of the same: `Shape` and `Valid` quoted the group and the version
+(`pkg/wire/identity.go`); `identityProblems` quoted the group and the program (`internal/journal/identity.go`); the
+facts consumer logged the batch's method as written (`internal/facts/entstore/subscriber.go`); the journal consumer
+and the journal store logged node and FQCN as written (`internal/journal/subscriber.go`, `ent_store.go`); the journal
+reader's refusals quoted run, node, versions, digests, outcome, stage and skip kind with `%q`
+(`internal/journal/reader.go`); `CollectionRouting` quoted the group and the method (`internal/facts/provenance.go`);
+and the rollback plan's skew text quoted group, version, manifests, undo digest and program
+(`internal/rollback/skew.go`, `recorded.go`). `%q` escapes but does not bound, so a megabyte in one field reached a
+log line or a refusal whole. A name logged as written carries a format character (U+202E) raw, which a JSON log
+handler does not escape (1028's root cause).
+
+**Root cause.** 1028's and 712's class: text another process wrote reached a message with no bound, or with no
+escape of what would make it read as something else.
+
+**Why 1028, 712 and 257 did not prevent it.** 1028 put rollback's stored FQCNs and node ids through
+`rollback.Printable`, which escapes but had no bound. 712 bounded remote text through `pkg/farside`, which is for a
+device's output, not for fields of a record another Runner delivered. The identity's refusals and the consumers' log
+lines were written after both, and nothing makes a new message ask where each of its names came from. LESSONS 266
+states the rule; a lesson is not a check.
+
+**Fix.** `090c786c`. Every refusal `Shape`, `Valid`, `Deliverable` and `identityProblems` make is fixed text that
+repeats none of the identity or digest. The other sites name a delivered or recorded value through
+`termsafe.Quote` (new, `internal/termsafe/quote.go`): a plain name of 1 to 128 bytes of visible ASCII passes as it
+is, and anything else is quoted with every byte outside printable ASCII escaped (`strconv.QuoteToASCII`, which reads
+no Unicode table), cut to 128 bytes at a character boundary with its whole length after it. `termsafe.QuoteBounded`
+always quotes, and `rollback.Printable` uses it for a name over 128 bytes. Tests: `TestQuote_LeavesAPlainNameAndQuotesTheRest`
+and `TestQuote_BoundsAMegabyte` (`internal/termsafe`), `TestRefusalsRepeatNothingDelivered` (`pkg/wire`),
+`TestDeliveredIdentityRefusalDoesNotEchoGroup` and `TestCollectionRoutingRepeatsNothingUnbounded` (`internal/facts`),
+`TestSubscriber_NotesRepeatNoMethodUnbounded` (`internal/facts/entstore`), `TestSubscriberWarningsRepeatNothingDelivered`,
+`TestSubscriberNamesNoNodeOrMethodUnbounded` and `TestReadRunNamesNoRecordedTextUnbounded` (`internal/journal`), and
+`TestBuild_RefusalsRepeatNoRecordedTextUnbounded` (`internal/rollback`). Changelog:
+`changelog/delivered-identity-frozen-rule.security.md`.
+
+**Lesson.** As 1028 and LESSONS 266, with the bound added: a name another process wrote reaches a message through one
+helper that both escapes and bounds it, and a refusal of a value is fixed text that does not repeat it.
+
+## 1161. The Controller's facts consumer logged what it noted about a batch (a cleared identity, a routing difference, built-in facts kept or dropped) before the batch was stored, so a batch the bus redelivered after a failed write was noted again on every delivery, and a note said "storing" for a write that then failed (fixed on this branch; on main until it merges; a sibling in kind of 85)
+
+**Symptom.** Found on this branch, 2026-11-10, while moving 1020's and 1031's notes. In `Subscriber.Handle`
+(`internal/facts/entstore/subscriber.go`) the built-in facts warning, the cleared-identity warning and the routing note
+were logged before `s.store.Record`. When the write failed, the batch was handed back for redelivery, and each
+delivery logged the same notes again, each saying the facts were being stored.
+
+**Root cause.** A side effect (a log line an operator reads as a record of what happened) ran before the step it
+described, on a path the bus may run more than once.
+
+**Fix.** `090c786c`. `noteStored` logs every note once `Record` has returned without error. Test:
+`TestSubscriber_SaysNothingOfABatchItDidNotStore` (`internal/facts/entstore/notes_test.go`).
+
+**Lesson.** On a consumer the bus may redeliver, say what was stored only after it is stored.
+
+## 1162. With the frozen key reader, a fact history answer for a key that would not show as itself and that nothing stored repeated the caller's key in its body (fixed before push; a case 1159's fix opened; a repeat in kind of 72)
+
+**Symptom.** Found on this branch, 2026-11-10, after 1159's fix. `serveFacts` (`internal/api/device_facts.go`)
+answered `GET /inventory/devices/{name}/facts/{key}` with `key` set to the caller's `{key}`. Under the old reader such
+a key was refused with 400. The frozen reader reads a key holding a direction override, an invisible character or a
+line separator, so for a key no value was stored under, the answer repeated the caller's text, where it can read as
+something else.
+
+**Root cause.** 72's class: a value from the request reflected into the response. 1159 widened what reaches the
+handler, and the handler named back whatever reached it.
+
+**Fix.** `dc7e05f3`. `shownKey` names the caller's key only when the store holds it (its values carry it as stored)
+or when `facts.ValidKey` accepts it, so it shows as itself; otherwise the answer names no key. Tests:
+`TestDeviceFactHistory_NamesBackOnlyAKeyThatShowsAsItself` (through the file store) and
+`TestDeviceFactHistory_ReadsAStoredKeyFromTheControllersStore` (through the store the Controller serves)
+(`internal/api/device_facts_test.go`).
+
+**Lesson.** As 72: when a fix widens what a reader accepts, check every place that names the accepted value back.
+
+## 1163. pleiades facts printed a stored key that would not show as itself as written, in its text and --json views, through termsafe.Escape, which keeps a newline, and printed the --verify break reason, which quotes a stored chain hash, raw (fixed before push; widened by 1159's fix; a repeat in kind of 1064 and 257)
+
+**Symptom.** Found on this branch, 2026-11-10, after 1159's fix. `printFacts` and `printVerdict`
+(`cmd/pleiades/facts_cmd.go`) printed each key through `termsafe.Escape`, which escapes what a terminal acts on but
+keeps tab and newline (1064), and the `--json` view wrote the key as stored. The frozen reader reads keys holding a
+zero width character, a tag character or a line separator, and a volatile key's file holds any string, a newline among
+them. So a key could print as another key, or start a line of its own. The `--verify` break reason quotes the start of
+a stored chain hash, which a hand edit can fill, and was printed raw.
+
+**Root cause.** 1064's class: the print site escaped with the function that keeps lines, and the JSON view escaped
+only what a terminal acts on, for a value that is the store's text.
+
+**Fix.** `712aee8c`. `facts.ShownKey` (`internal/facts/shown.go`) returns a key `ValidKey` accepts as it is, and
+otherwise writes each character that would not show as itself as `\u{XXXX}`, each byte that is not UTF-8 as
+`\x{XX}` and each backslash as `\u{5C}`. `pleiades facts` names every key through it, in the text and `--json`
+views and in the `--verify` break, and prints the key and the break reason through `termsafe.EscapeLine`. Tests:
+`TestShownKey_EscapesWhatWouldNotShowAsItself` (`internal/facts/shown_test.go`),
+`TestCLI_FactsShowsKeysThatWouldNotShowAsThemselvesEscaped` and `TestCLI_FactsVerifyEscapesTheBreakReason`
+(`cmd/pleiades/facts_shown_keys_test.go`), through the real binary over a real project's file store.
+
+**Lesson.** As 1064: a name a store holds is printed through a form that cannot read as another name or start a line,
+in every view of it, JSON included.
+
+## 1164. The Controller stored a Runner's facts and journal rows under the method the batch named, so a Runner holding a dispatch could name a catalog method for a node that ran an external one and pass built-in facts, and a journal row's method, identity and undo, as that method's; a test pinned the gap and a comment called the fix separate work (fixed on this branch; on main until it merges, since the facts subscriber's Phase 135b check, f61076b7, 2026-11-07; in kind of 379, 1019 and 1020)
+
+**Symptom.** Found in the design review for 1020 (2026-11-10): no option for 1020 stopped a Runner that names a
+catalog method, since the method is the batch's own claim. On this branch `TestCatalogMethodClaimWritesBuiltinKeys`
+pinned it, and `internal/facts/entstore/provenance.go` called binding the method to the dispatched node "separate
+work". The journal consumer had the same gap: a row's FQCN, Collection identity and undo were the batch's text, and a
+rollback replays an undo by its method's declarations.
+
+**Root cause.** 379's class: the Controller took a Runner's word for a fact its own record could settle. 379's fix
+admits a batch only for a (job, device) the Controller dispatched; within an admitted batch, which method each node
+ran was still the batch's claim.
+
+**Why 379, 1019 and 1020 did not prevent it.** 379 narrowed the subject to the dispatch and recorded the rest (a
+Runner forging values for a dispatch it pulled) as Phase 105's signing work (`internal/journal/admission.go`). That
+residual is about values only the Runner knows. Which method a node runs is not one of them: the Controller compiled
+the runbook it dispatched. 1019 and 1020 asked which release's data judges a claim, not whether the claim needed
+judging at all.
+
+**Fix.** On this branch, in the working tree (not yet committed). Owner decisions 2026-11-11: facts and journal both
+in this branch; a batch is stored under the node's method; a generic dispatcher's node names the generic (the engine
+names the task's own method on every row), so a concrete claim is a mismatch, since no honest Runner sends one; a
+Runner refuses a digest mismatch; a frozen digest scheme; payload version 2, so an old Runner fails the device.
+- At a job's first fan-out the Controller pins the compiled graph on the job (`internal/dispatch/ent_store_pin.go`,
+  `PinGraph`; migrations sqlite `0047_job_node_graph.sql`, postgres `0044_job_node_graph.sql`): each node's method,
+  marker and authored flags and `rollback:` steps, digested under the frozen scheme `graph/1`
+  (`internal/runbook/graph_digest.go`).
+- One resolver (`cmd/controller/node_resolver.go`) answers both consumers from that record alone, or for a rollback
+  job from its plan, never from the runbook as it is now. `journal.NodeMethod.Judge` (`internal/journal/nodes.go`)
+  gives one of four verdicts: Named (the node's method or an alternative undo), Kept (a first-party undo outside this
+  catalog's declarations, said at info), Mismatch (stored under the node's method, with a warning) and Unresolved
+  (stored as unknown). One rule, `journal.IdentityProblem`, holds a Collection identity to its method for both
+  consumers. A journal row stored on a mismatch keeps no identity, program or undo. Facts from a node that ran an
+  external Collection's method keep none a built-in holds; an unresolved node's facts are stored with no method and
+  none a built-in holds (`internal/facts/entstore/nodes.go`, `internal/journal/subscriber_nodes.go`).
+- A reclaimed fan-out or a forks window's next devices, prepared against a graph that differs from the pinned one,
+  fail the devices left (`graphChanged`; `internal/dispatch/worker.go`, `worker_devices.go`).
+- A pinned dispatch carries `graph_scheme` and `graph_digest` and is payload version 2 (`pkg/wire/dispatch.go`,
+  `dispatch_version.go`). A Runner whose copy of the runbook digests otherwise runs nothing on that device and fails
+  it (`internal/adapters/native/adapter.go`); a Runner of an earlier release refuses the dispatch by its version.
+  Rollbacks and playbooks stay at version 1.
+
+Tests: `TestCatalogMethodClaimNoLongerWritesBuiltinKeys` (`internal/facts/entstore/provenance_test.go`, the old pinning
+test turned around), `TestSubscriber_JudgesABatchUnderItsNodesMethod` (`internal/facts/entstore/nodes_test.go`),
+`TestSubscriber_StoresEachRowUnderItsNodesMethod`, `TestSubscriber_HoldsAResolvedRowsProgramToItsMethod`,
+`TestNodeMethod_Judge` and `TestIdentityProblem` (`internal/journal/subscriber_nodes_test.go`),
+`TestNodeResolver_ResolvesEachNodeFromThePinnedGraph`, `TestNodeResolver_ResolvesNothingItCannotVouchFor` and
+`TestNodeConsumers_StoreEachBatchUnderItsNodesMethod` (`cmd/controller/node_resolver_test.go`),
+`TestWorker_HandleJobRequested_PinsTheRunbookGraph`, `TestEntJobStore_PinGraphPinsOnce`,
+`TestWorker_AReclaimRunsOnlyThePinnedGraph` and `TestWorker_APumpRunsOnlyThePinnedGraph`
+(`internal/dispatch/worker_pin_test.go`), `TestPinnedGraph_TheWorkersPayloadRunsOnlyOnTheSameGraph`
+(`internal/dispatch/worker_crossside_test.go`), `TestAdapter_Execute_RunsOnlyThePinnedGraph`
+(`internal/adapters/native/pinned_graph_test.go`) and `TestPayloadVersionFor` (`pkg/wire/dispatch_version_test.go`).
+Changelog: `changelog/node-method-binding.security.md`. Docs: `docs/09-control-plane-and-api.md`,
+`docs/13-releases-and-stability.md`.
+
+**Known limits.** A Runner holding a dispatch can still forge the values it reports for that dispatch (a fact's value,
+a row's outcome). That is 379's residual, Phase 105's signing work, and is not this gap. Upgrade Runners with the
+Controller: until then their native devices fail by payload version.
+
+**Lesson.** As 379: admit a message against the state that says it should exist, and that includes each claim inside
+it the Controller's own record can answer. LESSONS 444 for how to pin that record.
+
+## 1165. The first node pin would have vouched for data it did not cover: the pinned graph and DAG.Version disagreed on rollback: lists, since the version hashes forwardDefinition, which clears them, and a job that pinned nothing had its dispatch stamped with a graph computed afresh from the runbook as it is now (fixed before push; caught in review; LESSONS 444)
+
+**Symptom.** Found in review of 1164's fix on this branch, 2026-11-11, before commit: the `rollback:` list half by the
+fp-reviewer agent, the unpinned-job half by the claim-refuter agent. `DAG.Version` is computed over
+`forwardDefinition` (`internal/engine/dag.go`, `rollback_key.go`), which clears every `rollback:` key so that one can be
+written after a failure. A pin judged by the version would let a `rollback:` list edited mid-job pass as the same
+graph, though the journal consumer resolves an undo step from that list. Separately, a reclaimed fan-out of a job that
+pinned no graph sent a dispatch carrying the graph of the runbook as it was at the reclaim, so the Runner was held to
+a graph the job never pinned.
+
+**Root cause.** The pin vouched for a version of where the data came from, and in the second case for data read at
+another time, rather than for the data the consumers judge by.
+
+**Fix.** In the working tree. The pin and the Runner compare the graph digest alone (`NodeGraph.Same`), and `graph/1`
+covers each `rollback:` step's method. A job that pinned no graph dispatches none, at payload version 1. Tests:
+`TestNodeGraph_ARollbackListEditKeepsTheVersionAndChangesTheGraph` and
+`TestWorker_AReclaimOfAnUnpinnedFanOutPinsNothing` (`internal/dispatch/worker_pin_test.go`).
+
+**Lesson.** LESSONS 444.
+
+## 1166. Rollback jobs were held to a pinned graph they never use: a rollback runs its plan's steps, held to the version it undoes, so pinning or comparing a graph for one could only fail it (fixed before push; caught in review)
+
+**Symptom.** Found in review by the fp-reviewer agent on this branch, 2026-11-11, before commit. The first version pinned and compared a graph for
+every native job, a rollback job included. A rollback's steps come from its plan, held to `wire.Rollback.DAGVersion`,
+not from the runbook's graph, so a graph comparison on its reclaim answered a question the job does not ask.
+
+**Root cause.** A new guard was applied to every job of a kind without asking which of them read the data it guards.
+
+**Fix.** In the working tree. A rollback job pins no graph, and `graphChanged` returns nothing for one; its reclaim is
+held to its plan as before. The resolver answers a rollback job's nodes from its plan. Tests:
+`TestWorker_ARollbackJobPinsNoGraph` and `TestWorker_ARollbackJobsReclaimIsHeldToItsPlan`
+(`internal/dispatch/worker_pin_test.go`).
+
+**Lesson.** A guard on what a job runs applies to the jobs whose run reads that data, and the test names a job that
+does not.
+
+## 1167. The first graph digest was SHA-256 over a Go struct's JSON, so any field added to the struct, or a change to the encoder, would change every digest between two releases and fail every pinned dispatch in a mixed-version window (fixed before push; caught in review; in kind of 1003 and 1031; LESSONS 415, 422 and 443)
+
+**Symptom.** Found in review by the claim-refuter agent on this branch, 2026-11-11, before commit. The Controller and the Runner each digest the
+graph and compare. With the digest over `encoding/json` of a Go type, a Runner and a Controller of two releases that
+differ by one struct field would disagree on every job, and a Runner refuses a mismatch.
+
+**Root cause.** 1003's and 1031's class: a cross-release comparison whose answer rests on something a release changes,
+here the Go type's shape and the encoder rather than Unicode tables.
+
+**Why 1003 and 1031 did not prevent it.** Both fixed a rule that reads release data. A hash input is not a rule, and
+nothing names a Go struct's JSON as release data. LESSONS 443's sweep is over a reader's checks, not over a digest's
+input.
+
+**Fix.** In the working tree. `graph/1` (`internal/runbook/graph_digest.go`) is a fixed length-prefixed encoding: the
+scheme id, then for each node in byte order of its id the node id, its method, its marker and authored flags, and its
+`rollback:` steps' methods. A new scheme is added beside the old, never changed, and a build refuses a scheme it does
+not know. `docs/13-releases-and-stability.md` states it as frozen wire contract. Tests: `TestGraphDigest_GraphV1IsFrozen`
+(a golden digest) and `TestGraphDigest_EachFieldCounts` (`internal/runbook/graph_digest_test.go`).
+
+**Lesson.** As LESSONS 415 and 422: a digest two releases compare is a frozen encoding with a named scheme, never a
+hash of a type's serialization.
+
+## 1168. The facts and journal consumers judged one batch differently: each held a program identity to its own first-party rule, they treated the two kinds of undo skew oppositely, and facts lacked the journal's Kept note and its handling of the empty and marker claims (fixed before push; caught in review; a repeat of 1007; LESSONS 445)
+
+**Symptom.** Found in review on this branch, 2026-11-11, before commit: the identity-rule and undo-skew halves by the
+fp-reviewer agent, the Kept-note and empty or marker claim halves by the claim-refuter agent. One Runner batch feeds both consumers. In the
+first version of 1164's fix, a Collection identity could be cleared by one and kept by the other, an undo outside this
+catalog's declarations was kept by one and dropped by the other, and only the journal noted a Kept claim or handled a
+claim that names no method.
+
+**Root cause.** Each consumer wrote its own judging code, so the two drifted as soon as either changed.
+
+**Why 1007 did not prevent it.** 1007 found the journal store had no identity check where the facts subscriber had
+one, and its fix gave the journal a check of its own. That closed the case it named and left two copies of the rule.
+
+**Fix.** In the working tree. Both consumers call `journal.NodeMethod.Judge` and `journal.IdentityProblem`
+(`internal/journal/nodes.go`), through the one resolver, and note Kept and Mismatch the same way. Tests:
+`TestNodeConsumers_JudgeIdentityAndSkewAlike` (`cmd/controller/node_resolver_test.go`), which feeds one batch to both,
+and `TestIdentityProblem` (`internal/journal/subscriber_nodes_test.go`).
+
+**Lesson.** LESSONS 445.
+
+## 1169. An external Collection's undo claim was judged by how many undos this catalog declares for the node's method, which is release data, so the same claim was kept or refused depending on the Controller's release (fixed before push; caught in review; in kind of 1020; LESSONS 422)
+
+**Symptom.** Found in review by the claim-refuter agent on this branch, 2026-11-11, before commit. For an undo step of a block's
+`rollback_on_failure`, the first `Judge` decided a claim naming a method outside first-party Collections by the count
+of undos this catalog declares for the node's method (none, one or several).
+
+**Root cause.** LESSONS 422's class: a judgement on another process's value read this release's declarations.
+
+**Fix.** In the working tree. For an undo step of a first-party method, any other first-party Collection method is
+Kept (said at info) and any other claim is Unresolved, however many undos the catalog declares
+(`internal/journal/nodes.go`, `NodeMethod.Judge`; stated in `docs/13-releases-and-stability.md`). Test:
+`TestNodeMethod_Judge` (`internal/journal/subscriber_nodes_test.go`).
+
+**Lesson.** As LESSONS 422.
+
+## 1170. Judge's answer for an empty claim contradicted its own doc comment (fixed before push; caught in review; a repeat in kind of 1041 and 1066)
+
+**Symptom.** Found in review by the fp-reviewer agent on this branch, 2026-11-11, before commit. `journal.NodeMethod.Judge`'s doc said one thing
+of a batch that names no method for a node, and the code answered another.
+
+**Root cause.** The doc and the code were written apart, and no test held the empty claim.
+
+**Fix.** In the working tree. The doc now says that on a node naming a method the empty claim is a Mismatch stored
+under the node's method, and that on the parallel marker it is Named; `TestNodeMethod_Judge` covers both.
+
+**Lesson.** As 1041 and 1066: a doc comment that states a case is held to it by a test of that case.
+
+## 1171. The journal consumer said what it changed of a batch (identities cleared, methods held to their node) before the write, so a batch redelivered after a failed write said it again (fixed before push; caught in review; a repeat of 1161, which 1161's fix missed)
+
+**Symptom.** Found in review by the claim-refuter agent on this branch, 2026-11-11, before commit. 1161 moved the facts consumer's notes after
+the write. The journal consumer's per-batch notes still ran before its write.
+
+**Why 1161 did not prevent it.** 1161's fix was made in the consumer its finding named. The journal consumer has the
+same shape and was not checked.
+
+**Fix.** In the working tree. Both consumers collect their notes and say them only once the batch is stored, or
+acknowledged with nothing left to store (`internal/journal/notes.go`). Tests: `TestSubscriber_SaysWhatItChangedOnlyOnceStored`
+(`internal/journal/subscriber_nodes_test.go` and `internal/facts/entstore/nodes_test.go`).
+
+**Lesson.** LESSONS 445: two consumers of one batch share one noting point.
+
+## 1172. Delivered ids reached the pre-admission log lines and returned errors of the new node path raw (fixed before push; caught in review; a repeat of 1160)
+
+**Symptom.** Found in review on this branch, 2026-11-11, before commit: the pre-admission log lines by the fp-reviewer
+agent, the returned errors by the claim-refuter agent. Log lines written before a batch was admitted,
+and errors the new node path returned, named a delivered job, device or node id as written.
+
+**Why 1160 did not prevent it.** 1160's fix covered the messages that existed when it was made. 1164's fix added new
+ones, and nothing makes a new message use `termsafe.Quote`.
+
+**Fix.** In the working tree. Those messages name each delivered id through `termsafe.Quote`. No test; checked by reading.
+
+**Lesson.** As 1160.

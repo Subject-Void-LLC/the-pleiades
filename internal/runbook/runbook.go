@@ -98,6 +98,21 @@ type Runbook struct {
 	// (internal/dispatch's serial gate).
 	Serial engine.SerialList
 
+	// Version is the compiled DAG's version (engine.DAG.Version), which the
+	// Controller records beside a job's pinned graph for display and a later
+	// rollback; a graph is compared by GraphDigest, never by this.
+	Version string
+
+	// Nodes is what each node of the compiled DAG runs (NodesOf), from the
+	// same compilation as Version: the graph the Controller pins on a job
+	// beside its version.
+	Nodes map[string]Node
+
+	// GraphDigest is GraphDigest(Nodes), under GraphScheme: what a job pins
+	// and a dispatch carries, which a Runner holds its own copy to, the
+	// rollback: lists included.
+	GraphDigest string
+
 	// Name, Description, Category and Labels are the catalog metadata a
 	// reader browsing runbooks needs and an executor does not. They come
 	// straight from the compiled WorkflowDef, so a runbook is described by

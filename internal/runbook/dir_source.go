@@ -315,6 +315,7 @@ func (d *dirSource) resolve(ctx context.Context, id string) (cacheEntry, error) 
 		return cacheEntry{}, fmt.Errorf("failed to compile runbook %q: %w", id, err)
 	}
 
+	nodes := NodesOf(dag)
 	rb := &Runbook{
 		ID:            id,
 		Required:      requiredCapabilities(dag),
@@ -322,6 +323,9 @@ func (d *dirSource) resolve(ctx context.Context, id string) (cacheEntry, error) 
 		AllMethods:    methods(dag, true),
 		Interruptible: dag.Metadata.IsInterruptible(),
 		Serial:        dag.Serial,
+		Version:       dag.Version,
+		Nodes:         nodes,
+		GraphDigest:   GraphDigest(nodes),
 		// Catalog metadata, read from the file rather than stored beside
 		// it. Name falls back to the id so a runbook that never set one is
 		// still listed by something a human can read.

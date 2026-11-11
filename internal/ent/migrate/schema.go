@@ -507,6 +507,8 @@ var (
 		{Name: "external_checks", Type: field.TypeBool, Default: false},
 		{Name: "rollback_of", Type: field.TypeString, Nullable: true},
 		{Name: "rollback", Type: field.TypeJSON, Nullable: true},
+		{Name: "dag_version", Type: field.TypeString, Nullable: true},
+		{Name: "node_graph", Type: field.TypeJSON, Nullable: true},
 	}
 	// JobsTable holds the schema information for the "jobs" table.
 	JobsTable = &schema.Table{

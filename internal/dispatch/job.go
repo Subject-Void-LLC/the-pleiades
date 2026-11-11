@@ -31,6 +31,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/launch"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/runbook"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
 
@@ -204,6 +205,38 @@ type Job struct {
 	// and checked it when the rollback was asked for. Nil for any other
 	// job, and for a rollback job whose stored plan cannot be read.
 	Rollback *RollbackPlan
+
+	// DAGVersion and Graph are the compiled runbook the job's first fan-out
+	// prepared (PreparedDefinition.Graph), written once by PinGraph: its
+	// version, and what each of its nodes runs. A job runs one graph: a
+	// later fan-out or pump that prepares another version fails the
+	// devices it has left (graphChanged). The facts and journal consumers
+	// resolve a node's method from Graph alone. Both are empty for a job
+	// that names no graph (a playbook, a rollback job, which runs its plan
+	// held to the version it undoes, a job not yet fanned out, or one
+	// fanned out before the graph was pinned).
+	DAGVersion string
+	Graph      *NodeGraph
+}
+
+// NodeGraph is the record of a compiled runbook a job pins: its version
+// (kept for display and for a later rollback, never compared), by node id
+// what each node runs (runbook.NodesOf), and the digest of those nodes under
+// a frozen scheme (runbook.DigestUnder), which is what a job's graph is
+// compared by, on the Controller and on the Runner. It never changes once
+// pinned.
+type NodeGraph struct {
+	Version string                  `json:"version"`
+	Scheme  string                  `json:"scheme"`
+	Digest  string                  `json:"digest"`
+	Nodes   map[string]runbook.Node `json:"nodes"`
+}
+
+// Same reports whether g and other are one graph: the same nodes, rollback:
+// lists included, by the same digest scheme. The version is not compared, as
+// the Runner does not compare it.
+func (g *NodeGraph) Same(other *NodeGraph) bool {
+	return g != nil && other != nil && g.Scheme == other.Scheme && g.Digest == other.Digest
 }
 
 // RollbackPlan is what a rollback job runs: per device, the steps that
@@ -693,6 +726,13 @@ type JobStore interface {
 	// The run journal's consumer asks it before storing a batch a Runner
 	// published, since any Runner may publish on any job's subject.
 	DispatchState(ctx context.Context, jobID, deviceID string) (DispatchState, error)
+
+	// PinGraph records graph (its version and its nodes) as the compiled
+	// runbook jobID was prepared from, once: a job already holding one keeps
+	// it. fence must be the caller's own BeginFanOut fence; a superseded
+	// caller gets ErrFenced. A nil graph, or one with no version, writes
+	// nothing.
+	PinGraph(ctx context.Context, jobID string, fence int64, graph *NodeGraph) error
 }
 
 // DispatchState is what a job's record says about one device's dispatch.

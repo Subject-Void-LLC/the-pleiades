@@ -171,8 +171,9 @@ func (w *Worker) Pump(ctx context.Context, jobID string) error {
 
 // pumpDefinitionFor prepares job's definition and renders its credentials,
 // as the fan-out did. A failure is not the pump's to retry: the definition
-// or a credential went away while devices waited, and each of them is
-// failed with the same sanitised sentence the fan-out would have recorded.
+// or a credential went away, or the runbook's graph changed (graphChanged),
+// while devices waited, and each of them is failed with the same sanitised
+// sentence the fan-out would have recorded.
 func (w *Worker) pumpDefinitionFor(ctx context.Context, job *Job) *pumpDefinition {
 	kind := launch.ResolveKind(job.Kind)
 	source, ok := w.definitions[kind]
@@ -185,6 +186,12 @@ func (w *Worker) pumpDefinitionFor(ctx context.Context, job *Job) *pumpDefinitio
 			slog.String("job_id", job.JobID),
 			slog.String("definition", job.RunbookID),
 			slog.String("error", err.Error()))
+		return &pumpDefinition{reason: reason}
+	}
+	// One job runs one graph: a runbook edited while its devices waited
+	// fails each of them rather than running them against the new graph
+	// (graphChanged; never for a rollback job, held to its plan's version).
+	if reason := graphChanged(job, prepared); reason != "" {
 		return &pumpDefinition{reason: reason}
 	}
 	injected, reason, err := w.injectFor(ctx, job)

@@ -1,22 +1,35 @@
-// Package entstore: a Runner's batch holds a built-in fact only from a
-// built-in method.
+// Package entstore: a Runner's batch holding a built-in fact from a method
+// this Controller's catalog lacks (FP 1020).
 //
 // A Runner refuses at load an external Collection that declares a fact a
-// built-in holds (collection.CheckExternalFact), and the engine stores only
-// what the emitting method declares. The Controller holds a batch to the same
-// rule rather than trusting that every Runner does (a Runner of an older
-// release, during an upgrade, does not): a fact a built-in holds is stored
-// only when a built-in method emitted it.
+// built-in holds (collection.CheckExternalFact, from release 0.4.0), and the
+// engine stores only what the emitting method declares. Which methods are
+// built-in is release data: a Runner of a newer release runs a built-in this
+// Controller's catalog does not name, and one of an older release a built-in
+// this release renamed. So the Controller does not hold a batch to its own
+// catalog. It stores every fact and notes, at info, the ones its own release
+// reserves for a built-in (LESSONS 415, 422). The method all of this is
+// judged under is not the batch's claim but the one the Controller dispatched
+// for the batch's node (nodes.go): a first-party method's facts are kept
+// whether or not this catalog names it, and an external Collection's method
+// keeps none a built-in holds.
 package entstore
 
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
+	"sort"
 	"strings"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/termsafe"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 )
+
+// MaxNotedFacts bounds how many fact names one built-in difference note
+// lists; the note gives the whole count beside them.
+const MaxNotedFacts = 16
 
 // BuiltinMethods reads the names of the methods in a module catalog
 // (internal/api/wellknown's ModuleCatalog).
@@ -32,47 +45,81 @@ func BuiltinMethods(catalog []byte) (map[string]bool, error) {
 	return out, nil
 }
 
-// WithBuiltinProvenance drops, from a batch whose emitting method is not one
-// of builtins, every entry a built-in holds: a key the catalog declares
-// (WithDeclarations) or one under the fact floor (collection.FactFloor), compared
-// without case.
+// WithBuiltinProvenance names the built-in methods, so that a batch whose
+// emitting method is not one of builtins, and which holds a fact a built-in
+// holds (a key the catalog declares, WithDeclarations, or one under the fact
+// floor, collection.FactFloor, compared without case), is noted at info. It
+// drops nothing: the note says the Runner's release and this one differ.
 func WithBuiltinProvenance(builtins map[string]bool) SubscriberOption {
 	return func(s *Subscriber) { s.builtins = builtins }
 }
 
-// heldByBuiltin reports whether key is a fact a built-in holds.
-func (s *Subscriber) heldByBuiltin(key string) bool {
-	if s.declared != nil {
-		if _, ok := s.declared(key); ok {
-			return true
-		}
-	}
+// declaredFamily names, in a note, a key held because the catalog declares
+// it rather than because it is under the fact floor.
+const declaredFamily = "declared by the catalog"
+
+// heldByBuiltin reports the family under which key is a fact a built-in
+// holds: the fact floor prefix it falls under, or declaredFamily for a key
+// the catalog declares outside every prefix; "" when no built-in holds it.
+func (s *Subscriber) heldByBuiltin(key string) string {
 	// The same floor the Runner's loader holds an external method's facts to
 	// (collection.FactFloor, Phase 136a): the reserved families and every
 	// first-party namespace as a prefix, whether or not a build links it.
 	folded := strings.ToLower(key)
 	for _, prefix := range collection.FactFloor() {
 		if strings.HasPrefix(folded, prefix) {
-			return true
+			return prefix
 		}
 	}
-	return false
+	if s.declared != nil {
+		if _, ok := s.declared(key); ok {
+			return declaredFamily
+		}
+	}
+	return ""
 }
 
-// builtinProvenance returns entries without those a non-built-in method
-// could not have been allowed to write, and the keys it dropped.
-func (s *Subscriber) builtinProvenance(method string, entries []facts.Entry) ([]facts.Entry, []string) {
+// builtinDifference is what a batch from method holds that this
+// controller's release reserves for a built-in, when its catalog lacks
+// method: how many entries, the families they fall under, sorted, and the
+// first MaxNotedFacts of their keys in the batch's order. It drops nothing.
+// Zero when no built-ins were named or method is one of them.
+func (s *Subscriber) builtinDifference(method string, entries []facts.Entry) (count int, families, keys []string) {
 	if s.builtins == nil || s.builtins[method] {
-		return entries, nil
+		return 0, nil, nil
 	}
-	kept := entries[:0:0]
-	var dropped []string
+	seen := map[string]bool{}
 	for _, e := range entries {
-		if s.heldByBuiltin(e.Key) {
-			dropped = append(dropped, e.Key)
+		family := s.heldByBuiltin(e.Key)
+		if family == "" {
 			continue
 		}
-		kept = append(kept, e)
+		count++
+		if !seen[family] {
+			seen[family] = true
+			families = append(families, family)
+		}
+		// Bounded: a batch may hold thousands of keys (a package each).
+		if len(keys) < MaxNotedFacts {
+			keys = append(keys, e.Key)
+		}
 	}
-	return kept, dropped
+	sort.Strings(families)
+	return count, families, keys
+}
+
+// noteBuiltinDifference logs, at info, the facts of batch a built-in holds
+// that method, outside this controller's catalog, emitted: the job and
+// device, the method as quoted (termsafe.Quote, bounded and escaped, since
+// it is the batch's own text), the count, the families and the bounded keys,
+// never a value. A key passed facts.Verify, so it is a name that shows as
+// itself and is within facts.MaxKeyBytes.
+func (s *Subscriber) noteBuiltinDifference(batch facts.Batch, quoted, method string, entries []facts.Entry) {
+	count, families, keys := s.builtinDifference(method, entries)
+	if count == 0 {
+		return
+	}
+	s.logger.Info("stored facts this controller's release reserves for built-ins, from a method its catalog lacks; the Runner's release and this one differ",
+		slog.String("job", termsafe.Quote(batch.JobID)), slog.String("device", termsafe.Quote(batch.DeviceID)), slog.String("method", quoted),
+		slog.Int("facts", count), slog.Any("families", families), slog.Any("keys", keys))
 }

@@ -71,6 +71,10 @@ type Job struct {
 	RollbackOf string `json:"rollback_of,omitempty"`
 	// Rollback holds the value of the "rollback" field.
 	Rollback jsontext.Value `json:"rollback,omitempty"`
+	// DagVersion holds the value of the "dag_version" field.
+	DagVersion string `json:"dag_version,omitempty"`
+	// NodeGraph holds the value of the "node_graph" field.
+	NodeGraph jsontext.Value `json:"node_graph,omitempty"`
 	// Edges holds the relations/edges for other nodes in the graph.
 	// The values are being populated by the JobQuery when eager-loading is set.
 	Edges        JobEdges `json:"edges"`
@@ -100,13 +104,13 @@ func (*Job) scanValues(columns []string) ([]any, error) {
 	values := make([]any, len(columns))
 	for i := range columns {
 		switch columns[i] {
-		case job.FieldFields, job.FieldExtraVars, job.FieldCredentialIds, job.FieldRollback:
+		case job.FieldFields, job.FieldExtraVars, job.FieldCredentialIds, job.FieldRollback, job.FieldNodeGraph:
 			values[i] = new([]byte)
 		case job.FieldExternalChecks:
 			values[i] = new(sql.NullBool)
 		case job.FieldID, job.FieldInventoryID, job.FieldTemplateID, job.FieldLaunchConfigID, job.FieldOrganizationID, job.FieldDispatchedCount, job.FieldSkippedCount, job.FieldFailedCount, job.FieldFence:
 			values[i] = new(sql.NullInt64)
-		case job.FieldJobID, job.FieldRunbookID, job.FieldGroupName, job.FieldTemplateName, job.FieldKind, job.FieldActor, job.FieldState, job.FieldFailureReason, job.FieldCanceledBy, job.FieldRollbackOf:
+		case job.FieldJobID, job.FieldRunbookID, job.FieldGroupName, job.FieldTemplateName, job.FieldKind, job.FieldActor, job.FieldState, job.FieldFailureReason, job.FieldCanceledBy, job.FieldRollbackOf, job.FieldDagVersion:
 			values[i] = new(sql.NullString)
 		case job.FieldCreatedAt, job.FieldUpdatedAt, job.FieldCanceledAt:
 			values[i] = new(sql.NullTime)
@@ -299,6 +303,20 @@ func (_m *Job) assignValues(columns []string, values []any) error {
 					return fmt.Errorf("unmarshal field rollback: %w", err)
 				}
 			}
+		case job.FieldDagVersion:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field dag_version", values[i])
+			} else if value.Valid {
+				_m.DagVersion = value.String
+			}
+		case job.FieldNodeGraph:
+			if value, ok := values[i].(*[]byte); !ok {
+				return fmt.Errorf("unexpected type %T for field node_graph", values[i])
+			} else if value != nil && len(*value) > 0 {
+				if err := json.Unmarshal(*value, &_m.NodeGraph); err != nil {
+					return fmt.Errorf("unmarshal field node_graph: %w", err)
+				}
+			}
 		default:
 			_m.selectValues.Set(columns[i], values[i])
 		}
@@ -425,6 +443,12 @@ func (_m *Job) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("rollback=")
 	builder.WriteString(fmt.Sprintf("%v", _m.Rollback))
+	builder.WriteString(", ")
+	builder.WriteString("dag_version=")
+	builder.WriteString(_m.DagVersion)
+	builder.WriteString(", ")
+	builder.WriteString("node_graph=")
+	builder.WriteString(fmt.Sprintf("%v", _m.NodeGraph))
 	builder.WriteByte(')')
 	return builder.String()
 }

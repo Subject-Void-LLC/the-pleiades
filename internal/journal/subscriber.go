@@ -19,6 +19,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/poison"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/termsafe"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
 )
 
@@ -36,6 +37,11 @@ type Subscriber struct {
 	// admit, when set, decides whether a batch's job and device are ones
 	// the Controller dispatched (admission.go).
 	admit AdmissionCheck
+
+	// nodes, when set, says which method the Controller dispatched for a
+	// row's node (nodes.go): each row is stored under that method, never
+	// under a claim that differs from it.
+	nodes NodeResolver
 }
 
 // NewSubscriber builds the consumer-side handler over store.
@@ -92,8 +98,8 @@ func (s *Subscriber) Handle(evt event.Event) error {
 	var batch Batch
 	if err := json.Unmarshal(evt.Data, &batch); err != nil {
 		s.logger.Error("dropping a malformed run journal batch",
-			slog.String("event", evt.ID),
-			slog.String("error", err.Error()))
+			slog.String("event", termsafe.Quote(evt.ID)),
+			slog.String("error", termsafe.Quote(err.Error())))
 		return nil
 	}
 	if len(batch.Entries) == 0 {
@@ -101,8 +107,8 @@ func (s *Subscriber) Handle(evt event.Event) error {
 		// upstream or a hand-crafted message. Either way there is
 		// nothing to write and nothing redelivery would fix.
 		s.logger.Warn("received a run journal batch with no entries",
-			slog.String("event", evt.ID),
-			slog.String("job", batch.JobID))
+			slog.String("event", termsafe.Quote(evt.ID)),
+			slog.String("job", termsafe.Quote(batch.JobID)))
 		return nil
 	}
 
@@ -113,8 +119,8 @@ func (s *Subscriber) Handle(evt event.Event) error {
 	for _, entry := range batch.Entries {
 		if entry.JobID != batch.JobID || entry.DeviceID != batch.DeviceID {
 			s.logger.Warn("dropping a run journal batch whose entries name another job or device than the batch",
-				slog.String("job", batch.JobID),
-				slog.String("device", batch.DeviceID))
+				slog.String("job", termsafe.Quote(batch.JobID)),
+				slog.String("device", termsafe.Quote(batch.DeviceID)))
 			return nil
 		}
 	}
@@ -129,7 +135,7 @@ func (s *Subscriber) Handle(evt event.Event) error {
 	}
 	if idErr != nil {
 		s.logger.Error("dropping a run journal batch whose job or device id cannot name one",
-			slog.String("event", evt.ID),
+			slog.String("event", termsafe.Quote(evt.ID)),
 			slog.String("reason", idErr.Error()))
 		return nil
 	}
@@ -140,33 +146,55 @@ func (s *Subscriber) Handle(evt event.Event) error {
 	if s.admit != nil {
 		admission, err := s.admit(context.Background(), batch.JobID, batch.DeviceID)
 		if err != nil {
-			return fmt.Errorf("failed to check the run journal batch for job %s: %w", batch.JobID, err)
+			return fmt.Errorf("failed to check the run journal batch for job %s: %w", termsafe.Quote(batch.JobID), err)
 		}
 		switch admission {
 		case AdmitDispatched:
 		case AdmitNotDispatched:
 			s.logger.Warn("dropping a run journal batch for a device this controller never dispatched",
-				slog.String("job", batch.JobID),
-				slog.String("device", batch.DeviceID))
+				slog.String("job", termsafe.Quote(batch.JobID)),
+				slog.String("device", termsafe.Quote(batch.DeviceID)))
 			return nil
 		default:
-			return fmt.Errorf("the run journal batch names job %s device %s, which this controller has not recorded dispatching yet", batch.JobID, batch.DeviceID)
+			return fmt.Errorf("the run journal batch names job %s device %s, which this controller has not recorded dispatching yet", termsafe.Quote(batch.JobID), termsafe.Quote(batch.DeviceID))
 		}
+	}
+
+	// Each row is stored under the method the Controller dispatched for its
+	// node, never under the batch's claim (subscriber_nodes.go). A record
+	// that cannot be read is returned, so the bus redelivers the batch.
+	// What this consumer says of the batch, said once it is stored.
+	notes := NewNotes(s.logger)
+	if err := s.bindNodes(context.Background(), &batch, notes); err != nil {
+		return fmt.Errorf("failed to resolve the nodes of the run journal batch for job %s: %w", termsafe.Quote(batch.JobID), err)
 	}
 
 	// This Controller writes these rows, so it holds each delivered
 	// identity to what the engine writes, clearing one that fails and keeping
-	// the entry (identity.go). Said here, where the batch is known; the
-	// store applies the same rule to any other caller. Valid's message
-	// quotes the group, so no character it holds reaches the log raw.
+	// the entry (identity.go). Said once the batch is stored, where the batch
+	// is known; the store applies the same rule to any other caller. Each reason is fixed
+	// text, and the node and method are the batch's own text, named bounded
+	// and escaped (termsafe.Quote), so nothing the batch delivered reaches
+	// the log raw or unbounded.
 	for i := range batch.Entries {
 		cleared, reasons := identityProblems(batch.Entries[i])
 		for _, reason := range reasons {
-			s.logger.Warn("storing a run journal entry without what its batch names, which no build writes for it",
-				slog.String("job", batch.JobID),
-				slog.String("device", batch.DeviceID),
-				slog.String("node", cleared.NodeID),
-				slog.String("fqcn", cleared.FQCN),
+			notes.Warn("storing a run journal entry without what its batch names, which no build writes for it",
+				slog.String("job", termsafe.Quote(batch.JobID)),
+				slog.String("device", termsafe.Quote(batch.DeviceID)),
+				slog.String("node", termsafe.Quote(cleared.NodeID)),
+				slog.String("fqcn", termsafe.Quote(cleared.FQCN)),
+				slog.String("reason", reason))
+		}
+		// An identity kept that this Controller's own toolchain would not
+		// make: said once per entry, once stored, and stored as sent. The store does
+		// not say it again for the same row.
+		if reason := validDiffers(cleared); reason != "" {
+			notes.Info("storing a run journal entry under a Collection identity this controller's own toolchain would not make; the Runner's build and this one differ",
+				slog.String("job", termsafe.Quote(batch.JobID)),
+				slog.String("device", termsafe.Quote(batch.DeviceID)),
+				slog.String("node", termsafe.Quote(cleared.NodeID)),
+				slog.String("fqcn", termsafe.Quote(cleared.FQCN)),
 				slog.String("reason", reason))
 		}
 		batch.Entries[i] = cleared
@@ -179,8 +207,8 @@ func (s *Subscriber) Handle(evt event.Event) error {
 	// since some such messages quote the value (poison.Describe).
 	if _, refused := poison.Unstorable(err); refused || errors.Is(err, ErrUnstorable) {
 		s.logger.Error("dropping a run journal batch the store can never accept",
-			slog.String("job", batch.JobID),
-			slog.String("device", batch.DeviceID),
+			slog.String("job", termsafe.Quote(batch.JobID)),
+			slog.String("device", termsafe.Quote(batch.DeviceID)),
 			slog.Int("attempt", batch.Attempt),
 			slog.Int("entries", len(batch.Entries)),
 			slog.Int("written", written),
@@ -189,21 +217,24 @@ func (s *Subscriber) Handle(evt event.Event) error {
 	}
 	if err != nil {
 		s.logger.Error("failed to store a run journal batch",
-			slog.String("job", batch.JobID),
-			slog.String("device", batch.DeviceID),
+			slog.String("job", termsafe.Quote(batch.JobID)),
+			slog.String("device", termsafe.Quote(batch.DeviceID)),
 			slog.Int("attempt", batch.Attempt),
 			slog.Int("entries", len(batch.Entries)),
 			slog.Int("written", written),
 			slog.String("error", err.Error()))
-		return fmt.Errorf("failed to store the run journal for job %s: %w", batch.JobID, err)
+		return fmt.Errorf("failed to store the run journal for job %s: %w", termsafe.Quote(batch.JobID), err)
 	}
+
+	// Stored: what was changed of it is said now, once.
+	notes.Say()
 
 	// Logged at debug rather than info: this fires once per topological
 	// level of every task of every job, which is the highest-volume
 	// event in the system.
 	s.logger.Debug("stored a run journal batch",
-		slog.String("job", batch.JobID),
-		slog.String("device", batch.DeviceID),
+		slog.String("job", termsafe.Quote(batch.JobID)),
+		slog.String("device", termsafe.Quote(batch.DeviceID)),
 		slog.Int("attempt", batch.Attempt),
 		slog.Int("written", written),
 		slog.Int("skipped", len(batch.Entries)-written))

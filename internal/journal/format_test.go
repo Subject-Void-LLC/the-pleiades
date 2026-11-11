@@ -129,3 +129,36 @@ func TestReadRunHoldsTheCollectionIdentityToWhatABuildWrites(t *testing.T) {
 		})
 	}
 }
+
+// TestReadRunNamesNoRecordedTextUnbounded: a hand-edited journal line can
+// carry an undo digest, an outcome or a node of half a megabyte holding
+// direction overrides; the refusal names it bounded and escaped.
+func TestReadRunNamesNoRecordedTextUnbounded(t *testing.T) {
+	frozen, err := os.ReadFile(filepath.Join("testdata", "format-2", "entries.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	line := strings.SplitN(string(frozen), "\n", 2)[0]
+	undo := `"inverse_spec_digest":"sha256:` + strings.Repeat("d", 64) + `"`
+	if !strings.Contains(line, undo) {
+		t.Fatalf("the frozen line lacks %s", undo)
+	}
+	root := t.TempDir()
+	dir := filepath.Join(root, ".pleiades", "journal")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	override := string(rune(0x202e))
+	huge := strings.Repeat("zq9"+override, 1<<19/6)
+	text := strings.Replace(line, undo, `"inverse_spec_digest":"`+huge+`"`, 1)
+	if err := os.WriteFile(filepath.Join(dir, goldenRunID+".jsonl"), []byte(text+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err = journal.ReadRun(root, goldenRunID)
+	if err == nil || !strings.Contains(err.Error(), "undo digest") {
+		t.Fatalf("ReadRun: %v, want the undo digest refused", err)
+	}
+	if len(err.Error()) > 2048 || strings.Contains(err.Error(), override) {
+		t.Errorf("the refusal of %d bytes repeats the digest: %.300q", len(err.Error()), err.Error())
+	}
+}

@@ -160,6 +160,11 @@ func RollbackOf(v string) predicate.Job {
 	return predicate.Job(sql.FieldEQ(FieldRollbackOf, v))
 }
 
+// DagVersion applies equality check predicate on the "dag_version" field. It's identical to DagVersionEQ.
+func DagVersion(v string) predicate.Job {
+	return predicate.Job(sql.FieldEQ(FieldDagVersion, v))
+}
+
 // CreatedAtEQ applies the EQ predicate on the "created_at" field.
 func CreatedAtEQ(v time.Time) predicate.Job {
 	return predicate.Job(sql.FieldEQ(FieldCreatedAt, v))
@@ -1353,6 +1358,91 @@ func RollbackIsNil() predicate.Job {
 // RollbackNotNil applies the NotNil predicate on the "rollback" field.
 func RollbackNotNil() predicate.Job {
 	return predicate.Job(sql.FieldNotNull(FieldRollback))
+}
+
+// DagVersionEQ applies the EQ predicate on the "dag_version" field.
+func DagVersionEQ(v string) predicate.Job {
+	return predicate.Job(sql.FieldEQ(FieldDagVersion, v))
+}
+
+// DagVersionNEQ applies the NEQ predicate on the "dag_version" field.
+func DagVersionNEQ(v string) predicate.Job {
+	return predicate.Job(sql.FieldNEQ(FieldDagVersion, v))
+}
+
+// DagVersionIn applies the In predicate on the "dag_version" field.
+func DagVersionIn(vs ...string) predicate.Job {
+	return predicate.Job(sql.FieldIn(FieldDagVersion, vs...))
+}
+
+// DagVersionNotIn applies the NotIn predicate on the "dag_version" field.
+func DagVersionNotIn(vs ...string) predicate.Job {
+	return predicate.Job(sql.FieldNotIn(FieldDagVersion, vs...))
+}
+
+// DagVersionGT applies the GT predicate on the "dag_version" field.
+func DagVersionGT(v string) predicate.Job {
+	return predicate.Job(sql.FieldGT(FieldDagVersion, v))
+}
+
+// DagVersionGTE applies the GTE predicate on the "dag_version" field.
+func DagVersionGTE(v string) predicate.Job {
+	return predicate.Job(sql.FieldGTE(FieldDagVersion, v))
+}
+
+// DagVersionLT applies the LT predicate on the "dag_version" field.
+func DagVersionLT(v string) predicate.Job {
+	return predicate.Job(sql.FieldLT(FieldDagVersion, v))
+}
+
+// DagVersionLTE applies the LTE predicate on the "dag_version" field.
+func DagVersionLTE(v string) predicate.Job {
+	return predicate.Job(sql.FieldLTE(FieldDagVersion, v))
+}
+
+// DagVersionContains applies the Contains predicate on the "dag_version" field.
+func DagVersionContains(v string) predicate.Job {
+	return predicate.Job(sql.FieldContains(FieldDagVersion, v))
+}
+
+// DagVersionHasPrefix applies the HasPrefix predicate on the "dag_version" field.
+func DagVersionHasPrefix(v string) predicate.Job {
+	return predicate.Job(sql.FieldHasPrefix(FieldDagVersion, v))
+}
+
+// DagVersionHasSuffix applies the HasSuffix predicate on the "dag_version" field.
+func DagVersionHasSuffix(v string) predicate.Job {
+	return predicate.Job(sql.FieldHasSuffix(FieldDagVersion, v))
+}
+
+// DagVersionIsNil applies the IsNil predicate on the "dag_version" field.
+func DagVersionIsNil() predicate.Job {
+	return predicate.Job(sql.FieldIsNull(FieldDagVersion))
+}
+
+// DagVersionNotNil applies the NotNil predicate on the "dag_version" field.
+func DagVersionNotNil() predicate.Job {
+	return predicate.Job(sql.FieldNotNull(FieldDagVersion))
+}
+
+// DagVersionEqualFold applies the EqualFold predicate on the "dag_version" field.
+func DagVersionEqualFold(v string) predicate.Job {
+	return predicate.Job(sql.FieldEqualFold(FieldDagVersion, v))
+}
+
+// DagVersionContainsFold applies the ContainsFold predicate on the "dag_version" field.
+func DagVersionContainsFold(v string) predicate.Job {
+	return predicate.Job(sql.FieldContainsFold(FieldDagVersion, v))
+}
+
+// NodeGraphIsNil applies the IsNil predicate on the "node_graph" field.
+func NodeGraphIsNil() predicate.Job {
+	return predicate.Job(sql.FieldIsNull(FieldNodeGraph))
+}
+
+// NodeGraphNotNil applies the NotNil predicate on the "node_graph" field.
+func NodeGraphNotNil() predicate.Job {
+	return predicate.Job(sql.FieldNotNull(FieldNodeGraph))
 }
 
 // HasTasks applies the HasEdge predicate on the "tasks" edge.

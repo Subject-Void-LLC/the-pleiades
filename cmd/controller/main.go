@@ -1212,7 +1212,14 @@ func main() {
 	// A batch is stored only for a device this Controller dispatched: any
 	// Runner may publish on any job's journal subject (internal/journal's
 	// admission.go says what that does and does not close).
-	journalSubscriber := journal.NewSubscriber(journalStore, logger, journal.WithAdmission(journalAdmission(jobStore)))
+	//
+	// Each row, and each fact batch below, is stored under the method this
+	// Controller dispatched for its node, from the runbook graph pinned on
+	// the job at its first fan-out or a rollback job's plan, never under the
+	// method a batch names (node_resolver.go). One resolver, so both
+	// consumers judge a node alike and share its cache.
+	nodes := newNodeResolver(jobStore)
+	journalSubscriber := journal.NewSubscriber(journalStore, logger, journal.WithAdmission(journalAdmission(jobStore)), journal.WithNodeResolver(nodes.Resolve))
 	if err := journalSubscriber.Subscribe(ctx, bus); err != nil {
 		fatal("failed to subscribe the run journal consumer", err)
 	}
@@ -1224,6 +1231,7 @@ func main() {
 	// read from the module catalog this binary serves, since a Controller
 	// links no Collection (Phase 41b).
 	factStore := entstore.New(client)
+	factsOpts = append(factsOpts, entstore.WithNodeResolver(nodes.Resolve))
 	factsSubscriber, err := newFactsSubscriber(factStore, logger, journalAdmission(jobStore), factsOpts...)
 	if err != nil {
 		fatal("failed to read the built-in fact declarations", err)

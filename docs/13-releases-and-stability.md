@@ -195,10 +195,110 @@ journal lacks, one that ran without a change, one that failed with an effect nob
 knows), since nothing of it is replayed.
 
 The Controller stores a Runner's journal rows and facts with only an identity that
-passes the writer's check: any other is stored as none, with a warning naming the job,
-device, node and method, and the row is kept. It never holds a Runner's identity to its own grouping of methods, which a later
-release may change; a difference is logged at info level and the identity is kept as
-sent.
+passes a fixed check: the identity's shape (a group within 255 bytes with no control
+code, a version of printable ASCII, a `sha256:` digest of 64 lowercase hex digits) and
+a group holding none of a fixed list of characters that would make it read as
+something else or show as nothing:
+
+- the bidirectional controls U+061C, U+200E and U+200F, U+202A to U+202E and U+2066 to
+  U+2069;
+- the zero width characters and joiners U+200B to U+200D, U+2060 and U+FEFF;
+- the line and paragraph separators U+2028 and U+2029, the soft hyphen U+00AD and the
+  Mongolian vowel separator U+180E;
+- the Hangul fillers U+115F, U+1160, U+3164 and U+FFA0;
+- the variation selectors U+180B to U+180D, U+180F, U+FE00 to U+FE0F and U+E0100 to
+  U+E01EF;
+- the other format characters U+2061 to U+2064, U+206A to U+206F, U+FFF9 to U+FFFB,
+  U+1BCA0 to U+1BCA3 and U+1D173 to U+1D17A;
+- the tag characters U+E0001 and U+E0020 to U+E007F;
+- private use, U+E000 to U+F8FF, U+F0000 to U+FFFFD and U+100000 to U+10FFFD.
+
+Any other is stored as none, with a warning naming the job, device, node and method
+(each cut to 128 bytes and escaped) and repeating none of the identity, and the row is
+kept. The check reads no Unicode table, so its answer is the same for every build, and
+the shape and the list are frozen wire contract. Every character on the list is one
+every build's own check refuses, so the Controller turns away no identity a build wrote.
+The Controller never holds a Runner's identity to its own Unicode tables or its own
+grouping of methods, which a later release or toolchain may change: a group holding a
+character the Controller's tables have not assigned, or one routed to another group, is
+logged at info level and kept as sent. Both consumers say what they changed of a batch
+(an identity cleared, a method held to its node, a claim kept as sent, an identity
+this toolchain would not make, a release difference) only once the batch is stored, or
+acknowledged with nothing left to store, so a write that fails and is delivered again
+says each once.
+
+The Controller judges a Runner's facts batch and journal rows under the method it
+dispatched for each node, not the method the batch names. When a job is first fanned
+out it records the runbook it compiled: what each node runs (the method, the parallel
+markers, each `rollback:` step's method), the digest of those nodes under a graph digest
+scheme, and the runbook's version, kept for display and for a later rollback and never
+compared. A rollback job records none: it runs its plan's steps, held, as before, to the
+version of the runbook it undoes (`Rollback.DAGVersion`), which this does not change.
+Each node a batch names is resolved from that record alone (an item or a retry of a
+task is the task; an undo step of a block's `rollback_on_failure` is the task's
+`rollback:` step, or the undo its first-party method recorded), or for a rollback job
+from the job's own plan, so the same batch always gets the same answer.
+
+A job keeps the graph it started with, on both sides, compared by its digest alone. On
+the Controller, editing the runbook while it runs changes no answer, and a fan-out
+reclaimed after a crash, or a forks window's next devices, prepared against a runbook
+whose graph changed (another method on a node, another node, or another `rollback:`
+list), fail the devices left with the reason `runbook "<id>" changed after this job
+started`, rather than running them against the new graph. An edit that changes no
+node's method or `rollback:` list (a parameter, a name) changes no graph and is run.
+Each dispatch carries the scheme and digest (`graph_scheme`, `graph_digest`), and a
+Runner whose own copy of the runbook digests otherwise under that scheme, or that does
+not know the scheme, runs nothing on that device and fails it, saying so in the job's
+log. A job that recorded no graph (a playbook, a rollback, one an earlier Controller
+fanned out) carries none, and its Runner runs it as before.
+
+**The graph digest is frozen wire contract.** Scheme `graph/1` is SHA-256 over: the
+scheme id, then for each node in byte order of its id the node id, its method, its
+marker flag, its authored flag, and its number of `rollback:` steps followed by each
+step's method; every string is its length as an 8-byte big-endian integer followed by
+its bytes, each flag one byte (0 or 1), the count an 8-byte big-endian integer. It is
+not a hash of any Go type's encoding, nor of the runbook version's, and a golden test
+holds it to a fixed digest. A new scheme is added beside the old, never changed, and a
+build refuses a scheme it does not know.
+
+A dispatch carrying a pinned graph is payload version 2, and every other dispatch
+(a rollback, a playbook, a job with no graph) stays at version 1. A Runner of an
+earlier release reads only version 1, so it refuses a pinned dispatch by its version,
+failing the device with the reason `dispatch payload is newer than this runner reads`
+and running nothing, as it refuses any payload newer than it reads; it is never handed
+a dispatch it would run unheld. It still runs rollbacks and playbooks. Upgrade Runners
+with the Controller: until then their native devices fail.
+
+A batch naming another method is stored under the node's, with a warning naming both;
+a journal row stored that way loses the Collection identity, program and undo it
+carried, so a rollback replays none of them. A row whose method is the node's keeps its
+undo as sent, and the rollback planner holds it to the declarations of that method, as
+it holds every recorded undo. An undo step of a first-party method that names a method
+outside first-party Collections is stored unresolved, however many undos the catalog
+declares for the method. Both consumers hold a batch's Collection identity to its
+method by one rule: a first-party method (one in a first-party namespace, or an engine
+action) carries no external program's identity and names no program, and an external
+Collection's method carries no first-party identity; an identity that breaks it is
+cleared, with a warning, and the rest is kept. A node the Controller cannot resolve (a
+job that recorded no graph: one fanned out before this release, or one that runs a
+playbook; or a node or device the graph or plan lacks), and a batch naming the method
+as one its Runner could not dispatch, are stored with their method unknown: journal
+rows with the method unresolved and no identity or undo, facts with no method and none
+a built-in holds.
+
+A Controller keeps a fact a built-in holds (a key its catalog declares or one in a
+built-in family) from a node whose method is first-party but missing from its own
+catalog, and logs at info level how many such facts there were, the family each fell
+under and a bounded list of their names, never their values: a Runner of a newer
+release may run a built-in this Controller does not know. In the same way, an undo
+step of a first-party method keeps a first-party undo its row names that this
+Controller's catalog does not declare for it, whether the method is missing from the
+catalog or a newer release declares more undos for it, said at info level, and the
+rollback planner judges it as any recorded undo. From a node that ran an external
+Collection's method it drops those facts, with a warning. The Runner refuses at load a
+program that declares one in the first place. **Runners must be of release 0.4.0 or
+later**: it is the first release whose loader makes that refusal, and no earlier release
+publishes facts at all.
 
 Builds of two releases side by side do not refuse each other's rows, but one may
 refuse what the other would run. A Controller of an earlier release sends a
@@ -223,7 +323,9 @@ Runners are upgraded to the same release. A new field whose absence means the ol
 behavior needs no new version. A field an older Runner would misread raises the
 version, and a Runner refuses a payload newer than it reads: the job fails with the
 reason rather than running part of what was asked. Runners from before 0.4.0 predate
-the field and cannot refuse one.
+the field and cannot refuse one. A Controller writes each payload at the lowest
+version that reads what it asks: version 2 for a native dispatch holding its Runner to
+the job's pinned graph (`graph_scheme`, `graph_digest`), version 1 for every other.
 
 A payload also names, under `collections`, each first-party Collection its runbook
 runs, as the Controller's catalog identifies it: the group, the Controller's version

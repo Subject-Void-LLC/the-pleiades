@@ -23,7 +23,27 @@ import (
 // absence is the old behavior needs no raise. Until 1.0 the payload may change
 // at any minor release, and a Controller and its Runners are upgraded
 // together; docs/13-releases-and-stability.md states the contract.
-const DispatchPayloadVersion = 1
+//
+// Version 2 holds a native dispatch to the graph its job pinned
+// (DispatchPayload.GraphScheme and GraphDigest). A Controller writes it only
+// on a dispatch carrying a pinned graph and writes version 1 on every other
+// (PayloadVersionFor), so a Runner of an earlier release refuses exactly the
+// dispatches it would run unheld, and still runs rollbacks and playbooks.
+const DispatchPayloadVersion = 2
+
+// PinnedGraphPayloadVersion is the version a dispatch carrying a pinned graph
+// is written at: the first version whose Runner holds a native dispatch to it.
+const PinnedGraphPayloadVersion = 2
+
+// PayloadVersionFor is the version a Controller writes p at: the lowest whose
+// Runner reads all p asks of it, so a dispatch that needs nothing new is
+// still taken by a Runner of an earlier release.
+func PayloadVersionFor(p DispatchPayload) int {
+	if p.GraphScheme != "" || p.GraphDigest != "" {
+		return PinnedGraphPayloadVersion
+	}
+	return 1
+}
 
 // ErrNewerPayload is what a Runner refuses a dispatch with when the payload's
 // version is past the one it reads.

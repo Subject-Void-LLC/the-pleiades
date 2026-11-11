@@ -5,20 +5,27 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/api"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/apispec"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/enttest"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/facts/entstore"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
+	pkginventory "github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	inventorytest "github.com/Subject-Void-LLC/the-pleiades/pkg/inventory/inventorytest"
+
+	_ "github.com/mattn/go-sqlite3"
 )
 
 // factReader answers from fixed facts, by device ID, and says what it was
@@ -130,6 +137,95 @@ func TestDeviceFactHistory_ReadsAKeyANewFactMayNotTake(t *testing.T) {
 	rr := factsGet(router, "/inventory/devices/web1/facts/"+url.PathEscape(key))
 	if rr.Code != http.StatusOK || reader.asked != string(item.ID())+"/"+key {
 		t.Errorf("history of a stored key ValidKey refuses: %d %s (asked %q)", rr.Code, rr.Body.String(), reader.asked)
+	}
+}
+
+// TestDeviceFactHistory_NamesBackOnlyAKeyThatShowsAsItself: the reader's
+// key rule is frozen and reads a key holding a direction override or a line
+// separator. No ValidKey under any Go release accepts such a character (a
+// format character or a line separator), so a key holding one is stored only
+// by a hand edit; the keys a writer of another toolchain can legitimately
+// store that this one refuses hold a code point this one has not assigned.
+// Asked for such a key that the store does not hold, the answer is an empty
+// history that does not repeat the caller's text, since it would not show as
+// itself (FAILURE_PATTERNS #72); asked for one the store holds, the stored
+// values come back under the key as stored. Through the CLI's real file
+// store here, and through the store the Controller serves in
+// TestDeviceFactHistory_ReadsAStoredKeyFromTheControllersStore.
+func TestDeviceFactHistory_NamesBackOnlyAKeyThatShowsAsItself(t *testing.T) {
+	item := &inventorytest.Stub{StubID: "8d1e3c2c-0670-40cc-a914-e1194ff5857e", StubName: "web1"}
+	store, err := facts.NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored := "pkg.a" + string(rune(0x2028)) + "b"
+	recordKey(t, store, string(item.ID()), stored)
+	router := factsRouter(t, &stubDeviceRepo{item: item}, store)
+	historyNamesBackOnlyWhatShows(t, router, stored)
+}
+
+// TestDeviceFactHistory_ReadsAStoredKeyFromTheControllersStore: the same
+// route over the store the Controller serves (internal/facts/entstore, on a
+// real SQLite file), with a stored key holding U+2028: its history reads, and
+// a key holding a direction override that nothing stored is not named back.
+func TestDeviceFactHistory_ReadsAStoredKeyFromTheControllersStore(t *testing.T) {
+	dsn := fmt.Sprintf("file:%s?_journal_mode=WAL&_busy_timeout=10000&_fk=1", filepath.Join(t.TempDir(), "facts.db"))
+	client := enttest.Open(t, "sqlite3", dsn)
+	t.Cleanup(func() { _ = client.Close() })
+	dev := client.Device.Create().SetName("web1").SetType("linux_server").SetProperties(map[string]any{"host": "10.0.0.1"}).SaveX(context.Background())
+	item := &inventorytest.Stub{StubID: pkginventory.DeviceID(dev.DeviceID), StubName: "web1"}
+	store := entstore.New(client)
+	stored := "pkg.a" + string(rune(0x2028)) + "b"
+	recordKey(t, store, dev.DeviceID, stored)
+	router := factsRouter(t, &stubDeviceRepo{item: item}, store)
+	historyNamesBackOnlyWhatShows(t, router, stored)
+}
+
+// recordKey stores one value under key on device, through store's Record,
+// which checks no key, as a writer of another build or a hand edit leaves it.
+func recordKey(t *testing.T, store facts.Store, device, key string) {
+	t.Helper()
+	hash, err := facts.Hash(key, "1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Record(context.Background(), device, facts.Observation{
+		Entries: []facts.Entry{{Key: key, Value: "1", Hash: hash}}, At: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// historyNamesBackOnlyWhatShows holds the history route over router to the
+// rule: stored is read back under itself, a key nothing stored that would
+// not show as itself is not named back, and an ordinary one is.
+func historyNamesBackOnlyWhatShows(t *testing.T, router http.Handler, stored string) {
+	t.Helper()
+	for _, r := range []rune{0x202E, 0x2028, 0x200B} {
+		asked := "pkg.a" + string(r) + "c"
+		rr := factsGet(router, "/inventory/devices/web1/facts/"+url.PathEscape(asked))
+		if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), `"facts":[]`) {
+			t.Errorf("%U: history of a key nothing stored: %d %s", r, rr.Code, rr.Body.String())
+		}
+		var body map[string]any
+		if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
+			t.Fatal(err)
+		}
+		// The self link names it percent-escaped (recordname.Segment), which
+		// shows as itself; only the raw character or the key field would not.
+		if _, named := body["key"]; named || strings.Contains(rr.Body.String(), string(r)) {
+			t.Errorf("%U: the answer names the caller's key back: %s", r, rr.Body.String())
+		}
+	}
+	rr := factsGet(router, "/inventory/devices/web1/facts/"+url.PathEscape(stored))
+	var body struct {
+		Key   string        `json:"key"`
+		Facts []facts.Entry `json:"facts"`
+	}
+	if rr.Code != http.StatusOK || json.Unmarshal(rr.Body.Bytes(), &body) != nil || len(body.Facts) != 1 || body.Facts[0].Key != stored || body.Key != stored {
+		t.Errorf("history of a stored key: %d %s", rr.Code, rr.Body.String())
+	}
+	if rr := factsGet(router, "/inventory/devices/web1/facts/os.family"); rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), `"key":"os.family"`) {
+		t.Errorf("history of an ordinary key nothing stored: %d %s", rr.Code, rr.Body.String())
 	}
 }
 

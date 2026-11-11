@@ -315,6 +315,29 @@ func (Job) Fields() []ent.Field {
 		// already holds, never a credential. Raw JSON because its type
 		// lives in internal/dispatch, which this package may not import.
 		field.JSON("rollback", json.RawMessage{}).Optional().Immutable(),
+		// dag_version and node_graph are the compiled runbook the first
+		// fan-out that claims the job prepared (dispatch.JobStore.PinGraph):
+		// its version (kept for display and a later rollback, never
+		// compared), and by node id what each node runs (the method, the
+		// parallel markers, each rollback: step's method) with the digest of
+		// those nodes under a frozen scheme (runbook.DigestUnder), which is
+		// what the graph is compared by; written once and never changed
+		// after. The Controller's facts and journal consumers
+		// resolve the method a Runner's batch names for a node from
+		// node_graph alone, so the same batch always gets the same answer,
+		// whatever the runbook says later. A job runs one graph: a reclaim or
+		// pump that prepares another graph fails the devices it has left, and
+		// each dispatch carries the graph's digest, which a Runner whose copy
+		// of the runbook digests otherwise refuses.
+		// Both are empty for a job that names no graph (a playbook, a
+		// rollback job, which runs its plan held to the version it undoes, or
+		// one fanned out before the columns), whose nodes are unresolvable
+		// except a rollback job's, which resolve from its plan. Raw
+		// JSON because the graph's type lives in internal/dispatch. A graph
+		// is a few dozen bytes a node; the largest shipped runbook has under
+		// fifty nodes, so a column holds it.
+		field.String("dag_version").Optional(),
+		field.JSON("node_graph", json.RawMessage{}).Optional(),
 	}
 }
 

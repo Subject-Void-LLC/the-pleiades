@@ -4,12 +4,14 @@ package ent
 
 import (
 	"context"
+	"encoding/json/jsontext"
 	"errors"
 	"fmt"
 	"time"
 
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
+	"entgo.io/ent/dialect/sql/sqljson"
 	"entgo.io/ent/schema/field"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/job"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/jobtask"
@@ -193,6 +195,44 @@ func (_u *JobUpdate) AddFence(v int64) *JobUpdate {
 	return _u
 }
 
+// SetDagVersion sets the "dag_version" field.
+func (_u *JobUpdate) SetDagVersion(v string) *JobUpdate {
+	_u.mutation.SetDagVersion(v)
+	return _u
+}
+
+// SetNillableDagVersion sets the "dag_version" field if the given value is not nil.
+func (_u *JobUpdate) SetNillableDagVersion(v *string) *JobUpdate {
+	if v != nil {
+		_u.SetDagVersion(*v)
+	}
+	return _u
+}
+
+// ClearDagVersion clears the value of the "dag_version" field.
+func (_u *JobUpdate) ClearDagVersion() *JobUpdate {
+	_u.mutation.ClearDagVersion()
+	return _u
+}
+
+// SetNodeGraph sets the "node_graph" field.
+func (_u *JobUpdate) SetNodeGraph(v jsontext.Value) *JobUpdate {
+	_u.mutation.SetNodeGraph(v)
+	return _u
+}
+
+// AppendNodeGraph appends value to the "node_graph" field.
+func (_u *JobUpdate) AppendNodeGraph(v jsontext.Value) *JobUpdate {
+	_u.mutation.AppendNodeGraph(v)
+	return _u
+}
+
+// ClearNodeGraph clears the value of the "node_graph" field.
+func (_u *JobUpdate) ClearNodeGraph() *JobUpdate {
+	_u.mutation.ClearNodeGraph()
+	return _u
+}
+
 // AddTaskIDs adds the "tasks" edge to the JobTask entity by IDs.
 func (_u *JobUpdate) AddTaskIDs(ids ...int) *JobUpdate {
 	_u.mutation.AddTaskIDs(ids...)
@@ -372,6 +412,23 @@ func (_u *JobUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if _u.mutation.RollbackCleared() {
 		_spec.ClearField(job.FieldRollback, field.TypeJSON)
+	}
+	if value, ok := _u.mutation.DagVersion(); ok {
+		_spec.SetField(job.FieldDagVersion, field.TypeString, value)
+	}
+	if _u.mutation.DagVersionCleared() {
+		_spec.ClearField(job.FieldDagVersion, field.TypeString)
+	}
+	if value, ok := _u.mutation.NodeGraph(); ok {
+		_spec.SetField(job.FieldNodeGraph, field.TypeJSON, value)
+	}
+	if value, ok := _u.mutation.AppendedNodeGraph(); ok {
+		_spec.AddModifier(func(u *sql.UpdateBuilder) {
+			sqljson.Append(u, job.FieldNodeGraph, value)
+		})
+	}
+	if _u.mutation.NodeGraphCleared() {
+		_spec.ClearField(job.FieldNodeGraph, field.TypeJSON)
 	}
 	if _u.mutation.TasksCleared() {
 		edge := &sqlgraph.EdgeSpec{
@@ -602,6 +659,44 @@ func (_u *JobUpdateOne) AddFence(v int64) *JobUpdateOne {
 	return _u
 }
 
+// SetDagVersion sets the "dag_version" field.
+func (_u *JobUpdateOne) SetDagVersion(v string) *JobUpdateOne {
+	_u.mutation.SetDagVersion(v)
+	return _u
+}
+
+// SetNillableDagVersion sets the "dag_version" field if the given value is not nil.
+func (_u *JobUpdateOne) SetNillableDagVersion(v *string) *JobUpdateOne {
+	if v != nil {
+		_u.SetDagVersion(*v)
+	}
+	return _u
+}
+
+// ClearDagVersion clears the value of the "dag_version" field.
+func (_u *JobUpdateOne) ClearDagVersion() *JobUpdateOne {
+	_u.mutation.ClearDagVersion()
+	return _u
+}
+
+// SetNodeGraph sets the "node_graph" field.
+func (_u *JobUpdateOne) SetNodeGraph(v jsontext.Value) *JobUpdateOne {
+	_u.mutation.SetNodeGraph(v)
+	return _u
+}
+
+// AppendNodeGraph appends value to the "node_graph" field.
+func (_u *JobUpdateOne) AppendNodeGraph(v jsontext.Value) *JobUpdateOne {
+	_u.mutation.AppendNodeGraph(v)
+	return _u
+}
+
+// ClearNodeGraph clears the value of the "node_graph" field.
+func (_u *JobUpdateOne) ClearNodeGraph() *JobUpdateOne {
+	_u.mutation.ClearNodeGraph()
+	return _u
+}
+
 // AddTaskIDs adds the "tasks" edge to the JobTask entity by IDs.
 func (_u *JobUpdateOne) AddTaskIDs(ids ...int) *JobUpdateOne {
 	_u.mutation.AddTaskIDs(ids...)
@@ -811,6 +906,23 @@ func (_u *JobUpdateOne) sqlSave(ctx context.Context) (_node *Job, err error) {
 	}
 	if _u.mutation.RollbackCleared() {
 		_spec.ClearField(job.FieldRollback, field.TypeJSON)
+	}
+	if value, ok := _u.mutation.DagVersion(); ok {
+		_spec.SetField(job.FieldDagVersion, field.TypeString, value)
+	}
+	if _u.mutation.DagVersionCleared() {
+		_spec.ClearField(job.FieldDagVersion, field.TypeString)
+	}
+	if value, ok := _u.mutation.NodeGraph(); ok {
+		_spec.SetField(job.FieldNodeGraph, field.TypeJSON, value)
+	}
+	if value, ok := _u.mutation.AppendedNodeGraph(); ok {
+		_spec.AddModifier(func(u *sql.UpdateBuilder) {
+			sqljson.Append(u, job.FieldNodeGraph, value)
+		})
+	}
+	if _u.mutation.NodeGraphCleared() {
+		_spec.ClearField(job.FieldNodeGraph, field.TypeJSON)
 	}
 	if _u.mutation.TasksCleared() {
 		edge := &sqlgraph.EdgeSpec{

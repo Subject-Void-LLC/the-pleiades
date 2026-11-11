@@ -11,6 +11,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/job"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/jobtask"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/launch"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/runbook"
 )
 
 // heartbeatRefreshInterval is the minimum real time RecordTask lets pass
@@ -346,6 +347,19 @@ func toJob(row *ent.Job) *Job {
 		job.CredentialIDs = row.CredentialIds
 	}
 	job.ExternalChecks = row.ExternalChecks
+	// A graph that does not decode, whose version is not the column's, or
+	// whose digest is not its own nodes' under its scheme (or names a scheme
+	// this build does not know), leaves Graph nil, and the job's nodes unresolvable, rather than
+	// resolving them from part of a graph or another one.
+	job.DAGVersion = row.DagVersion
+	if len(row.NodeGraph) > 0 {
+		var graph NodeGraph
+		if err := json.Unmarshal(row.NodeGraph, &graph); err == nil && graph.Version == row.DagVersion {
+			if digest, err := runbook.DigestUnder(graph.Scheme, graph.Nodes); err == nil && digest == graph.Digest {
+				job.Graph = &graph
+			}
+		}
+	}
 	// A plan that does not decode leaves Rollback nil beside a set
 	// RollbackOf, which the fan-out fails rather than runs.
 	if row.RollbackOf != "" {
