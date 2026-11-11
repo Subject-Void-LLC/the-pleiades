@@ -91,6 +91,14 @@ func runFacts(args []string) error {
 	if rep.Facts == nil {
 		rep.Facts = []facts.Entry{}
 	}
+	// Every key as a person reads it (facts.ShownKey), in both views: the
+	// reader's rule reads keys a new fact could not take, which a hand edit
+	// or a build of another toolchain wrote, and one holding a character that
+	// would not show as itself is named with that character escaped.
+	rep.Key = facts.ShownKey(rep.Key)
+	for i := range rep.Facts {
+		rep.Facts[i].Key = facts.ShownKey(rep.Facts[i].Key)
+	}
 	if *asJSON {
 		// Through the CLI's JSON writer, which escapes what a terminal would
 		// act on: a fact value is the device's own text.
@@ -105,7 +113,7 @@ func runFacts(args []string) error {
 func printFacts(rep factsReport) {
 	switch {
 	case len(rep.Facts) == 0 && rep.Key != "":
-		fmt.Printf("%s has no fact %s\n", termsafe.Escape(rep.Host), termsafe.Escape(rep.Key))
+		fmt.Printf("%s has no fact %s\n", termsafe.Escape(rep.Host), termsafe.EscapeLine(rep.Key))
 		return
 	case len(rep.Facts) == 0:
 		fmt.Printf("%s has no facts: a real run of a method that gathers them (facts.gather, net.ios.facts) records them\n", termsafe.Escape(rep.Host))
@@ -116,7 +124,7 @@ func printFacts(rep factsReport) {
 		if err != nil {
 			value = []byte("?")
 		}
-		fmt.Printf("%s = %s  (%s; observed %s, last seen %s%s)%s\n", termsafe.Escape(e.Key), termsafe.Escape(string(value)), e.Kind,
+		fmt.Printf("%s = %s  (%s; observed %s, last seen %s%s)%s\n", termsafe.EscapeLine(e.Key), termsafe.Escape(string(value)), e.Kind,
 			e.ObservedAt.Local().Format(time.RFC3339), e.LastSeenAt.Local().Format(time.RFC3339), byRun(e.LastBy), clockNote(e))
 	}
 }
@@ -150,6 +158,10 @@ func verifyFacts(ctx context.Context, dir, host, deviceID string, asJSON bool) e
 		if rep.Verdict, err = store.Verify(ctx, deviceID); err != nil {
 			return err
 		}
+		if rep.Break != nil {
+			// The key as a person reads it, as the facts view names it.
+			rep.Break.Key = facts.ShownKey(rep.Break.Key)
+		}
 	}
 	if asJSON {
 		if err := writeJSON(os.Stdout, rep); err != nil {
@@ -168,7 +180,9 @@ func verifyFacts(ctx context.Context, dir, host, deviceID string, asJSON bool) e
 func printVerdict(rep factChainReport) {
 	host := termsafe.Escape(rep.Host)
 	if rep.Break != nil {
-		fmt.Printf("%s: the fact chain breaks at value %d (%s): %s\n", host, rep.Break.Index, termsafe.Escape(rep.Break.Key), rep.Break.Reason)
+		// The reason quotes the start of a stored chain hash, which a hand
+		// edit can fill with an escape sequence, so it is escaped too.
+		fmt.Printf("%s: the fact chain breaks at value %d (%s): %s\n", host, rep.Break.Index, termsafe.EscapeLine(rep.Break.Key), termsafe.EscapeLine(rep.Break.Reason))
 		return
 	}
 	fmt.Printf("%s: %d stored value(s) chained, the chain unbroken; head %s\n", host, rep.Values, rep.Head)

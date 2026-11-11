@@ -85,9 +85,10 @@ func TestFileStore_StillReadsADotKeyAnEarlierReleaseStored(t *testing.T) {
 // code point and holds ValidKey to refusing a key wherever recordname.Check
 // refuses a device name holding the same character. A fact key is printed
 // where a device name is, so it needs the same rule: ValidKey asks
-// recordname.ShowsAsItself as Check does, on top of wellFormedKey's
-// printable characters and no space. This pins that, so a later change to
-// either rule cannot quietly leave keys behind names.
+// recordname.ShowsAsItself as Check does, on top of graphicKey's printable
+// characters and no space (the frozen wellFormedKey asks only a code point's
+// number). This pins that, so a later change to either rule cannot quietly
+// leave keys behind names.
 func TestValidKey_RefusesEveryCharacterADeviceNameCannotHold(t *testing.T) {
 	refused := 0
 	for _, span := range [][2]rune{{0, 0x10FFFF}} {
