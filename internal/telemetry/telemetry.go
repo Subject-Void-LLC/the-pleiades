@@ -34,6 +34,8 @@ import (
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/trace"
+
+	"github.com/Subject-Void-LLC/the-pleiades/internal/redact"
 )
 
 // ExporterKind selects where finished spans are sent. It is a named type
@@ -93,10 +95,21 @@ type Config struct {
 	// unless an operator explicitly asks it to.
 	SampleRatio float64
 
+	// DenyAttributeKeys removes keys from the fixed allowlist
+	// (AllowedAttributeKeys) for this process. It can only narrow: there is
+	// deliberately no field that adds a key, and a name that is not on the
+	// allowlist is a configuration error rather than a no-op.
+	DenyAttributeKeys []string
+
 	// stdout is where ExporterStdout writes. It exists so a test can read
 	// the exported spans back; production leaves it nil and gets
 	// os.Stdout.
 	stdout io.Writer
+
+	// stderr is where the SDK's own error reports go, masked. It exists so
+	// a test can read them back; production leaves it nil and gets
+	// os.Stderr.
+	stderr io.Writer
 }
 
 // Provider is a running tracing pipeline. It is what Setup returns and
@@ -110,8 +123,12 @@ type Provider struct {
 // Tracer returns a named tracer for one instrumented component. The name
 // identifies the instrumentation, not the service, so an API middleware
 // and an event consumer inside the same binary use different names.
-func (p *Provider) Tracer(name string) trace.Tracer {
-	return p.tp.Tracer(name)
+//
+// The name should be one of the declared scopes (APIScope, RunnerScope):
+// the exporter exports the name, version and span names of a declared
+// scope only, and replaces the rest with fixed text.
+func (p *Provider) Tracer(name string, opts ...trace.TracerOption) trace.Tracer {
+	return p.tp.Tracer(name, opts...)
 }
 
 // Propagator returns the text map propagator every boundary crossing must
@@ -130,18 +147,25 @@ func (p *Provider) Shutdown(ctx context.Context) error {
 
 // Propagator is the one wire encoding this platform uses for trace context
 // across every boundary: HTTP headers at the API edge and NATS message
-// headers at the bus. It is W3C Trace Context plus W3C Baggage, the same
-// pair OpenTelemetry itself defaults to.
+// headers at the bus. It is W3C traceparent alone (traceParentOnly).
+//
+// W3C Baggage, which OpenTelemetry pairs with it by default, is left out on
+// purpose. Baggage is key and value text chosen by whoever sent the inbound
+// request, and nothing in this platform reads it. Extracted at the API edge,
+// it would ride the request's context, and the global propagator Setup
+// installs is the one third-party instrumentation injects into outbound
+// requests by default (the Docker client's otelhttp transport is one), so a
+// caller's baggage could reach a request made with that context. tracestate
+// is dropped on the way in for the same reason. Telemetry carries
+// identifiers, never values, and a trace ID with its parent span and
+// sampling flag is all a trace needs.
 //
 // It is a free function rather than a Provider method because
 // internal/event must inject trace context on publish whether or not the
 // process that built the Bus also built a Provider. Encoding is a format
 // decision with exactly one right answer; span creation is not.
 func Propagator() propagation.TextMapPropagator {
-	return propagation.NewCompositeTextMapPropagator(
-		propagation.TraceContext{},
-		propagation.Baggage{},
-	)
+	return traceParentOnly{}
 }
 
 // Setup builds the tracing pipeline described by cfg and installs it on
@@ -155,7 +179,21 @@ func Setup(ctx context.Context, cfg Config) (*Provider, error) {
 		return nil, fmt.Errorf("telemetry: SampleRatio must be between 0 and 1, got %v", cfg.SampleRatio)
 	}
 
+	// The SDK's internal logger is replaced before anything below runs:
+	// building the OTLP exporter reads its environment and reports a
+	// malformed value through that logger, with the value attached.
+	otel.SetLogger(newMaskedLogger(cfg.stderr))
+	otel.SetErrorHandler(newMaskedErrorHandler(cfg.stderr))
+
 	res, err := buildResource(cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	// The policy is built before anything else is installed, so a bad deny
+	// list stops the process at startup rather than after it has begun
+	// exporting under a policy nobody asked for.
+	policy, err := newAttributePolicy(cfg.DenyAttributeKeys)
 	if err != nil {
 		return nil, err
 	}
@@ -163,6 +201,7 @@ func Setup(ctx context.Context, cfg Config) (*Provider, error) {
 	opts := []sdktrace.TracerProviderOption{
 		sdktrace.WithResource(res),
 		sdktrace.WithSampler(sampler(cfg.SampleRatio)),
+		sdktrace.WithRawSpanLimits(spanLimits),
 	}
 
 	// ExporterNone deliberately adds no span processor at all. The
@@ -175,7 +214,9 @@ func Setup(ctx context.Context, cfg Config) (*Provider, error) {
 		if err != nil {
 			return nil, err
 		}
-		opts = append(opts, sdktrace.WithBatcher(exp))
+		// Every exporter is wrapped, whichever kind it is: stdout is a
+		// real deployment target here, so it is not exempt.
+		opts = append(opts, sdktrace.WithBatcher(newMaskingExporter(exp, policy, redact.Shared())))
 	}
 
 	tp := sdktrace.NewTracerProvider(opts...)
@@ -202,16 +243,28 @@ func buildResource(cfg Config) (*resource.Resource, error) {
 	return resource.Merge(resource.Default(), resource.NewWithAttributes(resource.Default().SchemaURL(), attrs...))
 }
 
-// sampler turns a ratio into a sampler that always respects an upstream
-// decision. ParentBased is what makes a distributed trace coherent: once
-// the API edge decides to sample a request, every downstream span in that
-// trace is kept even if the downstream process was configured with a lower
-// ratio.
+// sampler turns a ratio into the sampler Setup installs (edgeSampler). Past
+// the API edge it respects an upstream decision: ParentBased is what makes
+// a distributed trace coherent, since once the edge decides to sample a
+// request, every downstream span in that trace is kept even if the
+// downstream process was configured with a lower ratio. At the edge the
+// caller's flag decides nothing.
 func sampler(ratio float64) sdktrace.Sampler {
-	if ratio <= 0 || ratio >= 1 {
-		return sdktrace.ParentBased(sdktrace.AlwaysSample())
-	}
-	return sdktrace.ParentBased(sdktrace.TraceIDRatioBased(ratio))
+	return newEdgeSampler(ratio)
+}
+
+// spanLimits bounds what one span can hold. url.path is recorded before
+// authentication and rate limiting, so without a value length limit a
+// caller decides how large a span is; the count limits are well above what
+// this platform's own spans carry and keep third-party instrumentation from
+// doing the same with numbers instead of length.
+var spanLimits = sdktrace.SpanLimits{
+	AttributeValueLengthLimit:   1024,
+	AttributeCountLimit:         64,
+	EventCountLimit:             32,
+	LinkCountLimit:              32,
+	AttributePerEventCountLimit: 16,
+	AttributePerLinkCountLimit:  16,
 }
 
 // buildExporter constructs the span exporter cfg selects.
@@ -251,6 +304,14 @@ func buildExporter(ctx context.Context, cfg Config) (sdktrace.SpanExporter, erro
 //     "http://" scheme also implies Insecure, matching the OTLP
 //     specification's own reading of the scheme.
 //   - OTEL_TRACES_SAMPLER_ARG is the sampling ratio.
+//
+// One more is this platform's own, since OpenTelemetry has no standard
+// spelling for it:
+//
+//   - PLEIADES_TELEMETRY_DENY_ATTRIBUTES is a comma-separated list of
+//     attribute keys to remove from the fixed allowlist
+//     (DenyAttributeKeys). It narrows what a span may carry and cannot
+//     widen it; Setup refuses a key that is not on the list.
 func ConfigFromEnv(serviceName, serviceVersion string) (Config, error) {
 	cfg := Config{
 		ServiceName:    serviceName,
@@ -286,6 +347,10 @@ func ConfigFromEnv(serviceName, serviceVersion string) (Config, error) {
 			return Config{}, fmt.Errorf("telemetry: OTEL_TRACES_SAMPLER_ARG=%q is not a number: %w", arg, err)
 		}
 		cfg.SampleRatio = ratio
+	}
+
+	if deny := strings.TrimSpace(os.Getenv(DenyAttributesEnv)); deny != "" {
+		cfg.DenyAttributeKeys = strings.Split(deny, ",")
 	}
 
 	return cfg, nil
