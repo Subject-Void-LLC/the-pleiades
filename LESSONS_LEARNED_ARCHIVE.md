@@ -8141,3 +8141,66 @@ a rebuild for changes SQLite could make in place, such as adding a column with a
 rebuilds a table and the change can be an `ALTER TABLE ... ADD COLUMN`, write that by hand and say why in the file. If it
 must rebuild, carry the `sqlite_sequence` row across. `TestSQLiteMigrations_ARebuildKeepsItsSequence` refuses a rebuild
 without `sqlite_sequence` from 0046 on, but it finds a rebuild by its rename, so the reading is still the check.
+
+## 440. An observability channel is an output channel: allowlist what crosses it, mask what is kept, bound its size before authentication, and enumerate every writer the SDK has, since the exporter, the ErrorHandler and the internal logger are three separate paths (a refinement of 337; FAILURE_PATTERNS 1148 to 1152 and 1158) (2026-11-10)
+
+**Why.** Branch `feat/telemetry-boundary`, 2026-11-10. The logs had been masked for a long time, and the traces had never
+been asked the same question. A span carried any key, event, name or status text any code gave it, and the Runner's
+`RecordError` calls copied adapter error text, which can quote device output, to the trace backend (FAILURE_PATTERNS
+1148). The HTTP method became a metric label as sent, before authentication, so any client could grow the label sets
+without limit (1149), and `url.path` had no size bound, about 1 MB per request and roughly 2 GiB queued while the
+collector was down (1150). The SDK itself had two more writers. Its internal logger wrote straight to `os.Stderr`, past
+`log.SetOutput`, and printed a malformed `OTEL_EXPORTER_OTLP_HEADERS` value, usually a token (1151). Its error handler
+wrote up to 4 MiB of a collector's reply into the log unescaped (1152). The branch's first fix of 1151 fixed the
+ErrorHandler, which was already masked, and its changelog claimed the leak closed; review found the third writer.
+
+**What is old and what is new.** LESSONS 337 says what an output or a log may read is an allowlist of what each value is.
+FAILURE_PATTERNS 417, 522 and 578 each found a new output path that skipped masking, fixed one path at a time. What is new:
+telemetry is not one path but three kinds of output (spans, metrics and the SDK's own messages), it is written before
+authentication, and a dependency's writers are not visible from the call sites. Masking alone is not enough, since a
+value with no secret shape under an allowed key still leaves (1158), so the allowlist must hold identifiers only.
+
+**Rule in practice.** For any channel that leaves the process (traces, metrics, the SDK's logs, a future event sink):
+put one filter in front of every exporter, not at the call sites; keep keys on a fixed allowlist of identifiers that an
+operator can narrow and never widen; mask every kept string with the shared rules; bound every value and every label
+set, since the edge records them before authentication; and read the dependency's source for every place it writes
+(exporter, error handler, internal logger, default globals) before claiming any of them closed. Prove each with a test
+that puts a secret or an oversized value in and reads the real output.
+
+## 441. A tool flag that a dependency compiles into a regular expression must be escaped, and a check that fails only in one checkout location is a defect to reproduce, never an environment to note (a refinement of 131 and 357; FAILURE_PATTERNS 26, 1156 and 1157) (2026-11-10)
+
+**Why.** Branch `feat/telemetry-boundary`, 2026-11-10. `tools/gosec-check` had passed `-exclude-dir=.claude` since
+FAILURE_PATTERNS 26. gosec v2.30.0 compiles each value into an unescaped, unanchored regular expression over absolute
+paths, so the dot matched any character and the pattern matched `/claude` in `/tmp/claude-<uid>`. A copy of the module
+there had every file left out, and gosec reported half-loaded `internal/ent` packages as type errors ("undefined:
+Template"). The writer read this as a broken environment for two runs before looking at the flag (1156). After the fix,
+gosec still cannot type-check `internal/ent` from a worktree under `.claude/worktrees/`, even with no exclusion; that is
+measured and not yet explained (1157).
+
+**What is old and what is new.** LESSONS 131 says an assertion anchored to the developer's environment passes hardest
+where it matters least, and LESSONS 357 says an unproven cause is not to be guessed. What is new: the flag looked like a
+directory name and was a pattern, so the over-match was invisible in the code that passed it, and "it fails only in this
+location" was the clue, not a reason to move elsewhere.
+
+**Rule in practice.** When passing a value to a flag, read how the dependency uses it; if it becomes a regular
+expression, escape it and anchor it as far as the tool allows, and hold the flag with a test. When a check fails in one
+checkout location and passes in another, reproduce the difference and find what reads the path before writing it down
+as the environment. A limit that stays open goes into a failure pattern with the measurement, not into a note.
+
+## 442. Propagated context from an outside caller (baggage, tracestate, sampled flags) is caller input, and is dropped or overridden at the edge (FAILURE_PATTERNS 1153 and 1154) (2026-11-10)
+
+**Why.** Branch `feat/telemetry-boundary`, 2026-11-10. The global propagator was W3C Trace Context plus Baggage. The API
+extracted a caller's baggage, before authentication, into each request's context, where otelhttp (the moby client v0.5.0
+wraps its transport with it) could inject it into a request to a managed host's Docker engine during onboarding. A
+caller's `tracestate` rode the span context onto the NATS dispatch headers and was stored in JetStream (1153). And with a
+`ParentBased` sampler at the edge, a caller's sampled flag decided whether its request was traced (1154). The first
+commit message claimed baggage reached NATS through the dispatch publish; the claim-refuter showed that publish starts
+from `context.Background()` plus the span, so only `tracestate` did, and the message was corrected.
+
+**What is old and what is new.** Trace context looks like plumbing, so it was treated as the platform's own. It is
+headers a caller writes. What is new is that each part carries a different risk: baggage and tracestate are free text
+carried onward to other systems, and the sampled flag is a decision about the operator's resources.
+
+**Rule in practice.** At an edge that takes outside requests, read `traceparent` only, keep the caller's trace ID for
+correlation, apply the operator's own sampling to a span with a remote parent, and write only `traceparent` onward. When
+claiming a value travels somewhere, follow the context it rides from where it is built, not from where it is read.

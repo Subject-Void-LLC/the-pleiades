@@ -4,60 +4,56 @@ Rewrite the "Current Status" section when stopping mid-task or handing off, per 
 
 ## Current Status (this session)
 
-**2026-11-10. Branch `feat/inventory-version` (follow-up (4), inventory concurrency) on `main` at `dc740124` (#153).
-Built and reviewed; the fp-reviewer and claim-refuter findings are fixed. Every change is staged, nothing is
-committed, pushed or opened as a pull request. `make pr-check` has not run on it.**
+**2026-11-10. Branch `feat/telemetry-boundary` (PLAN.md Section 19 item 7, what a span may carry), six commits on
+`origin/main` at `0bfd7fe9`, tip `28e79e11`, in the worktree `.claude/worktrees/agent-aedef548b9236e37e`. Built and
+reviewed (fp-reviewer and claim-refuter findings fixed). Not pushed, no pull request, `make pr-check` has not run. The
+records below are unstaged.**
 
 ### What works
 
-- **A stale member list can no longer undo a revocation through the API** (FAILURE_PATTERNS 1140). An inventory has a
-  `version` column (sqlite `0046`, postgres `0043`), bumped only in `UpdateWith`'s committing write. `GET`, `POST` and
-  `PATCH /inventories/{id}` send an `ETag`; a PATCH naming `groups` or `devices` needs `If-Match` (428 without, 412 when
-  not exactly the current tag, 404 first), judged under the row lock. The tag also covers the content, for writes from
-  an older build (1144). Proof: `internal/api/inventories_precondition_test.go`
-  (`TestInventoryPatch_AStaleCopyCannotRevertARevocation`, `TestInventoryPatch_IfMatchIsJudgedUnderTheLock`,
-  `TestInventoryPatch_IfMatchMustNameTheCurrentTagExactly`,
-  `TestInventoryPatch_AWriteThatLeavesTheVersionStillMovesTheTag`) and
-  `internal/inventory/ent_set_store_version_test.go`.
-- **The UI inventory edit form merges instead of replacing** (1141, 1145): `view.Field.KeepsOriginal`, a per-element
-  three-way merge under the lock, text compared through `view.Comparable`. Proof:
-  `internal/ui/resources/inventories_merge_test.go`, `internal/ui/resources/inventories/merge_internal_test.go`,
-  `internal/ui/view/originals_internal_test.go`.
-- **A refused form keeps every multi-select choice** (1142), and **store refusals are field errors, not 500s** (1147,
-  closing 1121). Proof: `TestUIEdit_AFieldChangedUnderneathIsRefusedAndStaysRefused`,
-  `TestAsFault_TheStoreRefusalsTheFormShows`.
-- **SQLite migrations from 0046 on cannot reset an AUTOINCREMENT sequence unnoticed** (1143):
-  `TestSQLiteMigrations_ARebuildKeepsItsSequence`.
+- **Spans carry identifiers only** (FAILURE_PATTERNS 1148). A masking exporter sits in front of stdout and OTLP: a fixed
+  key allowlist that `PLEIADES_TELEMETRY_DENY_ATTRIBUTES` narrows, kept strings masked, declared names, events, scopes
+  and status phrases only, span limits (1024 bytes), fail closed on a panic. The Runner uses `telemetry.RecordFailure`.
+  Proof: `internal/telemetry`'s `TestMaskingExporterMasksEveryTextChannel`, `TestSetup_OTLPExportCarriesOnlyThePolicy`
+  and the other boundary tests; `TestAgent_SpanFailuresAreFixedPhrases`.
+- **Bounded before authentication**: the method is `_OTHER` outside the standard set (1149,
+  `TestRouter_MethodLabelIsBounded`); a long path cannot size a span (1150, `TestRouter_ALongPathCannotSizeTheExportedSpan`).
+- **The SDK's own writers are bounded**: the internal logger prints no values (1151,
+  `TestSetup_TheSDKsInternalLoggerPrintsNoValues`); export errors are one masked, escaped line (1152,
+  `TestSetup_ErrorReportsAreOneBoundedLine`).
+- **Only `traceparent` crosses an edge, and the operator's ratio samples it** (1153, 1154):
+  `TestPropagator_CarriesNoBaggage`, `TestPropagator_ExtractsNoTraceState`, `TestSetup_TheEdgeSamplesByItsOwnRatio`.
+- **The archtest holds every span call site** (1155): `internal/archtest/telemetry_test.go`, with control cases.
+- **gosec-check's exclusion matches only `.claude`** (1156): `TestExcludeDirFlag_LeavesOutOnlyADotClaudeDirectory`.
 
 ### Current blocker
 
-None.
+The gate needs the main clone, which is busy: `fix/facts-release-skew` is being written there. `make gosec` and
+`make pr-check` cannot run from this worktree (1157).
 
 ### Open
 
-- 1085 stays open: team membership (`PATCH /teams/{id}`'s `users`, the UI teams users lookup) and the UI template
-  credentials lookup still write a whole list from an earlier read.
-- 1143: role bindings are not removed when an inventory is deleted (`role_binding.scope_id` has no foreign key). Owner
-  question. Older rebuilds 0003, 0007 and 0022 are left as written.
-- 1146: `tools/schemacompat` cannot see a header required only for some bodies; the breaking fragment says so.
-- 1139 still waits on the owner.
-- `git stash list` is empty: the GNS3 stash earlier entries kept (`stash@{0}`) is no longer there.
+- 1157: gosec cannot type-check `internal/ent` from a worktree under `.claude/worktrees/`, even with no exclusion. Cause
+  not found.
+- 1158: a value with no secret shape under an allowed key is exported as is, and the exporter's span-name shape check
+  accepts any API-scope name shaped like a path (only the archtest holds that one; the docs state the first limit only).
+- Open items from the previous session are in its archive entry.
 
 ### Next, in order
 
-1. Commit the staged branch.
-2. `make pr-check` through the monitor, on the clean committed tree.
-3. Push, `make branch-containers`, then open the pull request when it passes.
+1. When the main clone is free, check out `feat/telemetry-boundary` there (or in another checkout outside `.claude`)
+   and commit these records.
+2. `make pr-check` through the monitor on the clean committed tip.
+3. Push, `make branch-containers`, then open the pull request when it passes, listing the failure pattern classes
+   checked.
 
 ### Files changed on this branch
 
-Code (staged): `internal/api/inventories*.go`, `internal/apispec/apispec*.go`, `internal/ent/schema/inventory.go` and
-its generated code, migrations `sqlite/0046_inventory_version.sql` and `postgres/0043_inventory_version.sql`,
-`internal/ent/migrate/sequence_guard_internal_test.go`, `internal/inventory/{set.go,ent_set_store*.go}`,
-`internal/ui/view/{field.go,model.go,pagemodels.go}`, `internal/ui/resources/inventories/{inventories.go,merge.go}`,
-`internal/ui/web/resources.go`, `internal/ui/render/views.templ`, `tools/gendocs/openapi.go`, the regenerated OpenAPI
-documents, and the tests beside each. Changelog: `inventory-if-match.breaking.md`, `ui-inventory-edit-merge.fixed.md`.
-Records (unstaged): `FAILURE_PATTERNS*.md` (1140 to 1147; notes on 1085, 1112, 1121), `LESSONS_LEARNED*.md` (437 to
-439), `HANDOFF_DOCUMENT.md`, `HANDOFF_ARCHIVE.md`.
+Code (committed): `internal/telemetry/` (new `masking_exporter.go`, `policy.go`, `outcome.go`, `edge.go`,
+`errorhandler.go`, and `telemetry.go`), `internal/api/{middleware.go,metrics.go,router.go}`,
+`internal/runner/{agent.go,agent_handle.go}`, `cmd/controller/main.go`, `cmd/runner/main.go`,
+`internal/archtest/telemetry_*.go`, `tools/gosec-check/{exclude.go,main.go}`, `go.mod`, the tests beside each,
+`docs/10-running-in-production.md`, and `changelog/telemetry-boundary.security.md`. Records (unstaged):
+`FAILURE_PATTERNS*.md` (1148 to 1158), `LESSONS_LEARNED*.md` (440 to 442), `HANDOFF_DOCUMENT.md`, `HANDOFF_ARCHIVE.md`.
 
 Lab: no change reported for this branch.
