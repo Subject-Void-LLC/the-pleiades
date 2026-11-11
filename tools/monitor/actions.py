@@ -18,6 +18,7 @@ import subprocess
 import threading
 import time
 import urllib.parse
+from concurrent.futures import ThreadPoolExecutor
 from typing import Callable, Dict, List, Optional, Protocol, Tuple, TypedDict
 
 from jsonutil import (JSONObject, JSONValue, as_object, get_float, get_int, get_objects, get_str, loads)
@@ -32,6 +33,8 @@ RUNS_WITH_JOBS = 5
 BACKFILL_PAGE = 100
 # BACKFILL_MAX_PAGES bounds one backfill: 100 pages is 10,000 runs.
 BACKFILL_MAX_PAGES = 100
+# BACKFILL_WORKERS is how many job lists the backfill reads at once.
+BACKFILL_WORKERS = 4
 # FAILED_CONCLUSIONS are the job conclusions the page marks as failed.
 FAILED_CONCLUSIONS = ("failure", "timed_out", "startup_failure")
 
@@ -375,9 +378,10 @@ def backfill(cache: Dict[str, JSONObject], api: ApiCall = gh_api, pause: Callabl
     """Reads every workflow run on every branch, with the jobs of each.
 
     A completed run whose jobs are already cached is not read again, so a
-    second backfill costs one call a page. Jobs are read one run at a time,
-    gap seconds apart, and save is called every `every` runs, so the page
-    fills in while a first backfill works through hundreds of runs.
+    second backfill costs one call a page. Jobs are read BACKFILL_WORKERS
+    runs at a time, each reader pausing gap seconds between calls, and save
+    is called with each batch of `every` runs, so the page fills in while a
+    first backfill works through hundreds of runs.
 
     Args:
         cache: Runs read before, by id (actions.json).
@@ -400,25 +404,36 @@ def backfill(cache: Dict[str, JSONObject], api: ApiCall = gh_api, pause: Callabl
         runs += got
         if len(got) < BACKFILL_PAGE:
             break
-    done: List[ActionsRun] = []
-    for run in runs:
+    def read_jobs(run: ActionsRun) -> ActionsRun:
+        """Fills one run's jobs, from the cache when it was already complete.
+
+        Args:
+            run: The run.
+
+        Returns:
+            The same run.
+        """
         old = cache.get(str(run["id"]))
         old_jobs = [job_from_json(j) for j in get_objects(old, "jobs")]
         if old_jobs and get_str(old, "status") == "completed" and run["status"] == "completed":
             run["jobs"] = old_jobs
+            return run
+        jdoc, jerr = api(jobs_path(run["id"]))
+        if jerr:
+            run["jobs_error"] = jerr
+            run["jobs"] = old_jobs
         else:
-            jdoc, jerr = api(jobs_path(run["id"]))
-            if jerr:
-                run["jobs_error"] = jerr
-                run["jobs"] = old_jobs
-            else:
-                run["jobs"] = parse_jobs(jdoc)
-            pause(gap)
-        done.append(run)
-        if save is not None and len(done) % every == 0:
-            save(done[-every:])
-    if save is not None and len(done) % every:
-        save(done[-(len(done) % every):])
+            run["jobs"] = parse_jobs(jdoc)
+        pause(gap)
+        return run
+
+    # A few readers at once: each gh call is a process start and a round trip,
+    # and one at a time took most of an hour for five hundred runs.
+    with ThreadPoolExecutor(max_workers=BACKFILL_WORKERS) as pool:
+        for start in range(0, len(runs), every):
+            batch = list(pool.map(read_jobs, runs[start:start + every]))
+            if save is not None:
+                save(batch)
     return runs, err
 
 

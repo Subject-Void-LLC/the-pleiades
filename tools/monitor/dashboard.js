@@ -249,7 +249,7 @@ function renderRun(run, now, memory, floor) {
   if (!run) {
     verdict.textContent = 'no run';
     verdict.style.setProperty('--chip', statusColor('pending'));
-    meta.textContent = 'Nothing is running under this monitor. Pick a saved run to view it.';
+    meta.textContent = 'No gate is running. Pick a saved run to view it.';
     drawGantt('gantt', [], now);
     clear(document.getElementById('progress'));
     clear(document.getElementById('legs'));
@@ -435,11 +435,31 @@ function jobWord(status, conclusion) {
 // renderActions draws the Actions panel from the latest poll.
 function renderActions(acts, now) {
   const status = document.getElementById('actions-status');
-  const runs = (acts && acts.runs) || [];
+  const live = (acts && acts.runs) || [];
+  // Every run recorded (the backfill reads every branch), with the live poll's newer copies on top.
+  const byRunId = new Map();
+  for (const r of actionsHistory) byRunId.set(String(r.id), r);
+  for (const r of live) byRunId.set(String(r.id), r);
+  const all = Array.from(byRunId.values()).sort((a, b) => String(b.created || '').localeCompare(String(a.created || '')));
+  const branches = [];
+  for (const r of all) if (r.branch && !branches.includes(r.branch)) branches.push(r.branch);
+  const branchPick = document.getElementById('actions-branch');
+  const keepBranch = branchPick.value || '*';
+  clear(branchPick);
+  branchPick.appendChild(el('option', { value: '*', text: 'All branches (' + all.length + ' runs)' }));
+  for (const b of branches) {
+    const n = all.filter((r) => r.branch === b).length;
+    branchPick.appendChild(el('option', { value: b, text: b + ' (' + n + ')' + (acts && b === acts.branch ? ', in use' : '') }));
+  }
+  branchPick.value = keepBranch === '*' || branches.includes(keepBranch) ? keepBranch : (branches[0] || '*');
+  const branch = branchPick.value;
+  const runs = (branch === '*' ? all : all.filter((r) => r.branch === branch)).slice(0, 200);
+  document.getElementById('actions-runs-title').textContent = branch === '*' ? 'Runs on every branch' : 'Runs on ' + branch;
   if (acts && acts.error) {
     status.textContent = 'Actions unavailable: ' + acts.error + '. Everything else keeps working.';
   } else if (acts && acts.polled) {
-    status.textContent = 'Branch ' + (acts.branch || '?') + ', ' + runs.length + ' run(s), read ' + fmtTime(acts.polled) + ' (every 60s).';
+    status.textContent = all.length + ' run(s) recorded across ' + branches.length + ' branch(es); ' + (acts.branch || '?') +
+      ' is polled every 60s (last ' + fmtTime(acts.polled) + '), every branch every six hours.';
   } else {
     status.textContent = 'Reading Actions...';
   }
@@ -447,7 +467,8 @@ function renderActions(acts, now) {
   const keep = pick.value;
   clear(pick);
   for (const r of runs) {
-    pick.appendChild(el('option', { value: r.id, text: '#' + r.number + ' ' + r.name + ' (' + (r.conclusion || r.status) + ') ' + r.sha.slice(0, 8) }));
+    pick.appendChild(el('option', { value: r.id, text: '#' + r.number + ' ' + r.name + ' (' + (r.conclusion || r.status) + ') ' +
+      (branch === '*' ? r.branch + ' ' : '') + String(r.sha || '').slice(0, 8) }));
   }
   if (runs.some((r) => String(r.id) === keep)) pick.value = keep;
   const run = runs.find((r) => String(r.id) === pick.value) || runs[0];
@@ -506,17 +527,17 @@ function jobsBar(r) {
     el('span', { cls: 'note', text: ' ' + done + ' of ' + jobs.length }));
 }
 
-// renderActionsTable lists the branch's newest runs.
+// renderActionsTable lists the chosen branch's newest runs.
 function renderActionsTable(runs, now) {
   const table = document.getElementById('actions-runs');
   clear(table);
-  table.appendChild(el('tr', {}, el('th', { text: 'Run' }), el('th', { text: 'Workflow' }), el('th', { text: 'Event' }),
+  table.appendChild(el('tr', {}, el('th', { text: 'Run' }), el('th', { text: 'Workflow' }), el('th', { text: 'Branch' }), el('th', { text: 'Event' }),
     el('th', { text: 'Result' }), el('th', { text: 'Jobs done' }), el('th', { text: 'Commit' }), el('th', { text: 'Started' }),
     el('th', { cls: 'num', text: 'Length' })));
-  for (const r of runs) {
+  for (const r of runs.slice(0, 60)) {
     const url = safeUrl(r.url);
     const name = url ? el('a', { href: url, rel: 'noreferrer', target: '_blank', text: '#' + r.number }) : el('span', { text: '#' + r.number });
-    table.appendChild(el('tr', {}, el('td', {}, name), el('td', { text: r.name }), el('td', { text: r.event }),
+    table.appendChild(el('tr', {}, el('td', {}, name), el('td', { text: r.name }), el('td', { text: r.branch || '' }), el('td', { text: r.event }),
       el('td', {}, chip(jobStatus(r.status, r.conclusion), r.conclusion || r.status)),
       el('td', {}, jobsBar(r)),
       el('td', { text: r.sha.slice(0, 8) }),
@@ -739,7 +760,7 @@ async function pollHistory() {
 // pollActionsHistory refreshes every Actions run seen.
 async function pollActionsHistory() {
   const a = await getJson('/actions-history');
-  if (a) { actionsHistory = a.runs || []; renderActionsHistory(); }
+  if (a) { actionsHistory = a.runs || []; renderActionsHistory(); if (liveState) renderActions(liveState.actions, liveState.now); }
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -750,6 +771,7 @@ document.addEventListener('DOMContentLoaded', () => {
   drawLegend();
   document.getElementById('view').addEventListener('change', (e) => selectView(e.target.value));
   document.getElementById('actions-run').addEventListener('change', draw);
+  document.getElementById('actions-branch').addEventListener('change', draw);
   document.getElementById('stage-pick').addEventListener('change', renderHistory);
   document.getElementById('job-pick').addEventListener('change', renderActionsHistory);
   document.getElementById('size-group').addEventListener('change', renderBinsize);

@@ -4,17 +4,26 @@
 // minute, one phase's details on request (/roadmap.json?phase=ID&details=1),
 // and the recorded totals from /timeline?kind=roadmap.summary. Like
 // dashboard.js, whose helpers (el, clear, chip, css, chart, fmtTime,
-// axisStyle, tooltipStyle, timeAxis) it uses, it places every string with
-// textContent: roadmap text is Markdown source shown as plain text, never
-// parsed as HTML.
+// axisStyle, tooltipStyle, timeAxis) it uses, it builds every node itself:
+// roadmap text is Markdown source, and only its bold and code spans are
+// turned into elements, by richText, never by parsing HTML.
 'use strict';
 
 // STATE_STATUS maps a phase state to the status color it is drawn with.
 const STATE_STATUS = { 'done': 'pass', 'in progress': 'running', 'not started': 'pending' };
+// LINE_TOKEN maps a phase state to its dependency line color, as the old roadmap page drew them.
+const LINE_TOKEN = { 'done': '--st-pass', 'in progress': '--st-not-run', 'not started': '--st-fail' };
+// CLAMP_CHARS is the length past which an item's full text starts folded.
+const CLAMP_CHARS = 700;
 
 let roadmapDoc = null;
 let roadmapPhase = null;
 let roadmapTrend = [];
+// byId maps a phase id to its phase; up maps a phase to the ids it depends on; down the reverse.
+let byId = new Map();
+let up = new Map();
+let down = new Map();
+let chainFocus = null;
 
 // stateChip returns a chip for a phase state, in words.
 function stateChip(state) {
@@ -26,9 +35,17 @@ function pct(done, total) {
   return total ? Math.round((100 * done) / total) + '%' : '';
 }
 
-// tile appends one labelled number to a <dl class="tiles">.
-function tile(dl, label, value) {
-  dl.appendChild(el('div', {}, el('dt', { text: label }), el('dd', { text: value === undefined || value === null ? '' : value })));
+// tile appends one labelled number to a <dl class="tiles">, with an optional bar.
+function tile(dl, label, value, sub, done, total) {
+  const dd = el('dd', { text: value === undefined || value === null ? '' : value });
+  if (sub) dd.appendChild(el('small', { text: sub }));
+  const box = el('div', {}, el('dt', { text: label }), dd);
+  if (total) {
+    const bar = el('progress', { max: total, value: done || 0, 'aria-label': label + ': ' + (done || 0) + ' of ' + total });
+    bar.style.setProperty('--bar', statusColor(done >= total ? 'pass' : 'running'));
+    box.appendChild(bar);
+  }
+  dl.appendChild(box);
 }
 
 // progressCell returns a table cell holding a bar and its numbers.
@@ -36,6 +53,47 @@ function progressCell(done, total, status) {
   const bar = el('progress', { max: total || 1, value: done || 0, 'aria-label': (done || 0) + ' of ' + (total || 0) + ' done' });
   bar.style.setProperty('--bar', statusColor(status));
   return el('td', {}, bar, el('span', { cls: 'note', text: ' ' + (done || 0) + '/' + (total || 0) + ' ' + pct(done, total) }));
+}
+
+// inline turns one line's **bold** and `code` spans into elements, the rest into text.
+function inline(parent, text) {
+  const re = /(\*\*[^*]+\*\*|`[^`]+`)/g;
+  let last = 0;
+  for (const m of text.matchAll(re)) {
+    if (m.index > last) parent.appendChild(document.createTextNode(text.slice(last, m.index)));
+    const tok = m[0];
+    if (tok.startsWith('**')) {
+      const strong = el('strong');
+      inline(strong, tok.slice(2, -2));  // a bold span may hold code spans
+      parent.appendChild(strong);
+    } else {
+      parent.appendChild(el('code', { text: tok.slice(1, -1) }));
+    }
+    last = m.index + tok.length;
+  }
+  if (last < text.length) parent.appendChild(document.createTextNode(text.slice(last)));
+}
+
+// richText renders roadmap Markdown as paragraphs: hard-wrapped lines join,
+// a blank line, a list item or a bold lead-in starts a new paragraph.
+function richText(text) {
+  const box = el('div', { cls: 'item-text' });
+  let para = [];
+  const flush = () => {
+    if (!para.length) return;
+    const p = el('p');
+    inline(p, para.join(' '));
+    box.appendChild(p);
+    para = [];
+  };
+  for (const raw of String(text || '').split('\n')) {
+    const line = raw.trim();
+    if (!line) { flush(); continue; }
+    if (/^([-*+]|\d+\.)\s/.test(line) || (/^\*\*/.test(line) && para.length)) flush();
+    para.push(line);
+  }
+  flush();
+  return box;
 }
 
 // renderStrip writes the header line shown in every view.
@@ -49,6 +107,36 @@ function renderStrip() {
     ' (' + (rel.percent || 0) + '%)' + (next.phase ? '; next: Phase ' + next.phase : '');
 }
 
+// indexPhases rebuilds the id and dependency maps from the model.
+function indexPhases() {
+  byId = new Map();
+  up = new Map();
+  down = new Map();
+  for (const p of roadmapDoc.phases || []) byId.set(String(p.id), p);
+  for (const p of roadmapDoc.phases || []) {
+    const id = String(p.id);
+    for (const pre of p.depends_on || []) {
+      if (!up.has(id)) up.set(id, []);
+      up.get(id).push(String(pre));
+      if (!down.has(String(pre))) down.set(String(pre), []);
+      down.get(String(pre)).push(id);
+    }
+  }
+}
+
+// reach returns every phase reachable from id along one direction, cycles included safely.
+function reach(map, id) {
+  const seen = new Set();
+  const stack = [id];
+  while (stack.length) {
+    for (const next of map.get(stack.pop()) || []) {
+      if (!seen.has(next)) { seen.add(next); stack.push(next); }
+    }
+  }
+  seen.delete(id);
+  return seen;
+}
+
 // renderRoadmap draws every roadmap section from roadmapDoc.
 function renderRoadmap() {
   renderStrip();
@@ -60,22 +148,23 @@ function renderRoadmap() {
     status.textContent = roadmapDoc.error + (roadmapDoc.configure ? ' Write panels.json as ' + roadmapDoc.configure : '');
     return;
   }
+  indexPhases();
   const s = roadmapDoc.summary || {};
   const rel = s.current_release || {};
   status.textContent = 'Read from ' + (roadmapDoc.source || 'the roadmap') + '.';
-  tile(tiles, 'Work items done', (s.work_items_done || 0) + ' / ' + (s.work_items || 0) + ' (' + (s.percent_done || 0) + '%)');
-  tile(tiles, 'Release ' + (rel.version || ''), (rel.done || 0) + ' / ' + (rel.total || 0) + ' (' + (rel.percent || 0) + '%)');
+  tile(tiles, 'Work items done', s.work_items_done || 0, 'of ' + (s.work_items || 0), s.work_items_done, s.work_items);
+  tile(tiles, 'Release ' + (rel.version || ''), rel.done || 0, 'of ' + (rel.total || 0), rel.done, rel.total);
   tile(tiles, 'Open items', s.open_items);
   tile(tiles, 'Cite a missing test', s.items_citing_missing_tests);
   tile(tiles, 'Cite a missing file', s.items_citing_missing_files);
   const next = s.next_item || {};
   const nextNode = document.getElementById('rm-next');
   clear(nextNode);
+  nextNode.hidden = !next.phase;
   if (next.phase) {
-    nextNode.appendChild(document.createTextNode('Next item, Phase ' + next.phase + ': '));
-    nextNode.appendChild(el('span', { text: String(next.title || '').slice(0, 300) }));
-    nextNode.appendChild(document.createTextNode(' '));
-    nextNode.appendChild(phaseButton(next.phase, 'Open Phase ' + next.phase));
+    nextNode.appendChild(el('div', {}, el('span', { cls: 'label', text: 'Next item' }), phaseButton(next.phase, 'Phase ' + next.phase)));
+    const text = String(next.title || '');
+    nextNode.appendChild(richText(text.length > 400 ? text.slice(0, 400) + '...' : text));
   }
   renderReleases(s);
   renderQueue(s);
@@ -83,12 +172,23 @@ function renderRoadmap() {
   renderPhases();
   renderProblems(s);
   renderTrace();
+  if (roadmapPhase) drawPhaseHeader(roadmapPhase);
 }
 
 // phaseButton returns a button that opens a phase's items.
-function phaseButton(id, words) {
-  const b = el('button', { type: 'button', cls: 'link', text: words || ('Phase ' + id) });
-  b.addEventListener('click', () => openPhase(id));
+function phaseButton(id, words, cls) {
+  const b = el('button', { type: 'button', cls: cls || 'link', text: words || ('Phase ' + id) });
+  b.addEventListener('click', () => openPhase(String(id)));
+  return b;
+}
+
+// depButton returns a chip button for a phase, colored and labelled by its state.
+function depButton(id) {
+  const p = byId.get(String(id));
+  const b = el('button', { type: 'button', cls: 'dep', text: 'Phase ' + id + (p ? ', ' + p.state : ', no such phase'),
+    title: p ? p.heading : 'No phase has this id' });
+  b.style.setProperty('--chip', p ? statusColor(STATE_STATUS[p.state] || 'pending') : css('--border'));
+  if (p) b.addEventListener('click', () => openPhase(String(id)));
   return b;
 }
 
@@ -115,7 +215,7 @@ function renderReleases(s) {
 function renderQueue(s) {
   const list = document.getElementById('rm-queue');
   clear(list);
-  for (const step of (s.phase_walk || []).slice(0, 25)) {
+  for (const step of (s.phase_walk || []).slice(0, 30)) {
     list.appendChild(el('li', {}, phaseButton(step.phase), ' ' + step.open_items + ' open'));
   }
 }
@@ -144,49 +244,183 @@ function renderPhases() {
     el('th', { scope: 'col', text: 'Depends on' }))));
   const body = el('tbody');
   for (const p of rows.slice(0, 400)) {
-    body.appendChild(el('tr', {}, el('th', { scope: 'row' }, phaseButton(p.id, p.id)), el('td', { text: p.heading }),
-      el('td', { text: p.version || '' }), el('td', {}, stateChip(p.state)),
+    const heading = String(p.heading || '').replace(/^Phase\s+\S+?:\s*/, '');
+    body.appendChild(el('tr', { 'data-phase': String(p.id) }, el('th', { scope: 'row' }, phaseButton(p.id, String(p.id), 'pid')),
+      el('td', { text: heading }), el('td', { text: p.version || '' }), el('td', {}, stateChip(p.state)),
       progressCell(p.done, p.total, STATE_STATUS[p.state] || 'pending'), el('td', { text: (p.depends_on || []).join(', ') })));
   }
   table.appendChild(body);
+  drawDepLines();
 }
 
-// openPhase shows one phase's items, then fetches their details.
+// depLinesOn reports whether the dependency lines are shown.
+function depLinesOn() {
+  return document.getElementById('rm-deps').checked;
+}
+
+// drawDepLines draws an arc from each visible phase to each visible phase
+// that depends on it, in the gutter left of the table, as the old page did.
+function drawDepLines() {
+  const wrap = document.getElementById('rm-phases-wrap');
+  const svg = document.getElementById('rm-dep-lines');
+  const on = depLinesOn();
+  wrap.classList.toggle('on', on);
+  document.getElementById('rm-deps-note').hidden = !on;
+  while (svg.firstChild) svg.removeChild(svg.firstChild);
+  if (!on || document.getElementById('view-roadmap').hidden) return;
+  const NS = 'http://www.w3.org/2000/svg';
+  const top = wrap.getBoundingClientRect().top;
+  const rows = new Map();
+  for (const tr of wrap.querySelectorAll('tbody tr')) {
+    const r = tr.getBoundingClientRect();
+    rows.set(tr.dataset.phase, r.top - top + r.height / 2);
+  }
+  svg.setAttribute('height', String(wrap.scrollHeight));
+  const defs = document.createElementNS(NS, 'defs');
+  for (const [state, token] of Object.entries(LINE_TOKEN)) {
+    const marker = document.createElementNS(NS, 'marker');
+    marker.setAttribute('id', 'arrow-' + state.replace(' ', '-'));
+    for (const [k, v] of [['viewBox', '0 0 10 10'], ['refX', '9'], ['refY', '5'], ['markerWidth', '5'], ['markerHeight', '5'], ['orient', 'auto']]) {
+      marker.setAttribute(k, v);
+    }
+    const tip = document.createElementNS(NS, 'path');
+    tip.setAttribute('d', 'M0,0 L10,5 L0,10 z');
+    tip.setAttribute('fill', css(token));
+    marker.appendChild(tip);
+    defs.appendChild(marker);
+  }
+  svg.appendChild(defs);
+  const x = 62;
+  for (const [dep, pres] of up) {
+    for (const pre of pres) {
+      if (!rows.has(pre) || !rows.has(dep)) continue;
+      const y1 = rows.get(pre);
+      const y2 = rows.get(dep);
+      // Longer spans bulge further into the gutter, so nested arcs stay apart.
+      const bulge = Math.min(58, 12 + Math.abs(y2 - y1) * 0.08);
+      const state = (byId.get(pre) || {}).state || 'not started';
+      const path = document.createElementNS(NS, 'path');
+      path.setAttribute('d', 'M ' + x + ' ' + y1 + ' C ' + (x - bulge) + ' ' + y1 + ', ' + (x - bulge) + ' ' + y2 + ', ' + x + ' ' + y2);
+      path.setAttribute('stroke', css(LINE_TOKEN[state] || '--st-fail'));
+      path.setAttribute('marker-end', 'url(#arrow-' + state.replace(' ', '-') + ')');
+      path.dataset.pre = pre;
+      path.dataset.dep = dep;
+      svg.appendChild(path);
+    }
+  }
+  highlightChain(chainFocus);
+}
+
+// highlightChain lights the whole chain through id, upstream and downstream, and fades the rest.
+function highlightChain(id) {
+  chainFocus = id;
+  const wrap = document.getElementById('rm-phases-wrap');
+  const chain = id && depLinesOn() && (up.has(id) || down.has(id)) ? new Set([id, ...reach(up, id), ...reach(down, id)]) : null;
+  wrap.classList.toggle('chain-active', !!chain);
+  for (const tr of wrap.querySelectorAll('tbody tr')) {
+    tr.classList.toggle('in-chain', !!chain && chain.has(tr.dataset.phase));
+    tr.classList.toggle('chain-focus', !!chain && tr.dataset.phase === id);
+  }
+  const svg = document.getElementById('rm-dep-lines');
+  for (const p of Array.from(svg.querySelectorAll('path[data-pre]'))) {
+    const lit = !!chain && chain.has(p.dataset.pre) && chain.has(p.dataset.dep);
+    p.classList.toggle('on', lit);
+    if (lit) svg.appendChild(p);
+  }
+}
+
+// byOrder sorts phase ids by their position in the roadmap.
+function byOrder(a, b) {
+  const ids = Array.from(byId.keys());
+  return ids.indexOf(a) - ids.indexOf(b);
+}
+
+// drawPhaseHeader writes an opened phase's heading, facts and dependency links.
+function drawPhaseHeader(id) {
+  const p = byId.get(String(id));
+  document.getElementById('h-rm-phase').textContent = p ? p.heading : 'Phase ' + id;
+  document.getElementById('rm-phase-meta').textContent = p
+    ? [p.version, p.state, p.done + ' of ' + p.total + ' done',
+      p.open_gates && p.open_gates.length ? 'open gates: ' + p.open_gates.join(', ') : ''].filter(Boolean).join(' · ')
+    : '';
+  const links = document.getElementById('rm-phase-links');
+  clear(links);
+  if (!p) return;
+  const own = String(p.id);
+  const row = (label, ids) => {
+    if (!ids.length) return;
+    const chips = el('div', { cls: 'chips' });
+    ids.forEach((x) => chips.appendChild(depButton(x)));
+    links.appendChild(el('span', { cls: 'deps-label', text: label }));
+    links.appendChild(chips);
+  };
+  row('Depends on', (p.depends_on || []).map(String));
+  row('Needed by', (down.get(own) || []).slice().sort(byOrder));
+  const sections = ((p.implements || {}).sections || []).map((x) => x.id + ' ' + x.title);
+  if (sections.length) {
+    links.appendChild(el('span', { cls: 'deps-label', text: 'Implements' }));
+    links.appendChild(el('div', { cls: 'chips', text: sections.join('; ') }));
+  }
+  const upstream = Array.from(reach(up, own)).sort(byOrder);
+  const downstream = Array.from(reach(down, own)).sort(byOrder);
+  if (upstream.length > (p.depends_on || []).length || downstream.length > (down.get(own) || []).length) {
+    const chainBox = el('details', {}, el('summary', { text: 'Whole chain: ' + upstream.length + ' upstream, ' + downstream.length + ' downstream' }));
+    const list = (label, ids) => {
+      if (!ids.length) return;
+      const ul = el('ul', { cls: 'chain-list chips' });
+      ids.forEach((x) => ul.appendChild(el('li', {}, depButton(x))));
+      chainBox.appendChild(el('p', { cls: 'note', text: label }));
+      chainBox.appendChild(ul);
+    };
+    list('Everything this phase waits on, directly or through another phase:', upstream);
+    list('Everything that waits on this phase:', downstream);
+    links.appendChild(el('span', { cls: 'deps-label', text: 'Chain' }));
+    links.appendChild(chainBox);
+  }
+}
+
+// openPhase shows one phase's items, then fetches their full text.
 async function openPhase(id) {
-  const p = (roadmapDoc && roadmapDoc.phases || []).find((x) => String(x.id) === String(id));
+  const p = byId.get(String(id));
   if (location.hash !== '#roadmap') showView('roadmap', false);
   roadmapPhase = id;
-  const heading = document.getElementById('h-rm-phase');
-  heading.textContent = p ? p.heading : 'Phase ' + id;
-  document.getElementById('rm-phase-meta').textContent = p
-    ? [p.version, p.state, p.done + '/' + p.total + ' done', p.depends_on && p.depends_on.length ? 'depends on ' + p.depends_on.join(', ') : '',
-      p.open_gates && p.open_gates.length ? 'open gates: ' + p.open_gates.join(', ') : ''].filter(Boolean).join('; ')
-    : '';
-  drawItems(p ? p.items : [], null);
-  heading.focus();
+  drawPhaseHeader(id);
+  drawItems(p ? p.items : [], false);
+  document.getElementById('h-rm-phase').focus();
+  highlightChain(String(id));
   const status = document.getElementById('rm-phase-status');
-  status.textContent = 'Loading the details of Phase ' + id + '.';
+  status.textContent = 'Loading the full text of Phase ' + id + '.';
   const doc = await getJson('/roadmap.json?phase=' + encodeURIComponent(id) + '&details=1');
   if (roadmapPhase !== id) return;
   const full = doc && !doc.error ? (doc.phases || []).find((x) => String(x.id) === String(id)) : null;
-  if (full) { drawItems(full.items, true); status.textContent = 'Details loaded.'; }
-  else status.textContent = 'The details could not be read' + (doc && doc.error ? ': ' + doc.error : '.');
+  if (full) { drawItems(full.items, true); status.textContent = ''; }
+  else status.textContent = 'The full text could not be read' + (doc && doc.error ? ': ' + doc.error : '.');
 }
 
-// drawItems lists a phase's items; withDetails adds each item's full text.
+// drawItems lists a phase's items; withDetails shows each item's full text, folded when long.
 function drawItems(items, withDetails) {
   const list = document.getElementById('rm-items');
   clear(list);
   for (const item of items || []) {
-    const done = item.completed;
-    const li = el('li', {}, el('span', { cls: 'state' + (done ? ' done' : ''), text: done ? 'Done' : (item.kind === 'withdrawn' ? 'Withdrawn' : 'Open') }),
-      el('span', { text: item.title || '' }));
-    const extra = [item.kind !== 'work' ? item.kind : '', item.gate ? 'gate: ' + item.gate : '',
-      (item.missing_tests || []).length ? 'missing tests: ' + item.missing_tests.join(', ') : '',
-      (item.missing_files || []).length ? 'missing files: ' + item.missing_files.join(', ') : ''].filter(Boolean).join('; ');
-    if (extra) li.appendChild(el('div', { cls: 'extra', text: extra }));
-    if (withDetails && item.details && item.details !== item.title) {
-      li.appendChild(el('details', {}, el('summary', { text: 'Full text' }), el('pre', { cls: 'details', text: item.details })));
+    const word = item.kind === 'withdrawn' ? 'Withdrawn' : (item.completed ? 'Done' : 'Open');
+    const text = withDetails && item.details ? item.details : item.title || '';
+    const body = richText(text);
+    const li = el('li', {}, el('span', { cls: 'badge ' + word.toLowerCase(), text: word }), body);
+    const meta = el('div', { cls: 'item-meta' });
+    if (item.kind && item.kind !== 'work') meta.appendChild(el('span', { text: item.kind }));
+    if (item.gate) meta.appendChild(chip(item.completed ? 'pass' : 'pending', 'gate: ' + item.gate));
+    if ((item.missing_tests || []).length) meta.appendChild(el('span', { cls: 'failed-job', text: 'missing tests: ' + item.missing_tests.join(', ') }));
+    if ((item.missing_files || []).length) meta.appendChild(el('span', { cls: 'failed-job', text: 'missing files: ' + item.missing_files.join(', ') }));
+    if (meta.firstChild) li.appendChild(meta);
+    if (withDetails && text.length > CLAMP_CHARS) {
+      body.classList.add('clamped');
+      const more = el('button', { type: 'button', cls: 'more', text: 'Show all', 'aria-expanded': 'false' });
+      more.addEventListener('click', () => {
+        const open = body.classList.toggle('clamped') === false;
+        more.textContent = open ? 'Show less' : 'Show all';
+        more.setAttribute('aria-expanded', String(open));
+      });
+      li.appendChild(more);
     }
     list.appendChild(li);
   }
@@ -196,8 +430,24 @@ function drawItems(items, withDetails) {
 function renderProblems(s) {
   const list = document.getElementById('rm-problems');
   clear(list);
-  for (const p of s.version_problems || []) list.appendChild(el('li', { text: 'Phase ' + p.phase + ' ' + p.detail }));
-  for (const d of s.unknown_dependencies || []) list.appendChild(el('li', { text: 'Phase ' + d.phase + ' depends on unknown Phase ' + d.depends_on }));
+  // Phases left open in a release that already closed share one sentence; the rest are listed one by one.
+  const closed = new Map();
+  for (const p of s.version_problems || []) {
+    const m = p.kind === 'closed' && /ships in (\S+), which closed/.exec(p.detail || '');
+    if (m) {
+      if (!closed.has(m[1])) closed.set(m[1], []);
+      closed.get(m[1]).push(p.phase);
+    } else {
+      list.appendChild(el('li', {}, phaseButton(p.phase), ' ' + p.detail));
+    }
+  }
+  for (const [version, phases] of closed) {
+    const chips = el('div', { cls: 'chips' });
+    phases.forEach((id) => chips.appendChild(depButton(id)));
+    list.appendChild(el('li', {}, el('span', { text: phases.length + ' phase(s) ship in ' + version +
+      ', which closed when the release line moved on, but still have open work items:' }), chips));
+  }
+  for (const d of s.unknown_dependencies || []) list.appendChild(el('li', {}, phaseButton(d.phase), ' depends on unknown Phase ' + d.depends_on));
   if (!list.firstChild) list.appendChild(el('li', { text: 'None reported.' }));
 }
 
@@ -207,10 +457,9 @@ function renderTrace() {
   clear(dl);
   const spec = (roadmapDoc.spec || {}).summary || {};
   const sec = (roadmapDoc.security || {}).summary || {};
-  tile(dl, 'Spec sections traced', (spec.traced || 0) + ' / ' + (spec.sections || 0));
-  tile(dl, 'Spec sections not traced', spec.not_traced);
-  tile(dl, 'Security controls', sec.controls);
-  tile(dl, 'Controls attested', sec.attested);
+  tile(dl, 'Spec traced', spec.traced || 0, 'of ' + (spec.sections || 0), spec.traced, spec.sections);
+  tile(dl, 'Spec not traced', spec.not_traced);
+  tile(dl, 'Controls attested', sec.attested || 0, 'of ' + (sec.controls || 0), sec.attested, sec.controls);
   tile(dl, 'Controls in progress', sec.in_progress);
 }
 
@@ -236,14 +485,14 @@ function renderTrend() {
   const axis = axisStyle();
   c.setOption({
     animation: false,
-    grid: { left: 56, right: 56, top: 24, bottom: 32 },
+    grid: { left: 56, right: 56, top: 28, bottom: 32 },
     tooltip: tooltipStyle({ trigger: 'axis' }),
     legend: { top: 0, textStyle: { color: css('--text-secondary') } },
     xAxis: timeAxis('rm-trend', rows[0].t * 1000 - 3600000, Math.max(Date.now(), rows[rows.length - 1].t * 1000)),
     yAxis: [Object.assign({ type: 'value', name: 'all' }, axis), Object.assign({ type: 'value', name: 'release' }, axis)],
     series: [
-      { name: 'Work items done', type: 'line', step: 'end', symbol: 'circle', symbolSize: 5, data: rows.map((r) => [r.t * 1000, r.done]), color: css('--cat-1') },
-      { name: 'Current release done', type: 'line', step: 'end', symbol: 'triangle', symbolSize: 6, yAxisIndex: 1, data: rows.map((r) => [r.t * 1000, r.rel]), color: css('--cat-2') },
+      { name: 'Work items done', type: 'line', step: 'end', symbol: 'circle', symbolSize: 6, data: rows.map((r) => [r.t * 1000, r.done]), color: css('--cat-1') },
+      { name: 'Current release done', type: 'line', step: 'end', symbol: 'triangle', symbolSize: 7, yAxisIndex: 1, data: rows.map((r) => [r.t * 1000, r.rel]), color: css('--cat-2') },
     ],
   });
 }
@@ -279,17 +528,38 @@ function showView(name, focus) {
   document.title = views[name] + ' - Status page';
   const title = document.getElementById('view-title');
   title.textContent = views[name];
-  if (name === 'roadmap') renderTrend();
+  if (name === 'roadmap') { renderTrend(); drawDepLines(); }
   Object.values(charts).forEach((c) => c.resize());
   if (focus) title.focus();
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-  const fromHash = () => showView(location.hash.replace('#', '') || 'gate', true);
-  window.addEventListener('hashchange', fromHash);
+  const deps = document.getElementById('rm-deps');
+  try { deps.checked = localStorage.getItem('rm-deps') === '1'; } catch (e) { /* storage blocked: lines start hidden */ }
+  if (new URLSearchParams(location.search).get('deps') === '1') deps.checked = true;
+  deps.addEventListener('change', () => {
+    try { localStorage.setItem('rm-deps', deps.checked ? '1' : '0'); } catch (e) { /* storage blocked */ }
+    drawDepLines();
+  });
+  window.addEventListener('hashchange', () => showView(location.hash.replace('#', '') || 'gate', true));
   showView(location.hash.replace('#', '') || 'gate', false);
   for (const id of ['rm-state', 'rm-version']) document.getElementById(id).addEventListener('change', renderPhases);
   document.getElementById('rm-search').addEventListener('input', renderPhases);
+  const table = document.getElementById('rm-phases');
+  const enter = (e) => {
+    const tr = e.target.closest && e.target.closest('tbody tr');
+    const id = tr ? tr.dataset.phase : null;
+    if (id !== chainFocus) highlightChain(id);
+  };
+  table.addEventListener('mouseover', enter);
+  table.addEventListener('focusin', enter);
+  table.addEventListener('mouseleave', () => highlightChain(roadmapPhase ? String(roadmapPhase) : null));
+  let pending = false;
+  new ResizeObserver(() => {
+    if (pending) return;
+    pending = true;
+    requestAnimationFrame(() => { drawDepLines(); pending = false; });
+  }).observe(document.getElementById('rm-phases-wrap'));
   pollRoadmap();
   pollTrend();
   setInterval(pollRoadmap, 60000);
