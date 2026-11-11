@@ -44,22 +44,23 @@ const (
 // exec.command task, whose effect cannot be known without running it. The
 // third task targets the simulate-locked device.
 func checkGateRunbook() string {
-	return "id: check-mode-release-gate\n" +
+	return "# Two checkable directory tasks and one uncheckable command, one task on a simulate-locked device.\n" +
+		"# Blast radius: the release gate's own sshd container.\n" +
+		"# Changes: directories under /tmp, only when run for real.\n" +
+		"# Undo: nothing; the container is discarded.\n" +
+		"id: check-mode-release-gate\n" +
 		"tasks:\n" +
 		"  - name: make-a-directory\n" +
-		"    fqcn: file.directory\n" +
-		"    params:\n" +
+		"    file.directory:\n" +
 		"      target: container1\n" +
 		"      path: " + checkGateActiveDir + "\n" +
 		"      mode: \"0750\"\n" +
 		"  - name: run-a-command\n" +
-		"    fqcn: exec.command\n" +
-		"    params:\n" +
+		"    exec.command:\n" +
 		"      target: container1\n" +
 		"      cmd: \"/bin/mkdir -p " + checkGateCommandDir + "\"\n" +
 		"  - name: reach-a-simulate-locked-device\n" +
-		"    fqcn: file.directory\n" +
-		"    params:\n" +
+		"    file.directory:\n" +
 		"      target: container2\n" +
 		"      path: " + checkGateLockedDir + "\n"
 }
