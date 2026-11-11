@@ -100,7 +100,7 @@ func TestEveryRequireCallNamesAKnownNeed(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The walk must have found the calls, or a broken parse would pass.
-	for _, want := range []string{Docker, Userns, Socat} {
+	for _, want := range []string{Docker, Userns, NonRoot} {
 		if !seen[want] {
 			t.Errorf("no Require(..., %q, ...) call was found: the walk is not seeing the module", want)
 		}

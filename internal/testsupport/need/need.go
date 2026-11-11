@@ -46,7 +46,6 @@ const (
 	PosixShell      = "posix-shell"
 	PTY             = "pty"
 	RefusingPort    = "refusing-port"
-	Socat           = "socat"
 	Symlinks        = "symlinks"
 	Timeout         = "timeout"
 	Toybox          = "toybox"
@@ -60,7 +59,7 @@ const All = "all"
 var Names = []string{
 	CMLController, Docker, DockerDesktop, DockerSocket, IPv6Loopback, Landlock,
 	LandlockScoping, Linux, LocalStack, Memory, NonRoot, OpenFiles, POSIXModes,
-	PosixShell, PTY, RefusingPort, Socat, Symlinks, Timeout, Toybox, Userns,
+	PosixShell, PTY, RefusingPort, Symlinks, Timeout, Toybox, Userns,
 }
 
 // UnknownRequired returns the entries of Env that are neither All nor a

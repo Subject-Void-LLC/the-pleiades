@@ -471,16 +471,16 @@ func main() {
 		slog.String("kinds", strings.Join(router.Kinds(), ", ")))
 
 	agent := runner.NewAgent(consumer, router, js, lockMgr, topology.MaxDeliverDefault, logger,
-		tracerProvider.Tracer("github.com/Subject-Void-LLC/the-pleiades/internal/runner"), agentOpts...)
+		tracerProvider.Tracer(telemetry.RunnerScope), agentOpts...)
 	// The check loop: everything from the check subject runs through
 	// routing.CheckOnly, so it is a check whatever its payload says.
 	checkAgent := runner.NewAgent(checkConsumer, routing.CheckOnly(router), js, lockMgr, topology.MaxDeliverDefault, logger,
-		tracerProvider.Tracer("github.com/Subject-Void-LLC/the-pleiades/internal/runner"), agentOpts...)
+		tracerProvider.Tracer(telemetry.RunnerScope), agentOpts...)
 	// The rollback loop: everything from the rollback subject must carry
 	// its steps (routing.RollbackOnly), and runs in the mode it says, since
 	// a rollback may be checked.
 	rollbackAgent := runner.NewAgent(rollbackConsumer, routing.RollbackOnly(router), js, lockMgr, topology.MaxDeliverDefault, logger,
-		tracerProvider.Tracer("github.com/Subject-Void-LLC/the-pleiades/internal/runner"), agentOpts...)
+		tracerProvider.Tracer(telemetry.RunnerScope), agentOpts...)
 
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)

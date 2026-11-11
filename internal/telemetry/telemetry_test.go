@@ -121,7 +121,7 @@ func TestSetup_StdoutExporterActuallyExports(t *testing.T) {
 		t.Fatalf("Setup: %v", err)
 	}
 
-	_, span := provider.Tracer("test").Start(context.Background(), "exported-operation")
+	_, span := provider.Tracer(telemetry.RunnerScope).Start(context.Background(), "runner.handle_message")
 	span.End()
 
 	if err := provider.Shutdown(context.Background()); err != nil {
@@ -129,7 +129,7 @@ func TestSetup_StdoutExporterActuallyExports(t *testing.T) {
 	}
 
 	got := out.String()
-	if !strings.Contains(got, "exported-operation") {
+	if !strings.Contains(got, "runner.handle_message") {
 		t.Errorf("the stdout exporter emitted no span for the operation; got %q", got)
 	}
 	if !strings.Contains(got, "pleiades-test") {

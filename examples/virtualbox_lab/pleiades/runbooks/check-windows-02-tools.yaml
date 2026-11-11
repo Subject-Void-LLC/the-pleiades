@@ -16,7 +16,7 @@ hosts: win-check
 vars:
   archives:
     - name: Go
-      src: C:\Windows\Temp\go1.27.3.windows-amd64.zip
+      src: C:\Windows\Temp\go1.27.4.windows-amd64.zip
       dest: C:\
       creates: C:\go\bin\go.exe
     - name: MinGit
@@ -28,11 +28,11 @@ vars:
       dest: C:\
       creates: C:\mingw64\bin\gcc.exe
 tasks:
-  - name: fetch Go 1.27.3 for Windows
+  - name: fetch Go 1.27.4 for Windows
     win.file.download:
-      url: https://go.dev/dl/go1.27.3.windows-amd64.zip
-      path: C:\Windows\Temp\go1.27.3.windows-amd64.zip
-      sha256: f26081f438319757f8a1b46d7d0b2c5ec7583d4038e485e0aa725cfde7885fff
+      url: https://go.dev/dl/go1.27.4.windows-amd64.zip
+      path: C:\Windows\Temp\go1.27.4.windows-amd64.zip
+      sha256: 178ab98950ac69ab25069307dc6ade79f3816e414cce95b4da166a115cde1e7e
   - name: fetch MinGit 2.56.0.2
     win.file.download:
       url: https://github.com/git-for-windows/git/releases/download/v2.56.0.windows.2/MinGit-2.56.0.2-64-bit.zip

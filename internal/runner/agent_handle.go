@@ -14,11 +14,11 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/adapters/routing"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/journal"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/telemetry"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 	"github.com/google/uuid"
 	"github.com/nats-io/nats.go/jetstream"
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -152,13 +152,13 @@ func (a *Agent) handleMessage(ctx context.Context, msg jetstream.Msg) {
 	// "dispatched" forever, and the message is terminated, since this
 	// binary will not learn the newer shape between two deliveries.
 	if verr := payload.CheckVersion(); verr != nil {
-		span.RecordError(verr)
-		span.SetStatus(codes.Error, "dispatch payload version not supported")
+		telemetry.RecordFailure(span, telemetry.OutcomePayloadVersion)
 		a.logger.Error("refusing a dispatch this runner cannot read",
 			slog.String("job_id", payload.JobID),
 			slog.String("device_id", payload.DeviceID),
 			slog.Int("payload_version", payload.PayloadVersion),
-			slog.String("error", verr.Error()))
+			slog.String("error", verr.Error()),
+			traceIDAttr(span))
 		a.reportResult(ctx, payload, wire.Outcome{}, verr)
 		settle()
 		a.termMalformed(msg, "dropping a dispatch this runner cannot read", verr,
@@ -209,13 +209,13 @@ func (a *Agent) handleMessage(ctx context.Context, msg jetstream.Msg) {
 	// something that never ran. The DLQ is reserved for a job that
 	// actually ran and failed (see the branch below).
 	if execErr != nil && errors.Is(execErr, routing.ErrNoAdapter) {
-		span.RecordError(execErr)
-		span.SetStatus(codes.Error, "no execution adapter for this kind")
+		telemetry.RecordFailure(span, telemetry.OutcomeNoAdapter)
 		a.logger.Error("refusing a dispatch this runner cannot route",
 			slog.String("job_id", payload.JobID),
 			slog.String("device_id", payload.DeviceID),
 			slog.String("kind", payload.Kind),
-			slog.String("error", execErr.Error()))
+			slog.String("error", execErr.Error()),
+			traceIDAttr(span))
 		a.reportResult(ctx, payload, wire.Outcome{}, execErr)
 		settle()
 		a.termMalformed(msg, "dropping a dispatch this runner cannot route", execErr,
@@ -233,9 +233,15 @@ func (a *Agent) handleMessage(ctx context.Context, msg jetstream.Msg) {
 	settle()
 
 	if execErr != nil {
-		span.RecordError(execErr)
-		span.SetStatus(codes.Error, "adapter execution failed")
-		a.logger.Error("adapter execution failed", slog.String("error", execErr.Error()))
+		// The span says which kind of failure this was; the error's text,
+		// which may quote device output, goes only to the masked log line,
+		// and the trace_id is what joins the two.
+		telemetry.RecordFailure(span, telemetry.OutcomeAdapterFailed)
+		a.logger.Error("adapter execution failed",
+			slog.String("job_id", payload.JobID),
+			slog.String("device_id", payload.DeviceID),
+			slog.String("error", execErr.Error()),
+			traceIDAttr(span))
 		// Routed through the same Dead Letter Queue mechanism
 		// natsBus.Subscribe itself uses (event.HandleDeliveryFailure),
 		// rather than the previous "log it and ack" behavior, which
@@ -259,6 +265,14 @@ func (a *Agent) handleMessage(ctx context.Context, msg jetstream.Msg) {
 	if err := msg.Ack(); err != nil {
 		a.logger.Error("failed to ack successfully handled message", slog.String("error", err.Error()))
 	}
+}
+
+// traceIDAttr is the trace_id log attribute for span, the key internal/api's
+// request log line uses too. A span's failure carries a fixed phrase only
+// (telemetry.RecordFailure), so the log line holding the error's text must
+// name the trace, or an operator holding one cannot find the other.
+func traceIDAttr(span trace.Span) slog.Attr {
+	return slog.String("trace_id", span.SpanContext().TraceID().String())
 }
 
 // numDeliveredFor reads msg's own JetStream redelivery counter, mirroring

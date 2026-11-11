@@ -181,8 +181,9 @@ func loadWaivers(path string) (map[waiverKey]waiver, []skipWaiver, error) {
 	return out, wf.Skips, nil
 }
 
+// runGosec scans the module from the working directory and decodes the report.
 func runGosec() (*gosecReport, error) {
-	cmd := exec.Command("gosec", "-exclude-generated", "-exclude-dir=.claude", "-fmt=json", "./...")
+	cmd := exec.Command("gosec", "-exclude-generated", excludeAgentDirs, excludeIgnoredDirs, "-fmt=json", "./...")
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr

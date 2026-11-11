@@ -28227,3 +28227,239 @@ them apart. `TestAsFault_TheStoreRefusalsTheFormShows`.
 store is reached, which 1121's note said it did with a different answer.
 
 **Lesson.** As 1058: a refusal the caller can correct is shown as one, beside the field it concerns.
+
+## 1148. Spans had no boundary: any code could put caller or device text in a span's attributes, events, status text or resource, and the Runner's three RecordError calls copied adapter error text, which can quote device output, into the trace backend past the log masking (fixed on this branch; on main; a repeat of 578, 522 and 417)
+
+**Symptom.** Found on `feat/telemetry-boundary`, 2026-11-10, while building PLAN.md Section 19 item 7 (a security
+policy over what a span may carry). The exporter sent every attribute, event, recorded error, span name, status
+description and resource attribute as it was given. `handleMessage` (`internal/runner/agent_handle.go`) recorded each of
+its three failures with `span.RecordError`, which copies the error's text into an `exception` event. An adapter's error
+can quote device output, so that text reached whatever trace backend an operator runs, where no log masking applies.
+
+**Root cause.** A trace exporter is an output channel, and nobody had listed it as one. The logs are masked through
+`internal/redact` at the handler; spans never passed through it, and nothing limited which keys, names or events a span
+could carry.
+
+**Why 578 (and 522, 417) did not prevent it.** Each of those found a new output path that skipped the masking beside it,
+and each fix was per path: test output in `tools/testgate` (417, 522), the FRR methods and the grant route (578).
+578's lesson says to mask where text comes in from the device. A span takes text from every layer (the API, the Runner,
+the SDK itself), so there is no one place where it "comes in", and no list of output channels existed to find this one.
+
+**Fix.** `7aac7bbc` and `b0001aa7`. Every exporter `Setup` builds (stdout and OTLP) sits behind a masking `SpanExporter`
+(`internal/telemetry/masking_exporter.go`). It keeps only keys on a fixed allowlist (`telemetry.AllowedAttributeKeys`),
+which `PLEIADES_TELEMETRY_DENY_ATTRIBUTES` can narrow and nothing can widen (an unknown key stops startup). It masks every
+kept string with `redact.Shared()`, drops every event but the SDK's `exception` (keeping only its type), withholds a status
+description that is not a declared phrase or a 5xx `StatusText`, keeps a span name or instrumentation scope only when
+declared, keeps `error.type` only as a declared category, drops the schema URL, filters the resource, and drops a batch
+whose masking panics (failing closed). `Setup` installs span limits (values cut at 1024 bytes). The Runner's failures use
+`telemetry.RecordFailure` with a fixed `Outcome` phrase, and each error log line carries the span's `trace_id` so the text
+in the masked log can be found from the span. Tests: `TestMaskingExporterMasksEveryTextChannel`,
+`TestMaskingExporterDropsABatchItCannotMask`, `TestSetup_ExportsNoValueUnderAnUnlistedKey`,
+`TestSetup_MasksSecretShapesUnderAListedKey`, `TestSetup_ExportsNoRecordedErrorText`,
+`TestSetup_WithholdsAFreeStatusDescription`, `TestSetup_ExportsOnlyDeclaredSpanNames`,
+`TestSetup_ExportsOnlyDeclaredScopeDetails`, `TestSetup_FiltersTheResourceTheEnvironmentSets`,
+`TestSetup_ExportsNoPanicText`, `TestSetup_OTLPExportCarriesOnlyThePolicy` (`internal/telemetry`) and
+`TestAgent_SpanFailuresAreFixedPhrases` (`internal/runner`). `docs/10-running-in-production.md`'s Telemetry section states
+the boundary.
+
+**Known limits.** 1158: masking under an allowed key catches only secret shapes and known values.
+
+**Lesson.** LESSONS 440: an observability channel is an output channel; allowlist what crosses it and mask what is kept.
+
+## 1149. The HTTP method reached the request metrics' labels and the span name as the client sent it, before authentication, so any client that reached the port could grow Prometheus label sets without limit, a cardinality denial of service (fixed on this branch; on main)
+
+**Symptom.** Found on this branch, 2026-11-10, in review. Go's server accepts any token as a method. The API's metrics
+(`http_requests_total`, `http_request_duration_seconds`) and its span name and `http.request.method` attribute took the
+method as sent, and they are recorded before authentication and rate limiting. Each new token is a new label set, held in
+memory by the Controller and by every Prometheus that scrapes it.
+
+**Root cause.** A label was filled from caller input. Every other label (route pattern, status code) is a bounded
+identifier; the method was assumed to be one too.
+
+**Fix.** `6d73079b`. `boundedMethod` (`internal/api/middleware.go`) records a method outside the standard set as
+`_OTHER`, OpenTelemetry's spelling, on the metrics and the span; the masked request log keeps it as sent. The span name is
+built from `boundedMethod` and `routePattern` alone. Measured by `TestRouter_MethodLabelIsBounded`
+(`internal/api/telemetry_labels_test.go`).
+
+**Lesson.** LESSONS 440: bound what crosses an observability channel before authentication.
+
+## 1150. url.path was recorded on the API span before authentication and rate limiting with no span limits, so one request could put about 1 MB of caller text on a span, and roughly 2 GiB of spans could queue while the collector was down (fixed on this branch; on main; a repeat in kind of 431)
+
+**Symptom.** Found on this branch, 2026-11-10, in review. Since 1032 the API span records `url.path` as the client sent
+it, which is right for telling two requests apart. The SDK had no span limits, so the attribute was as long as the
+request line the server accepts (about 1 MB). With the collector unreachable, the batch queue holds those spans, and the
+worst case was roughly 2 GiB of queued caller text.
+
+**Root cause.** Nothing bounded the size of a span. 1032 fixed which form of the path is recorded and did not ask how
+long it could be.
+
+**Why 431 did not prevent it.** 431's fix bounded and escaped text a remote server wrote into one client's errors
+(`kubeapi.Explain`). Its lesson was about text from a remote system reaching an error. Text from a caller reaching a
+recorder that keeps it is the same risk, and no rule or check carried 431's bound to the tracer.
+
+**Fix.** `7aac7bbc`. `Setup` installs span limits: every attribute value is cut at 1024 bytes. Measured at about 20 KB for
+a span from a long path by `TestRouter_ALongPathCannotSizeTheExportedSpan` (`internal/api/telemetry_limits_test.go`);
+`TestSetup_CapsAttributeValues` (`internal/telemetry`). The docs say `url.path` is recorded before authentication and can
+be denied.
+
+**Lesson.** LESSONS 440: bound an observability channel's size before authentication.
+
+## 1151. The OpenTelemetry SDK's internal logger (stdr on os.Stderr, which log.SetOutput does not reach) printed a malformed OTEL_EXPORTER_OTLP_HEADERS value raw, usually a collector token; the branch's first fix masked the ErrorHandler path instead, which log.SetOutput already masked, and its changelog claimed the leak fixed (fixed before push; the leak on main; a repeat in kind of 23 and, for the claim, of 1041)
+
+**Symptom.** Found on this branch, 2026-11-10. The SDK reports a malformed `OTEL_EXPORTER_OTLP_HEADERS` entry through its
+internal logger, which is `stdr` writing to `os.Stderr` directly, and the message carries the value that failed to
+parse. That value is usually the collector's token. The process's masked logging is installed with `log.SetOutput`, which
+the SDK's internal logger never reads. The branch's first version replaced the SDK's `ErrorHandler` and said in its
+changelog that the token no longer reached standard error. The fp-reviewer found that the ErrorHandler path already went
+through `log`, so it was already masked, and the leak was on the logger path the first fix had not touched.
+
+**Root cause.** The SDK has three writers: the exporter, the ErrorHandler and the internal logger. The first fix found
+two. The changelog was written from the fix's intent, not from a test that put a token into the variable and read
+standard error.
+
+**Why 23 and 1041 did not prevent it.** 23 found a mask that covered a command's success path and not its error path;
+the lesson was about one package's paths. 1041 found text on a branch claiming more than its code did. Neither names the
+step that would have caught this: enumerating every writer a dependency has before claiming one of them closed.
+
+**Fix.** `7aac7bbc`. `Setup` calls `otel.SetLogger` with a sink (`newMaskedLogger`, `internal/telemetry/errorhandler.go`)
+that writes only the message and the error's type, masked, never the key-value pairs. The changelog fragment now says
+only that the SDK's own messages no longer print the values they fail to parse. Test:
+`TestSetup_TheSDKsInternalLoggerPrintsNoValues`, which sets a malformed header holding a token and reads standard error;
+`TestMaskedLoggerDropsValuesAndNames`.
+
+**Lesson.** LESSONS 440: enumerate every writer the SDK has; the exporter, the ErrorHandler and the internal logger are
+three separate paths.
+
+## 1152. The OpenTelemetry SDK's error handler wrote up to 4 MiB of a collector's reply into the log unescaped, so a collector, or anything answering on its address, could forge log lines (CWE-117) (fixed on this branch; on main; a repeat of 431, and the class of 1064)
+
+**Symptom.** Found on this branch, 2026-11-10, in review. An OTLP export error carries the collector's reply body, read
+up to 4 MiB, and the SDK's default handler printed it through `log` as it was: newlines, control characters and all.
+
+**Root cause.** Remote text reached a log with no bound and no escaping. The log handler masks secrets; it does not
+escape or cut a message.
+
+**Why 431 and 1064 did not prevent it.** 431 bounded and escaped one client's remote text (`kubeapi.Explain`); 1064 made
+the CLI's error printing escape newlines (`termsafe`). Both fixes live at their own call sites. The SDK's handler is a
+writer neither path covers, and it was not on any list.
+
+**Fix.** `7aac7bbc`. The handler set by `otel.SetErrorHandler` masks the report, escapes it with `termsafe`, and cuts it to
+one line of 2048 bytes on a character boundary. Tests: `TestSetup_ErrorReportsAreOneBoundedLine`,
+`TestSetup_MasksTheSDKsOwnErrorReports`, `TestReportLineCutsOnACharacterBoundary`.
+
+**Lesson.** As 431: text a remote system wrote is bounded and escaped before it reaches a log or an error, whoever wrote
+the code that prints it.
+
+## 1153. Inbound baggage and tracestate, key=value text a caller chooses, were propagated: baggage into each request's context, where the global propagator otelhttp uses (the moby client v0.5.0 wraps its transport with it) could write it to a managed host's Docker engine during onboarding, and tracestate onto the NATS dispatch headers kept in JetStream (fixed on this branch; on main)
+
+**Symptom.** Found on this branch, 2026-11-10, in review. The global propagator was W3C trace context plus baggage. The
+API extracted both from every request, before authentication. The moby client (v0.5.0) wraps its HTTP transport with
+otelhttp, which injects through the global propagator by default, so a caller's baggage could ride an outbound request to
+a managed host's Docker engine during onboarding. A caller's `tracestate` travelled with the span context onto the
+dispatch's NATS headers and was stored in the JetStream stream.
+
+The first commit message also claimed that baggage reached NATS through the dispatch publish. The claim-refuter showed
+that the publish builds its context from `context.Background()` plus the span, so baggage never reached it; only
+`tracestate` did. The message was corrected before push.
+
+**Root cause.** Propagated context from outside was treated as the platform's own. `telemetry.Propagator` was W3C Trace
+Context plus W3C Baggage, and the span context carries `tracestate` onward. Both are caller input.
+
+**Fix.** `7aac7bbc`. The propagator reads and writes `traceparent` only, and the masking exporter strips `tracestate` from
+what it exports. Tests: `TestPropagator_CarriesNoBaggage`, `TestPropagator_ExtractsNoTraceState`,
+`TestSetup_DropsEventsAndTraceStateItDoesNotKnow`, `TestPropagator_RoundTripsTraceContext`.
+
+**Lesson.** LESSONS 442.
+
+## 1154. An unauthenticated caller's traceparent sampled flag decided whether the API traced its request, since the sampler was ParentBased at the edge (fixed on this branch; on main)
+
+**Symptom.** Found on this branch, 2026-11-10, in review. A `ParentBased` sampler follows a remote parent's sampled flag.
+At the API that parent is whoever sent the request, so a caller could have every request it sent traced, whatever the
+operator's ratio, or keep its own requests out of the trace.
+
+**Root cause.** The operator's sampling ratio applied only to requests with no parent.
+
+**Fix.** `7aac7bbc`. `edgeSampler` (`internal/telemetry/edge.go`) applies the operator's ratio to a server span with a
+remote parent, keeping the caller's trace ID for correlation; every other span stays `ParentBased`, so spans past the API
+follow the API's decision. Tests: `TestSetup_TheEdgeSamplesByItsOwnRatio`, `TestEdgeSamplerDescribesBothRules`.
+
+**Lesson.** LESSONS 442.
+
+## 1155. The branch's first telemetry archtest had about fifteen evasion forms: dot imports, typed-constant keys, aliases, a KeyValue.Key assignment, SetStatus with a variable code or as a method expression, method values, unscanned AddEvent, SetName and tracer.Start, the global otel setters, and the auto/sdk and contrib providers (fixed before push; a repeat of 1038 and 1017)
+
+**Symptom.** Found in review on this branch, 2026-11-10, before push. The first archtest for 1148's rule matched the
+calls and spellings the fix had touched. Each listed form put a key, name, status or provider past it.
+
+**Root cause.** The guard was written from the calls in the incident, not from the rule (what may not reach a span), so
+each other way to write the same thing passed.
+
+**Why 1038 and 1017 did not prevent it.** Both found a first guard narrower than its rule, and their lesson (LESSONS 114,
+343) is to state the rule, list each way to write it, and hold the guard to each with controls. This was a new archtest
+for a new rule, and its first draft was again written against one spelling. The lesson lives in records; nothing in the
+archtest package asks a new scan for controls.
+
+**Fix.** `5a3c11e9`. The rewrite (`internal/archtest/telemetry_test.go`, `telemetry_scan_test.go`) refuses each form, and
+control cases prove each scan sees what it claims: `TestKeyFindings_Control`, `TestErrorTextFindings_Control`,
+`TestPipelineFindings_Control`, `TestNameAndEventFindings_Control`, `TestInTelemetryPackage_Control`. The guards are
+`TestOnlyTelemetryBuildsSpanPipelines`, `TestEverySpanAttributeKeyIsOnTheAllowlist`, `TestSpansCarryNoFreeErrorText` and
+`TestSpanNamesAndEventsAreFixed`. What a structural scan cannot see (a key or name chosen inside a dependency or computed
+at run time) is held only by the exporter, and `docs/10-running-in-production.md` says so: the guard is narrower than its
+rule by design, and the record says where.
+
+**Lesson.** As 1017 and 1038: write the guard from the rule, list each spelling, give each a control, and state what only
+the run-time check holds.
+
+## 1156. tools/gosec-check passed -exclude-dir=.claude, which gosec v2.30.0 compiles into an unescaped, unanchored regular expression over absolute paths, so it also matched "/claude": a copy of the module under /tmp/claude-<uid> had every file excluded, and gosec reported half-loaded internal/ent packages ("undefined: Template") as type errors (fixed on this branch; on main since 26's fix; read as a broken environment for two runs)
+
+**Symptom.** On this branch, 2026-11-10. `make gosec` on a copy of the module under `/tmp/claude-<uid>` reported type
+errors in `internal/ent` such as "undefined: Template". The writer read this as a broken environment for two runs before
+looking at the flag.
+
+**Root cause.** 26's fix added `-exclude-dir=.claude` to gosec's arguments. gosec v2.30.0 turns each value into a regular
+expression without escaping or anchoring it (`ExcludedDirsRegExp` in its `helpers.go`) and matches it against absolute
+paths. The dot matches any character, so the pattern matched `/claude` in `/tmp/claude-<uid>`, every file was left out,
+and the type checker saw packages with files missing.
+
+**Why 26 did not prevent it.** 26 is where the flag came from. No test held the flag, and the over-match shows only
+where a path holds `claude` outside a `.claude` directory, which the usual checkout's path does not.
+
+**Fix.** Two flags in `tools/gosec-check/exclude.go`, each anchored to the start of the path or a separator,
+since gosec matches relative paths as well as absolute ones: `(^|[\\/])\.claude([\\/]|$)`, and
+`(^|[\\/])\.[A-Z]` for every directory `.gitignore`'s `.[A-Z]*` keeps out. Held by
+`TestExclusions_LeaveOutOnlyTheIgnoredDirectories`. The first version escaped only the dot (`\.claude`), and the
+gate's gosec then failed in the main clone: the old pattern had also hidden, by the same accident, the Go files
+copied into `.IGNORE/claude-api/` for outside reviews, which do not build as packages, and an anchor to `/` alone
+matched nothing because gosec prints and matches relative paths. 1157 is what remains.
+
+**Lesson.** LESSONS 441: escape a value a dependency compiles into a regular expression, and reproduce a check that fails
+in only one checkout location.
+
+## 1157. gosec cannot type-check internal/ent from a git worktree under .claude/worktrees/, even with no exclusion at all, so make gosec and make pr-check must run from a checkout outside any .claude directory (open; measured 2026-11-10)
+
+**Symptom.** Measured on this branch, 2026-11-10, in the worktree under `.claude/worktrees/`. With 1156 fixed, and again
+with the exclusion removed, gosec still could not type-check `internal/ent` there. `tools/gosec-check/exclude.go`'s comment
+records that a checkout under a `.claude` directory is still excluded whole by the pattern.
+
+**Root cause.** Not found. The escaped pattern matches every path inside a checkout that sits under `.claude/`, which
+explains the run with the flag; the run with no flag at all is not explained.
+
+**Status.** Open. Until it is found, `make gosec` and `make pr-check` run from the main clone or another checkout outside
+any `.claude` directory. Related to 26, the reverse case (worktrees under `.claude/` seen from the main clone).
+
+**Lesson.** Pending. LESSONS 441 applies: this is a defect to reproduce, not an environment to note.
+
+## 1158. Under an allowed span key (url.path, pleiades.device.name), a value with no secret shape is exported as is, and the exporter's "<METHOD> <route pattern>" shape check accepts any API-scope span name shaped like a path (open: a limit of the telemetry boundary)
+
+**Symptom.** Found on this branch, 2026-11-10, in review of 1148's fix. The masking exporter masks kept strings by shape
+and by known values. Text that is sensitive but has neither (a path naming something private, a device name the operator
+treats as sensitive) passes under an allowed key. And the exporter keeps an API-scope span name that looks like a method
+and a route pattern, so a name built from a raw path would pass it.
+
+**Root cause.** Masking by shape cannot know what a value means, and the name check reads the shape of a name, not where
+it came from.
+
+**Status.** Open. `docs/10-running-in-production.md` states the first limit and offers
+`PLEIADES_TELEMETRY_DENY_ATTRIBUTES` for keys an operator treats as sensitive. The second limit is held only by the
+archtest (`TestSpanNamesAndEventsAreFixed` accepts a span name only as a literal or as `boundedMethod` and `routePattern`
+build it), so a name computed somewhere the scan cannot read would pass the exporter; the docs do not state this one.
+
+**Lesson.** Pending. LESSONS 440: the allowlist holds identifiers only, and adding a key is a reviewed change.

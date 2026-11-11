@@ -37,8 +37,11 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 				Name: "http_requests_total",
 				Help: "Total HTTP requests, labeled by matched route, method, and response status code.",
 			},
-			// "route" is the chi route pattern, never the raw path: see
-			// routePattern's own comment for the cardinality reasoning.
+			// Every label is a bounded identifier. "route" is the chi route
+			// pattern, never the raw path (routePattern), and "method" is a
+			// known method or "_OTHER", never the method as sent
+			// (boundedMethod): either as sent would let a client mint label
+			// sets without limit.
 			[]string{"route", "method", "code"},
 		),
 		duration: prometheus.NewHistogramVec(

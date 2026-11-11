@@ -175,11 +175,10 @@ jobs:
       # ability fails the job instead of quietly running three fewer tests.
       - name: Allow unprivileged user namespaces
         run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
-      # The serial-over-PTY tests skip without socat, which the runner image
-      # does not ship; the clean room's skip ledger is what showed six of
-      # them never running. Required below, so losing it turns this red.
-      - name: Install socat for the PTY-backed serial tests
-        run: sudo apt-get update && sudo apt-get install --yes --no-install-recommends socat
+      # The serial-over-PTY tests open a pseudo terminal in the test
+      # process (internal/testsupport/pseudotty), so nothing is installed for
+      # them; pty is required below, so a runner that cannot give one fails
+      # rather than quietly running six fewer tests.
       # Linux refuses a connection to a port bound but not listened on,
       # which internal/testsupport/refusing checks before handing one out
       # and skips without; required, so a runner that stops refusing fails.
@@ -188,7 +187,7 @@ jobs:
       # so docker is required here too.
       - name: make ci-fast
         env:
-          PLEIADES_TEST_REQUIRE: userns,socat,refusing-port,docker
+          PLEIADES_TEST_REQUIRE: userns,pty,refusing-port,docker
         run: make ci-fast
       - name: Keep the coverage for the floor check
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -533,11 +532,9 @@ jobs:
         run: make ci-images SHARD=1/1 IMAGES=.ci/images.txt PULL=-pull
       - name: Allow unprivileged user namespaces
         run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
-      # The same socat the fast job installs: without it the six PTY-backed
-      # serial tests skip, and their packages fall below floors the fast
-      # job's coverage set.
-      - name: Install socat for the PTY-backed serial tests
-        run: sudo apt-get update && sudo apt-get install --yes --no-install-recommends socat
+      # pty is required below as in the fast job: without a pseudo terminal
+      # the six PTY-backed serial tests skip, and their packages fall below
+      # floors the fast job's coverage set.
       # Restore only: the containers jobs on the default branch write the
       # cache, and a nightly run on a cold one downloads as before.
       - name: Restore cached test downloads
@@ -547,7 +544,7 @@ jobs:
           key: test-downloads-${{ hashFiles('internal/testsupport/pins.go') }}
       - name: make test-full
         env:
-          PLEIADES_TEST_REQUIRE: userns,socat,refusing-port,toybox
+          PLEIADES_TEST_REQUIRE: userns,pty,refusing-port,toybox
           PLEIADES_TEST_ARTIFACTS: ${{ runner.temp }}/test-logs
           PLEIADES_TEST_DOWNLOADS: ${{ github.workspace }}/.ci/downloads
         run: make test-full

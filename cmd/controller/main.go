@@ -1815,7 +1815,7 @@ func main() {
 
 	r, err := api.NewRouter(api.RouterConfig{
 		Logger:      logger,
-		Tracer:      tracerProvider.Tracer("github.com/Subject-Void-LLC/the-pleiades/internal/api"),
+		Tracer:      tracerProvider.Tracer(telemetry.APIScope),
 		Propagator:  tracerProvider.Propagator(),
 		Registry:    metricsRegistry,
 		Readiness:   append(readinessChecks(nc, client), members.schemaCheck(), drainer.check()),

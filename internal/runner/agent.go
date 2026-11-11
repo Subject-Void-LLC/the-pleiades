@@ -7,6 +7,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/lock"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/telemetry"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 	"github.com/nats-io/nats.go/jetstream"
 	"go.opentelemetry.io/otel/trace"
@@ -198,7 +199,7 @@ func NewAgent(consumer jetstream.Consumer, adapter ExecutionAdapter, js jetstrea
 		logger = slog.Default()
 	}
 	if tracer == nil {
-		tracer = noop.NewTracerProvider().Tracer("github.com/Subject-Void-LLC/the-pleiades/internal/runner")
+		tracer = noop.NewTracerProvider().Tracer(telemetry.RunnerScope)
 	}
 	a := &Agent{
 		consumer:       consumer,

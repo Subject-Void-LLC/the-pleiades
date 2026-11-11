@@ -3112,10 +3112,95 @@ no device output to mask.
 
 ### Telemetry
 
-OpenTelemetry tracing exists in the control plane (a "Run" click ties to every step
-across every device via one trace). What exactly a span attribute carries per
-Collection method has not been separately audited against the masking rules above;
-treat this as an open item for a future security review, not a settled guarantee.
+The `controller` and `runner` emit OpenTelemetry traces. One trace follows a request
+from the API, across the event bus, to the Runner that executed it. Configure export
+with the standard variables: `OTEL_TRACES_EXPORTER` (`none`, the default, `stdout` or
+`otlp`), `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_SERVICE_NAME` and
+`OTEL_TRACES_SAMPLER_ARG`.
+
+**Telemetry carries identifiers, never values.** A span may hold ids and names, routes,
+subjects, status codes, counts, durations, versions and fixed failure phrases. It never
+holds runbook parameters, extra vars, survey answers, credentials, device output,
+command text, request bodies, headers, query strings or environment variables, and it
+never holds error text built from any of those. The rule is enforced twice:
+
+- **When spans leave the process.** Every exporter sits behind a masking exporter,
+  stdout included. It keeps only the attribute keys on a fixed allowlist and drops every
+  other key, counting the drops in the span's dropped-attribute count. It runs every
+  string it keeps through the same masking rules the logs use, and no attribute value
+  is longer than 1024 bytes. It keeps `error.type` only as one of the declared failure
+  categories. It drops events other than the SDK's own `exception` event, and from that
+  event it keeps the error's type and drops its message and stack trace. That covers a
+  panic the SDK records by itself. It replaces a status description that is not a fixed
+  phrase with "failure description withheld by telemetry policy". It keeps a span's
+  name only when the name is declared or, for an API span, is a method and a route
+  pattern; any other span is named for its instrumentation scope, for example
+  `undeclared span`. It keeps a scope's name and version only for the platform's own
+  scopes and the HTTP client instrumentation, and never its schema URL. It strips
+  `tracestate` from what it exports. It filters the resource too, so
+  `OTEL_RESOURCE_ATTRIBUTES` can fill a listed key and cannot add one.
+- **When the code is built.** An architecture test reads this repository's own source.
+  It fails on an attribute key that is not a string literal on the allowlist, and on
+  `error.type` or `exception.type` written outside the telemetry package. It fails on a
+  key built in a form it cannot read: a key-value literal, an assignment to a key field,
+  a type, parameter or field standing for a key. It fails on any `RecordError`, on a
+  status description that is not a fixed phrase, on a span name that is not a literal
+  or the API's method and route, and on an event other than `exception`. It fails on
+  any package but the telemetry package that imports the tracing SDK, an exporter,
+  semantic-convention helpers or an instrumentation library, or that installs a global
+  tracer provider, propagator, error handler or logger. It reads source structurally, so
+  it does not see a key or name chosen inside a dependency or computed at run time. The
+  exporter holds those.
+
+The allowlist:
+
+| Where it comes from | Keys |
+|---|---|
+| API request spans | `http.request.method`, `http.route`, `http.response.status_code`, `network.protocol.name`, `url.path` |
+| Runner dispatch spans | `messaging.destination.name`, `pleiades.job.id`, `pleiades.runbook.id`, `pleiades.device.name`, `pleiades.dispatch.duplicate` |
+| A failed span | `error.type` (a fixed category such as `adapter_execution_failed`), `exception.type` |
+| The resource | `service.name`, `service.version`, `service.namespace`, `service.instance.id`, `deployment.environment.name`, `telemetry.sdk.name`, `telemetry.sdk.language`, `telemetry.sdk.version` |
+
+`url.path` is the path as the client sent it, without the query string. It is recorded
+before authentication, so for a request that matched no route it is whatever the caller
+sent: it is masked and cut at 1024 bytes like every value, and you can deny it (below).
+
+**You can narrow the list, never widen it.** Set `PLEIADES_TELEMETRY_DENY_ATTRIBUTES`
+to a comma-separated list of keys from the table, for example
+`PLEIADES_TELEMETRY_DENY_ATTRIBUTES=url.path,pleiades.device.name` where device names
+are themselves sensitive. A key that is not on the list stops the process at startup,
+so a typo cannot leave you believing a key is removed. Adding a key is a code change
+that is reviewed.
+
+**A failure's text is in the log, not the trace.** A failed span says which kind of
+failure it was and nothing more. The error itself is in the masked log line, which
+carries the same `trace_id`. That is how you get from a red span in your tracing tool
+to what went wrong.
+
+Other things a deployment should know:
+
+- **Request methods are bounded.** A method outside the standard set (GET, HEAD, POST,
+  PUT, PATCH, DELETE, CONNECT, OPTIONS, TRACE) is recorded as `_OTHER` on the span and
+  on the `http_requests_total` and `http_request_duration_seconds` metrics. Every label
+  on those metrics is a bounded identifier: a route pattern, a method and a status code.
+- **Only the trace ID and parent cross a boundary.** The API and the event bus read and
+  write the W3C `traceparent` header only. An inbound `tracestate` or `baggage` header
+  is not read, so it is not carried onward to the bus or to an outbound request.
+- **The operator's ratio decides sampling at the API.** An inbound request's
+  `traceparent` still sets the trace ID, so you can correlate with the caller, but its
+  sampled flag does not decide whether the request is traced: `OTEL_TRACES_SAMPLER_ARG`
+  does. Spans past the API follow the decision the API made.
+- **The tracing SDK's own messages are bounded.** Its configuration errors are written
+  to standard error with their message and error type only, never the value that failed
+  to parse. Its export errors are masked, escaped and cut to one line of about 2 KiB.
+
+What this does not cover: the masking rules catch secrets by shape and by the values
+the process knows. Under an allowed key, they cannot recognize a value with no secret
+shape that should never have been put there. That is why the list holds identifiers
+only, and why adding to it is a reviewed change. In the same way, an API span's name is
+exported when it has the shape of a method and a route pattern, so a name built from a
+raw request path would pass that check; only the build-time scan stops API code from
+naming a span that way.
 
 ## Configuration reference
 
