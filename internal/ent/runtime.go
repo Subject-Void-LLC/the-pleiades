@@ -457,6 +457,10 @@ func init() {
 	inventoryDescName := inventoryFields[0].Descriptor()
 	// inventory.NameValidator is a validator for the "name" field. It is called by the builders before save.
 	inventory.NameValidator = inventoryDescName.Validators[0].(func(string) error)
+	// inventoryDescVersion is the schema descriptor for version field.
+	inventoryDescVersion := inventoryFields[4].Descriptor()
+	// inventory.DefaultVersion holds the default value on creation for the version field.
+	inventory.DefaultVersion = inventoryDescVersion.Default.(uint64)
 	jobMixin := schema.Job{}.Mixin()
 	jobMixinFields0 := jobMixin[0].Fields()
 	_ = jobMixinFields0

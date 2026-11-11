@@ -275,6 +275,7 @@ func hydrateSet(row *ent.Inventory) Set {
 		Name:        row.Name,
 		Description: row.Description,
 		Owner:       row.Owner,
+		Version:     row.Version,
 		CreatedAt:   row.CreatedAt,
 		UpdatedAt:   row.UpdatedAt,
 	}

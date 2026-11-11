@@ -9,8 +9,10 @@
 // from every team the inventory is shared with, could be undone by another
 // PATCH that only renamed it. Folding inside the lock makes the second fold
 // over what the first wrote. A fold that replaces the members whole from an
-// earlier read (Update, which the UI's edit form calls) still overwrites a
-// change made since that read: nothing checks a version.
+// earlier read still overwrites a change made since that read unless its
+// caller checks the version: the API's PATCH refuses a stale If-Match when it
+// names the members, and the UI's edit form merges each member with what is
+// stored rather than replacing the list.
 //
 // The lock is a write to updated_at, as credstore's lockType is: on SQLite it
 // takes the database's write lock, which every other writer waits for; on
@@ -33,11 +35,11 @@ import (
 )
 
 // Update saves a Set's editable fields and replaces its membership: an
-// UpdateWith whose fold ignores the stored Set.
-//
-// Membership is replaced rather than merged, because the caller submits the
-// whole list: a merge would make removing the last device impossible, since
-// an empty submission would be indistinguishable from "no change".
+// UpdateWith whose fold ignores the stored Set, with no version check. No
+// production path calls it any more: the API's PATCH and the UI's edit form
+// both fold through UpdateWith, the PATCH checking If-Match and the form
+// merging each member, because a whole replace from an earlier read puts
+// back a member removed since.
 func (s *entSetStore) Update(ctx context.Context, set Set) error {
 	_, err := s.UpdateWith(ctx, set.ID, func(Set) (Set, error) { return set, nil })
 	return err
@@ -84,7 +86,14 @@ func (s *entSetStore) UpdateWith(ctx context.Context, id int, fold func(stored S
 			return err
 		}
 
+		// The version moves here, in the write the transaction commits, and
+		// never in lockSet: a fold that refuses, or a write that fails, rolls
+		// the whole transaction back and leaves it where it was, so a caller
+		// holding the old value is not told the inventory changed when it did
+		// not. Every committed update moves it, one that changes nothing
+		// included, which only ever refuses a caller it need not have.
 		err = db.Inventory.UpdateOneID(id).
+			AddVersion(1).
 			SetName(next.Name).
 			SetDescription(next.Description).
 			ClearGroups().

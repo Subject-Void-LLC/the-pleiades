@@ -454,6 +454,7 @@ var (
 		{Name: "description", Type: field.TypeString, Nullable: true},
 		{Name: "owner", Type: field.TypeString, Nullable: true},
 		{Name: "properties", Type: field.TypeJSON, Nullable: true},
+		{Name: "version", Type: field.TypeUint64, Default: 0},
 		{Name: "organization_inventories", Type: field.TypeInt},
 	}
 	// InventoriesTable holds the schema information for the "inventories" table.
@@ -464,7 +465,7 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "inventories_organizations_inventories",
-				Columns:    []*schema.Column{InventoriesColumns[7]},
+				Columns:    []*schema.Column{InventoriesColumns[8]},
 				RefColumns: []*schema.Column{OrganizationsColumns[0]},
 				OnDelete:   schema.NoAction,
 			},
@@ -473,7 +474,7 @@ var (
 			{
 				Name:    "inventory_name_organization_inventories",
 				Unique:  true,
-				Columns: []*schema.Column{InventoriesColumns[3], InventoriesColumns[7]},
+				Columns: []*schema.Column{InventoriesColumns[3], InventoriesColumns[8]},
 			},
 		},
 	}

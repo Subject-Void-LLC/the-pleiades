@@ -92,6 +92,20 @@ func (_c *InventoryCreate) SetProperties(v map[string]interface{}) *InventoryCre
 	return _c
 }
 
+// SetVersion sets the "version" field.
+func (_c *InventoryCreate) SetVersion(v uint64) *InventoryCreate {
+	_c.mutation.SetVersion(v)
+	return _c
+}
+
+// SetNillableVersion sets the "version" field if the given value is not nil.
+func (_c *InventoryCreate) SetNillableVersion(v *uint64) *InventoryCreate {
+	if v != nil {
+		_c.SetVersion(*v)
+	}
+	return _c
+}
+
 // SetOrganizationID sets the "organization" edge to the Organization entity by ID.
 func (_c *InventoryCreate) SetOrganizationID(id int) *InventoryCreate {
 	_c.mutation.SetOrganizationID(id)
@@ -191,6 +205,10 @@ func (_c *InventoryCreate) defaults() {
 		v := inventory.DefaultUpdatedAt()
 		_c.mutation.SetUpdatedAt(v)
 	}
+	if _, ok := _c.mutation.Version(); !ok {
+		v := inventory.DefaultVersion
+		_c.mutation.SetVersion(v)
+	}
 }
 
 // check runs all checks and user-defined validators on the builder.
@@ -208,6 +226,9 @@ func (_c *InventoryCreate) check() error {
 		if err := inventory.NameValidator(v); err != nil {
 			return &ValidationError{Name: "name", err: fmt.Errorf(`ent: validator failed for field "Inventory.name": %w`, err)}
 		}
+	}
+	if _, ok := _c.mutation.Version(); !ok {
+		return &ValidationError{Name: "version", err: errors.New(`ent: missing required field "Inventory.version"`)}
 	}
 	if len(_c.mutation.OrganizationIDs()) == 0 {
 		return &ValidationError{Name: "organization", err: errors.New(`ent: missing required edge "Inventory.organization"`)}
@@ -261,6 +282,10 @@ func (_c *InventoryCreate) createSpec() (*Inventory, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.Properties(); ok {
 		_spec.SetField(inventory.FieldProperties, field.TypeJSON, value)
 		_node.Properties = value
+	}
+	if value, ok := _c.mutation.Version(); ok {
+		_spec.SetField(inventory.FieldVersion, field.TypeUint64, value)
+		_node.Version = value
 	}
 	if nodes := _c.mutation.OrganizationIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{

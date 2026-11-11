@@ -60,6 +60,14 @@ type Set struct {
 	GroupIDs  []int
 	DeviceIDs []int
 
+	// Version counts the committed updates of this Set: 0 when created, and
+	// one more after each UpdateWith that commits. The API's ETag carries it
+	// with a digest of the Set's contents, and a fold refuses a caller's
+	// stale copy with ErrVersionStale by comparing that tag with the stored
+	// Set's, which the fold sees under the lock. A fold's own value is
+	// ignored: the store sets it.
+	Version uint64
+
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }
@@ -122,6 +130,12 @@ var ErrSetNotFound = errors.New("inventory set not found")
 // ErrSetExists is returned when a name is already taken within its
 // organization.
 var ErrSetExists = errors.New("inventory set already exists in this organization")
+
+// ErrVersionStale is what a fold returns when the version its caller read is
+// not the stored one: another update committed since that read. The store
+// never returns it on its own; it is the shared sentinel a fold's caller maps
+// to its answer (the API's 412).
+var ErrVersionStale = errors.New("the inventory has changed since it was read")
 
 // ErrSetNameRequired is returned when a Set's name is empty or only white
 // space: by Create, and by an update that changes the name. An update that
@@ -200,7 +214,9 @@ type SetStore interface {
 	// List returns a page of Sets matching q, newest id last.
 	List(ctx context.Context, q SetQuery) ([]Set, error)
 
-	// Update saves a Set's name, description and membership. The
+	// Update saves a Set's name, description and membership whole, with no
+	// version check, so it overwrites any change made since its caller read
+	// the Set; production writes use UpdateWith instead. The
 	// organization is not updatable: moving an inventory between tenants
 	// would silently re-scope every RoleBinding pointing at it, which is a
 	// migration rather than an edit. It is an UpdateWith whose fold
@@ -223,9 +239,11 @@ type SetStore interface {
 	// back a field it did not change over another update's change to it:
 	// a PATCH that does not name the members cannot revert a revocation.
 	// A fold that replaces a field whole from what a caller saw earlier
-	// (Update, and so the UI's edit form, or a PATCH naming the members)
-	// still wins over a change made since; nothing checks a version. The
-	// Set returned is the one read after the commit.
+	// still wins over a change made since, unless it compares the caller's
+	// Version with the stored one and refuses with ErrVersionStale (the
+	// API's PATCH does when it names the members). The version moves by one
+	// on each commit and never otherwise. The Set returned is the one read
+	// after the commit.
 	UpdateWith(ctx context.Context, id int, fold func(stored Set) (Set, error)) (Set, error)
 
 	// Delete removes a Set. The devices and groups it referenced are
