@@ -2,7 +2,7 @@ module github.com/Subject-Void-LLC/the-pleiades
 
 go 1.27.0
 
-toolchain go1.27.3
+toolchain go1.27.4
 
 require (
 	cel.dev/cel-go v0.32.0
