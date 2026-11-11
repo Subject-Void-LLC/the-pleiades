@@ -42,7 +42,8 @@ type Subscriber struct {
 	digestOpen  *sealed.PrivateKey
 	digestKeyer *facts.Keyer
 	// builtins names the built-in methods (WithBuiltinProvenance); a fact a
-	// built-in holds is stored only from one of them. Nil holds no batch to it.
+	// built-in holds from any other method is stored and noted at info. Nil
+	// notes nothing.
 	builtins map[string]bool
 }
 
@@ -129,11 +130,6 @@ func (s *Subscriber) Handle(evt event.Event) error {
 	// keyed (or dropped) before anything is written.
 	guard := facts.Guard{Shaped: redact.SecretShaped, SecretName: redact.SecretName, Declared: s.declared, AllowSealed: true}
 	entries, refused, err := facts.Verify(batch.Entries, guard)
-	entries, spoofed := s.builtinProvenance(by.Method, entries)
-	if len(spoofed) > 0 {
-		s.logger.Warn("dropping facts a built-in holds that a batch says a method outside the catalog emitted",
-			slog.String("job", batch.JobID), slog.String("device", batch.DeviceID), slog.String("method", termsafe.Quote(by.Method)), slog.Any("facts", spoofed))
-	}
 	entries, lost := s.keyDigests(batch.JobID, batch.DeviceID, entries)
 	if len(lost) > 0 {
 		// Named by fact, never by value: a Controller without the digest
@@ -207,8 +203,9 @@ func (s *Subscriber) Handle(evt event.Event) error {
 
 // noteStored says, for a batch whose facts were stored as by, what this
 // controller's build would have done differently: the identity it cleared
-// (cleared, a warning), one its own toolchain would not make, and one it
-// routes otherwise (each at info). The method is the batch's own text, so
+// (cleared, a warning), one its own toolchain would not make, one it routes
+// otherwise, and the facts its release reserves for a built-in from a method
+// its catalog lacks (each at info). The method is the batch's own text, so
 // it is named bounded and escaped (termsafe.Quote), and every reason is text
 // that names no delivered byte unbounded.
 func (s *Subscriber) noteStored(batch facts.Batch, by facts.Provenance, cleared error, entries []facts.Entry) {
@@ -226,4 +223,8 @@ func (s *Subscriber) noteStored(batch facts.Batch, by facts.Provenance, cleared 
 		s.logger.Info("stored facts under a Collection identity this controller's build routes otherwise; the Runner's build and this one differ",
 			slog.String("job", batch.JobID), slog.String("device", batch.DeviceID), slog.String("method", method), slog.String("reason", err.Error()))
 	}
+	// Facts this release reserves for a built-in, from a method its catalog
+	// lacks, are kept and noted (provenance.go): which methods are built-in
+	// is the Runner's release's to say.
+	s.noteBuiltinDifference(batch, method, by.Method, entries)
 }
