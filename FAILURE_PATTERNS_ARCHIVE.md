@@ -28851,3 +28851,53 @@ dispatch, is still ignored. Proof: `TestRun_AStartupFailureIsAFailure`.
 
 **Lesson.** When you match an external record by a field it writes for you, ask which of its failure states never
 write that field. A matcher that can only match success-shaped records turns every early failure into a timeout.
+
+## 1174. A package or service name beginning with a dash reached apt-get, dnf and systemctl as an option, and one holding a wildcard as a pattern, because each method quoted the name but nothing refused it (a repeat of 148 and 450, and of 451 for dpkg-query's exit status) (fixed)
+
+**Symptom.** Triage of Phase 38's first tier, 2026-11-11, then measured. On Debian bookworm, `dpkg-query -W` refuses
+`-oX` as an unknown option and exits 2, and `apt-get install -y` takes a word beginning with `-o` as a configuration
+option and exits 0 having installed nothing. Through the product, with the `origin/main` binary
+(`0797ce3b`) against a real Debian device: `pleiades adhoc debian pkg.apt.install name=--autoremove` reported
+`changed`, recorded the undo "remove --autoremove", and removed `sudo`, which the device had marked as installed
+automatically. `pkg.apt.install name=tzdata-` removed `tzdata`, because `apt-get install` reads a trailing `-` on a
+word that names no package as "remove the package before the dash", and `dpkg-query` reported that word absent first.
+On Rocky Linux 9 under systemd, `svc.systemd.stop name=fp1174-glob-*` stopped both units the pattern matched and
+recorded "Start fp1174-glob-*" as its undo: `systemctl show` and `systemctl stop` expand a wildcard to every loaded unit
+it matches. `dnf remove "openssh*"` plans both openssh packages, and `rpm -q` exits 1 both for an unknown option and for
+"package X is not installed". By Microsoft's documentation, not measured here, `-Name` on `Get-Service`,
+`Start-Service`, `Stop-Service` and `Restart-Service` takes wildcards the same way.
+
+**Root cause.** Quoting stops the shell, not the program (LESSONS 137). Every name went through
+`remoteexec.QuoteArg` or `winrmexec.QuotePS`, and `TestOperations_QuoteTheUnitName` and its siblings held that, which
+read as safe. Nothing refused a word the program itself reads as an option or a pattern, no command put `--` before
+its operands, and `queryDpkg` read every non-zero exit as "not installed", so a refused option passed for an absent
+package and went on to `apt-get install`. The risk grew with Phase 87, since a name can now be rendered from a
+register or a loop item a device returned.
+
+**Why 148, 450 and 451 did not prevent it.** Each fix was made where its finding was: 148 in one `cd`, 450 and 451 in
+the docker methods (`containerengine.ValidName`, "No such container"). None became a rule a method declares, so
+validation could not see it and the next namespace to put a caller's word on a command line had nothing to inherit.
+
+**Fix.** One rule, declared rather than repeated. `pkg/operand.Problem` refuses a word beginning with `-` or holding
+`*`, `?`, `[` or `]`. A parameter declares `collection.ParamFormatOperand` (every `name` of `pkg.*`, `pkg.apt.*`,
+`pkg.dnf.*`, `svc.*`, `svc.systemd.*`, `svc.windows.*`, and `pkg.apt.remove`'s `dependencies`), and
+`collection.OperandProblem` holds it in validation (`ParamOperandRule`, a literal), the engine (`renderParams`, a
+rendered value), and the rollback planner (a journaled undo). Each method reads the name through
+`sdk.RequiredOperandParam` before it connects, and `pkg/remotesvc` and `pkg/winrmsvc` check it again before
+sending. APT's trailing `-` is refused in `pkg.apt`'s own `packageName`. `dpkg-query`, `apt-cache`, `apt-get`,
+`rpm`, `dnf` and `systemctl` now get `--` before their operands, `queryDpkg` reads only exit 1 as absent, and
+`queryRPM` only rpm's own "is not installed". Tests: `TestCLI_AptRefusesANameItWouldReadAsAnOption` (real Debian sshd,
+through `adhoc` and `run -e`, with sshd's own login count unchanged by every refusal), `TestParamOperandRule`,
+`TestRenderedParams_HeldToTheOperandRule`, `TestBuild_AnOperandAProgramWouldMisreadIsLeaveOnly`,
+`TestMethods_RefuseANameAptWouldMisread`, `TestMethods_RefuseANameDnfWouldMisread`,
+`TestOperations_RefuseANameSystemctlWouldMisread`, `TestFunctions_RefuseANameTheCmdletsWouldMisread`,
+`TestQueryDpkg_AFailureToAnswerIsNotAbsent`, `TestQueryRPM_AFailureToAnswerIsNotAbsent`, `FuzzProblem`.
+
+**Not covered.** `file.*`'s `owner` and `group` refuse only an all-digit value, and `pkg/remotefile` sends `chown` and
+`chgrp` without `--`, so an owner beginning with `-` would reach `chown` as an option. Left for its own change, named
+in the Phase 38 audit.
+
+**Lesson.** A fix for a value a program misreads belongs in a rule a parameter declares, which validation, the engine
+and the method all read, not in the method where it was found. Search for the class by what the code does (a caller's
+word after a program's options), and read every "it failed" exit as a failure unless the program's own words say
+"absent".

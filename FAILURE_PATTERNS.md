@@ -1177,6 +1177,7 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 1171. The journal consumer said what it changed of a batch (identities cleared, methods held to their node) before the write, so a batch redelivered after a failed write said it again (fixed before push; caught in review; a repeat of 1161, which 1161's fix missed)
 1172. Delivered ids reached the pre-admission log lines and returned errors of the new node path raw (fixed before push; caught in review; a repeat of 1160)
 1173. branchci waited 43 minutes on a dispatch whose run failed at startup, since that run never carries the run-name nonce
+1174. A package or service name beginning with a dash reached apt-get, dnf and systemctl as an option, and one holding a wildcard as a pattern, because each method quoted the name but nothing refused it (a repeat of 148 and 450, and of 451 for dpkg-query's exit status) (fixed)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 
