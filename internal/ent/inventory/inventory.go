@@ -26,6 +26,8 @@ const (
 	FieldOwner = "owner"
 	// FieldProperties holds the string denoting the properties field in the database.
 	FieldProperties = "properties"
+	// FieldVersion holds the string denoting the version field in the database.
+	FieldVersion = "version"
 	// EdgeOrganization holds the string denoting the organization edge name in mutations.
 	EdgeOrganization = "organization"
 	// EdgeGroups holds the string denoting the groups edge name in mutations.
@@ -71,6 +73,7 @@ var Columns = []string{
 	FieldDescription,
 	FieldOwner,
 	FieldProperties,
+	FieldVersion,
 }
 
 // ForeignKeys holds the SQL foreign-keys that are owned by the "inventories"
@@ -112,6 +115,8 @@ var (
 	UpdateDefaultUpdatedAt func() time.Time
 	// NameValidator is a validator for the "name" field. It is called by the builders before save.
 	NameValidator func(string) error
+	// DefaultVersion holds the default value on creation for the "version" field.
+	DefaultVersion uint64
 )
 
 // OrderOption defines the ordering options for the Inventory queries.
@@ -145,6 +150,11 @@ func ByDescription(opts ...sql.OrderTermOption) OrderOption {
 // ByOwner orders the results by the owner field.
 func ByOwner(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldOwner, opts...).ToFunc()
+}
+
+// ByVersion orders the results by the version field.
+func ByVersion(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldVersion, opts...).ToFunc()
 }
 
 // ByOrganizationField orders the results by organization field.

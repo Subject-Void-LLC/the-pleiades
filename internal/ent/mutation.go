@@ -11871,6 +11871,8 @@ type InventoryMutation struct {
 	description         *string
 	owner               *string
 	properties          *map[string]interface{}
+	version             *uint64
+	addversion          *int64
 	clearedFields       map[string]struct{}
 	organization        *int
 	clearedorganization bool
@@ -12241,6 +12243,62 @@ func (m *InventoryMutation) ResetProperties() {
 	delete(m.clearedFields, inventory.FieldProperties)
 }
 
+// SetVersion sets the "version" field.
+func (m *InventoryMutation) SetVersion(u uint64) {
+	m.version = &u
+	m.addversion = nil
+}
+
+// Version returns the value of the "version" field in the mutation.
+func (m *InventoryMutation) Version() (r uint64, exists bool) {
+	v := m.version
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldVersion returns the old "version" field's value of the Inventory entity.
+// If the Inventory object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *InventoryMutation) OldVersion(ctx context.Context) (v uint64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldVersion is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldVersion requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldVersion: %w", err)
+	}
+	return oldValue.Version, nil
+}
+
+// AddVersion adds u to the "version" field.
+func (m *InventoryMutation) AddVersion(u int64) {
+	if m.addversion != nil {
+		*m.addversion += u
+	} else {
+		m.addversion = &u
+	}
+}
+
+// AddedVersion returns the value that was added to the "version" field in this mutation.
+func (m *InventoryMutation) AddedVersion() (r int64, exists bool) {
+	v := m.addversion
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetVersion resets all changes to the "version" field.
+func (m *InventoryMutation) ResetVersion() {
+	m.version = nil
+	m.addversion = nil
+}
+
 // SetOrganizationID sets the "organization" edge to the Organization entity by id.
 func (m *InventoryMutation) SetOrganizationID(id int) {
 	m.organization = &id
@@ -12476,7 +12534,7 @@ func (m *InventoryMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *InventoryMutation) Fields() []string {
-	fields := make([]string, 0, 6)
+	fields := make([]string, 0, 7)
 	if m.created_at != nil {
 		fields = append(fields, inventory.FieldCreatedAt)
 	}
@@ -12494,6 +12552,9 @@ func (m *InventoryMutation) Fields() []string {
 	}
 	if m.properties != nil {
 		fields = append(fields, inventory.FieldProperties)
+	}
+	if m.version != nil {
+		fields = append(fields, inventory.FieldVersion)
 	}
 	return fields
 }
@@ -12515,6 +12576,8 @@ func (m *InventoryMutation) Field(name string) (ent.Value, bool) {
 		return m.Owner()
 	case inventory.FieldProperties:
 		return m.Properties()
+	case inventory.FieldVersion:
+		return m.Version()
 	}
 	return nil, false
 }
@@ -12536,6 +12599,8 @@ func (m *InventoryMutation) OldField(ctx context.Context, name string) (ent.Valu
 		return m.OldOwner(ctx)
 	case inventory.FieldProperties:
 		return m.OldProperties(ctx)
+	case inventory.FieldVersion:
+		return m.OldVersion(ctx)
 	}
 	return nil, fmt.Errorf("unknown Inventory field %s", name)
 }
@@ -12587,6 +12652,13 @@ func (m *InventoryMutation) SetField(name string, value ent.Value) error {
 		}
 		m.SetProperties(v)
 		return nil
+	case inventory.FieldVersion:
+		v, ok := value.(uint64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetVersion(v)
+		return nil
 	}
 	return fmt.Errorf("unknown Inventory field %s", name)
 }
@@ -12594,13 +12666,21 @@ func (m *InventoryMutation) SetField(name string, value ent.Value) error {
 // AddedFields returns all numeric fields that were incremented/decremented during
 // this mutation.
 func (m *InventoryMutation) AddedFields() []string {
-	return nil
+	var fields []string
+	if m.addversion != nil {
+		fields = append(fields, inventory.FieldVersion)
+	}
+	return fields
 }
 
 // AddedField returns the numeric value that was incremented/decremented on a field
 // with the given name. The second boolean return value indicates that this field
 // was not set, or was not defined in the schema.
 func (m *InventoryMutation) AddedField(name string) (ent.Value, bool) {
+	switch name {
+	case inventory.FieldVersion:
+		return m.AddedVersion()
+	}
 	return nil, false
 }
 
@@ -12609,6 +12689,13 @@ func (m *InventoryMutation) AddedField(name string) (ent.Value, bool) {
 // type.
 func (m *InventoryMutation) AddField(name string, value ent.Value) error {
 	switch name {
+	case inventory.FieldVersion:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddVersion(v)
+		return nil
 	}
 	return fmt.Errorf("unknown Inventory numeric field %s", name)
 }
@@ -12674,6 +12761,9 @@ func (m *InventoryMutation) ResetField(name string) error {
 		return nil
 	case inventory.FieldProperties:
 		m.ResetProperties()
+		return nil
+	case inventory.FieldVersion:
+		m.ResetVersion()
 		return nil
 	}
 	return fmt.Errorf("unknown Inventory field %s", name)

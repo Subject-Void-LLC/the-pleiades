@@ -80,6 +80,11 @@ func Owner(v string) predicate.Inventory {
 	return predicate.Inventory(sql.FieldEQ(FieldOwner, v))
 }
 
+// Version applies equality check predicate on the "version" field. It's identical to VersionEQ.
+func Version(v uint64) predicate.Inventory {
+	return predicate.Inventory(sql.FieldEQ(FieldVersion, v))
+}
+
 // CreatedAtEQ applies the EQ predicate on the "created_at" field.
 func CreatedAtEQ(v time.Time) predicate.Inventory {
 	return predicate.Inventory(sql.FieldEQ(FieldCreatedAt, v))
@@ -383,6 +388,46 @@ func PropertiesIsNil() predicate.Inventory {
 // PropertiesNotNil applies the NotNil predicate on the "properties" field.
 func PropertiesNotNil() predicate.Inventory {
 	return predicate.Inventory(sql.FieldNotNull(FieldProperties))
+}
+
+// VersionEQ applies the EQ predicate on the "version" field.
+func VersionEQ(v uint64) predicate.Inventory {
+	return predicate.Inventory(sql.FieldEQ(FieldVersion, v))
+}
+
+// VersionNEQ applies the NEQ predicate on the "version" field.
+func VersionNEQ(v uint64) predicate.Inventory {
+	return predicate.Inventory(sql.FieldNEQ(FieldVersion, v))
+}
+
+// VersionIn applies the In predicate on the "version" field.
+func VersionIn(vs ...uint64) predicate.Inventory {
+	return predicate.Inventory(sql.FieldIn(FieldVersion, vs...))
+}
+
+// VersionNotIn applies the NotIn predicate on the "version" field.
+func VersionNotIn(vs ...uint64) predicate.Inventory {
+	return predicate.Inventory(sql.FieldNotIn(FieldVersion, vs...))
+}
+
+// VersionGT applies the GT predicate on the "version" field.
+func VersionGT(v uint64) predicate.Inventory {
+	return predicate.Inventory(sql.FieldGT(FieldVersion, v))
+}
+
+// VersionGTE applies the GTE predicate on the "version" field.
+func VersionGTE(v uint64) predicate.Inventory {
+	return predicate.Inventory(sql.FieldGTE(FieldVersion, v))
+}
+
+// VersionLT applies the LT predicate on the "version" field.
+func VersionLT(v uint64) predicate.Inventory {
+	return predicate.Inventory(sql.FieldLT(FieldVersion, v))
+}
+
+// VersionLTE applies the LTE predicate on the "version" field.
+func VersionLTE(v uint64) predicate.Inventory {
+	return predicate.Inventory(sql.FieldLTE(FieldVersion, v))
 }
 
 // HasOrganization applies the HasEdge predicate on the "organization" edge.

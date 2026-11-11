@@ -49,8 +49,8 @@ func TestEndpoints_WellFormed(t *testing.T) {
 			if p.Name == "" {
 				t.Errorf("endpoint %q has a Param with an empty Name", e.Name)
 			}
-			if p.In != "path" && p.In != "query" {
-				t.Errorf("endpoint %q param %q has In %q, want \"path\" or \"query\"", e.Name, p.Name, p.In)
+			if p.In != "path" && p.In != "query" && p.In != "header" {
+				t.Errorf("endpoint %q param %q has In %q, want \"path\", \"query\" or \"header\"", e.Name, p.Name, p.In)
 			}
 			if p.Description == "" {
 				t.Errorf("endpoint %q param %q has an empty Description", e.Name, p.Name)

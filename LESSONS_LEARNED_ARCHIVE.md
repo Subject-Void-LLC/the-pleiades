@@ -8077,3 +8077,67 @@ and any helper those paths share. Give each path the full list, read scopes incl
 the route's declaration; where a package must not depend on the route table, restate it and hold the restated copy to
 the declaration in a test of the package that may import both, and say in the copy where it came from. Routes that call
 one helper read what the helper reads, so their rows in any table of reads are the same.
+
+## 437. An optimistic-concurrency token moves only in the write that commits, never in the lock taken before it; and when an older build can still write during an upgrade window, the token must also cover the content (a refinement of 46 and 429; 422; FAILURE_PATTERNS 1140 and 1144) (2026-11-10)
+
+**Why.** Branch `feat/inventory-version`, 2026-11-10. LESSONS 429 said only a version token closes a stale whole-list
+write, and the owner chose one for inventories (FAILURE_PATTERNS 1140). The store takes its row lock by writing the row
+first (`lockSet`). The version is bumped only in the write that commits (`AddVersion(1)` in `UpdateWith`), never in
+`lockSet`, and `TestEntSetStore_VersionMovesOnlyOnCommit` (`internal/inventory/ent_set_store_version_test.go`) holds it
+there. Then a second gap: the column is added under the
+EXPAND policy, so the previous build can keep writing the same rows during a rolling upgrade or after a rollback, and
+its writes do not move a column it does not know (1144). A tag made of the version alone would let a stale `If-Match`
+pass over such a write. The tag became the version plus a digest of what the inventory holds.
+
+**What is old and what is new.** LESSONS 46 says every write path honors the compare-and-swap, and 429 says a version
+token is the fix. LESSONS 422 says that in a mixed-version window a rule runs only in the release that made it. What is
+new is where the token moves, and that a token is itself a rule an older release does not run: a writer that does not
+know the column writes without moving it.
+
+**Rule in practice.** Bump the token in the statement that commits the change, not in a write that only takes a lock,
+and test that it moves once for each committed update. Judge the precondition inside the fold, under the
+lock, not before it. Before relying on a new column as a token, ask which builds can still write the row; if any older
+one can, derive the token from the content as well, so a write that leaves the column still changes it.
+
+## 438. A form that writes a list whole must carry what it was opened with and merge each element under the row lock, and compare text as the browser sends it back, not as it was stored (a refinement of 429; FAILURE_PATTERNS 226, 1141, 1142 and 1145) (2026-11-10)
+
+**Why.** Branch `feat/inventory-version`, 2026-11-10. The web UI's inventory edit form sent everything it was drawn
+with, so saving a description fix put back a device another writer had removed after the form opened (FAILURE_PATTERNS
+1141). The fix carries the opened state in hidden `_original.<name>`
+inputs and merges per element under the lock: what the form deselected is removed, what it selected is added, the rest
+stays as stored. Two things then broke the merge in ways that were not about concurrency. A browser rewrites text it
+sends back (CRLF for every line break, line breaks dropped from a text input, a textarea's leading LF dropped by the
+parser), so a byte compare of submitted, original and stored text called every edit of an LF value a change made
+underneath (1145). And the refused form's redisplay read a multi-select through a one-value accessor, so saving it
+again dropped every selection but the first (1142).
+
+**What is old and what is new.** LESSONS 429 says a lock protects only what the fold reads under it. FAILURE_PATTERNS
+226 says a form's prefill must reach the control. What is new is the shape of the fix for a form: the form is the
+caller that read earlier, so the original it read has to travel with it, the merge must be per element so two
+compatible edits both stand, and the compare must be against what the browser will send, which is not what was stored.
+
+**Rule in practice.** For a form field that writes a list or a value another writer can change, render its original in
+a hidden input, accept originals only on an edit and only for declared fields, and never for a password or immutable
+field. Merge each element under the row lock. Where both writers changed one text value, refuse beside the field with a
+fixed text, and redisplay the submitted originals so a resubmit is refused again. Compare text through one function that
+reduces it to what a browser sends back. Test the refused redisplay as well as the first draw, with more than one
+selection.
+
+## 439. Read every generated SQLite migration for a table rebuild before committing it: a rebuild resets AUTOINCREMENT, and any reference without a foreign key re-attaches to the reused id (a refinement of 207; FAILURE_PATTERNS 266 and 1143) (2026-11-10)
+
+**Why.** Branch `feat/inventory-version`, 2026-11-10. ent generated the inventory version column's SQLite migration as a
+rebuild (create `new_inventories`, copy, drop, rename). Dropping the table drops its `sqlite_sequence` row, and the next
+id is one past the highest remaining. Measured with Python's `sqlite3`: a deleted inventory's id (3) was handed out
+again. `role_binding.scope_id` has no foreign key and deleting an inventory leaves its bindings, so a binding to the old
+inventory would grant the new one, possibly in another organization (FAILURE_PATTERNS 1143). Nothing failed: the
+migration applied, every row survived, and every test passed.
+
+**What is old and what is new.** LESSONS 207 and FAILURE_PATTERNS 266 found that a rebuild's `PRAGMA foreign_keys = off`
+never took effect, and that a migration test on an empty database proves only that the DDL parses. What is new is a
+second side effect of the same rebuild, which no foreign key and no row count shows: the sequence. The generator writes
+a rebuild for changes SQLite could make in place, such as adding a column with a default.
+
+**Rule in practice.** When `go run internal/ent/migrate/gen/main.go sqlite <name>` writes a migration, read it. If it
+rebuilds a table and the change can be an `ALTER TABLE ... ADD COLUMN`, write that by hand and say why in the file. If it
+must rebuild, carry the `sqlite_sequence` row across. `TestSQLiteMigrations_ARebuildKeepsItsSequence` refuses a rebuild
+without `sqlite_sequence` from 0046 on, but it finds a rebuild by its rename, so the reading is still the check.

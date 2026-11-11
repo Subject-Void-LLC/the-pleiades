@@ -84,6 +84,27 @@ func (_u *InventoryUpdate) ClearProperties() *InventoryUpdate {
 	return _u
 }
 
+// SetVersion sets the "version" field.
+func (_u *InventoryUpdate) SetVersion(v uint64) *InventoryUpdate {
+	_u.mutation.ResetVersion()
+	_u.mutation.SetVersion(v)
+	return _u
+}
+
+// SetNillableVersion sets the "version" field if the given value is not nil.
+func (_u *InventoryUpdate) SetNillableVersion(v *uint64) *InventoryUpdate {
+	if v != nil {
+		_u.SetVersion(*v)
+	}
+	return _u
+}
+
+// AddVersion adds value to the "version" field.
+func (_u *InventoryUpdate) AddVersion(v int64) *InventoryUpdate {
+	_u.mutation.AddVersion(v)
+	return _u
+}
+
 // SetOrganizationID sets the "organization" edge to the Organization entity by ID.
 func (_u *InventoryUpdate) SetOrganizationID(id int) *InventoryUpdate {
 	_u.mutation.SetOrganizationID(id)
@@ -295,6 +316,12 @@ func (_u *InventoryUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if _u.mutation.PropertiesCleared() {
 		_spec.ClearField(inventory.FieldProperties, field.TypeJSON)
+	}
+	if value, ok := _u.mutation.Version(); ok {
+		_spec.SetField(inventory.FieldVersion, field.TypeUint64, value)
+	}
+	if value, ok := _u.mutation.AddedVersion(); ok {
+		_spec.AddField(inventory.FieldVersion, field.TypeUint64, value)
 	}
 	if _u.mutation.OrganizationCleared() {
 		edge := &sqlgraph.EdgeSpec{
@@ -529,6 +556,27 @@ func (_u *InventoryUpdateOne) SetProperties(v map[string]interface{}) *Inventory
 // ClearProperties clears the value of the "properties" field.
 func (_u *InventoryUpdateOne) ClearProperties() *InventoryUpdateOne {
 	_u.mutation.ClearProperties()
+	return _u
+}
+
+// SetVersion sets the "version" field.
+func (_u *InventoryUpdateOne) SetVersion(v uint64) *InventoryUpdateOne {
+	_u.mutation.ResetVersion()
+	_u.mutation.SetVersion(v)
+	return _u
+}
+
+// SetNillableVersion sets the "version" field if the given value is not nil.
+func (_u *InventoryUpdateOne) SetNillableVersion(v *uint64) *InventoryUpdateOne {
+	if v != nil {
+		_u.SetVersion(*v)
+	}
+	return _u
+}
+
+// AddVersion adds value to the "version" field.
+func (_u *InventoryUpdateOne) AddVersion(v int64) *InventoryUpdateOne {
+	_u.mutation.AddVersion(v)
 	return _u
 }
 
@@ -773,6 +821,12 @@ func (_u *InventoryUpdateOne) sqlSave(ctx context.Context) (_node *Inventory, er
 	}
 	if _u.mutation.PropertiesCleared() {
 		_spec.ClearField(inventory.FieldProperties, field.TypeJSON)
+	}
+	if value, ok := _u.mutation.Version(); ok {
+		_spec.SetField(inventory.FieldVersion, field.TypeUint64, value)
+	}
+	if value, ok := _u.mutation.AddedVersion(); ok {
+		_spec.AddField(inventory.FieldVersion, field.TypeUint64, value)
 	}
 	if _u.mutation.OrganizationCleared() {
 		edge := &sqlgraph.EdgeSpec{

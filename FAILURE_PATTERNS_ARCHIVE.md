@@ -26455,6 +26455,13 @@ the same, since a named list replaces the stored one whole. Neither has a versio
 column). Whether to add one is the owner's decision. The changelog and the route text say that a named list replaces
 the stored one and that there is no version check (1115).
 
+**Note 2026-11-10 (`feat/inventory-version`, not yet committed).** Both inventory gaps the note above names are
+closed on this branch. A PATCH naming a full member list needs an `If-Match` holding the inventory's current ETag, judged
+under the row lock (1140), and the web UI's inventory edit form carries what it was opened with and merges each element
+under the row lock (1141). The entry stays open for the other partial PATCHes listed above, and for two more whole-list
+writes from an earlier read with no version: team membership (`PATCH /teams/{id}`'s `users`, and the UI teams form's
+users lookup) and the UI template form's credentials lookup.
+
 ## 1086. A code-writing agent ran git stash push --keep-index and git stash pop to test a commit alone, which LESSONS 423 forbids, because the rule was in the records, the handoff and memory but not in the agent's brief (open: nothing holds an agent's brief to the rule; nothing was lost; a repeat of 1042)
 
 **Symptom.** On `fix/patch-access-partial`, 2026-11-09. To test one commit by itself, a code-writing agent set its
@@ -27223,6 +27230,10 @@ whether to add one.
 
 **Lesson.** LESSONS 429. A lock around a fold protects only what the fold reads under it.
 
+**Note 2026-11-10 (`feat/inventory-version`, not yet committed).** The two gaps in the status above are closed on
+this branch: the API PATCH by a version column, an ETag and an `If-Match` judged under the lock (1140), and the UI edit
+form by a per-element three-way merge under the lock (1141). The owner's version token is the fix 1140 records.
+
 ## 1113. A NUL in an inventory's name or description, or in an announcement's title or body, reached the store, where on PostgreSQL it would answer 500 (fixed on this branch; on main; a repeat of 1092 and 1095; the class of 371 and 1079)
 
 **Symptom.** Found by the fp-reviewer agent on `fix/patch-inventories-announcements`, 2026-11-10. Nothing in front of
@@ -27508,6 +27519,10 @@ only the store refuses, is the 500. The two answers differ, so the UI also tells
 organization's (1120's note). Mapping the store's `ErrCrossTenantMember` and `ErrUnknownMember` to one refusal would
 close both.
 
+**Resolution 2026-11-10 (`feat/inventory-version`, not yet committed).** Fixed as 1147. The inventories writer's
+`asFault` maps an unknown member, another organization's member, a taken name and a NUL to fixed-text field errors, one
+sentence for both member refusals (`TestAsFault_TheStoreRefusalsTheFormShows`). Whether the form's own `Validate` still
+answers an id it does not offer differently, as the note above reported, was not checked.
 
 ## 1122. PR 149's coverage job failed although every test passed, because the new container package internal/storage/rowlocktest had no recorded time in durations.json (fixed on the branch; a repeat of 745)
 
@@ -28023,3 +28038,192 @@ records of their own resource and action routes; creates that name another resou
 Per-organization authorization (98) would narrow the cross-organization part of each item.
 
 **Lesson.** Pending the decision. As 1096: a response names only what the caller sent or may read.
+
+## 1140. A PATCH /inventories/{id} naming groups or devices replaced that list whole with no version check, so a client that read the inventory before another update removed a device put it back, re-granting it to every team the inventory is shared with (fixed on this branch; on main; the gap 1112 and 1085 recorded as open; LESSONS 429 and 437)
+
+**Symptom.** On main, and recorded as open in 1112's status and 1085's note of 2026-11-10. The inventory PATCH folds the
+body under the row lock (1112), but a body that names `groups` or `devices` sets that list to what it holds. A client
+that read the inventory, then lost a race with an update that removed a device, sent back the list it had read, and the
+device came back. An inventory is a grant surface (97), so the device was granted again to every team the inventory is
+shared with. `TestInventoryPatch_AStaleCopyCannotRevertARevocation` (`internal/api/inventories_precondition_test.go`)
+is that sequence.
+
+**Root cause.** As LESSONS 429: a lock around a fold protects only what the fold reads under it. A list the caller read
+earlier and sends whole was never read under the lock, and nothing told the store which state the caller had seen.
+
+**Why 1112 did not prevent it.** 1112 fixed what the lock can reach, a field the body does not name. It said in its own
+status that a full list from a stale GET still replaces the stored one, and left the version token to the owner.
+
+**Fix.** On this branch (`feat/inventory-version`), not yet committed. The inventory has an ent `version` column
+(`internal/ent/schema/inventory.go`; migrations `sqlite/0046_inventory_version.sql` and
+`postgres/0043_inventory_version.sql`). `UpdateWith` bumps it with `AddVersion(1)` in the write that commits, never in
+`lockSet`, which takes the lock (`internal/inventory/ent_set_store_update.go`;
+`internal/inventory/ent_set_store_version_test.go`). `GET`, `POST` and `PATCH` send an `ETag`. The `If-Match` header is
+judged inside the store's fold, under the row lock, so a write that commits between the read and the lock is seen
+(`TestInventoryPatch_IfMatchIsJudgedUnderTheLock`). A PATCH that names a list without `If-Match` is refused with 428. An
+`If-Match` that is not exactly the current tag is refused with 412: `*`, a weak tag, a list and a header sent on two
+lines are each refused (`TestInventoryPatch_IfMatchMustNameTheCurrentTagExactly`). A missing inventory is a 404 before
+either refusal. The tag also covers the content (1144). The breaking fragment is `changelog/inventory-if-match.breaking.md`.
+
+**Known limits.** From the repository. A PATCH that names neither list needs no `If-Match`, and two such PATCHes naming
+the same field are still last-writer-wins. Team membership (`PATCH /teams/{id}`'s `users`) has the same whole-list shape
+and no version; 1085 stays open for it. The compatibility check cannot see this change (1146).
+
+**Lesson.** LESSONS 437.
+
+## 1141. The web UI's inventory edit form replaced the whole inventory with what it was opened with, so saving a description fix after another writer removed a device re-granted it (fixed on this branch; on main; the gap 1112 and 1085 recorded as open; LESSONS 429 and 438)
+
+**Symptom.** On main, and recorded as open in 1112's status and 1085's note of 2026-11-10. The inventories view's writer
+(`internal/ui/resources/inventories/inventories.go`) called `Update` with the whole submission. The form held every
+device and group it was drawn with, so an operator who opened the form, waited while an API client removed a device,
+then saved a description fix put the device back.
+
+**Root cause.** The form sent its whole state, and the writer had no way to tell what the operator changed from what the
+form had only carried along. As 1140, the list was read before the lock and written whole after it.
+
+**Why 1112 did not prevent it.** As 1140: the lock covers only what the fold reads under it, and 1112 left this path
+open by name.
+
+**Fix.** On this branch, not yet committed. A generic `view.Field.KeepsOriginal` (`internal/ui/view/field.go`) has the
+form carry what it was opened with as hidden `_original.<name>` inputs. A lookup's originals are filtered to the options
+it offers. Originals are accepted only on an edit and only for declared fields, and are refused on a password field, a
+`RefusedValue` field and an immutable one. `Values.Original`, `Values.OriginalSelected` and `Values.Unchanged` read them;
+`Validate` skips a field left as the form showed it, so a stored value past a later limit does not block another edit
+(`TestUIEdit_AStoredLongNameDoesNotBlockAnotherEdit`). The inventories writer saves through `UpdateWith` with a
+three-way merge per element (`internal/ui/resources/inventories/merge.go`): a member the form deselected is removed, one
+it selected is added, and every other change made since stays. A text field both writers changed is refused beside the
+field with a fixed text, and a refused edit redisplays the submitted originals, so resubmitting it is refused again
+(`TestUIEdit_AFieldChangedUnderneathIsRefusedAndStaysRefused`). Tests: `internal/ui/resources/inventories_merge_test.go`,
+`internal/ui/resources/inventories/merge_internal_test.go` (on the real ent store) and
+`internal/ui/view/originals_internal_test.go`. The fragment is `changelog/ui-inventory-edit-merge.fixed.md`.
+
+**Known limits.** From the review on this branch. Team membership (`PATCH /teams/{id}`'s `users`, and the UI teams form's users
+lookup) and the UI template form's credentials lookup still write a list whole from an earlier read. These are likely
+1085's class, and 1085 stays open for them.
+
+**Lesson.** LESSONS 438.
+
+## 1142. A refused create or edit in the web UI redisplayed only the first selection of a multiple-choice control, so saving the redisplayed form again silently deselected the rest (fixed on this branch; on main; a repeat in kind of 226)
+
+**Symptom.** Found on this branch. When a create or an edit was refused, the form was drawn again
+from the submission. `formValues` (`internal/ui/web/resources.go`) read each field with `Values.Get`, which returns the
+first value only. A multi-select with two devices selected came back with one, and an operator who fixed the refused
+field and saved again dropped the other with no sign of it. The same held in every view with a multi-select.
+
+**Root cause.** A list was read through an accessor that returns one value.
+
+**Why 226 did not prevent it.** 226 fixed where an edit form's existing values come from when it opens (the prefill),
+and its test asserted the stored values were selected on the first draw. The refused form's redisplay is a different
+path, and nothing asserted what it shows.
+
+**Fix.** On this branch, not yet committed. `formValues` joins every selected value.
+`TestUIEdit_AFieldChangedUnderneathIsRefusedAndStaysRefused` asserts that both devices come back on the refused form.
+
+**Lesson.** As 226: a control that shows nothing selected and a control that holds nothing render the same, so a test
+asserts what is selected on every path that draws the form, a refused submission included.
+
+## 1143. ent's generated SQLite migration for an added column rebuilt the inventories table, which drops its sqlite_sequence row, so a deleted inventory's id would be handed out again and a role binding still scoped to it would grant the new inventory, possibly in another organization (fixed before push; a repeat in kind of 266; LESSONS 439; open: bindings are not removed when an inventory is deleted, owner question)
+
+**Symptom.** On this branch, before commit. ent generated the version column's SQLite migration as a table rebuild:
+create `new_inventories`, copy the rows, drop `inventories`, rename. Dropping the table drops its `sqlite_sequence` row,
+so the next id is one past the highest id still held, not past the highest ever handed out. Measured with Python's
+`sqlite3`: after the rebuild, the id of a deleted inventory (3) was handed out again. `role_binding.scope_id` has no
+foreign key, and `SetStore.Delete` leaves inventory-scoped bindings in place. So a binding scoped to the deleted
+inventory would grant the new inventory that took its id, which may belong to another organization.
+
+**Root cause.** The generator writes a SQLite column change as a rebuild, and a rebuild resets AUTOINCREMENT. A
+reference without a foreign key re-attaches to the reused id without any error.
+
+**Why 266 did not prevent it.** 266 fixed the foreign-key side of a rebuild (the `PRAGMA` that never took effect), and
+its upgrade test (`internal/ent/migrate/upgrade_internal_test.go`) migrates populated databases and checks that rows and
+their children survive. Neither asked what a rebuild does to the sequence.
+
+**Fix.** On this branch, not yet committed. `sqlite/0046_inventory_version.sql` is hand-written as one `ALTER TABLE ...
+ADD COLUMN`, which keeps the table, its sequence and its rows. `TestSQLiteMigrations_ARebuildKeepsItsSequence`
+(`internal/ent/migrate/sequence_guard_internal_test.go`) refuses any SQLite migration from 0046 on that rebuilds a table
+and does not write `sqlite_sequence`.
+
+**Known limits.** From the repository. Older rebuilds (0003, 0007 and 0022 among them) had the same effect and are left
+as they are: pre-1.0 nothing is deployed, and a migration once written is never edited. The guard finds a rebuild by
+its `new_<table>` rename, so a rebuild written another way would pass it.
+
+**Status.** Open for the root of the risk: role bindings are not removed when an inventory is deleted. Whether they
+should be is an owner question.
+
+**Lesson.** LESSONS 439.
+
+## 1144. A version-only ETag would miss writes from a build that predates the version column, since the expand policy lets the previous build keep serving during a rolling upgrade or after a rollback and its writes do not move the version, so a stale If-Match would pass (fixed before push; the class of 1098 and 1103, a mixed-version window; LESSONS 422 and 437)
+
+**Symptom.** On this branch, before commit. The version column is added under
+`internal/ent/migrate/compat.go`'s EXPAND policy, so the build before it can keep serving the same database during a
+rolling upgrade or after a rollback. That build knows nothing of `version`. Its writes leave it as it was, so a client
+holding a tag read before such a write would send an `If-Match` that still matched, and 1140's lost update would come
+back through the older build.
+
+**Root cause.** A token that only the newer build moves is not a token for the row while an older build can still write
+the row.
+
+**Why 1098 and 1103 did not prevent it.** Both are rules on data in a mixed-version window, fixed for credential types.
+Neither is about a concurrency token, and the version column is new on this branch.
+
+**Fix.** On this branch, not yet committed. The ETag is `"<version>.<digest>"`, the digest being 16 bytes of SHA-256 over
+the name, the description and the sorted member ids, so a write that leaves the version still changes the tag.
+`TestInventoryPatch_AWriteThatLeavesTheVersionStillMovesTheTag` (`internal/api/inventories_precondition_test.go`).
+
+**Known limits.** From the repository. A semantic migration contract could not be declared in place of the digest:
+`TestANewContractNeedsTheGuard` (`internal/ent/migrate/compat_internal_test.go`) refuses a new contract until the
+apply-time guard exists.
+
+**Lesson.** LESSONS 437, its second half.
+
+## 1145. A browser posts every line break as CRLF, a text input drops line breaks, and the HTML parser drops a textarea's leading LF, so a three-way compare of submitted, original and stored text would have refused every edit of a value stored with LF (fixed before push; LESSONS 438)
+
+**Symptom.** On this branch, before commit. 1141's merge compares what the form submits, what
+it was opened with (the hidden `_original.<name>` input) and what is stored. A browser sends every line break as CRLF,
+hidden inputs included. A text input drops line breaks. The parser drops a textarea's leading LF. Compared byte for
+byte, a description stored with LF never matched its own original, so every edit of it would look like a change made
+underneath and be refused. A name holding a line break would have refused every edit at all.
+
+**Root cause.** The compare used the stored bytes as the form's bytes, but the form's bytes are what the browser
+rewrote them to.
+
+**Fix.** On this branch, not yet committed. `view.Comparable` (`internal/ui/view`) reduces text to what a browser sends
+back, and both `Values.Unchanged` and the merge compare through it. `TestUnchanged_ComparesWhatABrowserSendsBack` and
+`TestMergeFold_LineBreaksABrowserRewroteAreNotAChange`.
+
+**Lesson.** LESSONS 438: compare text as the browser sends it back, not as it was stored.
+
+## 1146. tools/schemacompat reports nothing for a header that is required only when the body names a list, since the document can only mark it optional, so a real break in behavior passes the compatibility check unflagged (open: a limit of the check, stated in the breaking fragment)
+
+**Symptom.** On this branch. 1140 makes `If-Match` required on a `PATCH /inventories/{id}` that names `groups` or
+`devices`. The OpenAPI document can only declare the header optional, since a PATCH naming neither list needs none. So
+`tools/schemacompat`, which compares the documents, sees no change, and a client that worked before is now refused with
+428.
+
+**Root cause.** A requirement that depends on the body's content has no place in the document the check reads.
+
+**Status.** Open, as a limit of the check. `changelog/inventory-if-match.breaking.md` says that the compatibility check
+reports nothing for this change and why. Nothing in the check itself catches the next one.
+
+**Lesson.** Pending. A conditional requirement is a break the schema check cannot see, so the change says so in its
+breaking fragment.
+
+## 1147. The web UI's inventories writer returned a member refusal (a device deleted after the form opened, or another organization's), a taken name and a NUL as a 500 (fixed on this branch; on main; closes 1121; the class of 1058)
+
+**Symptom.** On main, recorded as 1121 (reasoned, not run). The inventories view's writer passed the store's errors
+through unmapped, and the generic handler turns anything but not-found into a server error page. So a device deleted
+after the form opened, another organization's device, a taken name or a NUL answered 500 rather than a refusal.
+
+**Root cause.** As 1121 and 1058: the view mapped no store refusal to a field.
+
+**Why 1121 did not prevent it.** 1121 was an open record; it named the fix (map `ErrCrossTenantMember` and
+`ErrUnknownMember` to one refusal) and no branch had made it.
+
+**Fix.** On this branch, not yet committed. `asFault` (`internal/ui/resources/inventories`) maps each of them to a field
+error with a fixed text, with one sentence for an unknown member and another organization's, so the form does not tell
+them apart. `TestAsFault_TheStoreRefusalsTheFormShows`.
+
+**Known limits.** Not checked here: whether the form's own `Validate` still answers an id it does not offer before the
+store is reached, which 1121's note said it did with a different answer.
+
+**Lesson.** As 1058: a refusal the caller can correct is shown as one, beside the field it concerns.

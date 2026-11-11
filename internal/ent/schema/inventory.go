@@ -66,6 +66,15 @@ func (Inventory) Fields() []ent.Field {
 		// Group.properties is: the natural home for whatever the next
 		// layered, inventory-level setting turns out to be.
 		field.JSON("properties", map[string]interface{}{}).Optional(),
+		// version counts the committed updates of this inventory, and leads
+		// the API's ETag. SetStore.UpdateWith moves it by one per committed
+		// write and never on the write lock it takes first. A build from
+		// before this column keeps serving the migrated schema during a
+		// rolling upgrade and does not move it, which is why the ETag also
+		// digests what the inventory holds (internal/api's inventoryETag).
+		// updated_at cannot stand in for it: the lock itself writes
+		// updated_at, and its precision differs between the two dialects.
+		field.Uint64("version").Default(0),
 	}
 }
 

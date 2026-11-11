@@ -866,7 +866,7 @@ func (h *Handler) newForm(w http.ResponseWriter, r *http.Request) {
 	// resolveFields reads it: the no-JavaScript path returns here with the
 	// driving control's chosen value, and it has to come back selected or
 	// the person has to choose it twice.
-	h.renderForm(w, r, d, "", fields, drivingValues(r, fields), view.FieldErrors{}, http.StatusOK)
+	h.renderForm(w, r, d, "", fields, drivingValues(r, fields), nil, view.FieldErrors{}, http.StatusOK)
 }
 
 func (h *Handler) editForm(w http.ResponseWriter, r *http.Request) {
@@ -893,7 +893,8 @@ func (h *Handler) editForm(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	h.renderForm(w, r, d, id, fields, values, view.FieldErrors{}, http.StatusOK)
+	// The stored values are the originals too: what this form opens with.
+	h.renderForm(w, r, d, id, fields, values, values, view.FieldErrors{}, http.StatusOK)
 }
 
 // renderForm resolves every select's options before rendering, so no
@@ -905,9 +906,11 @@ func (h *Handler) editForm(w http.ResponseWriter, r *http.Request) {
 // the id alone would be ambiguous the moment a validation failure
 // redisplays a create form (id is legitimately empty on both a create and
 // an edit whose record could not be found) -- the caller already knows
-// which mode it is in and resolved accordingly.
+// which mode it is in and resolved accordingly. originals are what an edit
+// form carries for its KeepsOriginal fields (view.FormModel.Originals): the
+// stored values when it opens, the submitted originals on a redisplay.
 func (h *Handler) renderForm(w http.ResponseWriter, r *http.Request, d view.Descriptor,
-	id string, fields []view.Field, values map[string]string, errs view.FieldErrors, status int) {
+	id string, fields []view.Field, values, originals map[string]string, errs view.FieldErrors, status int) {
 
 	options := map[string][]view.Option{}
 	for _, f := range fields {
@@ -927,6 +930,7 @@ func (h *Handler) renderForm(w http.ResponseWriter, r *http.Request, d view.Desc
 		Descriptor: d,
 		ID:         id,
 		Values:     values,
+		Originals:  originals,
 		Errors:     errs,
 		Options:    options,
 		FieldSet:   fields,
@@ -964,7 +968,7 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 		// rather than cleared: making someone retype a form to discover
 		// what was wrong with it is its own accessibility problem. A field
 		// declaring RefusedValue is the exception (refusedValues).
-		h.renderForm(w, r, d, "", fields, refusedValues(fields, submitted), errs, http.StatusUnprocessableEntity)
+		h.renderForm(w, r, d, "", fields, refusedValues(fields, submitted), nil, errs, http.StatusUnprocessableEntity)
 		return
 	}
 
@@ -974,7 +978,7 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if errs.Any() {
-		h.renderForm(w, r, d, "", fields, refusedValues(fields, submitted), errs, http.StatusUnprocessableEntity)
+		h.renderForm(w, r, d, "", fields, refusedValues(fields, submitted), nil, errs, http.StatusUnprocessableEntity)
 		return
 	}
 
@@ -1015,7 +1019,8 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if errs := view.Validate(r.Context(), fields, values); errs.Any() {
-		h.renderForm(w, r, d, id, fields, refusedValues(fields, submitted), errs, http.StatusUnprocessableEntity)
+		h.renderForm(w, r, d, id, fields, refusedValues(fields, submitted), submittedOriginals(fields, values), errs,
+			http.StatusUnprocessableEntity)
 		return
 	}
 
@@ -1031,7 +1036,8 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if errs.Any() {
-		h.renderForm(w, r, d, id, fields, refusedValues(fields, submitted), errs, http.StatusUnprocessableEntity)
+		h.renderForm(w, r, d, id, fields, refusedValues(fields, submitted), submittedOriginals(fields, values), errs,
+			http.StatusUnprocessableEntity)
 		return
 	}
 
@@ -1185,12 +1191,34 @@ func (h *Handler) formValues(w http.ResponseWriter, r *http.Request, fields []vi
 		return view.Values{}, nil, false
 	}
 
-	// Keep what was typed, for redisplay on a validation failure.
+	// Keep what was typed, for redisplay on a validation failure. A
+	// lookup's every selection is kept, joined as its prefill is: Get reads
+	// only the first, so a redisplay used to show one selection of many, and
+	// saving it again dropped the rest without anyone choosing to.
 	submitted := make(map[string]string, len(fields))
 	for _, f := range fields {
+		if f.Kind == view.KindLookup {
+			submitted[f.Name] = strings.Join(values.Selected(f.Name), ",")
+			continue
+		}
 		submitted[f.Name] = values.Get(f.Name)
 	}
 	return values, submitted, true
+}
+
+// submittedOriginals are the originals a refused edit carried, for its
+// redisplay. Those, not the stored values, go back on the page: a fresh
+// original would make submitting the same form again read as an edit made
+// after the change that refused it, and it would then overwrite that change.
+// A field whose original was not sent is left out, so it stays missing.
+func submittedOriginals(fields []view.Field, values view.Values) map[string]string {
+	out := map[string]string{}
+	for _, f := range fields {
+		if original, ok := values.Original(f.Name); ok {
+			out[f.Name] = original
+		}
+	}
+	return out
 }
 
 // resourcePath builds a URL for one record, through view.RecordPath like

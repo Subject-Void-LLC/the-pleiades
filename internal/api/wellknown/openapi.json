@@ -5242,7 +5242,15 @@
                 }
               }
             },
-            "description": "The created inventory."
+            "description": "The created inventory.",
+            "headers": {
+              "ETag": {
+                "description": "The inventory's strong entity tag: its version and a digest of what it holds, such as \"3.9f86d081884c7d659a2feaa0c55ad015\". Send it back unchanged as If-Match on a PATCH that names groups or devices. A proxy that rewrites it as a weak tag (W/) breaks that PATCH, since a weak tag never matches.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
           },
           "400": {
             "content": {
@@ -5404,7 +5412,15 @@
                 }
               }
             },
-            "description": "The inventory."
+            "description": "The inventory.",
+            "headers": {
+              "ETag": {
+                "description": "The inventory's strong entity tag: its version and a digest of what it holds, such as \"3.9f86d081884c7d659a2feaa0c55ad015\". Send it back unchanged as If-Match on a PATCH that names groups or devices. A proxy that rewrites it as a weak tag (W/) breaks that PATCH, since a weak tag never matches.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
           },
           "404": {
             "content": {
@@ -5434,7 +5450,7 @@
         "x-link-relation": "self"
       },
       "patch": {
-        "description": "A partial update of an inventory's name, description and membership: a field left out keeps its stored value. The organization is not updatable: moving one between tenants would silently re-scope every role binding pointing at it, which is a migration rather than an edit.",
+        "description": "A partial update of an inventory's name, description and membership: a field left out keeps its stored value. The organization is not updatable: moving one between tenants would silently re-scope every role binding pointing at it, which is a migration rather than an edit. A PATCH that names groups or devices replaces that list whole, so it must send If-Match with the ETag the inventory was read with, and is refused when another update has committed since.",
         "operationId": "update_inventory",
         "parameters": [
           {
@@ -5444,6 +5460,15 @@
             "required": true,
             "schema": {
               "type": "integer"
+            }
+          },
+          {
+            "description": "The inventory's ETag exactly as it was read. Required when the body names groups or devices; checked whenever sent. A list, a weak tag and * never match.",
+            "in": "header",
+            "name": "If-Match",
+            "required": false,
+            "schema": {
+              "type": "string"
             }
           }
         ],
@@ -5542,7 +5567,15 @@
                 }
               }
             },
-            "description": "The updated inventory."
+            "description": "The updated inventory.",
+            "headers": {
+              "ETag": {
+                "description": "The inventory's strong entity tag: its version and a digest of what it holds, such as \"3.9f86d081884c7d659a2feaa0c55ad015\". Send it back unchanged as If-Match on a PATCH that names groups or devices. A proxy that rewrites it as a weak tag (W/) breaks that PATCH, since a weak tag never matches.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
           },
           "400": {
             "content": {
@@ -5574,7 +5607,7 @@
                 }
               }
             },
-            "description": "No inventory with that id."
+            "description": "No inventory with that id. Answered before If-Match is judged."
           },
           "409": {
             "content": {
@@ -5591,6 +5624,38 @@
               }
             },
             "description": "That name is already taken in that organization."
+          },
+          "412": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "If-Match was sent and does not hold the inventory's current ETag: another update committed since it was read. Read it again and resend the change."
+          },
+          "428": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The body names groups or devices and no If-Match was sent."
           }
         },
         "security": [

@@ -31,6 +31,8 @@ type Inventory struct {
 	Owner string `json:"owner,omitempty"`
 	// Properties holds the value of the "properties" field.
 	Properties map[string]interface{} `json:"properties,omitempty"`
+	// Version holds the value of the "version" field.
+	Version uint64 `json:"version,omitempty"`
 	// Edges holds the relations/edges for other nodes in the graph.
 	// The values are being populated by the InventoryQuery when eager-loading is set.
 	Edges                    InventoryEdges `json:"edges"`
@@ -98,7 +100,7 @@ func (*Inventory) scanValues(columns []string) ([]any, error) {
 		switch columns[i] {
 		case inventory.FieldProperties:
 			values[i] = new([]byte)
-		case inventory.FieldID:
+		case inventory.FieldID, inventory.FieldVersion:
 			values[i] = new(sql.NullInt64)
 		case inventory.FieldName, inventory.FieldDescription, inventory.FieldOwner:
 			values[i] = new(sql.NullString)
@@ -164,6 +166,12 @@ func (_m *Inventory) assignValues(columns []string, values []any) error {
 				if err := json.Unmarshal(*value, &_m.Properties); err != nil {
 					return fmt.Errorf("unmarshal field properties: %w", err)
 				}
+			}
+		case inventory.FieldVersion:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field version", values[i])
+			} else if value.Valid {
+				_m.Version = uint64(value.Int64)
 			}
 		case inventory.ForeignKeys[0]:
 			if value, ok := values[i].(*sql.NullInt64); !ok {
@@ -245,6 +253,9 @@ func (_m *Inventory) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("properties=")
 	builder.WriteString(fmt.Sprintf("%v", _m.Properties))
+	builder.WriteString(", ")
+	builder.WriteString("version=")
+	builder.WriteString(fmt.Sprintf("%v", _m.Version))
 	builder.WriteByte(')')
 	return builder.String()
 }

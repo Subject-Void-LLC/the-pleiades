@@ -3,6 +3,7 @@ package view
 import (
 	"fmt"
 	"net/url"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -224,13 +225,117 @@ func NewValues(fields []Field, raw url.Values, editing bool) (Values, []string) 
 
 	var undeclared []string
 	for key := range raw {
-		if _, ok := declared[key]; !ok && !reservedFormKeys[key] {
+		if _, ok := declared[key]; !ok && !reservedFormKeys[key] && !keepsOriginalKey(declared, key, editing) {
 			undeclared = append(undeclared, key)
 		}
 	}
 	sort.Strings(undeclared)
 
 	return Values{declared: declared, raw: raw, editing: editing}, undeclared
+}
+
+// originalPrefix begins the name of the hidden input that carries a
+// KeepsOriginal field's original value on an edit form.
+const originalPrefix = "_original."
+
+// OriginalKey is the name of the hidden input carrying the original value of
+// the field called name (Field.KeepsOriginal).
+func OriginalKey(name string) string { return originalPrefix + name }
+
+// keepsOriginalKey reports whether key is the original of a declared field
+// that keeps one, on an edit: the only submission an original belongs to.
+func keepsOriginalKey(declared map[string]Field, key string, editing bool) bool {
+	name, ok := strings.CutPrefix(key, originalPrefix)
+	if !ok || !editing {
+		return false
+	}
+	f, ok := declared[name]
+	return ok && f.KeepsOriginal
+}
+
+// Original returns the value the edit form showed in a declared
+// KeepsOriginal field when it was opened, and whether the submission carried
+// exactly one. A lookup's original is its selections joined by commas.
+//
+// The original is what the submitter sent, not something the server kept, so
+// it can only describe an edit the submitter could have made anyway: a forged
+// original moves what the merge treats as changed, never past what the same
+// caller could submit directly.
+func (v Values) Original(name string) (string, bool) {
+	f, ok := v.declared[name]
+	if !ok || !f.KeepsOriginal || !v.editing {
+		return "", false
+	}
+	values, ok := v.raw[OriginalKey(name)]
+	if !ok || len(values) != 1 {
+		return "", false
+	}
+	return values[0], true
+}
+
+// OriginalSelected is Original for a lookup: the selections the edit form
+// showed when it was opened, blanks dropped.
+func (v Values) OriginalSelected(name string) ([]string, bool) {
+	joined, ok := v.Original(name)
+	if !ok {
+		return nil, false
+	}
+	return splitSelections(joined), true
+}
+
+// Unchanged reports whether a declared KeepsOriginal field was submitted as
+// the form showed it: the same text as a browser sends it back (Comparable),
+// or for a lookup the same selections in any order. A field with no original
+// is never unchanged.
+func (v Values) Unchanged(name string) bool {
+	f := v.declared[name]
+	if f.Kind != KindLookup {
+		original, ok := v.Original(name)
+		return ok && Comparable(f.Kind, v.Get(name)) == Comparable(f.Kind, original)
+	}
+	original, ok := v.OriginalSelected(name)
+	if !ok {
+		return false
+	}
+	submitted := v.Selected(name)
+	slices.Sort(original)
+	slices.Sort(submitted)
+	return slices.Equal(slices.Compact(original), slices.Compact(submitted))
+}
+
+// Comparable is s as a browser can send it back from a control of kind, for
+// telling whether a submission changed a value. A browser posts every line
+// break of every form value as CRLF, a hidden input included; a text input
+// drops line breaks from its value; and the HTML parser drops one line break
+// that opens a textarea. So a value stored with LF, or a name holding a line
+// break, would otherwise always read as changed, and a merge would refuse
+// every edit of it (or every edit at all, for a name). For a long-text kind
+// CRLF and CR become LF and one leading LF is dropped; for a text kind every
+// CR and LF is removed; any other kind is returned as it is. It is for
+// comparing only: what is saved is what was submitted.
+func Comparable(kind FieldKind, s string) string {
+	switch kind {
+	case KindLongText:
+		s = strings.ReplaceAll(s, "\r\n", "\n")
+		s = strings.ReplaceAll(s, "\r", "\n")
+		return strings.TrimPrefix(s, "\n")
+	case KindText:
+		return strings.NewReplacer("\r", "", "\n", "").Replace(s)
+	default:
+		return s
+	}
+}
+
+// splitSelections splits a comma-joined selection, trimming each and
+// dropping blanks: the form FormModel.IsSelected reads.
+func splitSelections(joined string) []string {
+	var out []string
+	for _, part := range strings.Split(joined, ",") {
+		if trimmed := strings.TrimSpace(part); trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	return out
 }
 
 // NarrowPrefill checks a prefill map against the controls a form will
