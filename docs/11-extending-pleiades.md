@@ -878,9 +878,10 @@ built-in family (`package.`, `service.`, `service_state.`, `file.`, `port.`, `us
 first-party namespace (the `fact_floor` of `first-party.json`), compared
 without case, and its fact names are ASCII: facts drive targeting, baselines and
 conditions, and a program that could write a built-in fact could make a device read as
-something it is not. Such a program is refused at load, naming what holds the fact, and
-the Controller also drops a built-in fact from any batch a method outside its catalog
-emitted. A fact outside the program's own namespace
+something it is not. Such a program is refused at load, naming what holds the fact. The
+Runner makes that refusal, from release 0.4.0: the Controller stores a built-in fact from a
+batch whose method its own catalog lacks (a newer Runner's built-in looks the same) and logs
+the difference at info level. A fact outside the program's own namespace
 that no built-in holds loads with a warning today; a later protocol version requires the
 namespace.
 

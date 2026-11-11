@@ -195,10 +195,43 @@ journal lacks, one that ran without a change, one that failed with an effect nob
 knows), since nothing of it is replayed.
 
 The Controller stores a Runner's journal rows and facts with only an identity that
-passes the writer's check: any other is stored as none, with a warning naming the job,
-device, node and method, and the row is kept. It never holds a Runner's identity to its own grouping of methods, which a later
-release may change; a difference is logged at info level and the identity is kept as
-sent.
+passes a fixed check: the identity's shape (a group within 255 bytes with no control
+code, a version of printable ASCII, a `sha256:` digest of 64 lowercase hex digits) and
+a group holding none of a fixed list of characters that would make it read as
+something else or show as nothing:
+
+- the bidirectional controls U+061C, U+200E and U+200F, U+202A to U+202E and U+2066 to
+  U+2069;
+- the zero width characters and joiners U+200B to U+200D, U+2060 and U+FEFF;
+- the line and paragraph separators U+2028 and U+2029, the soft hyphen U+00AD and the
+  Mongolian vowel separator U+180E;
+- the Hangul fillers U+115F, U+1160, U+3164 and U+FFA0;
+- the variation selectors U+180B to U+180D, U+180F, U+FE00 to U+FE0F and U+E0100 to
+  U+E01EF;
+- the other format characters U+2061 to U+2064, U+206A to U+206F, U+FFF9 to U+FFFB,
+  U+1BCA0 to U+1BCA3 and U+1D173 to U+1D17A;
+- the tag characters U+E0001 and U+E0020 to U+E007F;
+- private use, U+E000 to U+F8FF, U+F0000 to U+FFFFD and U+100000 to U+10FFFD.
+
+Any other is stored as none, with a warning naming the job, device, node and method
+(each cut to 128 bytes and escaped) and repeating none of the identity, and the row is
+kept. The check reads no Unicode table, so its answer is the same for every build, and
+the shape and the list are frozen wire contract. Every character on the list is one
+every build's own check refuses, so the Controller turns away no identity a build wrote.
+The Controller never holds a Runner's identity to its own Unicode tables or its own
+grouping of methods, which a later release or toolchain may change: a group holding a
+character the Controller's tables have not assigned, or one routed to another group, is
+logged at info level and kept as sent. A batch is noted only once it is stored.
+
+A Controller keeps a fact a built-in holds (a key its catalog declares or one in a
+built-in family) from a batch whose method its own catalog lacks, and logs at info level
+how many such facts there were, the family each fell under and a bounded list of their
+names, never their values: a Runner of a newer release may run a built-in this
+Controller does not know. What keeps an external Collection from writing such a fact
+is the Runner, which refuses at load a program that declares one. **Runners must be of
+release 0.4.0 or later**: it is the first release whose loader makes that refusal, and
+no earlier release publishes facts at all. A Runner that names a catalog method for a
+program's facts is not caught by the Controller either way.
 
 Builds of two releases side by side do not refuse each other's rows, but one may
 refuse what the other would run. A Controller of an earlier release sends a
