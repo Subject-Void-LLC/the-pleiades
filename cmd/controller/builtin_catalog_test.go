@@ -4,8 +4,10 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"log/slog"
 	"strings"
 	"testing"
 	"time"
@@ -114,28 +116,33 @@ func TestNewFactsSubscriber_HoldsBatchesToTheBuiltInDeclarations(t *testing.T) {
 	}
 }
 
-// TestNewFactsSubscriber_KeepsABuiltInFactOnlyFromABuiltInMethod: a batch
-// whose method is not in the catalog this binary embeds (an external
-// Collection's, from a Runner that let it through) keeps its own facts and
-// loses every fact a built-in holds, a declared key or a reserved family's,
-// whatever its case (Phase 135b).
-func TestNewFactsSubscriber_KeepsABuiltInFactOnlyFromABuiltInMethod(t *testing.T) {
+// TestNewFactsSubscriber_KeepsBuiltInFactsFromAMethodOutsideItsCatalog: a
+// batch whose method is not in the catalog this binary embeds (a newer
+// Runner's built-in, or an external Collection's) keeps every fact, a
+// declared key and a reserved family's alike, and the consumer main builds
+// notes the difference at info rather than dropping them (FP 1020): which
+// methods are built-in is the Runner's release's to say.
+func TestNewFactsSubscriber_KeepsBuiltInFactsFromAMethodOutsideItsCatalog(t *testing.T) {
 	store := &recordingStore{}
-	sub, err := newFactsSubscriber(store, nil, nil)
+	var logged bytes.Buffer
+	sub, err := newFactsSubscriber(store, slog.New(slog.NewTextHandler(&logged, nil)), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	entries, _, _ := facts.Prepare(map[string]any{"host.uptime_seconds": 5, "Package.openssh": "9.6", "acme.widgets": 3}, facts.Guard{})
+	entries, _, _ := facts.Prepare(map[string]any{"host.name": "web1", "Package.openssh": "9.6", "acme.widgets": 3}, facts.Guard{})
 	data, err := json.Marshal(facts.Batch{JobID: "job-1", DeviceID: "dev-1", Attempt: 1, ObservedAt: time.Now(), Entries: entries,
-		By: facts.Provenance{Method: "acme.facts.read"}})
+		By: facts.Provenance{Method: "newer.gather"}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := sub.Handle(event.Event{ID: "e1", Type: facts.EventType, Data: data}); err != nil {
 		t.Fatal(err)
 	}
-	if len(store.got) != 1 || store.got[0].Key != "acme.widgets" {
-		t.Errorf("stored %+v, want only the program's own fact", store.got)
+	if len(store.got) != 3 {
+		t.Errorf("stored %+v, want all three facts", store.got)
+	}
+	if !strings.Contains(logged.String(), "level=INFO") || !strings.Contains(logged.String(), "facts=2") || strings.Contains(logged.String(), "level=WARN") {
+		t.Errorf("want one info note counting the two built-in facts and no warning:\n%s", logged.String())
 	}
 }
 
