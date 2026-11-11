@@ -79,8 +79,28 @@ func (h *DeviceHandler) serveFacts(w http.ResponseWriter, r *http.Request, key s
 	if entries == nil {
 		entries = []facts.Entry{}
 	}
-	dto := factsDTO{Device: item.Name(), Key: key, Facts: entries}
+	dto := factsDTO{Device: item.Name(), Key: shownKey(key, entries), Facts: entries}
 	Respond(w, r, http.StatusOK, &dto)
+}
+
+// shownKey is the key a history answer names: the caller's key when the
+// store holds it (its values carry it as stored) or when it is one a new
+// fact may be named (facts.ValidKey), which shows as itself; otherwise none.
+// The reader's rule is frozen and reads any key of valid UTF-8 with no
+// control character, U+0020 or slash, so a caller can ask for one holding a
+// direction override, an invisible character or a line separator, and naming
+// back a key nothing holds would repeat the caller's text where it reads as
+// something else (FAILURE_PATTERNS.md #72). No ValidKey under any Go release
+// accepts a format character or a line separator, so a stored key holding
+// one comes only from a hand-edited store; the keys a writer of another
+// toolchain legitimately stores that this one refuses hold code points this
+// one has not assigned. An empty key is the current facts' answer, which
+// names none.
+func shownKey(key string, entries []facts.Entry) string {
+	if key == "" || len(entries) > 0 || facts.ValidKey(key) {
+		return key
+	}
+	return ""
 }
 
 // factChainDTO is what checking a device's fact chain found, on the wire.
