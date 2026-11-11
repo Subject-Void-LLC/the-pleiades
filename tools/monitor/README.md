@@ -25,7 +25,11 @@ make --trace pr-check 2>&1 | tee /tmp/prcheck.txt
 .venv/bin/python tools/monitor/monitor.py watch --log old.txt [--pace 0.05]
 ```
 
-Then open http://127.0.0.1:8765/ (the Gate view) or http://127.0.0.1:8765/#roadmap.
+Then open http://127.0.0.1:8765/: three tabs, Gate (`#gate`), Actions
+(`#actions`: every branch's workflow runs, the picked run's jobs, a job's
+duration over runs and each job's failure rate over thirty days) and
+Roadmap (`#roadmap`). The page loads Hanken Grotesk and IBM Plex Mono from
+Google Fonts and falls back to system fonts without them.
 The server binds 127.0.0.1 only and refuses a request whose Host header is
 not this machine's loopback.
 

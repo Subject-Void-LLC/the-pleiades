@@ -1,218 +1,225 @@
 <!doctype html>
 <!--
-  dashboard.html: the status page, served by the daemon on 127.0.0.1. Two
-  views: Gate (dashboard.js: pr-check, Actions, memory, history) and Roadmap
-  (roadmap.js, from /roadmap.json and the /timeline history). The charts are
-  Apache ECharts (one pinned file, checked by its SRI hash). Every piece of
-  log, API or roadmap text reaches the page through textContent only.
+  dashboard.html: the status page, served by the daemon on 127.0.0.1. Three
+  views: Gate (dashboard.js: pr-check, memory, gate history, binary size),
+  Actions (dashboard.js: every branch's workflow runs) and Roadmap
+  (roadmap.js, from /roadmap.json and the /timeline history). Charts are
+  Apache ECharts (one pinned file, checked by its SRI hash); type is Hanken
+  Grotesk and IBM Plex Mono from Google Fonts, with system fallbacks. Every
+  piece of log, API or roadmap text reaches the page through textContent.
 -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Status page</title>
+<title>Gate - Status page</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&amp;family=IBM+Plex+Mono:wght@400;500&amp;display=swap">
 <style>
   :root {
     color-scheme: light;
-    --surface-0: #f4f4f2;
-    --surface-1: #fcfcfb;
-    --border: #dcdbd6;
-    --text-primary: #0b0b0b;
-    --text-secondary: #52514e;
-    --text-muted: #6d6c67;
-    --grid: #e6e5e0;
-    --st-pending: #b9b8b1;
-    --st-running: #2a78d6;
-    --st-pass: #0ca30c;
-    --st-fail: #d03b3b;
-    --st-not-run: #fab219;
-    --st-ended: #6d7f99;
-    --st-skipped: #dedcd5;
-    --st-stopped: #ec835a;
-    --series-1: #2a78d6;
-    --focus: #2a78d6;
+    --bg: #f3f4ef; --surface: #fcfcfb; --raised: #ffffff;
+    --ink: #18201b; --ink-2: #4b544e; --ink-3: #5c655e; --rule: #dce0d8; --rule-2: #edf0ea;
+    --accent: #245c4d; --accent-ink: #ffffff; --accent-soft: #e2ece6; --focus: #2a78d6;
+    --good: #11752b; --bad: #b3261e; --warn-bg: #fdf3dc; --warn-ink: #634500; --warn-rule: #ecd39b;
+    --st-pending: #a3aaa4; --st-running: #2a78d6; --st-pass: #11752b; --st-fail: #b3261e; --st-not-run: #c98500;
+    --st-ended: #6d7f99; --st-skipped: #dcdfd8; --st-stopped: #c45a12;
     --cat-1: #2a78d6; --cat-2: #eb6834; --cat-3: #1baf7a; --cat-4: #eda100;
-    --cat-5: #e87ba4; --cat-6: #008300; --cat-7: #6250d6; --cat-8: #e34948;
+    --cat-5: #e87ba4; --cat-6: #008300; --cat-7: #4a3aa7; --cat-8: #e34948;
+    --font-ui: "Hanken Grotesk", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+    --r: 10px;
+    /* The names the scripts read, kept as aliases of the palette above. */
+    --surface-0: var(--bg); --surface-1: var(--surface); --border: var(--rule); --grid: var(--rule-2);
+    --text-primary: var(--ink); --text-secondary: var(--ink-2); --text-muted: var(--ink-3); --series-1: var(--cat-1);
   }
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
       color-scheme: dark;
-      --surface-0: #121211;
-      --surface-1: #1a1a19;
-      --border: #383835;
-      --text-primary: #f0efec;
-      --text-secondary: #c3c2b7;
-      --text-muted: #9a998f;
-      --grid: #2c2c2a;
-      --st-pending: #5d5c57;
-      --st-running: #3987e5;
-      --st-ended: #8494ad;
-      --st-skipped: #3a3a37;
-      --series-1: #3987e5;
-      --focus: #86b6ef;
+      --bg: #101311; --surface: #1a1a19; --raised: #222523;
+      --ink: #eef1ec; --ink-2: #bcc3bd; --ink-3: #9aa29b; --rule: #2f3430; --rule-2: #252926;
+      --accent: #86c4ae; --accent-ink: #0d1714; --accent-soft: #1c2b25; --focus: #86b6ef;
+      --good: #62d27c; --bad: #ff8a80; --warn-bg: #352a10; --warn-ink: #f3d68f; --warn-rule: #5b4818;
+      --st-pending: #6b726c; --st-running: #3987e5; --st-pass: #3fae5a; --st-fail: #e5554b; --st-not-run: #d49a1c;
+      --st-ended: #8494ad; --st-skipped: #3a3e3a; --st-stopped: #e07a3e;
       --cat-1: #3987e5; --cat-2: #d95926; --cat-3: #199e70; --cat-4: #c98500;
-      --cat-5: #d55181; --cat-6: #008300; --cat-7: #9085e9; --cat-8: #e66767;
+      --cat-5: #d55181; --cat-6: #2f9a2f; --cat-7: #9085e9; --cat-8: #e66767;
     }
   }
   :root[data-theme="dark"] {
     color-scheme: dark;
-    --surface-0: #121211;
-    --surface-1: #1a1a19;
-    --border: #383835;
-    --text-primary: #f0efec;
-    --text-secondary: #c3c2b7;
-    --text-muted: #9a998f;
-    --grid: #2c2c2a;
-    --st-pending: #5d5c57;
-    --st-running: #3987e5;
-    --st-ended: #8494ad;
-    --st-skipped: #3a3a37;
-    --series-1: #3987e5;
-    --focus: #86b6ef;
+    --bg: #101311; --surface: #1a1a19; --raised: #222523;
+    --ink: #eef1ec; --ink-2: #bcc3bd; --ink-3: #9aa29b; --rule: #2f3430; --rule-2: #252926;
+    --accent: #86c4ae; --accent-ink: #0d1714; --accent-soft: #1c2b25; --focus: #86b6ef;
+    --good: #62d27c; --bad: #ff8a80; --warn-bg: #352a10; --warn-ink: #f3d68f; --warn-rule: #5b4818;
+    --st-pending: #6b726c; --st-running: #3987e5; --st-pass: #3fae5a; --st-fail: #e5554b; --st-not-run: #d49a1c;
+    --st-ended: #8494ad; --st-skipped: #3a3e3a; --st-stopped: #e07a3e;
     --cat-1: #3987e5; --cat-2: #d95926; --cat-3: #199e70; --cat-4: #c98500;
-    --cat-5: #d55181; --cat-6: #008300; --cat-7: #9085e9; --cat-8: #e66767;
+    --cat-5: #d55181; --cat-6: #2f9a2f; --cat-7: #9085e9; --cat-8: #e66767;
   }
   * { box-sizing: border-box; }
   html, body { max-width: 100%; overflow-x: hidden; }
-  body {
-    margin: 0;
-    padding: 16px;
-    background: var(--surface-0);
-    color: var(--text-primary);
-    font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
-  }
-  header { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: baseline; margin-bottom: 12px; }
-  h1 { font-size: 20px; margin: 0; }
-  h2 { font-size: 16px; margin: 0 0 8px; }
-  .grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 520px), 1fr)); }
-  .grid { align-items: start; }
-  .grid[hidden] { display: none; }
-  nav.views { display: flex; gap: 4px; margin: 0 0 12px; flex-wrap: wrap; }
-  nav.views a {
-    display: inline-block; min-height: 32px; padding: 5px 14px; border-radius: 6px; text-decoration: none;
-    border: 1px solid var(--border); color: var(--text-primary); background: var(--surface-1);
-  }
-  nav.views a[aria-current="page"] { background: var(--text-primary); color: var(--surface-0); border-color: var(--text-primary); }
+  body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font-ui); font-size: 14px; line-height: 1.45; }
+  .wrap { max-width: 1440px; margin: 0 auto; padding: 20px 16px 48px; display: grid; gap: 20px; }
+  @media (min-width: 720px) { .wrap { padding-inline: 24px; } }
+  h1, h2, h3 { margin: 0; text-wrap: balance; }
+  p { margin: 0; }
+  a { color: var(--accent); }
+  td, th, .num { font-variant-numeric: tabular-nums; }
+  .mono { font-family: var(--font-mono); font-size: 12px; }
+  .muted { color: var(--ink-3); }
+  :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
   .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
   .skip-link { position: absolute; left: -9999px; }
-  .skip-link:focus { left: 16px; top: 8px; z-index: 10; background: var(--surface-1); padding: 4px 8px; }
-  #strip { color: var(--text-secondary); font-size: 13px; }
+  .skip-link:focus { left: 16px; top: 8px; z-index: 10; background: var(--raised); padding: 6px 10px; border-radius: 8px; }
+
+  /* Header */
+  .top { display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: center; justify-content: space-between; }
+  .brand { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 24px; }
+  .brand h1 { font-size: 22px; font-weight: 700; letter-spacing: -0.01em; }
+  .brand .sub { display: block; color: var(--ink-3); }
+  nav.views { display: flex; gap: 4px; padding: 4px; background: var(--surface); border: 1px solid var(--rule); border-radius: var(--r); }
+  nav.views a { display: inline-flex; align-items: center; min-height: 36px; padding: 0 16px; border-radius: 7px; text-decoration: none; font-weight: 600; font-size: 13.5px; color: var(--ink-2); }
+  nav.views a:hover { color: var(--ink); background: var(--rule-2); }
+  nav.views a[aria-current="page"] { background: var(--accent); color: var(--accent-ink); }
+  .status-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+
+  /* Panels and grids */
+  .view { display: grid; gap: 16px; }
+  .view[hidden] { display: none; }
+  .panel { background: var(--surface); border: 1px solid var(--rule); border-radius: var(--r); padding: 18px; display: grid; gap: 14px; min-width: 0; align-content: start; }
+  .ph { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 6px 16px; }
+  .ph h2 { font-size: 16px; font-weight: 650; }
+  .ph p, .note { color: var(--ink-3); font-size: 12.5px; }
+  .two { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 480px), 1fr)); align-items: start; }
+  .split { display: grid; gap: 16px; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); align-items: start; }
+  @media (max-width: 1100px) { .split { grid-template-columns: 1fr; } }
   .stack { display: grid; gap: 16px; align-content: start; min-width: 0; }
-  dl.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 0; }
-  dl.tiles div { border: 1px solid var(--grid); border-radius: 8px; padding: 10px 12px; background: var(--surface-0); }
-  dl.tiles dt { color: var(--text-secondary); font-size: 12px; }
-  dl.tiles dd { margin: 4px 0 0; font-size: 22px; font-weight: 650; font-variant-numeric: tabular-nums; }
-  dl.tiles dd small { font-size: 13px; font-weight: 500; color: var(--text-secondary); margin-left: 4px; }
-  dl.tiles progress { margin-top: 8px; height: 6px; }
-  .next { margin-top: 12px; padding: 10px 12px; border-left: 3px solid var(--series-1); background: var(--surface-0); border-radius: 0 6px 6px 0; }
-  .next .label { font-weight: 600; margin-right: 6px; }
-  ol.queue { margin: 0; padding-left: 26px; columns: 2 220px; column-gap: 24px; }
-  ol.queue li { margin: 3px 0; break-inside: avoid; }
-  ul.problems { margin: 0; padding-left: 18px; }
-  ul.problems li { margin: 4px 0; }
-  button.link { border: 0; background: none; padding: 2px 0; color: var(--series-1); text-decoration: underline; min-height: 24px; }
-  button.pid {
-    font: inherit; font-weight: 600; font-variant-numeric: tabular-nums; min-width: 3.4em; min-height: 26px; padding: 1px 8px;
-    border-radius: 13px; border: 1px solid var(--border); background: var(--surface-0); color: var(--series-1); cursor: pointer;
-  }
-  table.phases tbody tr:hover, table.phases tbody tr.chain-focus { background: var(--surface-0); }
-  table.phases thead th { position: sticky; top: 0; background: var(--surface-1); z-index: 1; }
+  .rowwrap { display: flex; flex-wrap: wrap; gap: 16px; align-items: start; }
+  .rowwrap > .grow { flex: 999 1 620px; min-width: 0; }
+  .rowwrap > .side { flex: 1 1 520px; min-width: 0; }
+
+  /* Hero: one big answer beside its tiles */
+  .hero { grid-template-columns: minmax(0, 1.1fr) minmax(0, 2fr); gap: 20px; align-items: stretch; }
+  @media (max-width: 900px) { .hero { grid-template-columns: 1fr; } }
+  .hero-main { display: grid; align-content: space-between; gap: 14px; }
+  .hero-main .kicker { font-size: 13px; font-weight: 500; color: var(--ink-2); }
+  .hero-main .big { font-size: 52px; line-height: 1.02; font-weight: 700; letter-spacing: -0.02em; overflow-wrap: anywhere; }
+  .hero-main .big.mid { font-size: 36px; }
+  .big.good { color: var(--good); } .big.bad { color: var(--bad); } .big.run { color: var(--st-running); }
+  .hero-main .sub { color: var(--ink-2); }
+  .tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1px; background: var(--rule); border: 1px solid var(--rule); border-radius: var(--r); overflow: hidden; margin: 0; }
+  .tiles.four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  @media (max-width: 640px) { .tiles, .tiles.four { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  .tiles > div { background: var(--surface); padding: 12px 14px; display: grid; gap: 2px; align-content: start; }
+  .tiles dt { font-size: 12.5px; color: var(--ink-3); }
+  .tiles dd { margin: 0; font-size: 22px; font-weight: 650; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+  .tiles dd small { font-size: 13px; font-weight: 500; color: var(--ink-3); margin-left: 4px; }
+  .tiles .hint { font-size: 12px; color: var(--ink-3); }
+  .tiles progress { margin-top: 6px; height: 6px; }
+  .callout { display: grid; gap: 6px; padding: 12px 14px; background: var(--accent-soft); border-radius: 8px; }
+  .callout .label { font-weight: 700; margin-right: 8px; }
+  .callout[hidden] { display: none; }
+  .warnbox { background: var(--warn-bg); color: var(--warn-ink); border: 1px solid var(--warn-rule); border-radius: 8px; padding: 10px 12px; font-size: 13px; display: grid; gap: 8px; }
+
+  /* Controls */
+  select, input[type="search"] { font: inherit; font-size: 13.5px; height: 34px; padding: 0 8px; border: 1px solid var(--rule); border-radius: 7px; background: var(--raised); color: var(--ink); min-width: 0; }
+  select:hover, input[type="search"]:hover { border-color: var(--ink-3); }
+  label.field { display: grid; gap: 4px; font-size: 12.5px; color: var(--ink-2); font-weight: 500; }
+  label.toggle { display: inline-flex; gap: 8px; align-items: center; min-height: 34px; font-size: 13px; }
+  label.toggle input { width: 16px; height: 16px; accent-color: var(--accent); }
+  .controls { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: end; }
+  button { font: inherit; color: var(--ink); cursor: pointer; }
+  .btn { font-size: 13px; font-weight: 600; border: 1px solid var(--rule); background: var(--raised); border-radius: 8px; padding: 0 12px; min-height: 32px; }
+  .btn:hover { border-color: var(--ink-3); }
+  button.link { border: 0; background: none; padding: 2px 0; min-height: 26px; color: var(--accent); font-weight: 600; text-decoration: underline; text-underline-offset: 2px; text-decoration-color: color-mix(in srgb, var(--accent) 45%, transparent); }
+  button.link:hover { text-decoration-color: var(--accent); }
+  button.pid { font-weight: 650; font-size: 12.5px; font-variant-numeric: tabular-nums; min-width: 3.6em; min-height: 28px; padding: 0 9px; border-radius: 999px; border: 1px solid var(--rule); background: var(--raised); color: var(--accent); }
+  button.pid:hover { border-color: var(--accent); }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; padding: 2px 9px; border-radius: 999px; font-size: 12px; font-weight: 650; border: 1px solid var(--rule); background: var(--raised); color: var(--ink); white-space: nowrap; }
+  .chip::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--chip, var(--st-pending)); flex: none; }
+  .verdict { display: none; }
+  button.dep { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 600; min-height: 30px; padding: 0 10px; border-radius: 999px; border: 1px solid var(--rule); background: var(--raised); }
+  button.dep::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--chip, var(--st-pending)); flex: none; }
+  button.dep:hover { border-color: var(--chip, var(--ink-3)); }
+  .legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 12.5px; color: var(--ink-2); margin: 0; }
+  .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+
+  /* Tables */
+  .table-wrap { overflow-x: auto; min-width: 0; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td { padding: 7px 8px; text-align: left; border-bottom: 1px solid var(--rule-2); vertical-align: middle; }
+  thead th, table > tr:first-child > th { font-size: 12px; font-weight: 600; color: var(--ink-3); border-bottom: 1px solid var(--rule); }
+  tbody th { font-weight: 600; }
+  td.num, th.num { text-align: right; }
+  tr.sect td { padding-top: 14px; font-size: 11.5px; color: var(--ink-3); font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; border-bottom: 1px solid var(--rule); }
+  tr.current td, tr.current th { background: var(--accent-soft); }
+  .failed-job { color: var(--bad); font-weight: 600; }
+  td progress { display: inline-block; width: 110px; vertical-align: middle; }
+
+  /* Progress bars, drawn by hand: a native bar picks its own track color. */
+  progress { -webkit-appearance: none; appearance: none; display: block; width: 100%; height: 8px; border: 0; border-radius: 4px; background: var(--rule-2); color: var(--bar, var(--st-running)); overflow: hidden; }
+  progress::-webkit-progress-bar { background: var(--rule-2); border-radius: 4px; }
+  progress::-webkit-progress-value { background: var(--bar, var(--st-running)); border-radius: 4px; }
+  progress::-moz-progress-bar { background: var(--bar, var(--st-running)); border-radius: 4px; }
+  progress:indeterminate { background: linear-gradient(90deg, var(--rule-2) 0%, var(--bar, var(--st-running)) 50%, var(--rule-2) 100%) 0 0 / 40% 100% no-repeat, var(--rule-2); animation: sweep 1.4s linear infinite; }
+  progress:indeterminate::-webkit-progress-bar { background: transparent; }
+  progress:indeterminate::-moz-progress-bar { background: transparent; }
+  @keyframes sweep { from { background-position: -40% 0, 0 0; } to { background-position: 140% 0, 0 0; } }
+
+  /* Gate */
+  .chart { width: 100%; min-height: 220px; }
+  .row { display: grid; grid-template-columns: 130px minmax(80px, 1fr); gap: 2px 12px; align-items: center; margin: 6px 0; }
+  .row .note { grid-column: 2; }
+  .legs { display: grid; gap: 10px; }
+  .leg { border: 1px solid var(--rule-2); border-radius: 8px; padding: 10px 12px; display: grid; gap: 6px; background: var(--raised); }
+  .leg code { display: block; white-space: pre-wrap; word-break: break-word; color: var(--ink-3); font: 12px/1.4 var(--font-mono); }
+  details summary { cursor: pointer; color: var(--accent); font-weight: 600; font-size: 13px; min-height: 26px; }
+  #notes:empty { display: none; }
+
+  /* Actions */
+  .rail { flex: 1 1 260px; max-width: 360px; }
+  @media (max-width: 900px) { .rail { max-width: none; } }
+  .branches { display: grid; gap: 2px; max-height: 560px; overflow-y: auto; }
+  button.br { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; gap: 8px; align-items: center; width: 100%; min-height: 36px; padding: 0 10px; border: 1px solid transparent; border-radius: 8px; background: none; font-size: 13px; text-align: left; }
+  button.br span:nth-child(2) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  button.br:hover { background: var(--rule-2); }
+  button.br[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); font-weight: 650; }
+  button.br .n { color: var(--ink-3); font-size: 12px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; background: var(--chip, var(--st-pending)); }
+
+  /* Roadmap */
+  ol.queue { margin: 0; padding-left: 26px; columns: 2 200px; column-gap: 24px; font-size: 13px; }
+  ol.queue li { margin: 2px 0; break-inside: avoid; }
   .deps-wrap { position: relative; }
   .deps-wrap.on { padding-left: 64px; }
   #rm-dep-lines { position: absolute; left: 0; top: 0; width: 64px; height: 100%; display: none; overflow: visible; }
   .deps-wrap.on #rm-dep-lines { display: block; }
   #rm-dep-lines path { fill: none; stroke-width: 1.4; opacity: .55; }
-  .chain-active #rm-dep-lines path { opacity: .06; }
-  .chain-active #rm-dep-lines path.on { opacity: 1; stroke-width: 2.5; }
+  .chain-active #rm-dep-lines path { opacity: .07; }
+  .chain-active #rm-dep-lines path.on { opacity: 1; stroke-width: 2.6; }
   .chain-active table.phases tbody tr:not(.in-chain) { opacity: .4; }
-  .deps { display: grid; grid-template-columns: max-content 1fr; gap: 6px 12px; align-items: start; margin: 8px 0; }
-  .deps:empty { display: none; }
-  .deps .deps-label { color: var(--text-secondary); font-size: 13px; padding-top: 3px; }
-  .deps .chips { margin: 0; }
-  button.dep {
-    font: inherit; font-size: 12px; min-height: 24px; padding: 1px 9px; border-radius: 12px; cursor: pointer;
-    border: 1px solid var(--chip, var(--border)); background: var(--surface-0); color: var(--text-primary);
-  }
-  button.dep::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; background: var(--chip, var(--st-pending)); }
-  .chain-list { margin: 4px 0 0; padding-left: 20px; }
-  .chain-list li { margin: 2px 0; }
-  ul.items { list-style: none; padding: 0; margin: 0; }
-  ul.items > li { display: grid; grid-template-columns: 5.5em 1fr; gap: 4px 12px; border-bottom: 1px solid var(--grid); padding: 10px 0; }
-  .badge { align-self: start; text-align: center; font-size: 12px; font-weight: 650; padding: 2px 6px; border-radius: 10px; border: 1px solid var(--border); color: var(--text-secondary); }
-  .badge.done { color: var(--st-pass); border-color: var(--st-pass); }
-  .badge.withdrawn { text-decoration: line-through; }
-  .item-text { line-height: 1.55; max-width: 110ch; }
-  .item-text p { margin: 0 0 6px; }
-  .item-text code { font-size: 12.5px; background: var(--surface-0); border: 1px solid var(--grid); border-radius: 4px; padding: 0 4px; }
-  .item-text.clamped { max-height: 9.5em; overflow: hidden; -webkit-mask-image: linear-gradient(#000 60%, transparent); mask-image: linear-gradient(#000 60%, transparent); }
-  .item-meta { grid-column: 2; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 12px; color: var(--text-muted); }
-  .more { grid-column: 2; justify-self: start; }
-  label.toggle { display: inline-flex; gap: 6px; align-items: center; min-height: 26px; }
-  input[type="search"] { font: inherit; color: var(--text-primary); background: var(--surface-1); border: 1px solid var(--border); border-radius: 6px; padding: 3px 8px; }
-  section {
-    background: var(--surface-1);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 12px 16px;
-    min-width: 0;
-  }
-  section.wide { grid-column: 1 / -1; }
-  .meta, .note { color: var(--text-secondary); margin: 4px 0; }
-  .note { font-size: 13px; }
-  .chart { width: 100%; min-height: 220px; }
-  .legend { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 4px 0 8px; color: var(--text-secondary); font-size: 13px; }
-  .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
-  .chip {
-    display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 12px; font-weight: 600;
-    border: 1px solid var(--border); color: var(--text-primary); background: var(--surface-0);
-  }
-  .chip { white-space: nowrap; }
+  table.phases tbody tr:hover, table.phases tbody tr.chain-focus { background: var(--accent-soft); }
+  table.phases thead th { position: sticky; top: 0; background: var(--surface); z-index: 1; }
   table.phases td .note { white-space: nowrap; }
-  .chip::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; background: var(--chip, var(--st-pending)); }
-  .verdict { font-size: 15px; padding: 3px 12px; }
-  table { border-collapse: collapse; width: 100%; font-size: 13px; }
-  th, td { text-align: left; padding: 4px 8px 4px 0; border-bottom: 1px solid var(--grid); vertical-align: top; }
-  th { color: var(--text-secondary); font-weight: 600; }
-  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
-  .table-wrap { overflow-x: auto; }
-  .row { display: grid; grid-template-columns: 110px minmax(80px, 1fr); gap: 2px 12px; align-items: center; margin: 8px 0; }
-  .row .note { grid-column: 2; }
-  .chips { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0 10px; }
-  td progress { display: inline-block; width: 90px; vertical-align: middle; }
-  /* Progress bars are drawn by hand: a native bar picks its own track
-     color from accent-color, which turned a grey (pending) bar black. The
-     value takes its stage's status color through --bar. */
-  progress {
-    -webkit-appearance: none; appearance: none; display: block;
-    width: 100%; height: 10px; border: 0; border-radius: 5px;
-    background: var(--grid); color: var(--bar, var(--st-running)); overflow: hidden;
-  }
-  progress::-webkit-progress-bar { background: var(--grid); border-radius: 5px; }
-  progress::-webkit-progress-value { background: var(--bar, var(--st-running)); border-radius: 5px; }
-  progress::-moz-progress-bar { background: var(--bar, var(--st-running)); border-radius: 5px; }
-  progress:indeterminate {
-    background: linear-gradient(90deg, var(--grid) 0%, var(--bar, var(--st-running)) 50%, var(--grid) 100%) 0 0 / 40% 100% no-repeat, var(--grid);
-    animation: sweep 1.4s linear infinite;
-  }
-  progress:indeterminate::-webkit-progress-bar { background: transparent; }
-  progress:indeterminate::-moz-progress-bar { background: transparent; }
-  @keyframes sweep { from { background-position: -40% 0, 0 0; } to { background-position: 140% 0, 0 0; } }
-  .legs { display: grid; gap: 10px; }
-  .leg { border: 1px solid var(--grid); border-radius: 6px; padding: 8px 10px; }
-  .leg code { display: block; margin-top: 4px; white-space: pre-wrap; word-break: break-word; color: var(--text-secondary); font-size: 12px; }
-  select, button {
-    font: inherit; color: var(--text-primary); background: var(--surface-1);
-    border: 1px solid var(--border); border-radius: 6px; padding: 3px 8px;
-  }
-  button { cursor: pointer; }
-  :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
-  a { color: var(--series-1); }
-  .failed-job { color: var(--st-fail); font-weight: 600; }
-  .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 8px; }
-  details summary { cursor: pointer; color: var(--text-secondary); margin-top: 8px; }
+  .deps { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 8px 14px; align-items: start; font-size: 13px; }
+  .deps:empty { display: none; }
+  .deps .deps-label { color: var(--ink-3); padding-top: 5px; }
+  .chain-list { list-style: none; padding: 0; margin: 6px 0 0; }
+  ul.items { list-style: none; padding: 0; margin: 0; }
+  ul.items > li { display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: 4px 14px; border-bottom: 1px solid var(--rule-2); padding: 12px 0; }
+  .badge { align-self: start; justify-self: start; text-align: center; font-size: 11.5px; font-weight: 700; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--rule); color: var(--ink-2); }
+  .badge.done { color: var(--good); border-color: var(--good); }
+  .badge.withdrawn { text-decoration: line-through; }
+  .item-text { line-height: 1.6; max-width: 96ch; overflow-wrap: anywhere; }
+  .item-text p { margin: 0 0 6px; }
+  .item-text code { font: 12px var(--font-mono); background: var(--rule-2); border-radius: 4px; padding: 1px 5px; }
+  .item-text.clamped { max-height: 9.6em; overflow: hidden; -webkit-mask-image: linear-gradient(#000 60%, transparent); mask-image: linear-gradient(#000 60%, transparent); }
+  .item-meta { grid-column: 2; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 12px; color: var(--ink-3); }
+  .more { grid-column: 2; justify-self: start; }
   @media (prefers-reduced-motion: reduce) {
     * { animation: none !important; transition: none !important; }
-    progress:indeterminate { background: repeating-linear-gradient(45deg, var(--grid) 0 6px, var(--bar, var(--st-running)) 6px 12px); }
+    progress:indeterminate { background: repeating-linear-gradient(45deg, var(--rule-2) 0 6px, var(--bar, var(--st-running)) 6px 12px); }
   }
 </style>
 <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"
@@ -223,144 +230,207 @@
 </head>
 <body>
 <a class="skip-link" href="#main">Skip to the view</a>
-<header>
-  <h1>Status</h1>
-  <label>View
-    <select id="view" aria-label="Which run to show"></select>
-  </label>
-  <span id="verdict" class="chip verdict" role="status">no run</span>
-  <span id="meta" class="meta"></span>
-  <span id="strip" aria-live="polite"></span>
+<div class="wrap">
+<header class="top">
+  <div class="brand">
+    <div>
+      <h1>Pleiades status</h1>
+      <span class="sub mono" id="host-line">127.0.0.1</span>
+    </div>
+    <nav class="views" aria-label="Views">
+      <a href="#gate" id="nav-gate">Gate</a>
+      <a href="#actions" id="nav-actions">Actions</a>
+      <a href="#roadmap" id="nav-roadmap">Roadmap</a>
+    </nav>
+  </div>
+  <div class="status-row">
+    <span class="chip" id="mem-pill">Memory</span>
+    <span class="chip" id="strip" aria-live="polite"></span>
+    <span class="mono muted" id="updated"></span>
+  </div>
 </header>
-<nav class="views" aria-label="Views">
-  <a href="#gate" id="nav-gate">Gate</a>
-  <a href="#roadmap" id="nav-roadmap">Roadmap</a>
-</nav>
-<div id="notes" aria-live="polite"></div>
+
 <main id="main">
 <h2 id="view-title" class="visually-hidden" tabindex="-1">Gate</h2>
-<div id="view-gate" class="grid">
-  <section class="wide" aria-labelledby="h-stages">
-    <h2 id="h-stages">Stages</h2>
+
+<div id="view-gate" class="view">
+  <section class="panel hero" aria-labelledby="g-kicker">
+    <div class="hero-main">
+      <div style="display: grid; gap: 6px">
+        <h2 class="kicker" id="g-kicker">Latest gate</h2>
+        <div class="big" id="verdict-big" role="status">No gate yet</div>
+        <p class="sub" id="meta"></p>
+      </div>
+      <div class="controls">
+        <label class="field">Show run <select id="view"></select></label>
+        <span id="verdict" class="chip verdict"></span>
+      </div>
+    </div>
+    <dl class="tiles" id="g-tiles"></dl>
+  </section>
+  <div id="notes"></div>
+  <section class="panel" aria-labelledby="h-stages">
+    <div class="ph"><h2 id="h-stages">Stages</h2><p>Outlined bars take their times from pr-check's records</p></div>
     <div id="stage-legend" class="legend"></div>
-    <div id="gantt" class="chart" role="img" aria-label="Timeline of every stage; the table below holds the same data"></div>
+    <div id="gantt" class="chart" role="img" aria-label="Timeline of every stage; the stage table holds the same data"></div>
     <details>
       <summary>Stage table</summary>
       <div class="table-wrap"><table id="stage-table"></table></div>
     </details>
   </section>
-  <section aria-labelledby="h-progress">
-    <h2 id="h-progress">Progress</h2>
-    <div id="progress"></div>
-  </section>
-  <section aria-labelledby="h-legs">
-    <h2 id="h-legs">OS legs</h2>
-    <div id="legs" class="legs"></div>
-  </section>
-  <section class="wide" aria-labelledby="h-memory">
-    <h2 id="h-memory">MemAvailable (MB)</h2>
-    <p class="note" id="memory-note"></p>
+  <div class="two">
+    <section class="panel" aria-labelledby="h-progress">
+      <div class="ph"><h2 id="h-progress">Progress</h2><p>Static checks and each test pass</p></div>
+      <div id="progress"></div>
+    </section>
+    <section class="panel" aria-labelledby="h-legs">
+      <div class="ph"><h2 id="h-legs">OS legs</h2><p>Lab machines, when the run names them</p></div>
+      <div id="legs" class="legs"></div>
+    </section>
+  </div>
+  <section class="panel" aria-labelledby="h-memory">
+    <div class="ph"><h2 id="h-memory">Memory available</h2><p id="memory-note"></p></div>
     <div id="memory" class="chart" role="img" aria-label="MemAvailable over time"></div>
   </section>
-  <section class="wide" aria-labelledby="h-actions">
-    <h2 id="h-actions">GitHub Actions</h2>
-    <p id="actions-status" class="meta" role="status"></p>
-    <div class="controls">
-      <label>Branch <select id="actions-branch" aria-label="Which branch's runs to show"></select></label>
-      <label>Run <select id="actions-run" aria-label="Which Actions run to show"></select></label>
-      <span id="actions-failed"></span>
-    </div>
-    <div id="actions-gantt" class="chart" role="img" aria-label="Timeline of the selected run's jobs; the job table holds the same data"></div>
-    <details>
-      <summary>Jobs of this run, with their steps</summary>
-      <div class="table-wrap"><table id="actions-jobs"></table></div>
-    </details>
-    <h2 style="margin-top:12px" id="actions-runs-title">Runs on this branch</h2>
-    <div class="table-wrap"><table id="actions-runs"></table></div>
-  </section>
-  <section class="wide" aria-labelledby="h-history">
-    <h2 id="h-history">History</h2>
+  <section class="panel" aria-labelledby="h-history">
+    <div class="ph"><h2 id="h-history">Gate history</h2><p>Every saved run on this machine, any worktree</p></div>
     <div class="table-wrap"><table id="history"></table></div>
-    <div class="controls" style="margin-top:12px">
-      <label>Local duration of <select id="stage-pick" aria-label="Stage whose duration to chart"></select></label>
+    <div class="controls">
+      <label class="field">Duration of <select id="stage-pick" aria-label="Stage whose duration to chart"></select></label>
     </div>
     <p id="history-chart-note" class="note"></p>
     <div id="history-chart" class="chart" role="img" aria-label="Duration of the chosen stage over saved runs"></div>
-    <div class="controls" style="margin-top:12px">
-      <label>Actions duration of <select id="job-pick" aria-label="Actions job whose duration to chart"></select></label>
-    </div>
-    <p id="actions-chart-note" class="note"></p>
-    <div id="actions-chart" class="chart" role="img" aria-label="Duration of the chosen Actions job over runs"></div>
   </section>
-  <section class="wide" aria-labelledby="h-size">
-    <h2 id="h-size">Binary size</h2>
+  <section class="panel" aria-labelledby="h-size">
+    <div class="ph"><h2 id="h-size">Binary size</h2><p id="size-note"></p></div>
     <div class="controls">
-      <label>Build <select id="size-group" aria-label="Package, Go release and flags to compare"></select></label>
+      <label class="field">Build <select id="size-group" aria-label="Package, Go release and flags to compare"></select></label>
     </div>
-    <p id="size-note" class="note"></p>
     <div id="size-chart" class="chart" role="img" aria-label="Binary size per platform over commits"></div>
   </section>
 </div>
-<div id="view-roadmap" class="grid" hidden>
-  <section class="wide" aria-labelledby="h-rm-summary">
-    <h2 id="h-rm-summary">Roadmap</h2>
-    <p id="rm-status" class="meta" role="status"></p>
-    <dl id="rm-tiles" class="tiles"></dl>
-    <div id="rm-next" class="next" hidden></div>
+
+<div id="view-actions" class="view" hidden>
+  <div class="rowwrap">
+    <aside class="panel rail" aria-labelledby="h-branches">
+      <div class="ph"><h2 id="h-branches">Branches</h2><p>newest first</p></div>
+      <label class="field">Find a branch <input type="search" id="actions-branch-search" autocomplete="off"></label>
+      <div class="branches" id="actions-branches"></div>
+    </aside>
+    <div class="grow stack">
+      <section class="panel" aria-labelledby="actions-kicker">
+        <div class="ph" style="align-items: end">
+          <div style="display: grid; gap: 6px; min-width: 0">
+            <h2 class="kicker" id="actions-kicker" style="font-size: 13px; font-weight: 500; color: var(--ink-2)">No run picked</h2>
+            <div class="big mid" id="actions-hero" style="font-size: 34px; line-height: 1.1; font-weight: 700; letter-spacing: -0.02em; overflow-wrap: anywhere"></div>
+            <p class="sub" id="actions-hero-meta" style="color: var(--ink-2)"></p>
+          </div>
+          <label class="field">Run <select id="actions-run" aria-label="Which Actions run to show"></select></label>
+        </div>
+        <dl class="tiles four" id="actions-tiles"></dl>
+        <p id="actions-status" class="note" role="status"></p>
+      </section>
+      <section class="panel" aria-labelledby="h-jobs">
+        <div class="ph"><h2 id="h-jobs">Jobs</h2><p id="actions-failed"></p></div>
+        <div id="actions-gantt" class="chart" role="img" aria-label="Timeline of the selected run's jobs; the job table holds the same data"></div>
+        <details>
+          <summary>Jobs of this run, with their steps</summary>
+          <div class="table-wrap"><table id="actions-jobs"></table></div>
+        </details>
+      </section>
+      <div class="two">
+        <section class="panel" aria-labelledby="h-jobtrend">
+          <div class="ph"><h2 id="h-jobtrend">Duration over runs</h2><p>this branch's finished runs</p></div>
+          <div class="controls">
+            <label class="field">Job <select id="job-pick" aria-label="Actions job whose duration to chart"></select></label>
+          </div>
+          <p id="actions-chart-note" class="note"></p>
+          <div id="actions-chart" class="chart" role="img" aria-label="Duration of the chosen Actions job over runs"></div>
+        </section>
+        <section class="panel" aria-labelledby="h-failures">
+          <div class="ph"><h2 id="h-failures">Failures by job</h2><p id="actions-failures-note"></p></div>
+          <div class="table-wrap"><table id="actions-failures"></table></div>
+        </section>
+      </div>
+      <section class="panel" aria-labelledby="actions-runs-title">
+        <div class="ph"><h2 id="actions-runs-title">Runs</h2><p>newest first</p></div>
+        <div class="table-wrap"><table id="actions-runs"></table></div>
+      </section>
+    </div>
+  </div>
+</div>
+
+<div id="view-roadmap" class="view" hidden>
+  <section class="panel hero" aria-labelledby="h-rm-summary">
+    <div class="hero-main">
+      <div style="display: grid; gap: 6px">
+        <h2 class="kicker" id="h-rm-summary">Roadmap</h2>
+        <div class="big" id="rm-hero">...</div>
+        <p class="sub" id="rm-hero-sub"></p>
+      </div>
+      <progress id="rm-hero-bar" max="1" value="0" aria-label="Current release progress" style="height: 10px"></progress>
+    </div>
+    <div class="stack" style="gap: 12px">
+      <dl id="rm-tiles" class="tiles"></dl>
+      <div id="rm-next" class="callout" hidden></div>
+      <p id="rm-status" class="note" role="status"></p>
+    </div>
   </section>
-  <section class="wide" aria-labelledby="h-rm-trend">
-    <h2 id="h-rm-trend">Progress over time</h2>
-    <p id="rm-trend-note" class="note"></p>
+  <section class="panel" aria-labelledby="h-rm-trend">
+    <div class="ph"><h2 id="h-rm-trend">Progress over time</h2><p id="rm-trend-note"></p></div>
     <div id="rm-trend" class="chart" role="img" aria-label="Work items done over time; the table below holds the same data"></div>
     <details>
       <summary>Every recorded value</summary>
       <div class="table-wrap"><table id="rm-trend-table"></table></div>
     </details>
   </section>
-  <section aria-labelledby="h-rm-releases">
-    <h2 id="h-rm-releases">Releases</h2>
-    <div class="table-wrap"><table id="rm-releases"></table></div>
-  </section>
-  <div class="stack">
-    <section aria-labelledby="h-rm-queue">
-      <h2 id="h-rm-queue">Work queue</h2>
-      <p class="note">Phases in the order the roadmap suggests working them, with their open items.</p>
-      <ol id="rm-queue" class="queue"></ol>
+  <div class="split">
+    <section class="panel" aria-labelledby="h-rm-releases">
+      <div class="ph"><h2 id="h-rm-releases">Releases</h2><p>release ledger order</p></div>
+      <div class="table-wrap"><table id="rm-releases"></table></div>
     </section>
-    <section aria-labelledby="h-rm-problems">
-      <h2 id="h-rm-problems">Problems</h2>
-      <ul id="rm-problems" class="problems"></ul>
+    <div class="stack">
+      <section class="panel" aria-labelledby="h-rm-queue">
+        <div class="ph"><h2 id="h-rm-queue">Work queue</h2><p>suggested order, open items</p></div>
+        <ol id="rm-queue" class="queue"></ol>
+      </section>
+      <section class="panel" aria-labelledby="h-rm-problems">
+        <div class="ph"><h2 id="h-rm-problems">Problems</h2><p>what the roadmap reports about itself</p></div>
+        <div id="rm-problems" class="stack" style="gap: 8px"></div>
+      </section>
+      <section class="panel" aria-labelledby="h-rm-security">
+        <div class="ph"><h2 id="h-rm-security">Specification and security</h2></div>
+        <dl id="rm-trace" class="tiles four"></dl>
+      </section>
+    </div>
+  </div>
+  <div class="rowwrap">
+    <section class="panel grow" aria-labelledby="h-rm-phases">
+      <div class="ph"><h2 id="h-rm-phases">Phases</h2><p id="rm-count" role="status"></p></div>
+      <div class="controls">
+        <label class="field">Search <input type="search" id="rm-search" autocomplete="off"></label>
+        <label class="field">State <select id="rm-state"><option value="">any</option><option>in progress</option><option>not started</option><option>done</option></select></label>
+        <label class="field">Release <select id="rm-version"><option value="">any</option></select></label>
+        <label class="toggle"><input type="checkbox" id="rm-deps"> Dependency lines</label>
+      </div>
+      <p id="rm-deps-note" class="note" hidden>Each line joins a phase to a phase it depends on: the arrow points at the phase that waits, and the line takes the color of the phase it waits on (green done, amber in progress, red not started). Hover over or tab into a phase to light its whole chain, upstream and downstream.</p>
+      <div class="table-wrap deps-wrap" id="rm-phases-wrap">
+        <svg id="rm-dep-lines" aria-hidden="true" focusable="false"></svg>
+        <table id="rm-phases" class="phases"></table>
+      </div>
     </section>
-    <section aria-labelledby="h-rm-security">
-      <h2 id="h-rm-security">Specification and security</h2>
-      <dl id="rm-trace" class="tiles"></dl>
+    <section class="panel side" aria-labelledby="h-rm-phase">
+      <div style="display: grid; gap: 4px">
+        <span class="mono muted" id="rm-phase-meta">Pick a phase to read its items.</span>
+        <h2 id="h-rm-phase" tabindex="-1" style="font-size: 18px; font-weight: 700">Phase</h2>
+      </div>
+      <div id="rm-phase-links" class="deps"></div>
+      <p id="rm-phase-status" class="note" role="status"></p>
+      <ul id="rm-items" class="items"></ul>
     </section>
   </div>
-  <section class="wide" aria-labelledby="h-rm-phases">
-    <h2 id="h-rm-phases">Phases</h2>
-    <div class="controls">
-      <label>State <select id="rm-state"><option value="">any</option><option>in progress</option><option>not started</option><option>done</option></select></label>
-      <label>Release <select id="rm-version"><option value="">any</option></select></label>
-      <label>Search <input type="search" id="rm-search" autocomplete="off"></label>
-      <label class="toggle"><input type="checkbox" id="rm-deps"> Dependency lines</label>
-    </div>
-    <p id="rm-count" class="note" role="status"></p>
-    <p id="rm-deps-note" class="note" hidden>Each line joins a phase to a phase it depends on: the arrow points at the
-      phase that waits, and the line takes the color of the phase it waits on (green done, amber in progress, red
-      not started). Hover over or tab into a phase to highlight its whole chain, upstream and downstream.</p>
-    <div class="table-wrap deps-wrap" id="rm-phases-wrap">
-      <svg id="rm-dep-lines" aria-hidden="true" focusable="false"></svg>
-      <table id="rm-phases" class="phases"></table>
-    </div>
-  </section>
-  <section class="wide" aria-labelledby="h-rm-phase">
-    <h2 id="h-rm-phase" tabindex="-1">Phase</h2>
-    <p id="rm-phase-meta" class="meta"></p>
-    <div id="rm-phase-links" class="deps"></div>
-    <p id="rm-phase-status" class="note" role="status"></p>
-    <ul id="rm-items" class="items"></ul>
-  </section>
 </div>
 </main>
+</div>
 </body>
 </html>

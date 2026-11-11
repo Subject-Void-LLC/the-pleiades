@@ -54,9 +54,11 @@ from jsonutil import JSONObject
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 # CSP is the page's Content-Security-Policy: scripts from this server and
-# the one pinned ECharts file, no inline script, nothing sent elsewhere.
+# the one pinned ECharts file, no inline script, the page's two typefaces
+# from Google Fonts (system fonts stand in without them), nothing sent elsewhere.
 CSP = ("default-src 'none'; script-src 'self' https://cdn.jsdelivr.net; "
-       "style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; "
+       "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; "
+       "img-src 'self' data:; connect-src 'self'; "
        "base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
 
 # STATIC maps a path to the sibling file it serves and its type.
