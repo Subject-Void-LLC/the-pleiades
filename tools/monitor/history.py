@@ -21,6 +21,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import threading
 import time
 from typing import Dict, List, Mapping, Optional, TextIO, TypedDict, Union
 
@@ -31,8 +32,9 @@ from jsonutil import JSONObject, JSONValue, as_object, get_float, get_objects, g
 RUN_ID = re.compile(r"^[0-9]{8}T[0-9]{6}Z(?:-[0-9a-f]{1,12})?(?:-[0-9]+)?$")
 # HISTORY_FILE is what a file saved beside run.json must be called.
 HISTORY_FILE = re.compile(r"^[a-z0-9_-]+\.(?:txt|json)$")
-# MAX_ACTIONS_RUNS bounds actions.json.
-MAX_ACTIONS_RUNS = 300
+# MAX_ACTIONS_RUNS bounds actions.json, the page's cache of runs; the
+# daemon's timeline keeps every run and job state for good.
+MAX_ACTIONS_RUNS = 3000
 
 
 class RunSummary(TypedDict):
@@ -153,10 +155,12 @@ class HistoryStore:
     Attributes:
         root: The history directory.
         runs_dir: Its runs/ subdirectory.
+        actions_lock: Serializes merges into actions.json.
     """
 
     root: str
     runs_dir: str
+    actions_lock: threading.Lock
 
     def __init__(self, root: str) -> None:
         """Opens a history directory, creating it 0700.
@@ -166,6 +170,7 @@ class HistoryStore:
         """
         self.root = root
         self.runs_dir = os.path.join(root, "runs")
+        self.actions_lock = threading.Lock()
         ensure_private_dir(root)
         ensure_private_dir(self.runs_dir)
 
@@ -339,10 +344,13 @@ class HistoryStore:
         Returns:
             Everything actions.json now holds.
         """
-        seen = self.load_actions()
-        for run in runs:
-            seen[str(run.get("id"))] = run
-        keep = sorted(seen.values(), key=lambda r: get_str(r, "created"), reverse=True)[:MAX_ACTIONS_RUNS]
-        doc = {str(r.get("id")): r for r in keep}
-        write_json(self.actions_path(), doc)
-        return doc
+        # The daemon's poll and its backfill both merge here; the lock keeps
+        # one from writing over the other's runs.
+        with self.actions_lock:
+            seen = self.load_actions()
+            for run in runs:
+                seen[str(run.get("id"))] = run
+            keep = sorted(seen.values(), key=lambda r: get_str(r, "created"), reverse=True)[:MAX_ACTIONS_RUNS]
+            doc = {str(r.get("id")): r for r in keep}
+            write_json(self.actions_path(), doc)
+            return doc

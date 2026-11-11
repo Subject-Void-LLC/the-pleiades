@@ -1,4 +1,4 @@
-// dashboard.js draws the pr-check monitor's page from monitor.py's JSON.
+// dashboard.js draws the status page's Gate view from the daemon's JSON.
 //
 // It polls /state every two seconds (the live run, the Actions poll and
 // memory), /history every twenty, and /actions-history and /binsize every
@@ -544,7 +544,10 @@ function renderHistory() {
   const view = document.getElementById('view');
   const keep = viewId;
   clear(view);
-  view.appendChild(el('option', { value: 'live', text: liveState && liveState.run ? 'Live (' + liveState.mode + ')' : 'Live (no run)' }));
+  const latest = liveState && liveState.mode === 'daemon'
+    ? (liveState.gate ? (liveState.gate.live ? 'Running now' : 'Latest run') + (liveState.gate.branch ? ' (' + liveState.gate.branch + ')' : '') : 'No run yet')
+    : (liveState && liveState.run ? 'Live (' + liveState.mode + ')' : 'Live (no run)');
+  view.appendChild(el('option', { value: 'live', text: latest }));
   for (const r of historyRuns) view.appendChild(el('option', { value: r.id, text: fmtTime(r.started) + ' ' + (r.verdict || (r.ended ? '' : 'running')) }));
   view.value = keep;
   drawDurationChart('history-chart', 'stage-pick', historyRuns.slice().reverse().map((r) => ({

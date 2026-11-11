@@ -28,6 +28,10 @@ REPO = "Subject-Void-LLC/the-pleiades"
 POLL_SECONDS = 60
 # RUNS_WITH_JOBS is how many of the newest runs get their jobs read.
 RUNS_WITH_JOBS = 5
+# BACKFILL_PAGE is how many runs one page of the backfill lists (GitHub's most).
+BACKFILL_PAGE = 100
+# BACKFILL_MAX_PAGES bounds one backfill: 100 pages is 10,000 runs.
+BACKFILL_MAX_PAGES = 100
 # FAILED_CONCLUSIONS are the job conclusions the page marks as failed.
 FAILED_CONCLUSIONS = ("failure", "timed_out", "startup_failure")
 
@@ -115,6 +119,18 @@ def runs_path(branch: str) -> str:
         The path for gh api.
     """
     return "repos/%s/actions/runs?branch=%s&per_page=10" % (REPO, urllib.parse.quote(branch, safe=""))
+
+
+def all_runs_path(page: int) -> str:
+    """Builds the API path listing one page of every branch's workflow runs.
+
+    Args:
+        page: The page, from 1.
+
+    Returns:
+        The path for gh api.
+    """
+    return "repos/%s/actions/runs?per_page=%d&page=%d" % (REPO, BACKFILL_PAGE, int(page))
 
 
 def jobs_path(run_id: int) -> str:
@@ -353,6 +369,59 @@ def poll(branch: str, cache: Dict[str, JSONObject], api: ApiCall = gh_api) -> Tu
     return runs, None
 
 
+def backfill(cache: Dict[str, JSONObject], api: ApiCall = gh_api, pause: Callable[[float], None] = time.sleep,
+             save: Optional[Callable[[List[ActionsRun]], None]] = None, every: int = 25,
+             gap: float = 0.5) -> Tuple[List[ActionsRun], Optional[str]]:
+    """Reads every workflow run on every branch, with the jobs of each.
+
+    A completed run whose jobs are already cached is not read again, so a
+    second backfill costs one call a page. Jobs are read one run at a time,
+    gap seconds apart, and save is called every `every` runs, so the page
+    fills in while a first backfill works through hundreds of runs.
+
+    Args:
+        cache: Runs read before, by id (actions.json).
+        api: gh_api, or a stand-in.
+        pause: time.sleep, or a stand-in.
+        save: Called with the runs completed so far, or None.
+        every: How many runs between saves.
+        gap: Seconds between job reads.
+
+    Returns:
+        (every run, newest first, None), or (the runs read, a reason) when a page failed.
+    """
+    runs: List[ActionsRun] = []
+    err: Optional[str] = None
+    for page in range(1, BACKFILL_MAX_PAGES + 1):
+        doc, err = api(all_runs_path(page))
+        if err:
+            break
+        got = parse_runs(doc)
+        runs += got
+        if len(got) < BACKFILL_PAGE:
+            break
+    done: List[ActionsRun] = []
+    for run in runs:
+        old = cache.get(str(run["id"]))
+        old_jobs = [job_from_json(j) for j in get_objects(old, "jobs")]
+        if old_jobs and get_str(old, "status") == "completed" and run["status"] == "completed":
+            run["jobs"] = old_jobs
+        else:
+            jdoc, jerr = api(jobs_path(run["id"]))
+            if jerr:
+                run["jobs_error"] = jerr
+                run["jobs"] = old_jobs
+            else:
+                run["jobs"] = parse_jobs(jdoc)
+            pause(gap)
+        done.append(run)
+        if save is not None and len(done) % every == 0:
+            save(done[-every:])
+    if save is not None and len(done) % every:
+        save(done[-(len(done) % every):])
+    return runs, err
+
+
 class ActionsStore(Protocol):
     """The part of history.HistoryStore the poller uses.
 
@@ -391,9 +460,12 @@ class ActionsPoller:
         lock: Guards state.
         state: The latest poll: branch, runs, error and when.
         stop: Set to end the polling thread.
+        root_fn: Names the checkout whose branch to poll, when set; the
+            daemon follows whichever worktree the latest gate ran in.
     """
 
     repo_root: str
+    root_fn: Optional[Callable[[], str]]
     store: Optional[ActionsStore]
     redactor: Redactor
     api: ApiCall
@@ -402,7 +474,7 @@ class ActionsPoller:
     stop: threading.Event
 
     def __init__(self, repo_root: str, store: Optional[ActionsStore], redactor: Redactor,
-                 api: ApiCall = gh_api) -> None:
+                 api: ApiCall = gh_api, root_fn: Optional[Callable[[], str]] = None) -> None:
         """Prepares a poller; start() begins polling.
 
         Args:
@@ -410,8 +482,10 @@ class ActionsPoller:
             store: Where runs seen are saved, or None.
             redactor: Masks every string before it is kept.
             api: gh_api, or a stand-in.
+            root_fn: Names the checkout to poll instead of repo_root, when set.
         """
         self.repo_root = repo_root
+        self.root_fn = root_fn
         self.store = store
         self.redactor = redactor
         self.api = api
@@ -421,7 +495,7 @@ class ActionsPoller:
 
     def poll_once(self) -> None:
         """Polls once and keeps the result."""
-        branch = current_branch(self.repo_root)
+        branch = current_branch(self.root_fn() if self.root_fn is not None else self.repo_root)
         runs: List[ActionsRun] = []
         err: Optional[str]
         if branch is None:

@@ -5,6 +5,8 @@ Routes (GET only):
 
     /                 dashboard.html
     /app.js           dashboard.js
+    /roadmap.js       roadmap.js, the roadmap tab
+    /healthz          who is serving: protocol, pid, the latest run
     /state            the live run, the Actions poll and memory
     /history          every saved run, newest first, with stage durations
     /history/<id>     one saved run
@@ -15,7 +17,16 @@ Routes (GET only):
     /wait             one answer when the run gives one: ?for=fail,end
                       (fail: a stage failed or was stopped; end: the run
                       ended; stage: any stage change; any: every event),
-                      ?since=<seq>, ?timeout=<seconds> (default 3600)
+                      ?since=<seq>, ?timeout=<seconds> (default 3600),
+                      ?run=<run id> (default: the latest run while it is
+                      live or just ended, else the next one to start)
+    /timeline         the JSONL history, one object a line:
+                      ?since=<epoch seconds>, ?kind=a,b (a kind ending
+                      in "." is a family: gate.), ?src=<src>, ?limit=<n>
+                      (the newest n; default and most 100000)
+    /roadmap.json     the roadmap model: ?phase=<id> (repeatable),
+                      ?details=1; {"error": ...} with 404 when none is
+                      configured
 
 /events and /wait are the observer side: a page or a script subscribes and
 is told, instead of polling /state. Each event carries a seq, so a
@@ -33,10 +44,12 @@ import re
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Dict, List, Optional, Protocol, Tuple, Type
+from collections import deque
+from typing import Deque, Dict, Iterable, List, Optional, Protocol, Sequence, Tuple, Type
 from urllib.parse import parse_qs
 
 import events
+from jsonutil import JSONObject
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -50,6 +63,7 @@ CSP = ("default-src 'none'; script-src 'self' https://cdn.jsdelivr.net; "
 STATIC: Dict[str, Tuple[str, str]] = {
     "/": ("dashboard.html", "text/html; charset=utf-8"),
     "/app.js": ("dashboard.js", "text/javascript; charset=utf-8"),
+    "/roadmap.js": ("roadmap.js", "text/javascript; charset=utf-8"),
 }
 HISTORY_PATH = re.compile(r"^/history/([A-Za-z0-9_-]+)$")
 
@@ -60,6 +74,8 @@ WAIT_MAX = 6 * 3600.0
 KEEPALIVE = 15.0
 # WAIT_KINDS are what /wait?for= may name.
 WAIT_KINDS = ("fail", "end", "stage", "any")
+# TIMELINE_LIMIT bounds the lines one /timeline answer holds.
+TIMELINE_LIMIT = 100000
 
 
 class Backend(Protocol):
@@ -87,6 +103,27 @@ class Backend(Protocol):
 
     def broker(self) -> Optional[events.Broker]:
         """Returns the live run's event broker, or None with no live run."""
+        ...
+
+    def select_broker(self, run_id: Optional[str], deadline: float) -> Tuple[Optional[events.Broker], Optional[str]]:
+        """Chooses the run a /wait answers from, waiting until deadline for one."""
+        ...
+
+    def health(self) -> object:
+        """Returns the /healthz document."""
+        ...
+
+    def waits_for_runs(self) -> bool:
+        """Reports whether a /wait with no run yet should wait for one (the
+        daemon) rather than answer 404 (a watch server)."""
+        ...
+
+    def timeline_lines(self, since: float, kinds: Optional[List[str]], src: Optional[str]) -> Iterable[JSONObject]:
+        """Returns the timeline's lines, oldest first."""
+        ...
+
+    def roadmap(self, phases: Sequence[str], details: bool) -> object:
+        """Returns the roadmap model, or {"error": why}."""
         ...
 
 
@@ -211,6 +248,15 @@ def make_handler(app: Backend, port: int) -> Type[BaseHTTPRequestHandler]:
                 self.send_json(app.actions_history())
             elif path == "/binsize":
                 self.send_json(app.binsize())
+            elif path == "/healthz":
+                self.send_json(app.health())
+            elif path == "/timeline":
+                self.serve_timeline()
+            elif path == "/roadmap.json":
+                q = query(self.path)
+                phases = [p for v in q.get("phase", []) for p in v.split(",") if p][:20]
+                doc = app.roadmap(phases, q.get("details") == ["1"])
+                self.send_json(doc, 404 if isinstance(doc, dict) and "error" in doc else 200)
             else:
                 m = HISTORY_PATH.match(path)
                 run = app.history_run(m.group(1)) if m else None
@@ -227,10 +273,6 @@ def make_handler(app: Backend, port: int) -> Type[BaseHTTPRequestHandler]:
             Args:
                 path: The request path with its query.
             """
-            broker = app.broker()
-            if broker is None:
-                self.send_json({"error": "no live run: start one with monitor.py run or watch"}, 404)
-                return
             q = query(self.path)
             # A browser's EventSource reconnects naming the last event it saw.
             last = self.headers.get("Last-Event-ID", "")
@@ -241,16 +283,51 @@ def make_handler(app: Backend, port: int) -> Type[BaseHTTPRequestHandler]:
             if since is None or timeout is None:
                 self.send_json({"error": "since and timeout are whole numbers in range"}, 400)
                 return
+            run_id = (q.get("run") or [""])[0] or None
             if path == "/wait":
                 wanted = [w for part in q.get("for", ["fail,end"]) for w in part.split(",") if w]
                 if not wanted or any(w not in WAIT_KINDS for w in wanted):
                     self.send_json({"error": "for is a list of %s" % ", ".join(WAIT_KINDS)}, 400)
                     return
-                self.send_json(self.wait_for(broker, since, float(timeout), wanted))
+                if not app.waits_for_runs() and app.broker() is None:
+                    self.send_json({"error": "no live run: start one with monitor.py run"}, 404)
+                    return
+                deadline = time.monotonic() + float(timeout)
+                broker, chosen = app.select_broker(run_id, deadline)
+                if broker is None:
+                    self.send_json({"event": None, "seq": since, "timeout": True, "run_id": run_id})
+                    return
+                answer = self.wait_for(broker, since, max(0.0, deadline - time.monotonic()), wanted)
+                answer["run_id"] = chosen
+                self.send_json(answer)
+                return
+            broker = app.broker() if run_id is None else app.select_broker(run_id, time.monotonic())[0]
+            if broker is None:
+                self.send_json({"error": "no live run: start one with monitor.py run"}, 404)
                 return
             self.stream(broker, since, float(timeout))
 
-        def wait_for(self, broker: events.Broker, since: int, timeout: float, wanted: List[str]) -> object:
+        def serve_timeline(self) -> None:
+            """Answers /timeline with JSONL, the newest ?limit lines of what matches."""
+            q = query(self.path)
+            try:
+                since = float((q.get("since") or ["0"])[0])
+            except ValueError:
+                self.send_json({"error": "since is epoch seconds"}, 400)
+                return
+            limit = int_param(q, "limit", TIMELINE_LIMIT, 1, TIMELINE_LIMIT)
+            if limit is None:
+                self.send_json({"error": "limit is a whole number from 1 to %d" % TIMELINE_LIMIT}, 400)
+                return
+            kinds = [k for v in q.get("kind", []) for k in v.split(",") if k] or None
+            src = (q.get("src") or [""])[0] or None
+            kept: Deque[JSONObject] = deque(maxlen=limit)
+            for line in app.timeline_lines(since, kinds, src):
+                kept.append(line)
+            body = "".join(json.dumps(line, sort_keys=True, separators=(",", ":")) + "\n" for line in kept)
+            self.send_body(200, body.encode("utf-8"), "application/x-ndjson")
+
+        def wait_for(self, broker: events.Broker, since: int, timeout: float, wanted: List[str]) -> Dict[str, object]:
             """Holds the request until an event answers wanted.
 
             Args:

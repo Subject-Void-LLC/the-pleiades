@@ -950,7 +950,7 @@ class CommandLineTest(unittest.TestCase):
     def test_parse_args(self) -> None:
         """Reads each command's options with their defaults."""
         run = monitor.parse_args(["run"])
-        self.assertEqual((run.command, run.cap, run.parallelism, run.port, run.linger), ("run", "4500M", 1, 8765, 120))
+        self.assertEqual((run.command, run.cap, run.parallelism, run.port, run.linger), ("run", "4500M", 1, 8765, 0))
         watch = monitor.parse_args(["watch", "--log", "x.txt", "--pace", "0.5", "--no-save"])
         self.assertEqual((watch.log, watch.pace, watch.no_save, watch.pr_dir), ("x.txt", 0.5, True, None))
         self.assertEqual(monitor.parse_args(["serve", "--port", "9000"]).port, 9000)

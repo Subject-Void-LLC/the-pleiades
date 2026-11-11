@@ -1,37 +1,114 @@
-# pr-check monitor
+# Status page
 
-A live dashboard of `make pr-check`, every stage, plus the branch's GitHub
-Actions runs, with a history of both. It draws with Apache ECharts and runs
-on the Python 3 standard library alone. Nothing in the Makefile or CI calls
-it.
+One always-on page per machine for development work: the `make pr-check`
+gate (every stage, whichever worktree runs it), GitHub Actions, memory, the
+implementation roadmap when this machine has one, and a JSONL history of
+every value it has seen. It draws with Apache ECharts and runs on the Python
+3 standard library alone. Nothing in the Makefile or CI calls it.
 
 ## Run it
 
-From the repository root, with the repository's virtual environment:
+The page is a daemon. Claude Code sessions in this repository start it
+through the `SessionStart` hook in `.claude/settings.json`, and the `status`
+MCP server starts it on its first call; by hand:
 
 ```bash
-# Run pr-check under the monitor (capped, its own process group).
-.venv/bin/python tools/monitor/monitor.py run [--cap 4500M] [--parallelism 1] [--port 8765] [--linger 120]
+python3 -B tools/monitor/monitor.py ensure          # start it unless it runs (safe to repeat)
+python3 -B tools/monitor/monitor.py daemon          # or run it in the foreground (serve is the old name)
 
-# Watch a run started elsewhere: start it with --trace and tee its output.
+# Run pr-check (capped, its own process group); the daemon shows it.
+.venv/bin/python tools/monitor/monitor.py run [--cap 4500M] [--parallelism 1]
+
+# Watch a run started elsewhere, or replay a log, on a server of its own (port 8767).
 make --trace pr-check 2>&1 | tee /tmp/prcheck.txt
 .venv/bin/python tools/monitor/monitor.py watch --log /tmp/prcheck.txt
-
-# Replay a finished log (not saved to history).
 .venv/bin/python tools/monitor/monitor.py watch --log old.txt [--pace 0.05]
-
-# History and Actions only.
-.venv/bin/python tools/monitor/monitor.py serve
 ```
 
-Then open http://127.0.0.1:8765/. The server binds 127.0.0.1 only and
-refuses a request whose Host header is not this machine's loopback.
+Then open http://127.0.0.1:8765/ (the Gate view) or http://127.0.0.1:8765/#roadmap.
+The server binds 127.0.0.1 only and refuses a request whose Host header is
+not this machine's loopback.
 
-Every command takes `--port` and `--no-actions`.
+### The daemon
+
+- **One per machine.** It holds `statusd.lock` (an flock) for its life, so a
+  second one exits at once. Every path is under the main clone's
+  `.IGNORE/ci/monitor/`, found through git's common directory, so every
+  worktree shares the one page and the one history.
+- **ensure** leaves a running daemon alone when its `PROTOCOL` is the same or
+  newer, and replaces it when the protocol is older or its source directory
+  was removed with its worktree, but never while a gate runs.
+- **It never touches a gate.** A gate is its own process (`run`) and hands
+  itself over through files: `gate.lock` (one gate at a time on this
+  machine), the manifest `live.json`, and the run's `events.jsonl` and
+  `live.json` snapshot. A daemon restarted mid-run catches up from the start
+  of the event file; a run whose process died without closing its events is
+  ended as `lost`.
+- **Actions** follow the branch the latest gate ran on (the main clone's
+  branch before any), polled every minute. Every six hours, and when it
+  starts, the daemon also reads every workflow run on every branch with its
+  jobs (one call a page, plus one per run whose jobs are not cached yet), so
+  the history covers the repository rather than one branch.
+- A `monitor.py run` from a branch older than the daemon still opens its
+  own server on 8765 and so cannot start while the daemon holds the port;
+  rebase it, or pass that run another `--port`.
+
+### The roadmap panel
+
+The repository names no internal document, so the roadmap is configured on
+the machine that has one, in `.IGNORE/ci/monitor/panels.json`:
+
+```json
+{"roadmap": {"script": "/abs/path/to/the/roadmap/script.py"}}
+```
+
+The daemon runs that script with `--json` (and `--phase ID --details` for
+one phase), caches the result until a Markdown file beside it or the script
+changes (or five minutes pass), and serves it at `/roadmap.json`. The
+Roadmap view draws it natively: totals, release progress, the work queue,
+every phase with filters, a phase's items with their full text, the
+roadmap's own problems, the specification trace, and progress over time
+from the timeline.
+
+### The timeline: every past value
+
+`.IGNORE/ci/monitor/timeline/history-YYYY-MM.jsonl`, one JSON object a line,
+never deleted:
+
+```json
+{"v": 1, "t": 1794420305.2, "kind": "gate.stage", "src": "<run id>", "data": {...}}
+```
+
+Kinds: `daemon` (start, stop, attach, backfill), `gate.stage` and
+`gate.run` (every broker event of every gate), `actions.run` and
+`actions.job` (each status or conclusion change; backfilled lines are dated
+when the run or job ended), `roadmap.summary` and `roadmap.phase` (each
+change of the totals, or of a phase's state or counts), `memory` (one
+sample a minute). A value is written only when it changed, and the daemon
+reads the files when it starts, so a restart writes nothing twice. Each
+line is one `write` on a file opened `O_APPEND`, masked like everything
+else; a truncated last line is skipped. Read it at `/timeline?kind=...&src=...&since=...&limit=...`
+(JSONL), through the MCP `timeline` tool, or with any JSONL reader.
+
+### The MCP server
+
+`mcp_status.py` is a stdio MCP server, wired in `.mcp.json` as `status`.
+Every tool only reads, through the daemon:
+
+| Tool | Answers |
+|---|---|
+| `status` | everything at once: gate verdict, failing and running stages, Actions, memory, roadmap totals |
+| `gate` | the latest or a named gate run, every stage |
+| `gate_wait` | blocks until the gate's first failure or its end (or a timeout up to an hour) |
+| `actions` | Actions for the branch in use, failed jobs |
+| `roadmap` | totals and the queue, or one phase with its items (`details` for their full text) |
+| `timeline` | any recorded value, filtered by kind, src and time |
+| `history` | saved gate runs |
 
 ### run
 
-`run` starts `env PR_CHECK_PARALLELISM=<p> ~/.local/bin/capped <cap> make
+`run` refuses while another gate holds `gate.lock`, makes sure the daemon
+runs, prints the run id and the `/wait` command naming it, then starts `env PR_CHECK_PARALLELISM=<p> ~/.local/bin/capped <cap> make
 --trace pr-check` from the repository root in a new session (setsid, through
 `start_new_session`), tees its output to the terminal and to the run's log,
 and ends with pr-check's own exit status (128 plus the signal number when a
@@ -49,8 +126,8 @@ signal killed it). It refuses to start without `capped`.
   8 GB, load reached 600 and the sampler itself was starved, while
   MemAvailable never went under 700 MB. Growth in swap does not escalate to
   SIGKILL, since swapped pages stay out after the run stops.
-- After the run ends, the dashboard stays up for `--linger` seconds (120 by
-  default) so the final state can be read, or until Ctrl-C.
+- The page stays up after the run, since the daemon serves it; `--linger`
+  is accepted and ignored so older command lines still parse.
 
 ### watch
 
@@ -74,14 +151,19 @@ their subscribers (it redraws the moment a stage changes):
 - **`/wait`** holds one request until an event answers it, then returns that
   event as JSON: `?for=fail,end` (the default; `fail` is a stage that failed or
   was stopped, `end` the run's end, `stage` any stage change, `any` everything),
-  `?since=<seq>`, `?timeout=<seconds>` (3600 by default). A script, or an
-  agent, waits for a gate's first failure with one call and no loop:
+  `?since=<seq>`, `?timeout=<seconds>` (3600 by default), `?run=<run id>`.
+  Without `run`, it answers from the latest gate while it runs or for 30
+  seconds after it ended, and otherwise waits for the next gate to start,
+  so a wait sent just before `run` writes its manifest is not lost. The
+  answer names the `run_id` it came from. A script, or an agent, waits for
+  a gate's first failure with one call and no loop:
 
   ```sh
   curl -s 'http://127.0.0.1:8765/wait?for=fail,end&timeout=21600'
   ```
 
-Both answer 404 when the monitor has no live run (`serve`).
+`/events` answers 404 before any gate; a `watch` server answers both with
+404 when it has no run.
 
 ## What it reads
 
@@ -136,15 +218,23 @@ left its open tooltip behind each time, so old tooltips stacked up.
 
 ## Where it writes
 
-Only under `.IGNORE/ci/monitor/` (ignored by git), directories 0700 and files
-0600:
+Only under the main clone's `.IGNORE/ci/monitor/` (ignored by git),
+directories 0700 and files 0600:
 
 ```
-.IGNORE/ci/monitor/runs/<run id>/run.json     the run: stages, memory, verdict
-.IGNORE/ci/monitor/runs/<run id>/log.txt      the run's log
-.IGNORE/ci/monitor/runs/<run id>/report.json  a copy of report.json
-.IGNORE/ci/monitor/runs/<run id>/<leg>.txt    a copy of each leg's log
-.IGNORE/ci/monitor/actions.json               every Actions run seen, with jobs
+.IGNORE/ci/monitor/statusd.lock                the daemon's lock: pid, port, protocol, source
+.IGNORE/ci/monitor/statusd.log                 the daemon's output
+.IGNORE/ci/monitor/gate.lock                   held by the one gate run
+.IGNORE/ci/monitor/live.json                   that run's manifest, removed when it ends
+.IGNORE/ci/monitor/panels.json                 hand-written, optional: the roadmap script
+.IGNORE/ci/monitor/timeline/history-*.jsonl    every past value, a file a month
+.IGNORE/ci/monitor/runs/<run id>/run.json      the run: stages, memory, verdict
+.IGNORE/ci/monitor/runs/<run id>/log.txt       the run's log
+.IGNORE/ci/monitor/runs/<run id>/events.jsonl  its broker events, then a closing line
+.IGNORE/ci/monitor/runs/<run id>/live.json     its state, rewritten every second
+.IGNORE/ci/monitor/runs/<run id>/report.json   a copy of report.json
+.IGNORE/ci/monitor/runs/<run id>/<leg>.txt     a copy of each leg's log
+.IGNORE/ci/monitor/actions.json                the newest 3000 Actions runs, with jobs (the page's cache)
 ```
 
 Each file is written through a `.tmp` file beside it, renamed into place.
@@ -158,7 +248,7 @@ PASSWORD, PASS, KEY or CREDENTIAL (six characters or longer) is replaced with
 ## Tests
 
 ```bash
-cd tools/monitor && ../../.venv/bin/python -B -m unittest -v
+cd tools/monitor && ../../.venv/bin/python -B -m unittest -v     # test_monitor and test_daemon
 ~/.local/bin/pyright tools/monitor     # every file is checked in strict mode
 ```
 

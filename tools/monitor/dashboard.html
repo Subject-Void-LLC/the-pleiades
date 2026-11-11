@@ -1,15 +1,16 @@
 <!doctype html>
 <!--
-  dashboard.html: the pr-check monitor's one page. monitor.py serves it on
-  127.0.0.1 with dashboard.js, which polls /state every two seconds and draws
-  the charts with Apache ECharts (one pinned file, checked by its SRI hash).
-  Every piece of log or API text reaches the page through textContent only.
+  dashboard.html: the status page, served by the daemon on 127.0.0.1. Two
+  views: Gate (dashboard.js: pr-check, Actions, memory, history) and Roadmap
+  (roadmap.js, from /roadmap.json and the /timeline history). The charts are
+  Apache ECharts (one pinned file, checked by its SRI hash). Every piece of
+  log, API or roadmap text reaches the page through textContent only.
 -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>pr-check monitor</title>
+<title>Status page</title>
 <style>
   :root {
     color-scheme: light;
@@ -83,7 +84,32 @@
   header { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: baseline; margin-bottom: 12px; }
   h1 { font-size: 20px; margin: 0; }
   h2 { font-size: 16px; margin: 0 0 8px; }
-  main { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 520px), 1fr)); }
+  .grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 520px), 1fr)); }
+  .grid[hidden] { display: none; }
+  nav.views { display: flex; gap: 4px; margin: 0 0 12px; flex-wrap: wrap; }
+  nav.views a {
+    display: inline-block; min-height: 32px; padding: 5px 14px; border-radius: 6px; text-decoration: none;
+    border: 1px solid var(--border); color: var(--text-primary); background: var(--surface-1);
+  }
+  nav.views a[aria-current="page"] { background: var(--text-primary); color: var(--surface-0); border-color: var(--text-primary); }
+  .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .skip-link { position: absolute; left: -9999px; }
+  .skip-link:focus { left: 16px; top: 8px; z-index: 10; background: var(--surface-1); padding: 4px 8px; }
+  #strip { color: var(--text-secondary); font-size: 13px; }
+  dl.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; margin: 0; }
+  dl.tiles div { border: 1px solid var(--grid); border-radius: 6px; padding: 8px 10px; }
+  dl.tiles dt { color: var(--text-secondary); font-size: 12px; }
+  dl.tiles dd { margin: 2px 0 0; font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  ol.queue { margin: 0; padding-left: 22px; }
+  ol.queue li { margin: 2px 0; }
+  button.link { border: 0; background: none; padding: 2px 0; color: var(--series-1); text-decoration: underline; min-height: 24px; }
+  ul.items { list-style: none; padding: 0; margin: 0; }
+  ul.items li { border-bottom: 1px solid var(--grid); padding: 6px 0; }
+  ul.items .state { display: inline-block; min-width: 4.5em; font-weight: 600; font-size: 12px; }
+  ul.items .state.done { color: var(--st-pass); }
+  ul.items .extra { color: var(--text-muted); font-size: 12px; }
+  pre.details { white-space: pre-wrap; word-break: break-word; font-size: 12px; color: var(--text-secondary); margin: 6px 0 0; }
+  input[type="search"] { font: inherit; color: var(--text-primary); background: var(--surface-1); border: 1px solid var(--border); border-radius: 6px; padding: 3px 8px; }
   section {
     background: var(--surface-1);
     border: 1px solid var(--border);
@@ -152,18 +178,27 @@
         integrity="sha384-Mx5lkUEQPM1pOJCwFtUICyX45KNojXbkWdYhkKUKsbv391mavbfoAmONbzkgYPzR"
         crossorigin="anonymous"></script>
 <script src="/app.js" defer></script>
+<script src="/roadmap.js" defer></script>
 </head>
 <body>
+<a class="skip-link" href="#main">Skip to the view</a>
 <header>
-  <h1>pr-check monitor</h1>
+  <h1>Status</h1>
   <label>View
     <select id="view" aria-label="Which run to show"></select>
   </label>
   <span id="verdict" class="chip verdict" role="status">no run</span>
   <span id="meta" class="meta"></span>
+  <span id="strip" aria-live="polite"></span>
 </header>
+<nav class="views" aria-label="Views">
+  <a href="#gate" id="nav-gate">Gate</a>
+  <a href="#roadmap" id="nav-roadmap">Roadmap</a>
+</nav>
 <div id="notes" aria-live="polite"></div>
-<main>
+<main id="main">
+<h2 id="view-title" class="visually-hidden" tabindex="-1">Gate</h2>
+<div id="view-gate" class="grid">
   <section class="wide" aria-labelledby="h-stages">
     <h2 id="h-stages">Stages</h2>
     <div id="stage-legend" class="legend"></div>
@@ -223,6 +258,57 @@
     <p id="size-note" class="note"></p>
     <div id="size-chart" class="chart" role="img" aria-label="Binary size per platform over commits"></div>
   </section>
+</div>
+<div id="view-roadmap" class="grid" hidden>
+  <section class="wide" aria-labelledby="h-rm-summary">
+    <h2 id="h-rm-summary">Roadmap</h2>
+    <p id="rm-status" class="meta" role="status"></p>
+    <dl id="rm-tiles" class="tiles"></dl>
+    <p id="rm-next" class="note"></p>
+  </section>
+  <section class="wide" aria-labelledby="h-rm-trend">
+    <h2 id="h-rm-trend">Progress over time</h2>
+    <p id="rm-trend-note" class="note"></p>
+    <div id="rm-trend" class="chart" role="img" aria-label="Work items done over time; the table below holds the same data"></div>
+    <details>
+      <summary>Every recorded value</summary>
+      <div class="table-wrap"><table id="rm-trend-table"></table></div>
+    </details>
+  </section>
+  <section aria-labelledby="h-rm-releases">
+    <h2 id="h-rm-releases">Releases</h2>
+    <div class="table-wrap"><table id="rm-releases"></table></div>
+  </section>
+  <section aria-labelledby="h-rm-queue">
+    <h2 id="h-rm-queue">Work queue</h2>
+    <p class="note">Phases in the order the roadmap suggests working them, with their open items.</p>
+    <ol id="rm-queue" class="queue"></ol>
+  </section>
+  <section class="wide" aria-labelledby="h-rm-phases">
+    <h2 id="h-rm-phases">Phases</h2>
+    <div class="controls">
+      <label>State <select id="rm-state"><option value="">any</option><option>in progress</option><option>not started</option><option>done</option></select></label>
+      <label>Release <select id="rm-version"><option value="">any</option></select></label>
+      <label>Search <input type="search" id="rm-search" autocomplete="off"></label>
+    </div>
+    <p id="rm-count" class="note" role="status"></p>
+    <div class="table-wrap"><table id="rm-phases"></table></div>
+  </section>
+  <section class="wide" aria-labelledby="h-rm-phase">
+    <h2 id="h-rm-phase" tabindex="-1">Phase</h2>
+    <p id="rm-phase-meta" class="meta"></p>
+    <p id="rm-phase-status" class="note" role="status"></p>
+    <ul id="rm-items" class="items"></ul>
+  </section>
+  <section aria-labelledby="h-rm-problems">
+    <h2 id="h-rm-problems">Problems</h2>
+    <ul id="rm-problems"></ul>
+  </section>
+  <section aria-labelledby="h-rm-security">
+    <h2 id="h-rm-security">Specification and security</h2>
+    <dl id="rm-trace" class="tiles"></dl>
+  </section>
+</div>
 </main>
 </body>
 </html>

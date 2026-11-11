@@ -3,12 +3,25 @@
     "gopls": {
       "type": "stdio",
       "command": "gopls",
-      "args": ["mcp"]
+      "args": [
+        "mcp"
+      ]
     },
     "groundconfig": {
       "type": "stdio",
       "command": "sh",
-      "args": ["-c", "cd \"$HOME/Groundconfig\" && exec ./groundconfig mcp"]
+      "args": [
+        "-c",
+        "cd \"$HOME/Groundconfig\" && exec ./groundconfig mcp"
+      ]
+    },
+    "status": {
+      "type": "stdio",
+      "command": "sh",
+      "args": [
+        "-c",
+        "exec python3 -B \"${CLAUDE_PROJECT_DIR:-.}/tools/monitor/mcp_status.py\""
+      ]
     }
   }
 }
