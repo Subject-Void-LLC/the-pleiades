@@ -234,6 +234,23 @@ type Field struct {
 	// as typed.
 	RefusedValue func(submitted string) string
 
+	// KeepsOriginal makes an edit form carry, beside this control, the value
+	// it was opened with, in a hidden input named OriginalKey(Name), so the
+	// writer can tell what this edit changed from what someone else changed
+	// since (Values.Original). A redisplayed form carries the originals it
+	// was submitted with rather than fresh ones, so a refusal for a change
+	// made underneath is not lifted by submitting again. For a lookup the
+	// original is only the selections the control offered, since one it
+	// could not show was never deselected. Validate skips such a field when
+	// its value is its original (as a browser sends it back, Comparable),
+	// which is safe only because of a duty on the view's writer: it must keep
+	// the STORED value of a field submitted unchanged, never write the
+	// submitted one, since the original is the submitter's to forge and a
+	// forged one equal to the submission would pass an unchecked value.
+	// Registration refuses it on a password control and on a field with
+	// RefusedValue, whose stored value must never reach the page.
+	KeepsOriginal bool
+
 	// Options supplies the choices for a KindSelect field. It takes a
 	// context because a real option set is usually a query (every
 	// inventory group, every device type), not a constant.
@@ -477,6 +494,16 @@ func validateFields(fields []Field) error {
 			// the machinery does not make and nothing enforces.
 			return fmt.Errorf("field %q is marked Immutable but appears in no form", f.Name)
 		}
+		if f.KeepsOriginal && (f.Kind == KindPassword || f.RefusedValue != nil) {
+			// The original is the stored value, written into the page as a
+			// hidden input: a secret, or a value a refused form must not
+			// echo, would be in the page source.
+			return fmt.Errorf("field %q keeps its original but its stored value must never reach the page", f.Name)
+		}
+		if f.KeepsOriginal && (f.Immutable || !f.Writable()) {
+			// No edit form offers it, so there is no original to keep.
+			return fmt.Errorf("field %q keeps its original but no edit form offers it", f.Name)
+		}
 		if f.MaxLen < 0 {
 			return fmt.Errorf("field %q has a negative MaxLen", f.Name)
 		}
@@ -504,6 +531,12 @@ func Validate(ctx context.Context, fields []Field, v Values) FieldErrors {
 		// The submission's own mode, so an immutable field is not required
 		// on an edit that was never offered it.
 		if !f.WritableOn(v.editing) {
+			continue
+		}
+		// A field this edit leaves as the form showed it is not written, so
+		// a value an older build or the API stored (a name past MaxLen) does
+		// not block an edit of another field (LESSONS 415, 422).
+		if v.Unchanged(f.Name) {
 			continue
 		}
 		raw := strings.TrimSpace(v.Get(f.Name))

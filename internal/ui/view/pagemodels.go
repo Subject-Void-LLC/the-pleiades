@@ -485,6 +485,13 @@ type FormModel struct {
 	// no template performs I/O.
 	Options map[string][]Option
 
+	// Originals are the values an edit form was opened with, keyed by field
+	// name, for the fields that keep one (Field.KeepsOriginal): the stored
+	// values on the first render, and the submitted originals on a redisplay,
+	// so submitting a refused form again cannot pass for an edit made after
+	// the change underneath it. Nil on a create.
+	Originals map[string]string
+
 	// FieldSet is this form's resolved controls, in declaration order,
 	// already merged with whatever Descriptor.FieldsFor supplies for this
 	// record. Resolved before construction, so no template performs I/O.
@@ -565,6 +572,51 @@ func (m FormModel) IsSelected(f Field, value string) bool {
 		}
 	}
 	return false
+}
+
+// OriginalInput is one hidden input carrying a field's original value.
+type OriginalInput struct {
+	Name  string
+	Value string
+}
+
+// OriginalInputs are the hidden inputs an edit form carries, one for each of
+// its fields that keeps its original and has one in Originals. A field with
+// none renders no input, so the writer is told the original is missing
+// rather than handed an empty one it would read as a real value.
+//
+// A lookup's original is only the selections the control offers: one it
+// could not show (a member past the chooser's bound) cannot be deselected, so
+// it must not read as one the submitter removed.
+func (m FormModel) OriginalInputs() []OriginalInput {
+	if !m.Editing() {
+		return nil
+	}
+	var out []OriginalInput
+	for _, f := range m.Fields() {
+		if !f.KeepsOriginal {
+			continue
+		}
+		original, ok := m.Originals[f.Name]
+		if !ok {
+			continue
+		}
+		if f.Kind == KindLookup {
+			offered := make(map[string]bool, len(m.Options[f.Name]))
+			for _, o := range m.Options[f.Name] {
+				offered[o.Value] = true
+			}
+			var shown []string
+			for _, chosen := range splitSelections(original) {
+				if offered[chosen] {
+					shown = append(shown, chosen)
+				}
+			}
+			original = strings.Join(shown, ",")
+		}
+		out = append(out, OriginalInput{Name: OriginalKey(f.Name), Value: original})
+	}
+	return out
 }
 
 // HasErrors reports whether the error summary renders.

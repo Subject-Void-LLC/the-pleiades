@@ -274,6 +274,11 @@ templ Form(m view.FormModel) {
 		@pageChrome(m.Chrome())
 		<form method="post" action={ templ.SafeURL(m.Action()) }>
 			<input type="hidden" name="_csrf" value={ m.Page.CSRFToken }/>
+			// What an edit form was opened with, for the fields that keep
+			// it, so the writer merges this edit with any made since.
+			for _, o := range m.OriginalInputs() {
+				<input type="hidden" name={ o.Name } value={ o.Value }/>
+			}
 			if m.HasErrors() {
 				// The summary is focused on a failed submission, so a
 				// screen reader user is taken to what went wrong instead

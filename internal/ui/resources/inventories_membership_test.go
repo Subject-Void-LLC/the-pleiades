@@ -8,10 +8,12 @@
 package resources_test
 
 import (
+	"fmt"
 	"net/http"
-	"net/url"
 	"strings"
 	"testing"
+
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
 )
 
 // TestInventoryForm_OffersTheFleetAndMarksCurrentMembership is the chooser
@@ -55,23 +57,23 @@ func selectBlock(t *testing.T, body, field string) string {
 // in the browser is in the inventory afterwards.
 func TestInventoryForm_AddingADeviceSticks(t *testing.T) {
 	h := newHarness(t, adminIdentity)
+	// An inventory of its own, so a run under -count does not start from
+	// what the deselecting test below left in the shared store.
+	id := seedInventory(t, inventory.Set{Name: uniqueName(t, "add"), GroupIDs: []int{7}, DeviceIDs: []int{11, 12}})
+	path := fmt.Sprintf("/ui/inventories/%d", id)
 
-	form := url.Values{}
-	form.Set("name", "production")
-	form.Set("description", "The fleet that matters.")
-	form.Add("groups", "7")
-	// The two it already had, plus one it did not.
-	form.Add("devices", "11")
-	form.Add("devices", "12")
+	// What the edit form submits, hidden originals included, plus one device
+	// it did not have.
+	form := openEdit(t, h, id)
 	form.Add("devices", "13")
 
-	if w := h.postValues(t, "/ui/inventories/1", form); w.Code >= http.StatusBadRequest {
+	if w := h.postValues(t, path, form); w.Code >= http.StatusBadRequest {
 		t.Fatalf("editing an inventory's membership = %d: %s", w.Code, w.Body.String())
 	}
 
 	// The Devices tab is where a person would look to confirm it, so that
 	// is where this asserts, rather than reaching into the store.
-	devices := h.section(t, "/ui/inventories/1", "Devices")
+	devices := h.section(t, path, "Devices")
 	if !strings.Contains(devices, "router-3") {
 		t.Errorf("the device added through the form is not in the inventory's Devices tab:\n%s", devices)
 	}
@@ -90,18 +92,18 @@ func TestInventoryForm_AddingADeviceSticks(t *testing.T) {
 // reports success and the device is still there.
 func TestInventoryForm_DeselectingADeviceRemovesIt(t *testing.T) {
 	h := newHarness(t, adminIdentity)
+	id := seedInventory(t, inventory.Set{Name: uniqueName(t, "deselect"), GroupIDs: []int{7}, DeviceIDs: []int{11, 12}})
+	path := fmt.Sprintf("/ui/inventories/%d", id)
 
-	form := url.Values{}
-	form.Set("name", "production")
-	form.Set("description", "The fleet that matters.")
-	form.Add("groups", "7")
-	form.Add("devices", "11")
+	// What the edit form submits, with every device but router-1 deselected.
+	form := openEdit(t, h, id)
+	form["devices"] = []string{"11"}
 
-	if w := h.postValues(t, "/ui/inventories/1", form); w.Code >= http.StatusBadRequest {
+	if w := h.postValues(t, path, form); w.Code >= http.StatusBadRequest {
 		t.Fatalf("removing a device = %d: %s", w.Code, w.Body.String())
 	}
 
-	devices := h.section(t, "/ui/inventories/1", "Devices")
+	devices := h.section(t, path, "Devices")
 	if strings.Contains(devices, "router-2") {
 		t.Error("deselecting a device did not remove it from the inventory")
 	}

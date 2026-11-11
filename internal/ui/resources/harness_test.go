@@ -94,12 +94,18 @@ var conformanceProjectRunner *project.Runner
 // the claim recorded.
 var conformanceProjectStore *fakeProjectStore
 
+// conformanceSets is the set store behind the inventories view, captured so
+// a test can change an inventory underneath an open edit form, as another
+// operator or an API client would.
+var conformanceSets *fakeSetStore
+
 func registerViews(t *testing.T) {
 	t.Helper()
 	registerOnce.Do(func() {
 		repo := newFakeRepository()
 		conformanceRepo = repo
 		sets := newFakeSetStore()
+		conformanceSets = sets
 		accessStore, activityStream := newTestAccessStore(t)
 		conformanceStream = activityStream
 		projectStore := newFakeProjectStore()

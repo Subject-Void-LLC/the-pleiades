@@ -41,6 +41,10 @@ func fields(sets inventory.SetStore) []view.Field {
 		{
 			Name: "name", Label: "NAME", Kind: view.KindText,
 			Required: true, MaxLen: 253, Autocomplete: "off",
+			// Each editable field keeps what the edit form opened with, so a
+			// save merges with a change made since rather than undoing it
+			// (merge.go).
+			KeepsOriginal: true,
 			Help:          "What this set of devices is called. Unique within its organization, so two tenants may both have a \"production\".",
 			InList:        true,
 			InForm:        true,
@@ -48,7 +52,7 @@ func fields(sets inventory.SetStore) []view.Field {
 		},
 		{
 			Name: "description", Label: "DESCRIPTION", Kind: view.KindLongText,
-			MaxLen: 1024, InForm: true, InList: true,
+			MaxLen: 1024, InForm: true, InList: true, KeepsOriginal: true,
 			Help: "What it is for, for somebody who did not create it.",
 		},
 		{
@@ -83,12 +87,12 @@ func fields(sets inventory.SetStore) []view.Field {
 			// primary keys is unreadable where the number is what is being
 			// scanned for, and the form value is the SELECTION. Row and Form
 			// are separate functions, so neither has to compromise.
-			Name: "groups", Label: "GROUPS", Kind: view.KindLookup, InList: true, InForm: true,
-			Help:    "The device groups this inventory contains. Replacing this list replaces the membership.",
+			Name: "groups", Label: "GROUPS", Kind: view.KindLookup, InList: true, InForm: true, KeepsOriginal: true,
+			Help:    "The device groups this inventory contains. Saving applies what you selected and deselected, and keeps any change someone else made since you opened the form.",
 			Options: groupOptions(sets),
 		},
 		{
-			Name: "devices", Label: "DIRECT DEVICES", Kind: view.KindLookup, InList: true, InForm: true,
+			Name: "devices", Label: "DIRECT DEVICES", Kind: view.KindLookup, InList: true, InForm: true, KeepsOriginal: true,
 			Help:    "Devices attached with no intervening group. Devices reached through a group are not listed here, and removing one here does not remove it from a group.",
 			Options: deviceOptions(sets),
 		},
@@ -99,10 +103,11 @@ func fields(sets inventory.SetStore) []view.Field {
 	}
 }
 
-// reader adapts the SetStore's read half.
+// reader adapts the SetStore's read half to records.
 type reader struct{ sets inventory.SetStore }
 
-func (r reader) List(ctx context.Context, q view.Query) (view.Page[inventory.Set], error) {
+// List reads a page of inventories.
+func (r reader) List(ctx context.Context, q view.Query) (view.Page[record], error) {
 	limit := q.Limit
 	if limit <= 0 {
 		limit = 50
@@ -128,61 +133,57 @@ func (r reader) List(ctx context.Context, q view.Query) (view.Page[inventory.Set
 		Search: q.Search,
 	})
 	if err != nil {
-		return view.Page[inventory.Set]{}, err
+		return view.Page[record]{}, err
 	}
 
-	page := view.Page[inventory.Set]{Items: found}
+	page := view.Page[record]{}
 	if len(found) > limit {
-		page.Items = found[:limit]
+		found = found[:limit]
 		page.NextCursor = strconv.Itoa(found[limit-1].ID)
+	}
+	for _, set := range found {
+		page.Items = append(page.Items, record{Set: set})
 	}
 	return page, nil
 }
 
-func (r reader) Get(ctx context.Context, id string) (inventory.Set, error) {
+// Get reads one inventory.
+func (r reader) Get(ctx context.Context, id string) (record, error) {
 	numeric, err := strconv.Atoi(id)
 	if err != nil {
-		return inventory.Set{}, inventory.ErrSetNotFound
+		return record{}, inventory.ErrSetNotFound
 	}
-	return r.sets.Get(ctx, numeric)
+	set, err := r.sets.Get(ctx, numeric)
+	return record{Set: set}, err
 }
 
 // writer adapts the write half.
 type writer struct{ sets inventory.SetStore }
 
-func (w writer) Create(ctx context.Context, set inventory.Set) (string, error) {
-	created, err := w.sets.Create(ctx, set)
+// Create stores a new inventory.
+func (w writer) Create(ctx context.Context, r record) (string, error) {
+	created, err := w.sets.Create(ctx, r.Set)
 	if err != nil {
-		return "", err
+		return "", asFault(err)
 	}
 	return strconv.Itoa(created.ID), nil
 }
 
-func (w writer) Update(ctx context.Context, id string, set inventory.Set) error {
+// Update merges an edit submission with the stored inventory under its row
+// lock (merge.go). The organization is never taken from the submission: the
+// store keeps the stored one, since moving an inventory between tenants would
+// silently re-scope every RoleBinding pointing at it, which is a migration
+// rather than an edit.
+func (w writer) Update(ctx context.Context, id string, r record) error {
 	numeric, err := strconv.Atoi(id)
 	if err != nil {
 		return view.ErrNotFound
 	}
-
-	// The organization is read from storage rather than from the
-	// submission: moving an inventory between tenants would silently
-	// re-scope every RoleBinding pointing at it, which is a migration
-	// rather than an edit.
-	existing, err := w.sets.Get(ctx, numeric)
-	if err != nil {
-		return view.WrapNotFound(err, inventory.ErrSetNotFound)
-	}
-	set.ID = numeric
-	set.OrganizationID = existing.OrganizationID
-	// Membership is NOT read back from storage any more. It used to be,
-	// which meant an inventory could be created and then never filled: the
-	// form carried no control for either list, so copying the stored value
-	// was the only way an edit could avoid clearing them. Both are real
-	// controls now, so the submission is the authority and a deselection
-	// has to be able to mean what it says.
-	return view.WrapNotFound(w.sets.Update(ctx, set), inventory.ErrSetNotFound)
+	_, err = w.sets.UpdateWith(ctx, numeric, mergeFold(r))
+	return view.WrapNotFound(asFault(err), inventory.ErrSetNotFound)
 }
 
+// Delete removes an inventory.
 func (w writer) Delete(ctx context.Context, id string) error {
 	numeric, err := strconv.Atoi(id)
 	if err != nil {
@@ -195,8 +196,9 @@ func (w writer) Delete(ctx context.Context, id string) error {
 func Register(sets inventory.SetStore, bindings access.Bindings) error {
 	declared := fields(sets)
 
-	projector := view.Projector[inventory.Set]{
-		Row: func(set inventory.Set) view.Row {
+	projector := view.Projector[record]{
+		Row: func(r record) view.Row {
+			set := r.Set
 			return view.Row{
 				ID: strconv.Itoa(set.ID),
 				// The id the cell links to; its name is in Cells.
@@ -211,7 +213,8 @@ func Register(sets inventory.SetStore, bindings access.Bindings) error {
 				},
 			}
 		},
-		Form: func(set inventory.Set) map[string]string {
+		Form: func(r record) map[string]string {
+			set := r.Set
 			return map[string]string{
 				"name":         set.Name,
 				"description":  set.Description,
@@ -222,7 +225,7 @@ func Register(sets inventory.SetStore, bindings access.Bindings) error {
 				"devices": joinIDs(set.DeviceIDs),
 			}
 		},
-		Bind: func(v view.Values) (inventory.Set, view.FieldErrors) {
+		Bind: func(v view.Values) (record, view.FieldErrors) {
 			errs := view.FieldErrors{}
 
 			// The organization is Immutable, so an edit form never renders
@@ -239,18 +242,23 @@ func Register(sets inventory.SetStore, bindings access.Bindings) error {
 					// store refuses outright, so catching it here is what turns
 					// a refusal into a message next to the control.
 					errs.Add("organization", "Choose the organization this inventory belongs to.")
-					return inventory.Set{}, errs
+					return record{}, errs
 				}
 				org = parsed
 			}
 
-			return inventory.Set{
+			bound := record{Set: inventory.Set{
 				Name:           v.Get("name"),
 				Description:    v.Get("description"),
 				OrganizationID: org,
 				GroupIDs:       parseIDs(v.Selected("groups")),
 				DeviceIDs:      parseIDs(v.Selected("devices")),
-			}, errs
+			}}
+			if v.Editing() {
+				// What the form was opened with, for the merge.
+				bound.opened = readOpened(v)
+			}
+			return bound, errs
 		},
 	}
 
