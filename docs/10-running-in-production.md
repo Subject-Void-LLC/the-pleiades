@@ -3197,7 +3197,10 @@ Other things a deployment should know:
 What this does not cover: the masking rules catch secrets by shape and by the values
 the process knows. Under an allowed key, they cannot recognize a value with no secret
 shape that should never have been put there. That is why the list holds identifiers
-only, and why adding to it is a reviewed change.
+only, and why adding to it is a reviewed change. In the same way, an API span's name is
+exported when it has the shape of a method and a route pattern, so a name built from a
+raw request path would pass that check; only the build-time scan stops API code from
+naming a span that way.
 
 ## Configuration reference
 
