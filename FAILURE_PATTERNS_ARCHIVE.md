@@ -28832,3 +28832,22 @@ ones, and nothing makes a new message use `termsafe.Quote`.
 **Fix.** In the working tree. Those messages name each delivered id through `termsafe.Quote`. No test; checked by reading.
 
 **Lesson.** As 1160.
+
+## 1173. branchci waited 43 minutes on a dispatch whose run failed at startup, since that run never carries the run-name nonce
+
+**Symptom.** 2026-11-11, `make branch-containers` for `fix/facts-release-skew-2` at `6afcc2db`. The dispatch made run
+43097616603 at 20:42:21 UTC. GitHub ended it `startup_failure` with no jobs. `tools/branchci` kept polling for a run
+named `branch-containers <nonce>` and stopped only when it was interrupted 43 minutes later. A second dispatch at
+21:26 (run 43103077445) passed. The API gives no reason for the startup failure (no jobs, no check-run output).
+
+**Root cause.** `newRun` matched its dispatch's run by `display_title` alone, which `ci.yml`'s `run-name` sets from
+the `nonce` input. GitHub reads `run-name` only for a run it starts. A run that fails at startup is titled with the
+workflow's name (`CI`), so it could never match, and the wait ran to `-timeout` (three hours by default).
+
+**Fix.** `tools/branchci/github.go`'s `newRun` first looks for the run carrying the nonce. If none does, it takes a
+new dispatched run at the same commit that concluded `startup_failure`. `run` then writes the receipt with that
+conclusion and fails at once, naming the run's URL. A startup failure at another commit, or one listed before the
+dispatch, is still ignored. Proof: `TestRun_AStartupFailureIsAFailure`.
+
+**Lesson.** When you match an external record by a field it writes for you, ask which of its failure states never
+write that field. A matcher that can only match success-shaped records turns every early failure into a timeout.
