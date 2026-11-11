@@ -8,10 +8,11 @@
 // Controller's catalog does not name, and one of an older release a built-in
 // this release renamed. So the Controller does not hold a batch to its own
 // catalog. It stores every fact and notes, at info, the ones its own release
-// reserves for a built-in (LESSONS 415, 422). A batch's method is the batch's
-// own claim, so a check here would stop no Runner that names a catalog
-// method, and would cost only an honest Runner's facts; binding the method
-// to the node the Controller dispatched is separate work.
+// reserves for a built-in (LESSONS 415, 422). The method all of this is
+// judged under is not the batch's claim but the one the Controller dispatched
+// for the batch's node (nodes.go): a first-party method's facts are kept
+// whether or not this catalog names it, and an external Collection's method
+// keeps none a built-in holds.
 package entstore
 
 import (
@@ -22,6 +23,7 @@ import (
 	"strings"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/termsafe"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 )
 
@@ -118,6 +120,6 @@ func (s *Subscriber) noteBuiltinDifference(batch facts.Batch, quoted, method str
 		return
 	}
 	s.logger.Info("stored facts this controller's release reserves for built-ins, from a method its catalog lacks; the Runner's release and this one differ",
-		slog.String("job", batch.JobID), slog.String("device", batch.DeviceID), slog.String("method", quoted),
+		slog.String("job", termsafe.Quote(batch.JobID)), slog.String("device", termsafe.Quote(batch.DeviceID)), slog.String("method", quoted),
 		slog.Int("facts", count), slog.Any("families", families), slog.Any("keys", keys))
 }

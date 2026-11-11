@@ -127,7 +127,7 @@ func (s *EntStore) saveOne(ctx context.Context, entry engine.JournalEntry) (bool
 	entry, reasons := identityProblems(entry)
 	for _, reason := range reasons {
 		s.logger.Warn("storing a run journal entry without what it names, which no build writes for it",
-			slog.String("job", entry.JobID), slog.String("device", entry.DeviceID),
+			slog.String("job", termsafe.Quote(entry.JobID)), slog.String("device", termsafe.Quote(entry.DeviceID)),
 			slog.String("node", termsafe.Quote(entry.NodeID)), slog.String("fqcn", termsafe.Quote(entry.FQCN)), slog.String("reason", reason))
 	}
 

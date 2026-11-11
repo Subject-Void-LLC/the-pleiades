@@ -46,9 +46,11 @@ func newFactsSubscriber(store facts.Store, logger *slog.Logger, admit journal.Ad
 	if err != nil {
 		return nil, err
 	}
-	// A fact a built-in holds from a method this catalog lacks is kept and
-	// noted at info: which methods are built-in is the Runner's release's to
-	// say (FP 1020; the Runner's loader is what refuses a program's).
+	// A fact a built-in holds from a first-party method this catalog lacks
+	// is kept and noted at info: which methods are built-in is the Runner's
+	// release's to say (FP 1020). The method is the one the batch's node ran,
+	// once main adds the node resolver (node_resolver.go), and from an
+	// external Collection's method such a fact is dropped.
 	builtins, err := entstore.BuiltinMethods(wellknown.ModuleCatalog)
 	if err != nil {
 		return nil, err

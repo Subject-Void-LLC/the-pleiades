@@ -118,10 +118,11 @@ func TestNewFactsSubscriber_HoldsBatchesToTheBuiltInDeclarations(t *testing.T) {
 
 // TestNewFactsSubscriber_KeepsBuiltInFactsFromAMethodOutsideItsCatalog: a
 // batch whose method is not in the catalog this binary embeds (a newer
-// Runner's built-in, or an external Collection's) keeps every fact, a
-// declared key and a reserved family's alike, and the consumer main builds
-// notes the difference at info rather than dropping them (FP 1020): which
-// methods are built-in is the Runner's release's to say.
+// Runner's built-in) keeps every fact, a declared key and a reserved
+// family's alike, and the consumer main builds notes the difference at info
+// rather than dropping them (FP 1020): which methods are built-in is the
+// Runner's release's to say. It is built here without the node resolver main
+// adds; node_resolver_test.go holds the batch to its node's method.
 func TestNewFactsSubscriber_KeepsBuiltInFactsFromAMethodOutsideItsCatalog(t *testing.T) {
 	store := &recordingStore{}
 	var logged bytes.Buffer

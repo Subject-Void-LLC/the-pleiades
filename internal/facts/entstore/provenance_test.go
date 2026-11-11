@@ -3,8 +3,10 @@
 // (a Runner of a newer release, a built-in renamed, a batch naming no
 // method), and says so at info with a count, the families and a bounded list
 // of names, never a value. What keeps a program from writing such a fact is
-// the Runner's loader; a Runner naming a catalog method for one is a known
-// gap the Controller cannot see either way.
+// the Runner's loader, and on the Controller the node resolver, which judges
+// a batch under the method its node ran rather than the one it names
+// (nodes_test.go). These tests build the consumer without one, as a test of
+// the store alone does, except the last.
 package entstore_test
 
 import (
@@ -160,25 +162,31 @@ func TestSubscriber_BoundsTheBuiltInFactNote(t *testing.T) {
 	}
 }
 
-// TestCatalogMethodClaimWritesBuiltinKeys pins a known gap: a batch's method
-// is the batch's own claim, so a Runner that names a catalog method for a
-// program's facts writes built-in keys, and the Controller notes nothing.
-// Only binding the method to the node the Controller dispatched would catch
-// it (separate work). This test passes today and says so if that changes.
-func TestCatalogMethodClaimWritesBuiltinKeys(t *testing.T) {
+// TestCatalogMethodClaimNoLongerWritesBuiltinKeys: a Runner that names a
+// catalog method for the facts of a node that ran an external Collection's
+// method used to write built-in keys, since the batch's method was its own
+// claim. With the node resolver the Controller wires in (nodes.go), the
+// batch is judged under the node's method: no built-in key is stored, the
+// claim is said at warning, and nothing is noted as a release difference.
+func TestCatalogMethodClaimNoLongerWritesBuiltinKeys(t *testing.T) {
 	client, device := open(t)
 	store := entstore.New(client)
 	var logged bytes.Buffer
-	sub := noteSubscriber(t, store, &logged)
+	nodes := &fixedNode{node: journal.NodeMethod{Resolved: true, Method: "acme.facts.read"}}
+	sub := nodeSubscriber(t, store, &logged, nodes.resolve)
 	batch := facts.Batch{JobID: "job-1", DeviceID: device, Attempt: 1, ObservedAt: time.Now(),
-		Entries: prepared(t, map[string]any{"host.name": "forged-name", "Package.openssh": "0.0-forged"}), By: facts.Provenance{Method: "facts.gather"}}
+		Entries: prepared(t, map[string]any{"host.name": "forged-name", "Package.openssh": "0.0-forged"}),
+		By:      facts.Provenance{Node: "tasks[0]", Method: "facts.gather"}}
 	if err := handle(t, sub, batch); err != nil {
 		t.Fatal(err)
 	}
-	if got := storedKeys(t, store, device); !reflect.DeepEqual(got, []string{"Package.openssh", "host.name"}) {
-		t.Errorf("stored %q: the known gap closed; rewrite this test to say how", got)
+	if got := storedKeys(t, store, device); len(got) != 0 {
+		t.Errorf("stored %q: a forged claim still writes built-in keys", got)
 	}
 	if notes := noteLines(logged.String()); len(notes) != 0 {
-		t.Errorf("noted %q: the known gap closed; rewrite this test to say how", notes)
+		t.Errorf("noted %q as a release difference", notes)
+	}
+	if !strings.Contains(logged.String(), "claimed=facts.gather") || !strings.Contains(logged.String(), "dispatched=acme.facts.read") {
+		t.Errorf("the forged claim was not said at warning:\n%s", logged.String())
 	}
 }
