@@ -117,44 +117,73 @@ func Hash(key string, value any) (string, error) {
 	return hex.EncodeToString(sum[:]), nil
 }
 
-// ValidKey reports whether key may name a new fact: well formed
-// (wellFormedKey), so it reads the same in a report, a URL and a file, not
-// "." or "..", and holding no character that would keep it from showing as
+// ValidKey reports whether key may name a new fact: within the frozen shape
+// every reader accepts (wellFormedKey), printable with no space
+// (graphicKey), so it reads the same in a report, a URL and a file, not "."
+// or "..", and holding no character that would keep it from showing as
 // itself (recordname.ShowsAsItself), the rule a device's name is held to. A
 // key is the last segment of its history's URL,
 // /inventory/devices/{name}/facts/{key}, and no URL can carry "." or ".." as
 // a segment (internal/recordname), so a fact named one could be stored but
 // never read back by its address.
 //
-// ShowsAsItself reads Go's unicode tables, so only a new fact is held to
-// ValidKey: a reader holds a stored key to wellFormedKey alone (LESSONS 415).
+// graphicKey and ShowsAsItself read Go's unicode tables, so only a new fact
+// is held to ValidKey: a reader holds a stored key to wellFormedKey alone,
+// which reads no table (LESSONS 415, 422).
 func ValidKey(key string) bool {
-	return wellFormedKey(key) && recordname.Addressable(key) && recordname.ShowsAsItself(key) == nil
+	return wellFormedKey(key) && graphicKey(key) && recordname.Addressable(key) && recordname.ShowsAsItself(key) == nil
 }
 
-// ReadableKey reports whether key has the shape every stored key has had
-// (wellFormedKey), the rule a reader asks of a key it is given to look up,
-// such as the {key} of a fact's history. It is never ValidKey, which a
-// release or a Go upgrade may grow: a fact stored under a key ValidKey now
-// refuses must stay readable by its address (LESSONS 415).
+// graphicKey is the table-driven half of what wellFormedKey asked before it
+// was frozen, moved here unchanged so creation refuses exactly what it did:
+// every character printable (a letter, mark, number, punctuation mark or
+// symbol, or U+0020) and none a space, in the tables of the Go release that
+// built the binary. Only ValidKey asks it.
+func graphicKey(key string) bool {
+	for _, r := range key {
+		if !unicode.IsPrint(r) || unicode.IsSpace(r) {
+			return false
+		}
+	}
+	return true
+}
+
+// ReadableKey reports whether key is within the frozen shape (wellFormedKey),
+// the rule a reader asks of a key it is given to look up, such as the {key}
+// of a fact's history. It is never ValidKey, which a release or a Go upgrade
+// may grow: a fact stored under a key ValidKey now refuses must stay readable
+// by its address (LESSONS 415).
 func ReadableKey(key string) bool {
 	return wellFormedKey(key)
 }
 
-// wellFormedKey is the shape every stored key has had: non-empty, within
-// MaxKeyBytes, valid UTF-8, and printable with no space or slash. Ranging
-// over a string reads a byte that is not UTF-8 as U+FFFD, which is
-// printable, so validity is asked first (FAILURE_PATTERNS 932).
+// wellFormedKey is the frozen floor under every key a reader accepts:
+// non-empty, within MaxKeyBytes, valid UTF-8, and holding no C0 control
+// (U+0000-U+001F), U+0020, slash, DEL (U+007F) or C1 control
+// (U+0080-U+009F). Validity is asked first, since ranging over a string
+// reads a byte that is not UTF-8 as U+FFFD (FAILURE_PATTERNS 932).
 //
-// A reader holds a stored line to this and never to ValidKey, which a
-// release may grow (this one refused "." and ".."): a key an earlier release
-// stored keeps reading, and its chain keeps verifying (LESSONS 415).
+// It reads no unicode table, so its answer for a key is the same under every
+// Go release: a key a writer of a newer toolchain stored, holding a
+// character this binary's tables do not know, still reads. It is no narrower
+// than any rule a key was created under, and wider than what a key may be
+// created with: it also reads format, private-use, unassigned and separator
+// characters, which ValidKey refuses. Never use it, or ReadableKey, to
+// decide what may be stored. A reader holds a stored line to this and never
+// to ValidKey, which a release may grow (this one refused "." and ".."): a
+// key an earlier release stored keeps reading, and its chain keeps verifying
+// (LESSONS 415).
 func wellFormedKey(key string) bool {
 	if key == "" || len(key) > MaxKeyBytes || !utf8.ValidString(key) {
 		return false
 	}
 	for _, r := range key {
-		if !unicode.IsPrint(r) || unicode.IsSpace(r) || r == '/' {
+		switch {
+		case r <= 0x20: // C0 and U+0020
+			return false
+		case r == '/':
+			return false
+		case r >= 0x7F && r <= 0x9F: // DEL and C1
 			return false
 		}
 	}
