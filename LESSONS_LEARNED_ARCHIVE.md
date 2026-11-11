@@ -8204,3 +8204,65 @@ carried onward to other systems, and the sampled flag is a decision about the op
 **Rule in practice.** At an edge that takes outside requests, read `traceparent` only, keep the caller's trace ID for
 correlation, apply the operator's own sampling to a span with a remote parent, and write only `traceparent` onward. When
 claiming a value travels somewhere, follow the context it rides from where it is built, not from where it is read.
+## 443. When a reader rule is found to read release data, the toolchain's Unicode tables included, sweep every check that reader and every reader of the same store makes, not only the field the finding named; a frozen rule compares code point numbers and calls no unicode function (a refinement of 415 and 422; FAILURE_PATTERNS 1003, 1023, 1031 and 1159) (2026-11-10)
+
+**Why.** Branch `fix/facts-release-skew`, 2026-11-10. Three fixes in four days took `wire.CollectionIdentity.Valid`,
+whose format-character check reads Go's Unicode tables, out of the readers of a stored or delivered Collection
+identity: the Crawl journal's strict reader (FAILURE_PATTERNS 1003), the rollback planner and the Runner's `Verify`
+(1023), and the Controller's facts and journal stores (1031). The fact key sits on the same stored line as that
+identity, and its reader rule, `facts.wellFormedKey`, still asked `unicode.IsPrint` and `unicode.IsSpace`. A key a
+build of a newer Go stored could fail an older build's line reader, which refuses the whole device's history (1159).
+1083 had already moved the history route from the writer's rule to `ReadableKey`, and `ReadableKey` was the reader rule
+that still read the tables.
+
+**What is old and what is new.** LESSONS 415 says a reader's rule may not depend on data a later release may change,
+and its correction says the toolchain's tables count. LESSONS 422 says the same of a process storing another process's
+value. Both are right, and each fix applied them to the field its finding named. What is new is the scope of the
+search: a finding about one field of a stored record is a finding about the reader, so the sweep covers every check
+that reader makes and every other reader of the same store. The second new part is what "frozen" means: a rule that
+compares code point numbers and calls no unicode function, so no Go release can move its answer.
+
+**Rule in practice.** When a rule on release data is found in a reader, list the reader's checks on every field
+(keys, names, identities, digests, kinds) and every other reader of the same store, and ask of each whether its answer
+can move between releases or toolchains. A table-driven check that matters for display (is this printable, does it
+show as itself) moves to the writer, or to the place that prints the value, never to the reader. Pin the frozen rule
+with a test that holds it to the fixed ranges over every code point (`TestReadableKey_AsksOnlyACodePointsNumber`) or
+that reads its file's imports (`TestDeliverableReadsNoUnicodeTable`), and with a test that stores a value only a newer
+rule accepts and reads it back (`TestFileStore_ReadsAKeyThisToolchainCallsUnprintable`). Widening a reader widens what reaches every place that names the value back, so check those too
+(1162, 1163).
+
+## 444. When one tier's record is bound to another's, pin the data the consumers judge by, not a version of where it came from: a version computed over a definition that deliberately omits a field cannot vouch for that field, and a job that pinned nothing carries nothing (a refinement of 415; FAILURE_PATTERNS 1164 and 1165) (2026-11-11)
+
+**Why.** Branch `fix/facts-release-skew`, 2026-11-11. 1164's fix binds each Runner batch to the method the Controller
+dispatched for its node, read from the graph pinned on the job. The first version would have let `DAG.Version` stand
+for that graph. The version is computed over `forwardDefinition`, which clears every `rollback:` key on purpose, so a
+task's undo list can be written after a failure without changing the version. The journal consumer resolves an undo
+step from exactly that list, so a version check would have passed an edited list. The same review found a job that
+pinned nothing dispatched with a graph computed at reclaim time, which vouched for a runbook the job never ran
+(FAILURE_PATTERNS 1165).
+
+**What is old and what is new.** LESSONS 415 and 422 are about which rules a reader may apply to another process's
+value. This is about what a pin covers. A version, a digest or a timestamp of a source is evidence only for the fields
+its computation reads.
+
+**Rule in practice.** Before a check compares an identifier of a record, list the fields the consumers read and the
+fields the identifier's computation reads. Pin a digest of the first list, under a frozen scheme (1167). Take the pin
+once, when the job first runs, and never recompute it later from the source; a job with no pin carries none. Test it
+with an edit to a field the old identifier skips
+(`TestNodeGraph_ARollbackListEditKeepsTheVersionAndChangesTheGraph`).
+
+## 445. Two consumers of one batch share one judging function, one noting point and one first-party rule: a rule each writes for itself drifts the first time either changes (a refinement of 244; FAILURE_PATTERNS 1007, 1168 and 1171) (2026-11-11)
+
+**Why.** Branch `fix/facts-release-skew`, 2026-11-11. One Runner batch feeds the Controller's facts and journal
+consumers. 1007 gave the journal the identity check the facts subscriber had, as a second copy. In 1164's first
+version the two consumers held a program identity to different first-party rules, treated two kinds of undo skew
+oppositely, and only the journal noted a Kept claim (FAILURE_PATTERNS 1168). 1161 moved the facts consumer's notes
+after the write and left the journal's before it (1171).
+
+**What is old and what is new.** LESSONS 244 says a guard on one path belongs on its sibling too. The new part is the
+way to keep it there: one function both call, not two that agree today.
+
+**Rule in practice.** Where two consumers judge the same delivered value, put the judgement (`journal.NodeMethod.Judge`,
+`journal.IdentityProblem`) and the place notes are said (`internal/journal/notes.go`) in one package both call. Test
+it by feeding one batch to both and comparing what each stored and said (`TestNodeConsumers_JudgeIdentityAndSkewAlike`).
+When a fix lands in one consumer, look at the other before closing it.
