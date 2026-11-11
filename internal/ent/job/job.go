@@ -67,6 +67,10 @@ const (
 	FieldRollbackOf = "rollback_of"
 	// FieldRollback holds the string denoting the rollback field in the database.
 	FieldRollback = "rollback"
+	// FieldDagVersion holds the string denoting the dag_version field in the database.
+	FieldDagVersion = "dag_version"
+	// FieldNodeGraph holds the string denoting the node_graph field in the database.
+	FieldNodeGraph = "node_graph"
 	// EdgeTasks holds the string denoting the tasks edge name in mutations.
 	EdgeTasks = "tasks"
 	// Table holds the table name of the job in the database.
@@ -109,6 +113,8 @@ var Columns = []string{
 	FieldExternalChecks,
 	FieldRollbackOf,
 	FieldRollback,
+	FieldDagVersion,
+	FieldNodeGraph,
 }
 
 // ValidColumn reports if the column name is valid (part of the table columns).
@@ -294,6 +300,11 @@ func ByExternalChecks(opts ...sql.OrderTermOption) OrderOption {
 // ByRollbackOf orders the results by the rollback_of field.
 func ByRollbackOf(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldRollbackOf, opts...).ToFunc()
+}
+
+// ByDagVersion orders the results by the dag_version field.
+func ByDagVersion(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldDagVersion, opts...).ToFunc()
 }
 
 // ByTasksCount orders the results by tasks count.

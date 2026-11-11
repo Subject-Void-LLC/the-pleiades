@@ -194,6 +194,14 @@ func (a *Adapter) Execute(ctx context.Context, payload wire.DispatchPayload) (wi
 	if err != nil {
 		return wire.Outcome{}, fmt.Errorf("failed to resolve runbook %q: %w", payload.RunbookID, err)
 	}
+	// One job runs one graph: the Controller pinned the runbook it prepared
+	// the job from and stores this dispatch's journal and facts under that
+	// graph's methods, so a copy of another version runs nothing, as a
+	// rollback's copy is held to the version it undoes (rollback.go). An
+	// older Controller sends no version, and its dispatch runs as before.
+	if err := heldToPinnedGraph(dag, payload); err != nil {
+		return wire.Outcome{}, a.refuse(ctx, payload, err)
+	}
 
 	device, err := dispatchedDevice(payload)
 	if err != nil {
@@ -432,6 +440,28 @@ func (a *Adapter) Execute(ctx context.Context, payload wire.DispatchPayload) (wi
 		return wire.Outcome{}, fmt.Errorf("execution failed: %s", message)
 	}
 	return wire.Outcome{Unchecked: uncheckedCount(result)}, nil
+}
+
+// heldToPinnedGraph refuses a dispatch naming a pinned graph
+// (wire.DispatchPayload.GraphScheme and GraphDigest) this Runner's copy of
+// the runbook is not: the digest of its own compile under the scheme named,
+// by the same runbook.DigestUnder the Controller pinned with, differs, or
+// the scheme is one this build does not know. Only the digest is compared,
+// never DAG.Version, whose encoding is the engine's to change. A rollback is
+// held to its own version instead (rollbackDAG), and a dispatch naming no
+// graph (a playbook's, or an older Controller's) runs as before.
+func heldToPinnedGraph(dag *engine.DAG, payload wire.DispatchPayload) error {
+	if payload.Rollback != nil || (payload.GraphScheme == "" && payload.GraphDigest == "") {
+		return nil
+	}
+	digest, err := runbook.DigestUnder(payload.GraphScheme, runbook.NodesOf(dag))
+	if err != nil {
+		return fmt.Errorf("job %s names a graph digest scheme this Runner does not know, so it runs nothing; upgrade the runner to the controller's release", payload.JobID)
+	}
+	if digest != payload.GraphDigest {
+		return fmt.Errorf("this Runner's copy of runbook %q is not the graph job %s was prepared from, so it runs nothing rather than another graph than the job's", payload.RunbookID, payload.JobID)
+	}
+	return nil
 }
 
 // refuse ends a dispatch that runs nothing: it reports why in the job's

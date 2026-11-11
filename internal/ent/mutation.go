@@ -12965,6 +12965,9 @@ type JobMutation struct {
 	rollback_of          *string
 	rollback             *jsontext.Value
 	appendrollback       jsontext.Value
+	dag_version          *string
+	node_graph           *jsontext.Value
+	appendnode_graph     jsontext.Value
 	clearedFields        map[string]struct{}
 	tasks                map[int]struct{}
 	removedtasks         map[int]struct{}
@@ -14386,6 +14389,120 @@ func (m *JobMutation) ResetRollback() {
 	delete(m.clearedFields, job.FieldRollback)
 }
 
+// SetDagVersion sets the "dag_version" field.
+func (m *JobMutation) SetDagVersion(s string) {
+	m.dag_version = &s
+}
+
+// DagVersion returns the value of the "dag_version" field in the mutation.
+func (m *JobMutation) DagVersion() (r string, exists bool) {
+	v := m.dag_version
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldDagVersion returns the old "dag_version" field's value of the Job entity.
+// If the Job object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *JobMutation) OldDagVersion(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldDagVersion is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldDagVersion requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldDagVersion: %w", err)
+	}
+	return oldValue.DagVersion, nil
+}
+
+// ClearDagVersion clears the value of the "dag_version" field.
+func (m *JobMutation) ClearDagVersion() {
+	m.dag_version = nil
+	m.clearedFields[job.FieldDagVersion] = struct{}{}
+}
+
+// DagVersionCleared returns if the "dag_version" field was cleared in this mutation.
+func (m *JobMutation) DagVersionCleared() bool {
+	_, ok := m.clearedFields[job.FieldDagVersion]
+	return ok
+}
+
+// ResetDagVersion resets all changes to the "dag_version" field.
+func (m *JobMutation) ResetDagVersion() {
+	m.dag_version = nil
+	delete(m.clearedFields, job.FieldDagVersion)
+}
+
+// SetNodeGraph sets the "node_graph" field.
+func (m *JobMutation) SetNodeGraph(j jsontext.Value) {
+	m.node_graph = &j
+	m.appendnode_graph = nil
+}
+
+// NodeGraph returns the value of the "node_graph" field in the mutation.
+func (m *JobMutation) NodeGraph() (r jsontext.Value, exists bool) {
+	v := m.node_graph
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldNodeGraph returns the old "node_graph" field's value of the Job entity.
+// If the Job object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *JobMutation) OldNodeGraph(ctx context.Context) (v jsontext.Value, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldNodeGraph is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldNodeGraph requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldNodeGraph: %w", err)
+	}
+	return oldValue.NodeGraph, nil
+}
+
+// AppendNodeGraph adds j to the "node_graph" field.
+func (m *JobMutation) AppendNodeGraph(j jsontext.Value) {
+	m.appendnode_graph = append(m.appendnode_graph, j...)
+}
+
+// AppendedNodeGraph returns the list of values that were appended to the "node_graph" field in this mutation.
+func (m *JobMutation) AppendedNodeGraph() (jsontext.Value, bool) {
+	if len(m.appendnode_graph) == 0 {
+		return nil, false
+	}
+	return m.appendnode_graph, true
+}
+
+// ClearNodeGraph clears the value of the "node_graph" field.
+func (m *JobMutation) ClearNodeGraph() {
+	m.node_graph = nil
+	m.appendnode_graph = nil
+	m.clearedFields[job.FieldNodeGraph] = struct{}{}
+}
+
+// NodeGraphCleared returns if the "node_graph" field was cleared in this mutation.
+func (m *JobMutation) NodeGraphCleared() bool {
+	_, ok := m.clearedFields[job.FieldNodeGraph]
+	return ok
+}
+
+// ResetNodeGraph resets all changes to the "node_graph" field.
+func (m *JobMutation) ResetNodeGraph() {
+	m.node_graph = nil
+	m.appendnode_graph = nil
+	delete(m.clearedFields, job.FieldNodeGraph)
+}
+
 // AddTaskIDs adds the "tasks" edge to the JobTask entity by ids.
 func (m *JobMutation) AddTaskIDs(ids ...int) {
 	if m.tasks == nil {
@@ -14474,7 +14591,7 @@ func (m *JobMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *JobMutation) Fields() []string {
-	fields := make([]string, 0, 26)
+	fields := make([]string, 0, 28)
 	if m.created_at != nil {
 		fields = append(fields, job.FieldCreatedAt)
 	}
@@ -14553,6 +14670,12 @@ func (m *JobMutation) Fields() []string {
 	if m.rollback != nil {
 		fields = append(fields, job.FieldRollback)
 	}
+	if m.dag_version != nil {
+		fields = append(fields, job.FieldDagVersion)
+	}
+	if m.node_graph != nil {
+		fields = append(fields, job.FieldNodeGraph)
+	}
 	return fields
 }
 
@@ -14613,6 +14736,10 @@ func (m *JobMutation) Field(name string) (ent.Value, bool) {
 		return m.RollbackOf()
 	case job.FieldRollback:
 		return m.Rollback()
+	case job.FieldDagVersion:
+		return m.DagVersion()
+	case job.FieldNodeGraph:
+		return m.NodeGraph()
 	}
 	return nil, false
 }
@@ -14674,6 +14801,10 @@ func (m *JobMutation) OldField(ctx context.Context, name string) (ent.Value, err
 		return m.OldRollbackOf(ctx)
 	case job.FieldRollback:
 		return m.OldRollback(ctx)
+	case job.FieldDagVersion:
+		return m.OldDagVersion(ctx)
+	case job.FieldNodeGraph:
+		return m.OldNodeGraph(ctx)
 	}
 	return nil, fmt.Errorf("unknown Job field %s", name)
 }
@@ -14865,6 +14996,20 @@ func (m *JobMutation) SetField(name string, value ent.Value) error {
 		}
 		m.SetRollback(v)
 		return nil
+	case job.FieldDagVersion:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetDagVersion(v)
+		return nil
+	case job.FieldNodeGraph:
+		v, ok := value.(jsontext.Value)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetNodeGraph(v)
+		return nil
 	}
 	return fmt.Errorf("unknown Job field %s", name)
 }
@@ -15036,6 +15181,12 @@ func (m *JobMutation) ClearedFields() []string {
 	if m.FieldCleared(job.FieldRollback) {
 		fields = append(fields, job.FieldRollback)
 	}
+	if m.FieldCleared(job.FieldDagVersion) {
+		fields = append(fields, job.FieldDagVersion)
+	}
+	if m.FieldCleared(job.FieldNodeGraph) {
+		fields = append(fields, job.FieldNodeGraph)
+	}
 	return fields
 }
 
@@ -15091,6 +15242,12 @@ func (m *JobMutation) ClearField(name string) error {
 		return nil
 	case job.FieldRollback:
 		m.ClearRollback()
+		return nil
+	case job.FieldDagVersion:
+		m.ClearDagVersion()
+		return nil
+	case job.FieldNodeGraph:
+		m.ClearNodeGraph()
 		return nil
 	}
 	return fmt.Errorf("unknown Job nullable field %s", name)
@@ -15177,6 +15334,12 @@ func (m *JobMutation) ResetField(name string) error {
 		return nil
 	case job.FieldRollback:
 		m.ResetRollback()
+		return nil
+	case job.FieldDagVersion:
+		m.ResetDagVersion()
+		return nil
+	case job.FieldNodeGraph:
+		m.ResetNodeGraph()
 		return nil
 	}
 	return fmt.Errorf("unknown Job field %s", name)

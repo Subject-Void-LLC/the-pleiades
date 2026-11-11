@@ -202,6 +202,32 @@ func (w *Worker) HandleJobRequested(evt event.Event) error {
 		return nil
 	}
 
+	// One job runs one graph. The first fan-out pins the compiled runbook
+	// (its version and its nodes) before any device is dispatched, so the
+	// facts and journal consumers resolve each node a Runner's batch names
+	// from it, never from the batch's own claim (cmd/controller's node
+	// resolver). A reclaim that prepares another version fails every device
+	// it has left (changed, below) rather than dispatching them against a
+	// graph the job did not start with. A reclaim of a job that recorded
+	// devices without pinning one (a fan-out by an earlier build) pins
+	// nothing: its first devices ran a graph nobody recorded.
+	// A rollback job pins nothing: it runs its plan's steps, held to the
+	// version of the runbook it undoes, and its nodes resolve from the plan.
+	changed := graphChanged(job, prepared)
+	if job.RollbackOf == "" && job.DAGVersion == "" && len(priorTasks) == 0 {
+		if err := w.store.PinGraph(ctx, job.JobID, fence, prepared.Graph); err != nil {
+			if fenced(job.JobID, err) {
+				return nil
+			}
+			return fmt.Errorf("failed to pin the runbook graph of job %s: %w", job.JobID, err)
+		}
+		// The job now holds the graph it pinned, which its dispatches carry
+		// (dispatchPayload); a job that pinned none carries none.
+		if prepared.Graph != nil && prepared.Graph.Digest != "" {
+			job.DAGVersion, job.Graph = prepared.Graph.Version, prepared.Graph
+		}
+	}
+
 	// Credentials are resolved and rendered ONCE per job, here, before any
 	// device is considered, rather than once per device inside the loop.
 	// They are launch-time values: every device in a fan-out receives the
@@ -332,9 +358,12 @@ func (w *Worker) HandleJobRequested(evt event.Event) error {
 		// with a forks window queues each admitted device instead, and
 		// the pump below dispatches them (window.go).
 		var outcome Outcome
-		if windowed {
+		switch {
+		case changed != "":
+			outcome, err = w.recordOutcome(ctx, job, fence, device, OutcomeFailed, changed)
+		case windowed:
 			outcome, err = w.queueDevice(ctx, job, fence, prepared, device)
-		} else {
+		default:
 			outcome, err = w.admitAndDispatchDevice(ctx, job, fence, prepared, injected, evt, device)
 		}
 		if err != nil {

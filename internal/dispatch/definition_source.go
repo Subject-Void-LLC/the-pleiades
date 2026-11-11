@@ -43,6 +43,12 @@ type PreparedDefinition struct {
 	// runbook.Runbook.AllMethods), carried onto every device's dispatch
 	// payload for the Runner to compare with its own. Nil for a playbook.
 	Collections map[string]wire.CollectionIdentity
+
+	// Graph is the compiled runbook's version and what each of its nodes
+	// runs, from one compilation, pinned on the job by its first fan-out
+	// (JobStore.PinGraph). Nil for a playbook, which the platform never
+	// compiles.
+	Graph *NodeGraph
 }
 
 // DefinitionSource prepares one kind's definitions for fan-out.
@@ -85,7 +91,7 @@ func (s runbookDefinitionSource) Prepare(ctx context.Context, definition string)
 		return PreparedDefinition{}, reason, err
 	}
 	return PreparedDefinition{Required: rb.Required, Methods: rb.Methods, Interruptible: rb.Interruptible, Serial: rb.Serial,
-		Collections: collectionIdentities(rb.AllMethods)}, "", nil
+		Collections: collectionIdentities(rb.AllMethods), Graph: &NodeGraph{Version: rb.Version, Scheme: runbook.GraphScheme, Digest: rb.GraphDigest, Nodes: rb.Nodes}}, "", nil
 }
 
 // PlaybookGetter is the slice of internal/playbook.Source fan-out needs:

@@ -219,6 +219,8 @@ func (w *Worker) dispatchPayload(ctx context.Context, job *Job, prepared Prepare
 	payload := wire.DispatchPayload{
 		// The shape this Controller writes, so a Runner of an older release
 		// refuses a dispatch it would misread (wire.DispatchPayload.CheckVersion).
+		// Set again, to the lowest version that reads it, once it is whole
+		// (publishDispatch).
 		PayloadVersion: wire.DispatchPayloadVersion,
 		JobID:          job.JobID,
 		RunbookID:      job.RunbookID,
@@ -273,10 +275,23 @@ func (w *Worker) dispatchPayload(ctx context.Context, job *Job, prepared Prepare
 	// its Runner runs in place of the runbook's tasks (rollback.go), so its
 	// Collections are its steps'.
 	payload.Collections = prepared.Collections
+	// The scheme and digest of the graph the job pinned, which the Runner
+	// holds its own copy of the runbook to before running any task: one job
+	// runs one graph on both sides. Read from the job's own pin, never from
+	// what this fan-out prepared: a job that pinned none (a playbook, or one
+	// an earlier Controller fanned out) carries none, and its Runner runs it
+	// as it runs an earlier Controller's dispatch. A device the job prepared
+	// another graph for is failed, never dispatched (graphChanged).
+	if job.Graph != nil {
+		payload.GraphScheme, payload.GraphDigest = job.Graph.Scheme, job.Graph.Digest
+	}
 	if job.RollbackOf != "" {
 		steps, _ := job.Rollback.StepsFor(string(device.ID()))
 		payload.Rollback = &wire.Rollback{Of: job.RollbackOf, DAGVersion: job.Rollback.DAGVersion, Steps: steps}
 		payload.Collections = rollbackCollections(steps)
+		// A rollback runs its plan's steps, held to the undone job's version
+		// (Rollback.DAGVersion), not the graph this job prepared.
+		payload.GraphScheme, payload.GraphDigest = "", ""
 	}
 
 	// The template's own bound credentials, already rendered for the whole
@@ -334,8 +349,10 @@ func (w *Worker) publishDispatch(ctx context.Context, job *Job, traceID string, 
 	// Every dispatch, check and rollback leaves through here, so the payload
 	// version is stamped here as well as where the payload is built: a
 	// payload assembled any other way still names the shape it has, and a
-	// Runner of an older release refuses one it would misread.
-	payload.PayloadVersion = wire.DispatchPayloadVersion
+	// Runner of an older release refuses one it would misread. The version is
+	// the lowest that reads what the payload asks (wire.PayloadVersionFor), so
+	// only a dispatch holding a Runner to a pinned graph needs version 2.
+	payload.PayloadVersion = wire.PayloadVersionFor(payload)
 	dispatchEvt, err := event.WrapPayload(uuid.New().String(), "runbook.dispatched", payload)
 	if err != nil {
 		return fmt.Sprintf("failed to build dispatch event for device %q", device.Name()), false

@@ -456,6 +456,23 @@ type DispatchPayload struct {
 	// compares with nothing. Its absence is the old behavior, so it needs no
 	// new payload version.
 	Collections map[string]CollectionIdentity `json:"collections,omitempty"`
+
+	// GraphScheme and GraphDigest name the one graph the job runs: the digest,
+	// under the frozen scheme GraphScheme names (internal/runbook's
+	// graph_digest.go; "graph/1" today), of what each node of the runbook the
+	// job pinned at its first fan-out runs: its method, the parallel markers
+	// and each rollback: step's method. The Runner computes the same digest of
+	// its own copy of RunbookID under that scheme and refuses the dispatch,
+	// running nothing, when it differs or the scheme is one it does not know:
+	// the Controller stores the dispatch's journal and facts under the methods
+	// of the graph it pinned. A payload carrying them is version
+	// PinnedGraphPayloadVersion, which a Runner that predates the check refuses
+	// by its version (CheckVersion) rather than running the dispatch unheld.
+	// Absent for a playbook, a rollback (held to Rollback.DAGVersion instead),
+	// a job that pinned no graph, and from an older Controller; a Runner given
+	// none runs its own copy as before.
+	GraphScheme string `json:"graph_scheme,omitempty"`
+	GraphDigest string `json:"graph_digest,omitempty"`
 }
 
 // Rollback is one device's part of a rollback job.
