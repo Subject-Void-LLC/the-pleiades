@@ -206,6 +206,25 @@ declaration's kind and type, read from the module catalog the Controller serves
 (it links no Collection), whatever method a batch names; a key no built-in declares
 (an external Collection's, which only a Runner loads) keeps the kind its Runner sent.
 
+The method a batch is stored under is the one the Controller dispatched for the batch's
+task, not the one the batch names. A job records the runbook it was prepared from (its
+version, and what each task runs) when it is first fanned out, and the Controller reads
+the task from that record (or, for a rollback job, from the job's plan), never from the
+runbook as it is now. A job keeps that graph on both sides, compared by a frozen digest
+of what each task runs (`rollback:` lists included): a reclaimed fan-out or a forks
+window's next devices, prepared against a runbook whose graph changed since, fail the
+devices left rather than run them, and each dispatch carries the digest, so a Runner
+whose copy of the runbook digests otherwise runs nothing on that device and fails it. A
+rollback job records no graph: it runs its plan, held to the version it undoes. A
+dispatch carrying a graph is payload version 2, which a Runner of an earlier release
+refuses by its version, failing the device and running nothing (it still runs
+rollbacks and playbooks), so upgrade Runners with the Controller. A batch naming
+another method is stored under the task's, with a warning. Facts a built-in holds (a key the catalog declares, or one in a built-in
+family) are dropped from a task that ran an external Collection's method. A task the
+Controller cannot resolve (a playbook job, a job from an earlier release, a task the
+record lacks) has its facts stored with no method and without the ones a built-in
+holds. The run journal's rows are held to the same rule.
+
 Each value carries its kind (`stable`, history kept; `volatile`, latest value
 only) and its provenance: the job, attempt, run, task, method and Runner that
 observed it (`by`) and that last confirmed it (`last_by`), with the run's order,
