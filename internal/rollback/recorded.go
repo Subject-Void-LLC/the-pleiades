@@ -9,6 +9,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/catalog/fragment"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/termsafe"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
@@ -35,7 +36,7 @@ func checkRecorded(e engine.JournalEntry) (*sdk.InverseSpec, collection.Manifest
 	// one build ran from a program could be built in to another
 	// (FAILURE_PATTERNS 841's review). The Runner holds every step again.
 	if e.ProviderProgram != "" {
-		return nil, collection.Manifest{}, fmt.Errorf("the journal records %s as run by the external program %q, whose recorded undo is never replayed", Printable(e.FQCN), e.ProviderProgram)
+		return nil, collection.Manifest{}, fmt.Errorf("the journal records %s as run by the external program %s, whose recorded undo is never replayed", Printable(e.FQCN), termsafe.QuoteBounded(e.ProviderProgram))
 	}
 	at := versions(e.Collection)
 	spec, target, err := declaredUndo(e.FQCN, e.InverseFQCN)
@@ -108,9 +109,9 @@ func checkIdentity(fqcn string, id wire.CollectionIdentity, program string) erro
 	}
 	switch {
 	case id.Program && program == "":
-		return fmt.Errorf("the journal records %s's Collection as the external program %q and names no program that ran it, which no build writes, so its undo is not trusted", Printable(fqcn), id.Group)
+		return fmt.Errorf("the journal records %s's Collection as the external program %s and names no program that ran it, which no build writes, so its undo is not trusted", Printable(fqcn), termsafe.QuoteBounded(id.Group))
 	case !id.Program && program != "":
-		return fmt.Errorf("the journal records %s as run by the external program %q under the first-party %q Collection's identity, which no build writes, so its undo is not trusted", Printable(fqcn), program, id.Group)
+		return fmt.Errorf("the journal records %s as run by the external program %s under the first-party %s Collection's identity, which no build writes, so its undo is not trusted", Printable(fqcn), termsafe.QuoteBounded(program), termsafe.QuoteBounded(id.Group))
 	}
 	return nil
 }

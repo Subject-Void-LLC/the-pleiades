@@ -404,3 +404,53 @@ func TestBuild_AllowSkewOnAnAuthoredUndoIsNeedless(t *testing.T) {
 		}
 	}
 }
+
+// TestBuild_RefusalsRepeatNoRecordedTextUnbounded: a Walk row is a Runner's
+// to write, so a recorded group (up to Shape's 255 bytes), a program name and
+// an undo digest can each be long and hold direction overrides. Every
+// refusal and warning names them bounded (termsafe.QuoteBounded) and escaped.
+func TestBuild_RefusalsRepeatNoRecordedTextUnbounded(t *testing.T) {
+	in := registerSkew(t)
+	override := string(rune(0x202e))
+	longGroup := strings.Repeat("zq9"+override, 255/6)
+	program := wire.CollectionIdentity{Group: longGroup, Program: true, Manifests: other("c")}
+	ranByProgram := madeEntry(in.identity, in.undo, map[string]any{"path": "/x"})
+	ranByProgram.ProviderProgram, ranByProgram.ProviderDigest = strings.Repeat("zq9"+override, 1<<20/6), other("d")
+	moved := olderBuild(in)
+	moved.Group = longGroup
+	for name, tc := range map[string]struct {
+		e     engine.JournalEntry
+		allow bool
+	}{
+		"a long program group, no program ran":    {e: madeEntry(program, in.undo, map[string]any{"path": "/x"})},
+		"a megabyte program name":                 {e: ranByProgram},
+		"a megabyte undo digest under a skew":     {e: madeEntry(olderBuild(in), strings.Repeat("zq9"+override, 1<<20/6), map[string]any{"path": "/x"})},
+		"a long moved group, a skew accepted":     {e: madeEntry(moved, other("b"), map[string]any{"path": "/x"}), allow: true},
+		"a megabyte undo digest, a skew accepted": {e: madeEntry(olderBuild(in), strings.Repeat("zq9"+override, 1<<20/6), map[string]any{"path": "/x"}), allow: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			edit := func(*rollback.Request) {}
+			if tc.allow {
+				edit = func(r *rollback.Request) { r.AllowSkew = map[string]bool{"tasks[0]": true} }
+			}
+			plan, err := planOf([]engine.JournalEntry{tc.e}, edit)
+			var texts []string
+			if err != nil {
+				for _, p := range refused(t, err) {
+					texts = append(texts, p.Reason)
+				}
+			}
+			for _, w := range plan.Warnings {
+				texts = append(texts, w.Message)
+			}
+			if len(texts) == 0 {
+				t.Fatal("neither refused nor warned, so the case tests nothing")
+			}
+			for _, text := range texts {
+				if len(text) > 2048 || strings.Contains(text, override) {
+					t.Errorf("a text of %d bytes repeats what the row recorded: %.300q", len(text), text)
+				}
+			}
+		})
+	}
+}

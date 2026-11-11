@@ -28,6 +28,7 @@ import (
 	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/termsafe"
 )
 
 // maxJournalBytes bounds one run's journal file. A journal holds names and
@@ -193,13 +194,13 @@ func decodeEntry(line []byte, runID string) (engine.JournalEntry, error) {
 	}
 	switch {
 	case e.RunID != runID:
-		return e, fmt.Errorf("names run %q", e.RunID)
+		return e, fmt.Errorf("names run %s", termsafe.Quote(e.RunID))
 	case !nodeIDPattern.MatchString(e.NodeID):
-		return e, fmt.Errorf("names node %q, which is not a graph id", e.NodeID)
+		return e, fmt.Errorf("names node %s, which is not a graph id", termsafe.Quote(e.NodeID))
 	case e.UndoesNode != "" && !nodeIDPattern.MatchString(e.UndoesNode):
-		return e, fmt.Errorf("undoes node %q, which is not a graph id", e.UndoesNode)
+		return e, fmt.Errorf("undoes node %s, which is not a graph id", termsafe.Quote(e.UndoesNode))
 	case e.DAGVersion != "" && !digestPattern.MatchString(e.DAGVersion):
-		return e, fmt.Errorf("carries version %q, which is not a digest", e.DAGVersion)
+		return e, fmt.Errorf("carries version %s, which is not a digest", termsafe.Quote(e.DAGVersion))
 	// Format 2 added the Collection identity and the undo's digest
 	// (format.go), so a line of an earlier format carrying either is not
 	// one a build wrote. The engine records only an identity that passes
@@ -213,21 +214,21 @@ func decodeEntry(line []byte, runID string) (engine.JournalEntry, error) {
 	case !e.Collection.IsZero() && e.Collection.Shape() != nil:
 		return e, fmt.Errorf("records a Collection identity no build writes: %w", e.Collection.Shape())
 	case e.InverseSpecDigest != "" && !digestPattern.MatchString(e.InverseSpecDigest):
-		return e, fmt.Errorf("carries undo digest %q, which is not a digest", e.InverseSpecDigest)
+		return e, fmt.Errorf("carries undo digest %s, which is not a digest", termsafe.Quote(e.InverseSpecDigest))
 	case !knownOutcome[e.Outcome]:
-		return e, fmt.Errorf("records outcome %q", e.Outcome)
+		return e, fmt.Errorf("records outcome %s", termsafe.Quote(string(e.Outcome)))
 	// The stage and skip kind sets are the engine's own
 	// (engine.IsRecordedFailureStage, IsRecordedSkipKind), so a kind the
 	// engine learns to write is one this reader accepts: a second copy here
 	// once lacked the handlers' not_notified, and every run with a handler
 	// made journal list and rollback refuse the whole directory.
 	case e.FailureStage != engine.FailureStageNone && !engine.IsRecordedFailureStage(e.FailureStage):
-		return e, fmt.Errorf("records failure stage %q", e.FailureStage)
+		return e, fmt.Errorf("records failure stage %s", termsafe.Quote(string(e.FailureStage)))
 	case e.SkipKind != engine.SkipKindNone && !engine.IsRecordedSkipKind(e.SkipKind):
-		return e, fmt.Errorf("records skip kind %q", e.SkipKind)
+		return e, fmt.Errorf("records skip kind %s", termsafe.Quote(string(e.SkipKind)))
 	case e.RollbackOf != "":
 		if _, err := fileNameFor(e.RollbackOf); err != nil {
-			return e, fmt.Errorf("undoes run %q, which is not a run id", e.RollbackOf)
+			return e, fmt.Errorf("undoes run %s, which is not a run id", termsafe.Quote(e.RollbackOf))
 		}
 	}
 	return e, nil

@@ -23,6 +23,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent"
 	entjournal "github.com/Subject-Void-LLC/the-pleiades/internal/ent/journalentry"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/termsafe"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
 
@@ -127,7 +128,7 @@ func (s *EntStore) saveOne(ctx context.Context, entry engine.JournalEntry) (bool
 	for _, reason := range reasons {
 		s.logger.Warn("storing a run journal entry without what it names, which no build writes for it",
 			slog.String("job", entry.JobID), slog.String("device", entry.DeviceID),
-			slog.String("node", entry.NodeID), slog.String("fqcn", entry.FQCN), slog.String("reason", reason))
+			slog.String("node", termsafe.Quote(entry.NodeID)), slog.String("fqcn", termsafe.Quote(entry.FQCN)), slog.String("reason", reason))
 	}
 
 	create := s.client.JournalEntry.Create().

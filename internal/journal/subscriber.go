@@ -19,6 +19,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/poison"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/termsafe"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
 )
 
@@ -157,16 +158,29 @@ func (s *Subscriber) Handle(evt event.Event) error {
 	// This Controller writes these rows, so it holds each delivered
 	// identity to what the engine writes, clearing one that fails and keeping
 	// the entry (identity.go). Said here, where the batch is known; the
-	// store applies the same rule to any other caller. Valid's message
-	// quotes the group, so no character it holds reaches the log raw.
+	// store applies the same rule to any other caller. Each reason is fixed
+	// text, and the node and method are the batch's own text, named bounded
+	// and escaped (termsafe.Quote), so nothing the batch delivered reaches
+	// the log raw or unbounded.
 	for i := range batch.Entries {
 		cleared, reasons := identityProblems(batch.Entries[i])
 		for _, reason := range reasons {
 			s.logger.Warn("storing a run journal entry without what its batch names, which no build writes for it",
 				slog.String("job", batch.JobID),
 				slog.String("device", batch.DeviceID),
-				slog.String("node", cleared.NodeID),
-				slog.String("fqcn", cleared.FQCN),
+				slog.String("node", termsafe.Quote(cleared.NodeID)),
+				slog.String("fqcn", termsafe.Quote(cleared.FQCN)),
+				slog.String("reason", reason))
+		}
+		// An identity kept that this Controller's own toolchain would not
+		// make: said here, once per entry, and stored as sent. The store does
+		// not say it again for the same row.
+		if reason := validDiffers(cleared); reason != "" {
+			s.logger.Info("storing a run journal entry under a Collection identity this controller's own toolchain would not make; the Runner's build and this one differ",
+				slog.String("job", batch.JobID),
+				slog.String("device", batch.DeviceID),
+				slog.String("node", termsafe.Quote(cleared.NodeID)),
+				slog.String("fqcn", termsafe.Quote(cleared.FQCN)),
 				slog.String("reason", reason))
 		}
 		batch.Entries[i] = cleared

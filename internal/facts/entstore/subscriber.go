@@ -18,6 +18,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/poison"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/redact"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/sealed"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/termsafe"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
@@ -131,7 +132,7 @@ func (s *Subscriber) Handle(evt event.Event) error {
 	entries, spoofed := s.builtinProvenance(by.Method, entries)
 	if len(spoofed) > 0 {
 		s.logger.Warn("dropping facts a built-in holds that a batch says a method outside the catalog emitted",
-			slog.String("job", batch.JobID), slog.String("device", batch.DeviceID), slog.String("method", by.Method), slog.Any("facts", spoofed))
+			slog.String("job", batch.JobID), slog.String("device", batch.DeviceID), slog.String("method", termsafe.Quote(by.Method)), slog.Any("facts", spoofed))
 	}
 	entries, lost := s.keyDigests(batch.JobID, batch.DeviceID, entries)
 	if len(lost) > 0 {
@@ -164,23 +165,21 @@ func (s *Subscriber) Handle(evt event.Event) error {
 		}
 	}
 	// The Collection identity is the Runner's engine's, never the method's
-	// (Phase 136b), checked once the batch is admitted so a batch this
-	// controller drops is not warned about. This controller writes it, so it
-	// holds it to Valid, as the journal's store holds the same task's
-	// identity (internal/journal's identity.go): one that fails (a Runner out
-	// of step with itself, or a batch made by hand) is not stored, the facts
-	// are the device's and are kept, and the identity reads as unknown, as it
-	// does for a value from a Runner before it. How the Runner routed the
-	// method to a group is its build's to say: a group list grown, or a method
-	// moved, between its build and this one reads differently here, which is
-	// said at info and changes nothing stored (LESSONS 415).
-	if err := by.CheckDeliveredCollection(); err != nil {
-		s.logger.Warn("storing facts with no Collection identity, since the batch names one no build writes",
-			slog.String("job", batch.JobID), slog.String("device", batch.DeviceID), slog.String("method", by.Method), slog.String("reason", err.Error()))
+	// (Phase 136b). This controller writes it, so it holds it to the frozen
+	// rule for a delivered identity (CheckDeliveredCollection, wire's
+	// Deliverable), as the journal's store holds the same task's identity
+	// (internal/journal's identity.go): one that fails (a Runner out of step
+	// with itself, or a batch made by hand) is not stored, the facts are the
+	// device's and are kept, and the identity reads as unknown, as it does
+	// for a value from a Runner before it. Never to Valid, whose Unicode
+	// tables are this toolchain's: where it would differ, that is said at info
+	// and changes nothing stored. How the Runner routed the method to a group
+	// is its build's to say too: a group list grown, or a method moved,
+	// between its build and this one reads differently here, which is said
+	// at info likewise (LESSONS 415, 422).
+	cleared := by.CheckDeliveredCollection()
+	if cleared != nil {
 		by.Collection = wire.CollectionIdentity{}
-	} else if err := by.CollectionRouting(); err != nil {
-		s.logger.Info("storing facts under a Collection identity this controller's build routes otherwise; the Runner's build and this one differ",
-			slog.String("job", batch.JobID), slog.String("device", batch.DeviceID), slog.String("method", by.Method), slog.String("reason", err.Error()))
 	}
 	obs := facts.Observation{Entries: entries, At: batch.ObservedAt, By: by}
 	if err := s.store.Record(context.Background(), batch.DeviceID, obs); err != nil {
@@ -199,6 +198,32 @@ func (s *Subscriber) Handle(evt event.Event) error {
 		}
 		return fmt.Errorf("failed to store the facts for job %s: %w", batch.JobID, err)
 	}
+	// What was stored is said once it is: a batch this controller drops, or
+	// one the bus redelivers after a failed write, is not said again.
+	s.noteStored(batch, by, cleared, entries)
 	s.logger.Debug("stored a facts batch", slog.String("job", batch.JobID), slog.String("device", batch.DeviceID), slog.Int("facts", len(entries)))
 	return nil
+}
+
+// noteStored says, for a batch whose facts were stored as by, what this
+// controller's build would have done differently: the identity it cleared
+// (cleared, a warning), one its own toolchain would not make, and one it
+// routes otherwise (each at info). The method is the batch's own text, so
+// it is named bounded and escaped (termsafe.Quote), and every reason is text
+// that names no delivered byte unbounded.
+func (s *Subscriber) noteStored(batch facts.Batch, by facts.Provenance, cleared error, entries []facts.Entry) {
+	method := termsafe.Quote(by.Method)
+	if cleared != nil {
+		s.logger.Warn("stored facts with no Collection identity, since the batch names one no build writes",
+			slog.String("job", batch.JobID), slog.String("device", batch.DeviceID), slog.String("method", method), slog.String("reason", cleared.Error()))
+	}
+	if id := by.Collection; !id.IsZero() && id.Valid() != nil {
+		// Valid's refusal is fixed text, so the group is not repeated.
+		s.logger.Info("stored facts under a Collection identity this controller's own toolchain would not make; the Runner's build and this one differ",
+			slog.String("job", batch.JobID), slog.String("device", batch.DeviceID), slog.String("method", method), slog.String("reason", id.Valid().Error()))
+	}
+	if err := by.CollectionRouting(); err != nil {
+		s.logger.Info("stored facts under a Collection identity this controller's build routes otherwise; the Runner's build and this one differ",
+			slog.String("job", batch.JobID), slog.String("device", batch.DeviceID), slog.String("method", method), slog.String("reason", err.Error()))
+	}
 }

@@ -2,7 +2,11 @@
 // dispatch carried.
 package rollback
 
-import "strconv"
+import (
+	"strconv"
+
+	"github.com/Subject-Void-LLC/the-pleiades/internal/termsafe"
+)
 
 // Printable is s as a refusal, a warning, a job event or an API body prints
 // a method name (an FQCN, an undo's FQCN) or a node id that came from a
@@ -15,7 +19,14 @@ import "strconv"
 // termsafe escapes what a terminal acts on, and a JSON body escapes control
 // characters, but neither escapes every format character; strconv.Quote
 // escapes each one that is not printable.
+//
+// A name longer than termsafe.MaxQuoted bytes is cut there and quoted with
+// every byte outside printable ASCII escaped (termsafe.QuoteBounded), since
+// a row a Runner wrote can hold a name of any length.
 func Printable(s string) string {
+	if len(s) > termsafe.MaxQuoted {
+		return termsafe.QuoteBounded(s)
+	}
 	for i := 0; i < len(s); i++ {
 		if b := s[i]; b < 0x21 || b > 0x7e || b == '"' || b == '\\' {
 			return strconv.Quote(s)
