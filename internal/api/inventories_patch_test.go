@@ -82,6 +82,14 @@ func (f *inventoryFixture) do(t *testing.T, method, path, body string) (int, []b
 // and returns the status and the response body. An empty body sends none.
 func serveRaw(t *testing.T, router http.Handler, method, path, body string) (int, []byte) {
 	t.Helper()
+	rec := serveWith(t, router, method, path, body, nil)
+	return rec.Code, rec.Body.Bytes()
+}
+
+// serveWith sends one request through router with body as its raw bytes and
+// header's values added, and returns the recorded response.
+func serveWith(t *testing.T, router http.Handler, method, path, body string, header http.Header) *httptest.ResponseRecorder {
+	t.Helper()
 	var reader io.Reader
 	if body != "" {
 		reader = strings.NewReader(body)
@@ -90,13 +98,47 @@ func serveRaw(t *testing.T, router http.Handler, method, path, body string) (int
 	if body != "" {
 		req.Header.Set("Content-Type", "application/json")
 	}
+	for name, values := range header {
+		for _, v := range values {
+			req.Header.Add(name, v)
+		}
+	}
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
-	return rec.Code, rec.Body.Bytes()
+	return rec
 }
 
 // inventoryPath is the URL of one inventory.
 func inventoryPath(id int) string { return fmt.Sprintf("/api/v1/inventories/%d", id) }
+
+// etag GETs an inventory and returns the ETag it answered with.
+func (f *inventoryFixture) etag(t *testing.T, id int) string {
+	t.Helper()
+	rec := serveWith(t, f.router, http.MethodGet, inventoryPath(id), "", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET inventory %d: status %d, body %s", id, rec.Code, rec.Body.Bytes())
+	}
+	tag := rec.Header().Get("ETag")
+	if tag == "" {
+		t.Fatalf("GET inventory %d answered with no ETag", id)
+	}
+	return tag
+}
+
+// patchIfMatch sends a PATCH carrying If-Match: ifMatch, and returns the
+// recorded response.
+func (f *inventoryFixture) patchIfMatch(t *testing.T, id int, body, ifMatch string) *httptest.ResponseRecorder {
+	t.Helper()
+	return serveWith(t, f.router, http.MethodPatch, inventoryPath(id), body, http.Header{"If-Match": {ifMatch}})
+}
+
+// patchCurrent sends a PATCH carrying the inventory's current ETag, as a
+// client that has just read it does.
+func (f *inventoryFixture) patchCurrent(t *testing.T, id int, body string) (int, []byte) {
+	t.Helper()
+	rec := f.patchIfMatch(t, id, body, f.etag(t, id))
+	return rec.Code, rec.Body.Bytes()
+}
 
 // create posts an inventory that must be accepted and returns its id.
 func (f *inventoryFixture) create(t *testing.T) int {
@@ -131,20 +173,21 @@ func (f *inventoryFixture) read(t *testing.T, id int) map[string]any {
 	return got
 }
 
-// patchOK sends a PATCH that must succeed.
+// patchOK sends a PATCH with the current ETag that must succeed.
 func (f *inventoryFixture) patchOK(t *testing.T, id int, body string) {
 	t.Helper()
-	if status, resp := f.do(t, http.MethodPatch, inventoryPath(id), body); status != http.StatusOK {
+	if status, resp := f.patchCurrent(t, id, body); status != http.StatusOK {
 		t.Fatalf("PATCH %s: status %d, want 200; body %s", body, status, resp)
 	}
 }
 
-// refusedUnchanged sends a PATCH that must be refused with want, with a
-// response saying each of mentions, and leave the inventory as it was.
+// refusedUnchanged sends a PATCH with the current ETag that must be refused
+// with want, with a response saying each of mentions, and leave the
+// inventory as it was.
 func (f *inventoryFixture) refusedUnchanged(t *testing.T, id int, body string, want int, mentions ...string) {
 	t.Helper()
 	before := f.read(t, id)
-	status, resp := f.do(t, http.MethodPatch, inventoryPath(id), body)
+	status, resp := f.patchCurrent(t, id, body)
 	if status != want {
 		t.Fatalf("PATCH %s: status %d, want %d; body %s", body, status, want, resp)
 	}
@@ -337,14 +380,21 @@ func TestInventoryMembers_ForeignAnswersLikeUnknown(t *testing.T) {
 		status, resp := f.do(t, method, path, body)
 		return fmt.Sprintf("%d %s", status, resp)
 	}
+	// patched sends the PATCH with the current ETag, which a membership
+	// PATCH needs, so the answer is the member refusal and not the 428.
+	patched := func(body string) string {
+		t.Helper()
+		status, resp := f.patchCurrent(t, id, body)
+		return fmt.Sprintf("%d %s", status, resp)
+	}
 	pairs := map[string][2]string{
 		"create, a device": {
 			answer(http.MethodPost, "/api/v1/inventories", fmt.Sprintf(`{"name":"a","organization":%d,"devices":[%d]}`, f.orgID, foreign.ID)),
 			answer(http.MethodPost, "/api/v1/inventories", fmt.Sprintf(`{"name":"a","organization":%d,"devices":[999999]}`, f.orgID)),
 		},
 		"patch, a group": {
-			answer(http.MethodPatch, inventoryPath(id), fmt.Sprintf(`{"groups":[%d]}`, foreignGroup.ID)),
-			answer(http.MethodPatch, inventoryPath(id), `{"groups":[999999]}`),
+			patched(fmt.Sprintf(`{"groups":[%d]}`, foreignGroup.ID)),
+			patched(`{"groups":[999999]}`),
 		},
 	}
 	for name, pair := range pairs {

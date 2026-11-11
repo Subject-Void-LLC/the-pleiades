@@ -169,6 +169,16 @@ func openAPIResponses(ep apispec.Endpoint) map[string]any {
 
 	for _, r := range ep.Responses {
 		resp := map[string]any{"description": r.Description}
+		if len(r.Headers) > 0 {
+			headers := map[string]any{}
+			for _, h := range r.Headers {
+				headers[h.Name] = map[string]any{
+					"description": h.Description,
+					"schema":      map[string]any{"type": "string"},
+				}
+			}
+			resp["headers"] = headers
+		}
 		if r.Schema != nil {
 			resp["content"] = map[string]any{
 				contentType: map[string]any{"schema": r.Schema},

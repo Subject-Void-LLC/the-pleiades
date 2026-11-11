@@ -172,6 +172,8 @@ func (h *InventoryHandler) Get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The ETag is what a PATCH naming the members sends back as If-Match.
+	w.Header().Set("ETag", inventoryETag(set))
 	dto := toInventoryDTO(set, true)
 	Respond(w, r, http.StatusOK, &dto)
 }
@@ -206,6 +208,7 @@ func (h *InventoryHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Location", APIVersionPrefix+"/inventories/"+strconv.Itoa(set.ID))
+	w.Header().Set("ETag", inventoryETag(set))
 	dto := toInventoryDTO(set, true)
 	Respond(w, r, http.StatusCreated, &dto)
 }
@@ -229,13 +232,15 @@ func (h *InventoryHandler) Update(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// The store runs the fold on the inventory it reads under the row's
-	// lock, so a missing inventory is a 404 and a concurrent PATCH's change
-	// is folded over rather than written back over.
-	updated, err := h.sets.UpdateWith(r.Context(), id, body.fold)
+	// lock, so a missing inventory is a 404 before If-Match is judged, the
+	// precondition is held to the version this write replaces, and a
+	// concurrent PATCH's change is folded over rather than written back over.
+	updated, err := h.sets.UpdateWith(r.Context(), id, body.foldIf(readIfMatch(r)))
 	if err != nil {
 		h.respondStoreError(w, r, "update", id, err)
 		return
 	}
+	w.Header().Set("ETag", inventoryETag(updated))
 	dto := toInventoryDTO(updated, true)
 	Respond(w, r, http.StatusOK, &dto)
 }
@@ -289,6 +294,10 @@ func (h *InventoryHandler) respondStoreError(w http.ResponseWriter, r *http.Requ
 	case errors.As(err, &refusal):
 		// A PATCH's own refusal, made inside the store's transaction.
 		RespondError(w, r, http.StatusBadRequest, string(refusal))
+	case errors.Is(err, errInventoryPreconditionRequired):
+		RespondError(w, r, http.StatusPreconditionRequired, inventoryPreconditionRequiredText)
+	case errors.Is(err, inventory.ErrVersionStale):
+		RespondError(w, r, http.StatusPreconditionFailed, inventoryPreconditionFailedText)
 	case errors.As(err, &nul):
 		// The store's own sentence, naming the field and nothing sent.
 		RespondError(w, r, http.StatusBadRequest, nul.Error())

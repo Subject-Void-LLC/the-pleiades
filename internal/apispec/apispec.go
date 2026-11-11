@@ -36,10 +36,10 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/auth"
 )
 
-// Param documents one path or query parameter an Endpoint reads.
+// Param documents one path, query or header parameter an Endpoint reads.
 type Param struct {
 	Name        string
-	In          string // "path" or "query"
+	In          string // "path", "query" or "header"
 	Required    bool
 	Type        string
 	Description string
@@ -54,6 +54,24 @@ type Response struct {
 	Status      int
 	Description string
 	Schema      map[string]any
+
+	// Headers are the response headers this status carries that a client
+	// reads, such as an inventory's ETag.
+	Headers []ResponseHeader
+}
+
+// ResponseHeader documents one header a Response carries.
+type ResponseHeader struct {
+	Name        string
+	Description string
+}
+
+// inventoryETagHeader is the ETag an inventory read or write answers with.
+var inventoryETagHeader = ResponseHeader{
+	Name: "ETag",
+	Description: "The inventory's strong entity tag: its version and a digest of what it holds, such as " +
+		"\"3.9f86d081884c7d659a2feaa0c55ad015\". Send it back unchanged as If-Match on a PATCH that names " +
+		"groups or devices. A proxy that rewrites it as a weak tag (W/) breaks that PATCH, since a weak tag never matches.",
 }
 
 // Endpoint is one route's full documented shape: everything
@@ -943,7 +961,7 @@ var GetInventory = Endpoint{
 		{Name: "id", In: "path", Required: true, Type: "integer", Description: "The inventory's numeric id."},
 	},
 	Responses: []Response{
-		{Status: http.StatusOK, Description: "The inventory.", Schema: inventorySchema},
+		{Status: http.StatusOK, Description: "The inventory.", Schema: inventorySchema, Headers: []ResponseHeader{inventoryETagHeader}},
 		{Status: http.StatusNotFound, Description: "No inventory with that id, or none this caller may reach.", Schema: errorSchema("")},
 	},
 }
@@ -958,7 +976,7 @@ var CreateInventory = Endpoint{
 	Summary:     "Create an inventory",
 	Description: "Creates a named set of devices within one organization. The name must be unique in that organization.",
 	Responses: []Response{
-		{Status: http.StatusCreated, Description: "The created inventory.", Schema: inventorySchema},
+		{Status: http.StatusCreated, Description: "The created inventory.", Schema: inventorySchema, Headers: []ResponseHeader{inventoryETagHeader}},
 		{Status: http.StatusBadRequest, Description: "A blank name, no organization or one that does not exist, or a group or device that does not exist or cannot be added (one belonging to another organization, or a group holding one), answered with the same text either way.", Schema: errorSchema("")},
 		{Status: http.StatusConflict, Description: "That name is already taken in that organization.", Schema: errorSchema("")},
 	},
@@ -977,15 +995,21 @@ var UpdateInventory = Endpoint{
 	Summary:    "Update an inventory",
 	Description: "A partial update of an inventory's name, description and membership: a field left out keeps " +
 		"its stored value. The organization is not updatable: moving one between tenants would silently " +
-		"re-scope every role binding pointing at it, which is a migration rather than an edit.",
+		"re-scope every role binding pointing at it, which is a migration rather than an edit. A PATCH " +
+		"that names groups or devices replaces that list whole, so it must send If-Match with the ETag " +
+		"the inventory was read with, and is refused when another update has committed since.",
 	Params: []Param{
 		{Name: "id", In: "path", Required: true, Type: "integer", Description: "The inventory's numeric id."},
+		{Name: "If-Match", In: "header", Type: "string", Description: "The inventory's ETag exactly as it was read. " +
+			"Required when the body names groups or devices; checked whenever sent. A list, a weak tag and * never match."},
 	},
 	Responses: []Response{
-		{Status: http.StatusOK, Description: "The updated inventory.", Schema: inventorySchema},
+		{Status: http.StatusOK, Description: "The updated inventory.", Schema: inventorySchema, Headers: []ResponseHeader{inventoryETagHeader}},
 		{Status: http.StatusBadRequest, Description: "A null, unknown or repeated field, a blank name, another organization, or an added group or device that does not exist or cannot be added, answered with the same text either way. Only the members the PATCH adds are checked.", Schema: errorSchema("")},
-		{Status: http.StatusNotFound, Description: "No inventory with that id.", Schema: errorSchema("")},
+		{Status: http.StatusNotFound, Description: "No inventory with that id. Answered before If-Match is judged.", Schema: errorSchema("")},
 		{Status: http.StatusConflict, Description: "That name is already taken in that organization.", Schema: errorSchema("")},
+		{Status: http.StatusPreconditionFailed, Description: "If-Match was sent and does not hold the inventory's current ETag: another update committed since it was read. Read it again and resend the change.", Schema: errorSchema("")},
+		{Status: http.StatusPreconditionRequired, Description: "The body names groups or devices and no If-Match was sent.", Schema: errorSchema("")},
 	},
 	RequestContentType: "application/json",
 	RequestSchema:      inventoryPatchSchema,

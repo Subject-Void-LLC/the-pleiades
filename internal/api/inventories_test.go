@@ -118,6 +118,8 @@ func (s *stubSetStore) UpdateWith(_ context.Context, id int, fold func(inventory
 	}
 	// The real store keeps these as stored whatever the fold returns.
 	next.ID, next.OrganizationID, next.Owner = stored.ID, stored.OrganizationID, stored.Owner
+	// and moves the version by one on each committed update.
+	next.Version = stored.Version + 1
 	s.gotSet = next
 	if s.updateErr != nil {
 		return inventory.Set{}, s.updateErr
@@ -133,6 +135,14 @@ func (s *stubSetStore) Delete(_ context.Context, id int) error {
 	}
 	delete(s.sets, id)
 	return nil
+}
+
+// patchCurrentJSON PATCHes path with the ETag a GET of it answers with, as a
+// client that has just read the inventory does.
+func patchCurrentJSON(t *testing.T, router http.Handler, path, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	tag := doJSON(t, router, http.MethodGet, path, "").Header().Get("ETag")
+	return serveWith(t, router, http.MethodPatch, path, body, http.Header{"If-Match": {tag}})
 }
 
 // inventoryRouter mounts every inventory endpoint through the real
@@ -450,7 +460,7 @@ func TestInventoryHandler_UpdateHandsTheStoreTheFieldsTheBodyNamed(t *testing.T)
 	router := inventoryRouter(t, store)
 
 	body := `{"name":"renamed","description":"new","organization":7,"groups":[5],"devices":[6]}`
-	rec := doJSON(t, router, http.MethodPatch, "/api/v1/inventories/1", body)
+	rec := patchCurrentJSON(t, router, "/api/v1/inventories/1", body)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200: %s", rec.Code, rec.Body.String())
 	}
@@ -494,7 +504,7 @@ func TestInventoryHandler_UpdateErrorBranches(t *testing.T) {
 		store := newStubSetStore(testSet(1, "production"))
 		store.updateErr = inventory.ErrCrossTenantMember
 		router := inventoryRouter(t, store)
-		rec := doJSON(t, router, http.MethodPatch, "/api/v1/inventories/1", `{"name":"x","devices":[404]}`)
+		rec := patchCurrentJSON(t, router, "/api/v1/inventories/1", `{"name":"x","devices":[404]}`)
 		if rec.Code != http.StatusBadRequest {
 			t.Fatalf("status = %d, want 400", rec.Code)
 		}
@@ -623,7 +633,7 @@ func TestInventoryHandler_PatchOmittingMembershipLeavesItAlone(t *testing.T) {
 
 	// Each list is independent: naming one must not clear the other.
 	t.Run("naming one list leaves the other alone", func(t *testing.T) {
-		if rec := doJSON(t, router, http.MethodPatch, "/api/v1/inventories/1", `{"name":"renamed","devices":[99]}`); rec.Code != http.StatusOK {
+		if rec := patchCurrentJSON(t, router, "/api/v1/inventories/1", `{"name":"renamed","devices":[99]}`); rec.Code != http.StatusOK {
 			t.Fatalf("status = %d: %s", rec.Code, rec.Body.String())
 		}
 		groups, devices := membership()
@@ -636,7 +646,7 @@ func TestInventoryHandler_PatchOmittingMembershipLeavesItAlone(t *testing.T) {
 	})
 
 	t.Run("an explicit empty list still clears", func(t *testing.T) {
-		if rec := doJSON(t, router, http.MethodPatch, "/api/v1/inventories/1", `{"name":"renamed","groups":[],"devices":[]}`); rec.Code != http.StatusOK {
+		if rec := patchCurrentJSON(t, router, "/api/v1/inventories/1", `{"name":"renamed","groups":[],"devices":[]}`); rec.Code != http.StatusOK {
 			t.Fatalf("status = %d: %s", rec.Code, rec.Body.String())
 		}
 		groups, devices := membership()

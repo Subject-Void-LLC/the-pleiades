@@ -26,9 +26,10 @@
 // organization. Two PATCHes of one inventory are serialized by that lock,
 // and each folds over what the other wrote, so a PATCH that does not name
 // the members cannot put back a member another removed. A list a PATCH does
-// name replaces the stored one whole, so of two PATCHes naming the same
-// field the second's value wins, even when its caller read the inventory
-// before the first; there is no version check.
+// name replaces the stored one whole, so such a PATCH must send If-Match with
+// the ETag it read, and is refused when another update has committed since
+// (inventories_precondition.go). Two PATCHes naming only the name still end
+// with the second's.
 package api
 
 import (
@@ -81,6 +82,25 @@ func (d inventoryPatchDTO) fixedFieldRefusal(stored inventory.Set) string {
 		return fixedFieldMessage("organization", inventoryNoun, "create the inventory in the other organization instead")
 	}
 	return ""
+}
+
+// namesMembers reports whether the body names either member list, which
+// replaces that list whole and so needs If-Match (inventories_precondition.go).
+func (d inventoryPatchDTO) namesMembers() bool {
+	return d.Groups != nil || d.Devices != nil
+}
+
+// foldIf is the change the store runs on the inventory it read under the
+// row's lock, with the request's If-Match: refuse a stale or missing
+// precondition, then a move to another organization, else apply the fields
+// the body named.
+func (d inventoryPatchDTO) foldIf(precondition ifMatch) func(inventory.Set) (inventory.Set, error) {
+	return func(stored inventory.Set) (inventory.Set, error) {
+		if err := precondition.check(stored, d.namesMembers()); err != nil {
+			return inventory.Set{}, err
+		}
+		return d.fold(stored)
+	}
 }
 
 // fold is the change the store runs on the inventory it read under the
