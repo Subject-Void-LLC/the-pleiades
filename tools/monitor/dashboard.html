@@ -2,8 +2,10 @@
 <!--
   dashboard.html: the status page, served by the daemon on 127.0.0.1. Three
   views: Gate (dashboard.js: pr-check, memory, gate history, binary size),
-  Actions (dashboard.js: every branch's workflow runs) and Roadmap
-  (roadmap.js, from /roadmap.json and the /timeline history). Charts are
+  Actions (dashboard.js: every branch's workflow runs), Roadmap
+  (roadmap.js, from /roadmap.json and the /timeline history) and Security
+  (security.js, from /security.json: attestation, scanner exceptions and
+  everything pending). Charts are
   Apache ECharts (one pinned file, checked by its SRI hash); type is Hanken
   Grotesk and IBM Plex Mono from Google Fonts, with system fallbacks. Every
   piece of log, API or roadmap text reaches the page through textContent.
@@ -217,6 +219,15 @@
   .item-text.clamped { max-height: 9.6em; overflow: hidden; -webkit-mask-image: linear-gradient(#000 60%, transparent); mask-image: linear-gradient(#000 60%, transparent); }
   .item-meta { grid-column: 2; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 12px; color: var(--ink-3); }
   .more { grid-column: 2; justify-self: start; }
+  .pend { border-radius: 8px; padding: 10px 12px; display: grid; gap: 6px; border: 1px solid var(--rule); background: var(--raised); }
+  .pend.urgent { background: var(--warn-bg); color: var(--warn-ink); border-color: var(--warn-rule); }
+  .pend.bad { background: color-mix(in srgb, var(--bad) 9%, var(--surface)); border-color: color-mix(in srgb, var(--bad) 45%, var(--rule)); color: var(--ink); }
+  .pend > summary, .pend > .pend-head { display: flex; justify-content: space-between; gap: 10px; font-weight: 700; font-size: 13.5px; cursor: default; color: inherit; }
+  .pend > summary { cursor: pointer; }
+  #sec-controls tbody th, #sec-controls td:last-child, #sec-controls td:nth-child(3) { white-space: nowrap; }
+  .pend .count { font-family: var(--font-mono); font-weight: 500; }
+  .pend ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; font-size: 13px; }
+  .pend li .detail { color: inherit; opacity: .85; }
   @media (prefers-reduced-motion: reduce) {
     * { animation: none !important; transition: none !important; }
     progress:indeterminate { background: repeating-linear-gradient(45deg, var(--rule-2) 0 6px, var(--bar, var(--st-running)) 6px 12px); }
@@ -227,6 +238,7 @@
         crossorigin="anonymous"></script>
 <script src="/app.js" defer></script>
 <script src="/roadmap.js" defer></script>
+<script src="/security.js" defer></script>
 </head>
 <body>
 <a class="skip-link" href="#main">Skip to the view</a>
@@ -241,11 +253,13 @@
       <a href="#gate" id="nav-gate">Gate</a>
       <a href="#actions" id="nav-actions">Actions</a>
       <a href="#roadmap" id="nav-roadmap">Roadmap</a>
+      <a href="#security" id="nav-security">Security</a>
     </nav>
   </div>
   <div class="status-row">
     <span class="chip" id="mem-pill">Memory</span>
     <span class="chip" id="strip" aria-live="polite"></span>
+    <a class="chip" id="sec-pill" href="#security" style="text-decoration: none">Security</a>
     <span class="mono muted" id="updated"></span>
   </div>
 </header>
@@ -427,6 +441,69 @@
       <div id="rm-phase-links" class="deps"></div>
       <p id="rm-phase-status" class="note" role="status"></p>
       <ul id="rm-items" class="items"></ul>
+    </section>
+  </div>
+</div>
+<div id="view-security" class="view" hidden>
+  <section class="panel hero" aria-labelledby="h-sec-summary">
+    <div class="hero-main">
+      <div style="display: grid; gap: 6px">
+        <h2 class="kicker" id="h-sec-summary">Security attestation</h2>
+        <div class="big" id="sec-hero">...</div>
+        <p class="sub" id="sec-hero-sub"></p>
+      </div>
+      <progress id="sec-hero-bar" max="1" value="0" aria-label="Controls attested" style="height: 10px"></progress>
+    </div>
+    <div class="stack" style="gap: 12px">
+      <dl id="sec-tiles" class="tiles"></dl>
+      <p id="sec-status" class="note" role="status"></p>
+    </div>
+  </section>
+  <section class="panel" aria-labelledby="h-sec-pending">
+    <div class="ph"><h2 id="h-sec-pending">Pending</h2><p id="sec-pending-note">what waits on someone, most urgent first</p></div>
+    <div id="sec-pending" class="stack" style="gap: 10px"></div>
+  </section>
+  <div class="rowwrap">
+    <section class="panel grow" aria-labelledby="h-sec-controls">
+      <div class="ph"><h2 id="h-sec-controls">Controls</h2><p>by secure software life cycle stage</p></div>
+      <div class="controls">
+        <label class="field">State <select id="sec-state"><option value="">any</option><option value="drafted">awaiting sign-off</option><option>open</option><option>in progress</option><option>attested</option></select></label>
+        <label class="field">Search <input type="search" id="sec-search" autocomplete="off"></label>
+      </div>
+      <div class="table-wrap"><table id="sec-controls"></table></div>
+    </section>
+    <section class="panel side" aria-labelledby="h-sec-control">
+      <div style="display: grid; gap: 4px">
+        <span class="mono muted" id="sec-control-meta">Pick a control to read its statements.</span>
+        <h2 id="h-sec-control" tabindex="-1" style="font-size: 18px; font-weight: 700">Control</h2>
+      </div>
+      <div id="sec-control-links" class="deps"></div>
+      <ul id="sec-statements" class="items"></ul>
+    </section>
+  </div>
+  <div class="two">
+    <section class="panel" aria-labelledby="h-sec-scan">
+      <div class="ph"><h2 id="h-sec-scan">Scanners</h2><p>pinned versions and the newest scheduled scans</p></div>
+      <dl id="sec-pins" class="tiles four"></dl>
+      <div class="table-wrap"><table id="sec-scans"></table></div>
+    </section>
+    <section class="panel" aria-labelledby="h-sec-fw">
+      <div class="ph"><h2 id="h-sec-fw">Frameworks</h2><p>how much of each the controls cover</p></div>
+      <div class="table-wrap"><table id="sec-frameworks"></table></div>
+    </section>
+  </div>
+  <section class="panel" aria-labelledby="h-sec-waivers">
+    <div class="ph"><h2 id="h-sec-waivers">gosec waivers</h2><p id="sec-waivers-note"></p></div>
+    <div class="table-wrap"><table id="sec-waivers"></table></div>
+  </section>
+  <div class="two">
+    <section class="panel" aria-labelledby="h-sec-rel">
+      <div class="ph"><h2 id="h-sec-rel">Security changes not yet released</h2><p>changelog/*.security.md, oldest first</p></div>
+      <ul id="sec-unreleased" class="items"></ul>
+    </section>
+    <section class="panel" aria-labelledby="h-sec-trend">
+      <div class="ph"><h2 id="h-sec-trend">Posture over time</h2><p id="sec-trend-note"></p></div>
+      <div id="sec-trend" class="chart" role="img" aria-label="Controls attested and items pending over time"></div>
     </section>
   </div>
 </div>

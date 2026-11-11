@@ -17,6 +17,7 @@ Tools:
     actions     GitHub Actions for the branch the latest gate ran on
     roadmap     the roadmap totals, or one phase with every item
     timeline    the JSONL history: every past value, filtered
+    security    everything pending on security, and the attestation totals
     history     saved gate runs with their stage durations
 
 Python 3 standard library only.
@@ -237,6 +238,7 @@ def t_status(c: DaemonClient, args: JSONObject) -> JSONValue:
         "memory": {"available_mb": last[1] if isinstance(last, list) and len(last) == 2 else None,
                    "floor_mb": state.get("memory_floor_mb")},
         "roadmap": roadmap_summary(rm),
+        "security_pending": (as_object(c.json("/security.json", timeout=90)) or {}).get("pending_total"),
         "page": "http://127.0.0.1:%d/" % c.port,
     }
 
@@ -306,6 +308,28 @@ def t_timeline(c: DaemonClient, args: JSONObject) -> JSONValue:
     return c.jsonl("/timeline?" + urllib.parse.urlencode(q))
 
 
+def t_security(c: DaemonClient, args: JSONObject) -> JSONValue:
+    """Everything pending on security, with the attestation totals."""
+    doc = as_object(c.json("/security.json", timeout=90)) or {}
+    if "error" in doc:
+        return {"error": doc.get("error")}
+    att = as_object(doc.get("attestation")) or {}
+    out: JSONObject = {"pending_total": doc.get("pending_total"), "summary": att.get("summary"),
+                       "next_review": att.get("next_review"), "scans": doc.get("scans"), "pins": doc.get("pins"),
+                       "waivers": len(get_list(doc, "waivers")), "unreleased": len(get_list(doc, "unreleased"))}
+    groups: List[JSONValue] = []
+    for g in get_objects(doc, "pending"):
+        items = get_list(g, "items")
+        if get_str(g, "group") in ("in_progress", "release") and not args.get("all"):
+            items = items[:5]
+        groups.append({"group": g.get("group"), "title": g.get("title"), "count": g.get("count"), "items": items})
+    out["pending"] = groups
+    control = get_str(args, "control")
+    if control:
+        out["control"] = next((x for x in get_objects(att, "controls") if get_str(x, "id") == control), None)
+    return out
+
+
 def t_history(c: DaemonClient, args: JSONObject) -> JSONValue:
     """Saved gate runs, newest first."""
     doc = as_object(c.json("/history")) or {}
@@ -338,6 +362,11 @@ TOOLS: Dict[str, Tuple[Tool, str, JSONObject]] = {
                  "epoch seconds; limit keeps the newest (default 200).",
                  {"type": "object", "properties": {"kind": {"type": "string"}, "src": {"type": "string"},
                                                    "since": {"type": "number"}, "limit": {"type": "integer"}}}),
+    "security": (t_security, "Security posture and EVERYTHING PENDING, most urgent first: attestation problems, a failed "
+                 "or stale govulncheck, controls awaiting sign-off, open controls, reviews due, unproven implementations, "
+                 "stale gosec waivers, unreleased security changes. control=\"SSDF PS.2\" adds that control's statements; "
+                 "all=true lists every item of the long groups.",
+                 {"type": "object", "properties": {"control": {"type": "string"}, "all": {"type": "boolean"}}}),
     "history": (t_history, "Saved gate runs, newest first, with verdict and per-stage durations.",
                 {"type": "object", "properties": {"limit": {"type": "integer"}}}),
 }
@@ -364,7 +393,7 @@ def handle(c: DaemonClient, msg: JSONObject) -> Optional[JSONObject]:
                               "capabilities": {"tools": {"listChanged": False}},
                               "serverInfo": {"name": SERVER_NAME, "version": SERVER_VERSION},
                               "instructions": "Read-only status of this machine's development: the pr-check gate, "
-                                              "GitHub Actions, memory and the roadmap. Call status first; gate_wait "
+                                              "GitHub Actions, memory, the roadmap and security. Call status first; gate_wait "
                                               "replaces polling a running gate."}
         return {"jsonrpc": "2.0", "id": mid, "result": result}
     if method == "ping":

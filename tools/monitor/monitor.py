@@ -254,6 +254,14 @@ class App:
         """
         return {"error": "the roadmap is served by the daemon (monitor.py ensure), not by watch"}
 
+    def security(self) -> object:
+        """Returns no security model: only the daemon serves one.
+
+        Returns:
+            Why there is none.
+        """
+        return {"error": "the security tab is served by the daemon (monitor.py ensure), not by watch"}
+
     def history(self) -> Mapping[str, object]:
         """Builds the /history document.
 

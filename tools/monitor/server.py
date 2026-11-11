@@ -6,7 +6,10 @@ Routes (GET only):
     /                 dashboard.html
     /app.js           dashboard.js
     /roadmap.js       roadmap.js, the roadmap tab
+    /security.js      security.js, the security tab
     /healthz          who is serving: protocol, pid, the latest run
+    /security.json    the attestation, scanner exceptions, unreleased security
+                      changes and everything pending (security.py)
     /state            the live run, the Actions poll and memory
     /history          every saved run, newest first, with stage durations
     /history/<id>     one saved run
@@ -66,6 +69,7 @@ STATIC: Dict[str, Tuple[str, str]] = {
     "/": ("dashboard.html", "text/html; charset=utf-8"),
     "/app.js": ("dashboard.js", "text/javascript; charset=utf-8"),
     "/roadmap.js": ("roadmap.js", "text/javascript; charset=utf-8"),
+    "/security.js": ("security.js", "text/javascript; charset=utf-8"),
 }
 HISTORY_PATH = re.compile(r"^/history/([A-Za-z0-9_-]+)$")
 
@@ -126,6 +130,10 @@ class Backend(Protocol):
 
     def roadmap(self, phases: Sequence[str], details: bool) -> object:
         """Returns the roadmap model, or {"error": why}."""
+        ...
+
+    def security(self) -> object:
+        """Returns the /security.json document."""
         ...
 
 
@@ -250,6 +258,8 @@ def make_handler(app: Backend, port: int) -> Type[BaseHTTPRequestHandler]:
                 self.send_json(app.actions_history())
             elif path == "/binsize":
                 self.send_json(app.binsize())
+            elif path == "/security.json":
+                self.send_json(app.security())
             elif path == "/healthz":
                 self.send_json(app.health())
             elif path == "/timeline":

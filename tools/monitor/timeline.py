@@ -41,6 +41,8 @@ KINDS = (
     "actions.job",     # one of its jobs' status or conclusion changed
     "roadmap.summary", # the roadmap's totals, release or next item changed
     "roadmap.phase",   # one phase's state or counts changed
+    "security.summary", # the attestation totals, pending count, waivers or unreleased changes changed
+    "security.control", # one control's state, statement counts or review date changed
     "memory",          # MemAvailable and swap in use, one sample a minute
 )
 

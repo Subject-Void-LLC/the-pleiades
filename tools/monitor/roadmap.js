@@ -529,7 +529,7 @@ async function pollTrend() {
 
 // showView shows one view, marks its link current and, when asked, moves focus to it.
 function showView(name, focus) {
-  const views = { gate: 'Gate', actions: 'Actions', roadmap: 'Roadmap' };
+  const views = { gate: 'Gate', actions: 'Actions', roadmap: 'Roadmap', security: 'Security' };
   if (!views[name]) name = 'gate';
   for (const v of Object.keys(views)) {
     document.getElementById('view-' + v).hidden = v !== name;
@@ -541,6 +541,7 @@ function showView(name, focus) {
   title.textContent = views[name];
   if (name === 'roadmap') { renderTrend(); drawDepLines(); }
   if (name === 'actions' && typeof renderActionsHistory === 'function') renderActionsHistory();
+  if (name === 'security' && typeof renderSecurityTrend === 'function') renderSecurityTrend();
   Object.values(charts).forEach((c) => c.resize());
   if (focus) title.focus();
 }

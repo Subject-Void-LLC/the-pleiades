@@ -49,9 +49,10 @@ import prstate as ps
 import redact
 import roadmap
 import runfile
+import security
 import server
 import timeline
-from jsonutil import JSONObject, as_object, get_float, get_int, get_objects, get_str, loads
+from jsonutil import JSONObject, as_object, get_float, get_int, get_list, get_objects, get_str, loads
 
 # PROTOCOL rises whenever what the daemon serves or reads changes in a way an
 # older daemon would get wrong. ensure replaces a daemon with a lower one.
@@ -66,6 +67,8 @@ MANIFEST_SECONDS = 0.5
 MEMORY_TIMELINE_SECONDS = 60.0
 ACTIONS_TIMELINE_SECONDS = 20.0
 ROADMAP_SECONDS = 60.0
+# SECURITY_SECONDS bounds how stale /security.json may be.
+SECURITY_SECONDS = 30.0
 # BACKFILL_SECONDS is how often every branch's Actions runs are read again,
 # beside the minute-by-minute poll of the one branch in use.
 BACKFILL_SECONDS = 6 * 3600.0
@@ -92,6 +95,7 @@ class DaemonApp:
         memory: Recent MemAvailable samples.
         started: When the daemon started.
         alive: Whether a run's process (by pid) still runs; a stand-in in tests.
+        security_cache: The last /security.json and when it was built.
     """
 
     state_dir: str
@@ -107,6 +111,7 @@ class DaemonApp:
     memory: List[ps.MemorySample]
     started: float
     alive: Callable[[int], bool]
+    security_cache: Optional[Tuple[float, JSONObject]]
 
     def __init__(self, state_dir: str, root: str, port: int, redactor: redact.Redactor,
                  poller: Optional[actions.ActionsPoller] = None) -> None:
@@ -132,6 +137,7 @@ class DaemonApp:
         self.memory = []
         self.started = time.time()
         self.alive = runfile.process_alive
+        self.security_cache = None
 
     # ---- following runs ----
 
@@ -352,6 +358,25 @@ class DaemonApp:
         """
         return self.panel.model(phases or None, details)
 
+    def security(self) -> JSONObject:
+        """Builds the /security.json document, at most every SECURITY_SECONDS.
+
+        Returns:
+            The attestation, scanner exceptions and everything pending.
+        """
+        with self.cond:
+            cached = self.security_cache
+        if cached is not None and time.time() - cached[0] < SECURITY_SECONDS:
+            return cached[1]
+        model = self.panel.model()
+        runs = list(self.store.load_actions().values())
+        if self.poller is not None:
+            runs += get_objects(self.poller.snapshot(), "runs")
+        doc = security.build(self.root, None if "error" in model else model, runs)
+        with self.cond:
+            self.security_cache = (time.time(), doc)
+        return doc
+
     # ---- recording ----
 
     def record_roadmap(self) -> None:
@@ -362,6 +387,14 @@ class DaemonApp:
         self.timeline.record_if_changed("roadmap.summary", "roadmap", roadmap.summary_value(model))
         for pid, value in roadmap.phase_values(model).items():
             self.timeline.record_if_changed("roadmap.phase", pid, value)
+        doc = self.security()
+        att = as_object(doc.get("attestation")) or {}
+        self.timeline.record_if_changed("security.summary", "security", {
+            "attestation": att.get("summary"), "pending": doc.get("pending_total"),
+            "waivers": len(get_list(doc, "waivers")), "unreleased": len(get_list(doc, "unreleased"))})
+        for c in get_objects(att, "controls"):
+            self.timeline.record_if_changed("security.control", get_str(c, "id"), {
+                k: c.get(k) for k in ("state", "statements_done", "statements_total", "review_due", "signed_on")})
 
     def record_actions(self) -> None:
         """Writes each Actions run and job, of the latest poll, whose status or conclusion changed."""

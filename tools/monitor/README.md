@@ -28,7 +28,13 @@ make --trace pr-check 2>&1 | tee /tmp/prcheck.txt
 Then open http://127.0.0.1:8765/: three tabs, Gate (`#gate`), Actions
 (`#actions`: every branch's workflow runs, the picked run's jobs, a job's
 duration over runs and each job's failure rate over thirty days) and
-Roadmap (`#roadmap`). The page loads Hanken Grotesk and IBM Plex Mono from
+Roadmap (`#roadmap`) and Security (`#security`: the attestation from
+the roadmap panel, gosec waivers checked against the tree, the scanner
+pins, the newest scheduled `vulns` and `nightly` jobs, unreleased
+`changelog/*.security.md`, and a Pending panel that leads the tab and
+ranks what waits on someone: a failed or stale govulncheck, overdue
+reviews, controls awaiting sign-off, open controls, reviews due within 30
+days, unproven implementations, stale waivers, unreleased fixes). The page loads Hanken Grotesk and IBM Plex Mono from
 Google Fonts and falls back to system fonts without them.
 The server binds 127.0.0.1 only and refuses a request whose Host header is
 not this machine's loopback.
@@ -84,7 +90,9 @@ never deleted:
 ```
 
 Kinds: `daemon` (start, stop, attach, backfill), `gate.stage` and
-`gate.run` (every broker event of every gate), `actions.run` and
+`gate.run` (every broker event of every gate), `security.summary` and
+`security.control` (attestation totals, pending count, and each control's
+state and review date), `actions.run` and
 `actions.job` (each status or conclusion change; backfilled lines are dated
 when the run or job ended), `roadmap.summary` and `roadmap.phase` (each
 change of the totals, or of a phase's state or counts), `memory` (one
@@ -108,6 +116,7 @@ Every tool only reads, through the daemon:
 | `roadmap` | totals and the queue, or one phase with its items (`details` for their full text) |
 | `timeline` | any recorded value, filtered by kind, src and time |
 | `history` | saved gate runs |
+| `security` | everything pending on security, most urgent first, and the attestation totals; `control` adds one control's statements |
 
 ### run
 

@@ -446,6 +446,49 @@ class ActionsBackfillTest(unittest.TestCase):
             self.assertLess(float(str(lines[0]["t"])), time.time() - 86400)
 
 
+class SecurityTest(unittest.TestCase):
+    """The Security tab's model, against a small repository."""
+
+    def test_everything_pending_is_called_out(self) -> None:
+        """Sign-off, open, overdue and due-soon reviews, an unproven phase, a
+        stale waiver, an unreleased fragment and a failed scan are each
+        pending, urgent groups ranked before the calm ones; in-progress
+        controls are listed but not counted as pending."""
+        import security
+        now = time.mktime((2026, 11, 11, 12, 0, 0, 0, 0, -1))
+        with tempfile.TemporaryDirectory() as root:
+            os.makedirs(os.path.join(root, "changelog"))
+            with open(os.path.join(root, "changelog", "pin-images.security.md"), "w", encoding="utf-8") as f:
+                f.write("Pins every base image by digest. More text here.\n")
+            with open(os.path.join(root, "kept.go"), "w", encoding="utf-8") as f:
+                f.write("package x\n")
+            with open(os.path.join(root, "gosec-waivers.json"), "w", encoding="utf-8") as f:
+                json.dump({"waivers": [{"file": "kept.go", "line": "1", "rule_id": "G104", "reason": "Fine."},
+                                       {"file": "gone.go", "line": "9", "rule_id": "G304", "reason": "Was fine."}],
+                           "skips": []}, f)
+            with open(os.path.join(root, "Makefile"), "w", encoding="utf-8") as f:
+                f.write("GOSEC_VERSION       ?= v2.30.0\nGOVULNCHECK_VERSION ?= v1.6.0\n")
+            controls: List[Dict[str, object]] = [
+                {"id": "A", "title": "drafted", "state": "drafted, awaiting review", "statements_done": 1, "statements_total": 1,
+                 "review_due": "2026-11-20", "implemented_by": [{"phase": "7", "proven": False, "status": "done"}], "problems": []},
+                {"id": "B", "title": "open", "state": "open", "statements_done": 0, "statements_total": 2, "review_due": "2026-10-01",
+                 "implemented_by": [], "problems": []},
+                {"id": "C", "title": "busy", "state": "in progress", "statements_done": 1, "statements_total": 3, "review_due": None,
+                 "implemented_by": [], "problems": []},
+            ]
+            model = as_object(loads(json.dumps({"security": {"summary": {"controls": 3}, "stages": [], "frameworks": [],
+                                                             "problems": [], "controls": controls}})))
+            runs = get_objects(as_object(loads(json.dumps({"runs": [{"url": "https://github.com/x/1", "branch": "main", "number": 1,
+                "jobs": [{"name": "vulns", "status": "completed", "conclusion": "failure", "failed": True, "end": now - 3600}]}]}))), "runs")
+            doc = security.build(root, model, runs, now)
+            groups = [get_str(g, "group") for g in get_objects(doc, "pending")]
+            self.assertEqual(groups, ["scanner", "overdue", "signoff", "open", "due_soon", "unproven", "waiver", "release", "in_progress"])
+            self.assertEqual(doc["pending_total"], 8)
+            self.assertEqual(sum(1 for w in get_objects(doc, "waivers") if get_str(w, "stale")), 1)
+            self.assertEqual(doc["pins"], {"gosec": "v2.30.0", "govulncheck": "v1.6.0", "go": "", "toolchain": ""})
+            self.assertEqual(get_str(get_objects(doc, "unreleased")[0], "summary"), "Pins every base image by digest.")
+
+
 class McpTest(unittest.TestCase):
     """The MCP server, as a real child process talking to a real daemon backend."""
 
@@ -475,7 +518,7 @@ class McpTest(unittest.TestCase):
                 self.assertEqual([r["id"] for r in replies], [1, 2, 3, 4, 5])
                 self.assertEqual(replies[0]["result"]["protocolVersion"], "2025-06-18")
                 names = {t["name"] for t in replies[1]["result"]["tools"]}
-                self.assertEqual(names, {"status", "gate", "gate_wait", "actions", "roadmap", "timeline", "history"})
+                self.assertEqual(names, {"status", "gate", "gate_wait", "actions", "roadmap", "timeline", "history", "security"})
                 self.assertTrue(all(t["annotations"]["readOnlyHint"] for t in replies[1]["result"]["tools"]))
                 status = json.loads(replies[2]["result"]["content"][0]["text"])
                 self.assertEqual(status["daemon"]["protocol"], daemon.PROTOCOL)
