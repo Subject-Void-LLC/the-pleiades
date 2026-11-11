@@ -315,7 +315,7 @@ func (cfg *RouterConfig) applyDefaults() {
 		cfg.Logger = slog.Default()
 	}
 	if cfg.Tracer == nil {
-		cfg.Tracer = noop.NewTracerProvider().Tracer("github.com/Subject-Void-LLC/the-pleiades/internal/api")
+		cfg.Tracer = noop.NewTracerProvider().Tracer(telemetry.APIScope)
 	}
 	if cfg.Propagator == nil {
 		cfg.Propagator = telemetry.Propagator()

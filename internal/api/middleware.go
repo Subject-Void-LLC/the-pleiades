@@ -56,6 +56,35 @@ const traceIDHeader = "X-Trace-ID"
 // cardinality incident: anyone can invent an infinite number of 404 paths.
 const unmatchedRoute = "unmatched"
 
+// otherMethod is what a request method outside knownMethods is recorded as
+// on a span and a metric label. It is OpenTelemetry's own spelling for the
+// case (the HTTP semantic conventions' "_OTHER"), so a dashboard written
+// against those conventions reads it.
+const otherMethod = "_OTHER"
+
+// knownMethods are the request methods recorded as themselves: RFC 9110's
+// methods plus PATCH (RFC 5789).
+var knownMethods = map[string]bool{
+	http.MethodGet: true, http.MethodHead: true, http.MethodPost: true,
+	http.MethodPut: true, http.MethodPatch: true, http.MethodDelete: true,
+	http.MethodConnect: true, http.MethodOptions: true, http.MethodTrace: true,
+}
+
+// boundedMethod returns r's method as a bounded identifier: itself when it
+// is a known method, and otherMethod otherwise. Go's server accepts any
+// token as a method and chi answers an unknown one with a 404 or 405 after
+// the metrics and tracing middleware have already seen it, so a method used
+// as sent let anyone who could reach the port, before authentication, mint
+// a new metric label set per request and put text of their choosing on
+// every span. The request log line keeps the method as sent: it is masked,
+// and it is where an operator investigating such traffic looks.
+func boundedMethod(r *http.Request) string {
+	if knownMethods[r.Method] {
+		return r.Method
+	}
+	return otherMethod
+}
+
 // TraceIDFromContext returns the trace ID of the span currently recording
 // in ctx. It reports false when no span is recording or the span context
 // carries no valid trace ID, so a caller can tell "tracing is off" apart
@@ -99,10 +128,14 @@ func TracingMiddleware(tracer trace.Tracer, propagator propagation.TextMapPropag
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ctx := propagator.Extract(r.Context(), propagation.HeaderCarrier(r.Header))
-			ctx, span := tracer.Start(ctx, r.Method,
+			// The span's name is built from boundedMethod and routePattern
+			// and nothing else; internal/archtest holds every span name to a
+			// literal or that build, and the exporter keeps an API span's
+			// name only in that shape.
+			ctx, span := tracer.Start(ctx, boundedMethod(r),
 				trace.WithSpanKind(trace.SpanKindServer),
 				trace.WithAttributes(
-					attribute.String("http.request.method", r.Method),
+					attribute.String("http.request.method", boundedMethod(r)),
 					// As sent, so a trace of /devices/sw%2Ffacts (the device
 					// "sw/facts") is not read as one of /devices/sw/facts
 					// (the facts of the device "sw"); see requestPath.
@@ -120,7 +153,7 @@ func TracingMiddleware(tracer trace.Tracer, propagator propagation.TextMapPropag
 			next.ServeHTTP(ww, r.WithContext(ctx))
 
 			route := routePattern(r)
-			span.SetName(r.Method + " " + route)
+			span.SetName(boundedMethod(r) + " " + routePattern(r))
 			span.SetAttributes(
 				attribute.String("http.route", route),
 				attribute.Int("http.response.status_code", ww.Status()),
@@ -198,7 +231,7 @@ func MetricsMiddleware(m *Metrics) func(http.Handler) http.Handler {
 			// cannot leave the gauge permanently incremented.
 			defer func() {
 				m.inFlight.Dec()
-				m.observe(routePattern(r), r.Method, ww.Status(), time.Since(start))
+				m.observe(routePattern(r), boundedMethod(r), ww.Status(), time.Since(start))
 			}()
 
 			next.ServeHTTP(ww, r)
