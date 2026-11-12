@@ -173,7 +173,10 @@ func Validate(world WorldView) Report {
 	slices.SortStableFunc(routes, func(a, b Route) int {
 		return cmp.Or(cmp.Compare(a.Node, b.Node), cmp.Compare(a.Device, b.Device))
 	})
-	return Report{Findings: findings, Routes: routes, Warnings: append(append(append(UnmatchedTargetWarnings(world), VarShadowWarnings(world)...), UntilWarnings(world)...), StatementParamWarnings(world)...)}
+	warnings := append(UnmatchedTargetWarnings(world), VarShadowWarnings(world)...)
+	warnings = append(warnings, SetFactOverrideWarnings(world)...)
+	warnings = append(append(warnings, UntilWarnings(world)...), StatementParamWarnings(world)...)
+	return Report{Findings: findings, Routes: routes, Warnings: warnings}
 }
 
 // Planner reports how tasks will reach their devices, as Routes. Like a
