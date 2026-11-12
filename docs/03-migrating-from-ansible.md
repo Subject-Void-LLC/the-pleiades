@@ -153,8 +153,17 @@ blocked, so a script cannot mistake an incomplete conversion for a finished one.
   a registered result holds only when it holds on every device the earlier task ran on,
   because a native condition is evaluated once per task, not once per host; the report
   asks you to confirm each one.
-- **`import_tasks`** is inlined as a block. `include_tasks`, roles, `import_playbook`
-  and `template` are blocked.
+- **`import_tasks`** is inlined as a block. Roles, `import_playbook` and `template` are
+  blocked.
+- **`include_tasks`** is blocked, and dynamic inclusion is not supported. Ansible reads the
+  included file when the task runs, and its name, loop and condition can all be decided
+  then, so the tasks it adds do not exist until run time. A runbook's whole graph is
+  validated before anything runs, and a task list that appears only at run time cannot be.
+  To convert one by hand: when the file name is a fixed literal, change the include to
+  `import_tasks` (which the converter inlines) or paste its tasks into a block. Check any
+  keyword on the include first: on an import, `become`, `when` and the rest apply to every
+  included task, where on an include they applied to the include alone. When the name
+  depends on a variable, write one block per value, each with a `when` choosing it.
 - **`meta: reset_connection`** becomes `pleiades.builtin.connection.reset`, which closes
   the SSH connection a run keeps open to the device so the next task logs in again, as
   Ansible's does. `flush_handlers`, `noop`, `refresh_inventory`, `clear_facts` and
