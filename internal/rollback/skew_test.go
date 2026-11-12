@@ -35,11 +35,19 @@ type installed struct {
 // It returns what this build computes for them.
 func registerSkew(t *testing.T) installed {
 	t.Helper()
+	return registerSkewFormat(t, collection.ParamFormatOperand)
+}
+
+// registerSkewFormat is registerSkew with file.rbremove's path declared in
+// format, one of the operand formats, so a test can hold a recorded value to
+// each program's own grammar.
+func registerSkewFormat(t *testing.T, format collection.ParamFormat) installed {
+	t.Helper()
 	t.Cleanup(collection.SnapshotForTest())
 	run := func(context.Context, sdk.RunbookContext, inventory.InventoryItem, map[string]any) (collection.Result, error) {
 		return collection.Result{}, nil
 	}
-	removeParams := []collection.Param{{Name: "path", Type: "string", Required: true, Format: collection.ParamFormatOperand}, {Name: "mode", Type: "int"}, {Name: "force", Type: "bool"},
+	removeParams := []collection.Param{{Name: "path", Type: "string", Required: true, Format: format}, {Name: "mode", Type: "int"}, {Name: "force", Type: "bool"},
 		{Name: "state", Type: "string", Choices: []string{"absent"}}}
 	spec := sdk.InverseSpec{FQCN: "file.rbremove", Record: []string{"path", "mode", "state"}}
 	for _, d := range []collection.Descriptor{

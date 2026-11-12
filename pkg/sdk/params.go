@@ -167,11 +167,31 @@ func RequiredStringParam(params map[string]any, key string) (string, error) {
 // passing either: a generic dispatcher handing it on, an undo replayed from
 // the journal, a program calling the method directly.
 func RequiredOperandParam(params map[string]any, key string) (string, error) {
+	return RequiredOperandParamOf(params, key, operand.Name)
+}
+
+// RequiredOperandParamOf is RequiredOperandParam for a parameter held to one
+// program's own grammar (an operand.Kind, matching the parameter's declared
+// format) rather than the general rule: a systemd unit, an APT or RPM
+// package name, a mount field.
+func RequiredOperandParamOf(params map[string]any, key string, kind operand.Kind) (string, error) {
 	v, err := RequiredStringParam(params, key)
 	if err != nil {
 		return "", err
 	}
-	if err := operand.Check(key, v); err != nil {
+	if err := kind.Check(key, v); err != nil {
+		return "", err
+	}
+	return v, nil
+}
+
+// OptionalOperandParamOf reads an optional word as StringParam does ("" when
+// it is absent) and holds a present one to kind's rule, for a value that is
+// joined onto an operand or placed beside one: a package version, a mount's
+// options.
+func OptionalOperandParamOf(params map[string]any, key string, kind operand.Kind) (string, error) {
+	v := StringParam(params, key)
+	if err := kind.Check(key, v); err != nil {
 		return "", err
 	}
 	return v, nil
@@ -181,12 +201,18 @@ func RequiredOperandParam(params map[string]any, key string) (string, error) {
 // RequiredOperandParam holds one name to, reporting whether the key was
 // present as StringSlice does.
 func OperandSlice(params map[string]any, key string) ([]string, bool, error) {
+	return OperandSliceOf(params, key, operand.Name)
+}
+
+// OperandSliceOf is OperandSlice for a list held to one program's own
+// grammar (an operand.Kind), item by item.
+func OperandSliceOf(params map[string]any, key string, kind operand.Kind) ([]string, bool, error) {
 	items, present, err := StringSlice(params, key)
 	if err != nil {
 		return nil, present, err
 	}
 	for i, item := range items {
-		if err := operand.Check(fmt.Sprintf("%s[%d]", key, i), item); err != nil {
+		if err := kind.Check(fmt.Sprintf("%s[%d]", key, i), item); err != nil {
 			return nil, present, err
 		}
 	}

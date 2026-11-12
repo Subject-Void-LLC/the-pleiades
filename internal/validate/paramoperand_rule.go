@@ -13,10 +13,11 @@ import (
 )
 
 // ParamOperandRule flags a task passing a parameter its method declares an
-// operand (collection.ParamFormatOperand) a value beginning with "-" or
-// holding a pattern character, which the program the method runs would
-// read as an option or as a pattern matching many names
-// (collection.OperandProblem). The method refuses it again before it sends
+// operand (collection.ParamFormatOperand or one of its siblings) a value
+// the program the method runs would read as something other than the one
+// name: an option, a pattern matching many names, or a form of the
+// program's own grammar that selects something else, such as apt-get's
+// trailing "-" (collection.OperandProblem). The method refuses it again before it sends
 // anything; this says so before the run, rather than after earlier tasks
 // have changed the device.
 //
@@ -43,7 +44,7 @@ func ParamOperandRule(world WorldView) []Finding {
 		for _, key := range keys {
 			value := task.Params[key]
 			p, declared := decls[key]
-			if !declared || p.Format != collection.ParamFormatOperand || engine.HasTemplate(value) {
+			if _, isOperand := collection.OperandKind(p.Format); !declared || !isOperand || engine.HasTemplate(value) {
 				continue
 			}
 			// A value of the wrong type is ParamTypeRule's to report;

@@ -93,3 +93,144 @@ func FuzzProblem(f *testing.F) {
 		}
 	})
 }
+
+// TestKinds covers each program's own grammar: what it admits that the
+// general rule does not (systemd's root units, a mount path holding a
+// bracket) and what it refuses that the general rule admits (APT's trailing
+// "-", a release or a version in the name, an RPM group, file or
+// capability, a version's trailing "-", an fstab field holding a space).
+func TestKinds(t *testing.T) {
+	for _, tc := range []struct {
+		kind       operand.Kind
+		text, want string // want: a substring of the problem; "" means none
+	}{
+		{operand.SystemdUnit, "nginx.service", ""},
+		{operand.SystemdUnit, "-.mount", ""},
+		{operand.SystemdUnit, "-.slice", ""},
+		{operand.SystemdUnit, "-.swap", `begins with "-"`},
+		{operand.SystemdUnit, "-.mount.d", `begins with "-"`},
+		{operand.SystemdUnit, "-f", `begins with "-"`},
+		{operand.SystemdUnit, "--now", `begins with "-"`},
+		{operand.SystemdUnit, "s*", "pattern"},
+		{operand.SystemdUnit, `dev-disk-by\x2duuid-1.device`, ""},
+
+		{operand.AptPackage, "curl", ""},
+		{operand.AptPackage, "g++", ""},
+		{operand.AptPackage, "libstdc++6", ""},
+		{operand.AptPackage, "libc6:amd64", ""},
+		{operand.AptPackage, "python3.11", ""},
+		{operand.AptPackage, "diffutils-", `ends in "-"`},
+		{operand.AptPackage, "jq-:amd64", `ends in "-"`},
+		{operand.AptPackage, "jq/bookworm", `holds "/"`},
+		{operand.AptPackage, "jq=1.6", `holds "="`},
+		{operand.AptPackage, "~nzsh", "does not begin with a letter or a digit"},
+		{operand.AptPackage, "^zsh", "does not begin with a letter or a digit"},
+		{operand.AptPackage, "zsh$", "a character no Debian package name holds"},
+		{operand.AptPackage, "jq:", `":"`},
+		{operand.AptPackage, "jq:amd64:x", `":"`},
+		{operand.AptPackage, "--autoremove", `begins with "-"`},
+		{operand.AptPackage, "lib*", "pattern"},
+
+		{operand.RPMPackage, "NetworkManager", ""},
+		{operand.RPMPackage, "libstdc++", ""},
+		{operand.RPMPackage, "python3.11", ""},
+		{operand.RPMPackage, "bash.x86_64", ""},
+		{operand.RPMPackage, "@core", `begins with "@"`},
+		{operand.RPMPackage, "/usr/bin/jq", `holds "/"`},
+		{operand.RPMPackage, "perl(strict)", `"(" or ")"`},
+		{operand.RPMPackage, "nginx >= 1.20", "comparison"},
+		{operand.RPMPackage, "nginx-1:1.20", `holds ":"`},
+		{operand.RPMPackage, "nginx-", `ends in "-"`},
+		{operand.RPMPackage, "ng~inx", "a character no RPM package name holds"},
+		{operand.RPMPackage, "--setopt=tsflags=noscripts", `begins with "-"`},
+
+		{operand.Package, "curl", ""},
+		{operand.Package, "libc6:amd64", ""},
+		{operand.Package, "_unusual", ""},
+		{operand.Package, "diffutils-", `ends in "-"`},
+		{operand.Package, "@core", "for APT"},
+		{operand.Package, "jq/bookworm", "for RPM"},
+
+		{operand.PackageVersion, "", ""},
+		{operand.PackageVersion, "1.24.0-2ubuntu7", ""},
+		{operand.PackageVersion, "1:3.8-4", ""},
+		{operand.PackageVersion, "1.6-2.1+deb12u3", ""},
+		{operand.PackageVersion, "2.0~rc1", ""},
+		{operand.PackageVersion, "1.0^20230101git1234", ""},
+		{operand.PackageVersion, "1.24.0-1.el9_4", ""},
+		{operand.PackageVersion, "*", "pattern"},
+		{operand.PackageVersion, "1.[0-9]", "pattern"},
+		{operand.PackageVersion, "1:3.8-4-", `ends in "-"`},
+		{operand.PackageVersion, "-1", `begins with "-"`},
+		{operand.PackageVersion, "1.0 2.0", "a character no Debian or RPM version holds"},
+		{operand.PackageVersion, "1.0/x", "a character no Debian or RPM version holds"},
+
+		{operand.MountField, "/data", ""},
+		{operand.MountField, "UUID=0b1c-2d3e", ""},
+		{operand.MountField, "LABEL=data", ""},
+		{operand.MountField, "nas:/export", ""},
+		{operand.MountField, "//server/share", ""},
+		{operand.MountField, "/dev/sda1[/srv]", ""},
+		{operand.MountField, "rw,noatime,x-systemd.automount", ""},
+		{operand.MountField, "-a", `begins with "-"`},
+		{operand.MountField, "#x", `begins with "#"`},
+		{operand.MountField, "/mnt/a b", "space"},
+		{operand.MountField, "/dev/sdb1\n/dev/sdc1", "line break"},
+		{operand.MountField, "a\x00b", "control character"},
+		{operand.MountField, `/mnt/a\040b`, "escape"},
+	} {
+		t.Run(string(tc.kind)+" "+tc.text, func(t *testing.T) {
+			got := tc.kind.Problem(tc.text)
+			if tc.want == "" {
+				if got != "" {
+					t.Fatalf("%s.Problem(%q) = %q, want none", tc.kind, tc.text, got)
+				}
+				return
+			}
+			if !strings.Contains(got, tc.want) {
+				t.Fatalf("%s.Problem(%q) = %q, want it to say %q", tc.kind, tc.text, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestKind_UnknownRefusesEverything: a kind this build does not know
+// passes nothing, so a format mapped to a kind added later fails closed.
+func TestKind_UnknownRefusesEverything(t *testing.T) {
+	if operand.Kind("later").Problem("curl") == "" {
+		t.Fatal("an unknown kind passed a value")
+	}
+	if err := operand.AptPackage.Check("name", "jq/bookworm"); err == nil || !strings.HasPrefix(err.Error(), "name is refused: ") || strings.Contains(err.Error(), "bookworm") {
+		t.Fatalf("Check = %v, want it to name the parameter and not repeat the value", err)
+	}
+}
+
+// FuzzKinds holds every kind to the properties the rules share over any
+// text: no panic; a word beginning with "-" refused by every kind, except
+// systemd's two root units by SystemdUnit; a pattern character refused by
+// every kind but MountField, whose programs read one as itself; and Package
+// admitting exactly what AptPackage or RPMPackage admits.
+func FuzzKinds(f *testing.F) {
+	for _, seed := range []string{
+		"curl", "g++", "-.mount", "-.slice", "-f", "lib*", "jq/bookworm", "jq=1", "diffutils-",
+		"@core", "/usr/bin/jq", "perl(x)", "1:3.8-4", "1.0-", "/dev/sdb1\n", "a b", "#x", `\040`, "", "\x00",
+	} {
+		f.Add(seed)
+	}
+	f.Fuzz(func(t *testing.T, text string) {
+		for _, kind := range operand.Kinds() {
+			problem := kind.Problem(text)
+			root := kind == operand.SystemdUnit && (text == "-.mount" || text == "-.slice")
+			if strings.HasPrefix(text, "-") && !root && problem == "" {
+				t.Fatalf("%s admitted %q, which begins with a dash", kind, text)
+			}
+			if strings.ContainsAny(text, "*?[]") && kind != operand.MountField && problem == "" {
+				t.Fatalf("%s admitted %q, which holds a pattern character", kind, text)
+			}
+		}
+		either := operand.AptPackage.Problem(text) == "" || operand.RPMPackage.Problem(text) == ""
+		if got := operand.Package.Problem(text) == ""; got != either {
+			t.Fatalf("Package admitted %q: %v, while APT or RPM admitted it: %v", text, got, either)
+		}
+	})
+}

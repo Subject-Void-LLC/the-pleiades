@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/operand"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
 
@@ -300,5 +301,42 @@ func TestOptionalStringParam(t *testing.T) {
 	}
 	if _, err := sdk.OptionalStringParam(params, "number"); err == nil || !strings.Contains(err.Error(), "number is int, not text") {
 		t.Errorf("a number = %v", err)
+	}
+}
+
+// TestOperandReadersOf: the kind-aware readers hold a value to that kind's
+// rule, not the general one: systemd's root mount is a unit, an APT name
+// ending in "-" is refused, an absent optional value is "" and passes, and
+// a list is held item by item, naming the item.
+func TestOperandReadersOf(t *testing.T) {
+	if got, err := sdk.RequiredOperandParamOf(map[string]any{"name": "-.mount"}, "name", operand.SystemdUnit); err != nil || got != "-.mount" {
+		t.Errorf("RequiredOperandParamOf(-.mount, unit) = %q, %v", got, err)
+	}
+	if _, err := sdk.RequiredOperandParamOf(map[string]any{"name": "-.mount"}, "name", operand.Name); err == nil {
+		t.Error("the general rule took -.mount")
+	}
+	if _, err := sdk.RequiredOperandParamOf(map[string]any{"name": "diffutils-"}, "name", operand.AptPackage); err == nil || !strings.Contains(err.Error(), `name is refused: it ends in "-"`) {
+		t.Errorf("RequiredOperandParamOf(diffutils-, apt) = %v", err)
+	}
+	if _, err := sdk.RequiredOperandParamOf(map[string]any{}, "name", operand.AptPackage); err == nil || !strings.Contains(err.Error(), "name is required") {
+		t.Errorf("an absent name = %v, want the required check's error", err)
+	}
+	if got, err := sdk.OptionalOperandParamOf(map[string]any{}, "version", operand.PackageVersion); err != nil || got != "" {
+		t.Errorf("an absent version = %q, %v", got, err)
+	}
+	if got, err := sdk.OptionalOperandParamOf(map[string]any{"version": "1:3.8-4"}, "version", operand.PackageVersion); err != nil || got != "1:3.8-4" {
+		t.Errorf("a real version = %q, %v", got, err)
+	}
+	if _, err := sdk.OptionalOperandParamOf(map[string]any{"version": "*"}, "version", operand.PackageVersion); err == nil || !strings.Contains(err.Error(), "version is refused") {
+		t.Errorf("a version pattern = %v", err)
+	}
+	if got, present, err := sdk.OperandSliceOf(map[string]any{"deps": []any{"libjq1", "g++"}}, "deps", operand.AptPackage); err != nil || !present || len(got) != 2 {
+		t.Errorf("OperandSliceOf(real names) = %v, %v, %v", got, present, err)
+	}
+	if _, _, err := sdk.OperandSliceOf(map[string]any{"deps": []any{"libjq1", "jq-"}}, "deps", operand.AptPackage); err == nil || !strings.Contains(err.Error(), "deps[1] is refused") {
+		t.Errorf("OperandSliceOf(a trailing dash) = %v", err)
+	}
+	if _, _, err := sdk.OperandSliceOf(map[string]any{"deps": "jq"}, "deps", operand.AptPackage); err == nil {
+		t.Error("OperandSliceOf took text that is not a list")
 	}
 }

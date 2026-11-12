@@ -150,7 +150,14 @@ take its runbook's `hosts:` and runs once, with no device and no credential. `pl
 new-collection` takes `--site` and `--device`, and an optional device gets a `DeviceCall`
 stub to replace. A parameter whose text lands on a command line or is a URL sets
 `collection.Param.Format` to `ParamFormatCommand` or `ParamFormatURL`, and a runbook that
-renders into it is then held to the matching rule.
+renders into it is then held to the matching rule. A parameter whose value is one name the
+method places on a program's command line after its options (a package, a unit, an account)
+sets `ParamFormatOperand`, or the program's own form of it (`ParamFormatSystemdUnit`,
+`ParamFormatAptPackage`, `ParamFormatRPMPackage`, `ParamFormatPackageVersion`,
+`ParamFormatMountField`): `pleiades validate`, the engine and `pleiades rollback` then refuse a
+value the program would read as an option, a pattern or something other than that one name,
+and the method reads it through `sdk.RequiredOperandParamOf` with the matching `pkg/operand`
+kind so the same rule holds before it connects.
 
 A method may also carry a `Check` function with the same signature, declared by
 setting `Manifest.SupportsCheck`. It is what `pleiades run --mode check` calls in
