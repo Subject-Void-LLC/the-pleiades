@@ -72,7 +72,10 @@ the rule most languages use. From widest to narrowest: the runbook's `vars:`, a 
 `vars:`, the task's `vars:`. Extra variables (`-e`) are an override from outside and win
 over all of them, as in Ansible. A playbook that sets one name in two places can read a
 different value after conversion, so `validate` warns when a name is set in more than one
-scope and says which setting is read.
+scope and says which setting is read. Of the scopes a converted playbook carries, play,
+block and task `vars:` pick the same winner in both, and so does a `set_fact` over a play's
+`vars:`. Only a `set_fact` beside a block's or a task's `vars:` reads differently, and the
+converter reports that as `vars.precedence`.
 
 **Does not exist yet, and a runbook cannot express it:** `meta: flush_handlers`,
 `max_fail_percentage:`, `roles:`, and every `with_*` loop other than `with_items`. See the keyword map

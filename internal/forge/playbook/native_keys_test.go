@@ -333,7 +333,9 @@ tasks:
   - name: use
     exec.command: {cmd: "echo {{ vars.app | quote }}"}
     vars: {app: /opt}`,
-			codes: []playbook.Code{"vars.precedence", "template.quoted"},
+			// The task's vars win in Ansible and in the runbook alike.
+			codes:  []playbook.Code{"template.quoted"},
+			absent: []playbook.Code{"vars.precedence"},
 		},
 		{
 			name:  "block vars and a task under it",
@@ -344,7 +346,8 @@ tasks:
     block:
       - {name: use, exec.command: {cmd: "run {{ vars.mode | quote }}"}}
       - {name: other, exec.command: {cmd: "run {{ vars.mode | quote }}"}, vars: {mode: slow}}`,
-			codes: []playbook.Code{"vars.precedence"},
+			// The narrower wins in both, so nothing is reported.
+			absent: []playbook.Code{"vars.precedence"},
 		},
 		{
 			name:  "a variable defined once is still folded and not carried",
