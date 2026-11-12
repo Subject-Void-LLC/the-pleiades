@@ -82,7 +82,7 @@ var behaviors = map[string]behavior{
 	"virt.clab.lab.info":       reads(labInfo),
 	"virt.clab.lab.links":      reads(labRead("links", "links", "node")),
 	"virt.clab.lab.interfaces": reads(labRead("interfaces", "interfaces", "node")),
-	"virt.clab.lab.topology":   reads(labRead("topology/yaml", "topology", "")),
+	"virt.clab.lab.topology":   reads(labTopology),
 	"virt.clab.lab.validate":   reads(labValidate),
 	"virt.clab.lab.deploy": {run: labDeploy, checks: true, timeout: longTimeout,
 		rev: reversible("Its undo destroys the lab, and is recorded only when this task created it, before the deploy runs, since a deploy that fails partway leaves containers behind. A lab that was already deployed is left alone and records no undo.",

@@ -6,7 +6,7 @@ status: beta
 
 Lists the browser-reachable ports a lab node publishes.
 
-Returns the ports the server reports for the node. It only reads, so a check is the same call. The target is the containerlab API server, a generic_http device that onboarding recognised (it declares ContainerlabAPICapable); its login is the device's stored credential, with http_auth basic, and neither the password nor the token it gets is logged, returned or journaled.
+Returns the ports the server reports for the node. A lab that is not deployed, or a node it does not have, is not a failure: exists is false and ports is empty, so a later task can decide what to do. It only reads, so a check is the same call. The target is the containerlab API server, a generic_http device that onboarding recognised (it declares ContainerlabAPICapable); its login is the device's stored credential, with http_auth basic, and neither the password nor the token it gets is logged, returned or journaled.
 
 ## Attributes
 
@@ -30,8 +30,9 @@ Returns the ports the server reports for the node. It only reads, so a check is 
 
 | Name | Type | Returned | Description |
 | --- | --- | --- | --- |
-| `ports` | `list` | always | The node's published browser ports. |
-| `name` | `string` | always | The node's container name. |
+| `exists` | `bool` | always | Whether the lab is deployed and has the node. |
+| `ports` | `list` | always | The node's published browser ports; empty when it does not exist. |
+| `name` | `string` | when it exists | The node's container name. |
 
 ## Undoing this
 

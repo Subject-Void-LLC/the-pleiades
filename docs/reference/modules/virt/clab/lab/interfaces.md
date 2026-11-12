@@ -6,7 +6,7 @@ status: beta
 
 Lists the interfaces of a lab's nodes.
 
-Narrow it to one node with node. It only reads, so a check is the same call. The target is the containerlab API server, a generic_http device that onboarding recognised (it declares ContainerlabAPICapable); its login is the device's stored credential, with http_auth basic, and neither the password nor the token it gets is logged, returned or journaled.
+Narrow it to one node with node. A lab that is not deployed is not a failure: exists is false and interfaces is empty, so a later task can decide what to do. It only reads, so a check is the same call. The target is the containerlab API server, a generic_http device that onboarding recognised (it declares ContainerlabAPICapable); its login is the device's stored credential, with http_auth basic, and neither the password nor the token it gets is logged, returned or journaled.
 
 ## Attributes
 
@@ -30,7 +30,8 @@ Narrow it to one node with node. It only reads, so a check is the same call. The
 
 | Name | Type | Returned | Description |
 | --- | --- | --- | --- |
-| `interfaces` | `list of dict` | always | Each node: name, and its interfaces with name, alias, mac, ifindex, mtu, type and state. |
+| `exists` | `bool` | always | Whether the lab is deployed. |
+| `interfaces` | `list of dict` | always | Each node: name, and its interfaces with name, alias, mac, ifindex, mtu, type and state; empty when the lab is not deployed. |
 
 ## Undoing this
 

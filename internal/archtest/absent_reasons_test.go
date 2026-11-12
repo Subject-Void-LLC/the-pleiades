@@ -18,12 +18,11 @@ import (
 // fit. Each says what the method answers instead when the thing it is asked
 // about is not there.
 const (
-	whyLists        = "it lists; when there is nothing, an empty list is the answer"
-	whyDevice       = "it describes the device itself; a device not there is unreachable, not absent"
-	whyGate         = "it is a gate: failing on what it asserts is not so is its purpose"
-	whyWait         = "it is a wait: failing at its timeout is its purpose"
-	whyProbe        = "it is a probe: its result is the answer, a lost reply included"
-	whyClabPartRead = "it reads part of a named lab (or of a lab's node), and one not there fails naming it; virt.clab.lab.info answers whether the lab exists"
+	whyLists  = "it lists; when there is nothing, an empty list is the answer"
+	whyDevice = "it describes the device itself; a device not there is unreachable, not absent"
+	whyGate   = "it is a gate: failing on what it asserts is not so is its purpose"
+	whyWait   = "it is a wait: failing at its timeout is its purpose"
+	whyProbe  = "it is a probe: its result is the answer, a lost reply included"
 )
 
 // noExistsReasons names every implemented, read-only built-in method with
@@ -65,17 +64,9 @@ var noExistsReasons = map[string]string{
 	"pleiades.builtin.wait.port":        whyWait,
 	"scan.secrets":                      whyGate,
 	"scan.vuln":                         whyGate,
-	"virt.clab.capture.packetflix":      whyClabPartRead,
 	"virt.clab.edgeshark.status":        whyDevice + " (it reads the server's Edgeshark status, whose running is false when it does not run)",
 	"virt.clab.image.list":              whyLists,
-	"virt.clab.lab.interfaces":          whyClabPartRead,
-	"virt.clab.lab.links":               whyClabPartRead,
 	"virt.clab.lab.list":                whyLists,
-	"virt.clab.lab.topology":            whyClabPartRead,
-	"virt.clab.lab.validate":            whyGate + " (it fails on a topology containerlab cannot parse)",
-	"virt.clab.netem.show":              whyClabPartRead,
-	"virt.clab.node.logs":               whyClabPartRead,
-	"virt.clab.node.ports":              whyClabPartRead,
 	"virt.clab.server.health":           whyDevice,
 	"virt.clab.server.metrics":          whyDevice,
 	"virt.clab.server.version":          whyDevice,

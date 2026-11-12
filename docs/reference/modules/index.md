@@ -217,7 +217,7 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | [virt.clab.lab.save](virt/clab/lab/save.md) | implemented | Saves each node's running configuration to its startup configuration. |
 | [virt.clab.lab.start](virt/clab/lab/start.md) | implemented | Makes a lab's nodes started. |
 | [virt.clab.lab.stop](virt/clab/lab/stop.md) | implemented | Makes a lab's nodes stopped. |
-| [virt.clab.lab.topology](virt/clab/lab/topology.md) | implemented | Reads a deployed lab's topology as YAML. |
+| [virt.clab.lab.topology](virt/clab/lab/topology.md) | implemented | Reads a lab's topology as YAML. |
 | [virt.clab.lab.validate](virt/clab/lab/validate.md) | implemented | Validates a lab's on-disk topology without deploying it. |
 | [virt.clab.netem.reset](virt/clab/netem/reset.md) | implemented | Clears the netem impairments on a lab node's interface, if it has any. |
 | [virt.clab.netem.set](virt/clab/netem/set.md) | implemented | Sets delay, jitter, loss or rate on a lab node's interface, unless it is already so. |

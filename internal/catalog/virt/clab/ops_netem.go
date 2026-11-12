@@ -56,15 +56,16 @@ func netemShowHandler(ctx context.Context, s *session, a *args, _ bool) (bool, e
 	if a.err != nil {
 		return false, a.err
 	}
-	n, err := s.node(ctx, lab, name)
-	if err != nil {
+	// A lab or node not there is exists false and no impaired interfaces.
+	n, found, err := s.lookupNode(ctx, lab, name, "interfaces")
+	if err != nil || !found {
 		return false, err
 	}
 	list, err := s.netemShow(ctx, lab, n)
 	if err != nil {
 		return false, err
 	}
-	return false, s.stats(map[string]any{"interfaces": impairments(list), "name": n.Name})
+	return false, s.stats(map[string]any{"exists": true, "interfaces": impairments(list), "name": n.Name})
 }
 
 // netemInverseKeys are the parameters of a netem.set undo.

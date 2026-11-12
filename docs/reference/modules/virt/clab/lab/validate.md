@@ -6,7 +6,7 @@ status: beta
 
 Validates a lab's on-disk topology without deploying it.
 
-Asks containerlab to parse the topology file the server holds for the lab and reports whether it is valid. path names another file on the server. It only reads, so a check is the same call. The target is the containerlab API server, a generic_http device that onboarding recognised (it declares ContainerlabAPICapable); its login is the device's stored credential, with http_auth basic, and neither the password nor the token it gets is logged, returned or journaled.
+Asks containerlab to parse the topology file the server holds for the lab and reports whether it is valid; one that is not valid fails the task. path names another file on the server. A lab the server holds no topology file for (or no file at path) is not a failure: exists is false and nothing else is reported, so a later task can decide what to do. It only reads, so a check is the same call. The target is the containerlab API server, a generic_http device that onboarding recognised (it declares ContainerlabAPICapable); its login is the device's stored credential, with http_auth basic, and neither the password nor the token it gets is logged, returned or journaled.
 
 ## Attributes
 
@@ -30,9 +30,10 @@ Asks containerlab to parse the topology file the server holds for the lab and re
 
 | Name | Type | Returned | Description |
 | --- | --- | --- | --- |
-| `valid` | `bool` | always | Whether the topology is valid. |
-| `nodes` | `int` | always | How many nodes. |
-| `links` | `int` | always | How many links. |
+| `exists` | `bool` | always | Whether the server holds the topology file. |
+| `valid` | `bool` | when it exists | Whether the topology is valid. |
+| `nodes` | `int` | when it exists | How many nodes. |
+| `links` | `int` | when it exists | How many links. |
 | `error` | `string` | when invalid | containerlab's validation error. |
 
 ## Undoing this

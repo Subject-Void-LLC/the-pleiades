@@ -6,7 +6,7 @@ status: beta
 
 Lists a lab's links with each end's interface, address and state.
 
-Narrow it to the links one node has with node. It only reads, so a check is the same call. The target is the containerlab API server, a generic_http device that onboarding recognised (it declares ContainerlabAPICapable); its login is the device's stored credential, with http_auth basic, and neither the password nor the token it gets is logged, returned or journaled.
+Narrow it to the links one node has with node. A lab that is not deployed is not a failure: exists is false and links is empty, so a later task can decide what to do. It only reads, so a check is the same call. The target is the containerlab API server, a generic_http device that onboarding recognised (it declares ContainerlabAPICapable); its login is the device's stored credential, with http_auth basic, and neither the password nor the token it gets is logged, returned or journaled.
 
 ## Attributes
 
@@ -30,7 +30,8 @@ Narrow it to the links one node has with node. It only reads, so a check is the 
 
 | Name | Type | Returned | Description |
 | --- | --- | --- | --- |
-| `links` | `list of dict` | always | Each link: type, and its two ends (a and b) with node, container, interface, mac, mtu and state. |
+| `exists` | `bool` | always | Whether the lab is deployed. |
+| `links` | `list of dict` | always | Each link: type, and its two ends (a and b) with node, container, interface, mac, mtu and state; empty when the lab is not deployed. |
 
 ## Undoing this
 

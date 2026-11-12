@@ -15967,7 +15967,7 @@
     "supportsCheck": true,
     "doc": {
       "summary": "Builds Packetflix capture links for a lab's interfaces.",
-      "description": "Asks the server for the packetflix:// URI that opens a capture of each interface named, for Wireshark with the Edgeshark plugin. It starts no capture itself. It only reads, so a check is the same call. The target is the containerlab API server, a generic_http device that onboarding recognised (it declares ContainerlabAPICapable); its login is the device's stored credential, with http_auth basic, and neither the password nor the token it gets is logged, returned or journaled.",
+      "description": "Asks the server for the packetflix:// URI that opens a capture of each interface named, for Wireshark with the Edgeshark plugin. It starts no capture itself. A lab that is not deployed is not a failure: exists is false and captures is empty, so a later task can decide what to do. It only reads, so a check is the same call. The target is the containerlab API server, a generic_http device that onboarding recognised (it declares ContainerlabAPICapable); its login is the device's stored credential, with http_auth basic, and neither the password nor the token it gets is logged, returned or journaled.",
       "params": [
         {
           "name": "lab",
@@ -15989,10 +15989,16 @@
       ],
       "returns": [
         {
+          "name": "exists",
+          "type": "bool",
+          "returned": "always",
+          "description": "Whether the lab is deployed."
+        },
+        {
           "name": "captures",
           "type": "list of dict",
           "returned": "always",
-          "description": "Each: container_name, interface_names and packetflix_uri."
+          "description": "Each: container_name, interface_names and packetflix_uri; empty when the lab is not deployed."
         }
       ],
       "examples": [
@@ -16676,7 +16682,7 @@
     "supportsCheck": true,
     "doc": {
       "summary": "Lists the interfaces of a lab's nodes.",
-      "description": "Narrow it to one node with node. It only reads, so a check is the same call. The target is the containerlab API server, a generic_http device that onboarding recognised (it declares ContainerlabAPICapable); its login is the device's stored credential, with http_auth basic, and neither the password nor the token it gets is logged, returned or journaled.",
+      "description": "Narrow it to one node with node. A lab that is not deployed is not a failure: exists is false and interfaces is empty, so a later task can decide what to do. It only reads, so a check is the same call. The target is the containerlab API server, a generic_http device that onboarding recognised (it declares ContainerlabAPICapable); its login is the device's stored credential, with http_auth basic, and neither the password nor the token it gets is logged, returned or journaled.",
       "params": [
         {
           "name": "lab",
@@ -16692,10 +16698,16 @@
       ],
       "returns": [
         {
+          "name": "exists",
+          "type": "bool",
+          "returned": "always",
+          "description": "Whether the lab is deployed."
+        },
+        {
           "name": "interfaces",
           "type": "list of dict",
           "returned": "always",
-          "description": "Each node: name, and its interfaces with name, alias, mac, ifindex, mtu, type and state."
+          "description": "Each node: name, and its interfaces with name, alias, mac, ifindex, mtu, type and state; empty when the lab is not deployed."
         }
       ],
       "examples": [
@@ -16730,7 +16742,7 @@
     "supportsCheck": true,
     "doc": {
       "summary": "Lists a lab's links with each end's interface, address and state.",
-      "description": "Narrow it to the links one node has with node. It only reads, so a check is the same call. The target is the containerlab API server, a generic_http device that onboarding recognised (it declares ContainerlabAPICapable); its login is the device's stored credential, with http_auth basic, and neither the password nor the token it gets is logged, returned or journaled.",
+      "description": "Narrow it to the links one node has with node. A lab that is not deployed is not a failure: exists is false and links is empty, so a later task can decide what to do. It only reads, so a check is the same call. The target is the containerlab API server, a generic_http device that onboarding recognised (it declares ContainerlabAPICapable); its login is the device's stored credential, with http_auth basic, and neither the password nor the token it gets is logged, returned or journaled.",
       "params": [
         {
           "name": "lab",
@@ -16746,10 +16758,16 @@
       ],
       "returns": [
         {
+          "name": "exists",
+          "type": "bool",
+          "returned": "always",
+          "description": "Whether the lab is deployed."
+        },
+        {
           "name": "links",
           "type": "list of dict",
           "returned": "always",
-          "description": "Each link: type, and its two ends (a and b) with node, container, interface, mac, mtu and state."
+          "description": "Each link: type, and its two ends (a and b) with node, container, interface, mac, mtu and state; empty when the lab is not deployed."
         }
       ],
       "examples": [
@@ -17138,8 +17156,8 @@
     },
     "supportsCheck": true,
     "doc": {
-      "summary": "Reads a deployed lab's topology as YAML.",
-      "description": "The text is the topology file the server holds for the lab. It only reads, so a check is the same call. The target is the containerlab API server, a generic_http device that onboarding recognised (it declares ContainerlabAPICapable); its login is the device's stored credential, with http_auth basic, and neither the password nor the token it gets is logged, returned or journaled.",
+      "summary": "Reads a lab's topology as YAML.",
+      "description": "The text is the topology file the server holds for the lab, deployed or not. A lab the server holds no topology file for is not a failure: exists is false and no topology is reported, so a later task can decide what to do. It only reads, so a check is the same call. The target is the containerlab API server, a generic_http device that onboarding recognised (it declares ContainerlabAPICapable); its login is the device's stored credential, with http_auth basic, and neither the password nor the token it gets is logged, returned or journaled.",
       "params": [
         {
           "name": "lab",
@@ -17150,15 +17168,21 @@
       ],
       "returns": [
         {
+          "name": "exists",
+          "type": "bool",
+          "returned": "always",
+          "description": "Whether the server holds a topology file for the lab."
+        },
+        {
           "name": "topology",
           "type": "string",
-          "returned": "always",
+          "returned": "when it exists",
           "description": "The topology file's YAML text."
         }
       ],
       "examples": [
         {
-          "name": "Reads a deployed lab's topology as YAML.",
+          "name": "Reads a lab's topology as YAML.",
           "runbookYaml": "- name: Read the topology\n  virt.clab.lab.topology:\n    target: clab-api\n    lab: nclab\n  register: topo\n"
         }
       ],
@@ -17189,7 +17213,7 @@
     "supportsCheck": true,
     "doc": {
       "summary": "Validates a lab's on-disk topology without deploying it.",
-      "description": "Asks containerlab to parse the topology file the server holds for the lab and reports whether it is valid. path names another file on the server. It only reads, so a check is the same call. The target is the containerlab API server, a generic_http device that onboarding recognised (it declares ContainerlabAPICapable); its login is the device's stored credential, with http_auth basic, and neither the password nor the token it gets is logged, returned or journaled.",
+      "description": "Asks containerlab to parse the topology file the server holds for the lab and reports whether it is valid; one that is not valid fails the task. path names another file on the server. A lab the server holds no topology file for (or no file at path) is not a failure: exists is false and nothing else is reported, so a later task can decide what to do. It only reads, so a check is the same call. The target is the containerlab API server, a generic_http device that onboarding recognised (it declares ContainerlabAPICapable); its login is the device's stored credential, with http_auth basic, and neither the password nor the token it gets is logged, returned or journaled.",
       "params": [
         {
           "name": "lab",
@@ -17205,21 +17229,27 @@
       ],
       "returns": [
         {
-          "name": "valid",
+          "name": "exists",
           "type": "bool",
           "returned": "always",
+          "description": "Whether the server holds the topology file."
+        },
+        {
+          "name": "valid",
+          "type": "bool",
+          "returned": "when it exists",
           "description": "Whether the topology is valid."
         },
         {
           "name": "nodes",
           "type": "int",
-          "returned": "always",
+          "returned": "when it exists",
           "description": "How many nodes."
         },
         {
           "name": "links",
           "type": "int",
-          "returned": "always",
+          "returned": "when it exists",
           "description": "How many links."
         },
         {
@@ -17448,7 +17478,7 @@
     "supportsCheck": true,
     "doc": {
       "summary": "Shows the netem impairments on a lab node's interfaces.",
-      "description": "Returns each interface that has a delay, jitter, loss or rate set. It only reads, so a check is the same call. The target is the containerlab API server, a generic_http device that onboarding recognised (it declares ContainerlabAPICapable); its login is the device's stored credential, with http_auth basic, and neither the password nor the token it gets is logged, returned or journaled.",
+      "description": "Returns each interface that has a delay, jitter, loss or rate set. A lab that is not deployed, or a node it does not have, is not a failure: exists is false and interfaces is empty, so a later task can decide what to do. It only reads, so a check is the same call. The target is the containerlab API server, a generic_http device that onboarding recognised (it declares ContainerlabAPICapable); its login is the device's stored credential, with http_auth basic, and neither the password nor the token it gets is logged, returned or journaled.",
       "params": [
         {
           "name": "lab",
@@ -17465,15 +17495,21 @@
       ],
       "returns": [
         {
+          "name": "exists",
+          "type": "bool",
+          "returned": "always",
+          "description": "Whether the lab is deployed and has the node."
+        },
+        {
           "name": "interfaces",
           "type": "list of dict",
           "returned": "always",
-          "description": "Each impaired interface: interface, delay, jitter, packet_loss and rate."
+          "description": "Each impaired interface: interface, delay, jitter, packet_loss and rate; empty when the node does not exist."
         },
         {
           "name": "name",
           "type": "string",
-          "returned": "always",
+          "returned": "when it exists",
           "description": "The node's container name."
         }
       ],
@@ -17667,7 +17703,7 @@
     "supportsCheck": true,
     "doc": {
       "summary": "Reads the last lines of a lab node's output.",
-      "description": "Returns the last tail lines the node's container wrote. The text is the node's own, and may hold anything the node printed. It only reads, so a check is the same call. The target is the containerlab API server, a generic_http device that onboarding recognised (it declares ContainerlabAPICapable); its login is the device's stored credential, with http_auth basic, and neither the password nor the token it gets is logged, returned or journaled.",
+      "description": "Returns the last tail lines the node's container wrote. The text is the node's own, and may hold anything the node printed. A lab that is not deployed, or a node it does not have, is not a failure: exists is false and no output is reported, so a later task can decide what to do. It only reads, so a check is the same call. The target is the containerlab API server, a generic_http device that onboarding recognised (it declares ContainerlabAPICapable); its login is the device's stored credential, with http_auth basic, and neither the password nor the token it gets is logged, returned or journaled.",
       "params": [
         {
           "name": "lab",
@@ -17690,15 +17726,21 @@
       ],
       "returns": [
         {
+          "name": "exists",
+          "type": "bool",
+          "returned": "always",
+          "description": "Whether the lab is deployed and has the node."
+        },
+        {
           "name": "logs",
           "type": "string",
-          "returned": "always",
+          "returned": "when it exists",
           "description": "The node's output."
         },
         {
           "name": "name",
           "type": "string",
-          "returned": "always",
+          "returned": "when it exists",
           "description": "The node's container name."
         }
       ],
@@ -17805,7 +17847,7 @@
     "supportsCheck": true,
     "doc": {
       "summary": "Lists the browser-reachable ports a lab node publishes.",
-      "description": "Returns the ports the server reports for the node. It only reads, so a check is the same call. The target is the containerlab API server, a generic_http device that onboarding recognised (it declares ContainerlabAPICapable); its login is the device's stored credential, with http_auth basic, and neither the password nor the token it gets is logged, returned or journaled.",
+      "description": "Returns the ports the server reports for the node. A lab that is not deployed, or a node it does not have, is not a failure: exists is false and ports is empty, so a later task can decide what to do. It only reads, so a check is the same call. The target is the containerlab API server, a generic_http device that onboarding recognised (it declares ContainerlabAPICapable); its login is the device's stored credential, with http_auth basic, and neither the password nor the token it gets is logged, returned or journaled.",
       "params": [
         {
           "name": "lab",
@@ -17822,15 +17864,21 @@
       ],
       "returns": [
         {
+          "name": "exists",
+          "type": "bool",
+          "returned": "always",
+          "description": "Whether the lab is deployed and has the node."
+        },
+        {
           "name": "ports",
           "type": "list",
           "returned": "always",
-          "description": "The node's published browser ports."
+          "description": "The node's published browser ports; empty when it does not exist."
         },
         {
           "name": "name",
           "type": "string",
-          "returned": "always",
+          "returned": "when it exists",
           "description": "The node's container name."
         }
       ],

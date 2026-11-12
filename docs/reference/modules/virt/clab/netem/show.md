@@ -6,7 +6,7 @@ status: beta
 
 Shows the netem impairments on a lab node's interfaces.
 
-Returns each interface that has a delay, jitter, loss or rate set. It only reads, so a check is the same call. The target is the containerlab API server, a generic_http device that onboarding recognised (it declares ContainerlabAPICapable); its login is the device's stored credential, with http_auth basic, and neither the password nor the token it gets is logged, returned or journaled.
+Returns each interface that has a delay, jitter, loss or rate set. A lab that is not deployed, or a node it does not have, is not a failure: exists is false and interfaces is empty, so a later task can decide what to do. It only reads, so a check is the same call. The target is the containerlab API server, a generic_http device that onboarding recognised (it declares ContainerlabAPICapable); its login is the device's stored credential, with http_auth basic, and neither the password nor the token it gets is logged, returned or journaled.
 
 ## Attributes
 
@@ -30,8 +30,9 @@ Returns each interface that has a delay, jitter, loss or rate set. It only reads
 
 | Name | Type | Returned | Description |
 | --- | --- | --- | --- |
-| `interfaces` | `list of dict` | always | Each impaired interface: interface, delay, jitter, packet_loss and rate. |
-| `name` | `string` | always | The node's container name. |
+| `exists` | `bool` | always | Whether the lab is deployed and has the node. |
+| `interfaces` | `list of dict` | always | Each impaired interface: interface, delay, jitter, packet_loss and rate; empty when the node does not exist. |
+| `name` | `string` | when it exists | The node's container name. |
 
 ## Undoing this
 

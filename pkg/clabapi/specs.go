@@ -52,20 +52,20 @@ func Specs() []Spec {
 		[]collection.Param{pLab},
 		[]collection.ReturnField{ret("exists", "bool", "always", "Whether the lab is deployed."), ret("nodes", "list of dict", "when it exists", "Each node: name (container), node, kind, image, state (running, exited or paused), status, ipv4_address, ipv6_address, container_id, and ports (each host_ip, host_port, port and protocol it publishes)."), ret("node_count", "int", "when it exists", "How many nodes.")},
 		"- name: Is the lab up\n  virt.clab.lab.info:\n    target: clab-api\n    lab: nclab\n  register: lab\n", "virt.clab.lab.list, virt.clab.lab.deploy"))
-	add("virt.clab.lab.links", read("Lists a lab's links with each end's interface, address and state.", "Narrow it to the links one node has with node.",
+	add("virt.clab.lab.links", read("Lists a lab's links with each end's interface, address and state.", "Narrow it to the links one node has with node. A lab that is not deployed is not a failure: exists is false and links is empty, so a later task can decide what to do.",
 		[]collection.Param{pLab, {Name: "node", Type: "string", Description: "Only the links this node has."}},
-		[]collection.ReturnField{ret("links", "list of dict", "always", "Each link: type, and its two ends (a and b) with node, container, interface, mac, mtu and state.")},
+		[]collection.ReturnField{ret("exists", "bool", "always", "Whether the lab is deployed."), ret("links", "list of dict", "always", "Each link: type, and its two ends (a and b) with node, container, interface, mac, mtu and state; empty when the lab is not deployed.")},
 		"- name: The lab's links\n  virt.clab.lab.links:\n    target: clab-api\n    lab: nclab\n", "virt.clab.lab.interfaces"))
-	add("virt.clab.lab.interfaces", read("Lists the interfaces of a lab's nodes.", "Narrow it to one node with node.",
+	add("virt.clab.lab.interfaces", read("Lists the interfaces of a lab's nodes.", "Narrow it to one node with node. A lab that is not deployed is not a failure: exists is false and interfaces is empty, so a later task can decide what to do.",
 		[]collection.Param{pLab, {Name: "node", Type: "string", Description: "Only this node's interfaces."}},
-		[]collection.ReturnField{ret("interfaces", "list of dict", "always", "Each node: name, and its interfaces with name, alias, mac, ifindex, mtu, type and state.")},
+		[]collection.ReturnField{ret("exists", "bool", "always", "Whether the lab is deployed."), ret("interfaces", "list of dict", "always", "Each node: name, and its interfaces with name, alias, mac, ifindex, mtu, type and state; empty when the lab is not deployed.")},
 		"- name: r1's interfaces\n  virt.clab.lab.interfaces:\n    target: clab-api\n    lab: nclab\n    node: r1\n", "virt.clab.lab.links"))
-	add("virt.clab.lab.topology", read("Reads a deployed lab's topology as YAML.", "The text is the topology file the server holds for the lab.",
-		[]collection.Param{pLab}, []collection.ReturnField{ret("topology", "string", "always", "The topology file's YAML text.")},
+	add("virt.clab.lab.topology", read("Reads a lab's topology as YAML.", "The text is the topology file the server holds for the lab, deployed or not. A lab the server holds no topology file for is not a failure: exists is false and no topology is reported, so a later task can decide what to do.",
+		[]collection.Param{pLab}, []collection.ReturnField{ret("exists", "bool", "always", "Whether the server holds a topology file for the lab."), ret("topology", "string", "when it exists", "The topology file's YAML text.")},
 		"- name: Read the topology\n  virt.clab.lab.topology:\n    target: clab-api\n    lab: nclab\n  register: topo\n", "virt.clab.lab.validate, virt.clab.lab.apply"))
-	add("virt.clab.lab.validate", read("Validates a lab's on-disk topology without deploying it.", "Asks containerlab to parse the topology file the server holds for the lab and reports whether it is valid. path names another file on the server.",
+	add("virt.clab.lab.validate", read("Validates a lab's on-disk topology without deploying it.", "Asks containerlab to parse the topology file the server holds for the lab and reports whether it is valid; one that is not valid fails the task. path names another file on the server. A lab the server holds no topology file for (or no file at path) is not a failure: exists is false and nothing else is reported, so a later task can decide what to do.",
 		[]collection.Param{pLab, {Name: "path", Type: "string", Description: "A topology file on the server, when it is not the lab's own."}},
-		[]collection.ReturnField{ret("valid", "bool", "always", "Whether the topology is valid."), ret("nodes", "int", "always", "How many nodes."), ret("links", "int", "always", "How many links."), ret("error", "string", "when invalid", "containerlab's validation error.")},
+		[]collection.ReturnField{ret("exists", "bool", "always", "Whether the server holds the topology file."), ret("valid", "bool", "when it exists", "Whether the topology is valid."), ret("nodes", "int", "when it exists", "How many nodes."), ret("links", "int", "when it exists", "How many links."), ret("error", "string", "when invalid", "containerlab's validation error.")},
 		"- name: Validate it first\n  virt.clab.lab.validate:\n    target: clab-api\n    lab: nclab\n", "virt.clab.lab.apply"))
 
 	deployParams := []collection.Param{
@@ -174,13 +174,13 @@ func Specs() []Spec {
 		Returns:  []collection.ReturnField{ret("exit_code", "int", "always", "The command's exit code."), ret("stdout", "string", "always", "Its standard output."), ret("stderr", "string", "always", "Its standard error."), ret("name", "string", "always", "The node's container name.")},
 		Examples: []collection.Example{{Name: "Give a lab router an address with no SSH", RunbookYAML: "- name: r1 eth1 gets its address\n  virt.clab.node.exec:\n    target: clab-api\n    lab: nclab\n    node: r1\n    argv: [ip, address, add, 10.1.1.1/24, dev, eth1]\n"}},
 		SeeAlso:  []string{"container.exec", "exec.command", "net.frr.config"}})
-	add("virt.clab.node.logs", read("Reads the last lines of a lab node's output.", "Returns the last tail lines the node's container wrote. The text is the node's own, and may hold anything the node printed.",
+	add("virt.clab.node.logs", read("Reads the last lines of a lab node's output.", "Returns the last tail lines the node's container wrote. The text is the node's own, and may hold anything the node printed. A lab that is not deployed, or a node it does not have, is not a failure: exists is false and no output is reported, so a later task can decide what to do.",
 		[]collection.Param{pLab, pNode, {Name: "tail", Type: "int", Default: "100", Description: "How many of the last lines."}},
-		[]collection.ReturnField{ret("logs", "string", "always", "The node's output."), ret("name", "string", "always", "The node's container name.")},
+		[]collection.ReturnField{ret("exists", "bool", "always", "Whether the lab is deployed and has the node."), ret("logs", "string", "when it exists", "The node's output."), ret("name", "string", "when it exists", "The node's container name.")},
 		"- name: Why did r1 stop\n  virt.clab.node.logs:\n    target: clab-api\n    lab: nclab\n    node: r1\n    tail: 50\n", "virt.clab.node.exec"))
-	add("virt.clab.node.ports", read("Lists the browser-reachable ports a lab node publishes.", "Returns the ports the server reports for the node.",
+	add("virt.clab.node.ports", read("Lists the browser-reachable ports a lab node publishes.", "Returns the ports the server reports for the node. A lab that is not deployed, or a node it does not have, is not a failure: exists is false and ports is empty, so a later task can decide what to do.",
 		[]collection.Param{pLab, pNode},
-		[]collection.ReturnField{ret("ports", "list", "always", "The node's published browser ports."), ret("name", "string", "always", "The node's container name.")},
+		[]collection.ReturnField{ret("exists", "bool", "always", "Whether the lab is deployed and has the node."), ret("ports", "list", "always", "The node's published browser ports; empty when it does not exist."), ret("name", "string", "when it exists", "The node's container name.")},
 		"- name: r1's ports\n  virt.clab.node.ports:\n    target: clab-api\n    lab: nclab\n    node: r1\n", "virt.clab.lab.info"))
 	add("virt.clab.node.ssh_access", collection.Doc{
 		Summary:     "Opens a temporary SSH door to a lab node through the server.",
@@ -200,9 +200,9 @@ func Specs() []Spec {
 		SeeAlso:     []string{"virt.clab.node.exec"}})
 
 	// ---- link impairment ----
-	add("virt.clab.netem.show", read("Shows the netem impairments on a lab node's interfaces.", "Returns each interface that has a delay, jitter, loss or rate set.",
+	add("virt.clab.netem.show", read("Shows the netem impairments on a lab node's interfaces.", "Returns each interface that has a delay, jitter, loss or rate set. A lab that is not deployed, or a node it does not have, is not a failure: exists is false and interfaces is empty, so a later task can decide what to do.",
 		[]collection.Param{pLab, pNode},
-		[]collection.ReturnField{ret("interfaces", "list of dict", "always", "Each impaired interface: interface, delay, jitter, packet_loss and rate."), ret("name", "string", "always", "The node's container name.")},
+		[]collection.ReturnField{ret("exists", "bool", "always", "Whether the lab is deployed and has the node."), ret("interfaces", "list of dict", "always", "Each impaired interface: interface, delay, jitter, packet_loss and rate; empty when the node does not exist."), ret("name", "string", "when it exists", "The node's container name.")},
 		"- name: What is impaired\n  virt.clab.netem.show:\n    target: clab-api\n    lab: nclab\n    node: r1\n", "virt.clab.netem.set, virt.clab.netem.reset"))
 	add("virt.clab.netem.set", collection.Doc{
 		Summary:     "Sets delay, jitter, loss or rate on a lab node's interface, unless it is already so.",
@@ -289,11 +289,11 @@ func Specs() []Spec {
 		"- name: Host load\n  virt.clab.server.metrics:\n    target: clab-api\n", "virt.clab.server.health"))
 
 	// ---- capture, generate, ssh sessions, edgeshark ----
-	add("virt.clab.capture.packetflix", read("Builds Packetflix capture links for a lab's interfaces.", "Asks the server for the packetflix:// URI that opens a capture of each interface named, for Wireshark with the Edgeshark plugin. It starts no capture itself.",
+	add("virt.clab.capture.packetflix", read("Builds Packetflix capture links for a lab's interfaces.", "Asks the server for the packetflix:// URI that opens a capture of each interface named, for Wireshark with the Edgeshark plugin. It starts no capture itself. A lab that is not deployed is not a failure: exists is false and captures is empty, so a later task can decide what to do.",
 		[]collection.Param{pLab,
 			{Name: "targets", Type: "list of dict", Required: true, Description: "What to capture: each a mapping of container_name (the node's container), interface_name, and node_namespace (true to capture in the node's namespace)."},
 			{Name: "remote_hostname", Type: "string", Description: "The server's name as the capturing machine reaches it."}},
-		[]collection.ReturnField{ret("captures", "list of dict", "always", "Each: container_name, interface_names and packetflix_uri.")},
+		[]collection.ReturnField{ret("exists", "bool", "always", "Whether the lab is deployed."), ret("captures", "list of dict", "always", "Each: container_name, interface_names and packetflix_uri; empty when the lab is not deployed.")},
 		"- name: Capture links\n  virt.clab.capture.packetflix:\n    target: clab-api\n    lab: nclab\n    targets:\n      - {container_name: clab-nclab-r1, interface_name: eth1}\n", "virt.clab.edgeshark.status"))
 	add("virt.clab.topology.generate", collection.Doc{
 		Summary:     "Generates a containerlab topology from a description of its tiers.",

@@ -53,6 +53,15 @@ func capturePacketflix(ctx context.Context, s *session, a *args, _ bool) (bool, 
 		}
 		wire = append(wire, w)
 	}
+	// A lab that is not deployed is exists false and no captures, read from
+	// its inspect, so the capture route's own 404 for a container it cannot
+	// find stays a failure.
+	if _, deployed, err := s.inspect(ctx, lab); err != nil || !deployed {
+		if err != nil {
+			return false, err
+		}
+		return false, s.absentStats("captures")
+	}
 	body := map[string]any{"targets": wire}
 	if remote != "" {
 		body["remoteHostname"] = remote
@@ -71,7 +80,7 @@ func capturePacketflix(ctx context.Context, s *session, a *args, _ bool) (bool, 
 	for _, c := range out.Captures {
 		caps = append(caps, map[string]any{"container_name": c.ContainerName, "interface_names": c.InterfaceNames, "packetflix_uri": c.URI})
 	}
-	return false, s.stat("captures", caps)
+	return false, s.stats(map[string]any{"exists": true, "captures": caps})
 }
 
 // topologyGenerate asks the server for a topology from tiers. It never
