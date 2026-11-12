@@ -28506,6 +28506,7 @@ archtest (`TestSpanNamesAndEventsAreFixed` accepts a span name only as a literal
 build it), so a name computed somewhere the scan cannot read would pass the exporter; the docs do not state this one.
 
 **Lesson.** Pending. LESSONS 440: the allowlist holds identifiers only, and adding a key is a reviewed change.
+
 ## 1159. facts.wellFormedKey, the rule a reader holds a stored fact key to (ReadableKey and the file store's line reader), still read unicode.IsPrint and unicode.IsSpace, so a key a build of a newer Go stored could become unreadable to a build of an older one (fixed on this branch; on main until it merges, as wellFormedKey since bc3f6765, 2026-11-08; a repeat of 1003, 1023 and 1031; LESSONS 415, 422 and 443)
 
 **Symptom.** Found on `fix/facts-release-skew`, 2026-11-10, while fixing 1031. Reasoned from the code, then pinned by
@@ -29307,3 +29308,119 @@ macOS runner and the new one passes.
 
 **Lesson.** A path a program reports is resolved; compare it with a resolved expectation, and reproduce macOS's `/var` link on Linux
 by pointing TMPDIR through a link.
+
+## 1185. db.pg's test harness asked whether the machine's PostgreSQL client could serve the fixture and threw the answer away (a repeat of 279 and 476) (fixed before push)
+
+**Symptom.** `requireTools` called `UsePostgresClientTools` and discarded its answer, looked up `pg_dump` and `pg_restore` on PATH under
+need names that are not registered (so `PLEIADES_TEST_REQUIRE` could never name them), and never checked the host's `timeout`. On a
+Mac with Docker the methods' own `requireTimeout` failed every tool test, and a client of 17 or later failed restores against the
+PostgreSQL 15 fixture on `transaction_timeout`, a failure that read as the product's. The proofs of findings 1 and 2 rested on it.
+
+**Root cause.** A check whose result nothing reads, and names nothing validates.
+
+**Why 279's and 476's lessons did not prevent it.** Both say to hold the host's tools to what the fixture needs. The harness looked
+like it did; nothing tested the harness itself.
+
+**Fix.** The harness acts on the answer: it fails when the pinned client is on PATH but another runs, or a program does not answer
+(the harness is broken), skips or fails under `postgres-client` when the machine's client cannot serve the fixture (none, older than
+the server, 17 or later against an older server), and skips through `need.Timeout` with the product's own probe. Proof:
+`TestRequireTools_ActsOnTheAnswer` (eight cases, required and not, on fake programs on an empty PATH) and
+`TestRequireTools_ReadsThePathThatRuns`; five mutations each fail. CI's container jobs now require `postgres-client`.
+
+**Lesson.** A harness that decides whether a test means anything needs a test of its own.
+
+## 1186. db.pg.dump and db.pg.restore sent PGSSLROOTCERT=system to a libpq older than 16, which reads it as a file in the login's home (fixed before push)
+
+**Symptom.** With verify-full (the default sslmode) and no `ca_pem`, both methods exported `PGSSLROOTCERT=system` for the device's
+`pg_dump`/`pg_restore`. libpq before 16 reads `system` as a file name in its working directory, the login's home for an SSH command.
+Measured on a real libpq 15: with no such file the run fails ("root certificate file \"system\" does not exist"); with a CA planted
+as `~/system`, `pg_dump` connected trusting it. Stock clients older than 16 are common (Debian 12 ships 15, Ubuntu 22.04 ships 14).
+
+**Root cause.** `system` is a libpq 16 keyword, and the script never asked which libpq it was talking to.
+
+**Security.** An attacker who can write the login's home and intercept the device's connection to the database gets the tools to
+trust their certificate, and with it the password and the data. The in-process connection, checked first against this machine's
+roots, narrows it, and writing the login's home already gives other footholds.
+
+**Fix.** Both methods read the tool's major version (`toolMajor`) before any contact and refuse below 16 without `ca_pem`, naming the
+program, its version and `ca_pem` (`systemRootsUsable`); `script()` refuses the same case, so a run that never read the version fails
+closed; and the tool runs after `cd` into its private directory, so a libpq older than its tool reports finds no planted file. It
+refuses some devices that would have worked (a 15 client on a newer libpq5), as the decision expected. Proof:
+`TestSystemRoots_AClientOlderThan16IsRefusedBeforeContact` (a new sshd device image with client and libpq 15: the defect reproduced
+with the old environment, all four calls refused, refused the same against a port nothing listens on, nothing written, and the pinned
+CA control dumping), `TestSystemRoots_APlantedFileIsNeverReached`, `TestToolRun_SystemRootsOnlyWhereLibpqReadsThem`; five mutations fail.
+
+**Lesson.** A setting whose meaning changed between versions of the program it reaches must be gated on that program's version, read
+from the program, before it is sent.
+
+## 1187. db.pg.dump refused a destination whose directory is reached through a symbolic link, such as macOS /tmp (fixed before push)
+
+**Symptom.** A `dest` under a linked directory was refused as "not a directory".
+
+**Root cause.** `destFree` checked the directory with a stat that does not follow links.
+
+**Fix.** The directory is resolved on the device (`remotefile.Locate`), and the resolved path is what is checked, written, reported
+as `dest`, recorded as the undo and read back; the last name is still checked without following links, and the error names both
+paths when they differ. Not a security defect: the window between check and write is unchanged and the final `ln` still refuses an
+existing name. Proof: `TestDump_ALinkedDirectoryIsResolved` (a link, a link to a link, check mode, a second dump through it refused,
+a link at the last name refused writing nothing, a missing subdirectory refused) and `TestDump_ADestinationThatIsALinkIsStillRefused`.
+
+**Lesson.** Resolve a parent directory before judging it; keep the no-follow rule for the one name that is being created.
+
+## 1188. pkg/sqllint let a migration directive be stated twice, last one winning, so the reason recorded could differ from the one a reviewer read first (a repeat of 325) (fixed before push)
+
+**Symptom.** A migration with two `destructive:` directives, or two `no-transaction`, was accepted; the waiver held either way, but
+the reason the run recorded was the last one, not the one a reviewer read at the top.
+
+**Root cause.** `ParseDirectives` kept the last of repeated directives.
+
+**Why 325's lesson did not prevent it.** 325 refused repeated keys in a runbook; directives are their own small grammar and were not
+swept for the same rule.
+
+**Fix.** A repeat is refused: `line N: <name> is stated again, first on line M`. Proof: `TestParseDirectives_ARepeatIsRefusedNamingBothLines`
+(eight refused shapes, five files still read as before), `db.pg.migrate` refusing it before anything runs, and `FuzzParseDirectives`
+(1.87M runs). An unverified draft by another model was not used: its fuzz checked the internal lexer against itself.
+
+**Lesson.** Every small grammar that waives a guard refuses a repeat, so what is read first is what holds.
+
+## 1189. pkg/pgclient's /dev/null password file made lib/pq warn on every connect with no password (fixed before push)
+
+**Symptom.** `WARNING: password file "/dev/null" has group or world access` on every connect without a password.
+
+**Root cause.** The null password file stops the driver reading an ambient `~/.pgpass`; lib/pq v1.12.3 checks the file's mode before
+reading it, and `/dev/null` is 0666.
+
+**Fix.** `noPassfile()` returns `/dev/null/pleiades-no-passfile`, whose stat fails with ENOTDIR silently (lib/pq treats any stat error
+as no file); Windows keeps `os.DevNull`, where lib/pq checks no mode. Proof: `TestNoAmbientPassfile` (a child with a working
+`PGPASSFILE` and `~/.pgpass` planted is refused by the server, stderr clean) and `TestNoAmbientPassfile_OnTheDevice`.
+
+**Lesson.** A control that prints a warning on every use teaches people to ignore that warning.
+
+## 1190. need.Require's registry check read only literal need names, so five tests passed names nothing could ever require (fixed before push)
+
+**Symptom.** `TestEveryRequireCallNamesAKnownNeed` passed while db.pg's old harness, `internal/backup`'s fixtures and two other tests
+passed `"pg_dump"`, `"pg_restore"` or an image name through a variable as the need, so `PLEIADES_TEST_REQUIRE` could never require
+them and a missing tool skipped silently.
+
+**Root cause.** The check matched string literals at the call site only.
+
+**Fix.** `checkRequireCalls` (`internal/testsupport/need`) resolves each call to `need.Require` or `testsupport.Require` through the
+type checker: constants, set-once unexported variables, and forwarders' parameters followed to their callers; it refuses an
+unresolvable name, an unknown one, an exported forwarder, `Require` used as a value, an unknown or missing `testsupport.Pin` `What`,
+and an unused allow entry. The five call sites now pass `need.PostgresClient` or `need.Docker`. Proof:
+`TestRequireCheck_RefusesWhatItCannotResolve` (exactly the twelve expected problems on a written module) and the old harness body put
+back failing the real-module run; each of the checker's rules mutated fails.
+
+**Lesson.** A check over call sites must follow the value, not the spelling.
+
+## 1191. The PostgreSQL test image trusted every loopback and socket login, so a passwordless connect passed and proved nothing (a repeat of LESSONS 174) (fixed before push)
+
+**Symptom.** Proving finding 5 (no ambient password file) first passed with no password at all, because the image's default
+`pg_hba.conf` trusts loopback and the socket.
+
+**Root cause.** The fixture neutralized the condition the test was about.
+
+**Fix.** The device container sets the server to require a password on loopback and the socket, so a connect without the right one is
+refused; the tests' controls succeed with it.
+
+**Lesson.** Before a test of authentication, prove the fixture refuses a missing credential.
