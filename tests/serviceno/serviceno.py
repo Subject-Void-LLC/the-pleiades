@@ -5,8 +5,9 @@
 # ServiceNow shapes it, so The Pleiades can be tested against "ServiceNow"
 # without an instance: list and read records with an encoded query, create,
 # update and delete them, reference fields (cmdb_ci) and choice fields
-# (priority, state) in their three display modes, and work_notes and comments
-# as journal fields written to sys_journal_field. Anything else ServiceNow
+# (priority, state) in their three display modes, an incident's priority
+# computed from its impact and urgency as an instance computes it, and
+# work_notes and comments as journal fields written to sys_journal_field. Anything else ServiceNow
 # does, it says no to, which is where the name comes from.
 #
 # Standard library only, Python 3.9 or later. Everything is held in memory
@@ -46,6 +47,24 @@ CHOICES = {
         "state": {"1": "New", "2": "In Progress", "3": "On Hold", "6": "Resolved", "7": "Closed", "8": "Canceled"},
     },
 }
+
+# An incident's priority, from its impact and urgency: a stock instance's
+# priority lookup, measured on a personal developer instance on 2026-11-12.
+# The instance computes it on every insert and update and ignores a priority
+# sent on its own, so this mock does too; impact and urgency default to 3.
+PRIORITY = {
+    ("1", "1"): "1", ("1", "2"): "2", ("1", "3"): "3",
+    ("2", "1"): "2", ("2", "2"): "3", ("2", "3"): "4",
+    ("3", "1"): "3", ("3", "2"): "4", ("3", "3"): "4",
+}
+
+
+def set_priority(record):
+    """Sets an incident's priority from its impact and urgency, as an instance does."""
+    record.setdefault("impact", "3")
+    record.setdefault("urgency", "3")
+    record["priority"] = PRIORITY.get((str(record["impact"]), str(record["urgency"])), "4")
+
 
 # Reference fields: field to the table it points at. A reference's display
 # value is the target record's name (or number, for a task table).
@@ -89,7 +108,7 @@ class Store:
                 record["number"] = "%s%07d" % (NUMBER_PREFIX[table], self.counters[table])
             if table == "incident":
                 record.setdefault("state", "1")
-                record.setdefault("priority", "4")
+                set_priority(record)
             self.tables[table][record["sys_id"]] = record
             self._journal(table, record["sys_id"], fields)
             return dict(record)
@@ -104,6 +123,8 @@ class Store:
                 if k in JOURNAL_FIELDS or k.startswith("sys_"):
                     continue
                 record[k] = v
+            if table == "incident":
+                set_priority(record)
             record["sys_updated_on"] = now()
             record["sys_mod_count"] = str(int(record.get("sys_mod_count", "0")) + 1)
             self._journal(table, sys_id, fields)
