@@ -117,12 +117,13 @@ const (
 	// only, since a Walk-tier Runner holds no project.
 	ParamFormatTemplateFile ParamFormat = "template_file"
 	// ParamFormatOperand is the name of one thing (a package, a unit, a
-	// service) that the method places on a device's command line after the
-	// program's own options. A value beginning with "-", which the program
-	// would read as an option, or holding "*", "?", "[" or "]", which it would
-	// read as a pattern matching many names, is refused: by validation for a
-	// literal and by the engine for a rendered value (OperandProblem), and by
-	// the method again before anything is sent (pkg/operand). For a list,
+	// service, a file's owner or group) that the method places on a device's
+	// command line after the program's own options. A value beginning with
+	// "-", which the program would read as an option, or holding "*", "?",
+	// "[" or "]", which it would read as a pattern matching many names (and
+	// which no account or group name can hold), is refused: by validation for
+	// a literal and by the engine for a rendered value (OperandProblem), and
+	// by the method again before anything is sent (pkg/operand). For a list,
 	// each item is held to it.
 	ParamFormatOperand ParamFormat = "operand"
 )

@@ -116,8 +116,8 @@ func permissionsDoc() collection.Doc {
 		Params: []collection.Param{
 			{Name: permParamPath, Type: "string", Required: true, Description: "The path to change. It must already exist: this method changes a path rather than creating one."},
 			{Name: permParamMode, Type: "string", Description: "The permission bits as one to four octal digits, quoted, for example \"0644\". Quote it: an unquoted 0644 is a number in YAML, not text. A symbolic mode such as u+x is refused, because it cannot be compared against the mode the device reports and the task would then report changed on every run."},
-			{Name: permParamOwner, Type: "string", Description: "The user name to give the path. A numeric id is refused: chown reads an all-digit argument as an id while the device reports names, so the two could never compare equal and the task would report changed forever."},
-			{Name: permParamGroup, Type: "string", Description: "The group name to give the path, refused as a numeric id for the same reason owner is."},
+			{Name: permParamOwner, Type: "string", Format: collection.ParamFormatOperand, Description: "The user name to give the path. A numeric id is refused: chown reads an all-digit argument as an id while the device reports names, so the two could never compare equal and the task would report changed forever."},
+			{Name: permParamGroup, Type: "string", Format: collection.ParamFormatOperand, Description: "The group name to give the path, refused as a numeric id for the same reason owner is."},
 			{Name: sdk.ParamInsecureSkipHostKeyVerify, Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
 		},
 		Returns: []collection.ReturnField{

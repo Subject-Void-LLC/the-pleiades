@@ -1,6 +1,9 @@
 package file
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // This file is an internal test (package file, not file_test) because the
 // rules it covers are unexported and shared by every method in the
@@ -70,7 +73,9 @@ func TestCheckMode(t *testing.T) {
 }
 
 func TestCheckName(t *testing.T) {
-	for _, name := range []string{"", "root", "app", "user1", "1000abc"} {
+	// A dash inside a name, a dot and a trailing $ (a Samba machine
+	// account) are real account names useradd makes, and stay usable.
+	for _, name := range []string{"", "root", "app", "user1", "1000abc", "www-data", "app.svc", "host$"} {
 		if err := checkName("owner", name); err != nil {
 			t.Errorf("checkName(%q) refused a usable account name: %v", name, err)
 		}
@@ -81,6 +86,38 @@ func TestCheckName(t *testing.T) {
 		if err := checkName("owner", name); err == nil {
 			t.Errorf("checkName(%q) accepted a numeric id", name)
 		}
+	}
+}
+
+// TestCheckName_RefusesAWordChownWouldReadAsAnOption: GNU chown took owner
+// --reference=/etc/shadow as an option and gave the file /etc/shadow's
+// owner and group (FAILURE_PATTERNS 1174); "-1000" begins with a dash
+// before it is anything numeric; and no account the shadow tools make
+// holds a pattern character. Each refusal names the key and the rule and
+// never repeats the value.
+func TestCheckName_RefusesAWordChownWouldReadAsAnOption(t *testing.T) {
+	for _, tc := range []struct{ name, want string }{
+		{"--reference=/etc/shadow", `begins with "-"`},
+		{"-R", `begins with "-"`},
+		{"-1000", `begins with "-"`},
+		{"adm*", "pattern"},
+		{"web[12]", "pattern"},
+		{"us?r", "pattern"},
+	} {
+		for _, key := range []string{"owner", "group"} {
+			err := checkName(key, tc.name)
+			if err == nil {
+				t.Fatalf("checkName(%s, %q) accepted it", key, tc.name)
+			}
+			if msg := err.Error(); !strings.HasPrefix(msg, key+" is refused") || !strings.Contains(msg, tc.want) || strings.Contains(msg, tc.name) {
+				t.Errorf("checkName(%s, %q) = %q, want it to refuse %s by the operand rule (%s) without the value", key, tc.name, msg, key, tc.want)
+			}
+		}
+	}
+	// Reaching it through attributeParams, which file.touch reads with,
+	// refuses the group as well as the owner.
+	if _, err := attributeParams(map[string]any{"group": "--reference=/etc/shadow"}, "mode", "owner", "group"); err == nil || !strings.Contains(err.Error(), "group is refused") {
+		t.Errorf("attributeParams with a dash-led group = %v, want the group refused", err)
 	}
 }
 

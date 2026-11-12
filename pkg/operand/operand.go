@@ -1,6 +1,7 @@
 // Package operand holds the one rule for a value a Collection places on a
-// device's command line as an operand: the name of one package, unit or
-// service, written after the program's own options.
+// device's command line as an operand: the name of one package, unit,
+// service, or account or group that owns a file, written after the
+// program's own options.
 //
 // # Why quoting is not enough
 //
@@ -14,7 +15,9 @@
 //     pkg.apt.install read as "not installed", and apt-get install -y then
 //     took "-oDPkg::Pre-Invoke::=touch /tmp/pwned" as a configuration option
 //     and exited 0 (FAILURE_PATTERNS 1174). dnf, rpm and systemctl parse
-//     options the same way.
+//     options the same way, and so do chown and chgrp: GNU chown took an
+//     owner of --reference=/etc/shadow as "give the file /etc/shadow's owner
+//     and group" and exited 0 (measured on Debian 13).
 //   - A word holding "*", "?", "[" or "]" is a pattern. apt-get, dnf and
 //     systemctl expand one to every name it matches, and so does
 //     PowerShell's -Name on Get-Service, Start-Service, Stop-Service and
@@ -24,8 +27,9 @@
 //     removal of both openssh packages.
 //
 // No real package, systemd unit or Windows service a method could act on
-// one at a time has a name like either, so refusing them costs nothing that
-// works today. A "--" before the operands, where the program takes one,
+// one at a time has a name like either, and neither does an account or a
+// group: shadow-utils' useradd and groupadd refuse both (measured on Debian
+// 13 and Alpine 3.22). So refusing them costs nothing that works today. A "--" before the operands, where the program takes one,
 // stops the first kind as well and is added beside this rule; nothing stops
 // the second but refusing it.
 //

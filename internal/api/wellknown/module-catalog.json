@@ -7776,12 +7776,14 @@
         {
           "name": "owner",
           "type": "string",
-          "description": "The user name to give the file. A numeric id is refused: chown reads an all-digit argument as an id while the device reports names, so the two could never compare equal and the task would report changed forever. Left unset, an existing file keeps its owner and a new one belongs to the connecting account."
+          "description": "The user name to give the file. A numeric id is refused: chown reads an all-digit argument as an id while the device reports names, so the two could never compare equal and the task would report changed forever. Left unset, an existing file keeps its owner and a new one belongs to the connecting account.",
+          "format": "operand"
         },
         {
           "name": "group",
           "type": "string",
-          "description": "The group name to give the file, refused as a numeric id for the same reason owner is."
+          "description": "The group name to give the file, refused as a numeric id for the same reason owner is.",
+          "format": "operand"
         },
         {
           "name": "insecure_skip_host_key_verify",
@@ -7921,12 +7923,14 @@
         {
           "name": "owner",
           "type": "string",
-          "description": "The user name that should own the directory. A name rather than a numeric id, because a name is what the device reports back and therefore the only form this method can compare against. Given to every parent this task creates too, as mode is. Left unset, ownership is not touched."
+          "description": "The user name that should own the directory. A name rather than a numeric id, because a name is what the device reports back and therefore the only form this method can compare against. Given to every parent this task creates too, as mode is. Left unset, ownership is not touched.",
+          "format": "operand"
         },
         {
           "name": "group",
           "type": "string",
-          "description": "The group name that should own the directory, under the same rule as owner: a name, not a numeric id, and given to every parent this task creates. Left unset, the group is not touched."
+          "description": "The group name that should own the directory, under the same rule as owner: a name, not a numeric id, and given to every parent this task creates. Left unset, the group is not touched.",
+          "format": "operand"
         },
         {
           "name": "insecure_skip_host_key_verify",
@@ -8358,12 +8362,14 @@
         {
           "name": "owner",
           "type": "string",
-          "description": "The user name to give the path. A numeric id is refused: chown reads an all-digit argument as an id while the device reports names, so the two could never compare equal and the task would report changed forever."
+          "description": "The user name to give the path. A numeric id is refused: chown reads an all-digit argument as an id while the device reports names, so the two could never compare equal and the task would report changed forever.",
+          "format": "operand"
         },
         {
           "name": "group",
           "type": "string",
-          "description": "The group name to give the path, refused as a numeric id for the same reason owner is."
+          "description": "The group name to give the path, refused as a numeric id for the same reason owner is.",
+          "format": "operand"
         },
         {
           "name": "insecure_skip_host_key_verify",
@@ -8782,12 +8788,14 @@
         {
           "name": "owner",
           "type": "string",
-          "description": "The user name to give the file. A numeric id is refused. Left unset, an existing file keeps its owner and a new one belongs to the connecting account."
+          "description": "The user name to give the file. A numeric id is refused. Left unset, an existing file keeps its owner and a new one belongs to the connecting account.",
+          "format": "operand"
         },
         {
           "name": "group",
           "type": "string",
-          "description": "The group name to give the file, refused as a numeric id for the same reason owner is."
+          "description": "The group name to give the file, refused as a numeric id for the same reason owner is.",
+          "format": "operand"
         },
         {
           "name": "insecure_skip_host_key_verify",
@@ -8924,12 +8932,14 @@
         {
           "name": "owner",
           "type": "string",
-          "description": "The user that should own the file, by name. A numeric id is refused: chown reads an all-digit argument as an id while the device reports names back, so the two would compare unequal on every run. Sent only when it differs. Left alone when not set."
+          "description": "The user that should own the file, by name. A numeric id is refused: chown reads an all-digit argument as an id while the device reports names back, so the two would compare unequal on every run. Sent only when it differs. Left alone when not set.",
+          "format": "operand"
         },
         {
           "name": "group",
           "type": "string",
-          "description": "The group that should own the file, by name. A numeric id is refused, for the same reason it is on owner. Sent only when it differs, and in one chown alongside owner when both are set. Left alone when not set."
+          "description": "The group that should own the file, by name. A numeric id is refused, for the same reason it is on owner. Sent only when it differs, and in one chown alongside owner when both are set. Left alone when not set.",
+          "format": "operand"
         },
         {
           "name": "insecure_skip_host_key_verify",
