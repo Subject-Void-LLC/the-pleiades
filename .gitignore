@@ -48,6 +48,9 @@ obj/
 /tests/cml/.env
 /tests/cml/.bin/
 /tests/cml/.work/
+# A ServiceNow instance the ServiceNow release gate can run against instead of
+# its local mock: its URL and login (tests/servicenow/.env.example).
+/tests/servicenow/.env
 /backups/
 
 # The throwaway serving certificate `make dev-cert` writes. It holds a real
