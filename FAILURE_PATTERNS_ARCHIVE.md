@@ -29440,3 +29440,37 @@ shape, not the path; `internal/adapters/legacy`'s tests pass unchanged).
 
 **Lesson.** A tool's build output at the module root needs an ignore rule the day the tool is added, and a captured fixture is
 scrubbed of the machine it was captured on before it is committed.
+
+## 1193. pkg/remotefile read a path the login could not search as absent, so file.stat /root/.profile answered exists false (a repeat of 866 and 818) (fixed before push)
+
+**Symptom.** `file.stat path=/root/.profile`, run as an ordinary login, answered `exists: false` in a run and in a check, and so did
+every path under a directory the login may not search. A wait for absence (`wait.path`) passed at once, `wait.search` and the
+`scan.*` host checks read nothing as nothing, and every write built on the same probes went on as if the path were free.
+
+**Root cause.** `Stat`, `Read` and `Checksum` ran `[ -e ]`, `[ -L ]` and `[ -f ]` and read false as "not there". The shell's
+test answers false both for a missing path and for one it cannot reach (EACCES). This is Phase 131 R4's main security edge:
+"could not look" read as "not there".
+
+**Why 866's and 818's lessons did not prevent it.** Both were about one probe's own wording (a Windows cmdlet, a parser); nothing
+swept the shared POSIX probes every method uses for the same question.
+
+**Fix.** `pkg/remotefile/cannot_look.go`: when the probe finds nothing, the shell walks up to the nearest ancestor that exists; a
+directory the login can search, or a file, means absent, and one it cannot search is `ErrCannotLook`, naming it. Shipped as a
+breaking change (owner, 2026-11-12), with the methods and the runbook pattern named in the changelog. Proof:
+`TestAProbeThatCannotLookIsNotAbsent` (all three probes, failing on the old code) with `TestAProbeStillAnswersAbsence` as its control,
+and `TestALookupThatCannotLookFails` through the real binary on real sshd (an unsearchable path at two depths, refused and unresolvable
+controllers and console servers, a 403), each failing in a run and a check and reporting no `exists`.
+
+**Lesson.** A probe answers three things, there, not there, and could not look; any two-valued probe has merged two of them.
+
+## 1194. BusyBox's test -x answers false to root for a mode 000 directory root can search, so asking search permission with it misread root (fixed before push)
+
+**Symptom.** The first fix for 1193 asked `test -x` whether a directory could be searched; in the Alpine image, as root, it answered
+false for a mode 000 directory, which root can search, so root was told "cannot look". dash answers true.
+
+**Root cause.** BusyBox's `test -x` checks the mode bits, not what the kernel would allow root.
+
+**Fix.** Search permission is asked by trying it: `(cd ./dir)`. Proof: the generated snippet run in the Alpine image (root on a 000
+directory answers absent, an ordinary user answers cannot look), and `pkg/remotefile`'s tests.
+
+**Lesson.** Ask the kernel by doing the thing in a subshell, not a shell builtin that guesses from the bits.
