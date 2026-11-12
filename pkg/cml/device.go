@@ -17,8 +17,9 @@ import (
 
 // requestTimeout bounds one request, its answer read included, so a
 // controller that accepts a connection and never answers cannot hold a run
-// open.
-const requestTimeout = time.Minute
+// open. It is a variable only so a test can prove the bound in less than a
+// minute; nothing else sets it.
+var requestTimeout = time.Minute
 
 // ClientFor builds and logs in the client of device, a CMLAPICapable
 // device named name, from its record and its own credential (secrets): the
