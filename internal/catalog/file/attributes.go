@@ -123,13 +123,15 @@ func checkMode(key, mode string) error {
 // collection.ParamFormatOperand is held to: a name beginning with "-",
 // which GNU chown read as an option (owner --reference=/etc/shadow gave
 // the file /etc/shadow's owner and group, FAILURE_PATTERNS 1174), or
-// holding "*", "?", "[" or "]", which no account name the shadow tools
-// make can hold. Validation and the engine refuse such a value before the
-// run; this refuses it again before the method connects, for a value that
-// reached it some other way (a replayed undo, a direct call), and
-// pkg/remotefile sends "--" before the name besides. The value is not
-// repeated in this refusal, since it may have been rendered from what a
-// device returned.
+// holding "*", "?", "[" or "]". chown reads those as themselves, and
+// Debian 12's and Ubuntu's useradd can make such a name, so this half
+// refuses a name that could be real; it is kept so that one rule covers
+// every operand (pkg/operand says more). Validation and the engine refuse
+// such a value before the run; this refuses it again before the method
+// connects, for a value that reached it some other way (a replayed undo, a
+// direct call), and pkg/remotefile sends "--" before the name besides. The
+// value is not repeated in this refusal, since it may have been rendered
+// from what a device returned.
 func checkName(key, name string) error {
 	if name == "" {
 		return nil

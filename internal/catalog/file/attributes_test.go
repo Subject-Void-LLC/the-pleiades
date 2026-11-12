@@ -92,9 +92,9 @@ func TestCheckName(t *testing.T) {
 // TestCheckName_RefusesAWordChownWouldReadAsAnOption: GNU chown took owner
 // --reference=/etc/shadow as an option and gave the file /etc/shadow's
 // owner and group (FAILURE_PATTERNS 1174); "-1000" begins with a dash
-// before it is anything numeric; and no account the shadow tools make
-// holds a pattern character. Each refusal names the key and the rule and
-// never repeats the value.
+// before it is anything numeric; and a pattern character is refused by the
+// same one rule, though chown would read it as itself. Each refusal names
+// the key and the rule and never repeats the value.
 func TestCheckName_RefusesAWordChownWouldReadAsAnOption(t *testing.T) {
 	for _, tc := range []struct{ name, want string }{
 		{"--reference=/etc/shadow", `begins with "-"`},

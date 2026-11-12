@@ -365,8 +365,8 @@ func useraddArgs(name string, d desired, createHome, system bool) []string {
 	// "--" ends useradd's options, so the name is only ever the name. The
 	// operand rule has already refused one beginning with a dash; this is
 	// the shadow tools' own guarantee beside it (accepted by useradd,
-	// usermod and userdel on Debian 13, Ubuntu 22.04 and 24.04, CentOS
-	// Stream 9, AlmaLinux 9, Oracle Linux 9, Arch and Alpine 3.22).
+	// usermod and userdel on Debian 12 and 13, Ubuntu 22.04 and 24.04,
+	// CentOS Stream 9, AlmaLinux 9, Oracle Linux 9, Arch and Alpine 3.22).
 	return append(args, "--", name)
 }
 

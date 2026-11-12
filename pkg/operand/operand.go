@@ -32,9 +32,15 @@
 //     removal of both openssh packages.
 //
 // No real package, systemd unit or Windows service a method could act on
-// one at a time has a name like either, and neither does an account or a
-// group: shadow-utils' useradd and groupadd refuse both (measured on Debian
-// 13 and Alpine 3.22). So refusing them costs nothing that works today. A "--" before the operands, where the program takes one,
+// one at a time has a name like either, so refusing them costs nothing that
+// works today. An account or group is different for the second kind. No
+// useradd or groupadd measured makes a name beginning with "-", but Debian
+// 12's and Ubuntu 22.04's and 24.04's make one holding "*", "?", "[" or
+// "]" (Debian 13, Arch, Alpine 3.22 and the RHEL 9 family refuse it), and
+// chown, getent and the shadow tools read those characters as themselves,
+// not as a pattern. Such a name is refused all the same, so that one rule
+// covers every operand; a task naming one fails rather than reaching the
+// device. A "--" before the operands, where the program takes one,
 // stops the first kind as well and is added beside this rule; nothing stops
 // the second but refusing it.
 //
