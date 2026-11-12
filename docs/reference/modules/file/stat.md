@@ -6,7 +6,7 @@ status: beta
 
 Reports what is at a path on the target, and changes nothing.
 
-Reads what is at a path and reports it: whether anything is there, what it is (a file, a directory, a symlink or something else), its mode, owner and group, a symlink's target, its size and its modification time. This is ansible.builtin.stat. It only reads, so it never reports a change, records no undo, and its check is the same read. An absent path is an answer (exists is false), not a failure. Use it to look at a path before or after a change instead of a shell command, which reports changed on every run because it cannot tell what its command did.
+Reads what is at a path and reports it: whether anything is there, what it is (a file, a directory, a symlink or something else), its mode, owner and group, a symlink's target, its size and its modification time. This is ansible.builtin.stat. It only reads, so it never reports a change, records no undo, and its check is the same read. An absent path is an answer (exists is false), not a failure. A path under a directory the login may not search is a failure, not absence: the shell's test answers false there whether or not anything is, so the task fails saying it cannot look; run it as an account that may search the directory (become) to get the answer. Use it to look at a path before or after a change instead of a shell command, which reports changed on every run because it cannot tell what its command did.
 
 ## Attributes
 
