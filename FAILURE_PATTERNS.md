@@ -1184,6 +1184,7 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 1178. The FRR lab said ready on `show version`, so a batfish test's first `configure terminal` met mgmtd's lock under load (a repeat of 446) (fixed on the pull request)
 1179. A chdir of "-" ran the command in the login's home, since cd reads "-" as $OLDPWD and searches $CDPATH for a relative name even after "--" (a repeat of 148) (fixed before push)
 1180. net.batfish.check's top-level assertion refusals did not name the method, and a scenario's malformed assertion list named it twice (fixed before push)
+1181. ServiceNo! kept an incident's priority as sent, so the ServiceNow gate passed on the mock and skipped its write on a real instance (a repeat of 740) (fixed before push)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

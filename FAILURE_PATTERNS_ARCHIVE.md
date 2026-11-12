@@ -29217,3 +29217,25 @@ old code three ways; `FuzzReadParams` holds every refusal to naming the method e
 
 **Lesson.** A reader called from two places should leave naming to its callers, all the way down: one helper that names
 the method itself, beneath a function that does not, gives one caller none and the other two.
+## 1181. ServiceNo! kept an incident's priority as sent, so the ServiceNow gate passed on the mock and skipped its write on a real instance (a repeat of 740) (fixed before push)
+
+**Symptom.** `TestServiceNowRunbookReleaseGate` passed against ServiceNo!, the repository's Table API mock, and failed against
+a real personal developer instance the first time one was available: the critical incident's work notes were empty,
+because the runbook's write task was skipped (`when_cel ... priority == '1 - Critical'` evaluated false).
+
+**Root cause.** The test created its incidents with `priority: "1"` and `"3"`, and the mock stored them as given. A real
+instance computes an incident's priority from its impact and urgency on every insert and update and ignores a priority
+sent on its own. Measured on 2026-11-12: a lone `priority: 1` read back `4 - Low` (impact and urgency default to 3), and
+the lookup is 1/1=1, 1/2=2, 1/3=3, 2/1=2, 2/2=3, 2/3=4, 3/1=3, 3/2=4, 3/3=4.
+
+**Why 740's lesson did not prevent it.** 740 says to run a service before stubbing it and to record what was seen. The mock
+was written on 2026-09-29, before 740, without an instance to measure, and nothing marked which of its behaviors were
+measured and which assumed.
+
+**Fix.** ServiceNo! computes priority from impact and urgency with the measured lookup, on create and update, and ignores a
+priority sent alone (`PRIORITY`, `set_priority`, the measurement cited beside it). The gate makes its incidents critical
+and moderate with impact and urgency. Proof: the gate passes on the mock and on the real instance; the old test fails on
+the new mock exactly as it did on the instance.
+
+**Lesson.** A mock's every rule should cite the run it came from, and the first real instance is the moment to measure each
+behavior a test leans on, not only the one that failed.
