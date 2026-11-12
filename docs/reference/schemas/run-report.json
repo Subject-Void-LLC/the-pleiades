@@ -520,6 +520,16 @@
           "description": "Partial marks a recorded undo that does not put everything back, run because the operator named it in AllowPartial.",
           "type": "boolean"
         },
+        "rendered": {
+          "description": "Rendered names the parameters of an authored step whose values are the ones the run rendered on the device and journaled (engine.JournalEntry.AuthoredSteps), in place of the templates its runbook writes (rendered.go); empty for a step run as written. Verify holds each to the declarations a recorded undo's values are held to, and every other parameter to the runbook.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
         "skew_accepted": {
           "description": "SkewAccepted marks a recorded undo whose node the operator named in AllowSkew: run although its declarations differ from this build's, or, on the Walk tier, from the Runner's.",
           "type": "boolean"

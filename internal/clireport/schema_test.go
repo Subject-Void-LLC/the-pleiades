@@ -51,7 +51,7 @@ func fullRunReport() RunReport {
 			Levels: [][]rollback.Step{{{Node: "tasks[0]", DeviceID: "id-1", DeviceName: "r1", Index: 0, Emitter: "file.copy",
 				FQCN: "file.remove", Params: map[string]any{"path": "/x"}, Name: "undo", Source: "recorded", Partial: true, Become: "root",
 				Collection: wire.CollectionIdentity{Group: "file", Version: "0.4.0", Manifests: "sha256:" + strings.Repeat("c", 64)},
-				UndoDigest: "sha256:" + strings.Repeat("d", 64), SkewAccepted: true}},
+				UndoDigest: "sha256:" + strings.Repeat("d", 64), SkewAccepted: true, Rendered: []string{"path"}}},
 				{{Node: "tasks[2]", DeviceID: "id-1", DeviceName: "r1", Emitter: "acme.make", FQCN: "acme.remove", Params: map[string]any{}, Name: "undo 2", Source: "recorded",
 					Collection: wire.CollectionIdentity{Group: "acme", Program: true, Manifests: "sha256:" + strings.Repeat("e", 64)}}}},
 			Left: []rollback.Gap{gap}, Unknown: []rollback.Gap{gap}, UnacceptedUnknown: 1, AlreadyUndone: []rollback.Gap{gap},

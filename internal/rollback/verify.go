@@ -25,7 +25,8 @@ const (
 // values it declares recordable, each one the journal could have held and
 // of the type its method declares, recorded under this build's
 // declarations unless the plan accepted the skew by name (SkewAccepted);
-// an authored step is that node's rollback: list entry exactly as written.
+// an authored step is that node's rollback: list entry exactly as written,
+// except for the values the run rendered for its templates (verifyRendered).
 //
 // The journal a plan is read from was published by Runners, so on the
 // Walk tier the Controller asks this before it creates a rollback job and
@@ -50,7 +51,13 @@ func Verify(dag *engine.DAG, s Step) error {
 			return fmt.Errorf("node %s has %d rollback: step(s), and this is step %d", Printable(s.Node), len(task.Rollback), s.Index)
 		}
 		want := task.Rollback[s.Index]
-		if want.FQCN != s.FQCN || !sameParams(want.Params, s.Params) {
+		if want.FQCN != s.FQCN {
+			return fmt.Errorf("step %d of node %s's rollback: list is not what the runbook says", s.Index, Printable(s.Node))
+		}
+		if len(s.Rendered) > 0 {
+			return verifyRendered(s, want)
+		}
+		if !sameParams(want.Params, s.Params) {
 			return fmt.Errorf("step %d of node %s's rollback: list is not what the runbook says", s.Index, Printable(s.Node))
 		}
 		return nil

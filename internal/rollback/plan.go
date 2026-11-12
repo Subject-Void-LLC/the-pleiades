@@ -181,6 +181,14 @@ type Step struct {
 	// AllowSkew: run although its declarations differ from this build's,
 	// or, on the Walk tier, from the Runner's.
 	SkewAccepted bool `json:"skew_accepted,omitempty"`
+
+	// Rendered names the parameters of an authored step whose values are the
+	// ones the run rendered on the device and journaled
+	// (engine.JournalEntry.AuthoredSteps), in place of the templates its
+	// runbook writes (rendered.go); empty for a step run as written. Verify
+	// holds each to the declarations a recorded undo's values are held to,
+	// and every other parameter to the runbook.
+	Rendered []string `json:"rendered,omitempty"`
 }
 
 // Warning is something the planner wants an operator to read about a

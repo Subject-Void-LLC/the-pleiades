@@ -536,6 +536,15 @@ type RollbackStep struct {
 	// never the Runner's check of each recorded value against its own
 	// declarations.
 	SkewAccepted bool `json:"skew_accepted,omitempty"`
+
+	// Rendered names the parameters of an authored step whose values are the
+	// ones the undone run rendered on the device and journaled, in place of
+	// the templates its runbook writes. The Runner holds each to its own
+	// build's declarations, as it holds a recorded undo's values, and every
+	// other parameter to the runbook. A Runner from before the field compares
+	// every parameter with the runbook and so refuses such a step rather than
+	// running it.
+	Rendered []string `json:"rendered,omitempty"`
 }
 
 // Injected is the rendered output of a dispatch's bound credentials.

@@ -189,7 +189,9 @@ What else to know about a `set_fact`:
   `rollback_on_failure` renders a task's `rollback:` steps with the variables
   that task saw, so a later `set_fact` cannot point the undo at another path.
   A method's own recorded undo is kept in the journal as the rendered values,
-  which `pleiades rollback` replays.
+  which `pleiades rollback` replays, and so is each templated `rollback:` step:
+  a later rollback runs it with the values the run rendered, never the text
+  again, and refuses one whose values the journal could not keep.
 - **A run starts with no facts.** Facts last for one run. A second run, or the
   next batch of a `serial:` run, starts with none.
 

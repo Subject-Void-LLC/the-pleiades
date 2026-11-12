@@ -76,9 +76,10 @@ func rollbackDAG(logger *slog.Logger, ran *engine.DAG, payload wire.DispatchPayl
 
 // stepFromWire is the planner's step for ws, as the Controller planned it:
 // every field the wire carries, the Collection identity and undo digest the
-// journal recorded among them and whether the operator accepted its skew by
-// name, for the step's checks on this Runner.
+// journal recorded among them, whether the operator accepted its skew by
+// name, and which of an authored step's values the run rendered, for the
+// step's checks on this Runner.
 func stepFromWire(ws wire.RollbackStep) rollback.Step {
 	return rollback.Step{Node: ws.Node, Index: ws.Index, Emitter: ws.Emitter, FQCN: ws.Method, Params: ws.Params, Name: ws.Name, Source: ws.Source,
-		Collection: ws.Collection, UndoDigest: ws.UndoDigest, SkewAccepted: ws.SkewAccepted}
+		Collection: ws.Collection, UndoDigest: ws.UndoDigest, SkewAccepted: ws.SkewAccepted, Rendered: ws.Rendered}
 }

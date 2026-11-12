@@ -258,8 +258,27 @@ func journalShow(dir, runID string, asJSON bool) error {
 		case e.AuthoredRollback:
 			fmt.Println("        undo: the task's own rollback: list")
 		}
+		// Each templated step as the run rendered it, or why it was not kept.
+		for _, s := range e.AuthoredSteps {
+			fmt.Printf("          %s\n", termsafe.EscapeLine(renderedStepNote(s)))
+		}
 	}
 	return nil
+}
+
+// renderedStepNote renders one journaled rollback: step: its place, its
+// method and the values the run rendered for its templates, or that a rollback
+// will refuse it and why.
+func renderedStepNote(s engine.AuthoredStep) string {
+	note := fmt.Sprintf("step %d: %s", s.Index+1, s.FQCN)
+	if !s.Complete {
+		return note + " (not kept: " + s.Withheld.Describe() + "; a rollback refuses it)"
+	}
+	for _, p := range s.Params {
+		v, _ := p.Value()
+		note += fmt.Sprintf(" %s=%v", p.Key, v)
+	}
+	return note + " (as the run rendered it)"
 }
 
 // undoNote renders an entry's recorded undo parameters, and says when the
