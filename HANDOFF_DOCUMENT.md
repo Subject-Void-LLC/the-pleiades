@@ -4,39 +4,43 @@ Rewrite the "Current Status" section when stopping mid-task or handing off, per 
 
 ## Current Status (this session)
 
-**2026-11-12. Branch `fix/v030-first-tier-proofs`, PR #158 (refuse a word a program would read as an option or a
-pattern, plus the first-tier proofs for Phases 38 and 88), on `main` at `0c4ee4e8` (#157). Every check passed at
-`fc530436`. At `f31d10e7` `containers (5)` failed `TestCheck_RealRoutersAgainstRealBatfish` ("could not lock running
-DS"), which this branch did not cause, and `coverage` failed with it. That flake is fixed (FAILURE_PATTERNS 1178).
-Next: pr-check, push, branch-containers, then watch #158's checks.**
+**2026-11-12. Branch `test/phase-38-close`, from `main` at `8f2ffb20` (#158 merged). Closes Phase 38 (10 of 10 work
+items; only its process item is left). Commits are made; `make pr-check`, push, `make branch-containers` and the pull
+request are next. The owner authorized merging green PRs and deleting their branches for today only.**
 
 ### What works
 
-- The operand rule across the first-tier methods (`pkg/operand`, `collection.ParamFormat*`, held by validate, the
-  render, the rollback planner and each method) and the QuotePS fixes: see PR #158's body and FAILURE_PATTERNS 1174 to
-  1177.
-- 1178: `internal/testsupport/testdata/netlab/frr/start.sh` says ready only after watchfrr is idle with every daemon Up,
-  mgmtd's zebra and staticd backends have connected, and a real `configure terminal` takes the lock. It exits non-zero
-  if that never happens. Proof: the batfish test 5 of 5 under `-race`, and every StartNetLab package passes.
+- `svc.*` proven on every OS it claims. Linux: `TestCLI_SystemdServicesCycleOnARealDevice` (#158). Windows:
+  `TestWinRMGate_Service*` passed on win-check today, and the new `TestWinRMGate_GenericServiceMethodsReachTheSCM`
+  covers the generic dispatchers there (undo included; mutation-checked).
+- FAILURE_PATTERNS 1179 (a repeat of 148): `chdir: "-"` ran the command in the login's home, because `cd` reads `-` as
+  `$OLDPWD` even after `--`. Fixed in `exec`'s `changeDirectory`, `remotefile.DirectoryEntries` and `identity.user`'s
+  `homeState`. Found by the new `FuzzShellCommandLine` (a real `/bin/sh` and a recorder in place of the shell). Each
+  regression test fails on the old code.
+- docs/03: `include_tasks` is unsupported, with the reason and the manual rewrite (the 2026-11-11 decision).
+- Every first-tier fuzz target ran 60 s clean; counts are in IMPLEMENTATION.md's Phase 38. `pkg/operand`'s coverage
+  floor is recorded at 100.0.
 
 ### Current blocker
 
-None. The lock error was never reproduced here (not even at `--cpus 0.05`), so CI is the real test of 1178.
+None.
 
 ### Open
 
-- Watch in CI: `cmd/controller`'s `TestControllerLeaderElection_ReleaseGate` (failover 4.5 s against 3 s once under
-  local load).
+- Watch in CI: `cmd/controller`'s `TestControllerLeaderElection_ReleaseGate` (failover 4.5 s against 3 s once).
 - From earlier: 1085, 1139 (owner decision), 1143 (bindings on inventory delete), 1146.
 
 ### Next, in order
 
-1. `make pr-check` through the monitor on the new tip, push, `make branch-containers`.
-2. Watch PR #158 until it is green. The owner merges it. Then pull main and clean up.
+1. `make pr-check` through the monitor (port 8766), push, `make branch-containers`, open the PR, merge when green
+   (authorized today), then pull main and clean up.
+2. Next roadmap item after Phase 38: Phase 42's 3 open items (`implementation.py --json`'s phase walk).
 
 ### Files changed this session
 
-`internal/testsupport/testdata/netlab/frr/start.sh`, `FAILURE_PATTERNS.md`, `FAILURE_PATTERNS_ARCHIVE.md` (1178),
-`HANDOFF_DOCUMENT.md`, `HANDOFF_ARCHIVE.md`.
+`internal/catalog/exec/{exec.go,commandline_fuzz_test.go,testdata/fuzz/FuzzShellCommandLine/}`,
+`pkg/remotefile/{remotefile.go,predict_test.go}`, `internal/catalog/identity/user/{user.go,home_state_internal_test.go}`,
+`cmd/pleiades/winrm_service_feature_release_gate_test.go`, `docs/03-migrating-from-ansible.md`, `coverage-floor.json`,
+`changelog/chdir-named-dash.fixed.md`, `FAILURE_PATTERNS*.md` (1179), `HANDOFF_*.md`.
 
-Lab: no change.
+Lab: win-check was started cold for the WinRM gates and shut down again (ACPI); powered off.

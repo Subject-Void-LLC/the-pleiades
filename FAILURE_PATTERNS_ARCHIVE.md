@@ -29161,3 +29161,30 @@ Ready in about 1 s unthrottled and 4 s at `--cpus 0.1`.
 
 **Lesson.** A fixture's ready signal must exercise what its first user does, through the server rather than the
 client: for a router that is opening a configuration session, not printing a version.
+
+## 1179. A chdir of "-" ran the command in the login's home, since cd reads "-" as $OLDPWD even after "--" (a repeat of 148) (fixed before push)
+
+**Symptom.** `exec.command` and `exec.shell` with `chdir: "-"` exited 0 having run the command in the login's home
+directory, not in the directory named `-`. Under dash and BusyBox's sh with no `OLDPWD`, which a fresh SSH login has,
+`cd -- '-'` succeeds and stays where it is. With `OLDPWD` set it goes there, and bash refuses it. The same prefix built
+the `creates` and `removes` guards. `pkg/remotefile.DirectoryEntries` (`file.remove`'s check) listed the other directory,
+with the path `cd` prints mixed into the names, and `identity.user`'s home comparison read a home of `-` the same way.
+Found by the new `FuzzShellCommandLine` (`internal/catalog/exec`) on its first seed run.
+
+**Root cause.** POSIX gives `cd`'s operand `-` its own meaning, `cd "$OLDPWD" && pwd`, and `--` ends options, not that
+meaning. 148 fixed `-P` with `--` and tested `-P`, and 1174's `./` rule went to `pkg/remotefile`'s file operands
+(`operand`), while the `cd` prefixes kept relying on 148's `--`.
+
+**Why 148's lesson did not prevent it.** 148 says quoting and option termination are two defenses against two grammars.
+There is a third: an operand the program itself gives a meaning. `--` cannot stop it, and the test for 148 used a
+value that was only an option.
+
+**Fix.** `exec`'s `changeDirectory` sends a relative directory beginning with `-` as `./dir`, `DirectoryEntries` passes
+its path through `operand`, and `homeState` passes its home and skeleton through the same rule. The gate's `dirOf`
+already did this. Proof, each failing on the old code: `FuzzShellCommandLine`'s `-` seed (the shell ran in the parent,
+not in `-`), `TestDirectoryEntries_ListsADirectoryNamedDash` (listed the `OLDPWD` decoy) and
+`TestHomeState_ComparesAHomeNamedDash` (read the decoy, "changed"). `FuzzShellCommandLine` then ran 75K real-shell
+executions clean.
+
+**Lesson.** Before trusting `--`, read the program's own operand grammar for words it gives a meaning: `cd -`, `cat -`,
+`tar -f -`. A relative path is safest sent as `./path`, which every program reads as a path.

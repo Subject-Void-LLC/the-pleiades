@@ -1182,6 +1182,7 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 1176. win.file.copy, win.file.download, win.archive.extract and VirtualBox's host file scripts put a path or URL inside single quotes without QuotePS, so a typographic quote ended the literal and ran the rest as PowerShell (a repeat of 354) (fixed)
 1177. Four pkg tests faked apt-get but read the host's own apt-cache, passing on Linux and failing only on fast-macos (a repeat of 476) (fixed on the pull request)
 1178. The FRR lab said ready on `show version`, so a batfish test's first `configure terminal` met mgmtd's lock under load (a repeat of 446) (fixed on the pull request)
+1179. A chdir of "-" ran the command in the login's home, since cd reads "-" as $OLDPWD even after "--" (a repeat of 148) (fixed before push)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 
