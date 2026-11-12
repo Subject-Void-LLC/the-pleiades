@@ -454,6 +454,34 @@ func TestCreate_AlreadyPresentIsNoOp(t *testing.T) {
 	}
 }
 
+// TestCreate_RemoveDeletesASourceStartingWithADash: a relative src whose
+// name begins with "-" is archived as ./-name, and remove: true then hands
+// rm the src as written. With the "--" before the paths rm removes that
+// file; without it rm read "-keep" as options it does not know, failed, and
+// left the source the task said to remove (FAILURE_PATTERNS 1174). The
+// harness's shell starts in this process's working directory, so the test
+// moves it first (t.Chdir).
+func TestCreate_RemoveDeletesASourceStartingWithADash(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "-keep")
+	writeFile(t, src, "archived, then removed")
+	t.Chdir(dir)
+	path := filepath.Join(dir, "out.tar.gz")
+
+	h := newHarness(t)
+	if _, err := archivemod.Create(context.Background(), h.rc, h.device, h.params(map[string]any{
+		"path": path, "src": []any{"-keep"}, "remove": true,
+	})); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if _, err := os.Stat(src); !os.IsNotExist(err) {
+		t.Fatalf("expected %s to be removed, stat err = %v", src, err)
+	}
+	if len(readTarGzEntries(t, path)) == 0 {
+		t.Fatal("expected the archive to hold the removed source's content")
+	}
+}
+
 func TestCreate_RemoveDeletesSources(t *testing.T) {
 	dir := t.TempDir()
 	src := filepath.Join(dir, "src.txt")

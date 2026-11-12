@@ -3,6 +3,7 @@ package file
 import (
 	"fmt"
 
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/operand"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remotefile"
 )
 
@@ -107,16 +108,38 @@ func checkMode(key, mode string) error {
 		key, mode)
 }
 
-// checkName refuses a numeric owner or group.
+// checkName refuses an owner or group chown cannot be trusted to read as
+// the one account name it is.
 //
-// chown itself is the reason. An all-digit argument is read by chown as a
-// numeric id, never as a name, while the device reports names back
-// through stat, so "1000" and "alice" would compare unequal on every
-// single run even when they are the same account. Resolving one to the
-// other would need a passwd lookup on the device that this namespace has
-// no primitive for, so the refusal says what to write instead.
+// The first refusal is a numeric one, and chown itself is the reason. An
+// all-digit argument is read by chown as a numeric id, never as a name,
+// while the device reports names back through stat, so "1000" and "alice"
+// would compare unequal on every single run even when they are the same
+// account. Resolving one to the other would need a passwd lookup on the
+// device that this namespace has no primitive for, so the refusal says
+// what to write instead.
+//
+// The second is pkg/operand's rule, which every parameter declaring
+// collection.ParamFormatOperand is held to: a name beginning with "-",
+// which GNU chown read as an option (owner --reference=/etc/shadow gave
+// the file /etc/shadow's owner and group, FAILURE_PATTERNS 1174), or
+// holding "*", "?", "[" or "]". chown reads those as themselves, and
+// Debian 12's and Ubuntu's useradd can make such a name, so this half
+// refuses a name that could be real; it is kept so that one rule covers
+// every operand (pkg/operand says more). Validation and the engine refuse
+// such a value before the run; this refuses it again before the method
+// connects, for a value that reached it some other way (a replayed undo, a
+// direct call), and pkg/remotefile sends "--" before the name besides. The
+// value is not repeated in this refusal, since it may have been rendered
+// from what a device returned.
 func checkName(key, name string) error {
-	if name == "" || !isDigits(name) {
+	if name == "" {
+		return nil
+	}
+	if err := operand.Check(key, name); err != nil {
+		return err
+	}
+	if !isDigits(name) {
 		return nil
 	}
 	return fmt.Errorf("%s %q is a numeric id: name the account instead, since the device reports names and a numeric id would compare unequal on every run", key, name)

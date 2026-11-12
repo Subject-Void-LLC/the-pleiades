@@ -241,3 +241,24 @@ func TestScript_MakesADriveRootsTopFoldersFirst(t *testing.T) {
 		t.Error("the drive-root pattern is wrong")
 	}
 }
+
+// TestExtractScript_QuotesATypographicQuoteInEveryPath: pathPattern refuses
+// the ASCII apostrophe but admits the four typographic quotes, at each of
+// which PowerShell also ends a single-quoted literal (FAILURE_PATTERNS 354).
+// src, dest and creates are now each assigned as winrmexec.QuotePS writes
+// them.
+func TestExtractScript_QuotesATypographicQuoteInEveryPath(t *testing.T) {
+	q := string(rune(0x201B))
+	r := request{src: `C:\a` + q + `;calc;` + q + `.zip`, dest: `C:\out` + q + `x`, creates: `C:\out` + q + `x\done`}
+	for _, p := range []string{r.src, r.dest, r.creates} {
+		if !absolute(p) {
+			t.Fatalf("%q is refused, so this test proves nothing", p)
+		}
+	}
+	script := r.script(false)
+	for name, value := range map[string]string{"src": r.src, "dest": r.dest, "creates": r.creates} {
+		if want := "\n$" + name + " = " + winrmexec.QuotePS(value) + "\n"; !strings.Contains(script, want) {
+			t.Errorf("the script lacks %q", want)
+		}
+	}
+}

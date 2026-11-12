@@ -7776,12 +7776,14 @@
         {
           "name": "owner",
           "type": "string",
-          "description": "The user name to give the file. A numeric id is refused: chown reads an all-digit argument as an id while the device reports names, so the two could never compare equal and the task would report changed forever. Left unset, an existing file keeps its owner and a new one belongs to the connecting account."
+          "description": "The user name to give the file. A numeric id is refused: chown reads an all-digit argument as an id while the device reports names, so the two could never compare equal and the task would report changed forever. Left unset, an existing file keeps its owner and a new one belongs to the connecting account.",
+          "format": "operand"
         },
         {
           "name": "group",
           "type": "string",
-          "description": "The group name to give the file, refused as a numeric id for the same reason owner is."
+          "description": "The group name to give the file, refused as a numeric id for the same reason owner is.",
+          "format": "operand"
         },
         {
           "name": "insecure_skip_host_key_verify",
@@ -7921,12 +7923,14 @@
         {
           "name": "owner",
           "type": "string",
-          "description": "The user name that should own the directory. A name rather than a numeric id, because a name is what the device reports back and therefore the only form this method can compare against. Given to every parent this task creates too, as mode is. Left unset, ownership is not touched."
+          "description": "The user name that should own the directory. A name rather than a numeric id, because a name is what the device reports back and therefore the only form this method can compare against. Given to every parent this task creates too, as mode is. Left unset, ownership is not touched.",
+          "format": "operand"
         },
         {
           "name": "group",
           "type": "string",
-          "description": "The group name that should own the directory, under the same rule as owner: a name, not a numeric id, and given to every parent this task creates. Left unset, the group is not touched."
+          "description": "The group name that should own the directory, under the same rule as owner: a name, not a numeric id, and given to every parent this task creates. Left unset, the group is not touched.",
+          "format": "operand"
         },
         {
           "name": "insecure_skip_host_key_verify",
@@ -8358,12 +8362,14 @@
         {
           "name": "owner",
           "type": "string",
-          "description": "The user name to give the path. A numeric id is refused: chown reads an all-digit argument as an id while the device reports names, so the two could never compare equal and the task would report changed forever."
+          "description": "The user name to give the path. A numeric id is refused: chown reads an all-digit argument as an id while the device reports names, so the two could never compare equal and the task would report changed forever.",
+          "format": "operand"
         },
         {
           "name": "group",
           "type": "string",
-          "description": "The group name to give the path, refused as a numeric id for the same reason owner is."
+          "description": "The group name to give the path, refused as a numeric id for the same reason owner is.",
+          "format": "operand"
         },
         {
           "name": "insecure_skip_host_key_verify",
@@ -8782,12 +8788,14 @@
         {
           "name": "owner",
           "type": "string",
-          "description": "The user name to give the file. A numeric id is refused. Left unset, an existing file keeps its owner and a new one belongs to the connecting account."
+          "description": "The user name to give the file. A numeric id is refused. Left unset, an existing file keeps its owner and a new one belongs to the connecting account.",
+          "format": "operand"
         },
         {
           "name": "group",
           "type": "string",
-          "description": "The group name to give the file, refused as a numeric id for the same reason owner is."
+          "description": "The group name to give the file, refused as a numeric id for the same reason owner is.",
+          "format": "operand"
         },
         {
           "name": "insecure_skip_host_key_verify",
@@ -8924,12 +8932,14 @@
         {
           "name": "owner",
           "type": "string",
-          "description": "The user that should own the file, by name. A numeric id is refused: chown reads an all-digit argument as an id while the device reports names back, so the two would compare unequal on every run. Sent only when it differs. Left alone when not set."
+          "description": "The user that should own the file, by name. A numeric id is refused: chown reads an all-digit argument as an id while the device reports names back, so the two would compare unequal on every run. Sent only when it differs. Left alone when not set.",
+          "format": "operand"
         },
         {
           "name": "group",
           "type": "string",
-          "description": "The group that should own the file, by name. A numeric id is refused, for the same reason it is on owner. Sent only when it differs, and in one chown alongside owner when both are set. Left alone when not set."
+          "description": "The group that should own the file, by name. A numeric id is refused, for the same reason it is on owner. Sent only when it differs, and in one chown alongside owner when both are set. Left alone when not set.",
+          "format": "operand"
         },
         {
           "name": "insecure_skip_host_key_verify",
@@ -9136,24 +9146,28 @@
           "name": "path",
           "type": "string",
           "required": true,
-          "description": "The mountpoint to mount onto."
+          "description": "The mountpoint to mount onto.",
+          "format": "mount_field"
         },
         {
           "name": "src",
           "type": "string",
           "required": true,
-          "description": "The device, share or filesystem source to mount."
+          "description": "The device, share or filesystem source to mount: a device path, UUID=..., LABEL=..., host:/export or //server/share.",
+          "format": "mount_field"
         },
         {
           "name": "fstype",
           "type": "string",
           "required": true,
-          "description": "The filesystem type, as mount's own -t takes it (e.g. ext4, nfs, xfs)."
+          "description": "The filesystem type, as mount's own -t takes it (e.g. ext4, nfs, xfs).",
+          "format": "mount_field"
         },
         {
           "name": "opts",
           "type": "string",
-          "description": "Mount options, as mount's own -o takes them. Defaults to \"defaults\" for a fresh mount and a fresh fstab entry; an existing mount or fstab entry is only compared or rewritten against this when the task actually sets it."
+          "description": "Mount options, as mount's own -o takes them. Defaults to \"defaults\" for a fresh mount and a fresh fstab entry; an existing mount or fstab entry is only compared or rewritten against this when the task actually sets it.",
+          "format": "mount_field"
         },
         {
           "name": "persist",
@@ -9245,7 +9259,8 @@
           "name": "path",
           "type": "string",
           "required": true,
-          "description": "The mountpoint to unmount."
+          "description": "The mountpoint to unmount.",
+          "format": "mount_field"
         },
         {
           "name": "persist",
@@ -10187,7 +10202,8 @@
           "name": "name",
           "type": "string",
           "required": true,
-          "description": "The group name to create or converge."
+          "description": "The group name to create or converge.",
+          "format": "operand"
         },
         {
           "name": "gid",
@@ -10275,7 +10291,8 @@
           "name": "name",
           "type": "string",
           "required": true,
-          "description": "The group to modify. Must already exist."
+          "description": "The group to modify. Must already exist.",
+          "format": "operand"
         },
         {
           "name": "gid",
@@ -10354,7 +10371,8 @@
           "name": "name",
           "type": "string",
           "required": true,
-          "description": "The group name to remove."
+          "description": "The group name to remove.",
+          "format": "operand"
         },
         {
           "name": "insecure_skip_host_key_verify",
@@ -10440,7 +10458,8 @@
           "name": "name",
           "type": "string",
           "required": true,
-          "description": "The account name to create or converge."
+          "description": "The account name to create or converge.",
+          "format": "operand"
         },
         {
           "name": "uid",
@@ -10450,7 +10469,8 @@
         {
           "name": "group",
           "type": "string",
-          "description": "The primary group, by name or numeric gid. An existing account with a different primary group is converged to this one."
+          "description": "The primary group, by name or numeric gid. An existing account with a different primary group is converged to this one.",
+          "format": "operand"
         },
         {
           "name": "shell",
@@ -10560,7 +10580,8 @@
           "name": "name",
           "type": "string",
           "required": true,
-          "description": "The account to modify. Must already exist."
+          "description": "The account to modify. Must already exist.",
+          "format": "operand"
         },
         {
           "name": "uid",
@@ -10570,7 +10591,8 @@
         {
           "name": "group",
           "type": "string",
-          "description": "Converge the account's primary group, by name or numeric gid."
+          "description": "Converge the account's primary group, by name or numeric gid.",
+          "format": "operand"
         },
         {
           "name": "shell",
@@ -10664,7 +10686,8 @@
           "name": "name",
           "type": "string",
           "required": true,
-          "description": "The account name to remove."
+          "description": "The account name to remove.",
+          "format": "operand"
         },
         {
           "name": "remove",
@@ -13463,12 +13486,14 @@
           "name": "name",
           "type": "string",
           "required": true,
-          "description": "The APT package name to install, such as curl or nginx."
+          "description": "The APT package name to install, such as curl or nginx.",
+          "format": "apt_package"
         },
         {
           "name": "version",
           "type": "string",
-          "description": "Install exactly this version rather than whatever is current. A package already installed at a different version is upgraded or downgraded to match."
+          "description": "Install exactly this version rather than whatever is current. A package already installed at a different version is upgraded or downgraded to match.",
+          "format": "package_version"
         },
         {
           "name": "insecure_skip_host_key_verify",
@@ -13551,12 +13576,14 @@
           "name": "name",
           "type": "string",
           "required": true,
-          "description": "The APT package name to remove."
+          "description": "The APT package name to remove.",
+          "format": "apt_package"
         },
         {
           "name": "dependencies",
           "type": "list",
-          "description": "Packages installing this one pulled in, as pkg.apt.install's undo names them. Each is removed with the package only while it is still installed, APT would remove it as no longer needed, and removing them takes nothing else with them; any other is kept and named in a warning."
+          "description": "Packages installing this one pulled in, as pkg.apt.install's undo names them. Each is removed with the package only while it is still installed, APT would remove it as no longer needed, and removing them takes nothing else with them; any other is kept and named in a warning.",
+          "format": "apt_package"
         },
         {
           "name": "insecure_skip_host_key_verify",
@@ -13632,7 +13659,8 @@
           "name": "name",
           "type": "string",
           "required": true,
-          "description": "The APT package to keep current."
+          "description": "The APT package to keep current.",
+          "format": "apt_package"
         },
         {
           "name": "insecure_skip_host_key_verify",
@@ -13710,12 +13738,14 @@
           "name": "name",
           "type": "string",
           "required": true,
-          "description": "The RPM package name to install, such as curl or nginx."
+          "description": "The RPM package name to install, such as curl or nginx.",
+          "format": "rpm_package"
         },
         {
           "name": "version",
           "type": "string",
-          "description": "Install exactly this version-release rather than whatever is current. A package already installed at a different version is upgraded or downgraded to match."
+          "description": "Install exactly this version-release rather than whatever is current. A package already installed at a different version is upgraded or downgraded to match.",
+          "format": "package_version"
         },
         {
           "name": "insecure_skip_host_key_verify",
@@ -13798,7 +13828,8 @@
           "name": "name",
           "type": "string",
           "required": true,
-          "description": "The RPM package name to remove."
+          "description": "The RPM package name to remove.",
+          "format": "rpm_package"
         },
         {
           "name": "insecure_skip_host_key_verify",
@@ -13868,7 +13899,8 @@
           "name": "name",
           "type": "string",
           "required": true,
-          "description": "The RPM package to keep current."
+          "description": "The RPM package to keep current.",
+          "format": "rpm_package"
         },
         {
           "name": "insecure_skip_host_key_verify",
@@ -13953,12 +13985,14 @@
           "name": "name",
           "type": "string",
           "required": true,
-          "description": "The package to act on. This is passed straight through to the concrete method for the device's package manager, so it means whatever that manager means by a package name: an APT package name on a Debian-family host, an RPM package name on a Red Hat-family one."
+          "description": "The package to act on. This is passed straight through to the concrete method for the device's package manager, so it means whatever that manager means by a package name: an APT package name on a Debian-family host, an RPM package name on a Red Hat-family one.",
+          "format": "package"
         },
         {
           "name": "version",
           "type": "string",
-          "description": "Pin to this exact version instead of whatever the package manager considers current. Passed straight through to the concrete method; leave unset to mean \"whatever version is current.\""
+          "description": "Pin to this exact version instead of whatever the package manager considers current. Passed straight through to the concrete method; leave unset to mean \"whatever version is current.\"",
+          "format": "package_version"
         },
         {
           "name": "insecure_skip_host_key_verify",
@@ -14044,12 +14078,14 @@
           "name": "name",
           "type": "string",
           "required": true,
-          "description": "The package to act on. This is passed straight through to the concrete method for the device's package manager, so it means whatever that manager means by a package name: an APT package name on a Debian-family host, an RPM package name on a Red Hat-family one."
+          "description": "The package to act on. This is passed straight through to the concrete method for the device's package manager, so it means whatever that manager means by a package name: an APT package name on a Debian-family host, an RPM package name on a Red Hat-family one.",
+          "format": "package"
         },
         {
           "name": "version",
           "type": "string",
-          "description": "Pin to this exact version instead of whatever the package manager considers current. Passed straight through to the concrete method; leave unset to mean \"whatever version is current.\""
+          "description": "Pin to this exact version instead of whatever the package manager considers current. Passed straight through to the concrete method; leave unset to mean \"whatever version is current.\"",
+          "format": "package_version"
         },
         {
           "name": "insecure_skip_host_key_verify",
@@ -14119,12 +14155,14 @@
           "name": "name",
           "type": "string",
           "required": true,
-          "description": "The package to act on. This is passed straight through to the concrete method for the device's package manager, so it means whatever that manager means by a package name: an APT package name on a Debian-family host, an RPM package name on a Red Hat-family one."
+          "description": "The package to act on. This is passed straight through to the concrete method for the device's package manager, so it means whatever that manager means by a package name: an APT package name on a Debian-family host, an RPM package name on a Red Hat-family one.",
+          "format": "package"
         },
         {
           "name": "version",
           "type": "string",
-          "description": "Pin to this exact version instead of whatever the package manager considers current. Passed straight through to the concrete method; leave unset to mean \"whatever version is current.\""
+          "description": "Pin to this exact version instead of whatever the package manager considers current. Passed straight through to the concrete method; leave unset to mean \"whatever version is current.\"",
+          "format": "package_version"
         },
         {
           "name": "insecure_skip_host_key_verify",
@@ -14830,7 +14868,8 @@
           "name": "name",
           "type": "string",
           "required": true,
-          "description": "The service to act on. This is passed straight through to the concrete method for the device's service manager, so it means whatever that manager means by a service name: a systemd unit such as nginx or nginx.service on a Linux host."
+          "description": "The service to act on. This is passed straight through to the concrete method for the device's service manager, so it means whatever that manager means by a service name: a systemd unit such as nginx or nginx.service on a Linux host.",
+          "format": "systemd_unit"
         },
         {
           "name": "insecure_skip_host_key_verify",
@@ -14908,7 +14947,8 @@
           "name": "name",
           "type": "string",
           "required": true,
-          "description": "The service to act on. This is passed straight through to the concrete method for the device's service manager, so it means whatever that manager means by a service name: a systemd unit such as nginx or nginx.service on a Linux host."
+          "description": "The service to act on. This is passed straight through to the concrete method for the device's service manager, so it means whatever that manager means by a service name: a systemd unit such as nginx or nginx.service on a Linux host.",
+          "format": "systemd_unit"
         },
         {
           "name": "insecure_skip_host_key_verify",
@@ -14972,7 +15012,8 @@
           "name": "name",
           "type": "string",
           "required": true,
-          "description": "The service to act on. This is passed straight through to the concrete method for the device's service manager, so it means whatever that manager means by a service name: a systemd unit such as nginx or nginx.service on a Linux host."
+          "description": "The service to act on. This is passed straight through to the concrete method for the device's service manager, so it means whatever that manager means by a service name: a systemd unit such as nginx or nginx.service on a Linux host.",
+          "format": "systemd_unit"
         },
         {
           "name": "insecure_skip_host_key_verify",
@@ -15050,7 +15091,8 @@
           "name": "name",
           "type": "string",
           "required": true,
-          "description": "The service to act on. This is passed straight through to the concrete method for the device's service manager, so it means whatever that manager means by a service name: a systemd unit such as nginx or nginx.service on a Linux host."
+          "description": "The service to act on. This is passed straight through to the concrete method for the device's service manager, so it means whatever that manager means by a service name: a systemd unit such as nginx or nginx.service on a Linux host.",
+          "format": "systemd_unit"
         },
         {
           "name": "insecure_skip_host_key_verify",
@@ -15129,7 +15171,8 @@
           "name": "name",
           "type": "string",
           "required": true,
-          "description": "The service to act on. This is passed straight through to the concrete method for the device's service manager, so it means whatever that manager means by a service name: a systemd unit such as nginx or nginx.service on a Linux host."
+          "description": "The service to act on. This is passed straight through to the concrete method for the device's service manager, so it means whatever that manager means by a service name: a systemd unit such as nginx or nginx.service on a Linux host.",
+          "format": "systemd_unit"
         },
         {
           "name": "insecure_skip_host_key_verify",
@@ -15242,7 +15285,8 @@
           "name": "name",
           "type": "string",
           "required": true,
-          "description": "The systemd unit to act on, such as nginx or nginx.service. This is ansible.builtin.systemd's own parameter name. The unit must already exist: a name systemd does not know is refused rather than reported as already stopped, since that is nearly always a typo."
+          "description": "The systemd unit to act on, such as nginx or nginx.service. This is ansible.builtin.systemd's own parameter name. The unit must already exist: a name systemd does not know is refused rather than reported as already stopped, since that is nearly always a typo.",
+          "format": "systemd_unit"
         },
         {
           "name": "insecure_skip_host_key_verify",
@@ -15313,7 +15357,8 @@
           "name": "name",
           "type": "string",
           "required": true,
-          "description": "The systemd unit to act on, such as nginx or nginx.service. This is ansible.builtin.systemd's own parameter name. The unit must already exist: a name systemd does not know is refused rather than reported as already stopped, since that is nearly always a typo."
+          "description": "The systemd unit to act on, such as nginx or nginx.service. This is ansible.builtin.systemd's own parameter name. The unit must already exist: a name systemd does not know is refused rather than reported as already stopped, since that is nearly always a typo.",
+          "format": "systemd_unit"
         },
         {
           "name": "insecure_skip_host_key_verify",
@@ -15376,7 +15421,8 @@
           "name": "name",
           "type": "string",
           "required": true,
-          "description": "The systemd unit to act on, such as nginx or nginx.service. This is ansible.builtin.systemd's own parameter name. The unit must already exist: a name systemd does not know is refused rather than reported as already stopped, since that is nearly always a typo."
+          "description": "The systemd unit to act on, such as nginx or nginx.service. This is ansible.builtin.systemd's own parameter name. The unit must already exist: a name systemd does not know is refused rather than reported as already stopped, since that is nearly always a typo.",
+          "format": "systemd_unit"
         },
         {
           "name": "insecure_skip_host_key_verify",
@@ -15447,7 +15493,8 @@
           "name": "name",
           "type": "string",
           "required": true,
-          "description": "The systemd unit to act on, such as nginx or nginx.service. This is ansible.builtin.systemd's own parameter name. The unit must already exist: a name systemd does not know is refused rather than reported as already stopped, since that is nearly always a typo."
+          "description": "The systemd unit to act on, such as nginx or nginx.service. This is ansible.builtin.systemd's own parameter name. The unit must already exist: a name systemd does not know is refused rather than reported as already stopped, since that is nearly always a typo.",
+          "format": "systemd_unit"
         },
         {
           "name": "insecure_skip_host_key_verify",
@@ -15523,7 +15570,8 @@
           "name": "name",
           "type": "string",
           "required": true,
-          "description": "The systemd unit to act on, such as nginx or nginx.service. This is ansible.builtin.systemd's own parameter name. The unit must already exist: a name systemd does not know is refused rather than reported as already stopped, since that is nearly always a typo."
+          "description": "The systemd unit to act on, such as nginx or nginx.service. This is ansible.builtin.systemd's own parameter name. The unit must already exist: a name systemd does not know is refused rather than reported as already stopped, since that is nearly always a typo.",
+          "format": "systemd_unit"
         },
         {
           "name": "insecure_skip_host_key_verify",
@@ -15598,7 +15646,8 @@
           "name": "name",
           "type": "string",
           "required": true,
-          "description": "The Windows service to act on, its short service name (not its display name), such as Spooler rather than \"Print Spooler\". The service must already exist: a name the Service Control Manager does not know is refused rather than reported as already stopped, since that is nearly always a typo."
+          "description": "The Windows service to act on, its short service name (not its display name), such as Spooler rather than \"Print Spooler\". The service must already exist: a name the Service Control Manager does not know is refused rather than reported as already stopped, since that is nearly always a typo.",
+          "format": "operand"
         }
       ],
       "returns": [
@@ -15667,7 +15716,8 @@
           "name": "name",
           "type": "string",
           "required": true,
-          "description": "The Windows service to act on, its short service name (not its display name), such as Spooler rather than \"Print Spooler\". The service must already exist: a name the Service Control Manager does not know is refused rather than reported as already stopped, since that is nearly always a typo."
+          "description": "The Windows service to act on, its short service name (not its display name), such as Spooler rather than \"Print Spooler\". The service must already exist: a name the Service Control Manager does not know is refused rather than reported as already stopped, since that is nearly always a typo.",
+          "format": "operand"
         }
       ],
       "returns": [
@@ -15724,7 +15774,8 @@
           "name": "name",
           "type": "string",
           "required": true,
-          "description": "The Windows service to act on, its short service name (not its display name), such as Spooler rather than \"Print Spooler\". The service must already exist: a name the Service Control Manager does not know is refused rather than reported as already stopped, since that is nearly always a typo."
+          "description": "The Windows service to act on, its short service name (not its display name), such as Spooler rather than \"Print Spooler\". The service must already exist: a name the Service Control Manager does not know is refused rather than reported as already stopped, since that is nearly always a typo.",
+          "format": "operand"
         }
       ],
       "returns": [
@@ -15789,7 +15840,8 @@
           "name": "name",
           "type": "string",
           "required": true,
-          "description": "The Windows service to act on, its short service name (not its display name), such as Spooler rather than \"Print Spooler\". The service must already exist: a name the Service Control Manager does not know is refused rather than reported as already stopped, since that is nearly always a typo."
+          "description": "The Windows service to act on, its short service name (not its display name), such as Spooler rather than \"Print Spooler\". The service must already exist: a name the Service Control Manager does not know is refused rather than reported as already stopped, since that is nearly always a typo.",
+          "format": "operand"
         }
       ],
       "returns": [
@@ -15859,7 +15911,8 @@
           "name": "name",
           "type": "string",
           "required": true,
-          "description": "The Windows service to act on, its short service name (not its display name), such as Spooler rather than \"Print Spooler\". The service must already exist: a name the Service Control Manager does not know is refused rather than reported as already stopped, since that is nearly always a typo."
+          "description": "The Windows service to act on, its short service name (not its display name), such as Spooler rather than \"Print Spooler\". The service must already exist: a name the Service Control Manager does not know is refused rather than reported as already stopped, since that is nearly always a typo.",
+          "format": "operand"
         }
       ],
       "returns": [

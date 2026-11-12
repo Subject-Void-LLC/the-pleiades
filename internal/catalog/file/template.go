@@ -97,8 +97,8 @@ func templateDoc() collection.Doc {
 			{Name: "trim_blocks", Type: "bool", Default: "true", Description: "Remove the first newline after each {% %} statement and {# #} comment, as Ansible's template module does by default, so a line holding only a tag leaves no blank line behind. A tag ending +%} keeps its newline. Written out as true or false, never a template."},
 			{Name: "lstrip_blocks", Type: "bool", Default: "false", Description: "Strip the spaces and tabs before a {% %} statement or {# #} comment that begins its line, so a tag can be indented with the text around it; {%+ keeps them. Ansible's template module's option of the same name and default. Written out as true or false, never a template."},
 			{Name: copyParamMode, Type: "string", Description: "The permission bits as one to four octal digits, quoted, for example \"0644\". A symbolic mode such as u+x is refused. Left unset, an existing file keeps its mode and a newly created one gets 0600."},
-			{Name: copyParamOwner, Type: "string", Description: "The user name to give the file. A numeric id is refused. Left unset, an existing file keeps its owner and a new one belongs to the connecting account."},
-			{Name: copyParamGroup, Type: "string", Description: "The group name to give the file, refused as a numeric id for the same reason owner is."},
+			{Name: copyParamOwner, Type: "string", Format: collection.ParamFormatOperand, Description: "The user name to give the file. A numeric id is refused. Left unset, an existing file keeps its owner and a new one belongs to the connecting account."},
+			{Name: copyParamGroup, Type: "string", Format: collection.ParamFormatOperand, Description: "The group name to give the file, refused as a numeric id for the same reason owner is."},
 			{Name: sdk.ParamInsecureSkipHostKeyVerify, Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
 		},
 		Returns: []collection.ReturnField{

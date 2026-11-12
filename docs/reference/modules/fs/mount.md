@@ -24,7 +24,7 @@ Makes sure path is mounted from src, creating the mount if it is not already the
 | Name | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
 | `path` | `string` | yes | - | The mountpoint to mount onto. |
-| `src` | `string` | yes | - | The device, share or filesystem source to mount. |
+| `src` | `string` | yes | - | The device, share or filesystem source to mount: a device path, UUID=..., LABEL=..., host:/export or //server/share. |
 | `fstype` | `string` | yes | - | The filesystem type, as mount's own -t takes it (e.g. ext4, nfs, xfs). |
 | `opts` | `string` | no | - | Mount options, as mount's own -o takes them. Defaults to "defaults" for a fresh mount and a fresh fstab entry; an existing mount or fstab entry is only compared or rewritten against this when the task actually sets it. |
 | `persist` | `bool` | no | `true` | Also make sure path has a matching entry in fstab, so it mounts again on the next boot. |

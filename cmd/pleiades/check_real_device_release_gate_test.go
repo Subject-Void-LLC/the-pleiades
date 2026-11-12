@@ -44,8 +44,10 @@ func systemdDevice(hc *container.HostConfig) {
 //     predicted for after the run is what the run reports after it;
 //  3. a check then predicts nothing to do, and a second run changes nothing.
 //
-// observe reads the state the call acts on, from inside the container.
-func checkThenRun(t *testing.T, dir, home, host string, observe func() string, method string, params ...string) {
+// observe reads the state the call acts on, from inside the container. It
+// returns the stats of the run that made the change, for a gate that holds
+// its inverse.
+func checkThenRun(t *testing.T, dir, home, host string, observe func() string, method string, params ...string) map[string]any {
 	t.Helper()
 	call := append([]string{"adhoc", host, method}, params...)
 	label := method + " " + strings.Join(params, " ")
@@ -76,6 +78,7 @@ func checkThenRun(t *testing.T, dir, home, host string, observe func() string, m
 	if code != 0 || rerun.Tasks[0].Status != "ok" {
 		t.Fatalf("%s: a second run changed something (exit %d):\n%s", label, code, raw)
 	}
+	return run.Tasks[0].Stats
 }
 
 // predictionMatches holds a check's predicted after half to the run's: each

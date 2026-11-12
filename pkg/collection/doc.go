@@ -116,6 +116,45 @@ const (
 	// must be written out, not computed; it is read on the command line
 	// only, since a Walk-tier Runner holds no project.
 	ParamFormatTemplateFile ParamFormat = "template_file"
+	// ParamFormatOperand is the name of one thing (a package, a unit, a
+	// service, an account or a group) that the method places on a device's
+	// command line after the program's own options. A value beginning with
+	// "-", which the program would read as an option, or holding "*", "?",
+	// "[" or "]", which it would read as a pattern matching many names, is
+	// refused: by validation for a literal and by the engine for a rendered
+	// value (OperandProblem), and by the method again before anything is sent
+	// (pkg/operand). For a list, each item is held to it.
+	ParamFormatOperand ParamFormat = "operand"
+	// ParamFormatSystemdUnit is a systemd unit, held to ParamFormatOperand's
+	// rule except that systemd's two root units, -.mount and -.slice, are
+	// admitted by their exact names (operand.SystemdUnit).
+	ParamFormatSystemdUnit ParamFormat = "systemd_unit"
+	// ParamFormatAptPackage is a Debian package name, held to the characters
+	// dpkg gives one, with an optional ":architecture", and refused in every
+	// form apt-get reads as something other than that one package: a
+	// release, a version, a trailing "-" (remove), a search pattern or a
+	// regular expression (operand.AptPackage).
+	ParamFormatAptPackage ParamFormat = "apt_package"
+	// ParamFormatRPMPackage is an RPM package name, held to the characters
+	// rpm gives one and refused in every form dnf reads as something other
+	// than one package: a group, a file, a capability, a version constraint
+	// or an epoch (operand.RPMPackage).
+	ParamFormatRPMPackage ParamFormat = "rpm_package"
+	// ParamFormatPackage is a package name a generic method hands to the
+	// device's own package manager: one ParamFormatAptPackage or
+	// ParamFormatRPMPackage admits, which the concrete method then holds to
+	// its own manager's rule (operand.Package).
+	ParamFormatPackage ParamFormat = "package"
+	// ParamFormatPackageVersion is a version a package manager joins onto a
+	// package name (name=version, name-version): no pattern, no leading or
+	// trailing "-", and only the characters a Debian or RPM version holds
+	// (operand.PackageVersion).
+	ParamFormatPackageVersion ParamFormat = "package_version"
+	// ParamFormatMountField is one field of a mount command and its fstab
+	// line (a mountpoint, a source, a filesystem type, the options): no
+	// leading "-" or "#", no space or control character, no "\"
+	// (operand.MountField).
+	ParamFormatMountField ParamFormat = "mount_field"
 )
 
 // ReturnField documents one key a Collection method emits, either as a

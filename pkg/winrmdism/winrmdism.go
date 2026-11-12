@@ -130,6 +130,9 @@ func dismCommand(logPath string, args ...string) string {
 
 // Status reads what DISM currently reports about featureName.
 func Status(ctx context.Context, session Session, logPath, featureName string) (FeatureState, error) {
+	if err := CheckFeatureName(featureName); err != nil {
+		return FeatureState{}, fmt.Errorf("reading the state of a feature: %w", err)
+	}
 	script := dismCommand(logPath, "/get-featureinfo", "/featurename:"+winrmexec.QuotePS(featureName))
 
 	result, err := winrmexec.Run(ctx, session.Target, session.Auth, winrmexec.ShellPowerShell, script, session.Options)
@@ -169,6 +172,9 @@ func Disable(ctx context.Context, session Session, logPath, featureName string) 
 
 // runChange sends one enable/disable verb against one feature name.
 func runChange(ctx context.Context, session Session, logPath, verb, featureName string, extraFlags ...string) (ChangeResult, error) {
+	if err := CheckFeatureName(featureName); err != nil {
+		return ChangeResult{}, fmt.Errorf("dism.exe %s: %w", verb, err)
+	}
 	args := append([]string{verb, "/featurename:" + winrmexec.QuotePS(featureName)}, extraFlags...)
 	script := dismCommand(logPath, args...)
 

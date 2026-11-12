@@ -50,9 +50,9 @@ func modifyDoc() collection.Doc {
 			"sent, so an attribute already matching what was requested is left alone, and a run that requests " +
 			"nothing different reports no change and no command reaches the device.",
 		Params: []collection.Param{
-			{Name: paramName, Type: "string", Required: true, Description: "The account to modify. Must already exist."},
+			{Name: paramName, Type: "string", Required: true, Format: collection.ParamFormatOperand, Description: "The account to modify. Must already exist."},
 			{Name: paramUID, Type: "int", Description: "Converge the account to this numeric user ID."},
-			{Name: paramGroup, Type: "string", Description: "Converge the account's primary group, by name or numeric gid."},
+			{Name: paramGroup, Type: "string", Format: collection.ParamFormatOperand, Description: "Converge the account's primary group, by name or numeric gid."},
 			{Name: paramShell, Type: "string", Description: "Converge the account's login shell."},
 			{Name: paramHome, Type: "string", Description: "Converge the account's home directory path. Its contents are not moved."},
 			{Name: paramComment, Type: "string", Description: "Converge the account's GECOS comment field."},
@@ -90,7 +90,7 @@ func CheckModify(ctx context.Context, rc sdk.RunbookContext, device inventory.In
 func modify(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any, mode collection.Mode) (collection.Result, error) {
 	const fqcn = "identity.user.modify"
 
-	name, err := sdk.RequiredStringParam(params, paramName)
+	name, err := sdk.RequiredOperandParam(params, paramName)
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}

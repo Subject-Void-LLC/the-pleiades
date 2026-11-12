@@ -139,15 +139,18 @@ func readCopy(rc sdk.RunbookContext, params map[string]any) (copyRequest, error)
 	return c, nil
 }
 
-// readScript reports path's digest and size; it changes nothing.
+// readScript reports path's digest and size; it changes nothing. The path
+// goes in through winrmexec.QuotePS, as in writeScript: pathPattern refuses
+// the ASCII apostrophe but admits the four typographic quotes PowerShell
+// also ends a single-quoted literal at (FAILURE_PATTERNS 354).
 func (c copyRequest) readScript() string {
 	return fmt.Sprintf(`$ErrorActionPreference = 'Stop'
-$path = '%s'
+$path = %s
 if (Test-Path -LiteralPath $path -PathType Leaf) {
   "before=$((Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant())"
   "size=$((Get-Item -LiteralPath $path).Length)"
 } else { "before=" }
-`, c.path)
+`, winrmexec.QuotePS(c.path))
 }
 
 // writeScript reads the file from standard input, one base64 line at a
@@ -155,7 +158,7 @@ if (Test-Path -LiteralPath $path -PathType Leaf) {
 // into place only when its digest is the one asked for.
 func (c copyRequest) writeScript() string {
 	return fmt.Sprintf(`$ErrorActionPreference = 'Stop'
-$path = '%s'
+$path = %s
 $want = '%s'
 if (-not (Test-Path -LiteralPath (Split-Path -Parent $path) -PathType Container)) { exit %d }
 $part = "$path.pleiades-part"
@@ -170,7 +173,7 @@ if ($got -ne $want) { Remove-Item -LiteralPath $part -Force; "got=$got"; exit %d
 Move-Item -LiteralPath $part -Destination $path -Force
 "after=$got"
 "size=$((Get-Item -LiteralPath $path).Length)"
-`, c.path, c.sha256, exitNoFolder, exitMismatch)
+`, winrmexec.QuotePS(c.path), c.sha256, exitNoFolder, exitMismatch)
 }
 
 // stdin is the file as base64 lines.

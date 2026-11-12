@@ -50,6 +50,7 @@ import (
 	"strings"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/farside"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/operand"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/winrmexec"
 )
 
@@ -122,9 +123,27 @@ type statusResult struct {
 	StartType string `json:"StartType"`
 }
 
+// checkName refuses a service name the cmdlets here would not read as one
+// name (pkg/operand), before any script is sent.
+//
+// A quoted value bound to -Name is never read as a parameter, so a leading
+// "-" cannot become an option here as it does on systemctl; it is refused
+// all the same, so that one rule holds for every service manager. The
+// pattern characters are the reason this exists: -Name on Get-Service,
+// Start-Service, Stop-Service and Restart-Service accepts wildcards, so a
+// name of "*" would read every service as one and start or stop them all
+// (Microsoft's documentation for those cmdlets; reasoned from it, not
+// measured on a device: FAILURE_PATTERNS 1174).
+func checkName(name string) error {
+	return operand.Check("service name", name)
+}
+
 // Status reads what the Service Control Manager currently reports about
 // name.
 func Status(ctx context.Context, session Session, name string) (State, error) {
+	if err := checkName(name); err != nil {
+		return State{}, fmt.Errorf("reading the state of a service: %w", err)
+	}
 	script := "$ErrorActionPreference = 'Stop'\n" +
 		"$svc = Get-Service -Name " + winrmexec.QuotePS(name) + " -ErrorAction SilentlyContinue\n" +
 		"if ($svc) {\n" +
@@ -201,6 +220,9 @@ func Disable(ctx context.Context, session Session, name string) error {
 // this package builds every script with that line first rather than
 // trusting Result.ExitCode to reflect a plain cmdlet failure.
 func runVerb(ctx context.Context, session Session, verb, name string) error {
+	if err := checkName(name); err != nil {
+		return fmt.Errorf("%s: %w", verb, err)
+	}
 	script := "$ErrorActionPreference = 'Stop'\n" + verb + " -Name " + winrmexec.QuotePS(name)
 	result, err := winrmexec.Run(ctx, session.Target, session.Auth, winrmexec.ShellPowerShell, script, session.Options)
 	if err != nil {
@@ -214,6 +236,9 @@ func runVerb(ctx context.Context, session Session, verb, name string) error {
 
 // setStartupType runs Set-Service -StartupType against one service name.
 func setStartupType(ctx context.Context, session Session, name, startupType string) error {
+	if err := checkName(name); err != nil {
+		return fmt.Errorf("Set-Service: %w", err)
+	}
 	script := "$ErrorActionPreference = 'Stop'\n" +
 		"Set-Service -Name " + winrmexec.QuotePS(name) + " -StartupType " + startupType
 	result, err := winrmexec.Run(ctx, session.Target, session.Auth, winrmexec.ShellPowerShell, script, session.Options)

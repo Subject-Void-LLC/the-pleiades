@@ -278,3 +278,23 @@ func TestCopy_Scripts(t *testing.T) {
 		t.Error("the file is moved into place before its digest is checked")
 	}
 }
+
+// TestCopyScripts_QuoteATypographicQuoteInThePath: pathPattern refuses the
+// ASCII apostrophe but admits the four typographic quotes, at each of which
+// PowerShell also ends a single-quoted literal, so a path holding one used
+// to close the literal both scripts put it in and run the rest of itself as
+// PowerShell (FAILURE_PATTERNS 354). Both now assign the path as
+// winrmexec.QuotePS writes it, which doubles every such quote.
+func TestCopyScripts_QuoteATypographicQuoteInThePath(t *testing.T) {
+	path := `C:\ops\a` + string(rune(0x2019)) + `;calc;` + string(rune(0x2019)) + `.zip`
+	if !pathPattern.MatchString(path) {
+		t.Fatal("pathPattern refuses the path, so this test proves nothing")
+	}
+	c := copyRequest{path: path, sha256: strings.Repeat("a", 64)}
+	want := "\n$path = " + winrmexec.QuotePS(path) + "\n"
+	for name, script := range map[string]string{"read": c.readScript(), "write": c.writeScript()} {
+		if !strings.Contains(script, want) {
+			t.Errorf("the %s script does not assign the path as QuotePS writes it:\n%s", name, script)
+		}
+	}
+}

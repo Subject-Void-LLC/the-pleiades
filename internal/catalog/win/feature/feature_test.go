@@ -126,3 +126,22 @@ func TestUnreachableTargetReachesTheNetworkWithTheRightPlumbing(t *testing.T) {
 		})
 	}
 }
+
+// TestRefusesANameDISMWouldReadAsMore: a name holding a '"' or a space
+// would reach dism.exe as more than one argument, through Windows
+// PowerShell 5.1's native argument passing, and one beginning with "/" or
+// "-" as an option; each is refused before the device is contacted. The
+// device's WinRM port is 1, so a method that got past the check would fail
+// on the connection instead, with a different error.
+func TestRefusesANameDISMWouldReadAsMore(t *testing.T) {
+	for _, fqcn := range []string{"win.feature.install", "win.feature.remove"} {
+		for _, name := range []string{`X" /Source:\\evil\share "`, "a b", "/all", "-x"} {
+			t.Run(fqcn+" "+name, func(t *testing.T) {
+				err := invoke(t, fqcn, map[string]any{"name": name})
+				if err == nil || !strings.Contains(err.Error(), "is not one DISM lists") {
+					t.Fatalf("err = %v, want the name refused before connecting", err)
+				}
+			})
+		}
+	}
+}

@@ -50,7 +50,7 @@ func modifyDoc() collection.Doc {
 			"Group state is read from getent before anything is sent, so a gid already matching what was " +
 			"requested reports no change and no command reaches the device.",
 		Params: []collection.Param{
-			{Name: paramName, Type: "string", Required: true, Description: "The group to modify. Must already exist."},
+			{Name: paramName, Type: "string", Required: true, Format: collection.ParamFormatOperand, Description: "The group to modify. Must already exist."},
 			{Name: paramGID, Type: "int", Required: true, Description: "Converge the group to this numeric gid."},
 			{Name: sdk.ParamInsecureSkipHostKeyVerify, Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
 		},
@@ -85,7 +85,7 @@ func CheckModify(ctx context.Context, rc sdk.RunbookContext, device inventory.In
 func modify(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any, mode collection.Mode) (collection.Result, error) {
 	const fqcn = "identity.group.modify"
 
-	name, err := sdk.RequiredStringParam(params, paramName)
+	name, err := sdk.RequiredOperandParam(params, paramName)
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}

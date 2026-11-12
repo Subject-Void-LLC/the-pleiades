@@ -44,11 +44,19 @@ func (s *session) close() { _ = s.conn.Close() }
 // vsctl runs ovs-vsctl with args and returns its exit code and output,
 // failing only when it could not be run at all.
 func (s *session) vsctl(ctx context.Context, args ...string) (int, string, error) {
+	code, _, out, err := s.vsctlStreams(ctx, args...)
+	return code, out, err
+}
+
+// vsctlStreams is vsctl, returning ovs-vsctl's standard output alone beside
+// both streams together, for an answer that is a value (port-to-br's bridge)
+// rather than words to report: a warning on stderr is not part of the name.
+func (s *session) vsctlStreams(ctx context.Context, args ...string) (int, string, string, error) {
 	res, err := s.conn.Run(ctx, remoteexec.QuoteCommand(append([]string{"ovs-vsctl"}, args...)))
 	if err != nil {
-		return 0, "", fmt.Errorf("%s: ovs-vsctl: %w", s.fqcn, err)
+		return 0, "", "", fmt.Errorf("%s: ovs-vsctl: %w", s.fqcn, err)
 	}
-	return res.ExitCode, strings.TrimSpace(res.Stdout + "\n" + res.Stderr), nil
+	return res.ExitCode, strings.TrimSpace(res.Stdout), strings.TrimSpace(res.Stdout + "\n" + res.Stderr), nil
 }
 
 // must runs ovs-vsctl and fails on a non-zero exit.

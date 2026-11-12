@@ -99,10 +99,10 @@ var extendedCollections = []collectionscaffold.Config{
 			Summary:     "Mounts a filesystem on the target, and optionally persists it to fstab.",
 			Description: "Makes sure path is mounted from src, creating the mount if it is not already there. This is close to ansible.builtin.mount with state=mounted, split so that persisting to fstab (see the persist parameter) is independent of mounting: either can be true without the other. Mount state is read from findmnt before anything is sent, so a path already mounted from src with a matching fstype reports no change; a path already mounted from a different src or fstype is refused rather than silently remounted, since that is not something this method can do without first unmounting it. opts is compared only when the task actually names it: a path already mounted with different options than an unspecified opts is left alone rather than treated as drift. A check reads findmnt and fstab, mounts nothing and writes nothing, and leaves a new mount's options out of its prediction, since the kernel rewrites them.",
 			Params: []collection.Param{
-				{Name: "path", Type: "string", Required: true, Description: "The mountpoint to mount onto."},
-				{Name: "src", Type: "string", Required: true, Description: "The device, share or filesystem source to mount."},
-				{Name: "fstype", Type: "string", Required: true, Description: "The filesystem type, as mount's own -t takes it (e.g. ext4, nfs, xfs)."},
-				{Name: "opts", Type: "string", Description: "Mount options, as mount's own -o takes them. Defaults to \"defaults\" for a fresh mount and a fresh fstab entry; an existing mount or fstab entry is only compared or rewritten against this when the task actually sets it."},
+				{Name: "path", Type: "string", Required: true, Format: collection.ParamFormatMountField, Description: "The mountpoint to mount onto."},
+				{Name: "src", Type: "string", Required: true, Format: collection.ParamFormatMountField, Description: "The device, share or filesystem source to mount: a device path, UUID=..., LABEL=..., host:/export or //server/share."},
+				{Name: "fstype", Type: "string", Required: true, Format: collection.ParamFormatMountField, Description: "The filesystem type, as mount's own -t takes it (e.g. ext4, nfs, xfs)."},
+				{Name: "opts", Type: "string", Format: collection.ParamFormatMountField, Description: "Mount options, as mount's own -o takes them. Defaults to \"defaults\" for a fresh mount and a fresh fstab entry; an existing mount or fstab entry is only compared or rewritten against this when the task actually sets it."},
 				{Name: "persist", Type: "bool", Default: "true", Description: "Also make sure path has a matching entry in fstab, so it mounts again on the next boot."},
 				{Name: "fstab", Type: "string", Default: "/etc/fstab", Description: "The fstab-format file to read and, if persist is true, write."},
 				{Name: "insecure_skip_host_key_verify", Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
@@ -128,7 +128,7 @@ var extendedCollections = []collectionscaffold.Config{
 			Summary:     "Unmounts a filesystem on the target, and optionally removes it from fstab.",
 			Description: "Makes sure path is not mounted, unmounting it if it is. This is close to ansible.builtin.mount with state=unmounted, split so that removing the fstab entry (see the persist parameter) is independent of unmounting: either can happen without the other. Mount state is read from findmnt before anything is sent, so a path already unmounted reports no change from the unmount itself.",
 			Params: []collection.Param{
-				{Name: "path", Type: "string", Required: true, Description: "The mountpoint to unmount."},
+				{Name: "path", Type: "string", Required: true, Format: collection.ParamFormatMountField, Description: "The mountpoint to unmount."},
 				{Name: "persist", Type: "bool", Default: "true", Description: "Also remove any matching entry from fstab, so it does not mount again on the next boot."},
 				{Name: "fstab", Type: "string", Default: "/etc/fstab", Description: "The fstab-format file to read and, if persist is true, write."},
 				{Name: "insecure_skip_host_key_verify", Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},

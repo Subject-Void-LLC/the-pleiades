@@ -134,7 +134,7 @@ type serviceOp struct {
 // refusals and the same convergence decision, then op.predict in place of
 // op.apply and the read-back.
 func runServiceOp(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any, op serviceOp, mode collection.Mode) (collection.Result, error) {
-	name, err := sdk.RequiredStringParam(params, paramName)
+	name, err := sdk.RequiredOperandParam(params, paramName)
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", op.fqcn, err)
 	}
@@ -259,7 +259,7 @@ func serviceDoc(summary, description string, returns []collection.ReturnField, e
 		Summary:     summary,
 		Description: description,
 		Params: []collection.Param{
-			{Name: paramName, Type: "string", Required: true, Description: "The Windows service to act on, its short service name (not its display name), such as Spooler rather than \"Print Spooler\". The service must already exist: a name the Service Control Manager does not know is refused rather than reported as already stopped, since that is nearly always a typo."},
+			{Name: paramName, Type: "string", Required: true, Format: collection.ParamFormatOperand, Description: "The Windows service to act on, its short service name (not its display name), such as Spooler rather than \"Print Spooler\". The service must already exist: a name the Service Control Manager does not know is refused rather than reported as already stopped, since that is nearly always a typo."},
 		},
 		Returns: append([]collection.ReturnField{
 			{Name: statName, Type: "string", Returned: "always", Description: "The service this task acted on."},

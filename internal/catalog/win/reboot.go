@@ -187,6 +187,14 @@ func parseReboot(params map[string]any) (rebootSpec, error) {
 	if err := winrmexec.CheckText(paramMsg, msg); err != nil {
 		return s, err
 	}
+	// shutdown.exe writes its own options with "/" and also takes "-", and
+	// whether it reads the word after /c as the comment whatever it begins
+	// with is not measured, so a message that could read as /a (abort the
+	// restart) or another option is refused rather than sent (found by the
+	// FAILURE_PATTERNS 1174 sweep). No message needs to begin with either.
+	if strings.HasPrefix(msg, "/") || strings.HasPrefix(msg, "-") {
+		return s, fmt.Errorf("%s is refused: it begins with %q, which shutdown.exe could read as one of its options rather than as the message", paramMsg, msg[:1])
+	}
 	s.msg = msg
 	return s, nil
 }

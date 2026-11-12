@@ -139,9 +139,13 @@ func readRequest(params map[string]any) (request, error) {
 	return r, nil
 }
 
-// script is the PowerShell the host runs. Every value is one the
-// parameters' patterns admit inside single quotes, where PowerShell reads
-// nothing as syntax. tar.exe's own errors reach the task's output, which
+// script is the PowerShell the host runs. Every value goes in as a
+// single-quoted literal through winrmexec.QuotePS, which doubles every
+// character PowerShell ends such a literal at: the parameters' patterns
+// refuse the ASCII apostrophe, but PowerShell also ends one at the four
+// typographic quotes (U+2018 to U+201B), which they admit, so a path holding
+// one used to close the literal and run the rest of itself as PowerShell
+// (FAILURE_PATTERNS 354, found again in the 1174 sweep). tar.exe's own errors reach the task's output, which
 // is why the error preference is relaxed around it. It answers key=value
 // lines: skip (creates was there), missing or notdir (a check's unchecked
 // answers), dest_existed, and extracted.
@@ -156,9 +160,9 @@ func readRequest(params map[string]any) (request, error) {
 func (r request) script(check bool) string {
 	return fmt.Sprintf(`$ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
-$src = '%[1]s'
-$dest = '%[2]s'
-$creates = '%[3]s'
+$src = %[1]s
+$dest = %[2]s
+$creates = %[3]s
 $remove = $%[4]t
 $check = $%[5]t
 if ($creates -ne '' -and (Test-Path -LiteralPath $creates)) { 'skip=creates'; exit 0 }
@@ -184,7 +188,7 @@ $ErrorActionPreference = 'Stop'
 if ($code -ne 0) { "tar=$code"; exit %[9]d }
 if ($remove) { Remove-Item -LiteralPath $src -Force }
 'extracted=true'
-`, r.src, r.dest, r.creates, r.remove, check, exitNoSrc, exitDestIsNot, tarPath, exitTar)
+`, winrmexec.QuotePS(r.src), winrmexec.QuotePS(r.dest), winrmexec.QuotePS(r.creates), r.remove, check, exitNoSrc, exitDestIsNot, tarPath, exitTar)
 }
 
 // Extract implements win.archive.extract.

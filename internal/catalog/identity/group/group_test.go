@@ -302,7 +302,7 @@ func TestCreate_AbsentGroupIsCreated(t *testing.T) {
 		t.Error("Changed = false, want true")
 	}
 	calls := h.invocations(t)
-	if len(calls) != 1 || calls[0] != "groupadd -g 4000 admins" {
+	if len(calls) != 1 || calls[0] != "groupadd -g 4000 -- admins" {
 		t.Errorf("invocations = %v, want a single groupadd -g call", calls)
 	}
 	if h.rc.stats["name"] != "admins" {
@@ -320,7 +320,7 @@ func TestCreate_AbsentGroupNoGidNoSystem(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	calls := h.invocations(t)
-	if len(calls) != 1 || calls[0] != "groupadd admins" {
+	if len(calls) != 1 || calls[0] != "groupadd -- admins" {
 		t.Errorf("invocations = %v, want a plain groupadd", calls)
 	}
 }
@@ -331,7 +331,7 @@ func TestCreate_AbsentGroupSystem(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	calls := h.invocations(t)
-	if len(calls) != 1 || calls[0] != "groupadd -r svc" {
+	if len(calls) != 1 || calls[0] != "groupadd -r -- svc" {
 		t.Errorf("invocations = %v, want groupadd -r", calls)
 	}
 }
@@ -374,7 +374,7 @@ func TestCreate_PresentGroupConvergesGid(t *testing.T) {
 		t.Error("Changed = false, want true")
 	}
 	calls := h.invocations(t)
-	want := fmt.Sprintf("groupmod -g %d admins", presentGroup.gid+1)
+	want := fmt.Sprintf("groupmod -g %d -- admins", presentGroup.gid+1)
 	if len(calls) != 1 || calls[0] != want {
 		t.Errorf("invocations = %v, want %q", calls, want)
 	}
@@ -571,7 +571,7 @@ func TestModify_ConvergesGid(t *testing.T) {
 		t.Error("Changed = false, want true")
 	}
 	calls := h.invocations(t)
-	want := fmt.Sprintf("groupmod -g %d admins", presentGroup.gid+1)
+	want := fmt.Sprintf("groupmod -g %d -- admins", presentGroup.gid+1)
 	if len(calls) != 1 || calls[0] != want {
 		t.Errorf("invocations = %v, want %q", calls, want)
 	}
@@ -670,7 +670,7 @@ func TestRemove_PresentGroupIsRemovedAndInverseCapturesGid(t *testing.T) {
 		t.Error("Changed = false, want true")
 	}
 	calls := h.invocations(t)
-	if len(calls) != 1 || calls[0] != "groupdel admins" {
+	if len(calls) != 1 || calls[0] != "groupdel -- admins" {
 		t.Errorf("invocations = %v, want a plain groupdel call", calls)
 	}
 	inv := h.rc.stats[sdk.StatInverse].(map[string]any)

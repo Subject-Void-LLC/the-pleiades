@@ -23,9 +23,9 @@ import (
 // /bin/sh, with apt-get, dpkg-query and apt-cache on PATH as shell
 // scripts. The SSH transport, the shell, the quoting, the argument
 // vector and the exit status are all genuine; only the package database
-// at the far end is not. Proving these against a real apt-get is a
-// container Release Gate's job; svc.systemd.* ships at this same tier
-// with no such gate, and this namespace matches it.
+// at the far end is not. The proof against a real apt-get is
+// cmd/pleiades's TestCLI_AptChecksMatchTheirRealRuns and
+// TestCLI_AptRefusesANameItWouldReadAsAnOption.
 
 // ---------- harness ----------
 
@@ -78,7 +78,9 @@ type pkgState struct {
 	aptExit            int    // exit code apt-get itself returns, default 0
 	candidateExit      int    // exit code apt-cache itself returns, default 0
 	noCandidateLine    bool   // apt-cache's output has no Candidate: line at all
+	policyHeader       string // when set, apt-cache heads its block with this name instead of the one asked for
 	dpkgStatusOverride string // when set, used verbatim as dpkg-query's Status line, with a successful exit
+	dpkgExit           int    // when set, dpkg-query's exit code for one package's status (2 is its usage error)
 
 	// The installed set dpkg-query -W lists, space-separated: listBefore,
 	// then listAfter once the fake apt-get has run an install (default:
@@ -93,7 +95,11 @@ type pkgState struct {
 }
 
 var (
-	absent                 = pkgState{}
+	// absent is a package dpkg has no record of and APT can install: one
+	// apt-cache policy gives a candidate for, as it does every real package
+	// a task installs. A name APT has no candidate for is noCandidate.
+	absent                 = pkgState{candidate: "1.0"}
+	noCandidate            = pkgState{}
 	installedCurrent       = pkgState{installed: true, version: "1.0", candidate: "1.0"}
 	installedOld           = pkgState{installed: true, version: "1.0", candidate: "1.1"}
 	installedUnknownToRepo = pkgState{installed: true, version: "1.0", candidate: ""}
@@ -102,7 +108,7 @@ var (
 	// itself is absent, distinct from a name dpkg has never heard of at
 	// all (which reports via a non-zero exit instead, not this status
 	// line). Both must be read as "not installed."
-	configFilesRemnant = pkgState{dpkgStatusOverride: "deinstall ok config-files", version: "0.9"}
+	configFilesRemnant = pkgState{dpkgStatusOverride: "deinstall ok config-files", version: "0.9", candidate: "1.0"}
 )
 
 // harness wires a real SSH server, fake apt-get/dpkg-query/apt-cache and
@@ -148,6 +154,9 @@ func newHarnessBudgeted(t *testing.T, state pkgState, budget int) *harness {
 		status = state.dpkgStatusOverride
 		dpkgExit = "0"
 	}
+	if state.dpkgExit != 0 {
+		dpkgExit = strconv.Itoa(state.dpkgExit)
+	}
 	candidate := state.candidate
 	if candidate == "" {
 		candidate = "(none)"
@@ -173,8 +182,10 @@ fi
 case " $* " in *" install "*) [ "$exit_code" = "0" ] && : > "$FAKE_RECORD.installed" ;; esac
 exit "$exit_code"
 `
-	// Two arguments (-W and a format) is the installed listing; three is
-	// one package's status.
+	// Two arguments (-W and a format) is the installed listing; four (-W,
+	// a format, "--" and a name) is one package's status. A status query
+	// without the "--" is refused the way real dpkg-query refuses a word it
+	// reads as an option, so a call that dropped it fails here.
 	dpkgQueryScript := `#!/bin/sh
 if [ "$#" = "2" ]; then
   if [ "${FAKE_LIST_EXIT:-0}" != "0" ]; then printf 'dpkg-query: fake listing failure\n' >&2; exit "$FAKE_LIST_EXIT"; fi
@@ -184,18 +195,32 @@ if [ "$#" = "2" ]; then
   for p in $list; do printf 'ii %s\n' "$p"; done
   exit 0
 fi
+if [ "$3" != "--" ]; then printf 'dpkg-query: error: no -- before the name\n' >&2; exit 2; fi
 printf '%s\t%s' "$FAKE_STATUS" "$FAKE_VERSION"
 exit "$FAKE_DPKG_EXIT"
 `
 	// Package: precedes Candidate: unconditionally, the way apt-cache
 	// policy's real output always carries more than one line, so
 	// queryCandidate's own loop has a non-Candidate line to skip over on
-	// every call, not just a contrived one.
+	// every call, not just a contrived one. Like dpkg-query, it refuses a
+	// name with no "--" before it.
+	//
+	// The block is headed by the package's own name, as apt-cache policy's
+	// is; FAKE_POLICY_HEADER heads it with another, the way apt-cache answers
+	// a word it read as a regular expression with the packages it matched.
+	// Unless LC_ALL is C it writes French, as the real one does under a
+	// French locale (measured on Debian 12, FAILURE_PATTERNS 1175).
 	aptCacheScript := `#!/bin/sh
-printf 'Package: %s\n' "$2"
+if [ "$2" != "--" ]; then printf 'E: no -- before the name\n' >&2; exit 100; fi
+header="${FAKE_POLICY_HEADER:-$3}"
+header="${header%%:*}"
+printf '%s:\n' "$header"
+if [ "$LC_ALL" = "C" ]; then installed='  Installed:'; candidate='  Candidate:'; else installed='  Installé :'; candidate='  Candidat :'; fi
+printf '%s (none)\n' "$installed"
 if [ "$FAKE_NO_CANDIDATE_LINE" != "1" ]; then
-  printf 'Candidate: %s\n' "$FAKE_CANDIDATE"
+  printf '%s %s\n' "$candidate" "$FAKE_CANDIDATE"
 fi
+printf '  Version table:\n'
 exit "${FAKE_CANDIDATE_EXIT:-0}"
 `
 	writeScript(t, dir, "apt-get", aptGetScript)
@@ -223,6 +248,7 @@ exit "${FAKE_CANDIDATE_EXIT:-0}"
 	t.Setenv("FAKE_SIM_PLAIN", state.simPlain)
 	t.Setenv("FAKE_SIM_EXIT", strconv.Itoa(state.simExit))
 	t.Setenv("FAKE_SIM_PLAIN_EXIT", strconv.Itoa(state.simPlainExit))
+	t.Setenv("FAKE_POLICY_HEADER", state.policyHeader)
 	if state.noCandidateLine {
 		t.Setenv("FAKE_NO_CANDIDATE_LINE", "1")
 	} else {
@@ -614,6 +640,7 @@ exit 1
 `
 	writeScript(t, dir, "apt-get", aptGetScript)
 	writeScript(t, dir, "dpkg-query", dpkgQueryScript)
+	writeScript(t, dir, "apt-cache", fakePolicyOneCandidate)
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Setenv("FAKE_RECORD", record)
 
@@ -651,6 +678,7 @@ exit 1
 `
 	writeScript(t, dir, "apt-get", aptGetScript)
 	writeScript(t, dir, "dpkg-query", dpkgQueryScript)
+	writeScript(t, dir, "apt-cache", fakePolicyOneCandidate)
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Setenv("FAKE_RECORD", record)
 
@@ -700,8 +728,8 @@ func TestUpgrade_UnreachableDeviceConnectFailure(t *testing.T) {
 // Each case names how many SSH sessions succeed before the server
 // starts refusing them, which is how it targets one specific call site
 // in the sequence a method makes: queryDpkg (the initial read),
-// queryCandidate (upgrade's own extra read), runAptGet (the write) and
-// the re-query that follows a write. budget is the count that succeeds;
+// queryCandidate (upgrade's own extra read, and every fresh install's),
+// runAptGet (the write) and the re-query that follows a write. budget is the count that succeeds;
 // the next one is always the one that fails.
 
 func TestInstall_InitialQueryConnectionFailure(t *testing.T) {
@@ -712,12 +740,13 @@ func TestInstall_InitialQueryConnectionFailure(t *testing.T) {
 	}
 }
 
-// A fresh install takes five sessions: the query, the installed set
-// before, the install, the installed set after, and the re-query. Only the
-// set before can fail the task; the reads after the install are warnings
+// A fresh install takes six sessions: the query, the candidate, the
+// installed set before, the install, the installed set after, and the
+// re-query. Only the candidate and the set before can fail the task; the
+// reads after the install are warnings
 // (TestInstall_AReadThatFailsAfterTheInstallKeepsItsUndo).
 func TestInstall_InstalledSetConnectionFailures(t *testing.T) {
-	for budget, what := range map[int]string{1: "the set before"} {
+	for budget, what := range map[int]string{1: "the candidate", 2: "the set before"} {
 		h := newHarnessBudgeted(t, absent, budget)
 		_, err := apt.Install(context.Background(), h.rc, h.device, h.params("curl", nil))
 		if err == nil || !strings.Contains(err.Error(), "open session") {
@@ -727,7 +756,7 @@ func TestInstall_InstalledSetConnectionFailures(t *testing.T) {
 }
 
 func TestInstall_ApplyConnectionFailure(t *testing.T) {
-	h := newHarnessBudgeted(t, absent, 2) // the query and the set before succeed, the install apply does not
+	h := newHarnessBudgeted(t, absent, 3) // the query, the candidate and the set before succeed, the install apply does not
 	_, err := apt.Install(context.Background(), h.rc, h.device, h.params("curl", nil))
 	if err == nil || !strings.Contains(err.Error(), "open session") {
 		t.Errorf("err = %v, want it to mention the session failing to open", err)
@@ -788,7 +817,7 @@ func TestUpgrade_CandidateQueryConnectionFailure(t *testing.T) {
 }
 
 func TestUpgrade_FreshInstallApplyConnectionFailure(t *testing.T) {
-	h := newHarnessBudgeted(t, absent, 1) // the initial query succeeds, the fresh install does not
+	h := newHarnessBudgeted(t, absent, 2) // the initial query and the candidate succeed, the fresh install does not
 	_, err := apt.Upgrade(context.Background(), h.rc, h.device, h.params("curl", nil))
 	if err == nil || !strings.Contains(err.Error(), "open session") {
 		t.Errorf("err = %v, want it to mention the session failing to open", err)
@@ -796,7 +825,7 @@ func TestUpgrade_FreshInstallApplyConnectionFailure(t *testing.T) {
 }
 
 func TestUpgrade_FreshInstallRequeryConnectionFailure(t *testing.T) {
-	h := newHarnessBudgeted(t, absent, 2) // the query and the fresh install succeed, the re-query does not
+	h := newHarnessBudgeted(t, absent, 3) // the query, the candidate and the fresh install succeed, the re-query does not
 	_, err := apt.Upgrade(context.Background(), h.rc, h.device, h.params("curl", nil))
 	if err == nil || !strings.Contains(err.Error(), "open session") {
 		t.Errorf("err = %v, want it to mention the session failing to open", err)
@@ -874,3 +903,13 @@ func TestUpgrade_RecordStateFailureSurfaces(t *testing.T) {
 		t.Fatal("expected recordState's own SetStat failure to surface on the already-current path")
 	}
 }
+
+// fakePolicyOneCandidate is an apt-cache answering policy for exactly the
+// name it was asked about (its third argument, after "policy" and "--"),
+// with one candidate. The install path asks apt-cache for the exact name
+// before apt-get runs, so a test faking apt-get must fake this too, or it
+// reads the host's own apt-cache: passing on a Debian-family machine and
+// failing on macOS, which has none.
+const fakePolicyOneCandidate = `#!/bin/sh
+printf '%s:\n  Installed: (none)\n  Candidate: 1.0-1\n  Version table:\n' "$3"
+`

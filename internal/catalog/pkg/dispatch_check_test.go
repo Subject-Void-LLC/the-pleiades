@@ -19,7 +19,7 @@ import (
 // changes anything. The real run from a fresh harness is the control.
 //
 // A check of an absent package reads apt-cache for the version it would
-// install, so each harness gets a fake apt-cache too. Without it the test
+// install, so newAptHarness gives each harness a fake apt-cache too. Without it the test
 // would read the host's own, and pass or fail with whatever repositories
 // the machine running it happens to have.
 func TestChecksReachTheConcreteCheckAndNeverRunAptGet(t *testing.T) {
@@ -38,7 +38,6 @@ func TestChecksReachTheConcreteCheckAndNeverRunAptGet(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			dev, rc, record := newAptHarness(t)
-			writeFakeAptCache(t, filepath.Dir(record))
 			checked, err := tt.check(context.Background(), rc, dev, params())
 			if err != nil {
 				t.Fatalf("check: %v", err)
@@ -47,8 +46,7 @@ func TestChecksReachTheConcreteCheckAndNeverRunAptGet(t *testing.T) {
 				t.Errorf("the check ran apt-get %v; a check may only read", sent)
 			}
 
-			controlDev, controlRC, controlRecord := newAptHarness(t)
-			writeFakeAptCache(t, filepath.Dir(controlRecord))
+			controlDev, controlRC, _ := newAptHarness(t)
 			ran, err := tt.invoke(context.Background(), controlRC, controlDev, params())
 			if err != nil {
 				t.Fatalf("the real run: %v", err)

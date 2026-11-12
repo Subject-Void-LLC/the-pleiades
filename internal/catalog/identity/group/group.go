@@ -61,6 +61,12 @@ func (a groupAccount) Map() map[string]any {
 // queryGroup asks getent directly for a group's record, the same reason
 // identity.user's queryUser does: an NSS-backed source answers exactly
 // the way groupadd/groupmod themselves would see it.
+//
+// As in queryUser, the name follows no "--": musl's getent reads "--" as a
+// key, so every group would read as absent. The operand rule the name was
+// held to before the method connected (sdk.RequiredOperandParam) is what
+// keeps it from glibc getent's options. Only exit 2 reads as absent; any
+// other non-zero exit is an error.
 func queryGroup(ctx context.Context, conn *remoteexec.Conn, name string) (groupAccount, error) {
 	result, err := conn.Run(ctx, remoteexec.QuoteCommand([]string{"getent", "group", name}))
 	if err != nil {
@@ -90,14 +96,19 @@ func runGroupadd(ctx context.Context, conn *remoteexec.Conn, args ...string) (re
 	return runIdentityCmd(ctx, conn, args)
 }
 
+// runGroupmod converges a group's gid, the name last after "--".
 func runGroupmod(ctx context.Context, conn *remoteexec.Conn, name string, gid int) (remoteexec.Result, error) {
-	return runIdentityCmd(ctx, conn, []string{"groupmod", "-g", strconv.Itoa(gid), name})
+	return runIdentityCmd(ctx, conn, []string{"groupmod", "-g", strconv.Itoa(gid), "--", name})
 }
 
+// runGroupdel removes a group, the name after "--".
 func runGroupdel(ctx context.Context, conn *remoteexec.Conn, name string) (remoteexec.Result, error) {
-	return runIdentityCmd(ctx, conn, []string{"groupdel", name})
+	return runIdentityCmd(ctx, conn, []string{"groupdel", "--", name})
 }
 
+// runIdentityCmd sends argv as one command, each word quoted for the
+// shell, and returns its result, or an error naming the command and what
+// the device said when it exits non-zero.
 func runIdentityCmd(ctx context.Context, conn *remoteexec.Conn, argv []string) (remoteexec.Result, error) {
 	command := remoteexec.QuoteCommand(argv)
 	result, err := conn.Run(ctx, command)

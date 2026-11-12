@@ -164,13 +164,18 @@ func Ping(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventory
 		return collection.Result{}, fmt.Errorf("net.ssh.ping: %w", err)
 	}
 	defer func() { _ = conn.Close() }()
-	// sh reads the echo whatever the login shell is, except on a device whose
-	// exec channel is not a POSIX shell, which reads it as written, as
-	// sdk.Connect decides.
+	// sh prints the data with printf '%s\n', which takes it as one operand
+	// and prints it as itself: echo read data of -n, -e or -E as its own
+	// options and printed nothing, and dash's echo turned a backslash in it
+	// into an escape, so the reply was not the data sent (FAILURE_PATTERNS
+	// 1174). A device whose exec channel is not a POSIX shell gets echo as
+	// written, as sdk.Connect decides, since a network CLI has no printf.
+	command := "printf '%s\\n' " + remoteexec.QuoteArg(data)
 	if !inventory.ExecIsPOSIX(device) {
 		conn = conn.Raw()
+		command = "echo " + remoteexec.QuoteArg(data)
 	}
-	result, err := conn.Run(ctx, "echo "+remoteexec.QuoteArg(data))
+	result, err := conn.Run(ctx, command)
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("net.ssh.ping: %w", err)
 	}

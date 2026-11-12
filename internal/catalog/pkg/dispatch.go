@@ -174,8 +174,8 @@ func genericDoc(summary, description string, examples []collection.Example, seeA
 		Summary:     summary,
 		Description: description,
 		Params: []collection.Param{
-			{Name: paramName, Type: "string", Required: true, Description: "The package to act on. This is passed straight through to the concrete method for the device's package manager, so it means whatever that manager means by a package name: an APT package name on a Debian-family host, an RPM package name on a Red Hat-family one."},
-			{Name: paramVersion, Type: "string", Description: "Pin to this exact version instead of whatever the package manager considers current. Passed straight through to the concrete method; leave unset to mean \"whatever version is current.\""},
+			{Name: paramName, Type: "string", Required: true, Format: collection.ParamFormatPackage, Description: "The package to act on. This is passed straight through to the concrete method for the device's package manager, so it means whatever that manager means by a package name: an APT package name on a Debian-family host, an RPM package name on a Red Hat-family one."},
+			{Name: paramVersion, Type: "string", Format: collection.ParamFormatPackageVersion, Description: "Pin to this exact version instead of whatever the package manager considers current. Passed straight through to the concrete method; leave unset to mean \"whatever version is current.\""},
 			{Name: sdk.ParamInsecureSkipHostKeyVerify, Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
 		},
 		Returns: []collection.ReturnField{

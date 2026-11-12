@@ -120,8 +120,8 @@ func directoryDoc() collection.Doc {
 		Params: []collection.Param{
 			{Name: dirParamPath, Type: "string", Required: true, Description: "The directory to ensure exists. Missing parent directories are created too, the way mkdir -p does. Ansible creates parents implicitly and has no parameter for it, so neither does this."},
 			{Name: dirParamMode, Type: "string", Description: "The permission bits in octal, written as a quoted string such as \"0755\". Quote it: an unquoted 0755 is read as a number by YAML and its leading zero is lost, so an unquoted value is refused rather than applied. A symbolic mode such as u+rwx is refused too, since it cannot be compared against the mode the device reports. Left unset, a new directory gets whatever the device's umask gives it and an existing one keeps the mode it has. Applies to the directory this task names and to every parent it creates on the way there, as ansible.builtin.file does, so a private tree is private all the way down; a parent that already existed keeps its mode."},
-			{Name: dirParamOwner, Type: "string", Description: "The user name that should own the directory. A name rather than a numeric id, because a name is what the device reports back and therefore the only form this method can compare against. Given to every parent this task creates too, as mode is. Left unset, ownership is not touched."},
-			{Name: dirParamGroup, Type: "string", Description: "The group name that should own the directory, under the same rule as owner: a name, not a numeric id, and given to every parent this task creates. Left unset, the group is not touched."},
+			{Name: dirParamOwner, Type: "string", Format: collection.ParamFormatOperand, Description: "The user name that should own the directory. A name rather than a numeric id, because a name is what the device reports back and therefore the only form this method can compare against. Given to every parent this task creates too, as mode is. Left unset, ownership is not touched."},
+			{Name: dirParamGroup, Type: "string", Format: collection.ParamFormatOperand, Description: "The group name that should own the directory, under the same rule as owner: a name, not a numeric id, and given to every parent this task creates. Left unset, the group is not touched."},
 			{Name: sdk.ParamInsecureSkipHostKeyVerify, Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
 		},
 		Returns: []collection.ReturnField{
@@ -538,6 +538,11 @@ func isOctalMode(mode string) bool {
 // a task that runs chown on every single run and reports changed forever.
 // A name is also the portable form, since the same uid means different
 // people on different devices.
+//
+// A name chown would read as an option or that no account can hold is
+// refused too, by the one rule (pkg/operand) every parameter declaring
+// collection.ParamFormatOperand is held to, before the method connects:
+// FAILURE_PATTERNS 1174, and attributes.go's checkName, which says why.
 func directoryName(params map[string]any, key string) (string, error) {
 	raw, present := params[key]
 	if !present || raw == nil {
@@ -547,6 +552,11 @@ func directoryName(params map[string]any, key string) (string, error) {
 	name, ok := raw.(string)
 	if !ok {
 		return "", fmt.Errorf("%s must be a name, not %v: this method compares ownership by name, which is what the device reports back", key, raw)
+	}
+	// checkName is the one rule the other file methods use: the operand
+	// refusal first, then the numeric id this comment promises to refuse.
+	if err := checkName(key, name); err != nil {
+		return "", err
 	}
 	return name, nil
 }

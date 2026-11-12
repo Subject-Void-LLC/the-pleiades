@@ -207,8 +207,16 @@ func setPortStats(rc sdk.RunbookContext, exists bool, tag int) error {
 
 // readPort returns the bridge the port is on ("" when there is none) and
 // its tag (0 for none).
+//
+// The bridge port-to-br names is the device's answer, and it goes back to
+// ovs-vsctl as an operand (del-port <bridge> <port> when a port moves) and
+// into the undo, so it is held to ifaceName, the rule a caller's bridge is
+// held to, before anything is sent: a device answering "--if-exists" or
+// "-x" would otherwise have handed ovs-vsctl an option in a bridge's place
+// (found by FAILURE_PATTERNS 1174's sweep). A name that fails is an error,
+// not a port read as absent.
 func (s *session) readPort(ctx context.Context, name string) (string, int, error) {
-	code, out, err := s.vsctl(ctx, "port-to-br", name)
+	code, bridge, out, err := s.vsctlStreams(ctx, "port-to-br", name)
 	if err != nil {
 		return "", 0, err
 	}
@@ -221,18 +229,21 @@ func (s *session) readPort(ctx context.Context, name string) (string, int, error
 		}
 		return "", 0, fmt.Errorf("%s: ovs-vsctl port-to-br exited %d: %s", portFQCN, code, bounded(out))
 	}
+	if !ifaceName.MatchString(bridge) {
+		return "", 0, fmt.Errorf("%s: ovs-vsctl port-to-br names the bridge of %s as %s, which is not an interface name, so nothing is sent back to ovs-vsctl", portFQCN, name, bounded(bridge))
+	}
 	t, err := s.must(ctx, "get", "Port", name, "tag")
 	if err != nil {
 		return "", 0, err
 	}
 	if t == "[]" {
-		return out, 0, nil
+		return bridge, 0, nil
 	}
 	tag, err := strconv.Atoi(t)
 	if err != nil {
 		return "", 0, fmt.Errorf("%s: %s's tag is %q, not a number", portFQCN, name, t)
 	}
-	return out, tag, nil
+	return bridge, tag, nil
 }
 
 // bridgeExists reports whether br exists.

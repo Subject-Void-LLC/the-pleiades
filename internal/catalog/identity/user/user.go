@@ -51,6 +51,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/farside"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/operand"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
@@ -203,6 +204,22 @@ func (a account) Map() map[string]any {
 // reading /etc/passwd, so a name resolved through any NSS-backed source
 // (LDAP, SSSD) answers exactly the way useradd/usermod themselves would
 // see it, not just a local file.
+//
+// The name follows no "--", unlike every useradd, usermod and userdel
+// here. glibc's getent ends its options at "--", but musl's (Alpine, where
+// onboarding grants the account capability once shadow is installed)
+// takes no options at all and reads "--" as a key, so every account would
+// read as absent (measured on Alpine 3.22). What keeps a name from glibc
+// getent's options instead is the operand rule the name was held to
+// before the method connected (sdk.RequiredOperandParam): without it,
+// getent passwd -i listed every account and exited 0, and the first
+// record, root's, was read as the account asked for (measured on Debian
+// 13, FAILURE_PATTERNS 1174).
+//
+// Only exit 2, getent's "no such entry", reads as absent. Any other
+// non-zero exit (1, a missing argument or unknown database; 3,
+// enumeration not supported; 64, a usage error) is the error it is, never
+// an absent account.
 func queryUser(ctx context.Context, conn *remoteexec.Conn, name string) (account, error) {
 	result, err := conn.Run(ctx, remoteexec.QuoteCommand([]string{"getent", "passwd", name}))
 	if err != nil {
@@ -241,6 +258,11 @@ var errNoSuchGroup = errors.New("no such group")
 // compares like with like regardless of which form the runbook wrote:
 // useradd/usermod's own -g accepts either, but getent passwd only ever
 // reports the numeric form back.
+//
+// The group is getent's operand here, so it is held to the operand rule
+// before the method connects (parseDesired), for the reason queryUser
+// gives; useradd and usermod take it as -g's argument, which no option
+// parser reads as an option.
 func resolveGroupGID(ctx context.Context, conn *remoteexec.Conn, group string) (int, error) {
 	result, err := conn.Run(ctx, remoteexec.QuoteCommand([]string{"getent", "group", group}))
 	if err != nil {
@@ -276,6 +298,15 @@ type desired struct {
 	comment *string
 }
 
+// parseDesired reads whichever of uid, group, shell, home and comment the
+// task set, before the method connects.
+//
+// The group is held to the operand rule (pkg/operand), because getent
+// reads it as its key (resolveGroupGID). Shell, home and comment are not:
+// each reaches useradd and usermod only as the argument of its own option
+// (-s, -d, -c), which getopt takes whole even when it begins with a dash,
+// and a home that is also tested on the device is passed as test's operand
+// or through cd --, neither of which reads options from it.
 func parseDesired(params map[string]any) (desired, error) {
 	var d desired
 	if uid, ok, err := sdk.IntParam(params, paramUID); err != nil {
@@ -284,6 +315,9 @@ func parseDesired(params map[string]any) (desired, error) {
 		d.uid = &uid
 	}
 	if v := sdk.StringParam(params, paramGroup); v != "" {
+		if err := operand.Check(paramGroup, v); err != nil {
+			return desired{}, err
+		}
 		d.group = &v
 	}
 	if v := sdk.StringParam(params, paramShell); v != "" {
@@ -328,7 +362,12 @@ func useraddArgs(name string, d desired, createHome, system bool) []string {
 	} else {
 		args = append(args, "-M")
 	}
-	return append(args, name)
+	// "--" ends useradd's options, so the name is only ever the name. The
+	// operand rule has already refused one beginning with a dash; this is
+	// the shadow tools' own guarantee beside it (accepted by useradd,
+	// usermod and userdel on Debian 12 and 13, Ubuntu 22.04 and 24.04,
+	// CentOS Stream 9, AlmaLinux 9, Oracle Linux 9, Arch and Alpine 3.22).
+	return append(args, "--", name)
 }
 
 // converge compares an existing account against whichever attributes the
@@ -385,18 +424,25 @@ func runUseradd(ctx context.Context, conn *remoteexec.Conn, args ...string) (rem
 	return runIdentityCmd(ctx, conn, args)
 }
 
+// runUsermod runs usermod with the flags converge chose, the name last
+// after "--" (as useraddArgs ends useradd's).
 func runUsermod(ctx context.Context, conn *remoteexec.Conn, name string, args []string) (remoteexec.Result, error) {
-	return runIdentityCmd(ctx, conn, append(append([]string{"usermod"}, args...), name))
+	return runIdentityCmd(ctx, conn, append(append(append([]string{"usermod"}, args...), "--"), name))
 }
 
+// runUserdel runs userdel, with -r when the home goes too, the name last
+// after "--".
 func runUserdel(ctx context.Context, conn *remoteexec.Conn, name string, removeHome bool) (remoteexec.Result, error) {
 	args := []string{"userdel"}
 	if removeHome {
 		args = append(args, "-r")
 	}
-	return runIdentityCmd(ctx, conn, append(args, name))
+	return runIdentityCmd(ctx, conn, append(args, "--", name))
 }
 
+// runIdentityCmd sends argv as one command, each word quoted for the
+// shell, and returns its result, or an error naming the command and what
+// the device said when it exits non-zero.
 func runIdentityCmd(ctx context.Context, conn *remoteexec.Conn, argv []string) (remoteexec.Result, error) {
 	command := remoteexec.QuoteCommand(argv)
 	result, err := conn.Run(ctx, command)

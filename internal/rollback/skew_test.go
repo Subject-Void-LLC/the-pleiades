@@ -29,16 +29,25 @@ type installed struct {
 
 // registerSkew registers, for the rest of the test, two methods of the
 // first-party group "file": file.rbmake, whose undo is file.rbremove with
-// path, mode and state recorded, and file.rbremove, which requires path and
+// path, mode and state recorded, and file.rbremove, which requires path (an
+// operand, which a program would read as an option if it began with "-") and
 // takes an int mode, a bool force and a state that is only ever "absent".
 // It returns what this build computes for them.
 func registerSkew(t *testing.T) installed {
+	t.Helper()
+	return registerSkewFormat(t, collection.ParamFormatOperand)
+}
+
+// registerSkewFormat is registerSkew with file.rbremove's path declared in
+// format, one of the operand formats, so a test can hold a recorded value to
+// each program's own grammar.
+func registerSkewFormat(t *testing.T, format collection.ParamFormat) installed {
 	t.Helper()
 	t.Cleanup(collection.SnapshotForTest())
 	run := func(context.Context, sdk.RunbookContext, inventory.InventoryItem, map[string]any) (collection.Result, error) {
 		return collection.Result{}, nil
 	}
-	removeParams := []collection.Param{{Name: "path", Type: "string", Required: true}, {Name: "mode", Type: "int"}, {Name: "force", Type: "bool"},
+	removeParams := []collection.Param{{Name: "path", Type: "string", Required: true, Format: format}, {Name: "mode", Type: "int"}, {Name: "force", Type: "bool"},
 		{Name: "state", Type: "string", Choices: []string{"absent"}}}
 	spec := sdk.InverseSpec{FQCN: "file.rbremove", Record: []string{"path", "mode", "state"}}
 	for _, d := range []collection.Descriptor{

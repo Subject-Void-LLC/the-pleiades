@@ -19,9 +19,9 @@ var identityCollections = []collectionscaffold.Config{
 			Summary:     "Makes sure a POSIX user account exists on the target.",
 			Description: "Makes sure a user account is present on the target, creating it if absent. This is ansible.builtin.user with state=present. Account state is read from getent before anything is sent, so an account already present with every requested attribute already matching reports no change and no command reaches the device; an account present with a different uid, group, shell, home or comment than requested is converged with usermod rather than recreated. Supplementary group membership and the account password are not managed by this method.",
 			Params: []collection.Param{
-				{Name: "name", Type: "string", Required: true, Description: "The account name to create or converge."},
+				{Name: "name", Type: "string", Required: true, Format: collection.ParamFormatOperand, Description: "The account name to create or converge."},
 				{Name: "uid", Type: "int", Description: "The numeric user ID to assign. An existing account with a different uid is converged to this one."},
-				{Name: "group", Type: "string", Description: "The primary group, by name or numeric gid. An existing account with a different primary group is converged to this one."},
+				{Name: "group", Type: "string", Format: collection.ParamFormatOperand, Description: "The primary group, by name or numeric gid. An existing account with a different primary group is converged to this one."},
 				{Name: "shell", Type: "string", Description: "The login shell, such as /bin/bash. An existing account with a different shell is converged to this one."},
 				{Name: "home", Type: "string", Description: "The home directory path. An existing account with a different home is converged to this one; its contents are not moved."},
 				{Name: "comment", Type: "string", Description: "The GECOS comment field, typically the account's full name."},
@@ -50,9 +50,9 @@ var identityCollections = []collectionscaffold.Config{
 			Summary:     "Changes attributes of an existing POSIX user account on the target.",
 			Description: "Converges an existing account's uid, primary group, shell, home or comment to whichever of those the runbook names, refusing outright if the account does not exist rather than creating one (use identity.user.create for that). Account state is read from getent before anything is sent, so an attribute already matching what was requested is left alone, and a run that requests nothing different reports no change and no command reaches the device.",
 			Params: []collection.Param{
-				{Name: "name", Type: "string", Required: true, Description: "The account to modify. Must already exist."},
+				{Name: "name", Type: "string", Required: true, Format: collection.ParamFormatOperand, Description: "The account to modify. Must already exist."},
 				{Name: "uid", Type: "int", Description: "Converge the account to this numeric user ID."},
-				{Name: "group", Type: "string", Description: "Converge the account's primary group, by name or numeric gid."},
+				{Name: "group", Type: "string", Format: collection.ParamFormatOperand, Description: "Converge the account's primary group, by name or numeric gid."},
 				{Name: "shell", Type: "string", Description: "Converge the account's login shell."},
 				{Name: "home", Type: "string", Description: "Converge the account's home directory path. Its contents are not moved."},
 				{Name: "comment", Type: "string", Description: "Converge the account's GECOS comment field."},
@@ -78,7 +78,7 @@ var identityCollections = []collectionscaffold.Config{
 			Summary:     "Removes a POSIX user account from the target.",
 			Description: "Makes sure a user account is absent from the target, removing it if present. This is ansible.builtin.user with state=absent. Account state is read from getent before anything is sent, so an account already absent reports no change and no command reaches the device.",
 			Params: []collection.Param{
-				{Name: "name", Type: "string", Required: true, Description: "The account name to remove."},
+				{Name: "name", Type: "string", Required: true, Format: collection.ParamFormatOperand, Description: "The account name to remove."},
 				{Name: "remove", Type: "bool", Default: "false", Description: "Also delete the home directory and mail spool (userdel -r). Left false, they are left on disk."},
 				{Name: "remove_home_if_unchanged", Type: "bool", Default: "false", Description: "Delete the home directory and mail spool only while the home holds exactly what useradd copied into it from the skeleton directory, every file unchanged; otherwise keep it and say so in a warning. identity.user.create's undo sets it for a home that run made. Not with remove."},
 				{Name: "created_home", Type: "string", Description: "With remove_home_if_unchanged, the home the account was made with: the home is deleted only while the account's home is still this path, so a home moved since (identity.user.modify) is never judged in its place. identity.user.create's undo sets it."},
@@ -105,7 +105,7 @@ var identityCollections = []collectionscaffold.Config{
 			Summary:     "Makes sure a POSIX group exists on the target.",
 			Description: "Makes sure a group is present on the target, creating it if absent. This is ansible.builtin.group with state=present. Group state is read from getent before anything is sent, so a group already present at the requested gid (or present with none requested) reports no change and no command reaches the device; a group present at a different gid than requested is converged with groupmod rather than recreated.",
 			Params: []collection.Param{
-				{Name: "name", Type: "string", Required: true, Description: "The group name to create or converge."},
+				{Name: "name", Type: "string", Required: true, Format: collection.ParamFormatOperand, Description: "The group name to create or converge."},
 				{Name: "gid", Type: "int", Description: "The numeric group ID to assign. An existing group with a different gid is converged to this one."},
 				{Name: "system", Type: "bool", Default: "false", Description: "Create the group as a system group (groupadd -r). Ignored when the group already exists."},
 				{Name: "insecure_skip_host_key_verify", Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
@@ -131,7 +131,7 @@ var identityCollections = []collectionscaffold.Config{
 			Summary:     "Changes the gid of an existing POSIX group on the target.",
 			Description: "Converges an existing group's gid, refusing outright if the group does not exist rather than creating one (use identity.group.create for that). A POSIX group has no other mutable attribute this platform manages: renaming is not something groupmod supports and ansible.builtin.group does not offer it either, and membership is identity.user.*'s own concern. Group state is read from getent before anything is sent, so a gid already matching what was requested reports no change and no command reaches the device.",
 			Params: []collection.Param{
-				{Name: "name", Type: "string", Required: true, Description: "The group to modify. Must already exist."},
+				{Name: "name", Type: "string", Required: true, Format: collection.ParamFormatOperand, Description: "The group to modify. Must already exist."},
 				{Name: "gid", Type: "int", Required: true, Description: "Converge the group to this numeric gid."},
 				{Name: "insecure_skip_host_key_verify", Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
 			},
@@ -155,7 +155,7 @@ var identityCollections = []collectionscaffold.Config{
 			Summary:     "Removes a POSIX group from the target.",
 			Description: "Makes sure a group is absent from the target, removing it if present. This is ansible.builtin.group with state=absent. Group state is read from getent before anything is sent, so a group already absent reports no change and no command reaches the device. groupdel itself refuses to remove a group that is still any user's primary group; that refusal surfaces here as a plain task failure naming what groupdel said, not something this method works around.",
 			Params: []collection.Param{
-				{Name: "name", Type: "string", Required: true, Description: "The group name to remove."},
+				{Name: "name", Type: "string", Required: true, Format: collection.ParamFormatOperand, Description: "The group name to remove."},
 				{Name: "insecure_skip_host_key_verify", Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
 			},
 			Returns: []collection.ReturnField{

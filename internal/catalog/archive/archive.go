@@ -146,8 +146,14 @@ func failureDetail(result remoteexec.Result) string {
 // once they are safely archived") and archive.extract's own meaning
 // ("delete the archive once it is safely unpacked") are different
 // English sentences over the same one mechanism.
+//
+// The paths follow a "--", so rm reads each as a path: a src of
+// "--no-preserve-root" beside "/" would otherwise have been rm's option, and
+// a src beginning with "-" that tar archived as ./-name would have been
+// refused as an option rather than removed (FAILURE_PATTERNS 1174). GNU,
+// BSD, BusyBox and toybox rm all end their options there.
 func removePaths(ctx context.Context, conn *remoteexec.Conn, paths ...string) error {
-	return runArchiveCmd(ctx, conn, append([]string{"rm", "-rf"}, paths...))
+	return runArchiveCmd(ctx, conn, append([]string{"rm", "-rf", "--"}, paths...))
 }
 
 // needExisting is a check's reading of a path a real run's command needs:

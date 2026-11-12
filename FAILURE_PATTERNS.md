@@ -1177,6 +1177,11 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 1171. The journal consumer said what it changed of a batch (identities cleared, methods held to their node) before the write, so a batch redelivered after a failed write said it again (fixed before push; caught in review; a repeat of 1161, which 1161's fix missed)
 1172. Delivered ids reached the pre-admission log lines and returned errors of the new node path raw (fixed before push; caught in review; a repeat of 1160)
 1173. branchci waited 43 minutes on a dispatch whose run failed at startup, since that run never carries the run-name nonce
+1174. A package, service, account or file owner name beginning with a dash reached apt-get, dnf, systemctl, getent and chown as an option, and one holding a wildcard as a pattern, because each method quoted the name but nothing refused it, and ln read a link target the same way (a repeat of 148 and 450, and of 451 for dpkg-query's exit status) (fixed)
+1175. pkg.dnf read rpm's "is not installed" and pkg.apt read apt-cache's "Candidate:" in the device's own language, so a French or German host failed every install of an absent package and every APT check (fixed)
+1176. win.file.copy, win.file.download, win.archive.extract and VirtualBox's host file scripts put a path or URL inside single quotes without QuotePS, so a typographic quote ended the literal and ran the rest as PowerShell (a repeat of 354) (fixed)
+1177. Four pkg tests faked apt-get but read the host's own apt-cache, passing on Linux and failing only on fast-macos (a repeat of 476) (fixed on the pull request)
+1178. The FRR lab said ready on `show version`, so a batfish test's first `configure terminal` met mgmtd's lock under load (a repeat of 446) (fixed on the pull request)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

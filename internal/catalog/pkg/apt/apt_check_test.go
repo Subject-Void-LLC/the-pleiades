@@ -39,7 +39,13 @@ func TestAptChecks(t *testing.T) {
 		{"install, absent, a version named", "pkg.apt.install", apt.Install, pkgState{candidate: "2.0"}, map[string]any{"version": "1.5"}, true, map[string]any{"installed": true, "version": "1.5"}, ""},
 		{"install, present", "pkg.apt.install", apt.Install, installedCurrent, nil, false, map[string]any{"installed": true, "version": "1.0"}, ""},
 		{"install, present at another version", "pkg.apt.install", apt.Install, installedCurrent, map[string]any{"version": "0.9"}, true, map[string]any{"installed": true, "version": "0.9"}, ""},
-		{"install, nothing to install", "pkg.apt.install", apt.Install, absent, nil, false, nil, "no candidate"},
+		// An installed package goes to the version named whatever APT's
+		// candidate is, so neither the run nor its check asks for one.
+		{"install, present, no candidate, a version named", "pkg.apt.install", apt.Install, installedUnknownToRepo, map[string]any{"version": "0.9"}, true, map[string]any{"installed": true, "version": "0.9"}, ""},
+		{"install, nothing to install", "pkg.apt.install", apt.Install, noCandidate, nil, false, nil, "no package named exactly curl"},
+		{"install, nothing to install at the version named", "pkg.apt.install", apt.Install, noCandidate, map[string]any{"version": "1.5"}, false, nil, "no package named exactly curl"},
+		{"upgrade, absent, nothing to install", "pkg.apt.upgrade", apt.Upgrade, noCandidate, nil, false, nil, "no package named exactly curl"},
+		{"install, a regular expression's answer", "pkg.apt.install", apt.Install, pkgState{candidate: "2.1.2-3", policyHeader: "libjs-jquery.sparkline"}, nil, false, nil, "no package named exactly curl"},
 		{"remove, present", "pkg.apt.remove", apt.Remove, installedCurrent, nil, true, map[string]any{"installed": false, "version": ""}, ""},
 		{"remove, absent", "pkg.apt.remove", apt.Remove, absent, nil, false, map[string]any{"installed": false, "version": ""}, ""},
 		{"upgrade, behind", "pkg.apt.upgrade", apt.Upgrade, installedOld, nil, true, map[string]any{"installed": true, "version": "1.1"}, ""},
@@ -59,6 +65,17 @@ func TestAptChecks(t *testing.T) {
 			if tc.wantRefused != "" {
 				if err == nil || !strings.Contains(err.Error(), tc.wantRefused) {
 					t.Fatalf("check = %v, want it refused with %q", err, tc.wantRefused)
+				}
+				// The real run refuses the same name in the same words, having
+				// installed nothing: the check and the run read it through one
+				// body (requireCandidate).
+				run := newHarness(t, tc.state)
+				_, runErr := tc.run(context.Background(), run.rc, run.device, run.params("curl", tc.extra))
+				if runErr == nil || runErr.Error() != err.Error() {
+					t.Errorf("the run = %v, the check = %v; want the same refusal", runErr, err)
+				}
+				if calls := run.invocations(t); len(calls) != 0 {
+					t.Errorf("the run sent apt-get: %v", calls)
 				}
 				return
 			}

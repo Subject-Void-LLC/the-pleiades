@@ -45,7 +45,7 @@ func removeDoc() collection.Doc {
 		Summary:     "Removes a package via DNF.",
 		Description: "Makes sure a package is absent from a Red Hat-family host, removing it if it is present. This is ansible.builtin.dnf with state=absent. Installed state is read from rpm before anything is sent, so a package that is already absent reports no change and no command reaches the device.",
 		Params: []collection.Param{
-			{Name: paramName, Type: "string", Required: true, Description: "The RPM package name to remove."},
+			{Name: paramName, Type: "string", Required: true, Format: collection.ParamFormatRPMPackage, Description: "The RPM package name to remove."},
 			{Name: sdk.ParamInsecureSkipHostKeyVerify, Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
 		},
 		Returns: []collection.ReturnField{
@@ -81,7 +81,7 @@ func CheckRemove(ctx context.Context, rc sdk.RunbookContext, device inventory.In
 func remove(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any, mode collection.Mode) (collection.Result, error) {
 	const fqcn = "pkg.dnf.remove"
 
-	name, err := sdk.RequiredStringParam(params, paramName)
+	name, err := packageName(params)
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
@@ -109,7 +109,7 @@ func remove(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 
 	changed := false
 	if before.installed {
-		if _, err := runDnf(ctx, conn, "remove", "-y", name); err != nil {
+		if _, err := runDnf(ctx, conn, []string{"remove", "-y"}, name); err != nil {
 			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 		}
 		changed = true

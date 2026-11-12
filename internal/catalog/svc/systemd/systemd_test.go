@@ -21,8 +21,9 @@ import (
 // These run against a real in-process SSH server executing a real
 // /bin/sh, with a systemctl on PATH that is a shell script. The SSH
 // transport, the shell, the quoting, the argument vector and the exit
-// status are all genuine; only the daemon at the far end is not. Proving
-// these against real systemd is a container Release Gate's job.
+// status are all genuine; only the daemon at the far end is not. The
+// proof against real systemd is cmd/pleiades's
+// TestCLI_SystemdServicesCycleOnARealDevice.
 
 // ---------- harness ----------
 

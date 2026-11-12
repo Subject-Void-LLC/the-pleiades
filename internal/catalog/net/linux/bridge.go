@@ -34,6 +34,19 @@ func (s *session) readBridge(ctx context.Context, name string) (bridgeState, err
 	if code != 0 {
 		return bridgeState{}, fmt.Errorf("%s: reading %s exited %d: %q", s.fqcn, name, code, truncate(errOut))
 	}
+	return parseBridge(s.fqcn, name, out)
+}
+
+// parseBridge reads readBridgeScript's answer for the bridge name.
+//
+// Each port the host lists is the device's answer, and it goes back to ip
+// as an operand (ip link set <port> nomaster) and into the undo (ports), so
+// it is held to ifaceName, the rule a caller's port is held to, before
+// anything is sent: a host listing "-x" or "--if-exists" would otherwise
+// have handed ip an option in a port's place (found by FAILURE_PATTERNS
+// 1174's sweep). A name that fails is an error naming the bridge, not a
+// port skipped.
+func parseBridge(fqcn, name, out string) (bridgeState, error) {
 	lines := strings.Split(strings.TrimSpace(out), "\n")
 	switch lines[0] {
 	case "absent":
@@ -45,12 +58,15 @@ func (s *session) readBridge(ctx context.Context, name string) (bridgeState, err
 	if len(lines) > 1 {
 		flags, err := strconv.ParseInt(strings.TrimPrefix(strings.TrimSpace(lines[1]), "0x"), 16, 64)
 		if err != nil {
-			return bridgeState{}, fmt.Errorf("%s: %s's flags %q are not hex", s.fqcn, name, lines[1])
+			return bridgeState{}, fmt.Errorf("%s: %s's flags %q are not hex", fqcn, name, lines[1])
 		}
 		st.up = flags&1 != 0
 	}
 	for _, l := range lines[min(2, len(lines)):] {
 		if l = strings.TrimSpace(l); l != "" {
+			if !ifaceName.MatchString(l) {
+				return bridgeState{}, fmt.Errorf("%s: the bridge %s lists a port %q that is not an interface name, so nothing is sent back to ip", fqcn, name, truncate(l))
+			}
 			st.ports = append(st.ports, l)
 		}
 	}

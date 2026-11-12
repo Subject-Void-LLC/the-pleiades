@@ -24,7 +24,7 @@ var servicesCollections = []collectionscaffold.Config{
 			Summary:     "Starts a service now, whichever service manager the device runs.",
 			Description: "Makes sure a service is running right now, without caring which init system the device uses. This is ansible.builtin.service with state=started: it resolves the device's service manager and hands the call to that manager's concrete method, so on a Linux host it runs svc.systemd.start and behaves exactly as that method does, including reporting no change when the service is already running. Use the concrete method instead when a runbook is written for one platform and should say so.",
 			Params: []collection.Param{
-				{Name: "name", Type: "string", Required: true, Description: "The service to act on. This is passed straight through to the concrete method for the device's service manager, so it means whatever that manager means by a service name: a systemd unit such as nginx or nginx.service on a Linux host."},
+				{Name: "name", Type: "string", Required: true, Format: collection.ParamFormatSystemdUnit, Description: "The service to act on. This is passed straight through to the concrete method for the device's service manager, so it means whatever that manager means by a service name: a systemd unit such as nginx or nginx.service on a Linux host."},
 				{Name: "insecure_skip_host_key_verify", Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
 			},
 			Returns: []collection.ReturnField{
@@ -47,7 +47,7 @@ var servicesCollections = []collectionscaffold.Config{
 			Summary:     "Stops a service now, whichever service manager the device runs.",
 			Description: "Makes sure a service is not running right now, without caring which init system the device uses. This is ansible.builtin.service with state=stopped: it resolves the device's service manager and hands the call to that manager's concrete method. It stops the service now and leaves the boot-time setting alone, so a service stopped by this task starts again at the next reboot unless svc.disable is also run.",
 			Params: []collection.Param{
-				{Name: "name", Type: "string", Required: true, Description: "The service to act on. This is passed straight through to the concrete method for the device's service manager, so it means whatever that manager means by a service name: a systemd unit such as nginx or nginx.service on a Linux host."},
+				{Name: "name", Type: "string", Required: true, Format: collection.ParamFormatSystemdUnit, Description: "The service to act on. This is passed straight through to the concrete method for the device's service manager, so it means whatever that manager means by a service name: a systemd unit such as nginx or nginx.service on a Linux host."},
 				{Name: "insecure_skip_host_key_verify", Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
 			},
 			Returns: []collection.ReturnField{
@@ -70,7 +70,7 @@ var servicesCollections = []collectionscaffold.Config{
 			Summary:     "Restarts a service, whichever service manager the device runs.",
 			Description: "Restarts a service, starting it if it was not running. This is ansible.builtin.service with state=restarted: it resolves the device's service manager and hands the call to that manager's concrete method. It is the one method here that is never converged, since restarting a running service is the point rather than a no-op, so it always reports changed. That makes it the one most worth putting behind a when condition, so a service is only bounced when something it reads actually changed.",
 			Params: []collection.Param{
-				{Name: "name", Type: "string", Required: true, Description: "The service to act on. This is passed straight through to the concrete method for the device's service manager, so it means whatever that manager means by a service name: a systemd unit such as nginx or nginx.service on a Linux host."},
+				{Name: "name", Type: "string", Required: true, Format: collection.ParamFormatSystemdUnit, Description: "The service to act on. This is passed straight through to the concrete method for the device's service manager, so it means whatever that manager means by a service name: a systemd unit such as nginx or nginx.service on a Linux host."},
 				{Name: "insecure_skip_host_key_verify", Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
 			},
 			Returns: []collection.ReturnField{
@@ -93,7 +93,7 @@ var servicesCollections = []collectionscaffold.Config{
 			Summary:     "Makes a service start at boot, whichever service manager the device runs.",
 			Description: "Makes sure a service is set to start at boot, without caring which init system the device uses. This is ansible.builtin.service with enabled=yes: it resolves the device's service manager and hands the call to that manager's concrete method. It changes the boot-time setting only, so a service enabled by this task is not running until svc.start runs or the device reboots.",
 			Params: []collection.Param{
-				{Name: "name", Type: "string", Required: true, Description: "The service to act on. This is passed straight through to the concrete method for the device's service manager, so it means whatever that manager means by a service name: a systemd unit such as nginx or nginx.service on a Linux host."},
+				{Name: "name", Type: "string", Required: true, Format: collection.ParamFormatSystemdUnit, Description: "The service to act on. This is passed straight through to the concrete method for the device's service manager, so it means whatever that manager means by a service name: a systemd unit such as nginx or nginx.service on a Linux host."},
 				{Name: "insecure_skip_host_key_verify", Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
 			},
 			Returns: []collection.ReturnField{
@@ -116,7 +116,7 @@ var servicesCollections = []collectionscaffold.Config{
 			Summary:     "Stops a service starting at boot, whichever service manager the device runs.",
 			Description: "Makes sure a service is not set to start at boot, without caring which init system the device uses. This is ansible.builtin.service with enabled=no: it resolves the device's service manager and hands the call to that manager's concrete method. It changes the boot-time setting only, so a service disabled by this task keeps running until svc.stop runs or the device reboots.",
 			Params: []collection.Param{
-				{Name: "name", Type: "string", Required: true, Description: "The service to act on. This is passed straight through to the concrete method for the device's service manager, so it means whatever that manager means by a service name: a systemd unit such as nginx or nginx.service on a Linux host."},
+				{Name: "name", Type: "string", Required: true, Format: collection.ParamFormatSystemdUnit, Description: "The service to act on. This is passed straight through to the concrete method for the device's service manager, so it means whatever that manager means by a service name: a systemd unit such as nginx or nginx.service on a Linux host."},
 				{Name: "insecure_skip_host_key_verify", Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
 			},
 			Returns: []collection.ReturnField{
@@ -139,7 +139,7 @@ var servicesCollections = []collectionscaffold.Config{
 			Summary:     "Starts a systemd unit now, without changing whether it starts at boot.",
 			Description: "Makes sure a systemd unit is running right now. This is ansible.builtin.systemd with state=started, and it is deliberately not also enable: starting and enabling are separate in systemd and separate here, so a task that wants both says both. State is read before anything is sent, so a unit that is already running reports no change and no command reaches the device. A unit systemd does not know is refused rather than reported as started, and a masked unit is refused with the mask named, since systemd's own error for that case describes a symlink rather than the cause.",
 			Params: []collection.Param{
-				{Name: "name", Type: "string", Required: true, Description: "The systemd unit to act on, such as nginx or nginx.service. This is ansible.builtin.systemd's own parameter name. The unit must already exist: a name systemd does not know is refused rather than reported as already stopped, since that is nearly always a typo."},
+				{Name: "name", Type: "string", Required: true, Format: collection.ParamFormatSystemdUnit, Description: "The systemd unit to act on, such as nginx or nginx.service. This is ansible.builtin.systemd's own parameter name. The unit must already exist: a name systemd does not know is refused rather than reported as already stopped, since that is nearly always a typo."},
 				{Name: "insecure_skip_host_key_verify", Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
 			},
 			Returns: []collection.ReturnField{
@@ -163,7 +163,7 @@ var servicesCollections = []collectionscaffold.Config{
 			Summary:     "Stops a systemd unit now, without changing whether it starts at boot.",
 			Description: "Makes sure a systemd unit is not running right now. This is ansible.builtin.systemd with state=stopped, and it leaves the boot-time setting alone: a unit stopped by this task still starts at the next reboot unless svc.systemd.disable is also run. State is read before anything is sent, so a unit that is already stopped reports no change. A unit systemd does not know is refused rather than reported as stopped, which matters more here than anywhere else in this namespace: systemctl answers \"inactive\" for a name that has never existed, so a method trusting it would report success for a typo.",
 			Params: []collection.Param{
-				{Name: "name", Type: "string", Required: true, Description: "The systemd unit to act on, such as nginx or nginx.service. This is ansible.builtin.systemd's own parameter name. The unit must already exist: a name systemd does not know is refused rather than reported as already stopped, since that is nearly always a typo."},
+				{Name: "name", Type: "string", Required: true, Format: collection.ParamFormatSystemdUnit, Description: "The systemd unit to act on, such as nginx or nginx.service. This is ansible.builtin.systemd's own parameter name. The unit must already exist: a name systemd does not know is refused rather than reported as already stopped, since that is nearly always a typo."},
 				{Name: "insecure_skip_host_key_verify", Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
 			},
 			Returns: []collection.ReturnField{
@@ -187,7 +187,7 @@ var servicesCollections = []collectionscaffold.Config{
 			Summary:     "Restarts a systemd unit, starting it if it was not running.",
 			Description: "Restarts a systemd unit. This is ansible.builtin.systemd with state=restarted, and like that module it starts a unit that was not running rather than failing. It is the one method in this namespace that is never converged: restarting a running unit is the point, not a no-op, so this always sends the command and always reports changed. That makes it the method most worth putting behind a when condition or a handler, so a service is only bounced when something it reads actually changed. A unit systemd does not know is refused, and a masked unit is refused with the mask named.",
 			Params: []collection.Param{
-				{Name: "name", Type: "string", Required: true, Description: "The systemd unit to act on, such as nginx or nginx.service. This is ansible.builtin.systemd's own parameter name. The unit must already exist: a name systemd does not know is refused rather than reported as already stopped, since that is nearly always a typo."},
+				{Name: "name", Type: "string", Required: true, Format: collection.ParamFormatSystemdUnit, Description: "The systemd unit to act on, such as nginx or nginx.service. This is ansible.builtin.systemd's own parameter name. The unit must already exist: a name systemd does not know is refused rather than reported as already stopped, since that is nearly always a typo."},
 				{Name: "insecure_skip_host_key_verify", Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
 			},
 			Returns: []collection.ReturnField{
@@ -210,7 +210,7 @@ var servicesCollections = []collectionscaffold.Config{
 			Summary:     "Makes a systemd unit start at boot, without starting it now.",
 			Description: "Makes sure a systemd unit is set to start at boot. This is ansible.builtin.systemd with enabled=yes, and it is deliberately not also start: a unit enabled by this task is not running until svc.systemd.start runs or the device reboots. State is read before anything is sent, so a unit that is already enabled reports no change. A static unit is refused with that word named, because systemd's own failure for enabling one describes a missing symlink rather than the cause, which is that the unit has no [Install] section and is meant to be pulled in by another unit.",
 			Params: []collection.Param{
-				{Name: "name", Type: "string", Required: true, Description: "The systemd unit to act on, such as nginx or nginx.service. This is ansible.builtin.systemd's own parameter name. The unit must already exist: a name systemd does not know is refused rather than reported as already stopped, since that is nearly always a typo."},
+				{Name: "name", Type: "string", Required: true, Format: collection.ParamFormatSystemdUnit, Description: "The systemd unit to act on, such as nginx or nginx.service. This is ansible.builtin.systemd's own parameter name. The unit must already exist: a name systemd does not know is refused rather than reported as already stopped, since that is nearly always a typo."},
 				{Name: "insecure_skip_host_key_verify", Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
 			},
 			Returns: []collection.ReturnField{
@@ -233,7 +233,7 @@ var servicesCollections = []collectionscaffold.Config{
 			Summary:     "Stops a systemd unit starting at boot, without stopping it now.",
 			Description: "Makes sure a systemd unit is not set to start at boot. This is ansible.builtin.systemd with enabled=no, and it leaves the running system alone: a unit disabled by this task keeps running until svc.systemd.stop runs or the device reboots. State is read before anything is sent, so a unit that is already disabled reports no change. A static unit is refused, since a unit with no [Install] section was never enabled and cannot be disabled.",
 			Params: []collection.Param{
-				{Name: "name", Type: "string", Required: true, Description: "The systemd unit to act on, such as nginx or nginx.service. This is ansible.builtin.systemd's own parameter name. The unit must already exist: a name systemd does not know is refused rather than reported as already stopped, since that is nearly always a typo."},
+				{Name: "name", Type: "string", Required: true, Format: collection.ParamFormatSystemdUnit, Description: "The systemd unit to act on, such as nginx or nginx.service. This is ansible.builtin.systemd's own parameter name. The unit must already exist: a name systemd does not know is refused rather than reported as already stopped, since that is nearly always a typo."},
 				{Name: "insecure_skip_host_key_verify", Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
 			},
 			Returns: []collection.ReturnField{
@@ -274,7 +274,7 @@ var servicesCollections = []collectionscaffold.Config{
 			Summary:     "Starts a Windows service now, without changing its start type.",
 			Description: "Makes sure a Windows service is running right now. This is ansible.windows.win_service with state=started, and it is deliberately not also enable: starting and setting the start type are separate in the Service Control Manager and separate here, so a task that wants both says both. State is read before anything is sent, so a service that is already running reports no change and no command reaches the device. A service the Service Control Manager does not know is refused rather than reported as started, and a service whose start type is Disabled is refused with that named, since Windows itself refuses to start one and its own error describes a generic failure rather than the cause.",
 			Params: []collection.Param{
-				{Name: "name", Type: "string", Required: true, Description: "The Windows service to act on, its short service name (not its display name), such as Spooler rather than \"Print Spooler\". The service must already exist: a name the Service Control Manager does not know is refused rather than reported as already stopped, since that is nearly always a typo."},
+				{Name: "name", Type: "string", Required: true, Format: collection.ParamFormatOperand, Description: "The Windows service to act on, its short service name (not its display name), such as Spooler rather than \"Print Spooler\". The service must already exist: a name the Service Control Manager does not know is refused rather than reported as already stopped, since that is nearly always a typo."},
 			},
 			Returns: []collection.ReturnField{
 				{Name: "name", Type: "string", Returned: "always", Description: "The service this task acted on."},
@@ -297,7 +297,7 @@ var servicesCollections = []collectionscaffold.Config{
 			Summary:     "Stops a Windows service now, without changing its start type.",
 			Description: "Makes sure a Windows service is not running right now. This is ansible.windows.win_service with state=stopped, and it leaves the start type alone: a service stopped by this task still starts at the next reboot unless svc.windows.disable is also run. State is read before anything is sent, so a service that is already stopped reports no change. A service the Service Control Manager does not know is refused rather than reported as stopped, since a typo in the name should not read as success.",
 			Params: []collection.Param{
-				{Name: "name", Type: "string", Required: true, Description: "The Windows service to act on, its short service name (not its display name), such as Spooler rather than \"Print Spooler\". The service must already exist: a name the Service Control Manager does not know is refused rather than reported as already stopped, since that is nearly always a typo."},
+				{Name: "name", Type: "string", Required: true, Format: collection.ParamFormatOperand, Description: "The Windows service to act on, its short service name (not its display name), such as Spooler rather than \"Print Spooler\". The service must already exist: a name the Service Control Manager does not know is refused rather than reported as already stopped, since that is nearly always a typo."},
 			},
 			Returns: []collection.ReturnField{
 				{Name: "name", Type: "string", Returned: "always", Description: "The service this task acted on."},
@@ -320,7 +320,7 @@ var servicesCollections = []collectionscaffold.Config{
 			Summary:     "Restarts a Windows service, starting it if it was not running.",
 			Description: "Restarts a Windows service. This is ansible.windows.win_service with state=restarted, and like that module it starts a service that was not running rather than failing. It is the one method in this namespace that is never converged: restarting a running service is the point, not a no-op, so this always sends the command and always reports changed. That makes it the method most worth putting behind a when condition or a handler, so a service is only bounced when something it reads actually changed. A service the Service Control Manager does not know is refused, and a service whose start type is Disabled is refused with that named.",
 			Params: []collection.Param{
-				{Name: "name", Type: "string", Required: true, Description: "The Windows service to act on, its short service name (not its display name), such as Spooler rather than \"Print Spooler\". The service must already exist: a name the Service Control Manager does not know is refused rather than reported as already stopped, since that is nearly always a typo."},
+				{Name: "name", Type: "string", Required: true, Format: collection.ParamFormatOperand, Description: "The Windows service to act on, its short service name (not its display name), such as Spooler rather than \"Print Spooler\". The service must already exist: a name the Service Control Manager does not know is refused rather than reported as already stopped, since that is nearly always a typo."},
 			},
 			Returns: []collection.ReturnField{
 				{Name: "name", Type: "string", Returned: "always", Description: "The service this task acted on."},
@@ -342,7 +342,7 @@ var servicesCollections = []collectionscaffold.Config{
 			Summary:     "Makes a Windows service start at boot, without starting it now.",
 			Description: "Makes sure a Windows service's start type is Automatic. This is ansible.windows.win_service with start_mode=auto, and it is deliberately not also start: a service enabled by this task is not running until svc.windows.start runs or the device reboots. State is read before anything is sent, so a service whose start type is already Automatic reports no change. Windows recognizes a third start type, Manual, that neither this method nor svc.windows.disable targets: a service found Manual becomes Automatic, and running svc.windows.disable afterward would leave it Disabled rather than back at Manual, which is why that specific transition records no inverse instruction rather than a wrong one.",
 			Params: []collection.Param{
-				{Name: "name", Type: "string", Required: true, Description: "The Windows service to act on, its short service name (not its display name), such as Spooler rather than \"Print Spooler\". The service must already exist: a name the Service Control Manager does not know is refused rather than reported as already stopped, since that is nearly always a typo."},
+				{Name: "name", Type: "string", Required: true, Format: collection.ParamFormatOperand, Description: "The Windows service to act on, its short service name (not its display name), such as Spooler rather than \"Print Spooler\". The service must already exist: a name the Service Control Manager does not know is refused rather than reported as already stopped, since that is nearly always a typo."},
 			},
 			Returns: []collection.ReturnField{
 				{Name: "name", Type: "string", Returned: "always", Description: "The service this task acted on."},
@@ -364,7 +364,7 @@ var servicesCollections = []collectionscaffold.Config{
 			Summary:     "Stops a Windows service starting at boot, without stopping it now.",
 			Description: "Makes sure a Windows service's start type is Disabled, refusing it from starting at all until this is undone. This is ansible.windows.win_service with start_mode=disabled, and it leaves the running system alone: a service disabled by this task keeps running until svc.windows.stop also runs or it is stopped some other way. State is read before anything is sent, so a service whose start type is already Disabled reports no change. Windows recognizes a third start type, Manual, that neither this method nor svc.windows.enable targets: a service found Manual becomes Disabled, and running svc.windows.enable afterward would leave it Automatic rather than back at Manual, which is why that specific transition records no inverse instruction rather than a wrong one.",
 			Params: []collection.Param{
-				{Name: "name", Type: "string", Required: true, Description: "The Windows service to act on, its short service name (not its display name), such as Spooler rather than \"Print Spooler\". The service must already exist: a name the Service Control Manager does not know is refused rather than reported as already stopped, since that is nearly always a typo."},
+				{Name: "name", Type: "string", Required: true, Format: collection.ParamFormatOperand, Description: "The Windows service to act on, its short service name (not its display name), such as Spooler rather than \"Print Spooler\". The service must already exist: a name the Service Control Manager does not know is refused rather than reported as already stopped, since that is nearly always a typo."},
 			},
 			Returns: []collection.ReturnField{
 				{Name: "name", Type: "string", Returned: "always", Description: "The service this task acted on."},

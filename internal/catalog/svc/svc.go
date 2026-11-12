@@ -173,7 +173,7 @@ func genericDoc(summary, description string, examples []collection.Example, seeA
 		Summary:     summary,
 		Description: description,
 		Params: []collection.Param{
-			{Name: paramName, Type: "string", Required: true, Description: "The service to act on. This is passed straight through to the concrete method for the device's service manager, so it means whatever that manager means by a service name: a systemd unit such as nginx or nginx.service on a Linux host."},
+			{Name: paramName, Type: "string", Required: true, Format: collection.ParamFormatSystemdUnit, Description: "The service to act on. This is passed straight through to the concrete method for the device's service manager, so it means whatever that manager means by a service name: a systemd unit such as nginx or nginx.service on a Linux host."},
 			{Name: sdk.ParamInsecureSkipHostKeyVerify, Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
 		},
 		Returns: []collection.ReturnField{

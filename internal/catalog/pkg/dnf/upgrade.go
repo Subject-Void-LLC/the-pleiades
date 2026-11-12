@@ -41,7 +41,7 @@ func upgradeDoc() collection.Doc {
 		Summary:     "Makes sure a package is at its newest available version via DNF.",
 		Description: "Makes sure one named package is at the newest version DNF knows about, upgrading it if a newer build is available. This is ansible.builtin.dnf with state=latest for a single package, not a full-system dnf upgrade: it never touches any package other than the one named. A package that is absent is installed fresh, since there is no \"current\" version to upgrade from. A package that is already at the newest available build reports no change and no command reaches the device.",
 		Params: []collection.Param{
-			{Name: paramName, Type: "string", Required: true, Description: "The RPM package to keep current."},
+			{Name: paramName, Type: "string", Required: true, Format: collection.ParamFormatRPMPackage, Description: "The RPM package to keep current."},
 			{Name: sdk.ParamInsecureSkipHostKeyVerify, Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
 		},
 		Returns: []collection.ReturnField{
@@ -78,7 +78,7 @@ func CheckUpgrade(ctx context.Context, rc sdk.RunbookContext, device inventory.I
 func upgrade(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any, mode collection.Mode) (collection.Result, error) {
 	const fqcn = "pkg.dnf.upgrade"
 
-	name, err := sdk.RequiredStringParam(params, paramName)
+	name, err := packageName(params)
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
@@ -92,6 +92,15 @@ func upgrade(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 	before, err := queryRPM(ctx, conn, name)
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+	}
+
+	// As for pkg.dnf.install: an absent package is installed, so a name no
+	// package has is refused before dnf could install a provider of it in
+	// its place, by a check exactly as by a real run.
+	if !before.installed {
+		if err := requirePackage(ctx, conn, name); err != nil {
+			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+		}
 	}
 
 	if mode == collection.ModeCheck {
@@ -111,7 +120,7 @@ func upgrade(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 	}
 
 	if !before.installed {
-		if _, err := runDnf(ctx, conn, "install", "-y", name); err != nil {
+		if _, err := runDnf(ctx, conn, []string{"install", "-y"}, name); err != nil {
 			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 		}
 		after, err := queryRPM(ctx, conn, name)
@@ -132,7 +141,7 @@ func upgrade(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 	changed := false
 	after := before
 	if available {
-		if _, err := runDnf(ctx, conn, "upgrade", "-y", name); err != nil {
+		if _, err := runDnf(ctx, conn, []string{"upgrade", "-y"}, name); err != nil {
 			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 		}
 		changed = true

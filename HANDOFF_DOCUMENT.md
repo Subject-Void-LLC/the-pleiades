@@ -4,51 +4,39 @@ Rewrite the "Current Status" section when stopping mid-task or handing off, per 
 
 ## Current Status (this session)
 
-**2026-11-11. Branch `fix/facts-release-skew`, rebased on `main` at `3ea26d84` (#155 merged, go1.27.4). Nine commits;
-the node-method binding (FAILURE_PATTERNS 1164) and its review fixes are committed. `make pr-check` runs next on the
-rebased tip, then push, `make branch-containers` and the pull request.**
+**2026-11-12. Branch `fix/v030-first-tier-proofs`, PR #158 (refuse a word a program would read as an option or a
+pattern, plus the first-tier proofs for Phases 38 and 88), on `main` at `0c4ee4e8` (#157). Every check passed at
+`fc530436`. At `f31d10e7` `containers (5)` failed `TestCheck_RealRoutersAgainstRealBatfish` ("could not lock running
+DS"), which this branch did not cause, and `coverage` failed with it. That flake is fixed (FAILURE_PATTERNS 1178).
+Next: pr-check, push, branch-containers, then watch #158's checks.**
 
 ### What works
 
-- **1020 fixed (option B)** and its catalog-method case closed by 1164; **1031 fixed (option C,
-  `wire.CollectionIdentity.Deliverable`)**. Proof: `TestCatalogMethodClaimNoLongerWritesBuiltinKeys`,
-  `TestFrozenRuleIsSubsetOfValid`, `TestDeliverableReadsNoUnicodeTable`.
-- **1164, uncommitted:** each native job pins its node graph at first fan-out (`graph/1`), one resolver judges every
-  facts batch and journal row under the dispatched node's method (`journal.NodeMethod.Judge`,
-  `journal.IdentityProblem`), a changed graph fails the devices left, and a pinned dispatch is payload version 2.
-  Proof: `TestNodeConsumers_JudgeIdentityAndSkewAlike`, `TestGraphDigest_GraphV1IsFrozen`,
-  `TestPinnedGraph_TheWorkersPayloadRunsOnlyOnTheSameGraph`, `TestAdapter_Execute_RunsOnlyThePinnedGraph`.
-- Committed fixes 1159 to 1163; review fixes 1165 to 1172 (uncommitted). LESSONS 443 to 445.
+- The operand rule across the first-tier methods (`pkg/operand`, `collection.ParamFormat*`, held by validate, the
+  render, the rollback planner and each method) and the QuotePS fixes: see PR #158's body and FAILURE_PATTERNS 1174 to
+  1177.
+- 1178: `internal/testsupport/testdata/netlab/frr/start.sh` says ready only after watchfrr is idle with every daemon Up,
+  mgmtd's zebra and staticd backends have connected, and a real `configure terminal` takes the lock. It exits non-zero
+  if that never happens. Proof: the batfish test 5 of 5 under `-race`, and every StartNetLab package passes.
 
 ### Current blocker
 
-None.
+None. The lock error was never reproduced here (not even at `--cpus 0.05`), so CI is the real test of 1178.
 
 ### Open
 
-- Watch in CI: `cmd/controller`'s `TestControllerLeaderElection_ReleaseGate` failover took 4.5 s against 3 s once under
-  load here and passed alone.
-- 1172 has no test; it was checked by reading.
-- Records follow #155's (FP 1148-1158, LESSONS 440-442), merged before this branch; the rebase kept both sets.
-- From earlier: 1085, 1139, 1143 (bindings on inventory delete), 1146.
+- Watch in CI: `cmd/controller`'s `TestControllerLeaderElection_ReleaseGate` (failover 4.5 s against 3 s once under
+  local load).
+- From earlier: 1085, 1139 (owner decision), 1143 (bindings on inventory delete), 1146.
 
 ### Next, in order
 
-1. `make pr-check` through the monitor on the rebased tip, push, `make branch-containers`.
-2. Open the pull request when it passes, with the failure patterns checked list in its body.
+1. `make pr-check` through the monitor on the new tip, push, `make branch-containers`.
+2. Watch PR #158 until it is green. The owner merges it. Then pull main and clean up.
 
-### Files changed on this branch
+### Files changed this session
 
-Committed: `pkg/wire/{deliverable.go,identity.go}`, `internal/termsafe/quote.go`, `internal/facts/`,
-`internal/facts/entstore/`, `internal/journal/`, `internal/rollback/`, `internal/api/device_facts.go`,
-`cmd/pleiades/facts_cmd.go`, `cmd/controller/builtin_catalog.go`, docs 09, 11 and 13, changelog fragments.
-Uncommitted: `cmd/controller/{main.go,node_resolver.go}`, `internal/runbook/{graph_digest.go,nodes.go,...}`,
-`internal/journal/{nodes.go,notes.go,subscriber_nodes.go,...}`, `internal/facts/entstore/{nodes.go,...}`,
-`internal/dispatch/{ent_store_pin.go,worker.go,worker_devices.go,...}`, `internal/ent/schema/job.go` and its generated
-code, migrations sqlite `0047_job_node_graph.sql` and postgres `0044_job_node_graph.sql`, `pkg/wire/{dispatch.go,
-dispatch_version.go}`, `internal/adapters/native/adapter.go`, the tests beside each, docs 09 and 13,
-`changelog/node-method-binding.security.md`, `changelog/facts-cli-shows-keys-escaped.fixed.md`. Records:
-`FAILURE_PATTERNS*.md` (1159 to 1172; 1020 and 1031 resolutions), `LESSONS_LEARNED*.md` (443 to 445),
+`internal/testsupport/testdata/netlab/frr/start.sh`, `FAILURE_PATTERNS.md`, `FAILURE_PATTERNS_ARCHIVE.md` (1178),
 `HANDOFF_DOCUMENT.md`, `HANDOFF_ARCHIVE.md`.
 
-Lab: no change reported for this branch.
+Lab: no change.

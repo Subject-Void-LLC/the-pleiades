@@ -111,7 +111,8 @@ func ParamFits(typ string, v any) (bool, error) {
 // refuses a parameter both required and defaulted: validation refuses a
 // task leaving out a required one, so a default it states would be one no
 // task could ever get. And it refuses a declared set of choices that
-// contradicts the parameter (checkChoices).
+// contradicts the parameter (checkChoices), and an operand declared on a
+// parameter that cannot hold a name (checkOperand).
 func checkParamTypes(d Descriptor) error {
 	for _, p := range d.Manifest.Doc.Params {
 		if !KnownParamType(p.Type) {
@@ -126,6 +127,9 @@ func checkParamTypes(d Descriptor) error {
 			return err
 		}
 		if err := checkChoices(d, p); err != nil {
+			return err
+		}
+		if err := checkOperand(d, p); err != nil {
 			return err
 		}
 		if err := checkRunSetting(d, p); err != nil {

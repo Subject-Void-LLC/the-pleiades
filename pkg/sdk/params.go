@@ -1,6 +1,10 @@
 package sdk
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/operand"
+)
 
 // Typed readers for a task's params map.
 //
@@ -150,4 +154,67 @@ func RequiredStringParam(params map[string]any, key string) (string, error) {
 		return "", fmt.Errorf("%s is required", key)
 	}
 	return v, nil
+}
+
+// RequiredOperandParam reads a required name the method places on a
+// device's command line after the program's options (a package, a unit, a
+// service), refusing an absent one by name and one the program would read
+// as an option or a pattern (pkg/operand).
+//
+// Validation and the engine already refuse such a value for a parameter
+// declaring collection.ParamFormatOperand. A method reads its name through
+// this anyway, before it connects, because a value can reach it without
+// passing either: a generic dispatcher handing it on, an undo replayed from
+// the journal, a program calling the method directly.
+func RequiredOperandParam(params map[string]any, key string) (string, error) {
+	return RequiredOperandParamOf(params, key, operand.Name)
+}
+
+// RequiredOperandParamOf is RequiredOperandParam for a parameter held to one
+// program's own grammar (an operand.Kind, matching the parameter's declared
+// format) rather than the general rule: a systemd unit, an APT or RPM
+// package name, a mount field.
+func RequiredOperandParamOf(params map[string]any, key string, kind operand.Kind) (string, error) {
+	v, err := RequiredStringParam(params, key)
+	if err != nil {
+		return "", err
+	}
+	if err := kind.Check(key, v); err != nil {
+		return "", err
+	}
+	return v, nil
+}
+
+// OptionalOperandParamOf reads an optional word as StringParam does ("" when
+// it is absent) and holds a present one to kind's rule, for a value that is
+// joined onto an operand or placed beside one: a package version, a mount's
+// options.
+func OptionalOperandParamOf(params map[string]any, key string, kind operand.Kind) (string, error) {
+	v := StringParam(params, key)
+	if err := kind.Check(key, v); err != nil {
+		return "", err
+	}
+	return v, nil
+}
+
+// OperandSlice reads an optional list of names, each held to the same rule
+// RequiredOperandParam holds one name to, reporting whether the key was
+// present as StringSlice does.
+func OperandSlice(params map[string]any, key string) ([]string, bool, error) {
+	return OperandSliceOf(params, key, operand.Name)
+}
+
+// OperandSliceOf is OperandSlice for a list held to one program's own
+// grammar (an operand.Kind), item by item.
+func OperandSliceOf(params map[string]any, key string, kind operand.Kind) ([]string, bool, error) {
+	items, present, err := StringSlice(params, key)
+	if err != nil {
+		return nil, present, err
+	}
+	for i, item := range items {
+		if err := kind.Check(fmt.Sprintf("%s[%d]", key, i), item); err != nil {
+			return nil, present, err
+		}
+	}
+	return items, present, nil
 }

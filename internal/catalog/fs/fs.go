@@ -39,6 +39,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/farside"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/operand"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remotefile"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
@@ -125,21 +126,35 @@ type mountFacts struct {
 	options string
 }
 
+// findmntNothingFound is findmnt's exit status when it has nothing to
+// show, and also its status for any error it reports.
+const findmntNothingFound = 1
+
 // queryMount asks findmnt whether path is itself a mountpoint (not
 // merely underneath one), using --mountpoint for an exact match.
 //
-// findmnt gives no separate exit code for "not a mountpoint" the way
-// getent's 2 means "no such account" (identity/user/user.go's
-// queryUser), so every non-zero exit is treated as "not mounted" here,
-// the same answer ansible.builtin.mount's own fact-gathering settles
-// for.
+// findmnt has no exit status of its own for "not a mountpoint": it exits
+// 1 when it has nothing to show and 1 for every error it reports (its
+// manual: "1 on any error"). What tells them apart is that it says nothing
+// when it finds nothing and explains an error on stderr (measured with
+// util-linux 2.38 on Debian 12: exit 1 and no output at all for a
+// directory that is not a mountpoint and for a path that does not exist;
+// exit 1 and "unrecognized option" or "unknown column" on stderr for an
+// error). So only exit 1 with nothing written reads as "not mounted".
+// Reading every non-zero exit that way, as this did, read a findmnt that
+// was not installed (127) or could not answer as "not mounted" and went on
+// to mount (FAILURE_PATTERNS 1174). The test is the emptiness of stderr,
+// not its words, so no locale changes it.
 func queryMount(ctx context.Context, conn *remoteexec.Conn, path string) (mountFacts, error) {
 	result, err := conn.Run(ctx, remoteexec.QuoteCommand([]string{"findmnt", "-no", "SOURCE,FSTYPE,OPTIONS", "--mountpoint", path}))
 	if err != nil {
 		return mountFacts{}, err
 	}
 	if result.ExitCode != 0 {
-		return mountFacts{}, nil
+		if result.ExitCode == findmntNothingFound && strings.TrimSpace(result.Stdout) == "" && strings.TrimSpace(result.Stderr) == "" {
+			return mountFacts{}, nil
+		}
+		return mountFacts{}, fmt.Errorf("findmnt --mountpoint %s exited %d: %s", path, result.ExitCode, failureDetail(result))
 	}
 	fields := strings.Fields(strings.TrimRight(result.Stdout, "\n"))
 	if len(fields) < 3 {
@@ -148,16 +163,25 @@ func queryMount(ctx context.Context, conn *remoteexec.Conn, path string) (mountF
 	return mountFacts{mounted: true, source: fields[0], fstype: fields[1], options: fields[2]}, nil
 }
 
-// runMount and runUnmount each run one mutating command and treat a
-// non-zero exit as a real error.
+// runMount runs mount and treats a non-zero exit as a real error.
+//
+// The source and the mountpoint follow a "--", so mount reads each as what
+// it is: without it, path -a made util-linux mount run mount -a, mounting
+// every entry in fstab (FAILURE_PATTERNS 1174). util-linux 2.38 and
+// BusyBox 1.36 (Alpine's mount) both end their options there (measured).
+// The fields are also held to operand.MountField before the connection
+// (readFields), so a value beginning with "-" never gets this far.
 func runMount(ctx context.Context, conn *remoteexec.Conn, src, path, fstype, opts string) error {
-	return runFsCmd(ctx, conn, []string{"mount", "-t", fstype, "-o", opts, src, path})
+	return runFsCmd(ctx, conn, []string{"mount", "-t", fstype, "-o", opts, "--", src, path})
 }
 
+// runUnmount runs umount on path, after a "--" for runMount's reason.
 func runUnmount(ctx context.Context, conn *remoteexec.Conn, path string) error {
-	return runFsCmd(ctx, conn, []string{"umount", path})
+	return runFsCmd(ctx, conn, []string{"umount", "--", path})
 }
 
+// runFsCmd runs one mutating command and treats a non-zero exit as a real
+// error.
 func runFsCmd(ctx context.Context, conn *remoteexec.Conn, argv []string) error {
 	command := remoteexec.QuoteCommand(argv)
 	result, err := conn.Run(ctx, command)
@@ -196,6 +220,26 @@ type fstabEntry struct {
 // non-zero value to preserve.
 func (e fstabEntry) line() string {
 	return strings.Join([]string{e.source, e.mountpoint, e.fstype, e.options, "0", "0"}, "\t")
+}
+
+// check refuses an entry with a field fstab would not read back as that
+// one field (operand.MountField): a space, a tab or a line break would add
+// a field or a whole line to the file, so a source of
+// "/dev/sdb1 /etc ext4 defaults 0 0\n/dev/sdc1" would mount something on
+// /etc at the next boot. The methods refuse such a field before they
+// connect; this holds for every caller of syncFstab and fstabWouldChange.
+func (e fstabEntry) check() error {
+	for _, field := range []struct{ key, value string }{
+		{paramSrc, e.source}, {paramPath, e.mountpoint}, {paramFSType, e.fstype}, {paramOpts, e.options},
+	} {
+		if err := operand.MountField.Check(field.key, field.value); err != nil {
+			return fmt.Errorf("writing an fstab entry: %w", err)
+		}
+		if field.value == "" {
+			return fmt.Errorf("writing an fstab entry: %s is empty, which would leave the line short of a field", field.key)
+		}
+	}
+	return nil
 }
 
 // fstabReadLines reads path's whole text and splits it into lines,
@@ -251,6 +295,11 @@ func fstabFind(lines []string, mountpoint string) int {
 // /etc/fstab unreadable by everyone else the moment this method touched
 // it.
 func syncFstab(ctx context.Context, conn *remoteexec.Conn, fstabPath, mountpoint string, entry *fstabEntry) (changed bool, err error) {
+	if entry != nil {
+		if err := entry.check(); err != nil {
+			return false, err
+		}
+	}
 	// info is captured here, before fstabReadLines below, purely for the
 	// mode/owner/group Apply restores after a real write; fstabReadLines
 	// is what actually enforces that fstabPath exists, so this does not
@@ -309,6 +358,11 @@ func fstabDecide(lines []string, mountpoint string, entry *fstabEntry) ([]string
 // fstabWouldChange reads fstabPath and reports whether syncFstab would
 // rewrite it for mountpoint and entry, writing nothing.
 func fstabWouldChange(ctx context.Context, conn *remoteexec.Conn, fstabPath, mountpoint string, entry *fstabEntry) (bool, error) {
+	if entry != nil {
+		if err := entry.check(); err != nil {
+			return false, err
+		}
+	}
 	lines, _, err := fstabReadLines(ctx, conn, fstabPath)
 	if err != nil {
 		return false, err
@@ -333,6 +387,15 @@ func predictState(rc sdk.RunbookContext, fqcn, path string, before fsState, chan
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
 	return collection.Result{Changed: changed}, nil
+}
+
+// readField reads one required mount field, held to operand.MountField, the
+// rule its parameter declares (collection.ParamFormatMountField), before
+// anything connects: mount, umount and findmnt would read a value beginning
+// with "-" as an option (path -a made mount run mount -a), and fstab would
+// read a space or a line break in it as another field or line.
+func readField(params map[string]any, key string) (string, error) {
+	return sdk.RequiredOperandParamOf(params, key, operand.MountField)
 }
 
 // fstabParam reads the fstab path parameter, defaulting to /etc/fstab.

@@ -42,7 +42,7 @@ func upgradeDoc() collection.Doc {
 		Summary:     "Makes sure a package is at its newest available version via APT.",
 		Description: "Makes sure one named package is at the newest version APT knows about, upgrading it if a newer one is available. This is ansible.builtin.apt with state=latest for a single package, not apt-get upgrade or apt-get dist-upgrade: it never touches any package other than the one named. A package that is absent is installed fresh, since there is no \"current\" version to upgrade from. A package that is already at the newest candidate version reports no change and no command reaches the device.",
 		Params: []collection.Param{
-			{Name: paramName, Type: "string", Required: true, Description: "The APT package to keep current."},
+			{Name: paramName, Type: "string", Required: true, Format: collection.ParamFormatAptPackage, Description: "The APT package to keep current."},
 			{Name: sdk.ParamInsecureSkipHostKeyVerify, Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
 		},
 		Returns: []collection.ReturnField{
@@ -81,7 +81,7 @@ func CheckUpgrade(ctx context.Context, rc sdk.RunbookContext, device inventory.I
 func upgrade(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any, mode collection.Mode) (collection.Result, error) {
 	const fqcn = "pkg.apt.upgrade"
 
-	name, err := sdk.RequiredStringParam(params, paramName)
+	name, err := packageName(params)
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
@@ -97,12 +97,20 @@ func upgrade(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
 
+	// As for pkg.apt.install: an absent package is installed, so a name APT
+	// has no package for exactly is refused before apt-get could install
+	// something else in its place, by a check exactly as by a real run.
+	var freshCandidate string
+	if !before.installed {
+		if freshCandidate, err = requireCandidate(ctx, conn, name); err != nil {
+			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+		}
+	}
+
 	if mode == collection.ModeCheck {
 		predicted := before
 		if !before.installed {
-			if predicted, err = predictInstall(ctx, conn, name, ""); err != nil {
-				return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
-			}
+			predicted = state{installed: true, version: freshCandidate}
 		} else {
 			candidate, err := queryCandidate(ctx, conn, name)
 			if err != nil {
@@ -119,7 +127,7 @@ func upgrade(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 	}
 
 	if !before.installed {
-		if _, err := runAptGet(ctx, conn, "install", "-y", name); err != nil {
+		if _, err := runAptGet(ctx, conn, []string{"install", "-y"}, name); err != nil {
 			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 		}
 		after, err := queryDpkg(ctx, conn, name)
@@ -140,7 +148,7 @@ func upgrade(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 	changed := false
 	after := before
 	if candidate != "" && candidate != before.version {
-		if _, err := runAptGet(ctx, conn, "install", "-y", "--only-upgrade", name); err != nil {
+		if _, err := runAptGet(ctx, conn, []string{"install", "-y", "--only-upgrade"}, name); err != nil {
 			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 		}
 		changed = true

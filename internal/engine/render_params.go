@@ -168,7 +168,9 @@ func (r *run) renderTask(task *Task, roots map[string]any) (*Task, error) {
 // keeps its value's type and must be of the declared type
 // (collection.ParamFits), or the task fails naming it. Every rendered
 // parameter that declares a closed set must also render to one of its
-// choices (collection.ChoiceProblem). A parameter with no
+// choices (collection.ChoiceProblem), and every one declared an operand to
+// one name a program reads only as that name (collection.OperandProblem). A
+// parameter with no
 // template, or one the method does not declare (validation's finding), is
 // left as it is.
 func renderParams(eng render.Engine, fqcn string, params map[string]any, ctx map[string]any) (map[string]any, error) {
@@ -209,6 +211,12 @@ func renderParams(eng render.Engine, fqcn string, params map[string]any, ctx map
 		// validation holds a literal one (collection.ChoiceProblem).
 		if problem := collection.ChoiceProblem(decls[key], rendered); problem != "" {
 			return nil, fmt.Errorf("parameter %s of %s rendered to a value outside its choices: %s", key, fqcn, problem)
+		}
+		// And a rendered name is held to the operand rule, so a register or
+		// a loop item a device returned cannot become an option or a pattern
+		// on the program the method runs (collection.OperandProblem).
+		if problem := collection.OperandProblem(decls[key], rendered); problem != "" {
+			return nil, fmt.Errorf("parameter %s of %s rendered to a value it cannot pass on as one name: %s", key, fqcn, problem)
 		}
 		out[key] = rendered
 	}

@@ -198,3 +198,36 @@ func TestGenerateRendersAPartialDoc(t *testing.T) {
 		}
 	}
 }
+
+// TestGenerateNamesEveryOperandFormatByItsConstant: each operand format
+// renders as its named constant, so a generated method reads as a
+// hand-written one does and keeps holding the parameter to its rule. A
+// format added to pkg/collection and not here would render by value,
+// which this catches as a missing constant.
+func TestGenerateNamesEveryOperandFormatByItsConstant(t *testing.T) {
+	names := map[collection.ParamFormat]string{
+		collection.ParamFormatOperand:        "ParamFormatOperand",
+		collection.ParamFormatSystemdUnit:    "ParamFormatSystemdUnit",
+		collection.ParamFormatAptPackage:     "ParamFormatAptPackage",
+		collection.ParamFormatRPMPackage:     "ParamFormatRPMPackage",
+		collection.ParamFormatPackage:        "ParamFormatPackage",
+		collection.ParamFormatPackageVersion: "ParamFormatPackageVersion",
+		collection.ParamFormatMountField:     "ParamFormatMountField",
+	}
+	for _, format := range collection.OperandFormats() {
+		constant, ok := names[format]
+		if !ok {
+			t.Fatalf("operand format %q has no constant named in this test", format)
+		}
+		files, err := collectionscaffold.Generate(collectionscaffold.Config{
+			Name: "pkg.apt.install",
+			Doc:  collection.Doc{Summary: "s", Params: []collection.Param{{Name: "name", Type: "string", Format: format, Description: "d"}}},
+		})
+		if err != nil {
+			t.Fatalf("Generate with %s: %v", format, err)
+		}
+		if source := string(files[0].Content); !strings.Contains(source, "Format: collection."+constant) {
+			t.Errorf("%s did not render as collection.%s:\n%s", format, constant, source)
+		}
+	}
+}

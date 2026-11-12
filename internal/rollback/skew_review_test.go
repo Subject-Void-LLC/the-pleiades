@@ -79,6 +79,69 @@ func TestBuild_AValueOutsideTheDeclaredChoicesIsLeaveOnly(t *testing.T) {
 	}
 }
 
+// TestBuild_AnOperandAProgramWouldMisreadIsLeaveOnly: a recorded name the
+// undo's method would pass on as an option or a pattern is refused with
+// --leave alone, whatever --allow-skew names, and the value is never
+// printed (FAILURE_PATTERNS 1174).
+func TestBuild_AnOperandAProgramWouldMisreadIsLeaveOnly(t *testing.T) {
+	in := registerSkew(t)
+	for _, path := range []string{"--no-preserve-root", "/srv/*"} {
+		t.Run(path, func(t *testing.T) {
+			for _, allow := range []bool{false, true} {
+				_, err := planOf([]engine.JournalEntry{madeEntry(in.identity, in.undo, map[string]any{"path": path})}, func(r *rollback.Request) {
+					if allow {
+						r.AllowSkew = map[string]bool{"tasks[0]": true}
+					}
+				})
+				problems := refused(t, err)
+				if len(problems) != 1 || problems[0].Accept != "--leave tasks[0]" || !strings.Contains(problems[0].Reason, "would not pass on as one name") || strings.Contains(problems[0].Reason, path) {
+					t.Errorf("allow-skew %v: problems %+v, want one naming the rule and not the value, accepted by --leave alone", allow, problems)
+				}
+			}
+		})
+	}
+}
+
+// TestBuild_EachOperandFormatIsHeldToItsOwnRule: the planner holds a
+// recorded value to the rule its undo parameter's format names, not only the
+// general one. A journaled pkg.apt.remove of "diffutils-" (apt-get's
+// "remove the package before the dash") or a version holding a pattern is
+// leave-only, while systemd's root mount, which begins with "-", replays as
+// the unit it names.
+func TestBuild_EachOperandFormatIsHeldToItsOwnRule(t *testing.T) {
+	for _, tc := range []struct {
+		format collection.ParamFormat
+		value  string
+		ok     bool
+	}{
+		{collection.ParamFormatSystemdUnit, "-.mount", true},
+		{collection.ParamFormatSystemdUnit, "-.slice", true},
+		{collection.ParamFormatSystemdUnit, "-f", false},
+		{collection.ParamFormatAptPackage, "diffutils-", false},
+		{collection.ParamFormatAptPackage, "jq/bookworm", false},
+		{collection.ParamFormatAptPackage, "g++", true},
+		{collection.ParamFormatRPMPackage, "@core", false},
+		{collection.ParamFormatPackageVersion, "1.*", false},
+		{collection.ParamFormatMountField, "/srv/data", true},
+		{collection.ParamFormatMountField, "/mnt/a b", false},
+	} {
+		t.Run(string(tc.format)+" "+tc.value, func(t *testing.T) {
+			in := registerSkewFormat(t, tc.format)
+			plan, err := planOf([]engine.JournalEntry{madeEntry(in.identity, in.undo, map[string]any{"path": tc.value})}, nil)
+			if tc.ok {
+				if err != nil || len(plan.Steps()) != 1 {
+					t.Fatalf("Build = %v, %d steps; want the undo planned", err, len(plan.Steps()))
+				}
+				return
+			}
+			problems := refused(t, err)
+			if len(problems) != 1 || problems[0].Accept != "--leave tasks[0]" || !strings.Contains(problems[0].Reason, "would not pass on as one name") {
+				t.Errorf("problems %+v, want one naming the rule, accepted by --leave alone", problems)
+			}
+		})
+	}
+}
+
 // TestVerify_ARunnerHoldsRequiredParametersAndChoicesWhateverIsAccepted:
 // the Runner's re-check holds a step to the same two rules, SkewAccepted or
 // not.

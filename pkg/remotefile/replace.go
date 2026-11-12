@@ -106,8 +106,14 @@ func Replace(ctx context.Context, conn *remoteexec.Conn, filePath string, conten
 // The cleanup runs on a context of its own, so a caller's cancelled
 // context still cleans up. A session that dropped cannot, and leaves the
 // file beside the target.
+//
+// mktemp takes the template as one word that starts with the directory, so
+// a relative directory starting with a dash is given as ./dir (operand), as
+// Write does; otherwise mktemp read "-d/.pleiades.XXXXXX" as its -d option.
+// The name mktemp prints then starts with that same ./dir, which is what the
+// check below compares against.
 func writeBeside(ctx context.Context, conn *remoteexec.Conn, filePath string, content []byte) (string, func(), error) {
-	dir := path.Dir(filePath)
+	dir := operand(path.Dir(filePath))
 	res, err := conn.RunWithStdin(ctx, "set -e; tmp=$(mktemp "+remoteexec.QuoteArg(dir)+"/.pleiades.XXXXXX); cat > \"$tmp\"; printf '%s' \"$tmp\"", strings.NewReader(string(content)))
 	if err != nil {
 		return "", nil, fmt.Errorf("writing beside it: %w", err)
@@ -130,7 +136,8 @@ func writeBeside(ctx context.Context, conn *remoteexec.Conn, filePath string, co
 // got and copies in place when that is not before.
 func settle(ctx context.Context, conn *remoteexec.Conn, tmp string, before Info) error {
 	quoted := remoteexec.QuoteArg(tmp)
-	if err := run(ctx, conn, "chmod "+remoteexec.QuoteArg(NormalizeMode(before.Mode))+" "+quoted, "chmod"); err != nil {
+	// Every command here ends its options with "--", as Apply's do.
+	if err := run(ctx, conn, "chmod -- "+remoteexec.QuoteArg(NormalizeMode(before.Mode))+" "+quoted, "chmod"); err != nil {
 		return err
 	}
 	now, err := Stat(ctx, conn, tmp)
@@ -148,5 +155,5 @@ func settle(ctx context.Context, conn *remoteexec.Conn, tmp string, before Info)
 	}
 	// chown and chgrp may clear setuid and setgid, so the mode goes on
 	// again once they have run.
-	return run(ctx, conn, "chmod "+remoteexec.QuoteArg(NormalizeMode(before.Mode))+" "+quoted, "chmod")
+	return run(ctx, conn, "chmod -- "+remoteexec.QuoteArg(NormalizeMode(before.Mode))+" "+quoted, "chmod")
 }
