@@ -5,8 +5,10 @@
 package main_test
 
 import (
+	"encoding/json"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -14,6 +16,42 @@ import (
 
 	"golang.org/x/crypto/ssh/knownhosts"
 )
+
+// rebuildExampleWith builds examples/external_collection into dir again,
+// with notebook.go's one occurrence of old replaced by replacement (through
+// go build's -overlay, so the source tree is never touched): a new release
+// of the program, as its author would ship one.
+func rebuildExampleWith(t *testing.T, dir, old, replacement string) {
+	t.Helper()
+	source, err := filepath.Abs("../../examples/external_collection/notebook.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	original, err := os.ReadFile(source) // #nosec G304 -- this repository's own example
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := strings.Count(string(original), old); n != 1 {
+		t.Fatalf("notebook.go holds %q %d times, want once", old, n)
+	}
+	work := t.TempDir()
+	changed := filepath.Join(work, "notebook.go")
+	if err := os.WriteFile(changed, []byte(strings.Replace(string(original), old, replacement, 1)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	overlay, err := json.Marshal(map[string]map[string]string{"Replace": {source: changed}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	overlayPath := filepath.Join(work, "overlay.json")
+	if err := os.WriteFile(overlayPath, overlay, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	build := exec.Command("go", "build", "-overlay", overlayPath, "-o", filepath.Join(dir, "note"), "../../examples/external_collection")
+	if out, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("building the upgraded example: %v\n%s", err, out)
+	}
+}
 
 // TestCLI_ExternalCapabilityIsProbedGrantedAndUsed is the release gate.
 func TestCLI_ExternalCapabilityIsProbedGrantedAndUsed(t *testing.T) {
@@ -72,6 +110,39 @@ func TestCLI_ExternalCapabilityIsProbedGrantedAndUsed(t *testing.T) {
 	if got := strings.TrimSpace(verifyOverSSH(t, addr, "cat "+notes+"/hello")); got != "from a capability no core release defined" {
 		t.Fatalf("the note holds %q", got)
 	}
+
+	// Three upgrades of the program. A new release whose definition is the
+	// same (only a method's summary moved), and one whose definition changed
+	// only in prose, each keep the probed grant: a new binary is not a new
+	// definition. One whose author bumped the definition's revision withdraws
+	// it, and validate says which capability, which program and what to do;
+	// onboarding again grants it under the new definition.
+	upgrade := func(what string, old, replacement string) {
+		t.Helper()
+		rebuildExampleWith(t, collections, old, replacement)
+		must("collection", "approve", "note", "--yes")
+		t.Logf("upgraded the program: %s", what)
+	}
+	upgrade("the same definition in a new binary",
+		`Summary:     "Makes sure a note in the device's notebook holds exactly the given text.",`,
+		`Summary:     "Makes sure a note in the device's notebook holds exactly the given text, in the next release.",`)
+	must("validate", "runbooks/notebook.yaml")
+	upgrade("only the prose changed",
+		`Doc:      "The connecting account keeps notes in a directory of its own, ~/notes, which it may write.",`,
+		`Doc:      "The account the device is reached as keeps its notes in ~/notes, a directory it may write.",`)
+	must("validate", "runbooks/notebook.yaml")
+	upgrade("the revision bumped", `Probe: notebookProbeFQCN,`, "Probe: notebookProbeFQCN,\n\t\tRevision: 1,")
+	out, err := pleiades("validate", "runbooks/notebook.yaml")
+	if err == nil {
+		t.Fatalf("validate passed after the definition's revision was bumped:\n%s", out)
+	}
+	for _, want := range []string{"example.notebook", `program "note"`, "revision 1", "onboard it again", "pleiades onboard container1"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("validate after the revision was bumped printed:\n%s\nwant it to say %q", out, want)
+		}
+	}
+	must("onboard", "container1")
+	must("validate", "runbooks/notebook.yaml")
 
 	// Revoked, it is gone; asserted by hand, with a reason, it is back.
 	must("revoke-capability", "container1", "example.notebook")
