@@ -58,6 +58,15 @@ type DataDefinition struct {
 	// properties it sets under "properties". Empty when only an operator's
 	// assertion can grant it.
 	Probe string `json:"probe,omitempty"`
+
+	// Revision is the author's count of the times this definition changed
+	// what it means, zero for the first. Every grant is bound to the
+	// definition's digest (DefinitionDigest), which already moves when a
+	// property, a requirement or the name changes; bumping Revision moves it
+	// when nothing the digest reads did, such as a probe fixed to stop
+	// granting what it should not, so every grant made before is withdrawn
+	// until the device is onboarded again.
+	Revision int `json:"revision,omitempty"`
 }
 
 // DataProperty is one property a grant of a data capability carries.
@@ -72,8 +81,10 @@ type DataProperty struct {
 	Description string `json:"description,omitempty"`
 }
 
-// The bounds a definition and a grant are held to.
+// The bounds a definition and a grant are held to. MaxDataDefinitions is
+// how many capabilities one program may define.
 const (
+	MaxDataDefinitions    = 64
 	MaxDataNameLength     = 64
 	MaxDataProperties     = 32
 	MaxDataRequires       = 8
@@ -108,6 +119,9 @@ func ValidateData(def DataDefinition) error {
 	}
 	if err := plainText(def.Doc, MaxDataDocLength); err != nil {
 		return fmt.Errorf("capability %q: doc: %w", def.Name, err)
+	}
+	if def.Revision < 0 || def.Revision > MaxDataRevision {
+		return fmt.Errorf("capability %q has revision %d; a revision is a whole number from 0 to %d", def.Name, def.Revision, MaxDataRevision)
 	}
 	if len(def.Requires) > MaxDataRequires {
 		return fmt.Errorf("capability %q requires %d capabilities, more than %d", def.Name, len(def.Requires), MaxDataRequires)
