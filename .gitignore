@@ -51,6 +51,12 @@ obj/
 # A ServiceNow instance the ServiceNow release gate can run against instead of
 # its local mock: its URL and login (tests/servicenow/.env.example).
 /tests/servicenow/.env
+# Cisco controllers the end-to-end tests can run against: Catalyst Center
+# (tests/e2e/catalyst_test.go), and an APIC and an SD-WAN Manager for work
+# not built yet. Each one's .env.example names its settings.
+/tests/catalyst-center/.env
+/tests/aci-simulator/.env
+/tests/cisco-sdwan/.env
 /backups/
 
 # The throwaway serving certificate `make dev-cert` writes. It holds a real
