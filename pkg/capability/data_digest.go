@@ -37,6 +37,10 @@ const MaxDataRevision = 1_000_000
 // module makes, so no other encoding can be read as a definition's.
 const definitionDomain = "pleiades capability definition v1\n"
 
+// marshalDigestForm encodes a definition's digest form: json.Marshal, a
+// variable only so a test can prove a failure panics rather than collides.
+var marshalDigestForm = json.Marshal
+
 // definitionDigestPattern is the shape DefinitionDigest returns.
 var definitionDigestPattern = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 
@@ -99,8 +103,10 @@ func DefinitionDigest(def DataDefinition) string {
 		}
 		return !a.Required && b.Required
 	})
-	// A struct of strings, ints, bools and slices of them always encodes.
-	encoded, err := json.Marshal(form)
+	// A struct of strings, ints, bools and slices of them always encodes. A
+	// failure would digest the same nothing for every definition, a silent
+	// collision, so it panics rather than return a digest.
+	encoded, err := marshalDigestForm(form)
 	if err != nil {
 		panic("capability: a definition's digest form did not encode: " + err.Error())
 	}
