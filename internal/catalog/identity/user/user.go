@@ -159,7 +159,15 @@ if find . -type f -exec sh -c 'for p; do cmp -s "$p" "$0/$p" || exit 1; done' "$
 // homeState reports whether home is absent, holds exactly what useradd
 // copied into it from skel (unchanged), or anything else (changed).
 func homeState(ctx context.Context, conn *remoteexec.Conn, home, skel string) (string, error) {
-	result, err := conn.Run(ctx, remoteexec.QuoteCommand([]string{"sh", "-c", homeStateScript, "sh", home, skel}))
+	// A path beginning with "-" goes as ./path: cd reads "-" as $OLDPWD even
+	// after "--" (FAILURE_PATTERNS 1179), and passwd's home is whatever it says.
+	dotted := func(p string) string {
+		if strings.HasPrefix(p, "-") {
+			return "./" + p
+		}
+		return p
+	}
+	result, err := conn.Run(ctx, remoteexec.QuoteCommand([]string{"sh", "-c", homeStateScript, "sh", dotted(home), dotted(skel)}))
 	if err != nil {
 		return "", err
 	}

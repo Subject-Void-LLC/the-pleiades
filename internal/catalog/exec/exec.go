@@ -111,9 +111,19 @@ const cdFailedExitCode = 121
 // not option parsing. And a failed cd stops what follows rather than
 // letting it run somewhere else, which is the failure that turns a
 // typo'd chdir into a change applied to the wrong path.
+//
+// "--" is not enough for a directory named "-": POSIX has cd read that
+// operand as $OLDPWD even after "--", and dash and BusyBox's sh, with no
+// OLDPWD, as a fresh login has, stay where they are and succeed, so the
+// command ran in the login's home (FAILURE_PATTERNS 1179). A relative
+// directory beginning with "-" is sent as ./dir, which names the same
+// directory and is read as nothing else.
 func changeDirectory(dir string) string {
 	if dir == "" {
 		return ""
+	}
+	if strings.HasPrefix(dir, "-") {
+		dir = "./" + dir
 	}
 	return "cd -- " + remoteexec.QuoteArg(dir) + " || exit " + strconv.Itoa(cdFailedExitCode) + "; "
 }
