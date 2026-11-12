@@ -153,7 +153,7 @@ the newest one through the Go module proxy and records its checksum in
 ~~~sh
 go mod tidy
 go test ./...
-go build -o {{.BinaryName}} .
+CGO_ENABLED=0 GOTOOLCHAIN={{.Toolchain}} go build -trimpath -buildvcs=false -o {{.BinaryName}} .
 ~~~
 
 Pleiades has no tagged release yet, so {{code "go mod tidy"}} takes the
@@ -171,17 +171,50 @@ module at the checkout first:
 go mod edit -replace github.com/Subject-Void-LLC/the-pleiades=/path/to/the-pleiades
 go mod tidy
 go test ./...
-go build -o {{.BinaryName}} .
+CGO_ENABLED=0 GOTOOLCHAIN={{.Toolchain}} go build -trimpath -buildvcs=false -o {{.BinaryName}} .
 ~~~
 
 A replace is not checked against any checksum: whatever is at that path is
 compiled in. Point it only at a checkout you trust, and remove it
 ({{code "go mod edit -dropreplace github.com/Subject-Void-LLC/the-pleiades"}})
-before you share the program.
+before you share the program. Offline, the Go release
+{{code "GOTOOLCHAIN"}} names must already be on this machine, as its own
+{{code "go"}} or downloaded by an earlier build.
 
 Build for the machine The Pleiades runs on, not for your devices. Set
 {{code "GOOS"}} and {{code "GOARCH"}} when those differ from the machine you
 build on.
+
+### The same source, the same digest
+
+The build line is reproducible: this directory, built with it, gives the
+same bytes, and so the same SHA-256 digest, in any directory and on any
+machine building for the same {{code "GOOS"}} and {{code "GOARCH"}}. That is
+what lets someone else check that an approved digest came from this source,
+by building it and comparing. Each setting removes one thing that otherwise
+differs between two builds:
+
+- {{code "-trimpath"}} leaves out the directories the source and the Go module
+  cache sit in.
+- {{code "-buildvcs=false"}} leaves out the version control state, which
+  differs between a clone, an archive and an uncommitted edit.
+- {{code "CGO_ENABLED=0"}} leaves out the C toolchain, which the Go command
+  otherwise uses only on machines that have one.
+- {{code (printf "GOTOOLCHAIN=%s" .Toolchain)}} builds with the Go release the
+  {{code "toolchain"}} line in {{code "go.mod"}} names, the one The Pleiades
+  itself is built with. That line alone is a minimum, so a newer Go would
+  otherwise build with itself.
+
+The source is everything in this directory, {{code "go.mod"}} and
+{{code "go.sum"}} included, so the build reproduces only from the same
+{{code "go.sum"}}. A build through a {{code "replace"}} records the path the
+{{code "replace"}} names, so it reproduces only against a checkout at that
+same path; build what you share without one. Any other flag or variable
+that reaches the build ({{code "-ldflags"}}, {{code "-tags"}},
+{{code "GOAMD64"}}, {{code "GOFLAGS"}}) is part of the build too, and must be
+the same on both sides. To compare, run
+{{code (printf "sha256sum %s" .BinaryName)}}: its hex is the digest
+{{code "pleiades collection approve"}} shows after {{code "sha256:"}}.
 
 ## Install
 

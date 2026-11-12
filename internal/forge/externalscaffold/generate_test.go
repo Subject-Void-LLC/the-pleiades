@@ -77,7 +77,7 @@ func TestGenerate(t *testing.T) {
 					"# acme.motd.read",
 					"PLEIADES_COLLECTIONS_DIR",
 					"github.com/Subject-Void-LLC/the-pleiades",
-					"go build -o acme-motd-read .",
+					"CGO_ENABLED=0 GOTOOLCHAIN=go1.27.4 go build -trimpath -buildvcs=false -o acme-motd-read .",
 					"pleiades validate",
 					"pleiades doc acme.motd.read",
 					"group or others",

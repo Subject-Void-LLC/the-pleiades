@@ -46,6 +46,11 @@ type templateData struct {
 	// requires (goDirective).
 	GoVersion string
 
+	// Toolchain is the Go release the program is built with: the go.mod's
+	// toolchain line, and the GOTOOLCHAIN the README's build line sets
+	// (goToolchain).
+	Toolchain string
+
 	// EngineConstraint is the method's engine version constraint:
 	// ">=" and the generating build's release, or empty on a development
 	// build, in which case the manifest states none (Config.Engine).
@@ -83,16 +88,29 @@ var (
 // importing it. TestGoDirectiveMatchesTheModule keeps the two equal.
 const goDirective = "1.27.0"
 
-// goModTemplateSource is the program's go.mod: a module line and a go
-// line, and nothing else. There is no require, because the right version
-// of The Pleiades is one only the go command can work out (go mod tidy
-// resolves it through the module proxy and records its checksum), and no
-// replace, because a replace to a local path is not checked against
+// goToolchain is the Go release a generated program is built with: the
+// toolchain line in The Pleiades's own go.mod, which is the release its own
+// binaries and tests are built with. The Go release is part of a program's
+// bytes (the binary records it and its standard library is compiled in), so
+// the same source gives the same digest on two machines only when both
+// build with the same one. The README's build line sets it as GOTOOLCHAIN,
+// because a go.mod toolchain line alone is a minimum: a newer local Go
+// builds with itself. TestGoMod_TheToolchainIsThisModules keeps the two
+// equal.
+const goToolchain = "go1.27.4"
+
+// goModTemplateSource is the program's go.mod: a module line, a go line
+// and a toolchain line, and nothing else. There is no require, because the
+// right version of The Pleiades is one only the go command can work out (go
+// mod tidy resolves it through the module proxy and records its checksum),
+// and no replace, because a replace to a local path is not checked against
 // anything and means something different on every machine. The README
 // shows both steps, for the author to take on purpose.
 const goModTemplateSource = `module {{.BinaryName}}
 
 go {{.GoVersion}}
+
+toolchain {{.Toolchain}}
 `
 
 // output is one file Generate renders: its path, its template, and
@@ -120,6 +138,7 @@ func Generate(cfg Config) ([]GeneratedFile, error) {
 		FileBase:     cfg.FileBase(),
 		BinaryName:   cfg.DefaultDir(),
 		GoVersion:    goDirective,
+		Toolchain:    goToolchain,
 	}
 	if release, ok := buildinfo.Release(cfg.Engine); ok {
 		data.EngineConstraint = ">=" + release

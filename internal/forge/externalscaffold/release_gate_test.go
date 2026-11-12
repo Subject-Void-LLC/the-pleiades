@@ -191,12 +191,32 @@ func buildOutOfTree(t *testing.T, name string) string {
 // buildConfigOutOfTree is buildOutOfTree for any Config.
 func buildConfigOutOfTree(t *testing.T, cfg externalscaffold.Config) string {
 	t.Helper()
-	name := cfg.Name
+	return buildIn(t, cfg, t.TempDir(), nil)
+}
+
+// offlineEnv is the environment every out-of-tree build starts from: this
+// process's own, with the network off and the local Go release.
+func offlineEnv() []string {
+	return append(os.Environ(), "GOPROXY=off", "GOTOOLCHAIN=local", "GOFLAGS=-mod=mod")
+}
+
+// buildIn generates cfg's program into dir, which must exist and be empty,
+// and builds it by the README's offline commands, as buildOutOfTree
+// describes, with extraEnv layered over offlineEnv (a later entry wins).
+// It returns the built binary.
+//
+// Two things in the README's lines are replaced before they run: the
+// placeholder checkout path, by this checkout, and the GOTOOLCHAIN release
+// the build line pins, by local, so the gate runs offline whatever Go this
+// machine has. The pinned release is held to The Pleiades's own toolchain line
+// by TestGoMod_TheToolchainIsThisModules, and both builds of a comparison
+// use the same local one, so the digest still answers for the source.
+func buildIn(t *testing.T, cfg externalscaffold.Config, dir string, extraEnv []string) string {
+	t.Helper()
 	files, err := externalscaffold.Generate(cfg)
 	if err != nil {
 		t.Fatalf("Generate: %v", err)
 	}
-	dir := t.TempDir()
 	var readme string
 	for _, f := range files {
 		if err := os.WriteFile(filepath.Join(dir, f.Path), f.Content, 0o600); err != nil {
@@ -208,9 +228,11 @@ func buildConfigOutOfTree(t *testing.T, cfg externalscaffold.Config) string {
 	}
 
 	commands := offlineBuildCommands(t, readme)
-	env := append(os.Environ(), "GOPROXY=off", "GOTOOLCHAIN=local", "GOFLAGS=-mod=mod")
+	env := append(offlineEnv(), extraEnv...)
+	pinned := "GOTOOLCHAIN=" + moduleToolchain(t)
 	for _, line := range commands {
 		line = strings.ReplaceAll(line, "/path/to/the-pleiades", repoRoot(t))
+		line = strings.ReplaceAll(line, pinned, "GOTOOLCHAIN=local")
 		cmd := exec.Command("sh", "-c", line) // #nosec G204 -- the generated README's own command, the thing under test
 		cmd.Dir = dir
 		cmd.Env = env
@@ -218,13 +240,34 @@ func buildConfigOutOfTree(t *testing.T, cfg externalscaffold.Config) string {
 			t.Fatalf("the README's step %q failed offline: %v\n%s", line, err, out)
 		}
 	}
-	runGo(t, dir, "vet", "./...")
+	vet := exec.Command("go", "vet", "./...")
+	vet.Dir, vet.Env = dir, env
+	if out, err := vet.CombinedOutput(); err != nil {
+		t.Fatalf("go vet failed: %v\n%s", err, out)
+	}
 
-	bin := filepath.Join(dir, externalscaffold.Config{Name: name}.DefaultDir())
+	bin := filepath.Join(dir, cfg.DefaultDir())
 	if _, err := os.Stat(bin); err != nil {
 		t.Fatalf("the README's build step left no %s: %v", filepath.Base(bin), err)
 	}
 	return bin
+}
+
+// moduleToolchain is the toolchain line of The Pleiades's own go.mod, for
+// example "go1.27.4". It fails the test when there is none.
+func moduleToolchain(t *testing.T) string {
+	t.Helper()
+	ours, err := os.ReadFile(filepath.Join(repoRoot(t), "go.mod"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, line := range strings.Split(string(ours), "\n") {
+		if v, ok := strings.CutPrefix(line, "toolchain "); ok {
+			return strings.TrimSpace(v)
+		}
+	}
+	t.Fatal("The Pleiades's go.mod has no toolchain line")
+	return ""
 }
 
 // offlineBuildCommands returns the commands of the README's offline build
@@ -357,18 +400,6 @@ func localUname(t *testing.T) string {
 		t.Fatalf("uname -a: %v", err)
 	}
 	return strings.TrimSpace(string(out))
-}
-
-// runGo runs the real go command in dir and fails the test with its full
-// output when it fails.
-func runGo(t *testing.T, dir string, args ...string) {
-	t.Helper()
-	cmd := exec.Command("go", args...)
-	cmd.Dir = dir
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("go %v failed: %v\n%s", args, err, out)
-	}
 }
 
 // TestGenerate_ReleaseGateWithACapability: a program generated with

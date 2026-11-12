@@ -39,17 +39,26 @@
 // none, so a scaffold that generated one would build a program that
 // cannot even describe itself.
 //
-// # No go.mod
+// # A go.mod with no require
 //
-// The generator does not write a go.mod. The only correct require line
-// for github.com/Subject-Void-LLC/the-pleiades names a version the go
-// command computes itself (a pseudo-version from a commit, since the
-// module has no tagged release yet), and a generator guessing at one
-// would produce a module that fails on its first build with an error far
-// from its cause. `go mod init` then `go get` writes the correct one, and
-// the generated README says so. Leaving it out also lets the release gate
-// build the program inside this module, against the pkg/ code in the same
-// tree, with no replace directive involved.
+// The generated go.mod holds a module line, a go line and a toolchain
+// line, and no require. The only correct require line for
+// github.com/Subject-Void-LLC/the-pleiades names a version the go command
+// computes itself (a pseudo-version from a commit, since the module has no
+// tagged release yet), and a generator guessing at one would produce a
+// module that fails on its first build with an error far from its cause.
+// `go mod tidy` writes the correct one, and the generated README says so.
+// Config.NoGoMod leaves the go.mod out, for a program joining a module of
+// the author's own.
+//
+// # A reproducible build
+//
+// The README's build line gives the same bytes for the same source in any
+// directory and on any machine building for the same platform, so a digest
+// on the approval list can be checked by anyone who has the source:
+// -trimpath, -buildvcs=false, CGO_ENABLED=0, and GOTOOLCHAIN set to the
+// release the toolchain line names, which is The Pleiades's own
+// (goToolchain).
 //
 // Like every forge generator, Generate performs no filesystem I/O. It
 // returns paths relative to the program directory, and the caller

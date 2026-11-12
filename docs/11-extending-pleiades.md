@@ -92,7 +92,8 @@ afterward.
 `--dir` names another, holding a program that builds with `go mod tidy` and `go build`:
 `main.go`, the method with a working read-only body (it runs `uname -a` on the target and
 records the output), a test that runs the program's own `describe`, a README with the
-build and install steps, and a `go.mod` holding only a `module` line and a `go` line. It
+build and install steps, and a `go.mod` holding only a `module` line, a `go` line and a
+`toolchain` line naming the Go release The Pleiades itself is built with. It
 names no version of The Pleiades, because the right one is a version the `go` command works
 out itself: `go mod tidy` resolves it through the module proxy and records its checksum.
 The README also gives the offline route, a `replace` pointing at a local checkout, as a
@@ -817,7 +818,8 @@ Build it and put the binary in a directory, then name that directory in
 `PLEIADES_COLLECTIONS_DIR` wherever `pleiades` or `pleiades-runner` runs:
 
 ```sh
-go build -o ~/pleiades-collections/note ./examples/external_collection
+CGO_ENABLED=0 GOTOOLCHAIN=go1.27.4 go build -trimpath -buildvcs=false \
+  -o ~/pleiades-collections/note ./examples/external_collection
 chmod 700 ~/pleiades-collections
 export PLEIADES_COLLECTIONS_DIR=~/pleiades-collections
 pleiades collection approve note
@@ -835,6 +837,30 @@ records a build without running anything; a program may have several approved bu
 at once. `pleiades collection revoke note` withdraws them, and takes effect from the
 next call, even in a Runner that is already running. `pleiades collection list` shows
 what is approved.
+
+### Building it reproducibly
+
+Build a program with the line above, the one the scaffold's README gives, and the same
+source builds to the same bytes, and so the same digest, in any directory and on any
+machine building for the same `GOOS` and `GOARCH`. That matters as soon as an approval
+is shared or reviewed: an approval pins one exact build, and a digest nobody else can
+reproduce from the source is one nobody else can check. A plain `go build` is not
+reproducible. Each setting removes one thing that otherwise differs between two builds:
+
+| Setting | What it keeps out of the binary |
+|---|---|
+| `-trimpath` | the directories the source and the Go module cache sit in |
+| `-buildvcs=false` | the version control state, which differs between a clone, an archive and an uncommitted edit |
+| `CGO_ENABLED=0` | the C toolchain, which the Go command otherwise uses only on a machine that has one |
+| `GOTOOLCHAIN=go1.27.4` | a different Go release: the `toolchain` line in a scaffolded `go.mod` is only a minimum, so a newer Go builds with itself unless this is set |
+
+The source includes `go.mod` and `go.sum`, so the build reproduces only from the same
+`go.sum`. Two limits are worth knowing. A build through a `replace` records the path the
+`replace` names, so it reproduces only against a checkout at that same path; build what
+you share without one. And any other flag or variable that reaches the build
+(`-ldflags`, `-tags`, `GOAMD64`, `GOFLAGS`) is part of it, and must be the same on both
+sides. To check a build against an approval, compare `sha256sum <program>` with the
+digest `pleiades collection approve` or `pleiades collection list` shows after `sha256:`.
 
 Every program in the directory is loaded when `pleiades run`, `pleiades validate` or
 `pleiades doc` starts, and when the Runner starts. From then on its methods are
