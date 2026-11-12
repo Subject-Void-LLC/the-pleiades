@@ -176,6 +176,7 @@ func init() {
 			// Nothing to undo, which is the same fact that makes this
 			// method report changed: false. It never emits an inverse
 			// either, and Port's own comment says where that is decided.
+			NoExistsReason: collection.NoExistsWait,
 			Reversibility: collection.Reversibility{
 				Reversible: false,
 				Notes: "This method only observes: it opens a TCP connection from the device and reports whether it succeeded, so the device is in " +

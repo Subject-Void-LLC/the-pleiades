@@ -21,7 +21,9 @@ const (
 // tunnelStatuses are the statuses Cloudflare reports, and any.
 var tunnelStatuses = []string{"healthy", "degraded", "down", "inactive", "any"}
 
-func init() { method(fqcnTunnel, tunnelDoc(), Tunnel) }
+func init() {
+	method(fqcnTunnel, tunnelDoc(), Tunnel, collection.NoExistsGate+" (one tunnel not there fails naming it, in a run and a check)")
+}
 
 // Tunnel implements edge.tunnel.
 func Tunnel(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {

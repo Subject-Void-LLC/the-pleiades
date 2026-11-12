@@ -36,6 +36,7 @@ func init() {
 			ExecutionContext:     collection.ExecutionContext{Site: collection.SiteTarget, Device: collection.DeviceRequired},
 			EngineVersion:        ">=0.2.0",
 			Status:               collection.StatusImplemented,
+			NoExistsReason:       collection.NoExistsGate,
 			Reversibility: collection.Reversibility{
 				ReadOnly: true,
 				Notes:    "It asks Batfish about configurations and changes no device; the snapshot it uploads is removed when the task ends.",

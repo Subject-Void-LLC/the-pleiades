@@ -39,7 +39,7 @@ const (
 var readOnly = collection.Reversibility{ReadOnly: true, Notes: "It reads and changes nothing, so there is nothing to undo."}
 
 func init() {
-	register(fqcnInfo, containerengine.MethodManifest(readOnly, infoDoc()), info)
+	register(fqcnInfo, containerengine.MethodManifest(readOnly, infoDoc()).WithNoExistsReason("a named image not there is listed under missing, never an error, in a run and a check"), info)
 }
 
 // info is container.image.info's body: the images named, or every image.

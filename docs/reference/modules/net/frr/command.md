@@ -17,6 +17,7 @@ Only show commands are accepted, so it changes nothing. A command ending in json
 | Requires elevation | no |
 | Runs | on or against the target device; acts on its target device |
 | Check mode | Supported: reports what it would change and changes nothing |
+| Absence | No exists return: it runs a show command, and the command's output is the answer |
 | Engine version | `>=0.2.0` |
 
 ## Parameters

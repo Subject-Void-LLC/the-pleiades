@@ -38,6 +38,7 @@ func init() {
 			ExecutionContext:     collection.ExecutionContext{Site: collection.SiteController, Device: collection.DeviceNone},
 			EngineVersion:        ">=0.2.0",
 			Status:               collection.StatusImplemented,
+			NoExistsReason:       collection.NoExistsWait,
 			Reversibility: collection.Reversibility{
 				ReadOnly: true,
 				Notes:    "It sends a GET or a HEAD, which HTTP defines as safe, and changes nothing a later task could undo.",

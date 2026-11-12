@@ -33,6 +33,16 @@ type behavior struct {
 	noCheck string
 	// rev is its reversibility declaration.
 	rev collection.Reversibility
+	// noExists is why a method that only reads answers no exists return,
+	// empty for one that declares exists (collection.Manifest.NoExistsReason).
+	noExists string
+}
+
+// because is b, a method that only reads, with the reason it answers no
+// exists return.
+func (b behavior) because(noExists string) behavior {
+	b.noExists = noExists
+	return b
 }
 
 // readOnly is the declaration of a method that only reads.
@@ -78,7 +88,7 @@ const unknownEffect = "what it changes is known only once it has run"
 // behaviors is every method's behavior, by name. A test holds it equal to the
 // methods pkg/clabapi documents.
 var behaviors = map[string]behavior{
-	"virt.clab.lab.list":       reads(labList),
+	"virt.clab.lab.list":       reads(labList).because(collection.NoExistsLists),
 	"virt.clab.lab.info":       reads(labInfo),
 	"virt.clab.lab.links":      reads(labRead("links", "links", "node")),
 	"virt.clab.lab.interfaces": reads(labRead("interfaces", "interfaces", "node")),
@@ -129,29 +139,29 @@ var behaviors = map[string]behavior{
 	"virt.clab.vxlan.delete": acts(vxlanDelete, "the server has no call that lists the VxLAN interfaces a prefix names, so which ones it removes is known only once it has run",
 		irreversible("The tunnels' settings are not read first, so they cannot be put back.")),
 
-	"virt.clab.image.list": reads(imageList),
+	"virt.clab.image.list": reads(imageList).because(collection.NoExistsLists),
 	"virt.clab.image.pull": predicts(imagePull, reversible("Its undo removes the image, recorded when this task pulled it.", inverse("virt.clab.image.remove", false, "image"))),
 	"virt.clab.image.remove": predicts(imageRemove, reversible("Its undo pulls the same reference, which is partial: the tag comes back, though the layers may be a newer build.",
 		inverse("virt.clab.image.pull", true, "image"))),
 
 	"virt.clab.server.version": reads(serverRead("/api/v1/version", false, func(raw map[string]any) map[string]any {
 		return map[string]any{"version": text(raw, "versionInfo")}
-	})),
+	})).because(collection.NoExistsDevice),
 	"virt.clab.server.version_check": reads(serverRead("/api/v1/version/check", false, func(raw map[string]any) map[string]any {
 		return map[string]any{"result": text(raw, "checkResult")}
-	})),
+	})).because(collection.NoExistsDevice + " (it asks whether a newer containerlab exists, which is an answer either way)"),
 	"virt.clab.server.health": {run: serverRead("/health", true, func(raw map[string]any) map[string]any {
 		return map[string]any{"status": text(raw, "status"), "uptime": text(raw, "uptime"), "api_version": text(raw, "version")}
-	}), anonymous: true, checks: true, rev: readOnly()},
+	}), anonymous: true, checks: true, rev: readOnly(), noExists: collection.NoExistsDevice},
 	"virt.clab.server.metrics": reads(serverRead("/api/v1/health/metrics", false, func(raw map[string]any) map[string]any {
 		return map[string]any{"metrics": raw["metrics"]}
-	})),
+	})).because(collection.NoExistsDevice),
 
 	"virt.clab.capture.packetflix":    reads(capturePacketflix),
-	"virt.clab.topology.generate":     reads(topologyGenerate),
-	"virt.clab.ssh_session.list":      reads(sshSessionList),
+	"virt.clab.topology.generate":     reads(topologyGenerate).because("it asks the server to build a topology from the task's own description of its tiers, and looks nothing up"),
+	"virt.clab.ssh_session.list":      reads(sshSessionList).because(collection.NoExistsLists),
 	"virt.clab.ssh_session.terminate": predicts(sshSessionTerminate, irreversible("A closed session is opened again by virt.clab.node.ssh_access, which makes a new one on another port.")),
-	"virt.clab.edgeshark.status":      reads(edgesharkStatus),
+	"virt.clab.edgeshark.status":      reads(edgesharkStatus).because(collection.NoExistsDevice + " (it reads the server's Edgeshark status, whose running is false when it does not run)"),
 	"virt.clab.edgeshark.install": {run: edgesharkChange("install"), checks: true, timeout: longTimeout,
 		rev: reversible("Its undo is virt.clab.edgeshark.uninstall, recorded when this task installed it.", inverse("virt.clab.edgeshark.uninstall", false))},
 	"virt.clab.edgeshark.uninstall": {run: edgesharkChange("uninstall"), checks: true, timeout: longTimeout,
@@ -179,6 +189,7 @@ func register(spec clabapi.Spec, b behavior) {
 		Reversibility:        b.rev,
 		SupportsCheck:        b.checks,
 		NoCheckReason:        b.noCheck,
+		NoExistsReason:       b.noExists,
 		Doc:                  spec.Doc,
 	}
 	d := collection.Descriptor{

@@ -399,6 +399,7 @@
       "readOnly": true
     },
     "supportsCheck": true,
+    "noExistsReason": "it lists; when there is nothing, an empty list is the answer",
     "doc": {
       "summary": "Lists the models an Ollama host has on disk and the ones in memory.",
       "description": "Asks the Ollama host for its models (GET /api/tags) and the ones loaded in memory (GET /api/ps). It only reads, and needs no host guard, so a check of it is the task itself.",
@@ -733,6 +734,7 @@
       "readOnly": true
     },
     "supportsCheck": true,
+    "noExistsReason": "it is a gate: failing on what it asserts is not so is its purpose (it verifies the signed document the task names)",
     "doc": {
       "summary": "Verifies a signed prompt bundle, parameter set or routing table against the project's trusted keys, as a call would.",
       "description": "Reads a document (inline as prompt with signature, or from the project as prompt_file with its .sig), refusing what two readers could read differently: a duplicate key at any depth, invalid UTF-8, an unpaired surrogate, a number with an exponent or beyond 2^53. It then checks, in order, that a trusted key (ai/trusted-keys.yaml) verifies the Ed25519 signature over its canonical form, that the key's role lists the document's use, that neither key nor document has expired, and that its version is not older than the newest of its name already used (.pleiades/prompt-versions/). Any failure fails the task, naming which. It records nothing, so a check of it is the task itself. A signature is provenance and integrity: it says who approved the text and that it is unchanged, not that what a model does with it is safe.",
@@ -843,6 +845,7 @@
       "readOnly": true
     },
     "supportsCheck": true,
+    "noExistsReason": "it lists; when there is nothing, an empty list is the answer",
     "doc": {
       "summary": "Reports what a provider is and which models it serves: kind, endpoint, residency, prices and host guard.",
       "description": "Reads the ai_provider device's record (its kind, API base URL, residency, price table and host guard) and asks the provider for the models it serves, with the device's own key over its own TLS: a listing no provider counts as a call. A kind needing a key the device does not have is refused before contact. It only reads, so a check of it is the task itself.",
@@ -1386,6 +1389,7 @@
       "readOnly": true
     },
     "supportsCheck": true,
+    "noExistsReason": "it is a gate: failing on what it asserts is not so is its purpose",
     "doc": {
       "summary": "Lists every container image reference in a build's files that is not pinned by both tag and digest.",
       "description": "Reads the named files on the device and checks each image reference in them: pinned means named by both tag and digest (name:tag@sha256:...), since a tag alone moves underneath a build and a digest alone says nothing about what it is. A reference built from a build argument with no default, or from a variable a Compose file is interpolated with, cannot be read as written and is an offender too. With resolve, each pinned reference's tag is also resolved to the digest it names now, through the device's container engine (its own network, proxy, mirrors and registry logins, and the run's credential for that registry when it has one), and a pinned digest the tag no longer names is reported as drift. Any offender fails the task, its error naming them, and the task's returns are reported with the failure. Nothing is written.",
@@ -1537,6 +1541,7 @@
       "readOnly": true
     },
     "supportsCheck": true,
+    "noExistsReason": "it is a gate: failing on what it asserts is not so is its purpose",
     "doc": {
       "summary": "Checks that a lockfile covers its manifest, carries an integrity hash for every entry, and draws only from allowed sources.",
       "description": "Reads a lockfile and its manifest on the device and reports every way the lockfile falls short: a dependency the manifest declares that the lockfile does not lock (or locks for a different range), an entry the manifest no longer declares, an entry with no integrity hash or checksum (or only a sha1 one), an entry fetched over plain http, a git dependency not pinned to a commit, and an entry from a source not on the allowed list. npm's package-lock.json (lockfile versions 2 and 3) with package.json, and Cargo's Cargo.lock (versions 3 and 4) with Cargo.toml, are read; a format is a plug-in, so more can be added. An npm entry bundled inside its parent, or a workspace link, carries its parent's integrity and is not a separate source; a Cargo path crate has no source. Any finding fails the task, its error naming them, and the task's returns are reported with the failure. Nothing is written.",
@@ -2176,6 +2181,7 @@
       "readOnly": true
     },
     "supportsCheck": true,
+    "noExistsReason": "it describes the device itself; a device not there is unreachable, not absent",
     "doc": {
       "summary": "Reads the container engine's own report of itself.",
       "description": "Reads the device's container engine as it reports itself, for a later task's when: Docker's info and version, or Podman's libpod info, which says what Docker's form does not. Both are reported under the same names: the engine and its version, the newest API version it speaks, its storage driver, whether it runs rootless, the cgroup version and driver, the OS and architecture (in Go's names, linux and amd64), the kernel, the host's operating system, its container and image counts, CPUs and memory. On a device running both engines, engine chooses which. Reading changes nothing, and a check reads the same way. The engine is reached the first way onboarding proved for the device (this machine's socket, an SSH channel to the engine's socket, the engine's own dial-stdio over SSH, or mutual TLS), its identity checked against the one onboarding recorded, and every request outside the operations this method declares is refused before it reaches the engine.",
@@ -2531,6 +2537,7 @@
       "readOnly": true
     },
     "supportsCheck": true,
+    "noExistsReason": "a named image not there is listed under missing, never an error, in a run and a check",
     "doc": {
       "summary": "Reports images on the engine.",
       "description": "Reports each image named, or every image the engine lists when none is named (an untagged one with no tags): ID, tags, repository digests, creation time, size and labels, and for a named image also its OS, architecture and variant and what a container made from it runs: entrypoint and command (each as its program and how many arguments follow it, never an argument, since one baked into an image can be a secret), user, working directory, exposed ports, volumes and environment variable names. A named image that is absent is listed under missing rather than failing the task. An image's environment values are never reported, since a value baked into an image can be a secret. It changes nothing; a check is the same read. The engine is reached the first way onboarding proved for the device (this machine's socket, an SSH channel to the engine's socket, the engine's own dial-stdio over SSH, or mutual TLS), its identity checked against the one onboarding recorded, and every request outside the operations this method declares is refused before it reaches the engine.",
@@ -3200,6 +3207,7 @@
       "readOnly": true
     },
     "supportsCheck": true,
+    "noExistsReason": "it searches; an empty results list is the answer",
     "doc": {
       "summary": "Searches a registry for images.",
       "description": "Runs the registry's search through the engine, anonymously: Docker Hub unless term names another registry. Each result's name, description, stars and whether it is official are returned, with control characters dropped from the registry's text. It changes nothing; a check is the same read. The engine is reached the first way onboarding proved for the device (this machine's socket, an SSH channel to the engine's socket, the engine's own dial-stdio over SSH, or mutual TLS), its identity checked against the one onboarding recorded, and every request outside the operations this method declares is refused before it reaches the engine.",
@@ -3624,6 +3632,7 @@
       "readOnly": true
     },
     "supportsCheck": true,
+    "noExistsReason": "it lists; when there is nothing, an empty list is the answer",
     "doc": {
       "summary": "Lists the engine's containers.",
       "description": "Lists every container on the engine, stopped ones included, or only the running ones with all false, optionally only those whose name matches a glob, sorted by name: each one's name, ID, state, the engine's status line, creation time, command (its program and how many arguments follow it, never an argument: the list includes containers no runbook made, and a command line often carries a secret such as a --password flag), ports, image ID, the image reference a container.* method recorded, and labels. More than 1000 containers is refused rather than cut; narrow it with match. It changes nothing, so a check is the same read. The engine is reached the first way onboarding proved for the device (this machine's socket, an SSH channel to the engine's socket, the engine's own dial-stdio over SSH, or mutual TLS), its identity checked against the one onboarding recorded, and every request outside the operations this method declares is refused before it reaches the engine.",
@@ -4574,6 +4583,7 @@
       "readOnly": true
     },
     "supportsCheck": true,
+    "noExistsReason": "a registry with no login is logged_in false, and a login file not there reads as no logins",
     "doc": {
       "summary": "Reports the registries the engine's login file holds a login for.",
       "description": "Reads the engine's login file and reports each registry it holds a login for, with the account name; with registry, also whether that one is logged in and as whom. A password is never read out. It changes nothing; a check is the same read. The login file is on the machine the engine runs on (this machine's own when the engine is reached through its local socket, otherwise the device's, over its SSH login): auth_file, or the engine's own default under the login's home, ~/.docker/config.json for Docker and ~/.config/containers/auth.json for Podman.",
@@ -6407,6 +6417,7 @@
       "readOnly": true
     },
     "supportsCheck": true,
+    "noExistsReason": "it is a gate: failing on what it asserts is not so is its purpose (one application not there fails naming it, in a run and a check)",
     "doc": {
       "summary": "Checks a Cloudflare Access application's audience, issuer, settings and policies against what is expected.",
       "description": "Reads an Access application by id, or by its domain (one two applications share is refused, naming both), its policies, and the issuer of the tokens Access signs for it (https:// and the account's team domain). Each field expect names is compared: audience, issuer and domain (domain and issuer without regard to case), type and session_duration. Policies are compared by name: a policy expected and absent is missing; one whose decision, precedence or include, exclude or require rules differ is changed, rules compared as JSON with their keys sorted; and with exact_policies one present and not expected is extra. The task fails listing every difference. It reads through Cloudflare's API with the cloudflare_account device's own token (stored with add-credential --token-stdin, sent only to its api_base, no redirect followed), follows every list page by page up to 50 pages, retries a rate limit or a server error twice, and changes nothing, so a check of it is the task itself. A token without the permission a read needs is refused by Cloudflare (403), and the error says so.",
@@ -6516,6 +6527,7 @@
       "readOnly": true
     },
     "supportsCheck": true,
+    "noExistsReason": "a name with no records is an empty records list, which expect.absent asserts; a zone not there fails, as the scope of the read",
     "doc": {
       "summary": "Checks a DNS record set in a Cloudflare zone against what is expected.",
       "description": "Reads a zone by id, or by name within the account (a zone of another account is refused, even where the token reaches it), and its records of one name and type. The set of contents is compared with expect.content, addresses in their canonical form and names in lower case without the final dot; proxied and ttl are compared on every record when expected; and absent requires there be none. With no expect, the task fails only when there is no such record. It reads through Cloudflare's API with the cloudflare_account device's own token (stored with add-credential --token-stdin, sent only to its api_base, no redirect followed), follows every list page by page up to 50 pages, retries a rate limit or a server error twice, and changes nothing, so a check of it is the task itself. A token without the permission a read needs is refused by Cloudflare (403), and the error says so.",
@@ -6626,6 +6638,7 @@
       "readOnly": true
     },
     "supportsCheck": true,
+    "noExistsReason": "it is a gate: failing on what it asserts is not so is its purpose (one tunnel not there fails naming it, in a run and a check)",
     "doc": {
       "summary": "Checks a Cloudflare Tunnel's status and how many of its connectors are up.",
       "description": "Reads a tunnel by id, or by name among the account's tunnels not deleted (a name two tunnels share is refused, naming both), and its connectors: each cloudflared process serving it, with its version, architecture and connections by colo. The task fails when the tunnel's status is not expect_status or fewer connectors than min_connectors have a live connection (one pending reconnect has dropped, and is only still tracked, so it does not count). It reads through Cloudflare's API with the cloudflare_account device's own token (stored with add-credential --token-stdin, sent only to its api_base, no redirect followed), follows every list page by page up to 50 pages, retries a rate limit or a server error twice, and changes nothing, so a check of it is the task itself. A token without the permission a read needs is refused by Cloudflare (403), and the error says so.",
@@ -7102,6 +7115,7 @@
       "readOnly": true
     },
     "supportsCheck": true,
+    "noExistsReason": "it describes the device itself; a device not there is unreachable, not absent",
     "facts": [
       {
         "key": "host.name",
@@ -9593,6 +9607,7 @@
       "readOnly": true
     },
     "supportsCheck": true,
+    "noExistsReason": "it lists the manifest's checks, and the manifest is the task's own input",
     "doc": {
       "summary": "Validates a project's gate manifest on the device and lists how each check is classified, running nothing.",
       "description": "Reads and validates the same manifest gate.run reads, under the same rules, and reports each check's name, kind, whether it is heavy or serial, its timeout, where it would run (a directory on the device or an image), its preconditions, and whether the task's selection would run it, with the reason when it would not. A check that needs a container engine on a device with none onboarded is reported as not runnable. Nothing in the manifest runs, so a check of this task is the task itself.",
@@ -9799,6 +9814,7 @@
       "readOnly": true
     },
     "supportsCheck": true,
+    "noExistsReason": "it is a gate: failing on what it asserts is not so is its purpose (a 404 is data when status_code names it)",
     "doc": {
       "summary": "Checks that a URL answers with the expected status, and optionally body, without ever returning or logging the body.",
       "description": "Sends a GET (or a HEAD) to the URL, following at most max_redirects redirects and refusing one from https to http, since the check would then vouch for a page anyone on the path could have served. It fails when the status is not one of status_code, or when the body does not contain body_contains or match body_matches (RE2). The body is read, at most 4 MiB, only to match it: what is returned is the status, the final URL and each redirect (scheme, host and path, never a query or fragment, which can carry a token), the time taken, and the body's size and SHA-256, and a failure names the same. A URL carrying a user name or password is refused. Certificates are verified unless validate_certs is false, which is per task and loud. It only reads, so a check of it is the task itself, and it runs once with no target device.",
@@ -10053,6 +10069,7 @@
     },
     "supportsCheck": false,
     "noCheckReason": "what a wait waits for is usually an earlier task's change, which a check never makes, so a check would wait out its timeout and fail where the real run succeeds",
+    "noExistsReason": "it is a wait: failing at its timeout is its purpose",
     "doc": {
       "summary": "Waits, from the machine pleiades runs on, until a URL answers with the expected status, and optionally body.",
       "description": "Repeats http.check's request and its tests until they pass: the status is one of status_code, and the body contains body_contains or matches body_matches. A refused connection, a timeout or an answer that does not pass all mean not yet. It runs once with no target device, from the machine pleiades runs on, so it waits for a service published there (a container's port on 127.0.0.1) that wait.port, which looks from a device over SSH, cannot see. Each attempt is bounded by 10 seconds or by what is left of the timeout, and running out of time fails the task naming the last answer, or the last error. What it returns is http.check's, never the body: the last answer's status and final URL, how many attempts were made and how long the wait took. A URL carrying a user name or password is refused, a redirect from https to http is not followed, and certificates are verified unless validate_certs is false.",
@@ -10762,6 +10779,7 @@
       "readOnly": true
     },
     "supportsCheck": true,
+    "noExistsReason": "it is a gate: failing on what it asserts is not so is its purpose",
     "doc": {
       "summary": "Checks configurations against Batfish's model of the network before any of them is applied, and fails closed.",
       "description": "Builds a snapshot from each device's whole configuration (config, or src: a file in the project), its secrets masked before anything is sent (equal secrets alike, so key mismatches still show), asks Batfish to parse it, and holds the model to the assertions given: OSPF sessions established, a route present (through the next hops named) or absent, a flow delivered or not and through or around the nodes named, and a node's modelled routes equal to the routes net.frr.facts read from it live. Each scenario forks the snapshot with interfaces or nodes down and holds it to its own assertions, so a link failure is checked before it happens. Its target is the batfish device. FRR configurations go to Batfish in the layout it reads FRR in, with each ip ospf passive moved under router ospf; Cisco IOS ones go as they are. It fails closed: an assertion that does not hold, a file Batfish could not parse, a question it could not answer, a convert error Batfish reports (part of a device missing from the model), or a line it did not recognise that the task does not accept by name with a reason (lines with no meaning of their own, exit, end and !, need none). Recognising a line is not modelling it, so a feature measured to be parsed and then ignored (on Cisco IOS: GLBP, IP SLA, SLA tracking, BFD, NHRP) is refused the same way until accepted by name: the model cannot predict its failover, and a passing gate must not imply that it did. The result reports three things apart: whether the model parsed (each file's status and every unrecognised line), whether it agrees (each assertion), and what it does not model (the lines accepted). It returns the SHA-256 of each configuration as given, for net.frr.config's expect_sha256, so the change applied is the one checked. It changes nothing on any device; Batfish keeps the snapshot in a network of the run's own, removed when the task ends. A model that agrees is evidence, not proof: rehearse on the same OS image, and verify the change live.",
@@ -10876,6 +10894,7 @@
       "readOnly": true
     },
     "supportsCheck": true,
+    "noExistsReason": "it lists; when there is nothing, an empty list is the answer (every device the controller manages; no name is asked)",
     "facts": [
       {
         "key": "catalyst.devices",
@@ -10942,6 +10961,7 @@
       "readOnly": true
     },
     "supportsCheck": true,
+    "noExistsReason": "it lists; when there is nothing, an empty list is the answer",
     "facts": [
       {
         "key": "catalyst.reachability",
@@ -11043,6 +11063,7 @@
       "readOnly": true
     },
     "supportsCheck": true,
+    "noExistsReason": "it lists; when there is nothing, an empty list is the answer (every site; no name is asked)",
     "facts": [
       {
         "key": "catalyst.sites",
@@ -11107,6 +11128,7 @@
       "readOnly": true
     },
     "supportsCheck": true,
+    "noExistsReason": "it lists; when there is nothing, an empty list is the answer (every tag; no name is asked)",
     "facts": [
       {
         "key": "catalyst.tags",
@@ -11348,6 +11370,7 @@
       "readOnly": true
     },
     "supportsCheck": true,
+    "noExistsReason": "it runs a show command, and the command's output is the answer",
     "doc": {
       "summary": "Runs one FRRouting show command through vtysh and returns its output.",
       "description": "Only show commands are accepted, so it changes nothing. A command ending in json returns its output parsed as data too.",
@@ -11535,6 +11558,7 @@
       "readOnly": true
     },
     "supportsCheck": true,
+    "noExistsReason": "it describes the device itself; a device not there is unreachable, not absent",
     "doc": {
       "summary": "Reads an FRRouting router's version, interfaces, OSPF neighbours, routes and BGP peers as data.",
       "description": "Asks vtysh for each in JSON and returns it as data, and by default also the running configuration with every secret in it (a password, an authentication or message-digest key, a neighbour's password) replaced by a placeholder that is the same for equal secrets throughout one command-line run, so a model can still compare two routers' keys without seeing one (a Runner reads each device apart, so there placeholders compare only within one router). The word after each secret word (password, secret, authentication-key, message-digest-key, key-string, community, key) is masked, past any encryption type, key id or algorithm between them. It changes nothing.",
@@ -12045,6 +12069,7 @@
       "readOnly": true
     },
     "supportsCheck": true,
+    "noExistsReason": "it describes the device itself; a device not there is unreachable, not absent",
     "noBecomeReason": "it types lines into the device's own CLI session, which no sudo prefix reaches, so it would run as the login",
     "facts": [
       {
@@ -12237,6 +12262,7 @@
       "readOnly": true
     },
     "supportsCheck": true,
+    "noExistsReason": "it parses a show command's output; output with nothing found is empty: true",
     "noBecomeReason": "it types lines into the device's own CLI session, which no sudo prefix reaches, so it would run as the login",
     "doc": {
       "summary": "Runs a show command on a Cisco IOS or IOS XE device and returns its output parsed into Genie's schema.",
@@ -12321,6 +12347,7 @@
       "readOnly": true
     },
     "supportsCheck": true,
+    "noExistsReason": "it is a probe: its result is the answer, a lost reply included",
     "noBecomeReason": "it types lines into the device's own CLI session, which no sudo prefix reaches, so it would run as the login",
     "doc": {
       "summary": "Runs a ping from a Cisco IOS device and reports the result.",
@@ -13206,6 +13233,7 @@
       "readOnly": true
     },
     "supportsCheck": true,
+    "noExistsReason": "it summarizes the capture file the task names; a file not there is refused input, not a lookup",
     "doc": {
       "summary": "Counts a packet capture in the project by protocol and address pair, encrypted apart from cleartext.",
       "description": "Reads a pcap or pcapng file from the project (virt.cml.capture.stop writes one; up to 16 MiB) and counts every frame by protocol: IPsec's ESP, ESP inside UDP 4500 (NAT traversal) and IKE (UDP 500, or 4500 behind the non-ESP marker), and in the clear GRE, ICMP, OSPF, EIGRP, BGP, HSRP, VRRP, PIM, TCP, UDP, ARP and frames carrying no IP (CDP, keepalives). Each IP packet is one of three kinds: encrypted (ESP, ESP in UDP), the key exchange that set it up (IKE), or cleartext (everything else carried over IP, which anyone on the wire can read). The same counts are given for each address pair, most packets first, so \"the sites' traffic crosses encrypted\" is a pair whose cleartext is 0 and whose encrypted count grew while traffic was sent; GRE in the clear between two sites is DMVPN without its IPsec. It reads Ethernet (VLAN tags included), raw IP and Linux cooked captures; a frame of another link type is counted as unread. A frame carrying no IP (CDP, a keepalive, but also anything inside MPLS or PPPoE) and an unread frame are not examined, so they are counted apart as unexamined, never as cleartext: \"nothing crossed in the clear\" is cleartext 0 and unexamined 0 (or every unexamined frame accounted for by its protocol). IKE and ESP in UDP are told by their ports, and ESP is counted encrypted whatever its cipher, ESP-NULL included. A file cut short is read up to the cut, and the task fails naming where. It changes nothing, and a check runs it as a run does. It runs on this machine with no device: write it without hosts.",
@@ -13322,6 +13350,7 @@
       "readOnly": true
     },
     "supportsCheck": true,
+    "noExistsReason": "it is a probe: its result is the answer, a lost reply included",
     "noBecomeReason": "its question is whether this login reaches the device, and a sudo in front of it would answer whether the login may become another account",
     "doc": {
       "summary": "Opens a real SSH connection to the target and echoes a value back, to prove reachability.",
@@ -13376,6 +13405,7 @@
       "readOnly": true
     },
     "supportsCheck": true,
+    "noExistsReason": "it is a probe: its result is the answer, a lost reply included",
     "doc": {
       "summary": "Traces the path to an address from a Linux device or a container on a container host, and fails when it is not the path expected.",
       "description": "Runs tracepath, which needs no raw socket and so no privilege, and returns each hop's address. Without container it runs on the device, a Linux machine reached over SSH. With container it runs inside that container on the device, a container host, through the engine's own exec as container.exec does, so a lab host with no SSH of its own (a containerlab end host) can be traced from; the container needs tracepath (iputils) and /bin/sh. pleiades validate refuses a call whose device cannot take the shape it chose: container on a device that is not a container host, or none on one that is not a Linux SSH device. With expect, it fails the task when the destination was not reached, or a hop named in includes is missing, or one named in avoids is on the path. It changes nothing.",
@@ -14224,6 +14254,7 @@
       "readOnly": true
     },
     "supportsCheck": true,
+    "noExistsReason": "it looks nothing up",
     "noBecomeReason": "it sends no command: it closes the connections the run keeps open, so there is nothing to run as another account",
     "endsLoginSession": true,
     "doc": {
@@ -14332,6 +14363,7 @@
     },
     "supportsCheck": false,
     "noCheckReason": "what a wait waits for is usually an earlier task's change, which a check never makes, so a check would wait out its timeout and fail where the real run succeeds",
+    "noExistsReason": "it is a wait: failing at its timeout is its purpose",
     "doc": {
       "summary": "Waits for a TCP port on the target to start (or stop) accepting connections.",
       "description": "Holds the runbook until a TCP port accepts a connection, or until it stops accepting one. The check runs ON THE DEVICE, over the SSH connection the task already holds, which is where Ansible's wait_for runs it and is the only place it answers the useful question: a service bound to 127.0.0.1 is invisible from the runner, and a firewall between the runner and the device would report on the path rather than on the service. Running there costs a prerequisite, stated rather than assumed: the device needs python3 or bash, checked once before polling starts and refused by name when neither is present. python3 is preferred because its exit status is this method's own to define; bash is the fallback because it needs no package installed, using its /dev/tcp redirection, and a bash built without that feature is detected and reported rather than mistaken for a closed port. nc is deliberately not used: its flags and exit statuses differ between the openbsd, traditional and busybox builds, so a wrong answer from it could not be told apart from a real one. Never reports changed: waiting observes, it does not act.",
@@ -14606,6 +14638,7 @@
       "readOnly": true
     },
     "supportsCheck": true,
+    "noExistsReason": "it is a gate: failing on what it asserts is not so is its purpose",
     "doc": {
       "summary": "Finds credentials leaked into a directory, naming each by file, line and rule, never by its value.",
       "description": "Runs Gitleaks over a directory on the device with its default rules and no network, and fails on every finding an ignore entry does not suppress, each named by its file (relative to dir), line, rule and fingerprint (file:rule:line, the id an ignore entry names). Gitleaks runs with --redact, so no value is in its report, and this reads only a finding's file, line and rule, so no value could be kept even if one were. A finding means rotating the credential, not only removing it. A file or directory Gitleaks could not read, which it skips with only a warning, fails the scan, named: what was not read was not scanned. A .gitleaks.toml or .gitleaksignore at the directory's root, which Gitleaks would read as its own rules or ignores, refuses the scan, and an inline gitleaks:allow comment suppresses nothing: what is scanned never decides what is reported. It only reads, so a check is the scan a run makes, except that a check never pulls the scanner's image: without it, the check says it cannot check. The scanner runs in a fresh container on the device's own engine, from an image pinned here by its multi-platform index digest, so nothing is installed on the device and every run uses the scanner this release was tested with; what it scans is mounted read-only, its root is read-only, it runs with no-new-privileges and is removed afterwards. Paths are the engine host's, which is the device's for an engine reached over SSH or its local socket.",
@@ -14700,6 +14733,7 @@
       "readOnly": true
     },
     "supportsCheck": true,
+    "noExistsReason": "it is a gate: failing on what it asserts is not so is its purpose",
     "doc": {
       "summary": "Lists the known vulnerabilities in an image archive, a directory or lockfiles, and fails at a severity.",
       "description": "Runs OSV-Scanner over an image archive (docker save), a directory (recursively, every lockfile and manifest it recognizes) or named lockfiles on the device, and reports each package exposed to each group of aliased advisories: its severity from the highest CVSS score (critical from 9.0, high from 7.0, medium from 4.0, low below), and the versions that fix it. A vulnerability at or above fail_on fails the task, and with fixable_only only one a fixed version exists for; one with no score is gated as high, since an advisory nobody has scored is not evidence it is harmless. Online, the scanner joins the engine's default network and sends osv.dev the names and versions of the packages it found; with offline_db it joins none and reads OSV-Scanner's local databases from the device. A directory holding an osv-scanner.toml at any depth, which OSV-Scanner would read as a list of vulnerabilities to ignore with no reason or end, refuses the scan, and none is read in any mode; a directory the search cannot read whole is refused too. A lockfile OSV-Scanner could not read or extract, which it leaves out with only a line on its standard error, fails the scan, named: what was not read was not scanned. It only reads, so a check is the scan a run makes and sends what a run sends (give offline_db for one that sends nothing), except that a check never pulls the scanner's image: without it, the check says it cannot check. The scanner runs in a fresh container on the device's own engine, from an image pinned here by its multi-platform index digest, so nothing is installed on the device and every run uses the scanner this release was tested with; what it scans is mounted read-only, its root is read-only, it runs with no-new-privileges and is removed afterwards. Paths are the engine host's, which is the device's for an engine reached over SSH or its local socket.",
@@ -16070,6 +16104,7 @@
       "readOnly": true
     },
     "supportsCheck": true,
+    "noExistsReason": "it describes the device itself; a device not there is unreachable, not absent (it reads the server's Edgeshark status, whose running is false when it does not run)",
     "doc": {
       "summary": "Reads whether Edgeshark, the packet-capture service, runs on the server.",
       "description": "Returns the server's own status document for Edgeshark. It only reads, so a check is the same call. The target is the containerlab API server, a generic_http device that onboarding recognised (it declares ContainerlabAPICapable); its login is the device's stored credential, with http_auth basic, and neither the password nor the token it gets is logged, returned or journaled.",
@@ -16150,6 +16185,7 @@
       "readOnly": true
     },
     "supportsCheck": true,
+    "noExistsReason": "it lists; when there is nothing, an empty list is the answer",
     "doc": {
       "summary": "Lists the container images the server's runtime holds.",
       "description": "Returns each image's id, tags and size. It only reads, so a check is the same call. The target is the containerlab API server, a generic_http device that onboarding recognised (it declares ContainerlabAPICapable); its login is the device's stored credential, with http_auth basic, and neither the password nor the token it gets is logged, returned or journaled.",
@@ -16800,6 +16836,7 @@
       "readOnly": true
     },
     "supportsCheck": true,
+    "noExistsReason": "it lists; when there is nothing, an empty list is the answer",
     "doc": {
       "summary": "Lists the labs the containerlab server has deployed.",
       "description": "Returns every deployed lab's name and its nodes as the server's inspect reports them. It only reads, so a check is the same call. The target is the containerlab API server, a generic_http device that onboarding recognised (it declares ContainerlabAPICapable); its login is the device's stored credential, with http_auth basic, and neither the password nor the token it gets is logged, returned or journaled.",
@@ -18286,6 +18323,7 @@
       "readOnly": true
     },
     "supportsCheck": true,
+    "noExistsReason": "it describes the device itself; a device not there is unreachable, not absent",
     "doc": {
       "summary": "Reads the API server's health.",
       "description": "Asked with no login, as the server answers it. It only reads, so a check is the same call. The target is the containerlab API server, a generic_http device that onboarding recognised (it declares ContainerlabAPICapable); its login is the device's stored credential, with http_auth basic, and neither the password nor the token it gets is logged, returned or journaled.",
@@ -18339,6 +18377,7 @@
       "readOnly": true
     },
     "supportsCheck": true,
+    "noExistsReason": "it describes the device itself; a device not there is unreachable, not absent",
     "doc": {
       "summary": "Reads the host's CPU, memory and disk figures the API server reports.",
       "description": "Returns the server's own metrics document. It only reads, so a check is the same call. The target is the containerlab API server, a generic_http device that onboarding recognised (it declares ContainerlabAPICapable); its login is the device's stored credential, with http_auth basic, and neither the password nor the token it gets is logged, returned or journaled.",
@@ -18380,6 +18419,7 @@
       "readOnly": true
     },
     "supportsCheck": true,
+    "noExistsReason": "it describes the device itself; a device not there is unreachable, not absent",
     "doc": {
       "summary": "Reads the containerlab version the server runs.",
       "description": "Returns containerlab's own version text. It only reads, so a check is the same call. The target is the containerlab API server, a generic_http device that onboarding recognised (it declares ContainerlabAPICapable); its login is the device's stored credential, with http_auth basic, and neither the password nor the token it gets is logged, returned or journaled.",
@@ -18421,6 +18461,7 @@
       "readOnly": true
     },
     "supportsCheck": true,
+    "noExistsReason": "it describes the device itself; a device not there is unreachable, not absent (it asks whether a newer containerlab exists, which is an answer either way)",
     "doc": {
       "summary": "Asks whether a newer containerlab exists.",
       "description": "Returns containerlab's own answer, which reaches the internet from the server. It only reads, so a check is the same call. The target is the containerlab API server, a generic_http device that onboarding recognised (it declares ContainerlabAPICapable); its login is the device's stored credential, with http_auth basic, and neither the password nor the token it gets is logged, returned or journaled.",
@@ -18462,6 +18503,7 @@
       "readOnly": true
     },
     "supportsCheck": true,
+    "noExistsReason": "it lists; when there is nothing, an empty list is the answer",
     "doc": {
       "summary": "Lists the temporary SSH sessions the server holds.",
       "description": "Returns each session's port, lab, node, account and expiry. It only reads, so a check is the same call. The target is the containerlab API server, a generic_http device that onboarding recognised (it declares ContainerlabAPICapable); its login is the device's stored credential, with http_auth basic, and neither the password nor the token it gets is logged, returned or journaled.",
@@ -18552,6 +18594,7 @@
       "readOnly": true
     },
     "supportsCheck": true,
+    "noExistsReason": "it asks the server to build a topology from the task's own description of its tiers, and looks nothing up",
     "doc": {
       "summary": "Generates a containerlab topology from a description of its tiers.",
       "description": "Asks the server to write a topology (a Clos fabric, say) from the tiers given, and returns its YAML. It never deploys: deploy is refused here, since virt.clab.lab.deploy is the call that changes anything. It changes nothing on the server, so a check is the same call. The target is the containerlab API server, a generic_http device that onboarding recognised (it declares ContainerlabAPICapable); its login is the device's stored credential, with http_auth basic, and neither the password nor the token it gets is logged, returned or journaled.",
@@ -19220,6 +19263,7 @@
       "readOnly": true
     },
     "supportsCheck": true,
+    "noExistsReason": "it lists; when there is nothing, an empty list is the answer",
     "doc": {
       "summary": "Lists the labs on a CML controller.",
       "description": "Reads every lab the controller's account can see, with its title, state and node count, and changes nothing. The task's target is a cml_controller device (its api_base, TLS settings and its own credential, stored with add-credential --password-stdin); the method runs on this machine and talks to the controller's REST API. A check is the same read.",
@@ -21499,6 +21543,7 @@
       "readOnly": true
     },
     "supportsCheck": true,
+    "noExistsReason": "it lists; when there is nothing, an empty list is the answer",
     "doc": {
       "summary": "Lists the VMs on a VirtualBox host, with their state and the address Pleiades gave them.",
       "description": "Reports every VM registered on the host for the account Pleiades reaches it as: its name, UUID, state, memory, CPUs and autostart mark, and, for a VM virt.vbox.vm.clone made, the host-only address it was given and the inventory device whose login it was seeded with. VirtualBox keeps a separate list of VMs for each Windows account, so these are not the VMs a person sees in their own VirtualBox Manager, and theirs are not listed here. Nothing is changed. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A check is the same read.",
@@ -22003,6 +22048,7 @@
     },
     "supportsCheck": false,
     "noCheckReason": "what it waits for is usually a machine an earlier task starts or restarts, which a check never does, so a check would wait out its timeout and fail where the real run succeeds",
+    "noExistsReason": "it is a wait: failing at its timeout is its purpose",
     "noBecomeReason": "its question is whether this login gets in, and a sudo in front of it would answer whether the login may become another account",
     "doc": {
       "summary": "Waits until the target answers a command over its own connection, SSH or WinRM.",
@@ -22140,6 +22186,7 @@
     },
     "supportsCheck": false,
     "noCheckReason": "what a wait waits for is usually an earlier task's change, which a check never makes, so a check would wait out its timeout and fail where the real run succeeds",
+    "noExistsReason": "it is a wait: failing at its timeout is its purpose",
     "doc": {
       "summary": "Waits for a file path on the target to exist (or stop existing).",
       "description": "Polls a path on the device until it exists, or until it is gone when state is absent, and fails when the timeout runs out first. It changes nothing: state: absent waits for something else to remove the path, it does not remove it. Anything at the path counts as existing, including a directory and a symbolic link whose target is missing, since the link itself is a thing that is there; that differs from wait_for, which follows a link and calls a broken one absent. The delay is spent out of the timeout rather than added to it, matching wait_for, so delay must be shorter than timeout. A run that gives up returns an error, because a task that waited for something that never happened has failed.",
@@ -22246,6 +22293,7 @@
     },
     "supportsCheck": false,
     "noCheckReason": "what a wait waits for is usually an earlier task's change, which a check never makes, so a check would wait out its timeout and fail where the real run succeeds",
+    "noExistsReason": "it is a wait: failing at its timeout is its purpose",
     "doc": {
       "summary": "Waits until a router has a route to every prefix given, or with state absent has none left, and its routing table has stopped changing.",
       "description": "A full OSPF adjacency is not convergence: shortest paths are computed after it, and a router can route the long way, or not at all, for a while after every neighbour is up. This waits for what a change needs: a selected route to each prefix (through the given next hops, when next_hops names any), and the routing table, uptimes aside, unchanged for stable_for seconds. With state absent it waits for the opposite, such as a withdrawn network or a failed link: no selected route to any prefix given (or, for a prefix next_hops names, a route through none of those next hops, so a failover away from one neighbour can be waited for), with the same stable_for. A table read with no selected route at all (not even a connected one, as a cut or refused read or output the parser does not recognize leaves it) is never taken as every route gone: the wait goes on. At timeout it fails naming each route still missing (or, with state absent, still there, or that the table read held no route), or saying the table never held still. It changes nothing. It reads an FRR router's table through vtysh (show ip route json, over SSH, the device granted FRRCapable and CommandExecCapable) and a Cisco IOS router's global table through its CLI (show ip route, over SSH, the controller's console or Telnet with insecure_telnet), and refuses any other device before contacting it. That refusal is made when the task runs: no single capability names both, so validate and a Controller's admission cannot hold the device to it beforehand.",
@@ -22351,6 +22399,7 @@
     },
     "supportsCheck": false,
     "noCheckReason": "what a wait waits for is usually an earlier task's change, which a check never makes, so a check would wait out its timeout and fail where the real run succeeds",
+    "noExistsReason": "it is a wait: failing at its timeout is its purpose",
     "doc": {
       "summary": "Waits for a pattern to appear in a file's contents on the target.",
       "description": "Reads a file on the device on an interval until search_regex matches it, or until it stops matching when state is absent, and fails when the timeout runs out first. It changes nothing. The whole file is read on every look, so this suits a service's startup log rather than a file that grows without limit, and a file past 64 MiB fails the task rather than being matched in part. The pattern is matched in multiline mode, as wait_for matches it, so ^ and $ mean the start and end of a line; it is a Go RE2 pattern, so a backreference or a lookahead is refused when the task is read rather than silently never matching. Only a regular file is read: a path that is missing, or that is a directory, counts as not matching, which satisfies state: absent at once and never satisfies state: present.",
@@ -22724,6 +22773,7 @@
       "readOnly": true
     },
     "supportsCheck": true,
+    "noExistsReason": "it describes the device itself; a device not there is unreachable, not absent",
     "doc": {
       "summary": "Reports a Windows host's logical processors: which are performance cores, which efficiency cores, and how they group.",
       "description": "Reads the host's CPU sets as its scheduler sees them, through the Windows API GetSystemCpuSetInformation, and changes nothing. Each logical processor is reported with its processor group, core, NUMA node, last-level cache and efficiency class. On a hybrid processor, such as Intel's with P-cores and E-cores, a higher efficiency class is a faster, less power-efficient core: the logical processors with the highest class are reported as performance processors and the rest as efficiency processors, with the affinity mask that selects the performance ones. On a processor whose cores are all alike, every logical processor is a performance one. No WMI class reports efficiency classes, so the host compiles a small call to the API with PowerShell's Add-Type; a host whose PowerShell runs in Constrained Language Mode refuses that, and the task fails saying so. A check is the same read.",

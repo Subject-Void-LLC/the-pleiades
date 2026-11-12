@@ -17,7 +17,7 @@ import (
 )
 
 func init() {
-	register(fqcnSearch, containerengine.MethodManifest(readOnly, searchDoc()), search)
+	register(fqcnSearch, containerengine.MethodManifest(readOnly, searchDoc()).WithNoExistsReason("it searches; an empty results list is the answer"), search)
 }
 
 // search is container.image.search's body: the registry's search, asked

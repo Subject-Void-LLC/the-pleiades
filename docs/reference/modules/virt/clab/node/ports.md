@@ -17,6 +17,7 @@ Returns the ports the server reports for the node. A lab that is not deployed, o
 | Requires elevation | no |
 | Runs | in the host process (the CLI or a Runner); acts on its target device |
 | Check mode | Supported: reports what it would change and changes nothing |
+| Absence | A thing that is not there is exists false, not a failure, in a run and a check |
 | Engine version | `>=0.3.0` |
 
 ## Parameters

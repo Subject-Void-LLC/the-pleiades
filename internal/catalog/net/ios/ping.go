@@ -47,6 +47,7 @@ func init() {
 			// A ping sends ICMP echoes and reads the replies. It
 			// changes nothing on the device, so there is nothing an
 			// inverse could undo.
+			NoExistsReason: collection.NoExistsProbe,
 			Reversibility: collection.Reversibility{
 				Reversible: false,
 				Notes:      "A ping is read-only: it sends echoes and reports what came back, changing nothing on the device, so there is nothing to undo.",

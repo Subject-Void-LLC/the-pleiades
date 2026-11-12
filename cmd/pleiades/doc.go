@@ -283,6 +283,10 @@ func printDocEntry(entries []catalogEntry, fqcn string) error {
 	}
 	fmt.Printf("  requires elevation  %t\n", m.ExecutionContext.RequiresElevation)
 	fmt.Printf("  check mode          %s\n", checkModeWord(m.SupportsCheck))
+	// What a read-only method answers about a thing that is not there.
+	if absence := m.AbsenceAnswer(); absence != "" && m.Status == collection.StatusImplemented {
+		fmt.Printf("  absence             %s\n", absence)
+	}
 	if m.EngineVersion != "" {
 		fmt.Printf("  engine version      %s%s\n", m.EngineVersion, engineVersionNote(e.Origin != ""))
 	}

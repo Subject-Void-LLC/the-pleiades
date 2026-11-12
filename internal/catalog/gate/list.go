@@ -25,9 +25,10 @@ func init() {
 				Site:   collection.SiteTarget,
 				Device: collection.DeviceRequired,
 			},
-			EngineVersion: ">=0.2.0",
-			Status:        collection.StatusImplemented,
-			SupportsCheck: true,
+			EngineVersion:  ">=0.2.0",
+			Status:         collection.StatusImplemented,
+			SupportsCheck:  true,
+			NoExistsReason: "it lists the manifest's checks, and the manifest is the task's own input",
 			Reversibility: collection.Reversibility{
 				Reversible: false,
 				ReadOnly:   true,

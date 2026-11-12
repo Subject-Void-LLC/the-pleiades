@@ -50,9 +50,10 @@ func manifest(doc collection.Doc) collection.Manifest {
 	}
 }
 
-// method registers a read: its check is the task itself.
-func method(name string, doc collection.Doc, fn collection.Method) {
-	collection.MustRegister(collection.Descriptor{Name: name, Manifest: manifest(doc), Invoke: fn, Check: fn})
+// method registers a read: its check is the task itself. noExists is why
+// it answers no exists return (collection.Manifest.NoExistsReason).
+func method(name string, doc collection.Doc, fn collection.Method, noExists string) {
+	collection.MustRegister(collection.Descriptor{Name: name, Manifest: manifest(doc).WithNoExistsReason(noExists), Invoke: fn, Check: fn})
 }
 
 // account resolves device into its client and account id, and records

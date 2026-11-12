@@ -32,6 +32,7 @@ func init() {
 			EngineVersion:        ">=0.2.0",
 			Status:               collection.StatusImplemented,
 			SupportsCheck:        true,
+			NoExistsReason:       collection.NoExistsGate + " (it verifies the signed document the task names)",
 			Reversibility: collection.Reversibility{
 				ReadOnly: true, Notes: "It reads the document, its signature, the trusted keys and the version register, and records nothing: a version is recorded as used only by a call that sends it.",
 			},

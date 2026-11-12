@@ -17,6 +17,7 @@ Reports each image named, or every image the engine lists when none is named (an
 | Requires elevation | no |
 | Runs | on or against the target device; acts on its target device |
 | Check mode | Supported: reports what it would change and changes nothing |
+| Absence | No exists return: a named image not there is listed under missing, never an error, in a run and a check |
 | Engine version | `>=0.2.0` |
 
 ## Parameters

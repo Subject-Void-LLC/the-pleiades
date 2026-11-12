@@ -17,6 +17,7 @@ Returns the server's own status document for Edgeshark. It only reads, so a chec
 | Requires elevation | no |
 | Runs | in the host process (the CLI or a Runner); acts on its target device |
 | Check mode | Supported: reports what it would change and changes nothing |
+| Absence | No exists return: it describes the device itself; a device not there is unreachable, not absent (it reads the server's Edgeshark status, whose running is false when it does not run) |
 | Engine version | `>=0.3.0` |
 
 ## Returns

@@ -121,6 +121,11 @@ func validateMethod(m external.DescribedMethod, running string, reserved map[str
 	if m.Manifest.SupportsCheck && m.Manifest.NoCheckReason != "" {
 		return false, fmt.Errorf("method %q declares check support and also a reason it cannot be checked", m.Name)
 	}
+	// Register's own rule for the absence declaration, called rather than
+	// restated so the two cannot drift.
+	if err := collection.ValidateNoExistsReason(m.Manifest); err != nil {
+		return false, fmt.Errorf("method %q %w", m.Name, err)
+	}
 	// Register's own rule for the declaration (collection.ValidateReversibility),
 	// called rather than restated so the two cannot drift. A program's
 	// Inverses and ReadOnly are carried but never honored (the engine

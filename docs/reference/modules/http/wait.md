@@ -17,6 +17,7 @@ Repeats http.check's request and its tests until they pass: the status is one of
 | Requires elevation | no |
 | Runs | in the host process (the CLI or a Runner); acts on no device, so a task skips the runbook's hosts: and runs once |
 | Check mode | Not supported: a check run names this task as unchecked, since what a wait waits for is usually an earlier task's change, which a check never makes, so a check would wait out its timeout and fail where the real run succeeds |
+| Absence | No exists return: it is a wait: failing at its timeout is its purpose |
 | Engine version | `>=0.2.0` |
 
 ## Parameters

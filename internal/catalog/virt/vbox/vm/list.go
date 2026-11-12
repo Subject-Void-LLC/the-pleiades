@@ -35,6 +35,7 @@ func init() {
 			PlatformTargets: nil,
 			EngineVersion:   ">=0.2.0",
 			Status:          collection.StatusImplemented,
+			NoExistsReason:  collection.NoExistsLists,
 			Reversibility: collection.Reversibility{
 				Reversible: false,
 				Notes:      "Reading is not changing: this lists VMs and alters nothing, so there is nothing an undo could restore.",

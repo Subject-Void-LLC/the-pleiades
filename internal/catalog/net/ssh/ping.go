@@ -86,6 +86,7 @@ func init() {
 			NoBecomeReason:  "its question is whether this login reaches the device, and a sudo in front of it would answer whether the login may become another account",
 			// Nothing to undo, which is the same fact that makes this
 			// method report changed: false.
+			NoExistsReason: collection.NoExistsProbe,
 			Reversibility: collection.Reversibility{
 				Reversible: false,
 				Notes:      "This method opens a connection and echoes a value back. It changes nothing on the device, so there is nothing to undo; that is the same fact that makes it report changed: false.",

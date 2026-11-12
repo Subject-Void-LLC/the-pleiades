@@ -52,6 +52,7 @@ func init() {
 			Status:          collection.StatusImplemented,
 			// It observes and never acts, so a rollback has nothing to move
 			// back, and it never emits an inverse.
+			NoExistsReason: collection.NoExistsWait,
 			Reversibility: collection.Reversibility{
 				Reversible: false,
 				Notes:      "This method waits for a device to answer and changes nothing on it, so there is nothing to undo.",

@@ -52,6 +52,7 @@ func init() {
 			NoBecomeReason:  "it sends no command: it closes the connections the run keeps open, so there is nothing to run as another account",
 			EngineVersion:   ">=0.2.0",
 			Status:          collection.StatusImplemented,
+			NoExistsReason:  "it looks nothing up",
 			Reversibility: collection.Reversibility{
 				Reversible: false,
 				Notes: "It changes nothing on the device: it closes the platform's own connection, and the next task opens a new one, " +

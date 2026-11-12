@@ -52,7 +52,8 @@ func init() {
 			Status:          collection.StatusImplemented,
 			// Read-only: every covered command is a show command, so a check
 			// runs it for real.
-			SupportsCheck: true,
+			SupportsCheck:  true,
+			NoExistsReason: "it parses a show command's output; output with nothing found is empty: true",
 			Reversibility: collection.Reversibility{
 				Reversible: false,
 				Notes:      "It runs one show command and changes nothing on the device, so there is nothing to undo.",

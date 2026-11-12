@@ -17,6 +17,7 @@ Dials the device's SSHTransportCapable host and port, authenticates with the cre
 | Requires elevation | no |
 | Runs | on or against the target device; acts on its target device |
 | Check mode | Supported: reports what it would change and changes nothing |
+| Absence | No exists return: it is a probe: its result is the answer, a lost reply included |
 | Engine version | `>=0.2.0` |
 
 ## Returns

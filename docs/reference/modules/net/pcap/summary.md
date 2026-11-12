@@ -17,6 +17,7 @@ Reads a pcap or pcapng file from the project (virt.cml.capture.stop writes one; 
 | Requires elevation | no |
 | Runs | in the host process (the CLI or a Runner); acts on no device, so a task skips the runbook's hosts: and runs once |
 | Check mode | Supported: reports what it would change and changes nothing |
+| Absence | No exists return: it summarizes the capture file the task names; a file not there is refused input, not a lookup |
 | Engine version | `>=0.2.0` |
 
 ## Parameters

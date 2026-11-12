@@ -31,6 +31,7 @@ func init() {
 			ExecutionContext:     collection.ExecutionContext{Site: collection.SiteTarget, Device: collection.DeviceRequired},
 			EngineVersion:        ">=0.2.0",
 			Status:               collection.StatusImplemented,
+			NoExistsReason:       collection.NoExistsDevice,
 			Reversibility:        collection.Reversibility{ReadOnly: true, Notes: "Runs only show commands, which change nothing."},
 			SupportsCheck:        true,
 			Doc: collection.Doc{

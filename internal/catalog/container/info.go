@@ -15,7 +15,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
 
-func init() { registerRead("container.info", Info) }
+func init() { registerRead("container.info", Info, "") }
 
 // Info implements container.info: one container as the engine reports it,
 // environment values withheld.

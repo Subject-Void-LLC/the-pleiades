@@ -17,6 +17,7 @@ Answers a different question than device_facts: device_facts describes what the 
 | Requires elevation | no |
 | Runs | in the host process (the CLI or a Runner); acts on its target device |
 | Check mode | Supported: reports what it would change and changes nothing |
+| Absence | No exists return: it lists; when there is nothing, an empty list is the answer |
 | Engine version | `>=0.2.0` |
 
 ## Parameters

@@ -109,6 +109,15 @@ func init() {
 			// should leave SupportsCheck false and say why in
 			// NoCheckReason, and a check run then reports it as unchecked
 			// by name, giving that reason.
+			//
+			// TODO(forge): a method that only reads (Reversibility.ReadOnly)
+			// answers a thing that is not there as data: a lookup of one
+			// named thing declares an exists return (a bool, returned
+			// always, false when it is not there, in a run and a check),
+			// and any other read-only method says why it answers none in
+			// NoExistsReason (collection.NoExistsLists and its siblings
+			// name the usual reasons). A test holds every built-in to one
+			// of the two.
 			SupportsCheck: false,
 {{.Doc}}		},
 {{- if .DeviceCall}}

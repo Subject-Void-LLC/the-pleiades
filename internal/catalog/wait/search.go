@@ -73,6 +73,7 @@ func init() {
 			// unfinished one: reading a file changes nothing that a
 			// rollback could put back, and this method emits no inverse at
 			// run time either.
+			NoExistsReason: collection.NoExistsWait,
 			Reversibility: collection.Reversibility{
 				Reversible: false,
 				Notes: "This method reads a file and changes nothing on the device, so there is nothing to undo. That is the same fact that " +

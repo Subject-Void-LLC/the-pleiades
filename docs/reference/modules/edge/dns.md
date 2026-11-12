@@ -17,6 +17,7 @@ Reads a zone by id, or by name within the account (a zone of another account is 
 | Requires elevation | no |
 | Runs | in the host process (the CLI or a Runner); acts on its target device |
 | Check mode | Supported: reports what it would change and changes nothing |
+| Absence | No exists return: a name with no records is an empty records list, which expect.absent asserts; a zone not there fails, as the scope of the read |
 | Engine version | `>=0.2.0` |
 
 ## Parameters

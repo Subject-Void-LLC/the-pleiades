@@ -21,7 +21,9 @@ const (
 	paramType = "type"
 )
 
-func init() { method(fqcnDNS, dnsDoc(), DNS) }
+func init() {
+	method(fqcnDNS, dnsDoc(), DNS, "a name with no records is an empty records list, which expect.absent asserts; a zone not there fails, as the scope of the read")
+}
 
 // DNS implements edge.dns.
 func DNS(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {

@@ -59,6 +59,7 @@ func init() {
 			ExecutionContext: collection.ExecutionContext{Site: collection.SiteTarget, Device: collection.DeviceRequired},
 			EngineVersion:    ">=0.2.0",
 			Status:           collection.StatusImplemented,
+			NoExistsReason:   collection.NoExistsProbe,
 			Reversibility:    collection.Reversibility{ReadOnly: true, Notes: "It sends probes and reads their answers, changing nothing."},
 			SupportsCheck:    true,
 			Doc:              traceDoc(),

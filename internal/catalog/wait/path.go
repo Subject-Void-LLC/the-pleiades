@@ -58,6 +58,7 @@ func init() {
 			// unfinished one. This method observes and never acts, so a
 			// rollback of it has nothing to move back, and it never emits
 			// an inverse at run time either.
+			NoExistsReason: collection.NoExistsWait,
 			Reversibility: collection.Reversibility{
 				Reversible: false,
 				Notes: "This method watches a path and changes nothing on the device, so there is nothing to undo. That is the same fact " +

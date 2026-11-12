@@ -37,6 +37,7 @@ func init() {
 			PlatformTargets: nil,
 			EngineVersion:   ">=0.2.0",
 			Status:          collection.StatusImplemented,
+			NoExistsReason:  collection.NoExistsLists,
 			Reversibility: collection.Reversibility{
 				ReadOnly: true,
 				Notes:    "It only reads the controller.",

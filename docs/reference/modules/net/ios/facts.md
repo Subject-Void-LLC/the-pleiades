@@ -17,6 +17,7 @@ Closes a real gap: facts.gather requires FactGathererCapable, which no Cisco dev
 | Requires elevation | no |
 | Runs | on or against the target device; acts on its target device |
 | Check mode | Supported: reports what it would change and changes nothing |
+| Absence | No exists return: it describes the device itself; a device not there is unreachable, not absent |
 | Engine version | `>=0.2.0` |
 
 ## Parameters

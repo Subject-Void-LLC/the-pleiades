@@ -14,7 +14,7 @@ import (
 func init() {
 	collection.MustRegister(collection.Descriptor{
 		Name:     fqcnList,
-		Manifest: manifest(listDoc(), collection.Reversibility{ReadOnly: true, Notes: "It asks the host which models it has on disk and in memory, and changes nothing."}),
+		Manifest: manifest(listDoc(), collection.Reversibility{ReadOnly: true, Notes: "It asks the host which models it has on disk and in memory, and changes nothing."}).WithNoExistsReason(collection.NoExistsLists),
 		Invoke:   List,
 		// It only reads, so a check of it is the task itself.
 		Check: List,

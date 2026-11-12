@@ -18,7 +18,7 @@ func init() {
 		Name: fqcnList,
 		Manifest: manifest(listDoc(), collection.Reversibility{
 			ReadOnly: true, Notes: "It reads the provider's record and asks it which models it serves, which no provider counts as a call.",
-		}),
+		}).WithNoExistsReason(collection.NoExistsLists),
 		Invoke: List,
 		// It only reads, so a check of it is the task itself.
 		Check: List,

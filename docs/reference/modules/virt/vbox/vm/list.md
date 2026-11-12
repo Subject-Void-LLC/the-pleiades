@@ -17,6 +17,7 @@ Reports every VM registered on the host for the account Pleiades reaches it as: 
 | Requires elevation | no |
 | Runs | on or against the target device; acts on its target device |
 | Check mode | Supported: reports what it would change and changes nothing |
+| Absence | No exists return: it lists; when there is nothing, an empty list is the answer |
 | Engine version | `>=0.2.0` |
 
 ## Returns
