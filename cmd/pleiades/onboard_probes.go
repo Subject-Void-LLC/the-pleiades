@@ -115,6 +115,27 @@ func probeOutcome(stats map[string]any) (bool, map[string]any) {
 	return granted, props
 }
 
+// probedGrant is the grant a probe of def that answered with props makes:
+// held to def (every required property, none undeclared, each of its
+// type), bound to the device's bound properties (binding) and to def's
+// digest, and naming build, the program build that probed. A probe whose
+// properties its own definition refuses grants nothing.
+func probedGrant(def capability.DataDefinition, build, binding string, props map[string]any) (inventory.Grant, error) {
+	if err := capability.ValidateGrant(def, props); err != nil {
+		return inventory.Grant{}, fmt.Errorf("the probe %s granted properties its own definition refuses: %w", def.Probe, err)
+	}
+	return inventory.Grant{
+		Capability: def.Name,
+		Source:     inventory.GrantProbed,
+		Program:    def.Provider,
+		Properties: props,
+		At:         time.Now().UTC(),
+		Binding:    binding,
+		Definition: capability.DefinitionDigest(def),
+		Build:      build,
+	}, nil
+}
+
 // recordProbe writes what a probe decided to the device name: a probed
 // grant when it granted, the withdrawal of this program's earlier probed
 // grant when it did not. build is the probing program's digest. It reports
@@ -146,23 +167,15 @@ func recordProbe(dir, name string, def capability.DataDefinition, build string, 
 		}
 		return false, false, nil
 	}
-	if err := capability.ValidateGrant(def, props); err != nil {
-		return false, false, fmt.Errorf("the probe %s granted properties its own definition refuses: %w", def.Probe, err)
-	}
 	deviceType := ""
 	if typed, ok := item.(interface{ DeviceType() string }); ok {
 		deviceType = typed.DeviceType()
 	}
-	if err := g.RecordGrant(inventory.Grant{
-		Capability: def.Name,
-		Source:     inventory.GrantProbed,
-		Program:    def.Provider,
-		Properties: props,
-		At:         time.Now().UTC(),
-		Binding:    record.DiscoveryBinding(deviceType, item.Properties()),
-		Definition: capability.DefinitionDigest(def),
-		Build:      build,
-	}); err != nil {
+	grant, err := probedGrant(def, build, record.DiscoveryBinding(deviceType, item.Properties()), props)
+	if err != nil {
+		return false, false, err
+	}
+	if err := g.RecordGrant(grant); err != nil {
 		return false, false, err
 	}
 	rebuilt, err := factory.Rebuilt(item)
