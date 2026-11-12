@@ -102,10 +102,14 @@ step you take on purpose, since a `replace` is not checked against anything. The
 checkout stays out of that checkout's `./...`; `--no-go-mod` leaves it out, for a program
 meant to join a module of yours. Nothing in this repository needs wiring afterward.
 
+`forge new-external acme.report.build --script build.py --interpreter /usr/bin/python3`
+writes the same program around a script instead: see
+[A script as an external Collection](#a-script-as-an-external-collection).
+
 ## Generated repository file reference
 
 Each in-repository `forge` command writes exactly two files, and `new-external` writes
-a program's five, with the Go files gofmt-clean via Go's own `go/format` package (no
+a program's five, or six with `--capability` or `--script`, with the Go files gofmt-clean via Go's own `go/format` package (no
 `gofmt` subprocess involved):
 
 | Command | Files written |
@@ -113,7 +117,7 @@ a program's five, with the Go files gofmt-clean via Go's own `go/format` package
 | `forge new-collection` | `internal/catalog/<namespace>/<method>.go`, plus a matching `_test.go` |
 | `forge new-device` | `internal/inventory/devices/<vendor>/<type>.go`, plus a matching `_test.go` |
 | `forge new-plugin` | `internal/inventory/plugins/<name>/<name>.go`, plus a matching `_test.go` |
-| `forge new-external` | `<dir>/main.go`, `<dir>/<method>.go`, `<dir>/<method>_test.go`, `<dir>/README.md`, `<dir>/go.mod` (not with `--no-go-mod`) |
+| `forge new-external` | `<dir>/main.go`, `<dir>/<method>.go`, `<dir>/<method>_test.go`, `<dir>/README.md`, `<dir>/go.mod` (not with `--no-go-mod`), and `<dir>/capability.go` with `--capability` or `<dir>/<method>-script<ext>` with `--script` |
 
 None of the three wires its own output into the binary automatically. A generated
 Collection method registers itself into `pkg/collection` via its own package
@@ -866,6 +870,56 @@ Every program in the directory is loaded when `pleiades run`, `pleiades validate
 `pleiades doc` starts, and when the Runner starts. From then on its methods are
 checked by `pleiades validate`, listed by `pleiades doc`, and dispatched by the engine
 like any other. The Controller never runs a Collection method, so it needs no copy.
+
+### A script as an external Collection
+
+A script you already have can become a Collection method without being rewritten in
+Go:
+
+```sh
+pleiades forge new-external acme.report.build --script build.py --interpreter /usr/bin/python3
+```
+
+The program forge writes embeds the script with `go:embed`, so the digest you approve
+covers it: a changed script is a new build to approve, and an unchanged one builds to the
+same digest anywhere (see above). Its one method writes the script into the run's
+private temporary directory and runs it there with the interpreter, under the same
+confinement as any program. The interpreter must be an absolute path; a relative one is
+refused, since which program it finds would depend on the `PATH` of whoever runs it.
+
+The task's params reach the script as one JSON document on stdin. The script answers by
+printing exactly one JSON object on stdout:
+
+```json
+{"changed": true, "stats": {"lines": 3}, "facts": {"seen": "yes"}}
+```
+
+`changed` is required, true or false. `stats` and `facts` are optional objects, and every
+key in either is a value the task's register reads; a key The Pleiades reserves (such as
+`inverse`) or one set in both is refused. Anything else on stdout fails the task, and so
+does printing nothing. A non-zero exit fails the task too, with the start of the script's
+stderr, masked, in the error. Declare every parameter the script reads in the generated
+method file (`Params`), or `pleiades validate` refuses a task that passes it.
+
+The method runs beside The Pleiades and acts on no device, so a task calling it needs no
+`hosts:` and runs once. It supports no check mode, since the wrapper cannot tell a script
+that only reads from one that writes, and it records no undo. A check run reports it as
+unchecked, with that reason.
+
+**A script is never handed a credential.** Nothing secret reaches it on stdin, in its
+arguments or in its environment, which holds only `HOME` and `TMPDIR` (both the run's own
+directory) and `PATH`, `LANG`, `LC_ALL` and `TZ` as the program was given them. A script
+that needs to authenticate somewhere cannot do so yet.
+
+Two limits are worth knowing before you approve a script program:
+
+- **The interpreter is outside the approved digest.** The digest covers the script and
+  the wrapper around it, but whatever is at the interpreter's path on the machine running
+  The Pleiades runs the script.
+- **The confinement restricts files, not the network.** The script can read only what
+  the program can (its own directory, the system's libraries and tools, its temporary
+  directory, and any path granted with `PLEIADES_COLLECTIONS_READ_PATHS`), but it can
+  connect anywhere the machine can.
 
 ### The contract
 

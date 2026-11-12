@@ -19,19 +19,28 @@
 //
 // # What it writes
 //
-// Four files, into one program directory:
+// Five files, into one program directory, and a sixth for either option
+// below:
 //
-//   - main.go: package main, whose main is one call to external.Main.
+//   - main.go: package main, whose main is one call to external.MainProgram.
 //   - <method>.go: the method's collection.Descriptor and a body that
 //     actually works, so the program runs the moment it is built. The body
 //     connects with sdk.Connect, runs `uname -a`, and records the output
 //     as a stat. Because that body only reads, the descriptor honestly
 //     declares check support with the same function as its Check, and says
 //     in a comment what the author must do the moment the body writes.
-//   - <method>_test.go: a test that runs external.Serve for "describe"
-//     over buffers, which proves the descriptor passes collection.Register
-//     and that the describe document names this method.
+//   - <method>_test.go: a test that runs external.ServeProgram for
+//     "describe" over buffers, which proves the descriptor passes
+//     collection.Register and that the describe document names this method.
 //   - README.md: how to build the program and where to install it.
+//   - go.mod, unless Config.NoGoMod (see below).
+//   - capability.go, with Config.Capability: the capability's definition
+//     and the read-only probe that grants it.
+//   - <method>-script<ext>, with Config.Script: the script itself, which
+//     <method>.go then embeds with go:embed and runs with Config.Interpreter
+//     in place of the SSH body above. That method acts on no device, is
+//     handed no credential, supports no check and records no undo
+//     (templates_script.go says what crosses to the script and back).
 //
 // Unlike collectionscaffold's declared stub, the generated method is
 // StatusImplemented from the start. external.Serve refuses a declared

@@ -805,8 +805,10 @@ var Root = Command{
 						{Name: "dir", Type: "string", Default: "", Doc: "directory to write the program into (default: the method name with its dots as hyphens)"},
 						{Name: "no-go-mod", Type: "bool", Default: "false", Doc: "write no go.mod, so the program joins the Go module around it instead of being a module of its own"},
 						{Name: "capability", Type: "string", Default: "", Doc: "a capability the program defines as data, <namespace>.<name> in the method's namespace: its definition and a probe that grants it are written, and the method requires it"},
+						{Name: "script", Type: "string", Default: "", Doc: "a script for the method to run, embedded in the program so its approved digest covers it; the method acts on no device and is handed no credential"},
+						{Name: "interpreter", Type: "string", Default: "", Doc: "the absolute path of the program that runs --script, for example /usr/bin/python3; it is outside the approved digest"},
 					},
-					Examples: []string{"pleiades forge new-external acme.motd.read", "pleiades forge new-external acme.motd.read --capability acme.motd_host"},
+					Examples: []string{"pleiades forge new-external acme.motd.read", "pleiades forge new-external acme.motd.read --capability acme.motd_host", "pleiades forge new-external acme.report.build --script build.py --interpreter /usr/bin/python3"},
 				},
 				{
 					Name:       "new-filter",

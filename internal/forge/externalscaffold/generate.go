@@ -62,6 +62,12 @@ type templateData struct {
 	Capability     string
 	ProbeName      string
 	CapabilityFile string
+
+	// ScriptFile and Interpreter are set when the program wraps a script
+	// (Config.Script): the embedded script's file name, and the absolute
+	// path of the program that runs it.
+	ScriptFile  string
+	Interpreter string
 }
 
 // funcMap is shared by every template. quote is how a name reaches Go
@@ -77,6 +83,7 @@ var funcMap = template.FuncMap{
 var (
 	mainTemplate       = template.Must(template.New("main").Funcs(funcMap).Parse(mainTemplateSource))
 	methodTemplate     = template.Must(template.New("method").Funcs(funcMap).Parse(methodTemplateSource))
+	scriptTemplate     = template.Must(template.New("script").Funcs(funcMap).Parse(scriptMethodTemplateSource))
 	testTemplate       = template.Must(template.New("method_test").Funcs(funcMap).Parse(methodTestTemplateSource))
 	readmeTemplate     = template.Must(template.New("readme").Funcs(funcMap).Parse(readmeTemplateSource))
 	capabilityTemplate = template.Must(template.New("capability").Funcs(funcMap).Parse(capabilityTemplateSource))
@@ -114,18 +121,21 @@ toolchain {{.Toolchain}}
 `
 
 // output is one file Generate renders: its path, its template, and
-// whether it is Go source to format.
+// whether it is Go source to format. A file with no template is raw, written
+// exactly as given (the embedded script).
 type output struct {
 	path     string
 	tmpl     *template.Template
 	goSource bool
+	raw      []byte
 }
 
 // Generate renders cfg into a complete external Collection program: its
-// entry point, its one method, that method's test, a README, and a go.mod
-// unless cfg.NoGoMod. It performs no filesystem I/O and returns paths
-// relative to the program directory, in the order a reader would open
-// them.
+// entry point, its one method, that method's test, a README, the
+// capability's file when cfg.Capability is set, the script itself when
+// cfg.Script is, and a go.mod unless cfg.NoGoMod. It performs no filesystem
+// I/O and returns paths relative to the program directory, in the order a
+// reader would open them.
 func Generate(cfg Config) ([]GeneratedFile, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err
@@ -146,6 +156,11 @@ func Generate(cfg Config) ([]GeneratedFile, error) {
 	if cfg.Capability != "" {
 		data.Capability, data.ProbeName, data.CapabilityFile = cfg.Capability, cfg.ProbeName(), "capability"
 	}
+	method := methodTemplate
+	if cfg.Script != nil {
+		data.ScriptFile, data.Interpreter = cfg.ScriptFile(), cfg.Interpreter
+		method = scriptTemplate
+	}
 
 	// Each entry pairs a template with the path it renders to and
 	// whether go/format applies. README.md and go.mod are the files that
@@ -153,12 +168,15 @@ func Generate(cfg Config) ([]GeneratedFile, error) {
 	// formatter.
 	outputs := []output{
 		{path: "main.go", tmpl: mainTemplate, goSource: true},
-		{path: data.FileBase + ".go", tmpl: methodTemplate, goSource: true},
+		{path: data.FileBase + ".go", tmpl: method, goSource: true},
 		{path: data.FileBase + "_test.go", tmpl: testTemplate, goSource: true},
 		{path: "README.md", tmpl: readmeTemplate},
 	}
 	if cfg.Capability != "" {
 		outputs = append(outputs, output{path: data.CapabilityFile + ".go", tmpl: capabilityTemplate, goSource: true})
+	}
+	if cfg.Script != nil {
+		outputs = append(outputs, output{path: data.ScriptFile, raw: cfg.Script})
 	}
 	if !cfg.NoGoMod {
 		outputs = append(outputs, output{path: "go.mod", tmpl: goModTemplate})
@@ -166,6 +184,10 @@ func Generate(cfg Config) ([]GeneratedFile, error) {
 
 	files := make([]GeneratedFile, 0, len(outputs))
 	for _, out := range outputs {
+		if out.tmpl == nil {
+			files = append(files, GeneratedFile{Path: out.path, Content: append([]byte(nil), out.raw...)})
+			continue
+		}
 		content, err := render(out.tmpl, data, out.goSource)
 		if err != nil {
 			return nil, fmt.Errorf("externalscaffold: rendering %s: %w", out.path, err)
