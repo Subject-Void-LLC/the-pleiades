@@ -13,10 +13,11 @@ request are next. The owner authorized merging green PRs and deleting their bran
 - `svc.*` proven on every OS it claims. Linux: `TestCLI_SystemdServicesCycleOnARealDevice` (#158). Windows:
   `TestWinRMGate_Service*` passed on win-check today, and the new `TestWinRMGate_GenericServiceMethodsReachTheSCM`
   covers the generic dispatchers there (undo included; mutation-checked).
-- FAILURE_PATTERNS 1179 (a repeat of 148): `chdir: "-"` ran the command in the login's home, because `cd` reads `-` as
-  `$OLDPWD` even after `--`. Fixed in `exec`'s `changeDirectory`, `remotefile.DirectoryEntries` and `identity.user`'s
-  `homeState`. Found by the new `FuzzShellCommandLine` (a real `/bin/sh` and a recorder in place of the shell). Each
-  regression test fails on the old code.
+- FAILURE_PATTERNS 1179 (a repeat of 148): `cd` reads a relative `-` as `$OLDPWD` and searches `$CDPATH` for any other
+  relative name, even after `--`, so `chdir: "-"` ran in the login's home and a `CDPATH` could move any relative chdir.
+  One rule now, `remoteexec.DirOperand` (relative goes as `./dir`), at every `cd` site: `exec`, `remotefile.DirectoryEntries`,
+  `identity.user`'s `homeState`, `gate`'s probe and check command. The `CDPATH` half came from fp-reviewer. Each regression
+  test fails on the code before the fix.
 - docs/03: `include_tasks` is unsupported, with the reason and the manual rewrite (the 2026-11-11 decision).
 - Every first-tier fuzz target ran 60 s clean; counts are in IMPLEMENTATION.md's Phase 38. `pkg/operand`'s coverage
   floor is recorded at 100.0.
@@ -38,9 +39,10 @@ None.
 
 ### Files changed this session
 
+`pkg/remoteexec/{quote.go,quote_test.go}`, `internal/catalog/gate/{preconditions.go,runner.go,run_test.go}`,
 `internal/catalog/exec/{exec.go,commandline_fuzz_test.go,testdata/fuzz/FuzzShellCommandLine/}`,
 `pkg/remotefile/{remotefile.go,predict_test.go}`, `internal/catalog/identity/user/{user.go,home_state_internal_test.go}`,
 `cmd/pleiades/winrm_service_feature_release_gate_test.go`, `docs/03-migrating-from-ansible.md`, `coverage-floor.json`,
 `changelog/chdir-named-dash.fixed.md`, `FAILURE_PATTERNS*.md` (1179), `HANDOFF_*.md`.
 
-Lab: win-check was started cold for the WinRM gates and shut down again (ACPI); powered off.
+Lab: win-check was started cold twice for the WinRM gates and shut down again each time (ACPI); powered off.
