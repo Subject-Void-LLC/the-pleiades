@@ -28998,9 +28998,18 @@ the rule declared in one form only, a doc claim that was false, and the class st
   paths), `net.trace` (an address or a host-name pattern), `net.ovs.*` and `net.linux.*` (interface-name patterns),
   `net.frr.*` (option arguments), `fw.firewalld.*` (`--zone=` glued), `gate.*`, `build.*`, `facts.gather` files
   (`--`), `exec.*`'s named parameters (`cd --`), `win.capability`, `win.schtask` and `win.firewall` (allowlists, JSON
-  on standard input) and `pkg/scpxfer` (`--`). Left as they are, low risk: VBoxManage `keyboardputstring` text and
-  `setextradata` values may begin with `-` (VBoxManage reads them by position, by its source), and `net.ovs`'s
-  `del-port` and `net.linux`'s bridge resend a port name read back from the device unchecked.
+  on standard input) and `pkg/scpxfer` (`--`). Two loose ends the sweep named were then settled. VBoxManage's
+  `keyboardputstring` text and `setextradata` key and value may begin with `-` and are taken whole: its `main`
+  (VBoxManage.cpp) parses global options only up to the command name, and `keyboardPutString`
+  (VBoxManageControlVM.cpp) and `handleSetExtraData` (VBoxManageMisc.cpp) read argv by position with no option
+  parser, so a `--` would be typed or stored as text (read in VirtualBox's own source, not measured on a host;
+  `TestDashLedTextAndValuesTravelAsOneWord` pins the shape and fails if a `--` is added). And `net.ovs.port` and
+  `net.linux.bridge` resent a name read back from the device unchecked (port-to-br's bridge as `del-port`'s bridge,
+  a bridge's listed ports as `ip link set <port> nomaster` and in the undo); each is now held to the interface-name
+  rule a caller's name is held to before anything is sent, and one that fails is an error naming the bridge
+  (`TestPort_RefusesABridgeTheSwitchReportsThatIsNoName`, with a stand-in ovs-vsctl answering `--if-exists`, `-x` and
+  two words, and `TestParseBridge_RefusesAPortTheHostListsThatIsNoName`, each failing without the check; the live
+  switch and router tests pass with it).
 - *What the rule costs a rollback.* `--leave` accepts a refused step whole, so a `file.permissions` undo whose prior
   owner holds `[` (an account Debian 12 can have) loses its mode restore with its owner. Keeping a step's other
   parameters would be a partial undo the planner has no form for, which is a design call, not a settled fix. On the
@@ -29029,8 +29038,11 @@ and `TestCLI_FreeBSDFileChecksMatchTheirRealRuns` would measure it. The systemd 
 systemd on this machine today: under Docker Desktop 29.8 on WSL kernel 6.18 the host cgroup namespace's bound tree
 lacks the container's own cgroup, and systemd exits with "Failed to create /docker/<id>/init.scope control group". The
 new gate ran here, and failed on the tree before the pass, only with `systemdDevice` switched by hand, uncommitted,
-to a private cgroup namespace and `--privileged`; CI's native Docker runs it as written. The `pkg.dnf` repository
-check runs only in a real run, so a check of `pkg.dnf.install vim` still predicts the install a real run refuses.
+to a private cgroup namespace and `--privileged`; CI's native Docker runs it as written. The exact-name checks (`dnf repoquery`, and `apt-cache policy` through
+`requireCandidate`) run in a check as in a real run, through the body Invoke and Check share, so a check of
+`pkg.dnf.install vim` or `pkg.apt.install awk` refuses the name in the run's own words rather than predicting an
+install the run refuses (`TestInstall_RefusesANameNoPackageHas`, `TestAptChecks`, each failing before); a dnf check
+may therefore refresh dnf's metadata cache, as its check-update of an installed package already did.
 
 **Lesson.** A fix for a value a program misreads belongs in a rule a parameter declares, which validation, the engine
 and the method all read, not in the method where it was found. Search for the class by what the code does (a caller's
