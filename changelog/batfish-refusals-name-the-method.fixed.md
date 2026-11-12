@@ -1,0 +1,1 @@
+`net.batfish.check` now names itself exactly once in every refusal of its parameters: a malformed top-level assertion used to be refused without the method's name, and a scenario whose `assertions` was not a list named it twice.

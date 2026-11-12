@@ -174,7 +174,7 @@ func readParams(rc sdk.RunbookContext, params map[string]any) (request, error) {
 		return req, err
 	}
 	if req.assertions, err = readAssertions(params, "assertions", seen); err != nil {
-		return req, err
+		return req, fmt.Errorf("%s: %w", checkFQCN, err)
 	}
 	scenarios, err := mapList(params, "scenarios")
 	if err != nil {
@@ -305,21 +305,32 @@ func readScenario(s map[string]any, nodes map[string]bool) (scenario, error) {
 	return sc, nil
 }
 
-// mapList reads params[key] as a list of maps; absent is empty.
+// mapList reads params[key] as a list of maps; absent is empty. Its refusal
+// names the method, for a top-level parameter.
 func mapList(params map[string]any, key string) ([]map[string]any, error) {
+	out, err := mapListOf(params, key)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", checkFQCN, err)
+	}
+	return out, nil
+}
+
+// mapListOf is mapList with a refusal that does not name the method, for a
+// reader whose caller names it once (readAssertions, under a scenario too).
+func mapListOf(params map[string]any, key string) ([]map[string]any, error) {
 	v, ok := params[key]
 	if !ok || v == nil {
 		return nil, nil
 	}
 	list, ok := v.([]any)
 	if !ok {
-		return nil, fmt.Errorf("%s: %s must be a list", checkFQCN, key)
+		return nil, fmt.Errorf("%s must be a list", key)
 	}
 	out := make([]map[string]any, 0, len(list))
 	for i, item := range list {
 		m, ok := item.(map[string]any)
 		if !ok {
-			return nil, fmt.Errorf("%s: %s[%d] must be a map", checkFQCN, key, i)
+			return nil, fmt.Errorf("%s[%d] must be a map", key, i)
 		}
 		out = append(out, m)
 	}
