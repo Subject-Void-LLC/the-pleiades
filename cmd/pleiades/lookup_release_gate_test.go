@@ -9,10 +9,10 @@ package main_test
 import (
 	"context"
 	"net"
-	"strconv"
 	"strings"
 	"testing"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport/refusing"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/cml"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/cml/cmltest"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
@@ -38,7 +38,12 @@ func TestALookupThatCannotLookFails(t *testing.T) {
 	ctl := cmltest.New(t, "admin", "pw")
 	pin := devicetls.Fingerprint(ctl.Certificate())
 	secret := cmlLab(t, ctl, "secret")
-	dead := strconv.Itoa(closedPort(t))
+	// A loopback port bound and never listened on, so every dial to it is
+	// refused, and no other socket can take it while the test runs.
+	_, dead, err := net.SplitHostPort(refusing.Addr(t))
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, args := range [][]string{
 		{"add-host", "gone", "--type", "linux_server", "--set", "host=127.0.0.1", "--set", "port=" + dead},
 		{"add-credential", "gone", "--username", releaseGateSSHUser, "--password", releaseGateSSHPassword},
@@ -154,21 +159,6 @@ func cmlLab(t *testing.T, ctl *cmltest.Controller, title string) string {
 		t.Fatal(err)
 	}
 	return lab.ID
-}
-
-// closedPort returns a local TCP port that was just listened on and closed,
-// so a dial to it is refused.
-func closedPort(t *testing.T) int {
-	t.Helper()
-	l, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	port := l.Addr().(*net.TCPAddr).Port
-	if err := l.Close(); err != nil {
-		t.Fatal(err)
-	}
-	return port
 }
 
 // absentLookupRunbook branches on lookups under ignore_errors and
