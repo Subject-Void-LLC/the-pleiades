@@ -1,0 +1,1 @@
+`net.batfish.check` now opens every refusal of its parameters with its own name, once: a malformed top-level assertion used to be refused without it, and a scenario whose `assertions` was not a list named it twice. (The run output's `collection method "net.batfish.check":` prefix, which every method's error carries, is unchanged.)

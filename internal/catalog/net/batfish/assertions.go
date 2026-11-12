@@ -57,9 +57,10 @@ var quotedInterface = regexp.MustCompile(`\["([^"\]]+)"\]$`)
 // questionName is what a Batfish question's name may be.
 var questionName = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9]{1,63}$`)
 
-// readAssertions reads a list of assertions, each a map of one kind.
+// readAssertions reads a list of assertions, each a map of one kind. Its
+// refusal does not name the method: its caller does, once.
 func readAssertions(params map[string]any, key string, nodes map[string]bool) ([]assertion, error) {
-	list, err := mapList(params, key)
+	list, err := mapListOf(params, key)
 	if err != nil {
 		return nil, err
 	}
