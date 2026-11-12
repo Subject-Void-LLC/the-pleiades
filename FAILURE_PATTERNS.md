@@ -1180,6 +1180,7 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 1174. A package, service, account or file owner name beginning with a dash reached apt-get, dnf, systemctl, getent and chown as an option, and one holding a wildcard as a pattern, because each method quoted the name but nothing refused it, and ln read a link target the same way (a repeat of 148 and 450, and of 451 for dpkg-query's exit status) (fixed)
 1175. pkg.dnf read rpm's "is not installed" and pkg.apt read apt-cache's "Candidate:" in the device's own language, so a French or German host failed every install of an absent package and every APT check (fixed)
 1176. win.file.copy, win.file.download, win.archive.extract and VirtualBox's host file scripts put a path or URL inside single quotes without QuotePS, so a typographic quote ended the literal and ran the rest as PowerShell (a repeat of 354) (fixed)
+1177. Four pkg tests faked apt-get but read the host's own apt-cache, passing on Linux and failing only on fast-macos (a repeat of 476) (fixed on the pull request)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

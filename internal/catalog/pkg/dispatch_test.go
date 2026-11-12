@@ -64,6 +64,11 @@ func newAptHarness(t *testing.T) (*device, *ctxStub, string) {
 	dir := t.TempDir()
 	record := filepath.Join(dir, "invocations")
 	writeFakeAptGet(t, dir, record, fakeAptState{})
+	// pkg.apt asks apt-cache for the exact name before a fresh install, so
+	// every harness needs a fake one: without it a test reads the host's own
+	// apt-cache, passing on a Debian-family machine and failing everywhere
+	// else (macOS has none, exit 127).
+	writeFakeAptCache(t, dir)
 
 	need.POSIXShell(t)
 	srv, err := remoteexectest.Start(remoteexectest.Options{})

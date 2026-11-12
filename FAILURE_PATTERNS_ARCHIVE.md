@@ -29108,3 +29108,27 @@ the next one; it is not built, since the scripts also put constants and hex dige
 allowlist.
 
 **Class.** C13 (OS command injection), incomplete-quoting variant.
+
+## 1177. Four pkg tests faked apt-get but read the host's own apt-cache, passing on Linux and failing only on fast-macos (a repeat of 476) (fixed on the pull request)
+
+**Symptom.** PR #158's `fast-macos (2)` and `(3)` failed `TestDispatch_InstallResolvesToAptAndRuns`,
+`TestDispatch_UpgradeIsNotReversible` (`internal/catalog/pkg`), `TestInstall_NonZeroExitFallsBackToStdout` and
+`TestInstall_NonZeroExitWithNoOutputAtAllSaysSo` (`internal/catalog/pkg/apt`) with "apt-cache policy curl exited 127:
+sh: apt-cache: command not found". Every Linux job and the local pr-check passed.
+
+**Root cause.** This branch made a fresh `pkg.apt.install` ask `apt-cache policy` for the exact name before `apt-get`
+runs (1174's F11). These tests put a fake `apt-get` and `dpkg-query` first on PATH but no `apt-cache`, so on this machine
+and on the Ubuntu runners they reached the host's real `apt-cache`, whose answer happened to let them pass. macOS has
+none. The tests were never hermetic for the new call; they were lucky.
+
+**Why 476's lesson did not prevent it.** 476 says to list and require the host tools a test runs when its package first
+runs on a new platform. Here the package had run on macOS before; the new tool arrived with a change to the method,
+and nothing ties a method's new command to its tests' fakes.
+
+**Fix.** `newAptHarness` writes the fake `apt-cache` for every dispatch harness (the two explicit calls in
+`dispatch_check_test.go` are gone), and the two apt tests write `fakePolicyOneCandidate`. Proof: with a broken
+`apt-cache` (exit 127, as on macOS) first on PATH, the four tests fail on the old test files and pass on the new ones.
+
+**Lesson.** When a method gains a command, every test that fakes that method's tools must fake the new one, or it
+reads the host's. The check that catches it on a Linux machine is a broken stand-in for the new command first on
+PATH: a hermetic test does not notice it, a leaky one fails.

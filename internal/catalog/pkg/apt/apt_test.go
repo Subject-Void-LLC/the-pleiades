@@ -640,6 +640,7 @@ exit 1
 `
 	writeScript(t, dir, "apt-get", aptGetScript)
 	writeScript(t, dir, "dpkg-query", dpkgQueryScript)
+	writeScript(t, dir, "apt-cache", fakePolicyOneCandidate)
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Setenv("FAKE_RECORD", record)
 
@@ -677,6 +678,7 @@ exit 1
 `
 	writeScript(t, dir, "apt-get", aptGetScript)
 	writeScript(t, dir, "dpkg-query", dpkgQueryScript)
+	writeScript(t, dir, "apt-cache", fakePolicyOneCandidate)
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Setenv("FAKE_RECORD", record)
 
@@ -901,3 +903,13 @@ func TestUpgrade_RecordStateFailureSurfaces(t *testing.T) {
 		t.Fatal("expected recordState's own SetStat failure to surface on the already-current path")
 	}
 }
+
+// fakePolicyOneCandidate is an apt-cache answering policy for exactly the
+// name it was asked about (its third argument, after "policy" and "--"),
+// with one candidate. The install path asks apt-cache for the exact name
+// before apt-get runs, so a test faking apt-get must fake this too, or it
+// reads the host's own apt-cache: passing on a Debian-family machine and
+// failing on macOS, which has none.
+const fakePolicyOneCandidate = `#!/bin/sh
+printf '%s:\n  Installed: (none)\n  Candidate: 1.0-1\n  Version table:\n' "$3"
+`
