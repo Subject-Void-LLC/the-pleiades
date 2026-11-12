@@ -68,6 +68,13 @@ type mountState struct {
 
 	findmntRaw string // overrides the computed line verbatim, reaching the malformed-output branch
 
+	// findmntExit and findmntStderr make the fake findmnt fail to answer for
+	// a path that is not mounted, the way the real one does for an error:
+	// a status of 1 with an explanation on stderr, or 127 when it is not
+	// installed at all.
+	findmntExit   int
+	findmntStderr string
+
 	mountExit         int
 	mountFailStream   string
 	unmountExit       int
@@ -110,7 +117,8 @@ if [ "$FAKE_MOUNTED" = "1" ]; then
   fi
   exit 0
 fi
-exit 1
+if [ -n "$FAKE_FINDMNT_STDERR" ]; then printf '%s\n' "$FAKE_FINDMNT_STDERR" >&2; fi
+exit "${FAKE_FINDMNT_EXIT:-1}"
 `
 	mountScript := `#!/bin/sh
 printf '%s\n' "$(basename "$0")" >> "$FAKE_RECORD"
@@ -155,6 +163,12 @@ exit "$exit_code"
 	t.Setenv("FAKE_FSTYPE", state.fstype)
 	t.Setenv("FAKE_OPTIONS", state.options)
 	t.Setenv("FAKE_FINDMNT_RAW", state.findmntRaw)
+	findmntExit := 1
+	if state.findmntExit != 0 {
+		findmntExit = state.findmntExit
+	}
+	t.Setenv("FAKE_FINDMNT_EXIT", strconv.Itoa(findmntExit))
+	t.Setenv("FAKE_FINDMNT_STDERR", state.findmntStderr)
 	t.Setenv("FAKE_MOUNT_EXIT", strconv.Itoa(state.mountExit))
 	t.Setenv("FAKE_MOUNT_FAIL_STREAM", state.mountFailStream)
 	t.Setenv("FAKE_UMOUNT_EXIT", strconv.Itoa(state.unmountExit))
@@ -305,7 +319,7 @@ func TestMount_AbsentMountsAndPersistsWithDefaults(t *testing.T) {
 		t.Fatal("expected Changed = true")
 	}
 	calls := h.invocations(t)
-	if len(calls) != 1 || calls[0] != "mount -t ext4 -o defaults /dev/sdb1 /data" {
+	if len(calls) != 1 || calls[0] != "mount -t ext4 -o defaults -- /dev/sdb1 /data" {
 		t.Fatalf("mount invocations = %v", calls)
 	}
 	content := h.fstabContent(t)
@@ -349,7 +363,7 @@ func TestMount_AbsentWithExplicitOpts(t *testing.T) {
 		t.Fatalf("Mount: %v", err)
 	}
 	calls := h.invocations(t)
-	if len(calls) != 1 || calls[0] != "mount -t ext4 -o ro,noatime /dev/sdb1 /data" {
+	if len(calls) != 1 || calls[0] != "mount -t ext4 -o ro,noatime -- /dev/sdb1 /data" {
 		t.Fatalf("mount invocations = %v", calls)
 	}
 	if content := h.fstabContent(t); !strings.Contains(content, "ro,noatime") {
@@ -740,7 +754,7 @@ func TestUnmount_MountedUnmountsAndRemovesFstabEntry(t *testing.T) {
 		t.Fatal("expected Changed = true")
 	}
 	calls := h.invocations(t)
-	if len(calls) != 1 || calls[0] != "umount /data" {
+	if len(calls) != 1 || calls[0] != "umount -- /data" {
 		t.Fatalf("umount invocations = %v", calls)
 	}
 	if content := h.fstabContent(t); strings.Contains(content, "/data") {

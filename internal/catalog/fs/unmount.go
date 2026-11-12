@@ -51,7 +51,7 @@ func unmountDoc() collection.Doc {
 			"state is read from findmnt before anything is sent, so a path already unmounted reports no change " +
 			"from the unmount itself.",
 		Params: []collection.Param{
-			{Name: paramPath, Type: "string", Required: true, Description: "The mountpoint to unmount."},
+			{Name: paramPath, Type: "string", Required: true, Format: collection.ParamFormatMountField, Description: "The mountpoint to unmount."},
 			{Name: paramPersist, Type: "bool", Default: "true", Description: "Also remove any matching entry from fstab, so it does not mount again on the next boot."},
 			{Name: paramFstab, Type: "string", Default: "/etc/fstab", Description: "The fstab-format file to read and, if persist is true, write."},
 			{Name: sdk.ParamInsecureSkipHostKeyVerify, Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
@@ -94,7 +94,7 @@ func CheckUnmount(ctx context.Context, rc sdk.RunbookContext, device inventory.I
 func unmount(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any, mode collection.Mode) (collection.Result, error) {
 	const fqcn = "fs.unmount"
 
-	path, err := sdk.RequiredStringParam(params, paramPath)
+	path, err := readField(params, paramPath)
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}

@@ -49,6 +49,25 @@ func TestParamOperandRule(t *testing.T) {
 		{"a template is the engine's", "pkg.apt.install:\n      name: \"{{ vars.pkg }}\"", nil},
 		{"the wrong type is param-type's", "pkg.apt.install:\n      name: 7", nil},
 		{"not an operand", "exec.command:\n      argv: [ls, -la, \"*\"]", nil},
+		// Each program's own grammar, held at validation as in the method.
+		{"systemd's root mount", "svc.systemd.start:\n      name: \"-.mount\"", nil},
+		{"systemd's root slice through the generic method", "svc.restart:\n      name: \"-.slice\"", nil},
+		{"another dash-led unit", "svc.systemd.stop:\n      name: \"-.swap\"", []string{"svc.systemd.stop", `begins with "-"`}},
+		{"the root mount as a Windows service", "svc.windows.start:\n      name: \"-.mount\"", []string{"svc.windows.start", `begins with "-"`}},
+		{"apt's trailing dash", "pkg.apt.install:\n      name: diffutils-", []string{"pkg.apt.install", `ends in "-"`}},
+		{"apt's trailing dash in an undo's dependency", "pkg.apt.remove:\n      name: jq\n      dependencies: [libjq1-]", []string{`item 0 is refused: it ends in "-"`}},
+		{"apt's release", "pkg.apt.install:\n      name: jq/bookworm", []string{"pkg.apt.install", `holds "/"`}},
+		{"the generic trailing dash", "pkg.install:\n      name: diffutils-", []string{"pkg.install", `ends in "-"`}},
+		{"a dnf group", "pkg.dnf.install:\n      name: \"@core\"", []string{"pkg.dnf.install", `begins with "@"`}},
+		{"a dnf file", "pkg.dnf.install:\n      name: /usr/bin/jq", []string{"pkg.dnf.install", `holds "/"`}},
+		{"a version pattern", "pkg.dnf.install:\n      name: nginx\n      version: \"*\"", []string{`parameter "version"`, "pattern"}},
+		{"apt's version ending in a dash", "pkg.apt.install:\n      name: diffutils\n      version: 1:3.8-4-", []string{`parameter "version"`, `ends in "-"`}},
+		{"a generic version pattern", "pkg.install:\n      name: nginx\n      version: \"1.*\"", []string{`parameter "version"`, "pattern"}},
+		{"a real version", "pkg.apt.install:\n      name: nginx\n      version: 1.24.0-2ubuntu7", nil},
+		{"a mountpoint mount reads as -a", "fs.mount:\n      path: -a\n      src: /dev/sdb1\n      fstype: ext4", []string{`parameter "path"`, "fs.mount", `begins with "-"`}},
+		{"a mount source holding a line", "fs.mount:\n      path: /data\n      src: \"/dev/sdb1 /etc ext4 defaults 0 0\\n/dev/sdc1\"\n      fstype: ext4", []string{`parameter "src"`, "line break"}},
+		{"an unmount of -a", "fs.unmount:\n      path: -a", []string{`parameter "path"`, "fs.unmount", `begins with "-"`}},
+		{"a real mount", "fs.mount:\n      path: /data\n      src: UUID=0b1c-2d3e\n      fstype: ext4\n      opts: rw,noatime", nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dag, err := engine.NewBuilder(eval).BuildFromYAML([]byte("id: c\nhosts: web1\ntasks:\n  - name: step\n    " + tc.task + "\n"))

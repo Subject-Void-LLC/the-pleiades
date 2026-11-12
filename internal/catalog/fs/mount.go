@@ -8,6 +8,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/operand"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
 
@@ -55,10 +56,10 @@ func mountDoc() collection.Doc {
 			"A check reads findmnt and fstab, mounts nothing and writes nothing, and leaves a new mount's options " +
 			"out of its prediction, since the kernel rewrites them.",
 		Params: []collection.Param{
-			{Name: paramPath, Type: "string", Required: true, Description: "The mountpoint to mount onto."},
-			{Name: paramSrc, Type: "string", Required: true, Description: "The device, share or filesystem source to mount."},
-			{Name: paramFSType, Type: "string", Required: true, Description: "The filesystem type, as mount's own -t takes it (e.g. ext4, nfs, xfs)."},
-			{Name: paramOpts, Type: "string", Description: "Mount options, as mount's own -o takes them. Defaults to \"defaults\" for a fresh mount and a fresh fstab entry; an existing mount or fstab entry is only compared or rewritten against this when the task actually sets it."},
+			{Name: paramPath, Type: "string", Required: true, Format: collection.ParamFormatMountField, Description: "The mountpoint to mount onto."},
+			{Name: paramSrc, Type: "string", Required: true, Format: collection.ParamFormatMountField, Description: "The device, share or filesystem source to mount: a device path, UUID=..., LABEL=..., host:/export or //server/share."},
+			{Name: paramFSType, Type: "string", Required: true, Format: collection.ParamFormatMountField, Description: "The filesystem type, as mount's own -t takes it (e.g. ext4, nfs, xfs)."},
+			{Name: paramOpts, Type: "string", Format: collection.ParamFormatMountField, Description: "Mount options, as mount's own -o takes them. Defaults to \"defaults\" for a fresh mount and a fresh fstab entry; an existing mount or fstab entry is only compared or rewritten against this when the task actually sets it."},
 			{Name: paramPersist, Type: "bool", Default: "true", Description: "Also make sure path has a matching entry in fstab, so it mounts again on the next boot."},
 			{Name: paramFstab, Type: "string", Default: "/etc/fstab", Description: "The fstab-format file to read and, if persist is true, write."},
 			{Name: sdk.ParamInsecureSkipHostKeyVerify, Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
@@ -102,19 +103,22 @@ func CheckMount(ctx context.Context, rc sdk.RunbookContext, device inventory.Inv
 func mount(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any, mode collection.Mode) (collection.Result, error) {
 	const fqcn = "fs.mount"
 
-	path, err := sdk.RequiredStringParam(params, paramPath)
+	path, err := readField(params, paramPath)
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
-	src, err := sdk.RequiredStringParam(params, paramSrc)
+	src, err := readField(params, paramSrc)
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
-	fstype, err := sdk.RequiredStringParam(params, paramFSType)
+	fstype, err := readField(params, paramFSType)
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
-	opts := sdk.StringParam(params, paramOpts)
+	opts, err := sdk.OptionalOperandParamOf(params, paramOpts, operand.MountField)
+	if err != nil {
+		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+	}
 	persist, err := sdk.BoolParamOr(params, paramPersist, true)
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %s: %w", fqcn, paramPersist, err)
