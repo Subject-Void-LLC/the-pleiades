@@ -28852,7 +28852,7 @@ dispatch, is still ignored. Proof: `TestRun_AStartupFailureIsAFailure`.
 **Lesson.** When you match an external record by a field it writes for you, ask which of its failure states never
 write that field. A matcher that can only match success-shaped records turns every early failure into a timeout.
 
-## 1174. A package or service name beginning with a dash reached apt-get, dnf and systemctl as an option, and one holding a wildcard as a pattern, because each method quoted the name but nothing refused it (a repeat of 148 and 450, and of 451 for dpkg-query's exit status) (fixed)
+## 1174. A package, service, account or file owner name beginning with a dash reached apt-get, dnf, systemctl, getent and chown as an option, and one holding a wildcard as a pattern, because each method quoted the name but nothing refused it, and ln read a link target the same way (a repeat of 148 and 450, and of 451 for dpkg-query's exit status) (fixed)
 
 **Symptom.** Triage of Phase 38's first tier, 2026-11-11, then measured. On Debian bookworm, `dpkg-query -W` refuses
 `-oX` as an unknown option and exits 2, and `apt-get install -y` takes a word beginning with `-o` as a configuration
@@ -28893,11 +28893,60 @@ through `adhoc` and `run -e`, with sshd's own login count unchanged by every ref
 `TestOperations_RefuseANameSystemctlWouldMisread`, `TestFunctions_RefuseANameTheCmdletsWouldMisread`,
 `TestQueryDpkg_AFailureToAnswerIsNotAbsent`, `TestQueryRPM_AFailureToAnswerIsNotAbsent`, `FuzzProblem`.
 
-**Not covered.** `file.*`'s `owner` and `group` refuse only an all-digit value, and `pkg/remotefile` sends `chown` and
-`chgrp` without `--`, so an owner beginning with `-` would reach `chown` as an option. Left for its own change, named
-in the Phase 38 audit.
+**Second pass: file ownership, link targets and accounts (2026-11-11).** This paragraph used to say `file.*`'s `owner`
+and `group` were not covered. The pass that covered them found two more of the class.
+
+- *File owner and group.* GNU `chown --reference=/etc/shadow F` exits 0 and leaves `F` root:shadow (measured on Debian
+  13; BusyBox refuses the option), and `file.copy`, `file.template`, `file.directory`, `file.permissions` and
+  `file.touch` passed such an owner or group straight on. Their ten `owner` and `group` parameters now declare
+  `ParamFormatOperand` (`file.permissions` is the undo of all five, so the planner holds a journaled owner too),
+  `checkName` and `file.directory`'s `directoryName` apply `pkg/operand` before connecting, and
+  `pkg/remotefile.Apply` sends `chown --`, `chgrp --` and `chmod --`.
+- *Link targets and paths.* `pkg/remotefile.Symlink` sent `ln -sfn <src> <link>`. GNU `ln` read a `src` of `-t/etc`
+  as "make the link in /etc" and, with `-f`, replaced `/etc/<base of link>`, whatever file was there, past
+  `file.symlink`'s refusal to replace anything but a link, which checks only the link path it is given (measured on
+  Debian 13: `/etc/victim` became a link; BusyBox's `ln` has no `-t`). A link target is free text, so it is not
+  refused; `ln -sfn --` makes it the target it says. `rm`, `mkdir` and `touch` got `--` too, and `Checksum`, `Read`
+  and `Write`'s `mktemp` give a relative path starting with a dash as `./path`, as `Stat` already did. Before, `Read`
+  returned a file named `-n` as empty (`cat -n` of empty input), and `Write` under a directory named `-d` failed.
+- *Accounts and groups.* `identity.user.*` and `identity.group.*` put the name last on `getent`, `useradd`,
+  `usermod`, `userdel`, `groupadd`, `groupmod` and `groupdel`, and `identity.user.create` and `modify` gave the primary
+  group to `getent group`, all unchecked. glibc's `getent passwd -i` lists every account and exits 0 (its
+  `--no-idn`), so `queryUser` read root's record as the account named `-i`. The six names and the primary group now
+  declare the format and are read through `sdk.RequiredOperandParam` (the group through `operand.Check`) before
+  connecting, and the shadow tools get `--` before the name: accepted on Debian 12 and 13, Ubuntu 22.04 and 24.04,
+  CentOS Stream 9, AlmaLinux 9, Oracle Linux 9, Arch and Alpine 3.22, each of which refuses a new name beginning with
+  `-`. The pattern half is not free here: useradd and groupadd make a name holding `*`, `?`, `[` or `]` on Debian 12
+  and Ubuntu 22.04 and 24.04 (Debian 13, Arch, Alpine and the RHEL 9 family refuse one), while chown, getent and the
+  shadow tools read those characters as themselves, so it refuses names those systems can have and protects nothing
+  for them; it is kept so that one rule covers every operand, a choice left to the owner. `getent` gets no `--`:
+  musl's `getent` (Alpine, which onboarding grants `PosixAccountCapable` once shadow is installed) takes no options
+  and reads `--` as a key, so every account would read as absent. The operand rule alone keeps a name from glibc `getent`'s options. `shell`, `home` and
+  `comment` reach the tools only as the argument of `-s`, `-d` and `-c`, which getopt takes whole, so they are not
+  operands. `getent`'s exit was already read right (only 2 is "no such entry"); a test now pins 1, 3 and 64 as
+  failures for every method and check.
+
+`chown --`, `chgrp --` and `chmod --` were measured on GNU coreutils, BusyBox 1.37 and toybox 0.8.13, and `ln`, `rm`,
+`mkdir` and `touch` with `--` on the same three. Tests: `TestCLI_FileAndIdentityRefuseANameTheyWouldReadAsAnOption`
+(real Debian sshd through `adhoc` and `run -e`, sshd's login count unchanged by every refusal and moved by a control
+owner change and a control account, and failing on the tree before this pass),
+`TestSymlink_ReadsATargetStartingWithADashAsTheTarget`, `TestApply_ReadsAnOwnerOrGroupStartingWithADashAsAName`,
+`TestEndsOptions_EveryCommandApplyAndTheWritersSend`, `TestReadersTakeARelativePathStartingWithADashAsAPath`,
+`TestCheckName_RefusesAWordChownWouldReadAsAnOption`, `TestOwnership_RefusedBeforeTheConnection`, the user and group
+`TestNames_RefusedBeforeTheConnection` and `TestGetent_OnlyExitTwoReadsAsAbsent`, `FuzzCopyParams`,
+`FuzzDirectoryParams`, `FuzzUserParams`, `FuzzGroupParams`, and `TestParamOperandRule`'s new cases. The BusyBox and
+toybox chmod tests and both packages' real-accounts tests run the new `--` forms through the real tools.
+
+**Not covered.** The `--` forms have not run on FreeBSD or macOS, which the file methods claim. Both use getopt(3),
+which ends options at `--`, and `pkg/remotefile`'s older `rm -f --`, `mv -f --` and `cat --` already passed there
+(bsd-check of `pkg/remotefile`, 2026-11-02), so this is reasoned, not measured: `make bsd-check`, `make mac-check`
+and `TestCLI_FreeBSDFileChecksMatchTheirRealRuns` would measure it. No sweep of the rest of the catalog for a
+caller's word after a program's options was made in this pass; the sweep covered `pkg/`'s `chown`, `chgrp` and
+`chmod` builders, `pkg/remotefile`'s other commands, and the two identity packages.
 
 **Lesson.** A fix for a value a program misreads belongs in a rule a parameter declares, which validation, the engine
 and the method all read, not in the method where it was found. Search for the class by what the code does (a caller's
 word after a program's options), and read every "it failed" exit as a failure unless the program's own words say
-"absent".
+"absent". A word that is real even when it begins with a dash (a link target, a relative path) cannot be refused, so
+it follows `--`, or `./` for a path; and where a program reads `--` itself as a word (musl's getent), only the rule
+stands between a name and the options, so check `--` on each program before sending it.
