@@ -187,3 +187,40 @@ func TestReadersTakeARelativePathStartingWithADashAsAPath(t *testing.T) {
 		t.Errorf("-d/new holds %q (%v)", data, err)
 	}
 }
+
+// TestReplace_WritesBesideAFileUnderADirectoryStartingWithADash: Replace
+// puts the new content beside the file with mktemp, whose template starts
+// with the file's directory, so a relative directory starting with a dash
+// is given as ./dir, as Write's is. Before, mktemp read "-d/.pleiades.XXXXXX"
+// as its -d option and the replace failed.
+func TestReplace_WritesBesideAFileUnderADirectoryStartingWithADash(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, "-d"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(dir, "-d", "conf")
+	if err := os.WriteFile(file, []byte("old\n"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(dir)
+	conn := connect(t)
+	ctx := context.Background()
+
+	before, err := remotefile.Stat(ctx, conn, "-d/conf")
+	if err != nil {
+		t.Fatalf("Stat(-d/conf): %v", err)
+	}
+	if _, err := remotefile.Replace(ctx, conn, "-d/conf", []byte("new\n"), before); err != nil {
+		t.Fatalf("Replace(-d/conf): %v", err)
+	}
+	if data, err := os.ReadFile(file); err != nil || string(data) != "new\n" { // #nosec G304 -- a path under this test's own directory
+		t.Errorf("-d/conf holds %q (%v), want the new content", data, err)
+	}
+	if info, err := os.Stat(file); err != nil || info.Mode().Perm() != 0o640 {
+		t.Errorf("-d/conf is %v (%v), want its mode 0640 kept", info.Mode(), err)
+	}
+	leftovers, _ := filepath.Glob(filepath.Join(dir, "-d", ".pleiades.*"))
+	if len(leftovers) != 0 {
+		t.Errorf("a temporary was left beside the file: %v", leftovers)
+	}
+}
