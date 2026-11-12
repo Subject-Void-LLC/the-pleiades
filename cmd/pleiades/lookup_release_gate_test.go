@@ -170,3 +170,115 @@ func closedPort(t *testing.T) int {
 	}
 	return port
 }
+
+// absentLookupRunbook branches on lookups under ignore_errors and
+// changed_when (Phase 88's gate, its R4 case): one of a path that is not
+// there, one of a path that is, and one the login cannot make. A runbook
+// written when an absent lookup failed took the branch !has(result.probe)
+// after it; now the lookup answers, so that branch is never taken and the
+// one reading exists false is. The last task branches on the lookup that
+// could not look, which must never read as exists false.
+const absentLookupRunbook = `# Lookups under ignore_errors and changed_when, branched on.
+# Blast radius: the release gate's own sshd container.
+# Changes: marker files under /tmp.
+# Undo: nothing; the container is discarded.
+id: absent-lookup-gate
+hosts: box
+tasks:
+  - name: look for what is not there
+    file.stat:
+      path: /tmp/absent-gate-never-there
+    register: probe
+    ignore_errors: true
+    changed_when: ["result.probe.exists"]
+  - name: the branch a failed lookup took
+    exec.shell:
+      cmd: "echo took > /tmp/absent-gate-failure-branch"
+    when_cel: "!has(result.probe)"
+  - name: the branch absence takes
+    file.copy:
+      dest: /tmp/absent-gate-absent-branch
+      content: "{{ result.probe.exists }}\n"
+    when: ["result.probe.exists == false"]
+  - name: look for what that branch wrote
+    file.stat:
+      path: /tmp/absent-gate-absent-branch
+    register: found
+    ignore_errors: true
+    changed_when: ["result.found.exists"]
+  - name: look where the login may not
+    file.stat:
+      path: /root/.profile
+    register: blind
+    ignore_errors: true
+  - name: after
+    exec.shell:
+      cmd: "echo on > /tmp/absent-gate-after"
+  - name: the branch a blind lookup must not take
+    exec.shell:
+      cmd: "echo took > /tmp/absent-gate-blind-branch"
+    when: ["result.blind.exists == false"]
+`
+
+// TestCLI_AnAbsentLookupIsDataUnderIgnoreErrorsAndChangedWhen: the lookup
+// of what is not there is ok, not failed and not ignored, so the branch an
+// old failure took never runs and the one reading exists false does, with
+// false rendered into the file it writes; changed_when over exists keeps
+// the absent lookup ok and turns the present one, which a read-only method
+// reports unchanged, into changed; the lookup the login cannot make is
+// recorded failed and ignored, never ok, and the run goes on past it. That
+// lookup registered nothing, so the last task's condition on its exists
+// cannot be read, and the run fails there rather than take the branch an
+// absent result would.
+func TestCLI_AnAbsentLookupIsDataUnderIgnoreErrorsAndChangedWhen(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping the sshd container test in short mode")
+	}
+	dir, home, addr := sshdGateProject(t, "absent.yaml", absentLookupRunbook)
+
+	rep, raw, code := runPleiadesJSONWithHome(t, dir, home, "run", "runbooks/absent.yaml")
+	if code == 0 || rep.Outcome.Status != "failed" {
+		t.Fatalf("exit %d, want the run failed at its last task:\n%s", code, raw)
+	}
+	type outcome struct {
+		status  string
+		ignored bool
+	}
+	got := map[string]outcome{}
+	for _, task := range rep.Tasks {
+		got[task.ID] = outcome{task.Status, task.Ignored}
+		if task.ID == "tasks[6]" && !strings.Contains(task.Error, "no such key: blind") {
+			t.Errorf("the last task failed for another reason: %q", task.Error)
+		}
+	}
+	for id, want := range map[string]outcome{
+		"tasks[0]": {"ok", false},
+		"tasks[2]": {"changed", false},
+		"tasks[3]": {"changed", false},
+		"tasks[4]": {"failed", true},
+		"tasks[5]": {"changed", false},
+		"tasks[6]": {"failed", false},
+	} {
+		if got[id] != want {
+			t.Errorf("%s is %+v, want %+v", id, got[id], want)
+		}
+	}
+	if o, ran := got["tasks[1]"]; ran && (o.status == "ok" || o.status == "changed") {
+		t.Errorf("the branch a failed lookup took ran: %+v", o)
+	}
+
+	// The device itself.
+	for file, want := range map[string]string{
+		"/tmp/absent-gate-absent-branch": "false",
+		"/tmp/absent-gate-after":         "on",
+	} {
+		if got := strings.TrimSpace(verifyOverSSH(t, addr, "cat "+file)); got != want {
+			t.Errorf("%s holds %q, want %q", file, got, want)
+		}
+	}
+	for _, branch := range []string{"failure", "blind"} {
+		if got := verifyOverSSH(t, addr, "test -e /tmp/absent-gate-"+branch+"-branch && echo exists || echo absent"); strings.TrimSpace(got) != "absent" {
+			t.Errorf("the %s branch ran on the device: %q", branch, got)
+		}
+	}
+}
