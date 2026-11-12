@@ -1,0 +1,1 @@
+A method that reads a path on a device (`file.stat`, `wait.path` and the other file methods among them) now fails on a path under a directory its login may not search, saying it cannot look, where it used to report the path absent (`exists: false`) whether or not anything was there. Run the task as an account that can search the directory, through `become`, to get the answer.
