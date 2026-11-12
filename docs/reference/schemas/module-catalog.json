@@ -9146,24 +9146,28 @@
           "name": "path",
           "type": "string",
           "required": true,
-          "description": "The mountpoint to mount onto."
+          "description": "The mountpoint to mount onto.",
+          "format": "mount_field"
         },
         {
           "name": "src",
           "type": "string",
           "required": true,
-          "description": "The device, share or filesystem source to mount."
+          "description": "The device, share or filesystem source to mount: a device path, UUID=..., LABEL=..., host:/export or //server/share.",
+          "format": "mount_field"
         },
         {
           "name": "fstype",
           "type": "string",
           "required": true,
-          "description": "The filesystem type, as mount's own -t takes it (e.g. ext4, nfs, xfs)."
+          "description": "The filesystem type, as mount's own -t takes it (e.g. ext4, nfs, xfs).",
+          "format": "mount_field"
         },
         {
           "name": "opts",
           "type": "string",
-          "description": "Mount options, as mount's own -o takes them. Defaults to \"defaults\" for a fresh mount and a fresh fstab entry; an existing mount or fstab entry is only compared or rewritten against this when the task actually sets it."
+          "description": "Mount options, as mount's own -o takes them. Defaults to \"defaults\" for a fresh mount and a fresh fstab entry; an existing mount or fstab entry is only compared or rewritten against this when the task actually sets it.",
+          "format": "mount_field"
         },
         {
           "name": "persist",
@@ -9255,7 +9259,8 @@
           "name": "path",
           "type": "string",
           "required": true,
-          "description": "The mountpoint to unmount."
+          "description": "The mountpoint to unmount.",
+          "format": "mount_field"
         },
         {
           "name": "persist",
@@ -13482,12 +13487,13 @@
           "type": "string",
           "required": true,
           "description": "The APT package name to install, such as curl or nginx.",
-          "format": "operand"
+          "format": "apt_package"
         },
         {
           "name": "version",
           "type": "string",
-          "description": "Install exactly this version rather than whatever is current. A package already installed at a different version is upgraded or downgraded to match."
+          "description": "Install exactly this version rather than whatever is current. A package already installed at a different version is upgraded or downgraded to match.",
+          "format": "package_version"
         },
         {
           "name": "insecure_skip_host_key_verify",
@@ -13571,13 +13577,13 @@
           "type": "string",
           "required": true,
           "description": "The APT package name to remove.",
-          "format": "operand"
+          "format": "apt_package"
         },
         {
           "name": "dependencies",
           "type": "list",
           "description": "Packages installing this one pulled in, as pkg.apt.install's undo names them. Each is removed with the package only while it is still installed, APT would remove it as no longer needed, and removing them takes nothing else with them; any other is kept and named in a warning.",
-          "format": "operand"
+          "format": "apt_package"
         },
         {
           "name": "insecure_skip_host_key_verify",
@@ -13654,7 +13660,7 @@
           "type": "string",
           "required": true,
           "description": "The APT package to keep current.",
-          "format": "operand"
+          "format": "apt_package"
         },
         {
           "name": "insecure_skip_host_key_verify",
@@ -13733,12 +13739,13 @@
           "type": "string",
           "required": true,
           "description": "The RPM package name to install, such as curl or nginx.",
-          "format": "operand"
+          "format": "rpm_package"
         },
         {
           "name": "version",
           "type": "string",
-          "description": "Install exactly this version-release rather than whatever is current. A package already installed at a different version is upgraded or downgraded to match."
+          "description": "Install exactly this version-release rather than whatever is current. A package already installed at a different version is upgraded or downgraded to match.",
+          "format": "package_version"
         },
         {
           "name": "insecure_skip_host_key_verify",
@@ -13822,7 +13829,7 @@
           "type": "string",
           "required": true,
           "description": "The RPM package name to remove.",
-          "format": "operand"
+          "format": "rpm_package"
         },
         {
           "name": "insecure_skip_host_key_verify",
@@ -13893,7 +13900,7 @@
           "type": "string",
           "required": true,
           "description": "The RPM package to keep current.",
-          "format": "operand"
+          "format": "rpm_package"
         },
         {
           "name": "insecure_skip_host_key_verify",
@@ -13979,12 +13986,13 @@
           "type": "string",
           "required": true,
           "description": "The package to act on. This is passed straight through to the concrete method for the device's package manager, so it means whatever that manager means by a package name: an APT package name on a Debian-family host, an RPM package name on a Red Hat-family one.",
-          "format": "operand"
+          "format": "package"
         },
         {
           "name": "version",
           "type": "string",
-          "description": "Pin to this exact version instead of whatever the package manager considers current. Passed straight through to the concrete method; leave unset to mean \"whatever version is current.\""
+          "description": "Pin to this exact version instead of whatever the package manager considers current. Passed straight through to the concrete method; leave unset to mean \"whatever version is current.\"",
+          "format": "package_version"
         },
         {
           "name": "insecure_skip_host_key_verify",
@@ -14071,12 +14079,13 @@
           "type": "string",
           "required": true,
           "description": "The package to act on. This is passed straight through to the concrete method for the device's package manager, so it means whatever that manager means by a package name: an APT package name on a Debian-family host, an RPM package name on a Red Hat-family one.",
-          "format": "operand"
+          "format": "package"
         },
         {
           "name": "version",
           "type": "string",
-          "description": "Pin to this exact version instead of whatever the package manager considers current. Passed straight through to the concrete method; leave unset to mean \"whatever version is current.\""
+          "description": "Pin to this exact version instead of whatever the package manager considers current. Passed straight through to the concrete method; leave unset to mean \"whatever version is current.\"",
+          "format": "package_version"
         },
         {
           "name": "insecure_skip_host_key_verify",
@@ -14147,12 +14156,13 @@
           "type": "string",
           "required": true,
           "description": "The package to act on. This is passed straight through to the concrete method for the device's package manager, so it means whatever that manager means by a package name: an APT package name on a Debian-family host, an RPM package name on a Red Hat-family one.",
-          "format": "operand"
+          "format": "package"
         },
         {
           "name": "version",
           "type": "string",
-          "description": "Pin to this exact version instead of whatever the package manager considers current. Passed straight through to the concrete method; leave unset to mean \"whatever version is current.\""
+          "description": "Pin to this exact version instead of whatever the package manager considers current. Passed straight through to the concrete method; leave unset to mean \"whatever version is current.\"",
+          "format": "package_version"
         },
         {
           "name": "insecure_skip_host_key_verify",
@@ -14859,7 +14869,7 @@
           "type": "string",
           "required": true,
           "description": "The service to act on. This is passed straight through to the concrete method for the device's service manager, so it means whatever that manager means by a service name: a systemd unit such as nginx or nginx.service on a Linux host.",
-          "format": "operand"
+          "format": "systemd_unit"
         },
         {
           "name": "insecure_skip_host_key_verify",
@@ -14938,7 +14948,7 @@
           "type": "string",
           "required": true,
           "description": "The service to act on. This is passed straight through to the concrete method for the device's service manager, so it means whatever that manager means by a service name: a systemd unit such as nginx or nginx.service on a Linux host.",
-          "format": "operand"
+          "format": "systemd_unit"
         },
         {
           "name": "insecure_skip_host_key_verify",
@@ -15003,7 +15013,7 @@
           "type": "string",
           "required": true,
           "description": "The service to act on. This is passed straight through to the concrete method for the device's service manager, so it means whatever that manager means by a service name: a systemd unit such as nginx or nginx.service on a Linux host.",
-          "format": "operand"
+          "format": "systemd_unit"
         },
         {
           "name": "insecure_skip_host_key_verify",
@@ -15082,7 +15092,7 @@
           "type": "string",
           "required": true,
           "description": "The service to act on. This is passed straight through to the concrete method for the device's service manager, so it means whatever that manager means by a service name: a systemd unit such as nginx or nginx.service on a Linux host.",
-          "format": "operand"
+          "format": "systemd_unit"
         },
         {
           "name": "insecure_skip_host_key_verify",
@@ -15162,7 +15172,7 @@
           "type": "string",
           "required": true,
           "description": "The service to act on. This is passed straight through to the concrete method for the device's service manager, so it means whatever that manager means by a service name: a systemd unit such as nginx or nginx.service on a Linux host.",
-          "format": "operand"
+          "format": "systemd_unit"
         },
         {
           "name": "insecure_skip_host_key_verify",
@@ -15276,7 +15286,7 @@
           "type": "string",
           "required": true,
           "description": "The systemd unit to act on, such as nginx or nginx.service. This is ansible.builtin.systemd's own parameter name. The unit must already exist: a name systemd does not know is refused rather than reported as already stopped, since that is nearly always a typo.",
-          "format": "operand"
+          "format": "systemd_unit"
         },
         {
           "name": "insecure_skip_host_key_verify",
@@ -15348,7 +15358,7 @@
           "type": "string",
           "required": true,
           "description": "The systemd unit to act on, such as nginx or nginx.service. This is ansible.builtin.systemd's own parameter name. The unit must already exist: a name systemd does not know is refused rather than reported as already stopped, since that is nearly always a typo.",
-          "format": "operand"
+          "format": "systemd_unit"
         },
         {
           "name": "insecure_skip_host_key_verify",
@@ -15412,7 +15422,7 @@
           "type": "string",
           "required": true,
           "description": "The systemd unit to act on, such as nginx or nginx.service. This is ansible.builtin.systemd's own parameter name. The unit must already exist: a name systemd does not know is refused rather than reported as already stopped, since that is nearly always a typo.",
-          "format": "operand"
+          "format": "systemd_unit"
         },
         {
           "name": "insecure_skip_host_key_verify",
@@ -15484,7 +15494,7 @@
           "type": "string",
           "required": true,
           "description": "The systemd unit to act on, such as nginx or nginx.service. This is ansible.builtin.systemd's own parameter name. The unit must already exist: a name systemd does not know is refused rather than reported as already stopped, since that is nearly always a typo.",
-          "format": "operand"
+          "format": "systemd_unit"
         },
         {
           "name": "insecure_skip_host_key_verify",
@@ -15561,7 +15571,7 @@
           "type": "string",
           "required": true,
           "description": "The systemd unit to act on, such as nginx or nginx.service. This is ansible.builtin.systemd's own parameter name. The unit must already exist: a name systemd does not know is refused rather than reported as already stopped, since that is nearly always a typo.",
-          "format": "operand"
+          "format": "systemd_unit"
         },
         {
           "name": "insecure_skip_host_key_verify",
