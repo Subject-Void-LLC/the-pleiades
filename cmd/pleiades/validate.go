@@ -127,8 +127,10 @@ func runValidate(args []string) error {
 			// Validated as run would validate it: --extra-vars are every
 			// variable the run would have, so a template reading one none
 			// of them gives is reported here.
-			checks[i].report = validate.Validate(validate.WorldView{Items: items, DAG: checks[i].dag, Variables: variables, VariablesKnown: true, VariablesFlag: extraVarsFlagName})
+			world := validate.WorldView{Items: items, DAG: checks[i].dag, Variables: variables, VariablesKnown: true, VariablesFlag: extraVarsFlagName}
+			checks[i].report = validate.Validate(world)
 			checks[i].report.Warnings = append(checks[i].report.Warnings, checks[i].warnings...)
+			checks[i].report.Warnings = append(checks[i].report.Warnings, grantWarnings(world)...)
 		}
 	}
 

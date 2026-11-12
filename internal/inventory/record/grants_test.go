@@ -16,9 +16,23 @@ import (
 // the grants.
 const grantTypeName = "grants_test_type"
 
-// widgetGrant is an asserted grant of acme.widget_api.
+// widgetDefinition is the definition of acme.widget_api the tests that
+// register one register.
+func widgetDefinition() capability.DataDefinition {
+	return capability.DataDefinition{
+		Name:       "acme.widget_api",
+		Requires:   []capability.Name{capability.NameSSHTransport},
+		Properties: []capability.DataProperty{{Name: "endpoint", Type: "string", Required: true}},
+	}
+}
+
+// widgetGrant is an asserted grant of acme.widget_api, made against
+// widgetDefinition.
 func widgetGrant(props map[string]any) inventory.Grant {
-	return inventory.Grant{Capability: "acme.widget_api", Source: inventory.GrantAsserted, By: "ops", Reason: "lab", Properties: props, At: time.Unix(0, 0)}
+	return inventory.Grant{
+		Capability: "acme.widget_api", Source: inventory.GrantAsserted, By: "ops", Reason: "lab", Properties: props, At: time.Unix(0, 0),
+		Definition: capability.DefinitionDigest(widgetDefinition()),
+	}
 }
 
 // recordWith is a record whose granted property holds grants.
@@ -48,11 +62,7 @@ func TestNewBase_AddsWhatARecordIsGranted(t *testing.T) {
 	}
 
 	t.Cleanup(capability.SnapshotForTest())
-	if err := capability.RegisterData(capability.DataDefinition{
-		Name:       "acme.widget_api",
-		Requires:   []capability.Name{capability.NameSSHTransport},
-		Properties: []capability.DataProperty{{Name: "endpoint", Type: "string", Required: true}},
-	}); err != nil {
+	if err := capability.RegisterData(widgetDefinition()); err != nil {
 		t.Fatal(err)
 	}
 	for _, tc := range []struct {

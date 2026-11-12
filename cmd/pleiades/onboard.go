@@ -62,7 +62,7 @@ func runOnboard(args []string) error {
 	// what a program defines is proved by that program. A failed probe of
 	// the device's own is still the command's answer.
 	if onboardErr == nil || errors.Is(onboardErr, onboard.ErrNotOnboarded) || errors.Is(onboardErr, onboard.ErrProbe) {
-		grants, err := runProgramProbes(*dir, name)
+		grants, err := runProgramProbes(*dir, name, *timeout)
 		if err != nil {
 			return err
 		}

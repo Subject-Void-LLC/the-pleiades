@@ -94,6 +94,9 @@ func runGrantCapability(args []string) error {
 		By:         operatorName(),
 		Reason:     *reason,
 		At:         time.Now().UTC(),
+		// Bound to the definition the loaded program holds now, so a later
+		// change to what the capability means withdraws it.
+		Definition: capability.DefinitionDigest(def),
 	}); err != nil {
 		return fmt.Errorf("host %q: %w", name, err)
 	}
@@ -112,18 +115,23 @@ func runGrantCapability(args []string) error {
 }
 
 // runRevokeCapability removes a device's grant of a capability, however it
-// was made.
+// was made, or, with --build, every grant one program build probed
+// (revokeByBuild).
 func runRevokeCapability(args []string) error {
 	fs := flag.NewFlagSet("revoke-capability", flag.ContinueOnError)
 	dir := fs.String("dir", ".", "project directory")
+	build := fs.String("build", "", "revoke, on every device, each grant the program build with this digest probed")
 	positional, err := parseCheckedArgs(fs, args, func(p []string) error {
-		if len(p) != 2 {
-			return errors.New("usage: pleiades revoke-capability <device> <capability>")
+		if (*build == "" && len(p) != 2) || (*build != "" && len(p) != 0) {
+			return errors.New("usage: pleiades revoke-capability <device> <capability>, or pleiades revoke-capability --build <digest>")
 		}
 		return nil
 	})
 	if err != nil {
 		return err
+	}
+	if *build != "" {
+		return revokeByBuild(*dir, *build)
 	}
 	name, capName := positional[0], capability.Name(positional[1])
 	ctx := context.Background()

@@ -34,6 +34,13 @@ func CheckCapabilities(device inventory.InventoryItem, fqcn string, m Manifest) 
 	}
 	for _, required := range m.RequiredCapabilities {
 		if !device.HasCapability(required) {
+			// A grant the device records that grants nothing says why (a
+			// changed definition, a repointed device), so the refusal names
+			// what to do rather than reading as never granted.
+			if why := inventory.LapsedGrant(device, required); why != "" {
+				return fmt.Errorf("collection method %q requires capability %s, which device %q does not have: %s",
+					fqcn, required, device.Name(), why)
+			}
 			return fmt.Errorf("collection method %q requires capability %s, which device %q does not have",
 				fqcn, required, device.Name())
 		}
