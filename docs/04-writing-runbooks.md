@@ -167,6 +167,32 @@ A fact is a value, not a template: a fact whose text holds `{{` stays text when
 it is read later. A fact that holds a known secret is masked wherever it
 appears, as a registered result is.
 
+What else to know about a `set_fact`:
+
+- **An extra variable wins.** A launch's extra variable, or one given with
+  `pleiades run --extra-vars`, is read in place of a `set_fact` of the same
+  name, global or not, so a value the run computes never replaces one an
+  operator gave. `validate` warns when the two share a name, since the
+  `set_fact` then sets a value nothing reads.
+- **No secrets.** A secret reference, `{{ secret.<name>.<field> }}`, in a
+  `set_fact` value is refused by `validate`, naming the task, and again when
+  the task runs. A fact is copied into later tasks' parameters, the run
+  journal, the report and a Runner's dispatch, where a secret must never go.
+  Write the reference in the parameter of the method that takes it.
+- **`target` is not a fact.** As on any task, `target:` names the devices the
+  `set_fact` runs on. Give a variable another name.
+- **A global set on two devices must agree.** When two devices of one
+  `global: true` task set a name to different values, the task fails on the
+  second one, naming both devices. This is checked when the task runs, not
+  before, so a condition that lets only one device set the value works.
+- **An undo uses the value its task ran with.** A block's
+  `rollback_on_failure` renders a task's `rollback:` steps with the variables
+  that task saw, so a later `set_fact` cannot point the undo at another path.
+  A method's own recorded undo is kept in the journal as the rendered values,
+  which `pleiades rollback` replays.
+- **A run starts with no facts.** Facts last for one run. A second run, or the
+  next batch of a `serial:` run, starts with none.
+
 ## Gathered facts: what a run keeps about a device
 
 `set_fact` values last for the run. A method can also report what it observed
