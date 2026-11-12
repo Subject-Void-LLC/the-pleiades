@@ -159,11 +159,14 @@ blocked, so a script cannot mistake an incomplete conversion for a finished one.
   included file when the task runs, and its name, loop and condition can all be decided
   then, so the tasks it adds do not exist until run time. A runbook's whole graph is
   validated before anything runs, and a task list that appears only at run time cannot be.
-  To convert one by hand: when the file name is a fixed literal, change the include to
-  `import_tasks` (which the converter inlines) or paste its tasks into a block. Check any
-  keyword on the include first: on an import, `become`, `when` and the rest apply to every
-  included task, where on an include they applied to the include alone. When the name
-  depends on a variable, write one block per value, each with a `when` choosing it.
+  To convert one by hand: when the file name is a fixed literal and the include has no
+  `loop`, change it to `import_tasks` (which the converter inlines) or paste its tasks into
+  a block. Check any keyword on the include first: on an import, `become`, `when` and the
+  rest apply to every included task, where on an include they applied to the include alone
+  (`vars` reach the included tasks either way, and so do keywords under `apply`). Ansible
+  refuses `loop` on `import_tasks`, so a looped include becomes one block per item, or a
+  loop on each of its tasks. When the name depends on a variable, write one block per
+  value, each with a `when` choosing it.
 - **`meta: reset_connection`** becomes `pleiades.builtin.connection.reset`, which closes
   the SSH connection a run keeps open to the device so the next task logs in again, as
   Ansible's does. `flush_handlers`, `noop`, `refresh_inventory`, `clear_facts` and
