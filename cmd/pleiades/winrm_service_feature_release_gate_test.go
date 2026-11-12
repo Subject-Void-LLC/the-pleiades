@@ -171,10 +171,11 @@ func TestWinRMGate_ServiceEnableDisableAndBack(t *testing.T) {
 
 // TestWinRMGate_GenericServiceMethodsReachTheSCM cycles the five generic
 // svc.* dispatchers on a real Windows host: each resolves the device's
-// service manager to the Service Control Manager, acts through the
-// svc.windows.* method, and records that method's undo. The systemd gate
-// holds the same five to systemd; without this one they were proven on
-// Linux alone. It ends the service running and Automatic.
+// service manager to the Service Control Manager and acts through the
+// svc.windows.* method. Start, stop, enable and disable record that method's
+// undo; restart has none, so its proof is a new process for the service. The
+// systemd gate holds the same five to systemd; without this one they were
+// proven on Linux alone. It ends the service running and Automatic.
 func TestWinRMGate_GenericServiceMethodsReachTheSCM(t *testing.T) {
 	dir, host, service := winrmCheckTarget(t, envWinRMTestService, serviceHint)
 	state := func() string {
@@ -208,14 +209,26 @@ func TestWinRMGate_GenericServiceMethodsReachTheSCM(t *testing.T) {
 		})
 	}
 
-	// restart always acts: the check moves nothing, the run leaves it running.
+	// restart always acts: the check moves nothing, and the run leaves the
+	// service running under a new process, which only the SCM gives it.
+	pid := func() string {
+		return winrmRead(t, dir, host, "(Get-CimInstance Win32_Service -Filter \"Name='"+service+"'\").ProcessId")
+	}
+	before := pid()
 	check, raw, code := runPleiadesJSONWithHome(t, dir, "", "adhoc", host, "svc.restart", "name="+service, "--mode", "check")
 	if code != 0 || len(check.Tasks) != 1 || check.Tasks[0].Status != "would_change" {
 		t.Fatalf("the svc.restart check did not predict the restart (exit %d):\n%s", code, raw)
 	}
+	if got := pid(); got != before {
+		t.Fatalf("the svc.restart check restarted %s: process %s became %s", service, before, got)
+	}
 	run, raw, code := runPleiadesJSONWithHome(t, dir, "", "adhoc", host, "svc.restart", "name="+service)
 	if code != 0 || len(run.Tasks) != 1 || run.Tasks[0].Status != "changed" {
 		t.Fatalf("svc.restart did not run (exit %d):\n%s", code, raw)
+	}
+	predictionMatches(t, "svc.restart", check.Tasks[0].Stats, run.Tasks[0].Stats)
+	if after := pid(); after == before || after == "0" {
+		t.Errorf("after svc.restart %s runs as process %s, from %s: not restarted", service, after, before)
 	}
 	if got := state(); got != "Running|Automatic" {
 		t.Errorf("the cycle ended with %s %s, want Running|Automatic", service, got)
