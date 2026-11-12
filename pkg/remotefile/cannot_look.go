@@ -33,12 +33,22 @@ var ErrCannotLook = errors.New("cannot look")
 // there, and the probe exits statusMissing; a directory it may not search
 // means it could not look, and the probe prints that directory and exits
 // statusUnsearchable. The walk ends at "/" or ".", which dirname returns
-// unchanged. Only POSIX test and dirname run, so a BSD, macOS or BusyBox
-// device answers the same.
+// unchanged. Only POSIX test, dirname and cd run, so a BSD, macOS or
+// BusyBox device answers the same.
+//
+// Whether the directory may be searched is asked of the kernel, by a cd
+// into it in a subshell, not of test -x: BusyBox's test -x answers false to
+// root for a directory with no execute bit, which root searches all the
+// same (measured in the release gate's Alpine image; dash answers true), and
+// would report a path root looked for and did not find as one it could not
+// look at. A relative directory is given to cd as ./dir,
+// so cd never reads "-" as $OLDPWD or searches $CDPATH for it
+// (FAILURE_PATTERNS 1179).
 func absentOrUnsearchable(quoted string) string {
 	return "p=" + quoted + "; while :; do d=$(dirname \"$p\"); " +
 		"if [ -e \"$d\" ]; then " +
-		"if [ -d \"$d\" ] && [ ! -x \"$d\" ]; then printf '%s' \"$d\"; exit " + strconv.Itoa(statusUnsearchable) + "; fi; " +
+		"case $d in /*) c=$d;; *) c=./$d;; esac; " +
+		"if [ -d \"$d\" ] && ! (cd \"$c\") 2>/dev/null; then printf '%s' \"$d\"; exit " + strconv.Itoa(statusUnsearchable) + "; fi; " +
 		"exit " + strconv.Itoa(statusMissing) + "; fi; " +
 		"if [ \"$d\" = \"$p\" ]; then exit " + strconv.Itoa(statusMissing) + "; fi; " +
 		"p=$d; done"
