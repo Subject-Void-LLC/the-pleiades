@@ -19,6 +19,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/crypto"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport/need"
 )
 
 // secrets are the plaintexts seeded into each encrypted column, one per
@@ -47,7 +48,7 @@ func requireTools(t testing.TB) {
 	t.Helper()
 	for _, name := range []string{"pg_dump", "pg_restore"} {
 		_, err := exec.LookPath(name)
-		testsupport.Require(t, name, err == nil, name+" is not on PATH; the backup image carries it, and this test needs a copy here")
+		testsupport.Require(t, need.PostgresClient, err == nil, name+" is not on PATH; the backup image carries it, and this test needs a copy here")
 	}
 }
 

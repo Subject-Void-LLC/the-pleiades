@@ -3,15 +3,10 @@
 package need
 
 import (
-	"go/ast"
-	"go/parser"
-	"go/token"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
-	"strconv"
 	"strings"
 	"testing"
 )
@@ -36,73 +31,37 @@ func moduleRoot(t *testing.T) string {
 	}
 }
 
-// TestEveryRequireCallNamesAKnownNeed parses every Go file in the module and
-// checks each Require call whose need is a string literal against Names, so
-// a new need cannot be added without registering it, and CI can list it.
-// (A call that passes a constant, such as refusing.Need, takes its value
-// from a name in this package, which TestRequire_EveryKnownNameAndAllAreAccepted
-// and the compiler hold.)
+// requireAllow lists, by package path within the module and function, the
+// functions whose need argument checkRequireCalls cannot resolve, each with
+// why the need is still checked.
+var requireAllow = map[string]string{
+	"internal/testsupport.Download": "its need is pin.What, and checkRequireCalls holds every testsupport.Pin literal's What to the rule a need argument is held to",
+}
+
+// TestEveryRequireCallNamesAKnownNeed checks every call of need.Require and
+// testsupport.Require in the module, resolving its need through the type
+// checker (checkRequireCalls): a literal, a constant, an unexported package
+// variable set once from one, or a parameter whose every call is resolved
+// the same way. A need that resolves to a name not in Names fails, so a
+// need cannot be added without registering it, and CI can list it; and one
+// that resolves to nothing it can read fails too, since a name passed in a
+// variable is where the old literal-only check saw nothing (the db/pg
+// harness passed "pg_dump" so).
 func TestEveryRequireCallNamesAKnownNeed(t *testing.T) {
-	root := moduleRoot(t)
-	fset := token.NewFileSet()
-	seen := map[string]bool{}
-	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.IsDir() {
-			// Hidden directories hold worktrees, caches and tool state,
-			// not this module's source.
-			if path != root && (strings.HasPrefix(d.Name(), ".") || d.Name() == "node_modules") {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if !strings.HasSuffix(path, ".go") {
-			return nil
-		}
-		file, perr := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
-		if perr != nil {
-			return nil // a file that does not parse is the compiler's to report
-		}
-		ast.Inspect(file, func(n ast.Node) bool {
-			call, ok := n.(*ast.CallExpr)
-			if !ok || len(call.Args) != 4 {
-				return true
-			}
-			var name string
-			switch fn := call.Fun.(type) {
-			case *ast.Ident:
-				name = fn.Name
-			case *ast.SelectorExpr:
-				name = fn.Sel.Name
-			}
-			if name != "Require" {
-				return true
-			}
-			lit, ok := call.Args[1].(*ast.BasicLit)
-			if !ok || lit.Kind != token.STRING {
-				return true
-			}
-			need, uerr := strconv.Unquote(lit.Value)
-			if uerr != nil {
-				return true
-			}
-			seen[need] = true
-			if !slices.Contains(Names, need) {
-				t.Errorf("%s: Require(..., %q, ...) names a need that is not in need.Names; register it", fset.Position(call.Pos()), need)
-			}
-			return true
-		})
-		return nil
-	})
+	got, err := checkRequireCalls(moduleRoot(t), Names, requireAllow)
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The walk must have found the calls, or a broken parse would pass.
-	for _, want := range []string{Docker, Userns, NonRoot} {
-		if !seen[want] {
-			t.Errorf("no Require(..., %q, ...) call was found: the walk is not seeing the module", want)
+	for _, p := range got.problems {
+		t.Error(p)
+	}
+	// The check must have found the calls and resolved them, literals and
+	// constants alike (refusing.Need is need.RefusingPort, and the db/pg
+	// harness passes need.PostgresClient), or a broken parse or type check
+	// would pass.
+	for _, want := range []string{Docker, Userns, NonRoot, RefusingPort, PostgresClient, Toybox} {
+		if !got.seen[want] {
+			t.Errorf("no Require call was resolved to %q: the check is not seeing the module", want)
 		}
 	}
 }

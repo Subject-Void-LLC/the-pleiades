@@ -14,6 +14,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/catalog/scan"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport/need"
 )
 
 // TestImageArchive_VulnAndSBOM: an Alpine image saved to an archive is
@@ -24,7 +25,7 @@ func TestImageArchive_VulnAndSBOM(t *testing.T) {
 	h := newHarness(t)
 	image := testsupport.NginxImage
 	release, err := exec.Command("docker", "run", "--rm", "--network", "none", "--entrypoint", "cat", image, "/etc/alpine-release").Output() // #nosec G204 -- the test's own pinned image
-	testsupport.Require(t, image, err == nil, "the archive is a docker save of it")
+	testsupport.Require(t, need.Docker, err == nil, image+" did not run here, and the archive is a docker save of it")
 	parts := strings.SplitN(strings.TrimSpace(string(release)), ".", 3)
 	ecosystem := "Alpine:v" + parts[0] + "." + parts[1]
 	dir := t.TempDir()

@@ -21,6 +21,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/ai/aitest"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport/need"
 )
 
 // aiRepairExampleImage is the image the example's runbook runs. Named here,
@@ -73,8 +74,8 @@ func TestCLI_AIRepairExampleRepairsAndRollsBack(t *testing.T) {
 	}
 	_, err := os.Stat("/var/run/docker.sock")
 	testsupport.Require(t, "docker", err == nil, "onboarding the example's container host reads this machine's engine socket")
-	testsupport.Require(t, aiRepairExampleImage, exec.Command("docker", "image", "inspect", aiRepairExampleImage).Run() == nil,
-		"the example's image is run as the engine holds it; pull it, or run tools/testimages -pull")
+	testsupport.Require(t, need.Docker, exec.Command("docker", "image", "inspect", aiRepairExampleImage).Run() == nil,
+		"the engine does not hold "+aiRepairExampleImage+", and the example's image is run as the engine holds it; pull it, or run tools/testimages -pull")
 
 	name := "ai-repair-gate-" + strconv.Itoa(os.Getpid())
 	t.Cleanup(func() { _ = exec.Command("docker", "rm", "-f", name).Run() })

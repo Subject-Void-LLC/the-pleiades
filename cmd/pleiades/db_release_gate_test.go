@@ -38,7 +38,7 @@ func TestCLI_DatabaseCheckChangesNothingAndTheRunDoesTheWork(t *testing.T) {
 	testsupport.UsePostgresClientTools(t)
 	for _, name := range []string{"pg_dump", "pg_restore"} {
 		_, err := exec.LookPath(name)
-		testsupport.Require(t, name, err == nil, name+" is not on PATH; the device this gate stands in for runs it")
+		testsupport.Require(t, need.PostgresClient, err == nil, name+" is not on PATH; the device this gate stands in for runs it")
 	}
 	ctx := context.Background()
 	const password = "gate-db-password-7Lm2"
