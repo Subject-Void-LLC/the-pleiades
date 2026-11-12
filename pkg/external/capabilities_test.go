@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -103,6 +104,12 @@ func TestCheckCapabilities_HoldsEachDefinitionToItsProgram(t *testing.T) {
 		"a requirement it does not define": {func(p *external.Program) {
 			p.Methods[0].Manifest.RequiredCapabilities = []capability.Name{"acme.gadget_api"}
 		}, "does not define"},
+		"more definitions than a program may make": {func(p *external.Program) {
+			for i := len(p.Capabilities); i <= capability.MaxDataDefinitions; i++ {
+				p.Capabilities = append(p.Capabilities, capability.DataDefinition{Name: capability.Name(fmt.Sprintf("acme.widget_%d", i))})
+			}
+		}, fmt.Sprintf("more than %d", capability.MaxDataDefinitions)},
+		"a negative revision": {func(p *external.Program) { p.Capabilities[0].Revision = -1 }, "revision -1"},
 	} {
 		p := probed()
 		tc.mutate(&p)

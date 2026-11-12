@@ -21,7 +21,14 @@ import (
 // It does not check a definition against the vocabulary a process already
 // holds (a name another program took, a namespace a built-in method uses);
 // the loader does that, since only it sees every program at once.
+//
+// A program defines at most capability.MaxDataDefinitions capabilities:
+// each is registered, held to every grant and shown by pleiades doc, so
+// their number is bounded as their size is.
 func CheckCapabilities(defs []capability.DataDefinition, methods []collection.Descriptor) error {
+	if len(defs) > capability.MaxDataDefinitions {
+		return fmt.Errorf("the program defines %d capabilities, more than %d", len(defs), capability.MaxDataDefinitions)
+	}
 	namespaces := map[string]bool{}
 	byName := map[string]collection.Descriptor{}
 	for _, m := range methods {
