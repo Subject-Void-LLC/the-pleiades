@@ -427,7 +427,7 @@ func TestCreate_AbsentAccountIsCreated(t *testing.T) {
 	if len(calls) != 1 {
 		t.Fatalf("invocations = %v, want exactly one useradd call", calls)
 	}
-	want := "useradd -u 5000 -g admins -s /bin/bash -d /home/deploy -c Deploy -m deploy"
+	want := "useradd -u 5000 -g admins -s /bin/bash -d /home/deploy -c Deploy -m -- deploy"
 	if calls[0] != want {
 		t.Errorf("useradd call = %q, want %q", calls[0], want)
 	}
@@ -452,8 +452,8 @@ func TestCreate_AbsentAccountDefaultsCreateHomeAndSystemFalse(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	calls := h.invocations(t)
-	if calls[0] != "useradd -m deploy" {
-		t.Errorf("useradd call = %q, want %q", calls[0], "useradd -m deploy")
+	if calls[0] != "useradd -m -- deploy" {
+		t.Errorf("useradd call = %q, want %q", calls[0], "useradd -m -- deploy")
 	}
 }
 
@@ -465,7 +465,7 @@ func TestCreate_AbsentAccountCreateHomeFalseAndSystemTrue(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	calls := h.invocations(t)
-	want := "useradd -r -M svc"
+	want := "useradd -r -M -- svc"
 	if len(calls) != 1 || calls[0] != want {
 		t.Errorf("useradd call = %v, want %q", calls, want)
 	}
@@ -502,7 +502,7 @@ func TestCreate_PresentAccountConvergesShell(t *testing.T) {
 		t.Error("Changed = false, want true")
 	}
 	calls := h.invocations(t)
-	if len(calls) != 1 || calls[0] != "usermod -s /usr/sbin/nologin deploy" {
+	if len(calls) != 1 || calls[0] != "usermod -s /usr/sbin/nologin -- deploy" {
 		t.Errorf("invocations = %v, want a single usermod -s call", calls)
 	}
 	inv, ok := h.rc.stats[sdk.StatInverse].(map[string]any)
@@ -533,7 +533,7 @@ func TestCreate_PresentAccountConvergesGroupByResolvedGID(t *testing.T) {
 		t.Error("Changed = false, want true")
 	}
 	calls := h.invocations(t)
-	if len(calls) != 1 || calls[0] != "usermod -g admins deploy" {
+	if len(calls) != 1 || calls[0] != "usermod -g admins -- deploy" {
 		t.Errorf("invocations = %v, want a single usermod -g admins call", calls)
 	}
 }
@@ -851,7 +851,7 @@ func TestModify_UIDConverges(t *testing.T) {
 		t.Error("Changed = false, want true")
 	}
 	calls := h.invocations(t)
-	want := fmt.Sprintf("usermod -u %d deploy", presentUser.uid+1)
+	want := fmt.Sprintf("usermod -u %d -- deploy", presentUser.uid+1)
 	if len(calls) != 1 || calls[0] != want {
 		t.Errorf("invocations = %v, want %q", calls, want)
 	}
@@ -867,7 +867,7 @@ func TestModify_HomeConverges(t *testing.T) {
 		t.Error("Changed = false, want true")
 	}
 	calls := h.invocations(t)
-	if len(calls) != 1 || calls[0] != "usermod -d /srv/deploy deploy" {
+	if len(calls) != 1 || calls[0] != "usermod -d /srv/deploy -- deploy" {
 		t.Errorf("invocations = %v, want a single usermod -d call", calls)
 	}
 }
@@ -971,7 +971,7 @@ func TestRemove_PresentAccountIsRemovedAndInverseCapturesAttributes(t *testing.T
 		t.Error("Changed = false, want true")
 	}
 	calls := h.invocations(t)
-	if len(calls) != 1 || calls[0] != "userdel deploy" {
+	if len(calls) != 1 || calls[0] != "userdel -- deploy" {
 		t.Errorf("invocations = %v, want a plain userdel call", calls)
 	}
 	inv := h.rc.stats[sdk.StatInverse].(map[string]any)
@@ -1004,7 +1004,7 @@ func TestRemove_WithRemoveHomeFlag(t *testing.T) {
 		t.Error("Changed = false, want true")
 	}
 	calls := h.invocations(t)
-	if len(calls) != 1 || calls[0] != "userdel -r deploy" {
+	if len(calls) != 1 || calls[0] != "userdel -r -- deploy" {
 		t.Errorf("invocations = %v, want userdel -r", calls)
 	}
 }

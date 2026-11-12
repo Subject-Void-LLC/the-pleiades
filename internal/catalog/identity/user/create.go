@@ -57,9 +57,9 @@ func createDoc() collection.Doc {
 			"home or comment than requested is converged with usermod rather than recreated. Supplementary " +
 			"group membership and the account password are not managed by this method.",
 		Params: []collection.Param{
-			{Name: paramName, Type: "string", Required: true, Description: "The account name to create or converge."},
+			{Name: paramName, Type: "string", Required: true, Format: collection.ParamFormatOperand, Description: "The account name to create or converge."},
 			{Name: paramUID, Type: "int", Description: "The numeric user ID to assign. An existing account with a different uid is converged to this one."},
-			{Name: paramGroup, Type: "string", Description: "The primary group, by name or numeric gid. An existing account with a different primary group is converged to this one."},
+			{Name: paramGroup, Type: "string", Format: collection.ParamFormatOperand, Description: "The primary group, by name or numeric gid. An existing account with a different primary group is converged to this one."},
 			{Name: paramShell, Type: "string", Description: "The login shell, such as /bin/bash. An existing account with a different shell is converged to this one."},
 			{Name: paramHome, Type: "string", Description: "The home directory path. An existing account with a different home is converged to this one; its contents are not moved."},
 			{Name: paramComment, Type: "string", Description: "The GECOS comment field, typically the account's full name."},
@@ -105,7 +105,7 @@ func CheckCreate(ctx context.Context, rc sdk.RunbookContext, device inventory.In
 func create(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any, mode collection.Mode) (collection.Result, error) {
 	const fqcn = "identity.user.create"
 
-	name, err := sdk.RequiredStringParam(params, paramName)
+	name, err := sdk.RequiredOperandParam(params, paramName)
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}

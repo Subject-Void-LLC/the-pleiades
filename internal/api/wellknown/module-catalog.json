@@ -10197,7 +10197,8 @@
           "name": "name",
           "type": "string",
           "required": true,
-          "description": "The group name to create or converge."
+          "description": "The group name to create or converge.",
+          "format": "operand"
         },
         {
           "name": "gid",
@@ -10285,7 +10286,8 @@
           "name": "name",
           "type": "string",
           "required": true,
-          "description": "The group to modify. Must already exist."
+          "description": "The group to modify. Must already exist.",
+          "format": "operand"
         },
         {
           "name": "gid",
@@ -10364,7 +10366,8 @@
           "name": "name",
           "type": "string",
           "required": true,
-          "description": "The group name to remove."
+          "description": "The group name to remove.",
+          "format": "operand"
         },
         {
           "name": "insecure_skip_host_key_verify",
@@ -10450,7 +10453,8 @@
           "name": "name",
           "type": "string",
           "required": true,
-          "description": "The account name to create or converge."
+          "description": "The account name to create or converge.",
+          "format": "operand"
         },
         {
           "name": "uid",
@@ -10460,7 +10464,8 @@
         {
           "name": "group",
           "type": "string",
-          "description": "The primary group, by name or numeric gid. An existing account with a different primary group is converged to this one."
+          "description": "The primary group, by name or numeric gid. An existing account with a different primary group is converged to this one.",
+          "format": "operand"
         },
         {
           "name": "shell",
@@ -10570,7 +10575,8 @@
           "name": "name",
           "type": "string",
           "required": true,
-          "description": "The account to modify. Must already exist."
+          "description": "The account to modify. Must already exist.",
+          "format": "operand"
         },
         {
           "name": "uid",
@@ -10580,7 +10586,8 @@
         {
           "name": "group",
           "type": "string",
-          "description": "Converge the account's primary group, by name or numeric gid."
+          "description": "Converge the account's primary group, by name or numeric gid.",
+          "format": "operand"
         },
         {
           "name": "shell",
@@ -10674,7 +10681,8 @@
           "name": "name",
           "type": "string",
           "required": true,
-          "description": "The account name to remove."
+          "description": "The account name to remove.",
+          "format": "operand"
         },
         {
           "name": "remove",

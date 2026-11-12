@@ -51,7 +51,7 @@ func removeDoc() collection.Doc {
 			"itself refuses to remove a group that is still any user's primary group; that refusal surfaces " +
 			"here as a plain task failure naming what groupdel said, not something this method works around.",
 		Params: []collection.Param{
-			{Name: paramName, Type: "string", Required: true, Description: "The group name to remove."},
+			{Name: paramName, Type: "string", Required: true, Format: collection.ParamFormatOperand, Description: "The group name to remove."},
 			{Name: sdk.ParamInsecureSkipHostKeyVerify, Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
 		},
 		Returns: []collection.ReturnField{
@@ -86,7 +86,7 @@ func CheckRemove(ctx context.Context, rc sdk.RunbookContext, device inventory.In
 func remove(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any, mode collection.Mode) (collection.Result, error) {
 	const fqcn = "identity.group.remove"
 
-	name, err := sdk.RequiredStringParam(params, paramName)
+	name, err := sdk.RequiredOperandParam(params, paramName)
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}

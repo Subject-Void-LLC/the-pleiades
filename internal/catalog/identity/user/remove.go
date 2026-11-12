@@ -52,7 +52,7 @@ func removeDoc() collection.Doc {
 			"ansible.builtin.user with state=absent. Account state is read from getent before anything is " +
 			"sent, so an account already absent reports no change and no command reaches the device.",
 		Params: []collection.Param{
-			{Name: paramName, Type: "string", Required: true, Description: "The account name to remove."},
+			{Name: paramName, Type: "string", Required: true, Format: collection.ParamFormatOperand, Description: "The account name to remove."},
 			{Name: paramRemove, Type: "bool", Default: "false", Description: "Also delete the home directory and mail spool (userdel -r). Left false, they are left on disk."},
 			{Name: paramRemoveHomeIfUnchanged, Type: "bool", Default: "false", Description: "Delete the home directory and mail spool only while the home holds exactly what useradd copied into it from the skeleton directory, every file unchanged; otherwise keep it and say so in a warning. identity.user.create's undo sets it for a home that run made. Not with remove."},
 			{Name: paramCreatedHome, Type: "string", Description: "With remove_home_if_unchanged, the home the account was made with: the home is deleted only while the account's home is still this path, so a home moved since (identity.user.modify) is never judged in its place. identity.user.create's undo sets it."},
@@ -94,7 +94,7 @@ func CheckRemove(ctx context.Context, rc sdk.RunbookContext, device inventory.In
 func remove(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any, mode collection.Mode) (collection.Result, error) {
 	const fqcn = "identity.user.remove"
 
-	name, err := sdk.RequiredStringParam(params, paramName)
+	name, err := sdk.RequiredOperandParam(params, paramName)
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}

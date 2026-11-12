@@ -142,20 +142,20 @@ func TestRemove_HomeIfUnchanged(t *testing.T) {
 		wantCall    string
 		wantWarning string
 	}{
-		{"an untouched home goes with the account", func(t *testing.T, home, skel string) { copyTree(t, skel, home) }, "userdel -r deploy", ""},
+		{"an untouched home goes with the account", func(t *testing.T, home, skel string) { copyTree(t, skel, home) }, "userdel -r -- deploy", ""},
 		{"a file added since keeps it", func(t *testing.T, home, skel string) {
 			copyTree(t, skel, home)
 			if err := os.WriteFile(filepath.Join(home, "data.db"), []byte("app data"), 0o644); err != nil { // #nosec G306 -- a test fixture
 				t.Fatal(err)
 			}
-		}, "userdel deploy", "kept"},
+		}, "userdel -- deploy", "kept"},
 		{"a skeleton file changed since keeps it", func(t *testing.T, home, skel string) {
 			copyTree(t, skel, home)
 			if err := os.WriteFile(filepath.Join(home, ".bashrc"), []byte("# mine now\n"), 0o644); err != nil { // #nosec G306 -- a test fixture
 				t.Fatal(err)
 			}
-		}, "userdel deploy", "kept"},
-		{"no home at all", func(*testing.T, string, string) {}, "userdel deploy", ""},
+		}, "userdel -- deploy", "kept"},
+		{"no home at all", func(*testing.T, string, string) {}, "userdel -- deploy", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			state := presentUser
@@ -216,7 +216,7 @@ func TestRemove_AHomeMovedSinceIsKept(t *testing.T) {
 	if _, err := user.Remove(context.Background(), h.rc, h.device, params); err != nil {
 		t.Fatalf("Remove: %v", err)
 	}
-	if calls := h.invocations(t); len(calls) != 1 || calls[0] != "userdel deploy" {
+	if calls := h.invocations(t); len(calls) != 1 || calls[0] != "userdel -- deploy" {
 		t.Errorf("calls = %v, want userdel without -r", calls)
 	}
 	if w, _ := h.rc.stats[sdk.StatWarnings].([]string); len(w) != 1 || !strings.Contains(w[0], "kept the home") || !strings.Contains(w[0], moved) {

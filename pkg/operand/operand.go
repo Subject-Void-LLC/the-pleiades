@@ -1,7 +1,6 @@
 // Package operand holds the one rule for a value a Collection places on a
 // device's command line as an operand: the name of one package, unit,
-// service, or account or group that owns a file, written after the
-// program's own options.
+// service, account or group, written after the program's own options.
 //
 // # Why quoting is not enough
 //
@@ -17,7 +16,13 @@
 //     and exited 0 (FAILURE_PATTERNS 1174). dnf, rpm and systemctl parse
 //     options the same way, and so do chown and chgrp: GNU chown took an
 //     owner of --reference=/etc/shadow as "give the file /etc/shadow's owner
-//     and group" and exited 0 (measured on Debian 13).
+//     and group" and exited 0 (measured on Debian 13). So does glibc's
+//     getent, where an account named -i made getent passwd -i list every
+//     account and exit 0, and the first record, root's, read as the account
+//     asked for. getent is also why "--" is not enough on its own: musl's
+//     getent takes no options and reads "--" as a key, so identity.user.*
+//     and identity.group.* cannot send one to it, and this rule is all that
+//     stands between a name and glibc getent's options.
 //   - A word holding "*", "?", "[" or "]" is a pattern. apt-get, dnf and
 //     systemctl expand one to every name it matches, and so does
 //     PowerShell's -Name on Get-Service, Start-Service, Stop-Service and

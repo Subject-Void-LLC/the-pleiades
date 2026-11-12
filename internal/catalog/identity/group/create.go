@@ -53,7 +53,7 @@ func createDoc() collection.Doc {
 			"no change and no command reaches the device; a group present at a different gid than requested " +
 			"is converged with groupmod rather than recreated.",
 		Params: []collection.Param{
-			{Name: paramName, Type: "string", Required: true, Description: "The group name to create or converge."},
+			{Name: paramName, Type: "string", Required: true, Format: collection.ParamFormatOperand, Description: "The group name to create or converge."},
 			{Name: paramGID, Type: "int", Description: "The numeric group ID to assign. An existing group with a different gid is converged to this one."},
 			{Name: paramSystem, Type: "bool", Default: "false", Description: "Create the group as a system group (groupadd -r). Ignored when the group already exists."},
 			{Name: sdk.ParamInsecureSkipHostKeyVerify, Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
@@ -94,7 +94,7 @@ func CheckCreate(ctx context.Context, rc sdk.RunbookContext, device inventory.In
 func create(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any, mode collection.Mode) (collection.Result, error) {
 	const fqcn = "identity.group.create"
 
-	name, err := sdk.RequiredStringParam(params, paramName)
+	name, err := sdk.RequiredOperandParam(params, paramName)
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
@@ -142,7 +142,9 @@ func create(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 		if system {
 			args = append(args, "-r")
 		}
-		args = append(args, name)
+		// "--" ends groupadd's options, so the name is only ever the name
+		// (runGroupmod and runGroupdel end theirs the same way).
+		args = append(args, "--", name)
 		if _, err := runGroupadd(ctx, conn, args...); err != nil {
 			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 		}
