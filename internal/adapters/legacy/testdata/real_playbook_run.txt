@@ -18,7 +18,7 @@ changed: [hostB] => {"ansible_facts": {"discovered_interpreter_python": "/root/.
 
 TASK [a task that fails] *******************************************************
 [ERROR]: Task failed: Module failed: non-zero return code
-Origin: /tmp/claude-0/-home-noot-auto-roboto/e875009f-662b-4645-a223-957750c8ee29/scratchpad/ansible_probe/probe.yml:11:7
+Origin: /home/operator/ansible_probe/probe.yml:11:7
 
  9       command: /bin/true
 10       changed_when: true

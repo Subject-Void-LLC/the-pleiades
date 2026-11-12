@@ -1195,6 +1195,7 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 1189. pkg/pgclient's /dev/null password file made lib/pq warn on every connect with no password (fixed before push)
 1190. need.Require's registry check read only literal need names, so five tests passed names nothing could ever require (fixed before push)
 1191. The PostgreSQL test image trusted every loopback and socket login, so a passwordless connect passed and proved nothing (a repeat of LESSONS 174) (fixed before push)
+1192. A 3.5 MB build of tools/gatereceipt sat committed at the repository root for two months, and two Ansible fixtures held this machine's paths (fixed before push)
 1195. The script scaffold's release gate compared the script's working directory with an unresolved TMPDIR, so it failed on macOS, where /var is a link to /private/var (fixed on the pull request)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.

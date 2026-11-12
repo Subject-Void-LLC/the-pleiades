@@ -29424,3 +29424,19 @@ back failing the real-module run; each of the checker's rules mutated fails.
 refused; the tests' controls succeed with it.
 
 **Lesson.** Before a test of authentication, prove the fixture refuses a missing credential.
+
+## 1192. A 3.5 MB build of tools/gatereceipt sat committed at the repository root for two months, and two Ansible fixtures held this machine's paths (fixed before push)
+
+**Symptom.** Phase 122a's closing check searched for the project's old name and found it in `gatereceipt`, a statically linked Go
+executable with debug info committed at the root by `897cf6e1` (2026-09-17), carrying this machine's build paths; and in
+`internal/adapters/legacy/testdata/real_playbook_run*.txt`, whose captured Ansible output named a scratch directory under the
+developer's home. Nothing ran the binary: the Makefile and the pre-push hook use `go run ./tools/gatereceipt`.
+
+**Root cause.** `go build ./tools/gatereceipt` at the root writes `./gatereceipt`, no ignore rule covered it, and a commit took it;
+the fixtures were captured verbatim from a real run and kept the path the run printed.
+
+**Fix.** The binary is removed and `/gatereceipt` ignored; the fixtures' scratch path is `/home/operator/` (the parser reads the
+shape, not the path; `internal/adapters/legacy`'s tests pass unchanged).
+
+**Lesson.** A tool's build output at the module root needs an ignore rule the day the tool is added, and a captured fixture is
+scrubbed of the machine it was captured on before it is committed.

@@ -6,7 +6,7 @@ TASK [a task that fails hard] **************************************************
 [WARNING]: Host 'hostB' is using the discovered Python interpreter at '/root/.pyenv/versions/3.11.12/bin/python3.11', but future installation of another Python interpreter could cause a different interpreter to be discovered. See https://docs.ansible.com/ansible-core/2.19/reference_appendices/interpreter_discovery.html for more information.
 [WARNING]: Host 'hostA' is using the discovered Python interpreter at '/root/.pyenv/versions/3.11.12/bin/python3.11', but future installation of another Python interpreter could cause a different interpreter to be discovered. See https://docs.ansible.com/ansible-core/2.19/reference_appendices/interpreter_discovery.html for more information.
 [ERROR]: Task failed: Module failed: non-zero return code
-Origin: /tmp/claude-0/-home-noot-auto-roboto/e875009f-662b-4645-a223-957750c8ee29/scratchpad/ansible_probe/probe_fail_noignore.yml:5:7
+Origin: /home/operator/ansible_probe/probe_fail_noignore.yml:5:7
 
 3   gather_facts: false
 4   tasks:
