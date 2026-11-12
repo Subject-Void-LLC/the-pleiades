@@ -1,0 +1,1 @@
+`db.pg.migrate` refuses a migration file that states a `-- pleiades:` directive twice, naming both lines. A second `destructive:` used to replace the first one's reason in the run's `destructive` result, so the reason recorded for waiving `additive_only` was not the one a reviewer read at the top, and a repeated `no-transaction` was accepted.
