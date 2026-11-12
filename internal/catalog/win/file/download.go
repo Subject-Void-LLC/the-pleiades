@@ -168,16 +168,20 @@ func readDownload(params map[string]any) (download, error) {
 	return d, nil
 }
 
-// script is the PowerShell the host runs. Every value is one the
-// parameters' patterns admit inside single quotes, where PowerShell reads
-// nothing as syntax. curl's own errors reach the task's output, which is
+// script is the PowerShell the host runs. Every value goes in as a
+// single-quoted literal through winrmexec.QuotePS, which doubles every
+// character PowerShell ends such a literal at: the parameters' patterns
+// refuse the ASCII apostrophe, but PowerShell also ends one at the four
+// typographic quotes (U+2018 to U+201B), which they admit, so a path holding
+// one used to close the literal and run the rest of itself as PowerShell
+// (FAILURE_PATTERNS 354, found again in the 1174 sweep). curl's own errors reach the task's output, which is
 // why the error preference is relaxed around it: under Stop, the first
 // line a native program writes to stderr would end the script.
 func (d download) script(check bool) string {
 	return fmt.Sprintf(`$ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
-$url = '%s'
-$path = '%s'
+$url = %s
+$path = %s
 $want = '%s'
 $check = $%t
 function Get-Sha256([string]$p) { (Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToLowerInvariant() }
@@ -198,7 +202,7 @@ if ($got -ne $want) { Remove-Item -LiteralPath $part -Force; "got=$got"; exit %d
 Move-Item -LiteralPath $part -Destination $path -Force
 "after=$got"
 "size=$((Get-Item -LiteralPath $path).Length)"
-`, d.url, d.path, d.sha256, check, exitNoFolder, curlPath, exitFetch, exitMismatch)
+`, winrmexec.QuotePS(d.url), winrmexec.QuotePS(d.path), d.sha256, check, exitNoFolder, curlPath, exitFetch, exitMismatch)
 }
 
 // runDownload downloads url to path unless path already holds the file.

@@ -96,6 +96,11 @@ func runFeatureOp(ctx context.Context, rc sdk.RunbookContext, device inventory.I
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", op.fqcn, err)
 	}
+	// The name reaches dism.exe's command line, so it is held to the form
+	// DISM gives one before anything connects (winrmdism.CheckFeatureName).
+	if err := winrmdism.CheckFeatureName(name); err != nil {
+		return collection.Result{}, fmt.Errorf("%s: %w", op.fqcn, err)
+	}
 
 	session, logPath, err := winrmSession(rc, device, op.fqcn)
 	if err != nil {

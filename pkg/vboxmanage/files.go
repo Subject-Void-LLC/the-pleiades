@@ -1,6 +1,10 @@
 // Files on the host: writing one from bytes Pleiades made, reading the end
 // of one, and removing one. Each is a short PowerShell script whose data
-// travels on its standard input, never on a command line.
+// travels on its standard input, never on a command line, and whose path
+// goes in through winrmexec.QuotePS: CheckPath refuses the ASCII apostrophe
+// but admits the four typographic quotes PowerShell also ends a
+// single-quoted literal at, and a VM folder read back from the host reaches
+// these too (FAILURE_PATTERNS 354).
 package vboxmanage
 
 import (
@@ -11,6 +15,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/winrmexec"
 )
 
 // The first line of each script, which names what it does.
@@ -38,7 +44,7 @@ func (h Host) Upload(ctx context.Context, path string, data []byte) error {
 	sum := sha256.Sum256(data)
 	script := tagUpload + `
 $ErrorActionPreference = 'Stop'
-$path = '` + path + `'
+$path = ` + winrmexec.QuotePS(path) + `
 $want = '` + hex.EncodeToString(sum[:]) + `'
 $data = [Convert]::FromBase64String([Console]::In.ReadToEnd().Trim())
 $sha = [Security.Cryptography.SHA256]::Create()
@@ -77,7 +83,7 @@ func (h Host) ReadTail(ctx context.Context, path string, limit int) ([]byte, err
 	}
 	script := fmt.Sprintf(`%s
 $ErrorActionPreference = 'Stop'
-$path = '%s'
+$path = %s
 $max = %d
 if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { exit 3 }
 $fs = [IO.File]::Open($path, 'Open', 'Read', 'ReadWrite')
@@ -88,7 +94,7 @@ try {
   $n = $fs.Read($buf, 0, $buf.Length)
 } finally { $fs.Close() }
 [Convert]::ToBase64String($buf, 0, $n)
-`, tagRead, path, limit)
+`, tagRead, winrmexec.QuotePS(path), limit)
 	out, err := h.powerShell(ctx, script, "")
 	if err != nil {
 		return nil, err
@@ -115,13 +121,13 @@ func (h Host) Remove(ctx context.Context, path string, folder bool) error {
 	}
 	script := fmt.Sprintf(`%s
 $ErrorActionPreference = 'Stop'
-$path = '%s'
+$path = %s
 $folder = $%t
 if (Test-Path -LiteralPath $path -PathType Leaf) { Remove-Item -LiteralPath $path -Force }
 $parent = Split-Path -Parent $path
 if ($folder -and (Test-Path -LiteralPath $parent -PathType Container) -and -not (Get-ChildItem -LiteralPath $parent -Force | Select-Object -First 1)) { Remove-Item -LiteralPath $parent -Force }
 "removed"
-`, tagRemove, path, folder)
+`, tagRemove, winrmexec.QuotePS(path), folder)
 	out, err := h.powerShell(ctx, script, "")
 	if err != nil {
 		return err

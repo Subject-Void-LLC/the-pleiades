@@ -198,8 +198,10 @@ func TestReboot_Refusals(t *testing.T) {
 		"two-line message":  {map[string]any{"msg": "a\nb"}, []any{boot0}, "on one line"},
 		"numeric message":   {map[string]any{"msg": 5}, []any{boot0}, "not text"},
 		"control character": {map[string]any{"msg": "a\x01b"}, []any{boot0}, "U+0001"},
-		"unreadable boot":   {nil, []any{errors.New("access denied")}, "access denied"},
-		"not a time":        {nil, []any{"yesterday"}, `the boot time "yesterday" is not an RFC 3339 time`},
+		"a message shutdown.exe could read as /a": {map[string]any{"msg": "/a"}, []any{boot0}, `msg is refused: it begins with "/"`},
+		"a message beginning with a dash":         {map[string]any{"msg": "-a now"}, []any{boot0}, `msg is refused: it begins with "-"`},
+		"unreadable boot":                         {nil, []any{errors.New("access denied")}, "access denied"},
+		"not a time":                              {nil, []any{"yesterday"}, `the boot time "yesterday" is not an RFC 3339 time`},
 	} {
 		h := &rebootHost{boots: tc.boots, exits: []any{0}}
 		h.install(t)

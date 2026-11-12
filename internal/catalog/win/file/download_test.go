@@ -281,3 +281,22 @@ func TestDownload_Script(t *testing.T) {
 		t.Error("the file is moved into place before its digest is checked")
 	}
 }
+
+// TestDownloadScript_QuotesATypographicQuoteInTheURLAndPath: urlPattern and
+// pathPattern refuse the ASCII apostrophe but admit the four typographic
+// quotes, at each of which PowerShell also ends a single-quoted literal
+// (FAILURE_PATTERNS 354). The script now assigns both as winrmexec.QuotePS
+// writes them.
+func TestDownloadScript_QuotesATypographicQuoteInTheURLAndPath(t *testing.T) {
+	q := string(rune(0x2018))
+	d := download{url: "https://example.com/a" + q + ";calc;" + q, path: `C:\ops\a` + q + `;calc;` + q + `.zip`, sha256: strings.Repeat("b", 64)}
+	if !urlPattern.MatchString(d.url) || !pathPattern.MatchString(d.path) {
+		t.Fatal("the patterns refuse the values, so this test proves nothing")
+	}
+	script := d.script(false)
+	for _, want := range []string{"\n$url = " + winrmexec.QuotePS(d.url) + "\n", "\n$path = " + winrmexec.QuotePS(d.path) + "\n"} {
+		if !strings.Contains(script, want) {
+			t.Errorf("the script lacks %q:\n%s", want, script)
+		}
+	}
+}
