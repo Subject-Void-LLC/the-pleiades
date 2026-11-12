@@ -29132,3 +29132,32 @@ and nothing ties a method's new command to its tests' fakes.
 **Lesson.** When a method gains a command, every test that fakes that method's tools must fake the new one, or it
 reads the host's. The check that catches it on a Linux machine is a broken stand-in for the new command first on
 PATH: a hermetic test does not notice it, a leaky one fails.
+
+## 1178. The FRR lab said ready on `show version`, so a batfish test's first `configure terminal` met mgmtd's lock under load (a repeat of 446) (fixed on the pull request)
+
+**Symptom.** PR #158's `containers (5)` failed `TestCheck_RealRoutersAgainstRealBatfish`
+(`internal/catalog/net/batfish`) at its first router setup, `check_live_test.go:51`: "vtysh ... on r2 exited 1:
+% command failed, could not lock running DS". It passed when re-run alone, then failed again in testgate's coverage
+re-measure, so the package had no coverage number and `coverage` failed too. The same test passed in the PR's previous
+run and every time here; this branch does not touch the package or the lab.
+
+**Root cause.** `testdata/netlab/frr/start.sh` printed "netlab router ready" once `vtysh -c 'show version'` answered,
+and `show version` is answered by vtysh itself, before any daemon is up. FRR 10's mgmtd locks the running datastore
+while watchfrr reads the startup configuration (its `vtysh` child, "Reading Configuration") and while each backend
+daemon (zebra, staticd) syncs. On an idle machine that is finished before the test's first `configure terminal`; on a
+loaded runner it is not. The loop also printed ready when its thirty tries ran out. It was not reproduced here, even
+with the container throttled to `--cpus 0.05`, so the cause rests on the error, which only mgmtd's lock gives, and on
+the startup sequence read from the image.
+
+**Why 446's lesson did not prevent it.** LESSONS 272 says to wait for a container's own startup to finish before
+acting inside it, and 446 applied it to the k3s fixture alone. Nothing checks a fixture's ready line against what its
+first real use needs, and `show version` looks like a probe of the router while testing only the client.
+
+**Fix.** The ready line now waits for watchfrr's phase Idle with "Reading Configuration: no" and every daemon Up, for
+mgmtd's zebra and staticd backends, and for a real `configure terminal`/`end` to take the lock. A router that never
+gets there exits non-zero instead of saying ready. Proof: the batfish test 5 of 5 under `-race`, and every package that
+starts the lab (`internal/testsupport`, `net`, `net/frr`, `net/ovs`, `net/linux`, `wait`, `inventory/onboard`).
+Ready in about 1 s unthrottled and 4 s at `--cpus 0.1`.
+
+**Lesson.** A fixture's ready signal must exercise what its first user does, through the server rather than the
+client: for a router that is opening a configuration session, not printing a version.
