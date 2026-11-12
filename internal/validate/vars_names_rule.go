@@ -7,6 +7,7 @@ import (
 	"sort"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 )
 
 // VarNamesRule refuses, before anything runs:
@@ -21,7 +22,8 @@ import (
 // A block's vars: reach the tasks inside it (the builder copies them down), so
 // a bad key is reported once, where it was written, and not again on every
 // task it reached. A fact cannot be named global or no_override: those words
-// are the two options, so a boolean beside a fact is never a fact.
+// are the two options, so a boolean beside a fact is never a fact. Nor can it
+// be named target, which is the task's target as on any task.
 func VarNamesRule(world WorldView) []Finding {
 	var findings []Finding
 	bad := func(node, where string, keys []string) {
@@ -66,6 +68,10 @@ func VarNamesRule(world WorldView) []Finding {
 		}
 		var facts []string
 		for k, v := range task.Params {
+			// target is the task's own, as on any task, and never a fact.
+			if k == collection.TargetParam {
+				continue
+			}
 			if k == engine.SetFactGlobal || k == engine.SetFactNoOverride {
 				if _, isBool := v.(bool); !isBool {
 					findings = append(findings, Finding{RuleName: "varnames", Node: id,

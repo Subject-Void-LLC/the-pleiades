@@ -122,7 +122,10 @@ func (t *translator) setFact(spec leafSpec, ctx taskCtx) []*outTask {
 		case e.key == "cacheable":
 			cites = append(cites, t.raise("set_fact.cacheable", at, name, "cacheable dropped"))
 			continue
-		case e.key == engine.SetFactGlobal || e.key == engine.SetFactNoOverride || engine.CheckVarNames([]string{e.key}) != nil || redact.SecretName(e.key):
+		case engine.IsSetFactOption(e.key) || engine.CheckVarNames([]string{e.key}) != nil || redact.SecretName(e.key):
+			// global, no_override and target are the native set_fact's own
+			// options: carried as a fact, target would name the devices the
+			// task runs on instead.
 			id := t.raise("vars.unreadable", at, name, "a fact name the runbook cannot carry")
 			return []*outTask{t.placeholder(name, spec.module, spec.at, ctx, append(cites, id)...)}
 		case isVault(e.value):

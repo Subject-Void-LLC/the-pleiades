@@ -73,7 +73,7 @@ func newVarScopes(world WorldView) *varScopes {
 		site := factSite{node: id}
 		site.global, _ = task.Params[engine.SetFactGlobal].(bool)
 		for k := range task.Params {
-			if k != engine.SetFactGlobal && k != engine.SetFactNoOverride {
+			if !engine.IsSetFactOption(k) {
 				site.names = append(site.names, k)
 			}
 		}

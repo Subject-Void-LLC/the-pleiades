@@ -1,0 +1,1 @@
+A `set_fact`'s `target:` now only names the devices it runs on, as on any task, and no longer also sets a variable called `target` on them. The playbook converter refuses an Ansible `set_fact` of a variable named `target` rather than writing one that would run on another device.

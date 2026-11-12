@@ -437,6 +437,14 @@ tasks:
 			codes:   []playbook.Code{"template.secret"},
 			blocked: 1,
 		},
+		{
+			// target is the native set_fact's target, not a fact, so a fact of
+			// that name cannot be carried.
+			name:    "a set_fact of a variable named target",
+			tasks:   "- {name: set, set_fact: {target: db1}, when: x is defined}\n- {name: use, command: \"echo {{ target }}\"}",
+			codes:   []playbook.Code{"vars.unreadable"},
+			blocked: 1,
+		},
 	})
 }
 

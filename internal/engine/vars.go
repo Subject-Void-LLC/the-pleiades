@@ -41,6 +41,7 @@ import (
 	"sync"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/redact"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 )
 
@@ -92,6 +93,15 @@ const (
 	SetFactNoOverride = "no_override"
 )
 
+// IsSetFactOption reports whether key, a param of a set_fact, is one of its
+// options rather than a fact: global, no_override, or target, which names the
+// devices the task runs on as it does for every task (collection.TargetParam)
+// and so can never also be a fact. Before target was counted here a set_fact
+// of a variable named target ran on the device that value named instead.
+func IsSetFactOption(key string) bool {
+	return key == SetFactGlobal || key == SetFactNoOverride || key == collection.TargetParam
+}
+
 // factOptions are a set_fact's two flags.
 type factOptions struct {
 	global, noOverride bool
@@ -99,11 +109,14 @@ type factOptions struct {
 
 // splitFacts separates a set_fact's params into its facts and its flags,
 // holding the facts to variable names, to at least one, and each flag to a
-// boolean.
+// boolean. Its target is the task's, not a fact (IsSetFactOption).
 func splitFacts(params map[string]any) (facts map[string]any, opts factOptions, err error) {
 	facts = make(map[string]any, len(params))
 	names := make([]string, 0, len(params))
 	for k, v := range params {
+		if k == collection.TargetParam {
+			continue
+		}
 		if k == SetFactGlobal || k == SetFactNoOverride {
 			b, ok := v.(bool)
 			if !ok {
