@@ -431,6 +431,46 @@ func TestOperations_RefuseANameSystemctlWouldMisread(t *testing.T) {
 	}
 }
 
+// TestOperations_TakeSystemdsRootUnits: -.mount and -.slice, the root mount
+// and the root slice every systemd host loads, begin with "-" and are real,
+// so a loop over a host's units meets them. Each reaches systemctl after
+// its "--", by its exact name, from every function here; any other
+// dash-led name stays refused (TestOperations_RefuseANameSystemctlWouldMisread).
+func TestOperations_TakeSystemdsRootUnits(t *testing.T) {
+	calls := map[string]func(context.Context, *remoteexec.Conn, string) error{
+		"status":  func(ctx context.Context, c *remoteexec.Conn, u string) error { _, err := Status(ctx, c, u); return err },
+		"start":   Start,
+		"stop":    Stop,
+		"restart": Restart,
+		"enable":  Enable,
+		"disable": Disable,
+	}
+	for _, unit := range []string{"-.mount", "-.slice"} {
+		for name, call := range calls {
+			t.Run(name+" "+unit, func(t *testing.T) {
+				record := fakeSystemctl(t)
+				conn := connect(t)
+				if err := call(context.Background(), conn, unit); err != nil {
+					t.Fatalf("%s %s: %v", name, unit, err)
+				}
+				got := invocations(t, record)
+				if len(got) != 1 {
+					t.Fatalf("systemctl was called %d times, want once", len(got))
+				}
+				argv := got[0]
+				if len(argv) < 2 || argv[len(argv)-1] != unit || argv[len(argv)-2] != "--" {
+					t.Errorf("systemctl argv = %v, want %s last, right after --", argv, unit)
+				}
+			})
+		}
+	}
+	for _, unit := range []string{"-.swap", "-.mount.d", "-f"} {
+		if _, err := Status(context.Background(), connect(t), unit); err == nil || !strings.Contains(err.Error(), "unit is refused") {
+			t.Errorf("Status(%q) = %v, want it refused: only the root units' exact names pass", unit, err)
+		}
+	}
+}
+
 // TestOperations_NonZeroExitIsAnError proves a failed systemctl is
 // reported rather than swallowed, and that the message carries
 // systemctl's own explanation.

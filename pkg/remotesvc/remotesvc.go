@@ -150,13 +150,15 @@ func (s State) Map() map[string]any {
 // it as "stopped" would report success for a typo.
 //
 // A unit name systemctl would read as an option or as a pattern is refused
-// before anything is sent (pkg/operand). systemctl show "s*" answers for
-// every loaded unit starting with s at once, and its last block would then
-// decide whether systemctl stop "s*" stops them all (measured on Rocky
-// Linux 9, FAILURE_PATTERNS 1174). The options come before a "--" and the
-// unit after it, so the unit is read as a unit whatever it holds.
+// before anything is sent (operand.SystemdUnit). systemctl show "s*"
+// answers for every loaded unit starting with s at once, and its last block
+// would then decide whether systemctl stop "s*" stops them all (measured on
+// Rocky Linux 9, FAILURE_PATTERNS 1174). The options come before a "--" and
+// the unit after it, so the unit is read as a unit whatever it holds, which
+// is what lets systemd's own root units, -.mount and -.slice, through by
+// their exact names.
 func Status(ctx context.Context, conn *remoteexec.Conn, unit string) (State, error) {
-	if err := operand.Check("unit", unit); err != nil {
+	if err := operand.SystemdUnit.Check("unit", unit); err != nil {
 		return State{}, fmt.Errorf("reading the state of a unit: %w", err)
 	}
 	cmd := "systemctl show --property=LoadState --property=ActiveState --property=UnitFileState -- " +
@@ -272,7 +274,7 @@ func DaemonReload(ctx context.Context, conn *remoteexec.Conn) error {
 // unit it matches) is refused before anything is sent (pkg/operand).
 // Nothing else is interpolated.
 func run(ctx context.Context, conn *remoteexec.Conn, op, unit string) error {
-	if err := operand.Check("unit", unit); err != nil {
+	if err := operand.SystemdUnit.Check("unit", unit); err != nil {
 		return fmt.Errorf("systemctl %s: %w", op, err)
 	}
 	result, err := conn.Run(ctx, "systemctl "+op+" -- "+remoteexec.QuoteArg(unit))
