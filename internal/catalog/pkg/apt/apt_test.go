@@ -78,6 +78,7 @@ type pkgState struct {
 	aptExit            int    // exit code apt-get itself returns, default 0
 	candidateExit      int    // exit code apt-cache itself returns, default 0
 	noCandidateLine    bool   // apt-cache's output has no Candidate: line at all
+	policyHeader       string // when set, apt-cache heads its block with this name instead of the one asked for
 	dpkgStatusOverride string // when set, used verbatim as dpkg-query's Status line, with a successful exit
 	dpkgExit           int    // when set, dpkg-query's exit code for one package's status (2 is its usage error)
 
@@ -94,7 +95,11 @@ type pkgState struct {
 }
 
 var (
-	absent                 = pkgState{}
+	// absent is a package dpkg has no record of and APT can install: one
+	// apt-cache policy gives a candidate for, as it does every real package
+	// a task installs. A name APT has no candidate for is noCandidate.
+	absent                 = pkgState{candidate: "1.0"}
+	noCandidate            = pkgState{}
 	installedCurrent       = pkgState{installed: true, version: "1.0", candidate: "1.0"}
 	installedOld           = pkgState{installed: true, version: "1.0", candidate: "1.1"}
 	installedUnknownToRepo = pkgState{installed: true, version: "1.0", candidate: ""}
@@ -103,7 +108,7 @@ var (
 	// itself is absent, distinct from a name dpkg has never heard of at
 	// all (which reports via a non-zero exit instead, not this status
 	// line). Both must be read as "not installed."
-	configFilesRemnant = pkgState{dpkgStatusOverride: "deinstall ok config-files", version: "0.9"}
+	configFilesRemnant = pkgState{dpkgStatusOverride: "deinstall ok config-files", version: "0.9", candidate: "1.0"}
 )
 
 // harness wires a real SSH server, fake apt-get/dpkg-query/apt-cache and
@@ -199,12 +204,23 @@ exit "$FAKE_DPKG_EXIT"
 	// queryCandidate's own loop has a non-Candidate line to skip over on
 	// every call, not just a contrived one. Like dpkg-query, it refuses a
 	// name with no "--" before it.
+	//
+	// The block is headed by the package's own name, as apt-cache policy's
+	// is; FAKE_POLICY_HEADER heads it with another, the way apt-cache answers
+	// a word it read as a regular expression with the packages it matched.
+	// Unless LC_ALL is C it writes French, as the real one does under a
+	// French locale (measured on Debian 12, FAILURE_PATTERNS 1175).
 	aptCacheScript := `#!/bin/sh
 if [ "$2" != "--" ]; then printf 'E: no -- before the name\n' >&2; exit 100; fi
-printf 'Package: %s\n' "$3"
+header="${FAKE_POLICY_HEADER:-$3}"
+header="${header%%:*}"
+printf '%s:\n' "$header"
+if [ "$LC_ALL" = "C" ]; then installed='  Installed:'; candidate='  Candidate:'; else installed='  Installé :'; candidate='  Candidat :'; fi
+printf '%s (none)\n' "$installed"
 if [ "$FAKE_NO_CANDIDATE_LINE" != "1" ]; then
-  printf 'Candidate: %s\n' "$FAKE_CANDIDATE"
+  printf '%s %s\n' "$candidate" "$FAKE_CANDIDATE"
 fi
+printf '  Version table:\n'
 exit "${FAKE_CANDIDATE_EXIT:-0}"
 `
 	writeScript(t, dir, "apt-get", aptGetScript)
@@ -232,6 +248,7 @@ exit "${FAKE_CANDIDATE_EXIT:-0}"
 	t.Setenv("FAKE_SIM_PLAIN", state.simPlain)
 	t.Setenv("FAKE_SIM_EXIT", strconv.Itoa(state.simExit))
 	t.Setenv("FAKE_SIM_PLAIN_EXIT", strconv.Itoa(state.simPlainExit))
+	t.Setenv("FAKE_POLICY_HEADER", state.policyHeader)
 	if state.noCandidateLine {
 		t.Setenv("FAKE_NO_CANDIDATE_LINE", "1")
 	} else {
@@ -709,8 +726,8 @@ func TestUpgrade_UnreachableDeviceConnectFailure(t *testing.T) {
 // Each case names how many SSH sessions succeed before the server
 // starts refusing them, which is how it targets one specific call site
 // in the sequence a method makes: queryDpkg (the initial read),
-// queryCandidate (upgrade's own extra read), runAptGet (the write) and
-// the re-query that follows a write. budget is the count that succeeds;
+// queryCandidate (upgrade's own extra read, and every fresh install's),
+// runAptGet (the write) and the re-query that follows a write. budget is the count that succeeds;
 // the next one is always the one that fails.
 
 func TestInstall_InitialQueryConnectionFailure(t *testing.T) {
@@ -721,12 +738,13 @@ func TestInstall_InitialQueryConnectionFailure(t *testing.T) {
 	}
 }
 
-// A fresh install takes five sessions: the query, the installed set
-// before, the install, the installed set after, and the re-query. Only the
-// set before can fail the task; the reads after the install are warnings
+// A fresh install takes six sessions: the query, the candidate, the
+// installed set before, the install, the installed set after, and the
+// re-query. Only the candidate and the set before can fail the task; the
+// reads after the install are warnings
 // (TestInstall_AReadThatFailsAfterTheInstallKeepsItsUndo).
 func TestInstall_InstalledSetConnectionFailures(t *testing.T) {
-	for budget, what := range map[int]string{1: "the set before"} {
+	for budget, what := range map[int]string{1: "the candidate", 2: "the set before"} {
 		h := newHarnessBudgeted(t, absent, budget)
 		_, err := apt.Install(context.Background(), h.rc, h.device, h.params("curl", nil))
 		if err == nil || !strings.Contains(err.Error(), "open session") {
@@ -736,7 +754,7 @@ func TestInstall_InstalledSetConnectionFailures(t *testing.T) {
 }
 
 func TestInstall_ApplyConnectionFailure(t *testing.T) {
-	h := newHarnessBudgeted(t, absent, 2) // the query and the set before succeed, the install apply does not
+	h := newHarnessBudgeted(t, absent, 3) // the query, the candidate and the set before succeed, the install apply does not
 	_, err := apt.Install(context.Background(), h.rc, h.device, h.params("curl", nil))
 	if err == nil || !strings.Contains(err.Error(), "open session") {
 		t.Errorf("err = %v, want it to mention the session failing to open", err)
@@ -797,7 +815,7 @@ func TestUpgrade_CandidateQueryConnectionFailure(t *testing.T) {
 }
 
 func TestUpgrade_FreshInstallApplyConnectionFailure(t *testing.T) {
-	h := newHarnessBudgeted(t, absent, 1) // the initial query succeeds, the fresh install does not
+	h := newHarnessBudgeted(t, absent, 2) // the initial query and the candidate succeed, the fresh install does not
 	_, err := apt.Upgrade(context.Background(), h.rc, h.device, h.params("curl", nil))
 	if err == nil || !strings.Contains(err.Error(), "open session") {
 		t.Errorf("err = %v, want it to mention the session failing to open", err)
@@ -805,7 +823,7 @@ func TestUpgrade_FreshInstallApplyConnectionFailure(t *testing.T) {
 }
 
 func TestUpgrade_FreshInstallRequeryConnectionFailure(t *testing.T) {
-	h := newHarnessBudgeted(t, absent, 2) // the query and the fresh install succeed, the re-query does not
+	h := newHarnessBudgeted(t, absent, 3) // the query, the candidate and the fresh install succeed, the re-query does not
 	_, err := apt.Upgrade(context.Background(), h.rc, h.device, h.params("curl", nil))
 	if err == nil || !strings.Contains(err.Error(), "open session") {
 		t.Errorf("err = %v, want it to mention the session failing to open", err)

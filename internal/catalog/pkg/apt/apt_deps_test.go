@@ -16,7 +16,7 @@ import (
 )
 
 func TestInstall_UndoNamesWhatTheInstallPulledIn(t *testing.T) {
-	h := newHarness(t, pkgState{listBefore: "base-files", listAfter: "base-files jq libonig5 libjq1"})
+	h := newHarness(t, pkgState{candidate: "1.6", listBefore: "base-files", listAfter: "base-files jq libonig5 libjq1"})
 	if _, err := apt.Install(context.Background(), h.rc, h.device, h.params("jq", nil)); err != nil {
 		t.Fatalf("Install: %v", err)
 	}
@@ -34,7 +34,7 @@ func TestInstall_UndoNamesWhatTheInstallPulledIn(t *testing.T) {
 }
 
 func TestInstall_AnUnreadableInstalledSetStopsBeforeInstalling(t *testing.T) {
-	h := newHarness(t, pkgState{listExit: 2})
+	h := newHarness(t, pkgState{candidate: "1.6", listExit: 2})
 	_, err := apt.Install(context.Background(), h.rc, h.device, h.params("jq", nil))
 	if err == nil || !strings.Contains(err.Error(), "dpkg-query -W exited 2") {
 		t.Errorf("err = %v, want the listing's failure", err)
@@ -185,13 +185,13 @@ func TestRemove_DependencyFailures(t *testing.T) {
 // connection after apt-get has installed the package. The task still
 // succeeds, with a warning, because the engine never journals a failed
 // task's undo: failing here would leave an installed package no rollback
-// could remove. A fresh install takes five sessions (the query, the
-// installed set before, the install, the set after, the re-query); budget
-// is how many succeed.
+// could remove. A fresh install takes six sessions (the query, the
+// candidate, the installed set before, the install, the set after, the
+// re-query); budget is how many succeed.
 func TestInstall_AReadThatFailsAfterTheInstallKeepsItsUndo(t *testing.T) {
 	for budget, wantWarnings := range map[int][]string{
-		3: {"could not read what installing curl pulled in", "installed curl, but could not read its version back"},
-		4: {"installed curl, but could not read its version back"},
+		4: {"could not read what installing curl pulled in", "installed curl, but could not read its version back"},
+		5: {"installed curl, but could not read its version back"},
 	} {
 		h := newHarnessBudgeted(t, absent, budget)
 		result, err := apt.Install(context.Background(), h.rc, h.device, h.params("curl", nil))
@@ -203,7 +203,7 @@ func TestInstall_AReadThatFailsAfterTheInstallKeepsItsUndo(t *testing.T) {
 		if inv["fqcn"] != "pkg.apt.remove" || params["name"] != "curl" {
 			t.Errorf("budget %d: undo = %v, want pkg.apt.remove naming curl", budget, inv)
 		}
-		if _, listed := params["dependencies"]; budget == 3 && listed {
+		if _, listed := params["dependencies"]; budget == 4 && listed {
 			t.Errorf("an undo named dependencies nothing read: %v", params)
 		}
 		warnings, _ := h.rc.stats[sdk.StatWarnings].([]string)
@@ -222,7 +222,7 @@ func TestInstall_AReadThatFailsAfterTheInstallKeepsItsUndo(t *testing.T) {
 // the install that cannot be recorded is a failure, not one dropped
 // quietly.
 func TestInstall_AWarningThatCannotBeRecordedFailsTheTask(t *testing.T) {
-	h := newHarnessBudgeted(t, absent, 4)
+	h := newHarnessBudgeted(t, absent, 5)
 	h.rc.failOnKey = sdk.StatWarnings
 	if _, err := apt.Install(context.Background(), h.rc, h.device, h.params("curl", nil)); err == nil || !strings.Contains(err.Error(), "pkg.apt.install") {
 		t.Errorf("err = %v, want the recording failure", err)
@@ -244,7 +244,7 @@ func TestInstall_AnUndoNamesNoMoreDependenciesThanTheJournalHolds(t *testing.T) 
 		return out
 	}
 	for _, n := range []int{128, 129} {
-		h := newHarness(t, pkgState{listBefore: "base-files", listAfter: "base-files big " + strings.Join(names(n), " ")})
+		h := newHarness(t, pkgState{candidate: "1.0", listBefore: "base-files", listAfter: "base-files big " + strings.Join(names(n), " ")})
 		if _, err := apt.Install(context.Background(), h.rc, h.device, h.params("big", nil)); err != nil {
 			t.Fatalf("%d dependencies: Install: %v", n, err)
 		}

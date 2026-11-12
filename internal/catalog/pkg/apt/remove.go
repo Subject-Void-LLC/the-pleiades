@@ -7,6 +7,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/operand"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
 
@@ -46,8 +47,8 @@ func removeDoc() collection.Doc {
 		Summary:     "Removes a package via APT.",
 		Description: "Makes sure a package is absent from a Debian-family host, removing it if it is present. This is ansible.builtin.apt with state=absent. Installed state is read from dpkg before anything is sent, so a package that is already absent reports no change and no command reaches the device. This removes the package but does not purge it (apt-get remove, not apt-get purge), so its configuration files are left on disk; there is no separate purge parameter today.",
 		Params: []collection.Param{
-			{Name: paramName, Type: "string", Required: true, Format: collection.ParamFormatOperand, Description: "The APT package name to remove."},
-			{Name: paramDependencies, Type: "list", Format: collection.ParamFormatOperand, Description: "Packages installing this one pulled in, as pkg.apt.install's undo names them. Each is removed with the package only while it is still installed, APT would remove it as no longer needed, and removing them takes nothing else with them; any other is kept and named in a warning."},
+			{Name: paramName, Type: "string", Required: true, Format: collection.ParamFormatAptPackage, Description: "The APT package name to remove."},
+			{Name: paramDependencies, Type: "list", Format: collection.ParamFormatAptPackage, Description: "Packages installing this one pulled in, as pkg.apt.install's undo names them. Each is removed with the package only while it is still installed, APT would remove it as no longer needed, and removing them takes nothing else with them; any other is kept and named in a warning."},
 			{Name: sdk.ParamInsecureSkipHostKeyVerify, Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
 		},
 		Returns: []collection.ReturnField{
@@ -90,7 +91,7 @@ func remove(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 	}
 	// Each dependency is an operand of apt-get remove too, so it is held to
 	// the same rule as the name, before anything is sent.
-	deps, _, err := sdk.OperandSlice(params, paramDependencies)
+	deps, _, err := sdk.OperandSliceOf(params, paramDependencies, operand.AptPackage)
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %s: %w", fqcn, paramDependencies, err)
 	}

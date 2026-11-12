@@ -37,6 +37,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/operand"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
@@ -75,27 +76,33 @@ func (s state) Map() map[string]any {
 	return map[string]any{"installed": s.installed, "version": s.version}
 }
 
-// packageName reads the package a pkg.apt method acts on: a name the
-// operand rule passes (sdk.RequiredOperandParam: no leading "-", no
-// pattern), and one that does not end in "-".
+// packageName reads the package a pkg.apt method acts on, held to
+// operand.AptPackage, the rule its parameter declares
+// (collection.ParamFormatAptPackage) and validation, the engine and the
+// rollback planner hold it to as well: a Debian package name, with an
+// optional ":architecture", and none of the forms apt-get reads as something
+// other than that one package.
 //
-// The last is APT's own grammar. apt-get install reads a word ending in "-"
-// that names no package as "remove the package before the dash", and
-// dpkg-query reports that word absent first, so pkg.apt.install with
-// "diffutils-" would plan the removal of diffutils (measured on Debian
+// The trailing "-" is the one measured first. apt-get install reads a word
+// ending in "-" that names no package as "remove the package before the
+// dash", and dpkg-query reports that word absent first, so pkg.apt.install
+// with "diffutils-" would plan the removal of diffutils (measured on Debian
 // bookworm: "1 to remove", FAILURE_PATTERNS 1174). No Debian package name
-// ends in "-". A trailing "+" is left alone: it means "install" to apt-get
-// remove, but dpkg-query reports such a word absent, so pkg.apt.remove never
-// sends it, and real names such as g++ end in one.
+// ends in "-". A trailing "+" is not refused here, since real names such as
+// g++ end in one; apt-get reads it as "install the package before the +"
+// only when no package has the exact name, and pkg.apt.install and
+// pkg.apt.upgrade refuse such a name before installing anything
+// (requireCandidate).
 func packageName(params map[string]any) (string, error) {
-	name, err := sdk.RequiredOperandParam(params, paramName)
-	if err != nil {
-		return "", err
-	}
-	if strings.HasSuffix(name, "-") {
-		return "", fmt.Errorf("%s is refused: it ends in \"-\", which apt-get install reads as \"remove the package before the dash\" rather than as a name", paramName)
-	}
-	return name, nil
+	return sdk.RequiredOperandParamOf(params, paramName, operand.AptPackage)
+}
+
+// packageVersion reads the optional version an install joins onto the name
+// as name=version, held to operand.PackageVersion: apt-get reads
+// name=version- as "remove the package" (measured on Debian 12: "Remv
+// diffutils").
+func packageVersion(params map[string]any) (string, error) {
+	return sdk.OptionalOperandParamOf(params, paramVersion, operand.PackageVersion)
 }
 
 // dpkgQueryNoMatch is dpkg-query's exit status for a name it has no record
@@ -140,19 +147,42 @@ func queryDpkg(ctx context.Context, conn *remoteexec.Conn, name string) (state, 
 }
 
 // queryCandidate asks apt-cache what the newest version available to
-// install is, APT's own name for it and the version pkg.apt.upgrade
-// compares the installed one against. An empty result with a nil error
-// means apt-cache reported no candidate at all, which happens for a
-// package APT has never heard of.
+// install is for the package named exactly name, APT's own name for it and
+// the version pkg.apt.upgrade compares the installed one against. An empty
+// result with a nil error means APT has no candidate for that exact name:
+// it has never heard of it, or it is a virtual package another provides.
+//
+// Only the block apt-cache heads with name itself is read. apt-cache
+// policy, like apt-get, reads a word naming no package as a regular
+// expression, so "jq+" printed the block of libjs-jquery.sparkline, whose
+// candidate an older reading of the first Candidate line took for jq+'s
+// (measured on Debian 12). A qualified name (jq:amd64) is headed by its
+// package alone ("jq:").
+//
+// LC_ALL=C keeps the words read here English: under a French locale
+// apt-cache writes "Candidat :" (measured on Debian 12, FAILURE_PATTERNS
+// 1175), which no reading of "Candidate:" would find.
 func queryCandidate(ctx context.Context, conn *remoteexec.Conn, name string) (string, error) {
-	result, err := conn.Run(ctx, "apt-cache policy -- "+remoteexec.QuoteArg(name))
+	result, err := conn.Run(ctx, "LC_ALL=C apt-cache policy -- "+remoteexec.QuoteArg(name))
 	if err != nil {
 		return "", err
 	}
 	if result.ExitCode != 0 {
 		return "", fmt.Errorf("apt-cache policy %s exited %d: %s", name, result.ExitCode, failureDetail(result))
 	}
+	base, _, _ := strings.Cut(name, ":")
+	found, inBlock := false, false
 	for _, line := range strings.Split(result.Stdout, "\n") {
+		if line != "" && !strings.HasPrefix(line, " ") && !strings.HasPrefix(line, "\t") {
+			// A line at the margin heads one package's block: "<name>:".
+			header := strings.TrimSuffix(line, ":")
+			inBlock = header == base || header == name
+			found = found || inBlock
+			continue
+		}
+		if !inBlock {
+			continue
+		}
 		v, ok := strings.CutPrefix(strings.TrimSpace(line), "Candidate:")
 		if !ok {
 			continue
@@ -163,23 +193,51 @@ func queryCandidate(ctx context.Context, conn *remoteexec.Conn, name string) (st
 		}
 		return v, nil
 	}
+	if !found {
+		// No block for this exact name: apt-cache knows no such package, or
+		// matched the word as a regular expression against others.
+		return "", nil
+	}
 	return "", fmt.Errorf("apt-cache policy %s: no Candidate line in its output", name)
+}
+
+// requireCandidate refuses, before apt-get is asked to install an absent
+// package, a name APT has no candidate for exactly: one it has never heard
+// of, a virtual package (apt-get installs a provider under another name),
+// or one apt-get would read some other way when no package has the name,
+// such as "jq+" ("install jq") or "jq++" (a regular expression that planned
+// upgrades of dpkg and libc6), both measured on Debian 12. Each of those would install packages dpkg-query never
+// reports under the word, so the undo recorded by the word would remove
+// nothing (FAILURE_PATTERNS 1174).
+func requireCandidate(ctx context.Context, conn *remoteexec.Conn, name string) error {
+	candidate, err := queryCandidate(ctx, conn, name)
+	if err != nil {
+		return err
+	}
+	if candidate == "" {
+		return fmt.Errorf("APT has no package named exactly %s to install (one it does not know, a virtual package another provides, or a word apt-get would read as another package or a regular expression), so nothing is installed: name the package itself", name)
+	}
+	return nil
 }
 
 // predictInstall is what installing name would leave, for a check: the
 // version named, or, with none named, the version APT would pick, read
 // from apt-cache without installing anything. A package APT has no
 // candidate for is refused, since installing it would fail.
+//
+// The candidate is read whether or not a version is named, since a real
+// run refuses a name APT has no package for exactly before it installs
+// anything (requireCandidate), and the check must say so too.
 func predictInstall(ctx context.Context, conn *remoteexec.Conn, name, version string) (state, error) {
-	if version != "" {
-		return state{installed: true, version: version}, nil
-	}
 	candidate, err := queryCandidate(ctx, conn, name)
 	if err != nil {
 		return state{}, err
 	}
 	if candidate == "" {
 		return state{}, fmt.Errorf("APT has no candidate to install for %s, so a real run of this task would fail", name)
+	}
+	if version != "" {
+		return state{installed: true, version: version}, nil
 	}
 	return state{installed: true, version: candidate}, nil
 }
@@ -324,10 +382,12 @@ func recordDependencies(rc sdk.RunbookContext, removed, kept []string) ([]string
 // where a prompt seems likely, because whether a given package's
 // maintainer scripts prompt is not something this platform knows ahead
 // of time, and a task hanging on a terminal that will never answer is a
-// worse failure than a task that never needed to ask.
+// worse failure than a task that never needed to ask. LC_ALL=C keeps the
+// "Remv" lines simulateRemove reads in the words it reads them by, whatever
+// the device's locale (FAILURE_PATTERNS 1175).
 func runAptGet(ctx context.Context, conn *remoteexec.Conn, options []string, operands ...string) (remoteexec.Result, error) {
 	argv := append(append(append([]string{"apt-get"}, options...), "--"), operands...)
-	command := "DEBIAN_FRONTEND=noninteractive " + remoteexec.QuoteCommand(argv)
+	command := "DEBIAN_FRONTEND=noninteractive LC_ALL=C " + remoteexec.QuoteCommand(argv)
 	result, err := conn.Run(ctx, command)
 	if err != nil {
 		return remoteexec.Result{}, err

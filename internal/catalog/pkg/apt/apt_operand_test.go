@@ -34,6 +34,10 @@ func TestMethods_RefuseANameAptWouldMisread(t *testing.T) {
 		"--autoremove":                          `name is refused: it begins with "-"`,
 		"lib*":                                  "name is refused: it holds",
 		"diffutils-":                            `name is refused: it ends in "-"`,
+		"jq/bookworm":                           `name is refused: it holds "/"`,
+		"jq=1.6":                                `name is refused: it holds "="`,
+		"~nzsh-common":                          "name is refused: it does not begin with a letter or a digit",
+		"^zsh$":                                 "name is refused: it does not begin with a letter or a digit",
 	} {
 		for label, method := range aptMethods {
 			t.Run(label+" "+value, func(t *testing.T) {
@@ -90,5 +94,81 @@ func TestPackageName_AcceptsRealNames(t *testing.T) {
 				t.Errorf("apt-get calls = %v, want one install of %s after --", calls, name)
 			}
 		})
+	}
+}
+
+// TestInstall_RefusesAVersionAptWouldMisread: the version is joined onto
+// the name as name=version, so apt-get reads a pattern in it as many
+// versions and a trailing "-" as "remove the package" (measured on Debian
+// 12: "Remv diffutils"). Each is refused before anything is sent.
+func TestInstall_RefusesAVersionAptWouldMisread(t *testing.T) {
+	for value, want := range map[string]string{
+		"*":        "version is refused: it holds",
+		"1.[0-9]":  "version is refused: it holds",
+		"1:3.8-4-": `version is refused: it ends in "-"`,
+		"-1":       `version is refused: it begins with "-"`,
+	} {
+		for _, label := range []string{"Install", "CheckInstall"} {
+			t.Run(label+" "+value, func(t *testing.T) {
+				h := newHarnessBudgeted(t, installedCurrent, 0)
+				_, err := aptMethods[label](context.Background(), h.rc, h.device, h.params("diffutils", map[string]any{"version": value}))
+				if err == nil || !strings.Contains(err.Error(), want) {
+					t.Fatalf("err = %v, want %q", err, want)
+				}
+				if calls := h.invocations(t); len(calls) != 0 {
+					t.Errorf("apt-get ran: %v", calls)
+				}
+			})
+		}
+	}
+}
+
+// TestInstall_RefusesANameAptHasNoPackageFor: a fresh install asks APT for
+// the candidate of exactly the name first, and refuses one it has none
+// for: a virtual package, which apt-get installs a provider of under another
+// name, and a word apt-cache answers with other packages' blocks because it
+// read it as a regular expression (measured on Debian 12: "jq+" answered
+// with libjs-jquery.sparkline's). Each would have installed packages
+// dpkg-query never reports under the word, so the undo recorded by the word
+// would remove nothing. pkg.apt.upgrade installs an absent package the same
+// way and refuses the same names.
+func TestInstall_RefusesANameAptHasNoPackageFor(t *testing.T) {
+	regex := pkgState{candidate: "2.1.2-3", policyHeader: "libjs-jquery.sparkline"}
+	for _, tc := range []struct {
+		label, name string
+		state       pkgState
+		method      func(context.Context, sdk.RunbookContext, inventory.InventoryItem, map[string]any) (collection.Result, error)
+	}{
+		{"a virtual package", "awk", noCandidate, apt.Install},
+		{"a word read as a regular expression", "jq+", regex, apt.Install},
+		{"upgrade, a virtual package", "awk", noCandidate, apt.Upgrade},
+		{"upgrade, a regular expression", "jq+", regex, apt.Upgrade},
+		{"the check of a regular expression", "jq+", regex, apt.CheckInstall},
+	} {
+		t.Run(tc.label, func(t *testing.T) {
+			h := newHarness(t, tc.state)
+			_, err := tc.method(context.Background(), h.rc, h.device, h.params(tc.name, nil))
+			if err == nil || !strings.Contains(err.Error(), "no") || !strings.Contains(err.Error(), tc.name) {
+				t.Fatalf("err = %v, want the name refused for having no package of its own", err)
+			}
+			if calls := h.invocations(t); len(calls) != 0 {
+				t.Errorf("apt-get ran: %v", calls)
+			}
+		})
+	}
+}
+
+// TestQueryCandidate_ReadsTheSameWordsUnderAnyLocale: the fake apt-cache
+// writes "Candidat :" unless LC_ALL is C, as the real one does under a
+// French locale (measured on Debian 12, FAILURE_PATTERNS 1175). The check
+// reads the candidate all the same, because the query sets LC_ALL=C.
+func TestQueryCandidate_ReadsTheSameWordsUnderAnyLocale(t *testing.T) {
+	h := newHarness(t, installedOld)
+	if _, err := apt.CheckUpgrade(context.Background(), h.rc, h.device, h.params("curl", nil)); err != nil {
+		t.Fatalf("CheckUpgrade: %v", err)
+	}
+	diff, _ := h.rc.stats[sdk.StatDiff].(map[string]any)
+	if after, _ := diff["after"].(map[string]any); after["version"] != "1.1" {
+		t.Fatalf("predicted %v, want the candidate 1.1 read from apt-cache", after)
 	}
 }

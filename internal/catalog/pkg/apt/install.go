@@ -52,8 +52,8 @@ func installDoc() collection.Doc {
 		Summary:     "Makes sure a package is installed via APT.",
 		Description: "Makes sure a package is present on a Debian-family host, installing it if it is absent. This is ansible.builtin.apt with state=present. Installed state is read from dpkg before anything is sent, so a package that is already present at the requested version (or present at any version, when none is requested) reports no change and no command reaches the device. version pins to an exact version string, the same way apt-get install name=version does; leave it unset to mean whatever apt-get would install unpinned.",
 		Params: []collection.Param{
-			{Name: paramName, Type: "string", Required: true, Format: collection.ParamFormatOperand, Description: "The APT package name to install, such as curl or nginx."},
-			{Name: paramVersion, Type: "string", Description: "Install exactly this version rather than whatever is current. A package already installed at a different version is upgraded or downgraded to match."},
+			{Name: paramName, Type: "string", Required: true, Format: collection.ParamFormatAptPackage, Description: "The APT package name to install, such as curl or nginx."},
+			{Name: paramVersion, Type: "string", Format: collection.ParamFormatPackageVersion, Description: "Install exactly this version rather than whatever is current. A package already installed at a different version is upgraded or downgraded to match."},
 			{Name: sdk.ParamInsecureSkipHostKeyVerify, Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
 		},
 		Returns: []collection.ReturnField{
@@ -98,7 +98,10 @@ func install(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
-	version := sdk.StringParam(params, paramVersion)
+	version, err := packageVersion(params)
+	if err != nil {
+		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+	}
 
 	conn, err := sdk.Connect(ctx, rc, device, params, fqcn)
 	if err != nil {
@@ -134,6 +137,11 @@ func install(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 		}
 		var preInstall map[string]bool
 		if !before.installed {
+			// A name APT has no package for exactly would install something
+			// dpkg never records under it, which the undo could not find.
+			if err := requireCandidate(ctx, conn, name); err != nil {
+				return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+			}
 			if preInstall, err = installedPackages(ctx, conn); err != nil {
 				return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 			}

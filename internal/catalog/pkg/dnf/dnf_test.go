@@ -79,6 +79,11 @@ type pkgState struct {
 	// rpmError, when set, is what rpm -q writes to stderr before it exits 1
 	// without saying the package is not installed: rpm failing to answer.
 	rpmError string
+	// repoquery, when set, is what dnf repoquery lists instead of the name
+	// asked for: "none" lists nothing, as for a capability such as vim.
+	repoquery string
+	// repoqueryExit, when set, is dnf repoquery's exit: it failing to answer.
+	repoqueryExit int
 }
 
 var (
@@ -131,9 +136,22 @@ func newHarnessBudgeted(t *testing.T, state pkgState, budget int) *harness {
 		version = ""
 	}
 
+	// dnf refuses a "--" anywhere, as dnf5 does (measured on Fedora 42:
+	// 'Unknown argument "--" for command "install"', exit 2), so a call that
+	// sends one fails here. repoquery lists the name unless FAKE_REPOQUERY
+	// says what it lists instead ("none" for nothing, as for a capability).
 	dnfScript := `#!/bin/sh
+for arg in "$@"; do
+  if [ "$arg" = "--" ]; then printf 'Unknown argument "--" for command "%s".\n' "$1" >&2; exit 2; fi
+done
 if [ "$1" = "check-update" ]; then
   exit "$FAKE_UPDATE_EXIT"
+fi
+if [ "$1" = "repoquery" ]; then
+  if [ "${FAKE_REPOQUERY_EXIT:-0}" != "0" ]; then printf 'Error: fake repoquery failure\n' >&2; exit "$FAKE_REPOQUERY_EXIT"; fi
+  for last; do :; done
+  case "${FAKE_REPOQUERY:-$last}" in none) ;; *) printf '%s\n' "${FAKE_REPOQUERY:-$last}" ;; esac
+  exit 0
 fi
 for arg in "$@"; do printf '%s\n' "$arg" >> "$FAKE_RECORD"; done
 printf -- '---\n' >> "$FAKE_RECORD"
@@ -146,9 +164,12 @@ exit "$exit_code"
 	// rpm -q --qf FORMAT -- NAME: a name with no "--" before it is refused
 	// the way real rpm refuses a word it reads as an option, and an absent
 	// package is reported in real rpm's own words, which queryRPM reads.
+	// Unless LC_ALL is C it says so in French, as the real one does under a
+	// French locale (measured on Fedora 42, FAILURE_PATTERNS 1175).
 	rpmScript := `#!/bin/sh
 if [ "$4" != "--" ]; then printf 'rpm: %s: unknown option\n' "$4" >&2; exit 1; fi
 if [ -n "$FAKE_RPM_ERROR" ]; then printf '%s\n' "$FAKE_RPM_ERROR" >&2; exit 1; fi
+if [ "$FAKE_RPM_EXIT" = "1" ] && [ "$LC_ALL" != "C" ]; then printf "le paquet %s n'est pas install\303\251\n" "$5"; exit 1; fi
 if [ "$FAKE_RPM_EXIT" = "1" ]; then printf 'package %s is not installed\n' "$5"; exit 1; fi
 printf '%s' "$FAKE_VERSION"
 exit "$FAKE_RPM_EXIT"
@@ -162,6 +183,8 @@ exit "$FAKE_RPM_EXIT"
 	t.Setenv("FAKE_RPM_EXIT", rpmExit)
 	t.Setenv("FAKE_RPM_ERROR", state.rpmError)
 	t.Setenv("FAKE_UPDATE_EXIT", strconv.Itoa(state.updateExit))
+	t.Setenv("FAKE_REPOQUERY", state.repoquery)
+	t.Setenv("FAKE_REPOQUERY_EXIT", strconv.Itoa(state.repoqueryExit))
 	t.Setenv("FAKE_DNF_EXIT", strconv.Itoa(state.dnfExit))
 
 	opts := remoteexectest.Options{}
@@ -606,8 +629,8 @@ func TestUpgrade_UnreachableDeviceConnectFailure(t *testing.T) {
 // Each case names how many SSH sessions succeed before the server
 // starts refusing them, which is how it targets one specific call site
 // in the sequence a method makes: queryRPM (the initial read),
-// hasUpdate (upgrade's own extra read), runDnf (the write) and the
-// re-query that follows a write. budget is the count that succeeds; the
+// hasUpdate (upgrade's own extra read), requirePackage (a fresh install's
+// repoquery), runDnf (the write) and the re-query that follows a write. budget is the count that succeeds; the
 // next one is always the one that fails.
 
 func TestInstall_InitialQueryConnectionFailure(t *testing.T) {
@@ -619,7 +642,7 @@ func TestInstall_InitialQueryConnectionFailure(t *testing.T) {
 }
 
 func TestInstall_ApplyConnectionFailure(t *testing.T) {
-	h := newHarnessBudgeted(t, absent, 1) // the initial query succeeds, the install apply does not
+	h := newHarnessBudgeted(t, absent, 2) // the initial query and the repoquery succeed, the install apply does not
 	_, err := dnf.Install(context.Background(), h.rc, h.device, h.params("curl", nil))
 	if err == nil || !strings.Contains(err.Error(), "open session") {
 		t.Errorf("err = %v, want it to mention the session failing to open", err)
@@ -627,10 +650,23 @@ func TestInstall_ApplyConnectionFailure(t *testing.T) {
 }
 
 func TestInstall_RequeryConnectionFailure(t *testing.T) {
-	h := newHarnessBudgeted(t, absent, 2) // the query and the install succeed, the re-query does not
+	h := newHarnessBudgeted(t, absent, 3) // the query, the repoquery and the install succeed, the re-query does not
 	_, err := dnf.Install(context.Background(), h.rc, h.device, h.params("curl", nil))
 	if err == nil || !strings.Contains(err.Error(), "open session") {
 		t.Errorf("err = %v, want it to mention the session failing to open", err)
+	}
+}
+
+// TestInstall_RepoqueryConnectionFailure: the repoquery a fresh install
+// makes first fails the task when its session does, with nothing installed.
+func TestInstall_RepoqueryConnectionFailure(t *testing.T) {
+	h := newHarnessBudgeted(t, absent, 1) // the initial query succeeds, the repoquery does not
+	_, err := dnf.Install(context.Background(), h.rc, h.device, h.params("curl", nil))
+	if err == nil || !strings.Contains(err.Error(), "open session") {
+		t.Errorf("err = %v, want it to mention the session failing to open", err)
+	}
+	if calls := h.invocations(t); len(calls) != 0 {
+		t.Errorf("dnf changed something: %v", calls)
 	}
 }
 
@@ -667,7 +703,7 @@ func TestUpgrade_CheckUpdateConnectionFailure(t *testing.T) {
 }
 
 func TestUpgrade_FreshInstallApplyConnectionFailure(t *testing.T) {
-	h := newHarnessBudgeted(t, absent, 1) // the initial query succeeds, the fresh install does not
+	h := newHarnessBudgeted(t, absent, 2) // the initial query and the repoquery succeed, the fresh install does not
 	_, err := dnf.Upgrade(context.Background(), h.rc, h.device, h.params("curl", nil))
 	if err == nil || !strings.Contains(err.Error(), "open session") {
 		t.Errorf("err = %v, want it to mention the session failing to open", err)
@@ -675,7 +711,7 @@ func TestUpgrade_FreshInstallApplyConnectionFailure(t *testing.T) {
 }
 
 func TestUpgrade_FreshInstallRequeryConnectionFailure(t *testing.T) {
-	h := newHarnessBudgeted(t, absent, 2) // the query and the fresh install succeed, the re-query does not
+	h := newHarnessBudgeted(t, absent, 3) // the query, the repoquery and the fresh install succeed, the re-query does not
 	_, err := dnf.Upgrade(context.Background(), h.rc, h.device, h.params("curl", nil))
 	if err == nil || !strings.Contains(err.Error(), "open session") {
 		t.Errorf("err = %v, want it to mention the session failing to open", err)

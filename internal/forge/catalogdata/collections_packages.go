@@ -21,8 +21,8 @@ var packagesCollections = []collectionscaffold.Config{
 			Summary:     "Makes sure a package is present, whichever package manager the device runs.",
 			Description: "Makes sure a package is installed, without caring which package manager the device uses. This is ansible.builtin.package with state=present: it resolves the device's package manager and hands the call to that manager's concrete method, so on an APT host it runs pkg.apt.install and behaves exactly as that method does, including reporting no change when the package is already present at the requested version. Use the concrete method instead when a runbook is written for one platform and should say so.",
 			Params: []collection.Param{
-				{Name: "name", Type: "string", Required: true, Format: collection.ParamFormatOperand, Description: "The package to act on. This is passed straight through to the concrete method for the device's package manager, so it means whatever that manager means by a package name: an APT package name on a Debian-family host, an RPM package name on a Red Hat-family one."},
-				{Name: "version", Type: "string", Description: "Pin to this exact version instead of whatever the package manager considers current. Passed straight through to the concrete method; leave unset to mean \"whatever version is current.\""},
+				{Name: "name", Type: "string", Required: true, Format: collection.ParamFormatPackage, Description: "The package to act on. This is passed straight through to the concrete method for the device's package manager, so it means whatever that manager means by a package name: an APT package name on a Debian-family host, an RPM package name on a Red Hat-family one."},
+				{Name: "version", Type: "string", Format: collection.ParamFormatPackageVersion, Description: "Pin to this exact version instead of whatever the package manager considers current. Passed straight through to the concrete method; leave unset to mean \"whatever version is current.\""},
 				{Name: "insecure_skip_host_key_verify", Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
 			},
 			Returns: []collection.ReturnField{
@@ -46,8 +46,8 @@ var packagesCollections = []collectionscaffold.Config{
 			Summary:     "Makes sure a package is absent, whichever package manager the device runs.",
 			Description: "Makes sure a package is removed, without caring which package manager the device uses. This is ansible.builtin.package with state=absent: it resolves the device's package manager and hands the call to that manager's concrete method, so on an APT host it runs pkg.apt.remove and behaves exactly as that method does, including reporting no change when the package is already absent. Use the concrete method instead when a runbook is written for one platform and should say so.",
 			Params: []collection.Param{
-				{Name: "name", Type: "string", Required: true, Format: collection.ParamFormatOperand, Description: "The package to act on. This is passed straight through to the concrete method for the device's package manager, so it means whatever that manager means by a package name: an APT package name on a Debian-family host, an RPM package name on a Red Hat-family one."},
-				{Name: "version", Type: "string", Description: "Pin to this exact version instead of whatever the package manager considers current. Passed straight through to the concrete method; leave unset to mean \"whatever version is current.\""},
+				{Name: "name", Type: "string", Required: true, Format: collection.ParamFormatPackage, Description: "The package to act on. This is passed straight through to the concrete method for the device's package manager, so it means whatever that manager means by a package name: an APT package name on a Debian-family host, an RPM package name on a Red Hat-family one."},
+				{Name: "version", Type: "string", Format: collection.ParamFormatPackageVersion, Description: "Pin to this exact version instead of whatever the package manager considers current. Passed straight through to the concrete method; leave unset to mean \"whatever version is current.\""},
 				{Name: "insecure_skip_host_key_verify", Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
 			},
 			Returns: []collection.ReturnField{
@@ -71,8 +71,8 @@ var packagesCollections = []collectionscaffold.Config{
 			Summary:     "Makes sure the newest available version of a package is installed, whichever package manager the device runs.",
 			Description: "Makes sure a package is at its newest available version, without caring which package manager the device uses. This is ansible.builtin.package with state=latest for one named package, not a full-system upgrade: it resolves the device's package manager and hands the call to that manager's concrete method, so on an APT host it runs pkg.apt.upgrade and behaves exactly as that method does, including installing the package fresh when it is absent and reporting no change when it is already current. Use the concrete method instead when a runbook is written for one platform and should say so.",
 			Params: []collection.Param{
-				{Name: "name", Type: "string", Required: true, Format: collection.ParamFormatOperand, Description: "The package to act on. This is passed straight through to the concrete method for the device's package manager, so it means whatever that manager means by a package name: an APT package name on a Debian-family host, an RPM package name on a Red Hat-family one."},
-				{Name: "version", Type: "string", Description: "Pin to this exact version instead of whatever the package manager considers current. Passed straight through to the concrete method; leave unset to mean \"whatever version is current.\""},
+				{Name: "name", Type: "string", Required: true, Format: collection.ParamFormatPackage, Description: "The package to act on. This is passed straight through to the concrete method for the device's package manager, so it means whatever that manager means by a package name: an APT package name on a Debian-family host, an RPM package name on a Red Hat-family one."},
+				{Name: "version", Type: "string", Format: collection.ParamFormatPackageVersion, Description: "Pin to this exact version instead of whatever the package manager considers current. Passed straight through to the concrete method; leave unset to mean \"whatever version is current.\""},
 				{Name: "insecure_skip_host_key_verify", Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
 			},
 			Returns: []collection.ReturnField{
@@ -96,8 +96,8 @@ var packagesCollections = []collectionscaffold.Config{
 			Summary:     "Makes sure a package is installed via APT.",
 			Description: "Makes sure a package is present on a Debian-family host, installing it if it is absent. This is ansible.builtin.apt with state=present. Installed state is read from dpkg before anything is sent, so a package that is already present at the requested version (or present at any version, when none is requested) reports no change and no command reaches the device. version pins to an exact version string, the same way apt-get install name=version does; leave it unset to mean whatever apt-get would install unpinned.",
 			Params: []collection.Param{
-				{Name: "name", Type: "string", Required: true, Format: collection.ParamFormatOperand, Description: "The APT package name to install, such as curl or nginx."},
-				{Name: "version", Type: "string", Description: "Install exactly this version rather than whatever is current. A package already installed at a different version is upgraded or downgraded to match."},
+				{Name: "name", Type: "string", Required: true, Format: collection.ParamFormatAptPackage, Description: "The APT package name to install, such as curl or nginx."},
+				{Name: "version", Type: "string", Format: collection.ParamFormatPackageVersion, Description: "Install exactly this version rather than whatever is current. A package already installed at a different version is upgraded or downgraded to match."},
 				{Name: "insecure_skip_host_key_verify", Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
 			},
 			Returns: []collection.ReturnField{
@@ -122,8 +122,8 @@ var packagesCollections = []collectionscaffold.Config{
 			Summary:     "Removes a package via APT.",
 			Description: "Makes sure a package is absent from a Debian-family host, removing it if it is present. This is ansible.builtin.apt with state=absent. Installed state is read from dpkg before anything is sent, so a package that is already absent reports no change and no command reaches the device. This removes the package but does not purge it (apt-get remove, not apt-get purge), so its configuration files are left on disk; there is no separate purge parameter today.",
 			Params: []collection.Param{
-				{Name: "name", Type: "string", Required: true, Format: collection.ParamFormatOperand, Description: "The APT package name to remove."},
-				{Name: "dependencies", Type: "list", Format: collection.ParamFormatOperand, Description: "Packages installing this one pulled in, as pkg.apt.install's undo names them. Each is removed with the package only while it is still installed, APT would remove it as no longer needed, and removing them takes nothing else with them; any other is kept and named in a warning."},
+				{Name: "name", Type: "string", Required: true, Format: collection.ParamFormatAptPackage, Description: "The APT package name to remove."},
+				{Name: "dependencies", Type: "list", Format: collection.ParamFormatAptPackage, Description: "Packages installing this one pulled in, as pkg.apt.install's undo names them. Each is removed with the package only while it is still installed, APT would remove it as no longer needed, and removing them takes nothing else with them; any other is kept and named in a warning."},
 				{Name: "insecure_skip_host_key_verify", Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
 			},
 			Returns: []collection.ReturnField{
@@ -148,7 +148,7 @@ var packagesCollections = []collectionscaffold.Config{
 			Summary:     "Makes sure a package is at its newest available version via APT.",
 			Description: "Makes sure one named package is at the newest version APT knows about, upgrading it if a newer one is available. This is ansible.builtin.apt with state=latest for a single package, not apt-get upgrade or apt-get dist-upgrade: it never touches any package other than the one named. A package that is absent is installed fresh, since there is no \"current\" version to upgrade from. A package that is already at the newest candidate version reports no change and no command reaches the device.",
 			Params: []collection.Param{
-				{Name: "name", Type: "string", Required: true, Format: collection.ParamFormatOperand, Description: "The APT package to keep current."},
+				{Name: "name", Type: "string", Required: true, Format: collection.ParamFormatAptPackage, Description: "The APT package to keep current."},
 				{Name: "insecure_skip_host_key_verify", Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
 			},
 			Returns: []collection.ReturnField{
@@ -172,8 +172,8 @@ var packagesCollections = []collectionscaffold.Config{
 			Summary:     "Makes sure a package is installed via DNF.",
 			Description: "Makes sure a package is present on a Red Hat-family host, installing it if it is absent. This is ansible.builtin.dnf with state=present. Installed state is read from rpm before anything is sent, so a package that is already present at the requested version (or present at any version, when none is requested) reports no change and no command reaches the device. version pins to an exact version-release string, appended to the package name the way dnf's own name-version syntax expects (name-version, e.g. nginx-1.24.0); leave it unset to mean whatever dnf would install unpinned.",
 			Params: []collection.Param{
-				{Name: "name", Type: "string", Required: true, Format: collection.ParamFormatOperand, Description: "The RPM package name to install, such as curl or nginx."},
-				{Name: "version", Type: "string", Description: "Install exactly this version-release rather than whatever is current. A package already installed at a different version is upgraded or downgraded to match."},
+				{Name: "name", Type: "string", Required: true, Format: collection.ParamFormatRPMPackage, Description: "The RPM package name to install, such as curl or nginx."},
+				{Name: "version", Type: "string", Format: collection.ParamFormatPackageVersion, Description: "Install exactly this version-release rather than whatever is current. A package already installed at a different version is upgraded or downgraded to match."},
 				{Name: "insecure_skip_host_key_verify", Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
 			},
 			Returns: []collection.ReturnField{
@@ -198,7 +198,7 @@ var packagesCollections = []collectionscaffold.Config{
 			Summary:     "Removes a package via DNF.",
 			Description: "Makes sure a package is absent from a Red Hat-family host, removing it if it is present. This is ansible.builtin.dnf with state=absent. Installed state is read from rpm before anything is sent, so a package that is already absent reports no change and no command reaches the device.",
 			Params: []collection.Param{
-				{Name: "name", Type: "string", Required: true, Format: collection.ParamFormatOperand, Description: "The RPM package name to remove."},
+				{Name: "name", Type: "string", Required: true, Format: collection.ParamFormatRPMPackage, Description: "The RPM package name to remove."},
 				{Name: "insecure_skip_host_key_verify", Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
 			},
 			Returns: []collection.ReturnField{
@@ -222,7 +222,7 @@ var packagesCollections = []collectionscaffold.Config{
 			Summary:     "Makes sure a package is at its newest available version via DNF.",
 			Description: "Makes sure one named package is at the newest version DNF knows about, upgrading it if a newer build is available. This is ansible.builtin.dnf with state=latest for a single package, not a full-system dnf upgrade: it never touches any package other than the one named. A package that is absent is installed fresh, since there is no \"current\" version to upgrade from. A package that is already at the newest available build reports no change and no command reaches the device.",
 			Params: []collection.Param{
-				{Name: "name", Type: "string", Required: true, Format: collection.ParamFormatOperand, Description: "The RPM package to keep current."},
+				{Name: "name", Type: "string", Required: true, Format: collection.ParamFormatRPMPackage, Description: "The RPM package to keep current."},
 				{Name: "insecure_skip_host_key_verify", Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
 			},
 			Returns: []collection.ReturnField{
