@@ -2,6 +2,7 @@
 package sqllint_test
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -221,6 +222,46 @@ func TestParseDirectives(t *testing.T) {
 	} {
 		if _, err := sqllint.ParseDirectives(src); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("ParseDirectives(%q) = %v, want %q", src, err, want)
+		}
+	}
+}
+
+// TestParseDirectives_ARepeatIsRefusedNamingBothLines: a directive stated
+// twice is refused, naming it and both lines, whatever its spacing, its
+// line ends and what lies between, and whether or not the two agree; a
+// second destructive never replaces the first's reason. Each directive
+// stated once, a plain comment repeated, and a copy inside a string or a
+// /* */ comment are still read as before.
+func TestParseDirectives_ARepeatIsRefusedNamingBothLines(t *testing.T) {
+	for src, want := range map[string]sqllint.Directives{
+		"-- pleiades: destructive: drops a stale index\n-- pleiades: no-transaction\nDROP INDEX CONCURRENTLY i;\n": {NoTransaction: true, Destructive: "drops a stale index"},
+		"-- note\n-- note\n-- pleiades: no-transaction\nVACUUM;\n":                                                 {NoTransaction: true},
+		"/*\n-- pleiades: no-transaction\n*/\n-- pleiades: no-transaction\nVACUUM;\n":                              {NoTransaction: true},
+		"-- pleiades: no-transaction\nSELECT '\n-- pleiades: no-transaction\n';\n":                                 {NoTransaction: true},
+		"-- pleiades: destructive: see ticket: 42\r\nDROP TABLE t;\r\n":                                            {Destructive: "see ticket: 42"},
+	} {
+		if got, err := sqllint.ParseDirectives(src); err != nil || got != want {
+			t.Errorf("ParseDirectives(%q) = %+v, %v; want %+v", src, got, err, want)
+		}
+	}
+	for _, tc := range []struct {
+		src         string
+		name        string
+		line, first int
+	}{
+		{"-- pleiades: no-transaction\n-- pleiades: no-transaction\nVACUUM;\n", "no-transaction", 2, 1},
+		{"-- pleiades: destructive: x\n-- a note\n-- pleiades: destructive: x\nDROP TABLE t;\n", "destructive", 3, 1},
+		{"-- pleiades: destructive: the column is unused\n-- pleiades: no-transaction\n\n-- pleiades: destructive: it is fine\nDROP TABLE t;\n", "destructive", 4, 1},
+		{"-- pleiades:no-transaction\n-- pleiades:   no-transaction   \nVACUUM;\n", "no-transaction", 2, 1},
+		{"-- pleiades: destructive: a\r\n-- pleiades: destructive: b\r\nDROP TABLE t;\r\n", "destructive", 2, 1},
+		{"\n-- pleiades: no-transaction\n" + strings.Repeat("-- note\n", 8) + "-- pleiades: no-transaction\nVACUUM;\n", "no-transaction", 11, 2},
+		{strings.Repeat("-- pleiades: no-transaction\n", 3) + "VACUUM;\n", "no-transaction", 2, 1},
+		{"/* licence */ -- pleiades: destructive: a\n/* x */\n-- pleiades: destructive: b\nDROP TABLE t;\n", "destructive", 3, 1},
+	} {
+		d, err := sqllint.ParseDirectives(tc.src)
+		want := fmt.Sprintf("line %d: %s is stated again, first on line %d", tc.line, tc.name, tc.first)
+		if err == nil || !strings.HasPrefix(err.Error(), want) || d != (sqllint.Directives{}) {
+			t.Errorf("ParseDirectives(%q) = %+v, %v; want nothing read and %q", tc.src, d, err, want)
 		}
 	}
 }
