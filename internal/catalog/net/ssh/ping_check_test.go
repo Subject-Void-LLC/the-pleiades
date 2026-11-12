@@ -3,6 +3,7 @@ package ssh_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport/need"
@@ -11,17 +12,19 @@ import (
 )
 
 // TestPingCheck_OnlyEchoes runs net.ssh.ping's registered Check against
-// the SSH harness, which records every command: the check sends exactly
-// one command, an echo, even when the data it echoes is written to look
-// like a second command or a redirect, and it answers exactly as a real
-// run does, with no change.
+// the SSH harness, which records every command and runs each through a real
+// sh: the check sends exactly one command, a printf of the data, even when
+// the data is written to look like a second command, a redirect, an option
+// echo would read (-n printed nothing) or an escape dash's echo would turn
+// into a line break, and it answers exactly as a real run does, with no
+// change and the data back whole (FAILURE_PATTERNS 1174).
 func TestPingCheck_OnlyEchoes(t *testing.T) {
 	need.POSIXShell(t)
 	d, ok := collection.Lookup("net.ssh.ping")
 	if !ok || !d.Manifest.SupportsCheck || d.Check == nil {
 		t.Fatalf("net.ssh.ping does not declare a check: %+v", d.Manifest)
 	}
-	for _, data := range []string{"", "hello", "x > /tmp/pwned; touch /tmp/pwned"} {
+	for _, data := range []string{"", "hello", "x > /tmp/pwned; touch /tmp/pwned", "-n", "-e", "--", `a\nb`} {
 		srv, err := remoteexectest.Start(remoteexectest.Options{})
 		if err != nil {
 			t.Fatal(err)
@@ -38,8 +41,8 @@ func TestPingCheck_OnlyEchoes(t *testing.T) {
 		}
 		commands := srv.Commands()
 		srv.Close()
-		if len(commands) != 1 || len(commands[0]) < 5 || commands[0][:5] != "echo " {
-			t.Errorf("data %q: the check sent %q, want one echo", data, commands)
+		if len(commands) != 1 || !strings.HasPrefix(commands[0], `printf '%s\n' `) {
+			t.Errorf("data %q: the check sent %q, want one printf", data, commands)
 		}
 		want := data
 		if want == "" {

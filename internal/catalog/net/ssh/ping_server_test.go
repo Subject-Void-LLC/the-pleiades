@@ -163,6 +163,8 @@ func serveSession(channel cryptossh.Channel, requests <-chan *cryptossh.Request,
 		}
 		if arg, ok := strings.CutPrefix(command, "echo "); ok {
 			_, _ = channel.Write([]byte(mark + unquotePOSIX(arg) + "\n"))
+		} else if arg, ok := strings.CutPrefix(command, `printf '%s\n' `); ok {
+			_, _ = channel.Write([]byte(mark + unquotePOSIX(arg) + "\n"))
 		}
 		_, _ = channel.SendRequest("exit-status", false,
 			cryptossh.Marshal(struct{ Status uint32 }{exitStatus}))
