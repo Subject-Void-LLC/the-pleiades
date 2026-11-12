@@ -4,31 +4,28 @@ Rewrite the "Current Status" section when stopping mid-task or handing off, per 
 
 ## Current Status (this session)
 
-**2026-11-12. Branch `test/129cd-fuzz-and-device-undo`, from `main` at `321acf71` (#159 merged). Closes Phases 129c and
-129d, the first of the owner's v0.3.0 backlog (finish every incomplete v0.3.0 phase, then v0.4.0). Next: pr-check, push,
-branch-containers, PR, merge when green (authorized today only).**
+**2026-11-12. Branch `test/117a-servicenow-real-instance`, rebased on `main` at `697aa8d1` (#160 merged). The ServiceNow
+half of Phase 117a's open item, proven on the owner's real instance, plus live-test settings for Catalyst Center, an
+APIC and an SD-WAN Manager. Next: pr-check, push, branch-containers, PR, merge when green (authorized today only).
+Two code-writing agents are working in worktrees: Phase 127c (`test/127c-importer-fuzz-and-failures`) and Phase 42
+(`feat/42-oci-archtest-and-reproducible-build`); review, record and gate each after this PR, one at a time.**
 
 ### What works
 
-- `FuzzReadParams` (batfish), `FuzzExpandAliases` and `FuzzDeviceRoot` (engine), each mutation-checked; the first found
-  FAILURE_PATTERNS 1180 (batfish assertion refusals named the method not at all, or twice), fixed with
-  `TestReadParams_NamesTheMethodOnce`.
-- Records only (no PR needed): the 23 attestation problems are 0: Phase 129 excepted under five controls in
-  SECURITY_ATTESTATION.md (an umbrella, its code is in 129a-d), 129a-d gate items written from verified evidence, 119c's
-  two items cite checkable tests. A stale "no test yet" note in 129d was corrected (one already ran).
+- `TestServiceNowRunbookReleaseGate` passes on ServiceNo! and on the owner's PDI (dedicated account) after
+  FAILURE_PATTERNS 1181: ServiceNo! now computes priority from impact and urgency with the lookup measured there.
+- `tests/e2e`'s live Catalyst Center tests pass against the owner's endpoint; the controller is found by the endpoint's
+  host, not a hard-coded sandbox name. SD-WAN Manager login works through a probe (its sandbox certificate expired
+  2026-09-27 and is pinned in the example). The APIC sandbox does not answer TCP 443 (owner: it can wait).
+- Test settings: `tests/{servicenow,catalyst-center,aci-simulator,cisco-sdwan}/.env.example`, each `.env` gitignored
+  and chmod 600. ServiceNow, ACI and SD-WAN code belongs in external Collections (owner, 2026-11-12).
 
 ### Open
 
-- The v0.3.0 backlog after this: 42 (3; Fable drafts in `.IGNORE/claude-api/out/stubs1/`), 88 (1), 127d (1), 117a (1,
-  needs a ServiceNow instance and the IOS lab), 127c (3, a GNS3 stub there), 131 (5), 87 (6), 122a (7), 127a (11, grants
-  and data-capability stubs there), 127b (13), 112 (22, vboxmanage/cloudinit/bsdinstall/winunattend stubs there). The
-  stubs were written by Fable through the API on 2026-11-11 and are unproven: verify each before use.
-- Watch in CI: `cmd/controller`'s `TestControllerLeaderElection_ReleaseGate`. From earlier: 1085, 1139, 1143, 1146.
-
-### Files changed this session
-
-`internal/catalog/net/batfish/{params.go,assertions.go,params_fuzz_internal_test.go}`,
-`internal/engine/{yaml_aliases_fuzz_internal_test.go,device_root_fuzz_internal_test.go}`,
-`changelog/batfish-refusals-name-the-method.fixed.md`, `FAILURE_PATTERNS*.md` (1180), `HANDOFF_*.md`.
+- 117a's IOS XE half needs a real IOS XE device: the DevNet always-on Catalyst 8000 (PLEIADES_E2E_IOS_USER/PASS) or a
+  fresh CML reservation (tests/cml/.env is from 2026-10-27). Asked the owner.
+- The rest of the v0.3.0 backlog: 42 and 127c (agents), 88 (1), 127d (1), 131 (5), 87 (6), 122a (7), 127a (11), 127b
+  (13), 112 (22). Fable drafts in `.IGNORE/claude-api/out/stubs1/` are unproven.
+- `feat/release-tag-only`'s worktree was removed (clean, branch kept) to make room for the agents.
 
 Lab: no change.

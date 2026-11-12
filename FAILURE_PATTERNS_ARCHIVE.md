@@ -29217,6 +29217,7 @@ old code three ways; `FuzzReadParams` holds every refusal to naming the method e
 
 **Lesson.** A reader called from two places should leave naming to its callers, all the way down: one helper that names
 the method itself, beneath a function that does not, gives one caller none and the other two.
+
 ## 1181. ServiceNo! kept an incident's priority as sent, so the ServiceNow gate passed on the mock and skipped its write on a real instance (a repeat of 740) (fixed before push)
 
 **Symptom.** `TestServiceNowRunbookReleaseGate` passed against ServiceNo!, the repository's Table API mock, and failed against
