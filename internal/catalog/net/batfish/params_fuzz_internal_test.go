@@ -5,6 +5,7 @@ package batfish
 
 import (
 	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -12,6 +13,9 @@ import (
 
 	bf "github.com/Subject-Void-LLC/the-pleiades/pkg/batfish"
 )
+
+// quoted is a Go-quoted string, as a refusal's %q echoes the input.
+var quoted = regexp.MustCompile(`"(?:[^"\\]|\\.)*"`)
 
 func FuzzReadParams(f *testing.F) {
 	for _, seed := range []string{
@@ -23,6 +27,7 @@ func FuzzReadParams(f *testing.F) {
 		"devices: [{name: r1, config: x}]\nassertions: [{question: {name: routes, where: {Node: r1}, min_rows: 1, max_rows: 3}}]\nexpect_devices: [r1, sw1]\nnetwork: lab-1\n",
 		"devices: [{name: ../r1, config: x}]\nassertions: [{ospf_established: true}]\n",
 		"devices: [{name: r1, config: x}, {name: R1, config: y}]\nassertions: [{ospf_established: true}]\n",
+		"devices: [{name: r1, config: x}]\nassertions: [{ospf_established: true}]\n'net.batfish.check: x': 1\n",
 	} {
 		f.Add(seed)
 	}
@@ -38,7 +43,10 @@ func FuzzReadParams(f *testing.F) {
 			t.Fatalf("readParams read the same parameters two ways: %v and %v", err, errAgain)
 		}
 		if err != nil {
-			if !strings.HasPrefix(err.Error(), checkFQCN+": ") || strings.Count(err.Error(), checkFQCN+": ") != 1 {
+			// The method's name opens the refusal and appears nowhere else but
+			// inside a quoted echo of the input, which may hold anything.
+			msg := err.Error()
+			if !strings.HasPrefix(msg, checkFQCN+": ") || strings.Contains(quoted.ReplaceAllString(strings.TrimPrefix(msg, checkFQCN+": "), `""`), checkFQCN) {
 				t.Fatalf("a refusal does not name the method once: %v", err)
 			}
 			return
