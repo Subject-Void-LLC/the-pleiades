@@ -996,8 +996,10 @@ func main() {
 }
 ```
 
-- **The name** is `<namespace>.<name>`, in a namespace the program's own methods use. A
-  name another program or a built-in capability holds is refused when the directory loads.
+- **The name** is `<namespace>.<name>`, in a namespace the program's own methods use and
+  no other program's methods use. A name another program or a built-in capability holds
+  is refused when the directory loads, and so is a capability in a namespace two programs
+  share. A program defines at most 64 capabilities.
 - **`Requires`** names the compiled capabilities a device must also hold. A grant on a
   device without them grants nothing.
 - **`Properties`** are what a grant carries and the program's methods read, through
@@ -1008,15 +1010,22 @@ func main() {
   `pleiades onboard` runs it against the device, under the program's approval and
   confinement and with the device's credential. When it sets the stat `granted` to
   `true`, the capability is granted with the properties it sets under `properties`. A
-  probe may not require the capability it decides.
+  probe may not require the capability it decides, and it runs under `onboard`'s
+  `--timeout` (30 seconds by default): a probe still running then is stopped and grants
+  nothing.
+- **`Revision`** is a whole number the author bumps when the definition changes what it
+  means but nothing else below would show it, such as a probe fixed to stop granting
+  devices it should not. Bumping it withdraws every grant made before.
 
 A device holds a grant in one reserved property, `granted`, which no other write path
-(`add-host --set`, `set-host`, an inventory sync) can change. Each grant says how it was
-made:
+(`add-host --set`, `set-host`, an inventory sync, a classification rule) can change. A
+data capability is held only through a grant: one named among a device's capabilities in
+any other way counts for nothing. Each grant says how it was made:
 
 - **A probe's grant** is bound to the properties the device's type binds, as a discovery
   is. A device repointed after its probe (a new `host` or `base_url`) holds nothing until
-  it is onboarded again.
+  it is onboarded again. It also records the digest of the program build whose probe made
+  it.
 - **An assertion** is a person saying so, with a reason:
   `pleiades grant-capability <device> <capability> --set model=x9 --reason "<why>"`, and
   `pleiades revoke-capability`. On the Controller these are `POST` and
@@ -1024,6 +1033,42 @@ made:
   `inventory:read`, since both answer with the device's grants),
   which only `admin` holds and `inventory:write` does not imply. A built-in capability
   cannot be asserted: only onboarding grants one.
+
+No grant property may hold a secret, by name or by shape (a private key, a token, a URL
+carrying a password): grants travel with every dispatch of the device.
+
+#### What a grant is bound to
+
+Every grant, probed or asserted, is bound to the definition it was made against: it
+carries the definition's digest, a SHA-256 over the name, the program's file name, the
+revision, the requirements and each property's name, type and whether it is required. The
+prose (`Doc`, each property's `Description`) and the probe are not in it, and order never
+matters. A grant counts only while the definition the loaded program holds digests the
+same, so:
+
+- **A new build with the same definition** keeps every grant. A program built for macOS
+  and for Linux from one source has two different SHA-256 digests and one definition
+  digest, so a grant probed from a Mac holds on a Linux Runner.
+- **A change of prose** keeps every grant.
+- **A new property, a changed type or requirement, or a bumped `Revision`** withdraws
+  every grant. `pleiades validate` and the run that needs the capability say which
+  capability, which program and what to do (`pleiades onboard <device>` again, or the
+  assertion again).
+- **The program removed, or its approval revoked**, leaves its grants defining nothing:
+  they grant nothing, and `pleiades validate` warns about each on a device the runbook
+  reaches.
+
+`pleiades doc <capability>` prints the digest and the revision. A client asserting a grant
+through the Controller's API sends that digest as `definition`, since the Controller loads
+no program to compute it from; it checks the digest's shape, and a Runner holds the grant
+to the definition it loaded. A grant written before grants carried a digest (by 0.3.0)
+still counts on the 0.3 line and grants nothing from 0.4.0: onboard the device again, or
+assert it again.
+
+When a program build turns out to be bad, take back everything its probe granted, on
+every device, by its digest (the one `pleiades collection list` shows):
+`pleiades revoke-capability --build sha256:<hex>`. Grants other builds probed, and every
+assertion, stay.
 
 A Runner loads the program, so it checks each grant against the definition before a method
 runs. The Controller loads no program: it ships the grants with each dispatch, and checks

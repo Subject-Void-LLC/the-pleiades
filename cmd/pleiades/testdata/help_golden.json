@@ -377,12 +377,12 @@
   "revoke-capability --help": {
     "code": 0,
     "stdout": "",
-    "stderr": "usage: pleiades revoke-capability \u003cdevice\u003e \u003ccapability\u003e\n"
+    "stderr": "usage: pleiades revoke-capability \u003cdevice\u003e \u003ccapability\u003e, or pleiades revoke-capability --build \u003cdigest\u003e\n"
   },
   "revoke-capability -h": {
     "code": 0,
     "stdout": "",
-    "stderr": "usage: pleiades revoke-capability \u003cdevice\u003e \u003ccapability\u003e\n"
+    "stderr": "usage: pleiades revoke-capability \u003cdevice\u003e \u003ccapability\u003e, or pleiades revoke-capability --build \u003cdigest\u003e\n"
   },
   "rollback --help": {
     "code": 0,

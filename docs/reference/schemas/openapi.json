@@ -6355,7 +6355,7 @@
     },
     "/inventory/devices/{name}/capabilities": {
       "post": {
-        "description": "Records an operator's assertion that a device holds a capability an external program defines (<namespace>.<name>), with the grant's properties and a required reason, as a revision naming who made it. The Controller loads no program, so it checks the grant's shape here (the name, the reason, and properties that are bounded strings, bools or whole numbers) and a Runner holds it to the capability's definition before a method requiring it runs, refusing a grant that does not fit. A compiled capability is refused: only onboarding grants one. It needs inventory:assert, which no role but admin holds.",
+        "description": "Records an operator's assertion that a device holds a capability an external program defines (<namespace>.<name>), with the grant's properties, a required reason, and the digest of the definition it was held to (definition, as `pleiades doc <capability>` prints it), as a revision naming who made it. The Controller loads no program, so it checks the grant's shape here (the name, the reason, the digest's form, and properties that are bounded strings, bools or whole numbers, none named or shaped like a secret) and a Runner holds it to the capability's definition before a method requiring it runs, refusing a grant that does not fit or whose digest is not the definition's it loaded. A compiled capability is refused: only onboarding grants one. It needs inventory:assert, which no role but admin holds.",
         "operationId": "grant_capability",
         "parameters": [
           {
@@ -6376,6 +6376,11 @@
                   "capability": {
                     "type": "string"
                   },
+                  "definition": {
+                    "description": "The digest of the capability's definition, as `pleiades doc <capability>` prints it.",
+                    "pattern": "^sha256:[0-9a-f]{64}$",
+                    "type": "string"
+                  },
                   "properties": {
                     "type": "object"
                   },
@@ -6385,7 +6390,8 @@
                 },
                 "required": [
                   "capability",
-                  "reason"
+                  "reason",
+                  "definition"
                 ],
                 "type": "object"
               }
@@ -6409,12 +6415,20 @@
                             "format": "date-time",
                             "type": "string"
                           },
+                          "build": {
+                            "description": "For a probed grant, the digest of the program build whose probe made it: provenance, which never decides whether the grant counts.",
+                            "type": "string"
+                          },
                           "by": {
                             "description": "Who asserted an asserted grant.",
                             "type": "string"
                           },
                           "capability": {
                             "description": "The data capability, <namespace>.<name>.",
+                            "type": "string"
+                          },
+                          "definition": {
+                            "description": "The digest of the capability's definition the grant was made against, sha256:<hex>. A grant counts only while the definition a Runner loads digests the same; absent on a grant made before grants carried one.",
                             "type": "string"
                           },
                           "program": {
@@ -6507,7 +6521,7 @@
                 }
               }
             },
-            "description": "The capability is compiled into The Pleiades or not a data capability's name, the reason is missing, or a property is malformed."
+            "description": "The capability is compiled into The Pleiades or not a data capability's name, the reason is missing, the definition digest is missing or malformed, or a property is malformed or holds a secret."
           }
         },
         "security": [
@@ -6562,12 +6576,20 @@
                             "format": "date-time",
                             "type": "string"
                           },
+                          "build": {
+                            "description": "For a probed grant, the digest of the program build whose probe made it: provenance, which never decides whether the grant counts.",
+                            "type": "string"
+                          },
                           "by": {
                             "description": "Who asserted an asserted grant.",
                             "type": "string"
                           },
                           "capability": {
                             "description": "The data capability, <namespace>.<name>.",
+                            "type": "string"
+                          },
+                          "definition": {
+                            "description": "The digest of the capability's definition the grant was made against, sha256:<hex>. A grant counts only while the definition a Runner loads digests the same; absent on a grant made before grants carried one.",
                             "type": "string"
                           },
                           "program": {

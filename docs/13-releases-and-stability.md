@@ -401,7 +401,29 @@ list`.
   that speaks no version it does rather than guessing.
 - **What every version refuses.** A program declaring a fact a built-in method holds,
   or one inside a built-in family, is refused at load (0.4.0 on): such a fact would
-  steer targeting and baselines.
+  steer targeting and baselines. So, from 0.4.0, is a program defining more than 64
+  capabilities, or a capability in a namespace another loaded program's methods also
+  use. A capability definition's optional `revision` (0.4.0) is a field inside version
+  1: an earlier release ignores it.
+
+### Grants of a program's capabilities
+
+A device's grants of the capabilities programs define live in its reserved `granted`
+property, in the inventory and on every dispatch.
+
+- **From 0.4.0 every grant is bound to its definition.** A new grant carries the
+  digest of the definition it was made against (`definition`), and a probed one the
+  digest of the build that probed it (`build`), which is provenance only. A grant counts
+  only while the loaded definition digests the same; a new build of the same definition,
+  on any platform, keeps it.
+- **A grant 0.3.0 wrote carries no digest.** It still counts on the 0.3 line (where
+  the rule below ships in a 0.3.x release, with a warning naming the device and the
+  capability). 0.4.0 and later grant nothing from it and say why, until the device is
+  onboarded again or the assertion made again.
+- **Mixed versions.** A Runner older than 0.4.0 ignores both digests and counts a grant
+  as 0.3.0 did. A 0.4.0 Runner refuses a grant a 0.3.0 Controller stored, as above.
+- **The API.** `POST /inventory/devices/{name}/capabilities` requires `definition` from
+  0.4.0, a break the changelog names.
 - **What is not covered.** The Go API of `pkg/` itself (the packages an external
   Collection imports) is not yet under a compatibility promise. Until the first
   release, rebuild an external Collection against the release you run.

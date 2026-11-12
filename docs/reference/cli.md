@@ -80,15 +80,18 @@ assert that a device holds a capability an external program defines, with a reas
 
 ## pleiades revoke-capability
 
-take back a device's grant of a capability an external program defines
+take back a device's grant of a capability an external program defines, or every grant one program build probed
 
-`pleiades revoke-capability <device> <capability> [flags]`
+`pleiades revoke-capability <device> <capability> | --build <digest> [flags]`
 
 | Flag | Type | Default | Description |
 | --- | --- | --- | --- |
 | --dir | `string` | `.` | project directory |
+| --build | `string` | - | revoke, on every device, each grant the program build with this digest (sha256:<hex>) probed, keeping every other build's grants and every assertion |
 
 `pleiades revoke-capability tenancy oci.tenancy_api`
+
+`pleiades revoke-capability --build sha256:4f2a...`
 
 ## pleiades trust-host
 
