@@ -213,10 +213,12 @@ func Stat(ctx context.Context, conn *remoteexec.Conn, path string) (Info, error)
 	return info, nil
 }
 
-// operand is path as an argument to stat or readlink: a relative path
-// starting with a dash gets ./ before it, which names the same file and
-// can never be read as an option. Not every stat and readlink takes --
-// alike (BSD's differ from GNU's), and ./ needs none of them to.
+// operand is path as an argument to stat, readlink, sha256sum, shasum or
+// cat, or as the start of mktemp's template: a relative path starting with
+// a dash gets ./ before it, which names the same file and can never be read
+// as an option. Not every stat and readlink takes -- alike (BSD's differ
+// from GNU's), and ./ needs none of them to. A command whose operand is not
+// a path (chown's owner, ln's target) takes "--" instead.
 func operand(path string) string {
 	if strings.HasPrefix(path, "-") {
 		return "./" + path

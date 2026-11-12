@@ -26,7 +26,9 @@ import (
 // network to answer a question a 64-character answer settles, and for a
 // large file that is the difference between a fast task and a slow one.
 func Checksum(ctx context.Context, conn *remoteexec.Conn, filePath string) (string, bool, error) {
-	quoted := remoteexec.QuoteArg(filePath)
+	// operand turns a relative path starting with a dash into ./path, so
+	// neither sha256sum nor shasum reads it as an option.
+	quoted := remoteexec.QuoteArg(operand(filePath))
 
 	// sha256sum is coreutils and BusyBox; shasum -a 256 is the BSD and
 	// macOS spelling. cut takes the hash off the front of either, since
@@ -85,17 +87,21 @@ func ChecksumOf(content []byte) string {
 // combines all three, a rendered configuration file holding a secret.
 func Write(ctx context.Context, conn *remoteexec.Conn, filePath string, content []byte) error {
 	dir := path.Dir(filePath)
-	quotedDir := remoteexec.QuoteArg(dir)
+	// The template mktemp takes is one word that starts with the
+	// directory, so a relative directory starting with a dash is given as
+	// ./dir (operand) rather than read as an option.
+	quotedDir := remoteexec.QuoteArg(operand(dir))
 	quotedPath := remoteexec.QuoteArg(filePath)
 
 	// One shell command so the temporary cannot be orphaned by a
 	// connection dropped between two of them. The trap removes it on any
-	// exit path that is not the successful rename.
+	// exit path that is not the successful rename. The "--" before mv's
+	// operands keeps a path starting with a dash a path.
 	cmd := "set -e; " +
 		"tmp=$(mktemp " + quotedDir + "/.pleiades.XXXXXX); " +
 		"trap 'rm -f \"$tmp\"' EXIT; " +
 		"cat > \"$tmp\"; " +
-		"mv -f \"$tmp\" " + quotedPath + "; " +
+		"mv -f -- \"$tmp\" " + quotedPath + "; " +
 		"trap - EXIT"
 
 	result, err := conn.RunWithStdin(ctx, cmd, strings.NewReader(string(content)))
@@ -114,7 +120,10 @@ func Write(ctx context.Context, conn *remoteexec.Conn, filePath string, content 
 // so a caller reading a file it may be about to create does not have to
 // tell "empty" from "missing" by inspecting an error string.
 func Read(ctx context.Context, conn *remoteexec.Conn, filePath string) (string, bool, error) {
-	quoted := remoteexec.QuoteArg(filePath)
+	// A relative path starting with a dash reaches cat as ./path, so cat
+	// reads that file rather than taking the word as an option and
+	// printing its standard input, which is empty, as the file's content.
+	quoted := remoteexec.QuoteArg(operand(filePath))
 	cmd := "if [ -f " + quoted + " ]; then cat " + quoted + "; else exit " + fmt.Sprint(statusMissing) + "; fi"
 
 	result, err := conn.Run(ctx, cmd)
@@ -196,7 +205,9 @@ func Apply(ctx context.Context, conn *remoteexec.Conn, filePath string, want Att
 	// The run has already changed something, so the extra chmod never
 	// turns a converged run into a changed one.
 	if want.Mode != "" && (modeDiffers(want, before) || (ownershipChanged && ownershipChangeClearsMode(before, want.Mode))) {
-		if err := run(ctx, conn, "chmod "+remoteexec.QuoteArg(chmodArgument(want.Mode))+" "+quoted, "chmod "+filePath); err != nil {
+		// "--" first, as for chown below: GNU, BSD, BusyBox and toybox chmod
+		// all end their options there, so neither word after it is one.
+		if err := run(ctx, conn, "chmod -- "+remoteexec.QuoteArg(chmodArgument(want.Mode))+" "+quoted, "chmod "+filePath); err != nil {
 			return changed, err
 		}
 		changed = true
@@ -213,14 +224,24 @@ func Apply(ctx context.Context, conn *remoteexec.Conn, filePath string, want Att
 // colon form is POSIX. Only the owner named is a plain chown, and only the
 // group is chgrp. The caller has already decided a change is needed, so
 // want names at least one of them.
+//
+// Each command ends its options with "--" before the owner or group.
+// Quoting makes the name one word, but without "--" chown still read a
+// word starting with a dash as an option: GNU chown took owner
+// --reference=/etc/shadow as "give the file /etc/shadow's owner and
+// group", exited 0 and left it root:shadow (measured on Debian 13,
+// FAILURE_PATTERNS 1174). After "--" the word can only be a name, which
+// chown refuses when no account has it. The file methods
+// refuse such a name before they connect as well (pkg/operand); this is
+// what holds for any other caller of Apply.
 func ownershipCommand(want Attributes, quotedPath, filePath string) (cmd, what string) {
 	switch {
 	case want.Owner != "" && want.Group != "":
-		return "chown " + remoteexec.QuoteArg(want.Owner+":"+want.Group) + " " + quotedPath, "chown " + filePath
+		return "chown -- " + remoteexec.QuoteArg(want.Owner+":"+want.Group) + " " + quotedPath, "chown " + filePath
 	case want.Owner != "":
-		return "chown " + remoteexec.QuoteArg(want.Owner) + " " + quotedPath, "chown " + filePath
+		return "chown -- " + remoteexec.QuoteArg(want.Owner) + " " + quotedPath, "chown " + filePath
 	default:
-		return "chgrp " + remoteexec.QuoteArg(want.Group) + " " + quotedPath, "chgrp " + filePath
+		return "chgrp -- " + remoteexec.QuoteArg(want.Group) + " " + quotedPath, "chgrp " + filePath
 	}
 }
 
@@ -236,7 +257,8 @@ func Remove(ctx context.Context, conn *remoteexec.Conn, filePath string, recursi
 	if recursive {
 		flags = "-rf"
 	}
-	return run(ctx, conn, "rm "+flags+" "+remoteexec.QuoteArg(filePath), "remove "+filePath)
+	// "--" keeps a relative path starting with a dash a path.
+	return run(ctx, conn, "rm "+flags+" -- "+remoteexec.QuoteArg(filePath), "remove "+filePath)
 }
 
 // MakeDirectory creates the directory, and its parents when parents is
@@ -248,7 +270,8 @@ func MakeDirectory(ctx context.Context, conn *remoteexec.Conn, dir string, paren
 	if parents {
 		cmd += "-p "
 	}
-	return run(ctx, conn, cmd+remoteexec.QuoteArg(dir), "create directory "+dir)
+	// "--" keeps a relative path starting with a dash a path.
+	return run(ctx, conn, cmd+"-- "+remoteexec.QuoteArg(dir), "create directory "+dir)
 }
 
 // Symlink creates or replaces a symbolic link at linkPath pointing at
@@ -259,15 +282,26 @@ func MakeDirectory(ctx context.Context, conn *remoteexec.Conn, dir string, paren
 // INSIDE that directory rather than replacing the link, so the task
 // reports success and the link still points where it did. With -n the
 // existing link is treated as the thing being replaced.
+//
+// "--" before the operands matters as much. A link's target is any text,
+// and one starting with a dash is a real (if odd) target, so it cannot be
+// refused; without "--", GNU ln read target -t/etc as "make the links in
+// /etc" and, with -f, replaced /etc/<base of linkPath> with a link,
+// whatever file was there, while the caller had checked only linkPath
+// (measured on Debian 13, FAILURE_PATTERNS 1174). After "--" it is the
+// target it says it is. The target is not given as ./target, as a path
+// is elsewhere here, because the target is stored in the link as written
+// and a link to ./x is not the link to x a task asked for.
 func Symlink(ctx context.Context, conn *remoteexec.Conn, target, linkPath string) error {
-	cmd := "ln -sfn " + remoteexec.QuoteArg(target) + " " + remoteexec.QuoteArg(linkPath)
+	cmd := "ln -sfn -- " + remoteexec.QuoteArg(target) + " " + remoteexec.QuoteArg(linkPath)
 	return run(ctx, conn, cmd, "link "+linkPath)
 }
 
 // Touch creates an empty file, or updates the modification time of one
 // that exists, which is exactly touch's own behavior.
 func Touch(ctx context.Context, conn *remoteexec.Conn, filePath string) error {
-	return run(ctx, conn, "touch "+remoteexec.QuoteArg(filePath), "touch "+filePath)
+	// "--" keeps a relative path starting with a dash a path.
+	return run(ctx, conn, "touch -- "+remoteexec.QuoteArg(filePath), "touch "+filePath)
 }
 
 // run sends one command and turns a non-zero exit into an error carrying

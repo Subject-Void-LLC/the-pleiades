@@ -130,7 +130,8 @@ func writeBeside(ctx context.Context, conn *remoteexec.Conn, filePath string, co
 // got and copies in place when that is not before.
 func settle(ctx context.Context, conn *remoteexec.Conn, tmp string, before Info) error {
 	quoted := remoteexec.QuoteArg(tmp)
-	if err := run(ctx, conn, "chmod "+remoteexec.QuoteArg(NormalizeMode(before.Mode))+" "+quoted, "chmod"); err != nil {
+	// Every command here ends its options with "--", as Apply's do.
+	if err := run(ctx, conn, "chmod -- "+remoteexec.QuoteArg(NormalizeMode(before.Mode))+" "+quoted, "chmod"); err != nil {
 		return err
 	}
 	now, err := Stat(ctx, conn, tmp)
@@ -148,5 +149,5 @@ func settle(ctx context.Context, conn *remoteexec.Conn, tmp string, before Info)
 	}
 	// chown and chgrp may clear setuid and setgid, so the mode goes on
 	// again once they have run.
-	return run(ctx, conn, "chmod "+remoteexec.QuoteArg(NormalizeMode(before.Mode))+" "+quoted, "chmod")
+	return run(ctx, conn, "chmod -- "+remoteexec.QuoteArg(NormalizeMode(before.Mode))+" "+quoted, "chmod")
 }
