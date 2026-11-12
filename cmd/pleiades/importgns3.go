@@ -236,8 +236,14 @@ func gns3Console(n gns3.Node, serverHost string) (string, int, string) {
 		}
 		return "", 0, fmt.Sprintf("its console is %q, not telnet", ct)
 	}
-	if n.Console == nil || *n.Console < 1 || *n.Console > 65535 {
+	if n.Console == nil {
 		return "", 0, "it has no console port"
+	}
+	if *n.Console < 1 || *n.Console > 65535 {
+		// The server named a port no TCP connection can reach: said as it
+		// is, so a server that misreports is not mistaken for a node with
+		// no console.
+		return "", 0, fmt.Sprintf("its console port %d is not a TCP port (1 to 65535)", *n.Console)
 	}
 	host := n.ConsoleHost
 	switch host {
