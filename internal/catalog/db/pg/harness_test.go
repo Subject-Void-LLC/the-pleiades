@@ -8,7 +8,6 @@ package pg_test
 import (
 	"context"
 	"net"
-	"os/exec"
 	"strconv"
 	"testing"
 
@@ -192,16 +191,27 @@ func params(extra map[string]any) map[string]any {
 	return p
 }
 
-// requireTools skips unless pg_dump and pg_restore at the server's major
-// version (or, failing that, any) are on PATH, which the device's shell
-// inherits.
-func requireTools(t *testing.T) {
+// requireTools stops a test that runs pg_dump and pg_restore unless this
+// machine, which the device's shell runs on, has what db.pg.dump and
+// db.pg.restore check a device for and a client the fixture's server
+// takes (clienttools_test.go says which stop each lack gets).
+func requireTools(t testing.TB) {
 	t.Helper()
-	testsupport.UsePostgresClientTools(t)
-	for _, name := range []string{"pg_dump", "pg_restore"} {
-		_, err := exec.LookPath(name)
-		testsupport.Require(t, name, err == nil, name+" is not on PATH; the device these tests stand in for runs it")
+	requireToolsFrom(t, testsupport.UsePostgresClientTools)
+}
+
+// requireToolsFrom is requireTools with pin standing in for
+// UsePostgresClientTools, so a test can give the answer.
+func requireToolsFrom(t testing.TB, pin func(testing.TB) bool) {
+	t.Helper()
+	need.POSIXShell(t)
+	testsupport.Require(t, need.Timeout, hostTimeoutTakesKill(),
+		"this machine stands in for the device, and its timeout command takes no -k and duration (macOS has none), which db.pg.dump and db.pg.restore refuse a device without")
+	server, err := strconv.Atoi(testsupport.PostgresMajor())
+	if err != nil {
+		t.Fatalf("the fixture's major version %q is not a number: %v", testsupport.PostgresMajor(), err)
 	}
+	stopUnlessUsable(t, judgeTools(pin(t), server, majorOnPath))
 }
 
 // addr is the server as the device sees it.

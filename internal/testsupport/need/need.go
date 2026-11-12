@@ -44,6 +44,7 @@ const (
 	OpenFiles       = "open-files"
 	POSIXModes      = "posix-modes"
 	PosixShell      = "posix-shell"
+	PostgresClient  = "postgres-client"
 	PTY             = "pty"
 	RefusingPort    = "refusing-port"
 	Symlinks        = "symlinks"
@@ -59,7 +60,7 @@ const All = "all"
 var Names = []string{
 	CMLController, Docker, DockerDesktop, DockerSocket, IPv6Loopback, Landlock,
 	LandlockScoping, Linux, LocalStack, Memory, NonRoot, OpenFiles, POSIXModes,
-	PosixShell, PTY, RefusingPort, Symlinks, Timeout, Toybox, Userns,
+	PosixShell, PostgresClient, PTY, RefusingPort, Symlinks, Timeout, Toybox, Userns,
 }
 
 // UnknownRequired returns the entries of Env that are neither All nor a
