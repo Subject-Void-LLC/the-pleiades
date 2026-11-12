@@ -28937,12 +28937,100 @@ owner change and a control account, and failing on the tree before this pass),
 `FuzzDirectoryParams`, `FuzzUserParams`, `FuzzGroupParams`, and `TestParamOperandRule`'s new cases. The BusyBox and
 toybox chmod tests and both packages' real-accounts tests run the new `--` forms through the real tools.
 
+**Third pass: what a review of the first two found (2026-11-11).** A failure-pattern review of the branch found
+the rule declared in one form only, a doc claim that was false, and the class still open in five more places.
+
+- *Each program's own grammar.* `pkg/operand.Kind` names one rule per kind of operand, and `pkg/collection` maps a
+  parameter format to each (`ParamFormatSystemdUnit`, `ParamFormatAptPackage`, `ParamFormatRPMPackage`,
+  `ParamFormatPackage` for the generic `pkg.*`, `ParamFormatPackageVersion` and `ParamFormatMountField`, beside
+  `ParamFormatOperand`), so validation, the engine, the rollback planner and the method hold a value to the same rule.
+  APT's trailing `-`, which only `pkg.apt`'s `packageName` held before, is held in all four places now.
+- *systemd's root units.* `-.mount` and `-.slice` (systemd.special(7); `-` is systemd's escape of `/`) begin with
+  `-` and are loaded on every systemd host. The package doc said no real unit had such a name, and a loop over a
+  host's units failed on them. `SystemdUnit` admits exactly those two names, and systemctl always gets `--`.
+- *Versions.* `pkg.dnf.install` and `pkg.apt.install` joined `version` onto the checked name unchecked: `version:
+  "*"` made dnf install every `nginx-*`, and apt-get read `diffutils=1:3.8-4-` as "remove diffutils" (measured on
+  Debian 12: `Remv diffutils [1:3.8-4]`).
+- *Names that select something else without a pattern character.* Measured on Debian 12 (apt 2.6.1): `jq/bookworm`
+  installs jq from that release and `jq=1.6` that version while dpkg-query reports either word absent, so the undo
+  recorded by the word removes nothing; `~nzsh-common` and `^zsh$` are a search pattern and a regular expression
+  apt-get still expands; a word no package has exactly is a regular expression (`jq++` planned upgrades of dpkg and
+  libc6, and `apt-cache policy jq+` answered with libjs-jquery.sparkline's block, which `queryCandidate` read as
+  jq+'s candidate) or, ending in `+`, "install the package before it" (`jq+` installed jq). On Rocky Linux 9 and
+  Fedora 42, `rpm -q` reports `@core`, `/usr/bin/jq` and `perl(strict)` absent after dnf installs what each names,
+  and `dnf install vim` installs vim-enhanced while `rpm -q vim` stays absent. The APT and RPM rules refuse every form
+  a character marks; a fresh install (and `pkg.*.upgrade` of an absent package) also asks for exactly the name, through
+  `apt-cache policy` read only in the block the name heads, and through `dnf repoquery`, which lists packages by name
+  and never by capability (measured on both dnf versions), and refuses a name with none. `name.arch` (rpm -q reads it
+  as dnf does) and `name:arch` (dpkg-query too) are kept.
+- *fs.mount and fs.unmount* sent `mount -t T -o O <src> <path>` and `umount <path>` with no rule and no `--`: a path
+  of `-a` ran `mount -a` (GNU getopt permutes; measured with util-linux 2.38, where `mount -t tmpfs -o defaults none
+  -h` prints the help and mounts nothing), and a source holding a line break wrote a second fstab line. `MountField`
+  refuses a leading `-` or `#`, a space, a control character and `\` in all four fields, the fstab writer holds the
+  same, and both commands get `--`, which util-linux 2.37 and 2.38 and BusyBox 1.36 (Alpine's) accept (measured).
+  `queryMount` read every non-zero findmnt exit as "not mounted"; findmnt exits 1 both for nothing found and for
+  every error, saying nothing in the first case and explaining on stderr in the second (measured), so only a silent
+  exit 1 is absent now, and 127 is an error.
+- *archive.\* with remove: true* ran `rm -rf <src...>` with no `--`, and rm refused a dash-led relative source as
+  an option instead of removing it.
+- *`pkg/remotefile.writeBeside`* sent `mktemp <dir>/.pleiades.XXXXXX` without the `./` `Write` had, so `Replace`
+  under a relative directory named `-d` failed, while the security fragment said every path had the treatment.
+- *dnf5 refuses `--`.* Measured on Fedora 42 (dnf5 5.2.18): `Unknown argument "--" for command "install"`, exit 2,
+  for install, remove, upgrade and check-update alike, so every `pkg.dnf` method this branch had changed failed
+  there. dnf gets no `--` now: the RPM rule, which admits no word beginning with `-`, keeps a name from dnf's options
+  (the musl getent case again), and `runDnf`, `hasUpdate` and `requirePackage` check every operand once more. dnf 4.14
+  on Rocky 9 runs the same commands.
+- *The fuzz targets* of `pkg.apt`, `pkg.dnf`, `svc.systemd` and `svc.windows` said each seed "must be refused" and
+  could not fail if the refusal were removed, since a nil device errors anyway. Each now fails when a refused value
+  reaches the connection (shown by removing each method's check; the Windows one reads its own "needs a target
+  device"), and the systemd one also when an admitted name does not.
+- *The rest of the catalog*, swept by reading (an agent's sweep, each item read again where it was changed):
+  `net.ssh.ping` sent `echo <data>`, which printed nothing for data `-n` and turned a backslash into an escape under
+  dash, and sends `printf '%s\n'` to a POSIX shell now. `win.feature` put its name in a PowerShell literal handed to
+  dism.exe, and Windows PowerShell 5.1 does not escape a `"` in a native argument, so a name holding one would reach
+  dism as several arguments (reasoned, not measured); names are held to the form DISM lists
+  (`winrmdism.CheckFeatureName`). A `win.reboot` `msg` beginning with `/` or `-` is refused, since whether
+  shutdown.exe reads the word after `/c` whole is not measured. Four PowerShell builders put a path in quotes without
+  QuotePS, which is 1176. Read as clean: `container.*` (the Docker and Podman APIs, `ValidName` at each call site),
+  `virt.vbox.*` (`CheckName`, `CheckPath`, `CheckUUID`), `virt.fusion.*` (an absolute vmx, `CheckSnapshotName`
+  refusing a leading `-`), `virt.clab`, `virt.cml` and GNS3 (HTTP APIs), `db.pg.*` (SQL through `quoteIdent` and
+  placeholders, `pg_restore --`, absolute paths), `scan.*` (fixed paths in the scanner container, absolute host
+  paths), `net.trace` (an address or a host-name pattern), `net.ovs.*` and `net.linux.*` (interface-name patterns),
+  `net.frr.*` (option arguments), `fw.firewalld.*` (`--zone=` glued), `gate.*`, `build.*`, `facts.gather` files
+  (`--`), `exec.*`'s named parameters (`cd --`), `win.capability`, `win.schtask` and `win.firewall` (allowlists, JSON
+  on standard input) and `pkg/scpxfer` (`--`). Left as they are, low risk: VBoxManage `keyboardputstring` text and
+  `setextradata` values may begin with `-` (VBoxManage reads them by position, by its source), and `net.ovs`'s
+  `del-port` and `net.linux`'s bridge resend a port name read back from the device unchecked.
+- *What the rule costs a rollback.* `--leave` accepts a refused step whole, so a `file.permissions` undo whose prior
+  owner holds `[` (an account Debian 12 can have) loses its mode restore with its owner. Keeping a step's other
+  parameters would be a partial undo the planner has no form for, which is a design call, not a settled fix. On the
+  Walk tier a rollback planned by an older Controller and run by a newer Runner fails in the Runner's re-check
+  (`internal/rollback/verify.go`) when the newer rules refuse a recorded value, and must be planned again.
+
+Tests: `TestCLI_AptRefusesANameItWouldReadAsAnOption`'s new cases (real Debian sshd: a version ending in `-`, a version
+pattern, a release, the generic trailing dash, `fs.mount` and `fs.unmount` of `-a`, each literal and rendered, with
+sshd's login count unchanged; `jq+` refused with jq left uninstalled; an archive's dash-led source really removed),
+`TestCLI_SystemdTakesAGatheredRootUnit` (a `-.mount` read from a real Rocky device rendered into
+`svc.systemd.start`), each failing on the tree before this pass; `TestKinds`, `FuzzKinds`,
+`TestOperandFormats_MapEveryKindOnce`, `TestParamOperandRule`'s new cases, `TestRenderedParams_HeldToEachProgramsGrammar`,
+`TestBuild_EachOperandFormatIsHeldToItsOwnRule`, `TestOperations_TakeSystemdsRootUnits`,
+`TestInstall_RefusesANameAptHasNoPackageFor`, `TestInstall_RefusesANameNoPackageHas`,
+`TestMethods_SendTheNameWithNoEndOfOptions`, `TestMethods_RefuseAFieldMountOrFstabWouldMisread`,
+`TestQueryMount_OnlySilenceReadsAsNotMounted`, `TestRunMount_EndsOptionsBeforeTheSourceAndThePath` (the real mount and
+umount in a user namespace), `TestFstabEntry_RefusesAFieldThatWouldAddAFieldOrALine`,
+`TestCreate_RemoveDeletesASourceStartingWithADash`, `TestReplace_WritesBesideAFileUnderADirectoryStartingWithADash`,
+`TestPingCheck_OnlyEchoes`, `TestRefusesANameDISMWouldReadAsMore`.
+
 **Not covered.** The `--` forms have not run on FreeBSD or macOS, which the file methods claim. Both use getopt(3),
 which ends options at `--`, and `pkg/remotefile`'s older `rm -f --`, `mv -f --` and `cat --` already passed there
 (bsd-check of `pkg/remotefile`, 2026-11-02), so this is reasoned, not measured: `make bsd-check`, `make mac-check`
-and `TestCLI_FreeBSDFileChecksMatchTheirRealRuns` would measure it. No sweep of the rest of the catalog for a
-caller's word after a program's options was made in this pass; the sweep covered `pkg/`'s `chown`, `chgrp` and
-`chmod` builders, `pkg/remotefile`'s other commands, and the two identity packages.
+and `TestCLI_FreeBSDFileChecksMatchTheirRealRuns` would measure it. The systemd gates
+(`TestCLI_SystemdTakesAGatheredRootUnit`, and the existing `TestCLI_SystemdServicesCycleOnARealDevice`) cannot start
+systemd on this machine today: under Docker Desktop 29.8 on WSL kernel 6.18 the host cgroup namespace's bound tree
+lacks the container's own cgroup, and systemd exits with "Failed to create /docker/<id>/init.scope control group". The
+new gate ran here, and failed on the tree before the pass, only with `systemdDevice` switched by hand, uncommitted,
+to a private cgroup namespace and `--privileged`; CI's native Docker runs it as written. The `pkg.dnf` repository
+check runs only in a real run, so a check of `pkg.dnf.install vim` still predicts the install a real run refuses.
 
 **Lesson.** A fix for a value a program misreads belongs in a rule a parameter declares, which validation, the engine
 and the method all read, not in the method where it was found. Search for the class by what the code does (a caller's
@@ -28950,3 +29038,61 @@ word after a program's options), and read every "it failed" exit as a failure un
 "absent". A word that is real even when it begins with a dash (a link target, a relative path) cannot be refused, so
 it follows `--`, or `./` for a path; and where a program reads `--` itself as a word (musl's getent), only the rule
 stands between a name and the options, so check `--` on each program before sending it.
+
+## 1175. pkg.dnf read rpm's "is not installed" and pkg.apt read apt-cache's "Candidate:" in the device's own language, so a French or German host failed every install of an absent package and every APT check (fixed)
+
+**Symptom.** Found by the review of 1174's fix, then measured. 1174 made `queryRPM` read only rpm's own sentence "is
+not installed" as absent, since `rpm -q` exits 1 for an unknown option too. On Fedora 42 with the French and German
+language packs, `LANG=fr_FR.UTF-8 rpm -q nosuchpkg` writes "le paquet nosuchpkg n'est pas install" with an accented
+e, and `LANG=de_DE.UTF-8` "Das Paket nosuchpkg ist nicht installiert", both exit 1, so on such a device every
+`pkg.dnf.install` of an absent package would have failed reading rpm. On Debian 12, `LANG=fr_FR.UTF-8 apt-cache
+policy jq` writes "Candidat :", which `queryCandidate` (reading "Candidate:") never found, so `pkg.apt`'s checks and
+`pkg.apt.upgrade` already failed with "no Candidate line" on a French host, before this branch. dpkg-query's status
+words (`install ok installed`) and exit statuses, findmnt's and getent's exits, `systemctl show`'s property values,
+`useradd -D`'s keys and apt-get's "Remv" lines are data, not messages, and do not change (measured under fr_FR for
+dpkg-query and apt-get -s).
+
+**Root cause.** A program's messages follow the session's locale, and the session's locale is the device's (pam_env
+reads `/etc/default/locale` on Debian, the login profile reads `/etc/locale.conf` on the RHEL family), not this
+platform's, which sends none. A reading of a message's words, rather than of an exit status or a data field, holds
+in one language only. Every fake in the package tests spoke English, so no test could see it: LESSONS 388's class,
+a property the fixtures fix.
+
+**Why nothing earlier prevented it.** No entry records the class: FAILURE_PATTERNS and LESSONS hold none on a
+locale, and LESSONS 388 names the locale only as one fixture property to switch.
+
+**Fix.** `queryRPM` and `queryCandidate` run under `LC_ALL=C`, and so do `runAptGet` (whose "Remv" lines
+`simulateRemove` reads) and `requirePackage`'s `dnf repoquery`, which are not translated today and are read all the
+same. findmnt's absence is read from the emptiness of its output, not its words. The fake rpm and apt-cache in the
+package tests answer in French unless `LC_ALL` is C. Tests: `TestQueryRPM_ReadsAbsenceUnderAnyLocale`,
+`TestQueryCandidate_ReadsTheSameWordsUnderAnyLocale`, each failing on the methods before the fix.
+
+**Lesson.** Read a program's exit status or a data field where it has one. Where a method must read the program's
+words, run it under `LC_ALL=C`, and give its fake a language it answers in otherwise, since a harness that speaks
+only English cannot see this class.
+
+## 1176. win.file.copy, win.file.download, win.archive.extract and VirtualBox's host file scripts put a path or URL inside single quotes without QuotePS, so a typographic quote ended the literal and ran the rest as PowerShell (a repeat of 354) (fixed)
+
+**Symptom.** Found by 1174's sweep of the catalog, by reading. Each built `$path = '<path>'` (and `$url`, `$src`,
+`$dest`, `$creates`) with fmt or concatenation. Their guards (`pathPattern`, `urlPattern`, vboxmanage's `CheckPath`)
+refuse the ASCII apostrophe and admit U+2018 to U+201B, at each of which PowerShell also ends a single-quoted literal
+(354, measured on Windows PowerShell 5.1). So a `path` of `C:\a`, U+2019, `;calc;`, U+2019, `.zip` passed every check
+and would have run calc as the WinRM account, often an administrator; for vboxmanage, a VM folder read back from the
+host reaches the same scripts. Not measured on a host in this pass: the class was measured in 354.
+
+**Why 354's fix did not hold.** 354 made one shared `winrmexec.QuotePS` and moved the two packages that had private
+helpers onto it. These four builders had no helper at all: each leaned on a pattern refusing the apostrophe, which
+reads as quoting and is not, and nothing held a script's quoted values to QuotePS, so a builder written after 354 had
+nothing to inherit.
+
+**Fix.** Each value goes in as `winrmexec.QuotePS` writes it. Tests:
+`TestCopyScripts_QuoteATypographicQuoteInThePath`, `TestDownloadScript_QuotesATypographicQuoteInTheURLAndPath`,
+`TestExtractScript_QuotesATypographicQuoteInEveryPath`, `TestFileScripts_QuoteATypographicQuoteInThePath`, each
+failing on the scripts before the fix.
+
+**Lesson.** A pattern that refuses the apostrophe is not a quoting rule: a value placed inside a PowerShell literal
+goes through QuotePS whatever its pattern admits. An archtest holding every PowerShell builder to QuotePS would stop
+the next one; it is not built, since the scripts also put constants and hex digests in quotes and it needs an
+allowlist.
+
+**Class.** C13 (OS command injection), incomplete-quoting variant.

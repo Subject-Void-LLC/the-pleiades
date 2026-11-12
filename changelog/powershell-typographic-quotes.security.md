@@ -1,0 +1,1 @@
+A path or URL holding a typographic quote (U+2018 to U+201B) no longer ends the PowerShell string `win.file.copy`, `win.file.download`, `win.archive.extract` and the VirtualBox host file scripts put it in, where the rest of the value ran as PowerShell on the host; each value is now quoted the way every other PowerShell script here is.
