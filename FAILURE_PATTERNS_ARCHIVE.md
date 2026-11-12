@@ -29240,3 +29240,54 @@ the new mock exactly as it did on the instance.
 
 **Lesson.** A mock's every rule should cite the run it came from, and the first real instance is the moment to measure each
 behavior a test leans on, not only the one that failed.
+
+## 1182. pkg/cml's lab list failed when any listed lab was deleted before it was read, so a shared controller's churn broke import-cml and virt.cml.lab.* (fixed before push)
+
+**Symptom.** `import-cml`, `virt.cml.lab.create`, `virt.cml.lab.list` and `FindLab` failed with `404 lab not found: <id>` naming
+a lab the run never asked for, whenever another user or run deleted an unrelated lab between the controller's list of
+lab ids and the client's read of each one. On a shared controller, such as DevNet's sandbox, labs come and go all the time.
+
+**Root cause.** `Client.Labs` (`pkg/cml/client.go`) lists the ids and then reads each lab, returning the first error, a 404
+included. The list and the reads are separate requests, and the controller holds no snapshot between them.
+
+**Fix.** A 404 on a lab the list named leaves that lab out; any other status still fails the call. Proof:
+`TestLabs_LeavesOutALabDeletedSinceTheList` (`pkg/cml/labs_deleted_internal_test.go`) fails on the old code with the 404,
+and `TestImportCML_ALabDeletedMidImport`'s "another lab" case fails before the fix and passes after. A lab the import
+itself reads that is deleted mid-import still fails with the 404 and writes nothing.
+
+**Lesson.** A list followed by a read of each item is two moments, not one: a 404 on an item the list named means it
+went away in between, which is absence, not failure, unless it is the item the caller asked for.
+
+## 1183. import-gns3 reported a console port of 0 or 70000 as "it has no console port" (fixed before push)
+
+**Symptom.** A GNS3 node whose console port was 0, negative or above 65535 was skipped with "it has no console port", so
+an author looking for the port in GNS3 found one there and could not tell why it was refused.
+
+**Root cause.** `gns3Console` (`cmd/pleiades`) folded the nil-port check and the 1 to 65535 range check into one refusal
+with the nil case's wording.
+
+**Fix.** Out of range now says "its console port N is not a TCP port (1 to 65535)". Proof:
+`TestGNS3Console_ReachesOnlyWhatThisMachineCan` (a port 0 case added) and
+`TestImportGNS3_AConsolePortNoTCPConnectionReachesIsSkipped` (0, -1 and 70000, through `--json` and the inventory), each
+failing with the range check removed.
+
+**Lesson.** Two refusals that share a branch share a message: each condition a caller can fix differently needs its own.
+
+## 1184. pkg/gns3's oversize test passed with the bounded read removed, since the length check after the read still tripped (a repeat of 820) (fixed before push)
+
+**Symptom.** `TestNodes_RefusesAnAnswerItCannotRead`'s "big" case passed with `io.LimitReader` removed from the GNS3 client,
+so the test that named the read bound did not hold it: the whole oversized answer was read into memory, and a check
+after the read refused it.
+
+**Root cause.** The test asserted the refusal, which the post-read length check also produces, not that the client stopped
+reading at the bound.
+
+**Why 820's lesson did not prevent it.** 820 says to assert what only the guarded code produces. The test predates it, and
+nothing swept old tests for an outcome a later check also gives.
+
+**Fix.** `TestRaw_ReadsNoMoreThanItsBound` (`pkg/gns3/bound_internal_test.go`) and `TestCall_ReadsNoMoreThanItsBound`
+(`pkg/cml/failure_internal_test.go`) count the bytes the server managed to write: with the bound removed the server wrote
+67,108,864 (GNS3) and 134,217,728 (CML) bytes past the 33 MB and 50 MB limits; `TestRaw_AnAnswerAtTheBoundIsReadAndOneByteMoreIsNot`
+holds the bound to the byte.
+
+**Lesson.** A bound on how much is read is proved by what the other side could write, not by the refusal that follows.

@@ -1185,6 +1185,9 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 1179. A chdir of "-" ran the command in the login's home, since cd reads "-" as $OLDPWD and searches $CDPATH for a relative name even after "--" (a repeat of 148) (fixed before push)
 1180. net.batfish.check's top-level assertion refusals did not name the method, and a scenario's malformed assertion list named it twice (fixed before push)
 1181. ServiceNo! kept an incident's priority as sent, so the ServiceNow gate passed on the mock and skipped its write on a real instance (a repeat of 740) (fixed before push)
+1182. pkg/cml's lab list failed when any listed lab was deleted before it was read, so a shared controller's churn broke import-cml and virt.cml.lab.* (fixed before push)
+1183. import-gns3 reported a console port of 0 or 70000 as "it has no console port" (fixed before push)
+1184. pkg/gns3's oversize test passed with the bounded read removed, since the length check after the read still tripped (a repeat of 820) (fixed before push)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

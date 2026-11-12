@@ -38,7 +38,8 @@ func TestGNS3Console_ReachesOnlyWhatThisMachineCan(t *testing.T) {
 		"a VNC console":           {gns3.Node{ConsoleType: "vnc", Console: port(5900)}, "gns3.lab", "", `"vnc", not telnet`, 0},
 		"no console":              {gns3.Node{ConsoleType: ""}, "gns3.lab", "", `"none", not telnet`, 0},
 		"no port":                 {gns3.Node{ConsoleType: "telnet"}, "gns3.lab", "", "no console port", 0},
-		"a port out of range":     {gns3.Node{ConsoleType: "telnet", Console: port(70000)}, "gns3.lab", "", "no console port", 0},
+		"a port out of range":     {gns3.Node{ConsoleType: "telnet", Console: port(70000)}, "gns3.lab", "", "console port 70000 is not a TCP port", 0},
+		"port zero":               {gns3.Node{ConsoleType: "telnet", Console: port(0)}, "gns3.lab", "", "console port 0 is not a TCP port", 0},
 		"an unreadable host":      {gns3.Node{ConsoleType: "telnet", Console: port(5000), ConsoleHost: "a b\x1b"}, "gns3.lab", "", "not an address or a host name", 0},
 	} {
 		host, p, skip := gns3Console(tc.node, tc.server)

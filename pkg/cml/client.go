@@ -108,7 +108,11 @@ type Lab struct {
 	NodeCount int    `json:"node_count"`
 }
 
-// Labs lists the labs this login can see.
+// Labs lists the labs this login can see. A lab the list names that is
+// gone by the time it is read (another user, or another run, deleted it in
+// between) is left out, as a list read a moment later would leave it out:
+// on a shared controller that is an ordinary moment, not a reason to fail
+// a call about some other lab.
 func (c *Client) Labs(ctx context.Context) ([]Lab, error) {
 	var ids []string
 	if err := c.get(ctx, "/labs", &ids); err != nil {
@@ -118,6 +122,11 @@ func (c *Client) Labs(ctx context.Context) ([]Lab, error) {
 	for _, id := range ids {
 		var lab Lab
 		if err := c.get(ctx, "/labs/"+url.PathEscape(id), &lab); err != nil {
+			var se *StatusError
+			if errors.As(err, &se) && se.Status == http.StatusNotFound {
+				// Deleted since the list was read.
+				continue
+			}
 			return nil, err
 		}
 		lab.ID = id

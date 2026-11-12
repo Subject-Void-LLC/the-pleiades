@@ -98,18 +98,28 @@ func labPlaintext(u *url.URL, withPassword, allow bool) (string, error) {
 	return fmt.Sprintf("warning: the password for %s went over plain HTTP, unencrypted; change it if that network is not yours alone", u.Host), nil
 }
 
+// labBounds are the bounds labHTTPClient puts on a call to a lab server.
+// They are a variable only so a test can prove each bound in seconds;
+// nothing else sets them.
+var labBounds = struct {
+	// dial bounds the TCP connect, handshake the TLS handshake, header the
+	// wait for an answer's headers, and call the whole call, the answer's
+	// body read included.
+	dial, handshake, header, call time.Duration
+}{dial: 30 * time.Second, handshake: 30 * time.Second, header: time.Minute, call: 2 * time.Minute}
+
 // labHTTPClient bounds every step of a call to a lab server: the dial,
 // the TLS handshake, waiting for an answer, and the whole call. tlsConfig
 // is nil for the system's CAs.
 func labHTTPClient(tlsConfig *tls.Config) *http.Client {
 	return &http.Client{
-		Timeout: 2 * time.Minute,
+		Timeout: labBounds.call,
 		Transport: &http.Transport{
 			TLSClientConfig:       tlsConfig,
 			Proxy:                 http.ProxyFromEnvironment,
-			DialContext:           (&net.Dialer{Timeout: 30 * time.Second}).DialContext,
-			TLSHandshakeTimeout:   30 * time.Second,
-			ResponseHeaderTimeout: time.Minute,
+			DialContext:           (&net.Dialer{Timeout: labBounds.dial}).DialContext,
+			TLSHandshakeTimeout:   labBounds.handshake,
+			ResponseHeaderTimeout: labBounds.header,
 		},
 		// A redirect could carry the login elsewhere.
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },

@@ -113,7 +113,13 @@ type Controller struct {
 	// PCAP is what /pcap/{key} answers for any capture's key; nil answers a
 	// minimal empty pcap file.
 	PCAP []byte
-	next int
+	// OnCall, when set, runs before each request is answered, with Mu held
+	// (so it changes the controller's labs directly and never locks Mu): a
+	// lab deleted or a node renamed between two of an import's calls, or a
+	// controller that stops answering partway, waiting on the request's
+	// context. It returns true when it answered the request itself.
+	OnCall func(w http.ResponseWriter, r *http.Request) bool
+	next   int
 }
 
 // emptyPCAP is a pcap file's global header and nothing else: little endian,
@@ -154,6 +160,9 @@ func (c *Controller) serve(w http.ResponseWriter, r *http.Request) {
 	c.Mu.Lock()
 	defer c.Mu.Unlock()
 	c.Calls = append(c.Calls, r.Method+" "+r.URL.Path)
+	if c.OnCall != nil && c.OnCall(w, r) {
+		return
+	}
 	path := strings.TrimPrefix(r.URL.Path, "/api/v0")
 	switch {
 	case path == "/system_information":

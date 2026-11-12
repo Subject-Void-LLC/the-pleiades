@@ -1,0 +1,1 @@
+`import-cml`, `virt.cml.lab.create`, `virt.cml.lab.list` and every CML lab lookup no longer fail with `404 lab not found` when another user deletes an unrelated lab while the controller's labs are being read; that lab is left out. A lab the run itself reads that disappears mid-import still fails the import, which writes nothing.
