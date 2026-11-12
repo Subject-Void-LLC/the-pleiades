@@ -15,12 +15,12 @@
 // connection-string form reads every PG* environment variable. Each of
 // those would hand one run's database the credentials of whoever runs
 // pleiades. So the driver is configured from a struct (never the
-// environment), its password file is the empty device file, and it never
-// negotiates TLS at all: this package does, in the dialer, before the
-// driver sees the connection, with a configuration the caller built
-// (pkg/devicetls: a TLS 1.2 floor, a pinned authority or the system's,
-// and always verified). The driver then speaks the protocol over a stream
-// that is already encrypted.
+// environment), its password file is one that cannot exist (noPassfile),
+// and it never negotiates TLS at all: this package does, in the dialer,
+// before the driver sees the connection, with a configuration the caller
+// built (pkg/devicetls: a TLS 1.2 floor, a pinned authority or the
+// system's, and always verified). The driver then speaks the protocol over
+// a stream that is already encrypted.
 //
 // The driver reads one variable this package cannot turn off: PQGO_DEBUG,
 // once, as the program starts. Set to 1, it writes each connection's
@@ -39,6 +39,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"runtime"
 	"strconv"
 	"time"
 
@@ -119,7 +120,7 @@ func Open(ctx context.Context, t Target) (*Session, error) {
 		Password:        t.Password,
 		Database:        t.Database,
 		SSLMode:         pq.SSLModeDisable,
-		Passfile:        os.DevNull,
+		Passfile:        noPassfile(),
 		ApplicationName: t.ApplicationName,
 		// The driver decodes text as UTF-8 and times in ISO form, and sets
 		// both only when it reads a connection string, never from a Config,
@@ -143,6 +144,22 @@ func Open(ctx context.Context, t Target) (*Session, error) {
 		return nil, fmt.Errorf("connecting to %s: %w", t.name(), err)
 	}
 	return &Session{db: db, target: t}, nil
+}
+
+// noPassfile is the password file the driver is given so that it reads
+// none, its own default being ~/.pgpass. Outside Windows it is a path
+// under the null device, which is not a directory, so nothing can exist
+// there and the driver's stat of it fails (ENOTDIR), which it reads as no
+// password file, silently. The null device itself would read as empty,
+// but the driver first checks a password file's mode, and for the null
+// device (0666) wrote a warning to standard error on every passwordless
+// connect, advising a change of its mode. On Windows the driver checks no
+// mode, so there it is the null device itself.
+func noPassfile() string {
+	if runtime.GOOS == "windows" {
+		return os.DevNull
+	}
+	return os.DevNull + "/pleiades-no-passfile"
 }
 
 // DB is the session's connection pool, which holds one connection.

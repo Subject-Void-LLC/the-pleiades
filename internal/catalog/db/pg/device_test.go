@@ -79,6 +79,11 @@ func StartTestDevice(t *testing.T, user, password, tlsDir string) *TestDevice {
 	ctx := context.Background()
 	opts := []testcontainers.ContainerCustomizer{
 		testpg.WithDatabase("app"), testpg.WithUsername(user), testpg.WithPassword(password),
+		// The image trusts every login over loopback and its socket unless
+		// told otherwise; a database host asks for the password there too,
+		// so a test of what a run without one reads is answered by the
+		// server rather than waved through.
+		testcontainers.WithEnv(map[string]string{"POSTGRES_INITDB_ARGS": "--auth-host=scram-sha-256 --auth-local=scram-sha-256"}),
 		testcontainers.WithExposedPorts("22/tcp"),
 		// PostgresReady's steps, then the SSH server's banner.
 		testcontainers.WithWaitStrategyAndDeadline(testsupport.ContainerStartupTimeout,

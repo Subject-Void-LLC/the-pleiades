@@ -21,6 +21,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory/inventorytest"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/pgclient"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec/remoteexectest"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
@@ -90,6 +91,25 @@ func startDeviceHarness(t *testing.T, tlsDir string) *harness {
 	}
 	h.connect("admin", adminUser, adminPassword)
 	return h
+}
+
+// ssh opens a connection to the device as its login, closed when t ends.
+func (h *harness) ssh(t *testing.T) *remoteexec.Conn {
+	t.Helper()
+	if h.dev != nil {
+		return h.dev.Connect(t)
+	}
+	auth, err := remoteexec.AuthFrom(h.rc.secrets["username"], h.rc.secrets["password"], nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn, err := remoteexec.New(remoteexec.Options{InsecureSkipHostKeyVerify: true}).
+		Connect(context.Background(), nil, remoteexec.Target{Host: h.device.host, Port: h.device.port}, auth)
+	if err != nil {
+		t.Fatalf("connecting to the device: %v", err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+	return conn
 }
 
 // deviceView is the server's host and port as the device dials it.
