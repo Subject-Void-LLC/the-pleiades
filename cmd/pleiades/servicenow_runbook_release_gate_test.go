@@ -267,7 +267,11 @@ func TestServiceNowRunbookReleaseGate(t *testing.T) {
 		return runPleiadesWithEnv(t, dir, env, "run", "runbooks/snow.yaml", "-e", "ticket="+number)
 	}
 
-	critical, criticalNumber := snow.create(t, "incident", map[string]any{"short_description": "Interface down on the core switch", "cmdb_ci": swID, "priority": "1"})
+	// An instance computes an incident's priority from its impact and
+	// urgency and ignores a priority sent on its own, so the incidents are
+	// made critical (1 and 1) and moderate (2 and 2) the way a person makes
+	// them; ServiceNo! does the same.
+	critical, criticalNumber := snow.create(t, "incident", map[string]any{"short_description": "Interface down on the core switch", "cmdb_ci": swID, "impact": "1", "urgency": "1"})
 	out, err := run(criticalNumber)
 	if err != nil {
 		t.Fatalf("the runbook failed on a critical incident: %v\n%s", err, out)
@@ -279,7 +283,7 @@ func TestServiceNowRunbookReleaseGate(t *testing.T) {
 		t.Error("the run printed a credential")
 	}
 
-	moderate, moderateNumber := snow.create(t, "incident", map[string]any{"short_description": "Question about the core switch", "cmdb_ci": swID, "priority": "3"})
+	moderate, moderateNumber := snow.create(t, "incident", map[string]any{"short_description": "Question about the core switch", "cmdb_ci": swID, "impact": "2", "urgency": "2"})
 	if out, err := run(moderateNumber); err != nil {
 		t.Fatalf("the runbook failed on a moderate incident: %v\n%s", err, out)
 	}
@@ -287,7 +291,7 @@ func TestServiceNowRunbookReleaseGate(t *testing.T) {
 		t.Errorf("a moderate incident was written to: %q", notes)
 	}
 
-	outside, outsideNumber := snow.create(t, "incident", map[string]any{"short_description": "Server down", "cmdb_ci": dcID, "priority": "1"})
+	outside, outsideNumber := snow.create(t, "incident", map[string]any{"short_description": "Server down", "cmdb_ci": dcID, "impact": "1", "urgency": "1"})
 	out, err = run(outsideNumber)
 	if err == nil || !strings.Contains(out, "which is not a device within \"switches\"") {
 		t.Fatalf("an incident naming a device outside the bound: err = %v\n%s", err, out)

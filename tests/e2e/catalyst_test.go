@@ -23,6 +23,7 @@ package e2e
 
 import (
 	"context"
+	"net/url"
 	"os"
 	"path/filepath"
 	"testing"
@@ -157,7 +158,13 @@ func TestCatalystCenter_LiveSync(t *testing.T) {
 func assertControllerOnboarded(t *testing.T, ctx context.Context, repo inv.Repository, endpoint string) {
 	t.Helper()
 
-	item, err := repo.GetByName(ctx, "sandboxdnac.cisco.com")
+	// The plugin names the controller by its URL's host, so a controller other
+	// than the sandbox (PLEIADES_E2E_DNAC_ENDPOINT) is found by its own.
+	parsed, err := url.Parse(endpoint)
+	if err != nil || parsed.Hostname() == "" {
+		t.Fatalf("the endpoint %q names no host", endpoint)
+	}
+	item, err := repo.GetByName(ctx, parsed.Hostname())
 	if err != nil {
 		t.Fatalf("the controller itself was not onboarded: %v", err)
 	}
