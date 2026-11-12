@@ -229,7 +229,7 @@ func (r *run) holds(prg *ConditionProgram, task *Task, key string, roots map[str
 	}
 	condVars := map[string]interface{}{"stat": tree, "nodes": tree, "vars": vars, "result": result}
 	for k, v := range roots {
-		if k != hostVarsRoot {
+		if !isInternalRoot(k) {
 			condVars[k] = v
 		}
 	}

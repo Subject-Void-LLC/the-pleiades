@@ -34,6 +34,7 @@ package engine
 
 import (
 	"fmt"
+	"maps"
 	"reflect"
 	"regexp"
 	"sort"
@@ -280,8 +281,10 @@ func deviceVars(d inventory.InventoryItem) map[string]any {
 // brings variables of its own. Such a task is decided and rendered on each
 // device, as one reading the device root is.
 func (r *run) varsNeedDevice(nodeID string, task *Task) bool {
-	reads := false
-	if r.dag.Conditions[nodeID] != nil {
+	// A rollback: step reading vars reads what this task ran with on its
+	// device, so the task's variables are worked out on each device too.
+	reads := r.rollbackReadsVars(task)
+	if !reads && r.dag.Conditions[nodeID] != nil {
 		if uses, err := ConditionUsesRoot(task.Conditional, TemplateRootVars); err == nil && uses {
 			reads = true
 		}
@@ -313,6 +316,11 @@ func (r *run) varsNeedDevice(nodeID string, task *Task) bool {
 // rendered. roots is the evaluation's extra roots; its internal host-vars
 // entry, when there is one, is consumed.
 func (r *run) mergedVars(task *Task, roots map[string]any) (map[string]any, error) {
+	// An undo step reads what its task ran with, merged and rendered then,
+	// and nothing set since (undo_vars.go).
+	if kept, ok := roots[forwardVarsRoot].(map[string]any); ok {
+		return maps.Clone(kept), nil
+	}
 	extra := r.x.extraVars
 	var host map[string]any
 	if h, ok := roots[hostVarsRoot].(map[string]any); ok {
@@ -380,7 +388,7 @@ func (r *run) mergedVars(task *Task, roots map[string]any) (map[string]any, erro
 		return nil, err
 	}
 	for k, v := range roots {
-		if k != hostVarsRoot {
+		if !isInternalRoot(k) {
 			base[k] = v
 		}
 	}

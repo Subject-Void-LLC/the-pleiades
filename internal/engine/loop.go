@@ -337,7 +337,7 @@ func (r *run) evalContext(task *Task, roots map[string]any) (map[string]any, err
 	}
 	ctx[TemplateRootVars] = vars
 	for k, v := range roots {
-		if k != hostVarsRoot {
+		if !isInternalRoot(k) {
 			ctx[k] = v
 		}
 	}
