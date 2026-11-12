@@ -169,6 +169,59 @@ func TestWinRMGate_ServiceEnableDisableAndBack(t *testing.T) {
 	checkThenRun(t, dir, "", host, startType, "svc.windows.enable", "name="+service)
 }
 
+// TestWinRMGate_GenericServiceMethodsReachTheSCM cycles the five generic
+// svc.* dispatchers on a real Windows host: each resolves the device's
+// service manager to the Service Control Manager, acts through the
+// svc.windows.* method, and records that method's undo. The systemd gate
+// holds the same five to systemd; without this one they were proven on
+// Linux alone. It ends the service running and Automatic.
+func TestWinRMGate_GenericServiceMethodsReachTheSCM(t *testing.T) {
+	dir, host, service := winrmCheckTarget(t, envWinRMTestService, serviceHint)
+	state := func() string {
+		return winrmRead(t, dir, host, "$s = Get-Service -Name '"+service+"'; \"$($s.Status)|$($s.StartType)\"")
+	}
+
+	winrmAdhoc(t, dir, host, "svc.windows.start", "name="+service)
+	winrmAdhoc(t, dir, host, "svc.windows.enable", "name="+service)
+	if got := state(); got != "Running|Automatic" {
+		t.Fatalf("%s is %s before the cycle, want Running|Automatic", service, got)
+	}
+
+	for _, step := range []struct {
+		method, inverse, want string
+	}{
+		{"svc.stop", "svc.windows.start", "Stopped|Automatic"},
+		{"svc.start", "svc.windows.stop", "Running|Automatic"},
+		{"svc.disable", "svc.windows.enable", "Running|Disabled"},
+		{"svc.enable", "svc.windows.disable", "Running|Automatic"},
+	} {
+		t.Run(step.method, func(t *testing.T) {
+			stats := checkThenRun(t, dir, "", host, state, step.method, "name="+service)
+			if got := state(); got != step.want {
+				t.Errorf("the run left %s, want %s", got, step.want)
+			}
+			inverse, _ := stats["inverse"].(map[string]any)
+			params, _ := inverse["params"].(map[string]any)
+			if inverse["fqcn"] != step.inverse || params["name"] != service {
+				t.Errorf("the run recorded the undo %v, want %s of %s", stats["inverse"], step.inverse, service)
+			}
+		})
+	}
+
+	// restart always acts: the check moves nothing, the run leaves it running.
+	check, raw, code := runPleiadesJSONWithHome(t, dir, "", "adhoc", host, "svc.restart", "name="+service, "--mode", "check")
+	if code != 0 || len(check.Tasks) != 1 || check.Tasks[0].Status != "would_change" {
+		t.Fatalf("the svc.restart check did not predict the restart (exit %d):\n%s", code, raw)
+	}
+	run, raw, code := runPleiadesJSONWithHome(t, dir, "", "adhoc", host, "svc.restart", "name="+service)
+	if code != 0 || len(run.Tasks) != 1 || run.Tasks[0].Status != "changed" {
+		t.Fatalf("svc.restart did not run (exit %d):\n%s", code, raw)
+	}
+	if got := state(); got != "Running|Automatic" {
+		t.Errorf("the cycle ended with %s %s, want Running|Automatic", service, got)
+	}
+}
+
 // TestWinRMGate_FeatureRemoveInstallAndBack cycles a real DISM feature
 // through install, remove, install (the reverse), ending enabled.
 func TestWinRMGate_FeatureRemoveInstallAndBack(t *testing.T) {
