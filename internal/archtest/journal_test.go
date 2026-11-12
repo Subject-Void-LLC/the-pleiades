@@ -521,6 +521,34 @@ var journalStringFields = map[string]journalStringField{
 		kind: journalKindDeclaredIdentifier,
 		why:  "a numeric undo parameter under a declared key, kept as its JSON text; a number carries no text a terminal could act on",
 	},
+	"AuthoredSteps.FQCN": {
+		kind: journalKindRegistryConstant,
+		why:  "a rollback: step's method, resolved exactly as FQCN is (engine's resolveFQCN in renderedStep), so the author's bytes are never stored",
+	},
+	"AuthoredSteps.StepDigest": {
+		kind: journalKindDigest,
+		why:  "sha256:<hex> over the step's method and parameters as the compiled runbook holds them (engine.AuthoredStepDigest), computed at write time and never authored",
+	},
+	"AuthoredSteps.Withheld": {
+		kind: journalKindClosedEnum,
+		why:  "engine.WithheldReason, set by renderedStep from one of four constants and held by the reader to engine.IsRecordedWithheldReason",
+	},
+	"AuthoredSteps.Params.Key": {
+		kind: journalKindRegistryConstant,
+		why:  "a templated parameter key of the step that the task's method lists in its sdk.InverseSpec.Record for an undo through the step's method and the step method's Doc.Params declares (renderedStep); any other key keeps the whole step's values out",
+	},
+	"AuthoredSteps.Params.Text": {
+		kind: journalKindDeclaredIdentifier,
+		why:  "a rendered step value under a declared key, held to engine.recordedValue's rule as InverseParams.Text is, and refused when it holds one of the run's known secrets (renderedStep)",
+	},
+	"AuthoredSteps.Params.Texts": {
+		kind: journalKindDeclaredIdentifier,
+		why:  "a rendered list under a key the step's method declares a list, held to engine.RecordableTexts as InverseParams.Texts is, and refused when an item holds a known secret",
+	},
+	"AuthoredSteps.Params.Number": {
+		kind: journalKindDeclaredIdentifier,
+		why:  "a rendered numeric step value under a declared key, kept as its JSON text as InverseParams.Number is",
+	},
 	"RollbackOf": {
 		kind: journalKindPlatformID,
 		why:  "the run id (Crawl) or job id (Walk) of the run being undone, handed to engine.WithRollback by the rollback command or job, which read it from the platform's own journal",

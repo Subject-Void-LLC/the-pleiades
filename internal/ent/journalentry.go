@@ -119,7 +119,9 @@ type JournalEntry struct {
 	CollectionManifests string `json:"collection_manifests,omitempty"`
 	// InverseSpecDigest holds the value of the "inverse_spec_digest" field.
 	InverseSpecDigest string `json:"inverse_spec_digest,omitempty"`
-	selectValues      sql.SelectValues
+	// AuthoredSteps holds the value of the "authored_steps" field.
+	AuthoredSteps jsontext.Value `json:"authored_steps,omitempty"`
+	selectValues  sql.SelectValues
 }
 
 // scanValues returns the types for scanning values from sql.Rows.
@@ -127,7 +129,7 @@ func (*JournalEntry) scanValues(columns []string) ([]any, error) {
 	values := make([]any, len(columns))
 	for i := range columns {
 		switch columns[i] {
-		case journalentry.FieldStatKeys, journalentry.FieldParamKeys, journalentry.FieldInverseParamKeys, journalentry.FieldInverseParams:
+		case journalentry.FieldStatKeys, journalentry.FieldParamKeys, journalentry.FieldInverseParamKeys, journalentry.FieldInverseParams, journalentry.FieldAuthoredSteps:
 			values[i] = new([]byte)
 		case journalentry.FieldFqcnUnresolved, journalentry.FieldInverseFqcnUnresolved, journalentry.FieldDiffRecorded, journalentry.FieldInverseComplete, journalentry.FieldInversePartial, journalentry.FieldActionChanged, journalentry.FieldAuthoredRollback, journalentry.FieldAuthoredRollbackEmpty, journalentry.FieldCollectionProgram:
 			values[i] = new(sql.NullBool)
@@ -466,6 +468,14 @@ func (_m *JournalEntry) assignValues(columns []string, values []any) error {
 			} else if value.Valid {
 				_m.InverseSpecDigest = value.String
 			}
+		case journalentry.FieldAuthoredSteps:
+			if value, ok := values[i].(*[]byte); !ok {
+				return fmt.Errorf("unexpected type %T for field authored_steps", values[i])
+			} else if value != nil && len(*value) > 0 {
+				if err := json.Unmarshal(*value, &_m.AuthoredSteps); err != nil {
+					return fmt.Errorf("unmarshal field authored_steps: %w", err)
+				}
+			}
 		default:
 			_m.selectValues.Set(columns[i], values[i])
 		}
@@ -651,6 +661,9 @@ func (_m *JournalEntry) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("inverse_spec_digest=")
 	builder.WriteString(_m.InverseSpecDigest)
+	builder.WriteString(", ")
+	builder.WriteString("authored_steps=")
+	builder.WriteString(fmt.Sprintf("%v", _m.AuthoredSteps))
 	builder.WriteByte(')')
 	return builder.String()
 }

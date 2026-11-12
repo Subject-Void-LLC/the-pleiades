@@ -227,6 +227,14 @@ func (JournalEntry) Fields() []ent.Field {
 		field.Bool("collection_program").Immutable().Default(false),
 		field.String("collection_manifests").Immutable().Optional(),
 		field.String("inverse_spec_digest").Immutable().Optional(),
+		// authored_steps (Phase 87) holds the entry's marshalled
+		// AuthoredSteps: each templated rollback: step of the task as the run
+		// rendered it on the device, its values the same kind 7 identifiers
+		// inverse_params holds, under the same declarations, so a later
+		// rollback replays them instead of rendering the step again. jsonb,
+		// like inverse_params, and with no crypto hook for the same reason.
+		// Empty on a row written before it, and on one with no such step.
+		field.JSON("authored_steps", json.RawMessage{}).Immutable().Optional(),
 	}
 }
 

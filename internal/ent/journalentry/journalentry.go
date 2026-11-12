@@ -114,6 +114,8 @@ const (
 	FieldCollectionManifests = "collection_manifests"
 	// FieldInverseSpecDigest holds the string denoting the inverse_spec_digest field in the database.
 	FieldInverseSpecDigest = "inverse_spec_digest"
+	// FieldAuthoredSteps holds the string denoting the authored_steps field in the database.
+	FieldAuthoredSteps = "authored_steps"
 	// Table holds the table name of the journalentry in the database.
 	Table = "journal_entries"
 )
@@ -171,6 +173,7 @@ var Columns = []string{
 	FieldCollectionProgram,
 	FieldCollectionManifests,
 	FieldInverseSpecDigest,
+	FieldAuthoredSteps,
 }
 
 // ValidColumn reports if the column name is valid (part of the table columns).

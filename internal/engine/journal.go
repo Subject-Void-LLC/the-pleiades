@@ -406,6 +406,18 @@ type JournalEntry struct {
 	// to undo from one that should be undone first.
 	AuthoredRollbackEmpty bool `json:"authored_rollback_empty"`
 
+	// AuthoredSteps are the task's rollback: steps that hold a template, as
+	// this device's run rendered them (journal_steps.go): one per such step,
+	// for a task that changed the device. A later rollback replays a step's
+	// recorded values rather than rendering its text again, when the run's
+	// variables and results are gone. A step holding no template is not
+	// here: its text alone is its undo, read from the runbook. Its values
+	// are held to the rules InverseParams is (kind 7), and a step that
+	// cannot be held to them is recorded with no value and a reason
+	// (AuthoredStep.Withheld). Absent in a journal written before the field
+	// existed (format 3, internal/journal's format.go).
+	AuthoredSteps []AuthoredStep `json:"authored_steps,omitempty"`
+
 	// Become is the account the task's commands ran as through sudo
 	// (kind 3), empty when it ran as its login. A rollback replays the undo
 	// as the same account, since what the task changed or saved may belong to
@@ -426,6 +438,84 @@ type JournalEntry struct {
 	// for an authored one. A rollback resumed after a failure skips steps
 	// already done.
 	UndoesStep int `json:"undoes_step"`
+}
+
+// AuthoredStep is one rollback: step of a task as the run rendered it on one
+// device (JournalEntry.AuthoredSteps).
+type AuthoredStep struct {
+	// Index is the step's place in the task's rollback: list (kind 6).
+	Index int `json:"index"`
+
+	// FQCN is the step's method, resolved exactly as JournalEntry.FQCN is
+	// (kind 2).
+	FQCN string `json:"fqcn"`
+
+	// StepDigest is AuthoredStepDigest of the step as the runbook wrote it
+	// (kind 4), so a rollback can tell the step the run rendered from one
+	// edited since.
+	StepDigest string `json:"step_digest"`
+
+	// Params are the values of the step's templated parameters as they
+	// rendered (kind 7), in key order, each one a key the task's method
+	// declares recordable for an undo through FQCN (sdk.InverseSpec.Record),
+	// held to recordedValue's rules and to the run's known secrets. Empty
+	// unless Complete. The step's literal parameters are the runbook's.
+	Params []InverseParam `json:"params,omitempty"`
+
+	// Complete reports that every templated parameter is in Params, so a
+	// rollback can replay the step (kind 3).
+	Complete bool `json:"complete"`
+
+	// Withheld says why the step's values were not recorded (kind 3), empty
+	// when Complete.
+	Withheld WithheldReason `json:"withheld,omitempty"`
+}
+
+// WithheldReason is why an authored step's rendered values are not in the
+// journal, a closed set the projection maps onto explicitly.
+type WithheldReason string
+
+// The reasons an authored step is recorded with no values.
+const (
+	// WithheldUndeclared is a step whose method the task's method declares no
+	// undo through (sdk.InverseSpec), so no value of it may be kept.
+	WithheldUndeclared WithheldReason = "undeclared"
+	// WithheldValue is a templated parameter the declaration does not record,
+	// or a value the journal may not hold (recordedValue).
+	WithheldValue WithheldReason = "not_recordable"
+	// WithheldSecret is a rendered value holding one of the run's known
+	// secrets.
+	WithheldSecret WithheldReason = "secret"
+	// WithheldRender is a step that did not render with what the task ran
+	// with.
+	WithheldRender WithheldReason = "render_failed"
+)
+
+// IsRecordedWithheldReason reports whether r is one an authored step may
+// carry, the one list the engine writes from and the journal reader holds a
+// recorded entry to. Like IsRecordedFailureStage's list, it only grows.
+func IsRecordedWithheldReason(r WithheldReason) bool {
+	switch r {
+	case WithheldUndeclared, WithheldValue, WithheldSecret, WithheldRender:
+		return true
+	}
+	return false
+}
+
+// Describe says, for an operator, why a step with this reason cannot be
+// replayed from the journal.
+func (r WithheldReason) Describe() string {
+	switch r {
+	case WithheldUndeclared:
+		return "its method is not an undo the task's method declares, so the journal keeps none of its values"
+	case WithheldValue:
+		return "a templated parameter is not one the task's method declares recordable for this undo, or its value is not one the journal may hold"
+	case WithheldSecret:
+		return "a rendered value holds one of the run's secrets, which the journal never keeps"
+	case WithheldRender:
+		return "it did not render with the values the task ran with"
+	}
+	return "the journal records no reason this build knows"
 }
 
 // InverseParam is one recorded undo parameter (JournalEntry.InverseParams):

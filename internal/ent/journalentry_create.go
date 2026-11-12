@@ -641,6 +641,12 @@ func (_c *JournalEntryCreate) SetNillableInverseSpecDigest(v *string) *JournalEn
 	return _c
 }
 
+// SetAuthoredSteps sets the "authored_steps" field.
+func (_c *JournalEntryCreate) SetAuthoredSteps(v jsontext.Value) *JournalEntryCreate {
+	_c.mutation.SetAuthoredSteps(v)
+	return _c
+}
+
 // Mutation returns the JournalEntryMutation object of the builder.
 func (_c *JournalEntryCreate) Mutation() *JournalEntryMutation {
 	return _c.mutation
@@ -1116,6 +1122,10 @@ func (_c *JournalEntryCreate) createSpec() (*JournalEntry, *sqlgraph.CreateSpec)
 	if value, ok := _c.mutation.InverseSpecDigest(); ok {
 		_spec.SetField(journalentry.FieldInverseSpecDigest, field.TypeString, value)
 		_node.InverseSpecDigest = value
+	}
+	if value, ok := _c.mutation.AuthoredSteps(); ok {
+		_spec.SetField(journalentry.FieldAuthoredSteps, field.TypeJSON, value)
+		_node.AuthoredSteps = value
 	}
 	return _node, _spec
 }

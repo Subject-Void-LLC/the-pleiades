@@ -2629,6 +2629,16 @@ func InverseSpecDigestContainsFold(v string) predicate.JournalEntry {
 	return predicate.JournalEntry(sql.FieldContainsFold(FieldInverseSpecDigest, v))
 }
 
+// AuthoredStepsIsNil applies the IsNil predicate on the "authored_steps" field.
+func AuthoredStepsIsNil() predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldIsNull(FieldAuthoredSteps))
+}
+
+// AuthoredStepsNotNil applies the NotNil predicate on the "authored_steps" field.
+func AuthoredStepsNotNil() predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldNotNull(FieldAuthoredSteps))
+}
+
 // And groups predicates with the AND operator between them.
 func And(predicates ...predicate.JournalEntry) predicate.JournalEntry {
 	return predicate.JournalEntry(sql.AndPredicates(predicates...))

@@ -28,7 +28,14 @@ import (
 // undo declaration's digest ("inverse_spec_digest"), which a rollback checks
 // an undo against: fields an undo depends on, so the version is raised. A
 // format-1 line reads with both empty.
-const FormatVersion = 2
+//
+// Format 3 (Phase 87) adds a task's rollback: steps as the run rendered them
+// ("authored_steps"), which a later rollback replays instead of rendering the
+// step again: a field an undo depends on, so the version is raised and a
+// format-2 reader refuses the line by version rather than by an unknown key. A
+// format-2 line reads with none, and a step of it that reads what only the run
+// had is refused at rollback (internal/rollback's steps.go).
+const FormatVersion = 3
 
 // fileLine is the shape of one journal line: the entry, plus the format.
 //

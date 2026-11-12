@@ -485,12 +485,14 @@ func (r *run) projectResult(n NodeResult) (JournalEntry, error) {
 	// post-action failure paths by design (see its doc comment), and those
 	// are the paths a rollback most needs a record of.
 	entry.StatKeys, entry.UndeclaredStatCount = admitStatKeys(n.journalStats, resolved)
+	// The task's method, whose declarations hold both its recorded undo and
+	// its rendered rollback: steps; none for an engine action.
+	var emitter *collection.Descriptor
 	if !resolved.engineAction {
 		// Skipped for the seven engine-dispatched FQCNs, for the reason
 		// on resolvedFQCN.engineAction: projecting here would let a
 		// runbook forge an InverseFQCN a rollback engine would later
 		// trust.
-		var emitter *collection.Descriptor
 		if desc, ok := collection.Lookup(task.FQCN); ok {
 			emitter = &desc
 		}
@@ -500,6 +502,9 @@ func (r *run) projectResult(n NodeResult) (JournalEntry, error) {
 	// Non-nil, not non-empty: rollback: [] is an authored undo of nothing.
 	entry.AuthoredRollback = task.Rollback != nil
 	entry.AuthoredRollbackEmpty = task.Rollback != nil && len(task.Rollback) == 0
+	// Each templated rollback: step as this device's run rendered it, for a
+	// later rollback that no longer has what it read (journal_steps.go).
+	entry.AuthoredSteps = r.renderedSteps(n.NodeID, task, n, emitter)
 	// The account the commands ran as, which the executor records only once
 	// a connection really ran as it (recordBecome), and only ever the task's
 	// own: a stat naming any other account is not believed, so no method's
