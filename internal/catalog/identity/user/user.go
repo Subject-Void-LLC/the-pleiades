@@ -147,7 +147,9 @@ func homeUseraddWouldMake(ctx context.Context, conn *remoteexec.Conn, name strin
 // printf, sort and cmp as POSIX gives them, plus find's -mindepth, which
 // GNU, BSD and BusyBox find all have though POSIX does not, so it reads
 // the same on every system useradd runs on. cd takes -- since a home is
-// whatever passwd says.
+// whatever passwd says, and homeState passes both directories through
+// remoteexec.DirOperand, since "--" does not stop cd reading a relative "-" as
+// $OLDPWD or searching $CDPATH.
 const homeStateScript = `h=$1 s=$2
 [ -d "$h" ] || { echo absent; exit 0; }
 list() { [ -d "$1" ] || return 0; (cd -- "$1" && find . -mindepth 1 \( -type d -exec printf 'd %s\n' {} + \) -o \( -type f -exec printf 'f %s\n' {} + \) -o -exec printf 'o %s\n' {} +) | LC_ALL=C sort; }
@@ -159,15 +161,10 @@ if find . -type f -exec sh -c 'for p; do cmp -s "$p" "$0/$p" || exit 1; done' "$
 // homeState reports whether home is absent, holds exactly what useradd
 // copied into it from skel (unchanged), or anything else (changed).
 func homeState(ctx context.Context, conn *remoteexec.Conn, home, skel string) (string, error) {
-	// A path beginning with "-" goes as ./path: cd reads "-" as $OLDPWD even
-	// after "--" (FAILURE_PATTERNS 1179), and passwd's home is whatever it says.
-	dotted := func(p string) string {
-		if strings.HasPrefix(p, "-") {
-			return "./" + p
-		}
-		return p
-	}
-	result, err := conn.Run(ctx, remoteexec.QuoteCommand([]string{"sh", "-c", homeStateScript, "sh", dotted(home), dotted(skel)}))
+	// DirOperand, since the script cds into both and passwd's home is whatever
+	// it says: cd reads a relative "-" as $OLDPWD and searches $CDPATH for any
+	// other relative name (FAILURE_PATTERNS 1179).
+	result, err := conn.Run(ctx, remoteexec.QuoteCommand([]string{"sh", "-c", homeStateScript, "sh", remoteexec.DirOperand(home), remoteexec.DirOperand(skel)}))
 	if err != nil {
 		return "", err
 	}
@@ -313,8 +310,9 @@ type desired struct {
 // reads it as its key (resolveGroupGID). Shell, home and comment are not:
 // each reaches useradd and usermod only as the argument of its own option
 // (-s, -d, -c), which getopt takes whole even when it begins with a dash,
-// and a home that is also tested on the device is passed as test's operand
-// or through cd --, neither of which reads options from it.
+// and a home that is also tested on the device is passed as test's operand,
+// which reads no options from it, and to cd through remoteexec.DirOperand
+// (homeState), which leaves cd nothing else to read it as.
 func parseDesired(params map[string]any) (desired, error) {
 	var d desired
 	if uid, ok, err := sdk.IntParam(params, paramUID); err != nil {

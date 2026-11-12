@@ -29,6 +29,27 @@ func QuoteArg(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
+// DirOperand returns dir as the operand of a POSIX cd: a relative directory
+// gets "./" before it, which names the same directory and leaves cd nothing
+// else to read it as. Quote the result with QuoteArg as any other word.
+//
+// cd gives a relative operand two meanings that quoting and "--" do not
+// stop. "-" is $OLDPWD, which dash and BusyBox's sh, with no OLDPWD, read as
+// "stay here" and succeed (FAILURE_PATTERNS 1179). And a name not beginning
+// with "/", "." or ".." is searched for under each entry of $CDPATH, which
+// the device's login environment can set, before the current directory, and
+// when found there cd prints the path it entered. Measured on dash, bash and
+// BusyBox's sh: with CDPATH naming another directory holding proj,
+// cd -- 'proj' entered that one, and cd -- './proj' entered ./proj. An empty
+// dir, which callers read as "do not change directory", and an absolute one
+// are returned as they are.
+func DirOperand(dir string) string {
+	if dir == "" || strings.HasPrefix(dir, "/") {
+		return dir
+	}
+	return "./" + dir
+}
+
 // QuoteCommand joins argv into one shell-safe command line, quoting
 // every element with QuoteArg.
 //

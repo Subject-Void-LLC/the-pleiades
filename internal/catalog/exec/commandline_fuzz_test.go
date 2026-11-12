@@ -22,9 +22,9 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport/need"
 )
 
-// fuzzDirs are the directories each iteration's working directory holds,
-// so a seeded chdir can succeed: names a shell would read as an option, a
-// substitution, a quote or a separator.
+// fuzzDirs are the directories each iteration's working directory and its
+// CDPATH decoy hold, so a seeded chdir can succeed: names a shell would read
+// as an option, a substitution, a quote or a separator.
 var fuzzDirs = []string{"sub dir", "-", "--", "-P", "-L", "a'b", "x;y", "$(id)"}
 
 // recorderScript writes its working directory and each of its arguments,
@@ -56,10 +56,15 @@ func FuzzShellCommandLine(f *testing.F) {
 		if strings.ContainsRune(line, 0) || strings.ContainsRune(dir, 0) {
 			t.Skip("a NUL is refused before any command is sent")
 		}
-		work := t.TempDir()
+		// CDPATH names a decoy holding the same directories, as a device's
+		// login environment can, so a relative chdir searched for there is
+		// caught by the pwd check below.
+		work, decoy := t.TempDir(), t.TempDir()
 		for _, d := range fuzzDirs {
-			if err := os.Mkdir(filepath.Join(work, d), 0o700); err != nil {
-				t.Fatal(err)
+			for _, base := range []string{work, decoy} {
+				if err := os.Mkdir(filepath.Join(base, d), 0o700); err != nil {
+					t.Fatal(err)
+				}
 			}
 		}
 		out := filepath.Join(work, "out")
@@ -67,7 +72,7 @@ func FuzzShellCommandLine(f *testing.F) {
 		command := commandLine([]string{rec, "-c", line}, dir)
 		cmd := osexec.Command("/bin/sh", "-c", command) // #nosec G204 -- the line under test, run in a temporary directory
 		cmd.Dir = work
-		cmd.Env = []string{"PATH=/usr/bin:/bin", "REC_OUT=" + out, "HOME=" + work}
+		cmd.Env = []string{"PATH=/usr/bin:/bin", "REC_OUT=" + out, "HOME=" + work, "CDPATH=" + decoy, "OLDPWD=" + decoy}
 		output, err := cmd.CombinedOutput()
 		code := 0
 		var exitErr *osexec.ExitError
