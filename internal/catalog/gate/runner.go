@@ -132,7 +132,9 @@ func dirCommand(c gate.Check, dir string, timeout gate.Duration) string {
 	} else {
 		run = remoteexec.QuoteCommand(append(bound, "sh", "-c", c.Shell))
 	}
-	return "cd " + remoteexec.QuoteArg(dir) + " && printf '" + pidMarker + "%s\\n' \"$$\" && exec " + run + " 2>&1"
+	// DirOperand: cd searches $CDPATH for a relative name and prints the path
+	// it entered, which would come before the PID marker (FAILURE_PATTERNS 1179).
+	return "cd " + remoteexec.QuoteArg(remoteexec.DirOperand(dir)) + " && printf '" + pidMarker + "%s\\n' \"$$\" && exec " + run + " 2>&1"
 }
 
 // readOutput streams a check's output into tail, taking the process ID

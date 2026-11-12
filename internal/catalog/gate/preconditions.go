@@ -46,7 +46,9 @@ func (d *deviceRunner) preconditions(ctx context.Context, conn *remoteexec.Conn,
 // validated by pkg/gate, and each is quoted anyway.
 func probeScript(c gate.Check, dir string) string {
 	q := remoteexec.QuoteArg
-	lines := []string{"cd " + q(dir) + " 2>/dev/null || { printf 'nodir\\n'; exit 0; }"}
+	// DirOperand: cd searches $CDPATH for a relative name and prints the path
+	// it entered, which this probe would read as its answer (FAILURE_PATTERNS 1179).
+	lines := []string{"cd " + q(remoteexec.DirOperand(dir)) + " 2>/dev/null || { printf 'nodir\\n'; exit 0; }"}
 	for _, cmd := range c.Requires.Commands {
 		lines = append(lines, "command -v "+q(cmd)+" >/dev/null 2>&1 || { printf 'needs command %s\\n' "+q(cmd)+"; exit 0; }")
 	}

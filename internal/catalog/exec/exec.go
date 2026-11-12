@@ -111,11 +111,16 @@ const cdFailedExitCode = 121
 // not option parsing. And a failed cd stops what follows rather than
 // letting it run somewhere else, which is the failure that turns a
 // typo'd chdir into a change applied to the wrong path.
+//
+// "--" is not enough for a relative directory: cd reads "-" as $OLDPWD and
+// searches $CDPATH for any other relative name, so chdir "-" ran the command
+// in the login's home (FAILURE_PATTERNS 1179). remoteexec.DirOperand sends a
+// relative directory as ./dir, which cd reads as nothing else.
 func changeDirectory(dir string) string {
 	if dir == "" {
 		return ""
 	}
-	return "cd -- " + remoteexec.QuoteArg(dir) + " || exit " + strconv.Itoa(cdFailedExitCode) + "; "
+	return "cd -- " + remoteexec.QuoteArg(remoteexec.DirOperand(dir)) + " || exit " + strconv.Itoa(cdFailedExitCode) + "; "
 }
 
 // commandLine builds the single string an SSH exec request carries, from

@@ -396,6 +396,54 @@ func TestDirectoryEntries(t *testing.T) {
 	}
 }
 
+// TestDirectoryEntries_ListsADirectoryNamedDash lists the relative directory
+// "-", which cd reads as $OLDPWD even after "--" (FAILURE_PATTERNS 1179): with
+// OLDPWD naming another directory, the listing must be the one named "-".
+func TestDirectoryEntries_ListsADirectoryNamedDash(t *testing.T) {
+	root := t.TempDir()
+	for dir, file := range map[string]string{"-": "in-dash", "elsewhere": "in-elsewhere"} {
+		if err := os.Mkdir(filepath.Join(root, dir), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, dir, file), nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// The harness's shell starts in this process's directory, with its
+	// environment, so the relative "-" is root's and OLDPWD is the decoy.
+	t.Chdir(root)
+	t.Setenv("OLDPWD", filepath.Join(root, "elsewhere"))
+	conn := connect(t)
+
+	got, more, err := remotefile.DirectoryEntries(context.Background(), conn, "-", 5)
+	if err != nil || more || !slices.Equal(got, []string{"in-dash"}) {
+		t.Errorf(`DirectoryEntries("-") = %q, more %v, %v; want only "in-dash"`, got, more, err)
+	}
+}
+
+// TestDirectoryEntries_IgnoresCDPATH lists the relative directory proj while
+// CDPATH names a decoy that also holds one: cd searches CDPATH for a relative
+// name and prints the path it entered (FAILURE_PATTERNS 1179).
+func TestDirectoryEntries_IgnoresCDPATH(t *testing.T) {
+	root, decoy := t.TempDir(), t.TempDir()
+	for dir, file := range map[string]string{filepath.Join(root, "proj"): "mine", filepath.Join(decoy, "proj"): "decoy"} {
+		if err := os.Mkdir(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, file), nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Chdir(root)
+	t.Setenv("CDPATH", decoy)
+	conn := connect(t)
+
+	got, more, err := remotefile.DirectoryEntries(context.Background(), conn, "proj", 5)
+	if err != nil || more || !slices.Equal(got, []string{"mine"}) {
+		t.Errorf(`DirectoryEntries("proj") = %q, more %v, %v; want only "mine"`, got, more, err)
+	}
+}
+
 // TestDirectoryEmpty_ReportsATransportFailure covers the branch where the
 // probe cannot run at all: a server that authenticates and then refuses
 // every session.

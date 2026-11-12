@@ -288,7 +288,10 @@ func DirectoryEntries(ctx context.Context, conn *remoteexec.Conn, dirPath string
 	// a larger one.
 	script := `cd -- "$1" && [ -r . ] || exit ` + strconv.Itoa(statusUnreadable) + `; n=0; ` +
 		`for f in * .[!.]* ..?*; do if [ -e "$f" ] || [ -L "$f" ]; then printf '%s\0' "$f"; n=$((n+1)); [ "$n" -gt "$2" ] && break; fi; done; exit 0`
-	result, err := conn.Run(ctx, remoteexec.QuoteCommand([]string{"sh", "-c", script, "sh", dirPath, strconv.Itoa(limit)}))
+	// DirOperand, since cd reads a relative "-" as $OLDPWD and searches
+	// $CDPATH for any other relative name, and would list another directory
+	// (FAILURE_PATTERNS 1179).
+	result, err := conn.Run(ctx, remoteexec.QuoteCommand([]string{"sh", "-c", script, "sh", remoteexec.DirOperand(dirPath), strconv.Itoa(limit)}))
 	if err != nil {
 		return nil, false, fmt.Errorf("list %s: %w", dirPath, err)
 	}

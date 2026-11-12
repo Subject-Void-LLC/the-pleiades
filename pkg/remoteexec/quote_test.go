@@ -190,3 +190,16 @@ func splitQuotedLine(t *testing.T, line string) []string {
 	args = append(args, current.String())
 	return args
 }
+
+// TestDirOperand holds the rule cd's operand needs: every relative directory
+// gets "./" before it, an absolute or empty one is left as it is.
+func TestDirOperand(t *testing.T) {
+	for in, want := range map[string]string{
+		"": "", "/": "/", "/srv/app": "/srv/app", "-": "./-", "-P": "./-P", "proj": "./proj",
+		"./proj": "././proj", "..": "./..", "a b": "./a b",
+	} {
+		if got := DirOperand(in); got != want {
+			t.Errorf("DirOperand(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

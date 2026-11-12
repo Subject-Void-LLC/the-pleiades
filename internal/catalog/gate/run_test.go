@@ -402,3 +402,32 @@ func TestRun_ACancellationStopsARunningCheck(t *testing.T) {
 		time.Sleep(200 * time.Millisecond)
 	}
 }
+
+// TestRun_ARelativeDirIsNotSearchedForOnCDPATH runs a check in the relative
+// directory sub, from a relative manifest, while CDPATH names a decoy that
+// also holds sub. cd searches CDPATH for a relative name and prints the path
+// it entered, so the check ran in the decoy and the probe read that path as
+// its answer (FAILURE_PATTERNS 1179). The harness's shell starts in this
+// process's directory, with its environment.
+func TestRun_ARelativeDirIsNotSearchedForOnCDPATH(t *testing.T) {
+	h := newHarness(t)
+	decoy := t.TempDir()
+	for _, dir := range []string{filepath.Join(h.project, "sub"), filepath.Join(decoy, "sub")} {
+		if err := os.Mkdir(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(h.project, "sub", "here"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h.manifest(t, "version: 1\nchecks:\n  - {name: in-sub, kind: pure, dir: sub, shell: \"test -e here\", timeout: 30s}\n")
+	t.Chdir(h.project)
+	t.Setenv("CDPATH", decoy)
+
+	if _, err := gate.Run(context.Background(), h.rc, h.device, params("gates.yaml", nil)); err != nil {
+		t.Fatalf("the check in ./sub failed: %v", err)
+	}
+	if got := resultsByName(t, h.rc)["in-sub"]["status"]; got != "PASS" {
+		t.Errorf("in-sub = %v, want PASS: it ran somewhere other than ./sub", got)
+	}
+}
