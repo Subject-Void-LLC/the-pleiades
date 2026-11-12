@@ -8,7 +8,6 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
-	"github.com/Subject-Void-LLC/the-pleiades/pkg/operand"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remotefile"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
@@ -554,7 +553,9 @@ func directoryName(params map[string]any, key string) (string, error) {
 	if !ok {
 		return "", fmt.Errorf("%s must be a name, not %v: this method compares ownership by name, which is what the device reports back", key, raw)
 	}
-	if err := operand.Check(key, name); err != nil {
+	// checkName is the one rule the other file methods use: the operand
+	// refusal first, then the numeric id this comment promises to refuse.
+	if err := checkName(key, name); err != nil {
 		return "", err
 	}
 	return name, nil

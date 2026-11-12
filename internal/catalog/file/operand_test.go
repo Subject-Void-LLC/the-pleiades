@@ -84,3 +84,25 @@ func TestOwnership_RefusedBeforeTheConnection(t *testing.T) {
 		}
 	}
 }
+
+// TestOwnership_ANumericIDIsRefused: every method setting ownership refuses
+// an all-digit owner or group before it connects, for the run and the check
+// alike, since the device reports names and a numeric id would never compare
+// equal. file.directory once said so in its doc and accepted one anyway.
+func TestOwnership_ANumericIDIsRefused(t *testing.T) {
+	for fqcn, base := range ownershipMethods {
+		d, _ := collection.Lookup(fqcn)
+		for _, key := range []string{"owner", "group"} {
+			params := map[string]any{key: "1000", "insecure_skip_host_key_verify": true}
+			for k, v := range base {
+				params[k] = v
+			}
+			for mode, call := range map[string]collection.Method{"run": d.Invoke, "check": d.Check} {
+				res, err := call(context.Background(), fuzzContext{}, nil, params)
+				if err == nil || !strings.Contains(err.Error(), "numeric id") || res.Changed {
+					t.Errorf("%s %s with %s 1000 = %v (changed %v), want refused as a numeric id", fqcn, mode, key, err, res.Changed)
+				}
+			}
+		}
+	}
+}
