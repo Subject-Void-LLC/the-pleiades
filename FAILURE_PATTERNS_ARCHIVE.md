@@ -29197,3 +29197,23 @@ rule. `FuzzShellCommandLine` then ran 75K and, with the decoy, 60K real-shell ex
 **Lesson.** Before trusting `--`, read the program's own operand grammar, and the environment it reads it with: `cd -`
 and `CDPATH`, `cat -`, `tar -f -`. A relative path is safest sent as `./path`, through one shared rule. A fuzz fixture
 that runs a real program should carry the environment variables that program reads.
+
+## 1180. net.batfish.check's top-level assertion refusals did not name the method, and a scenario's malformed assertion list named it twice (fixed before push)
+
+**Symptom.** `net.batfish.check` with `assertions: [{route: r1}]` was refused with "assertions[0]: route takes a map",
+where every other parameter's refusal opens with "net.batfish.check: ". A scenario whose `assertions` was not a list was
+refused with "net.batfish.check: scenarios[0]: net.batfish.check: assertions must be a list". Found by the new
+`FuzzReadParams` on its first minute.
+
+**Root cause.** `readAssertions` is read in two places, at the top level and inside a scenario, and its two sources of
+refusal disagreed: its own `fmt.Errorf` calls named no method, and the `mapList` it called named it. The scenario caller
+adds the method name, so the top level got none from `readAssertions`' own refusals and a scenario got two from
+`mapList`'s.
+
+**Fix.** `mapListOf` is `mapList` without the method name, `readAssertions` reads through it and never names the
+method, and each caller names it once: `readParams` wraps the top-level call, and the scenario path keeps its
+`scenarios[i]` wrapper. Proof: `TestReadParams_NamesTheMethodOnce`, five refusals across both paths, which fails on the
+old code three ways; `FuzzReadParams` holds every refusal to naming the method exactly once.
+
+**Lesson.** A reader called from two places should leave naming to its callers, all the way down: one helper that names
+the method itself, beneath a function that does not, gives one caller none and the other two.

@@ -4,45 +4,31 @@ Rewrite the "Current Status" section when stopping mid-task or handing off, per 
 
 ## Current Status (this session)
 
-**2026-11-12. Branch `test/phase-38-close`, from `main` at `8f2ffb20` (#158 merged). Closes Phase 38 (10 of 10 work
-items; only its process item is left). Commits are made; `make pr-check`, push, `make branch-containers` and the pull
-request are next. The owner authorized merging green PRs and deleting their branches for today only.**
+**2026-11-12. Branch `test/129cd-fuzz-and-device-undo`, from `main` at `321acf71` (#159 merged). Closes Phases 129c and
+129d, the first of the owner's v0.3.0 backlog (finish every incomplete v0.3.0 phase, then v0.4.0). Next: pr-check, push,
+branch-containers, PR, merge when green (authorized today only).**
 
 ### What works
 
-- `svc.*` proven on every OS it claims. Linux: `TestCLI_SystemdServicesCycleOnARealDevice` (#158). Windows:
-  `TestWinRMGate_Service*` passed on win-check today, and the new `TestWinRMGate_GenericServiceMethodsReachTheSCM`
-  covers the generic dispatchers there (undo included; mutation-checked).
-- FAILURE_PATTERNS 1179 (a repeat of 148): `cd` reads a relative `-` as `$OLDPWD` and searches `$CDPATH` for any other
-  relative name, even after `--`, so `chdir: "-"` ran in the login's home and a `CDPATH` could move any relative chdir.
-  One rule now, `remoteexec.DirOperand` (relative goes as `./dir`), at every `cd` site: `exec`, `remotefile.DirectoryEntries`,
-  `identity.user`'s `homeState`, `gate`'s probe and check command. The `CDPATH` half came from fp-reviewer. Each regression
-  test fails on the code before the fix.
-- docs/03: `include_tasks` is unsupported, with the reason and the manual rewrite (the 2026-11-11 decision).
-- Every first-tier fuzz target ran 60 s clean; counts are in IMPLEMENTATION.md's Phase 38. `pkg/operand`'s coverage
-  floor is recorded at 100.0.
-
-### Current blocker
-
-None.
+- `FuzzReadParams` (batfish), `FuzzExpandAliases` and `FuzzDeviceRoot` (engine), each mutation-checked; the first found
+  FAILURE_PATTERNS 1180 (batfish assertion refusals named the method not at all, or twice), fixed with
+  `TestReadParams_NamesTheMethodOnce`.
+- Records only (no PR needed): the 23 attestation problems are 0: Phase 129 excepted under five controls in
+  SECURITY_ATTESTATION.md (an umbrella, its code is in 129a-d), 129a-d gate items written from verified evidence, 119c's
+  two items cite checkable tests. A stale "no test yet" note in 129d was corrected (one already ran).
 
 ### Open
 
-- Watch in CI: `cmd/controller`'s `TestControllerLeaderElection_ReleaseGate` (failover 4.5 s against 3 s once).
-- From earlier: 1085, 1139 (owner decision), 1143 (bindings on inventory delete), 1146.
-
-### Next, in order
-
-1. `make pr-check` through the monitor (port 8766), push, `make branch-containers`, open the PR, merge when green
-   (authorized today), then pull main and clean up.
-2. Next roadmap item after Phase 38: Phase 42's 3 open items (`implementation.py --json`'s phase walk).
+- The v0.3.0 backlog after this: 42 (3; Fable drafts in `.IGNORE/claude-api/out/stubs1/`), 88 (1), 127d (1), 117a (1,
+  needs a ServiceNow instance and the IOS lab), 127c (3, a GNS3 stub there), 131 (5), 87 (6), 122a (7), 127a (11, grants
+  and data-capability stubs there), 127b (13), 112 (22, vboxmanage/cloudinit/bsdinstall/winunattend stubs there). The
+  stubs were written by Fable through the API on 2026-11-11 and are unproven: verify each before use.
+- Watch in CI: `cmd/controller`'s `TestControllerLeaderElection_ReleaseGate`. From earlier: 1085, 1139, 1143, 1146.
 
 ### Files changed this session
 
-`pkg/remoteexec/{quote.go,quote_test.go}`, `internal/catalog/gate/{preconditions.go,runner.go,run_test.go}`,
-`internal/catalog/exec/{exec.go,commandline_fuzz_test.go,testdata/fuzz/FuzzShellCommandLine/}`,
-`pkg/remotefile/{remotefile.go,predict_test.go}`, `internal/catalog/identity/user/{user.go,home_state_internal_test.go}`,
-`cmd/pleiades/winrm_service_feature_release_gate_test.go`, `docs/03-migrating-from-ansible.md`, `coverage-floor.json`,
-`changelog/chdir-named-dash.fixed.md`, `FAILURE_PATTERNS*.md` (1179), `HANDOFF_*.md`.
+`internal/catalog/net/batfish/{params.go,assertions.go,params_fuzz_internal_test.go}`,
+`internal/engine/{yaml_aliases_fuzz_internal_test.go,device_root_fuzz_internal_test.go}`,
+`changelog/batfish-refusals-name-the-method.fixed.md`, `FAILURE_PATTERNS*.md` (1180), `HANDOFF_*.md`.
 
-Lab: win-check was started cold twice for the WinRM gates and shut down again each time (ACPI); powered off.
+Lab: no change.
