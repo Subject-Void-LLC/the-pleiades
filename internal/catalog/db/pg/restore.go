@@ -150,6 +150,15 @@ func restore(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 	if err := requireTimeout(ctx, ssh); err != nil {
 		return fail(err)
 	}
+	// The device's pg_restore is read before the server is contacted, so
+	// a connection it cannot verify as written is refused first.
+	toolMaj, toolVersion, err := toolMajor(ctx, ssh, "pg_restore")
+	if err != nil {
+		return fail(err)
+	}
+	if err := systemRootsUsable(conn, "pg_restore", toolMaj); err != nil {
+		return fail(err)
+	}
 	entries, err := listArchive(ctx, ssh, req.src)
 	if err != nil {
 		return fail(err)
@@ -194,10 +203,6 @@ func restore(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 			return fail(fmt.Errorf("database %s already holds %d table(s), view(s) or sequence(s); set %s to drop what the archive restores first", req.database, relations, paramClean))
 		}
 	}
-	toolMaj, toolVersion, err := toolMajor(ctx, ssh, "pg_restore")
-	if err != nil {
-		return fail(err)
-	}
 	_, serverMajor, err := maint.ServerVersion(ctx)
 	if err != nil {
 		return fail(err)
@@ -230,7 +235,7 @@ func restore(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 		command = append(command, "--no-privileges")
 	}
 	command = append(command, "--", req.src)
-	if _, err := (toolRun{conn: conn, database: req.database, command: command, timeout: timeout}).run(ctx, ssh); err != nil {
+	if _, err := (toolRun{conn: conn, database: req.database, command: command, major: toolMaj, timeout: timeout}).run(ctx, ssh); err != nil {
 		if !exists {
 			// The run created it, and one transaction left it empty: the
 			// server is left as it was found.

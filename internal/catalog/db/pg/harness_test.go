@@ -14,6 +14,7 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 	testpg "github.com/testcontainers/testcontainers-go/modules/postgres"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/catalog/db/pg"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport/need"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
@@ -61,8 +62,42 @@ func (c *stubContext) DatabaseConnection(name string) (wire.DatabaseConnection, 
 type harness struct {
 	device *device
 	rc     *stubContext
-	host   string
-	port   int
+	// host and port are the server as this process dials it.
+	host string
+	port int
+	// dbHost and dbPort are the server as the device dials it, when that
+	// differs (a device container reaching its own database).
+	dbHost string
+	dbPort int
+	// dev is the device container, when the device is one.
+	dev *pg.TestDevice
+}
+
+// startDeviceHarness is startHarness with the device a database host in a
+// container (pg.StartTestDevice), whose client programs and libpq are
+// PostgresImage's own release, reaching its database at 127.0.0.1:5432.
+func startDeviceHarness(t *testing.T, tlsDir string) *harness {
+	t.Helper()
+	dev := pg.StartTestDevice(t, adminUser, adminPassword, tlsDir)
+	h := &harness{
+		device: &device{
+			Stub: &inventorytest.Stub{StubID: "db-1", StubName: "db-box", StubState: inventory.StateActive,
+				Caps: []capability.Name{capability.NameSSHTransport, capability.NameCommandExec}},
+			host: dev.Host, port: dev.SSHPort,
+		},
+		rc:   &stubContext{secrets: map[string]string{"username": pg.DeviceUser, "password": pg.DevicePassword}, stats: map[string]any{}},
+		host: dev.Host, port: dev.DBPort, dbHost: "127.0.0.1", dbPort: 5432, dev: dev,
+	}
+	h.connect("admin", adminUser, adminPassword)
+	return h
+}
+
+// deviceView is the server's host and port as the device dials it.
+func (h *harness) deviceView() (string, int) {
+	if h.dbHost != "" {
+		return h.dbHost, h.dbPort
+	}
+	return h.host, h.port
 }
 
 // newHarness starts PostgreSQL and the SSH device, with a connection
@@ -129,7 +164,8 @@ func startHarness(t *testing.T, tlsDir string) *harness {
 // connect adds a connection named name for user, to the harness's server
 // over loopback without TLS (a local server), and returns it.
 func (h *harness) connect(name, user, password string, live ...string) wire.DatabaseConnection {
-	conn := wire.DatabaseConnection{Name: name, Host: h.host, Port: h.port, User: user, Password: password, SSLMode: wire.SSLDisable, Live: live}
+	host, port := h.deviceView()
+	conn := wire.DatabaseConnection{Name: name, Host: host, Port: port, User: user, Password: password, SSLMode: wire.SSLDisable, Live: live}
 	h.rc.connections = append(h.rc.connections, conn)
 	return conn
 }

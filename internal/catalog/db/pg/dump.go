@@ -113,16 +113,21 @@ func dump(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventory
 	if err := requireTimeout(ctx, ssh); err != nil {
 		return fail(err)
 	}
+	// The device's pg_dump is read before the server is contacted, so a
+	// connection it cannot verify as written is refused first.
+	toolMaj, toolVersion, err := toolMajor(ctx, ssh, "pg_dump")
+	if err != nil {
+		return fail(err)
+	}
+	if err := systemRootsUsable(conn, "pg_dump", toolMaj); err != nil {
+		return fail(err)
+	}
 	s, err := open(ctx, ssh, conn, database)
 	if err != nil {
 		return fail(err)
 	}
 	_, serverMajor, err := s.ServerVersion(ctx)
 	_ = s.Close()
-	if err != nil {
-		return fail(err)
-	}
-	toolMaj, toolVersion, err := toolMajor(ctx, ssh, "pg_dump")
 	if err != nil {
 		return fail(err)
 	}
@@ -153,7 +158,7 @@ func dump(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventory
 		command = append(command, "--schema-only")
 	}
 	if _, err := (toolRun{
-		conn: conn, database: database, command: command, timeout: timeout,
+		conn: conn, database: database, command: command, major: toolMaj, timeout: timeout,
 		after:   "ln -- " + remoteexec.QuoteArg(partial) + " " + remoteexec.QuoteArg(dest),
 		cleanup: "rm -f -- " + remoteexec.QuoteArg(partial),
 	}).run(ctx, ssh); err != nil {
