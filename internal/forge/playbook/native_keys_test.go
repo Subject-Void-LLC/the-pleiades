@@ -438,6 +438,35 @@ tasks:
 			blocked: 1,
 		},
 		{
+			// Ansible's set_fact beats the play's vars once it has run, and so
+			// does the runbook's: the winner is the same, so it maps one to one
+			// with no precedence finding (the set_fact decision's clean case).
+			name:  "set_fact over a play var is read as Ansible reads it",
+			play:  "  vars: {mode: a}",
+			tasks: "- {name: set, set_fact: {mode: b}}\n- {name: use, command: \"echo {{ mode }}\"}",
+			want: `vars: {mode: a}
+tasks:
+  - name: set
+    set_fact: {mode: b}
+  - name: use
+    exec.command: {cmd: "echo {{ vars.mode | quote }}"}`,
+			absent: []playbook.Code{"vars.precedence"},
+		},
+		{
+			// Ansible's set_fact beats a task's vars; the runbook's task vars
+			// beat its set_fact, so the converted runbook would read c where the
+			// playbook read b (the colliding case).
+			name:  "set_fact under a task's vars reads another winner",
+			tasks: "- {name: set, set_fact: {mode: b}}\n- {name: use, command: \"echo {{ mode }}\", vars: {mode: c}}",
+			want: `tasks:
+  - name: set
+    set_fact: {mode: b}
+  - name: use
+    exec.command: {cmd: "echo {{ vars.mode | quote }}"}
+    vars: {mode: c}`,
+			codes: []playbook.Code{"vars.precedence"},
+		},
+		{
 			// target is the native set_fact's target, not a fact, so a fact of
 			// that name cannot be carried.
 			name:    "a set_fact of a variable named target",

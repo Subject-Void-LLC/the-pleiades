@@ -314,7 +314,12 @@ func (t *translator) pruned(vars map[string]any) map[string]any {
 
 // flagPrecedence raises vars.precedence for each variable the playbook
 // defines at more than one scope, since Ansible and the runbook can pick
-// different winners.
+// different winners. A set_fact is the one case worked out exactly: Ansible
+// ranks it above play, block and task vars, and the runbook above its own
+// vars: and a device's inventory vars but below a block's and a task's. So a
+// set_fact beside only play vars maps one to one, with no finding, and one
+// beside a block's or a task's vars is flagged, since there the runbook reads
+// the block's or the task's value where the playbook read the fact.
 func (t *translator) flagPrecedence() {
 	names := make([]string, 0, len(t.ix.defs))
 	for name := range t.ix.defs {
@@ -330,6 +335,11 @@ func (t *translator) flagPrecedence() {
 			}
 		}
 		if len(scopes) < 2 {
+			continue
+		}
+		// A set_fact and play vars, and nothing narrower: the fact wins in
+		// both orders, so the converted runbook reads what the playbook read.
+		if scopes[scopeFact] && !scopes[scopeBlock] && !scopes[scopeTask] {
 			continue
 		}
 		list := make([]string, 0, len(scopes))
