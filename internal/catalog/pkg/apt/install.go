@@ -85,7 +85,7 @@ func Install(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 	return install(ctx, rc, device, params, collection.ModeExecute)
 }
 
-// CheckInstall is pkg.apt.install's check: the same dpkg read and change decision as Install, through the one body both share, then a prediction instead of apt-get (predictInstall).
+// CheckInstall is pkg.apt.install's check: the same dpkg read and change decision as Install, through the one body both share, including the exact-name candidate an absent package must have (requireCandidate), then a prediction instead of apt-get.
 func CheckInstall(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
 	return install(ctx, rc, device, params, collection.ModeCheck)
 }
@@ -114,13 +114,25 @@ func install(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
 
+	// A name APT has no package for exactly would install something dpkg
+	// never records under it, which the undo could not find. The candidate
+	// is read for an absent package whatever the mode, before the two part,
+	// so a check refuses such a name exactly as a real run does.
+	var candidate string
+	if !before.installed {
+		if candidate, err = requireCandidate(ctx, conn, name); err != nil {
+			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+		}
+	}
+
 	if mode == collection.ModeCheck {
 		if before.installed && (version == "" || before.version == version) {
 			return collection.Result{}, recordState(rc, name, before, before)
 		}
-		predicted, err := predictInstall(ctx, conn, name, version)
-		if err != nil {
-			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+		// The version named, or, with none named, the one APT would pick.
+		predicted := state{installed: true, version: version}
+		if version == "" {
+			predicted.version = candidate
 		}
 		if err := recordState(rc, name, before, predicted); err != nil {
 			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
@@ -137,11 +149,6 @@ func install(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 		}
 		var preInstall map[string]bool
 		if !before.installed {
-			// A name APT has no package for exactly would install something
-			// dpkg never records under it, which the undo could not find.
-			if err := requireCandidate(ctx, conn, name); err != nil {
-				return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
-			}
 			if preInstall, err = installedPackages(ctx, conn); err != nil {
 				return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 			}

@@ -97,12 +97,20 @@ func upgrade(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
 
+	// As for pkg.apt.install: an absent package is installed, so a name APT
+	// has no package for exactly is refused before apt-get could install
+	// something else in its place, by a check exactly as by a real run.
+	var freshCandidate string
+	if !before.installed {
+		if freshCandidate, err = requireCandidate(ctx, conn, name); err != nil {
+			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+		}
+	}
+
 	if mode == collection.ModeCheck {
 		predicted := before
 		if !before.installed {
-			if predicted, err = predictInstall(ctx, conn, name, ""); err != nil {
-				return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
-			}
+			predicted = state{installed: true, version: freshCandidate}
 		} else {
 			candidate, err := queryCandidate(ctx, conn, name)
 			if err != nil {
@@ -119,11 +127,6 @@ func upgrade(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 	}
 
 	if !before.installed {
-		// As for pkg.apt.install: a name APT has no package for exactly is
-		// refused before apt-get could install something else in its place.
-		if err := requireCandidate(ctx, conn, name); err != nil {
-			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
-		}
 		if _, err := runAptGet(ctx, conn, []string{"install", "-y"}, name); err != nil {
 			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 		}

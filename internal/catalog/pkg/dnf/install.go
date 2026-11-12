@@ -108,6 +108,16 @@ func install(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
 
+	// A name no package has would install what dnf reads it as, under a word
+	// rpm never records, which the undo could not find. It is asked for an
+	// absent package whatever the mode, before the two part, so a check
+	// refuses such a name exactly as a real run does.
+	if !before.installed {
+		if err := requirePackage(ctx, conn, name); err != nil {
+			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+		}
+	}
+
 	if mode == collection.ModeCheck {
 		if before.installed && (version == "" || before.version == version) {
 			return collection.Result{}, recordState(rc, name, before, before)
@@ -120,13 +130,6 @@ func install(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 
 	changed := false
 	if !before.installed || (version != "" && before.version != version) {
-		// A name no package has would install what dnf reads it as, under a
-		// word rpm never records, which the undo could not find.
-		if !before.installed {
-			if err := requirePackage(ctx, conn, name); err != nil {
-				return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
-			}
-		}
 		pkgArg := name
 		if version != "" {
 			pkgArg = name + "-" + version

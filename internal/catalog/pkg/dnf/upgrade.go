@@ -94,6 +94,15 @@ func upgrade(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
 
+	// As for pkg.dnf.install: an absent package is installed, so a name no
+	// package has is refused before dnf could install a provider of it in
+	// its place, by a check exactly as by a real run.
+	if !before.installed {
+		if err := requirePackage(ctx, conn, name); err != nil {
+			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+		}
+	}
+
 	if mode == collection.ModeCheck {
 		available := !before.installed
 		if before.installed {
@@ -111,11 +120,6 @@ func upgrade(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 	}
 
 	if !before.installed {
-		// As for pkg.dnf.install: a name no package has is refused before dnf
-		// could install a provider of it in its place.
-		if err := requirePackage(ctx, conn, name); err != nil {
-			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
-		}
 		if _, err := runDnf(ctx, conn, []string{"install", "-y"}, name); err != nil {
 			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 		}

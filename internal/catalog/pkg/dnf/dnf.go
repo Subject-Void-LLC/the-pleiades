@@ -174,8 +174,11 @@ func checkOperands(operands []string) error {
 // name-version, never a capability, so a word it lists no package for is
 // one dnf install would read some other way (measured on Rocky Linux 9 and
 // Fedora 42: vim, @core and perl(strict) list nothing, jq and jq.x86_64
-// list jq). Only a real run asks, since a check promises not to ask dnf
-// anything that can refresh its metadata.
+// list jq). A check asks too, through the body it shares with the real
+// run: it is a read, and a check that skipped it would predict an install
+// the real run refuses. Like check-update, which a check of an installed
+// package already asks, it may refresh dnf's metadata cache, which changes
+// no package.
 func requirePackage(ctx context.Context, conn *remoteexec.Conn, name string) error {
 	if err := checkOperands([]string{name}); err != nil {
 		return err

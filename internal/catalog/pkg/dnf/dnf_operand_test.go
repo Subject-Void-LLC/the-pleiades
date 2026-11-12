@@ -129,20 +129,34 @@ func TestInstall_RefusesAVersionDnfWouldMisread(t *testing.T) {
 // installs vim-enhanced and rpm -q vim still reports vim absent), so a
 // fresh install first asks dnf repoquery, which lists only packages by name,
 // and refuses a word it lists none for. pkg.dnf.upgrade installs an absent
-// package the same way and refuses the same name.
+// package the same way and refuses the same name, and each method's check
+// asks the same question through the body it shares with the run, so it
+// refuses the name in the same words rather than predicting an install the
+// run would refuse.
 func TestInstall_RefusesANameNoPackageHas(t *testing.T) {
 	capability := pkgState{repoquery: "none"}
-	for label, method := range map[string]func(context.Context, sdk.RunbookContext, inventory.InventoryItem, map[string]any) (collection.Result, error){
-		"install": dnf.Install, "upgrade": dnf.Upgrade,
+	type method = func(context.Context, sdk.RunbookContext, inventory.InventoryItem, map[string]any) (collection.Result, error)
+	for label, pair := range map[string][2]method{
+		"install": {dnf.Install, dnf.CheckInstall}, "upgrade": {dnf.Upgrade, dnf.CheckUpgrade},
 	} {
 		t.Run(label, func(t *testing.T) {
-			h := newHarness(t, capability)
-			_, err := method(context.Background(), h.rc, h.device, h.params("vim", nil))
-			if err == nil || !strings.Contains(err.Error(), "no package in this device's repositories is named vim") {
-				t.Fatalf("err = %v, want vim refused as no package's name", err)
+			var refusals [2]string
+			for i, fn := range pair {
+				h := newHarness(t, capability)
+				result, err := fn(context.Background(), h.rc, h.device, h.params("vim", nil))
+				if err == nil || !strings.Contains(err.Error(), "no package in this device's repositories is named vim") {
+					t.Fatalf("%s (check %v) = %v, want vim refused as no package's name", label, i == 1, err)
+				}
+				if result.Changed {
+					t.Errorf("%s (check %v) claimed a change beside its refusal", label, i == 1)
+				}
+				if calls := h.invocations(t); len(calls) != 0 {
+					t.Errorf("dnf changed something: %v", calls)
+				}
+				refusals[i] = err.Error()
 			}
-			if calls := h.invocations(t); len(calls) != 0 {
-				t.Errorf("dnf changed something: %v", calls)
+			if refusals[0] != refusals[1] {
+				t.Errorf("the run refused with %q and the check with %q, want the same refusal", refusals[0], refusals[1])
 			}
 		})
 	}

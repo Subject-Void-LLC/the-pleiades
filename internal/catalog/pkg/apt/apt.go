@@ -209,37 +209,21 @@ func queryCandidate(ctx context.Context, conn *remoteexec.Conn, name string) (st
 // upgrades of dpkg and libc6), both measured on Debian 12. Each of those would install packages dpkg-query never
 // reports under the word, so the undo recorded by the word would remove
 // nothing (FAILURE_PATTERNS 1174).
-func requireCandidate(ctx context.Context, conn *remoteexec.Conn, name string) error {
-	candidate, err := queryCandidate(ctx, conn, name)
-	if err != nil {
-		return err
-	}
-	if candidate == "" {
-		return fmt.Errorf("APT has no package named exactly %s to install (one it does not know, a virtual package another provides, or a word apt-get would read as another package or a regular expression), so nothing is installed: name the package itself", name)
-	}
-	return nil
-}
-
-// predictInstall is what installing name would leave, for a check: the
-// version named, or, with none named, the version APT would pick, read
-// from apt-cache without installing anything. A package APT has no
-// candidate for is refused, since installing it would fail.
 //
-// The candidate is read whether or not a version is named, since a real
-// run refuses a name APT has no package for exactly before it installs
-// anything (requireCandidate), and the check must say so too.
-func predictInstall(ctx context.Context, conn *remoteexec.Conn, name, version string) (state, error) {
+// It returns the candidate, which is what a check predicts installing the
+// package would leave when the task names no version. pkg.apt.install and
+// pkg.apt.upgrade call it for an absent package in both modes, through the
+// body Invoke and Check share, so a check refuses such a name in the same
+// words as a real run.
+func requireCandidate(ctx context.Context, conn *remoteexec.Conn, name string) (string, error) {
 	candidate, err := queryCandidate(ctx, conn, name)
 	if err != nil {
-		return state{}, err
+		return "", err
 	}
 	if candidate == "" {
-		return state{}, fmt.Errorf("APT has no candidate to install for %s, so a real run of this task would fail", name)
+		return "", fmt.Errorf("APT has no package named exactly %s to install (one it does not know, a virtual package another provides, or a word apt-get would read as another package or a regular expression), so nothing is installed: name the package itself", name)
 	}
-	if version != "" {
-		return state{installed: true, version: version}, nil
-	}
-	return state{installed: true, version: candidate}, nil
+	return candidate, nil
 }
 
 // installedPackages is every package dpkg reports installed ("ii"), so
