@@ -111,6 +111,15 @@ func (h Host) Type(ctx context.Context, vm string, strokes []Keystroke) error {
 		var err error
 		switch {
 		case s.Text != "":
+			// The text is typed as written even when it begins with "-":
+			// VBoxManage parses its global options only up to the command
+			// name (main in VBoxManage.cpp breaks at the first word that is
+			// none), controlvm reads the VM and the subcommand by position, and
+			// keyboardPutString (VBoxManageControlVM.cpp) walks argv from index
+			// 2 with no option parser, typing each word and a space between
+			// two. So no "--" goes before it, which would be typed as well.
+			// Read in VirtualBox's own source, not measured on a host
+			// (FAILURE_PATTERNS 1174's sweep).
 			_, err = h.run(ctx, "controlvm", vm, "keyboardputstring", s.Text)
 		case len(s.Scancodes) > 0:
 			_, err = h.run(ctx, append([]string{"controlvm", vm, "keyboardputscancode"}, s.Scancodes...)...)

@@ -76,6 +76,12 @@ func (h Host) SetExtraData(ctx context.Context, vm, key, value string) error {
 	if err := checkExtra(key, value); err != nil {
 		return err
 	}
+	// The key and the value are stored as written even when either begins
+	// with "-": VBoxManage parses its global options only up to the command
+	// name, and handleSetExtraData (VBoxManageMisc.cpp) reads argv[0], [1]
+	// and [2] by position, calling no option parser. So no "--" goes before
+	// them, which would be read as the key. Read in VirtualBox's own source,
+	// not measured on a host (FAILURE_PATTERNS 1174's sweep).
 	args := []string{"setextradata", vm, key}
 	if value != "" {
 		args = append(args, value)

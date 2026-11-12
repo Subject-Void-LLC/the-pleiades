@@ -296,3 +296,32 @@ func TestFileScripts_QuoteATypographicQuoteInThePath(t *testing.T) {
 		}
 	}
 }
+
+// TestDashLedTextAndValuesTravelAsOneWord: keyboardputstring's text and a
+// setextradata value beginning with "-" reach VBoxManage as one argument in
+// the position its handler reads, with no "--" added, since neither handler
+// parses options (keyboardPutString and handleSetExtraData in VirtualBox's
+// own source) and a "--" would be typed or stored as the text.
+func TestDashLedTextAndValuesTravelAsOneWord(t *testing.T) {
+	ctx := context.Background()
+	r := &recorded{t: t}
+	h := Host{Runner: r, Path: vbox}
+	if err := h.Type(ctx, "lab", []Keystroke{{Text: "-- quiet --nologo"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.SetExtraData(ctx, "lab", "pleiades/login", "-x"); err != nil {
+		t.Fatal(err)
+	}
+	want := [][]string{
+		{vbox, "controlvm", "lab", "keyboardputstring", "-- quiet --nologo"},
+		{vbox, "setextradata", "lab", "pleiades/login", "-x"},
+	}
+	if len(r.calls) != len(want) {
+		t.Fatalf("calls %q, want %q", r.calls, want)
+	}
+	for i := range want {
+		if strings.Join(r.calls[i], "\x00") != strings.Join(want[i], "\x00") {
+			t.Errorf("call %d = %q, want %q", i, r.calls[i], want[i])
+		}
+	}
+}
