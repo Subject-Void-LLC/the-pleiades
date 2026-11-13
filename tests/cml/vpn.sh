@@ -42,6 +42,10 @@ load() {
 	[ "$mode" = 600 ] || die "$env_file is mode $mode and holds passwords: chmod 600 it"
 	vpn_host="$(setting PLEIADES_CML_VPN_HOST)" || true
 	vpn_user="$(setting PLEIADES_CML_VPN_USER)" || true
+	# An optional pin of the VPN server's key (openconnect's pin-sha256 form),
+	# for a sandbox whose certificate has expired: the pin trusts that one key
+	# and nothing else, where skipping verification would trust any server.
+	vpn_pin="$(setting PLEIADES_CML_VPN_SERVERCERT)" || true
 	cml_url="$(setting PLEIADES_CML_URL)" || true
 	[ -n "$vpn_host" ] && [ -n "$vpn_user" ] || die "PLEIADES_CML_VPN_HOST and PLEIADES_CML_VPN_USER must be set in $env_file"
 }
@@ -58,8 +62,10 @@ up() {
 	# sudo asks for its own password on the terminal first, so the VPN
 	# password on standard input reaches openconnect alone.
 	sudo -v
+	local pin=()
+	[ -z "$vpn_pin" ] || pin=(--servercert="$vpn_pin")
 	printf '%s\n' "$password" | sudo openconnect --protocol=anyconnect --user="$vpn_user" --passwd-on-stdin \
-		--non-inter --background --pid-file="$pid_file" --interface="$iface" "$vpn_host"
+		--non-inter --background --pid-file="$pid_file" --interface="$iface" "${pin[@]}" "$vpn_host"
 	unset password
 	for _ in $(seq 1 20); do
 		ip link show "$iface" >/dev/null 2>&1 && break
