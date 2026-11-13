@@ -90,8 +90,9 @@ func proveWindowsClone(ctx context.Context, h vboxmanage.Host, name string, c cl
 	}
 }
 
-// settleTimeout bounds the shutdown after a Windows clone is proven.
-const settleTimeout = 5 * time.Minute
+// settleTimeout bounds the shutdown after a Windows clone is proven; a
+// test shortens it.
+var settleTimeout = 5 * time.Minute
 
 // settleWindowsClone shuts a proven Windows clone down through its power
 // button, cutting the power if it has not stopped within settleTimeout,
@@ -127,10 +128,11 @@ func settleWindowsClone(ctx context.Context, h vboxmanage.Host, name, seed strin
 // clear or a hash of a Linux login's. cause is the failure, and the error
 // returned says what became of the VM and of the seed.
 func discardClone(ctx context.Context, h vboxmanage.Host, name, seed string, cause error) error {
-	if m, err := h.Machine(ctx, name); err == nil && (m.State == vboxmanage.StateRunning || m.State == vboxmanage.StatePaused) {
-		if err := h.PowerOff(ctx, name); err != nil && !errors.Is(err, vboxmanage.ErrNotRunning) {
-			cause = fmt.Errorf("%w; powering it off failed: %v", cause, err)
-		}
+	// Powered off whether or not it can be read: a VM VirtualBox will not
+	// describe may still be running, and a running VM keeps its seed locked.
+	// This task made it, so nothing else is cut off.
+	if err := h.PowerOff(ctx, name); err != nil && !errors.Is(err, vboxmanage.ErrNotRunning) {
+		cause = fmt.Errorf("%w; powering it off failed: %v", cause, err)
 	}
 	cleanup := deleteWhenUnlocked(ctx, h, name)
 	if cleanup == nil {
