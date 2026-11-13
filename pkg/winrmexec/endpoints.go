@@ -6,6 +6,8 @@ package winrmexec
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"sync"
@@ -97,13 +99,17 @@ func (h *endpointHealth) admit(ctx context.Context, addr string) error {
 // path to it, and nothing it did not prove.
 //
 // A network failure before the shell opened is a failure. A command that
-// finished, or a refusal the service sent back before running anything (a
-// credential it rejected, a fault instead of a shell), proves the host
-// answered, which is what a probe needs to close the circuit. Everything
-// else is left unrecorded: a caller's own cancellation says nothing about
-// the host, and a failure after the command started is not certain
-// evidence about the network either way. A probe that ends unrecorded is
-// not lost: pkg/breaker hands out a fresh one after a cooldown.
+// finished, or a fault the service sent back instead of a shell, proves the
+// host served a request, which is what a probe needs to close the circuit.
+// A refusal (a credential the host turned down, or a certificate this side
+// turned down) proves only that the host answered: it is recorded as one,
+// so it neither clears a failure streak nor closes an open circuit, and a
+// half-open probe it answers goes to the next caller (FAILURE_PATTERNS
+// 1230, the rule pkg/remoteexec keeps for SSH). Everything else is left
+// unrecorded: a caller's own cancellation says nothing about the host, and
+// a failure after the command started is not certain evidence about the
+// network either way. A probe that ends unrecorded is not lost: pkg/breaker
+// hands out a fresh one after a cooldown.
 func (h *endpointHealth) record(addr string, err error) {
 	b := h.circuits()
 	var notStarted *NotStartedError
@@ -117,9 +123,28 @@ func (h *endpointHealth) record(addr string, err error) {
 	case errors.Is(err, context.Canceled):
 		// The caller gave up; the host was never heard from. Recording
 		// this as an answer closed an open circuit on no evidence.
+	case credentialRefused(err) || certificateRefused(err):
+		// An answer, not proof the host serves: recording it as a success
+		// cleared an outage's streak at every refused login.
+		b.RecordRefusal(addr)
 	default:
 		b.RecordSuccess(addr)
 	}
+}
+
+// certificateRefused reports whether err is this side refusing the host's
+// certificate: issued by an authority neither the pinned one nor the
+// system's roots vouch for, outside its dates, or for another name. Like a
+// refused SSH host key it is an answer, not the network failing, and asking
+// again presents the same certificate.
+func certificateRefused(err error) bool {
+	var (
+		verify   *tls.CertificateVerificationError
+		unknown  x509.UnknownAuthorityError
+		invalid  x509.CertificateInvalidError
+		hostname x509.HostnameError
+	)
+	return errors.As(err, &verify) || errors.As(err, &unknown) || errors.As(err, &invalid) || errors.As(err, &hostname)
 }
 
 // answered is what a wait reports once it has heard the listener answer

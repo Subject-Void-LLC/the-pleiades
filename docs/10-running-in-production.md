@@ -527,9 +527,13 @@ remotely already, and blindly retrying it could re-apply an unknown side effect
 mid-session is reported as a genuine error, never silently retried and never folded
 into a fabricated exit code.
 
-Practically, this means: a dial failure (device unreachable, port closed, auth
-rejected) is retried automatically up to a bounded limit before it is reported as an
-error. A failure *after* the command was sent (the connection drops mid-run, the
+Practically, this means: a dial failure (device unreachable, port closed) is retried
+automatically up to a bounded limit before it is reported as an error. A login the
+device refuses, or a host key `known_hosts` refuses, is not: it is an answer, and
+asking again only adds a failed login toward the account's lockout. Nor does it count
+toward the circuit breaker either way: it never opens a circuit, and it never closes
+one or clears a run of failures, since it shows the device answers, not that it
+serves. A failure *after* the command was sent (the connection drops mid-run, the
 device reboots unexpectedly) is reported as an error immediately, and it is the
 caller's job to determine what state the device was left in and re-run explicitly
 once that is known, not The Pleiades' job to guess.
@@ -540,7 +544,10 @@ are separate listeners), shared by every WinRM call in the process: `winrm_exec`
 `facts.gather` on Windows. After five failures in a row to reach one, calls to it fail
 at once for thirty seconds, saying `circuit open` and that nothing was sent, and then one
 call is let through to find out whether the host is back. Only the network opens it: a
-refused password or certificate, or a command that failed, never does. A wait is the
+refused password or certificate, or a command that failed, never does. A refused
+password or certificate does not close it either, or clear a run of failures: it shows
+the host answers, not that it serves, so when it answers the call let through, the next
+call is let through in its place. A wait is the
 exception, since its failures are what it waits through: `wait.connection`,
 `win.reboot`'s wait for the new boot time and `exec.winrm.shell`'s reconnect after
 `expect_disconnect` are neither counted nor refused, and a wait that succeeds closes the

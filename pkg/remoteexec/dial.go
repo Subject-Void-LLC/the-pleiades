@@ -126,13 +126,17 @@ func closeOnDone(ctx context.Context, conn net.Conn) (stop func()) {
 // retryable reports false for, so retry.Do returns immediately rather
 // than sleeping and trying again.
 //
-// The other is a credential the server refused (authRejected). That is
-// the server answering, not the network failing: it is neither retried,
-// since the same credential gets the same answer and every repeat is one
-// more failed login toward the account's lockout, nor counted against the
-// circuit, which belongs to every caller of this Runner and not to the
-// one holding a wrong password. It proves the address is reachable, so it
-// is recorded as the success it is for the breaker's purpose.
+// The other is a credential the server refused (authRejected), or a host
+// key this side refused (hostKeyRefused). That is an answer, not the
+// network failing: it is neither retried, since the same credential gets
+// the same answer and every repeat is one more failed login toward the
+// account's lockout, nor counted against the circuit, which belongs to
+// every caller of this Runner and not to the one holding a wrong password.
+// Nor is it recorded as a success: it proves the address carries traffic,
+// not that it serves, and recording it as one cleared an outage's failure
+// streak and closed an open circuit on no evidence (FAILURE_PATTERNS
+// 1230). breaker.RecordRefusal leaves the streak and an open circuit as
+// they are, and hands a half-open probe to the next caller.
 func (r *Runner) dialWithRetry(ctx context.Context, dial dialFunc, addr string, config *ssh.ClientConfig) (*ssh.Client, error) {
 	fn := func(ctx context.Context) (*ssh.Client, error) {
 		// The context comes first. Allow hands out the half-open probe,
@@ -150,7 +154,7 @@ func (r *Runner) dialWithRetry(ctx context.Context, dial dialFunc, addr string, 
 		client, err := dial(ctx, addr, config)
 		if err != nil {
 			if authRejected(err) || hostKeyRefused(err) {
-				r.breaker.RecordSuccess(addr)
+				r.breaker.RecordRefusal(addr)
 				return nil, err
 			}
 			r.breaker.RecordFailure(addr)
