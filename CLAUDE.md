@@ -316,8 +316,12 @@ pre-1.0 project and the honest state is not what the docs' introductions might i
   reach. Only a network failure counts: a refused credential (SSH's "unable to authenticate", a
   WinRM 401 or TLS alert) and an SSH host key known_hosts refuses (unknown, changed or revoked) are
   neither retried nor counted. The half-open probe is leased, so a lost
-  one is reissued after a cooldown (FAILURE_PATTERNS 146, 398). WinRM Collections that call
-  `pkg/winrmexec` directly (`exec.winrm.shell`, `pkg/winrmsvc`, the waits, `facts.gather`'s Windows path) have no breaker yet.
+  one is reissued after a cooldown (FAILURE_PATTERNS 146, 398). Since Phase 112 WinRM's breaker lives
+  in `pkg/winrmexec` (one circuit per address and port, shared by `winrm_exec` and every Collection
+  calling `winrmexec.Execute`, so each failure is counted once), and the waits (`wait.connection`,
+  `win.reboot`, `exec.winrm.shell`'s reconnect) go through `winrmexec.Waiter`, neither counted nor
+  refused (`TestOnlyWaitsUseTheUncountedWinRMEntry`), which sends the credential only once the
+  listener answers, stops at the first refusal and closes the circuit on success.
 - **The web UI (`web/`) is a mockup.** Five of six routes render hardcoded content; the
   sixth (SSE log viewer) has three defects that stop it reaching a real Controller. This is a
   different thing from `internal/ui`, the server-rendered view registry the Controller actually
