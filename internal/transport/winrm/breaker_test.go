@@ -98,3 +98,24 @@ func TestWinRMBreaker_KeyedByTheAddressDialed(t *testing.T) {
 		t.Fatalf("port %s: err = %v, want a circuit of its own, closed", strconv.Itoa(other), err)
 	}
 }
+
+// TestWinRMExec_ACanceledCallSendsNothing proves a call whose context is
+// already done is refused with that context's error before any attempt is
+// sent: nothing is counted in the shared circuit, so five such calls leave
+// it closed for the next real one.
+func TestWinRMExec_ACanceledCallSendsNothing(t *testing.T) {
+	defer winrmexec.ResetCircuitsForTest()()
+	port := refusing.Port(t)
+	tr := New(winrmexec.Options{Timeout: 5 * time.Second})
+	target := transport.Target{Endpoint: transport.NetworkEndpoint{Host: "127.0.0.1", Port: port}}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	for i := 0; i < 5; i++ {
+		if _, err := tr.Exec(ctx, target, cred, "x"); !errors.Is(err, context.Canceled) {
+			t.Fatalf("canceled call %d: err = %v, want context.Canceled", i, err)
+		}
+	}
+	if _, err := tr.Exec(context.Background(), target, cred, "x"); err == nil || errors.Is(err, breaker.ErrOpen) {
+		t.Fatalf("the first real call: err = %v, want it sent and refused by the closed port, not the circuit", err)
+	}
+}
