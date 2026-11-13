@@ -14,9 +14,11 @@ import (
 	"testing"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory/inventorytest"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/iosparse"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/netcli"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
 
 // iosTable is show ip route from an IOS XE router: a connected tunnel, a
@@ -180,5 +182,30 @@ func TestRouteReader_RefusesWhatItCannotOpen(t *testing.T) {
 	}
 	if number(3) != 3 {
 		t.Error("number(3) is not 3")
+	}
+}
+
+// TestRouteReader_ReadsAnIOSRouterThroughItsSession: an IOS router's kind
+// opens its CLI session, reads the table through it, and its closer closes
+// that session.
+func TestRouteReader_ReadsAnIOSRouterThroughItsSession(t *testing.T) {
+	shell := &memIOS{table: iosTable, buf: "r1#"}
+	saved := openCLI
+	t.Cleanup(func() { openCLI = saved })
+	openCLI = func(ctx context.Context, _ sdk.RunbookContext, _ inventory.InventoryItem, _ map[string]any, _ string, dialect netcli.Dialect) (*netcli.Session, error) {
+		return netcli.Open(ctx, shell, dialect, netcli.Options{})
+	}
+	dev := &inventorytest.Stub{StubName: "ios1", Caps: []capability.Name{capability.NameCiscoIOS, capability.NameSSHTransport}}
+	read, closer, err := routeReader(context.Background(), emptyRC{}, dev, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closer()
+	table, err := read(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r := table["10.3.3.0/24"]; len(r) != 1 {
+		t.Errorf("the OSPF route read through the IOS kind = %+v", r)
 	}
 }

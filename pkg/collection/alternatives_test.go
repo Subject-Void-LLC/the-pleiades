@@ -77,6 +77,20 @@ func TestAdmits_HoldsADeviceToOneAlternativeWhole(t *testing.T) {
 	}
 }
 
+// TestChooseAlternative_AKindWithNoTransportTakesAny: an alternative that
+// declares no transport of its own is chosen by its capabilities alone,
+// over whatever transport the device reaches.
+func TestChooseAlternative_AKindWithNoTransportTakesAny(t *testing.T) {
+	m := collection.Manifest{Alternatives: []collection.Alternative{
+		{Name: "ios", RequiredCapabilities: []capability.Name{capability.NameCiscoIOS}},
+		{Name: "frr", RequiredCapabilities: []capability.Name{capability.NameFRR}},
+	}}
+	alt, err := collection.ChooseAlternative(stubWith(capability.NameFRR, capability.NameTelnet), "x.y", m)
+	if err != nil || alt.Name != "frr" {
+		t.Fatalf("chose %q (%v), want frr over any transport", alt.Name, err)
+	}
+}
+
 // TestAdmits_ATransportRefusalIsATransportError: a device reaching none of
 // the union's transports is refused by CheckTransports first, as a
 // *TransportError, which is how validate tells the transport rule's

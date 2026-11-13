@@ -14,12 +14,6 @@ import (
 // find these.
 const GrantRuleName = "grants"
 
-// grantRequirement is one capability one device is held to by a task.
-type grantRequirement struct {
-	device     inventory.DeviceID
-	capability capability.Name
-}
-
 // GrantWarnings is advice about the grants recorded on each device world's
 // runbook reaches (inventory.GrantNoter's notes): a grant no loaded program
 // defines, which grants nothing (its program was removed, or its approval
@@ -48,7 +42,7 @@ func GrantWarnings(world WorldView) []Finding {
 			continue
 		}
 		for _, n := range noter.GrantNotes() {
-			if n.Lapsed && refused[grantRequirement{device: device.ID(), capability: n.Capability}] {
+			if n.Lapsed && requiredOf(refused[device.ID()], n.Capability) {
 				continue
 			}
 			out = append(out, Finding{RuleName: GrantRuleName, Device: device.ID(), Message: n.Reason})
@@ -57,12 +51,11 @@ func GrantWarnings(world WorldView) []Finding {
 	return out
 }
 
-// capabilityRuleRequirements is every capability CapabilityRule holds a
-// device to: one a Collection method requires (in the shape its task's
-// parameters select), of a task with no condition of its own, on each
-// device that task reaches.
-func capabilityRuleRequirements(world WorldView) map[grantRequirement]bool {
-	out := map[grantRequirement]bool{}
+// capabilityRuleRequirements is, per device, each manifest (in the shape
+// its task's parameters select) of a Collection method that a task with no
+// condition of its own holds that device to, as CapabilityRule does.
+func capabilityRuleRequirements(world WorldView) map[inventory.DeviceID][]collection.Manifest {
+	out := map[inventory.DeviceID][]collection.Manifest{}
 	for id, task := range world.DAG.Nodes {
 		if world.DAG.Conditional(id) {
 			continue
@@ -71,13 +64,23 @@ func capabilityRuleRequirements(world WorldView) map[grantRequirement]bool {
 		if !ok {
 			continue
 		}
-		required := desc.Manifest.For(task.Params).RequiredCapabilities
+		shaped := desc.Manifest.For(task.Params)
 		_, devices := world.taskDevices(task)
 		for _, dev := range devices {
-			for _, c := range required {
-				out[grantRequirement{device: dev.ID(), capability: c}] = true
-			}
+			out[dev.ID()] = append(out[dev.ID()], shaped)
 		}
 	}
 	return out
+}
+
+// requiredOf reports whether any of manifests requires name of every call,
+// through Manifest.Requires, so an alternative is read the way the
+// admission check reads it.
+func requiredOf(manifests []collection.Manifest, name capability.Name) bool {
+	for _, m := range manifests {
+		if m.Requires(name) {
+			return true
+		}
+	}
+	return false
 }

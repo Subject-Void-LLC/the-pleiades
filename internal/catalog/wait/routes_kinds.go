@@ -52,7 +52,7 @@ var routeKinds = []routeKind{
 			RequiredCapabilities: []capability.Name{capability.NameCiscoIOS},
 		},
 		open: func(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (tableReader, func(), error) {
-			session, err := sdk.OpenCLI(ctx, rc, device, params, routesFQCN, netcli.IOS)
+			session, err := openCLI(ctx, rc, device, params, routesFQCN, netcli.IOS)
 			if err != nil {
 				return nil, nil, err
 			}
@@ -60,6 +60,10 @@ var routeKinds = []routeKind{
 		},
 	},
 }
+
+// openCLI opens a Cisco IOS router's CLI session. It is sdk.OpenCLI, a
+// variable only so a test can hand the IOS kind an in-memory session.
+var openCLI = sdk.OpenCLI
 
 // routeAlternatives is every routeKind's alternative, in order, for the
 // manifest.

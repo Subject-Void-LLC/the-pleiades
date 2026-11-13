@@ -200,6 +200,16 @@ func TestUndoDigest_CoversWhatAReplayReadsAndNothingElse(t *testing.T) {
 	moved("a parameter's entries", spec, edit("mode", func(p *collection.Param) {
 		p.Entries = []collection.Param{{Name: "key", Type: "string", Description: "x"}}
 	}))
+	twoEntries := func(names ...string) map[string]collection.Param {
+		return edit("mode", func(p *collection.Param) {
+			for _, n := range names {
+				p.Entries = append(p.Entries, collection.Param{Name: n, Type: "string"})
+			}
+		})
+	}
+	if collection.UndoDigest(spec, twoEntries("a", "b")) != collection.UndoDigest(spec, twoEntries("b", "a")) {
+		t.Error("the order of a parameter's entries moved the digest")
+	}
 	renamed := maps.Clone(params)
 	renamed["file"] = renamed["path"]
 	delete(renamed, "path")
