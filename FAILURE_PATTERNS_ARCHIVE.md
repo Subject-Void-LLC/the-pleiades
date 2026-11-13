@@ -29828,11 +29828,11 @@ nor a suspended machine extends trust, and a set never fetched is infinitely old
 through `refreshAndReport` (`internal/auth/jwks_refetch.go`) to the logger the package already uses (slog; `WithLogger`, defaulting to
 `slog.Default()` read when the line is written, so the Controller's masking logger installed after the provider receives it): Warn with
 the error, the age, the bound and the run of failures, Error once past the bound, and one Info line when a refresh succeeds again. The
-URL is logged with any password removed. Proof, each red with the fix reverted: `TestJWKSKeyProvider_StaleKeysAreRefusedPastTheBound`
-(a cached key past 12h was trusted while the IdP was down), `TestJWKSKeyProvider_AWithdrawnKeyIsRefusedOnceTheSetRefreshes` and
-`TestJWKSKeyProvider_ARefreshFailureIsLogged` (no log line within 5 s). `TestNewJWKSKeyProvider_RefusesANonPositiveStalenessBound` and
-`TestKeyAge` cover the rest. Not built here, and left to Phase 142: a deployment setting for the bound, starting degraded when the IdP
-is unreachable at boot, and a status or metric showing the age.
+URL is logged as given, since a URL carrying a user name or password is refused at construction (1229). Proof, each red with the fix
+reverted: `TestJWKSKeyProvider_StaleKeysAreRefusedPastTheBound` (a cached key past 12h was trusted while the IdP was down),
+`TestJWKSKeyProvider_AWithdrawnKeyIsRefusedOnceTheSetRefreshes` and `TestJWKSKeyProvider_ARefreshFailureIsLogged` (no log line within 5
+s). `TestNewJWKSKeyProvider_RefusesANonPositiveStalenessBound` and `TestKeyAge` cover the rest. Not built here, and left to Phase 142:
+a deployment setting for the bound, starting degraded when the IdP is unreachable at boot, and a status or metric showing the age.
 
 **Lesson.** A cache of trust has a maximum age, and a failed refresh is logged where an operator will see it.
 
@@ -29849,17 +29849,30 @@ allows both schemes.
 
 **Fix.** Fixed on `fix/outage-lessons`. `loadKeyProvider` (moved to `cmd/controller/keyprovider.go`, which also puts its doc comment
 back above it rather than above `resolveDatabaseDSN`) refuses to start with both `JWKS_URL` and `JWT_SECRET` set, as `DB_DSN` with
-`DB_PATH` is refused. `controller setup` does write `JWT_SECRET` (into the compose `.env` file and the Helm Secret), so the refusal
-(`errBothTokenSources`) says which to remove for each intention: `JWT_SECRET` to use the identity provider, since one left in place
-signs any token again the moment `JWKS_URL` is removed, or `JWKS_URL` to keep the static secret. `NewJWKSKeyProvider` refuses any
-scheme but https, naming the scheme and never the URL, and its first-fetch error names the URL with any password removed. The JWKS
-release gate serves its key set over TLS and hands the controller binary the certificate through `SSL_CERT_FILE`, and clears an
-inherited `JWT_SECRET`. Proof, each red with the fix reverted: `TestLoadKeyProvider_RefusesBothTokenSources` (JWKS won and the fetch
-ran), `TestJWKSKeyProvider_ConstructionFailsClosed/plain_http` (a good document over plain HTTP was accepted) and
-`TestNewJWKSKeyProvider_ARefusedURLDoesNotEchoItsPassword` (both errors carried the password). `TestLoadKeyProvider_EachSourceAlone`
-covers the other combinations. Open, for the owner: the Helm chart always sets `JWT_SECRET` from its Secret and has no JWKS setting,
-and `make up` runs `setup --check`, which calls an env file without `JWT_SECRET` incomplete and reruns setup, which writes one; so
-neither shipped path can yet run a Controller on JWKS alone.
+`DB_PATH` is refused, and the refusal (`errBothTokenSources`) says which to remove for each intention and the command that does it.
+`auth.ValidateJWKSURL` is the one rule for a JWKS URL, used by `NewJWKSKeyProvider`, by setup and by setup's reading of `.env`: an
+absolute https URL with a host and no user name or password. A user name or password is refused outright rather than hidden in
+messages, since a JWKS endpoint needs no credential, and no refusal repeats the URL. Because `controller setup` wrote `JWT_SECRET` on
+every path, the refusal at first left no shipped way to run on JWKS alone, so each path now has one. `controller setup --jwks-url
+<url>` writes `JWKS_URL` and no `JWT_SECRET` (compose), or a Secret without it and a values file setting `controller.jwksUrl` (Helm).
+`--jwks-url <url> --force` moves a file holding a secret and removes the secret, and a rerun never adds a secret to a JWKS file. `setup
+--check`, and so `make up`, reads a key with `JWKS_URL` as complete, and a file holding both as a refusal rather than as incomplete.
+`docker-compose.yml` passes `JWKS_URL` to the controller, and the Makefile refuses it in the shell like setup's other variables. The
+chart's `controller.jwksUrl` sets `JWKS_URL`, leaves `JWT_SECRET` out of both the controller's environment and the chart's Secret, and
+is refused over http, with a user name or password, with no host, or beside `secrets.jwtSecret`. The JWKS release gate serves its key
+set over TLS, trusted through `SSL_CERT_FILE`, and clears an inherited `JWT_SECRET`. Proof, each red with its piece reverted:
+`TestLoadKeyProvider_RefusesBothTokenSources` (JWKS won and the fetch ran); `TestJWKSKeyProvider_ConstructionFailsClosed/plain_http`;
+`TestNewJWKSKeyProvider_RefusesAURLCarryingUserinfo` and `TestValidateJWKSURL` (a URL with a user name or password was accepted); in
+`internal/setup/jwks_test.go`, `TestRun_JWKSURLWritesTheURLAndNoJWTSecret` (with the flag ignored, a JWT secret was written and no
+URL), `TestRun_CheckAcceptsAJWKSFileAndRefusesBoth` (the old check called a JWKS file incomplete, so `make up` would rerun setup),
+`TestRun_AJWKSFileNeverGainsAJWTSecret`, `TestRun_MovingToJWKSTakesForceAndRemovesTheSecret`,
+`TestRenderHelm_AJWKSURLGoesToTheValuesAndNoJWTSecretToTheSecret` and `TestRun_HelmWithAJWKSURL`;
+`TestComposeFileReadsEverySetupVariableFromDotEnv` and `TestMakefileRefusesEveryVariableSetupOwns` (the compose file and the Makefile);
+`TestParseSetupFlags_TakesAJWKSURL`; and `make helm-lint`, whose new profile "an identity provider checks the API's tokens", second
+setup render "values written by controller setup --jwks-url", five new refusals and `checkTokenSource` rule (`TestCheckTokenSource`)
+fail against the old chart (its schema refused `controller.jwksUrl`), against the old controller template alone (no `JWKS_URL`, and a
+`JWT_SECRET` read from a Secret setup wrote without one) and against the old Secret template alone (a `JWT_SECRET` key beside the URL).
+`TestRun_JWKSRefusals` and `TestLoadKeyProvider_EachSourceAlone` cover the other combinations.
 
 **Lesson.** Two settings that each choose how identity is verified are refused together, not ranked.
 
