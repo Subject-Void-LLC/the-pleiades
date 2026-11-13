@@ -40,7 +40,7 @@ func RollbackRule(world WorldView) []Finding {
 	if len(steps.Nodes) == 0 {
 		return nil
 	}
-	view := WorldView{Items: world.Items, DAG: steps, Mode: world.Mode, Resolver: world.Resolver}
+	view := WorldView{Items: world.Items, DAG: steps, Mode: world.Mode, Resolver: world.Resolver, NoProjectDirectory: world.NoProjectDirectory}
 	var findings []Finding
 	for _, rule := range []Rule{CollectionRule, ParamsRule, RequiredParamsRule, BecomeRule} {
 		for _, f := range rule(view) {

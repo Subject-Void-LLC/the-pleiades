@@ -74,6 +74,16 @@ type Param struct {
 	// change only how the method itself behaves. A generic dispatcher
 	// (svc.*, pkg.*) is filled by its own Doc, not by the concrete method's.
 	RunSetting bool `json:"runSetting,omitempty"`
+
+	// Entries, on a "list of dict" parameter, are the keys each map in the
+	// list may hold, and on a "dict" one the keys of the map, each written as
+	// a parameter is: its name, type, whether every entry needs it, its
+	// choices, its format and what it is. An entry field may have Entries of
+	// its own. Validation refuses an entry holding a key not listed, leaving
+	// out a required one, or holding a value of another type or outside its
+	// choices (EntryProblems), before the run. Empty means the entries are
+	// not described, and only the method checks them, when it runs.
+	Entries []Param `json:"entries,omitempty"`
 }
 
 // ParamRisk is the kind of reach a parameter's setting adds.
@@ -103,10 +113,12 @@ const (
 	// Kubernetes kind rule).
 	ParamFormatKubernetesManifest ParamFormat = "kubernetes_manifest"
 	// ParamFormatProjectPath is a path to a file in the project directory
-	// that the run writes. An expression rendered into it may read only
-	// vars (what the person running the work supplied), never nodes,
+	// that the run reads or writes. An expression rendered into it may read
+	// only vars (what the person running the work supplied), never nodes,
 	// result or error, which hold what a device returned: a device's output
-	// must not choose which project file is replaced.
+	// must not choose which project file is replaced, or which one is sent
+	// on. Only the command line has a project, so validation refuses one
+	// given on a Walk-tier Runner (internal/validate's project file rule).
 	ParamFormatProjectPath ParamFormat = "project_path"
 	// ParamFormatTemplateFile is a path to a file in the project directory
 	// holding a template. The engine reads it, renders it with the run's

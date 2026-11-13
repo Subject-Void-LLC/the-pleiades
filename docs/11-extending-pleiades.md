@@ -1260,6 +1260,14 @@ with `collection.ChooseAlternative`, so what was admitted and what runs cannot
 disagree. An alternative may name only capabilities your program defines or ones
 compiled into The Pleiades, as `RequiredCapabilities` may.
 
+A parameter of type `list of dict` (or `dict`) can describe the keys of its
+entries with `Entries`, each written as a parameter is (name, type, required,
+choices, format, description, and `Entries` of its own for a nested list).
+`validate` then refuses an entry holding a key not listed, missing a required
+one, or holding a value of another type, before the run, and `pleiades doc` and
+the reference list the keys. An entry field marked `ParamFormatProjectPath` is
+refused on a Walk-tier Runner, which holds no project, as such a parameter is.
+
 Write the test for it yourself: target a device lacking the capability and assert
 the refusal. That test is also how you find out whether your requirement is the
 right one, which is not obvious until something is checking it.

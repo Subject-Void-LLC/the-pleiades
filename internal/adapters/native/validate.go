@@ -29,6 +29,10 @@ func validateDispatch(dag *engine.DAG, device inventory.InventoryItem, mode coll
 		DAG:      dag,
 		Mode:     mode,
 		Resolver: singleDeviceResolver{device: device},
+		// A Runner is handed the runbook, never the project around it, so a
+		// task naming a project file is refused here rather than by the
+		// method once earlier tasks have run (validate.ProjectFileRule).
+		NoProjectDirectory: true,
 	})
 	var warnings []string
 	for _, w := range report.Warnings {

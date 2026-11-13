@@ -395,6 +395,28 @@ func printParams(doc collection.Doc) {
 		if p.RunSetting {
 			fmt.Println("    run setting: a run may set it for every task that leaves it out (--setting <method>.<parameter>=<value>)")
 		}
+		printEntries(p.Name, p.Type, p.Entries)
+	}
+}
+
+// printEntries prints a structured parameter's entries (collection.Param.Entries),
+// each named by its place under the parameter (devices[].src), at every depth,
+// so an author sees every key validate holds an entry to.
+func printEntries(place, typ string, entries []collection.Param) {
+	if typ == collection.ParamTypeListOfDict {
+		place += "[]"
+	}
+	for _, f := range entries {
+		at := place + "." + f.Name
+		req := ""
+		if f.Required {
+			req = ", required"
+		}
+		fmt.Printf("    %-18s %s%s\n      %s\n", at, f.Type, req, f.Description)
+		if len(f.Choices) > 0 {
+			fmt.Printf("      choices: %s\n", f.ChoiceList())
+		}
+		printEntries(at, f.Type, f.Entries)
 	}
 }
 
