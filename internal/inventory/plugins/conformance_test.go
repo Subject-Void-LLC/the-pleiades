@@ -23,10 +23,13 @@ import (
 	awsplugin "github.com/Subject-Void-LLC/the-pleiades/internal/inventory/plugins/aws"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/plugins/catalystcenter"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/plugins/staticyaml"
+	vboxplugin "github.com/Subject-Void-LLC/the-pleiades/internal/inventory/plugins/vbox"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/syncplugin"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/awscloud"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/vboxmanage"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/vboxmanage/vboxmanagetest"
 )
 
 // This is the sync plugin conformance suite, the direct analogue of
@@ -172,7 +175,54 @@ func pluginBackends() []pluginBackend {
 				}
 			},
 		},
+		{
+			name:      "vbox",
+			newPlugin: newVBoxBackend,
+			// One device a VM, and the host itself is not one.
+			extraDevices: 0,
+			// A VM of an OS type no rule places.
+			unclassifiable: conformanceHost{Name: "mystery1", IP: "10.0.0.9", SoftwareType: "Other/Unknown (64-bit)"},
+		},
 	}
+}
+
+// newVBoxBackend registers one VM a host on a model VirtualBox host
+// (pkg/vboxmanage/vboxmanagetest, which stands in for VirtualBox in every
+// vbox test), each with the fixed address virt.vbox.vm.clone records, and
+// connects a plugin to it. The fixture's switches become Ubuntu VMs, since
+// a VirtualBox host runs no switch; a host's SoftwareType, when it is not
+// the fixture's IOS-XE, is the VM's OS type as showvminfo describes it.
+// Only the WinRM transport is replaced: the plugin is opened, connected and
+// synced exactly as pleiades inventory sync does, and the real transport is
+// proven against the lab host.
+func newVBoxBackend(t *testing.T, hosts []conformanceHost) (syncplugin.Plugin, syncplugin.Config) {
+	t.Helper()
+	vms := make([]*vboxmanagetest.VM, 0, len(hosts))
+	for i, h := range hosts {
+		osType := "Ubuntu (64-bit)"
+		if h.SoftwareType != "" && h.SoftwareType != "IOS-XE" {
+			osType = h.SoftwareType
+		}
+		vms = append(vms, &vboxmanagetest.VM{Name: h.Name, UUID: fmt.Sprintf("00000000-0000-4000-b000-%012d", i+1), State: vboxmanage.StatePoweroff,
+			MemoryMB: 1024, CPUs: 1, OSType: osType, Extra: map[string]string{vboxmanage.ExtraAddress: h.IP, vboxmanage.ExtraDevice: h.Name}})
+	}
+	model := vboxmanagetest.New(vms...)
+	old := vboxplugin.HostFunc
+	vboxplugin.HostFunc = func(vboxplugin.Endpoint, map[string]string) (vboxmanage.Host, error) { return model.VBoxHost(), nil }
+	t.Cleanup(func() { vboxplugin.HostFunc = old })
+
+	cfg := syncplugin.Config{
+		Name:     vboxplugin.Name,
+		Endpoint: "https://vbox-host.example:5986",
+		ReadOnly: true,
+		// The host's own stored credential, as a user names it with
+		// --credential.
+		CredentialName: "vbox-host",
+	}
+	deps := syncplugin.Deps{
+		Credentials: staticStore{credential.Credential{Username: "pleiades-gate", Password: "Lab-Passw0rd-1"}},
+	}
+	return openThroughRegistry(t, vboxplugin.Name, cfg, deps), cfg
 }
 
 // newStaticYAMLBackend writes an upstream document and connects a plugin to

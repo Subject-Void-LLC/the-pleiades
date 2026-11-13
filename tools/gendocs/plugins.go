@@ -16,11 +16,15 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/syncplugin"
 )
 
+// predatesForge names the plugins written by hand before `pleiades forge
+// new-plugin` existed (static_yaml, per catalogdata.Plugins's own doc
+// comment). A plugin written by hand since (vbox) is labeled hand-written
+// alone.
+var predatesForge = map[string]bool{"static_yaml": true}
+
 // forgeGenerated reports whether the Forge created the plugin registered
 // under name. catalogdata.Plugins is the table `pleiades forge new-plugin`
-// appends to, so a registered name absent from it is a plugin that was
-// written by hand before the Forge existed (static_yaml, per
-// catalogdata.Plugins's own doc comment).
+// appends to, so a registered name absent from it was written by hand.
 func forgeGenerated(name string) bool {
 	for _, cfg := range catalogdata.Plugins {
 		if cfg.Name == name {
@@ -81,9 +85,12 @@ func renderPlugins(names []string) (string, error) {
 		if desc.Implemented() {
 			status = string(syncplugin.StatusImplemented)
 		}
-		origin := "hand-written, predates the Forge"
-		if forgeGenerated(name) {
+		origin := "hand-written"
+		switch {
+		case forgeGenerated(name):
 			origin = "generated"
+		case predatesForge[name]:
+			origin = "hand-written, predates the Forge"
 		}
 
 		rows = append(rows, []string{
