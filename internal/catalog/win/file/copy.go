@@ -47,7 +47,7 @@ func init() {
 				Summary:     "Copies a file from the project to a Windows host over WinRM and keeps it only if its SHA-256 matches.",
 				Description: "Makes sure path on the host holds the project file src, byte for byte. This is ansible.windows.win_copy for one file. The file is read from the project (at most 128 MiB; never from .pleiades, never through a link) and its SHA-256 worked out here. A file already at path with that digest reports no change and nothing is sent. Otherwise the file travels on the WinRM command's standard input as base64, never on a command line, into a file beside path, and is moved into place only once its digest matches; a mismatch leaves path as it was and fails. A file at path with another digest is replaced. Only the command line reads a project's files, so a Walk-tier Runner refuses src. A check reads path's digest and sends nothing.",
 				Params: []collection.Param{
-					{Name: "src", Type: "string", Required: true, Description: "The file to copy, a slash-separated path relative to the project directory, as dist/tree.tar.gz."},
+					{Name: "src", Type: "string", Required: true, Description: "The file to copy, a slash-separated path relative to the project directory, as dist/tree.tar.gz.", Format: collection.ParamFormatProjectPath},
 					{Name: "path", Type: "string", Required: true, Description: "The absolute path on the host to write, as C:\\pleiades\\tree.tar.gz. Its folder must exist. It may not hold a quote, a wildcard or a control character."},
 					{Name: "timeout", Type: "int", Default: "1800", Description: "How many seconds the copy may take."},
 				},

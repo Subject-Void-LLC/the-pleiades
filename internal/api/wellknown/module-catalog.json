@@ -1890,7 +1890,8 @@
         {
           "name": "src",
           "type": "string",
-          "description": "A file in the project directory whose bytes the file should hold, relative to it."
+          "description": "A file in the project directory whose bytes the file should hold, relative to it.",
+          "format": "project_path"
         },
         {
           "name": "mode",
@@ -7780,7 +7781,8 @@
         {
           "name": "src",
           "type": "string",
-          "description": "A file in the project directory whose bytes the file should hold, as a path relative to that directory: it must stay inside it, pass through no symbolic link, not be in .pleiades, and be a regular file of at most 64 MiB. Read by the command line, which holds the project; refused on a Walk-tier Runner, which cannot see it, where content is the way. Set content or src, not both."
+          "description": "A file in the project directory whose bytes the file should hold, as a path relative to that directory: it must stay inside it, pass through no symbolic link, not be in .pleiades, and be a regular file of at most 64 MiB. Read by the command line, which holds the project; refused on a Walk-tier Runner, which cannot see it, where content is the way. Set content or src, not both.",
+          "format": "project_path"
         },
         {
           "name": "mode",
@@ -13388,7 +13390,8 @@
           "name": "src",
           "type": "string",
           "required": true,
-          "description": "The capture file, a path relative to the project directory, such as captures/core1-wan.pcap."
+          "description": "The capture file, a path relative to the project directory, such as captures/core1-wan.pcap.",
+          "format": "project_path"
         },
         {
           "name": "pairs",
@@ -16636,7 +16639,8 @@
         {
           "name": "topology_file",
           "type": "string",
-          "description": "A containerlab topology YAML file in the project directory, read by the command line; refused on a Walk-tier Runner, where topology is the way. The three topology, topology_file and source_url are alternatives: give only one."
+          "description": "A containerlab topology YAML file in the project directory, read by the command line; refused on a Walk-tier Runner, where topology is the way. The three topology, topology_file and source_url are alternatives: give only one.",
+          "format": "project_path"
         },
         {
           "name": "source_url",
@@ -17047,7 +17051,8 @@
         {
           "name": "topology_file",
           "type": "string",
-          "description": "A containerlab topology YAML file in the project directory, read by the command line; refused on a Walk-tier Runner, where topology is the way. The three topology, topology_file and source_url are alternatives: give only one."
+          "description": "A containerlab topology YAML file in the project directory, read by the command line; refused on a Walk-tier Runner, where topology is the way. The three topology, topology_file and source_url are alternatives: give only one.",
+          "format": "project_path"
         },
         {
           "name": "source_url",
@@ -23175,7 +23180,8 @@
           "name": "src",
           "type": "string",
           "required": true,
-          "description": "The file to copy, a slash-separated path relative to the project directory, as dist/tree.tar.gz."
+          "description": "The file to copy, a slash-separated path relative to the project directory, as dist/tree.tar.gz.",
+          "format": "project_path"
         },
         {
           "name": "path",
