@@ -70,3 +70,24 @@ func TestRegister_AcceptsEitherAbsenceDeclaration(t *testing.T) {
 		t.Errorf("WithNoExistsReason set %q", m.NoExistsReason)
 	}
 }
+
+// TestAbsenceAnswer_SaysWhatEachKindOfMethodAnswers holds the one sentence
+// pleiades doc and the reference pages show, for each of its four cases.
+func TestAbsenceAnswer_SaysWhatEachKindOfMethodAnswers(t *testing.T) {
+	readOnly := collection.Reversibility{ReadOnly: true}
+	withExists := collection.Doc{Returns: []collection.ReturnField{{Name: collection.ExistsReturn}}}
+	for name, tc := range map[string]struct {
+		m    collection.Manifest
+		want string
+	}{
+		"a method that changes things": {collection.Manifest{Doc: withExists}, ""},
+		"a lookup declaring exists":    {collection.Manifest{Reversibility: readOnly, Doc: withExists}, "a thing that is not there is exists false"},
+		"a reader with a reason":       {collection.Manifest{Reversibility: readOnly, NoExistsReason: collection.NoExistsLists}, "no exists return: " + collection.NoExistsLists},
+		"a reader with neither":        {collection.Manifest{Reversibility: readOnly}, "says nothing of absence"},
+	} {
+		got := tc.m.AbsenceAnswer()
+		if (tc.want == "") != (got == "") || !strings.Contains(got, tc.want) {
+			t.Errorf("%s: AbsenceAnswer() = %q, want it to say %q", name, got, tc.want)
+		}
+	}
+}
