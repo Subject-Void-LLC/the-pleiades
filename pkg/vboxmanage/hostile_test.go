@@ -291,3 +291,23 @@ func TestHostile_AListSplitByANameIsRefused(t *testing.T) {
 		t.Errorf("a list split by a name was read: %+v", refs)
 	}
 }
+
+// TestHostile_TheLeasesScriptQuotesTheAdapter: DHCPLeases puts the adapter's
+// name into its script as winrmexec.QuotePS writes it, the one quoting rule
+// every script here follows (FAILURE_PATTERNS 354), rather than between
+// quotes of its own; and every adapter name holding a quote of any of
+// PowerShell's five kinds is refused before a script is built.
+func TestHostile_TheLeasesScriptQuotesTheAdapter(t *testing.T) {
+	ctx := context.Background()
+	r := &scripts{}
+	adapter := "VirtualBox Host-Only Ethernet Adapter #2"
+	_, _ = Host{Runner: r, Path: vbox}.DHCPLeases(ctx, adapter)
+	if len(r.got) != 1 || !strings.Contains(r.got[0], "\n$adapter = "+winrmexec.QuotePS(adapter)+"\n") {
+		t.Fatalf("the leases script does not assign the adapter as QuotePS writes it: %q", r.got)
+	}
+	for _, q := range []string{"'", "‘", "’", "‚", "‛"} {
+		if _, err := (Host{Runner: never{t}, Path: vbox}).DHCPLeases(ctx, "Adapter "+q+"; calc; "+q); err == nil {
+			t.Errorf("an adapter holding %q was accepted", q)
+		}
+	}
+}
