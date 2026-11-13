@@ -1,0 +1,43 @@
+UUID:           67793435-652b-492e-8649-7f664ce14aa9
+Parent UUID:    base
+State:          locked read
+Type:           normal (base)
+Location:       G:\PleiadesLab\p112-base\p112-base.vdi
+Storage format: VDI
+Format variant: dynamic default
+Capacity:       65536 MBytes
+Size on disk:   11143 MBytes
+Encryption:     disabled
+Property:       AllocationBlockSize=1048576
+In use by VMs:  p112-base (UUID: 1e5793e0-6eac-4684-bfa8-472b1dc5312d) [base (UUID: e2c30150-4308-45b1-8819-b3734bfc8a4a)]
+Child UUIDs:    2de3d928-bdfa-4f21-a0f6-95b70b3450c8
+                485b4e77-4756-4138-8faa-0596743075b6
+
+UUID:           2de3d928-bdfa-4f21-a0f6-95b70b3450c8
+Parent UUID:    67793435-652b-492e-8649-7f664ce14aa9
+State:          created
+Type:           normal (differencing)
+Auto-Reset:     off
+Location:       G:\PleiadesLab\p112-base\Snapshots/{2de3d928-bdfa-4f21-a0f6-95b70b3450c8}.vdi
+Storage format: VDI
+Format variant: differencing default
+Capacity:       65536 MBytes
+Size on disk:   2 MBytes
+Encryption:     disabled
+Property:       AllocationBlockSize=1048576
+In use by VMs:  p112-base (UUID: 1e5793e0-6eac-4684-bfa8-472b1dc5312d)
+
+UUID:           485b4e77-4756-4138-8faa-0596743075b6
+Parent UUID:    67793435-652b-492e-8649-7f664ce14aa9
+State:          locked write
+Type:           normal (differencing)
+Auto-Reset:     off
+Location:       G:\PleiadesLab\p112-a\Snapshots\{485b4e77-4756-4138-8faa-0596743075b6}.vdi
+Storage format: VDI
+Format variant: differencing default
+Capacity:       65536 MBytes
+Size on disk:   2 MBytes
+Encryption:     disabled
+Property:       AllocationBlockSize=1048576
+In use by VMs:  p112-a (UUID: 33600706-08fd-4c4e-9a4a-ccbae1095d7c)
+

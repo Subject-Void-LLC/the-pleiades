@@ -311,6 +311,8 @@ func (h *Host) vboxmanage(args []string) vboxmanage.Output {
 	switch {
 	case len(args) == 2 && args[0] == "list":
 		return h.list(args[1])
+	case len(args) == 3 && args[0] == "list" && args[1] == "--long" && args[2] == "hdds":
+		return h.listMedia()
 	case len(args) == 3 && args[0] == "showvminfo" && args[2] == "--machinereadable":
 		vm := h.find(args[1])
 		if vm == nil {
