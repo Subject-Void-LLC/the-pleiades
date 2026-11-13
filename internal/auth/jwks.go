@@ -104,7 +104,6 @@ type jwk struct {
 // trusting a key the IdP may have withdrawn.
 type jwksKeyProvider struct {
 	jwksURL    string
-	displayURL string // jwksURL with any password removed, for messages and logs
 	httpClient *http.Client
 	logger     *slog.Logger     // nil means slog.Default(), read when a line is written
 	now        func() time.Time // the clock key age is measured on
@@ -160,31 +159,49 @@ func WithLogger(l *slog.Logger) JWKSOption {
 	return func(p *jwksKeyProvider) { p.logger = l }
 }
 
-// NewJWKSKeyProvider builds a KeyProvider that fetches its verification
-// keys from jwksURL. It performs a real fetch at construction time and
-// fails closed: an empty URL, one that is not https, an unreachable
-// endpoint, or a document with zero usable keys all return an error rather
-// than constructing a provider that would silently reject every token later.
+// ValidateJWKSURL reports whether raw is a JWKS URL the Controller accepts:
+// an absolute https URL that carries no user name or password. It is the one
+// rule, shared by NewJWKSKeyProvider, `controller setup` and its reading of a
+// compose env file, so that setup never writes a URL the Controller then
+// refuses to start with.
 //
 // https is required because the key set is the trust anchor: whoever can
-// change it in transit can sign any token this Controller accepts
-// (FAILURE_PATTERNS 1229).
-func NewJWKSKeyProvider(jwksURL string, opts ...JWKSOption) (KeyProvider, error) {
-	if jwksURL == "" {
-		return nil, fmt.Errorf("auth: JWKS URL must not be empty")
+// change it in transit can sign any token this Controller accepts. A user
+// name or password is refused outright rather than hidden in messages: a
+// JWKS endpoint publishes public keys and needs no credential, so one in the
+// URL is a mistake, and a URL is copied into logs, process listings and
+// error reports this package does not control (FAILURE_PATTERNS 1229).
+//
+// No refusal repeats the URL, so a password in it is never echoed.
+func ValidateJWKSURL(raw string) error {
+	if raw == "" {
+		return errors.New("auth: the JWKS URL is empty")
 	}
-	parsed, err := url.Parse(jwksURL)
+	parsed, err := url.Parse(raw)
 	if err != nil || parsed.Host == "" {
-		return nil, fmt.Errorf("auth: JWKS URL is not an absolute URL")
+		return errors.New("auth: the JWKS URL is not an absolute URL with a host")
+	}
+	if parsed.User != nil {
+		return errors.New("auth: the JWKS URL carries a user name or password; a JWKS endpoint publishes public keys and needs no credential, so remove it from the URL")
 	}
 	if parsed.Scheme != "https" {
-		// The scheme alone, never the URL: a URL can carry a password.
-		return nil, fmt.Errorf("auth: JWKS URL must be an https URL, not %q: the key set decides which tokens are accepted, so it is never fetched over plain HTTP", parsed.Scheme)
+		return fmt.Errorf("auth: the JWKS URL must be an https URL, not %q: the key set decides which tokens are accepted, so it is never fetched over plain HTTP", parsed.Scheme)
+	}
+	return nil
+}
+
+// NewJWKSKeyProvider builds a KeyProvider that fetches its verification
+// keys from jwksURL. It performs a real fetch at construction time and
+// fails closed: a URL ValidateJWKSURL refuses, an unreachable endpoint, or a
+// document with zero usable keys all return an error rather than
+// constructing a provider that would silently reject every token later.
+func NewJWKSKeyProvider(jwksURL string, opts ...JWKSOption) (KeyProvider, error) {
+	if err := ValidateJWKSURL(jwksURL); err != nil {
+		return nil, err
 	}
 
 	p := &jwksKeyProvider{
 		jwksURL:            jwksURL,
-		displayURL:         parsed.Redacted(),
 		httpClient:         &http.Client{Timeout: defaultJWKSTimeout},
 		now:                time.Now,
 		keys:               make(map[string]interface{}),
@@ -201,7 +218,7 @@ func NewJWKSKeyProvider(jwksURL string, opts ...JWKSOption) (KeyProvider, error)
 	}
 
 	if err := p.refresh(context.Background()); err != nil {
-		return nil, fmt.Errorf("auth: initial JWKS fetch from %s: %w", p.displayURL, err)
+		return nil, fmt.Errorf("auth: initial JWKS fetch from %s: %w", p.jwksURL, err)
 	}
 
 	if p.refreshInterval > 0 {

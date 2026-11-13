@@ -353,23 +353,57 @@ func TestNewJWKSKeyProvider_RefusesANonPositiveStalenessBound(t *testing.T) {
 	}
 }
 
-// TestNewJWKSKeyProvider_ARefusedURLDoesNotEchoItsPassword: a URL is
-// refused by its scheme alone, and a failed first fetch names the URL with
-// its password removed.
-func TestNewJWKSKeyProvider_ARefusedURLDoesNotEchoItsPassword(t *testing.T) {
-	_, err := auth.NewJWKSKeyProvider("http://user:hunter2@idp.example/keys")
-	if err == nil || strings.Contains(err.Error(), "hunter2") || !strings.Contains(err.Error(), "https") {
-		t.Errorf("plain http refusal = %v, want it to ask for https without the password", err)
+// TestNewJWKSKeyProvider_RefusesAURLCarryingUserinfo: a JWKS URL holding a
+// user name, with or without a password, is refused at construction, before
+// any fetch, and the refusal does not repeat it. A JWKS endpoint serves
+// public keys, so a credential in its URL is a mistake to refuse, not a
+// secret to hide (FAILURE_PATTERNS 1229).
+func TestNewJWKSKeyProvider_RefusesAURLCarryingUserinfo(t *testing.T) {
+	key := newRSAKey(t)
+	idp := newCountingIdP(t, jwksDocumentForRSAKey(t, &key.PublicKey, "k1"))
+	for _, userinfo := range []string{"user:hunter2@", "hunter2@"} {
+		withUserinfo := strings.Replace(idp.server.URL, "https://", "https://"+userinfo, 1)
+		_, err := auth.NewJWKSKeyProvider(withUserinfo, auth.WithHTTPClient(idp.server.Client()))
+		if err == nil {
+			t.Fatalf("a JWKS URL carrying %q was accepted", userinfo)
+		}
+		if strings.Contains(err.Error(), "hunter2") || !strings.Contains(err.Error(), "user name or password") {
+			t.Errorf("refusal for %q = %v, want it to name the user name or password without repeating it", userinfo, err)
+		}
 	}
+	if got := idp.fetches.Load(); got != 0 {
+		t.Errorf("refused URLs caused %d fetches, want 0: the refusal comes before any request", got)
+	}
+}
 
-	down := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusServiceUnavailable)
-	}))
-	t.Cleanup(down.Close)
-	withPassword := strings.Replace(down.URL, "https://", "https://user:hunter2@", 1)
-	_, err = auth.NewJWKSKeyProvider(withPassword, auth.WithHTTPClient(down.Client()))
-	if err == nil || strings.Contains(err.Error(), "hunter2") {
-		t.Errorf("failed first fetch = %v, want an error without the password", err)
+// TestValidateJWKSURL is the one rule setup and the Controller share, so a
+// URL setup writes is one the Controller starts with.
+func TestValidateJWKSURL(t *testing.T) {
+	cases := []struct {
+		raw     string
+		wantErr string
+	}{
+		{"https://idp.example.com/realms/pleiades/protocol/openid-connect/certs", ""},
+		{"https://idp.example.com:8443/keys", ""},
+		{"", "empty"},
+		{"/keys", "absolute"},
+		{"https:///keys", "absolute"},
+		{"http://idp.example.com/keys", "https"},
+		{"file:///etc/passwd", "absolute"},
+		{"https://user:secret@idp.example.com/keys", "user name or password"},
+		{"https://user@idp.example.com/keys", "user name or password"},
+		{"http://user:secret@idp.example.com/keys", "user name or password"},
+	}
+	for _, tc := range cases {
+		err := auth.ValidateJWKSURL(tc.raw)
+		switch {
+		case tc.wantErr == "" && err != nil:
+			t.Errorf("ValidateJWKSURL(%q) = %v, want it accepted", tc.raw, err)
+		case tc.wantErr != "" && (err == nil || !strings.Contains(err.Error(), tc.wantErr)):
+			t.Errorf("ValidateJWKSURL(%q) = %v, want a refusal naming %q", tc.raw, err, tc.wantErr)
+		case err != nil && strings.Contains(err.Error(), "secret@"):
+			t.Errorf("ValidateJWKSURL(%q) repeated the URL's credential: %v", tc.raw, err)
+		}
 	}
 }
 

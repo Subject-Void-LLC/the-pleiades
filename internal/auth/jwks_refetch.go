@@ -82,8 +82,9 @@ func (p *jwksKeyProvider) fly(ctx context.Context, f *jwksFlight) {
 // Warn before that, and the first success after a failure. trigger names
 // what asked for the fetch ("background" or "request").
 //
-// The URL is logged with any password removed, and the error is the fetch's
-// own, which never carries a token or a kid.
+// The URL is logged as given, since ValidateJWKSURL refuses one carrying a
+// user name or password, and the error is the fetch's own, which never
+// carries a token or a kid.
 func (p *jwksKeyProvider) refreshAndReport(ctx context.Context, trigger string) error {
 	err := p.refresh(ctx)
 
@@ -102,7 +103,7 @@ func (p *jwksKeyProvider) refreshAndReport(ctx context.Context, trigger string) 
 		logger = slog.Default()
 	}
 	attrs := []any{
-		slog.String("jwks_url", p.displayURL),
+		slog.String("jwks_url", p.jwksURL),
 		slog.String("trigger", trigger),
 	}
 	switch {

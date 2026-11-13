@@ -1,1 +1,1 @@
-The Controller refuses to start when `JWKS_URL` and `JWT_SECRET` are both set, where `JWKS_URL` used to win silently and leave the secret as a fallback, and it refuses a `JWKS_URL` that is not https.
+The Controller refuses to start when `JWKS_URL` and `JWT_SECRET` are both set, where `JWKS_URL` used to win silently and leave the secret as a fallback. It refuses a `JWKS_URL` that is not https, or that carries a user name or password, before fetching anything.
