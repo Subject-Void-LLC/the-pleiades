@@ -136,6 +136,7 @@
     "github.com/Subject-Void-LLC/the-pleiades/pkg/httpapi": 98.1,
     "github.com/Subject-Void-LLC/the-pleiades/pkg/inventory": 100.0,
     "github.com/Subject-Void-LLC/the-pleiades/pkg/iso9660": 100.0,
+    "github.com/Subject-Void-LLC/the-pleiades/pkg/netcfg": 96.4,
     "github.com/Subject-Void-LLC/the-pleiades/pkg/netcli": 79.0,
     "github.com/Subject-Void-LLC/the-pleiades/pkg/netconf": 89.0,
     "github.com/Subject-Void-LLC/the-pleiades/pkg/pfx": 91.0,
