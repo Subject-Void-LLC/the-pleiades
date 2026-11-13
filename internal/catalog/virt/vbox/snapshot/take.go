@@ -37,7 +37,7 @@ func init() {
 			Status:          collection.StatusImplemented,
 			Reversibility: collection.Reversibility{
 				Reversible: true,
-				Notes:      "A run that took a snapshot emits virt.vbox.snapshot.delete naming it by UUID, so the undo deletes that snapshot and no other of the same name; one that found a snapshot under the name emits nothing.",
+				Notes:      "A run that took a snapshot of a stopped VM emits virt.vbox.snapshot.delete naming it by UUID, so the undo deletes that snapshot and no other of the same name; one that found a snapshot under the name emits nothing, and so does one that snapshotted a running VM, whose undo would be a delete from a running VM that virt.vbox.snapshot.delete refuses.",
 				Inverses: []sdk.InverseSpec{
 					{FQCN: "virt.vbox.snapshot.delete", Record: []string{"vm", "name", "uuid"}},
 				},
@@ -45,7 +45,7 @@ func init() {
 			SupportsCheck: true,
 			Doc: collection.Doc{
 				Summary:     "Takes a snapshot of a VirtualBox VM under a name no other snapshot of it has.",
-				Description: "Makes sure a VM has a snapshot with this name. A snapshot already under the name reports no change and takes no second one, although VirtualBox itself would. A running VM can be snapshotted; a snapshot of a running VM holds its memory too. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A check reads the VM and sends nothing.",
+				Description: "Makes sure a VM has a snapshot with this name. A snapshot already under the name reports no change and takes no second one, although VirtualBox itself would. A running VM can be snapshotted; a snapshot of a running VM holds its memory too. Its undo would delete the snapshot from the running VM a rollback brings back, which virt.vbox.snapshot.delete refuses, so a snapshot taken of a VM that is not stopped records no undo and says so in a warning: a rollback refuses that change by name before it contacts anything, and --leave accepts it. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A check reads the VM and sends nothing.",
 				Params: []collection.Param{
 					{Name: "vm", Type: "string", Required: true, Description: "The VM whose snapshot this is, named as for virt.vbox.vm.start."},
 					{Name: "name", Type: "string", Required: true, Description: "The snapshot's name, under the same rule as a VM's. VirtualBox lets two snapshots share a name; virt.vbox.snapshot.take never makes a second, and the methods that find a snapshot by name refuse one that matches more than one unless uuid says which."},
@@ -117,6 +117,18 @@ func runTake(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 	}
 	if err := recordExists(rc, fqcn, false, true); err != nil {
 		return collection.Result{}, err
+	}
+	// A rollback undoes this after everything later, so the VM is as it
+	// was now: running, when it runs now, and virt.vbox.snapshot.delete
+	// refuses a running VM. No undo is recorded, which a rollback refuses
+	// by name before it contacts anything, rather than one that fails
+	// partway through.
+	if !m.Off() {
+		warning := fmt.Sprintf("%s was %s when snapshot %s was taken, so no undo is recorded: deleting it would mean deleting a running VM's snapshot, which virt.vbox.snapshot.delete refuses; a rollback refuses this change unless --leave names it, and the snapshot can be deleted once the VM is stopped", r.vm, m.State, r.name)
+		if err := sdk.RecordWarnings(rc, []string{warning}); err != nil {
+			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+		}
+		return collection.Result{Changed: true}, nil
 	}
 	if err := sdk.RecordInverse(rc, sdk.Inverse{
 		FQCN:        "virt.vbox.snapshot.delete",

@@ -41,12 +41,38 @@ func TestDelete(t *testing.T) {
 	}
 }
 
-func TestDelete_OfARunningVM(t *testing.T) {
+// TestDelete_RefusesAVMThatIsNotStopped: a running or paused VM's snapshot
+// is not deleted, in a run or a check, and the refusal names the state and
+// says to stop it; a saved VM, which nothing runs, is stopped enough. On the
+// lab host an online merge twice left the VM inaccessible.
+func TestDelete_RefusesAVMThatIsNotStopped(t *testing.T) {
+	for _, state := range []string{vboxmanage.StateRunning, vboxmanage.StatePaused} {
+		for _, check := range []bool{false, true} {
+			vm := lab()
+			vm.State = state
+			model := vboxmanagetest.New(vm)
+			onModel(t, model)
+			_, err := call(t, "virt.vbox.snapshot.delete", check, newRecorder(), map[string]any{"vm": "ubuntu-lab", "name": "clean"})
+			if err == nil || !strings.Contains(err.Error(), `"ubuntu-lab" is `+state) || !strings.Contains(err.Error(), "virt.vbox.vm.stop") {
+				t.Errorf("%s, check %v: %v", state, check, err)
+			}
+			if len(vm.Snapshots) != 1 || len(changes(model)) != 0 {
+				t.Errorf("%s, check %v: the refused delete acted: %v", state, check, changes(model))
+			}
+		}
+	}
 	vm := lab()
-	vm.State = vboxmanage.StateRunning
+	vm.State = vboxmanage.StateSaved
 	onModel(t, vboxmanagetest.New(vm))
 	if result, err := call(t, "virt.vbox.snapshot.delete", false, newRecorder(), map[string]any{"vm": "ubuntu-lab", "name": "clean"}); err != nil || !result.Changed || len(vm.Snapshots) != 0 {
-		t.Errorf("%+v, %v", result, err)
+		t.Errorf("a saved VM: %+v, %v", result, err)
+	}
+	// A running VM with no snapshot under the name has nothing to refuse.
+	vm = lab()
+	vm.State, vm.Snapshots, vm.Current = vboxmanage.StateRunning, nil, ""
+	onModel(t, vboxmanagetest.New(vm))
+	if result, err := call(t, "virt.vbox.snapshot.delete", false, newRecorder(), map[string]any{"vm": "ubuntu-lab", "name": "clean"}); err != nil || result.Changed {
+		t.Errorf("no snapshot on a running VM: %+v, %v", result, err)
 	}
 }
 

@@ -9,12 +9,12 @@
 // path (clone, start, host keys, SSH, rollback) is TestLab_FreeBSDVMRollback.
 // It skips, saying what to set, where there is no such host.
 //
-// On the lab host on 2026-11-13 it fails at the second rollback, twice
-// running: undoing the snapshot run starts the clone from its saved state
-// and deletes its snapshot while it runs, after which VirtualBox lists the
-// clone as inaccessible, its settings file holding no media registry, so
-// the make run's undo cannot find it and its base cannot be deleted. That
-// is a defect to fix, not a reason to loosen this gate.
+// Before 2026-11-13 the snapshot run's undo deleted the clone's snapshot
+// while the clone ran, and on the lab host that twice left the clone
+// inaccessible, its settings holding no media registry. Now
+// virt.vbox.snapshot.delete refuses a running VM, a snapshot of a running
+// VM records no undo, and this gate holds the rollback to refusing that
+// change by name before contact.
 package main_test
 
 import (
@@ -126,9 +126,22 @@ func TestLab_VBoxReleaseGate(t *testing.T) {
 `, gateClone)
 	second := runGateRunbook(t, dir, "snapshot", change)
 
-	// Newest run first. A restore keeps nothing an undo could put back, so
-	// it is left by name; every other change is undone.
-	if _, raw, code := runPleiadesJSON(t, dir, "rollback", second, "--leave", "tasks[2]"); code != 0 {
+	// Newest run first. The snapshot of the running clone recorded no undo:
+	// deleting it would mean deleting a running VM's snapshot, which
+	// virt.vbox.snapshot.delete refuses, so the rollback refuses that change
+	// by name before it contacts anything.
+	before2 := labVMs(t, dir, host)
+	_, raw, code = runPleiadesJSON(t, dir, "rollback", second, "--leave", "tasks[2]")
+	if code == 0 || !strings.Contains(raw, "recorded no undo") || !strings.Contains(raw, "--leave tasks[0]") {
+		t.Fatalf("a rollback of the snapshot run that leaves only the restore exited %d; want a refusal naming tasks[0]:\n%s", code, raw)
+	}
+	if now := labVMs(t, dir, host); now[gateClone] != before2[gateClone] {
+		t.Fatalf("the refused rollback changed the clone from %v to %v", before2[gateClone], now[gateClone])
+	}
+	// The restore and the snapshot of the running clone are left by name;
+	// the stop is undone, starting the clone again. The clone was stopped
+	// before the restore, so no step deletes a running VM's snapshot.
+	if _, raw, code := runPleiadesJSON(t, dir, "rollback", second, "--leave", "tasks[0]", "--leave", "tasks[2]"); code != 0 {
 		t.Fatalf("rolling back the snapshot run exited %d:\n%s", code, raw)
 	}
 	// The restore left in place is still a change of the later run, so the
