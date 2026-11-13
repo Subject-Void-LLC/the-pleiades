@@ -138,6 +138,38 @@ func TestProtocolFamilyAndSecrets(t *testing.T) {
 	}
 }
 
+// TestUnmodelledIn_ManagementVRF: an interface in IOS XE's Mgmt-intf VRF,
+// which Batfish deactivates (measured on a real IOL XE router's own
+// configuration), is found as management_vrf at its vrf forwarding line, a
+// carriage return included, and accepted by name only with a reason. A VRF
+// not measured (Mgmt-vrf, management) or a customer VRF is not matched.
+func TestUnmodelledIn_ManagementVRF(t *testing.T) {
+	config := "hostname R1\nvrf definition Mgmt-intf\n address-family ipv4\n exit-address-family\ninterface Ethernet0/2\n vrf forwarding Mgmt-intf\r\n ip address 10.10.20.171 255.255.255.0\n"
+	use, ok := unmodelledIn(formatCiscoIOS, config)["management_vrf"]
+	if !ok || use.line != 6 || use.text != "vrf forwarding Mgmt-intf" {
+		t.Errorf("management_vrf = %+v, %v", use, ok)
+	}
+	if coverageWhy("management_vrf") == "" {
+		t.Error("management_vrf has no reason")
+	}
+	for _, other := range []string{"interface Gi0/0\n vrf forwarding Mgmt-vrf\n", "interface mgmt0\n vrf forwarding management\n", "interface Gi1\n vrf forwarding CUSTOMER\n", "ip route vrf Mgmt-intf 0.0.0.0 0.0.0.0 10.10.20.254\n"} {
+		if _, found := unmodelledIn(formatCiscoIOS, other)["management_vrf"]; found {
+			t.Errorf("%q matched management_vrf", other)
+		}
+	}
+	dev := []any{map[string]any{"name": "R1", "format": "cisco_ios", "config": config}}
+	ok2 := []any{map[string]any{"ospf_established": true}}
+	req, err := readParams(nil, map[string]any{"devices": dev, "assertions": ok2,
+		"accept_unrecognized": []any{map[string]any{"feature": "management_vrf", "reason": "management only"}}})
+	if err != nil || req.acceptFeature["management_vrf"] != "management only" {
+		t.Errorf("accepting management_vrf by name: %v, %+v", err, req.acceptFeature)
+	}
+	if _, err := readParams(nil, map[string]any{"devices": dev, "assertions": ok2,
+		"accept_unrecognized": []any{map[string]any{"feature": "management_vrf", "reason": " "}}}); err == nil {
+		t.Error("management_vrf was accepted with no reason")
+	}
+}
+
 // TestUnmodelledIn finds each unmodelled feature a Cisco configuration
 // uses, once, at its first line, and nothing in another format.
 func TestUnmodelledIn(t *testing.T) {

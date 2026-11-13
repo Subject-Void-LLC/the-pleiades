@@ -210,7 +210,9 @@ pre-1.0 project and the honest state is not what the docs' introductions might i
   configurations (`frr`, `cisco_ios`; masked by `pkg/netcfg` first) to a `batfish` device's model through
   `pkg/batfish` (Batfish's REST API from Go), with assertions, link-down scenarios and a fail-closed refusal of
   every unrecognised line and every feature measured to be parsed but not modelled (`coverage.go`: Cisco GLBP,
-  IP SLA, SLA tracking, BFD), each accepted only by name with a reason. `net.frr.*` (through `vtysh` and
+  IP SLA, SLA tracking, BFD, NHRP, and IOS XE's `Mgmt-intf` management VRF, whose interfaces Batfish
+  deactivates), each accepted only by name with a reason. Proven on a real IOS XE router's own running
+  configuration by `TestCLI_BatfishModelsARealIOSXERunningConfig` (the CML sandbox, over Telnet). `net.frr.*` (through `vtysh` and
   `frr-reload.py`), `wait.routes`, `net.trace` and `net.ovs.*` apply and verify; `pleiades import-containerlab`
   reads a lab's `topology-data.json`. FRR and Open vSwitch are `generic_ssh` devices granted `FRRCapable` and
   `OpenVSwitchCapable` by onboarding. Proven against real FRR, Open vSwitch and Batfish containers

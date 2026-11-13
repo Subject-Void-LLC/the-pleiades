@@ -36,6 +36,6 @@ var batfishScenarioEntries = []collection.Param{
 // batfishAcceptEntries are the keys of one accept_unrecognized entry.
 var batfishAcceptEntries = []collection.Param{
 	{Name: "text", Type: "string", Description: "The line Batfish did not recognise, trimmed. Give text or feature."},
-	{Name: "feature", Type: "string", Description: "A feature Batfish parses and does not model (glbp, ip_sla, sla_tracking, bfd, nhrp). Give text or feature."},
+	{Name: "feature", Type: "string", Description: "A feature Batfish parses and does not model (glbp, ip_sla, sla_tracking, bfd, nhrp, management_vrf). Give text or feature."},
 	{Name: "reason", Type: "string", Required: true, Description: "Why the model may ignore it."},
 }

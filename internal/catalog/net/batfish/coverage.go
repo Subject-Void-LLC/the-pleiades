@@ -35,6 +35,14 @@ var coverage = []unmodelled{
 	// "mode gre multipoint" is reported unrecognised, and BGP over the
 	// tunnel never establishes in the model.
 	{"nhrp", formatCiscoIOS, regexp.MustCompile(`^\s*ip nhrp\s`), "Batfish parses NHRP and resolves nothing with it: a DMVPN cloud's paths over its mGRE tunnel, hub and spoke-to-spoke alike, and the routing over them are not in the model, so prove the overlay on the live network"},
+	// Measured 2026-11-13 on a real IOL XE 17.15.1 router's own running
+	// configuration (the CML sandbox's): its Ethernet0/2, in vrf forwarding
+	// Mgmt-intf, is Admin_Up and not Active in interfaceProperties, and
+	// the VRF holds no route at all, not even the connected one. Only
+	// Mgmt-intf, IOS XE's own management VRF name, was measured; Mgmt-vrf
+	// (a Catalyst switch's) and a VRF named management were not, so they
+	// are not matched here.
+	{"management_vrf", formatCiscoIOS, regexp.MustCompile(`^\s*vrf forwarding Mgmt-intf\s*$`), "Batfish deactivates every interface in IOS XE's Mgmt-intf management VRF, so the VRF and its routes are not in the model"},
 }
 
 // unmodelledIn returns, for each unmodelled feature config uses, the first

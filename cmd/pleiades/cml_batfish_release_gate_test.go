@@ -68,7 +68,7 @@ func TestCLI_BatfishModelsARealIOSXERunningConfig(t *testing.T) {
 	// Accepting nothing: every line the model does not recognise or does not
 	// model is refused, each named in the failure.
 	path := filepath.Join("runbooks", "iosxe_batfish.yaml")
-	writeCMLRunbook(t, dir, path, iosBatfishRunbook(node, assertions, nil))
+	writeCMLRunbook(t, dir, path, iosBatfishRunbook(node, assertions, nil, nil))
 	if out, err := run("", "validate", path); err != nil {
 		t.Fatalf("validate: %v\n%s", err, out)
 	}
@@ -95,7 +95,17 @@ func TestCLI_BatfishModelsARealIOSXERunningConfig(t *testing.T) {
 		}
 	}
 	t.Logf("the router's configuration trips %d line(s) the model refuses: %q", len(tripped), tripped)
-	if len(tripped) == 0 {
+	// An interface in the management VRF, which the model deactivates, is
+	// refused as the management_vrf feature, naming its line.
+	var features []string
+	if usesManagementVRF(config) {
+		features = append(features, "management_vrf")
+		if !strings.Contains(fmt.Sprint(tasks[1]["error"]), `uses management_vrf (line `) || !strings.Contains(fmt.Sprint(tasks[1]["error"]), `"vrf forwarding `+managementVRF+`"), which the model does not model`) {
+			t.Errorf("the refusal does not name the management VRF: %v", tasks[1]["error"])
+		}
+	}
+	t.Logf("and uses %d unmodelled feature(s) the model refuses: %q", len(features), features)
+	if len(tripped) == 0 && len(features) == 0 {
 		if err != nil || tasks[1]["status"] != "ok" || check["passed"] != true {
 			t.Fatalf("a configuration tripping nothing did not pass: %v\n%s", err, out)
 		}
@@ -105,7 +115,7 @@ func TestCLI_BatfishModelsARealIOSXERunningConfig(t *testing.T) {
 		}
 		// Each accepted by name with a reason: the check passes and reports
 		// each as not modelled.
-		writeCMLRunbook(t, dir, path, iosBatfishRunbook(node, assertions, tripped))
+		writeCMLRunbook(t, dir, path, iosBatfishRunbook(node, assertions, tripped, features))
 		report, out, err = runReport(t, run, path)
 		tasks = reportTasks(report)
 		if err != nil || len(tasks) != 2 || tasks[1]["status"] != "ok" {
@@ -117,6 +127,11 @@ func TestCLI_BatfishModelsARealIOSXERunningConfig(t *testing.T) {
 		for _, text := range tripped {
 			if !strings.Contains(fmt.Sprint(check["not_modelled"]), text) {
 				t.Errorf("not_modelled does not list the accepted %q: %v", text, check["not_modelled"])
+			}
+		}
+		for _, f := range features {
+			if !strings.Contains(fmt.Sprint(check["not_modelled"]), "uses "+f+" (line ") {
+				t.Errorf("not_modelled does not list the accepted feature %s: %v", f, check["not_modelled"])
 			}
 		}
 	}
@@ -131,8 +146,9 @@ func ranConfig(tasks []map[string]any) string {
 }
 
 // iosBatfishRunbook reads node's running configuration and holds it to the
-// model as cisco_ios with assertions, accepting each line of accept.
-func iosBatfishRunbook(node string, assertions, accept []string) string {
+// model as cisco_ios with assertions, accepting each line of accept and
+// each unmodelled feature of features by name.
+func iosBatfishRunbook(node string, assertions, accept, features []string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, `# What this does: reads %[1]s's running configuration and holds it to Batfish's model.
 # Blast radius: none; %[1]s is only read.
@@ -157,10 +173,13 @@ tasks:
 	for _, a := range assertions {
 		b.WriteString("        - " + a + "\n")
 	}
-	if len(accept) > 0 {
+	if len(accept)+len(features) > 0 {
 		b.WriteString("      accept_unrecognized:\n")
 		for _, text := range accept {
 			fmt.Fprintf(&b, "        - {text: %q, reason: \"a management or platform setting, not routing\"}\n", text)
+		}
+		for _, f := range features {
+			fmt.Fprintf(&b, "        - {feature: %s, reason: \"the management network, reached out of band\"}\n", f)
 		}
 	}
 	return b.String()
@@ -169,7 +188,8 @@ tasks:
 // managementVRF is IOS XE's management VRF. Batfish deactivates every
 // interface in it (measured on the sandbox's IOL XE router, 2026-11-13:
 // Admin_Up true, Active false, and no route in the VRF), so the model holds
-// none of its routes, and the check does not refuse it.
+// none of its routes, and the check refuses it as management_vrf unless it
+// is accepted by name.
 const managementVRF = "Mgmt-intf"
 
 // iosRouteAssertions returns, as the check's assertions, a connected route
@@ -441,4 +461,15 @@ func reportTasks(report map[string]any) []map[string]any {
 		out = append(out, task)
 	}
 	return out
+}
+
+// usesManagementVRF reports whether config puts an interface in the
+// management VRF.
+func usesManagementVRF(config string) bool {
+	for _, line := range strings.Split(config, "\n") {
+		if strings.TrimSpace(line) == "vrf forwarding "+managementVRF {
+			return true
+		}
+	}
+	return false
 }
