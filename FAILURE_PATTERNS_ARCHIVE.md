@@ -29624,3 +29624,44 @@ cases), `TestGrants_EveryTimeItAcceptsSurvivesItsEncoding`, `TestWithGrants_AnUn
 round-trip property (6.4M executions), each failing on the old code.
 
 **Lesson.** A value read back from storage that fails to parse is reported as unreadable, never defaulted.
+
+## 1204. net.frr.config reloaded a router to no configuration on a candidate of only whitespace, and a forced undo of a blank backup did the same (fixed before push)
+
+**Symptom.** A candidate of only whitespace (`config: " \n\t\n"`, or a `src` file holding only whitespace) passed vtysh's check, and
+frr-reload then reloaded the router to no configuration at all; the task failed after the change had landed, "does not run the
+candidate as written". A forced undo of an empty or blank backup did the same. An empty file is refused by frr-reload itself, in words
+that do not say why. Measured on real FRR.
+
+**Root cause.** Nothing checked that a candidate or a backup held any configuration before apply or restore.
+
+**Fix.** A blank candidate is refused before the router is reached, and an empty or blank backup is refused even with force. Proof:
+`TestConfig_FailureModesLeaveTheRouterAsItWas` (real FRR): with each check reverted the router's configuration is deleted.
+
+**Lesson.** A method that replaces a whole configuration refuses an input that would replace it with nothing.
+
+## 1205. The loader's capability ownership rule read only RequiredCapabilities, so an external method could name another program's data capability in a call shape or an alternative (fixed before push)
+
+**Symptom.** An external program's method naming another program's data capability in a call shape loaded, so a program could be
+admitted to devices granted another program's capability. It needs an approved program in the collections directory first.
+
+**Root cause.** The rule read one field of the manifest; `collection.Register` checks only that a named capability is known.
+
+**Fix.** The rule reads `Manifest.NamedCapabilities()`, every capability a manifest names in any place, and an archtest
+(`internal/archtest/manifest_requirements_test.go`) refuses any read of `RequiredCapabilities` or `Alternatives` outside
+`pkg/collection`. Proof: `TestLoad_AMethodMayNotRequireAnotherProgramsCapability` extended to call shapes and alternatives, red on the
+old rule. The same check in `pkg/external` was extended.
+
+**Lesson.** A rule about which names a manifest may use reads every place a name can sit, through one function.
+
+## 1206. The collection scaffold rendered only a parameter's older fields, so a regeneration would have dropped Entries (fixed before push)
+
+**Symptom.** A from-scratch regeneration of `net.batfish.check` would have lost every entry key validate checks;
+`TestRenderedDocFixtureCoversEveryField` failed once `Param.Entries` was added.
+
+**Root cause.** `renderDoc` rendered the parameter fields that existed before `Entries`, by name.
+
+**Fix.** Parameter rendering is a recursive `renderParam`; the fixture covers `Entries`, and its zero-field walk no longer recurses
+forever through them. Proof: `TestGenerateRendersNestedEntries`, red with Entries rendering disabled. The scaffold also gained
+`Alternatives` (`TestCatalogDataAlternativesMatchTheRegistry`).
+
+**Lesson.** A generator holds every field of the type it renders, and its fixture fails when a field is added without it.
