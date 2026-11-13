@@ -9,6 +9,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/vboxmanage"
 )
 
 // The record properties VirtualBox support reads.
@@ -74,6 +75,14 @@ func parseVirtualBox(props inventory.Properties) (virtualBoxSettings, error) {
 		}
 		if strings.ContainsAny(value, "\"%!") || strings.IndexFunc(value, func(r rune) bool { return r < 0x20 || r == 0x7f }) >= 0 {
 			return virtualBoxSettings{}, fmt.Errorf("property %s holds a quote, '%%', '!' or a control character, which a Windows command line cannot carry in a path", key)
+		}
+		// The rule every host path the virt.vbox.* methods send is held to,
+		// at the record's write rather than at a task: no ".." segment (or any
+		// segment of only dots and spaces) between either separator, so
+		// G:\Lab\..\Windows or G:\Lab/.. is never the machine folder a prune
+		// works under; no wildcard or apostrophe; under 240 characters.
+		if err := vboxmanage.CheckPath(key, value); err != nil {
+			return virtualBoxSettings{}, fmt.Errorf("property %s: %w", key, err)
 		}
 	}
 	return virtualBoxSettings{declared: true, path: path, folder: folder}, nil

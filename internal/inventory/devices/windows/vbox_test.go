@@ -79,3 +79,27 @@ func TestServer_RefusesVirtualBoxSettingsThatCannotWork(t *testing.T) {
 		}
 	}
 }
+
+// TestServer_RefusesAMachineFolderThatClimbsOut: vm_folder and
+// vboxmanage_path are held, at the record's write, to the rule every host
+// path the virt.vbox.* methods send is held to (vboxmanage.CheckPath): no
+// segment of only dots and spaces between either separator, no doubled
+// separator, no wildcard or apostrophe, nothing a WS-Man message cannot
+// carry. Until 2026-11-13 the record took G:\Lab\..\Windows as a machine
+// folder, refused only later, when a prune or a clone sent it.
+func TestServer_RefusesAMachineFolderThatClimbsOut(t *testing.T) {
+	for _, key := range []string{"vm_folder", "vboxmanage_path"} {
+		for _, value := range []string{
+			`G:\Lab\..\Windows`, `G:\Lab\..`, `G:\Lab/..`, `G:\Lab/../Windows`, `G:\Lab\.\vms`, `G:\Lab\...\vms`,
+			`G:\Lab\\vms`, `G:\Lab\*`, `G:\Lab\it's`, "G:\\Lab\\a\uFFFEb", `G:\Lab\`,
+		} {
+			if _, err := newServer(map[string]inventory.PropertyValue{"virtualbox": true, key: value}); err == nil {
+				t.Errorf("%s %q was accepted", key, value)
+			}
+		}
+	}
+	// Control: an ordinary folder with a space and a dot in its names.
+	if _, err := newServer(map[string]inventory.PropertyValue{"virtualbox": true, "vm_folder": `D:\VirtualBox VMs\lab.v2`}); err != nil {
+		t.Errorf("an ordinary folder was refused: %v", err)
+	}
+}
