@@ -29548,3 +29548,22 @@ since the converter cannot know the order; the comment says so). Proof: `TestPre
 mix, each validated; four mutations each fail it.
 
 **Lesson.** A converter finding compares the two engines' answers, not the mere presence of the inputs that could differ.
+
+## 1211. TestPort_WaitsForAPortToOpen chose a free port, released it, and bound it later; a lost bind returned silently, so the wait timed out (a repeat of 601) (fixed on the pull request)
+
+**Symptom.** PR #165's strict `fast` job failed `TestPort_WaitsForAPortToOpen` (`internal/catalog/pleiades/builtin/wait`): "timed out after
+30s waiting for 127.0.0.1:44913 to be started"; the same test passed twice in about 1 s in the same job. The branch does not touch the
+package; it is the first failure on record.
+
+**Root cause.** The test picks a free port, releases it, and a goroutine binds it 750 ms later so the wait sees it closed first. When
+the bind failed (something held the port, such as another test's connection using it as its local port), the goroutine closed its
+channel and returned without listening, so the wait ran to its timeout and the error was never shown.
+
+**Why 601's lesson did not prevent it.** 601 fixed the GNS3 fixture's pick-then-bind; nothing swept other tests for the same shape.
+
+**Fix.** The bind is tried again for up to 10 s (a port held only as a local port still answers the probe as closed), and a bind that
+never takes fails the test with its error. Reasoned, not reproduced: the collision cannot be forced without a hook. Proof that the test
+still holds its property: three `-race` runs pass, and it still fails a method that returns on its first probe.
+
+**Lesson.** A test that frees a port to bind it later must retry the bind and report a lost one; a silent return turns a race into a
+timeout nobody can read.
