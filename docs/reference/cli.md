@@ -906,10 +906,14 @@ generate a buildable external Collection program providing one method
 | --dir | `string` | - | directory to write the program into (default: the method name with its dots as hyphens) |
 | --no-go-mod | `bool` | `false` | write no go.mod, so the program joins the Go module around it instead of being a module of its own |
 | --capability | `string` | - | a capability the program defines as data, <namespace>.<name> in the method's namespace: its definition and a probe that grants it are written, and the method requires it |
+| --script | `string` | - | a script for the method to run, embedded in the program so its approved digest covers it; the method acts on no device and is handed no credential |
+| --interpreter | `string` | - | the absolute path of the program that runs --script, for example /usr/bin/python3; it is outside the approved digest |
 
 `pleiades forge new-external acme.motd.read`
 
 `pleiades forge new-external acme.motd.read --capability acme.motd_host`
+
+`pleiades forge new-external acme.report.build --script build.py --interpreter /usr/bin/python3`
 
 ### pleiades forge new-filter
 

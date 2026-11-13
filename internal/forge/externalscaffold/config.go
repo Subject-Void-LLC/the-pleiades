@@ -2,8 +2,12 @@
 package externalscaffold
 
 import (
+	"errors"
 	"fmt"
+	"path/filepath"
+	"regexp"
 	"strings"
+	"unicode"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/forge/genutil"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
@@ -48,6 +52,48 @@ type Config struct {
 	// its definition and a read-only probe that grants it, and the method
 	// requires it.
 	Capability string
+
+	// Script, when set, makes the method a script's wrapper (forge
+	// new-external --script): the program embeds these bytes with go:embed,
+	// so the approved digest covers them, and its method runs them with
+	// Interpreter on the machine running The Pleiades, never on a device. The
+	// method acts on no device, takes no credential, and supports no check.
+	Script []byte
+
+	// ScriptName is the file name the script was read from. Only its
+	// extension is kept, on the embedded file's name, so an editor and the
+	// interpreter see the kind of file it is.
+	ScriptName string
+
+	// Interpreter is the absolute path of the program that runs Script, for
+	// example /usr/bin/python3. It is outside the approved digest: the
+	// digest covers the script, and whatever is at this path on the machine
+	// running The Pleiades runs it.
+	Interpreter string
+}
+
+// MaxScriptSize is the largest script Generate embeds. A script is source
+// a person reviews before approving the program that carries it, and one
+// larger than this is not.
+const MaxScriptSize = 1 << 20
+
+// scriptExtension matches the extension a script's embedded file name keeps.
+var scriptExtension = regexp.MustCompile(`^\.[A-Za-z0-9]{1,16}$`)
+
+// ScriptFile returns the name of the script's file inside the program
+// directory, which go:embed names and the method writes to the run's private
+// temporary directory: the method file's base name, "-script", and the
+// extension of ScriptName when it has a plain one, for example
+// "run-script.py". It is empty when Script is not set.
+func (c Config) ScriptFile() string {
+	if c.Script == nil {
+		return ""
+	}
+	ext := filepath.Ext(c.ScriptName)
+	if !scriptExtension.MatchString(ext) {
+		ext = ""
+	}
+	return c.FileBase() + "-script" + ext
 }
 
 // ProbeName is the probe method's name when the program defines a
@@ -136,6 +182,9 @@ func (c Config) Validate() error {
 	if c.MethodSegment() == "main" {
 		return fmt.Errorf("externalscaffold: invalid name %q: the method segment %q would collide with the program's own main.go", c.Name, "main")
 	}
+	if err := c.validateScript(); err != nil {
+		return err
+	}
 	if c.Capability != "" {
 		name := capability.Name(c.Capability)
 		if !capability.IsDataName(name) {
@@ -144,6 +193,45 @@ func (c Config) Validate() error {
 		if ns := capability.DataNamespace(name); ns != segs[0] {
 			return fmt.Errorf("externalscaffold: capability %q is in the namespace %q, and the method's is %q: a program defines capabilities only in its own namespaces", c.Capability, ns, segs[0])
 		}
+	}
+	return nil
+}
+
+// validateScript checks the script fields: a script and its interpreter
+// come together or not at all, the script is not empty and not over
+// MaxScriptSize, and the interpreter is an absolute, clean path with no
+// control character or backtick (it is written into the README's code
+// spans). A relative interpreter is refused rather than looked up: which
+// program a relative name finds depends on the PATH of whoever runs it, and
+// nothing in the approved digest would say which one ran. A script program
+// defines no capability, since its method acts on no device a capability
+// could describe.
+func (c Config) validateScript() error {
+	if c.Script == nil && c.Interpreter == "" {
+		return nil
+	}
+	if c.Script == nil {
+		return errors.New("externalscaffold: an interpreter was given with no script to run")
+	}
+	if c.Interpreter == "" {
+		return errors.New("externalscaffold: a script needs the absolute path of the interpreter that runs it (--interpreter)")
+	}
+	if len(c.Script) == 0 {
+		return errors.New("externalscaffold: the script is empty")
+	}
+	if len(c.Script) > MaxScriptSize {
+		return fmt.Errorf("externalscaffold: the script is %d bytes, more than the %d a program embeds", len(c.Script), MaxScriptSize)
+	}
+	if !filepath.IsAbs(c.Interpreter) || filepath.Clean(c.Interpreter) != c.Interpreter {
+		return fmt.Errorf("externalscaffold: the interpreter %q is not an absolute, clean path; name it in full, for example /usr/bin/python3", c.Interpreter)
+	}
+	for _, r := range c.Interpreter {
+		if unicode.IsControl(r) || r == '`' {
+			return fmt.Errorf("externalscaffold: the interpreter %q holds a control character or a backtick", c.Interpreter)
+		}
+	}
+	if c.Capability != "" {
+		return errors.New("externalscaffold: a script program defines no capability: its method acts on no device")
 	}
 	return nil
 }

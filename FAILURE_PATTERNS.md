@@ -1188,6 +1188,7 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 1182. pkg/cml's lab list failed when any listed lab was deleted before it was read, so a shared controller's churn broke import-cml and virt.cml.lab.* (fixed before push)
 1183. import-gns3 reported a console port of 0 or 70000 as "it has no console port" (fixed before push)
 1184. pkg/gns3's oversize test passed with the bounded read removed, since the length check after the read still tripped (a repeat of 820) (fixed before push)
+1195. The script scaffold's release gate compared the script's working directory with an unresolved TMPDIR, so it failed on macOS, where /var is a link to /private/var (fixed on the pull request)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

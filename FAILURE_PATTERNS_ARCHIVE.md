@@ -29291,3 +29291,19 @@ nothing swept old tests for an outcome a later check also gives.
 holds the bound to the byte.
 
 **Lesson.** A bound on how much is read is proved by what the other side could write, not by the refusal that follows.
+
+## 1195. The script scaffold's release gate compared the script's working directory with an unresolved TMPDIR, so it failed on macOS, where /var is a link to /private/var (fixed on the pull request)
+
+**Symptom.** PR #163's `fast-macos (1)` failed `TestGenerate_ScriptReleaseGate`: "the script ran in /private/var/folders/.../script-NNN,
+want a directory inside the program's TMPDIR /var/folders/...". Every Linux job and the local gate passed.
+
+**Root cause.** The test checked the script's reported directory with a string prefix of `t.TempDir()` as given. macOS's temporary
+directory is under `/var`, a link to `/private/var`, and the script reports its directory resolved. The product was right: the
+script did run inside its TMPDIR.
+
+**Fix.** The prefix is accepted against the TMPDIR as given or resolved (`filepath.EvalSymlinks`); the script's own directory is gone
+by then, so only the TMPDIR is resolved. Proof: with a TMPDIR that is a symbolic link on Linux, the old test fails exactly as on the
+macOS runner and the new one passes.
+
+**Lesson.** A path a program reports is resolved; compare it with a resolved expectation, and reproduce macOS's `/var` link on Linux
+by pointing TMPDIR through a link.

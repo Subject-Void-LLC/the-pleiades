@@ -27,16 +27,17 @@ func goModOf(t *testing.T, cfg externalscaffold.Config) (string, bool) {
 	return "", false
 }
 
-// TestGoMod_IsAModuleAndAGoLineAndNothingElse covers the generated go.mod:
-// no require, whose right version only the go command can compute, and no
-// replace, which nothing verifies. --no-go-mod (Config.NoGoMod) writes
-// none, for a program that should join a module of the author's own.
-func TestGoMod_IsAModuleAndAGoLineAndNothingElse(t *testing.T) {
+// TestGoMod_IsAModuleAGoLineAndAToolchainAndNothingElse covers the
+// generated go.mod: no require, whose right version only the go command can
+// compute, and no replace, which nothing verifies. --no-go-mod
+// (Config.NoGoMod) writes none, for a program that should join a module of
+// the author's own.
+func TestGoMod_IsAModuleAGoLineAndAToolchainAndNothingElse(t *testing.T) {
 	got, ok := goModOf(t, externalscaffold.Config{Name: "acme.motd.read"})
 	if !ok {
 		t.Fatal("Generate wrote no go.mod")
 	}
-	if want := "module acme-motd-read\n\ngo 1.27.0\n"; got != want {
+	if want := "module acme-motd-read\n\ngo 1.27.0\n\ntoolchain go1.27.4\n"; got != want {
 		t.Errorf("go.mod = %q, want exactly %q", got, want)
 	}
 	if _, ok := goModOf(t, externalscaffold.Config{Name: "acme.motd.read", NoGoMod: true}); ok {
@@ -61,6 +62,17 @@ func TestGoMod_TheGoLineIsThisModules(t *testing.T) {
 	got, _ := goModOf(t, externalscaffold.Config{Name: "acme.motd.read"})
 	if !strings.Contains(got, "\ngo "+directive+"\n") || directive == "" {
 		t.Errorf("the generated go.mod says %q; The Pleiades's own go line is %q", got, directive)
+	}
+}
+
+// TestGoMod_TheToolchainIsThisModules keeps the generated toolchain line
+// equal to The Pleiades's own: the Go release is part of a program's bytes, so
+// a program reproduces only when everyone builds it with one release, and
+// the one The Pleiades is built with is the one its authors already have.
+func TestGoMod_TheToolchainIsThisModules(t *testing.T) {
+	got, _ := goModOf(t, externalscaffold.Config{Name: "acme.motd.read"})
+	if want := "\ntoolchain " + moduleToolchain(t) + "\n"; !strings.Contains(got, want) {
+		t.Errorf("the generated go.mod says %q; The Pleiades's own toolchain line is %q", got, strings.TrimSpace(want))
 	}
 }
 

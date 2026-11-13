@@ -19,19 +19,28 @@
 //
 // # What it writes
 //
-// Four files, into one program directory:
+// Five files, into one program directory, and a sixth for either option
+// below:
 //
-//   - main.go: package main, whose main is one call to external.Main.
+//   - main.go: package main, whose main is one call to external.MainProgram.
 //   - <method>.go: the method's collection.Descriptor and a body that
 //     actually works, so the program runs the moment it is built. The body
 //     connects with sdk.Connect, runs `uname -a`, and records the output
 //     as a stat. Because that body only reads, the descriptor honestly
 //     declares check support with the same function as its Check, and says
 //     in a comment what the author must do the moment the body writes.
-//   - <method>_test.go: a test that runs external.Serve for "describe"
-//     over buffers, which proves the descriptor passes collection.Register
-//     and that the describe document names this method.
+//   - <method>_test.go: a test that runs external.ServeProgram for
+//     "describe" over buffers, which proves the descriptor passes
+//     collection.Register and that the describe document names this method.
 //   - README.md: how to build the program and where to install it.
+//   - go.mod, unless Config.NoGoMod (see below).
+//   - capability.go, with Config.Capability: the capability's definition
+//     and the read-only probe that grants it.
+//   - <method>-script<ext>, with Config.Script: the script itself, which
+//     <method>.go then embeds with go:embed and runs with Config.Interpreter
+//     in place of the SSH body above. That method acts on no device, is
+//     handed no credential, supports no check and records no undo
+//     (templates_script.go says what crosses to the script and back).
 //
 // Unlike collectionscaffold's declared stub, the generated method is
 // StatusImplemented from the start. external.Serve refuses a declared
@@ -39,17 +48,26 @@
 // none, so a scaffold that generated one would build a program that
 // cannot even describe itself.
 //
-// # No go.mod
+// # A go.mod with no require
 //
-// The generator does not write a go.mod. The only correct require line
-// for github.com/Subject-Void-LLC/the-pleiades names a version the go
-// command computes itself (a pseudo-version from a commit, since the
-// module has no tagged release yet), and a generator guessing at one
-// would produce a module that fails on its first build with an error far
-// from its cause. `go mod init` then `go get` writes the correct one, and
-// the generated README says so. Leaving it out also lets the release gate
-// build the program inside this module, against the pkg/ code in the same
-// tree, with no replace directive involved.
+// The generated go.mod holds a module line, a go line and a toolchain
+// line, and no require. The only correct require line for
+// github.com/Subject-Void-LLC/the-pleiades names a version the go command
+// computes itself (a pseudo-version from a commit, since the module has no
+// tagged release yet), and a generator guessing at one would produce a
+// module that fails on its first build with an error far from its cause.
+// `go mod tidy` writes the correct one, and the generated README says so.
+// Config.NoGoMod leaves the go.mod out, for a program joining a module of
+// the author's own.
+//
+// # A reproducible build
+//
+// The README's build line gives the same bytes for the same source in any
+// directory and on any machine building for the same platform, so a digest
+// on the approval list can be checked by anyone who has the source:
+// -trimpath, -buildvcs=false, CGO_ENABLED=0, and GOTOOLCHAIN set to the
+// release the toolchain line names, which is The Pleiades's own
+// (goToolchain).
 //
 // Like every forge generator, Generate performs no filesystem I/O. It
 // returns paths relative to the program directory, and the caller

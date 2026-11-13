@@ -13,7 +13,8 @@ code outside this repository can import `pkg/` and nothing under `internal/`.
 ## Build it and make it available
 
 ```sh
-go build -o ~/pleiades-collections/note ./examples/external_collection
+CGO_ENABLED=0 GOTOOLCHAIN=go1.27.4 go build -trimpath -buildvcs=false \
+  -o ~/pleiades-collections/note ./examples/external_collection
 chmod 700 ~/pleiades-collections
 export PLEIADES_COLLECTIONS_DIR=~/pleiades-collections
 pleiades collection approve note
@@ -21,7 +22,9 @@ pleiades collection approve note
 
 `pleiades collection approve` shows the build's digest and what it says it provides, and asks
 before recording it. Nothing in the directory runs until its exact build is approved, and a
-rebuild has to be approved again.
+rebuild has to be approved again. The build line is reproducible: the same commit builds to the
+same digest in any checkout, so someone else can check an approval by building it themselves
+(see "Building it reproducibly" in the guide below).
 
 The directory must be owned by you (or root) and must not be writable by your group or by
 anyone else. Every file in it must be a program you own with the same rule. The Pleiades refuses
