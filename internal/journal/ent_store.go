@@ -184,7 +184,17 @@ func (s *EntStore) saveOne(ctx context.Context, entry engine.JournalEntry) (bool
 	if err != nil {
 		return false, fmt.Errorf("encoding the recorded undo parameters of %s: %w", entry.NodeID, err)
 	}
-	create = create.SetInverseParams(params)
+	create = create.SetInverseParams(params).SetInverseWithheld(string(entry.InverseWithheld))
+	// The rendered rollback: steps, from the entry's typed slice as the
+	// recorded undo's are; left unset for an entry with none, which the file
+	// sink leaves out too.
+	if len(entry.AuthoredSteps) > 0 {
+		steps, err := json.Marshal(entry.AuthoredSteps)
+		if err != nil {
+			return false, fmt.Errorf("encoding the rendered rollback steps of %s: %w", entry.NodeID, err)
+		}
+		create = create.SetAuthoredSteps(steps)
+	}
 
 	// The zero time is what a node that executed nothing carries, and
 	// writing it would record 0001-01-01 as if it were an instant. The
@@ -350,10 +360,12 @@ func hydrateEntry(row *ent.JournalEntry) engine.JournalEntry {
 		DiffRecorded:                row.DiffRecorded,
 		InverseParams:               hydrateInverseParams(row.InverseParams),
 		InverseComplete:             row.InverseComplete,
+		InverseWithheld:             engine.WithheldReason(row.InverseWithheld),
 		InversePartial:              row.InversePartial,
 		ActionChanged:               row.ActionChanged,
 		AuthoredRollback:            row.AuthoredRollback,
 		AuthoredRollbackEmpty:       row.AuthoredRollbackEmpty,
+		AuthoredSteps:               hydrateAuthoredSteps(row.AuthoredSteps),
 		Become:                      row.Become,
 		RunTick:                     row.RunTick,
 		LeaseRevision:               row.LeaseRevision,
@@ -378,4 +390,19 @@ func hydrateInverseParams(raw json.RawMessage) []engine.InverseParam {
 		return nil
 	}
 	return params
+}
+
+// hydrateAuthoredSteps decodes the rendered rollback: steps. A column that
+// does not decode reads as holding none, and the planner then refuses every
+// step that reads what only the run had, as it does for a row written before
+// the column existed.
+func hydrateAuthoredSteps(raw json.RawMessage) []engine.AuthoredStep {
+	if len(raw) == 0 {
+		return nil
+	}
+	var steps []engine.AuthoredStep
+	if err := json.Unmarshal(raw, &steps); err != nil {
+		return nil
+	}
+	return steps
 }

@@ -124,14 +124,21 @@ func (r *run) undoBlock(ctx context.Context, levelIndex int, req rollbackRequest
 }
 
 // runUndoStep runs one step of n's undo on device. An authored step renders
-// as any task does; a recorded undo's params are the values the method
+// as any task does, except that it reads the variables n's task ran with
+// (undo_vars.go); a recorded undo's params are the values the method
 // recorded and are run as they are, since one holding "{{" is a value.
 func (r *run) runUndoStep(ctx context.Context, n NodeResult, step int, task *Task, authored bool, device inventory.InventoryItem) NodeResult {
 	id := undoNodeID(n.NodeID, step)
 	r.undoTasks[id] = task
 	undo := &UndoStep{Undo: Undo{Node: n.NodeID, Step: step}, Name: task.Name, Method: task.FQCN}
 	if authored {
-		prepared, early := r.prepare(id, task, time.Now().UTC(), n.Device, map[string]any{TemplateRootDevice: deviceRoot(device)})
+		roots := map[string]any{TemplateRootDevice: deviceRoot(device)}
+		// The step reads the variables its task ran with on this device, not
+		// what a set_fact since has left (undo_vars.go).
+		if kept, ok := r.forward.of(n.NodeID, n.Device); ok {
+			roots[forwardVarsRoot] = kept
+		}
+		prepared, early := r.prepare(id, task, time.Now().UTC(), n.Device, roots)
 		if early != nil {
 			early.Undo = undo
 			return *early
@@ -177,7 +184,7 @@ func (r *run) undoSteps(n NodeResult) (steps []*Task, authored bool, err error) 
 	if desc, ok := collection.Lookup(task.FQCN); ok {
 		emitter = &desc
 	}
-	projectInverse(&entry, n.journalStats, emitter)
+	projectInverse(&entry, n.journalStats, emitter, r.secrets.Snapshot())
 	switch {
 	case entry.InverseFQCN == "":
 		return nil, false, fmt.Errorf("%s changed the device and recorded no undo", taskLabel(n.NodeID, task))

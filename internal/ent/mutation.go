@@ -16761,6 +16761,9 @@ type JournalEntryMutation struct {
 	collection_program                *bool
 	collection_manifests              *string
 	inverse_spec_digest               *string
+	authored_steps                    *jsontext.Value
+	appendauthored_steps              jsontext.Value
+	inverse_withheld                  *string
 	clearedFields                     map[string]struct{}
 	done                              bool
 	oldValue                          func(context.Context) (*JournalEntry, error)
@@ -19254,6 +19257,120 @@ func (m *JournalEntryMutation) ResetInverseSpecDigest() {
 	delete(m.clearedFields, journalentry.FieldInverseSpecDigest)
 }
 
+// SetAuthoredSteps sets the "authored_steps" field.
+func (m *JournalEntryMutation) SetAuthoredSteps(j jsontext.Value) {
+	m.authored_steps = &j
+	m.appendauthored_steps = nil
+}
+
+// AuthoredSteps returns the value of the "authored_steps" field in the mutation.
+func (m *JournalEntryMutation) AuthoredSteps() (r jsontext.Value, exists bool) {
+	v := m.authored_steps
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldAuthoredSteps returns the old "authored_steps" field's value of the JournalEntry entity.
+// If the JournalEntry object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *JournalEntryMutation) OldAuthoredSteps(ctx context.Context) (v jsontext.Value, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldAuthoredSteps is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldAuthoredSteps requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldAuthoredSteps: %w", err)
+	}
+	return oldValue.AuthoredSteps, nil
+}
+
+// AppendAuthoredSteps adds j to the "authored_steps" field.
+func (m *JournalEntryMutation) AppendAuthoredSteps(j jsontext.Value) {
+	m.appendauthored_steps = append(m.appendauthored_steps, j...)
+}
+
+// AppendedAuthoredSteps returns the list of values that were appended to the "authored_steps" field in this mutation.
+func (m *JournalEntryMutation) AppendedAuthoredSteps() (jsontext.Value, bool) {
+	if len(m.appendauthored_steps) == 0 {
+		return nil, false
+	}
+	return m.appendauthored_steps, true
+}
+
+// ClearAuthoredSteps clears the value of the "authored_steps" field.
+func (m *JournalEntryMutation) ClearAuthoredSteps() {
+	m.authored_steps = nil
+	m.appendauthored_steps = nil
+	m.clearedFields[journalentry.FieldAuthoredSteps] = struct{}{}
+}
+
+// AuthoredStepsCleared returns if the "authored_steps" field was cleared in this mutation.
+func (m *JournalEntryMutation) AuthoredStepsCleared() bool {
+	_, ok := m.clearedFields[journalentry.FieldAuthoredSteps]
+	return ok
+}
+
+// ResetAuthoredSteps resets all changes to the "authored_steps" field.
+func (m *JournalEntryMutation) ResetAuthoredSteps() {
+	m.authored_steps = nil
+	m.appendauthored_steps = nil
+	delete(m.clearedFields, journalentry.FieldAuthoredSteps)
+}
+
+// SetInverseWithheld sets the "inverse_withheld" field.
+func (m *JournalEntryMutation) SetInverseWithheld(s string) {
+	m.inverse_withheld = &s
+}
+
+// InverseWithheld returns the value of the "inverse_withheld" field in the mutation.
+func (m *JournalEntryMutation) InverseWithheld() (r string, exists bool) {
+	v := m.inverse_withheld
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldInverseWithheld returns the old "inverse_withheld" field's value of the JournalEntry entity.
+// If the JournalEntry object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *JournalEntryMutation) OldInverseWithheld(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldInverseWithheld is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldInverseWithheld requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldInverseWithheld: %w", err)
+	}
+	return oldValue.InverseWithheld, nil
+}
+
+// ClearInverseWithheld clears the value of the "inverse_withheld" field.
+func (m *JournalEntryMutation) ClearInverseWithheld() {
+	m.inverse_withheld = nil
+	m.clearedFields[journalentry.FieldInverseWithheld] = struct{}{}
+}
+
+// InverseWithheldCleared returns if the "inverse_withheld" field was cleared in this mutation.
+func (m *JournalEntryMutation) InverseWithheldCleared() bool {
+	_, ok := m.clearedFields[journalentry.FieldInverseWithheld]
+	return ok
+}
+
+// ResetInverseWithheld resets all changes to the "inverse_withheld" field.
+func (m *JournalEntryMutation) ResetInverseWithheld() {
+	m.inverse_withheld = nil
+	delete(m.clearedFields, journalentry.FieldInverseWithheld)
+}
+
 // Where appends a list predicates to the JournalEntryMutation builder.
 func (m *JournalEntryMutation) Where(ps ...predicate.JournalEntry) {
 	m.predicates = append(m.predicates, ps...)
@@ -19288,7 +19405,7 @@ func (m *JournalEntryMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *JournalEntryMutation) Fields() []string {
-	fields := make([]string, 0, 50)
+	fields := make([]string, 0, 52)
 	if m.created_at != nil {
 		fields = append(fields, journalentry.FieldCreatedAt)
 	}
@@ -19439,6 +19556,12 @@ func (m *JournalEntryMutation) Fields() []string {
 	if m.inverse_spec_digest != nil {
 		fields = append(fields, journalentry.FieldInverseSpecDigest)
 	}
+	if m.authored_steps != nil {
+		fields = append(fields, journalentry.FieldAuthoredSteps)
+	}
+	if m.inverse_withheld != nil {
+		fields = append(fields, journalentry.FieldInverseWithheld)
+	}
 	return fields
 }
 
@@ -19547,6 +19670,10 @@ func (m *JournalEntryMutation) Field(name string) (ent.Value, bool) {
 		return m.CollectionManifests()
 	case journalentry.FieldInverseSpecDigest:
 		return m.InverseSpecDigest()
+	case journalentry.FieldAuthoredSteps:
+		return m.AuthoredSteps()
+	case journalentry.FieldInverseWithheld:
+		return m.InverseWithheld()
 	}
 	return nil, false
 }
@@ -19656,6 +19783,10 @@ func (m *JournalEntryMutation) OldField(ctx context.Context, name string) (ent.V
 		return m.OldCollectionManifests(ctx)
 	case journalentry.FieldInverseSpecDigest:
 		return m.OldInverseSpecDigest(ctx)
+	case journalentry.FieldAuthoredSteps:
+		return m.OldAuthoredSteps(ctx)
+	case journalentry.FieldInverseWithheld:
+		return m.OldInverseWithheld(ctx)
 	}
 	return nil, fmt.Errorf("unknown JournalEntry field %s", name)
 }
@@ -20015,6 +20146,20 @@ func (m *JournalEntryMutation) SetField(name string, value ent.Value) error {
 		}
 		m.SetInverseSpecDigest(v)
 		return nil
+	case journalentry.FieldAuthoredSteps:
+		v, ok := value.(jsontext.Value)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetAuthoredSteps(v)
+		return nil
+	case journalentry.FieldInverseWithheld:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetInverseWithheld(v)
+		return nil
 	}
 	return fmt.Errorf("unknown JournalEntry field %s", name)
 }
@@ -20243,6 +20388,12 @@ func (m *JournalEntryMutation) ClearedFields() []string {
 	if m.FieldCleared(journalentry.FieldInverseSpecDigest) {
 		fields = append(fields, journalentry.FieldInverseSpecDigest)
 	}
+	if m.FieldCleared(journalentry.FieldAuthoredSteps) {
+		fields = append(fields, journalentry.FieldAuthoredSteps)
+	}
+	if m.FieldCleared(journalentry.FieldInverseWithheld) {
+		fields = append(fields, journalentry.FieldInverseWithheld)
+	}
 	return fields
 }
 
@@ -20331,6 +20482,12 @@ func (m *JournalEntryMutation) ClearField(name string) error {
 		return nil
 	case journalentry.FieldInverseSpecDigest:
 		m.ClearInverseSpecDigest()
+		return nil
+	case journalentry.FieldAuthoredSteps:
+		m.ClearAuthoredSteps()
+		return nil
+	case journalentry.FieldInverseWithheld:
+		m.ClearInverseWithheld()
 		return nil
 	}
 	return fmt.Errorf("unknown JournalEntry nullable field %s", name)
@@ -20489,6 +20646,12 @@ func (m *JournalEntryMutation) ResetField(name string) error {
 		return nil
 	case journalentry.FieldInverseSpecDigest:
 		m.ResetInverseSpecDigest()
+		return nil
+	case journalentry.FieldAuthoredSteps:
+		m.ResetAuthoredSteps()
+		return nil
+	case journalentry.FieldInverseWithheld:
+		m.ResetInverseWithheld()
 		return nil
 	}
 	return fmt.Errorf("unknown JournalEntry field %s", name)

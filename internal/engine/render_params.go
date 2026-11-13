@@ -118,7 +118,7 @@ func (r *run) renderTask(task *Task, roots map[string]any) (*Task, error) {
 	}
 	ctx[TemplateRootVars] = vars
 	for k, v := range roots {
-		if k != hostVarsRoot {
+		if !isInternalRoot(k) {
 			ctx[k] = v
 		}
 	}

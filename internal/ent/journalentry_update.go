@@ -162,6 +162,12 @@ func (_u *JournalEntryUpdate) sqlSave(ctx context.Context) (_node int, err error
 	if _u.mutation.InverseSpecDigestCleared() {
 		_spec.ClearField(journalentry.FieldInverseSpecDigest, field.TypeString)
 	}
+	if _u.mutation.AuthoredStepsCleared() {
+		_spec.ClearField(journalentry.FieldAuthoredSteps, field.TypeJSON)
+	}
+	if _u.mutation.InverseWithheldCleared() {
+		_spec.ClearField(journalentry.FieldInverseWithheld, field.TypeString)
+	}
 	if _node, err = sqlgraph.UpdateNodes(ctx, _u.driver, _spec); err != nil {
 		if _, ok := err.(*sqlgraph.NotFoundError); ok {
 			err = &NotFoundError{journalentry.Label}
@@ -345,6 +351,12 @@ func (_u *JournalEntryUpdateOne) sqlSave(ctx context.Context) (_node *JournalEnt
 	}
 	if _u.mutation.InverseSpecDigestCleared() {
 		_spec.ClearField(journalentry.FieldInverseSpecDigest, field.TypeString)
+	}
+	if _u.mutation.AuthoredStepsCleared() {
+		_spec.ClearField(journalentry.FieldAuthoredSteps, field.TypeJSON)
+	}
+	if _u.mutation.InverseWithheldCleared() {
+		_spec.ClearField(journalentry.FieldInverseWithheld, field.TypeString)
 	}
 	_node = &JournalEntry{config: _u.config}
 	_spec.Assign = _node.assignValues

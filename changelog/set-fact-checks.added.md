@@ -1,0 +1,1 @@
+`pleiades validate` warns when an `--extra-vars` value has a name a `set_fact` sets, since the extra variable wins and the fact is never read, and its refusal of a secret reference in a `set_fact` value now says why.

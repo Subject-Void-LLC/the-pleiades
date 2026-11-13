@@ -9,6 +9,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/render"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/secretref"
 )
 
 // TemplateRule checks every task parameter that holds a template, at plan
@@ -40,7 +41,8 @@ import (
 //
 // A rendered target is held to the same rules, and to within: besides,
 // which the runbook builder requires beside it. A task's rollback: steps
-// are held to them as its own params are.
+// are held to them as its own params are. A set_fact never takes a secret
+// reference, and its refusal says why (errSetFactHoldsAReference).
 func TemplateRule(world WorldView) []Finding {
 	eng := render.New()
 	registered := make(map[string]bool)
@@ -94,6 +96,12 @@ func TemplateRule(world WorldView) []Finding {
 				if isRef, refProblems := engine.SecretRefProblems(source, secretRefs[key]); isRef {
 					problems = refProblems
 				}
+				// A fact is a value every later task reads, so a secret in one
+				// would be copied wherever facts and params go, however the
+				// expression reaching it is written.
+				if isSetFactTask(task) && readsSecretRoot(eng, source) {
+					problems = []string{errSetFactHoldsAReference}
+				}
 				for _, problem := range problems {
 					findings = append(findings, Finding{
 						RuleName: "template",
@@ -105,6 +113,31 @@ func TemplateRule(world WorldView) []Finding {
 		}
 	}
 	return findings
+}
+
+// errSetFactHoldsAReference is TemplateRule's refusal of a secret reference in a
+// set_fact value: the fact would hold the secret's value, and a fact travels
+// into later tasks' rendered params, the run journal and report, and a
+// Runner's dispatch payload, none of which a named secret may reach.
+const errSetFactHoldsAReference = "a set_fact may not hold a secret reference, {{ secret.<name>.<field> }}: the fact would copy the secret into later tasks' parameters, the run journal, the report and a Runner's dispatch; write the reference in the parameter of the method that takes it (pleiades doc names them)"
+
+// readsSecretRoot reports whether source reads the secret root: a reference
+// as secretref.Has finds one, or any expression whose path starts there, such
+// as one joining a reference to other text.
+func readsSecretRoot(eng render.Engine, source string) bool {
+	if secretref.Has(source) {
+		return true
+	}
+	tmpl, err := eng.Compile(source)
+	if err != nil {
+		return false
+	}
+	for _, expr := range tmpl.Expressions() {
+		if len(expr.Path) > 0 && expr.Path[0] == secretref.Root {
+			return true
+		}
+	}
+	return false
 }
 
 // checkTemplate returns what is wrong with one template string, or nothing:

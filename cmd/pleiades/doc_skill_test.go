@@ -321,3 +321,21 @@ func TestSkillGuide_TeachesVarsLoopsRetriesAndFailureKeywords(t *testing.T) {
 		t.Error("the skill still says retries and until are refused keys")
 	}
 }
+
+// TestSkillGuide_TeachesWhatASetFactMayDo holds the skill's set_fact line to
+// the rules the engine and validate enforce: an extra variable wins and
+// validate warns, a secret reference is refused, two devices disagreeing on a
+// global fail, target is never a fact, and an undo uses its task's values.
+func TestSkillGuide_TeachesWhatASetFactMayDo(t *testing.T) {
+	for _, want := range []string{
+		"`-e name=value` beats a fact of the same name, and `pleiades validate` warns",
+		"(`{{ secret.<name>.<field> }}`) in a fact is refused",
+		"setting different values fail, naming both",
+		"`target:` is the task's\n  target, never a fact",
+		"uses the values its task ran with",
+	} {
+		if !strings.Contains(skillGuide, want) {
+			t.Errorf("the skill does not teach %q", want)
+		}
+	}
+}

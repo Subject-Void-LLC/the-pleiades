@@ -333,7 +333,9 @@ tasks:
   - name: use
     exec.command: {cmd: "echo {{ vars.app | quote }}"}
     vars: {app: /opt}`,
-			codes: []playbook.Code{"vars.precedence", "template.quoted"},
+			// The task's vars win in Ansible and in the runbook alike.
+			codes:  []playbook.Code{"template.quoted"},
+			absent: []playbook.Code{"vars.precedence"},
 		},
 		{
 			name:  "block vars and a task under it",
@@ -344,7 +346,8 @@ tasks:
     block:
       - {name: use, exec.command: {cmd: "run {{ vars.mode | quote }}"}}
       - {name: other, exec.command: {cmd: "run {{ vars.mode | quote }}"}, vars: {mode: slow}}`,
-			codes: []playbook.Code{"vars.precedence"},
+			// The narrower wins in both, so nothing is reported.
+			absent: []playbook.Code{"vars.precedence"},
 		},
 		{
 			name:  "a variable defined once is still folded and not carried",
@@ -435,6 +438,43 @@ tasks:
 			name:    "a set_fact value shaped like a secret",
 			tasks:   "- {name: set, set_fact: {a: \"https://u:SENTINELPASS@example.com/r.git\"}, when: x is defined}",
 			codes:   []playbook.Code{"template.secret"},
+			blocked: 1,
+		},
+		{
+			// Ansible's set_fact beats the play's vars once it has run, and so
+			// does the runbook's: the winner is the same, so it maps one to one
+			// with no precedence finding (the set_fact decision's clean case).
+			name:  "set_fact over a play var is read as Ansible reads it",
+			play:  "  vars: {mode: a}",
+			tasks: "- {name: set, set_fact: {mode: b}}\n- {name: use, command: \"echo {{ mode }}\"}",
+			want: `vars: {mode: a}
+tasks:
+  - name: set
+    set_fact: {mode: b}
+  - name: use
+    exec.command: {cmd: "echo {{ vars.mode | quote }}"}`,
+			absent: []playbook.Code{"vars.precedence"},
+		},
+		{
+			// Ansible's set_fact beats a task's vars; the runbook's task vars
+			// beat its set_fact, so the converted runbook would read c where the
+			// playbook read b (the colliding case).
+			name:  "set_fact under a task's vars reads another winner",
+			tasks: "- {name: set, set_fact: {mode: b}}\n- {name: use, command: \"echo {{ mode }}\", vars: {mode: c}}",
+			want: `tasks:
+  - name: set
+    set_fact: {mode: b}
+  - name: use
+    exec.command: {cmd: "echo {{ vars.mode | quote }}"}
+    vars: {mode: c}`,
+			codes: []playbook.Code{"vars.precedence"},
+		},
+		{
+			// target is the native set_fact's target, not a fact, so a fact of
+			// that name cannot be carried.
+			name:    "a set_fact of a variable named target",
+			tasks:   "- {name: set, set_fact: {target: db1}, when: x is defined}\n- {name: use, command: \"echo {{ target }}\"}",
+			codes:   []playbook.Code{"vars.unreadable"},
 			blocked: 1,
 		},
 	})

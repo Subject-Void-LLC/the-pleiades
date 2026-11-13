@@ -1199,6 +1199,11 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 1193. pkg/remotefile read a path the login could not search as absent, so file.stat /root/.profile answered exists false (a repeat of 866 and 818) (fixed before push)
 1194. BusyBox's test -x answers false to root for a mode 000 directory root can search, so asking search permission with it misread root (fixed before push)
 1195. The script scaffold's release gate compared the script's working directory with an unresolved TMPDIR, so it failed on macOS, where /var is a link to /private/var (fixed on the pull request)
+1196. An authored rollback: step rendered with the variables of the moment it ran, not the values its task ran with, so an undo after a set_fact undid the wrong thing (a repeat in kind of 572, 574 and 656) (fixed before push)
+1197. A set_fact fact named target retargeted its own task, since TaskTarget reads params.target on every task (a repeat of 323) (fixed before push)
+1198. A recorded undo kept a value that held a secret the run knew, since the journal's undo values were held to an identifier allowlist alone (fixed before push)
+1199. The playbook converter raised vars.precedence wherever two vars scopes met, though Ansible and the runbook pick the same winner in all but two cases (fixed before push)
+1211. TestPort_WaitsForAPortToOpen chose a free port, released it, and bound it later; a lost bind returned silently, so the wait timed out (a repeat of 601) (fixed on the pull request)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

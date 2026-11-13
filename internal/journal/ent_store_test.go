@@ -731,6 +731,11 @@ func TestEntStoreRoundTripsEveryFieldByReflection(t *testing.T) {
 			f.Set(reflect.ValueOf(time.Date(2026, 9, 28, 12, i, 0, 0, time.UTC)))
 		case field.Type == reflect.TypeOf([]engine.InverseParam{}):
 			f.Set(reflect.ValueOf([]engine.InverseParam{{Key: "name", Text: &text}}))
+		case field.Type == reflect.TypeOf([]engine.AuthoredStep{}):
+			f.Set(reflect.ValueOf([]engine.AuthoredStep{
+				{Index: 1, FQCN: "file.remove", StepDigest: "sha256:" + strings.Repeat("e", 64), Params: []engine.InverseParam{{Key: "path", Text: &text}}, Complete: true},
+				{Index: 2, FQCN: "file.copy", StepDigest: "sha256:" + strings.Repeat("f", 64), Withheld: engine.WithheldSecret},
+			}))
 		case f.Kind() == reflect.String:
 			f.SetString("v-" + field.Name)
 		case f.Kind() == reflect.Bool:

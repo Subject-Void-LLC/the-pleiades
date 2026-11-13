@@ -720,6 +720,11 @@ type run struct {
 	undoTasks map[string]*Task
 	undone    map[resultKey]bool
 
+	// forward is the variables each task with rollback: steps reading vars
+	// rendered with, by device, so an undo renders with the values its task
+	// ran with rather than whatever a later set_fact left (undo_vars.go).
+	forward forwardVars
+
 	// items is every device a node has dispatched to, by id, for an undo
 	// step that runs on the device a task changed. dispatch writes it from
 	// a level's goroutines, so itemsMu guards it.
@@ -1083,7 +1088,7 @@ func (r *run) prepare(nodeID string, task *Task, started time.Time, device strin
 		}
 		condVars := map[string]interface{}{"stat": tree, "nodes": tree, "vars": vars, "result": singleWriters(tree)}
 		for k, v := range roots {
-			if k != hostVarsRoot {
+			if !isInternalRoot(k) {
 				condVars[k] = v
 			}
 		}
@@ -1146,6 +1151,11 @@ func (r *run) prepare(nodeID string, task *Task, started time.Time, device strin
 	// before its targets resolve, since a target may itself be rendered
 	// (render_params.go). The DAG's own task is left as authored.
 	rendered, err := r.renderTask(task, roots)
+	if err == nil {
+		// The variables this render read are the ones the task's rollback:
+		// steps will read when it is undone (undo_vars.go).
+		err = r.keepForwardVars(nodeID, task, device, roots)
+	}
 	if err != nil {
 		wrapped := fmt.Errorf("failed to render the parameters of %s: %w", taskLabel(nodeID, task), err)
 		r.publish(nodeID, task, "", "failed", wrapped.Error())

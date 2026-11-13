@@ -1,0 +1,1 @@
+A task's `rollback:` steps, run by a block's `rollback_on_failure`, now render with the variables the task ran with on that device. Before, a later `set_fact` that changed a variable the steps read pointed the undo at whatever the variable held by then, such as a path the task never made.

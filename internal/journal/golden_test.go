@@ -4,8 +4,9 @@
 // rollback read by a later build plans from a file an earlier build wrote.
 // Two files pin it. testdata/golden/entries.jsonl is what this build writes,
 // and changes only when someone runs -update-golden on purpose.
-// testdata/format-1/entries.jsonl is a frozen copy of the format-1 lines,
-// never rewritten by any flag: every later build must still read it.
+// testdata/format-1, format-2 and format-3 hold frozen copies of each
+// format's lines, never rewritten by any flag: every later build must still
+// read them.
 package journal_test
 
 import (
@@ -52,11 +53,15 @@ func goldenEntries() []engine.JournalEntry {
 		},
 		InverseSpecDigest: "sha256:" + hex64('d'), InverseComplete: true, InversePartial: true, DiffRecorded: true, ActionChanged: true,
 		AuthoredRollback: true, AuthoredRollbackEmpty: true, Become: "root",
+		AuthoredSteps: []engine.AuthoredStep{
+			{Index: 1, FQCN: "file.remove", StepDigest: "sha256:" + hex64('f'), Params: []engine.InverseParam{{Key: "path", Text: &text}}, Complete: true},
+			{Index: 2, FQCN: "file.copy", StepDigest: "sha256:" + hex64('0'), Withheld: engine.WithheldValue},
+		},
 	}, {
 		// A failed task whose method name did not resolve, nor its undo's.
 		RunID: goldenRunID, Sequence: 2, NodeID: "tasks[1].block[0]", DAGID: "golden-runbook",
 		FQCN: engine.FQCNUnregistered, FQCNUnresolved: true, InverseFQCN: engine.FQCNUnregistered,
-		InverseFQCNUnresolved: true, StartedAt: at(3), FinishedAt: at(4),
+		InverseFQCNUnresolved: true, InverseWithheld: engine.WithheldSecret, StartedAt: at(3), FinishedAt: at(4),
 		Outcome: engine.OutcomeFailed, FailureStage: engine.FailureStageRegisterMask,
 		StatKeys: []string{}, ParamKeys: []string{}, InverseParamKeys: []string{}, InverseParams: []engine.InverseParam{},
 	}, {
@@ -84,8 +89,8 @@ func hex64(c byte) string {
 	return string(b)
 }
 
-// TestGoldenEntriesSetEveryField fails when engine.JournalEntry or
-// engine.InverseParam gains a field the golden entries leave zero. A new
+// TestGoldenEntriesSetEveryField fails when engine.JournalEntry,
+// engine.InverseParam or engine.AuthoredStep gains a field the golden entries leave zero. A new
 // omitempty field would otherwise never reach the golden file, and the
 // format would change with no golden diff to review.
 func TestGoldenEntriesSetEveryField(t *testing.T) {
@@ -101,15 +106,19 @@ func TestGoldenEntriesSetEveryField(t *testing.T) {
 			}
 		}
 	}
-	var ev, pv []reflect.Value
+	var ev, pv, sv []reflect.Value
 	for _, e := range entries {
 		ev = append(ev, reflect.ValueOf(e))
 		for _, p := range e.InverseParams {
 			pv = append(pv, reflect.ValueOf(p))
 		}
+		for _, s := range e.AuthoredSteps {
+			sv = append(sv, reflect.ValueOf(s))
+		}
 	}
 	set(reflect.TypeFor[engine.JournalEntry](), ev)
 	set(reflect.TypeFor[engine.InverseParam](), pv)
+	set(reflect.TypeFor[engine.AuthoredStep](), sv)
 }
 
 // TestJournalLinesMatchTheGoldenFormat records the golden entries through
@@ -165,14 +174,28 @@ func formatOneEntries() []engine.JournalEntry {
 	for i := range entries {
 		entries[i].Collection = wire.CollectionIdentity{}
 		entries[i].InverseSpecDigest = ""
+		entries[i].AuthoredSteps = nil
+		entries[i].InverseWithheld = ""
+	}
+	return entries
+}
+
+// formatTwoEntries is what the frozen format-2 file holds: the golden entries
+// with the rendered rollback steps and the undo's withheld reason format 3
+// added at their zero.
+func formatTwoEntries() []engine.JournalEntry {
+	entries := goldenEntries()
+	for i := range entries {
+		entries[i].AuthoredSteps = nil
+		entries[i].InverseWithheld = ""
 	}
 	return entries
 }
 
 // TestJournalFormatTwoStaysReadable holds every later build to read the
 // frozen format-2 file, a copy of the golden file as Phase 136b first wrote
-// it, as the golden entries: the identity and undo digest each line carries
-// read back exactly.
+// it, as the golden entries less what format 3 added: the identity and undo
+// digest each line carries read back exactly.
 func TestJournalFormatTwoStaysReadable(t *testing.T) {
 	frozen, err := os.ReadFile(filepath.Join("testdata", "format-2", "entries.jsonl"))
 	if err != nil {
@@ -190,10 +213,37 @@ func TestJournalFormatTwoStaysReadable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("a format-2 journal no longer reads: %v", err)
 	}
-	if want := goldenEntries(); !reflect.DeepEqual(run.Entries, want) {
+	if want := formatTwoEntries(); !reflect.DeepEqual(run.Entries, want) {
 		gotJSON, _ := json.MarshalIndent(run.Entries, "", " ")
 		wantJSON, _ := json.MarshalIndent(want, "", " ")
 		t.Errorf("a format-2 journal reads differently:\ngot  %s\nwant %s", gotJSON, wantJSON)
+	}
+}
+
+// TestJournalFormatThreeStaysReadable holds every later build to read the
+// frozen format-3 file, a copy of the golden file as Phase 87 first wrote it,
+// as the golden entries: the rendered rollback steps read back exactly.
+func TestJournalFormatThreeStaysReadable(t *testing.T) {
+	frozen, err := os.ReadFile(filepath.Join("testdata", "format-3", "entries.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	dir := filepath.Join(root, ".pleiades", "journal")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, goldenRunID+".jsonl"), frozen, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	run, err := journal.ReadRun(root, goldenRunID)
+	if err != nil {
+		t.Fatalf("a format-3 journal no longer reads: %v", err)
+	}
+	if want := goldenEntries(); !reflect.DeepEqual(run.Entries, want) {
+		gotJSON, _ := json.MarshalIndent(run.Entries, "", " ")
+		wantJSON, _ := json.MarshalIndent(want, "", " ")
+		t.Errorf("a format-3 journal reads differently:\ngot  %s\nwant %s", gotJSON, wantJSON)
 	}
 }
 

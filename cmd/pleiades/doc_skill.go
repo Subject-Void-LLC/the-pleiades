@@ -304,6 +304,10 @@ const skillGuide = "## Starting in a project\n\n" +
 	"  Ansible's order. A variable nobody gives is an error unless read with `| default(...)`. Never put a secret in one.\n" +
 	"- `set_fact:` sets variables while the run goes: for the device the task ran on, or for every device with\n" +
 	"  `global: true`; `no_override: true` keeps a value a name already has. A fact lasts for the run, never longer.\n" +
+	"  `-e name=value` beats a fact of the same name, and `pleiades validate` warns about it. A secret reference\n" +
+	"  (`{{ secret.<name>.<field> }}`) in a fact is refused: put it in the parameter of the method that takes it.\n" +
+	"  Two devices of one `global: true` task setting different values fail, naming both. `target:` is the task's\n" +
+	"  target, never a fact. An undo (`rollback:` steps) uses the values its task ran with, not later facts.\n" +
 	"- Repeated work is a loop, never the same task written out several times: `loop:` (or `with_items:`) takes a\n" +
 	"  list, or `\"{{ vars.names }}\"`, runs the task once per item in order (at most 1000), and reads the item as\n" +
 	"  `{{ item }}`, `{{ item.field }}`, `{{ loop.index }}`. An item put in command text is quoted with `| quote`.\n" +

@@ -607,16 +607,27 @@ func TestPort_WaitsForAPortToOpen(t *testing.T) {
 	// a real closed port first.
 	target := portClosedPort(t)
 
-	opened := make(chan struct{})
+	// The port was free when chosen, and something else (another test's
+	// connection using it as its local port) can hold it for a moment when
+	// the bind comes: a port held only that way still answers the probe as
+	// closed, so the bind is tried again until it takes, and a bind that
+	// never takes fails the test with its error rather than leaving the
+	// wait to time out on a port nobody opened (FAILURE_PATTERNS 601).
+	opened := make(chan error, 1)
 	go func() {
 		time.Sleep(750 * time.Millisecond)
-		listener, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", fmt.Sprint(target)))
-		if err != nil {
-			close(opened)
-			return
+		var err error
+		for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(100 * time.Millisecond) {
+			var listener net.Listener
+			if listener, err = net.Listen("tcp", net.JoinHostPort("127.0.0.1", fmt.Sprint(target))); err == nil {
+				t.Cleanup(func() { _ = listener.Close() })
+				break
+			}
+			if time.Now().After(deadline) {
+				break
+			}
 		}
-		t.Cleanup(func() { _ = listener.Close() })
-		close(opened)
+		opened <- err
 	}()
 
 	start := time.Now()
@@ -630,7 +641,9 @@ func TestPort_WaitsForAPortToOpen(t *testing.T) {
 	// enough. A first version of this test did it the other way round and
 	// passed against a method that returned on its very first probe.
 	waited := time.Since(start)
-	<-opened
+	if bindErr := <-opened; bindErr != nil {
+		t.Fatalf("the test could not open port %d for the wait to find: %v", target, bindErr)
+	}
 
 	if err != nil {
 		t.Fatalf("Port: %v", err)

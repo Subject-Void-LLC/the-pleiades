@@ -34,12 +34,14 @@ package engine
 
 import (
 	"fmt"
+	"maps"
 	"reflect"
 	"regexp"
 	"sort"
 	"sync"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/redact"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 )
 
@@ -91,6 +93,15 @@ const (
 	SetFactNoOverride = "no_override"
 )
 
+// IsSetFactOption reports whether key, a param of a set_fact, is one of its
+// options rather than a fact: global, no_override, or target, which names the
+// devices the task runs on as it does for every task (collection.TargetParam)
+// and so can never also be a fact. Before target was counted here a set_fact
+// of a variable named target ran on the device that value named instead.
+func IsSetFactOption(key string) bool {
+	return key == SetFactGlobal || key == SetFactNoOverride || key == collection.TargetParam
+}
+
 // factOptions are a set_fact's two flags.
 type factOptions struct {
 	global, noOverride bool
@@ -98,11 +109,14 @@ type factOptions struct {
 
 // splitFacts separates a set_fact's params into its facts and its flags,
 // holding the facts to variable names, to at least one, and each flag to a
-// boolean.
+// boolean. Its target is the task's, not a fact (IsSetFactOption).
 func splitFacts(params map[string]any) (facts map[string]any, opts factOptions, err error) {
 	facts = make(map[string]any, len(params))
 	names := make([]string, 0, len(params))
 	for k, v := range params {
+		if k == collection.TargetParam {
+			continue
+		}
 		if k == SetFactGlobal || k == SetFactNoOverride {
 			b, ok := v.(bool)
 			if !ok {
@@ -280,8 +294,10 @@ func deviceVars(d inventory.InventoryItem) map[string]any {
 // brings variables of its own. Such a task is decided and rendered on each
 // device, as one reading the device root is.
 func (r *run) varsNeedDevice(nodeID string, task *Task) bool {
-	reads := false
-	if r.dag.Conditions[nodeID] != nil {
+	// A rollback: step reading vars reads what this task ran with on its
+	// device, so the task's variables are worked out on each device too.
+	reads := r.rollbackReadsVars(task)
+	if !reads && r.dag.Conditions[nodeID] != nil {
 		if uses, err := ConditionUsesRoot(task.Conditional, TemplateRootVars); err == nil && uses {
 			reads = true
 		}
@@ -313,6 +329,11 @@ func (r *run) varsNeedDevice(nodeID string, task *Task) bool {
 // rendered. roots is the evaluation's extra roots; its internal host-vars
 // entry, when there is one, is consumed.
 func (r *run) mergedVars(task *Task, roots map[string]any) (map[string]any, error) {
+	// An undo step reads what its task ran with, merged and rendered then,
+	// and nothing set since (undo_vars.go).
+	if kept, ok := roots[forwardVarsRoot].(map[string]any); ok {
+		return maps.Clone(kept), nil
+	}
 	extra := r.x.extraVars
 	var host map[string]any
 	if h, ok := roots[hostVarsRoot].(map[string]any); ok {
@@ -380,7 +401,7 @@ func (r *run) mergedVars(task *Task, roots map[string]any) (map[string]any, erro
 		return nil, err
 	}
 	for k, v := range roots {
-		if k != hostVarsRoot {
+		if !isInternalRoot(k) {
 			base[k] = v
 		}
 	}

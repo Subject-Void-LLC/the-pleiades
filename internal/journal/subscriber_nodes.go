@@ -114,7 +114,8 @@ func (s *Subscriber) holdProvider(batch *Batch, entry *engine.JournalEntry, note
 
 // clearClaimed clears what a row's claimed method brought with it: the
 // Collection identity and program the engine stamps for that method, and the
-// undo it recorded and the journal kept under that method's declarations. An
+// undo it recorded and the rendered rollback: steps the journal kept under that
+// method's declarations. An
 // entry cleared this way reads as one whose identity is unknown and which
 // recorded no undo, so a rollback of it replays nothing it carried.
 func clearClaimed(entry *engine.JournalEntry) {
@@ -125,4 +126,8 @@ func clearClaimed(entry *engine.JournalEntry) {
 	entry.InverseParams = nil
 	entry.InverseComplete, entry.InversePartial = false, false
 	entry.InverseSpecDigest = ""
+	entry.InverseWithheld = ""
+	// Its rendered rollback: steps were held to the claimed method's
+	// declarations too.
+	entry.AuthoredSteps = nil
 }

@@ -114,6 +114,10 @@ const (
 	FieldCollectionManifests = "collection_manifests"
 	// FieldInverseSpecDigest holds the string denoting the inverse_spec_digest field in the database.
 	FieldInverseSpecDigest = "inverse_spec_digest"
+	// FieldAuthoredSteps holds the string denoting the authored_steps field in the database.
+	FieldAuthoredSteps = "authored_steps"
+	// FieldInverseWithheld holds the string denoting the inverse_withheld field in the database.
+	FieldInverseWithheld = "inverse_withheld"
 	// Table holds the table name of the journalentry in the database.
 	Table = "journal_entries"
 )
@@ -171,6 +175,8 @@ var Columns = []string{
 	FieldCollectionProgram,
 	FieldCollectionManifests,
 	FieldInverseSpecDigest,
+	FieldAuthoredSteps,
+	FieldInverseWithheld,
 }
 
 // ValidColumn reports if the column name is valid (part of the table columns).
@@ -510,4 +516,9 @@ func ByCollectionManifests(opts ...sql.OrderTermOption) OrderOption {
 // ByInverseSpecDigest orders the results by the inverse_spec_digest field.
 func ByInverseSpecDigest(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldInverseSpecDigest, opts...).ToFunc()
+}
+
+// ByInverseWithheld orders the results by the inverse_withheld field.
+func ByInverseWithheld(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldInverseWithheld, opts...).ToFunc()
 }

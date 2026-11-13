@@ -1,0 +1,1 @@
+The playbook converter reports `vars.precedence` only where Ansible and the runbook read a different value: a `set_fact` beside a block's or a task's `vars`. A variable set in play, block and task `vars` alone, or by a `set_fact` over a play's `vars`, picks the same winner in both and is no longer reported.

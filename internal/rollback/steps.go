@@ -5,7 +5,6 @@ package rollback
 import (
 	"errors"
 	"fmt"
-	"maps"
 	"sort"
 	"strings"
 
@@ -131,7 +130,8 @@ func recordedSteps(req Request, e engine.JournalEntry, leave string, groups grou
 		case err == nil && tasks != nil && len(tasks) == 0:
 			return nil, nil, errNothingToUndo
 		case err == nil && len(tasks) > 0:
-			return authoredList(e, tasks), nil, nil
+			steps, err := authoredList(e, tasks, leave)
+			return steps, nil, err
 		case errors.Is(err, ErrNoRunbook):
 			notFound = err
 		case err != nil:
@@ -152,6 +152,15 @@ func recordedSteps(req Request, e engine.JournalEntry, leave string, groups grou
 	spec, target, err := checkRecorded(e)
 	if err != nil {
 		return nil, nil, err
+	}
+	// A value kept out because it held one of the run's secrets: said as
+	// such, whatever else the record lacks.
+	if e.InverseWithheld == engine.WithheldSecret {
+		return nil, nil, &stepError{
+			reason: fmt.Sprintf("%s's undo through %s cannot be replayed: %s; undo it by hand, or leave it in place",
+				Printable(e.FQCN), Printable(e.InverseFQCN), engine.WithheldSecret.Describe()),
+			accept: leave,
+		}
 	}
 	if !e.InverseComplete && !e.InversePartial {
 		withheld := missingKeys(e)
@@ -208,23 +217,38 @@ func authoredSteps(req Request, e engine.JournalEntry, leave string) ([]Step, er
 	if len(tasks) == 0 {
 		return nil, errNothingToUndo
 	}
-	return authoredList(e, tasks), nil
+	return authoredList(e, tasks, leave)
 }
 
-// authoredList turns a node's rollback: list into its steps.
-func authoredList(e engine.JournalEntry, tasks []engine.Task) []Step {
+// authoredList turns a node's rollback: list into its steps: a step holding
+// no template as the runbook writes it, and a templated one with the values
+// the run rendered for it on the device (renderedParams), or refused.
+func authoredList(e engine.JournalEntry, tasks []engine.Task, leave string) ([]Step, error) {
 	steps := make([]Step, 0, len(tasks))
 	for i, task := range tasks {
 		name := task.Name
 		if name == "" {
 			name = task.FQCN
 		}
-		steps = append(steps, Step{
-			Node: e.NodeID, Index: i, Emitter: e.FQCN, FQCN: task.FQCN, Params: maps.Clone(task.Params), Source: SourceAuthored, Become: e.Become,
-			Name: fmt.Sprintf("undo %s (%s), step %d: %s", Printable(e.NodeID), labelOf(e), i+1, name),
-		})
+		params, rendered, err := renderedParams(e, i, task)
+		if err != nil {
+			return nil, &stepError{reason: err.Error(), accept: leave}
+		}
+		step := Step{
+			Node: e.NodeID, Index: i, Emitter: e.FQCN, FQCN: task.FQCN, Params: params, Source: SourceAuthored, Become: e.Become,
+			Name:     fmt.Sprintf("undo %s (%s), step %d: %s", Printable(e.NodeID), labelOf(e), i+1, name),
+			Rendered: rendered,
+		}
+		// The journal a plan reads may have been edited, or written by a
+		// build with other declarations: its values are held to this one's.
+		if len(rendered) > 0 {
+			if err := verifyRendered(step, task); err != nil {
+				return nil, &stepError{reason: err.Error() + "; " + byHand, accept: leave}
+			}
+		}
+		steps = append(steps, step)
 	}
-	return steps
+	return steps, nil
 }
 
 // labelOf names an entry's task for a rollback task's name: its own name,

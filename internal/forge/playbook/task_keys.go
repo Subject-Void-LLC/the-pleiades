@@ -312,9 +312,17 @@ func (t *translator) pruned(vars map[string]any) map[string]any {
 	return out
 }
 
-// flagPrecedence raises vars.precedence for each variable the playbook
-// defines at more than one scope, since Ansible and the runbook can pick
-// different winners.
+// flagPrecedence raises vars.precedence for each variable the playbook sets
+// at two scopes whose winner Ansible and the runbook pick differently. Of the
+// scopes the converter carries, Ansible ranks play < block < task < set_fact,
+// and the runbook ranks its vars: < a device's set_fact < block < task. So
+// play, block and task vars alone always agree (the narrower wins in both),
+// and so does a set_fact over play vars (the fact wins in both once it has
+// run); only a set_fact beside a block's or a task's vars differs, where the
+// runbook reads the block's or the task's value and the playbook the fact.
+// That pair is flagged whether or not the set_fact runs before the read,
+// since the order a play reaches them in is not known here. The one other
+// difference, a play's vars against the inventory's, is vars.inventory's.
 func (t *translator) flagPrecedence() {
 	names := make([]string, 0, len(t.ix.defs))
 	for name := range t.ix.defs {
@@ -329,7 +337,9 @@ func (t *translator) flagPrecedence() {
 				scopes[d.scope] = true
 			}
 		}
-		if len(scopes) < 2 {
+		// Only a set_fact beside a block's or a task's vars has two winners;
+		// every other mix of scopes reads the same value either way.
+		if !scopes[scopeFact] || (!scopes[scopeBlock] && !scopes[scopeTask]) {
 			continue
 		}
 		list := make([]string, 0, len(scopes))
@@ -337,10 +347,7 @@ func (t *translator) flagPrecedence() {
 			list = append(list, string(s))
 		}
 		sort.Strings(list)
-		why := "Ansible lets a play's vars beat the inventory's group_vars and host_vars; here a device's inventory variable beats the runbook's vars, so check any name the inventory also sets"
-		if scopes[scopeFact] && (scopes[scopeBlock] || scopes[scopeTask]) {
-			why = "Ansible lets a set_fact beat block and task vars; here the narrower scope wins, so the block's or the task's vars beat the set_fact"
-		}
+		why := "Ansible lets a set_fact beat block and task vars; here the narrower scope wins, so the block's or the task's vars beat the set_fact"
 		t.raise("vars.precedence", defs[len(defs)-1].at, "", fmt.Sprintf("%s is set at %s: %s", name, strings.Join(list, ", "), why))
 	}
 }
