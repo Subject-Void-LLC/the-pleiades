@@ -1,23 +1,13 @@
 // Finding what VMs VirtualBox no longer knows left behind under the
 // machine folder: disks no registered VM uses, and folders holding no
 // registered VM's files. PlanPrune decides from what the host reported;
-// the Host methods here read and remove.
+// the Host methods in prunehost.go read and remove, and hostpath.go holds
+// how paths are compared.
 package vboxmanage
 
 import (
-	"context"
-	"errors"
-	"fmt"
 	"sort"
 	"strings"
-
-	"github.com/Subject-Void-LLC/the-pleiades/pkg/winrmexec"
-)
-
-// The first line of the folder scripts, which names what each does.
-const (
-	tagFolders      = "# vboxmanage: folders"
-	tagRemoveFolder = "# vboxmanage: remove folder"
 )
 
 // StateInaccessible is the state list --long hdds gives a disk whose file
@@ -54,39 +44,30 @@ type PruneInput struct {
 	// Unreadable says VirtualBox lists a VM it cannot read, whose folder
 	// nothing can name, so no folder is removed.
 	Unreadable bool
-}
-
-// normPath is path compared without regard to case or to which separator
-// VirtualBox wrote.
-func normPath(p string) string {
-	return strings.TrimRight(strings.ToLower(strings.ReplaceAll(p, "/", `\`)), `\`)
-}
-
-// within reports whether path is dir or inside it.
-func within(dir, path string) bool {
-	d, p := normPath(dir), normPath(path)
-	return d != "" && (p == d || strings.HasPrefix(p, d+`\`))
+	// Links are the symbolic links, junctions and mount points under Root
+	// (Host.Links). What one reaches can be anywhere, so no disk at or under
+	// one is removed, and no folder that is one or holds one.
+	Links []string
 }
 
 // PlanPrune decides what a prune removes. A disk goes when it is under
 // Root, no registered VM uses it, it is not in a registered VM's folder
-// (virt.vbox.vm.detach_disk keeps one there on purpose), and every disk
-// descending from it goes too. A folder goes when it holds no registered
-// VM's settings and no disk that stays, and only when no VM is unreadable.
+// (virt.vbox.vm.detach_disk keeps one there on purpose), it is not at or
+// under a link, and every disk descending from it goes too. A folder goes
+// when it holds no registered VM's settings, no disk that stays and no
+// link, and only when no VM is unreadable. A path normPath refuses is never
+// under Root, so neither is anything VirtualBox names with "..", a UNC
+// path or another drive.
 func PlanPrune(in PruneInput) PrunePlan {
 	vmDirs := make([]string, 0, len(in.Configs))
 	for _, c := range in.Configs {
+		dir := ""
 		if i := strings.LastIndexAny(c, `\/`); i > 0 {
-			vmDirs = append(vmDirs, c[:i])
+			dir = c[:i]
 		}
-	}
-	inVMDir := func(p string) bool {
-		for _, d := range vmDirs {
-			if within(d, p) {
-				return true
-			}
-		}
-		return false
+		// A settings file with no folder that can be named keeps every disk
+		// (mayHold), as an unreadable VM keeps every folder.
+		vmDirs = append(vmDirs, dir)
 	}
 	children := map[string][]Medium{}
 	for _, m := range in.Media {
@@ -108,7 +89,8 @@ func PlanPrune(in PruneInput) PrunePlan {
 			return false
 		}
 		deciding[id] = true
-		ok := len(m.Users) == 0 && within(in.Root, m.Location) && normPath(m.Location) != normPath(in.Root) && !inVMDir(m.Location)
+		ok := len(m.Users) == 0 && within(in.Root, m.Location) && !samePath(m.Location, in.Root) &&
+			!anyHolds(vmDirs, m.Location) && !anyHolds(in.Links, m.Location)
 		for _, c := range children[id] {
 			if !removable(c) {
 				ok = false
@@ -149,17 +131,13 @@ func PlanPrune(in PruneInput) PrunePlan {
 		return plan
 	}
 	for _, f := range in.Folders {
-		if !within(in.Root, f) || normPath(f) == normPath(in.Root) {
+		if !within(in.Root, f) || samePath(f, in.Root) {
 			continue
 		}
-		keep := false
-		for _, c := range in.Configs {
-			keep = keep || within(f, c)
-		}
-		for _, s := range staying {
-			keep = keep || within(f, s)
-		}
-		if !keep {
+		// A folder holding a registered VM's settings, a disk that stays, or a
+		// link (or that is one, whose removal would reach whatever it names)
+		// is kept.
+		if !holdsAny(f, in.Configs) && !holdsAny(f, staying) && !holdsAny(f, in.Links) {
 			plan.Folders = append(plan.Folders, f)
 		}
 	}
@@ -175,92 +153,4 @@ func mediumByUUID(media []Medium, uuid string) (Medium, bool) {
 		}
 	}
 	return Medium{}, false
-}
-
-// MachineFolder returns the account's default machine folder, as list
-// systemproperties names it.
-func (h Host) MachineFolder(ctx context.Context) (string, error) {
-	out, err := h.run(ctx, "list", "systemproperties")
-	if err != nil {
-		return "", err
-	}
-	for _, line := range strings.Split(out.Stdout, "\n") {
-		if v, ok := strings.CutPrefix(strings.TrimRight(line, "\r"), "Default machine folder:"); ok {
-			if folder := strings.TrimSpace(v); folder != "" {
-				return folder, nil
-			}
-		}
-	}
-	return "", errors.New("vboxmanage: list systemproperties names no default machine folder")
-}
-
-// MachineFolders returns the folders directly inside root that hold a
-// VM's settings file (a .vbox, or the .vbox-prev VirtualBox keeps beside
-// it), or nothing at all, as a delete that removed a VM's disks but not
-// its folder leaves one, as full paths; a root that is not there has none.
-// Only such a folder is ever a prune's to remove, so a folder of anything
-// else under the machine folder is never touched.
-func (h Host) MachineFolders(ctx context.Context, root string) ([]string, error) {
-	if err := CheckPath("folder", root); err != nil {
-		return nil, err
-	}
-	script := fmt.Sprintf(`%s
-$ErrorActionPreference = 'Stop'
-$path = %s
-if (-not (Test-Path -LiteralPath $path -PathType Container)) { exit 3 }
-Get-ChildItem -LiteralPath $path -Directory -Force | Where-Object { (Get-ChildItem -LiteralPath $_.FullName -File -Force | Where-Object { $_.Name -like '*.vbox' -or $_.Name -like '*.vbox-prev' } | Select-Object -First 1) -or -not (Get-ChildItem -LiteralPath $_.FullName -Force | Select-Object -First 1) } | ForEach-Object { $_.FullName }
-`, tagFolders, winrmexec.QuotePS(root))
-	out, err := h.powerShell(ctx, script, "")
-	if err != nil {
-		return nil, err
-	}
-	if out.ExitCode == 3 {
-		return nil, nil
-	}
-	if out.ExitCode != 0 {
-		return nil, fmt.Errorf("vboxmanage: listing %s: %s", root, firstErrorLine(out))
-	}
-	var folders []string
-	for _, line := range strings.Split(out.Stdout, "\n") {
-		if f := strings.TrimSpace(line); f != "" {
-			folders = append(folders, f)
-		}
-	}
-	return folders, nil
-}
-
-// RemoveFolder deletes the folder at path and everything in it. A folder
-// that is not there is not an error.
-func (h Host) RemoveFolder(ctx context.Context, path string) error {
-	if err := CheckPath("folder", path); err != nil {
-		return err
-	}
-	script := fmt.Sprintf(`%s
-$ErrorActionPreference = 'Stop'
-$path = %s
-if (Test-Path -LiteralPath $path -PathType Container) { Remove-Item -LiteralPath $path -Recurse -Force }
-"removed"
-`, tagRemoveFolder, winrmexec.QuotePS(path))
-	out, err := h.powerShell(ctx, script, "")
-	if err != nil {
-		return err
-	}
-	if out.ExitCode != 0 {
-		return fmt.Errorf("vboxmanage: removing %s: %s", path, firstErrorLine(out))
-	}
-	return nil
-}
-
-// CloseDisk forgets the disk with uuid, deleting its file too when remove
-// is true. VirtualBox refuses a disk a machine uses or one with children.
-func (h Host) CloseDisk(ctx context.Context, uuid string, remove bool) error {
-	if err := CheckUUID(uuid); err != nil {
-		return err
-	}
-	args := []string{"closemedium", "disk", uuid}
-	if remove {
-		args = append(args, "--delete")
-	}
-	_, err := h.run(ctx, args...)
-	return err
 }

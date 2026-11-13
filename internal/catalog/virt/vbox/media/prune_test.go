@@ -203,6 +203,7 @@ func TestPrune_StepsFailing(t *testing.T) {
 		"VBoxManage.exe list vms",
 		"VBoxManage.exe showvminfo",
 		"powershell folders",
+		"powershell links",
 		"VBoxManage.exe closemedium disk 33333333",
 		"powershell remove folder",
 	} {
@@ -227,5 +228,74 @@ func TestPrune_StepsFailing(t *testing.T) {
 	defer func() { hostFunc = old }()
 	if _, err := call(t, false, &recorder{}, host(), nil); err == nil || !strings.Contains(err.Error(), "no way there") {
 		t.Errorf("an unreachable host: %v", err)
+	}
+}
+
+// TestPrune_NothingThroughALink: a symbolic link, junction or mount point
+// under the machine folder can name a folder anywhere, so a disk at or
+// under one stays, and so does every disk it descends from, and a folder
+// that is one or holds one is not removed; a check lists nothing and a run
+// removes nothing. Before 2026-11-13 the prune never looked for links: a
+// disk reached through one went to closemedium --delete, which deletes the
+// file wherever the link leads, and a folder holding one to Remove-Item
+// -Recurse.
+func TestPrune_NothingThroughALink(t *testing.T) {
+	for name, links := range map[string][]string{
+		"a link inside a leftover folder": {root + `\gone\Snapshots`},
+		"leftover folders that are links": {root + `\gone`, root + `\gone-base`},
+	} {
+		t.Run(name, func(t *testing.T) {
+			model := leftovers()
+			model.Links = links
+			onModel(t, model)
+			for _, check := range []bool{true, false} {
+				rc := &recorder{}
+				result, err := call(t, check, rc, host(), nil)
+				if err != nil || result.Changed || len(changes(model)) != 0 {
+					t.Fatalf("check %v: %+v, %v, changes %v", check, result, err, changes(model))
+				}
+				if disks, _ := rc.stats["disks"].([]any); len(disks) != 0 {
+					t.Errorf("check %v listed disks through a link: %v", check, disks)
+				}
+				if folders, _ := rc.stats["folders"].([]any); len(folders) != 0 {
+					t.Errorf("check %v listed folders holding a link: %v", check, folders)
+				}
+			}
+			if len(model.Orphans) != 2 || model.Files[root+`\gone-base\gone-base.vdi`] == nil {
+				t.Errorf("something behind a link went: orphans %v", model.Orphans)
+			}
+		})
+	}
+}
+
+// TestPrune_NothingOutsideTheFolderByName: a disk VirtualBox names under the
+// machine folder's text but through "..", a UNC path, a stream, or a name
+// that differs outside ASCII (the Kelvin sign, which Go folds to k and
+// Windows does not) is not the machine folder's, so a run never touches it.
+// Before 2026-11-13 the ".." paths and the Kelvin sign's were deleted.
+func TestPrune_NothingOutsideTheFolderByName(t *testing.T) {
+	for _, location := range []string{
+		root + `\..\Windows\System32\config\x.vdi`,
+		root + `/../Windows/x.vdi`,
+		root + `\gone\..\..\x.vdi`,
+		`\\localhost\G$\Lab\gone\x.vdi`,
+		root + `\gone\x.vdi:hidden`,
+		"G:\\\u212Aits\\x.vdi",
+	} {
+		model := leftovers()
+		model.Orphans = []vboxmanagetest.Orphan{{UUID: "55555555-5555-4555-8555-555555555555", Location: location}}
+		model.SetFile(location, []byte("not the lab's"))
+		onModel(t, model)
+		folder := root
+		if strings.Contains(location, "\u212A") {
+			folder = `G:\Kits`
+		}
+		rc := &recorder{}
+		if _, err := call(t, false, rc, &vboxHost{Stub: host().Stub, folder: folder}, nil); err != nil {
+			t.Fatalf("%q: %v", location, err)
+		}
+		if disks, _ := rc.stats["disks"].([]any); len(disks) != 0 || model.Files[location] == nil || len(model.Orphans) != 1 {
+			t.Errorf("%q, outside %s, was removed: %v", location, folder, rc.stats["disks"])
+		}
 	}
 }

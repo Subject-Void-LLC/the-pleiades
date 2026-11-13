@@ -195,7 +195,11 @@ func deleteVM(ctx context.Context, h vboxmanage.Host, name string) error {
 		if err := h.Detach(ctx, name, slot); err != nil {
 			return err
 		}
-		if under(dir, slot.Medium) {
+		// Only an image in the VM's own folder is deleted, decided as a prune
+		// decides (vboxmanage.Within): a path through "..", a UNC path or a
+		// name differing only outside ASCII is somewhere else, so detached
+		// and kept.
+		if !strings.EqualFold(dir, slot.Medium) && vboxmanage.Within(dir, slot.Medium) {
 			if err := h.CloseDVD(ctx, slot.Medium, true); err != nil {
 				return err
 			}
@@ -211,11 +215,4 @@ func deleteVM(ctx context.Context, h vboxmanage.Host, name string) error {
 		}
 	}
 	return h.Remove(ctx, dir+`\`+consoleFile, true)
-}
-
-// under reports whether path is inside dir, without regard to case or to
-// which separator VirtualBox wrote.
-func under(dir, path string) bool {
-	norm := func(s string) string { return strings.ToLower(strings.ReplaceAll(s, "/", `\`)) }
-	return strings.HasPrefix(norm(path), norm(dir)+`\`)
 }

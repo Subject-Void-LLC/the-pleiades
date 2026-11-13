@@ -131,13 +131,12 @@ func (m Machine) FreeSATASlot() (Slot, bool) {
 }
 
 // SlotsHolding returns the slots holding a medium at a path under folder,
-// compared without regard to case or to which separator VirtualBox wrote.
+// compared as Within compares: by ASCII case, with either separator, and
+// never through a ".." segment.
 func (m Machine) SlotsHolding(folder string) []Slot {
-	prefix := strings.ToLower(strings.ReplaceAll(folder, "/", `\`)) + `\`
 	var held []Slot
 	for _, s := range m.Slots {
-		medium := strings.ToLower(strings.ReplaceAll(s.Medium, "/", `\`))
-		if strings.HasPrefix(medium, prefix) {
+		if !samePath(s.Medium, folder) && within(folder, s.Medium) {
 			held = append(held, s)
 		}
 	}

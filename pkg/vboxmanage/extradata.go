@@ -9,6 +9,8 @@ import (
 	"regexp"
 	"strings"
 	"unicode"
+
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/winrmexec"
 )
 
 // The extradata keys a machine Pleiades made records what VirtualBox
@@ -27,14 +29,15 @@ const (
 var extraKeyPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9/._{}-]{0,127}$`)
 
 // checkExtra refuses a key outside extraKeyPattern, and a value holding a
-// quote, a control character, or more than 256 characters: each travels
-// as one command-line argument.
+// quote, a control character, a character a WS-Man message cannot carry
+// (U+FFFE, U+FFFF, invalid UTF-8), or more than 256 characters: each
+// travels as one command-line argument.
 func checkExtra(key, value string) error {
 	if !extraKeyPattern.MatchString(key) {
 		return fmt.Errorf("vboxmanage: extradata key %q is not letters, digits and / . _ { } -", key)
 	}
-	if len(value) > 256 || strings.ContainsAny(value, `"'`) || strings.IndexFunc(value, unicode.IsControl) >= 0 {
-		return fmt.Errorf("vboxmanage: extradata value for %s is longer than 256 characters or holds a quote or control character", key)
+	if len(value) > 256 || strings.ContainsAny(value, `"'`) || strings.IndexFunc(value, unicode.IsControl) >= 0 || winrmexec.CheckText("extradata value", value) != nil {
+		return fmt.Errorf("vboxmanage: extradata value for %s is longer than 256 characters or holds a quote, a control character or one a command line cannot carry", key)
 	}
 	return nil
 }

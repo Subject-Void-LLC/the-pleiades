@@ -45,7 +45,7 @@ func init() {
 			SupportsCheck:   true,
 			Doc: collection.Doc{
 				Summary:     "Deletes the disks no registered VM uses and the leftover folders of VMs VirtualBox no longer knows, under the host's machine folder.",
-				Description: "Removes what a VM VirtualBox forgot leaves behind: a delete that failed partway, or a VM unregistered without its files. Under the host's machine folder (its vm_folder, or VirtualBox's default machine folder when it names none) it finds every disk VirtualBox has registered that no registered VM uses, in its current state or a snapshot, and every folder holding no registered VM's settings and no disk one uses, among the folders that hold a VM's settings file (a .vbox, or the .vbox-prev VirtualBox keeps beside it) and the empty ones a delete leaves; any other folder is never touched. A folder this run's disk deletions leave empty is not in this run's list, so the next run removes it. A disk is deleted with its file, or only forgotten when its file is already gone; one with a descendant that is in use, or that is not being deleted too, is left, and descendants go before their parents. A folder holding a registered VM's files is left. When VirtualBox lists a VM it cannot read, no folder is removed, since nothing can say which folder is that VM's: delete it first with virt.vbox.vm.delete, naming its UUID. Nothing outside the machine folder is touched. A check lists exactly what a run would remove and removes nothing; it is how to see the list without acting on it. Nothing removed can be brought back. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A check reads the host's VMs, disks and folders, and sends nothing.",
+				Description: "Removes what a VM VirtualBox forgot leaves behind: a delete that failed partway, or a VM unregistered without its files. Under the host's machine folder (its vm_folder, or VirtualBox's default machine folder when it names none) it finds every disk VirtualBox has registered that no registered VM uses, in its current state or a snapshot, and every folder holding no registered VM's settings and no disk one uses, among the folders that hold a VM's settings file (a .vbox, or the .vbox-prev VirtualBox keeps beside it) and the empty ones a delete leaves; any other folder is never touched. A folder this run's disk deletions leave empty is not in this run's list, so the next run removes it. A disk is deleted with its file, or only forgotten when its file is already gone; one with a descendant that is in use, or that is not being deleted too, is left, and descendants go before their parents. A folder holding a registered VM's files is left. When VirtualBox lists a VM it cannot read, no folder is removed, since nothing can say which folder is that VM's: delete it first with virt.vbox.vm.delete, naming its UUID. Nothing outside the machine folder is touched: a disk VirtualBox names through a \"..\" segment, a UNC path or another drive is never inside it, and no disk at or under a symbolic link, junction or mount point is deleted, nor a folder that is one or holds one, since what a link reaches can be anywhere. A check lists exactly what a run would remove and removes nothing; it is how to see the list without acting on it. Nothing removed can be brought back. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A check reads the host's VMs, disks and folders, and sends nothing.",
 				Returns: []collection.ReturnField{
 					{Name: "disks", Type: "list", Returned: "always", Description: "Each disk removed, or that a check would remove: its UUID, its file and whether its file was already gone."},
 					{Name: "folders", Type: "list", Returned: "always", Description: "Each folder removed, or that a check would remove."},
@@ -125,8 +125,8 @@ func runPrune(ctx context.Context, rc sdk.RunbookContext, device inventory.Inven
 
 // planFor reads what PlanPrune decides from: the machine folder (the
 // host's vm_folder, or VirtualBox's default), the registered disks, the
-// settings files of the VMs VirtualBox can read, and the folders inside
-// the machine folder.
+// settings files of the VMs VirtualBox can read, the folders inside the
+// machine folder, and the links under it.
 func planFor(ctx context.Context, h vboxmanage.Host, device inventory.InventoryItem) (vboxmanage.PrunePlan, error) {
 	in := vboxmanage.PruneInput{}
 	if vbox, ok := device.(capability.VirtualBoxCapable); ok {
@@ -162,6 +162,11 @@ func planFor(ctx context.Context, h vboxmanage.Host, device inventory.InventoryI
 		in.Configs = append(in.Configs, m.ConfigFile)
 	}
 	if in.Folders, err = h.MachineFolders(ctx, in.Root); err != nil {
+		return vboxmanage.PrunePlan{}, err
+	}
+	// What a link under the machine folder reaches can be anywhere, so the
+	// plan keeps everything at or under one (vboxmanage.PlanPrune).
+	if in.Links, err = h.Links(ctx, in.Root); err != nil {
 		return vboxmanage.PrunePlan{}, err
 	}
 	return vboxmanage.PlanPrune(in), nil

@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/winrmexec"
 )
 
 // pathPattern is an absolute drive path on a Windows host with no quote,
@@ -15,12 +17,29 @@ import (
 var pathPattern = regexp.MustCompile(`^[A-Za-z]:\\[^'"*?<>|\x00-\x1f\x7f]*[^'"*?<>|\\\x00-\x1f\x7f ]$`)
 
 // CheckPath refuses a host path outside pathPattern, or one that climbs
-// out of a folder with "..", naming what the path is for.
+// out of a folder with "..", or holds what a WS-Man message cannot carry
+// (invalid UTF-8, U+FFFE, U+FFFF), naming what the path is for. Windows reads "/"
+// as a separator as well as "\", so a segment between either is checked: a
+// segment of only dots and spaces (".", "..", "..." and the like) is
+// refused, since Windows reads one as "this folder" or "the folder above"
+// rather than as a name. Until 2026-11-13 only "\..\" and a final "\.."
+// were refused, so G:\Lab/.. passed, and named G:\.
 func CheckPath(what, path string) error {
-	if len(path) > 240 || !pathPattern.MatchString(path) || strings.Contains(path, `\..\`) || strings.HasSuffix(path, `\..`) {
+	if len(path) > 240 || !pathPattern.MatchString(path) || hasDotSegment(path[3:]) || winrmexec.CheckText(what, path) != nil {
 		return fmt.Errorf("vboxmanage: %s %q is not an absolute path such as G:\\PleiadesLab\\image.ova, under 240 characters, without quotes, wildcards or a \"..\" segment", what, path)
 	}
 	return nil
+}
+
+// hasDotSegment reports whether a path, after its drive, holds a segment of
+// only dots and spaces, or an empty one, between either separator.
+func hasDotSegment(rest string) bool {
+	for _, s := range strings.FieldsFunc(rest, func(r rune) bool { return r == '\\' || r == '/' }) {
+		if strings.Trim(s, ". ") == "" {
+			return true
+		}
+	}
+	return strings.Contains(rest, `\\`) || strings.Contains(rest, `//`) || strings.Contains(rest, `\/`) || strings.Contains(rest, `/\`)
 }
 
 // Import imports the OVA at ova as the VM name, into folder when it is

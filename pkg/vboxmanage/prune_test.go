@@ -5,6 +5,7 @@ package vboxmanage_test
 import (
 	"context"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/vboxmanage"
@@ -140,5 +141,106 @@ func TestPruneHostCallsFailing(t *testing.T) {
 	model.Fail = map[string]vboxmanage.Output{"VBoxManage.exe list systemproperties": {Stdout: "API version: 7_2\r\n"}}
 	if _, err := h.MachineFolder(ctx); err == nil {
 		t.Error("an answer naming no folder named one")
+	}
+}
+
+// TestPlanPrune_NothingOutsideTheRootByName: every way a disk's path can
+// begin with the machine folder's text and not be inside it is planned for
+// nothing: a ".." segment between either separator, a segment of only dots
+// and spaces, a doubled separator, a UNC or \\?\ path (even one naming the
+// same folder through a share), another drive, a stream, a relative path,
+// and a name differing only outside ASCII. Before 2026-11-13 the paths with
+// ".." and the Kelvin sign were planned, since within compared text after
+// strings.ToLower, which folds U+212A to k.
+func TestPlanPrune_NothingOutsideTheRootByName(t *testing.T) {
+	plan := func(root, location string) vboxmanage.PrunePlan {
+		return vboxmanage.PlanPrune(vboxmanage.PruneInput{Root: root, Media: []vboxmanage.Medium{{UUID: "z", Location: location}}})
+	}
+	// Controls: a disk inside the root, in any ASCII case or separator, goes.
+	for _, inside := range []string{`G:\Lab\x.vdi`, `g:\LAB\old\x.vdi`, `G:/Lab/old/x.vdi`, `G:\Lab\old.\x.vdi`} {
+		if got := plan(pruneRoot, inside); len(got.Disks) != 1 {
+			t.Errorf("%q, inside %s, is not planned: %+v", inside, pruneRoot, got)
+		}
+	}
+	for _, outside := range []string{
+		`G:\Lab\..\Windows\x.vdi`, `G:\Lab\gone\..\..\Windows\x.vdi`, `G:/Lab/../Windows/x.vdi`, `G:\Lab/..\Windows\x.vdi`,
+		`G:\Lab\.\x.vdi`, `G:\Lab\...\x.vdi`, `G:\Lab\.. \x.vdi`, `G:\Lab\\x.vdi`,
+		`\\server\share\Lab\x.vdi`, `\\?\G:\Lab\x.vdi`, `\\localhost\G$\Lab\x.vdi`, `C:\Lab\x.vdi`,
+		`G:\Lab\x.vdi:hidden`, `Lab\x.vdi`, `G:Lab\x.vdi`, `G:\Lab`, "",
+	} {
+		if got := plan(pruneRoot, outside); len(got.Disks) != 0 {
+			t.Errorf("%q is planned for deletion under %s: %+v", outside, pruneRoot, got.Disks)
+		}
+	}
+	if got := plan(`G:\Kits`, "G:\\\u212Aits\\x.vdi"); len(got.Disks) != 0 {
+		t.Errorf("a disk under the Kelvin sign's folder is planned under G:\\Kits: %+v", got.Disks)
+	}
+	if got := plan(`G:\Lab\..\Windows`, `G:\Windows\x.vdi`); len(got.Disks) != 0 {
+		t.Errorf("a root holding \"..\" planned %+v", got.Disks)
+	}
+	// Folders the same way: none but the one inside is planned.
+	got := vboxmanage.PlanPrune(vboxmanage.PruneInput{Root: pruneRoot, Folders: []string{
+		`G:\Lab\..`, `G:\Lab/..`, `G:\Lab\..\Windows`, `G:\Lab\.`, `\\localhost\G$\Lab\old`, `G:\Lab\old`,
+	}})
+	if !reflect.DeepEqual(got.Folders, []string{`G:\Lab\old`}) {
+		t.Errorf("folders %q, want only G:\\Lab\\old", got.Folders)
+	}
+	if !vboxmanage.Within(`G:\Lab`, `g:/lab/old`) || vboxmanage.Within(`G:\Lab`, `G:\Lab2\x`) || vboxmanage.Within(`G:\Lab`, `G:\Lab\..\x`) {
+		t.Error("Within does not compare as PlanPrune does")
+	}
+}
+
+// TestPlanPrune_Links: a disk at or under a link stays, with every disk it
+// descends from, and a folder that is a link or holds one is kept; a path
+// that keeps what is under it but cannot be placed (a VM's settings named
+// through a share) keeps everything.
+func TestPlanPrune_Links(t *testing.T) {
+	in := vboxmanage.PruneInput{
+		Root: pruneRoot,
+		Media: []vboxmanage.Medium{
+			{UUID: "j", Location: `G:\Lab\junction\x.vdi`},
+			{UUID: "l", Location: `G:\Lab\plain\link.vdi`},
+			{UUID: "p", Location: `G:\Lab\chain\base.vdi`},
+			{UUID: "c", Parent: "p", Location: `G:\Lab\deep\j\child.vdi`},
+			{UUID: "ok", Location: `G:\Lab\old\x.vdi`},
+		},
+		Folders: []string{`G:\Lab\chain`, `G:\Lab\deep`, `G:\Lab\junction`, `G:\Lab\old`, `G:\Lab\plain`},
+		Links:   []string{`G:\Lab\junction`, `G:\Lab\plain\link.vdi`, `G:\Lab\deep\j`},
+	}
+	want := vboxmanage.PrunePlan{Disks: []vboxmanage.PruneDisk{{UUID: "ok", Location: `G:\Lab\old\x.vdi`}}, Folders: []string{`G:\Lab\old`}}
+	if got := vboxmanage.PlanPrune(in); !reflect.DeepEqual(got, want) {
+		t.Errorf("plan\n%+v\nwant\n%+v", got, want)
+	}
+	in.Configs = []string{`\\localhost\G$\Lab\old\old.vbox`}
+	if got := vboxmanage.PlanPrune(in); len(got.Disks) != 0 || len(got.Folders) != 0 {
+		t.Errorf("a VM's settings nobody can place kept nothing: %+v", got)
+	}
+}
+
+// TestPruneHostCalls_Links: Links lists the model's links under a root and
+// nothing outside it, and RemoveFolder refuses a folder holding one,
+// removing nothing in it.
+func TestPruneHostCalls_Links(t *testing.T) {
+	model := vboxmanagetest.New()
+	model.Links = []string{`G:\Lab\gone\Snapshots`, `G:\Other\j`}
+	model.SetFile(`G:\Lab\gone\gone.vbox`, []byte("<VirtualBox/>"))
+	h := model.VBoxHost()
+	ctx := context.Background()
+	if links, err := h.Links(ctx, pruneRoot); err != nil || !reflect.DeepEqual(links, []string{`G:\Lab\gone\Snapshots`}) {
+		t.Errorf("links %v, %v", links, err)
+	}
+	if links, err := h.Links(ctx, `G:\Empty`); err != nil || links != nil {
+		t.Errorf("a root with none: %v, %v", links, err)
+	}
+	if err := h.RemoveFolder(ctx, `G:\Lab\gone`); err == nil || !strings.Contains(err.Error(), "link") || model.Files[`G:\Lab\gone\gone.vbox`] == nil {
+		t.Errorf("a folder holding a link: %v", err)
+	}
+	model.Fail = map[string]vboxmanage.Output{"powershell links": {ExitCode: 1, Stderr: "Access is denied.\r\n"}}
+	if _, err := h.Links(ctx, pruneRoot); err == nil {
+		t.Error("a refused walk listed links")
+	}
+	model.Fail = map[string]vboxmanage.Output{"powershell links": {ExitCode: 3}}
+	if links, err := h.Links(ctx, pruneRoot); err != nil || links != nil {
+		t.Errorf("a root that is not there: %v, %v", links, err)
 	}
 }

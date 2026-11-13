@@ -128,6 +128,9 @@ type Host struct {
 	Guests map[string]func(typed string) []byte
 	// Orphans are registered disks no machine uses (prune.go).
 	Orphans []Orphan
+	// Links are the paths on the host that are symbolic links, junctions or
+	// mount points (prune.go).
+	Links []string
 
 	mu    sync.Mutex
 	vms   []*VM

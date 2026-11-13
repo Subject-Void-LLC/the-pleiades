@@ -1,6 +1,7 @@
 // The model's answers for what a prune reads and removes: the default
-// machine folder, the folders inside a folder, removing a folder, and
-// forgetting a registered disk no machine uses, by UUID.
+// machine folder, the folders inside a folder, the links under one,
+// removing a folder, and forgetting a registered disk no machine uses, by
+// UUID.
 package vboxmanagetest
 
 import (
@@ -66,9 +67,40 @@ func (h *Host) folders(root string) vboxmanage.Output {
 	return vboxmanage.Output{Stdout: strings.Join(names, "\r\n") + "\r\n"}
 }
 
+// under reports whether p is dir or inside it, compared as Windows compares
+// paths in the model: without regard to case or to which separator.
+func under(dir, p string) bool {
+	d := strings.ToLower(strings.TrimRight(strings.ReplaceAll(dir, "/", `\`), `\`))
+	l := strings.ToLower(strings.TrimRight(strings.ReplaceAll(p, "/", `\`), `\`))
+	return l == d || strings.HasPrefix(l, d+`\`)
+}
+
+// links answers the script listing the links under root: each of the
+// model's Links inside it, sorted.
+func (h *Host) links(root string) vboxmanage.Output {
+	var found []string
+	for _, l := range h.Links {
+		if under(root, l) && !under(l, root) {
+			found = append(found, l)
+		}
+	}
+	sort.Strings(found)
+	if len(found) == 0 {
+		return vboxmanage.Output{}
+	}
+	return vboxmanage.Output{Stdout: strings.Join(found, "\r\n") + "\r\n"}
+}
+
 // removeFolder deletes every file the model holds under path, and every
-// orphan disk there; a machine's folder is the caller's to refuse.
+// orphan disk there; a machine's folder is the caller's to refuse. A folder
+// that is a link or holds one is refused, as the real script refuses it,
+// and nothing in it is deleted.
 func (h *Host) removeFolder(path string) vboxmanage.Output {
+	for _, l := range h.Links {
+		if under(path, l) {
+			return vboxmanage.Output{ExitCode: 4, Stdout: "link=" + l + "\r\n"}
+		}
+	}
 	prefix := strings.ToLower(strings.TrimRight(path, `\`)) + `\`
 	for p := range h.Files {
 		if strings.HasPrefix(strings.ToLower(strings.ReplaceAll(p, "/", `\`)), prefix) {

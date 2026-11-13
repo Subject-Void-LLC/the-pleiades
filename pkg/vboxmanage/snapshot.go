@@ -9,6 +9,7 @@ import (
 	"unicode"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/farside"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/winrmexec"
 )
 
 // Snapshot is one snapshot of a machine.
@@ -140,14 +141,20 @@ func (h Host) snapshotByUUID(ctx context.Context, vm, action, uuid string) error
 }
 
 // CheckDescription refuses a snapshot description holding a line break or
-// another control character, or longer than 200 characters: it travels
-// as one command-line argument.
+// another control character, or a character a WS-Man message cannot carry
+// (U+FFFE, U+FFFF, invalid UTF-8), or longer than 200 characters: it
+// travels as one command-line argument.
 func CheckDescription(description string) error {
 	if len(description) > 200 {
 		return fmt.Errorf("snapshot description is %d characters, more than 200", len(description))
 	}
 	if strings.IndexFunc(description, unicode.IsControl) >= 0 {
 		return fmt.Errorf("snapshot description holds a line break or another control character")
+	}
+	// Refused here, before a check predicts a snapshot the run's command line
+	// could never carry, rather than when the line is sent.
+	if err := winrmexec.CheckText("snapshot description", description); err != nil {
+		return err
 	}
 	return nil
 }
