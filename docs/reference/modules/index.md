@@ -277,7 +277,7 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | [virt.vbox.vm.list](virt/vbox/vm/list.md) | implemented | Lists the VMs on a VirtualBox host, with their state and the address Pleiades gave them. |
 | [virt.vbox.vm.log](virt/vbox/vm/log.md) | implemented | Reads the end of a VM's VirtualBox log, optionally only the lines matching a pattern. |
 | [virt.vbox.vm.resize](virt/vbox/vm/resize.md) | implemented | Changes a stopped VirtualBox VM's CPUs and memory, by T-shirt size or by count. |
-| [virt.vbox.vm.screenshot](virt/vbox/vm/screenshot.md) | implemented | Saves a picture of a running VM's screen as a PNG file on the machine running Pleiades. |
+| [virt.vbox.vm.screenshot](virt/vbox/vm/screenshot.md) | implemented | Saves a picture of a running VM's screen as a PNG file in the project. |
 | [virt.vbox.vm.send_keys](virt/vbox/vm/send_keys.md) | implemented | Types into a running VM's console, as its keyboard would. |
 | [virt.vbox.vm.start](virt/vbox/vm/start.md) | implemented | Starts a VirtualBox VM with no window. |
 | [virt.vbox.vm.stop](virt/vbox/vm/stop.md) | implemented | Stops a VirtualBox VM, by its power button or by cutting its power. |

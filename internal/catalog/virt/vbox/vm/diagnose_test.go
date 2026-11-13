@@ -4,6 +4,8 @@
 package vm
 
 import (
+	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -11,6 +13,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/vboxmanage"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/vboxmanage/vboxmanagetest"
 )
@@ -49,23 +53,43 @@ func TestTheWindowlessMethodsAreImplemented(t *testing.T) {
 	}
 }
 
+// projectRecorder is a recorder that writes project files through the
+// command line's own sdk.ProjectFileWriter (internal/engine) over a project
+// directory, so a test meets every refusal a run meets.
+type projectRecorder struct {
+	*recorder
+	sdk.ProjectFileWriter
+}
+
+// newProjectRecorder returns a projectRecorder over dir.
+func newProjectRecorder(t *testing.T, dir string) *projectRecorder {
+	t.Helper()
+	rc, err := engine.WithProjectFiles(engine.NewDeviceRunbookContext, dir)(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &projectRecorder{recorder: newRecorder(), ProjectFileWriter: rc.(sdk.ProjectFileWriter)}
+}
+
 func TestScreenshot(t *testing.T) {
 	model := vboxmanagetest.New(windowsVM())
 	onModel(t, model)
-	dest := filepath.Join(t.TempDir(), "win-lab.png")
-	check := newRecorder()
-	if result, err := call(t, "virt.vbox.vm.screenshot", true, check, map[string]any{"name": "win-lab", "dest": dest}); err != nil || !result.Changed || len(changes(model)) != 0 {
+	project := t.TempDir()
+	dest := filepath.Join(project, "shots", "win-lab.png")
+	params := map[string]any{"name": "win-lab", "dest": "shots/win-lab.png"}
+	check := newProjectRecorder(t, project)
+	if result, err := call(t, "virt.vbox.vm.screenshot", true, check, params); err != nil || !result.Changed || len(changes(model)) != 0 {
 		t.Fatalf("check: %+v, %v, %v", result, err, changes(model))
 	}
-	if _, err := os.Stat(dest); err == nil {
-		t.Error("a check wrote the picture")
+	if _, err := os.Stat(filepath.Dir(dest)); err == nil {
+		t.Error("a check made the picture's folder")
 	}
-	rc := newRecorder()
-	if result, err := call(t, "virt.vbox.vm.screenshot", false, rc, map[string]any{"name": "win-lab", "dest": dest}); err != nil || !result.Changed {
+	rc := newProjectRecorder(t, project)
+	if result, err := call(t, "virt.vbox.vm.screenshot", false, rc, params); err != nil || !result.Changed {
 		t.Fatalf("%+v, %v", result, err)
 	}
 	picture, err := os.ReadFile(dest)
-	if err != nil || !strings.HasPrefix(string(picture), pngSignature) || rc.stats[statWidth] != 1024 || rc.stats[statHeight] != 768 || rc.stats[statBytes] != len(picture) {
+	if err != nil || !strings.HasPrefix(string(picture), pngSignature) || rc.stats[statWidth] != 1024 || rc.stats[statHeight] != 768 || rc.stats[statBytes] != len(picture) || rc.stats[statDest] != "shots/win-lab.png" {
 		t.Errorf("wrote %d bytes, stats %v, %v", len(picture), rc.stats, err)
 	}
 	// Windows keeps no permission bits: Go reports 0666 for any file there.
@@ -77,8 +101,52 @@ func TestScreenshot(t *testing.T) {
 	}
 }
 
+// TestScreenshot_DestStaysInTheProject: dest is a file in the project, and
+// nothing else. An absolute path, one climbing out of the project, one
+// through a symbolic link, the project's .pleiades, a name that is not a
+// .png, and a run with no project at all (a Runner's) are each refused
+// before the host is asked for a picture, in a check and in a run, and
+// nothing is written outside the project. Until 2026-11-13 dest was any path
+// on the machine running the task, written with os.WriteFile
+// (FAILURE_PATTERNS 1237): the absolute path below was written.
+func TestScreenshot_DestStaysInTheProject(t *testing.T) {
+	project := t.TempDir()
+	outside := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(project, "elsewhere")); err != nil {
+		t.Skipf("no symbolic link here: %v", err)
+	}
+	for why, dest := range map[string]string{
+		"an absolute path":        filepath.Join(outside, "x.png"),
+		"a climb out":             "../" + filepath.Base(outside) + "/x.png",
+		"a path through a link":   "elsewhere/x.png",
+		"the project's .pleiades": ".pleiades/x.png",
+		"a runbook, not a png":    "runbooks/lab.yaml",
+	} {
+		for _, check := range []bool{true, false} {
+			model := vboxmanagetest.New(windowsVM())
+			onModel(t, model)
+			if _, err := call(t, "virt.vbox.vm.screenshot", check, newProjectRecorder(t, project), map[string]any{"name": "win-lab", "dest": dest}); err == nil {
+				t.Errorf("%s (%s), check %v: accepted", why, dest, check)
+			}
+			for _, c := range model.Calls() {
+				if strings.Contains(c, "screenshotpng") {
+					t.Errorf("%s, check %v: the host was asked for a picture", why, check)
+				}
+			}
+		}
+	}
+	if entries, _ := os.ReadDir(outside); len(entries) != 0 {
+		t.Errorf("something was written outside the project: %v", entries)
+	}
+	onModel(t, vboxmanagetest.New(windowsVM()))
+	if _, err := call(t, "virt.vbox.vm.screenshot", false, newRecorder(), map[string]any{"name": "win-lab", "dest": "shots/x.png"}); !errors.Is(err, sdk.ErrNoProjectFiles) {
+		t.Errorf("a run with no project: %v, want sdk.ErrNoProjectFiles", err)
+	}
+}
+
 func TestScreenshotRefusals(t *testing.T) {
-	dest := filepath.Join(t.TempDir(), "x.png")
+	project := t.TempDir()
+	dest := "x.png"
 	off := seededVM(vboxmanage.StatePoweroff)
 	off.Name = "off"
 	blank := windowsVM()
@@ -92,28 +160,36 @@ func TestScreenshotRefusals(t *testing.T) {
 		want   string
 	}{
 		"no dest":            {map[string]any{"name": "win-lab"}, "dest is required"},
-		"a folder not there": {map[string]any{"name": "win-lab", "dest": "/no/such/folder/x.png"}, "not in a folder"},
+		"not a png":          {map[string]any{"name": "win-lab", "dest": "x.jpg"}, "must name a .png file"},
 		"a VM that is off":   {map[string]any{"name": "off", "dest": dest}, "only a running VM"},
 		"a VM not there":     {map[string]any{"name": "gone", "dest": dest}, "no VM named"},
 		"a screen not drawn": {map[string]any{"name": "blank", "dest": dest}, "no picture on its screen yet"},
 	} {
-		if _, err := call(t, "virt.vbox.vm.screenshot", false, newRecorder(), tt.params); err == nil || !strings.Contains(err.Error(), tt.want) {
+		if _, err := call(t, "virt.vbox.vm.screenshot", false, newProjectRecorder(t, project), tt.params); err == nil || !strings.Contains(err.Error(), tt.want) {
 			t.Errorf("%s: %v, want one mentioning %q", why, err, tt.want)
 		}
 	}
 	notPNG := vboxmanagetest.New(windowsVM())
 	onModel(t, notPNG)
 	notPNG.Fail = map[string]vboxmanage.Output{"powershell read": {Stdout: "bm90IGEgcGljdHVyZQ==\r\n"}}
-	if _, err := call(t, "virt.vbox.vm.screenshot", false, newRecorder(), map[string]any{"name": "win-lab", "dest": dest}); err == nil || !strings.Contains(err.Error(), "not a PNG") {
+	if _, err := call(t, "virt.vbox.vm.screenshot", false, newProjectRecorder(t, project), map[string]any{"name": "win-lab", "dest": dest}); err == nil || !strings.Contains(err.Error(), "not a PNG") {
 		t.Errorf("bytes that are not a picture: %v", err)
 	}
 	for _, stat := range []string{statDest, statWidth} {
 		onModel(t, vboxmanagetest.New(windowsVM()))
-		failing := newRecorder()
+		failing := newProjectRecorder(t, project)
 		failing.failOn = stat
 		if _, err := call(t, "virt.vbox.vm.screenshot", false, failing, map[string]any{"name": "win-lab", "dest": dest}); err == nil {
 			t.Errorf("recording %s failed and the task did not", stat)
 		}
+	}
+	// A project file the picture cannot replace: a directory under its name.
+	if err := os.Mkdir(filepath.Join(project, "taken.png"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	onModel(t, vboxmanagetest.New(windowsVM()))
+	if _, err := call(t, "virt.vbox.vm.screenshot", false, newProjectRecorder(t, project), map[string]any{"name": "win-lab", "dest": "taken.png"}); err == nil {
+		t.Error("a directory was taken for the picture's file")
 	}
 }
 

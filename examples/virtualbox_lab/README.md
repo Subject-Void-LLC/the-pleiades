@@ -449,7 +449,8 @@ file. It works for Linux VMs too, whose seed holds a password hash.
 
 `runbooks/windows-look.yaml` shows what a VM without a window is doing:
 
-- `virt.vbox.vm.screenshot` saves a picture of its screen here, as a PNG;
+- `virt.vbox.vm.screenshot` saves a picture of its screen into the project, as a PNG (`dest` is a
+  path inside the project, such as `shots/win-lab.png`; anything outside it is refused);
 - `virt.vbox.vm.log` reads the end of its VirtualBox log, filtered by a pattern if you give one;
 - `virt.vbox.vm.addresses` reports the addresses its host-only adapter has: the fixed one clone
   gave it and the DHCP leases VirtualBox's own server handed it, which is how to reach a VM whose
