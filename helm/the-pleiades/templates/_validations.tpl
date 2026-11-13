@@ -110,12 +110,13 @@ The three values with no default. Each message carries the command that
 generates one, because "required" without that is a puzzle.
 */}}
 {{- define "the-pleiades.validate.secrets" -}}
+{{- include "the-pleiades.validate.jwks" . -}}
 {{- if not .Values.secrets.existingSecret -}}
 {{- if not .Values.secrets.masterEncryptionKey -}}
 {{- include "the-pleiades.refuse" "secrets.masterEncryptionKey is not set, and this chart will not invent one.\n\nThe controller's setup command makes it, with the JWT secret and the database password, as a Secret and a values file:\n\n  controller setup --target helm --dir ./pleiades-install\n\nthen `kubectl create -f` the Secret and install with `-f` the values file. Or set secrets.existingSecret to a Secret you manage, or supply base64 of exactly 32 random bytes here yourself.\n\nEvery credential and every encrypted device property in the database is encrypted under this key. A chart that generated it would generate a DIFFERENT one on the next `helm upgrade`, because `helm template` has no cluster to read the old value back from, and everything already stored would become permanently undecryptable with no error at upgrade time. Set it once, keep it, or point secrets.existingSecret at a Secret you manage." -}}
 {{- end -}}
-{{- if not .Values.secrets.jwtSecret -}}
-{{- include "the-pleiades.refuse" "secrets.jwtSecret is not set, and this chart will not invent one (a regenerated value on the next upgrade would reject every API token signed with the old one).\n\nIt is at least 32 bytes. `controller setup --target helm` makes it along with the key." -}}
+{{- if and (not .Values.secrets.jwtSecret) (not .Values.controller.jwksUrl) -}}
+{{- include "the-pleiades.refuse" "secrets.jwtSecret is not set, and this chart will not invent one (a regenerated value on the next upgrade would reject every API token signed with the old one).\n\nIt is at least 32 bytes. `controller setup --target helm` makes it along with the key. Or set controller.jwksUrl instead, to check API tokens against your identity provider's published keys; `controller setup --target helm --jwks-url <url>` writes that." -}}
 {{- end -}}
 {{- if and .Values.postgresql.enabled (not .Values.postgresql.auth.password) -}}
 {{- include "the-pleiades.refuse" "postgresql.auth.password is not set and the in-chart database is enabled.\n\n`controller setup --target helm` makes one, in the Secret it writes. Set by hand, it must need no URL escaping, since the chart places it in the database connection string.\n\nThere is no default because a default here would be the same database password on every installation of this chart. Set postgresql.enabled=false and use externalDatabase if you would rather point at a database you already run." -}}
@@ -126,6 +127,33 @@ generates one, because "required" without that is a puzzle.
 {{- else -}}
 {{- if .Values.secrets.factsDigestKey -}}
 {{- include "the-pleiades.refuse" "secrets.factsDigestKey is set together with secrets.existingSecret, which this chart does not write to, so the value would never reach the controller and its pod would not start. Put the key in your Secret as PLEIADES_FACTS_DIGEST_KEY and set secrets.existingSecretHasFactsDigestKey: true instead." -}}
+{{- end -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+controller.jwksUrl, held to the controller's own rule (internal/auth's
+ValidateJWKSURL), so a release never installs a controller that then refuses
+to start: an absolute https URL with a host and no user name or password, and
+never beside secrets.jwtSecret, since the controller refuses both. No message
+repeats the URL, which may carry the password it is refused for. The host is
+read up to the first "/", "?" or "#", as Go's URL parser reads it.
+*/}}
+{{- define "the-pleiades.validate.jwks" -}}
+{{- $url := .Values.controller.jwksUrl -}}
+{{- if $url -}}
+{{- if not (hasPrefix "https://" $url) -}}
+{{- include "the-pleiades.refuse" "controller.jwksUrl must be an https URL. The key set it names decides which API tokens the controller accepts, so whoever can change it in transit can sign any token: the controller refuses to fetch it over plain HTTP, and this chart refuses to install one that would." -}}
+{{- end -}}
+{{- $authority := index (regexSplit "[/?#]" (trimPrefix "https://" $url) 2) 0 -}}
+{{- if contains "@" $authority -}}
+{{- include "the-pleiades.refuse" "controller.jwksUrl carries a user name or password. A JWKS endpoint publishes public keys and needs no credential, and a URL is copied into logs and pod specs, so the controller refuses one: remove it from the URL." -}}
+{{- end -}}
+{{- if not $authority -}}
+{{- include "the-pleiades.refuse" "controller.jwksUrl has no host. It must be an absolute https URL, such as https://idp.example.com/realms/pleiades/protocol/openid-connect/certs." -}}
+{{- end -}}
+{{- if .Values.secrets.jwtSecret -}}
+{{- include "the-pleiades.refuse" "controller.jwksUrl and secrets.jwtSecret are both set. Each one alone decides who can sign an API token the controller accepts, so the controller refuses to start with both. To check tokens against your identity provider, leave secrets.jwtSecret empty; to keep the static secret, leave controller.jwksUrl empty." -}}
 {{- end -}}
 {{- end -}}
 {{- end }}

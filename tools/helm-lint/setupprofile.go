@@ -31,8 +31,37 @@ const setupProfileName = "values written by controller setup"
 // name would be caught reading the wrong Secret.
 const setupSecretName = "operator-managed-secrets"
 
+// setupJWKSProfileName names the second render of setup's output: the one
+// written with --jwks-url, whose Secret carries no JWT_SECRET.
+const setupJWKSProfileName = "values written by controller setup --jwks-url"
+
+// setupJWKSURL is the identity provider address that render names.
+const setupJWKSURL = "https://idp.example.com/realms/pleiades/protocol/openid-connect/certs"
+
+// setupProfile is one way setup is run for Helm: with a JWT secret, or with
+// a JWKS URL in its place.
+type setupProfile struct {
+	// name appears in every finding from this render.
+	name string
+
+	// jwksURL is --jwks-url, empty for the JWT secret.
+	jwksURL string
+}
+
+// setupProfiles renders setup's output once per way the controller checks
+// API tokens, because the chart reads a different Secret key, and sets a
+// different variable, for each (FAILURE_PATTERNS 1229).
+var setupProfiles = []setupProfile{
+	{name: setupProfileName},
+	{name: setupJWKSProfileName, jwksURL: setupJWKSURL},
+}
+
 // setupOutput is what setup emitted, decoded.
 type setupOutput struct {
+	// profile names the render, for findings. Empty reads as
+	// setupProfileName.
+	profile string
+
 	// keys are the keys the emitted Secret carries.
 	keys map[string]bool
 
@@ -40,14 +69,35 @@ type setupOutput struct {
 	checksum, fingerprint string
 }
 
-// checkSetupOutput renders setup's Helm output against the chart and returns
-// what that proves. It returns an error only when it cannot run at all.
+// checkSetupOutput renders setup's Helm output against the chart, once per
+// setupProfiles entry, and returns what that proves. It returns an error only
+// when it cannot run at all.
 func checkSetupOutput(chart string) (int, []finding, error) {
+	containers := 0
+	var findings []finding
+	for _, sp := range setupProfiles {
+		n, f, err := checkOneSetupOutput(chart, sp)
+		if err != nil {
+			return 0, nil, err
+		}
+		containers += n
+		findings = append(findings, f...)
+	}
+	return containers, findings, nil
+}
+
+// checkOneSetupOutput renders one setup profile's output against the chart.
+func checkOneSetupOutput(chart string, sp setupProfile) (int, []finding, error) {
+	jwtSecret := strings.Repeat("J", 44)
+	if sp.jwksURL != "" {
+		jwtSecret = ""
+	}
 	secretYAML, valuesYAML, err := setup.RenderHelm(setup.HelmInput{
 		SecretName:       setupSecretName,
 		Namespace:        "pleiades",
 		MasterKey:        []byte(strings.Repeat("s", 32)),
-		JWTSecret:        strings.Repeat("J", 44),
+		JWTSecret:        jwtSecret,
+		JWKSURL:          sp.jwksURL,
 		FactsDigestKey:   base64.StdEncoding.EncodeToString([]byte(strings.Repeat("d", 32))),
 		PostgresPassword: strings.Repeat("ab", 32),
 		// Longer than the runner's default liveness window, so the values
@@ -61,6 +111,7 @@ func checkSetupOutput(chart string) (int, []finding, error) {
 	if err != nil {
 		return 0, nil, err
 	}
+	emitted.profile = sp.name
 
 	dir, err := os.MkdirTemp("", "helm-lint-setup-")
 	if err != nil {
@@ -75,11 +126,11 @@ func checkSetupOutput(chart string) (int, []finding, error) {
 	// No baseValues: the values file alone has to be enough, which is the
 	// point of it.
 	if out, err := runHelm([]string{"lint", "--strict", chart, "-f", valuesFile}); err != nil {
-		return 0, []finding{{profile: setupProfileName, object: "helm lint", message: "the chart rejects setup's values file:\n" + indent(out)}}, nil
+		return 0, []finding{{profile: sp.name, object: "helm lint", message: "the chart rejects setup's values file:\n" + indent(out)}}, nil
 	}
 	rendered, err := runHelm([]string{"template", "helm-lint", chart, "-f", valuesFile})
 	if err != nil {
-		return 0, []finding{{profile: setupProfileName, object: "helm template", message: "the chart refuses setup's values file:\n" + indent(rendered)}}, nil
+		return 0, []finding{{profile: sp.name, object: "helm template", message: "the chart refuses setup's values file:\n" + indent(rendered)}}, nil
 	}
 	objects, err := decodeManifests(rendered)
 	if err != nil {
@@ -87,9 +138,10 @@ func checkSetupOutput(chart string) (int, []finding, error) {
 	}
 
 	var findings []finding
-	findings = append(findings, checkManifests(setupProfileName, objects, "HTTPS")...)
-	findings = append(findings, checkRetainedDataStamp(setupProfileName, objects)...)
+	findings = append(findings, checkManifests(sp.name, objects, "HTTPS")...)
+	findings = append(findings, checkRetainedDataStamp(sp.name, objects)...)
 	findings = append(findings, checkExistingSecretShape(objects, emitted)...)
+	findings = append(findings, checkTokenSource(sp.name, objects, sp.jwksURL)...)
 	return countContainers(objects), findings, nil
 }
 
@@ -139,8 +191,12 @@ func decodeSetupOutput(secretYAML, valuesYAML []byte) (setupOutput, error) {
 // controller, or the operator holds a key nothing reads.
 func checkExistingSecretShape(objects []manifest, emitted setupOutput) []finding {
 	var findings []finding
+	profile := emitted.profile
+	if profile == "" {
+		profile = setupProfileName
+	}
 	add := func(object, message string) {
-		findings = append(findings, finding{profile: setupProfileName, object: object, message: message})
+		findings = append(findings, finding{profile: profile, object: object, message: message})
 	}
 
 	for _, obj := range objects {
