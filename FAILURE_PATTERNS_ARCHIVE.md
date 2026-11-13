@@ -30285,6 +30285,132 @@ interface the configuration leaves up and Batfish holds inactive, which would ca
 **Lesson.** A measured list of what a model ignores is only as complete as the configurations measured: hold a real
 device's whole configuration to the model, and ask the model which configured things it set aside.
 
+## 1233. virt.vbox.media.prune and virt.vbox.vm.delete decided what was inside a folder by its lower-cased text, so a disk named through ".." or a folder spelled with the Kelvin sign counted as inside and was deleted (a repeat in kind of 260, 807 and 1105) (fixed on this branch)
+
+**Symptom.** Found 2026-11-13 by the Phase 112 Schema/Injection Hardening audit, from the code, not on a host.
+`PlanPrune`'s `within` lower-cased both paths with `strings.ToLower`, turned `/` into `\`, and took a prefix. So a
+registered disk VirtualBox named `G:\Lab\..\Windows\x.vdi`, with no VM using it, was planned for `closemedium --delete`
+under the machine folder `G:\Lab`. A folder named with the Kelvin sign (U+212A) in place of K counted as inside a
+machine folder spelled with K: Go folds U+212A to k, and Windows' own upper-case table does not, so it is another
+folder. `virt.vbox.vm.delete` chose which DVD image to delete with the VM by the same kind of prefix (`under`), so an
+image named `<vm folder>/../../iso/tools.iso` was deleted as the VM's own. The prune also never looked for links: a disk
+reached through a junction under the machine folder would go to `closemedium --delete`, which deletes the file wherever
+the junction leads.
+
+**Root cause.** A containment check made on a path's text. VirtualBox writes the paths it reports in full, so no real
+run is known to have met one, but the check trusted text it did not make, from a host reached over WinRM, where no
+`os.Root` can resolve a path.
+
+**Why 260, 807 and 1105 did not hold.** 260 opened files through an `os.Root`, which works only on the local
+filesystem. 807 keyed a ledger by the device's own resolution of a path. 1105 matched JSON keys the way
+`encoding/json` folds them. Each fixed its own comparison. The prune and the delete were new code comparing Windows
+host paths, and nothing shared covered that.
+
+**Fix.** `d1f3a70c`: one rule, `vboxmanage.Within` (`pkg/vboxmanage/hostpath.go`). A path counts only from a drive's
+root, by ASCII case alone, with either separator. A segment of only dots and spaces, a stream (a second colon), a UNC
+or `\\?\` path, or no drive puts a path inside nothing. A path that keeps what is under it (a VM's folder, a disk that
+stays, a link) but cannot be placed keeps everything. `PlanPrune`, `Machine.SlotsHolding` and `vm.delete` use it. The
+prune reads the links under the machine folder (`Host.Links`, a .NET walk that follows none) and deletes nothing at or
+under one, and `RemoveFolder` refuses a folder that is or holds one at the moment it removes it. Proof:
+`TestPlanPrune_NothingOutsideTheRootByName`, `TestPrune_NothingOutsideTheFolderByName`,
+`TestDelete_AnImageOutsideTheFolderByNameIsKept`, `TestPlanPrune_Links`, `TestPrune_NothingThroughALink`,
+`TestPruneHostCalls_Links`; each fails with the old rule restored. On win-check (Windows PowerShell 5.1.26100) the link
+scripts found two real junctions and refused both folders, the targets intact. A control there with the old
+`Remove-Item -Recurse -Force` removed the junctions without following them, so the folder half was not measured as a
+defect; the refusal does not rest on how a tool treats a link. Left open: a link made between the plan and a disk's
+delete is not caught for disks (a folder is checked again when it is removed).
+
+**Lesson.** A path from a remote host is compared by its segments, under that host's rules for case and separators,
+never by its text, and what a link reaches is never the folder's to delete.
+
+## 1234. vboxmanage.CheckPath read only backslashes as separators, so G:\Lab/.. passed its ".." check and named G:\ (a sibling of 1233) (fixed on this branch)
+
+**Symptom.** Found by the same audit, 2026-11-13. `CheckPath` refused `\..\` and a final `\..`, but Windows reads `/` as
+a separator too. `G:\Lab/..`, `G:\Lab/../Windows/x.iso` and `G:\Lab\./x` passed, and every host path the `virt.vbox.*`
+methods send goes through `CheckPath`: `RemoveFolder` would have sent `G:\Lab/..` to `Remove-Item -Recurse`, and
+`vm.delete` sent a `/..` image path to `closemedium --delete` (1233). A `windows_server`'s `vm_folder` took
+`G:\Lab\..\Windows` at the record's write and was refused only when a prune or a clone sent it.
+
+**Root cause.** The check searched for two spellings of the step out of a folder rather than splitting the path the
+way Windows does.
+
+**Fix.** `d1f3a70c`: `CheckPath` splits on both separators and refuses any segment of only dots and spaces, a doubled
+separator, and anything a WS-Man message cannot carry (U+FFFE, U+FFFF, invalid UTF-8). `98771526` holds `vm_folder` and
+`vboxmanage_path` to the same rule when the record is written. Proof: `TestHostile_PathsNeverReachTheHost` and
+`TestServer_RefusesAMachineFolderThatClimbsOut`, each failing with the old check.
+
+**Lesson.** A path check splits the path as its file system does; a search for spellings of ".." misses every spelling
+it did not list.
+
+## 1235. TestLab_FreeBSDVMRollback could not pass once Phase 131 made a read of a missing VM succeed, had no cleanup, never reached its guest over SSH, and cloned at bsd-check's address (a repeat in kind of 952) (fixed on this branch)
+
+**Symptom.** Found 2026-11-13 closing Phase 112's Release Gate. The gate's last step read a VM that is not there with
+`virt.vbox.vm.host_keys`, to make the run fail on a step that changes nothing. Since `b617af7f` (Phase 131,
+2026-10-28) that read answers `exists: false` and succeeds, so the run exits 0 and the gate fails. It had no cleanup,
+so that failure leaves its VM running on the lab host. Its comment and the roadmap called it the Release Gate's SSH
+path, but nothing in it used SSH: the host keys came over WinRM from the console. And it cloned at 192.168.56.42,
+bsd-check's address.
+
+**Root cause.** 790's class, through 952: a change to a method an older lab gate reads, checked in passes where that
+gate skips.
+
+**Why 952 did not hold.** 952's lesson asks a change to run the lab gates that read the family it changes. Nothing maps
+a method to the lab gates that call it, and Phase 131 changed many methods at once.
+
+**Fix.** `7a160679`: the run fails on `virt.vbox.vm.log` with a pattern that does not compile, a read-only failure. The
+gate adds its own `generic_ssh` device and generated login, clones at 192.168.56.44, trusts the guest's keys from its
+console (`trust-host --from-console`), onboards it over SSH, and pings it, with a control against an empty known_hosts
+refused on the host key. A cleanup stops the VM (ACPI, then power off), deletes it, and removes the device and login
+whatever happens. It passed on the lab host on 2026-11-13 in 108.5 s. Its first run failed on the test's own mistake
+(`net.ssh.ping` declares no `data`), and the cleanup left the lab as it was.
+
+**Lesson.** A lab gate gets a cleanup that undoes what it made however it fails, and the failing step it depends on is
+checked against the method's current contract, not the one it had when the gate was written.
+
+## 1236. The vbox sync plugin stored whatever text a VM's extradata held as the device's host, where its credential is sent, and as its login device (fixed on this branch)
+
+**Symptom.** Found by the audit, 2026-11-13, from the code. `vmRecord` copied `pleiades/address` into `host` and `ip`,
+and `pleiades/device` into `vbox_login_device`, with no check. `virt.vbox.vm.clone` writes an IP address there, but the
+plugin took a host name, `192.168.56.31; rm -rf /` or `\\server\share` alike, and a synced device's credential goes to
+its host. Low severity: only the VirtualBox account can write extradata; a guest cannot.
+
+**Root cause.** Text from the source of truth was stored as the address a credential is sent to, on the assumption
+that only The Pleiades wrote it.
+
+**Fix.** `4b78c629`: `Classify` takes only an IP address with no zone, as the clone records one, and a login device
+that passes `recordname.Check`; anything else quarantines the VM with the reason. Proof:
+`TestSync_HostileInputNeverBecomesADevice` (fails with the checks removed), through the shared driver into a real file
+inventory.
+
+**Lesson.** A sync plugin holds every value that decides where a credential goes to the form its own writer produces.
+
+## 1237. virt.vbox.vm.screenshot wrote dest with os.WriteFile wherever it named on the machine running the task, so on a Runner a runbook could replace any file the Runner's account can write (security) (a repeat in kind of 618 and 667) (fixed on this branch)
+
+**Symptom.** Found by the audit, 2026-11-13, reasoned from the code, not exploited. `dest` was any path: the method
+checked only that its folder existed, wrote a `.pleiades-part` file beside it and renamed it over the target. On the
+command line that is the person's own machine. On a Runner the task runs as the Runner's account, so anyone allowed to
+launch a runbook (`runbook:execute`) could replace the Runner's configuration, a script it runs, or any file its
+account can write, with a PNG of a screen the runbook's author can draw on through `virt.vbox.vm.send_keys`.
+
+**Root cause.** A method wrote a local file around `sdk.ProjectFileWriter`, the one place the rules for a method's file
+live. The method predates 667 (written 2026-09-27).
+
+**Why 618 and 667 did not hold.** Each fixed a method that already wrote through the project writer: 618 where its path
+may come from and the guard, 667 the kind of file. Neither looked for a method writing local files around the writer,
+and nothing checked for one.
+
+**Fix.** `590b9552`: `dest` is a project-relative path ending in `.png` (`ParamFormatProjectPath`), written through
+`sdk.ProjectFileWriter`, which refuses an absolute path, a climb out of the project, a path through a symbolic link
+and `.pleiades` before the host is asked for a picture, in a check as in a run; a run with no project (a Runner's) is
+refused with `sdk.ErrNoProjectFiles`. Breaking: `changelog/vbox-screenshot-dest-in-project.breaking.md`; no shipped
+runbook named an absolute `dest`. `e1b0686a` adds `TestCatalogWritesLocalFilesOnlyThroughTheProjectWriter`: a
+Collection method's `os.WriteFile`, `Create`, `OpenFile`, `Rename`, `Remove` and the like fail unless the function is
+named with why no runbook chooses the path. Proof: `TestScreenshot_DestStaysInTheProject`, over the command line's own
+project writer, which fails with the old method (it wrote the absolute path), and the archtest, which fails on it too.
+
+**Lesson.** A Collection method writes where The Pleiades runs only through the project writer, and a structural check,
+not a review, keeps it so.
+
 ## 1240. revoke-capability --build, added on main while --inventory was swept into every other command, read the --inventory file and wrote --dir's inventory.yaml (a repeat of 183) (fixed before push)
 
 **Symptom.** Found rebasing `feat/112-cli-and-127d-runner` onto main on 2026-11-13: the only conflict was the

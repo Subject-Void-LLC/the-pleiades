@@ -1236,6 +1236,11 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 1230. A refused SSH login was recorded as the circuit breaker's success, clearing any failure streak, so a failing AAA server never opens the circuit (open)
 1231. A clear-text IOS secret whose first word is a small number kept that word unmasked, in net.ios.facts' configuration and in Batfish's snapshot (security; a repeat of 705) (fixed before push)
 1232. A passing Batfish check silently left out IOS XE's Mgmt-intf management VRF, whose interfaces Batfish deactivates (a repeat of 585) (fixed before push)
+1233. virt.vbox.media.prune and virt.vbox.vm.delete decided what was inside a folder by its lower-cased text, so a disk named through ".." or a folder spelled with the Kelvin sign counted as inside and was deleted (a repeat in kind of 260, 807 and 1105) (fixed on this branch)
+1234. vboxmanage.CheckPath read only backslashes as separators, so G:\Lab/.. passed its ".." check and named G:\ (a sibling of 1233) (fixed on this branch)
+1235. TestLab_FreeBSDVMRollback could not pass once Phase 131 made a read of a missing VM succeed, had no cleanup, never reached its guest over SSH, and cloned at bsd-check's address (a repeat in kind of 952) (fixed on this branch)
+1236. The vbox sync plugin stored whatever text a VM's extradata held as the device's host, where its credential is sent, and as its login device (fixed on this branch)
+1237. virt.vbox.vm.screenshot wrote dest with os.WriteFile wherever it named on the machine running the task, so on a Runner a runbook could replace any file the Runner's account can write (security) (a repeat in kind of 618 and 667) (fixed on this branch)
 1240. revoke-capability --build, added on main while --inventory was swept into every other command, read the --inventory file and wrote --dir's inventory.yaml (a repeat of 183) (fixed before push)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
