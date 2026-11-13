@@ -156,6 +156,10 @@ type Server struct {
 	// account of whether it reused a connection.
 	logins atomic.Int64
 
+	// refusals counts the passwords it refused, which is what a lockout
+	// policy (pam_faillock, a network device's login block) counts.
+	refusals atomic.Int64
+
 	// live is every connection currently being served, so DropConnections
 	// and Close can end them from the server's side.
 	liveMu sync.Mutex
@@ -164,6 +168,11 @@ type Server struct {
 
 // Logins returns how many times a client has authenticated successfully.
 func (s *Server) Logins() int64 { return s.logins.Load() }
+
+// Refusals returns how many passwords the server has refused, counted
+// where a real server's lockout policy counts them: on the server, once
+// per password presented.
+func (s *Server) Refusals() int64 { return s.refusals.Load() }
 
 // KeyLogins returns how many of Logins were made by key.
 func (s *Server) KeyLogins() int64 { return s.keyLogins.Load() }
@@ -283,6 +292,7 @@ func Start(opts Options) (*Server, error) {
 	config := &cryptossh.ServerConfig{
 		PasswordCallback: func(c cryptossh.ConnMetadata, pass []byte) (*cryptossh.Permissions, error) {
 			if opts.RefusePasswords || c.User() != username || string(pass) != password {
+				srv.refusals.Add(1)
 				return nil, fmt.Errorf("denied")
 			}
 			srv.logins.Add(1)

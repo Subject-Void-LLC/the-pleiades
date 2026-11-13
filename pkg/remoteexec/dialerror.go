@@ -32,3 +32,12 @@ func (e *DialError) Unwrap() error { return e.Err }
 func (e *DialError) Unreached() bool {
 	return !authRejected(e.Err) && !hostKeyRefused(e.Err) && !errors.Is(e.Err, context.Canceled)
 }
+
+// Refused reports whether the dial ended in a refusal: the device turned
+// down the login, or this side turned down its host key. Either answer is
+// the same however often it is asked, and asking again with a password is
+// one more failed login toward the account's lockout, so a caller that
+// would try again (a task's until, the next item of its loop) stops here.
+func (e *DialError) Refused() bool {
+	return authRejected(e.Err) || hostKeyRefused(e.Err)
+}

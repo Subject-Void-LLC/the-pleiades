@@ -78,11 +78,19 @@ func (r *run) tries(ctx context.Context, nodeID string, task *Task, started time
 			out.failed = true
 			return out
 		}
-		// Only the method's own failure is tried again. A refused credential,
-		// a changed host key, a lock or a render that failed would fail the
-		// same way each time, and trying a login again and again is how a
-		// device locks an account.
+		// Only the method's own failure is tried again. A lock or a render
+		// that failed would fail the same way each time.
 		if hasNonActionFailure(results) {
+			out.results = append(out.results, results...)
+			out.failed = true
+			return out
+		}
+		// So would a refused login or host key, which is the method's own
+		// failure (its stage is action) and so needs its own test: trying a
+		// login again and again is how a device locks an account. Before
+		// this test the comment above claimed it and the code retried it.
+		if refusedRun(results) {
+			noteRefused(results, fmt.Sprintf("not tried again for until (%d more tries were allowed), since it would only send the refused login again", tries-1-attempt))
 			out.results = append(out.results, results...)
 			out.failed = true
 			return out
@@ -123,6 +131,30 @@ func hasNonActionFailure(results []NodeResult) bool {
 		}
 	}
 	return false
+}
+
+// refusedRun reports whether any of results failed with a transport's
+// refusal (Refused): a login the device turned down, or a host key or
+// certificate this side turned down.
+func refusedRun(results []NodeResult) bool {
+	for _, res := range results {
+		if res.Err != nil && Refused(res.Err) {
+			return true
+		}
+	}
+	return false
+}
+
+// noteRefused adds note to the failure of every result in results that is
+// a refusal, so a report says why the task ran fewer times than it asked.
+// The failure stays what it was, at the stage it was, so ignore_errors, the
+// report and Refused read it as before.
+func noteRefused(results []NodeResult, note string) {
+	for i := range results {
+		if results[i].Err != nil && Refused(results[i].Err) {
+			results[i].Err = fmt.Errorf("%w; %s", results[i].Err, note)
+		}
+	}
 }
 
 // judgesTheRun reports whether stage is a failure of the method's own run

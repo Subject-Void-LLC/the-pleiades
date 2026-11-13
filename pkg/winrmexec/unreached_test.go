@@ -5,6 +5,8 @@ package winrmexec
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"net"
@@ -37,6 +39,30 @@ func TestNotStartedError_Unreached(t *testing.T) {
 	} {
 		if got := (&NotStartedError{Err: tc.err}).Unreached(); got != tc.want {
 			t.Errorf("%s: Unreached() = %v, want %v", name, got, tc.want)
+		}
+	}
+}
+
+// TestNotStartedError_Refused holds each failure to the refusal rule: a
+// credential the host turned down, or a certificate this side turned down,
+// and nothing else.
+func TestNotStartedError_Refused(t *testing.T) {
+	for name, tc := range map[string]struct {
+		err  error
+		want bool
+	}{
+		"a refused login":           {fmt.Errorf("winrm: %w; nothing of the message was sent", errLoginRefused), true},
+		"a TLS alert the host sent": {&url.Error{Op: "Post", URL: "https://h:5986/wsman", Err: &net.OpError{Op: "remote error", Err: errors.New("tls: bad certificate")}}, true},
+		"a 401 over HTTPS":          {errors.New("http response error: 401 - invalid content type"), true},
+		"an untrusted certificate": {&url.Error{Op: "Post", URL: "https://h:5986/wsman",
+			Err: &tls.CertificateVerificationError{Err: x509.UnknownAuthorityError{}}}, true},
+		"a refused connection":          {&net.OpError{Op: "dial", Err: errors.New("connection refused")}, false},
+		"a handshake answered with 503": {errors.New("winrm: the NTLM handshake with h ended with HTTP 503 and no sealed session"), false},
+		"a fault instead of a shell":    {errors.New("winrm: the service refused the shell"), false},
+		"the caller canceling":          {fmt.Errorf("%w: no shell opened", context.Canceled), false},
+	} {
+		if got := (&NotStartedError{Err: tc.err}).Refused(); got != tc.want {
+			t.Errorf("%s: Refused() = %v, want %v", name, got, tc.want)
 		}
 	}
 }

@@ -123,7 +123,7 @@ func (h *endpointHealth) record(addr string, err error) {
 	case errors.Is(err, context.Canceled):
 		// The caller gave up; the host was never heard from. Recording
 		// this as an answer closed an open circuit on no evidence.
-	case credentialRefused(err) || certificateRefused(err):
+	case notStarted.Refused():
 		// An answer, not proof the host serves: recording it as a success
 		// cleared an outage's streak at every refused login.
 		b.RecordRefusal(addr)

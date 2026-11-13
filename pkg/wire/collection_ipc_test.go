@@ -2,7 +2,9 @@ package wire
 
 import (
 	"encoding/json"
+	"errors"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
@@ -89,5 +91,43 @@ func TestChildResponse_ErrorDistinguishesFailureFromCrash(t *testing.T) {
 	var crashed ChildResponse
 	if err := json.Unmarshal(nil, &crashed); err == nil {
 		t.Error("Unmarshal(nil) succeeded, want an error: an empty response must not decode as a valid zero-value success")
+	}
+}
+
+// TestChildResponse_ARefusalCrossesAsOne proves a refusal survives the
+// boundary: the flag rides the wire under its own key, only when set, and
+// the parent's error for it answers Refused() true, while an ordinary
+// failure's does not. A response from a child that predates the flag
+// decodes as an ordinary failure, which is tried again as it always was.
+func TestChildResponse_ARefusalCrossesAsOne(t *testing.T) {
+	type refusal interface{ Refused() bool }
+
+	encoded, err := json.Marshal(ChildResponse{Error: "unable to authenticate", Refused: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got ChildResponse
+	if err := json.Unmarshal(encoded, &got); err != nil {
+		t.Fatal(err)
+	}
+	failure := got.Failure("masked: unable to authenticate")
+	var r refusal
+	if !errors.As(failure, &r) || !r.Refused() || failure.Error() != "masked: unable to authenticate" {
+		t.Fatalf("decoded %s to %v (%T), want a refusal carrying the parent's text", encoded, failure, failure)
+	}
+
+	plain, err := json.Marshal(ChildResponse{Error: "command exited 1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(plain), "refused") {
+		t.Errorf("an ordinary failure carries the flag on the wire: %s", plain)
+	}
+	var older ChildResponse
+	if err := json.Unmarshal([]byte(`{"changed":false,"error":"unable to authenticate"}`), &older); err != nil {
+		t.Fatal(err)
+	}
+	if errors.As(older.Failure(older.Error), &r) {
+		t.Error("a response with no flag was read as a refusal")
 	}
 }

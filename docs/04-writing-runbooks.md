@@ -343,6 +343,10 @@ tasks:
 How a loop behaves:
 
 - An item that fails does not stop the others. The task fails if any item did.
+  The exception is a login the device refuses (or a host key or certificate
+  that is refused): the loop ends there on that device, since every later item
+  would send the same refused login again, and the failure says how many items
+  were not run.
 - Every item is its own result and its own journal entry (`<node>.item[k]`), so
   `pleiades rollback` undoes items one by one, newest first.
 - A check runs every item as a check.
@@ -450,6 +454,9 @@ tasks:
   (`<node>.attempt[k]`). Only the last run is registered.
 - A run that fails is tried again; only the last run's failure fails the task.
   One that never holds fails the task, and the message says `until never held`.
+- A run whose login the device refused (or whose host key or certificate was
+  refused) is not tried again: the answer would be the same, and each try with
+  a password counts toward the account's lockout.
 - A check runs the task once and never retries.
 - `until` needs a `register`, and `retries` or `delay` without `until` is refused.
 - Retrying repeats a method's change, so `validate` warns on `until` over a

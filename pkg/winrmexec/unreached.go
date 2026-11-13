@@ -42,6 +42,16 @@ func (e *NotStartedError) Unreached() bool {
 	return errors.Is(e.Err, context.DeadlineExceeded)
 }
 
+// Refused reports whether the call ended in a refusal before any shell
+// opened: the host turned down the credential (a 401, a TLS alert), or this
+// side turned down the host's certificate. Asking again gets the same
+// answer, and with a password counts one more failed login toward the
+// account's lockout (a domain account's, everywhere at once), so a caller
+// that would try again (a task's until, the next item of its loop) stops.
+func (e *NotStartedError) Refused() bool {
+	return credentialRefused(e.Err) || certificateRefused(e.Err)
+}
+
 // Retryable reports whether err is a failure a caller may try again knowing
 // nothing ran: the device was unreached, and not because an open circuit
 // refused the call, since asking again inside the cooldown is refused the

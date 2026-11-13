@@ -128,12 +128,17 @@ func TestSession_LogsInAndCarriesLines(t *testing.T) {
 }
 
 // TestSession_RefusesALoginItCannotAnswer: a wrong password is refused by
-// name, and a device that asks with no login given is refused before any
-// name is sent.
+// name, as a refusal a task's until or loop stops at, and a device that asks
+// with no login given is refused before any name is sent.
 func TestSession_RefusesALoginItCannotAnswer(t *testing.T) {
 	port := telnetServer(t, iosDevice("cisco", "s3cret", "R1#", nil))
-	if _, err := open(t, port, telnetexec.Login{Username: "cisco", Password: "wrong"}); !errors.Is(err, telnetexec.ErrLoginRefused) {
+	_, err := open(t, port, telnetexec.Login{Username: "cisco", Password: "wrong"})
+	if !errors.Is(err, telnetexec.ErrLoginRefused) {
 		t.Errorf("a wrong password = %v, want ErrLoginRefused", err)
+	}
+	var refusal interface{ Refused() bool }
+	if !errors.As(err, &refusal) || !refusal.Refused() {
+		t.Errorf("a wrong password = %v, want it to report itself a refusal", err)
 	}
 	port = telnetServer(t, iosDevice("cisco", "s3cret", "R1#", nil))
 	if _, err := open(t, port, telnetexec.Login{}); !errors.Is(err, telnetexec.ErrLoginNeeded) || !strings.Contains(err.Error(), "Username:") {

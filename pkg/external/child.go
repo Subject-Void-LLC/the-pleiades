@@ -164,8 +164,9 @@ func InvokeRequestFor(ctx context.Context, lookup LookupFunc, req wire.ChildRequ
 		}
 		// What it recorded before failing (a failed command's exit status
 		// and output) goes back with the failure, for the failed task's
-		// report; it changed nothing the parent may count on.
-		return wire.ChildResponse{Error: err.Error(), Facts: rc.Facts()}
+		// report; it changed nothing the parent may count on. Whether the
+		// failure is a refused login goes back too, since its type cannot.
+		return wire.ChildResponse{Error: err.Error(), Facts: rc.Facts(), Refused: refused(err)}
 	}
 	return wire.ChildResponse{Changed: result.Changed, Facts: rc.Facts()}
 }
@@ -183,4 +184,20 @@ func ReadChildRequest(r io.Reader) (wire.ChildRequest, error) {
 // value to w. json.Encoder.Encode appends the trailing newline itself.
 func WriteChildResponse(w io.Writer, resp wire.ChildResponse) error {
 	return json.NewEncoder(w).Encode(&resp)
+}
+
+// refusedError is a transport's failure that knows whether it was a
+// refusal (pkg/remoteexec.DialError, pkg/winrmexec.NotStartedError,
+// pkg/telnetexec.ErrLoginRefused).
+type refusedError interface {
+	error
+	Refused() bool
+}
+
+// refused reports whether err, anywhere in its chain, is a transport's
+// refusal: a login the device turned down, or a host key or certificate
+// this side turned down. internal/engine's Refused reads the same method.
+func refused(err error) bool {
+	var r refusedError
+	return errors.As(err, &r) && r.Refused()
 }
