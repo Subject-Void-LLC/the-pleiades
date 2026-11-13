@@ -640,6 +640,7 @@ var Root = Command{
 						{Name: "read-only", Type: "bool", Default: "false", Doc: "refuse every write to the local inventory, reporting what would have changed"},
 						{Name: "insecure-skip-verify", Type: "bool", Default: "false", Doc: "skip TLS certificate verification against the upstream system"},
 						{Name: "set", Type: "string", Default: "", Doc: "a plugin-specific setting as key=value, repeatable (see 'pleiades inventory plugins')"},
+						{Name: "adopt", Type: "string", Default: "", Doc: "a device added by hand that this sync may take over, by its exact name, repeatable; every other hand-added device under a name the source reports is a conflict left alone"},
 					},
 					Examples: []string{
 						"pleiades inventory sync --plugin catalyst_center --endpoint https://dnac.example.com",

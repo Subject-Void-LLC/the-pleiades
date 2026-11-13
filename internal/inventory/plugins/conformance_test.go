@@ -651,6 +651,68 @@ func TestPluginConformance_ForeignOwnerIsAConflict(t *testing.T) {
 	}
 }
 
+// TestPluginConformance_HandAddedDeviceIsAConflictUntilAdopted proves every
+// plugin leaves a device added by hand alone when the upstream reports the
+// same name, reporting a conflict that says how to adopt it, and takes it
+// over, recording itself as the owner, only when the sync names it in
+// Config.Adopt. A typed hosts entry and a discovered device sharing a name
+// are not known to be one machine.
+func TestPluginConformance_HandAddedDeviceIsAConflictUntilAdopted(t *testing.T) {
+	for _, backend := range pluginBackends() {
+		t.Run(backend.name, func(t *testing.T) {
+			hosts := conformanceHosts()
+			p, cfg := backend.newPlugin(t, hosts)
+			ctx := context.Background()
+			path := filepath.Join(t.TempDir(), "inventory.yaml")
+			if err := inv.WriteHosts(path, []inv.HostSpec{{ID: "hand-sw1", Name: "sw1", Type: "linux_server", Properties: map[string]interface{}{"host": "10.9.9.9", "owner_note": "typed by hand"}}}); err != nil {
+				t.Fatal(err)
+			}
+			repo := inv.NewFileRepository(path, inv.NewItemFactory())
+
+			report, err := p.Sync(ctx, repo)
+			if err != nil {
+				t.Fatalf("Sync: %v", err)
+			}
+			conflict := false
+			for _, r := range report.Results {
+				if r.Name == "sw1" {
+					conflict = r.Outcome == syncplugin.OutcomeConflict && strings.Contains(r.Reason, "--adopt sw1")
+				}
+			}
+			if !conflict {
+				t.Fatalf("the hand-added sw1 was not a conflict naming --adopt: %+v", report.Results)
+			}
+			item, err := repo.GetByName(ctx, "sw1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if host, _ := item.Properties().String("host"); item.Source().Plugin != "" || host != "10.9.9.9" {
+				t.Errorf("the hand-added sw1 was taken over: source %q, host %q", item.Source().Plugin, host)
+			}
+
+			adopting := cfg
+			adopting.Adopt = []string{"sw1"}
+			if err := p.Connect(ctx, adopting); err != nil {
+				t.Fatalf("Connect with an adoption: %v", err)
+			}
+			report, err = p.Sync(ctx, repo)
+			if err != nil {
+				t.Fatalf("Sync with an adoption: %v", err)
+			}
+			if got := report.Count(syncplugin.OutcomeConflict); got != 0 {
+				t.Errorf("an adopted device is still a conflict: %+v", report.Results)
+			}
+			item, err = repo.GetByName(ctx, "sw1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if item.Source().Plugin != cfg.Name {
+				t.Errorf("the adopted sw1 is owned by %q, want %q", item.Source().Plugin, cfg.Name)
+			}
+		})
+	}
+}
+
 // TestPluginConformance_ReadOnlyInventoryIsADryRun proves both plugins
 // report what would change and write nothing when the local inventory is
 // open read-only.

@@ -1220,6 +1220,13 @@ an operator.
   be checked but not changed until someone promotes it. `static_yaml` lands its entries as
   `active`. The **Read-only** column of the [sync plugin reference](reference/plugins.md)
   says which a source is.
+- **Already there under the same name.** A sync updates only the devices it added itself.
+  One another plugin added is a conflict, reported and left alone. So is one added by
+  hand (`add-host`, a line in `inventory.yaml`): the same name is no proof it is the same
+  machine, and taking it over would replace its properties and its owner. To let a sync
+  take over a hand-added device on purpose, name it: `pleiades inventory sync --plugin
+  vbox ... --adopt win-lab` (repeatable, one exact name each). From then on that plugin
+  owns it.
 - **Quarantined, and not added.** A record a plugin cannot place is quarantined with a
   reason, and it is **not** added to the inventory, since a device needs a type to exist.
   For example, `catalyst_center` quarantines a device whose software type is neither IOS

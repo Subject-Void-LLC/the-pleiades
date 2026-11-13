@@ -229,11 +229,15 @@ func reconcileOne(
 		return createDevice(ctx, cfg, repo, factory, raw, cls, source)
 	}
 
-	// Section 11's One Authority Per Item. An empty owner means the device
-	// predates provenance tracking (a hand-written hosts.yaml entry), which
-	// this source may adopt; a different owner may not be overwritten.
-	if owner := existing.Source().Plugin; owner != "" && owner != cfg.Name {
+	// Section 11's One Authority Per Item. A different owner may not be
+	// overwritten. An empty owner is a device added by hand (add-host, a
+	// hosts.yaml entry): the same name is no proof it is the same machine,
+	// so it is a conflict too, unless the sync was told to adopt it by name.
+	switch owner := existing.Source().Plugin; {
+	case owner != "" && owner != cfg.Name:
 		return OutcomeConflict, fmt.Sprintf("device is owned by sync plugin %q", owner), nil
+	case owner == "" && !cfg.Adopts(raw.Name):
+		return OutcomeConflict, fmt.Sprintf("device was added by hand and no sync owns it; name it with --adopt %s to let sync plugin %q take it over", raw.Name, cfg.Name), nil
 	}
 
 	return updateDevice(ctx, cfg, repo, factory, existing, raw, cls, source)
@@ -328,6 +332,17 @@ func updateDevice(
 	// Save is a no-op when nothing changed, so an unchanged device produces
 	// no write and no version bump. Reporting it separately from "updated"
 	// is what lets an operator see that a sync ran and found nothing new.
+	// An adoption changes the owner even when nothing else moved. It is
+	// recorded as a revision, so the owner is saved (a repository saves
+	// only a moved version) and the history says when it changed; without
+	// it the next sync would find the device hand-added again.
+	if previous := existing.Source().Plugin; previous != cfg.Name {
+		adopter, ok := item.(interface{ RecordAdoption(previous string) bool })
+		if !ok {
+			return "", "", fmt.Errorf("sync plugin %q: %q cannot record its change of owner", cfg.Name, raw.Name)
+		}
+		adopter.RecordAdoption(previous)
+	}
 	if item.Version() == existing.Version() {
 		return OutcomeUnchanged, "", nil
 	}
