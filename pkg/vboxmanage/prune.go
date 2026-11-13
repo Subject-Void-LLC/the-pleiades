@@ -196,9 +196,10 @@ func (h Host) MachineFolder(ctx context.Context) (string, error) {
 
 // MachineFolders returns the folders directly inside root that hold a
 // VM's settings file (a .vbox, or the .vbox-prev VirtualBox keeps beside
-// it), as full paths; a root that is not there has none. Only such a
-// folder is ever a prune's to remove, so a folder of anything else under
-// the machine folder is never touched.
+// it), or nothing at all, as a delete that removed a VM's disks but not
+// its folder leaves one, as full paths; a root that is not there has none.
+// Only such a folder is ever a prune's to remove, so a folder of anything
+// else under the machine folder is never touched.
 func (h Host) MachineFolders(ctx context.Context, root string) ([]string, error) {
 	if err := CheckPath("folder", root); err != nil {
 		return nil, err
@@ -207,7 +208,7 @@ func (h Host) MachineFolders(ctx context.Context, root string) ([]string, error)
 $ErrorActionPreference = 'Stop'
 $path = %s
 if (-not (Test-Path -LiteralPath $path -PathType Container)) { exit 3 }
-Get-ChildItem -LiteralPath $path -Directory -Force | Where-Object { Get-ChildItem -LiteralPath $_.FullName -File -Force | Where-Object { $_.Name -like '*.vbox' -or $_.Name -like '*.vbox-prev' } | Select-Object -First 1 } | ForEach-Object { $_.FullName }
+Get-ChildItem -LiteralPath $path -Directory -Force | Where-Object { (Get-ChildItem -LiteralPath $_.FullName -File -Force | Where-Object { $_.Name -like '*.vbox' -or $_.Name -like '*.vbox-prev' } | Select-Object -First 1) -or -not (Get-ChildItem -LiteralPath $_.FullName -Force | Select-Object -First 1) } | ForEach-Object { $_.FullName }
 `, tagFolders, winrmexec.QuotePS(root))
 	out, err := h.powerShell(ctx, script, "")
 	if err != nil {
