@@ -146,6 +146,16 @@ func (w *Worker) admit(job *Job, prepared PreparedDefinition, device pkginventor
 		}
 	}
 
+	// A device reached through a console server (a CML node with no address
+	// of its own) needs that server's device and login resolved, which only
+	// the pleiades CLI does so far: a Runner holds neither. It is skipped
+	// naming the server, rather than as a device with no host, which is what
+	// it reads as below and which hides the reason.
+	if served, ok := device.(capability.ConsoleServedCapable); ok && device.HasCapability(capability.NameConsoleServed) {
+		return notUndone(job, admission{mode: mode, outcome: OutcomeSkipped,
+			reason: fmt.Sprintf("device %q is reached through the console server %q, which only the pleiades CLI resolves so far", device.Name(), served.ConsoleServer())})
+	}
+
 	// "host", never "ip": every concrete device type in this codebase
 	// populates its management address under this property key
 	// (pkg/wire.DispatchPayload's own doc comment explains the "ip" bug

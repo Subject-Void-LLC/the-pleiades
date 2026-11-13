@@ -1,0 +1,1 @@
+On the Walk tier, a device reached through a CML console server is now skipped with a reason naming its console server, instead of "has no host property", and a Runner refuses one dispatched to it; the `virt.cml` controller methods are proven to run from a Runner.
