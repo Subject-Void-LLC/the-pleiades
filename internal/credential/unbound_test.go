@@ -51,6 +51,39 @@ func TestUnbound_MarkListAndClear(t *testing.T) {
 	}
 }
 
+// TestNoticeUnbound_KeepsTheStoresOtherAnswers: wrapping the run's store
+// keeps named secrets, registry accounts and database connections
+// answerable, since callers find them by asserting on the store. The first
+// version hid them, and every secret reference in a run failed as
+// unresolvable (TestCLI_SecretReferencesReachTheDeviceOnly caught it).
+func TestNoticeUnbound_KeepsTheStoresOtherAnswers(t *testing.T) {
+	dir := t.TempDir()
+	key, err := credential.ResolveMasterKey(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := credential.SaveSecretField(dir, key, "dmvpn", "psk", "the-long-preshared-key"); err != nil {
+		t.Fatal(err)
+	}
+	store := credential.NoticeUnbound(credential.NewLazyFileStore(dir), dir, func(string) {})
+	secrets, ok := store.(credential.SecretStore)
+	if !ok {
+		t.Fatal("the wrapped store answers no named secrets")
+	}
+	if v, found, err := secrets.LookupSecret(context.Background(), "dmvpn", "psk"); err != nil || !found || v != "the-long-preshared-key" {
+		t.Errorf("LookupSecret = %q %v %v", v, found, err)
+	}
+	if _, ok := store.(credential.RegistryStore); !ok {
+		t.Error("the wrapped store answers no registry accounts")
+	}
+	if _, ok := store.(credential.DatabaseStore); !ok {
+		t.Error("the wrapped store answers no database connections")
+	}
+	if _, ok := credential.NoticeUnbound(failingLookup{}, dir, func(string) {}).(credential.SecretStore); ok {
+		t.Error("a wrapped store that answers no named secrets claims to")
+	}
+}
+
 // failingLookup is a store whose every lookup fails.
 type failingLookup struct{}
 

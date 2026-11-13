@@ -129,8 +129,28 @@ type noticeUnbound struct {
 // with its name and clears the mark: the run that first uses such a
 // credential says so, and later runs do not. A file that cannot be read for
 // the marks leaves every lookup to inner alone.
+//
+// The store a run reads through also answers named secrets, registry
+// accounts and database connections (SecretStore, RegistryStore,
+// DatabaseStore), and callers find those by asserting on the store they were
+// handed. So when inner answers all three, the wrapper does too, passing each
+// straight to inner: a wrapper that hid them made every secret reference in a
+// run fail as unresolvable.
 func NoticeUnbound(inner Store, dir string, notice func(name string)) Store {
-	return &noticeUnbound{inner: inner, dir: dir, notice: notice}
+	n := &noticeUnbound{inner: inner, dir: dir, notice: notice}
+	if full, ok := inner.(interface {
+		SecretStore
+		RegistryStore
+		DatabaseStore
+	}); ok {
+		return struct {
+			*noticeUnbound
+			SecretStore
+			RegistryStore
+			DatabaseStore
+		}{n, full, full, full}
+	}
+	return n
 }
 
 // Lookup implements Store.
