@@ -83,6 +83,64 @@ func TestCLI_VaultAndInventoryElsewhere(t *testing.T) {
 	}
 }
 
+// TestCLI_RemovingFromAVaultNeedsNoKey: remove-credential and remove-host
+// --credential each take an entry out of a --vault's credentials.yaml when
+// that vault holds no master key, since removing decrypts nothing; the other
+// entry stays, and no key is made.
+func TestCLI_RemovingFromAVaultNeedsNoKey(t *testing.T) {
+	vault, inv, project, _ := splitProject(t)
+	if out, err := runPleiadesWithStdin(t, vault, "other-s3cret\n", "add-credential", "web02", "--username", "ops", "--password-stdin", "--no-device"); err != nil {
+		t.Fatalf("add-credential: %v\n%s", err, out)
+	}
+	if out, err := runPleiades(t, project, "add-host", "web02", "--inventory", inv, "--type", "linux_server", "--set", "host=127.0.0.2"); err != nil {
+		t.Fatalf("add-host: %v\n%s", err, out)
+	}
+	key := filepath.Join(vault, ".pleiades", "master.key")
+	if err := os.Remove(key); err != nil {
+		t.Fatal(err)
+	}
+	creds := filepath.Join(vault, ".pleiades", "credentials.yaml")
+
+	if out, err := runPleiades(t, project, "remove-credential", "web01", "--vault", vault); err != nil || !strings.Contains(out, "web01") {
+		t.Fatalf("remove-credential --vault with no key: %v\n%s", err, out)
+	}
+	if out, err := runPleiades(t, project, "remove-host", "web02", "--credential", "--inventory", inv, "--vault", vault); err != nil || !strings.Contains(out, "removed its credential") {
+		t.Fatalf("remove-host --credential --vault with no key: %v\n%s", err, out)
+	}
+	data, err := os.ReadFile(creds)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "web01") || strings.Contains(string(data), "web02") {
+		t.Errorf("an entry survived its removal:\n%s", data)
+	}
+	if _, err := os.Stat(key); err == nil {
+		t.Error("a removal made a master key")
+	}
+	// The loose-file check still applies to a removal.
+	if runtime.GOOS != "windows" {
+		if err := os.Chmod(creds, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if out, err := runPleiades(t, project, "remove-credential", "web09", "--vault", vault); err == nil || !strings.Contains(out, "chmod 600 "+creds) {
+			t.Errorf("a removal from a loose credentials.yaml: %v\n%s", err, out)
+		}
+	}
+}
+
+// TestCLI_AddCredential_NamesTheInventoryItRead: the warning for a name the
+// inventory lacks names the file --inventory gave, not --dir's.
+func TestCLI_AddCredential_NamesTheInventoryItRead(t *testing.T) {
+	vault, inv, _, _ := splitProject(t)
+	out, err := runPleiadesWithStdin(t, vault, "s3cret\n", "add-credential", "db07", "--username", "u", "--password-stdin", "--inventory", inv)
+	if err != nil {
+		t.Fatalf("add-credential: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, `no device named "db07" in `+inv) {
+		t.Errorf("the warning does not name %s:\n%s", inv, out)
+	}
+}
+
 // TestCLI_VaultFlagRefusals: a --vault whose master key is loose is refused
 // naming the chmod; a --vault holding no key is refused naming the key file
 // it looked for; neither makes a key anywhere.

@@ -48,6 +48,20 @@ var vaultOverride, inventoryOverride string
 // vault, and making a key there would leave every secret elsewhere unreadable.
 // The key file itself is held to the private-file check when it is read.
 func addVaultFlag(flags *flag.FlagSet) {
+	registerVaultFlag(flags, true)
+}
+
+// addKeylessVaultFlag registers --vault for a command that only removes an
+// entry from credentials.yaml (remove-host, remove-credential): removing
+// decrypts nothing, so no master key is required in the vault, though the
+// file is still held to the private-file check when it is read.
+func addKeylessVaultFlag(flags *flag.FlagSet) {
+	registerVaultFlag(flags, false)
+}
+
+// registerVaultFlag registers --vault on flags, requiring a master key in it
+// when needsKey is set.
+func registerVaultFlag(flags *flag.FlagSet, needsKey bool) {
 	flags.Func("vault", vaultFlagDoc, func(value string) error {
 		if value == "" {
 			return errors.New("--vault needs a directory")
@@ -59,7 +73,7 @@ func addVaultFlag(flags *flag.FlagSet) {
 		if info, err := os.Stat(abs); err != nil || !info.IsDir() {
 			return fmt.Errorf("--vault %s is not a directory", value)
 		}
-		if _, set := os.LookupEnv(masterKeyEnv); !set {
+		if _, set := os.LookupEnv(masterKeyEnv); needsKey && !set {
 			key := filepath.Join(abs, ".pleiades", "master.key")
 			if _, err := os.Stat(key); errors.Is(err, fs.ErrNotExist) {
 				return fmt.Errorf("--vault %s holds no master key (%s): name the directory whose .pleiades/ holds the vault, or set %s", value, key, masterKeyEnv)

@@ -33,7 +33,9 @@ type removedHost struct {
 // address. The journal keeps every run that touched it.
 func runRemoveHost(args []string) error {
 	fs := flag.NewFlagSet("remove-host", flag.ContinueOnError)
-	addProjectFlags(fs)
+	// Removing a credential decrypts nothing, so the vault needs no key.
+	addInventoryFlag(fs)
+	addKeylessVaultFlag(fs)
 	dir := fs.String("dir", ".", "project directory")
 	withCredential := fs.Bool("credential", false, "also remove the host's stored credential")
 	forgetKeys := fs.Bool("forget-host-keys", false, "also remove the known_hosts lines trusting the host's SSH address, unless another device is reached there")
@@ -118,7 +120,8 @@ func runRemoveHost(args []string) error {
 // device itself in the inventory.
 func runRemoveCredential(args []string) error {
 	fs := flag.NewFlagSet("remove-credential", flag.ContinueOnError)
-	addVaultFlag(fs)
+	// Removing a credential decrypts nothing, so the vault needs no key.
+	addKeylessVaultFlag(fs)
 	dir := fs.String("dir", ".", "project directory")
 	name, err := parseOneArg(fs, args)
 	if err != nil {

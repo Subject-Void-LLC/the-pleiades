@@ -14,7 +14,6 @@ import (
 	"strings"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
-	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/termsafe"
 	pkginventory "github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 )
@@ -67,6 +66,6 @@ func credentialBinding(dir, name string, noDevice bool, warn io.Writer) (unbound
 	}
 	fmt.Fprintf(warn, "warning: no device named %q in %s%s; the credential is stored and marked unbound, and the first run that uses it will say so. "+
 		"Pass --no-device when no device is meant (a sync source's account, a device added later); from 0.4.0 a name the inventory does not have is refused without it\n",
-		termsafe.EscapeLine(name), inventory.DefaultInventoryFilename, near)
+		termsafe.EscapeLine(name), termsafe.EscapeLine(inventoryFile(dir)), near)
 	return true, nil
 }
