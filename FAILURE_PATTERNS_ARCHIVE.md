@@ -29461,6 +29461,9 @@ breaking change (owner, 2026-11-12), with the methods and the runbook pattern na
 and `TestALookupThatCannotLookFails` through the real binary on real sshd (an unsearchable path at two depths, refused and unresolvable
 controllers and console servers, a 403), each failing in a run and a check and reporting no `exists`.
 
+One gate asserted the old wording: `TestCLI_BecomeRunsATaskAndItsUndoAsRoot` expected "permission denied" without `become`, and
+now sees the earlier "cannot look"; branch-containers caught it, since pr-check leaves `cmd/pleiades` to CI.
+
 **Lesson.** A probe answers three things, there, not there, and could not look; any two-valued probe has merged two of them.
 
 ## 1194. BusyBox's test -x answers false to root for a mode 000 directory root can search, so asking search permission with it misread root (fixed before push)
