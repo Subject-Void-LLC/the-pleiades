@@ -38,8 +38,8 @@ func diskPaths(vm *VM) []string {
 // using it.
 func (h *Host) listMedia() vboxmanage.Output {
 	type medium struct {
-		parent, location string
-		users            []*VM
+		parent, location, state string
+		users                   []*VM
 	}
 	var order []string
 	media := map[string]*medium{}
@@ -77,14 +77,26 @@ func (h *Host) listMedia() vboxmanage.Output {
 			add(path, parent, vm)
 		}
 	}
+	for _, o := range h.Orphans {
+		state := "created"
+		if o.Gone {
+			state = vboxmanage.StateInaccessible
+		}
+		media[strings.ToLower(o.UUID)] = &medium{parent: o.Parent, location: o.Location, state: state}
+		order = append(order, strings.ToLower(o.UUID))
+	}
 	var b strings.Builder
 	for _, id := range order {
 		m := media[id]
+		state := m.state
+		if state == "" {
+			state = "created"
+		}
 		parent, kind := "base", "normal (base)"
 		if m.parent != "" {
 			parent, kind = m.parent, "normal (differencing)"
 		}
-		fmt.Fprintf(&b, "UUID:           %s\r\nParent UUID:    %s\r\nState:          created\r\nType:           %s\r\nLocation:       %s\r\nStorage format: VDI\r\n", id, parent, kind, m.location)
+		fmt.Fprintf(&b, "UUID:           %s\r\nParent UUID:    %s\r\nState:          %s\r\nType:           %s\r\nLocation:       %s\r\nStorage format: VDI\r\n", id, parent, state, kind, m.location)
 		for i, u := range m.users {
 			label := "In use by VMs:  "
 			if i > 0 {

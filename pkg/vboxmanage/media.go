@@ -18,6 +18,9 @@ type Medium struct {
 	Parent string
 	// Location is the disk's file on the host.
 	Location string
+	// State is VirtualBox's word for the disk: created, locked read,
+	// inaccessible (StateInaccessible) and the like.
+	State string
 	// Users are the machines the disk is attached to, in their current
 	// state or a snapshot. A disk a linked clone descends from is not
 	// attached to the clone, so it does not list the clone.
@@ -79,6 +82,8 @@ func ParseMedia(stdout string) []Medium {
 			}
 		case "Location":
 			cur.Location = value
+		case "State":
+			cur.State = value
 		case "In use by VMs":
 			for _, m := range userPattern.FindAllStringSubmatch(bracketed.ReplaceAllString(value, ""), -1) {
 				cur.Users = append(cur.Users, MediumUser{Name: strings.TrimSpace(m[1]), UUID: m[2]})

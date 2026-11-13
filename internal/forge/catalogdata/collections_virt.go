@@ -209,7 +209,7 @@ var virtCollections = []collectionscaffold.Config{
 		EngineVersion: engineVersion,
 		Doc: collection.Doc{
 			Summary: "Takes a snapshot of a VirtualBox VM under a name no other snapshot of it has.",
-			Description: "Makes sure a VM has a snapshot with this name. A snapshot already under the name reports no change and takes no second one, although VirtualBox itself would. A running VM can be snapshotted; a snapshot of a running VM holds its memory too." +
+			Description: "Makes sure a VM has a snapshot with this name. A snapshot already under the name reports no change and takes no second one, although VirtualBox itself would. A running VM can be snapshotted; a snapshot of a running VM holds its memory too. Its undo would delete the snapshot from the running VM a rollback brings back, which virt.vbox.snapshot.delete refuses, so a snapshot taken of a VM that is not stopped records no undo and says so in a warning: a rollback refuses that change by name before it contacts anything, and --leave accepts it." +
 				vboxHostParamNote + " A check reads the VM and sends nothing.",
 			Params: []collection.Param{
 				snapshotVMParam, snapshotNameParam,
@@ -251,7 +251,7 @@ var virtCollections = []collectionscaffold.Config{
 		EngineVersion: engineVersion,
 		Doc: collection.Doc{
 			Summary: "Deletes a snapshot of a VirtualBox VM.",
-			Description: "Makes sure a VM has no snapshot with this name. None under the name reports no change. The snapshot's saved state is merged away and cannot be brought back, so this cannot be undone." +
+			Description: "Makes sure a VM has no snapshot with this name. None under the name reports no change. A VM that is not stopped (running, paused, or between states) is refused, in a check too: deleting a running VM's snapshot merges its disks while it runs, which on the lab host twice left the VM unreadable to VirtualBox, its settings holding no record of its disks. Stop it first with virt.vbox.vm.stop. The snapshot's saved state is merged away and cannot be brought back, so this cannot be undone." +
 				vboxHostParamNote + " A check reads the VM and sends nothing.",
 			Params: []collection.Param{snapshotVMParam, snapshotNameParam, snapshotUUIDParam},
 			Returns: []collection.ReturnField{
@@ -262,6 +262,25 @@ var virtCollections = []collectionscaffold.Config{
 				{Name: "Drop a snapshot", RunbookYAML: "- name: Drop the old baseline\n  virt.vbox.snapshot.delete:\n    vm: ubuntu-lab\n    name: clean\n"},
 			},
 			SeeAlso: []string{"virt.vbox.snapshot.take"},
+		},
+	}, {
+		Name:          "virt.vbox.media.prune",
+		Capabilities:  []capability.Name{capability.NameVirtualBox},
+		Transports:    []string{"winrm"},
+		EngineVersion: engineVersion,
+		Doc: collection.Doc{
+			Summary: "Deletes the disks no registered VM uses and the leftover folders of VMs VirtualBox no longer knows, under the host's machine folder.",
+			Description: "Removes what a VM VirtualBox forgot leaves behind: a delete that failed partway, or a VM unregistered without its files. Under the host's machine folder (its vm_folder, or VirtualBox's default machine folder when it names none) it finds every disk VirtualBox has registered that no registered VM uses, in its current state or a snapshot, and every folder holding no registered VM's settings and no disk one uses. A disk is deleted with its file, or only forgotten when its file is already gone; one with a descendant that is in use, or that is not being deleted too, is left, and descendants go before their parents. A folder holding a registered VM's files is left. When VirtualBox lists a VM it cannot read, no folder is removed, since nothing can say which folder is that VM's: delete it first with virt.vbox.vm.delete, naming its UUID. Nothing outside the machine folder is touched. A check lists exactly what a run would remove and removes nothing; it is how to see the list without acting on it. Nothing removed can be brought back." +
+				vboxHostParamNote + " A check reads the host's VMs, disks and folders, and sends nothing.",
+			Returns: []collection.ReturnField{
+				{Name: "disks", Type: "list", Returned: "always", Description: "Each disk removed, or that a check would remove: its UUID, its file and whether its file was already gone."},
+				{Name: "folders", Type: "list", Returned: "always", Description: "Each folder removed, or that a check would remove."},
+				{Name: "diff", Type: "dict", Returned: "always", Description: "How many disks and folders there were to remove before this task, and after it."},
+			},
+			Examples: []collection.Example{
+				{Name: "See what would be removed, then remove it", RunbookYAML: "- name: Remove the disks and folders no VM uses\n  virt.vbox.media.prune: {}\n"},
+			},
+			SeeAlso: []string{"virt.vbox.vm.delete", "virt.vbox.vm.list"},
 		},
 	}, {
 		Name:          "virt.vbox.vm.import_ova",

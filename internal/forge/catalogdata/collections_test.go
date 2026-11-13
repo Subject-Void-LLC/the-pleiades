@@ -86,10 +86,11 @@ func TestCollections_MatchesDocumentedCount(t *testing.T) {
 	// through 256th: virt.clab.lab.*, node.*, netem.*, veth, vxlan, image.*,
 	// server.*, capture, topology.generate, ssh_session.* and edgeshark.*.
 	// A Linux host's network added the 257th through 259th: net.linux.bridge,
-	// address and route.
+	// address and route. Leftovers on a VirtualBox host added the 260th:
+	// virt.vbox.media.prune.
 	// This test pins the number down so a future accidental entry loss or
 	// duplication is a build failure, not a silent gap.
-	const wantCollections = 259
+	const wantCollections = 260
 	if got := len(catalogdata.Collections); got != wantCollections {
 		t.Errorf("len(Collections) = %d, want %d", got, wantCollections)
 	}

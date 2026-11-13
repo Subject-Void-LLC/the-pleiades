@@ -20420,6 +20420,59 @@
       ]
     }
   },
+  "virt.vbox.media.prune": {
+    "supportedTransports": [
+      "winrm"
+    ],
+    "requiredCapabilities": [
+      "VirtualBoxCapable"
+    ],
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
+    "engineVersion": ">=0.4.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "It deletes disks and folders no registered VM uses, and nothing keeps what was in them, so there is nothing an undo could put back; a check lists what a run would remove before anything is."
+    },
+    "supportsCheck": true,
+    "doc": {
+      "summary": "Deletes the disks no registered VM uses and the leftover folders of VMs VirtualBox no longer knows, under the host's machine folder.",
+      "description": "Removes what a VM VirtualBox forgot leaves behind: a delete that failed partway, or a VM unregistered without its files. Under the host's machine folder (its vm_folder, or VirtualBox's default machine folder when it names none) it finds every disk VirtualBox has registered that no registered VM uses, in its current state or a snapshot, and every folder holding no registered VM's settings and no disk one uses. A disk is deleted with its file, or only forgotten when its file is already gone; one with a descendant that is in use, or that is not being deleted too, is left, and descendants go before their parents. A folder holding a registered VM's files is left. When VirtualBox lists a VM it cannot read, no folder is removed, since nothing can say which folder is that VM's: delete it first with virt.vbox.vm.delete, naming its UUID. Nothing outside the machine folder is touched. A check lists exactly what a run would remove and removes nothing; it is how to see the list without acting on it. Nothing removed can be brought back. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A check reads the host's VMs, disks and folders, and sends nothing.",
+      "returns": [
+        {
+          "name": "disks",
+          "type": "list",
+          "returned": "always",
+          "description": "Each disk removed, or that a check would remove: its UUID, its file and whether its file was already gone."
+        },
+        {
+          "name": "folders",
+          "type": "list",
+          "returned": "always",
+          "description": "Each folder removed, or that a check would remove."
+        },
+        {
+          "name": "diff",
+          "type": "dict",
+          "returned": "always",
+          "description": "How many disks and folders there were to remove before this task, and after it."
+        }
+      ],
+      "examples": [
+        {
+          "name": "See what would be removed, then remove it",
+          "runbookYaml": "- name: Remove the disks and folders no VM uses\n  virt.vbox.media.prune: {}\n"
+        }
+      ],
+      "seeAlso": [
+        "virt.vbox.vm.delete",
+        "virt.vbox.vm.list"
+      ]
+    }
+  },
   "virt.vbox.snapshot.delete": {
     "supportedTransports": [
       "winrm"
@@ -20440,7 +20493,7 @@
     "supportsCheck": true,
     "doc": {
       "summary": "Deletes a snapshot of a VirtualBox VM.",
-      "description": "Makes sure a VM has no snapshot with this name. None under the name reports no change. The snapshot's saved state is merged away and cannot be brought back, so this cannot be undone. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A check reads the VM and sends nothing.",
+      "description": "Makes sure a VM has no snapshot with this name. None under the name reports no change. A VM that is not stopped (running, paused, or between states) is refused, in a check too: deleting a running VM's snapshot merges its disks while it runs, which on the lab host twice left the VM unreadable to VirtualBox, its settings holding no record of its disks. Stop it first with virt.vbox.vm.stop. The snapshot's saved state is merged away and cannot be brought back, so this cannot be undone. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A check reads the VM and sends nothing.",
       "params": [
         {
           "name": "vm",
@@ -20560,7 +20613,7 @@
     "status": "implemented",
     "reversibility": {
       "reversible": true,
-      "notes": "A run that took a snapshot emits virt.vbox.snapshot.delete naming it by UUID, so the undo deletes that snapshot and no other of the same name; one that found a snapshot under the name emits nothing.",
+      "notes": "A run that took a snapshot of a stopped VM emits virt.vbox.snapshot.delete naming it by UUID, so the undo deletes that snapshot and no other of the same name; one that found a snapshot under the name emits nothing, and so does one that snapshotted a running VM, whose undo would be a delete from a running VM that virt.vbox.snapshot.delete refuses.",
       "inverses": [
         {
           "fqcn": "virt.vbox.snapshot.delete",
@@ -20575,7 +20628,7 @@
     "supportsCheck": true,
     "doc": {
       "summary": "Takes a snapshot of a VirtualBox VM under a name no other snapshot of it has.",
-      "description": "Makes sure a VM has a snapshot with this name. A snapshot already under the name reports no change and takes no second one, although VirtualBox itself would. A running VM can be snapshotted; a snapshot of a running VM holds its memory too. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A check reads the VM and sends nothing.",
+      "description": "Makes sure a VM has a snapshot with this name. A snapshot already under the name reports no change and takes no second one, although VirtualBox itself would. A running VM can be snapshotted; a snapshot of a running VM holds its memory too. Its undo would delete the snapshot from the running VM a rollback brings back, which virt.vbox.snapshot.delete refuses, so a snapshot taken of a VM that is not stopped records no undo and says so in a warning: a rollback refuses that change by name before it contacts anything, and --leave accepts it. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A check reads the VM and sends nothing.",
       "params": [
         {
           "name": "vm",

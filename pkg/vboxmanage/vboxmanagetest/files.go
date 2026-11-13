@@ -69,6 +69,10 @@ func (h *Host) PowerShell(_ context.Context, script, stdin string) (vboxmanage.O
 	case "# vboxmanage: remove":
 		delete(h.Files, path)
 		return vboxmanage.Output{Stdout: "removed\r\n"}, nil
+	case "# vboxmanage: folders":
+		return h.folders(path), nil
+	case "# vboxmanage: remove folder":
+		return h.removeFolder(path), nil
 	}
 	return vboxmanage.Output{}, fmt.Errorf("vboxmanagetest: the model does not run the script %q", tag)
 }

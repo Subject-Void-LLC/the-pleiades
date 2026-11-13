@@ -26,13 +26,13 @@ func TestParseMedia_ReadsTheCapturedHost(t *testing.T) {
 	}
 	media := vboxmanage.ParseMedia(string(raw))
 	want := []vboxmanage.Medium{
-		{UUID: "67793435-652b-492e-8649-7f664ce14aa9", Location: `G:\PleiadesLab\p112-base\p112-base.vdi`,
+		{UUID: "67793435-652b-492e-8649-7f664ce14aa9", State: "locked read", Location: `G:\PleiadesLab\p112-base\p112-base.vdi`,
 			// Its snapshot, in brackets, is not a machine.
 			Users: []vboxmanage.MediumUser{{Name: "p112-base", UUID: capturedBase}}},
-		{UUID: "2de3d928-bdfa-4f21-a0f6-95b70b3450c8", Parent: "67793435-652b-492e-8649-7f664ce14aa9",
+		{UUID: "2de3d928-bdfa-4f21-a0f6-95b70b3450c8", Parent: "67793435-652b-492e-8649-7f664ce14aa9", State: "created",
 			Location: `G:\PleiadesLab\p112-base\Snapshots/{2de3d928-bdfa-4f21-a0f6-95b70b3450c8}.vdi`,
 			Users:    []vboxmanage.MediumUser{{Name: "p112-base", UUID: capturedBase}}},
-		{UUID: "485b4e77-4756-4138-8faa-0596743075b6", Parent: "67793435-652b-492e-8649-7f664ce14aa9",
+		{UUID: "485b4e77-4756-4138-8faa-0596743075b6", Parent: "67793435-652b-492e-8649-7f664ce14aa9", State: "locked write",
 			Location: `G:\PleiadesLab\p112-a\Snapshots\{485b4e77-4756-4138-8faa-0596743075b6}.vdi`,
 			Users:    []vboxmanage.MediumUser{{Name: "p112-a", UUID: capturedClone}}},
 	}

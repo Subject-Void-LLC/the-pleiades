@@ -1,0 +1,1 @@
+Added `virt.vbox.media.prune`: it deletes the disks no registered VM uses and the leftover folders of VMs VirtualBox no longer knows, under the host's machine folder, keeping any disk a VM still depends on and any folder holding a registered VM's files. A check lists exactly what a run would remove.
