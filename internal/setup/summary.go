@@ -85,14 +85,14 @@ func helmSummary(secretFile, valuesFile string, opts Options, key []byte) string
 	if ns != "" {
 		nsFlag = " --namespace " + ns
 	}
-	tokens := "the JWT secret, "
+	jwtPart := "the JWT secret, "
 	values := fmt.Sprintf("and %s (no secrets).", valuesFile)
 	if opts.JWKSURL != "" {
-		tokens = ""
+		jwtPart = ""
 		values = fmt.Sprintf("and %s (no secrets; it sets controller.jwksUrl, so the controller checks API tokens against %s and needs no JWT secret).", valuesFile, opts.JWKSURL)
 	}
 	return strings.Join([]string{
-		fmt.Sprintf("Wrote %s (the master key, fingerprint %s, %sthe facts digest key and the database password)", secretFile, keyregistry.Short(crypto.Fingerprint(key)), tokens),
+		fmt.Sprintf("Wrote %s (the master key, fingerprint %s, %sthe facts digest key and the database password)", secretFile, keyregistry.Short(crypto.Fingerprint(key)), jwtPart),
 		values,
 		"",
 		"Install with:",
