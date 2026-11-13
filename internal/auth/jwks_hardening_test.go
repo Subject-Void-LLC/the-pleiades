@@ -1,16 +1,21 @@
-// These tests hold the JWKS provider to the promise an anonymous caller
-// would otherwise break: a request cannot choose how often this Controller
-// fetches the key set (FAILURE_PATTERNS 1227). Every one runs a real TLS
-// server and verifies real signatures, as jwks_test.go does.
+// These tests hold the JWKS provider to two promises an anonymous caller
+// or an identity provider outage would otherwise break: a request cannot
+// choose how often this Controller fetches the key set (FAILURE_PATTERNS
+// 1227), and the key set has a maximum age and a failed refresh is reported
+// (1228). Every one runs a real TLS server and verifies real signatures, as
+// jwks_test.go does.
 package auth_test
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -247,5 +252,136 @@ func TestJWKSKeyProvider_AWaitingRequestLeavesOnItsOwnDeadline(t *testing.T) {
 			t.Fatal("the shared fetch never landed the rotated key after its first waiter left")
 		}
 		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// TestJWKSKeyProvider_StaleKeysAreRefusedPastTheBound: with the IdP down,
+// a cached key is trusted up to the staleness bound and refused after it,
+// and a refresh that succeeds again restores it with no restart
+// (FAILURE_PATTERNS 1228).
+func TestJWKSKeyProvider_StaleKeysAreRefusedPastTheBound(t *testing.T) {
+	key := newRSAKey(t)
+	doc := jwksDocumentForRSAKey(t, &key.PublicKey, "k1")
+	idp := newCountingIdP(t, doc)
+	clock := newFakeClock()
+	provider := newTestJWKSProvider(t, idp.server, auth.WithRefreshInterval(0), auth.WithClockForTest(clock.Now),
+		auth.WithLogger(slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil))))
+	eval, err := auth.NewJWTEvaluator(provider, testIssuer, testAudience)
+	if err != nil {
+		t.Fatalf("NewJWTEvaluator: %v", err)
+	}
+	token := generateRSATestToken(t, key, "k1", "viewer", nil, 24*time.Hour)
+	ctx := context.Background()
+
+	idp.set(doc, true, 0)
+	clock.Advance(auth.DefaultJWKSMaxStaleness - time.Minute)
+	if _, err := eval.ValidateToken(ctx, token); err != nil {
+		t.Fatalf("a cached key inside the bound was refused: %v", err)
+	}
+
+	clock.Advance(2 * time.Minute)
+	_, err = eval.ValidateToken(ctx, token)
+	if err == nil {
+		t.Fatal("a cached key past the 12h bound was trusted while the IdP was down")
+	}
+	if !strings.Contains(err.Error(), "staleness bound") {
+		t.Errorf("refusal = %v, want it to name the staleness bound", err)
+	}
+
+	// The IdP answers again. Past the request cooldown, the next request
+	// refreshes the set and the key is trusted again.
+	idp.set(doc, false, 0)
+	clock.Advance(2 * time.Minute)
+	if _, err := eval.ValidateToken(ctx, token); err != nil {
+		t.Fatalf("after the IdP recovered the key was still refused: %v", err)
+	}
+}
+
+// TestJWKSKeyProvider_AWithdrawnKeyIsRefusedOnceTheSetRefreshes: a stale
+// set that refreshes into one without the token's key refuses the key,
+// rather than keeping it.
+func TestJWKSKeyProvider_AWithdrawnKeyIsRefusedOnceTheSetRefreshes(t *testing.T) {
+	withdrawn, kept := newRSAKey(t), newRSAKey(t)
+	idp := newCountingIdP(t, jwksDocument(t, rsaTestJWK(&withdrawn.PublicKey, "gone"), rsaTestJWK(&kept.PublicKey, "kept")))
+	clock := newFakeClock()
+	provider := newTestJWKSProvider(t, idp.server, auth.WithRefreshInterval(0), auth.WithClockForTest(clock.Now))
+
+	idp.set(jwksDocumentForRSAKey(t, &kept.PublicKey, "kept"), false, 0)
+	clock.Advance(auth.DefaultJWKSMaxStaleness + time.Minute)
+	if _, err := provider.Key(context.Background(), "gone"); err == nil {
+		t.Fatal("a key the refreshed set no longer holds was returned")
+	}
+	if _, err := provider.Key(context.Background(), "kept"); err != nil {
+		t.Fatalf("the key the refreshed set holds was refused: %v", err)
+	}
+}
+
+// TestJWKSKeyProvider_ARefreshFailureIsLogged: a failed background
+// refresh is written to the provider's logger with the error and the key
+// set's age, where the old loop discarded it (FAILURE_PATTERNS 1228), and a
+// later success says so.
+func TestJWKSKeyProvider_ARefreshFailureIsLogged(t *testing.T) {
+	key := newRSAKey(t)
+	doc := jwksDocumentForRSAKey(t, &key.PublicKey, "k1")
+	idp := newCountingIdP(t, doc)
+	logs := &syncBuffer{}
+	newTestJWKSProvider(t, idp.server, auth.WithRefreshInterval(10*time.Millisecond),
+		auth.WithLogger(slog.New(slog.NewJSONHandler(logs, nil))))
+
+	idp.set(doc, true, 0)
+	waitForLog(t, logs, "JWKS refresh failed")
+	line := logs.String()
+	for _, want := range []string{`"level":"WARN"`, `"error":"fetching JWKS: unexpected status 503`, `"keys_age"`, `"max_staleness"`, `"trigger":"background"`} {
+		if !strings.Contains(line, want) {
+			t.Errorf("the failure log lacks %s:\n%s", want, line)
+		}
+	}
+
+	idp.set(doc, false, 0)
+	waitForLog(t, logs, "JWKS refresh succeeded again")
+}
+
+// TestNewJWKSKeyProvider_RefusesANonPositiveStalenessBound: there is no
+// value that switches the bound off.
+func TestNewJWKSKeyProvider_RefusesANonPositiveStalenessBound(t *testing.T) {
+	key := newRSAKey(t)
+	idp := newCountingIdP(t, jwksDocumentForRSAKey(t, &key.PublicKey, "k1"))
+	for _, d := range []time.Duration{0, -time.Hour} {
+		if _, err := auth.NewJWKSKeyProvider(idp.server.URL, auth.WithHTTPClient(idp.server.Client()), auth.WithMaxStaleness(d)); err == nil {
+			t.Errorf("a staleness bound of %s was accepted", d)
+		}
+	}
+}
+
+// syncBuffer is a bytes.Buffer safe for the logger's goroutine and the
+// test's to share.
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+// Write implements io.Writer.
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+// String returns everything written so far.
+func (b *syncBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
+// waitForLog waits up to five seconds for want to appear in logs.
+func waitForLog(t *testing.T, logs *syncBuffer, want string) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for !strings.Contains(logs.String(), want) {
+		if time.Now().After(deadline) {
+			t.Fatalf("no log line containing %q within 5s; logs:\n%s", want, logs.String())
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }

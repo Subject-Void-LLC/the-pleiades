@@ -29784,7 +29784,7 @@ fetch.
 
 **Lesson.** A bound on work an unauthenticated caller can trigger is stated and tested across requests, not within one.
 
-## 1228. The JWKS keys never aged: background refresh errors were discarded, so during an IdP outage a withdrawn key stayed trusted with nothing logged (a repeat in kind of 205) (open)
+## 1228. The JWKS keys never aged: background refresh errors were discarded, so during an IdP outage a withdrawn key stayed trusted with nothing logged (a repeat in kind of 205) (fixed)
 
 **Symptom.** Found 2026-11-13 by the same outside review, confirmed by reading the code; no test was run. Security.
 `runBackgroundRefresh` (`internal/auth/jwks.go` line 172) runs `_ = p.refresh(...)` every 15 minutes. The provider has no fetched-at
@@ -29797,8 +29797,21 @@ IdP withdrew (after a compromise, say) keeps signing valid tokens here. Request-
 **Why 205 did not prevent it.** 205's lesson, an error swallowed is a feature nobody knows is broken, was recorded against one KV
 call and not swept to other best-effort loops.
 
-**Fix.** Open; queued with 1227. Shape to decide there: record when the keys were last fetched, log and count each failed refresh,
-and stop trusting keys past a maximum age.
+**Fix.** Fixed on `fix/outage-lessons`. The provider records when the key set was last replaced by a successful fetch, and `lookup`
+(`internal/auth/jwks.go`) trusts a cached key only while that is no older than `DefaultJWKSMaxStaleness`, 12 hours, the default Phase
+142 planned (48 of the 15 minute refreshes, so a run of misses does not trip it; `WithMaxStaleness` overrides it, and a non-positive
+value is refused, so there is no off switch). Past the bound a known kid causes one shared, rate-limited fetch (1227's), and is refused
+if that fails, with a fixed message naming the bound; a fetch that succeeds restores it with no restart, and a key the fresh set no
+longer holds is refused. The age is the larger of the monotonic and wall clock readings (`keyAge`), so neither a clock stepped backward
+nor a suspended machine extends trust, and a set never fetched is infinitely old. Every failed refresh, background or request, goes
+through `refreshAndReport` (`internal/auth/jwks_refetch.go`) to the logger the package already uses (slog; `WithLogger`, defaulting to
+`slog.Default()` read when the line is written, so the Controller's masking logger installed after the provider receives it): Warn with
+the error, the age, the bound and the run of failures, Error once past the bound, and one Info line when a refresh succeeds again. The
+URL is logged with any password removed. Proof, each red with the fix reverted: `TestJWKSKeyProvider_StaleKeysAreRefusedPastTheBound`
+(a cached key past 12h was trusted while the IdP was down), `TestJWKSKeyProvider_AWithdrawnKeyIsRefusedOnceTheSetRefreshes` and
+`TestJWKSKeyProvider_ARefreshFailureIsLogged` (no log line within 5 s). `TestNewJWKSKeyProvider_RefusesANonPositiveStalenessBound` and
+`TestKeyAge` cover the rest. Not built here, and left to Phase 142: a deployment setting for the bound, starting degraded when the IdP
+is unreachable at boot, and a status or metric showing the age.
 
 **Lesson.** A cache of trust has a maximum age, and a failed refresh is logged where an operator will see it.
 

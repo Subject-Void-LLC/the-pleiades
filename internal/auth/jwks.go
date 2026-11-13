@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"math/big"
 	"net/http"
 	"net/url"
@@ -31,6 +32,19 @@ import (
 const (
 	defaultJWKSTimeout         = 10 * time.Second
 	defaultJWKSRefreshInterval = 15 * time.Minute
+
+	// DefaultJWKSMaxStaleness is how long a fetched key set is trusted
+	// without a successful refresh: 12 hours. Past it every token is
+	// refused until a refresh succeeds (FAILURE_PATTERNS 1228).
+	//
+	// The bound exists for a key the identity provider withdrew while this
+	// Controller could not reach it: without one, whoever held that key
+	// could sign tokens here for as long as the outage lasted. Twelve hours
+	// outlasts a shift or an overnight maintenance window, and is 48 of the
+	// default 15 minute refreshes, so a run of missed refreshes does not
+	// trip it. It is a judgment rather than a derived number; a deployment
+	// setting for it is planned (Phase 142).
+	DefaultJWKSMaxStaleness = 12 * time.Hour
 
 	// defaultUnknownKidCooldown is the shortest gap between two fetches a
 	// request can cause, by naming a kid the cache does not hold or by
@@ -83,18 +97,25 @@ type jwk struct {
 
 // jwksKeyProvider fetches and caches signing keys from a remote JWKS
 // endpoint, supporting key rotation without redeployment (PLAN.md Section
-// 32.1). It never lets a failed or empty refresh discard a previously good
-// cache: a transient IdP outage degrades to "still trusting the keys we
-// already had," never to "trusting nothing."
+// 32.1). A failed or empty refresh never discards a previously good cache,
+// so a short IdP outage degrades to "still trusting the keys we already
+// had". That trust has an age limit, maxStaleness: past it the cached keys
+// are refused, so a long outage ends in refusing every token rather than in
+// trusting a key the IdP may have withdrawn.
 type jwksKeyProvider struct {
 	jwksURL    string
+	displayURL string // jwksURL with any password removed, for messages and logs
 	httpClient *http.Client
-	now        func() time.Time // the clock the fetch cooldown is measured on
+	logger     *slog.Logger     // nil means slog.Default(), read when a line is written
+	now        func() time.Time // the clock key age is measured on
 
-	mu   sync.RWMutex
-	keys map[string]interface{} // kid -> *rsa.PublicKey or *ecdsa.PublicKey
+	mu        sync.RWMutex
+	keys      map[string]interface{} // kid -> *rsa.PublicKey or *ecdsa.PublicKey
+	fetchedAt time.Time              // when keys was last replaced by a successful fetch
+	failures  int                    // refreshes failed in a row since the last success
 
 	refreshInterval    time.Duration
+	maxStaleness       time.Duration
 	unknownKidCooldown time.Duration
 	stopCh             chan struct{}
 	stopOnce           sync.Once
@@ -119,9 +140,24 @@ func WithHTTPClient(c *http.Client) JWKSOption {
 // WithRefreshInterval overrides the default 15 minute background refresh
 // interval. A non-positive duration disables background refresh entirely;
 // a request still causes a fetch, shared and rate limited, on an unknown
-// kid.
+// kid or a stale key set.
 func WithRefreshInterval(d time.Duration) JWKSOption {
 	return func(p *jwksKeyProvider) { p.refreshInterval = d }
+}
+
+// WithMaxStaleness overrides DefaultJWKSMaxStaleness, how long the cached
+// keys are trusted without a successful refresh. There is no "off" value:
+// NewJWKSKeyProvider refuses a non-positive duration.
+func WithMaxStaleness(d time.Duration) JWKSOption {
+	return func(p *jwksKeyProvider) { p.maxStaleness = d }
+}
+
+// WithLogger sets where failed refreshes are reported. Without it the
+// provider writes to slog.Default(), read at the moment of writing, so a
+// composition root that installs its logger after building the provider
+// still receives every line.
+func WithLogger(l *slog.Logger) JWKSOption {
+	return func(p *jwksKeyProvider) { p.logger = l }
 }
 
 // NewJWKSKeyProvider builds a KeyProvider that fetches its verification
@@ -140,15 +176,20 @@ func NewJWKSKeyProvider(jwksURL string, opts ...JWKSOption) (KeyProvider, error)
 
 	p := &jwksKeyProvider{
 		jwksURL:            jwksURL,
+		displayURL:         parsed.Redacted(),
 		httpClient:         &http.Client{Timeout: defaultJWKSTimeout},
 		now:                time.Now,
 		keys:               make(map[string]interface{}),
 		refreshInterval:    defaultJWKSRefreshInterval,
+		maxStaleness:       DefaultJWKSMaxStaleness,
 		unknownKidCooldown: defaultUnknownKidCooldown,
 		stopCh:             make(chan struct{}),
 	}
 	for _, opt := range opts {
 		opt(p)
+	}
+	if p.maxStaleness <= 0 {
+		return nil, fmt.Errorf("auth: the JWKS staleness bound must be positive, got %s", p.maxStaleness)
 	}
 
 	if err := p.refresh(context.Background()); err != nil {
@@ -163,23 +204,28 @@ func NewJWKSKeyProvider(jwksURL string, opts ...JWKSOption) (KeyProvider, error)
 
 // Key implements KeyProvider.
 //
-// An unknown kid (a rotation since the last refresh) causes one fetch,
-// shared by every request waiting on it and at most one per cooldown, so no
-// rate of requests can turn into the same rate of fetches from the IdP
-// (FAILURE_PATTERNS 1227).
+// A cached key is returned only while the key set is younger than
+// maxStaleness. An unknown kid (a rotation since the last refresh) or a
+// stale key set causes one fetch, shared by every request waiting on it and
+// at most one per cooldown, so no rate of requests can turn into the same
+// rate of fetches from the IdP (FAILURE_PATTERNS 1227).
 func (p *jwksKeyProvider) Key(ctx context.Context, kid string) (interface{}, error) {
 	if kid == "" {
 		return nil, errNoKid
 	}
-	if key, known := p.lookup(kid); known {
+	if key, known, fresh := p.lookup(kid); known && fresh {
 		return key, nil
 	}
 
 	fetchErr := p.refetchOnDemand(ctx)
-	key, known := p.lookup(kid)
+	key, known, fresh := p.lookup(kid)
 	switch {
-	case known:
+	case known && fresh:
 		return key, nil
+	case known:
+		// The kid is one the IdP published, but nothing has confirmed the
+		// key set for longer than the bound allows.
+		return nil, p.staleError(fetchErr)
 	case fetchErr != nil:
 		return nil, fmt.Errorf("auth: the token's kid is not in the cached key set, and refreshing it failed: %w", fetchErr)
 	default:
@@ -201,12 +247,13 @@ func (p *jwksKeyProvider) Close() error {
 	return nil
 }
 
-// lookup returns the cached key for kid and whether the cache holds one.
-func (p *jwksKeyProvider) lookup(kid string) (interface{}, bool) {
+// lookup returns the cached key for kid, whether the cache holds one, and
+// whether the key set is still inside its staleness bound.
+func (p *jwksKeyProvider) lookup(kid string) (key interface{}, known, fresh bool) {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
-	key, ok := p.keys[kid]
-	return key, ok
+	key, known = p.keys[kid]
+	return key, known, keyAge(p.now(), p.fetchedAt) <= p.maxStaleness
 }
 
 // runBackgroundRefresh refetches the key set every interval until Close.
@@ -218,17 +265,19 @@ func (p *jwksKeyProvider) runBackgroundRefresh(interval time.Duration) {
 		case <-p.stopCh:
 			return
 		case <-ticker.C:
-			// Best effort: a transient failure keeps serving the last-known-
-			// good keys rather than tearing anything down.
-			_ = p.refresh(context.Background())
+			// A failure keeps the last good keys, inside their staleness
+			// bound. refreshAndReport has already logged it, which is the
+			// one thing this loop owes it (FAILURE_PATTERNS 1228).
+			_ = p.refreshAndReport(context.Background(), "background")
 		}
 	}
 }
 
 // refresh fetches and parses jwksURL, replacing the cached key set only if
 // parsing produced at least one usable key. A failed or empty fetch never
-// touches the existing cache, so a bad response degrades to "stale" rather
-// than "empty."
+// touches the existing cache or its fetch time, so a bad response degrades
+// to "stale" rather than "empty", and a stale set keeps aging toward the
+// bound.
 func (p *jwksKeyProvider) refresh(ctx context.Context) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.jwksURL, nil)
 	if err != nil {
@@ -271,6 +320,7 @@ func (p *jwksKeyProvider) refresh(ctx context.Context) error {
 
 	p.mu.Lock()
 	p.keys = parsed
+	p.fetchedAt = p.now()
 	p.mu.Unlock()
 	return nil
 }

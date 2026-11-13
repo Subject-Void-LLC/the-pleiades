@@ -1,0 +1,1 @@
+JWKS signing keys the Controller cached expire 12 hours after the last successful refresh, after which every token is refused until a refresh succeeds, and every failed refresh is logged with the age of the cached keys.

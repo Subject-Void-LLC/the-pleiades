@@ -7,6 +7,7 @@ import (
 	"crypto/rsa"
 	"encoding/base64"
 	"testing"
+	"time"
 )
 
 // White-box (package auth, not auth_test): parseJWK is unexported. These
@@ -53,6 +54,25 @@ func TestParseJWK_TableDriven(t *testing.T) {
 				t.Errorf("parseJWK(%+v) error = %v, wantErr %v", tc.key, err, tc.wantErr)
 			}
 		})
+	}
+}
+
+// TestKeyAge covers the age measure the staleness bound reads: a key set
+// never fetched is infinitely old, and a wall clock with no monotonic
+// reading still ages it.
+func TestKeyAge(t *testing.T) {
+	if got := keyAge(time.Now(), time.Time{}); got != time.Duration(1<<63-1) {
+		t.Errorf("age of a never-fetched set = %s, want the maximum duration", got)
+	}
+	fetched := time.Now()
+	if got := keyAge(fetched.Add(time.Hour), fetched); got != time.Hour {
+		t.Errorf("age an hour on = %s, want 1h", got)
+	}
+	// Times with no monotonic reading, as a clock read from elsewhere is:
+	// the wall difference is the whole answer.
+	wall := fetched.Round(0)
+	if got := keyAge(wall.Add(13*time.Hour), wall); got != 13*time.Hour {
+		t.Errorf("wall-clock age = %s, want 13h", got)
 	}
 }
 
