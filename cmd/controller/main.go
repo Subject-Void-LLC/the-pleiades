@@ -348,19 +348,6 @@ func loadEnvelopeService() (*crypto.EnvelopeService, error) {
 // key prints.
 var errMissingMasterKey = errors.New("MASTER_ENCRYPTION_KEY is not set. This binary's setup command generates one and writes it where your deployment reads it: run `controller setup -h` for how, and see the production guide's install section")
 
-// loadKeyProvider builds the auth.KeyProvider this process verifies
-// tokens against. JWKS_URL, when set, selects the real Federated Identity
-// path (auth.NewJWKSKeyProvider); otherwise JWT_SECRET backs a static,
-// development-only provider (auth.NewStaticKeyProvider), which fails
-// closed on a short or empty secret rather than a stale open condition
-// letting a forgeable key start serving traffic.
-//
-// PLAN.md Section 32.1 says a shared symmetric secret "must be rejected at
-// startup in any other mode" than local development. No deploy-mode
-// config surface (dev vs. production) exists anywhere in this codebase
-// yet, so that stronger enforcement is not built here: an operator can
-// choose JWKS today by setting JWKS_URL, but nothing yet forces the
-// choice. Stated plainly as a deferred gap, not silently skipped.
 // resolveDatabaseDSN decides which database this process talks to.
 //
 // DB_DSN is the real knob and names any backend internal/ent.OpenDatabase
@@ -389,17 +376,6 @@ func resolveDatabaseDSN() (string, error) {
 		// The historical default: a SQLite file beside the binary.
 		return "sqlite://controller.db", nil
 	}
-}
-
-func loadKeyProvider() (auth.KeyProvider, error) {
-	if jwksURL := os.Getenv("JWKS_URL"); jwksURL != "" {
-		return auth.NewJWKSKeyProvider(jwksURL)
-	}
-	jwtSecret := os.Getenv("JWT_SECRET")
-	if jwtSecret == "" {
-		return nil, fmt.Errorf("JWT_SECRET is required when JWKS_URL is not set")
-	}
-	return auth.NewStaticKeyProvider([]byte(jwtSecret))
 }
 
 // loadRateLimiter builds the ingress token bucket from environment

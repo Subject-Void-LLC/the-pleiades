@@ -29815,7 +29815,7 @@ is unreachable at boot, and a status or metric showing the age.
 
 **Lesson.** A cache of trust has a maximum age, and a failed refresh is logged where an operator will see it.
 
-## 1229. JWKS_URL silently took precedence over JWT_SECRET, so a Controller set up with a secret and moved to an IdP kept the static secret as a mint-anything fallback by restart, and the JWKS URL could be plain http (open)
+## 1229. JWKS_URL silently took precedence over JWT_SECRET, so a Controller set up with a secret and moved to an IdP kept the static secret as a mint-anything fallback by restart, and the JWKS URL could be plain http (fixed)
 
 **Symptom.** Found 2026-11-13 by the same outside review, confirmed by reading the code; no test was run. Security.
 `cmd/controller/main.go` lines 395 to 397 choose JWKS whenever `JWKS_URL` is set and never read `JWT_SECRET`, with no error when both
@@ -29826,8 +29826,19 @@ are set (unlike `DB_DSN` with `DB_PATH`, lines 382 to 383). `controller setup` w
 **Root cause.** The two token sources were treated as a precedence, not as a choice the configuration must make once; the URL check
 allows both schemes.
 
-**Fix.** Open; queued with 1227. Shape to decide there: refuse to start with both set, and refuse `http://` (or allow it only behind an
-explicit flag, as `pkg/devicetls` does for weak device TLS).
+**Fix.** Fixed on `fix/outage-lessons`. `loadKeyProvider` (moved to `cmd/controller/keyprovider.go`, which also puts its doc comment
+back above it rather than above `resolveDatabaseDSN`) refuses to start with both `JWKS_URL` and `JWT_SECRET` set, as `DB_DSN` with
+`DB_PATH` is refused. `controller setup` does write `JWT_SECRET` (into the compose `.env` file and the Helm Secret), so the refusal
+(`errBothTokenSources`) says which to remove for each intention: `JWT_SECRET` to use the identity provider, since one left in place
+signs any token again the moment `JWKS_URL` is removed, or `JWKS_URL` to keep the static secret. `NewJWKSKeyProvider` refuses any
+scheme but https, naming the scheme and never the URL, and its first-fetch error names the URL with any password removed. The JWKS
+release gate serves its key set over TLS and hands the controller binary the certificate through `SSL_CERT_FILE`, and clears an
+inherited `JWT_SECRET`. Proof, each red with the fix reverted: `TestLoadKeyProvider_RefusesBothTokenSources` (JWKS won and the fetch
+ran), `TestJWKSKeyProvider_ConstructionFailsClosed/plain_http` (a good document over plain HTTP was accepted) and
+`TestNewJWKSKeyProvider_ARefusedURLDoesNotEchoItsPassword` (both errors carried the password). `TestLoadKeyProvider_EachSourceAlone`
+covers the other combinations. Open, for the owner: the Helm chart always sets `JWT_SECRET` from its Secret and has no JWKS setting,
+and `make up` runs `setup --check`, which calls an env file without `JWT_SECRET` incomplete and reruns setup, which writes one; so
+neither shipped path can yet run a Controller on JWKS alone.
 
 **Lesson.** Two settings that each choose how identity is verified are refused together, not ranked.
 

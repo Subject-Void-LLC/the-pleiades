@@ -330,6 +330,13 @@ func TestJWKSKeyProvider_ConstructionFailsClosed(t *testing.T) {
 	malformedJSON := jwksTestServer(t, "{not json")
 	emptyKeys := jwksTestServer(t, jwksDocument(t))
 	unsupportedKty := jwksTestServer(t, jwksDocument(t, testJWK{Kty: "oct", Kid: "k1"}))
+	// A good document served over plain HTTP: refused for its scheme alone,
+	// before any fetch (FAILURE_PATTERNS 1229).
+	plainHTTP := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(jwksDocumentForRSAKey(t, &validKey.PublicKey, "k1")))
+	}))
+	t.Cleanup(plainHTTP.Close)
 
 	cases := []struct {
 		name string
@@ -337,6 +344,7 @@ func TestJWKSKeyProvider_ConstructionFailsClosed(t *testing.T) {
 	}{
 		{"empty URL", ""},
 		{"non-http scheme", "file:///etc/passwd"},
+		{"plain http", plainHTTP.URL},
 		{"unreachable/erroring server", unreachable.URL},
 		{"malformed JSON body", malformedJSON.URL},
 		{"zero usable keys", emptyKeys.URL},

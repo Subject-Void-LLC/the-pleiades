@@ -1,9 +1,9 @@
-// These tests hold the JWKS provider to two promises an anonymous caller
+// These tests hold the JWKS provider to three promises an anonymous caller
 // or an identity provider outage would otherwise break: a request cannot
 // choose how often this Controller fetches the key set (FAILURE_PATTERNS
-// 1227), and the key set has a maximum age and a failed refresh is reported
-// (1228). Every one runs a real TLS server and verifies real signatures, as
-// jwks_test.go does.
+// 1227), the key set has a maximum age and a failed refresh is reported
+// (1228), and the key set is never fetched over plain HTTP (1229). Every one
+// runs a real TLS server and verifies real signatures, as jwks_test.go does.
 package auth_test
 
 import (
@@ -350,6 +350,26 @@ func TestNewJWKSKeyProvider_RefusesANonPositiveStalenessBound(t *testing.T) {
 		if _, err := auth.NewJWKSKeyProvider(idp.server.URL, auth.WithHTTPClient(idp.server.Client()), auth.WithMaxStaleness(d)); err == nil {
 			t.Errorf("a staleness bound of %s was accepted", d)
 		}
+	}
+}
+
+// TestNewJWKSKeyProvider_ARefusedURLDoesNotEchoItsPassword: a URL is
+// refused by its scheme alone, and a failed first fetch names the URL with
+// its password removed.
+func TestNewJWKSKeyProvider_ARefusedURLDoesNotEchoItsPassword(t *testing.T) {
+	_, err := auth.NewJWKSKeyProvider("http://user:hunter2@idp.example/keys")
+	if err == nil || strings.Contains(err.Error(), "hunter2") || !strings.Contains(err.Error(), "https") {
+		t.Errorf("plain http refusal = %v, want it to ask for https without the password", err)
+	}
+
+	down := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	t.Cleanup(down.Close)
+	withPassword := strings.Replace(down.URL, "https://", "https://user:hunter2@", 1)
+	_, err = auth.NewJWKSKeyProvider(withPassword, auth.WithHTTPClient(down.Client()))
+	if err == nil || strings.Contains(err.Error(), "hunter2") {
+		t.Errorf("failed first fetch = %v, want an error without the password", err)
 	}
 }
 

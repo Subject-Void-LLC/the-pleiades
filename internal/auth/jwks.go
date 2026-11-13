@@ -162,16 +162,24 @@ func WithLogger(l *slog.Logger) JWKSOption {
 
 // NewJWKSKeyProvider builds a KeyProvider that fetches its verification
 // keys from jwksURL. It performs a real fetch at construction time and
-// fails closed: a nil/empty URL, an unreachable endpoint, or a document
-// with zero usable keys all return an error rather than constructing a
-// provider that would silently reject every token later.
+// fails closed: an empty URL, one that is not https, an unreachable
+// endpoint, or a document with zero usable keys all return an error rather
+// than constructing a provider that would silently reject every token later.
+//
+// https is required because the key set is the trust anchor: whoever can
+// change it in transit can sign any token this Controller accepts
+// (FAILURE_PATTERNS 1229).
 func NewJWKSKeyProvider(jwksURL string, opts ...JWKSOption) (KeyProvider, error) {
 	if jwksURL == "" {
 		return nil, fmt.Errorf("auth: JWKS URL must not be empty")
 	}
 	parsed, err := url.Parse(jwksURL)
-	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") {
-		return nil, fmt.Errorf("auth: JWKS URL %q must be an http(s) URL", jwksURL)
+	if err != nil || parsed.Host == "" {
+		return nil, fmt.Errorf("auth: JWKS URL is not an absolute URL")
+	}
+	if parsed.Scheme != "https" {
+		// The scheme alone, never the URL: a URL can carry a password.
+		return nil, fmt.Errorf("auth: JWKS URL must be an https URL, not %q: the key set decides which tokens are accepted, so it is never fetched over plain HTTP", parsed.Scheme)
 	}
 
 	p := &jwksKeyProvider{
@@ -193,7 +201,7 @@ func NewJWKSKeyProvider(jwksURL string, opts ...JWKSOption) (KeyProvider, error)
 	}
 
 	if err := p.refresh(context.Background()); err != nil {
-		return nil, fmt.Errorf("auth: initial JWKS fetch from %q: %w", jwksURL, err)
+		return nil, fmt.Errorf("auth: initial JWKS fetch from %s: %w", p.displayURL, err)
 	}
 
 	if p.refreshInterval > 0 {
@@ -315,7 +323,7 @@ func (p *jwksKeyProvider) refresh(ctx context.Context) error {
 		parsed[k.Kid] = key
 	}
 	if len(parsed) == 0 {
-		return fmt.Errorf("JWKS document at %q contained no usable RSA or EC keys", p.jwksURL)
+		return fmt.Errorf("the JWKS document contained no usable RSA or EC keys")
 	}
 
 	p.mu.Lock()
