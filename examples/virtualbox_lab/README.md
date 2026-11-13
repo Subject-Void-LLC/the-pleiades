@@ -294,6 +294,69 @@ The vault credential stays, so the new VM gets the same login. To also make a ne
 `pleiades add-credential ubuntu-lab --username root --generate --replace` before
 `03-create.yaml`.
 
+### 9. Clear away what a failed delete left
+
+A delete that fails partway, or a VM unregistered without its files, leaves disks VirtualBox still
+lists and folders nothing uses. `virt.vbox.media.prune` finds them under the host's machine folder
+(its `vm_folder`, or VirtualBox's default when it names none) and deletes them. Run it as a check
+first: the check lists every disk and folder a run would remove, and removes nothing.
+
+```bash
+pleiades adhoc vengeance virt.vbox.media.prune --mode check --verbose
+pleiades adhoc vengeance virt.vbox.media.prune
+```
+
+It keeps every disk a registered VM uses, in its current state or a snapshot, and every disk one
+of those descends from (a base a linked clone still needs); a disk in a registered VM's own folder
+(`virt.vbox.vm.detach_disk` keeps one there on purpose); every folder holding a registered VM's
+settings; and every folder that is neither a VM's folder (one holding a `.vbox` or `.vbox-prev`
+file) nor empty. When VirtualBox lists a VM it cannot read, no folder is removed, since nothing can
+say which one is that VM's: delete it first with `virt.vbox.vm.delete`, naming the UUID
+`virt.vbox.vm.list` shows for it.
+
+A folder that held only leftover disks is emptied by the run that deletes them and removed by the
+next run, since it still held disks when the first run looked. After a large cleanup, run it
+twice.
+
+Nothing outside the machine folder is touched, however VirtualBox spells a path: a disk named
+through a `..` segment, a UNC path or another drive is not inside it, and neither is a folder whose
+name differs only in a letter outside ASCII (the Kelvin sign in place of K), which Windows treats
+as another folder. Nothing at or under a symbolic link, junction or mount point is deleted, nor a
+folder that is one or holds one: a link can name a folder anywhere, and what it reaches is not
+the machine folder's to delete. Nothing removed can be brought back; the method records no undo.
+
+### 10. Bring the VMs into inventory with a sync
+
+In place of an `add-host` for each VM, the `vbox` sync plugin reads the host's VMs over the same
+WinRM connection, with the host's own credential, and adds each clone as the device that reaches
+its guest: a Windows VM as a `windows_server`, a Linux one as a `linux_server`, at the address
+`virt.vbox.vm.clone` recorded on it. `--read-only` shows what it would do and writes nothing:
+
+```bash
+pleiades inventory sync --plugin vbox --endpoint https://172.18.32.1:5986 --credential vengeance \
+  --set ca_file=ca.pem --read-only
+```
+
+```
+discovered 12 device(s): 0 added, 0 updated, 0 unchanged, 6 quarantined, 6 conflicted
+
+devices needing review:
+  "bsd-lab"       quarantined  no classification rule for the VirtualBox OS type "FreeBSD (64-bit)" yet
+  "freebsd-base"  quarantined  VirtualBox records no address for "freebsd-base": only a VM virt.vbox.vm.clone made carries one ...
+  "ubuntu-lab"    conflict     device was added by hand and no sync owns it; name it with --adopt ubuntu-lab to let sync plugin "vbox" take it over
+  "win-lab"       conflict     device was added by hand and no sync owns it; name it with --adopt win-lab to let sync plugin "vbox" take it over
+  ...
+```
+
+The sync never writes to the host, and the devices it adds land `simulate-locked`: they accept a
+check and nothing else until someone promotes them. A VM it cannot place is listed with the reason
+and not added: a base nobody cloned has no recorded address, a FreeBSD VM is a `generic_ssh`
+device that `pleiades onboard` probes instead, and a VM whose recorded address is not an IP
+address, or whose name no device may take, is someone else's text. The devices this guide added
+by hand are conflicts, reported and left alone, since the same name is no proof it is the same
+machine. To let the sync take one over, name it: `--adopt ubuntu-lab` (repeatable, one exact
+name each). From then on the sync owns it.
+
 ## Windows Server guests
 
 The same host makes Windows Server VMs. Microsoft's evaluation ISO is installed once, with no one
@@ -725,3 +788,10 @@ starts it again. `virt.vbox.vm.stop` clears the mark.
 
 **Deleting the base.** `virt.vbox.vm.delete` of a VM that linked clones were made from is
 refused by VirtualBox while those clones exist. Delete the clones first.
+
+**A running VM's snapshot is not deleted.** `virt.vbox.snapshot.delete` refuses a VM that is not
+stopped, in a check too: deleting a running VM's snapshot merges its disks while it runs, and on
+this host that twice left the VM unreadable to VirtualBox, its settings holding no record of its
+disks. Stop it first with `virt.vbox.vm.stop`. For the same reason `virt.vbox.snapshot.take` of a
+running VM records no undo and says so in a warning: a rollback of that run refuses the snapshot by
+name before it contacts anything, and `--leave <node>` accepts leaving it.
