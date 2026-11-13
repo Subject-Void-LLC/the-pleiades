@@ -80,7 +80,7 @@ func TestIOSRoutes(t *testing.T) {
 		t.Error("an uptime moved the fingerprint")
 	}
 
-	if _, _, err := routeReader(context.Background(), nil, &inventorytest.Stub{StubName: "linux1"}, nil); err == nil || !strings.Contains(err.Error(), "neither an FRR router") {
+	if _, _, err := routeReader(context.Background(), nil, &inventorytest.Stub{StubName: "linux1"}, nil); err == nil || !strings.Contains(err.Error(), `device "linux1" is none of them`) {
 		t.Errorf("a device neither FRR nor IOS: %v", err)
 	}
 }
@@ -170,8 +170,8 @@ func TestRouteReader_RefusesWhatItCannotOpen(t *testing.T) {
 		t.Errorf("no device: %v", err)
 	}
 	for name, caps := range map[string][]capability.Name{
-		"frr1": {capability.NameFRR, capability.NameCommandExec},
-		"ios1": {capability.NameCiscoIOS},
+		"frr1": {capability.NameFRR, capability.NameCommandExec, capability.NameSSHTransport},
+		"ios1": {capability.NameCiscoIOS, capability.NameSSHTransport},
 	} {
 		read, closer, err := routeReader(context.Background(), emptyRC{}, &inventorytest.Stub{StubName: name, Caps: caps}, nil)
 		if err == nil || read != nil || closer != nil {

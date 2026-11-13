@@ -32,49 +32,57 @@ const routesPoll = time.Second
 
 func init() {
 	collection.MustRegister(collection.Descriptor{
-		Name: routesFQCN,
-		Manifest: collection.Manifest{
-			// FRR is read over SSH, Cisco IOS over whatever reaches its CLI.
-			// The capability is decided per device (routeReader): a device
-			// that is neither is refused before it is contacted.
-			SupportedTransports:  []string{capability.TransportSSH, capability.TransportTelnet, capability.TransportConsole},
-			RequiredCapabilities: []capability.Name{},
-			ExecutionContext:     collection.ExecutionContext{Site: collection.SiteTarget, Device: collection.DeviceRequired},
-			EngineVersion:        ">=0.2.0",
-			Status:               collection.StatusImplemented,
-			NoExistsReason:       collection.NoExistsWait,
-			Reversibility: collection.Reversibility{
-				ReadOnly: true,
-				Notes:    "This method reads the routing table and changes nothing, so there is nothing to undo.",
-			},
-			NoCheckReason: "what a wait waits for is usually an earlier task's change, which a check never makes, so a check would wait out " +
-				"its timeout and fail where the real run succeeds",
-			Doc: collection.Doc{
-				Summary:     "Waits until a router has a route to every prefix given, or with state absent has none left, and its routing table has stopped changing.",
-				Description: "A full OSPF adjacency is not convergence: shortest paths are computed after it, and a router can route the long way, or not at all, for a while after every neighbour is up. This waits for what a change needs: a selected route to each prefix (through the given next hops, when next_hops names any), and the routing table, uptimes aside, unchanged for stable_for seconds. With state absent it waits for the opposite, such as a withdrawn network or a failed link: no selected route to any prefix given (or, for a prefix next_hops names, a route through none of those next hops, so a failover away from one neighbour can be waited for), with the same stable_for. A table read with no selected route at all (not even a connected one, as a cut or refused read or output the parser does not recognize leaves it) is never taken as every route gone: the wait goes on. At timeout it fails naming each route still missing (or, with state absent, still there, or that the table read held no route), or saying the table never held still. It changes nothing. It reads an FRR router's table through vtysh (show ip route json, over SSH, the device granted FRRCapable and CommandExecCapable) and a Cisco IOS router's global table through its CLI (show ip route, over SSH, the controller's console or Telnet with insecure_telnet), and refuses any other device before contacting it. That refusal is made when the task runs: no single capability names both, so validate and a Controller's admission cannot hold the device to it beforehand.",
-				Params: []collection.Param{
-					{Name: "prefixes", Type: "list of string", Required: true, Description: "The IPv4 prefixes that must each have a selected route (with state absent, none), e.g. 10.3.3.0/24; the IPv4 routing table is the one read."},
-					{Name: "next_hops", Type: "dict", Description: "Per prefix, the next-hop addresses its route must use, e.g. {\"10.3.3.0/24\": [\"10.0.12.1\"]}; with state absent, the next hops its route must no longer use."},
-					{Name: waitParamState, Type: "string", Default: "present", Choices: []string{waitStatePresent, waitStateAbsent}, ChoicesIgnoreCase: true, Description: "present waits for a selected route to every prefix given; absent waits until none of them has one (or, for a prefix next_hops names, until its route uses none of those next hops). Case is ignored."},
-					{Name: "stable_for", Type: "int", Default: "5", Description: "Seconds the routing table must stay unchanged."},
-					{Name: "timeout", Type: "int", Default: "120", Description: "Seconds to wait in all."},
-					{Name: "insecure_skip_host_key_verify", Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
-					{Name: "insecure_telnet", Type: "bool", Default: "false", Description: "Reach a Cisco IOS device that has no SSH over bare Telnet, answering its login with the task's credential. Telnet carries everything, the login included, in cleartext, so set this only for a device on a network you trust."},
-				},
-				Returns: []collection.ReturnField{
-					{Name: "waited", Type: "float", Returned: "always", Description: "Seconds waited."},
-					{Name: "routes", Type: "dict", Returned: "always", Description: "Each prefix given, with the next hops its route used; with state absent, an empty list for a prefix with no route left."},
-				},
-				Examples: []collection.Example{
-					{Name: "Wait for OSPF to settle", RunbookYAML: "- name: Every router routes both LANs\n  wait.routes:\n    prefixes: [10.1.1.0/24, 10.3.3.0/24]\n"},
-					{Name: "Wait for a withdrawn network to leave the table", RunbookYAML: "- name: R1 no longer routes the retired LAN\n  wait.routes:\n    target: R1\n    prefixes: [10.9.9.0/24]\n    state: absent\n"},
-					{Name: "Wait for a branch to learn the data center over its tunnel", RunbookYAML: "- name: BR1 routes the data center through the hub\n  wait.routes:\n    target: BR1\n    prefixes: [10.0.0.0/16]\n    next_hops: {10.0.0.0/16: [10.255.0.1]}\n    timeout: 180\n"},
-				},
-				SeeAlso: []string{"net.frr.config", "net.trace"},
-			},
-		},
-		Invoke: Routes,
+		Name:     routesFQCN,
+		Manifest: routesManifest(),
+		Invoke:   Routes,
 	})
+}
+
+// routesManifest is wait.routes's manifest. Its alternatives come from
+// routeKinds, the table routeReader opens its reader from, so what
+// validate, admission and the engine admit (collection.Admits) and what the
+// method reads cannot disagree.
+func routesManifest() collection.Manifest {
+	return collection.Manifest{
+		// FRR is read over SSH, Cisco IOS over whatever reaches its CLI:
+		// the union of the alternatives' transports.
+		SupportedTransports:  []string{capability.TransportSSH, capability.TransportTelnet, capability.TransportConsole},
+		RequiredCapabilities: []capability.Name{},
+		Alternatives:         routeAlternatives(),
+		ExecutionContext:     collection.ExecutionContext{Site: collection.SiteTarget, Device: collection.DeviceRequired},
+		EngineVersion:        ">=0.2.0",
+		Status:               collection.StatusImplemented,
+		Reversibility: collection.Reversibility{
+			ReadOnly: true,
+			Notes:    "This method reads the routing table and changes nothing, so there is nothing to undo.",
+		},
+		NoExistsReason: collection.NoExistsWait,
+		NoCheckReason: "what a wait waits for is usually an earlier task's change, which a check never makes, so a check would wait out " +
+			"its timeout and fail where the real run succeeds",
+		Doc: collection.Doc{
+			Summary:     "Waits until a router has a route to every prefix given, or with state absent has none left, and its routing table has stopped changing.",
+			Description: "A full OSPF adjacency is not convergence: shortest paths are computed after it, and a router can route the long way, or not at all, for a while after every neighbour is up. This waits for what a change needs: a selected route to each prefix (through the given next hops, when next_hops names any), and the routing table, uptimes aside, unchanged for stable_for seconds. With state absent it waits for the opposite, such as a withdrawn network or a failed link: no selected route to any prefix given (or, for a prefix next_hops names, a route through none of those next hops, so a failover away from one neighbour can be waited for), with the same stable_for. A table read with no selected route at all (not even a connected one, as a cut or refused read or output the parser does not recognize leaves it) is never taken as every route gone: the wait goes on. At timeout it fails naming each route still missing (or, with state absent, still there, or that the table read held no route), or saying the table never held still. It changes nothing. It reads an FRR router's table through vtysh (show ip route json, over SSH, the device granted FRRCapable and CommandExecCapable) and a Cisco IOS router's global table through its CLI (show ip route, over SSH, the controller's console or Telnet with insecure_telnet), and refuses any other device before contacting it. The two kinds are the method's alternatives, each with its own capabilities and transports, so validate, a Controller's admission and the run itself all refuse a device that is neither, and the run checks again in case a grant lapsed after admission.",
+			Params: []collection.Param{
+				{Name: "prefixes", Type: "list of string", Required: true, Description: "The IPv4 prefixes that must each have a selected route (with state absent, none), e.g. 10.3.3.0/24; the IPv4 routing table is the one read."},
+				{Name: "next_hops", Type: "dict", Description: "Per prefix, the next-hop addresses its route must use, e.g. {\"10.3.3.0/24\": [\"10.0.12.1\"]}; with state absent, the next hops its route must no longer use."},
+				{Name: waitParamState, Type: "string", Default: "present", Choices: []string{waitStatePresent, waitStateAbsent}, ChoicesIgnoreCase: true, Description: "present waits for a selected route to every prefix given; absent waits until none of them has one (or, for a prefix next_hops names, until its route uses none of those next hops). Case is ignored."},
+				{Name: "stable_for", Type: "int", Default: "5", Description: "Seconds the routing table must stay unchanged."},
+				{Name: "timeout", Type: "int", Default: "120", Description: "Seconds to wait in all."},
+				{Name: "insecure_skip_host_key_verify", Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
+				{Name: "insecure_telnet", Type: "bool", Default: "false", Description: "Reach a Cisco IOS device that has no SSH over bare Telnet, answering its login with the task's credential. Telnet carries everything, the login included, in cleartext, so set this only for a device on a network you trust."},
+			},
+			Returns: []collection.ReturnField{
+				{Name: "waited", Type: "float", Returned: "always", Description: "Seconds waited."},
+				{Name: "routes", Type: "dict", Returned: "always", Description: "Each prefix given, with the next hops its route used; with state absent, an empty list for a prefix with no route left."},
+			},
+			Examples: []collection.Example{
+				{Name: "Wait for OSPF to settle", RunbookYAML: "- name: Every router routes both LANs\n  wait.routes:\n    prefixes: [10.1.1.0/24, 10.3.3.0/24]\n"},
+				{Name: "Wait for a withdrawn network to leave the table", RunbookYAML: "- name: R1 no longer routes the retired LAN\n  wait.routes:\n    target: R1\n    prefixes: [10.9.9.0/24]\n    state: absent\n"},
+				{Name: "Wait for a branch to learn the data center over its tunnel", RunbookYAML: "- name: BR1 routes the data center through the hub\n  wait.routes:\n    target: BR1\n    prefixes: [10.0.0.0/16]\n    next_hops: {10.0.0.0/16: [10.255.0.1]}\n    timeout: 180\n"},
+			},
+			SeeAlso: []string{"net.frr.config", "net.trace"},
+		},
+	}
 }
 
 // routesWant is what the task waits for.
@@ -238,29 +246,6 @@ type nextHop struct {
 	Interface string `json:"interfaceName,omitempty"`
 	Active    bool   `json:"active"`
 	FIB       bool   `json:"fib,omitempty"`
-}
-
-// routeReader returns how to read device's routing table, and how to close
-// what it opened: FRR's through vtysh over SSH, or Cisco IOS's through its
-// CLI. A device that is neither is refused before anything is opened.
-func routeReader(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (func(context.Context) (map[string][]route, error), func(), error) {
-	switch {
-	case device != nil && device.HasCapability(capability.NameFRR) && device.HasCapability(capability.NameCommandExec):
-		conn, err := sdk.Connect(ctx, rc, device, params, routesFQCN)
-		if err != nil {
-			return nil, nil, err
-		}
-		return func(ctx context.Context) (map[string][]route, error) { return readFRRRoutes(ctx, conn) }, func() { _ = conn.Close() }, nil
-	case device != nil && device.HasCapability(capability.NameCiscoIOS):
-		session, err := sdk.OpenCLI(ctx, rc, device, params, routesFQCN, netcli.IOS)
-		if err != nil {
-			return nil, nil, err
-		}
-		return func(ctx context.Context) (map[string][]route, error) { return readIOSRoutes(ctx, session) }, func() { _ = session.Close() }, nil
-	case device == nil:
-		return nil, nil, fmt.Errorf("%s: no target device: set the task's target or the runbook's hosts", routesFQCN)
-	}
-	return nil, nil, fmt.Errorf("%s: device %q is neither an FRR router (FRRCapable and CommandExecCapable) nor a Cisco IOS one (CiscoIOSCapable), whose routing tables this method reads", routesFQCN, device.Name())
 }
 
 // readIOSRoutes reads a Cisco IOS router's global table, show ip route, as

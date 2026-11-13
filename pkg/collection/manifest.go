@@ -178,6 +178,16 @@ type Manifest struct {
 	// method. A call is held to its shape through For; see shapes.go.
 	Shapes []CallShape `json:"shapes,omitempty"`
 
+	// Alternatives are the kinds of device the method serves, when it
+	// serves more than one, each with the capabilities and transports a
+	// device of that kind needs (wait.routes: an FRR router or a Cisco IOS
+	// one). A device is admitted when it fits one of them whole, beside the
+	// two fields above, which then hold only what every kind needs (the
+	// transports being their union). Empty for nearly every method, and
+	// never declared beside Shapes. Read it through Admits and
+	// ChooseAlternative; see alternatives.go.
+	Alternatives []Alternative `json:"alternatives,omitempty"`
+
 	ExecutionContext ExecutionContext `json:"executionContext,omitempty"`
 	PlatformTargets  []PlatformTarget `json:"platformTargets,omitempty"`
 

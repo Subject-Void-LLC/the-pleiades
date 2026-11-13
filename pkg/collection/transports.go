@@ -36,7 +36,7 @@ func checkTransportNames(d Descriptor) error {
 
 // CheckTransports refuses a device that the method named fqcn cannot
 // reach: m declares one or more transports and device reaches none of
-// them. Reaching any one is enough, which is what a method declaring two
+// them. The refusal is a *TransportError. Reaching any one is enough, which is what a method declaring two
 // (wait.connection's ssh and winrm) means.
 //
 // A method that declares no transport has nothing to check: a
@@ -57,8 +57,8 @@ func CheckTransports(device inventory.InventoryItem, fqcn string, m Manifest) er
 			return nil
 		}
 	}
-	return fmt.Errorf("collection method %q reaches its device over %s, and device %q reaches %s",
-		fqcn, strings.Join(m.SupportedTransports, " or "), device.Name(), describeReach(device))
+	return &TransportError{message: fmt.Sprintf("collection method %q reaches its device over %s, and device %q reaches %s",
+		fqcn, strings.Join(m.SupportedTransports, " or "), device.Name(), describeReach(device))}
 }
 
 // reaches reports whether device has any capability that reaches

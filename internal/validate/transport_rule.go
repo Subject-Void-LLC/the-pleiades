@@ -16,10 +16,13 @@ import (
 // declaration, so an SSH-only method validated against a WinRM-only
 // Windows server and failed at run time.
 //
-// The check itself is collection.CheckTransports, the one the engine
-// makes again before the method runs and the generic dispatchers make for
-// the concrete method they pick, so plan time and run time answer the
-// same question the same way. Devices come from taskDevices, so a call
+// The check itself is collection.CheckTransports, the transport half of
+// collection.Admits, which the engine makes again before the method runs,
+// and the one the generic dispatchers make for the concrete method they
+// pick, so plan time and run time answer the same question the same way.
+// CapabilityRule makes the rest of Admits and leaves its transport refusals
+// to this rule, so a device lacking both a capability and a transport is
+// named for each. Devices come from taskDevices, so a call
 // that needs no device (engine.TaskTarget) has none to check. A task with
 // a condition of its own is left to the engine (engine.DAG.Conditional).
 func TransportRule(world WorldView) []Finding {

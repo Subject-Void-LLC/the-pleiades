@@ -66,9 +66,9 @@ func reachesAnEngine(m collection.Manifest) bool {
 // has requires Docker), or empty for one that reaches whichever the device runs.
 func engineOf(m collection.Manifest) capability.EngineKind {
 	switch {
-	case slices.Contains(m.RequiredCapabilities, capability.NameDocker):
+	case m.Requires(capability.NameDocker):
 		return capability.EngineDocker
-	case slices.Contains(m.RequiredCapabilities, capability.NamePodman):
+	case m.Requires(capability.NamePodman):
 		return capability.EnginePodman
 	}
 	return ""

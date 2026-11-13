@@ -154,7 +154,15 @@ func validateMethod(m external.DescribedMethod, running string, reserved map[str
 			return false, fmt.Errorf("method %q declares a parameter named %q, which the engine reads as the device or tag a task runs on; give it another name", m.Name, p.Name)
 		}
 	}
-	for _, name := range m.Manifest.RequiredCapabilities {
+	// Register's rule for alternatives, said here so a directory does not
+	// load halfway.
+	if err := collection.ValidateAlternatives(m.Name, m.Manifest); err != nil {
+		return false, fmt.Errorf("method %q: %w", m.Name, err)
+	}
+	// Every capability the manifest names, its call shapes' and its
+	// alternatives' included (Manifest.NamedCapabilities), so no part of it
+	// can name another program's capability past this rule.
+	for _, name := range m.Manifest.NamedCapabilities() {
 		if defined[name] {
 			// One of this program's own data capabilities (validateCapabilities).
 			continue

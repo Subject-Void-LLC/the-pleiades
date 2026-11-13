@@ -491,6 +491,12 @@ without the person's say-so.
 
 `pleiades doc <method>` prints each one's full contract.
 
+`wait.routes` reads two kinds of router: FRR (`FRRCapable` and `CommandExecCapable`, over SSH) and Cisco IOS
+(`CiscoIOSCapable`, over SSH, Telnet or a console server). A task whose device is neither is refused by
+`pleiades validate`, by a Runner before it runs anything, and by a Controller when it admits the device; the
+method checks again when it runs, in case a grant lapsed in between. `pleiades doc wait.routes` lists the two
+kinds under its attributes.
+
 ### Keeping a running configuration as a candidate file
 
 A candidate is a whole configuration file in the project, and the natural start is what the router

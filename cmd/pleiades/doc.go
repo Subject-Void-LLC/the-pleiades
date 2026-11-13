@@ -281,6 +281,15 @@ func printDocEntry(entries []catalogEntry, fqcn string) error {
 		}
 		fmt.Printf("  with %s: capabilities %s; transports %s\n", s.Param, joinOrDash(shapeCaps), joinOrDash(s.SupportedTransports))
 	}
+	// A kind of device the method serves needs its own, and a device must
+	// be one of the kinds whole (collection.Alternative).
+	for _, a := range m.Alternatives {
+		altCaps := make([]string, len(a.RequiredCapabilities))
+		for i, c := range a.RequiredCapabilities {
+			altCaps[i] = string(c)
+		}
+		fmt.Printf("  as %s: capabilities %s; transports %s\n", a.Name, joinOrDash(altCaps), joinOrDash(a.SupportedTransports))
+	}
 	fmt.Printf("  requires elevation  %t\n", m.ExecutionContext.RequiresElevation)
 	fmt.Printf("  check mode          %s\n", checkModeWord(m.SupportsCheck))
 	// What a read-only method answers about a thing that is not there.
@@ -291,7 +300,7 @@ func printDocEntry(entries []catalogEntry, fqcn string) error {
 		fmt.Printf("  engine version      %s%s\n", m.EngineVersion, engineVersionNote(e.Origin != ""))
 	}
 
-	for _, c := range m.RequiredCapabilities {
+	for _, c := range m.NamedCapabilities() {
 		if def, ok := capability.DataOf(c); ok {
 			fmt.Printf("\n%s is defined by %s, not by The Pleiades: pleiades doc %s\n", c, def.Provider, c)
 		}

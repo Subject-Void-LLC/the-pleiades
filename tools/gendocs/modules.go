@@ -178,6 +178,17 @@ func writeModulePage(modulesDir, fqcn string, m collection.Manifest, someCalls b
 			[]string{"With " + code(s.Param) + ": capabilities", quoteList(shapeCaps)},
 			[]string{"With " + code(s.Param) + ": transports", quoteList(s.SupportedTransports)})
 	}
+	// A kind of device the method serves needs its own, and a device must
+	// be one of the kinds whole (collection.Alternative).
+	for _, a := range m.Alternatives {
+		altCaps := make([]string, len(a.RequiredCapabilities))
+		for i, c := range a.RequiredCapabilities {
+			altCaps[i] = string(c)
+		}
+		rows = append(rows,
+			[]string{"As " + code(a.Name) + ": capabilities", quoteList(altCaps)},
+			[]string{"As " + code(a.Name) + ": transports", quoteList(a.SupportedTransports)})
+	}
 	rows = append(rows,
 		[]string{"Requires elevation", yesNo(m.ExecutionContext.RequiresElevation)},
 		[]string{"Runs", runsWhere(m.ExecutionContext)},
@@ -291,9 +302,9 @@ func writeParameters(b *strings.Builder, doc collection.Doc) {
 		return
 	}
 
-	rows := make([][]string, len(params))
-	for i, p := range params {
-		rows[i] = []string{code(p.Name), code(p.Type), yesNo(p.Required), code(p.Default), riskNote(p.Risk) + secretRefsNote(p.SecretRefs) + runSettingNote(p.RunSetting) + aliasNote(p.AliasOf) + p.Description + choicesNote(p)}
+	rows := make([][]string, 0, len(params))
+	for _, p := range params {
+		rows = append(rows, []string{code(p.Name), code(p.Type), yesNo(p.Required), code(p.Default), riskNote(p.Risk) + secretRefsNote(p.SecretRefs) + runSettingNote(p.RunSetting) + aliasNote(p.AliasOf) + p.Description + choicesNote(p)})
 	}
 	b.WriteString("## Parameters\n\n")
 	b.WriteString(table([]string{"Name", "Type", "Required", "Default", "Description"}, rows))

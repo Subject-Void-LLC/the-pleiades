@@ -262,22 +262,68 @@ func TestLoad_TwoProgramsDefiningOneNameAreBothRefused(t *testing.T) {
 }
 
 // TestLoad_AMethodMayNotRequireAnotherProgramsCapability: a definition one
-// program makes is that program's alone; another program's method
-// requiring it is refused.
+// program makes is that program's alone; another program's method naming it
+// is refused wherever its manifest names it: its own requirements, a call
+// shape's, or an alternative's (collection.Manifest.NamedCapabilities). The
+// shape and alternative cases loaded before the rule read every part, since
+// Register checks only that a capability is known, and another program's is.
 func TestLoad_AMethodMayNotRequireAnotherProgramsCapability(t *testing.T) {
+	requireConfinement(t)
+	ssh := []string{capability.TransportSSH}
+	inShape := implemented(false)
+	inShape.Doc = collection.Doc{Params: []collection.Param{{Name: "via", Type: "string", Description: "x"}}}
+	inShape.Shapes = []collection.CallShape{{Param: "via", RequiredCapabilities: []capability.Name{"acme.widget_api"}}}
+	inAlternative := implemented(false)
+	inAlternative.SupportedTransports = ssh
+	inAlternative.Alternatives = []collection.Alternative{
+		{Name: "plain", SupportedTransports: ssh, RequiredCapabilities: []capability.Name{capability.NameLinux}},
+		{Name: "widget", SupportedTransports: ssh, RequiredCapabilities: []capability.Name{"acme.widget_api"}},
+	}
+	for name, manifest := range map[string]collection.Manifest{
+		"its own requirements": requiring("acme.widget_api"),
+		"a call shape":         inShape,
+		"an alternative":       inAlternative,
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Cleanup(collection.SnapshotForTest())
+			t.Cleanup(capability.SnapshotForTest())
+			def := widget()
+			def.Provider = "someone-else"
+			if err := capability.RegisterData(def); err != nil {
+				t.Fatal(err)
+			}
+			dir := programDir(t)
+			writeProgram(t, dir, "borrower", script(describeJSON(t, 0,
+				external.DescribedMethod{Name: "borrow.widget.read", Manifest: manifest}), `printf '{}' >&3`))
+			err := tryLoad(t, dir, testOptions())
+			if err == nil || !strings.Contains(err.Error(), "another program defines") {
+				t.Fatalf("Load = %v, want a refusal naming the other program's capability", err)
+			}
+			if _, ok := collection.Lookup("borrow.widget.read"); ok {
+				t.Error("the refused method was registered")
+			}
+		})
+	}
+}
+
+// TestLoad_RefusesAlternativesRegisterWould: a program's alternatives that
+// Register would refuse (here, one alone) are refused before anything in
+// the directory registers, so it does not load halfway.
+func TestLoad_RefusesAlternativesRegisterWould(t *testing.T) {
 	requireConfinement(t)
 	t.Cleanup(collection.SnapshotForTest())
 	t.Cleanup(capability.SnapshotForTest())
-	def := widget()
-	def.Provider = "someone-else"
-	if err := capability.RegisterData(def); err != nil {
-		t.Fatal(err)
-	}
+	m := implemented(false)
+	m.SupportedTransports = []string{capability.TransportSSH}
+	m.Alternatives = []collection.Alternative{{Name: "only", SupportedTransports: m.SupportedTransports, RequiredCapabilities: []capability.Name{capability.NameLinux}}}
 	dir := programDir(t)
-	writeProgram(t, dir, "borrower", script(describeJSON(t, 0,
-		external.DescribedMethod{Name: "borrow.widget.read", Manifest: requiring("acme.widget_api")}), `printf '{}' >&3`))
-	err := tryLoad(t, dir, testOptions())
-	if err == nil || !strings.Contains(err.Error(), "another program defines") {
-		t.Fatalf("Load = %v, want a refusal naming the other program's capability", err)
+	writeProgram(t, dir, "lonely", script(describeJSON(t, 0,
+		external.DescribedMethod{Name: "acme.first.read", Manifest: implemented(false)},
+		external.DescribedMethod{Name: "acme.second.read", Manifest: m}), `printf '{}' >&3`))
+	if err := tryLoad(t, dir, testOptions()); err == nil || !strings.Contains(err.Error(), "declares one alternative") {
+		t.Fatalf("Load = %v, want the lone alternative refused", err)
+	}
+	if _, ok := collection.Lookup("acme.first.read"); ok {
+		t.Error("the directory loaded halfway")
 	}
 }

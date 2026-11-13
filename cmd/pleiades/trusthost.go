@@ -200,10 +200,8 @@ func consoleKeys(ctx context.Context, dir string, repo inv.Repository, host, vm 
 	if !ok {
 		return nil, fmt.Errorf("%s is not in this build", hostKeysMethod)
 	}
-	for _, need := range desc.Manifest.RequiredCapabilities {
-		if !device.HasCapability(need) {
-			return nil, fmt.Errorf("device %q does not declare %s; set virtualbox: true on it", host, need)
-		}
+	if err := collection.CheckCapabilities(device, hostKeysMethod, desc.Manifest); err != nil {
+		return nil, fmt.Errorf("%w; set virtualbox: true on it", err)
 	}
 	rc, err := engine.NewCredentialRunbookContext(credential.NewLazyFileStore(dir))(ctx, device)
 	if err != nil {
