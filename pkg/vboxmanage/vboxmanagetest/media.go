@@ -14,7 +14,7 @@ import (
 // always gets the same one, so a clone's parent names its source's disk.
 func mediumUUID(path string) string {
 	sum := uint64(14695981039346656037)
-	for _, c := range strings.ToLower(path) {
+	for _, c := range []byte(strings.ToLower(path)) {
 		sum = (sum ^ uint64(c)) * 1099511628211
 	}
 	return fmt.Sprintf("00000000-0000-4000-a000-%012x", sum&0xffffffffffff)

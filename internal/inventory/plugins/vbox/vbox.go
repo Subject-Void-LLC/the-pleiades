@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -143,8 +144,9 @@ func ReadEndpoint(cfg syncplugin.Config) (Endpoint, error) {
 		if !e.Options.HTTPS {
 			return Endpoint{}, fmt.Errorf("sync plugin %q: %s pins an authority for https, and the endpoint is http", Name, SettingCAFile)
 		}
-		// The operator names the file on the command line.
-		if e.Options.CACert, err = os.ReadFile(path); err != nil {
+		// The operator names the file on the command line, and reads only
+		// what they can already read; Clean drops nothing but redundancy.
+		if e.Options.CACert, err = os.ReadFile(filepath.Clean(path)); err != nil {
 			return Endpoint{}, fmt.Errorf("sync plugin %q: reading %s: %w", Name, SettingCAFile, err)
 		}
 	}
