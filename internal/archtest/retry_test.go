@@ -63,9 +63,12 @@ func TestNoSecondRetryLoopOrCircuitBreaker(t *testing.T) {
 		}
 	}
 
+	// Phase 112 moved WinRM's circuit from the winrm_exec transport into
+	// pkg/winrmexec, which every WinRM call goes through, so that one failure
+	// is counted once; the transport no longer holds a breaker of its own.
 	for _, importPath := range []string{
 		modulePath + "/pkg/remoteexec",
-		modulePath + "/internal/transport/winrm",
+		modulePath + "/pkg/winrmexec",
 	} {
 		if !importsPackage(t, importPath, breakerPkg) {
 			t.Errorf("%s does not import %s: it dials behind a circuit breaker, and the platform has exactly one; if it genuinely stopped dialing, remove it from this list", importPath, breakerPkg)

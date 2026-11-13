@@ -190,6 +190,28 @@ func (b *Breaker) RecordSuccess(key string) {
 	e.consecutiveFailures = 0
 }
 
+// EndCooldown cuts short the cooldown of key's open circuit, so the next
+// Allow hands out the half-open probe at once instead of failing fast for
+// the rest of the cooldown. It changes nothing else: a closed circuit
+// stays closed with its streak, and a probe already out keeps its lease.
+//
+// It is for a caller that has seen the target answer without making a
+// call that proves it serves: a listener accepting, before anything has
+// logged in. That is evidence enough to stop refusing without traffic, and
+// not enough to close the circuit, so the call after it is still the one
+// probe whose outcome decides.
+func (b *Breaker) EndCooldown(key string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	e, ok := b.entries[key]
+	if !ok || e.state != open {
+		return
+	}
+	// Backdated by one cooldown, so Permitted and Allow read it as over.
+	e.openedAt = time.Now().Add(-b.cooldown)
+}
+
 // RecordFailure records one more consecutive failure against key. A
 // failed probe opens the circuit again at once, with a fresh cooldown,
 // whatever the threshold; otherwise the circuit opens when the streak

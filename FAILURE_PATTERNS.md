@@ -1210,6 +1210,10 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 1204. net.frr.config reloaded a router to no configuration on a candidate of only whitespace, and a forced undo of a blank backup did the same (fixed before push)
 1205. The loader's capability ownership rule read only RequiredCapabilities, so an external method could name another program's data capability in a call shape or an alternative (fixed before push)
 1206. The collection scaffold rendered only a parameter's older fields, so a regeneration would have dropped Entries (fixed before push)
+1207. A WinRM call canceled while it held the half-open probe closed the open circuit, with no evidence the host was back (fixed before push)
+1208. A WinRM host value holding "/", "?", "#", "@", a backslash, a space or a control character moved the WS-Man URL (fixed before push)
+1209. wait.connection over SSH retried a refused password or host key for its whole timeout, which can lock an account (fixed before push)
+1210. TestBracketedIPv6ReachesTheDial broke at -count=3 once the WinRM circuit became process-wide (a repeat in kind of LESSONS 159) (fixed before push)
 1211. TestPort_WaitsForAPortToOpen chose a free port, released it, and bound it later; a lost bind returned silently, so the wait timed out (a repeat of 601) (fixed on the pull request)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.

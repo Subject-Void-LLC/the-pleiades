@@ -33,17 +33,17 @@
 //
 // # The circuit breaker
 //
-// The same network failures count toward a per-address circuit breaker,
-// pkg/breaker, the one pkg/remoteexec uses for SSH: after five in a row
-// against one address, calls to it fail fast for thirty seconds with no
-// traffic, then one probe is let through. It is scoped to the failure
-// domain PLAN.md names, the network, so only what the retry treats as a
-// network failure opens it. A refused credential, a refused command or a
-// failure after the command started proves the host answered, and a
-// mistake in the task itself never reached the network at all; neither
-// says the path to the device is down. One breaker belongs to one
-// transport, so a composition root that builds one transport shares it
-// across every task it runs.
+// The same network failures count toward the endpoint's circuit breaker,
+// which lives in pkg/winrmexec rather than here: every WinRM call in the
+// process, this transport's and each Collection's, goes through
+// winrmexec.Execute, so one failure is counted once, in one place, and an
+// endpoint opened by any caller is refused to all of them. After five
+// network failures in a row against one address and port, calls to it
+// fail fast for thirty seconds with nothing sent, then one probe is let
+// through. Only the network opens it: a refused credential, a refused
+// command or a failure after the command started proves the host answered,
+// and a mistake in the task itself never reached the network at all. A
+// refusal by an open circuit is never retried here.
 //
 // # Hop chains are refused, not ignored
 //
@@ -56,13 +56,11 @@ package winrm
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/transport"
-	"github.com/Subject-Void-LLC/the-pleiades/pkg/breaker"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/retry"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/winrmexec"
 )
@@ -82,10 +80,6 @@ type executeFunc func(context.Context, winrmexec.Target, winrmexec.Auth, winrmex
 // Construct one with New.
 type winrmTransport struct {
 	opts winrmexec.Options
-	// breaker holds this transport's circuits, keyed by the address each
-	// call dials. It is unexported on purpose: pkg/breaker is public, but
-	// nothing outside this transport may open or close its circuits.
-	breaker *breaker.Breaker
 	// execute is winrmexec.Execute, a field so tests can observe what is
 	// sent and script what comes back without a Windows host.
 	execute executeFunc
@@ -100,14 +94,11 @@ func New(opts winrmexec.Options) transport.ShellTransport {
 	return newTransport(opts, winrmexec.Execute)
 }
 
-// newTransport builds the transport around execute with a fresh circuit
-// breaker, so no caller, tests included, can build one without it.
+// newTransport builds the transport around execute. It holds no circuit
+// breaker of its own: winrmexec.Execute's is the one every caller shares,
+// and a second here counted each failure twice.
 func newTransport(opts winrmexec.Options, execute executeFunc) *winrmTransport {
-	return &winrmTransport{
-		opts:    opts,
-		breaker: breaker.New(breaker.DefaultThreshold, breaker.DefaultCooldown),
-		execute: execute,
-	}
+	return &winrmTransport{opts: opts, execute: execute}
 }
 
 // Exec implements transport.Transport: command is a Windows command line,
@@ -158,30 +149,13 @@ func (t *winrmTransport) ExecShell(ctx context.Context, target transport.Target,
 	command := winrmexec.Command{Shell: shell, Script: req.Script, Env: req.Env}
 	wTarget := winrmexec.Target{Host: ep.Host, Port: ep.Port}
 
-	// The circuit is keyed by the address the call really dials, so a
-	// device written with a bracketed IPv6 literal and one written bare
-	// share a circuit, and certificate authentication's switch to HTTPS
-	// is already applied.
-	addr := winrmexec.Addr(wTarget, auth, opts)
-	// Only a look here, never a claim: the probe belongs to the attempt
-	// that dials (FAILURE_PATTERNS 146).
-	if !t.breaker.Permitted(addr) {
-		return transport.Result{}, circuitOpen(addr)
-	}
-
 	delay := func(attempt int) time.Duration { return retry.Backoff(retryBase, retryCeiling, attempt) }
-	result, err := retry.Do(ctx, delay, maxAttempts, retryable, func(ctx context.Context) (winrmexec.Result, error) {
-		// A done context first, so a canceled call never takes the
-		// half-open probe (FAILURE_PATTERNS 398).
+	result, err := retry.Do(ctx, delay, maxAttempts, winrmexec.Retryable, func(ctx context.Context) (winrmexec.Result, error) {
+		// A done context first, so a canceled call is not sent at all.
 		if err := ctx.Err(); err != nil {
 			return winrmexec.Result{}, err
 		}
-		if !t.breaker.Allow(addr) {
-			return winrmexec.Result{}, circuitOpen(addr)
-		}
-		res, err := t.execute(ctx, wTarget, auth, command, opts)
-		t.record(addr, err)
-		return res, err
+		return t.execute(ctx, wTarget, auth, command, opts)
 	})
 	if err != nil {
 		return transport.Result{}, err
@@ -203,55 +177,4 @@ func toWinRMShell(s transport.Shell) (winrmexec.Shell, error) {
 	default:
 		return 0, fmt.Errorf("winrm: unknown shell %v", s)
 	}
-}
-
-// circuitOpen is the refusal a call gets from an open circuit. It wraps
-// breaker.ErrOpen, so it is never retried, and it says no traffic was
-// sent.
-func circuitOpen(addr string) error {
-	return fmt.Errorf("winrm: %w for %s, too many recent failures; nothing was sent", breaker.ErrOpen, addr)
-}
-
-// record tells the breaker what one attempt proved about the path to
-// addr, and nothing it did not prove.
-//
-// A network failure before the shell opened is a failure. A command that
-// finished, or a refusal the service sent back before running anything
-// (a credential it rejected, a fault instead of a shell), proves the
-// host answered, which is what a probe needs to close the circuit. Every
-// other error is left unrecorded, because it is either a mistake in the
-// task that never reached the network or a failure after the command
-// started, and neither is certain evidence about the network either
-// way. A probe that ends that way is not lost: pkg/breaker hands out a
-// fresh one after a cooldown.
-func (t *winrmTransport) record(addr string, err error) {
-	var notStarted *winrmexec.NotStartedError
-	switch {
-	case err == nil:
-		t.breaker.RecordSuccess(addr)
-	case networkNotStarted(err):
-		t.breaker.RecordFailure(addr)
-	case errors.As(err, &notStarted):
-		t.breaker.RecordSuccess(addr)
-	}
-}
-
-// retryable reports whether err is a network failure before the command
-// was sent. See the package doc for why nothing else is retried.
-func retryable(err error) bool {
-	return networkNotStarted(err)
-}
-
-// networkNotStarted reports whether err is a failure of the network
-// itself before the command was sent: the one kind of failure that is
-// safe to retry and that counts toward the circuit breaker.
-//
-// It is winrmexec.NotStartedError's own rule (Unreached), so this transport,
-// a run's report and a caller retrying through it judge one failure the
-// same way. A TLS alert is excluded: the host sent it, so counting it would
-// let a wrong credential open a circuit every other task to that address
-// then shares.
-func networkNotStarted(err error) bool {
-	var notStarted *winrmexec.NotStartedError
-	return errors.As(err, &notStarted) && notStarted.Unreached()
 }

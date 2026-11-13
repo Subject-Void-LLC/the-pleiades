@@ -29,6 +29,7 @@ type rebootHost struct {
 	boots    []any
 	exits    []any
 	reads    int
+	waited   int
 	commands []string
 	sleeps   []time.Duration
 	now      time.Time
@@ -37,8 +38,17 @@ type rebootHost struct {
 
 func (h *rebootHost) install(t *testing.T) {
 	t.Helper()
-	oldRun, oldSleep, oldNow := rebootRun, rebootSleep, rebootNow
-	t.Cleanup(func() { rebootRun, rebootSleep, rebootNow = oldRun, oldSleep, oldNow })
+	oldRun, oldWait, oldSleep, oldNow := rebootRun, rebootWaitRun, rebootSleep, rebootNow
+	t.Cleanup(func() { rebootRun, rebootWaitRun, rebootSleep, rebootNow = oldRun, oldWait, oldSleep, oldNow })
+	// The wait after the restart answers from the same host, and says which
+	// reads went through it.
+	rebootWaitRun = func(ctx context.Context, w *winrmexec.Waiter, script string) (winrmexec.Result, error) {
+		if w == nil {
+			t.Fatal("the wait after the restart has no Waiter")
+		}
+		h.waited++
+		return rebootRun(ctx, winrmexec.Target{}, winrmexec.Auth{}, winrmexec.ShellPowerShell, script, winrmexec.Options{Timeout: time.Second})
+	}
 	h.now = time.Date(2026, 10, 18, 21, 0, 0, 0, time.UTC)
 	rebootNow = func() time.Time { return h.now }
 	rebootSleep = func(ctx context.Context, d time.Duration) error {
@@ -277,5 +287,31 @@ func TestReboot_Registration(t *testing.T) {
 func TestBootTimeScript_FitsTheCommandLine(t *testing.T) {
 	if err := winrmexec.CheckScript(winrmexec.ShellPowerShell, bootTimeScript, winrmexec.Options{}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// TestReboot_WaitsThroughAWaiterAndStopsAtARefusal: every boot-time read
+// after the restart goes through the wait's Waiter, not the counted call,
+// and a credential the host refuses once it is back ends the wait at once
+// instead of being sent every five seconds until reboot_timeout.
+func TestReboot_WaitsThroughAWaiterAndStopsAtARefusal(t *testing.T) {
+	h := &rebootHost{boots: []any{boot0, errors.New("connection refused"), boot1}, exits: []any{0}}
+	h.install(t)
+	if _, err := runReboot(t, nil); err != nil {
+		t.Fatal(err)
+	}
+	if h.reads != 3 || h.waited != 2 {
+		t.Errorf("reads %d, through the wait %d; want 3 and the 2 after the restart", h.reads, h.waited)
+	}
+
+	refusal := &winrmexec.CredentialRefusedError{Err: errors.New("the host refused the login (HTTP 401)")}
+	h = &rebootHost{boots: []any{boot0, errors.New("connection refused"), refusal, boot1}, exits: []any{0}}
+	h.install(t)
+	_, err := runReboot(t, nil)
+	if !errors.Is(err, refusal) || !strings.Contains(err.Error(), "refused the credential once it was back") {
+		t.Fatalf("err = %v, want the refusal to end the wait", err)
+	}
+	if h.reads != 3 {
+		t.Errorf("reads %d, want the wait stopped at the refusal, the third", h.reads)
 	}
 }

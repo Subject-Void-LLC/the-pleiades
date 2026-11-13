@@ -85,7 +85,21 @@ func RunWithStdin(ctx context.Context, target Target, auth Auth, shell Shell, sc
 // cannot run anything twice: that includes the operation's deadline
 // passing before a shell opened, which wraps context.DeadlineExceeded.
 // Any other error may have come after the command started.
+//
+// Every call goes through the endpoint's circuit breaker (endpoints.go):
+// after five network failures in a row to one address and port, calls to
+// it are refused for thirty seconds with nothing sent, the refusal wrapping
+// pkg/breaker.ErrOpen, and then one call is let through as the probe. Only
+// the network opens it: a refused credential, a fault or a mistake in the
+// task never does. A wait for a host to come back goes through a Waiter
+// instead, which is neither counted nor refused.
 func Execute(ctx context.Context, target Target, auth Auth, cmd Command, opts Options) (Result, error) {
+	return execute(ctx, target, auth, cmd, opts, true)
+}
+
+// execute is Execute, with counted saying whether the call goes through
+// the endpoint's circuit. Only a Waiter passes false.
+func execute(ctx context.Context, target Target, auth Auth, cmd Command, opts Options, counted bool) (Result, error) {
 	if cmd.Script == "" {
 		return Result{}, fmt.Errorf("winrm: empty script")
 	}
@@ -119,6 +133,25 @@ func Execute(ctx context.Context, target Target, auth Auth, cmd Command, opts Op
 		return Result{}, err
 	}
 
+	// Everything above is local, so an author's mistake is never counted
+	// against the host. The circuit is keyed by the address really dialed,
+	// after certificate authentication's switch to HTTPS and the default
+	// port, so two spellings of one device share it.
+	if !counted {
+		return exchangeOnce(ctx, x, target, auth, cmd, line, spec, opts)
+	}
+	addr := Addr(target, auth, opts)
+	if err := endpoints.admit(ctx, addr); err != nil {
+		return Result{}, err
+	}
+	res, err := exchangeOnce(ctx, x, target, auth, cmd, line, spec, opts)
+	endpoints.record(addr, err)
+	return res, err
+}
+
+// exchangeOnce runs the command x was built for, bounded by the operation's
+// deadline.
+func exchangeOnce(ctx context.Context, x *exchange, target Target, auth Auth, cmd Command, line string, spec shellSpec, opts Options) (Result, error) {
 	// The deadline is enforced HERE rather than handed to the library,
 	// because the library discards both of the things that would
 	// normally carry it.

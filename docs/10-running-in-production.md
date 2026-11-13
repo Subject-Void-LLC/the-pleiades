@@ -521,6 +521,23 @@ device reboots unexpectedly) is reported as an error immediately, and it is the
 caller's job to determine what state the device was left in and re-run explicitly
 once that is known, not The Pleiades' job to guess.
 
+WinRM has the same circuit breaker, one circuit per address and port (5985 and 5986
+are separate listeners), shared by every WinRM call in the process: `winrm_exec`,
+`exec.winrm.shell`, the `svc.windows.*`, `win.*` and `virt.vbox.*` methods and
+`facts.gather` on Windows. After five failures in a row to reach one, calls to it fail
+at once for thirty seconds, saying `circuit open` and that nothing was sent, and then one
+call is let through to find out whether the host is back. Only the network opens it: a
+refused password or certificate, or a command that failed, never does. A wait is the
+exception, since its failures are what it waits through: `wait.connection`,
+`win.reboot`'s wait for the new boot time and `exec.winrm.shell`'s reconnect after
+`expect_disconnect` are neither counted nor refused, and a wait that succeeds closes the
+circuit, so the task after it runs at once even if other tasks opened it while the host
+was down. Over WinRM those waits ask the listener with no credential until it answers,
+which is no logon attempt, and a refused credential ends the wait at once: a wrong
+password is sent once per wait, so waiting cannot lock the account. The circuits live
+in one process, so on a Runner they last only as long as the child process that runs
+the task.
+
 That is true of one command. It is not yet true of a whole run on the Controller: a
 dispatched run that fails, for any reason including one failed task, is delivered to a
 Runner again, up to five deliveries in all, and each delivery runs the definition from

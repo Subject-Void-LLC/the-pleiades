@@ -13,6 +13,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"time"
 
@@ -64,7 +65,7 @@ func init() {
 				"its timeout and fail where the real run succeeds",
 			Doc: collection.Doc{
 				Summary:     "Waits until the target answers a command over its own connection, SSH or WinRM.",
-				Description: "Tries the device over the connection its other tasks use (WinRM for a device reached that way, such as a Windows server, and SSH for any other) until a command runs there, and fails when the timeout runs out first. It is Ansible's wait_for_connection: the task to put after one that starts or restarts a machine, before the tasks that need it. Each try logs in afresh with the device's credential and runs a command that does nothing, so a machine whose port answers before its account can log in is not taken for ready, and a session kept open from an earlier task is never taken for a login. A network device's CLI is not a shell with a command that does nothing, so for one that declares CiscoIOSCapable, or a cli_prompt, a try opens its terminal and waits for its prompt instead. A failed try is not an error, since it is what the task waits to see stop; the last one is quoted when the timeout ends the wait. The delay is spent out of the timeout rather than added to it, as wait_for_connection does. With backoff: exponential the gap after each failed try doubles from sleep up to max_sleep, each gap a random point in its upper half so machines restarted together do not try in step. With steady above 1 the machine must answer that many tries in a row, steady_interval apart, which a machine just resumed or restarted that answers once and then refuses for a while does not; a refusal mid-streak starts the streak, and the backoff, again. It changes nothing.",
+				Description: "Tries the device over the connection its other tasks use (WinRM for a device reached that way, such as a Windows server, and SSH for any other) until a command runs there, and fails when the timeout runs out first. It is Ansible's wait_for_connection: the task to put after one that starts or restarts a machine, before the tasks that need it. Each try logs in afresh with the device's credential and runs a command that does nothing, so a machine whose port answers before its account can log in is not taken for ready, and a session kept open from an earlier task is never taken for a login. Over WinRM each try first asks the listener with no credential, which is no logon attempt, and logs in only once the listener answers as a serving WinRM listener does; a refused credential ends the wait at once, so a wrong password is sent once in the whole wait rather than at every try, and waiting cannot lock the account. Over SSH a login the device refuses (a wrong password or key) ends the wait at once the same way, and so does a host key known_hosts refuses, since neither changes by being asked again; a device that does not answer, or refuses the connection, is tried again until the timeout. A WinRM wait is not counted toward the host's circuit breaker and is not refused by it, and its success closes it, so the task after it runs at once even when other tasks opened it while the host was down. A network device's CLI is not a shell with a command that does nothing, so for one that declares CiscoIOSCapable, or a cli_prompt, a try opens its terminal and waits for its prompt instead. A failed try is not an error, since it is what the task waits to see stop; the last one is quoted when the timeout ends the wait. The delay is spent out of the timeout rather than added to it, as wait_for_connection does. With backoff: exponential the gap after each failed try doubles from sleep up to max_sleep, each gap a random point in its upper half so machines restarted together do not try in step. With steady above 1 the machine must answer that many tries in a row, steady_interval apart, which a machine just resumed or restarted that answers once and then refuses for a while does not; a refusal mid-streak starts the streak, and the backoff, again. It changes nothing.",
 				Params: []collection.Param{
 					{Name: "timeout", Type: "int", Default: "600", Description: "How many seconds to wait in total before giving up, counted from the start of the task, so the delay comes out of it. Must be more than 0."},
 					{Name: "delay", Type: "int", Default: "0", Description: "How many seconds to wait before the first try. Must be shorter than the timeout, which it is spent out of."},
@@ -273,7 +274,8 @@ var connectionJitter = func(d time.Duration) time.Duration {
 // a streak it waits req.steadyInterval. A failed try ends a streak and
 // starts the backoff again from req.sleep, since a machine that was just
 // answering is likely to again soon. It gives up at the timeout, quoting
-// the last failure and, when the machine answered, its longest streak.
+// the last failure and, when the machine answered, its longest streak, or
+// at once on a try that failed with stopWaiting.
 func waitForConnection(ctx context.Context, req connectionRequest, try func(context.Context) error, pace connectionPace) (connectionWaited, error) {
 	start := time.Now()
 	deadline := start.Add(req.timeout)
@@ -302,6 +304,10 @@ func waitForConnection(ctx context.Context, req connectionRequest, try func(cont
 			interval, gap = req.steadyInterval, req.sleep
 		} else {
 			w.failures++
+			var stop *stopWaiting
+			if errors.As(err, &stop) {
+				return w, fmt.Errorf("stopped at try %d: %w", w.tries, stop.err)
+			}
 			last, streak = err, 0
 			interval = gap
 			if req.exponential {
@@ -334,7 +340,8 @@ func timedOut(req connectionRequest, longest int, last error) error {
 // tasks use, WinRM for a device reached that way and SSH otherwise, and
 // the name of that connection. A try logs in and runs a command that does
 // nothing, so a port that answers before the account can log in is not
-// taken for a ready machine.
+// taken for a ready machine. Over WinRM the tries share one Waiter, so a
+// refused credential is sent once in the whole wait.
 func connectionProbe(rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any, fqcn string, perTry time.Duration) (func(context.Context) error, string, error) {
 	if device == nil {
 		return nil, "", fmt.Errorf("needs a target device")
@@ -346,7 +353,7 @@ func connectionProbe(rc sdk.RunbookContext, device inventory.InventoryItem, para
 		}
 		target := winrmexec.Target{Host: winrm.WinRMHost(), Port: winrm.WinRMPort()}
 		opts := winrmexec.WithDeviceTLS(winrmexec.Options{Timeout: perTry}, devicetls.For(device))
-		return func(ctx context.Context) error { return winrmexec.Reachable(ctx, target, auth, opts) }, transportWinRM, nil
+		return winrmTry(winrmexec.NewWaiter(target, auth, opts)), transportWinRM, nil
 	}
 	if _, ok := device.(capability.SSHTransportCapable); ok && device.HasCapability(capability.NameSSHTransport) {
 		if dialect, cli := cliDialect(device); cli {
@@ -356,6 +363,33 @@ func connectionProbe(rc sdk.RunbookContext, device inventory.InventoryItem, para
 	}
 	return nil, "", fmt.Errorf("device %q is reached over neither SSH nor WinRM", device.Name())
 }
+
+// winrmTry is one try at a WinRM device through the wait's one Waiter,
+// which is neither counted toward the host's circuit breaker nor refused
+// by it, and sends the credential only once the listener answers. A try
+// the host was not ready for is one more failed try; anything else (a
+// refused credential, which must not be sent again) ends the wait.
+func winrmTry(waiter *winrmexec.Waiter) func(context.Context) error {
+	return func(ctx context.Context) error {
+		err := waiter.Probe(ctx)
+		// A run torn down mid-try is left to the wait's own sleep to see, as
+		// it is for any other try.
+		if err != nil && !errors.Is(err, winrmexec.ErrNotServing) && !errors.Is(err, context.Canceled) {
+			return &stopWaiting{err: err}
+		}
+		return err
+	}
+}
+
+// stopWaiting is a try's failure that asking again cannot change, so the
+// wait ends on it rather than at its timeout.
+type stopWaiting struct{ err error }
+
+// Error implements error.
+func (s *stopWaiting) Error() string { return s.err.Error() }
+
+// Unwrap exposes the failure to errors.Is and errors.As.
+func (s *stopWaiting) Unwrap() error { return s.err }
 
 // cliDialect is the CLI convention of a network device whose terminal is
 // not a POSIX shell: Cisco IOS's for a device declaring CiscoIOSCapable,
@@ -377,7 +411,7 @@ func cliDialect(device inventory.InventoryItem) (netcli.Dialect, bool) {
 func cliTry(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any, fqcn string, dialect netcli.Dialect) error {
 	conn, err := sdk.ConnectFresh(ctx, rc, device, params, fqcn)
 	if err != nil {
-		return err
+		return sshTryFailed(err)
 	}
 	defer func() { _ = conn.Close() }() // a try's connection has nothing left to report once it answered
 	shell, err := conn.Shell(ctx, remoteexec.ShellOptions{})
@@ -399,9 +433,25 @@ func cliTry(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 func sshTry(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any, fqcn string) error {
 	conn, err := sdk.ConnectFresh(ctx, rc, device, params, fqcn)
 	if err != nil {
-		return err
+		return sshTryFailed(err)
 	}
 	defer func() { _ = conn.Close() }() // a try's connection has nothing left to report once it answered
 	_, err = conn.Run(ctx, "exit 0")
+	return err
+}
+
+// sshTryFailed sorts a failed SSH login for the wait. A host that did not
+// answer (refused, reset, timed out) is one more failed try. A host that
+// answered and refused the credential, or whose host key this side
+// refused, ends the wait at once: neither changes by being asked again,
+// and a password sent at every try until the timeout locks an account
+// with a lockout threshold (pam_faillock, a directory account) in seconds.
+// pkg/remoteexec's DialError makes the same split for its own retries: it
+// is unreached for everything but those two and a cancellation.
+func sshTryFailed(err error) error {
+	var dialErr *remoteexec.DialError
+	if errors.As(err, &dialErr) && !dialErr.Unreached() && !errors.Is(err, context.Canceled) {
+		return &stopWaiting{err: fmt.Errorf("the device answered and refused this login, so the wait stops here rather than try it again: %w", err)}
+	}
 	return err
 }

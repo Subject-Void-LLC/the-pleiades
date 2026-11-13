@@ -24,6 +24,7 @@ package winrm
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -318,6 +319,16 @@ func handleExpectedDisconnect(
 	defer cancel()
 
 	if err := winrmexec.WaitUntilReachable(waitCtx, target, auth, opts, 0); err != nil {
+		// The wait sends the credential only once the listener answers, and
+		// stops at the first refusal rather than send it again until the
+		// timeout, which could lock the account.
+		var refused *winrmexec.CredentialRefusedError
+		if errors.As(err, &refused) {
+			return collection.Result{}, fmt.Errorf(
+				"%s: the connection was lost as expected and the device answered again, but refused the credential, so "+
+					"the wait stopped rather than send it again; it is unknown whether the change applied: %w (original failure: %v)",
+				fqcn, err, runErr)
+		}
 		return collection.Result{}, fmt.Errorf(
 			"%s: the connection was lost as expected, but the device never came back within %s, so it is unknown "+
 				"whether the change applied and this host may need attention at the console: %w (original failure: %v)",

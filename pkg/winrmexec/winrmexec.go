@@ -49,11 +49,13 @@ package winrmexec
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/masterzen/winrm"
 )
@@ -342,6 +344,26 @@ func unbracket(host string) string {
 	return host
 }
 
+// checkHost refuses a host that is not one: empty, or holding a character
+// that would end the authority part of the WS-Man URL built from it ("/",
+// "?", "#", "@" or a backslash) or a space or control character.
+//
+// Such a value used to reach the URL as written, so a device recorded as
+// "win1/x" was dialed at win1 on port 80 with the path "/x:5985/wsman":
+// another listener than the one the record names, sent the credential's
+// proof, and keyed in the endpoint's circuit breaker apart from "win1".
+func checkHost(host string) error {
+	if host == "" {
+		return fmt.Errorf("winrm: the target names no host")
+	}
+	for _, r := range host {
+		if strings.ContainsRune(`/?#@\`, r) || unicode.IsSpace(r) || unicode.IsControl(r) {
+			return fmt.Errorf("winrm: the host %q holds %q, which is no part of a host name or address", host, r)
+		}
+	}
+	return nil
+}
+
 // newExchange builds the client, and the transport it posts through, for
 // one operation.
 //
@@ -350,6 +372,9 @@ func unbracket(host string) string {
 // and a cache keyed by target alone would hand one device's session to
 // whichever credential asked for it second.
 func newExchange(target Target, auth Auth, opts Options) (*exchange, error) {
+	if err := checkHost(target.Host); err != nil {
+		return nil, err
+	}
 	if err := auth.Validate(); err != nil {
 		return nil, err
 	}
@@ -466,6 +491,11 @@ func Reachable(ctx context.Context, target Target, auth Auth, opts Options) erro
 // Each probe gets its own short timeout rather than the caller's whole
 // budget, so this polls instead of blocking once on a socket that will
 // never answer.
+//
+// It waits through a Waiter, so its tries are neither counted against the
+// endpoint's circuit nor refused by it, it sends the credential only once
+// the listener answers, and a refused credential ends it at once rather
+// than being sent again every interval.
 func WaitUntilReachable(ctx context.Context, target Target, auth Auth, opts Options, interval time.Duration) error {
 	if interval <= 0 {
 		interval = DefaultProbeInterval
@@ -473,6 +503,7 @@ func WaitUntilReachable(ctx context.Context, target Target, auth Auth, opts Opti
 
 	probeOpts := opts
 	probeOpts.Timeout = interval * 2
+	waiter := NewWaiter(target, auth, probeOpts)
 
 	var attempts int
 	var lastErr error
@@ -487,8 +518,11 @@ func WaitUntilReachable(ctx context.Context, target Target, auth Auth, opts Opti
 		}
 
 		attempts++
-		if lastErr = Reachable(ctx, target, auth, probeOpts); lastErr == nil {
+		if lastErr = waiter.Probe(ctx); lastErr == nil {
 			return nil
+		}
+		if !errors.Is(lastErr, ErrNotServing) && ctx.Err() == nil {
+			return fmt.Errorf("winrm: stopped waiting for %s after %d attempt(s): %w", target.Host, attempts, lastErr)
 		}
 
 		select {

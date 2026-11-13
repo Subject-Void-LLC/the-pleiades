@@ -305,3 +305,61 @@ func TestBreaker_ConcurrentUse(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+// TestBreaker_EndCooldownHandsOutTheProbeAtOnce proves EndCooldown turns an
+// open circuit's next Allow into the one probe without waiting out the
+// cooldown, and that it changes nothing for a closed circuit, a circuit
+// with no history or a probe already out.
+func TestBreaker_EndCooldownHandsOutTheProbeAtOnce(t *testing.T) {
+	b := breaker.New(1, time.Hour) // far longer than this test can run
+
+	// No history: nothing to end, and the target stays allowed.
+	b.EndCooldown(key)
+	if !b.Permitted(key) {
+		t.Fatal("expected a target with no history to stay allowed")
+	}
+
+	b.RecordFailure(key) // threshold of one, so this opens it
+	if b.Permitted(key) {
+		t.Fatal("expected the circuit to be open before EndCooldown")
+	}
+	b.EndCooldown(key)
+	if !b.Permitted(key) {
+		t.Fatal("expected EndCooldown to end the cooldown")
+	}
+	if !b.Allow(key) {
+		t.Fatal("expected the first Allow after EndCooldown to take the probe")
+	}
+	if b.Allow(key) {
+		t.Fatal("expected a second caller to be refused while the probe is out")
+	}
+
+	// A probe already out keeps its lease: EndCooldown does not hand out a
+	// second one beside it.
+	b.EndCooldown(key)
+	if b.Allow(key) {
+		t.Fatal("expected EndCooldown to leave an outstanding probe's lease alone")
+	}
+
+	// The probe failing opens the circuit again with a fresh cooldown.
+	b.RecordFailure(key)
+	if b.Allow(key) {
+		t.Fatal("expected a failed probe to open the circuit again")
+	}
+}
+
+// TestBreaker_EndCooldownLeavesAClosedStreakAlone proves EndCooldown on a
+// closed circuit neither resets its failure streak nor opens it.
+func TestBreaker_EndCooldownLeavesAClosedStreakAlone(t *testing.T) {
+	b := breaker.New(2, time.Hour)
+	b.RecordFailure(key)
+	b.EndCooldown(key)
+	if !b.Allow(key) {
+		t.Fatal("expected a closed circuit to stay closed")
+	}
+	// The streak survived: one more failure reaches the threshold of two.
+	b.RecordFailure(key)
+	if b.Allow(key) {
+		t.Fatal("expected EndCooldown to keep the closed circuit's streak")
+	}
+}
