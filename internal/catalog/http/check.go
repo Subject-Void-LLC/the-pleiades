@@ -50,6 +50,7 @@ func init() {
 			EngineVersion:        ">=0.2.0",
 			Status:               collection.StatusImplemented,
 			SupportsCheck:        true,
+			NoExistsReason:       collection.NoExistsGate + " (a 404 is data when status_code names it)",
 			Reversibility: collection.Reversibility{
 				ReadOnly: true,
 				Notes:    "It sends a GET or a HEAD, which HTTP defines as safe, and changes nothing a later task could undo.",

@@ -13,7 +13,8 @@ import (
 )
 
 // Checksum returns the SHA-256 of the file at the given path in hex, and
-// reports whether the file was there at all.
+// reports whether the file was there at all; a file under a directory
+// closed to the login is ErrCannotLook, never "not there".
 //
 // It is what decides whether a write is a change. Comparing content
 // rather than comparing timestamps or sizes is the difference between a
@@ -35,14 +36,17 @@ func Checksum(ctx context.Context, conn *remoteexec.Conn, filePath string) (stri
 	// both print "<hash>  <filename>".
 	cmd := "if [ -f " + quoted + " ]; then " +
 		"{ sha256sum " + quoted + " 2>/dev/null || shasum -a 256 " + quoted + "; } | cut -d' ' -f1; " +
-		"else exit " + fmt.Sprint(statusMissing) + "; fi"
+		"else " + absentOrUnsearchable(quoted) + "; fi"
 
 	result, err := conn.Run(ctx, cmd)
 	if err != nil {
 		return "", false, fmt.Errorf("checksum %s: %w", filePath, err)
 	}
-	if result.ExitCode == statusMissing {
+	switch result.ExitCode {
+	case statusMissing:
 		return "", false, nil
+	case statusUnsearchable:
+		return "", false, cannotLook("checksum", filePath, result.Stdout)
 	}
 	if result.ExitCode != 0 {
 		return "", false, fmt.Errorf("checksum %s: exited %d: %s", filePath, result.ExitCode, farside.Output(result.Stderr))
@@ -118,20 +122,24 @@ func Write(ctx context.Context, conn *remoteexec.Conn, filePath string, content 
 //
 // It reports the same absent-is-not-an-error answer Stat and Checksum do,
 // so a caller reading a file it may be about to create does not have to
-// tell "empty" from "missing" by inspecting an error string.
+// tell "empty" from "missing" by inspecting an error string, and the same
+// ErrCannotLook for a file under a directory closed to the login.
 func Read(ctx context.Context, conn *remoteexec.Conn, filePath string) (string, bool, error) {
 	// A relative path starting with a dash reaches cat as ./path, so cat
 	// reads that file rather than taking the word as an option and
 	// printing its standard input, which is empty, as the file's content.
 	quoted := remoteexec.QuoteArg(operand(filePath))
-	cmd := "if [ -f " + quoted + " ]; then cat " + quoted + "; else exit " + fmt.Sprint(statusMissing) + "; fi"
+	cmd := "if [ -f " + quoted + " ]; then cat " + quoted + "; else " + absentOrUnsearchable(quoted) + "; fi"
 
 	result, err := conn.Run(ctx, cmd)
 	if err != nil {
 		return "", false, fmt.Errorf("read %s: %w", filePath, err)
 	}
-	if result.ExitCode == statusMissing {
+	switch result.ExitCode {
+	case statusMissing:
 		return "", false, nil
+	case statusUnsearchable:
+		return "", false, cannotLook("read", filePath, result.Stdout)
 	}
 	if result.ExitCode != 0 {
 		return "", false, fmt.Errorf("read %s: exited %d: %s", filePath, result.ExitCode, farside.Output(result.Stderr))

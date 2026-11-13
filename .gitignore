@@ -133,3 +133,7 @@ __pycache__/
 /tools/monitor/*.json
 /tools/monitor/*.txt
 /dist/
+
+# The gate receipt tool built at the module root by hand (`go build ./tools/gatereceipt`), which was
+# once committed by accident: a 3.5 MB binary carrying this machine's build paths.
+/gatereceipt

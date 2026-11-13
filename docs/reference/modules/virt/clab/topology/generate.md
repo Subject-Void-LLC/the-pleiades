@@ -17,6 +17,7 @@ Asks the server to write a topology (a Clos fabric, say) from the tiers given, a
 | Requires elevation | no |
 | Runs | in the host process (the CLI or a Runner); acts on its target device |
 | Check mode | Supported: reports what it would change and changes nothing |
+| Absence | No exists return: it asks the server to build a topology from the task's own description of its tiers, and looks nothing up |
 | Engine version | `>=0.3.0` |
 
 ## Parameters

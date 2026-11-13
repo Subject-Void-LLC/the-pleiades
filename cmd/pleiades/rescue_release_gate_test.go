@@ -93,8 +93,9 @@ func TestCLI_RescueAndAlwaysRunAgainstARealDevice(t *testing.T) {
 
 // sshdGateProject starts the release gate's sshd container and a project
 // managing it as box, the way a user sets one up, with runbook written to
-// runbooks/name and validated clean. It returns the project directory, the
-// home whose known_hosts holds the device's key, and the device's address.
+// runbooks/name and validated clean (none when name is empty, for a test
+// that only runs adhoc). It returns the project directory, the home whose
+// known_hosts holds the device's key, and the device's address.
 func sshdGateProject(t *testing.T, name, runbook string) (dir, home, addr string) {
 	t.Helper()
 	host, port := startReleaseGateContainer(t)
@@ -116,6 +117,9 @@ func sshdGateProject(t *testing.T, name, runbook string) (dir, home, addr string
 		if out, err := runPleiadesWithHome(t, dir, home, args...); err != nil {
 			t.Fatalf("%v: %v\n%s", args, err, out)
 		}
+	}
+	if name == "" {
+		return dir, home, addr
 	}
 	if err := os.WriteFile(filepath.Join(dir, "runbooks", name), []byte(runbook), 0o600); err != nil {
 		t.Fatal(err)

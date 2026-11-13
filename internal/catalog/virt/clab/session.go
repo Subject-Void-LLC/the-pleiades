@@ -259,23 +259,60 @@ func (s *session) inspect(ctx context.Context, lab string) ([]nodeInfo, bool, er
 	return nodes, true, nil
 }
 
-// node finds one node of a deployed lab by its name in the lab or by its
-// container's name, and refuses with the names there are.
-func (s *session) node(ctx context.Context, lab, name string) (nodeInfo, error) {
-	nodes, exists, err := s.inspect(ctx, lab)
-	if err != nil {
-		return nodeInfo{}, err
+// find looks up one node of a deployed lab by its name in the lab or by its
+// container's name. A lab that is not deployed, or has no such node, is
+// found false with no error, which a read-only method reports as exists
+// false (Phase 131, R4); any other failure to read the lab is an error,
+// since a lookup that could not look must never answer "not there". names
+// is the lab's nodes, for a refusal to name them.
+func (s *session) find(ctx context.Context, lab, name string) (n nodeInfo, deployed, found bool, names []string, err error) {
+	nodes, deployed, err := s.inspect(ctx, lab)
+	if err != nil || !deployed {
+		return nodeInfo{}, deployed, false, nil, err
 	}
-	if !exists {
-		return nodeInfo{}, fmt.Errorf("%s: lab %q is not deployed", s.fqcn, lab)
-	}
-	var names []string
 	for _, n := range nodes {
 		if n.NodeName == name || n.Name == name {
-			return n, nil
+			return n, true, true, nil, nil
 		}
 		names = append(names, n.NodeName)
 	}
 	sort.Strings(names)
-	return nodeInfo{}, fmt.Errorf("%s: lab %q has no node %q (its nodes: %s)", s.fqcn, lab, name, strings.Join(names, ", "))
+	return nodeInfo{}, true, false, names, nil
+}
+
+// node finds one node of a deployed lab by its name in the lab or by its
+// container's name, and refuses with the names there are: a method that
+// changes a node has nothing to act on otherwise.
+func (s *session) node(ctx context.Context, lab, name string) (nodeInfo, error) {
+	n, deployed, found, names, err := s.find(ctx, lab, name)
+	switch {
+	case err != nil:
+		return nodeInfo{}, err
+	case !deployed:
+		return nodeInfo{}, fmt.Errorf("%s: lab %q is not deployed", s.fqcn, lab)
+	case !found:
+		return nodeInfo{}, fmt.Errorf("%s: lab %q has no node %q (its nodes: %s)", s.fqcn, lab, name, strings.Join(names, ", "))
+	}
+	return n, nil
+}
+
+// lookupNode is a read-only method's node: it records exists false, beside
+// empty for each list the method returns, and reports found false when the
+// lab is not deployed or has no such node, so the caller stops there.
+func (s *session) lookupNode(ctx context.Context, lab, name string, empty ...string) (nodeInfo, bool, error) {
+	n, _, found, _, err := s.find(ctx, lab, name)
+	if err != nil || found {
+		return n, found, err
+	}
+	return nodeInfo{}, false, s.absentStats(empty...)
+}
+
+// absentStats records exists false, and each of lists as an empty list, for
+// a read-only method whose lab or node is not there.
+func (s *session) absentStats(lists ...string) error {
+	out := map[string]any{"exists": false}
+	for _, k := range lists {
+		out[k] = []any{}
+	}
+	return s.stats(out)
 }

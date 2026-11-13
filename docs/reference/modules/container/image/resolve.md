@@ -17,6 +17,7 @@ Asks the registry a reference names, through the engine (so through the device's
 | Requires elevation | no |
 | Runs | on or against the target device; acts on its target device |
 | Check mode | Supported: reports what it would change and changes nothing |
+| Absence | A thing that is not there is exists false, not a failure, in a run and a check |
 | Engine version | `>=0.2.0` |
 
 ## Parameters

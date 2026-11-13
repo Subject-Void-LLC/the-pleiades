@@ -42,6 +42,7 @@ func init() {
 			ExecutionContext:     collection.ExecutionContext{Site: collection.SiteTarget, Device: collection.DeviceRequired},
 			EngineVersion:        ">=0.2.0",
 			Status:               collection.StatusImplemented,
+			NoExistsReason:       collection.NoExistsWait,
 			Reversibility: collection.Reversibility{
 				ReadOnly: true,
 				Notes:    "This method reads the routing table and changes nothing, so there is nothing to undo.",

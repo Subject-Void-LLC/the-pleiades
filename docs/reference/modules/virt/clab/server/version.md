@@ -17,6 +17,7 @@ Returns containerlab's own version text. It only reads, so a check is the same c
 | Requires elevation | no |
 | Runs | in the host process (the CLI or a Runner); acts on its target device |
 | Check mode | Supported: reports what it would change and changes nothing |
+| Absence | No exists return: it describes the device itself; a device not there is unreachable, not absent |
 | Engine version | `>=0.3.0` |
 
 ## Returns

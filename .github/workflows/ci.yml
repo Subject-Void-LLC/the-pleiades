@@ -334,8 +334,11 @@ jobs:
         env:
           # Required: with the cache, the pinned toybox build can only be
           # missing when the cache is cold and landley.net is down, and the
-          # run then has not tested what it claims to.
-          PLEIADES_TEST_REQUIRE: toybox
+          # run then has not tested what it claims to. postgres-client: the
+          # db.pg tests run the runner's own pg_dump and pg_restore as the
+          # device's, and a runner image whose client the PostgreSQL fixture
+          # cannot take would otherwise skip them all.
+          PLEIADES_TEST_REQUIRE: toybox,postgres-client
           PLEIADES_TEST_ARTIFACTS: ${{ runner.temp }}/test-logs
           PLEIADES_TEST_DOWNLOADS: ${{ github.workspace }}/.ci/downloads
         run: make ci-containers SHARD="$SHARD"
@@ -461,8 +464,11 @@ jobs:
         env:
           # Required: with the cache, the pinned toybox build can only be
           # missing when the cache is cold and landley.net is down, and the
-          # run then has not tested what it claims to.
-          PLEIADES_TEST_REQUIRE: toybox
+          # run then has not tested what it claims to. postgres-client: the
+          # db.pg tests run the runner's own pg_dump and pg_restore as the
+          # device's, and a runner image whose client the PostgreSQL fixture
+          # cannot take would otherwise skip them all.
+          PLEIADES_TEST_REQUIRE: toybox,postgres-client
           PLEIADES_TEST_ARTIFACTS: ${{ runner.temp }}/test-logs
           PLEIADES_TEST_DOWNLOADS: ${{ github.workspace }}/.ci/downloads
         run: make ci-containers SHARD="$SHARD"
@@ -544,7 +550,7 @@ jobs:
           key: test-downloads-${{ hashFiles('internal/testsupport/pins.go') }}
       - name: make test-full
         env:
-          PLEIADES_TEST_REQUIRE: userns,pty,refusing-port,toybox
+          PLEIADES_TEST_REQUIRE: userns,pty,refusing-port,toybox,postgres-client
           PLEIADES_TEST_ARTIFACTS: ${{ runner.temp }}/test-logs
           PLEIADES_TEST_DOWNLOADS: ${{ github.workspace }}/.ci/downloads
         run: make test-full

@@ -29,9 +29,11 @@ func TestCLI_BecomeRunsATaskAndItsUndoAsRoot(t *testing.T) {
 
 	writeFile(t, dir, "runbooks/plain.yaml", header+"id: plain\nhosts: debian\ntasks:\n"+task)
 	// The login's own refusal, not a refusal of the runbook, is what makes
-	// the elevated run below mean something.
-	if out, err := runPleiadesWithHome(t, dir, home, "run", "runbooks/plain.yaml"); err == nil || !strings.Contains(strings.ToLower(out), "permission denied") {
-		t.Fatalf("without become the run should fail on the device's permission denied (err %v):\n%s", err, out)
+	// the elevated run below mean something. The login may not search /root,
+	// so the method's first look fails with cannot look (FAILURE_PATTERNS
+	// 1193) before any write is tried.
+	if out, err := runPleiadesWithHome(t, dir, home, "run", "runbooks/plain.yaml"); err == nil || !strings.Contains(out, `cannot look: the login may not search the directory "/root"`) {
+		t.Fatalf("without become the run should fail because the login may not look under /root (err %v):\n%s", err, out)
 	}
 	if _, code := device.exec(t, "test", "-e", target); code == 0 {
 		t.Fatal("the file exists after the run without become")

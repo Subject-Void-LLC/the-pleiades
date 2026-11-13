@@ -17,6 +17,7 @@ Reads and validates the same manifest gate.run reads, under the same rules, and 
 | Requires elevation | no |
 | Runs | on or against the target device; acts on its target device |
 | Check mode | Supported: reports what it would change and changes nothing |
+| Absence | No exists return: it lists the manifest's checks, and the manifest is the task's own input |
 | Engine version | `>=0.2.0` |
 
 ## Parameters

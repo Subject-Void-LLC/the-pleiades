@@ -6,7 +6,7 @@ status: beta
 
 Waits for a pattern to appear in a file's contents on the target.
 
-Reads a file on the device on an interval until search_regex matches it, or until it stops matching when state is absent, and fails when the timeout runs out first. It changes nothing. The whole file is read on every look, so this suits a service's startup log rather than a file that grows without limit, and a file past 64 MiB fails the task rather than being matched in part. The pattern is matched in multiline mode, as wait_for matches it, so ^ and $ mean the start and end of a line; it is a Go RE2 pattern, so a backreference or a lookahead is refused when the task is read rather than silently never matching. Only a regular file is read: a path that is missing, or that is a directory, counts as not matching, which satisfies state: absent at once and never satisfies state: present.
+Reads a file on the device on an interval until search_regex matches it, or until it stops matching when state is absent, and fails when the timeout runs out first. It changes nothing. The whole file is read on every look, so this suits a service's startup log rather than a file that grows without limit, and a file past 64 MiB fails the task rather than being matched in part. The pattern is matched in multiline mode, as wait_for matches it, so ^ and $ mean the start and end of a line; it is a Go RE2 pattern, so a backreference or a lookahead is refused when the task is read rather than silently never matching. Only a regular file is read: a path that is missing, or that is a directory, counts as not matching, which satisfies state: absent at once and never satisfies state: present. A file under a directory the login may not search fails the task at once, saying it cannot look, rather than counting as missing.
 
 ## Attributes
 
@@ -17,6 +17,7 @@ Reads a file on the device on an interval until search_regex matches it, or unti
 | Requires elevation | no |
 | Runs | on or against the target device; acts on its target device |
 | Check mode | Not supported: a check run names this task as unchecked, since what a wait waits for is usually an earlier task's change, which a check never makes, so a check would wait out its timeout and fail where the real run succeeds |
+| Absence | No exists return: it is a wait: failing at its timeout is its purpose |
 | Engine version | `>=0.2.0` |
 
 ## Parameters

@@ -46,6 +46,7 @@ func init() {
 			PlatformTargets: nil,
 			EngineVersion:   ">=0.2.0",
 			Status:          collection.StatusImplemented,
+			NoExistsReason:  "it summarizes the capture file the task names; a file not there is refused input, not a lookup",
 			Reversibility: collection.Reversibility{
 				Reversible: false,
 				Notes:      "It reads a capture file and changes nothing, so there is nothing to undo.",

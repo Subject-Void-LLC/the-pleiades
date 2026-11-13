@@ -107,10 +107,22 @@ func dump(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventory
 	}
 	defer func() { _ = ssh.Close() }()
 
-	if err := destFree(ctx, ssh, dest); err != nil {
+	// From here dest is the path the archive is written at: its directory
+	// with every link resolved, which is what is checked, written, reported
+	// and undone.
+	if dest, err = destFree(ctx, ssh, dest); err != nil {
 		return fail(err)
 	}
 	if err := requireTimeout(ctx, ssh); err != nil {
+		return fail(err)
+	}
+	// The device's pg_dump is read before the server is contacted, so a
+	// connection it cannot verify as written is refused first.
+	toolMaj, toolVersion, err := toolMajor(ctx, ssh, "pg_dump")
+	if err != nil {
+		return fail(err)
+	}
+	if err := systemRootsUsable(conn, "pg_dump", toolMaj); err != nil {
 		return fail(err)
 	}
 	s, err := open(ctx, ssh, conn, database)
@@ -119,10 +131,6 @@ func dump(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventory
 	}
 	_, serverMajor, err := s.ServerVersion(ctx)
 	_ = s.Close()
-	if err != nil {
-		return fail(err)
-	}
-	toolMaj, toolVersion, err := toolMajor(ctx, ssh, "pg_dump")
 	if err != nil {
 		return fail(err)
 	}
@@ -153,7 +161,7 @@ func dump(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventory
 		command = append(command, "--schema-only")
 	}
 	if _, err := (toolRun{
-		conn: conn, database: database, command: command, timeout: timeout,
+		conn: conn, database: database, command: command, major: toolMaj, timeout: timeout,
 		after:   "ln -- " + remoteexec.QuoteArg(partial) + " " + remoteexec.QuoteArg(dest),
 		cleanup: "rm -f -- " + remoteexec.QuoteArg(partial),
 	}).run(ctx, ssh); err != nil {
@@ -198,21 +206,45 @@ var readBack = func(ctx context.Context, ssh *remoteexec.Conn, dest string) (int
 	return info.Size, sum, nil
 }
 
-// destFree refuses a destination that exists, or whose directory does not.
-func destFree(ctx context.Context, ssh *remoteexec.Conn, dest string) error {
-	info, err := remotefile.Stat(ctx, ssh, dest)
+// destFree resolves dest's directory on the device, following every link
+// in it (remotefile.Locate: macOS's /tmp is a link to /private/tmp), and
+// returns the path the archive is to be written at, that directory and
+// dest's own last name. It refuses a destination whose directory does not
+// exist, and one where something already is. Only the directory is
+// resolved: a link at dest's last name is something there, so a dump is
+// refused rather than written through it, and the existence check reads
+// the name itself, never what a link there points at.
+func destFree(ctx context.Context, ssh *remoteexec.Conn, dest string) (string, error) {
+	loc, err := remotefile.Locate(ctx, ssh, dest)
 	if err != nil {
-		return err
+		return "", err
 	}
-	if info.Exists() {
-		return fmt.Errorf("%s exists; a dump never replaces an archive, so name a new one", dest)
-	}
-	dir, err := remotefile.Stat(ctx, ssh, path.Dir(dest))
+	resolved := loc.Path
+	// The directory as resolved holds no link, so a plain (no-follow) stat
+	// of it says what it is; a part that does not exist is kept as written,
+	// and reads as absent.
+	dir, err := remotefile.Stat(ctx, ssh, path.Dir(resolved))
 	if err != nil {
-		return err
+		return "", err
 	}
 	if dir.Kind != remotefile.KindDirectory {
-		return fmt.Errorf("%s is not a directory on the device", path.Dir(dest))
+		return "", fmt.Errorf("%s is not a directory on the device", path.Dir(dest))
 	}
-	return nil
+	info, err := remotefile.Stat(ctx, ssh, resolved)
+	if err != nil {
+		return "", err
+	}
+	if info.Exists() {
+		return "", fmt.Errorf("%s exists; a dump never replaces an archive, so name a new one", describeDest(dest, resolved))
+	}
+	return resolved, nil
+}
+
+// describeDest names a destination in a message: as written, and where it
+// resolved to when that differs.
+func describeDest(dest, resolved string) string {
+	if dest == resolved {
+		return dest
+	}
+	return dest + " (" + resolved + ")"
 }

@@ -13,7 +13,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
 
-func init() { registerRead("container.logs", Logs) }
+func init() { registerRead("container.logs", Logs, "") }
 
 // Logs implements container.logs: the last lines a container wrote,
 // bounded, or exists false for a container that is not there.

@@ -17,6 +17,7 @@ Counts the rows of every table outside the system schemas with count(*), in a RE
 | Requires elevation | no |
 | Runs | on or against the target device; acts on its target device |
 | Check mode | Supported: reports what it would change and changes nothing |
+| Absence | A thing that is not there is exists false, not a failure, in a run and a check |
 | Engine version | `>=0.2.0` |
 
 ## Parameters

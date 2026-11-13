@@ -73,6 +73,7 @@ func init() {
 			// unfinished one: reading a file changes nothing that a
 			// rollback could put back, and this method emits no inverse at
 			// run time either.
+			NoExistsReason: collection.NoExistsWait,
 			Reversibility: collection.Reversibility{
 				Reversible: false,
 				Notes: "This method reads a file and changes nothing on the device, so there is nothing to undo. That is the same fact that " +
@@ -99,7 +100,7 @@ func init() {
 func searchDoc() collection.Doc {
 	return collection.Doc{
 		Summary:     "Waits for a pattern to appear in a file's contents on the target.",
-		Description: "Reads a file on the device on an interval until search_regex matches it, or until it stops matching when state is absent, and fails when the timeout runs out first. It changes nothing. The whole file is read on every look, so this suits a service's startup log rather than a file that grows without limit, and a file past 64 MiB fails the task rather than being matched in part. The pattern is matched in multiline mode, as wait_for matches it, so ^ and $ mean the start and end of a line; it is a Go RE2 pattern, so a backreference or a lookahead is refused when the task is read rather than silently never matching. Only a regular file is read: a path that is missing, or that is a directory, counts as not matching, which satisfies state: absent at once and never satisfies state: present.",
+		Description: "Reads a file on the device on an interval until search_regex matches it, or until it stops matching when state is absent, and fails when the timeout runs out first. It changes nothing. The whole file is read on every look, so this suits a service's startup log rather than a file that grows without limit, and a file past 64 MiB fails the task rather than being matched in part. The pattern is matched in multiline mode, as wait_for matches it, so ^ and $ mean the start and end of a line; it is a Go RE2 pattern, so a backreference or a lookahead is refused when the task is read rather than silently never matching. Only a regular file is read: a path that is missing, or that is a directory, counts as not matching, which satisfies state: absent at once and never satisfies state: present. A file under a directory the login may not search fails the task at once, saying it cannot look, rather than counting as missing.",
 		Params: []collection.Param{
 			{Name: waitParamPath, Type: "string", Required: true, Description: "The file on the device to read."},
 			{Name: waitParamSearchRegex, Type: "string", Required: true, Description: "The pattern to look for, matched in multiline mode against the whole file. Use wait.path when only the file's existence matters."},

@@ -155,7 +155,8 @@ func (i Info) Map() map[string]any {
 }
 
 // Stat reads what is at path, reporting KindAbsent rather than an error
-// when nothing is.
+// when nothing is, and ErrCannotLook when a directory on the way to path is
+// closed to the login, since test -e answers false there too.
 //
 // Absence is an answer, not a failure, and the distinction is
 // load-bearing: a method that treated "not there" as an error could never
@@ -181,14 +182,19 @@ func Stat(ctx context.Context, conn *remoteexec.Conn, path string) (Info, error)
 	cmd := "if [ -e " + quoted + " ] || [ -L " + quoted + " ]; then " +
 		"stat -c '%f|%a|%U|%G|%s|%Y' " + quoted + " 2>/dev/null || " +
 		"stat -f '%Xp|%Mp%Lp|%Su|%Sg|%z|%m' " + quoted + "; " +
-		"else exit " + strconv.Itoa(statusMissing) + "; fi"
+		"else " + absentOrUnsearchable(quoted) + "; fi"
 
 	result, err := conn.Run(ctx, cmd)
 	if err != nil {
 		return Info{}, fmt.Errorf("stat %s: %w", path, err)
 	}
-	if result.ExitCode == statusMissing {
+	switch result.ExitCode {
+	case statusMissing:
 		return Info{Kind: KindAbsent}, nil
+	case statusUnsearchable:
+		// Nothing was found because a directory on the way is closed to
+		// the login: that is not an answer (ErrCannotLook).
+		return Info{}, cannotLook("stat", path, result.Stdout)
 	}
 	if result.ExitCode != 0 {
 		return Info{}, fmt.Errorf("stat %s: exited %d: %s", path, result.ExitCode, farside.Output(result.Stderr))

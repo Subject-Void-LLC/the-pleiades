@@ -52,6 +52,7 @@ func init() {
 			// net.catalyst.device_facts states it, rather than left
 			// unanswered: collection.Register refuses an implemented
 			// method that claims no reversibility without saying why.
+			NoExistsReason: collection.NoExistsDevice,
 			Reversibility: collection.Reversibility{
 				Reversible: false,
 				Notes:      "A read-only fact gatherer changes nothing on the device, so there is nothing to undo.",

@@ -17,6 +17,7 @@ Sends a GET (or a HEAD) to the URL, following at most max_redirects redirects an
 | Requires elevation | no |
 | Runs | in the host process (the CLI or a Runner); acts on no device, so a task skips the runbook's hosts: and runs once |
 | Check mode | Supported: reports what it would change and changes nothing |
+| Absence | No exists return: it is a gate: failing on what it asserts is not so is its purpose (a 404 is data when status_code names it) |
 | Engine version | `>=0.2.0` |
 
 ## Parameters

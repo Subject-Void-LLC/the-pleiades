@@ -221,8 +221,9 @@ func nodeLogs(ctx context.Context, s *session, a *args, _ bool) (bool, error) {
 	if tail < 1 || tail > 10000 {
 		return false, fmt.Errorf("%s: tail must be from 1 to 10000", s.fqcn)
 	}
-	n, err := s.node(ctx, lab, name)
-	if err != nil {
+	// A lab or node not there is exists false, in a run and a check alike.
+	n, found, err := s.lookupNode(ctx, lab, name)
+	if err != nil || !found {
 		return false, err
 	}
 	var out struct {
@@ -231,7 +232,7 @@ func nodeLogs(ctx context.Context, s *session, a *args, _ bool) (bool, error) {
 	if err := s.call(ctx, http.MethodGet, labPath(lab, "nodes", url.PathEscape(n.Name), "logs"), query("tail", strconv.Itoa(tail)), nil, &out); err != nil {
 		return false, err
 	}
-	return false, s.stats(map[string]any{"logs": out.Logs, "name": n.Name})
+	return false, s.stats(map[string]any{"exists": true, "logs": out.Logs, "name": n.Name})
 }
 
 // nodePorts lists a node's browser ports.
@@ -240,8 +241,9 @@ func nodePorts(ctx context.Context, s *session, a *args, _ bool) (bool, error) {
 	if a.err != nil {
 		return false, a.err
 	}
-	n, err := s.node(ctx, lab, name)
-	if err != nil {
+	// A lab or node not there is exists false and no ports.
+	n, found, err := s.lookupNode(ctx, lab, name, "ports")
+	if err != nil || !found {
 		return false, err
 	}
 	var out struct {
@@ -253,7 +255,7 @@ func nodePorts(ctx context.Context, s *session, a *args, _ bool) (bool, error) {
 	if out.Ports == nil {
 		out.Ports = []any{}
 	}
-	return false, s.stats(map[string]any{"ports": out.Ports, "name": n.Name})
+	return false, s.stats(map[string]any{"exists": true, "ports": out.Ports, "name": n.Name})
 }
 
 // nodeSSHAccess opens a temporary SSH door to a node. Its undo closes it. A

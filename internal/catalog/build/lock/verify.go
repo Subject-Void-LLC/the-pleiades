@@ -72,6 +72,7 @@ func init() {
 			EngineVersion:        ">=0.2.0",
 			Status:               collection.StatusImplemented,
 			SupportsCheck:        true,
+			NoExistsReason:       collection.NoExistsGate,
 			Reversibility: collection.Reversibility{
 				ReadOnly: true,
 				Notes:    "It reads a lockfile and its manifest, and writes nothing.",

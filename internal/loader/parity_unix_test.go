@@ -27,25 +27,31 @@ import (
 // Register knows about.
 func FuzzRegistrationParity(f *testing.F) {
 	for _, seed := range []struct {
-		name, status, notes, capability, transport, engine, noCheck, param string
-		reversible, supportsCheck                                          bool
+		name, status, notes, capability, transport, engine, noCheck, param, noExists string
+		reversible, supportsCheck, readOnly, exists                                  bool
 	}{
-		{"acme.motd.read", "implemented", "", string(capability.NameSSHTransport), "ssh", "", "", "", true, true},
-		{"acme.motd.read", "implemented", "reads only", "", "", ">=1.0.0", "", "", false, false},
-		{"acme.motd.read", "implemented", "", "", "", "", "", "", false, false},
-		{"acme.motd.read", "declared", "", "", "", "", "", "", true, true},
-		{"acme.motd.read", "implemented", "x", "NoSuchCapable", "", "", "", "", false, false},
-		{"acme", "implemented", "x", "", "", "", "", "", false, false},
-		{"fuzzparity.taken.run", "implemented", "x", "", "", "", "", "", false, false},
-		{"pleiades.motd.read", "implemented", "x", "", "", "", "", "", false, true},
-		{"acme.motd.read", "implemented", "x", "", "", "", "a reason it cannot be checked", "", false, true},
-		{"acme.motd.read", "implemented", "x", "", "", "", "a reason it cannot be checked", "", false, false},
-		{"acme.motd.read", "implemented", "x", "", "", "", "", collection.TargetParam, false, false},
-		{"acme.motd.read", "implemented", "x", "", "", "", "", "path", false, false},
+		{"acme.motd.read", "implemented", "", string(capability.NameSSHTransport), "ssh", "", "", "", "", true, true, false, false},
+		{"acme.motd.read", "implemented", "reads only", "", "", ">=1.0.0", "", "", "", false, false, false, false},
+		{"acme.motd.read", "implemented", "", "", "", "", "", "", "", false, false, false, false},
+		{"acme.motd.read", "declared", "", "", "", "", "", "", "", true, true, false, false},
+		{"acme.motd.read", "implemented", "x", "NoSuchCapable", "", "", "", "", "", false, false, false, false},
+		{"acme", "implemented", "x", "", "", "", "", "", "", false, false, false, false},
+		{"fuzzparity.taken.run", "implemented", "x", "", "", "", "", "", "", false, false, false, false},
+		{"pleiades.motd.read", "implemented", "x", "", "", "", "", "", "", false, true, false, false},
+		{"acme.motd.read", "implemented", "x", "", "", "", "a reason it cannot be checked", "", "", false, true, false, false},
+		{"acme.motd.read", "implemented", "x", "", "", "", "a reason it cannot be checked", "", "", false, false, false, false},
+		{"acme.motd.read", "implemented", "x", "", "", "", "", collection.TargetParam, "", false, false, false, false},
+		{"acme.motd.read", "implemented", "x", "", "", "", "", "path", "", false, false, false, false},
+		// The absence declaration (Phase 131, R4): a reason beside an exists
+		// return, and one on a method that is not read-only, are refused by
+		// both passes; a reason alone on a read-only method by neither.
+		{"acme.motd.read", "implemented", "x", "", "", "", "", "", collection.NoExistsLists, false, true, true, true},
+		{"acme.motd.read", "implemented", "x", "", "", "", "", "", collection.NoExistsLists, true, true, false, false},
+		{"acme.motd.read", "implemented", "x", "", "", "", "", "", collection.NoExistsLists, false, true, true, false},
 	} {
-		f.Add(seed.name, seed.status, seed.notes, seed.capability, seed.transport, seed.engine, seed.noCheck, seed.param, seed.reversible, seed.supportsCheck)
+		f.Add(seed.name, seed.status, seed.notes, seed.capability, seed.transport, seed.engine, seed.noCheck, seed.param, seed.noExists, seed.reversible, seed.supportsCheck, seed.readOnly, seed.exists)
 	}
-	f.Fuzz(func(t *testing.T, name, status, notes, capName, transport, engine, noCheck, param string, reversible, supportsCheck bool) {
+	f.Fuzz(func(t *testing.T, name, status, notes, capName, transport, engine, noCheck, param, noExists string, reversible, supportsCheck, readOnly, exists bool) {
 		defer collection.SnapshotForTest()()
 		taken := collection.Descriptor{
 			Name:     "fuzzparity.taken.run",
@@ -57,17 +63,21 @@ func FuzzRegistrationParity(f *testing.F) {
 		}
 
 		m := external.DescribedMethod{Name: name, Manifest: collection.Manifest{
-			Status:        collection.Status(status),
-			Reversibility: collection.Reversibility{Reversible: reversible, Notes: notes},
-			SupportsCheck: supportsCheck,
-			NoCheckReason: noCheck,
-			EngineVersion: engine,
+			Status:         collection.Status(status),
+			Reversibility:  collection.Reversibility{Reversible: reversible, ReadOnly: readOnly, Notes: notes},
+			SupportsCheck:  supportsCheck,
+			NoCheckReason:  noCheck,
+			NoExistsReason: noExists,
+			EngineVersion:  engine,
 		}}
 		if capName != "" {
 			m.Manifest.RequiredCapabilities = []capability.Name{capability.Name(capName)}
 		}
 		if transport != "" {
 			m.Manifest.SupportedTransports = []string{transport}
+		}
+		if exists {
+			m.Manifest.Doc.Returns = []collection.ReturnField{{Name: collection.ExistsReturn, Type: "bool", Returned: "always", Description: "fuzzed"}}
 		}
 		if param != "" {
 			m.Manifest.Doc.Params = []collection.Param{{Name: param, Type: "string", Description: "fuzzed"}}

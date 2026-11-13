@@ -17,6 +17,7 @@ Returns each session's port, lab, node, account and expiry. It only reads, so a 
 | Requires elevation | no |
 | Runs | in the host process (the CLI or a Runner); acts on its target device |
 | Check mode | Supported: reports what it would change and changes nothing |
+| Absence | No exists return: it lists; when there is nothing, an empty list is the answer |
 | Engine version | `>=0.3.0` |
 
 ## Parameters

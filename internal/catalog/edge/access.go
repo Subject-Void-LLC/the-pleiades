@@ -28,7 +28,9 @@ var (
 	policyExpect = []string{"name", "decision", "precedence", "include", "exclude", "require"}
 )
 
-func init() { method(fqcnAccess, accessDoc(), Access) }
+func init() {
+	method(fqcnAccess, accessDoc(), Access, collection.NoExistsGate+" (one application not there fails naming it, in a run and a check)")
+}
 
 // Access implements edge.access.
 func Access(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {

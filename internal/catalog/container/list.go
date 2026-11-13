@@ -18,7 +18,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
 
-func init() { registerRead("container.list", List) }
+func init() { registerRead("container.list", List, collection.NoExistsLists) }
 
 // List implements container.list: every container on the engine, or the
 // running ones alone when all is false, optionally those whose name

@@ -228,6 +228,18 @@ type Manifest struct {
 	// method, which gets the bare answer without it.
 	NoCheckReason string `json:"noCheckReason,omitempty"`
 
+	// NoExistsReason says why a read-only method answers no exists return
+	// (Phase 131, R4, absence as data): a lookup of one named thing that may
+	// not be there declares exists, which is false for a thing that is not,
+	// and every other read-only method says here what it answers instead
+	// (a list, the device itself, a gate's failure, a wait's timeout, a
+	// probe's result). It is empty for a method that declares exists, and
+	// Register refuses one that carries both, or that carries one and is not
+	// read-only (ValidateNoExistsReason). Every built-in implemented
+	// read-only method declares exists or carries one; a test holds the
+	// catalog to that. It is optional for an external Collection's method.
+	NoExistsReason string `json:"noExistsReason,omitempty"`
+
 	// PredictsPaths reports that this method's check records, through
 	// sdk.RecordPredicted, every path its real run would remove, on every
 	// check it is handed predictions for (an empty record when it removes

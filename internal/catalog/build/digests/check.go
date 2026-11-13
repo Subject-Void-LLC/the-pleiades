@@ -23,6 +23,7 @@ func init() {
 			EngineVersion:        ">=0.2.0",
 			Status:               collection.StatusImplemented,
 			SupportsCheck:        true,
+			NoExistsReason:       collection.NoExistsGate,
 			Reversibility: collection.Reversibility{
 				ReadOnly: true,
 				Notes:    "It reads files and, with resolve, asks the registry; it writes nothing.",

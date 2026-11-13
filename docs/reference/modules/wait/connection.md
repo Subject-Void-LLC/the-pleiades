@@ -17,6 +17,7 @@ Tries the device over the connection its other tasks use (WinRM for a device rea
 | Requires elevation | no |
 | Runs | on or against the target device; acts on its target device |
 | Check mode | Not supported: a check run names this task as unchecked, since what it waits for is usually a machine an earlier task starts or restarts, which a check never does, so a check would wait out its timeout and fail where the real run succeeds |
+| Absence | No exists return: it is a wait: failing at its timeout is its purpose |
 | Engine version | `>=0.2.0` |
 
 ## Parameters

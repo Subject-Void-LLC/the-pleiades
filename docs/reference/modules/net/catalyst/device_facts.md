@@ -17,6 +17,7 @@ Pages through the Catalyst Center's device inventory and emits one fact entry pe
 | Requires elevation | no |
 | Runs | in the host process (the CLI or a Runner); acts on its target device |
 | Check mode | Supported: reports what it would change and changes nothing |
+| Absence | No exists return: it lists; when there is nothing, an empty list is the answer (every device the controller manages; no name is asked) |
 | Engine version | `>=0.2.0` |
 
 ## Parameters

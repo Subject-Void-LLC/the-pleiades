@@ -55,7 +55,7 @@ func init() {
 		Manifest: containerengine.MethodManifest(collection.Reversibility{
 			Notes:    "Reading is not changing: the method reads the engine's own report and changes nothing.",
 			ReadOnly: true,
-		}, infoDoc()),
+		}, infoDoc()).WithNoExistsReason(collection.NoExistsDevice),
 		Invoke: info,
 		// Reading is the same in a check: Check is Invoke.
 		Check: info,

@@ -17,7 +17,7 @@ func init() {
 	register(fqcnInfo, containerengine.MethodManifest(collection.Reversibility{
 		ReadOnly: true,
 		Notes:    "It reads the login file and changes nothing.",
-	}, infoDoc()), info)
+	}, infoDoc()).WithNoExistsReason("a registry with no login is logged_in false, and a login file not there reads as no logins"), info)
 }
 
 // info is container.registry.info's body: with registry, whether that one

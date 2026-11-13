@@ -75,12 +75,19 @@ type server struct {
 	// notSuperuser makes the login an ordinary user, whom the real server
 	// refuses its host tools.
 	notSuperuser bool
+	// files names labs the server holds a topology file for without their
+	// being deployed; a deployed lab always has one.
+	files map[string]bool
+	// refuse makes every call whose path starts with a key answer the
+	// status it maps to, as a server refusing the login (403) or failing
+	// (500) does.
+	refuse map[string]int
 }
 
 // newServer starts the stub on plain HTTP, which the device allows.
 func newServer(t *testing.T) *server {
 	t.Helper()
-	s := &server{labs: map[string]map[string]string{}, netem: map[string][]map[string]any{}}
+	s := &server{labs: map[string]map[string]string{}, netem: map[string][]map[string]any{}, files: map[string]bool{}}
 	mux := http.NewServeMux()
 	reply := func(w http.ResponseWriter, code int, v any) {
 		w.WriteHeader(code)
@@ -112,6 +119,15 @@ func newServer(t *testing.T) *server {
 				reply(w, http.StatusUnauthorized, map[string]string{"error": "Authorization header required"})
 				return
 			}
+			s.mu.Lock()
+			for prefix, code := range s.refuse {
+				if strings.HasPrefix(r.URL.Path, prefix) {
+					s.mu.Unlock()
+					reply(w, code, map[string]string{"error": "refused by the test"})
+					return
+				}
+			}
+			s.mu.Unlock()
 			h(w, r)
 		}
 	}
@@ -268,6 +284,7 @@ func newServer(t *testing.T) *server {
 			reply(w, 200, map[string]string{"message": verb + "ed"})
 		}))
 	}
+	readerRoutes(s, mux, reply, authed)
 	s.Server = httptest.NewServer(mux)
 	t.Cleanup(s.Close)
 	return s

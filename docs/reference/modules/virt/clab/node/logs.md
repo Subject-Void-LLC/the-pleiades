@@ -6,7 +6,7 @@ status: beta
 
 Reads the last lines of a lab node's output.
 
-Returns the last tail lines the node's container wrote. The text is the node's own, and may hold anything the node printed. It only reads, so a check is the same call. The target is the containerlab API server, a generic_http device that onboarding recognised (it declares ContainerlabAPICapable); its login is the device's stored credential, with http_auth basic, and neither the password nor the token it gets is logged, returned or journaled.
+Returns the last tail lines the node's container wrote. The text is the node's own, and may hold anything the node printed. A lab that is not deployed, or a node it does not have, is not a failure: exists is false and no output is reported, so a later task can decide what to do. It only reads, so a check is the same call. The target is the containerlab API server, a generic_http device that onboarding recognised (it declares ContainerlabAPICapable); its login is the device's stored credential, with http_auth basic, and neither the password nor the token it gets is logged, returned or journaled.
 
 ## Attributes
 
@@ -17,6 +17,7 @@ Returns the last tail lines the node's container wrote. The text is the node's o
 | Requires elevation | no |
 | Runs | in the host process (the CLI or a Runner); acts on its target device |
 | Check mode | Supported: reports what it would change and changes nothing |
+| Absence | A thing that is not there is exists false, not a failure, in a run and a check |
 | Engine version | `>=0.3.0` |
 
 ## Parameters
@@ -31,8 +32,9 @@ Returns the last tail lines the node's container wrote. The text is the node's o
 
 | Name | Type | Returned | Description |
 | --- | --- | --- | --- |
-| `logs` | `string` | always | The node's output. |
-| `name` | `string` | always | The node's container name. |
+| `exists` | `bool` | always | Whether the lab is deployed and has the node. |
+| `logs` | `string` | when it exists | The node's output. |
+| `name` | `string` | when it exists | The node's container name. |
 
 ## Undoing this
 

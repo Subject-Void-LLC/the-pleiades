@@ -4,9 +4,9 @@ status: beta
 
 # virt.clab.lab.topology
 
-Reads a deployed lab's topology as YAML.
+Reads a lab's topology as YAML.
 
-The text is the topology file the server holds for the lab. It only reads, so a check is the same call. The target is the containerlab API server, a generic_http device that onboarding recognised (it declares ContainerlabAPICapable); its login is the device's stored credential, with http_auth basic, and neither the password nor the token it gets is logged, returned or journaled.
+The text is the topology file the server holds for the lab, deployed or not. A lab the server holds no topology file for is not a failure: exists is false and no topology is reported, so a later task can decide what to do. It only reads, so a check is the same call. The target is the containerlab API server, a generic_http device that onboarding recognised (it declares ContainerlabAPICapable); its login is the device's stored credential, with http_auth basic, and neither the password nor the token it gets is logged, returned or journaled.
 
 ## Attributes
 
@@ -17,6 +17,7 @@ The text is the topology file the server holds for the lab. It only reads, so a 
 | Requires elevation | no |
 | Runs | in the host process (the CLI or a Runner); acts on its target device |
 | Check mode | Supported: reports what it would change and changes nothing |
+| Absence | A thing that is not there is exists false, not a failure, in a run and a check |
 | Engine version | `>=0.3.0` |
 
 ## Parameters
@@ -29,7 +30,8 @@ The text is the topology file the server holds for the lab. It only reads, so a 
 
 | Name | Type | Returned | Description |
 | --- | --- | --- | --- |
-| `topology` | `string` | always | The topology file's YAML text. |
+| `exists` | `bool` | always | Whether the server holds a topology file for the lab. |
+| `topology` | `string` | when it exists | The topology file's YAML text. |
 
 ## Undoing this
 
@@ -46,7 +48,7 @@ It only reads the server, so there is nothing to undo.
 
 ## Examples
 
-Reads a deployed lab's topology as YAML.:
+Reads a lab's topology as YAML.:
 
 ```yaml
 - name: Read the topology

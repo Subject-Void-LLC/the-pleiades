@@ -1,0 +1,1 @@
+A `db.pg` connection with no password no longer makes the PostgreSQL driver warn on standard error, on every connect, that the password file `/dev/null` has group or world access. No password file of the machine running pleiades is read, as before.

@@ -42,6 +42,7 @@ func init() {
 			PlatformTargets: nil,
 			EngineVersion:   ">=0.2.0",
 			Status:          collection.StatusImplemented,
+			NoExistsReason:  collection.NoExistsDevice,
 			Reversibility: collection.Reversibility{
 				Reversible: false,
 				Notes:      "Reading is not changing: this reports the host's processors and alters nothing, so there is nothing an undo could restore.",

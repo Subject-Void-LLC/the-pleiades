@@ -1,7 +1,9 @@
-// Tests that a tool run's password never reaches the command line.
+// Tests of the script a tool run sends: the password never reaches the
+// command line, and the trusted roots it names are ones the tool reads.
 package pg
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -65,7 +67,7 @@ func TestToolRun_ATimeoutUnderASecondStillBounds(t *testing.T) {
 		1500 * time.Millisecond:      "timeout -k 10s 2s ",
 		time.Hour + time.Millisecond: "timeout -k 10s 3601s ",
 	} {
-		run := toolRun{conn: wire.DatabaseConnection{Name: "appdb", Host: "10.0.0.5", User: "app"}, database: "app", command: []string{"pg_dump"}, timeout: d}
+		run := toolRun{conn: wire.DatabaseConnection{Name: "appdb", Host: "10.0.0.5", User: "app"}, database: "app", command: []string{"pg_dump"}, major: 16, timeout: d}
 		script, err := run.script()
 		if err != nil {
 			t.Fatal(err)
@@ -73,6 +75,59 @@ func TestToolRun_ATimeoutUnderASecondStillBounds(t *testing.T) {
 		if !strings.Contains(script, want) {
 			t.Errorf("a %s timeout: the script lacks %q:\n%s", d, want, script)
 		}
+	}
+}
+
+// TestToolRun_SystemRootsOnlyWhereLibpqReadsThem: a verify-full connection
+// with no pinned CA names the device's own trusted roots
+// (PGSSLROOTCERT=system) only for a program of 16 or later, always beside
+// PGSSLMODE=verify-full, which libpq needs to verify against them; for an
+// older one, whose libpq reads "system" as a file name, the script is
+// refused, naming the connection, the program and its version. A pinned
+// CA is used at any version, and a connection without TLS names no roots.
+// The tool runs from its private directory, after the directory and its
+// removal are set up.
+func TestToolRun_SystemRootsOnlyWhereLibpqReadsThem(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		conn   wire.DatabaseConnection
+		major  int
+		roots  string // the PGSSLROOTCERT the script exports, "" for none
+		refuse bool
+	}{
+		{name: "the default sslmode at 16", conn: wire.DatabaseConnection{Name: "appdb", Host: "10.0.0.5", User: "app"}, major: 16, roots: "system"},
+		{name: "verify-full at 18", conn: wire.DatabaseConnection{Name: "appdb", Host: "10.0.0.5", User: "app", SSLMode: wire.SSLVerifyFull}, major: 18, roots: "system"},
+		{name: "the default sslmode at 15", conn: wire.DatabaseConnection{Name: "appdb", Host: "10.0.0.5", User: "app"}, major: 15, refuse: true},
+		{name: "verify-full at 9", conn: wire.DatabaseConnection{Name: "appdb", Host: "10.0.0.5", User: "app", SSLMode: wire.SSLVerifyFull}, major: 9, refuse: true},
+		{name: "a pinned CA at 15", conn: wire.DatabaseConnection{Name: "appdb", Host: "10.0.0.5", User: "app", CAPEM: "-----BEGIN CERTIFICATE-----\n"}, major: 15, roots: `"$d/ca.pem"`},
+		{name: "no TLS at 15", conn: wire.DatabaseConnection{Name: "appdb", Host: "127.0.0.1", User: "app", SSLMode: wire.SSLDisable}, major: 15},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			script, err := toolRun{conn: tc.conn, database: "app", command: []string{"pg_restore"}, major: tc.major, timeout: time.Minute}.script()
+			if tc.refuse {
+				if err == nil || !strings.Contains(err.Error(), "connection appdb") || !strings.Contains(err.Error(), "pg_restore reads only from PostgreSQL 16, and the device's is "+strconv.Itoa(tc.major)) || !strings.Contains(err.Error(), "ca_pem") {
+					t.Fatalf("script = %v, want a refusal naming the connection, pg_restore, its version and ca_pem:\n%s", err, script)
+				}
+				if err := systemRootsUsable(tc.conn, "pg_restore", tc.major); err == nil {
+					t.Error("systemRootsUsable lets through what the script refuses")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			exported := strings.Contains(script, "export PGSSLROOTCERT=")
+			if tc.roots == "" && exported || tc.roots != "" && !strings.Contains(script, "export PGSSLROOTCERT="+tc.roots+"\n") {
+				t.Errorf("want PGSSLROOTCERT=%q:\n%s", tc.roots, script)
+			}
+			if exported && !strings.Contains(script, "PGSSLMODE='verify-full'") {
+				t.Errorf("roots without PGSSLMODE=verify-full:\n%s", script)
+			}
+			cd, trap, run := strings.Index(script, "cd \"$d\"\n"), strings.Index(script, "trap "), strings.Index(script, "timeout -k")
+			if cd < 0 || !(trap < cd && cd < run) {
+				t.Errorf("the tool does not run from its private directory, set up first:\n%s", script)
+			}
+		})
 	}
 }
 

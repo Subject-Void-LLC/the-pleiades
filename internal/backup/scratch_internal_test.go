@@ -17,6 +17,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport/need"
 )
 
 // loadedScratch starts a server, migrates its database, backs it up with
@@ -29,7 +30,7 @@ func loadedScratch(t *testing.T) *scratch {
 	}
 	for _, name := range []string{"pg_dump", "pg_restore"} {
 		_, err := exec.LookPath(name)
-		testsupport.Require(t, name, err == nil, name+" is not on PATH")
+		testsupport.Require(t, need.PostgresClient, err == nil, name+" is not on PATH")
 	}
 	ctx := context.Background()
 	pg, err := testpg.Run(ctx, testsupport.PostgresImage,

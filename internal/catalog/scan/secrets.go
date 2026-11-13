@@ -28,6 +28,7 @@ func init() {
 			EngineVersion:        ">=0.2.0",
 			Status:               collection.StatusImplemented,
 			SupportsCheck:        true,
+			NoExistsReason:       collection.NoExistsGate,
 			Reversibility: collection.Reversibility{
 				ReadOnly: true,
 				Notes:    "It reads the tree, mounted read-only into the scanner's container, and writes nothing.",

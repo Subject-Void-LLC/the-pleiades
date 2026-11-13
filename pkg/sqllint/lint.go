@@ -260,14 +260,20 @@ const directivePrefix = "-- pleiades:"
 // one, before its first statement. One that names no directive this reads
 // is refused, so a misspelled no-transaction is not quietly a
 // transactional file, as is one after the first statement, which would
-// read as if it applied. A comment inside a string, or within a /* */
-// comment, is not a directive.
+// read as if it applied. A directive stated twice is refused, naming both
+// lines: each loosens a guard (destructive waives additive_only and gives
+// the reason the run records, no-transaction drops the file's
+// transaction), and a second destructive would otherwise replace the
+// reason a reviewer read first with one further down. A comment inside a
+// string, or within a /* */ comment, is not a directive.
 func ParseDirectives(src string) (Directives, error) {
 	_, comments, err := scan(src)
 	if err != nil {
 		return Directives{}, err
 	}
 	var d Directives
+	// first is the line each directive was first stated on.
+	first := map[string]int{}
 	for _, c := range comments {
 		text := strings.TrimRight(c.text, "\r")
 		if !strings.HasPrefix(text, directivePrefix) {
@@ -277,7 +283,12 @@ func ParseDirectives(src string) (Directives, error) {
 			return Directives{}, fmt.Errorf("line %d: a %s directive after the first statement applies to nothing; move it to the top", c.line, directivePrefix)
 		}
 		name, value, _ := strings.Cut(strings.TrimSpace(strings.TrimPrefix(text, directivePrefix)), ":")
-		switch strings.TrimSpace(name) {
+		name = strings.TrimSpace(name)
+		if line, stated := first[name]; stated {
+			return Directives{}, fmt.Errorf("line %d: %s is stated again, first on line %d; state each directive once, so the file says one thing", c.line, name, line)
+		}
+		first[name] = c.line
+		switch name {
 		case "no-transaction":
 			if strings.TrimSpace(value) != "" {
 				return Directives{}, fmt.Errorf("line %d: no-transaction takes no value", c.line)
@@ -288,7 +299,7 @@ func ParseDirectives(src string) (Directives, error) {
 				return Directives{}, fmt.Errorf("line %d: destructive needs a reason: %s destructive: <why>", c.line, directivePrefix)
 			}
 		default:
-			return Directives{}, fmt.Errorf("line %d: %q is not a directive (no-transaction, destructive: <why>)", c.line, strings.TrimSpace(name))
+			return Directives{}, fmt.Errorf("line %d: %q is not a directive (no-transaction, destructive: <why>)", c.line, name)
 		}
 	}
 	return d, nil

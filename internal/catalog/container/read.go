@@ -31,11 +31,12 @@ const (
 var readOnly = collection.Reversibility{ReadOnly: true, Notes: "It reads what the engine reports, and changes nothing."}
 
 // registerRead registers a method that only reads: a check of it is the
-// task itself.
-func registerRead(name string, fn collection.Method) {
+// task itself. noExists is why it answers no exists return, empty for one
+// that declares exists (collection.Manifest.NoExistsReason).
+func registerRead(name string, fn collection.Method, noExists string) {
 	collection.MustRegister(collection.Descriptor{
 		Name:     name,
-		Manifest: containerengine.MethodManifest(readOnly, readDoc(name)),
+		Manifest: containerengine.MethodManifest(readOnly, readDoc(name)).WithNoExistsReason(noExists),
 		Invoke:   fn,
 		Check:    fn,
 	})

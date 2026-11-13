@@ -120,7 +120,9 @@ func TestMigrate_RefusesBeforeAnythingRuns(t *testing.T) {
 		"two outside":            {map[string]string{"1_a.sql": "-- pleiades: no-transaction\nVACUUM;\nVACUUM;"}, nil, "must hold exactly one statement"},
 		"destructive":            {map[string]string{"1_a.sql": "CREATE TABLE a (id int);", "2_b.sql": "ALTER TABLE a DROP COLUMN id;"}, map[string]any{"additive_only": true}, "2_b.sql:1: it drops a column (additive_only)"},
 		"a misspelled directive": {map[string]string{"1_a.sql": "-- pleiades: no-transation\nSELECT 1;"}, nil, `"no-transation" is not a directive`},
-		"an empty file":          {map[string]string{"1_a.sql": "-- nothing\n"}, nil, "holds no statement"},
+		"a second reason": {map[string]string{"1_a.sql": "CREATE TABLE a (id int);", "2_b.sql": "-- pleiades: destructive: id was never read\n-- pleiades: destructive: approved\nALTER TABLE a DROP COLUMN id;"},
+			map[string]any{"additive_only": true}, "2_b.sql: line 2: destructive is stated again, first on line 1"},
+		"an empty file": {map[string]string{"1_a.sql": "-- nothing\n"}, nil, "holds no statement"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			extra := map[string]any{"dir": writeMigrations(t, tc.files)}

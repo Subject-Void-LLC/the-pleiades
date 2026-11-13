@@ -1,0 +1,1 @@
+`db.pg.dump` writes into a directory reached through a symbolic link, such as macOS's `/tmp`, instead of refusing it as not a directory, and its `dest` result and recorded undo name the path the link resolves to. A link at `dest`'s own name is still refused, and nothing is written through it.

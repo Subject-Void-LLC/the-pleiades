@@ -17,6 +17,7 @@ A run keeps one SSH connection per device open between tasks unless persist_conn
 | Requires elevation | no |
 | Runs | on or against the target device; acts on its target device |
 | Check mode | Supported: reports what it would change and changes nothing |
+| Absence | No exists return: it looks nothing up |
 | Engine version | `>=0.2.0` |
 
 ## Undoing this

@@ -1188,6 +1188,16 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 1182. pkg/cml's lab list failed when any listed lab was deleted before it was read, so a shared controller's churn broke import-cml and virt.cml.lab.* (fixed before push)
 1183. import-gns3 reported a console port of 0 or 70000 as "it has no console port" (fixed before push)
 1184. pkg/gns3's oversize test passed with the bounded read removed, since the length check after the read still tripped (a repeat of 820) (fixed before push)
+1185. db.pg's test harness asked whether the machine's PostgreSQL client could serve the fixture and threw the answer away (a repeat of 279 and 476) (fixed before push)
+1186. db.pg.dump and db.pg.restore sent PGSSLROOTCERT=system to a libpq older than 16, which reads it as a file in the login's home (fixed before push)
+1187. db.pg.dump refused a destination whose directory is reached through a symbolic link, such as macOS /tmp (fixed before push)
+1188. pkg/sqllint let a migration directive be stated twice, last one winning, so the reason recorded could differ from the one a reviewer read first (a repeat of 325) (fixed before push)
+1189. pkg/pgclient's /dev/null password file made lib/pq warn on every connect with no password (fixed before push)
+1190. need.Require's registry check read only literal need names, so five tests passed names nothing could ever require (fixed before push)
+1191. The PostgreSQL test image trusted every loopback and socket login, so a passwordless connect passed and proved nothing (a repeat of LESSONS 174) (fixed before push)
+1192. A 3.5 MB build of tools/gatereceipt sat committed at the repository root for two months, and two Ansible fixtures held this machine's paths (fixed before push)
+1193. pkg/remotefile read a path the login could not search as absent, so file.stat /root/.profile answered exists false (a repeat of 866 and 818) (fixed before push)
+1194. BusyBox's test -x answers false to root for a mode 000 directory root can search, so asking search permission with it misread root (fixed before push)
 1195. The script scaffold's release gate compared the script's working directory with an unresolved TMPDIR, so it failed on macOS, where /var is a link to /private/var (fixed on the pull request)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.

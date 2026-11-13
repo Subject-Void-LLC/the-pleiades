@@ -551,6 +551,9 @@ func TestCLI_Doc_MatchesGeneratedReferencePage(t *testing.T) {
 		"insecure_skip_verify",
 		"page_size",
 		"device_count",
+		// Its NoExistsReason (Phase 131, R4), which both print as what the
+		// method answers about a thing that is not there.
+		"exists return: it lists; when there is nothing, an empty list is the answer (every device the controller manages; no name is asked)",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("pleiades doc output missing %q (present in the generated page)", want)

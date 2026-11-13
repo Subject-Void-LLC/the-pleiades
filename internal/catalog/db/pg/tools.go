@@ -28,6 +28,9 @@ type toolRun struct {
 	database string
 	// command is the program and its arguments, each quoted here.
 	command []string
+	// major is the program's major version, as toolMajor read it on the
+	// device, which says how its libpq reads sslrootcert=system.
+	major   int
 	timeout time.Duration
 	// after runs once command has succeeded, in the same shell.
 	after string
@@ -43,8 +46,13 @@ type toolRun struct {
 // and written into it, by the shell's own printf, so the password is never
 // on a command line or in any process's environment: the tools find it
 // through PGPASSFILE, as PostgreSQL recommends over PGPASSWORD. A pinned
-// CA, the rest of standard input, is written beside it. The tool runs
-// under timeout -k, so a hung one is killed on the device.
+// CA, the rest of standard input, is written beside it. Without one, a
+// verify-full connection names the device's own trusted roots
+// (sslrootcert=system), refused for a program older than the libpq that
+// reads that name so (systemRootsUsable). The tool runs from the private
+// directory, so whatever libpq resolves against its working directory
+// lands where only this run writes, and under timeout -k, so a hung one
+// is killed on the device.
 func (t toolRun) script() (string, error) {
 	q := remoteexec.QuoteArg
 	if err := toolsCanReach(t.conn); err != nil {
@@ -74,8 +82,16 @@ func (t toolRun) script() (string, error) {
 	case t.conn.CAPEM != "":
 		lines = append(lines, `cat > "$d/ca.pem"`, `export PGSSLROOTCERT="$d/ca.pem"`)
 	case t.conn.EffectiveSSLMode() == wire.SSLVerifyFull:
+		if err := systemRootsUsable(t.conn, t.command[0], t.major); err != nil {
+			return "", err
+		}
 		lines = append(lines, "export PGSSLROOTCERT=system")
 	}
+	// Every path a tool is given is absolute, so this moves only what a
+	// relative name would reach: a libpq older than its program reports
+	// reads sslrootcert=system as ./system, which is then in this run's
+	// own empty directory rather than the login's.
+	lines = append(lines, `cd "$d"`)
 	run := "timeout -k 10s " + strconv.FormatInt(wholeSeconds(t.timeout), 10) + "s " + remoteexec.QuoteCommand(t.command)
 	if t.after != "" {
 		run += " && " + t.after
@@ -100,6 +116,28 @@ func toolsCanReach(conn wire.DatabaseConnection) error {
 		return fmt.Errorf("connection %s: pg_dump and pg_restore check a certificate against the host they dial, so with server_name the host must be an address, not %s", conn.Name, conn.Host)
 	}
 	return nil
+}
+
+// systemRootsMajor is the first release whose libpq reads
+// sslrootcert=system as the system's trusted roots. Before it, "system" is
+// a file name like any other, read from the working directory.
+const systemRootsMajor = 16
+
+// systemRootsUsable refuses a connection that would send program to the
+// device's own trusted roots (verify-full with no pinned CA) when program,
+// at major, is older than systemRootsMajor. Its libpq would read
+// sslrootcert=system as a file named system: on a clean device the
+// connection fails, and a file planted under that name becomes the
+// authority the server is verified against. A program's major version is
+// not always its libpq's (a distribution's client 15 can load a newer
+// libpq5), so this refuses some devices that would have worked; a pinned
+// CA works on every one.
+func systemRootsUsable(conn wire.DatabaseConnection, program string, major int) error {
+	if conn.CAPEM != "" || conn.EffectiveSSLMode() != wire.SSLVerifyFull || major >= systemRootsMajor {
+		return nil
+	}
+	return fmt.Errorf("connection %s verifies the server against the device's own trusted roots, which %s reads only from PostgreSQL %d, and the device's is %d: before %d, libpq reads sslrootcert=system as a file named system, so whoever can write one where it runs chooses the authority; pin the server's CA in the connection (ca_pem), or install PostgreSQL %d's client programs or later on the device",
+		conn.Name, program, systemRootsMajor, major, systemRootsMajor, systemRootsMajor)
 }
 
 // wholeSeconds is d in seconds, rounded up: timeout(1) takes whole

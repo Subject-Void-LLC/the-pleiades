@@ -18,7 +18,9 @@ import (
 )
 
 // dumpRestoreFixture is a source database with two tables and a
-// partitioned one, and a directory on the device for archives.
+// partitioned one, and a directory on the device for archives, named with
+// every link in it resolved (macOS's temporary directories are under one),
+// as db.pg.dump reports the path it wrote.
 func dumpRestoreFixture(t *testing.T) (*harness, string) {
 	t.Helper()
 	requireTools(t)
@@ -32,7 +34,46 @@ func dumpRestoreFixture(t *testing.T) (*harness, string) {
 		"CREATE SCHEMA audit",
 		"CREATE TABLE audit.log (id int)",
 		"INSERT INTO audit.log VALUES (1)")
-	return h, t.TempDir()
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return h, dir
+}
+
+// TestDump_ADestinationThatIsALinkIsStillRefused: dest's directory is
+// resolved, its last name never is. A link there, to nothing or to a file,
+// is something at dest, so the dump is refused, in a run and in a check,
+// and nothing is written through it: the file a link names keeps its
+// contents, and a dangling link's target is never created.
+func TestDump_ADestinationThatIsALinkIsStillRefused(t *testing.T) {
+	h, dir := dumpRestoreFixture(t)
+	ctx := context.Background()
+	kept := filepath.Join(dir, "kept.txt")
+	if err := os.WriteFile(kept, []byte("keep me"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for link, target := range map[string]string{"to-a-file.dump": kept, "to-nothing.dump": filepath.Join(dir, "never.dump")} {
+		if err := os.Symlink(target, filepath.Join(dir, link)); err != nil {
+			t.Fatal(err)
+		}
+		p := params(map[string]any{"connection": "admin", "database": "app", "dest": filepath.Join(dir, link)})
+		if _, err := pg.Dump(ctx, h.fresh(), h.device, p); err == nil || !strings.Contains(err.Error(), "never replaces an archive") {
+			t.Errorf("a dump to the link %s = %v", link, err)
+		}
+		if _, err := pg.CheckDump(ctx, h.fresh(), h.device, p); err == nil || !strings.Contains(err.Error(), "never replaces an archive") {
+			t.Errorf("a check of a dump to the link %s = %v", link, err)
+		}
+	}
+	if got, err := os.ReadFile(kept); err != nil || string(got) != "keep me" { // #nosec G304 -- this test's own directory
+		t.Errorf("the file a link names now holds %q, %v", got, err)
+	}
+	if _, err := os.Lstat(filepath.Join(dir, "never.dump")); !os.IsNotExist(err) {
+		t.Errorf("a dangling link's target was created: %v", err)
+	}
+	if entries, _ := os.ReadDir(dir); len(entries) != 3 {
+		t.Errorf("the refused dumps left %d entries in the directory, want the file and the two links", len(entries))
+	}
 }
 
 // TestDumpRestoreRowcounts_TheLoop: a check of a dump writes nothing; the

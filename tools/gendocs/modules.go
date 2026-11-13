@@ -181,8 +181,13 @@ func writeModulePage(modulesDir, fqcn string, m collection.Manifest, someCalls b
 	rows = append(rows,
 		[]string{"Requires elevation", yesNo(m.ExecutionContext.RequiresElevation)},
 		[]string{"Runs", runsWhere(m.ExecutionContext)},
-		[]string{"Check mode", checkModeSupport(m.SupportsCheck, someCalls, m.NoCheckReason)},
-		[]string{"Engine version", code(m.EngineVersion)})
+		[]string{"Check mode", checkModeSupport(m.SupportsCheck, someCalls, m.NoCheckReason)})
+	// What a read-only method answers about a thing that is not there (Phase
+	// 131, R4): exists false, or why it answers none (NoExistsReason).
+	if absence := m.AbsenceAnswer(); absence != "" && m.Status == collection.StatusImplemented {
+		rows = append(rows, []string{"Absence", upperFirst(absence)})
+	}
+	rows = append(rows, []string{"Engine version", code(m.EngineVersion)})
 	b.WriteString(table([]string{"", ""}, rows))
 	b.WriteString("\n")
 
@@ -392,6 +397,15 @@ func checkModeSupport(supported, someCalls bool, noCheckReason string) string {
 		return "Not supported: a check run names this task as unchecked, since " + noCheckReason
 	}
 	return "Not supported: a check run names this task as unchecked"
+}
+
+// upperFirst is s with its first letter upper case, for a table cell that
+// starts a sentence.
+func upperFirst(s string) string {
+	if s == "" {
+		return s
+	}
+	return strings.ToUpper(s[:1]) + s[1:]
 }
 
 func writeExamples(b *strings.Builder, doc collection.Doc) {

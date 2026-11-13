@@ -59,6 +59,7 @@ func init() {
 			SupportsCheck: true,
 			// Nothing to undo, which is the same fact that makes this
 			// method report changed: false.
+			NoExistsReason: collection.NoExistsLists,
 			Reversibility: collection.Reversibility{
 				Reversible: false,
 				Notes:      "A read-only reachability check changes nothing on the device, so there is nothing to undo.",

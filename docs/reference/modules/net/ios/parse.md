@@ -17,6 +17,7 @@ Runs one show command over the same session net.ios.command opens and parses its
 | Requires elevation | no |
 | Runs | on or against the target device; acts on its target device |
 | Check mode | Supported: reports what it would change and changes nothing |
+| Absence | No exists return: it parses a show command's output; output with nothing found is empty: true |
 | Engine version | `>=0.2.0` |
 
 ## Parameters

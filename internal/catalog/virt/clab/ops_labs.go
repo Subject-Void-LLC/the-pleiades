@@ -61,8 +61,10 @@ func labInfo(ctx context.Context, s *session, a *args, _ bool) (bool, error) {
 	return false, s.stats(out)
 }
 
-// labRead is a lab route that only reads and returns what the server said
-// under one result name.
+// labRead is a route of a deployed lab that only reads and returns what the
+// server said, a list, under one result name. A lab that is not deployed is
+// exists false and an empty list, read from the lab's inspect first, so a
+// failure of the route itself stays a failure.
 func labRead(path, resultKey, nodeQuery string) handler {
 	return func(ctx context.Context, s *session, a *args, _ bool) (bool, error) {
 		lab := a.ident("lab")
@@ -72,23 +74,48 @@ func labRead(path, resultKey, nodeQuery string) handler {
 				q.Set(nodeQuery, n)
 			}
 		}
-		var out any
-		if path == "topology/yaml" {
-			var text string
-			if err := s.call(ctx, http.MethodGet, labPath(lab, "topology", "yaml"), nil, nil, &text); err != nil {
+		if a.err != nil {
+			return false, a.err
+		}
+		if _, deployed, err := s.inspect(ctx, lab); err != nil || !deployed {
+			if err != nil {
 				return false, err
 			}
-			return false, s.stat(resultKey, text)
+			return false, s.absentStats(resultKey)
 		}
+		var out any
 		if err := s.call(ctx, http.MethodGet, labPath(lab, path), q, nil, &out); err != nil {
 			return false, err
 		}
-		return false, s.stat(resultKey, out)
+		if out == nil {
+			out = []any{}
+		}
+		return false, s.stats(map[string]any{"exists": true, resultKey: out})
 	}
 }
 
+// labTopology reads the topology file the server holds for a lab, deployed
+// or not. A lab with no topology file is exists false: the server's 404 is
+// the answer that it holds none. Any other refusal is a failure.
+func labTopology(ctx context.Context, s *session, a *args, _ bool) (bool, error) {
+	lab := a.ident("lab")
+	if a.err != nil {
+		return false, a.err
+	}
+	var text string
+	err := s.call(ctx, http.MethodGet, labPath(lab, "topology", "yaml"), nil, nil, &text)
+	switch {
+	case absent(err):
+		return false, s.absentStats()
+	case err != nil:
+		return false, err
+	}
+	return false, s.stats(map[string]any{"exists": true, "topology": text})
+}
+
 // labValidate asks containerlab to parse the lab's topology. A topology that
-// is not valid fails the task, after the answer is recorded.
+// is not valid fails the task, after the answer is recorded. A lab with no
+// topology file (the server's 404) is exists false, not a failure.
 func labValidate(ctx context.Context, s *session, a *args, _ bool) (bool, error) {
 	lab := a.ident("lab")
 	var out struct {
@@ -98,10 +125,14 @@ func labValidate(ctx context.Context, s *session, a *args, _ bool) (bool, error)
 		Error string `json:"error"`
 		Path  string `json:"path"`
 	}
-	if err := s.call(ctx, http.MethodPost, labPath(lab, "validate"), query("path", a.str("path")), nil, &out); err != nil {
+	err := s.call(ctx, http.MethodPost, labPath(lab, "validate"), query("path", a.str("path")), nil, &out)
+	switch {
+	case absent(err):
+		return false, s.absentStats()
+	case err != nil:
 		return false, err
 	}
-	stats := map[string]any{"valid": out.Valid, "nodes": out.Nodes, "links": out.Links}
+	stats := map[string]any{"exists": true, "valid": out.Valid, "nodes": out.Nodes, "links": out.Links}
 	if out.Error != "" {
 		stats["error"] = out.Error
 	}

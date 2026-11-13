@@ -109,6 +109,7 @@ func init() {
 			// Reading is not changing, so there is nothing to undo and no
 			// run of this method will ever emit an inverse. That is the same
 			// fact that makes Changed unconditionally false below.
+			NoExistsReason: collection.NoExistsDevice,
 			Reversibility: collection.Reversibility{
 				Reversible: false,
 				Notes: "Reading is not changing. This method runs fixed reads (uname, /etc/os-release, /proc, sysctl, package and service " +

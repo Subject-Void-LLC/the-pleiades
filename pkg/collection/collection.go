@@ -293,6 +293,10 @@ func Register(d Descriptor) error {
 		return err
 	}
 
+	if err := ValidateNoExistsReason(d.Manifest); err != nil {
+		return fmt.Errorf("collection: %q %w", d.Name, err)
+	}
+
 	if err := checkSeedsLogin(d); err != nil {
 		return err
 	}

@@ -127,6 +127,21 @@ func TestLive_ARealLabEndToEnd(t *testing.T) {
 		}
 	}
 
+	// Before the deploy, every reader of the lab or its node answers the real
+	// server's 404 as exists false, in a run and in a check (Phase 131, R4):
+	// the lab is not deployed and the server holds no topology file for it.
+	for _, r := range readers {
+		params := with(r.params, "lab", lab)
+		if _, ok := params["targets"]; ok {
+			params["targets"] = []any{map[string]any{"container_name": "clab-" + lab + "-n1", "interface_name": "eth1"}}
+		}
+		for _, check := range []bool{false, true} {
+			if c, _, err := l.call(r.fqcn, params, check); err != nil || c.stats["exists"] != false {
+				t.Errorf("%s of a lab not yet deployed (check %v): err %v, stats %v; want exists false", r.fqcn, check, err, c.stats)
+			}
+		}
+	}
+
 	// Deploy: absent, so it deploys and records its destroy; run again it is
 	// unchanged.
 	deploy := l.must("virt.clab.lab.deploy", map[string]any{"lab": lab, "topology": topo})
