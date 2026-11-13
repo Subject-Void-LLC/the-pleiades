@@ -74,18 +74,23 @@ func (a Auth) usable() bool {
 	return len(a.methods) > 0
 }
 
-// clientConfig builds the ssh.ClientConfig for one connection: this
-// Auth's user and method, the caller's host key check, and dialTimeout
-// as a fallback bound.
+// clientConfig builds the ssh.ClientConfig for one connection to addr: this
+// Auth's user and method, the caller's host key check, the host key
+// algorithms that check can verify offered first (hostKeyAlgorithms), and
+// dialTimeout as a fallback bound.
 //
 // It is a method on Auth rather than a free function so the method
 // itself never has to leave this type, not even to be assembled into a
 // config by code elsewhere in the package.
-func (a Auth) clientConfig(hostKey ssh.HostKeyCallback, dialTimeout time.Duration) *ssh.ClientConfig {
+func (a Auth) clientConfig(hostKey ssh.HostKeyCallback, addr string, dialTimeout time.Duration) *ssh.ClientConfig {
 	return &ssh.ClientConfig{
 		User:            a.user,
 		Auth:            a.methods,
 		HostKeyCallback: hostKey,
+		// nil keeps the library's default order. Set, it puts the types
+		// known_hosts holds for addr first, so a file pinning one key type
+		// is not refused when the server prefers another.
+		HostKeyAlgorithms: hostKeyAlgorithms(hostKey, addr),
 		// Timeout is a fallback bound only. The caller's ctx is honored
 		// inside realDial and dialWithRetry, so a context deadline aborts
 		// an in-flight dial rather than waiting this out. It matters when

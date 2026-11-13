@@ -440,7 +440,7 @@ func (r *Runner) ConnectVia(ctx context.Context, via NetDial, target Target, aut
 	if err != nil {
 		return nil, fmt.Errorf("remoteexec: host key verification unavailable for %s: %w", addr, err)
 	}
-	client, raw, err := dialVia(ctx, via, addr, auth.clientConfig(hostKeyCB, r.opts.DialTimeout))
+	client, raw, err := dialVia(ctx, via, addr, auth.clientConfig(hostKeyCB, addr, r.opts.DialTimeout))
 	if err != nil {
 		return nil, &DialError{Addr: addr, Err: err}
 	}
@@ -506,7 +506,7 @@ func (r *Runner) dialChain(ctx context.Context, legs []connectLeg) (chain []*ssh
 			return nil, fmt.Errorf("remoteexec: host key verification unavailable for %s: %w", leg.addr, hkErr)
 		}
 
-		config := leg.auth.clientConfig(hostKeyCB, r.opts.DialTimeout)
+		config := leg.auth.clientConfig(hostKeyCB, leg.addr, r.opts.DialTimeout)
 
 		// Step 3: dial with retry and backoff, scoped to the dial phase
 		// only. The first leg dials directly (r.dial); every leg after

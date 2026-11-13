@@ -237,12 +237,13 @@ func (s *SSHD) RootExec(ctx context.Context, script string) (string, error) {
 // so a release gate verifies host keys for real rather than skipping the
 // check.
 //
-// Every key type is listed, not only ed25519, because the client and
-// server negotiate which host key algorithm is used, and a known_hosts
-// file naming a host under one key type is a MISMATCH (not an unknown
-// host) when the server presents another. The first version of this
-// listed only ed25519 and every connection was refused, fail closed,
-// exactly as the verification is meant to behave.
+// Every key type is listed, not only ed25519. The first version of this
+// listed only ed25519 and every connection was refused as a mismatch,
+// because the client then offered Go's default order and the server
+// answered with its ECDSA key. pkg/remoteexec now offers the types
+// known_hosts holds for the host first (hostkeyalgos.go), so one type
+// would do; TestSSHContainer_APinnedHostKeyOfAnyOneTypeVerifies proves
+// that, and every type stays here so a fixture never depends on it.
 func (s *SSHD) KnownHosts(ctx context.Context, dir string) (string, error) {
 	pub, err := s.RootExec(ctx, "cat /config/ssh_host_keys/ssh_host_*_key.pub")
 	if err != nil {
