@@ -61,7 +61,7 @@ func goldenEntries() []engine.JournalEntry {
 		// A failed task whose method name did not resolve, nor its undo's.
 		RunID: goldenRunID, Sequence: 2, NodeID: "tasks[1].block[0]", DAGID: "golden-runbook",
 		FQCN: engine.FQCNUnregistered, FQCNUnresolved: true, InverseFQCN: engine.FQCNUnregistered,
-		InverseFQCNUnresolved: true, StartedAt: at(3), FinishedAt: at(4),
+		InverseFQCNUnresolved: true, InverseWithheld: engine.WithheldSecret, StartedAt: at(3), FinishedAt: at(4),
 		Outcome: engine.OutcomeFailed, FailureStage: engine.FailureStageRegisterMask,
 		StatKeys: []string{}, ParamKeys: []string{}, InverseParamKeys: []string{}, InverseParams: []engine.InverseParam{},
 	}, {
@@ -175,16 +175,19 @@ func formatOneEntries() []engine.JournalEntry {
 		entries[i].Collection = wire.CollectionIdentity{}
 		entries[i].InverseSpecDigest = ""
 		entries[i].AuthoredSteps = nil
+		entries[i].InverseWithheld = ""
 	}
 	return entries
 }
 
 // formatTwoEntries is what the frozen format-2 file holds: the golden entries
-// with the rendered rollback steps format 3 added at their zero.
+// with the rendered rollback steps and the undo's withheld reason format 3
+// added at their zero.
 func formatTwoEntries() []engine.JournalEntry {
 	entries := goldenEntries()
 	for i := range entries {
 		entries[i].AuthoredSteps = nil
+		entries[i].InverseWithheld = ""
 	}
 	return entries
 }

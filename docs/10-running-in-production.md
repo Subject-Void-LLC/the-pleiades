@@ -586,7 +586,7 @@ The Walk tier stores the same fields as columns in `journal_entries` (the
 
 Each Crawl-tier line also carries `format`, the version of its shape. 0.4.0 writes
 format 3. Format 2 added `collection` and `inverse_spec_digest`, and format 3 added
-`authored_steps`; 0.4.0 reads format 1 and 2 lines, and lines with no `format`, with
+`authored_steps` and `inverse_withheld`; 0.4.0 reads format 1 and 2 lines, and lines with no `format`, with
 the fields added since absent. A build refuses a line whose format is newer than it
 knows, naming the version, rather than half reading it.
 
@@ -646,7 +646,8 @@ These are what `pleiades rollback` and a Controller rollback are planned from.
 
 | Field | Meaning |
 |---|---|
-| `inverse_params` | The undo's parameter values the method declares recordable, each a key and one text, number or true/false, or, for a parameter the undo method declares a list, up to 128 such texts (the packages an install pulled in). Only those: a value the method withholds, or one too long or holding control characters, leaves its key out, and the undo is then incomplete. |
+| `inverse_params` | The undo's parameter values the method declares recordable, each a key and one text, number or true/false, or, for a parameter the undo method declares a list, up to 128 such texts (the packages an install pulled in). Only those: a value the method withholds, one too long or holding control characters, or one holding a secret the run knows (a named secret, a credential's value), leaves its key out, and the undo is then incomplete. A secret is never written to the journal. |
+| `inverse_withheld` | `secret` when a value was left out of `inverse_params` because it held a secret the run knows; a rollback then refuses the undo by name, accepted only with `--leave`. Absent otherwise, and on a record written before 0.4.0 (journal format 3). |
 | `inverse_spec_digest` | A `sha256:` digest of how the method declared this undo when the task ran: the undo method, which of its parameters are recorded or withheld, and each parameter's name, type, default, choices and whether it is required. A later build compares it with its own to tell an undo that changed from one whose documentation alone did. Absent when no built-in method declared the undo. |
 | `inverse_complete` | True when every parameter the undo takes has its value here, so it can be replayed exactly. |
 | `inverse_partial` | True when the undo does not put back everything the task overwrote, such as a file copied over another, whose earlier content is not kept. A rollback runs one only when told to. |

@@ -235,6 +235,11 @@ func (JournalEntry) Fields() []ent.Field {
 		// like inverse_params, and with no crypto hook for the same reason.
 		// Empty on a row written before it, and on one with no such step.
 		field.JSON("authored_steps", json.RawMessage{}).Immutable().Optional(),
+		// inverse_withheld is why a recorded undo's value was kept out when
+		// the reason is a secret the run knew ("secret"), so a rollback can
+		// say why it refuses the undo; empty otherwise. A closed enum, never
+		// the value.
+		field.String("inverse_withheld").Immutable().Optional(),
 	}
 }
 

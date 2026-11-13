@@ -153,6 +153,15 @@ func recordedSteps(req Request, e engine.JournalEntry, leave string, groups grou
 	if err != nil {
 		return nil, nil, err
 	}
+	// A value kept out because it held one of the run's secrets: said as
+	// such, whatever else the record lacks.
+	if e.InverseWithheld == engine.WithheldSecret {
+		return nil, nil, &stepError{
+			reason: fmt.Sprintf("%s's undo through %s cannot be replayed: %s; undo it by hand, or leave it in place",
+				Printable(e.FQCN), Printable(e.InverseFQCN), engine.WithheldSecret.Describe()),
+			accept: leave,
+		}
+	}
 	if !e.InverseComplete && !e.InversePartial {
 		withheld := missingKeys(e)
 		return nil, nil, &stepError{

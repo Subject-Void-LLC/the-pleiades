@@ -7,6 +7,8 @@ package engine_test
 
 import (
 	"context"
+	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
@@ -103,5 +105,52 @@ func TestJournal_AuthoredStepsAreRenderedWithTheValuesTheTaskRanWith(t *testing.
 		if (e.NodeID == "tasks[0]" || e.NodeID == "tasks[5]") && len(e.AuthoredSteps) != 0 {
 			t.Errorf("%s on %s journaled steps it does not have: %+v", e.NodeID, e.DeviceID, e.AuthoredSteps)
 		}
+	}
+}
+
+// TestJournal_ARecordedUndoHoldingAKnownSecretIsWithheld: a method's recorded
+// undo whose declared identifier holds a value the run knows is secret (a
+// named secret, an injected credential) keeps that value out of the journal:
+// the undo is incomplete with the reason secret, and nothing in the entry
+// holds the secret. The same undo with no secret in it is kept in full.
+func TestJournal_ARecordedUndoHoldingAKnownSecretIsWithheld(t *testing.T) {
+	registerRollbackFixtures(t)
+	journal := &entriesJournal{}
+	x := engine.NewExecutor(twoDevices(), &undoable{}, lock.NewInProcessManager(), event.NewInProcessBus(),
+		engine.NewInProcessWorkflowContext(), 0, engine.WithRenderer(render.New()), engine.WithJournal(journal),
+		engine.WithKnownSecrets([]string{"hunter2hunter2"}))
+	result, err := x.Run(context.Background(), yamlRunbook(t, `id: secret-undo
+hosts: web
+tasks:
+  - name: named by a secret
+    rbtest.make: {name: "vm-hunter2hunter2"}
+  - name: named plainly
+    rbtest.make: {name: vm-plain}
+`))
+	if err != nil || result.HasErrors() {
+		t.Fatalf("Run: %v %+v", err, result.Nodes)
+	}
+	seen := 0
+	for _, e := range journal.entries {
+		raw, _ := json.Marshal(e)
+		if strings.Contains(string(raw), "hunter2hunter2") {
+			t.Errorf("%s on %s journaled the secret: %s", e.NodeID, e.DeviceID, raw)
+		}
+		switch e.NodeID {
+		case "tasks[0]":
+			seen++
+			if e.InverseComplete || e.InverseWithheld != engine.WithheldSecret || len(e.InverseParams) != 0 || e.InverseFQCN != "rbtest.unmake" {
+				t.Errorf("%s's undo = complete %v, withheld %q, params %+v; want it incomplete for the secret, with no value",
+					e.DeviceID, e.InverseComplete, e.InverseWithheld, e.InverseParams)
+			}
+		case "tasks[1]":
+			seen++
+			if !e.InverseComplete || e.InverseWithheld != "" || len(e.InverseParams) != 1 {
+				t.Errorf("%s's plain undo = complete %v, withheld %q, params %+v; want it kept in full", e.DeviceID, e.InverseComplete, e.InverseWithheld, e.InverseParams)
+			}
+		}
+	}
+	if seen != 4 {
+		t.Fatalf("journaled %d entries of the two tasks, want one per device each", seen)
 	}
 }

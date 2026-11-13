@@ -521,6 +521,10 @@ var journalStringFields = map[string]journalStringField{
 		kind: journalKindDeclaredIdentifier,
 		why:  "a numeric undo parameter under a declared key, kept as its JSON text; a number carries no text a terminal could act on",
 	},
+	"InverseWithheld": {
+		kind: journalKindClosedEnum,
+		why:  "engine.WithheldReason, set by projectInverse only to the WithheldSecret constant when engine.keptValue withholds a value, and held by the reader to that one value",
+	},
 	"AuthoredSteps.FQCN": {
 		kind: journalKindRegistryConstant,
 		why:  "a rollback: step's method, resolved exactly as FQCN is (engine's resolveFQCN in renderedStep), so the author's bytes are never stored",

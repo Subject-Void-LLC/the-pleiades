@@ -126,6 +126,7 @@ func clearClaimed(entry *engine.JournalEntry) {
 	entry.InverseParams = nil
 	entry.InverseComplete, entry.InversePartial = false, false
 	entry.InverseSpecDigest = ""
+	entry.InverseWithheld = ""
 	// Its rendered rollback: steps were held to the claimed method's
 	// declarations too.
 	entry.AuthoredSteps = nil

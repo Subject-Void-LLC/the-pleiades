@@ -21,7 +21,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"slices"
-	"strings"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
@@ -100,42 +99,18 @@ func (r *run) renderedStep(nodeID string, index int, step Task, emitter *collect
 			// A literal is the runbook's, and the digest holds it there.
 			continue
 		}
-		value := rendered.Params[key]
-		p, ok := recordedValue(key, value, ListParam(inverse.Name, key))
-		if !ok || collection.IsReservedParam(key) || !slices.Contains(spec.Record, key) || !inverse.paramKeys[key] {
+		if collection.IsReservedParam(key) || !slices.Contains(spec.Record, key) || !inverse.paramKeys[key] {
 			rec.Withheld = WithheldValue
 			return rec
 		}
-		if holdsKnownSecret(p, secrets) {
-			rec.Withheld = WithheldSecret
+		// The one rule a kept undo value meets, the recorded undo's too.
+		p, why := keptValue(key, rendered.Params[key], ListParam(inverse.Name, key), secrets)
+		if why != "" {
+			rec.Withheld = why
 			return rec
 		}
 		params = append(params, p)
 	}
 	rec.Params, rec.Complete = params, true
 	return rec
-}
-
-// holdsKnownSecret reports whether p's text holds any of secrets.
-func holdsKnownSecret(p InverseParam, secrets []string) bool {
-	var texts []string
-	switch {
-	case p.Text != nil:
-		texts = []string{*p.Text}
-	case p.Number != nil:
-		texts = []string{p.Number.String()}
-	default:
-		texts = p.Texts
-	}
-	for _, s := range secrets {
-		if s == "" {
-			continue
-		}
-		for _, t := range texts {
-			if strings.Contains(t, s) {
-				return true
-			}
-		}
-	}
-	return false
 }

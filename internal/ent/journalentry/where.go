@@ -279,6 +279,11 @@ func InverseSpecDigest(v string) predicate.JournalEntry {
 	return predicate.JournalEntry(sql.FieldEQ(FieldInverseSpecDigest, v))
 }
 
+// InverseWithheld applies equality check predicate on the "inverse_withheld" field. It's identical to InverseWithheldEQ.
+func InverseWithheld(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldEQ(FieldInverseWithheld, v))
+}
+
 // CreatedAtEQ applies the EQ predicate on the "created_at" field.
 func CreatedAtEQ(v time.Time) predicate.JournalEntry {
 	return predicate.JournalEntry(sql.FieldEQ(FieldCreatedAt, v))
@@ -2637,6 +2642,81 @@ func AuthoredStepsIsNil() predicate.JournalEntry {
 // AuthoredStepsNotNil applies the NotNil predicate on the "authored_steps" field.
 func AuthoredStepsNotNil() predicate.JournalEntry {
 	return predicate.JournalEntry(sql.FieldNotNull(FieldAuthoredSteps))
+}
+
+// InverseWithheldEQ applies the EQ predicate on the "inverse_withheld" field.
+func InverseWithheldEQ(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldEQ(FieldInverseWithheld, v))
+}
+
+// InverseWithheldNEQ applies the NEQ predicate on the "inverse_withheld" field.
+func InverseWithheldNEQ(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldNEQ(FieldInverseWithheld, v))
+}
+
+// InverseWithheldIn applies the In predicate on the "inverse_withheld" field.
+func InverseWithheldIn(vs ...string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldIn(FieldInverseWithheld, vs...))
+}
+
+// InverseWithheldNotIn applies the NotIn predicate on the "inverse_withheld" field.
+func InverseWithheldNotIn(vs ...string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldNotIn(FieldInverseWithheld, vs...))
+}
+
+// InverseWithheldGT applies the GT predicate on the "inverse_withheld" field.
+func InverseWithheldGT(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldGT(FieldInverseWithheld, v))
+}
+
+// InverseWithheldGTE applies the GTE predicate on the "inverse_withheld" field.
+func InverseWithheldGTE(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldGTE(FieldInverseWithheld, v))
+}
+
+// InverseWithheldLT applies the LT predicate on the "inverse_withheld" field.
+func InverseWithheldLT(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldLT(FieldInverseWithheld, v))
+}
+
+// InverseWithheldLTE applies the LTE predicate on the "inverse_withheld" field.
+func InverseWithheldLTE(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldLTE(FieldInverseWithheld, v))
+}
+
+// InverseWithheldContains applies the Contains predicate on the "inverse_withheld" field.
+func InverseWithheldContains(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldContains(FieldInverseWithheld, v))
+}
+
+// InverseWithheldHasPrefix applies the HasPrefix predicate on the "inverse_withheld" field.
+func InverseWithheldHasPrefix(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldHasPrefix(FieldInverseWithheld, v))
+}
+
+// InverseWithheldHasSuffix applies the HasSuffix predicate on the "inverse_withheld" field.
+func InverseWithheldHasSuffix(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldHasSuffix(FieldInverseWithheld, v))
+}
+
+// InverseWithheldIsNil applies the IsNil predicate on the "inverse_withheld" field.
+func InverseWithheldIsNil() predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldIsNull(FieldInverseWithheld))
+}
+
+// InverseWithheldNotNil applies the NotNil predicate on the "inverse_withheld" field.
+func InverseWithheldNotNil() predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldNotNull(FieldInverseWithheld))
+}
+
+// InverseWithheldEqualFold applies the EqualFold predicate on the "inverse_withheld" field.
+func InverseWithheldEqualFold(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldEqualFold(FieldInverseWithheld, v))
+}
+
+// InverseWithheldContainsFold applies the ContainsFold predicate on the "inverse_withheld" field.
+func InverseWithheldContainsFold(v string) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldContainsFold(FieldInverseWithheld, v))
 }
 
 // And groups predicates with the AND operator between them.

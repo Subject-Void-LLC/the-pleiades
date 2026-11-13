@@ -184,7 +184,7 @@ func (s *EntStore) saveOne(ctx context.Context, entry engine.JournalEntry) (bool
 	if err != nil {
 		return false, fmt.Errorf("encoding the recorded undo parameters of %s: %w", entry.NodeID, err)
 	}
-	create = create.SetInverseParams(params)
+	create = create.SetInverseParams(params).SetInverseWithheld(string(entry.InverseWithheld))
 	// The rendered rollback: steps, from the entry's typed slice as the
 	// recorded undo's are; left unset for an entry with none, which the file
 	// sink leaves out too.
@@ -360,6 +360,7 @@ func hydrateEntry(row *ent.JournalEntry) engine.JournalEntry {
 		DiffRecorded:                row.DiffRecorded,
 		InverseParams:               hydrateInverseParams(row.InverseParams),
 		InverseComplete:             row.InverseComplete,
+		InverseWithheld:             engine.WithheldReason(row.InverseWithheld),
 		InversePartial:              row.InversePartial,
 		ActionChanged:               row.ActionChanged,
 		AuthoredRollback:            row.AuthoredRollback,

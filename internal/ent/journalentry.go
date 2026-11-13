@@ -121,7 +121,9 @@ type JournalEntry struct {
 	InverseSpecDigest string `json:"inverse_spec_digest,omitempty"`
 	// AuthoredSteps holds the value of the "authored_steps" field.
 	AuthoredSteps jsontext.Value `json:"authored_steps,omitempty"`
-	selectValues  sql.SelectValues
+	// InverseWithheld holds the value of the "inverse_withheld" field.
+	InverseWithheld string `json:"inverse_withheld,omitempty"`
+	selectValues    sql.SelectValues
 }
 
 // scanValues returns the types for scanning values from sql.Rows.
@@ -135,7 +137,7 @@ func (*JournalEntry) scanValues(columns []string) ([]any, error) {
 			values[i] = new(sql.NullBool)
 		case journalentry.FieldID, journalentry.FieldAttempt, journalentry.FieldSequence, journalentry.FieldSkipOrdinal, journalentry.FieldSkipTotal, journalentry.FieldUndeclaredStatCount, journalentry.FieldUndeclaredParamCount, journalentry.FieldUndeclaredInverseParamCount, journalentry.FieldUndoesStep, journalentry.FieldRunTick, journalentry.FieldLeaseRevision:
 			values[i] = new(sql.NullInt64)
-		case journalentry.FieldJobID, journalentry.FieldDeviceID, journalentry.FieldNodeID, journalentry.FieldRunID, journalentry.FieldDagID, journalentry.FieldDagVersion, journalentry.FieldFqcn, journalentry.FieldProviderProgram, journalentry.FieldProviderDigest, journalentry.FieldTaskName, journalentry.FieldRegister, journalentry.FieldOutcome, journalentry.FieldFailureStage, journalentry.FieldSkipKind, journalentry.FieldInverseFqcn, journalentry.FieldBecome, journalentry.FieldRollbackOf, journalentry.FieldUndoesNode, journalentry.FieldLeaseEpoch, journalentry.FieldCollectionGroup, journalentry.FieldCollectionVersion, journalentry.FieldCollectionManifests, journalentry.FieldInverseSpecDigest:
+		case journalentry.FieldJobID, journalentry.FieldDeviceID, journalentry.FieldNodeID, journalentry.FieldRunID, journalentry.FieldDagID, journalentry.FieldDagVersion, journalentry.FieldFqcn, journalentry.FieldProviderProgram, journalentry.FieldProviderDigest, journalentry.FieldTaskName, journalentry.FieldRegister, journalentry.FieldOutcome, journalentry.FieldFailureStage, journalentry.FieldSkipKind, journalentry.FieldInverseFqcn, journalentry.FieldBecome, journalentry.FieldRollbackOf, journalentry.FieldUndoesNode, journalentry.FieldLeaseEpoch, journalentry.FieldCollectionGroup, journalentry.FieldCollectionVersion, journalentry.FieldCollectionManifests, journalentry.FieldInverseSpecDigest, journalentry.FieldInverseWithheld:
 			values[i] = new(sql.NullString)
 		case journalentry.FieldCreatedAt, journalentry.FieldUpdatedAt, journalentry.FieldStartedAt, journalentry.FieldFinishedAt:
 			values[i] = new(sql.NullTime)
@@ -476,6 +478,12 @@ func (_m *JournalEntry) assignValues(columns []string, values []any) error {
 					return fmt.Errorf("unmarshal field authored_steps: %w", err)
 				}
 			}
+		case journalentry.FieldInverseWithheld:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field inverse_withheld", values[i])
+			} else if value.Valid {
+				_m.InverseWithheld = value.String
+			}
 		default:
 			_m.selectValues.Set(columns[i], values[i])
 		}
@@ -664,6 +672,9 @@ func (_m *JournalEntry) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("authored_steps=")
 	builder.WriteString(fmt.Sprintf("%v", _m.AuthoredSteps))
+	builder.WriteString(", ")
+	builder.WriteString("inverse_withheld=")
+	builder.WriteString(_m.InverseWithheld)
 	builder.WriteByte(')')
 	return builder.String()
 }

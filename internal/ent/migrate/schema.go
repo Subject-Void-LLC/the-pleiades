@@ -626,6 +626,7 @@ var (
 		{Name: "collection_manifests", Type: field.TypeString, Nullable: true},
 		{Name: "inverse_spec_digest", Type: field.TypeString, Nullable: true},
 		{Name: "authored_steps", Type: field.TypeJSON, Nullable: true},
+		{Name: "inverse_withheld", Type: field.TypeString, Nullable: true},
 	}
 	// JournalEntriesTable holds the schema information for the "journal_entries" table.
 	JournalEntriesTable = &schema.Table{

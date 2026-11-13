@@ -496,7 +496,7 @@ func (r *run) projectResult(n NodeResult) (JournalEntry, error) {
 		if desc, ok := collection.Lookup(task.FQCN); ok {
 			emitter = &desc
 		}
-		projectInverse(&entry, n.journalStats, emitter)
+		projectInverse(&entry, n.journalStats, emitter, r.secrets.Snapshot())
 	}
 	entry.ActionChanged = n.journalChanged
 	// Non-nil, not non-empty: rollback: [] is an authored undo of nothing.
@@ -579,7 +579,7 @@ func (r *run) projectResult(n NodeResult) (JournalEntry, error) {
 //
 // DiffRecorded is presence only, never the diff. A diff is a before and
 // after pair of exactly the device content JournalEntry refuses to hold.
-func projectInverse(entry *JournalEntry, stats map[string]interface{}, emitter *collection.Descriptor) {
+func projectInverse(entry *JournalEntry, stats map[string]interface{}, emitter *collection.Descriptor, secrets []string) {
 	if _, ok := stats[sdk.StatDiff]; ok {
 		entry.DiffRecorded = true
 	}
@@ -617,9 +617,18 @@ func projectInverse(entry *JournalEntry, stats map[string]interface{}, emitter *
 	entry.InverseSpecDigest = inverseSpecDigest(spec, inverse)
 	complete := !inverse.Unresolved && entry.UndeclaredInverseParamCount == 0
 	for _, key := range sortedParamKeys(params) {
-		value, ok := recordedValue(key, params[key], ListParam(inverse.Name, key))
-		if !ok || !slices.Contains(spec.Record, key) || !inverse.paramKeys[key] {
+		if !slices.Contains(spec.Record, key) || !inverse.paramKeys[key] {
 			complete = false
+			continue
+		}
+		value, why := keptValue(key, params[key], ListParam(inverse.Name, key), secrets)
+		if why != "" {
+			// Kept out, the undo then not replayable; a secret is also named,
+			// so the rollback that refuses the undo can say why.
+			complete = false
+			if why == WithheldSecret {
+				entry.InverseWithheld = WithheldSecret
+			}
 			continue
 		}
 		entry.InverseParams = append(entry.InverseParams, value)
@@ -755,6 +764,47 @@ func recordedValue(key string, value interface{}, asList bool) (InverseParam, bo
 		return InverseParam{}, false
 	}
 	return p, true
+}
+
+// keptValue is the one rule an undo value the journal keeps meets, whichever
+// path keeps it (projectInverse's recorded undo, renderedStep's authored
+// step): one recordedValue admits, holding none of secrets, the values the
+// run knows are secret. It returns the value, or why it is withheld:
+// WithheldValue for one recordedValue refuses, WithheldSecret for one holding
+// a known secret, which is then never written anywhere in the journal.
+func keptValue(key string, value interface{}, asList bool, secrets []string) (InverseParam, WithheldReason) {
+	p, ok := recordedValue(key, value, asList)
+	if !ok {
+		return InverseParam{}, WithheldValue
+	}
+	if holdsKnownSecret(p, secrets) {
+		return InverseParam{}, WithheldSecret
+	}
+	return p, ""
+}
+
+// holdsKnownSecret reports whether p's text holds any of secrets.
+func holdsKnownSecret(p InverseParam, secrets []string) bool {
+	var texts []string
+	switch {
+	case p.Text != nil:
+		texts = []string{*p.Text}
+	case p.Number != nil:
+		texts = []string{p.Number.String()}
+	default:
+		texts = p.Texts
+	}
+	for _, s := range secrets {
+		if s == "" {
+			continue
+		}
+		for _, t := range texts {
+			if strings.Contains(t, s) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // sortedParamKeys returns m's keys in order, so an entry's InverseParams do

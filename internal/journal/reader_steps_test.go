@@ -67,3 +67,50 @@ func TestReadRunHoldsTheRenderedStepsToWhatABuildWrites(t *testing.T) {
 		})
 	}
 }
+
+// TestReadRunHoldsAnUndosWithheldReasonToWhatABuildWrites: the frozen
+// format-3 line of an undo withheld for a secret reads; it is refused when it
+// claims format 2, when its reason is one no build writes, and when the undo
+// it explains claims to be complete.
+func TestReadRunHoldsAnUndosWithheldReasonToWhatABuildWrites(t *testing.T) {
+	frozen, err := os.ReadFile(filepath.Join("testdata", "format-3", "entries.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	line := strings.Split(string(frozen), "\n")[1]
+	withheld := `"inverse_withheld":"secret"`
+	for _, want := range []string{`"format":3,`, withheld, `"inverse_complete":false`} {
+		if !strings.Contains(line, want) {
+			t.Fatalf("the frozen line lacks %s:\n%s", want, line)
+		}
+	}
+	root := t.TempDir()
+	dir := filepath.Join(root, ".pleiades", "journal")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, goldenRunID+".jsonl")
+	for _, tc := range []struct{ name, old, new, wantErr string }{
+		{name: "as written"},
+		{name: "claiming format 2", old: `"format":3,`, new: `"format":2,`, wantErr: "an undo's withheld reason, which format 3 added"},
+		{name: "a reason no build writes", old: withheld, new: `"inverse_withheld":"render_failed"`, wantErr: "records an undo withheld for"},
+		{name: "a complete undo", old: `"inverse_complete":false`, new: `"inverse_complete":true`, wantErr: "records an undo withheld for"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			text := line
+			if tc.old != "" {
+				text = strings.Replace(line, tc.old, tc.new, 1)
+			}
+			if err := os.WriteFile(path, []byte(text+"\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			_, err := journal.ReadRun(root, goldenRunID)
+			switch {
+			case tc.wantErr == "" && err != nil:
+				t.Errorf("refused: %v", err)
+			case tc.wantErr != "" && (err == nil || !strings.Contains(err.Error(), tc.wantErr)):
+				t.Errorf("error %v, want %q", err, tc.wantErr)
+			}
+		})
+	}
+}

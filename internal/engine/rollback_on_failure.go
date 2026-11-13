@@ -184,7 +184,7 @@ func (r *run) undoSteps(n NodeResult) (steps []*Task, authored bool, err error) 
 	if desc, ok := collection.Lookup(task.FQCN); ok {
 		emitter = &desc
 	}
-	projectInverse(&entry, n.journalStats, emitter)
+	projectInverse(&entry, n.journalStats, emitter, r.secrets.Snapshot())
 	switch {
 	case entry.InverseFQCN == "":
 		return nil, false, fmt.Errorf("%s changed the device and recorded no undo", taskLabel(n.NodeID, task))

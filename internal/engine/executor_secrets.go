@@ -61,8 +61,13 @@ func (s *stringSet) Add(v string) {
 }
 
 // Snapshot returns every value currently in the set, in no particular
-// order (a set has none), safe to use after the mutex is released.
+// order (a set has none), safe to use after the mutex is released. A nil set
+// (a run built without one, as the projection's own tests build it) holds
+// nothing.
 func (s *stringSet) Snapshot() []string {
+	if s == nil {
+		return nil
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	out := make([]string, 0, len(s.m))

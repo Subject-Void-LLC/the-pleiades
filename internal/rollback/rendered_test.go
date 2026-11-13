@@ -120,6 +120,27 @@ func TestBuild_RefusesATemplatedStepTheJournalCannotAnswerFor(t *testing.T) {
 	}
 }
 
+// TestBuild_RefusesARecordedUndoWithheldForASecret: a method's recorded undo
+// whose value the journal kept out for holding a secret is refused by name
+// before anything runs, saying so, and only --leave accepts it.
+func TestBuild_RefusesARecordedUndoWithheldForASecret(t *testing.T) {
+	registerShapes(t)
+	e := undo(entry("run-A", "tasks[0]", "h1", 1, "rb.make", engine.OutcomeChanged), "rb.delete", map[string]any{"uuid": "u-1"})
+	e.InverseParamKeys = []string{"name", "uuid"}
+	e.InverseComplete, e.InverseWithheld = false, engine.WithheldSecret
+	req := rollback.Request{Target: rollback.Run{ID: "run-A", Sealed: true, Entries: []engine.JournalEntry{e}}, Devices: inventoryOf("h1")}
+	_, err := rollback.Build(req)
+	problems := refused(t, err)
+	if len(problems) != 1 || problems[0].Node != "tasks[0]" || problems[0].DeviceID != "h1" || problems[0].Accept != "--leave tasks[0]" ||
+		!strings.Contains(problems[0].Reason, "holds one of the run's secrets") || !strings.Contains(problems[0].Reason, "by hand") {
+		t.Fatalf("problems %+v, want tasks[0] on h1 refused for the secret, accepted by --leave", problems)
+	}
+	req.Leave = map[string]bool{"tasks[0]": true}
+	if _, err := rollback.Build(req); err != nil {
+		t.Errorf("--leave did not accept it: %v", err)
+	}
+}
+
 // renderedRunbook is the runbook renderedRun ran.
 const renderedRunbook = `id: ran
 hosts: h1

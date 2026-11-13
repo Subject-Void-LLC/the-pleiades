@@ -374,6 +374,15 @@ type JournalEntry struct {
 	// undo.
 	InverseComplete bool `json:"inverse_complete"`
 
+	// InverseWithheld says why a value the undo's declaration records was
+	// kept out of InverseParams when that reason is a secret (kind 3):
+	// WithheldSecret, for a value holding one the run knows (keptValue, the
+	// rule AuthoredStep values are held to as well). The undo is then not
+	// complete, and a rollback refuses it naming the reason. Empty otherwise,
+	// including for a value kept out for not being an identifier, which
+	// InverseComplete alone has always said. Absent before format 3.
+	InverseWithheld WithheldReason `json:"inverse_withheld,omitempty"`
+
 	// InversePartial reports that the method marked its undo partial: it
 	// would not put back everything the run overwrote (kind 3). A rollback
 	// replays it only when its operator names it.
