@@ -31,10 +31,12 @@ type jwksFlight struct {
 // running and refusing to start one inside the cooldown.
 //
 // The fetch runs on its own goroutine under its own timeout, detached from
-// any one request: a caller that gives up returns at once, and its leaving
-// does not fail the fetch for the others waiting on it. Were the fetch to
-// carry the first caller's context instead, a client hanging up would cancel
-// it, and the cooldown would then hold off the next attempt for everyone.
+// the cancellation of the request that started it (context.WithoutCancel
+// keeps that request's values, a trace among them, and drops its deadline):
+// a caller that gives up returns at once, and its leaving does not fail the
+// fetch for the others waiting on it. Were the fetch to carry the first
+// caller's cancellation instead, a client hanging up would cancel it, and the
+// cooldown would then hold off the next attempt for everyone.
 func (p *jwksKeyProvider) refetchOnDemand(ctx context.Context) error {
 	p.flightMu.Lock()
 	f := p.inflight
@@ -47,7 +49,7 @@ func (p *jwksKeyProvider) refetchOnDemand(ctx context.Context) error {
 		f = &jwksFlight{done: make(chan struct{})}
 		p.inflight = f
 		p.lastOnDemand = p.now()
-		go p.fly(f)
+		go p.fly(context.WithoutCancel(ctx), f)
 	}
 	p.flightMu.Unlock()
 
@@ -59,9 +61,11 @@ func (p *jwksKeyProvider) refetchOnDemand(ctx context.Context) error {
 	}
 }
 
-// fly runs one request-path fetch and releases everyone waiting on it.
-func (p *jwksKeyProvider) fly(f *jwksFlight) {
-	ctx, cancel := context.WithTimeout(context.Background(), defaultJWKSTimeout)
+// fly runs one request-path fetch and releases everyone waiting on it. ctx
+// carries no cancellation (refetchOnDemand detached it), so the timeout
+// applied here is the only bound on the fetch.
+func (p *jwksKeyProvider) fly(ctx context.Context, f *jwksFlight) {
+	ctx, cancel := context.WithTimeout(ctx, defaultJWKSTimeout)
 	defer cancel()
 	f.err = p.refreshAndReport(ctx, "request")
 
