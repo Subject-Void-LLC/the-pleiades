@@ -36,6 +36,12 @@ const (
 	// VarJWTSecret verifies the bearer tokens the API accepts.
 	VarJWTSecret = "JWT_SECRET"
 
+	// VarJWKSURL is the other way to verify them: the https address of an
+	// identity provider's published signing keys. A deployment sets exactly
+	// one of it and VarJWTSecret, since the controller refuses to start with
+	// both (FAILURE_PATTERNS 1229).
+	VarJWKSURL = "JWKS_URL"
+
 	// VarMaxOutage is the longest link outage the mesh must survive.
 	VarMaxOutage = "PLEIADES_MAX_OUTAGE"
 
@@ -65,7 +71,9 @@ const (
 
 	// Reissue fields invalidate something that is then issued again.
 	// Replacing the JWT secret rejects every API token signed with the old
-	// one until the token is signed again. Changing one requires --force.
+	// one until the token is signed again, and pointing JWKS_URL elsewhere
+	// rejects every token the old identity provider signed. Changing one
+	// requires --force.
 	Reissue
 
 	// Repoint fields name where the data is. Changing one makes existing
@@ -123,6 +131,7 @@ var Fields = []Field{
 	{Name: VarRotate, Class: Irreversible},
 	{Name: VarMaxOutage, Class: OneWayDownward, Written: true},
 	{Name: VarJWTSecret, Class: Reissue, Written: true},
+	{Name: VarJWKSURL, Class: Reissue, Written: true},
 	{Name: "DB_DSN", Class: Repoint},
 	// A new digest key reads as every private file having changed once, and
 	// drops digests still sealed to the old one on the broker; putting the
@@ -152,6 +161,6 @@ func ComposeVariables() []string {
 	return []string{
 		VarMasterKey, VarMasterKeyVersion,
 		VarPreviousKey, VarPreviousKeyVersion,
-		VarRotate, VarJWTSecret, VarMaxOutage, VarFactsDigestKey,
+		VarRotate, VarJWTSecret, VarJWKSURL, VarMaxOutage, VarFactsDigestKey,
 	}
 }

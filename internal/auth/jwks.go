@@ -7,8 +7,10 @@ import (
 	"crypto/rsa"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"math/big"
 	"net/http"
 	"net/url"
@@ -30,6 +32,47 @@ import (
 const (
 	defaultJWKSTimeout         = 10 * time.Second
 	defaultJWKSRefreshInterval = 15 * time.Minute
+
+	// DefaultJWKSMaxStaleness is how long a fetched key set is trusted
+	// without a successful refresh: 12 hours. Past it every token is
+	// refused until a refresh succeeds (FAILURE_PATTERNS 1228).
+	//
+	// The bound exists for a key the identity provider withdrew while this
+	// Controller could not reach it: without one, whoever held that key
+	// could sign tokens here for as long as the outage lasted. Twelve hours
+	// outlasts a shift or an overnight maintenance window, and is 48 of the
+	// default 15 minute refreshes, so a run of missed refreshes does not
+	// trip it. It is a judgment rather than a derived number; a deployment
+	// setting for it is planned (Phase 142).
+	DefaultJWKSMaxStaleness = 12 * time.Hour
+
+	// defaultUnknownKidCooldown is the shortest gap between two fetches a
+	// request can cause, by naming a kid the cache does not hold or by
+	// meeting a stale key set (FAILURE_PATTERNS 1227).
+	//
+	// A token's kid is read before its signature is checked, and before the
+	// rate limiter, so an anonymous caller chooses it. Without this gap each
+	// such request was one outbound fetch. One minute keeps that to one
+	// fetch a minute whatever the request rate, and costs a real key
+	// rotation at most a minute: a new kid arriving inside the gap is
+	// refused until it ends, and the background refresh finds it anyway.
+	defaultUnknownKidCooldown = time.Minute
+)
+
+// Refusals Key returns. None of them carries the caller's kid, which is
+// attacker-chosen text.
+var (
+	// errNoKid is a token with no kid header. Every key this provider holds
+	// has a kid (parseJWK refuses one without), so no fetch could find a key
+	// for it, and none is made.
+	errNoKid = errors.New("auth: the token names no kid, and every JWKS key has one")
+
+	// errUnknownKid is a kid the key set does not hold, even after a fetch.
+	errUnknownKid = errors.New("auth: no JWKS key has the token's kid")
+
+	// errRefetchCoolingDown is a fetch a request asked for inside the
+	// cooldown after the last one.
+	errRefetchCoolingDown = errors.New("the key set was fetched less than a cooldown ago")
 )
 
 // jwkSet is the RFC 7517 JSON Web Key Set document shape.
@@ -54,19 +97,34 @@ type jwk struct {
 
 // jwksKeyProvider fetches and caches signing keys from a remote JWKS
 // endpoint, supporting key rotation without redeployment (PLAN.md Section
-// 32.1). It never lets a failed or empty refresh discard a previously good
-// cache: a transient IdP outage degrades to "still trusting the keys we
-// already had," never to "trusting nothing."
+// 32.1). A failed or empty refresh never discards a previously good cache,
+// so a short IdP outage degrades to "still trusting the keys we already
+// had". That trust has an age limit, maxStaleness: past it the cached keys
+// are refused, so a long outage ends in refusing every token rather than in
+// trusting a key the IdP may have withdrawn.
 type jwksKeyProvider struct {
 	jwksURL    string
 	httpClient *http.Client
+	logger     *slog.Logger     // nil means slog.Default(), read when a line is written
+	now        func() time.Time // the clock key age is measured on
 
-	mu   sync.RWMutex
-	keys map[string]interface{} // kid -> *rsa.PublicKey or *ecdsa.PublicKey
+	mu        sync.RWMutex
+	keys      map[string]interface{} // kid -> *rsa.PublicKey or *ecdsa.PublicKey
+	fetchedAt time.Time              // when keys was last replaced by a successful fetch
+	failures  int                    // refreshes failed in a row since the last success
 
-	refreshInterval time.Duration
-	stopCh          chan struct{}
-	stopOnce        sync.Once
+	refreshInterval    time.Duration
+	maxStaleness       time.Duration
+	unknownKidCooldown time.Duration
+	stopCh             chan struct{}
+	stopOnce           sync.Once
+
+	// flightMu guards the request-path fetch: inflight is the one fetch
+	// running for requests, shared by every request that needs it, and
+	// lastOnDemand is when the latest one began, for the cooldown.
+	flightMu     sync.Mutex
+	inflight     *jwksFlight
+	lastOnDemand time.Time
 }
 
 // JWKSOption configures a jwksKeyProvider built by NewJWKSKeyProvider.
@@ -80,38 +138,87 @@ func WithHTTPClient(c *http.Client) JWKSOption {
 
 // WithRefreshInterval overrides the default 15 minute background refresh
 // interval. A non-positive duration disables background refresh entirely;
-// Key still refetches once, bounded, on an unknown kid.
+// a request still causes a fetch, shared and rate limited, on an unknown
+// kid or a stale key set.
 func WithRefreshInterval(d time.Duration) JWKSOption {
 	return func(p *jwksKeyProvider) { p.refreshInterval = d }
 }
 
+// WithMaxStaleness overrides DefaultJWKSMaxStaleness, how long the cached
+// keys are trusted without a successful refresh. There is no "off" value:
+// NewJWKSKeyProvider refuses a non-positive duration.
+func WithMaxStaleness(d time.Duration) JWKSOption {
+	return func(p *jwksKeyProvider) { p.maxStaleness = d }
+}
+
+// WithLogger sets where failed refreshes are reported. Without it the
+// provider writes to slog.Default(), read at the moment of writing, so a
+// composition root that installs its logger after building the provider
+// still receives every line.
+func WithLogger(l *slog.Logger) JWKSOption {
+	return func(p *jwksKeyProvider) { p.logger = l }
+}
+
+// ValidateJWKSURL reports whether raw is a JWKS URL the Controller accepts:
+// an absolute https URL that carries no user name or password. It is the one
+// rule, shared by NewJWKSKeyProvider, `controller setup` and its reading of a
+// compose env file, so that setup never writes a URL the Controller then
+// refuses to start with.
+//
+// https is required because the key set is the trust anchor: whoever can
+// change it in transit can sign any token this Controller accepts. A user
+// name or password is refused outright rather than hidden in messages: a
+// JWKS endpoint publishes public keys and needs no credential, so one in the
+// URL is a mistake, and a URL is copied into logs, process listings and
+// error reports this package does not control (FAILURE_PATTERNS 1229).
+//
+// No refusal repeats the URL, so a password in it is never echoed.
+func ValidateJWKSURL(raw string) error {
+	if raw == "" {
+		return errors.New("auth: the JWKS URL is empty")
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Host == "" {
+		return errors.New("auth: the JWKS URL is not an absolute URL with a host")
+	}
+	if parsed.User != nil {
+		return errors.New("auth: the JWKS URL carries a user name or password; a JWKS endpoint publishes public keys and needs no credential, so remove it from the URL")
+	}
+	if parsed.Scheme != "https" {
+		return fmt.Errorf("auth: the JWKS URL must be an https URL, not %q: the key set decides which tokens are accepted, so it is never fetched over plain HTTP", parsed.Scheme)
+	}
+	return nil
+}
+
 // NewJWKSKeyProvider builds a KeyProvider that fetches its verification
 // keys from jwksURL. It performs a real fetch at construction time and
-// fails closed: a nil/empty URL, an unreachable endpoint, or a document
-// with zero usable keys all return an error rather than constructing a
-// provider that would silently reject every token later.
+// fails closed: a URL ValidateJWKSURL refuses, an unreachable endpoint, or a
+// document with zero usable keys all return an error rather than
+// constructing a provider that would silently reject every token later.
 func NewJWKSKeyProvider(jwksURL string, opts ...JWKSOption) (KeyProvider, error) {
-	if jwksURL == "" {
-		return nil, fmt.Errorf("auth: JWKS URL must not be empty")
-	}
-	parsed, err := url.Parse(jwksURL)
-	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") {
-		return nil, fmt.Errorf("auth: JWKS URL %q must be an http(s) URL", jwksURL)
+	if err := ValidateJWKSURL(jwksURL); err != nil {
+		return nil, err
 	}
 
 	p := &jwksKeyProvider{
-		jwksURL:         jwksURL,
-		httpClient:      &http.Client{Timeout: defaultJWKSTimeout},
-		keys:            make(map[string]interface{}),
-		refreshInterval: defaultJWKSRefreshInterval,
-		stopCh:          make(chan struct{}),
+		jwksURL:            jwksURL,
+		httpClient:         &http.Client{Timeout: defaultJWKSTimeout},
+		now:                time.Now,
+		keys:               make(map[string]interface{}),
+		refreshInterval:    defaultJWKSRefreshInterval,
+		maxStaleness:       DefaultJWKSMaxStaleness,
+		unknownKidCooldown: defaultUnknownKidCooldown,
+		stopCh:             make(chan struct{}),
 	}
 	for _, opt := range opts {
 		opt(p)
 	}
+	if p.maxStaleness <= 0 {
+		return nil, fmt.Errorf("auth: the JWKS staleness bound must be positive, got %s", p.maxStaleness)
+	}
 
 	if err := p.refresh(context.Background()); err != nil {
-		return nil, fmt.Errorf("auth: initial JWKS fetch from %q: %w", jwksURL, err)
+		return nil, fmt.Errorf("auth: initial JWKS fetch from %s: %w", p.jwksURL, err)
 	}
 
 	if p.refreshInterval > 0 {
@@ -121,21 +228,34 @@ func NewJWKSKeyProvider(jwksURL string, opts ...JWKSOption) (KeyProvider, error)
 }
 
 // Key implements KeyProvider.
+//
+// A cached key is returned only while the key set is younger than
+// maxStaleness. An unknown kid (a rotation since the last refresh) or a
+// stale key set causes one fetch, shared by every request waiting on it and
+// at most one per cooldown, so no rate of requests can turn into the same
+// rate of fetches from the IdP (FAILURE_PATTERNS 1227).
 func (p *jwksKeyProvider) Key(ctx context.Context, kid string) (interface{}, error) {
-	if key, ok := p.lookup(kid); ok {
+	if kid == "" {
+		return nil, errNoKid
+	}
+	if key, known, fresh := p.lookup(kid); known && fresh {
 		return key, nil
 	}
-	// Unknown kid: one bounded refetch, covering the legitimate case of key
-	// rotation landing since our last cache refresh. Never repeated beyond
-	// this single attempt per call, so a forged or garbage kid cannot be
-	// used to hammer the IdP.
-	if err := p.refresh(ctx); err != nil {
-		return nil, fmt.Errorf("auth: refreshing JWKS after unknown kid %q: %w", kid, err)
-	}
-	if key, ok := p.lookup(kid); ok {
+
+	fetchErr := p.refetchOnDemand(ctx)
+	key, known, fresh := p.lookup(kid)
+	switch {
+	case known && fresh:
 		return key, nil
+	case known:
+		// The kid is one the IdP published, but nothing has confirmed the
+		// key set for longer than the bound allows.
+		return nil, p.staleError(fetchErr)
+	case fetchErr != nil:
+		return nil, fmt.Errorf("auth: the token's kid is not in the cached key set, and refreshing it failed: %w", fetchErr)
+	default:
+		return nil, errUnknownKid
 	}
-	return nil, fmt.Errorf("auth: no JWKS key found for kid %q", kid)
 }
 
 // Algorithms implements KeyProvider.
@@ -152,13 +272,16 @@ func (p *jwksKeyProvider) Close() error {
 	return nil
 }
 
-func (p *jwksKeyProvider) lookup(kid string) (interface{}, bool) {
+// lookup returns the cached key for kid, whether the cache holds one, and
+// whether the key set is still inside its staleness bound.
+func (p *jwksKeyProvider) lookup(kid string) (key interface{}, known, fresh bool) {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
-	key, ok := p.keys[kid]
-	return key, ok
+	key, known = p.keys[kid]
+	return key, known, keyAge(p.now(), p.fetchedAt) <= p.maxStaleness
 }
 
+// runBackgroundRefresh refetches the key set every interval until Close.
 func (p *jwksKeyProvider) runBackgroundRefresh(interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
@@ -167,17 +290,19 @@ func (p *jwksKeyProvider) runBackgroundRefresh(interval time.Duration) {
 		case <-p.stopCh:
 			return
 		case <-ticker.C:
-			// Best effort: a transient failure keeps serving the last-known-
-			// good keys rather than tearing anything down.
-			_ = p.refresh(context.Background())
+			// A failure keeps the last good keys, inside their staleness
+			// bound. refreshAndReport has already logged it, which is the
+			// one thing this loop owes it (FAILURE_PATTERNS 1228).
+			_ = p.refreshAndReport(context.Background(), "background")
 		}
 	}
 }
 
 // refresh fetches and parses jwksURL, replacing the cached key set only if
 // parsing produced at least one usable key. A failed or empty fetch never
-// touches the existing cache, so a bad response degrades to "stale" rather
-// than "empty."
+// touches the existing cache or its fetch time, so a bad response degrades
+// to "stale" rather than "empty", and a stale set keeps aging toward the
+// bound.
 func (p *jwksKeyProvider) refresh(ctx context.Context) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.jwksURL, nil)
 	if err != nil {
@@ -215,11 +340,12 @@ func (p *jwksKeyProvider) refresh(ctx context.Context) error {
 		parsed[k.Kid] = key
 	}
 	if len(parsed) == 0 {
-		return fmt.Errorf("JWKS document at %q contained no usable RSA or EC keys", p.jwksURL)
+		return fmt.Errorf("the JWKS document contained no usable RSA or EC keys")
 	}
 
 	p.mu.Lock()
 	p.keys = parsed
+	p.fetchedAt = p.now()
 	p.mu.Unlock()
 	return nil
 }

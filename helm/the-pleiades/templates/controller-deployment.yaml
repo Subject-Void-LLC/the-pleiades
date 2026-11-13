@@ -204,11 +204,19 @@ spec:
                 secretKeyRef:
                   name: {{ include "the-pleiades.secretName" . }}
                   key: MASTER_ENCRYPTION_KEY
+            {{- /* One way of checking API tokens, never both: the controller
+                 refuses to start with JWKS_URL and JWT_SECRET together, and
+                 the Secret carries no JWT_SECRET when jwksUrl is set. */}}
+            {{- if .Values.controller.jwksUrl }}
+            - name: JWKS_URL
+              value: {{ .Values.controller.jwksUrl | quote }}
+            {{- else }}
             - name: JWT_SECRET
               valueFrom:
                 secretKeyRef:
                   name: {{ include "the-pleiades.secretName" . }}
                   key: JWT_SECRET
+            {{- end }}
             {{- /* Only where the Secret holds one: without it the controller
                  keeps no digest of a file only some may read, and says so at
                  start. */}}

@@ -126,8 +126,11 @@ const (
 	ReasonMissedWindowTruncated = "missed_window_truncated"
 
 	// ReasonLaunchFailed is a claimed occurrence whose launch did not
-	// succeed. The schedule stays enabled: the next occurrence is a fresh
-	// attempt, because the usual cause is transient.
+	// succeed. The schedule stays enabled and, unless the launcher refused
+	// outright, due: the next sweep claims this same occurrence again and
+	// retries it, because the usual cause is transient. A retry that
+	// succeeds turns the row to fired; one superseded by a later occurrence
+	// leaves it reading launch_failed.
 	ReasonLaunchFailed = "launch_failed"
 
 	// ReasonAlreadyRunning is an occurrence whose target was already running
@@ -454,11 +457,15 @@ type Store interface {
 	ListDue(ctx context.Context, now time.Time, cursor DueCursor, limit int) ([]Schedule, error)
 
 	// ClaimOccurrence atomically claims one occurrence, returning
-	// ErrAlreadyClaimed if another replica already holds it.
+	// ErrAlreadyClaimed if another replica already holds it or it is
+	// settled.
 	//
 	// This is the duplicate-fire guard. It must be a single insert relying
 	// on a unique constraint, never a read-then-write: two replicas that
-	// both read "unclaimed" would both proceed.
+	// both read "unclaimed" would both proceed. The one row it may take back
+	// is an occurrence skipped as launch_failed, and only by one conditional
+	// update, so a retried occurrence is still claimed by one replica at
+	// most.
 	ClaimOccurrence(ctx context.Context, scheduleID string, occurrenceAt time.Time) (Occurrence, error)
 
 	// ResolveOccurrence records what happened to a claimed occurrence: the

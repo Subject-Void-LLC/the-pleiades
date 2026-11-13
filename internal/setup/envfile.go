@@ -9,6 +9,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/auth"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/crypto"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
 )
@@ -51,6 +52,7 @@ var validators = map[string]func(string) error{
 	VarPreviousKeyVersion: validateVersion,
 	VarRotate:             validateRotate,
 	VarJWTSecret:          validateJWTSecret,
+	VarJWKSURL:            validateJWKSURL,
 	VarMaxOutage:          validateMaxOutage,
 	VarFactsDigestKey:     validateKey,
 }
@@ -230,6 +232,20 @@ func (f *EnvFile) Set(name, value string) {
 	f.trailing = true
 }
 
+// Unset removes an owned variable's line, so the file no longer sets it at
+// all. It is how a file that held a JWT secret stops holding one when it
+// moves to an identity provider: an empty value would read as absent too,
+// but a deleted line is one nobody later mistakes for a setting.
+func (f *EnvFile) Unset(name string) {
+	kept := f.lines[:0]
+	for _, l := range f.lines {
+		if l.name != name {
+			kept = append(kept, l)
+		}
+	}
+	f.lines = kept
+}
+
 // AddComment adds comment lines at the end, each prefixed with "# ".
 func (f *EnvFile) AddComment(lines ...string) {
 	for _, l := range lines {
@@ -278,6 +294,16 @@ func validateVersion(value string) error {
 func validateRotate(value string) error {
 	if value != "true" && value != "false" {
 		return errors.New("is neither true nor false")
+	}
+	return nil
+}
+
+// validateJWKSURL accepts exactly the JWKS URLs the controller starts with,
+// through the controller's own rule, so setup never writes or keeps one the
+// controller would refuse. The rule's refusals never repeat the URL.
+func validateJWKSURL(value string) error {
+	if err := auth.ValidateJWKSURL(value); err != nil {
+		return fmt.Errorf("is not a JWKS URL the controller accepts: %s", strings.TrimPrefix(err.Error(), "auth: "))
 	}
 	return nil
 }

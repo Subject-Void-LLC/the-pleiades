@@ -7,6 +7,7 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
 	"math/big"
 	"net/http"
@@ -178,11 +179,21 @@ func TestController_JWKS_RealServer_AcceptsValidRejectsForged(t *testing.T) {
 		t.Fatalf("generating attacker RSA key: %v", err)
 	}
 
-	jwksServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	// Over TLS, since the controller refuses a JWKS URL that is not https
+	// (FAILURE_PATTERNS 1229). The binary trusts this server the way an
+	// operator's would trust a private IdP: its certificate is in the file
+	// SSL_CERT_FILE names, which Go reads in place of the system roots on
+	// Linux, the one platform this gate's NATS container runs on.
+	jwksServer := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(rsaJWKSDocument(t, &published.PublicKey, "e2e-kid")))
 	}))
 	t.Cleanup(jwksServer.Close)
+	idpRoots := filepath.Join(t.TempDir(), "idp-roots.pem")
+	idpPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: jwksServer.Certificate().Raw})
+	if err := os.WriteFile(idpRoots, idpPEM, 0o600); err != nil {
+		t.Fatalf("writing the IdP's certificate: %v", err)
+	}
 
 	port := freeTCPPort(t)
 	dbPath := filepath.Join(t.TempDir(), "controller-jwks.db")
@@ -195,6 +206,10 @@ func TestController_JWKS_RealServer_AcceptsValidRejectsForged(t *testing.T) {
 		"DB_PATH="+dbPath,
 		"LISTEN_ADDR=127.0.0.1:"+strconv.Itoa(port),
 		"JWKS_URL="+jwksServer.URL,
+		"SSL_CERT_FILE="+idpRoots,
+		// Cleared, not inherited: a JWT_SECRET beside JWKS_URL is a startup
+		// error, and a developer's shell may export one.
+		"JWT_SECRET=",
 		"JWT_ISSUER=pleiades-controller",
 		"JWT_AUDIENCE=pleiades-api",
 		"MASTER_ENCRYPTION_KEY="+masterEncryptionKey,

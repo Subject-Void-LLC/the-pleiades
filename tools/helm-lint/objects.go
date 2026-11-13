@@ -27,6 +27,10 @@ type manifest struct {
 	// every file path a mounted configuration names to be a path that is
 	// really mounted. Empty for every other kind.
 	Data map[string]string `yaml:"data"`
+
+	// StringData is a Secret's contents as the chart writes them, read only
+	// for its keys (checkTokenSource). Empty for every other kind.
+	StringData map[string]string `yaml:"stringData"`
 }
 
 // objectMeta carries the metadata a finding needs to name an object, plus the

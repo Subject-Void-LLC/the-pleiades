@@ -732,7 +732,11 @@ export DB_DSN="sqlite://./controller.db"
 `controller setup` makes the two secrets the controller refuses to start without, a master
 encryption key and a JWT secret, at the sizes it requires, and writes them to `.env`. The
 `set -a` line hands them to this shell for the bare binary. `.env` is then the only copy of
-the key that encrypts every credential this controller stores, so keep it.
+the key that encrypts every credential this controller stores, so keep it. If an identity
+provider signs your API tokens, run setup with `--jwks-url <url>` instead, and it writes that
+URL in place of the JWT secret; the production guide's
+[Checking API tokens against an identity provider](10-running-in-production.md#checking-api-tokens-against-an-identity-provider)
+says more.
 
 One consequence of exporting them: a shell that has loaded `.env` this way now carries the
 key as an environment variable, and `make up` refuses to run from it, because docker compose

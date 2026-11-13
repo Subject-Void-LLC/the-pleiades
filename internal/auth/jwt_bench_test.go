@@ -39,13 +39,13 @@ func BenchmarkValidateToken_RSA(b *testing.B) {
 	if err != nil {
 		b.Fatalf("generating RSA key: %v", err)
 	}
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(jwksDocumentForRSAKey(b, &key.PublicKey, "bench-kid")))
 	}))
 	defer server.Close()
 
-	provider := newTestJWKSProvider(b, server.URL)
+	provider := newTestJWKSProvider(b, server)
 	eval, err := auth.NewJWTEvaluator(provider, testIssuer, testAudience)
 	if err != nil {
 		b.Fatalf("NewJWTEvaluator: %v", err)

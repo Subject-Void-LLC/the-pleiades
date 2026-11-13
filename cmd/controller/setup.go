@@ -45,9 +45,9 @@ func isSetupCommand(args []string) bool {
 
 // setupFlags is the parsed command line.
 type setupFlags struct {
-	target, dir, adminEmail, maxOutage, secretName, namespace string
-	check, nonInteractive, passwordStdin                      bool
-	newJWT, force, destroyKey                                 bool
+	target, dir, adminEmail, maxOutage, secretName, namespace, jwksURL string
+	check, nonInteractive, passwordStdin                               bool
+	newJWT, force, destroyKey                                          bool
 }
 
 // parseSetupFlags parses args, which excludes the subcommand name.
@@ -64,6 +64,7 @@ func parseSetupFlags(args []string) (setupFlags, error) {
 	fs.BoolVar(&f.passwordStdin, "password-stdin", false, "read the administrator's password as one line on standard input")
 	fs.StringVar(&f.maxOutage, "max-outage", "", "the longest link outage to survive, such as 30m")
 	fs.BoolVar(&f.newJWT, "new-jwt-secret", false, "replace the JWT secret (with --force)")
+	fs.StringVar(&f.jwksURL, "jwks-url", "", "check API tokens against this identity provider's published keys (an https URL) instead of a JWT secret")
 	fs.BoolVar(&f.force, "force", false, "allow changing a reversible setting named with it")
 	fs.BoolVar(&f.destroyKey, "destroy-existing-encryption-key", false, "replace the master key; refused while any stored data is encrypted under it")
 	fs.StringVar(&f.secretName, "secret-name", "", "the Helm Secret's name")
@@ -97,7 +98,7 @@ func runSetup(args []string) int {
 	opts := setup.Options{
 		Target: setup.Target(f.target), Dir: f.dir, DisplayDir: os.Getenv(hostDirEnv),
 		Check: f.check, MaxOutage: f.maxOutage,
-		NewJWTSecret: f.newJWT, Force: f.force, DestroyKey: f.destroyKey,
+		NewJWTSecret: f.newJWT, Force: f.force, DestroyKey: f.destroyKey, JWKSURL: f.jwksURL,
 		SecretName: f.secretName, Namespace: f.namespace, DatabaseDSN: dsn,
 	}
 
@@ -124,7 +125,7 @@ func runSetup(args []string) int {
 		return code
 	}
 	if f.check {
-		fmt.Fprintf(os.Stdout, "%s holds a MASTER_ENCRYPTION_KEY and a JWT_SECRET.\n", result.File)
+		fmt.Fprintf(os.Stdout, "%s holds a MASTER_ENCRYPTION_KEY and a %s.\n", result.File, result.TokenCheck)
 		return 0
 	}
 	if result.Key == nil || dsn == "" {
@@ -261,6 +262,11 @@ func printSetupUsage() {
 Generates the master encryption key and the JWT secret, writes them where the
 deployment reads them, and creates the first administrator.
 
+  --jwks-url <url>    check API tokens against an identity provider's published
+                      keys (an https URL with no user name or password) instead
+                      of a JWT secret; no JWT secret is written. With --target
+                      helm it sets controller.jwksUrl in the values file.
+
   --target compose    write .env in --dir, the file docker compose reads (the default)
   --target helm       write pleiades-secret.yaml and pleiades-values.yaml in --dir
 
@@ -272,6 +278,8 @@ Changing an existing .env names the setting to change:
 
   --max-outage <duration> --force     change the outage budget
   --new-jwt-secret --force            replace the JWT secret
+  --jwks-url <url> --force            move to an identity provider, removing the
+                                      JWT secret, or point at another one
   --destroy-existing-encryption-key   replace the master key, which also asks
                                       you to type a phrase naming the key
 
@@ -279,7 +287,8 @@ Without a terminal, or with --non-interactive, it asks nothing:
 --max-outage sets the budget (default 30m), and --admin-email with
 --password-stdin creates the administrator.
 
-  --check    exit 0 if .env holds a key and a JWT secret, 3 if it does not
-             yet, 1 if it cannot be read; writes nothing
+  --check    exit 0 if .env holds a key and a JWT secret or a JWKS URL, 3 if
+             it does not yet, 1 if it cannot be read or holds both; writes
+             nothing
 `)
 }

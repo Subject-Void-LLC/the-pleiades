@@ -108,6 +108,7 @@ func run() error {
 		findings = append(findings, checkDisruptionBudgets(p.name, objects)...)
 		findings = append(findings, requirePodDisruptionBudgets(p.name, objects, p.wantDisruptionBudgets)...)
 		findings = append(findings, checkRetainedDataStamp(p.name, objects)...)
+		findings = append(findings, checkTokenSource(p.name, objects, p.jwksURL)...)
 		if len(p.values) == 0 {
 			// The defaults profile renders the inline-password path, which is
 			// where the chart's own fingerprint formula runs.
@@ -174,7 +175,7 @@ func run() error {
 	// instead would be a claim about the table rather than about the render,
 	// and the day somebody adds a waiver back the summary has to say so
 	// without anybody remembering to change this line.
-	fmt.Printf("helm-lint: %s renders in %d configuration(s) plus the values file controller setup writes; %d containers checked (non-root numeric uid, read-only root, no capabilities, RuntimeDefault seccomp, tagged image), %d of them carrying both probes and %d waived by a written reason this run re-checked against the source it depends on; %d configurations refused; %d renders at release-name lengths %v with every object name asserted distinct and legal for its own kind, including the pod names, revision-hash labels and DNS records Kubernetes derives from a StatefulSet's\n",
+	fmt.Printf("helm-lint: %s renders in %d configuration(s) plus the values files controller setup writes, with a JWT secret and with --jwks-url; %d containers checked (non-root numeric uid, read-only root, no capabilities, RuntimeDefault seccomp, tagged image), %d of them carrying both probes and %d waived by a written reason this run re-checked against the source it depends on; %d configurations refused; %d renders at release-name lengths %v with every object name asserted distinct and legal for its own kind, including the pod names, revision-hash labels and DNS records Kubernetes derives from a StatefulSet's\n",
 		chartDir, len(profiles), containers, containers-len(profiles)*len(probeWaivers), len(profiles)*len(probeWaivers), len(refusals), renders, nameProbeLengths)
 	return nil
 }
@@ -210,9 +211,15 @@ func checkNamesAtEveryLegalReleaseLength(chart string, findings *[]finding) (int
 }
 
 // valuesFor is one profile's full argument list: the three values the chart
-// requires, plus that profile's own.
+// requires, plus that profile's own. A profile that sets controller.jwksUrl
+// gets the two that remain without the JWT secret, which the chart refuses
+// beside it.
 func valuesFor(p profile) []string {
-	return append(append([]string{}, baseValues...), p.values...)
+	base := baseValues
+	if p.jwksURL != "" {
+		base = baseValuesWithoutJWTSecret
+	}
+	return append(append([]string{}, base...), p.values...)
 }
 
 // checkHelmVersion refuses to run against a Helm this chart was not verified

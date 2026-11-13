@@ -496,6 +496,10 @@ services:
       # the setup command.
       - MASTER_ENCRYPTION_KEY=${MASTER_ENCRYPTION_KEY:-}
       - JWT_SECRET=${JWT_SECRET:-}
+      # The other way to check API tokens: an identity provider's published
+      # keys, written by `setup --jwks-url <url>` in place of JWT_SECRET. The
+      # controller refuses to start with both set, so .env holds one.
+      - JWKS_URL=${JWKS_URL:-}
       # Rotation, all empty unless .env sets them. The controller treats an
       # empty value as unset, so these cost nothing until a rotation needs
       # them: move the key to _PREVIOUS (with its version) in .env, put the

@@ -31,7 +31,10 @@ administrator. After that, `make up` starts the stack. `.env` is then the only
 copy of the key, so back it up; [Recovering from a lost key](#what-setup-tells-you-about-later)
 below says what depends on it. Without a terminal (in a script),
 `make up SETUP_FLAGS="--admin-email you@example.com --password-stdin"` reads the
-administrator's password from standard input and asks nothing else.
+administrator's password from standard input and asks nothing else. If an identity
+provider signs your API tokens, add `--jwks-url <url>` to `SETUP_FLAGS`, and setup
+writes that URL in place of the JWT secret (see
+[Checking API tokens against an identity provider](#checking-api-tokens-against-an-identity-provider)).
 
 `make backup`, `make restore`, `make down` and `make decom` cover the rest of the
 stack's life; [Backup and restore](#backup-and-restore-data-retention-and-purge)
@@ -77,7 +80,10 @@ appears as `ImagePullBackOff` in `kubectl get pods` and, in more detail, in
 
 The chart needs a master encryption key, a JWT secret and a database password,
 and will not invent any of them. The controller's `setup` command makes all
-three in one step, as a Kubernetes Secret and a values file that points at it:
+three in one step, as a Kubernetes Secret and a values file that points at it.
+If an identity provider signs your API tokens, add `--jwks-url <url>`: the Secret
+then holds no JWT secret, and the values file sets `controller.jwksUrl` (see
+[Checking API tokens against an identity provider](#checking-api-tokens-against-an-identity-provider)).
 
 ```bash
 mkdir pleiades-install
@@ -130,9 +136,10 @@ credential and every encrypted device property permanently undecryptable, with n
 error at upgrade time.
 
 Supplying the values by hand still works: `secrets.masterEncryptionKey` (base64
-of exactly 32 random bytes), `secrets.jwtSecret` (at least 32 bytes) and
-`postgresql.auth.password` (characters that need no URL escaping), or a Secret you
-manage yourself named in `secrets.existingSecret`. A Secret you manage yourself
+of exactly 32 random bytes), `secrets.jwtSecret` (at least 32 bytes), or
+`controller.jwksUrl` in its place, and `postgresql.auth.password` (characters that
+need no URL escaping), or a Secret you manage yourself named in
+`secrets.existingSecret`, which needs no `JWT_SECRET` when `controller.jwksUrl` is set. A Secret you manage yourself
 restarts nothing when it changes and disables the reinstall check, unless you
 also set `secrets.existingSecretChecksum` and
 `postgresql.auth.existingSecretFingerprint` the way setup does.
@@ -176,6 +183,11 @@ token works on one and fails on another. Replacing it rejects every API token si
 with the old one until the token is signed again. Browser sign-ins do not use it and
 are unaffected. It is not needed to read anything stored.
 
+**The JWKS URL**, when setup is given `--jwks-url` and writes it in place of the JWT
+secret, needs no backup: the identity provider keeps the signing keys. Every controller
+replica needs the same one. Pointing it at another provider rejects every API token the
+old one signed.
+
 **The facts digest key** keys the stored digest of every file not everyone may read
 (see [Digests of files only some may read](#digests-of-files-only-some-may-read)), and
 has to be the same on every controller replica. A new one makes each such file read
@@ -204,7 +216,8 @@ one start. See [One number sets how long an outage may last](#one-number-sets-ho
 |---|---|---|
 | `MASTER_ENCRYPTION_KEY` | Everything encrypted under it is unreadable for good | `--destroy-existing-encryption-key` and, at a terminal, typing `destroy <fingerprint>`. Refused outright while any stored row is encrypted under the key, and refused if setup cannot reach the database to count |
 | `PLEIADES_MAX_OUTAGE` | Lowering it discards broker messages | `--max-outage <duration> --force` |
-| `JWT_SECRET` | API tokens signed with the old one stop working | `--new-jwt-secret --force` |
+| `JWT_SECRET` | API tokens signed with the old one stop working | `--new-jwt-secret --force`; `--jwks-url <url> --force` removes it |
+| `JWKS_URL` | API tokens the old identity provider signed stop working | `--jwks-url <url> --force` |
 | The database password (Helm) | The controller cannot connect until it is put back | Written once, never regenerated |
 | `PLEIADES_FACTS_DIGEST_KEY` | Every private file's digest reads as changed once | Written once when missing, never regenerated; edit `.env` or the Secret yourself |
 
@@ -1433,7 +1446,60 @@ response, and all cost the same amount of time. The real reason is written to th
 controller's log, where an operator can read it and a caller cannot.
 
 **Signing in with a token still works** and is the only route for a deployment that
-federates against an external issuer and holds no local passwords at all.
+federates against an external issuer and holds no local passwords at all. The next
+section says how the controller checks such a token.
+
+### Checking API tokens against an identity provider
+
+The controller checks an API token's signature one of two ways: against `JWT_SECRET`,
+a static secret setup generates, or against the signing keys an identity provider
+publishes at a JWKS endpoint, named by `JWKS_URL`. A deployment sets exactly one. The
+controller refuses to start with both, because each one alone decides who can sign a
+token it accepts, and a secret left beside the URL would sign any token again the moment
+the URL was removed. Setup and the chart refuse the same combination, so neither writes
+a configuration the controller then refuses.
+
+On a Docker host, give setup the URL. On a new deployment it writes `JWKS_URL` and no
+`JWT_SECRET`, and `make up`'s check reads that file as complete:
+
+```bash
+make up SETUP_FLAGS="--jwks-url https://idp.example.com/realms/pleiades/protocol/openid-connect/certs"
+```
+
+A deployment that already holds a JWT secret moves with `--force`, which removes the
+secret, since every API token signed with it stops working:
+
+```bash
+make setup SETUP_FLAGS="--jwks-url https://idp.example.com/realms/pleiades/protocol/openid-connect/certs --force"
+```
+
+To go back to a static secret, delete the `JWKS_URL` line from `.env` and run setup
+again, which writes a new one.
+
+With Helm, `controller setup --target helm --jwks-url <url>` writes a Secret without
+`JWT_SECRET` and a values file that sets `controller.jwksUrl`. By hand, set
+`controller.jwksUrl` and leave `secrets.jwtSecret` empty; the chart then gives the
+controller `JWKS_URL` and reads no `JWT_SECRET`, from its own Secret or from one you
+name in `secrets.existingSecret`. The URL is not a secret, so `--set` is fine for it.
+
+The URL must be `https`, because whoever can change the key set in transit can sign any
+token the controller accepts, and it must carry no user name or password: a JWKS
+endpoint publishes public keys and needs no credential, and a URL is copied into logs
+and pod specs. The controller trusts the system's certificate authorities when it
+fetches the keys; for an identity provider with a private one, point `SSL_CERT_FILE`
+at a bundle holding it.
+
+What happens when the identity provider cannot be reached:
+
+- The controller fetches the keys when it starts and refuses to start without them.
+- It refreshes them every 15 minutes and logs each failed refresh, with the age of the
+  keys it holds.
+- It keeps trusting the keys it holds for 12 hours after the last successful refresh,
+  and then refuses every token until a refresh succeeds, so a key the provider withdrew
+  during an outage does not stay trusted indefinitely.
+- A token naming a key the controller does not hold makes it fetch the key set again
+  at most once a minute, however many such requests arrive, and a token naming no key
+  is refused without a fetch.
 
 ### Threat model, briefly
 

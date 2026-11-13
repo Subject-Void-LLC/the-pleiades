@@ -6,6 +6,14 @@
 // change to the code that runs them.
 package main
 
+// profileJWKSURL is the identity provider address the JWKS profile and its
+// refusals render with. Nothing fetches it: the chart only places it.
+const profileJWKSURL = "https://idp.example.com/realms/pleiades/protocol/openid-connect/certs"
+
+// baseJWTSecret is the JWT secret every positive profile renders with,
+// except one that sets controller.jwksUrl instead.
+const baseJWTSecret = "helm-lint-render-only-not-a-real-secret" // #nosec G101 -- a literal `helm template` renders with; nothing is installed
+
 // basePostgresPassword is the database password every positive profile
 // renders with. It is named because checkFingerprintFormulaAgrees computes
 // the chart's credential fingerprint from it on the Go side.
@@ -18,8 +26,21 @@ const basePostgresPassword = "helm-lint-render-only" // #nosec G101 -- a literal
 // render and protects nothing anywhere.
 var baseValues = []string{
 	"--set", "secrets.masterEncryptionKey=a2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2s=",
-	"--set", "secrets.jwtSecret=helm-lint-render-only-not-a-real-secret",
+	"--set", "secrets.jwtSecret=" + baseJWTSecret,
 	"--set", "postgresql.auth.password=" + basePostgresPassword,
+}
+
+// baseValuesWithoutJWTSecret is baseValues less the JWT secret, for a render
+// that sets controller.jwksUrl instead: the chart refuses the two together.
+var baseValuesWithoutJWTSecret = []string{
+	"--set", "secrets.masterEncryptionKey=a2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2s=",
+	"--set", "postgresql.auth.password=" + basePostgresPassword,
+}
+
+// withoutJWTSecret is baseValuesWithoutJWTSecret followed by extra, for a
+// refusal that sets omitBase.
+func withoutJWTSecret(extra ...string) []string {
+	return append(append([]string{}, baseValuesWithoutJWTSecret...), extra...)
 }
 
 // profile is one configuration the chart must render, plus what the render has
@@ -42,6 +63,11 @@ type profile struct {
 	// perfectly ordinary values, and every check that iterates over rendered
 	// objects passes when the object is missing.
 	wantDisruptionBudgets int
+	// jwksURL is the controller.jwksUrl this profile sets, empty for the JWT
+	// secret. A profile that sets one renders without baseValues' JWT secret,
+	// since the chart refuses both, and checkTokenSource holds every render
+	// to whichever one its profile chose.
+	jwksURL string
 }
 
 // profiles is deliberately more than one. A chart with three TLS modes, two
@@ -89,6 +115,18 @@ var profiles = []profile{
 		},
 		probeScheme:           "HTTPS",
 		wantDisruptionBudgets: 1,
+	},
+	{
+		// An identity provider signs the API's tokens. The controller gets
+		// JWKS_URL and no JWT_SECRET, and the chart's Secret carries none
+		// (FAILURE_PATTERNS 1229: the controller refuses both).
+		name: "an identity provider checks the API's tokens",
+		values: []string{
+			"--set", "controller.jwksUrl=" + profileJWKSURL,
+		},
+		probeScheme:           "HTTPS",
+		wantDisruptionBudgets: 1,
+		jwksURL:               profileJWKSURL,
 	},
 	{
 		name: "no persistence anywhere (throwaway demo)",
@@ -388,6 +426,38 @@ var refusals = []refusal{
 			"--set", "postgresql.auth.password=" + basePostgresPassword,
 		},
 		wantMessage: "secrets.jwtSecret is not set",
+	},
+	{
+		// The combination the controller itself refuses at startup
+		// (FAILURE_PATTERNS 1229): two answers to who may sign a token, which
+		// used to install with the URL silently winning.
+		name:        "a JWKS URL beside a JWT secret",
+		values:      []string{"--set", "controller.jwksUrl=" + profileJWKSURL},
+		wantMessage: "controller.jwksUrl and secrets.jwtSecret are both set",
+	},
+	{
+		name:        "a JWKS URL over plain HTTP",
+		omitBase:    true,
+		values:      withoutJWTSecret("--set", "controller.jwksUrl=http://idp.example.com/keys"),
+		wantMessage: "controller.jwksUrl must be an https URL",
+	},
+	{
+		name:        "a JWKS URL carrying a password",
+		omitBase:    true,
+		values:      withoutJWTSecret("--set", "controller.jwksUrl=https://admin:render-only@idp.example.com/keys"),
+		wantMessage: "controller.jwksUrl carries a user name or password",
+	},
+	{
+		name:        "a JWKS URL carrying a user name",
+		omitBase:    true,
+		values:      withoutJWTSecret("--set", "controller.jwksUrl=https://admin@idp.example.com/keys"),
+		wantMessage: "controller.jwksUrl carries a user name or password",
+	},
+	{
+		name:        "a JWKS URL with no host",
+		omitBase:    true,
+		values:      withoutJWTSecret("--set", "controller.jwksUrl=https:///keys"),
+		wantMessage: "controller.jwksUrl has no host",
 	},
 	{
 		// The budget the setup command raises the liveness window for. By

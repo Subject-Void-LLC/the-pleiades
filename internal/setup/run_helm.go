@@ -23,6 +23,13 @@ func runHelm(ctx context.Context, opts Options, dir *Dir, screen *Screen, out io
 	if opts.Check || opts.NewJWTSecret || opts.DestroyKey {
 		return Result{}, refuse("--check, --new-jwt-secret and --destroy-existing-encryption-key apply to the compose target. A Helm release's master key is changed by rotating it, and its JWT secret by editing the Secret.")
 	}
+	// Checked before anything is generated or shown, by the controller's own
+	// rule, so a values file never names a URL the controller refuses.
+	if opts.JWKSURL != "" {
+		if err := validateJWKSURL(opts.JWKSURL); err != nil {
+			return Result{}, refuse("--jwks-url " + err.Error() + ".")
+		}
+	}
 	for _, name := range []string{HelmSecretFile, HelmValuesFile} {
 		_, exists, err := dir.ReadExisting(name)
 		if err != nil {
@@ -46,9 +53,14 @@ func runHelm(ctx context.Context, opts Options, dir *Dir, screen *Screen, out io
 	if err != nil {
 		return Result{}, err
 	}
-	jwt, err := newSecretText()
-	if err != nil {
-		return Result{}, err
+	// With --jwks-url the controller checks API tokens against the identity
+	// provider and refuses to start with a JWT secret beside it, so none is
+	// made.
+	jwt := ""
+	if opts.JWKSURL == "" {
+		if jwt, err = newSecretText(); err != nil {
+			return Result{}, err
+		}
 	}
 	digestKey, err := newSecretText()
 	if err != nil {
@@ -65,7 +77,7 @@ func runHelm(ctx context.Context, opts Options, dir *Dir, screen *Screen, out io
 
 	secret, values, err := RenderHelm(HelmInput{
 		SecretName: opts.SecretName, Namespace: opts.Namespace,
-		MasterKey: key, JWTSecret: jwt, FactsDigestKey: digestKey, PostgresPassword: pgPassword, Budget: budget,
+		MasterKey: key, JWTSecret: jwt, JWKSURL: opts.JWKSURL, FactsDigestKey: digestKey, PostgresPassword: pgPassword, Budget: budget,
 	})
 	if err != nil {
 		return Result{}, err
@@ -92,5 +104,9 @@ func runHelm(ctx context.Context, opts Options, dir *Dir, screen *Screen, out io
 		fmt.Fprintln(out, notCheckedNotice(display))
 	}
 	fmt.Fprintln(out, helmSummary(dir.Show(HelmSecretFile), dir.Show(HelmValuesFile), opts, key))
-	return Result{File: display, Key: key, KeyVersion: crypto.DefaultKeyVersion, Possession: possession}, nil
+	tokenCheck := VarJWTSecret
+	if opts.JWKSURL != "" {
+		tokenCheck = VarJWKSURL
+	}
+	return Result{File: display, Key: key, KeyVersion: crypto.DefaultKeyVersion, Possession: possession, TokenCheck: tokenCheck}, nil
 }

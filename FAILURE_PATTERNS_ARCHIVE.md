@@ -29715,3 +29715,187 @@ answers, then send it once. Proof, against the repo's real sshd container counti
 **Fix.** The test installs its own circuits through `ResetCircuitsForTest`, the reset seam LESSONS 159 asks for.
 
 **Lesson.** A test of process-wide state takes a seam that resets it.
+
+## 1225. A scheduled run whose launch failed after its occurrence was claimed was never launched, though Sweep's comment says a transient failure costs one interval of lateness (a repeat of 320) (fixed)
+
+**Symptom.** Found 2026-11-13 by an outside review of lessons from the 2026-11-12 Microsoft 365 outage, and confirmed by reading the
+code; no test was run. In `internal/schedule/scanner.go`, `fire` claims the occurrence (`ClaimOccurrence`, `ent_store.go` lines 323 to
+331), then calls `Launch`. When `Launch` fails, lines 439 to 445 resolve the claim as `skipped` with `launch_failed` and return the
+error, so `process` returns before `MarkFired` (line 269). On the next tick `due` picks the same target, the claim hits the unique index
+(`internal/ent/schema/schedule_occurrence.go` lines 167 to 169) and returns `ErrAlreadyClaimed`, `fire` returns nil (lines 405 to 409),
+and `MarkFired` advances. The occurrence is recorded (a durable skipped row and an Error log) but never launched. Any occurrence is
+affected, not only a catch-up one.
+
+**Root cause.** `Sweep`'s doc comment (lines 199 to 201) says a failure leaves the schedule due "so a transient failure costs one interval
+of lateness rather than a lost run". The claim is durable before the launch, and an already-claimed occurrence is read on the next pass as
+done. `TestSweepRecordsAFailedLaunch` (`scanner_test.go` lines 325 to 360) runs one `Sweep` only, so nothing ever checked the second
+pass the comment promises.
+
+**Why 320 did not prevent it.** 320 is the same shape: a comment promising tolerance of one transient failure, and a test that cannot
+tell. 320 was recorded and never fixed, and its lesson (a test that fails once, then recovers) was never swept across the other
+comments that promise a retry.
+
+**Fix.** Fixed on `fix/outage-lessons`, by a retryable claim rather than a readiness gate. `ClaimOccurrence`
+(`internal/schedule/ent_store.go`) still makes a first claim by one insert against the unique index, and on its constraint error now
+tries `reclaimFailed`: one conditional update that turns the row back to claimed only if it still reads skipped with `launch_failed`
+when the database applies it, so of two replicas retrying together one wins and the other gets `ErrAlreadyClaimed`, as with a first
+claim. Every other existing row (claimed and still launching, fired, skipped for any other reason) is never taken back. Since a failed
+launch already leaves the schedule due (`process` returns before `MarkFired`), the next sweep targets the same occurrence, re-claims it
+and launches it, and a success turns the row to fired; an occurrence superseded by a later one keeps reading `launch_failed`. A launch
+the launcher refused outright (`launchable.Refusal`: the template is gone, or it needs a prompted value) can only fail again, so `fire`
+records it and returns nil, and the schedule moves on at once instead of retrying every 30 s. Proof, each red with the fix reverted:
+`TestSweepRetriesAnOccurrenceWhoseLaunchFailed` (the test this entry asked for: one failure then success over two sweeps; reverted, 1
+attempt and 0 launches), `TestConcurrentSweepsRetryAFailedLaunchOnce` (eight replicas retrying launch it once; reverted, 0 times),
+`TestClaimOccurrenceReclaimsOnlyAFailedLaunch` (the store half), and `TestSweepDoesNotRetryARefusedLaunch` (red with the refusal branch
+removed: 2 attempts, schedule not advanced). Two residual risks, both older than this fix: a launch that fails after the dispatcher
+persisted its job (a publish whose acknowledgement was lost) is retried as a new job, so an ambiguous publish could run twice; and
+during a failover a replica that meets a row still claimed by the other advances the schedule, so if the other's launch then fails,
+that occurrence is not retried.
+
+**Lesson.** 320's again: a comment that promises recovery on the next pass needs a test that runs the next pass.
+
+## 1226. A schedule more than 10000 occurrences behind may fire a stale launch on each sweep, though the coalescing comment says it cannot (confirmed by a test) (fixed)
+
+**Symptom.** Found 2026-11-13 by the same outside review; reasoned from the code, not confirmed by a test or a run.
+`maxCatchUpExpansion` is 10000 (`internal/schedule/scanner.go` line 51), and the expansion runs forward from `last_fired`
+(`rrule/exclude.go` lines 90 to 105). With more than 10000 missed occurrences (a minutely schedule down about seven days), the target
+is the 10000th, not the most recent; `ComputeNextRun(target)` (`schedule.go` lines 323 to 347) is still in the past, so the schedule
+stays due and each sweep fires another stale launch. The comment at `scanner.go` lines 280 to 288 says coalescing gives one launch
+after an outage.
+
+**Root cause.** Suspected: the cap bounds the expansion from the wrong end, so coalescing holds only below it.
+
+**Fix.** Confirmed, then fixed on `fix/outage-lessons`. The test this entry asked for, `TestSweepCoalescesABacklogPastTheExpansionCap`
+(a minutely schedule with `last_fired` 30 days back, 43,200 occurrences owed, two sweeps), failed on the old code with two launches,
+each a stale occurrence. `due` (`internal/schedule/scanner.go`) now reads the backlog in batches of `maxCatchUpExpansion`, each
+starting just after the last, until a batch reaches past now or the series ends, so the target is always the most recent passed
+occurrence. Memory stays bounded: a batch is dropped once read, and the new `backlog` type keeps only what `recordMissed` writes (the
+first `maxSkipRecords` missed occurrences, then a count and the latest of the rest), so the collapsed row's count is exact. The cost is
+time: each expansion walks the rule from DTStart, so a backlog of n batches costs n walks, once, on the recovering sweep; `ctx` is
+checked between batches. The test now passes with one launch, for the occurrence 30 days on, 1,000 individual missed rows, one
+collapsed row counting the other 42,199 and dated at the last of them, and the next run after now;
+`TestSweepTruncatesAnEnormousBacklog` still holds below the cap.
+
+**Lesson.** A cap added to bound work must keep the property it bounds; test the far side of the cap, not only below it.
+
+## 1227. An unauthenticated request with an unknown kid made the Controller fetch the JWKS each time, with no single-flight, cooldown or negative cache, under a comment saying a garbage kid cannot hammer the IdP (a repeat in kind of 228) (fixed)
+
+**Symptom.** Found 2026-11-13 by the same outside review, confirmed by reading the code; no test was run. Security.
+`jwksKeyProvider.Key` (`internal/auth/jwks.go` lines 124 to 139) refetches the key set on every unknown `kid`. golang-jwt v5 runs the
+keyfunc before it checks the signature, and `internal/api/router.go` lines 279 to 284 place the rate limiter after authentication on
+purpose. So any well-formed RS256 token with an unknown `kid`, or none (`parseJWK` refuses an empty `kid`, line 230, so an empty one is
+never cached), forces one outbound GET per request, each held up to the 10 s timeout (`defaultJWKSTimeout`, line 31). An anonymous
+caller can drive the Controller's fetch rate at the IdP and tie up request handlers.
+
+**Root cause.** The bound is per call, not across calls. The comment at lines 128 to 131 says the refetch is "never repeated beyond this
+single attempt per call, so a forged or garbage kid cannot be used to hammer the IdP", which is false across calls.
+
+**Why 228 did not prevent it.** 228's lesson is to check a comment's safety claim against the code. The claim here was true of one call
+and read as true of the service; no test sent two requests.
+
+**Fix.** Fixed on `fix/outage-lessons`. `jwksKeyProvider.Key` (`internal/auth/jwks.go`) refuses an empty kid before any fetch, since
+every cached key has one, and sends an unknown kid to `refetchOnDemand` (`internal/auth/jwks_refetch.go`). Concurrent requests share
+one fetch, which runs on its own goroutine under its own 10 s timeout, so a caller that gives up returns at once without cancelling the
+fetch for the others. No request starts another fetch within one minute of the last (`defaultUnknownKidCooldown`), so a real rotation
+is late by at most a minute and the background refresh finds it anyway. A negative cache was not needed, because the cooldown covers
+every unknown kid at once. The refusals no longer echo the caller's kid. Proof, each red with the fix reverted:
+`TestJWKSKeyProvider_AnEmptyKidNeverFetches` (21 fetches, want 0), `TestJWKSKeyProvider_UnknownKidsWaitOutACooldown` (51 fetches, want
+1) and `TestJWKSKeyProvider_ConcurrentUnknownKidsShareOneFetch` (50 fetches, want 1; with the cooldown kept and the sharing removed, 49
+of 50 requests carrying a rotated key were refused). `TestJWKSKeyProvider_AWaitingRequestLeavesOnItsOwnDeadline` holds the detached
+fetch.
+
+**Lesson.** A bound on work an unauthenticated caller can trigger is stated and tested across requests, not within one.
+
+## 1228. The JWKS keys never aged: background refresh errors were discarded, so during an IdP outage a withdrawn key stayed trusted with nothing logged (a repeat in kind of 205) (fixed)
+
+**Symptom.** Found 2026-11-13 by the same outside review, confirmed by reading the code; no test was run. Security.
+`runBackgroundRefresh` (`internal/auth/jwks.go` line 172) runs `_ = p.refresh(...)` every 15 minutes. The provider has no fetched-at
+time, and no log or metric records a failure. While the IdP cannot be reached, the last key set stays trusted with no limit, so a key the
+IdP withdrew (after a compromise, say) keeps signing valid tokens here. Request-path fetch errors are also dropped
+(`internal/api/middleware.go` lines 355 to 363), so neither path shows that fetching has failed.
+
+**Root cause.** "Keep serving the last-known-good keys" (the comment at lines 170 to 171) was chosen with no upper age and no signal.
+
+**Why 205 did not prevent it.** 205's lesson, an error swallowed is a feature nobody knows is broken, was recorded against one KV
+call and not swept to other best-effort loops.
+
+**Fix.** Fixed on `fix/outage-lessons`. The provider records when the key set was last replaced by a successful fetch, and `lookup`
+(`internal/auth/jwks.go`) trusts a cached key only while that is no older than `DefaultJWKSMaxStaleness`, 12 hours, the default Phase
+142 planned (48 of the 15 minute refreshes, so a run of misses does not trip it; `WithMaxStaleness` overrides it, and a non-positive
+value is refused, so there is no off switch). Past the bound a known kid causes one shared, rate-limited fetch (1227's), and is refused
+if that fails, with a fixed message naming the bound; a fetch that succeeds restores it with no restart, and a key the fresh set no
+longer holds is refused. The age is the larger of the monotonic and wall clock readings (`keyAge`), so neither a clock stepped backward
+nor a suspended machine extends trust, and a set never fetched is infinitely old. Every failed refresh, background or request, goes
+through `refreshAndReport` (`internal/auth/jwks_refetch.go`) to the logger the package already uses (slog; `WithLogger`, defaulting to
+`slog.Default()` read when the line is written, so the Controller's masking logger installed after the provider receives it): Warn with
+the error, the age, the bound and the run of failures, Error once past the bound, and one Info line when a refresh succeeds again. The
+URL is logged as given, since a URL carrying a user name or password is refused at construction (1229). Proof, each red with the fix
+reverted: `TestJWKSKeyProvider_StaleKeysAreRefusedPastTheBound` (a cached key past 12h was trusted while the IdP was down),
+`TestJWKSKeyProvider_AWithdrawnKeyIsRefusedOnceTheSetRefreshes` and `TestJWKSKeyProvider_ARefreshFailureIsLogged` (no log line within 5
+s). `TestNewJWKSKeyProvider_RefusesANonPositiveStalenessBound` and `TestKeyAge` cover the rest. Not built here, and left to Phase 142:
+a deployment setting for the bound, starting degraded when the IdP is unreachable at boot, and a status or metric showing the age.
+
+**Lesson.** A cache of trust has a maximum age, and a failed refresh is logged where an operator will see it.
+
+## 1229. JWKS_URL silently took precedence over JWT_SECRET, so a Controller set up with a secret and moved to an IdP kept the static secret as a mint-anything fallback by restart, and the JWKS URL could be plain http (fixed)
+
+**Symptom.** Found 2026-11-13 by the same outside review, confirmed by reading the code; no test was run. Security.
+`cmd/controller/main.go` lines 395 to 397 choose JWKS whenever `JWKS_URL` is set and never read `JWT_SECRET`, with no error when both
+are set (unlike `DB_DSN` with `DB_PATH`, lines 382 to 383). `controller setup` writes `JWT_SECRET` (`cmd/controller/setup.go` line
+127), so adding JWKS later leaves both in place, and removing `JWKS_URL` on a restart brings back a secret that signs any token. Separately,
+`internal/auth/jwks.go` line 98 accepts an `http://` JWKS URL, so the key set can be fetched over plain HTTP.
+
+**Root cause.** The two token sources were treated as a precedence, not as a choice the configuration must make once; the URL check
+allows both schemes.
+
+**Fix.** Fixed on `fix/outage-lessons`. `loadKeyProvider` (moved to `cmd/controller/keyprovider.go`, which also puts its doc comment
+back above it rather than above `resolveDatabaseDSN`) refuses to start with both `JWKS_URL` and `JWT_SECRET` set, as `DB_DSN` with
+`DB_PATH` is refused, and the refusal (`errBothTokenSources`) says which to remove for each intention and the command that does it.
+`auth.ValidateJWKSURL` is the one rule for a JWKS URL, used by `NewJWKSKeyProvider`, by setup and by setup's reading of `.env`: an
+absolute https URL with a host and no user name or password. A user name or password is refused outright rather than hidden in
+messages, since a JWKS endpoint needs no credential, and no refusal repeats the URL. Because `controller setup` wrote `JWT_SECRET` on
+every path, the refusal at first left no shipped way to run on JWKS alone, so each path now has one. `controller setup --jwks-url
+<url>` writes `JWKS_URL` and no `JWT_SECRET` (compose), or a Secret without it and a values file setting `controller.jwksUrl` (Helm).
+`--jwks-url <url> --force` moves a file holding a secret and removes the secret, and a rerun never adds a secret to a JWKS file. `setup
+--check`, and so `make up`, reads a key with `JWKS_URL` as complete, and a file holding both as a refusal rather than as incomplete.
+`docker-compose.yml` passes `JWKS_URL` to the controller, and the Makefile refuses it in the shell like setup's other variables. The
+chart's `controller.jwksUrl` sets `JWKS_URL`, leaves `JWT_SECRET` out of both the controller's environment and the chart's Secret, and
+is refused over http, with a user name or password, with no host, or beside `secrets.jwtSecret`. The JWKS release gate serves its key
+set over TLS, trusted through `SSL_CERT_FILE`, and clears an inherited `JWT_SECRET`. Proof, each red with its piece reverted:
+`TestLoadKeyProvider_RefusesBothTokenSources` (JWKS won and the fetch ran); `TestJWKSKeyProvider_ConstructionFailsClosed/plain_http`;
+`TestNewJWKSKeyProvider_RefusesAURLCarryingUserinfo` and `TestValidateJWKSURL` (a URL with a user name or password was accepted); in
+`internal/setup/jwks_test.go`, `TestRun_JWKSURLWritesTheURLAndNoJWTSecret` (with the flag ignored, a JWT secret was written and no
+URL), `TestRun_CheckAcceptsAJWKSFileAndRefusesBoth` (the old check called a JWKS file incomplete, so `make up` would rerun setup),
+`TestRun_AJWKSFileNeverGainsAJWTSecret`, `TestRun_MovingToJWKSTakesForceAndRemovesTheSecret`,
+`TestRenderHelm_AJWKSURLGoesToTheValuesAndNoJWTSecretToTheSecret` and `TestRun_HelmWithAJWKSURL`;
+`TestComposeFileReadsEverySetupVariableFromDotEnv` and `TestMakefileRefusesEveryVariableSetupOwns` (the compose file and the Makefile);
+`TestParseSetupFlags_TakesAJWKSURL`; and `make helm-lint`, whose new profile "an identity provider checks the API's tokens", second
+setup render "values written by controller setup --jwks-url", five new refusals and `checkTokenSource` rule (`TestCheckTokenSource`)
+fail against the old chart (its schema refused `controller.jwksUrl`), against the old controller template alone (no `JWKS_URL`, and a
+`JWT_SECRET` read from a Secret setup wrote without one) and against the old Secret template alone (a `JWT_SECRET` key beside the URL).
+`TestRun_JWKSRefusals` and `TestLoadKeyProvider_EachSourceAlone` cover the other combinations.
+
+**Lesson.** Two settings that each choose how identity is verified are refused together, not ranked.
+
+**Design note (not a defect).** The role and scopes are read from the token's claims without validation (`internal/auth/jwt.go` lines
+78 to 86), and `HasScope` passes on `*` or on role `admin` (`evaluator.go` lines 34 and 44). With a static secret, whoever holds it
+mints any role. Related to 20.
+
+## 1230. A refused SSH login was recorded as the circuit breaker's success, clearing any failure streak, so a failing AAA server never opens the circuit (open)
+
+**Symptom.** Found 2026-11-13 by the same outside review, confirmed by reading the code; no test was run.
+`pkg/remoteexec/dial.go` lines 152 to 154 call `r.breaker.RecordSuccess(addr)` when `authRejected` or `hostKeyRefused` holds, which
+clears the address's failure streak. `authRejected` is a text match (lines 180 to 186). Each task tries a refused login once (no retry,
+line 166), and breakers are per process (a fresh one per task child on the Walk tier unless `persist_connections` is on). When an AAA
+server is failing, every job keeps trying, and the review names account lockout across a fleet as the risk.
+
+**Root cause.** 399's fix chose this on purpose: its entry says a refused credential "proves the address is reachable, so it is recorded
+as the breaker's success", and 429 extended it to a refused host key. Not counting a refusal as a network failure is the intended rule;
+recording it as a success is what clears an outage's evidence.
+
+**Not a repeat.** No earlier entry records this class; it was introduced by 399's fix and carried into 429. Related: on
+`feat/112-winrm-breaker`, 1207 records a WinRM breaker closed on a canceled probe with no evidence the host was back.
+
+**Fix.** Open; queued after the JWKS entries. Shape to decide there: record a refusal as neither success nor failure.
+
+**Lesson.** A breaker records only what it measures. An answer that is not an outage is also not proof of health.

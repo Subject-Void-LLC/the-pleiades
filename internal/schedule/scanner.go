@@ -40,14 +40,20 @@ const (
 	// outage anybody intends to explain occurrence by occurrence.
 	DefaultMaxSkipRecords = 1000
 
-	// maxCatchUpExpansion bounds how many missed occurrences are expanded
-	// per schedule per tick, independent of how many rows get written.
+	// maxCatchUpExpansion bounds how many occurrences one recurrence
+	// expansion holds in memory, independent of how many rows get written.
 	//
 	// It is separate from DefaultMaxSkipRecords because they bound
 	// different resources: that one bounds database writes, this one
-	// bounds the recurrence walk itself. Without it, a minutely schedule
-	// whose last_fired is years old would expand millions of occurrences
-	// in memory before the row cap ever came into play.
+	// bounds memory. Without it, a minutely schedule whose last_fired is
+	// years old would expand millions of occurrences at once.
+	//
+	// It bounds one batch, not the backlog. due reads a longer backlog batch
+	// by batch until it passes now, keeping only what recordMissed writes,
+	// so the occurrence that runs is still the most recent one. When it
+	// bounded the whole walk instead, a schedule more than this many
+	// occurrences behind fired a stale occurrence on every sweep
+	// (FAILURE_PATTERNS 1226).
 	maxCatchUpExpansion = 10000
 )
 
@@ -199,6 +205,11 @@ func (s *Scanner) Run(ctx context.Context, isLeader func() bool) {
 // A failure on one schedule is logged and does not abort the pass or any
 // future one: the schedule stays due and the next tick finds it again, so a
 // transient failure costs one interval of lateness rather than a lost run.
+// For a launch that failed after its occurrence was claimed, that holds
+// because the store lets a launch_failed occurrence be claimed once more
+// (FAILURE_PATTERNS 1225, TestSweepRetriesAnOccurrenceWhoseLaunchFailed). A
+// refused launch is the one failure not retried: fire records it and moves
+// the schedule on, since it can only fail again.
 func (s *Scanner) Sweep(ctx context.Context) {
 	now := s.now().UTC()
 	var cursor DueCursor
@@ -241,10 +252,11 @@ func (s *Scanner) Sweep(ctx context.Context) {
 // process handles one due schedule: work out which occurrences it owes,
 // record the ones it will not run, and fire the one it will.
 func (s *Scanner) process(ctx context.Context, sched Schedule, now time.Time) error {
-	missed, target, err := s.due(sched, now)
+	owed, err := s.due(ctx, sched, now)
 	if err != nil {
 		return err
 	}
+	target := owed.target
 	if target.IsZero() {
 		// Nothing is actually due. The cached next_run was stale -- the
 		// rule was edited, or the schedule ran out of occurrences -- so
@@ -256,7 +268,7 @@ func (s *Scanner) process(ctx context.Context, sched Schedule, now time.Time) er
 		return s.store.MarkFired(ctx, sched.ScheduleID, timeOrZero(sched.LastFired), next)
 	}
 
-	s.recordMissed(ctx, sched, missed)
+	s.recordMissed(ctx, sched, owed)
 
 	if err := s.fire(ctx, sched, target); err != nil {
 		return err
@@ -286,14 +298,23 @@ func (s *Scanner) process(ctx context.Context, sched Schedule, now time.Time) er
 // hours between runs with nothing recording why. Coalescing gives the
 // current desired state once, and leaves an auditable row for every run
 // that did not happen.
-func (s *Scanner) due(sched Schedule, now time.Time) (missed []time.Time, target time.Time, err error) {
+//
+// The backlog is read in batches of maxCatchUpExpansion, each starting just
+// after the last, until a batch reaches past now or the series ends, so a
+// backlog of any length still yields its most recent occurrence as the
+// target (FAILURE_PATTERNS 1226). Memory stays bounded however long the
+// outage: a batch is dropped once read, and the backlog keeps only what
+// recordMissed writes. Time does not: every expansion walks the rule from
+// DTStart, so a backlog of n batches costs n walks, paid once, on the sweep
+// that recovers it. ctx is checked between batches.
+func (s *Scanner) due(ctx context.Context, sched Schedule, now time.Time) (backlog, error) {
 	loc, err := sched.Location()
 	if err != nil {
-		return nil, time.Time{}, err
+		return backlog{}, err
 	}
 	set, err := sched.RuleSet()
 	if err != nil {
-		return nil, time.Time{}, err
+		return backlog{}, err
 	}
 
 	// Start from just after the last occurrence that ran, so a run is
@@ -309,29 +330,68 @@ func (s *Scanner) due(sched Schedule, now time.Time) (missed []time.Time, target
 		from = sched.LastFired.Add(time.Nanosecond)
 	}
 
-	occurrences, err := set.Expand(sched.DTStart.In(loc), from.In(loc), loc, maxCatchUpExpansion)
-	if err != nil {
-		if errors.Is(err, ErrNotFound) {
-			return nil, time.Time{}, err
+	// latest is the most recent passed occurrence read so far. Each time a
+	// later one passes too, latest is owed as missed and the later one takes
+	// its place, so when the walk stops latest is the target.
+	var owed backlog
+	var latest time.Time
+	for {
+		batch, err := set.Expand(sched.DTStart.In(loc), from.In(loc), loc, maxCatchUpExpansion)
+		if err != nil {
+			return backlog{}, err
 		}
-		return nil, time.Time{}, err
+		for _, o := range batch {
+			utc := o.UTC()
+			if utc.After(now) || (sched.DTEnd != nil && utc.After(*sched.DTEnd)) {
+				owed.target = latest
+				return owed, nil
+			}
+			if !latest.IsZero() {
+				owed.miss(latest, s.maxSkipRecords)
+			}
+			latest = utc
+		}
+		if len(batch) < maxCatchUpExpansion {
+			// A short batch is the series ending, not the cap.
+			owed.target = latest
+			return owed, nil
+		}
+		if err := ctx.Err(); err != nil {
+			return backlog{}, err
+		}
+		from = batch[len(batch)-1].Add(time.Nanosecond)
 	}
+}
 
-	var passed []time.Time
-	for _, o := range occurrences {
-		utc := o.UTC()
-		if utc.After(now) {
-			break
-		}
-		if sched.DTEnd != nil && utc.After(*sched.DTEnd) {
-			break
-		}
-		passed = append(passed, utc)
+// backlog is what one due schedule owes: the missed occurrences recorded one
+// by one, the further ones collapsed into a count, and the one that runs.
+//
+// It holds at most maxSkipRecords instants however long the outage was,
+// which is what lets due read a backlog of any length in bounded memory.
+type backlog struct {
+	// missed is the oldest missed occurrences, at most maxSkipRecords, in
+	// order. Each gets its own audit row.
+	missed []time.Time
+
+	// collapsed counts the missed occurrences after those, and lastCollapsed
+	// is the latest of them, which dates the one row standing for them all.
+	collapsed     int
+	lastCollapsed time.Time
+
+	// target is the most recent passed occurrence, the one that runs. Zero
+	// means nothing has passed.
+	target time.Time
+}
+
+// miss adds one missed occurrence, recording it individually while fewer
+// than limit are, and counting it after that.
+func (b *backlog) miss(at time.Time, limit int) {
+	if len(b.missed) < limit {
+		b.missed = append(b.missed, at)
+		return
 	}
-	if len(passed) == 0 {
-		return nil, time.Time{}, nil
-	}
-	return passed[:len(passed)-1], passed[len(passed)-1], nil
+	b.collapsed++
+	b.lastCollapsed = at
 }
 
 // recordMissed writes the audit rows for occurrences that will not run.
@@ -341,19 +401,12 @@ func (s *Scanner) due(sched Schedule, now time.Time) (missed []time.Time, target
 // make an incomplete history indistinguishable from a complete one, which
 // is the same reasoning gosec-waivers.json and flaky-packages.json apply to
 // their own exceptions: a bound nobody can see is a bound nobody can check.
-func (s *Scanner) recordMissed(ctx context.Context, sched Schedule, missed []time.Time) {
-	if len(missed) == 0 {
+func (s *Scanner) recordMissed(ctx context.Context, sched Schedule, owed backlog) {
+	if len(owed.missed) == 0 {
 		return
 	}
 
-	written := missed
-	var truncated []time.Time
-	if len(missed) > s.maxSkipRecords {
-		written = missed[:s.maxSkipRecords]
-		truncated = missed[s.maxSkipRecords:]
-	}
-
-	for _, occ := range written {
+	for _, occ := range owed.missed {
 		if err := s.store.RecordSkip(ctx, sched.ScheduleID, occ, ReasonMissedWindow, 0); err != nil {
 			// A skip row that cannot be written must not stop the run
 			// that can: losing an audit row is bad, losing the run is
@@ -365,14 +418,13 @@ func (s *Scanner) recordMissed(ctx context.Context, sched Schedule, missed []tim
 		}
 	}
 
-	if len(truncated) > 0 {
+	if owed.collapsed > 0 {
 		s.logger.Warn("scheduler collapsed missed occurrences into one record",
 			slog.String("schedule_id", sched.ScheduleID),
 			slog.String("name", sched.Name),
-			slog.Int("recorded", len(written)),
-			slog.Int("collapsed", len(truncated)))
-		last := truncated[len(truncated)-1]
-		if err := s.store.RecordSkip(ctx, sched.ScheduleID, last, ReasonMissedWindowTruncated, len(truncated)); err != nil {
+			slog.Int("recorded", len(owed.missed)),
+			slog.Int("collapsed", owed.collapsed))
+		if err := s.store.RecordSkip(ctx, sched.ScheduleID, owed.lastCollapsed, ReasonMissedWindowTruncated, owed.collapsed); err != nil {
 			s.logger.Error("scheduler could not record the collapsed missed occurrences",
 				slog.String("schedule_id", sched.ScheduleID),
 				slog.String("error", err.Error()))
@@ -382,7 +434,7 @@ func (s *Scanner) recordMissed(ctx context.Context, sched Schedule, missed []tim
 	s.logger.Info("scheduler skipped occurrences that passed while nothing was running",
 		slog.String("schedule_id", sched.ScheduleID),
 		slog.String("name", sched.Name),
-		slog.Int("missed", len(missed)))
+		slog.Int("missed", len(owed.missed)+owed.collapsed))
 }
 
 // fire claims one occurrence and launches it.
@@ -442,6 +494,23 @@ func (s *Scanner) fire(ctx context.Context, sched Schedule, occurrenceAt time.Ti
 				slog.String("schedule_id", sched.ScheduleID),
 				slog.String("error", err.Error()))
 		}
+		// A refusal is the launcher saying this can only ever fail (the
+		// template is gone, or it needs a value nobody is there to give), so
+		// it is recorded and the schedule moves on now: retrying it each
+		// sweep would only repeat the refusal.
+		var refusal launchable.Refusal
+		if errors.As(launchErr, &refusal) {
+			s.logger.Error("scheduler's launch was refused, and the occurrence will not be retried",
+				slog.String("schedule_id", sched.ScheduleID),
+				slog.String("name", sched.Name),
+				slog.Time("occurrence_at", occurrenceAt),
+				slog.String("error", launchErr.Error()))
+			return nil
+		}
+		// Anything else may be transient. Returning it leaves the schedule
+		// due, and the next sweep re-claims this same occurrence
+		// (ClaimOccurrence takes back a launch_failed row) and launches it
+		// again, which is what Sweep promises (FAILURE_PATTERNS 1225).
 		return launchErr
 	}
 

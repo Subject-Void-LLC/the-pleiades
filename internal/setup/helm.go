@@ -57,8 +57,15 @@ type HelmInput struct {
 	// MasterKey is the raw master key.
 	MasterKey []byte
 
-	// JWTSecret is the JWT secret, as text.
+	// JWTSecret is the JWT secret, as text. Empty exactly when JWKSURL is
+	// set.
 	JWTSecret string
+
+	// JWKSURL is the identity provider's published keys the controller
+	// checks API tokens against instead of a JWT secret. It is not a secret,
+	// so it goes in the values file (controller.jwksUrl), and the Secret
+	// then carries no JWT_SECRET.
+	JWKSURL string
 
 	// FactsDigestKey is the facts digest key, as text (base64 of 32 bytes).
 	FactsDigestKey string
@@ -100,7 +107,8 @@ type secretMetadata struct {
 // secrets.existingSecret is set and the in-chart database is on: the master
 // key, the JWT secret, the facts digest key, and the database password. The chart builds the
 // database connection string from that password itself, so the Secret never
-// has to repeat the release's service names.
+// has to repeat the release's service names. With a JWKS URL the Secret
+// carries no JWT secret, and the values file sets controller.jwksUrl instead.
 //
 // The values file carries two things that keep guards the chart would
 // otherwise lose with an operator-managed Secret: a checksum of the Secret,
@@ -118,8 +126,17 @@ func RenderHelm(in HelmInput) (secret, values []byte, err error) {
 	if in.Namespace != "" && (len(in.Namespace) > 63 || !dnsLabel.MatchString(in.Namespace)) {
 		return nil, nil, errors.New("setup: the namespace must be a DNS label: lowercase letters, digits and '-', at most 63 characters")
 	}
-	if len(in.MasterKey) != 32 || in.JWTSecret == "" || in.PostgresPassword == "" || !in.Budget.Valid() {
-		return nil, nil, errors.New("setup: the Helm output needs a 32-byte key, a JWT secret, a database password and a valid outage budget")
+	if len(in.MasterKey) != 32 || in.PostgresPassword == "" || !in.Budget.Valid() {
+		return nil, nil, errors.New("setup: the Helm output needs a 32-byte key, a database password and a valid outage budget")
+	}
+	// Exactly one way of checking API tokens, as the controller requires.
+	if (in.JWTSecret == "") == (in.JWKSURL == "") {
+		return nil, nil, errors.New("setup: the Helm output needs exactly one of a JWT secret and a JWKS URL")
+	}
+	if in.JWKSURL != "" {
+		if err := validateJWKSURL(in.JWKSURL); err != nil {
+			return nil, nil, errors.New("setup: the Helm output's JWKS URL " + err.Error())
+		}
 	}
 	if err := validateKey(in.FactsDigestKey); err != nil {
 		return nil, nil, errors.New("setup: the Helm output's facts digest key " + err.Error())
@@ -127,9 +144,11 @@ func RenderHelm(in HelmInput) (secret, values []byte, err error) {
 
 	data := map[string]string{
 		VarMasterKey:        crypto.EncodeKey(in.MasterKey),
-		VarJWTSecret:        in.JWTSecret,
 		VarFactsDigestKey:   in.FactsDigestKey,
 		"POSTGRES_PASSWORD": in.PostgresPassword,
+	}
+	if in.JWTSecret != "" {
+		data[VarJWTSecret] = in.JWTSecret
 	}
 	manifest := secretManifest{
 		APIVersion: "v1",
@@ -168,6 +187,11 @@ func RenderHelm(in HelmInput) (secret, values []byte, err error) {
 	}
 	if seconds := int(time.Duration(in.Budget) / time.Second); seconds > chartDefaultLivenessSeconds {
 		valuesDoc["runner"] = map[string]any{"heartbeat": map[string]any{"livenessStaleAfterSeconds": seconds}}
+	}
+	if in.JWKSURL != "" {
+		// The chart sets JWKS_URL from this and reads no JWT_SECRET, which
+		// the Secret above does not carry.
+		valuesDoc["controller"] = map[string]any{"jwksUrl": in.JWKSURL}
 	}
 	vbody, err := yaml.Marshal(valuesDoc)
 	if err != nil {

@@ -26,7 +26,8 @@
 # Supplying them by hand instead is still supported, as three values:
 #
 #   secrets.masterEncryptionKey    base64 of exactly 32 random bytes
-#   secrets.jwtSecret              at least 32 bytes
+#   secrets.jwtSecret              at least 32 bytes, or instead
+#   controller.jwksUrl             your identity provider's https JWKS URL
 #   postgresql.auth.password       any password needing no URL escaping, when
 #                                  the in-chart database is on
 #
@@ -71,7 +72,8 @@ serviceAccount:
 secrets:
   # -- Read every credential from a Secret you manage yourself instead of one
   # this chart creates. The Secret must carry MASTER_ENCRYPTION_KEY and
-  # JWT_SECRET, plus POSTGRES_PASSWORD when the in-chart database is enabled
+  # JWT_SECRET (unless controller.jwksUrl is set, when the chart reads no
+  # JWT_SECRET), plus POSTGRES_PASSWORD when the in-chart database is enabled
   # (the chart builds the database connection string from it), or DB_DSN when
   # it is not. `controller setup --target helm` writes such a Secret. This is
   # also the route for the External Secrets Operator, a Vault sidecar, or
@@ -88,7 +90,9 @@ secrets:
   masterEncryptionKey: ""
   # -- At least 32 bytes. Verifies the bearer tokens the API accepts; browser
   # sign-ins do not use it. Changing it rejects every API token signed with
-  # the old one, which is recoverable, unlike changing the key above.
+  # the old one, which is recoverable, unlike changing the key above. Leave it
+  # empty when controller.jwksUrl is set, which checks tokens against an
+  # identity provider instead; the chart refuses both.
   jwtSecret: ""
   # -- base64 of 32 random bytes, optional. The controller keeps the digest of
   # a file only some may read keyed under it; without it no such digest is
@@ -105,6 +109,16 @@ controller:
   # persistence.accessMode=ReadWriteMany or persistence.enabled=false. See
   # tls.mode as well if the controller is provisioning its own certificate.
   replicaCount: 1
+
+  # -- Check API tokens against an identity provider's published signing keys
+  # (its JWKS endpoint) instead of secrets.jwtSecret. When set, the controller
+  # gets JWKS_URL and no JWT_SECRET at all, and secrets.jwtSecret must stay
+  # empty: the controller refuses to start with both, because each one alone
+  # decides who can sign a token it accepts. An https URL with no user name or
+  # password; a JWKS endpoint publishes public keys and needs no credential.
+  # `controller setup --target helm --jwks-url <url>` writes it into the values
+  # file and leaves JWT_SECRET out of the Secret. Not a secret, so --set is fine.
+  jwksUrl: ""
 
   image:
     # -- The image name, and the thing most likely to need changing before an
