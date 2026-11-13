@@ -157,6 +157,14 @@ func config(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 		}
 		text = string(b)
 	}
+	if restore == "" && strings.TrimSpace(text) == "" {
+		// A blank candidate (a project file truncated to whitespace, or a
+		// template that rendered nothing) passes vtysh's check, and
+		// frr-reload then reloads the router to no configuration at all,
+		// deleting everything it runs; an empty file frr-reload refuses
+		// itself, in words that do not say why.
+		return collection.Result{}, fmt.Errorf("%s: the candidate is empty; frr-reload would read it as no configuration and delete everything the router runs, so nothing was sent", configFQCN)
+	}
 	if restore == "" {
 		// A configuration read through net.frr.facts has its secrets masked;
 		// applied, it would set every key to its placeholder and drop every
