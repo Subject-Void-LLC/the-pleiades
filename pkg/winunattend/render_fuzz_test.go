@@ -315,49 +315,58 @@ func FuzzSeedXML(f *testing.F) {
 		f.Fatalf("the base seed is refused: %v", err)
 	}
 	f.Fuzz(func(t *testing.T, name, password, mac, address, lang, zone string) {
-		prefix, _ := netip.ParsePrefix(address)
-		s := Seed{
-			ComputerName:          name,
-			AdministratorPassword: password,
-			Interfaces:            []Interface{{MAC: mac, Address: prefix}},
-			Language:              lang,
-			TimeZone:              zone,
+		checkSeedInput(t, base, seedInput{name, password, mac, address, lang, zone})
+	})
+}
+
+// checkSeedInput holds one Seed to what FuzzSeedXML proves: refused by a
+// message naming the field (never repeating a refused password), or an
+// answer file of bounded size holding each value exactly, escaped, in its
+// own element only, compared with base's.
+func checkSeedInput(t *testing.T, base []byte, in seedInput) {
+	t.Helper()
+	prefix, _ := netip.ParsePrefix(in.address)
+	s := Seed{
+		ComputerName:          in.name,
+		AdministratorPassword: in.password,
+		Interfaces:            []Interface{{MAC: in.mac, Address: prefix}},
+		Language:              in.lang,
+		TimeZone:              in.zone,
+	}
+	out, err := s.XML()
+	if field := seedRefusal(s); field != "" {
+		checkRefusal(t, out, err, field)
+		if field == "password" {
+			checkPasswordUnsaid(t, err)
 		}
-		out, err := s.XML()
-		if field := seedRefusal(s); field != "" {
-			checkRefusal(t, out, err, field)
-			if field == "password" {
-				checkPasswordUnsaid(t, err)
-			}
-			return
-		}
-		if err != nil {
-			t.Fatalf("XML refuses a seed whose every field is acceptable: %v", err)
-		}
-		input := len(name) + len(password) + len(mac) + len(address) + len(lang) + len(zone)
-		if limit := len(base) + growth*input; len(out) > limit {
-			t.Errorf("the answer file is %d bytes for %d bytes of input, more than %d", len(out), input, limit)
-		}
-		l := lang
-		if l == "" {
-			l = DefaultLanguage
-		}
-		z := zone
-		if z == "" {
-			z = DefaultTimeZone
-		}
-		dashed, _ := dashedMAC(mac)
-		checkAnswer(t, out, base, []field{
-			{"ComputerName", name},
-			{"TimeZone", z},
-			{"AdministratorPassword/Value", password},
-			{"Identifier", dashed},
-			{"IpAddress", prefix.String()},
-			{"InputLocale", l},
-			{"SystemLocale", l},
-			{"UILanguage", l},
-			{"UserLocale", l},
-		})
+		return
+	}
+	if err != nil {
+		t.Fatalf("XML refuses a seed whose every field is acceptable: %v", err)
+	}
+	input := len(in.name) + len(in.password) + len(in.mac) + len(in.address) + len(in.lang) + len(in.zone)
+	if limit := len(base) + growth*input; len(out) > limit {
+		t.Errorf("the answer file is %d bytes for %d bytes of input, more than %d", len(out), input, limit)
+	}
+	l := in.lang
+	if l == "" {
+		l = DefaultLanguage
+	}
+	z := in.zone
+	if z == "" {
+		z = DefaultTimeZone
+	}
+	dashed, _ := dashedMAC(in.mac)
+	checkAnswer(t, out, base, []field{
+		{"ComputerName", in.name},
+		{"TimeZone", z},
+		{"AdministratorPassword/Value", in.password},
+		{"Identifier", dashed},
+		{"IpAddress", prefix.String()},
+		{"InputLocale", l},
+		{"SystemLocale", l},
+		{"UILanguage", l},
+		{"UserLocale", l},
 	})
 }
 
@@ -399,39 +408,49 @@ func FuzzInstallXML(f *testing.F) {
 		f.Fatalf("the base installation is refused: %v", err)
 	}
 	f.Fuzz(func(t *testing.T, image, password, lang string) {
-		i := Install{Image: image, Language: lang, AuditPassword: password}
-		out, err := i.XML()
-		if field := installRefusal(i); field != "" {
-			checkRefusal(t, out, err, field)
-			if field == "password" {
-				checkPasswordUnsaid(t, err)
-			}
-			return
+		checkInstallInput(t, base, installInput{image, password, lang})
+	})
+}
+
+// checkInstallInput holds one Install to what FuzzInstallXML proves:
+// refused by a message naming the field (never repeating a refused
+// password), or an answer file of bounded size holding the image, the
+// language and the audit password exactly, escaped, in their own elements
+// only, compared with base's.
+func checkInstallInput(t *testing.T, base []byte, in installInput) {
+	t.Helper()
+	i := Install{Image: in.image, Language: in.lang, AuditPassword: in.password}
+	out, err := i.XML()
+	if field := installRefusal(i); field != "" {
+		checkRefusal(t, out, err, field)
+		if field == "password" {
+			checkPasswordUnsaid(t, err)
 		}
-		if err != nil {
-			t.Fatalf("XML refuses an installation whose every field is acceptable: %v", err)
-		}
-		input := len(image) + len(password) + len(lang)
-		if limit := len(base) + growth*input; len(out) > limit {
-			t.Errorf("the answer file is %d bytes for %d bytes of input, more than %d", len(out), input, limit)
-		}
-		l := lang
-		if l == "" {
-			l = DefaultLanguage
-		}
-		key := "/IMAGE/NAME"
-		if isDigits(image) {
-			key = "/IMAGE/INDEX"
-		}
-		checkAnswer(t, out, base, []field{
-			{"MetaData/Key", key},
-			{"MetaData/Value", image},
-			{"AdministratorPassword/Value", password},
-			{"AutoLogon/Password/Value", password},
-			{"InputLocale", l},
-			{"SystemLocale", l},
-			{"UILanguage", l},
-			{"UserLocale", l},
-		})
+		return
+	}
+	if err != nil {
+		t.Fatalf("XML refuses an installation whose every field is acceptable: %v", err)
+	}
+	input := len(in.image) + len(in.password) + len(in.lang)
+	if limit := len(base) + growth*input; len(out) > limit {
+		t.Errorf("the answer file is %d bytes for %d bytes of input, more than %d", len(out), input, limit)
+	}
+	l := in.lang
+	if l == "" {
+		l = DefaultLanguage
+	}
+	key := "/IMAGE/NAME"
+	if isDigits(in.image) {
+		key = "/IMAGE/INDEX"
+	}
+	checkAnswer(t, out, base, []field{
+		{"MetaData/Key", key},
+		{"MetaData/Value", in.image},
+		{"AdministratorPassword/Value", in.password},
+		{"AutoLogon/Password/Value", in.password},
+		{"InputLocale", l},
+		{"SystemLocale", l},
+		{"UILanguage", l},
+		{"UserLocale", l},
 	})
 }
