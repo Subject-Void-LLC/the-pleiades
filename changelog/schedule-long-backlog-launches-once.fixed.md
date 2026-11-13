@@ -1,0 +1,1 @@
+A schedule more than 10,000 occurrences behind, such as a minutely schedule after a week's outage, launches once for its most recent occurrence instead of launching a stale occurrence on every scan until it caught up.

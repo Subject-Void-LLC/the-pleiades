@@ -1216,7 +1216,7 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 1210. TestBracketedIPv6ReachesTheDial broke at -count=3 once the WinRM circuit became process-wide (a repeat in kind of LESSONS 159) (fixed before push)
 1211. TestPort_WaitsForAPortToOpen chose a free port, released it, and bound it later; a lost bind returned silently, so the wait timed out (a repeat of 601) (fixed on the pull request)
 1225. A scheduled run whose launch failed after its occurrence was claimed was never launched, though Sweep's comment says a transient failure costs one interval of lateness (a repeat of 320) (fixed)
-1226. A schedule more than 10000 occurrences behind may fire a stale launch on each sweep, though the coalescing comment says it cannot (suspected; reasoned, not confirmed by a test) (open)
+1226. A schedule more than 10000 occurrences behind may fire a stale launch on each sweep, though the coalescing comment says it cannot (confirmed by a test) (fixed)
 1227. An unauthenticated request with an unknown kid made the Controller fetch the JWKS each time, with no single-flight, cooldown or negative cache, under a comment saying a garbage kid cannot hammer the IdP (a repeat in kind of 228) (fixed)
 1228. The JWKS keys never aged: background refresh errors were discarded, so during an IdP outage a withdrawn key stayed trusted with nothing logged (a repeat in kind of 205) (fixed)
 1229. JWKS_URL silently took precedence over JWT_SECRET, so a Controller set up with a secret and moved to an IdP kept the static secret as a mint-anything fallback by restart, and the JWKS URL could be plain http (fixed)

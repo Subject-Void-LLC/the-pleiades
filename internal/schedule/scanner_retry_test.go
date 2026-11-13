@@ -1,8 +1,9 @@
-// These tests hold the scanner to a promise its comment made and no test
+// These tests hold the scanner to two promises its comments made and no test
 // checked: a launch that fails after its occurrence was claimed is tried
-// again on the next sweep (FAILURE_PATTERNS 1225). They run the real ent
-// store on real SQLite, as scanner_test.go does, because the claim that
-// decides them is the database's unique index.
+// again on the next sweep (FAILURE_PATTERNS 1225), and a backlog larger than
+// one recurrence expansion still coalesces to one run (FAILURE_PATTERNS
+// 1226). Both run the real ent store on real SQLite, as scanner_test.go does,
+// because the claim that decides them is the database's unique index.
 package schedule_test
 
 import (
@@ -15,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	entoccurrence "github.com/Subject-Void-LLC/the-pleiades/internal/ent/scheduleoccurrence"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/launchable"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/schedule"
 )
@@ -256,5 +258,83 @@ func TestClaimOccurrenceReclaimsOnlyAFailedLaunch(t *testing.T) {
 		if _, err := f.store.ClaimOccurrence(ctx, id, settled); !errors.Is(err, schedule.ErrAlreadyClaimed) {
 			t.Errorf("claiming the settled occurrence at %s = %v, want ErrAlreadyClaimed", settled, err)
 		}
+	}
+}
+
+// TestSweepCoalescesABacklogPastTheExpansionCap is FAILURE_PATTERNS 1226's
+// test: a minutely schedule thirty days behind owes 43,200 occurrences,
+// more than one recurrence expansion holds, and two sweeps must still
+// launch once, for the most recent occurrence, with every other one
+// accounted for.
+func TestSweepCoalescesABacklogPastTheExpansionCap(t *testing.T) {
+	f := newStoreFixture(t)
+	ctx := context.Background()
+
+	// Anchored near the real present, because Create computes the first
+	// next run from the real clock, walking the rule from DTStart to now.
+	lastFired := time.Now().UTC().Truncate(time.Minute).Add(-60 * 24 * time.Hour)
+	latest := lastFired.Add(30 * 24 * time.Hour)
+	now := latest.Add(30 * time.Second)
+
+	created, err := f.store.Create(ctx, schedule.Schedule{
+		Name:         "every minute",
+		LaunchableID: f.launchableA,
+		Enabled:      true,
+		RRule:        "FREQ=MINUTELY",
+		Timezone:     "UTC",
+		DTStart:      lastFired,
+	}, launchable.Everything())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.store.MarkFired(ctx, created.ScheduleID, lastFired, timePtr(lastFired.Add(time.Minute))); err != nil {
+		t.Fatal(err)
+	}
+
+	launcher := &recordingLauncher{}
+	scanner := schedule.NewScanner(f.store, launcher,
+		schedule.WithClock(func() time.Time { return now }), schedule.WithLogger(quietLogger()))
+	scanner.Sweep(ctx)
+	scanner.Sweep(ctx)
+
+	if got := len(launcher.calls()); got != 1 {
+		t.Fatalf("a minutely schedule 30 days behind launched %d times over two sweeps, want 1", got)
+	}
+	if o := occurrenceAt(t, f, created.ScheduleID, latest); o.Outcome != schedule.OutcomeFired {
+		t.Errorf("the most recent occurrence %s reads %s, want fired", latest, o.Outcome)
+	}
+
+	// 43,199 missed: the first DefaultMaxSkipRecords one by one, and the rest
+	// as one counted row dated at the last of them. Read straight from the
+	// table, since the history listing pages at 200 rows.
+	individual, err := f.client.ScheduleOccurrence.Query().
+		Where(entoccurrence.ReasonEQ(schedule.ReasonMissedWindow)).Count(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if individual != schedule.DefaultMaxSkipRecords {
+		t.Errorf("%d individual missed rows, want %d", individual, schedule.DefaultMaxSkipRecords)
+	}
+	collapsedRows, err := f.client.ScheduleOccurrence.Query().
+		Where(entoccurrence.ReasonEQ(schedule.ReasonMissedWindowTruncated)).All(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(collapsedRows) != 1 {
+		t.Fatalf("%d collapsed rows, want 1", len(collapsedRows))
+	}
+	if want := 43199 - schedule.DefaultMaxSkipRecords; collapsedRows[0].SuppressedCount != want {
+		t.Errorf("the collapsed row counts %d missed occurrences, want %d", collapsedRows[0].SuppressedCount, want)
+	}
+	if want := latest.Add(-time.Minute); !collapsedRows[0].OccurrenceAt.Equal(want) {
+		t.Errorf("the collapsed row is dated %s, want the last missed occurrence %s", collapsedRows[0].OccurrenceAt, want)
+	}
+
+	after, err := f.store.Get(ctx, f.orgA, created.ScheduleID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.NextRun == nil || !after.NextRun.After(now) {
+		t.Errorf("NextRun = %v, want a time after %s so the schedule is no longer due", after.NextRun, now)
 	}
 }

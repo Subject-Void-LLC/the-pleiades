@@ -29753,7 +29753,7 @@ that occurrence is not retried.
 
 **Lesson.** 320's again: a comment that promises recovery on the next pass needs a test that runs the next pass.
 
-## 1226. A schedule more than 10000 occurrences behind may fire a stale launch on each sweep, though the coalescing comment says it cannot (suspected; reasoned, not confirmed by a test) (open)
+## 1226. A schedule more than 10000 occurrences behind may fire a stale launch on each sweep, though the coalescing comment says it cannot (confirmed by a test) (fixed)
 
 **Symptom.** Found 2026-11-13 by the same outside review; reasoned from the code, not confirmed by a test or a run.
 `maxCatchUpExpansion` is 10000 (`internal/schedule/scanner.go` line 51), and the expansion runs forward from `last_fired`
@@ -29764,8 +29764,16 @@ after an outage.
 
 **Root cause.** Suspected: the cap bounds the expansion from the wrong end, so coalescing holds only below it.
 
-**Fix.** Open; queued with 1225. Settle it first with a test that should fail on today's code: a minutely schedule, `last_fired` 30
-days back, two sweeps, expecting one launch. If that test passes, this entry is closed as not a defect.
+**Fix.** Confirmed, then fixed on `fix/outage-lessons`. The test this entry asked for, `TestSweepCoalescesABacklogPastTheExpansionCap`
+(a minutely schedule with `last_fired` 30 days back, 43,200 occurrences owed, two sweeps), failed on the old code with two launches,
+each a stale occurrence. `due` (`internal/schedule/scanner.go`) now reads the backlog in batches of `maxCatchUpExpansion`, each
+starting just after the last, until a batch reaches past now or the series ends, so the target is always the most recent passed
+occurrence. Memory stays bounded: a batch is dropped once read, and the new `backlog` type keeps only what `recordMissed` writes (the
+first `maxSkipRecords` missed occurrences, then a count and the latest of the rest), so the collapsed row's count is exact. The cost is
+time: each expansion walks the rule from DTStart, so a backlog of n batches costs n walks, once, on the recovering sweep; `ctx` is
+checked between batches. The test now passes with one launch, for the occurrence 30 days on, 1,000 individual missed rows, one
+collapsed row counting the other 42,199 and dated at the last of them, and the next run after now;
+`TestSweepTruncatesAnEnormousBacklog` still holds below the cap.
 
 **Lesson.** A cap added to bound work must keep the property it bounds; test the far side of the cap, not only below it.
 
