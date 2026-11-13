@@ -8,13 +8,18 @@
 //
 // It never writes to the host, so it is read-only by default and its VMs
 // land simulate-locked, as Catalyst Center's devices do. A VM with no
-// recorded address, or of an OS type no rule places, is quarantined with
-// the reason, never guessed at.
+// recorded address, one whose recorded address is not an IP address or
+// whose recorded login device is not a device name, or one of an OS type no
+// rule places, is quarantined with the reason, never guessed at. A VM whose
+// name is not one a device may take is refused by the shared driver
+// (recordname.Check), and one whose name VirtualBox's own checks refuse
+// (vboxmanage.CheckName) is quarantined as unreadable.
 package vbox
 
 import (
 	"context"
 	"fmt"
+	"net/netip"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -27,6 +32,8 @@ import (
 	inv "github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/syncplugin"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/recordname"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/farside"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/vboxmanage"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/winrmexec"
@@ -214,8 +221,20 @@ func (p *VBox) Classify(_ context.Context, rec record.Record) (syncplugin.Classi
 	if reason, _ := rec.Properties[propUnreadable].(string); reason != "" {
 		return syncplugin.Quarantine(reason), nil
 	}
-	if address, _ := rec.Properties[propHost].(string); address == "" {
+	address, _ := rec.Properties[propHost].(string)
+	if address == "" {
 		return syncplugin.Quarantine(fmt.Sprintf("VirtualBox records no address for %q: only a VM virt.vbox.vm.clone made carries one (the extradata %s), and VirtualBox cannot read a guest's address without its Guest Additions", rec.Name, vboxmanage.ExtraAddress)), nil
+	}
+	// The address becomes the device's host, which its credential is sent
+	// to, so only what virt.vbox.vm.clone writes is taken: an IP address,
+	// with no zone. A name or anything else is someone else's text.
+	if ip, err := netip.ParseAddr(address); err != nil || ip.Zone() != "" {
+		return syncplugin.Quarantine(fmt.Sprintf("the address VirtualBox records for %q (the extradata %s), %s, is not an IP address; virt.vbox.vm.clone records one, so something else wrote it", rec.Name, vboxmanage.ExtraAddress, farside.Text(address))), nil
+	}
+	if login, _ := rec.Properties[propLoginDevice].(string); login != "" {
+		if err := recordname.Check(login); err != nil {
+			return syncplugin.Quarantine(fmt.Sprintf("the login device VirtualBox records for %q (the extradata %s) is not a device name: %v", rec.Name, vboxmanage.ExtraDevice, err)), nil
+		}
 	}
 	osType, _ := rec.Properties[propOSType].(string)
 	path := classificationPath(osType)
