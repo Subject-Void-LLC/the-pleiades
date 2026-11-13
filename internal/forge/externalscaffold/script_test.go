@@ -190,7 +190,15 @@ func TestGenerate_ScriptReleaseGate(t *testing.T) {
 		if got["case"] != "ok" || got["note"] != "hello" {
 			t.Errorf(`Facts["got"] = %v, want the params the task passed`, resp.Facts["got"])
 		}
-		if where, _ := resp.Facts["where"].(string); !strings.HasPrefix(where, tmp+string(filepath.Separator)) {
+		// The TMPDIR as given or resolved: macOS's is under /var, a link to
+		// /private/var, and the script reports its directory resolved. The
+		// directory itself is gone by now, so it cannot be resolved here.
+		where, _ := resp.Facts["where"].(string)
+		inside := strings.HasPrefix(where, tmp+string(filepath.Separator))
+		if real, err := filepath.EvalSymlinks(tmp); err == nil {
+			inside = inside || strings.HasPrefix(where, real+string(filepath.Separator))
+		}
+		if !inside {
 			t.Errorf("the script ran in %q, want a directory inside the program's TMPDIR %s", where, tmp)
 		}
 		if left, _ := os.ReadDir(tmp); len(left) != 0 {
