@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -47,9 +48,15 @@ func ResolveKey(dir, envVar, fileName string) ([]byte, error) {
 	}
 
 	keyPath := filepath.Join(dir, fileName)
-	data, err := os.ReadFile(keyPath) // #nosec G304 -- keyPath is derived from the caller's own configured directory, not untrusted input
+	// Read only when it is its owner's alone (ReadPrivateFile), as OpenSSH
+	// reads a private key: a key another account can read or replace is
+	// refused before it decrypts anything.
+	data, err := ReadPrivateFile(keyPath)
 	if err == nil {
 		return DecodeKey(string(data), keyPath)
+	}
+	if errors.Is(err, ErrLooseSecretFile) {
+		return nil, err
 	}
 	if !os.IsNotExist(err) {
 		return nil, fmt.Errorf("failed to read key file %s: %w", keyPath, err)

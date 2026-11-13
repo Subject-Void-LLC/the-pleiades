@@ -3,6 +3,7 @@ package credential
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -231,7 +232,11 @@ func (s *fileStore) decryptField(encoded string) ([]byte, error) {
 // parent is looked at before a missing file is believed, and both say the
 // same thing.
 func readCredentialsDocument(path string) (credentialsDocument, error) {
-	data, err := os.ReadFile(path) // #nosec G304 -- path is derived from the CLI's own configured project directory, not untrusted input
+	// Read only when it is its owner's alone, like the master key.
+	data, err := crypto.ReadPrivateFile(path)
+	if errors.Is(err, crypto.ErrLooseSecretFile) {
+		return credentialsDocument{}, err
+	}
 	if err != nil {
 		if info, statErr := os.Stat(filepath.Dir(path)); statErr == nil && !info.IsDir() {
 			return credentialsDocument{}, fmt.Errorf("failed to read credential file %s: %s is not a directory", path, filepath.Dir(path))

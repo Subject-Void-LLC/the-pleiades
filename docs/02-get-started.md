@@ -119,6 +119,15 @@ to `.pleiades/credentials.yaml`, AES-256-GCM encrypted with a locally held maste
 (`.pleiades/master.key`, generated on first use). Neither file is ever committed:
 both are gitignored by default.
 
+**A loose vault is refused.** Like OpenSSH with a private key, `pleiades` refuses a
+`master.key`, `credentials.yaml` or `seal.key` that group or others can read or write, or
+that another user owns, before it reads any secret, and says how to fix it (`chmod 600
+.pleiades/master.key`, or `chown` to your user). Pleiades writes each of them 0600, so only
+a file loosened by hand, copied with its mode changed, or kept on a filesystem that cannot
+hold POSIX modes (such as a Windows drive mounted into WSL) is refused. On Windows itself no
+mode or owner is checked: POSIX modes do not apply there, and the file is protected only by
+its folder's access control, so keep the project inside your own profile.
+
 **A name the inventory does not have.** A credential is sent to whichever device carries
 its name, so a typo would leave the secret under the wrong name, and a device added later
 under that name would be sent a credential nobody chose for it. `add-credential` checks the
