@@ -263,7 +263,27 @@ func TestISOsCarryTheAnswerFileUnderItsName(t *testing.T) {
 		if !bytes.Equal(image, again) {
 			t.Errorf("%s: the same answer made two different images", name)
 		}
+		// A seed carries the answer again as Unattend.xml, the name a
+		// generalized image's first boot looks for on removable media; an
+		// install's media needs only Autounattend.xml. The capital U keeps
+		// this from matching inside Autounattend.xml's own UTF-16 name.
+		generalized := utf16Name(winunattend.GeneralizedFileName)
+		if got, want := bytes.Contains(image, generalized), name == "seed"; got != want {
+			t.Errorf("%s: names %s = %v, want %v", name, winunattend.GeneralizedFileName, got, want)
+		}
+		if name == "seed" && bytes.Count(image, answer) != 2 {
+			t.Errorf("seed: the image holds the answer file %d times, want 2 (under both names)", bytes.Count(image, answer))
+		}
 	}
+}
+
+// utf16Name is name as a Joliet directory records it: UTF-16, big endian.
+func utf16Name(name string) []byte {
+	var b []byte
+	for _, r := range name {
+		b = append(b, byte(r>>8), byte(r))
+	}
+	return b
 }
 
 func TestNewPasswordIsOneWindowsAccepts(t *testing.T) {
