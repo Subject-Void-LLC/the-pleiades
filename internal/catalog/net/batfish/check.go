@@ -33,10 +33,12 @@ func init() {
 		Manifest: collection.Manifest{
 			SupportedTransports:  []string{capability.TransportHTTPS},
 			RequiredCapabilities: []capability.Name{capability.NameBatfishAPI},
-			ExecutionContext:     collection.ExecutionContext{Site: collection.SiteTarget, Device: collection.DeviceRequired},
-			EngineVersion:        ">=0.2.0",
-			Status:               collection.StatusImplemented,
-			NoExistsReason:       collection.NoExistsGate,
+			// It runs in the host process and asks the batfish service device's
+			// API, as the edge.* gates do (Phase 127b's Pattern Entry Gate).
+			ExecutionContext: collection.ExecutionContext{Site: collection.SiteController, Device: collection.DeviceRequired},
+			EngineVersion:    ">=0.2.0",
+			Status:           collection.StatusImplemented,
+			NoExistsReason:   collection.NoExistsGate,
 			Reversibility: collection.Reversibility{
 				ReadOnly: true,
 				Notes:    "It asks Batfish about configurations and changes no device; the snapshot it uploads is removed when the task ends.",

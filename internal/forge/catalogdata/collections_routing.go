@@ -212,6 +212,7 @@ var routingCollections = []collectionscaffold.Config{
 		Name:          "net.batfish.check",
 		Capabilities:  []capability.Name{capability.NameBatfishAPI},
 		Transports:    []string{"https"},
+		Site:          collection.SiteController,
 		EngineVersion: engineVersion,
 		Doc: collection.Doc{
 			Summary:     "Checks configurations against Batfish's model of the network before any of them is applied, and fails closed.",
