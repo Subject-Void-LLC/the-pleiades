@@ -134,6 +134,48 @@ func TestAdapter_Execute_DropsDeliveredSeeds(t *testing.T) {
 	}
 }
 
+// TestAdapter_Execute_ASeedingTaskIsRefusedNotRunWithoutItsSeed: a forged
+// dispatch carries every seed key beside a seeding task. The Runner drops
+// the keys and does not then run the task with no login to seed, which would
+// build a machine nobody can log in to: the engine refuses the seeding call
+// before the per-task child starts, naming the CLI as the one place it runs.
+func TestAdapter_Execute_ASeedingTaskIsRefusedNotRunWithoutItsSeed(t *testing.T) {
+	seedKeys := seedKeysTheEngineWrites(t)
+	t.Cleanup(collection.SnapshotForTest())
+	ran := false
+	if err := collection.Register(collection.Descriptor{
+		Name: "nativeseed.clone",
+		Manifest: collection.Manifest{Status: collection.StatusImplemented,
+			Reversibility: collection.Reversibility{Notes: "a test fixture that changes nothing"},
+			SeedsLogin:    "login",
+			Doc:           collection.Doc{Params: []collection.Param{{Name: "login", Type: "string", Required: true}}}},
+		Invoke: func(context.Context, sdk.RunbookContext, inventory.InventoryItem, map[string]any) (collection.Result, error) {
+			ran = true
+			return collection.Result{Changed: true}, nil
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	runbooks := writeRunbook(t, "clone", "id: clone\ntasks:\n  - name: clone\n    nativeseed.clone:\n      login: lab-web\n")
+	adapter, err := NewAdapter(&mockBus{}, runbooks, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secrets := map[string]string{wire.SecretPassword: "the-login"}
+	for _, key := range seedKeys {
+		secrets[key] = "delivered-" + key
+	}
+	_, err = adapter.Execute(context.Background(), wire.DispatchPayload{
+		JobID: "job-1", RunbookID: "clone", DeviceName: "vbox-host", DeviceHost: "10.0.0.1", Secrets: secrets,
+	})
+	if err == nil || !strings.Contains(err.Error(), "only the pleiades CLI resolves") {
+		t.Fatalf("Execute = %v, want the seeding call refused naming the CLI", err)
+	}
+	if ran {
+		t.Error("the seeding method ran on a Runner")
+	}
+}
+
 // TestSeedPrefixNamesOnlySeeds: no key a device's own credential flattens to
 // (credential.Flatten, the machine credential's writer) carries the prefix
 // the Runner drops, so dropping it takes nothing else.

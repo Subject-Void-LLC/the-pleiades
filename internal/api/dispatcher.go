@@ -505,6 +505,11 @@ func (d *Dispatcher) respondLaunchError(w http.ResponseWriter, r *http.Request, 
 		RespondError(w, r, http.StatusUnprocessableEntity, ErrWindowedPrompt.Error())
 	case errors.Is(err, ErrSerialPrompt):
 		RespondError(w, r, http.StatusUnprocessableEntity, ErrSerialPrompt.Error())
+	case errors.Is(err, dispatch.ErrSeededLogin):
+		// The message names the runbook, its task, the method and the device
+		// whose login the task would seed, all from the runbook's own text,
+		// and no secret: none has been read.
+		RespondError(w, r, http.StatusUnprocessableEntity, err.Error())
 	case errors.Is(err, launch.ErrUnknownKind):
 		// The template names a kind this Controller no longer registers,
 		// which is a deployment fact rather than a caller's mistake, so it
@@ -574,9 +579,19 @@ func (d *Dispatcher) LaunchTemplate(ctx context.Context, actor string, templateI
 	if len(prompted) > 0 && resolved.Fields.Int(dispatch.ForksField) > 0 {
 		return "", ignored, ErrWindowedPrompt
 	}
-	if len(prompted) > 0 && launch.ResolveKind(resolved.Kind) == launch.DefaultKind {
-		if rb, err := d.runbooks.Get(ctx, resolved.Definition); err == nil && len(rb.Serial) > 0 {
-			return "", ignored, ErrSerialPrompt
+	if d.runbooks != nil && launch.ResolveKind(resolved.Kind) == launch.DefaultKind {
+		// A runbook that cannot be resolved is left to fan-out, which fails the
+		// job naming it (and refuses a seeding one again, whatever started
+		// it); only what a resolved runbook says is refused here.
+		if rb, err := d.runbooks.Get(ctx, resolved.Definition); err == nil {
+			if len(prompted) > 0 && len(rb.Serial) > 0 {
+				return "", ignored, ErrSerialPrompt
+			}
+			// Refused before the job exists, so nothing is published: a seed
+			// reaches a Runner only through the claim-time credential fetch.
+			if err := dispatch.RefuseSeededLogins(rb); err != nil {
+				return "", ignored, err
+			}
 		}
 	}
 

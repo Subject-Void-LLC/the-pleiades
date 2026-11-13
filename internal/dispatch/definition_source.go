@@ -90,6 +90,12 @@ func (s runbookDefinitionSource) Prepare(ctx context.Context, definition string)
 		}
 		return PreparedDefinition{}, reason, err
 	}
+	// Refused before fan-out, so no dispatch is published: a seed may reach a
+	// Runner only through the claim-time credential fetch, and a Runner's own
+	// refusal would come after the dispatch had crossed the stream.
+	if err := RefuseSeededLogins(rb); err != nil {
+		return PreparedDefinition{}, err.Error(), err
+	}
 	return PreparedDefinition{Required: rb.Required, Methods: rb.Methods, Interruptible: rb.Interruptible, Serial: rb.Serial,
 		Collections: collectionIdentities(rb.AllMethods), Graph: &NodeGraph{Version: rb.Version, Scheme: runbook.GraphScheme, Digest: rb.GraphDigest, Nodes: rb.Nodes}}, "", nil
 }

@@ -3132,6 +3132,13 @@ cloud-init with a login generated into the vault (`pleiades add-credential --gen
 its SSH host keys are trusted from its serial console (`pleiades trust-host --from-console`).
 It then manages the VM over SSH like any other Linux host.
 
+Seeding a login is the CLI's alone for now. A task that seeds a device's login into a machine it
+creates (`virt.vbox.vm.clone`'s `login`, `virt.cml.node.create`'s `device`) is refused on the
+Controller before anything is published: a launch of such a template answers 422 naming the task
+and the device, and a job that reaches fan-out by another path fails with the same reason. A seed is
+as sensitive as the credential it comes from, so it will reach a Runner only when a Runner can fetch
+that credential itself at claim time.
+
 VMs come in T-shirt sizes (`size: small` and so on, each a CPU count and a memory size), and
 `virt.vbox.vm.resize` changes a stopped VM's size. The methods refuse a VM larger than the host,
 and a start the host's free memory cannot hold. One thing to know before choosing a size on a

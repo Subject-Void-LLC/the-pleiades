@@ -34,7 +34,14 @@ type SeedForms struct {
 // requiredParam reports whether desc declares the parameter named name as
 // required.
 func requiredParam(desc collection.Descriptor, name string) bool {
-	for _, p := range desc.Manifest.Doc.Params {
+	return manifestRequires(desc.Manifest, name)
+}
+
+// manifestRequires reports whether manifest declares the parameter named
+// name as required. SeededLogins asks it of a manifest the Controller read
+// from the module catalog, which has no Descriptor around it.
+func manifestRequires(manifest collection.Manifest, name string) bool {
+	for _, p := range manifest.Doc.Params {
 		if p.Name == name {
 			return p.Required
 		}
