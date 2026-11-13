@@ -88,6 +88,37 @@ func TestMask_ClearTextRunsToTheEndOfTheLine(t *testing.T) {
 	}
 }
 
+// TestMask_ClearTextSecretBeginningWithANumberIsMaskedWhole: after type 0,
+// every word is the secret, a first word of one to three digits included.
+// The masker used to skip such a word as a key id or another type, so a real
+// IOL XE router's "username admin password 0 15 <word>" reached a stat and
+// Batfish with "15" still in the clear. A privilege level is still kept.
+func TestMask_ClearTextSecretBeginningWithANumberIsMaskedWhole(t *testing.T) {
+	for _, tc := range []struct {
+		config, kept, secret string
+	}{
+		{"username admin password 0 15 qa3", "username admin password 0 ", "15 qa3"},
+		{"username admin secret 0 7 qb3", "username admin secret 0 ", "7 qb3"},
+		{"enable password level 15 0 1 qc3", "enable password level 15 0 ", "1 qc3"},
+		{"enable password level 0 0 2 qd3", "enable password level 0 0 ", "2 qd3"},
+		{"interface Gi1\n ip ospf message-digest-key 1 md5 0 42 qe3", "interface Gi1\n ip ospf message-digest-key 1 md5 0 ", "42 qe3"},
+		{"key chain k\n key 1\n  key-string 0 100 qf3", "key chain k\n key 1\n  key-string 0 ", "100 qf3"},
+		// A secret that is one small number alone is still masked.
+		{"username admin password 0 123", "username admin password 0 ", "123"},
+	} {
+		masked, found := netcfg.MaskFound(tc.config)
+		if want := tc.kept + netcfg.Placeholder(tc.secret); masked != want {
+			t.Errorf("%q masked to\n%q, want\n%q", tc.config, masked, want)
+		}
+		if len(found) != 1 || found[0] != tc.secret {
+			t.Errorf("%q: found %q, want [%q]", tc.config, found, tc.secret)
+		}
+		if again := netcfg.Mask(masked); again != masked {
+			t.Errorf("%q: masking a masked configuration changed it:\n%s", tc.config, again)
+		}
+	}
+}
+
 // TestMask_OneWordSecretsKeepWhatFollows holds the commands whose secret is
 // one word that more of the command follows (an SNMP community, an NTP key,
 // a crypto isakmp key, an IS-IS password, a typed secret) to masking that

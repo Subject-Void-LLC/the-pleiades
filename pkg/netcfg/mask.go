@@ -192,7 +192,16 @@ func maskLine(line string, inKeyChain bool, found *[]string) string {
 		psk := w.text == "pre-shared-key"
 		j := i + 1
 		for j < len(ws)-1 && (isSmallNumber(ws[j].text) || slices.Contains(skipped, ws[j].text) || psk && slices.Contains(pskSides, ws[j].text)) {
+			// Type 0 (not a privilege level after "level") says clear text
+			// follows, and IOS reads every word after it as the secret, so
+			// nothing after it is skipped: a secret beginning with a small
+			// number, as "username admin password 0 15 x" holds "15 x" (a real
+			// IOL XE router's configuration), kept its first word unmasked.
+			clear := ws[j].text == "0" && ws[j-1].text != "level"
 			j++
+			if clear {
+				break
+			}
 		}
 		if j >= len(ws) {
 			return line
