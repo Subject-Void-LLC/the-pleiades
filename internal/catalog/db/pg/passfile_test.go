@@ -38,8 +38,10 @@ func TestNoAmbientPassfile_OnTheDevice(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			// The device's shell inherits this process's environment.
+			// The device's shell inherits this process's environment; Windows
+			// reads the home from USERPROFILE, so both are set.
 			t.Setenv("HOME", home)
+			t.Setenv("USERPROFILE", home)
 			t.Setenv("PGPASSFILE", filepath.Join(elsewhere, "pgpass"))
 			return h
 		}},
