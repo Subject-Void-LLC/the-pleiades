@@ -49,76 +49,8 @@ func renderDoc(doc collection.Doc) string {
 	if len(doc.Params) > 0 {
 		b.WriteString("Params: []collection.Param{\n")
 		for _, p := range doc.Params {
-			b.WriteString("{")
-			var fields []string
-			fields = appendStringField(fields, "Name", p.Name)
-			fields = appendStringField(fields, "Type", p.Type)
-			if p.Required {
-				fields = append(fields, "Required: true")
-			}
-			fields = appendStringField(fields, "Default", p.Default)
-			fields = appendStringSliceField(fields, "Choices", p.Choices)
-			// Matching the choices ignoring case: dropping the mark would
-			// make validation refuse a value the method accepts.
-			if p.ChoicesIgnoreCase {
-				fields = append(fields, "ChoicesIgnoreCase: true")
-			}
-			fields = appendStringField(fields, "Description", p.Description)
-			fields = appendStringField(fields, "AliasOf", p.AliasOf)
-			// A parameter that may hold {{ secret.x.y }} references: dropping
-			// the mark would make the generated method refuse the reference.
-			if p.SecretRefs {
-				fields = append(fields, "SecretRefs: true")
-			}
-			// A run setting: dropping the mark would leave the generated
-			// method with a parameter no run may set.
-			if p.RunSetting {
-				fields = append(fields, "RunSetting: true")
-			}
-			// Format is a named constant rather than a quoted string, so a
-			// generated method reads as a hand-written one does.
-			// A format with no constant here is kept by value rather than
-			// dropped, as Risk below is: a dropped format is a rendered value
-			// the generated method stops holding to its rule.
-			switch p.Format {
-			case "":
-			case collection.ParamFormatCommand:
-				fields = append(fields, "Format: collection.ParamFormatCommand")
-			case collection.ParamFormatURL:
-				fields = append(fields, "Format: collection.ParamFormatURL")
-			case collection.ParamFormatKubernetesManifest:
-				fields = append(fields, "Format: collection.ParamFormatKubernetesManifest")
-			case collection.ParamFormatProjectPath:
-				fields = append(fields, "Format: collection.ParamFormatProjectPath")
-			case collection.ParamFormatOperand:
-				fields = append(fields, "Format: collection.ParamFormatOperand")
-			case collection.ParamFormatSystemdUnit:
-				fields = append(fields, "Format: collection.ParamFormatSystemdUnit")
-			case collection.ParamFormatAptPackage:
-				fields = append(fields, "Format: collection.ParamFormatAptPackage")
-			case collection.ParamFormatRPMPackage:
-				fields = append(fields, "Format: collection.ParamFormatRPMPackage")
-			case collection.ParamFormatPackage:
-				fields = append(fields, "Format: collection.ParamFormatPackage")
-			case collection.ParamFormatPackageVersion:
-				fields = append(fields, "Format: collection.ParamFormatPackageVersion")
-			case collection.ParamFormatMountField:
-				fields = append(fields, "Format: collection.ParamFormatMountField")
-			default:
-				fields = append(fields, "Format: collection.ParamFormat("+strconv.Quote(string(p.Format))+")")
-			}
-			// Risk likewise, and one with no constant yet is kept by value
-			// rather than dropped: a dropped risk is a host escape the
-			// reference stops marking.
-			switch p.Risk {
-			case "":
-			case collection.ParamRiskHostEscape:
-				fields = append(fields, "Risk: collection.ParamRiskHostEscape")
-			default:
-				fields = append(fields, "Risk: collection.ParamRisk("+strconv.Quote(string(p.Risk))+")")
-			}
-			b.WriteString(strings.Join(fields, ", "))
-			b.WriteString("},\n")
+			b.WriteString(renderParam(p))
+			b.WriteString(",\n")
 		}
 		b.WriteString("},\n")
 	}
@@ -161,6 +93,89 @@ func renderDoc(doc collection.Doc) string {
 	}
 	b.WriteString("},\n")
 	return b.String()
+}
+
+// renderParam returns one Param as a single-line composite literal, its
+// zero-valued fields left out, and its Entries (collection.Param.Entries)
+// rendered the same way inside it, at any depth: dropping them would leave
+// a regenerated method whose structured parameter validate no longer
+// checks entry by entry.
+func renderParam(p collection.Param) string {
+	var fields []string
+	fields = appendStringField(fields, "Name", p.Name)
+	fields = appendStringField(fields, "Type", p.Type)
+	if p.Required {
+		fields = append(fields, "Required: true")
+	}
+	fields = appendStringField(fields, "Default", p.Default)
+	fields = appendStringSliceField(fields, "Choices", p.Choices)
+	// Matching the choices ignoring case: dropping the mark would
+	// make validation refuse a value the method accepts.
+	if p.ChoicesIgnoreCase {
+		fields = append(fields, "ChoicesIgnoreCase: true")
+	}
+	fields = appendStringField(fields, "Description", p.Description)
+	fields = appendStringField(fields, "AliasOf", p.AliasOf)
+	// A parameter that may hold {{ secret.x.y }} references: dropping
+	// the mark would make the generated method refuse the reference.
+	if p.SecretRefs {
+		fields = append(fields, "SecretRefs: true")
+	}
+	// A run setting: dropping the mark would leave the generated
+	// method with a parameter no run may set.
+	if p.RunSetting {
+		fields = append(fields, "RunSetting: true")
+	}
+	// Format is a named constant rather than a quoted string, so a
+	// generated method reads as a hand-written one does.
+	// A format with no constant here is kept by value rather than
+	// dropped, as Risk below is: a dropped format is a rendered value
+	// the generated method stops holding to its rule.
+	switch p.Format {
+	case "":
+	case collection.ParamFormatCommand:
+		fields = append(fields, "Format: collection.ParamFormatCommand")
+	case collection.ParamFormatURL:
+		fields = append(fields, "Format: collection.ParamFormatURL")
+	case collection.ParamFormatKubernetesManifest:
+		fields = append(fields, "Format: collection.ParamFormatKubernetesManifest")
+	case collection.ParamFormatProjectPath:
+		fields = append(fields, "Format: collection.ParamFormatProjectPath")
+	case collection.ParamFormatOperand:
+		fields = append(fields, "Format: collection.ParamFormatOperand")
+	case collection.ParamFormatSystemdUnit:
+		fields = append(fields, "Format: collection.ParamFormatSystemdUnit")
+	case collection.ParamFormatAptPackage:
+		fields = append(fields, "Format: collection.ParamFormatAptPackage")
+	case collection.ParamFormatRPMPackage:
+		fields = append(fields, "Format: collection.ParamFormatRPMPackage")
+	case collection.ParamFormatPackage:
+		fields = append(fields, "Format: collection.ParamFormatPackage")
+	case collection.ParamFormatPackageVersion:
+		fields = append(fields, "Format: collection.ParamFormatPackageVersion")
+	case collection.ParamFormatMountField:
+		fields = append(fields, "Format: collection.ParamFormatMountField")
+	default:
+		fields = append(fields, "Format: collection.ParamFormat("+strconv.Quote(string(p.Format))+")")
+	}
+	// Risk likewise, and one with no constant yet is kept by value
+	// rather than dropped: a dropped risk is a host escape the
+	// reference stops marking.
+	switch p.Risk {
+	case "":
+	case collection.ParamRiskHostEscape:
+		fields = append(fields, "Risk: collection.ParamRiskHostEscape")
+	default:
+		fields = append(fields, "Risk: collection.ParamRisk("+strconv.Quote(string(p.Risk))+")")
+	}
+	if len(p.Entries) > 0 {
+		entries := make([]string, len(p.Entries))
+		for i, e := range p.Entries {
+			entries[i] = renderParam(e)
+		}
+		fields = append(fields, "Entries: []collection.Param{"+strings.Join(entries, ", ")+"}")
+	}
+	return "{" + strings.Join(fields, ", ") + "}"
 }
 
 // writeStringField writes one `Key: "value",` line, or nothing when the

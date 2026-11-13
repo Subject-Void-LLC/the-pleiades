@@ -30,13 +30,16 @@ var requirementFields = map[string]bool{"RequiredCapabilities": true, "Alternati
 // nothing with it; a field of the same name on another type is not a
 // manifest's at all (the scan is by name, so it errs toward flagging).
 var requirementReaders = map[string]string{
-	filepath.Join("tools", "gendocs", "modules.go"):        "renders a method's reference page, every part of its requirements",
-	filepath.Join("cmd", "pleiades", "doc.go"):             "renders pleiades doc for a method, every part of its requirements",
-	filepath.Join("cmd", "pleiades", "collection.go"):      "lists an external program's methods with what each requires, for the person approving it",
-	filepath.Join("internal", "api", "templates.go"):       "a job template's own RequiredCapabilities field, not a manifest's",
-	filepath.Join("internal", "api", "templates_patch.go"): "a job template's own RequiredCapabilities field, not a manifest's",
-	filepath.Join("internal", "journal", "nodes.go"):       "a journal node's Alternatives, the undo methods a claim may name, not a manifest's",
-	filepath.Join("cmd", "controller", "node_resolver.go"): "a journal node's Alternatives, the undo methods a claim may name, not a manifest's",
+	filepath.Join("tools", "gendocs", "modules.go"):                         "renders a method's reference page, every part of its requirements",
+	filepath.Join("cmd", "pleiades", "doc.go"):                              "renders pleiades doc for a method, every part of its requirements",
+	filepath.Join("cmd", "pleiades", "collection.go"):                       "lists an external program's methods with what each requires, for the person approving it",
+	filepath.Join("internal", "api", "templates.go"):                        "a job template's own RequiredCapabilities field, not a manifest's",
+	filepath.Join("internal", "api", "templates_patch.go"):                  "a job template's own RequiredCapabilities field, not a manifest's",
+	filepath.Join("internal", "forge", "collectionscaffold", "config.go"):   "validates a scaffold's alternatives through collection.ValidateAlternatives before a file is written",
+	filepath.Join("internal", "forge", "collectionscaffold", "generate.go"): "renders a scaffold's alternatives into the generated manifest's source",
+	filepath.Join("tools", "gencatalog", "main.go"):                         "passes catalogdata's alternatives to forge new-collection",
+	filepath.Join("internal", "journal", "nodes.go"):                        "a journal node's Alternatives, the undo methods a claim may name, not a manifest's",
+	filepath.Join("cmd", "controller", "node_resolver.go"):                  "a journal node's Alternatives, the undo methods a claim may name, not a manifest's",
 }
 
 // TestNothingOutsideCollectionReadsAManifestsRequirements scans every

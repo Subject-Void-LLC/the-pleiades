@@ -191,6 +191,38 @@ func parseSettingsJSONFlag(value string) ([]syncplugin.SettingSpec, error) {
 	return settings, nil
 }
 
+// parseAlternativesJSONFlag decodes a --alternatives-json flag value into
+// the kinds of device a generated method serves (collection.Alternative).
+// It follows parseDocJSONFlag's conventions: an empty value yields none, a
+// value beginning with "@" is a path to read the JSON from, and unknown
+// fields are rejected, so a mistyped key fails here instead of generating
+// a manifest that admits every device.
+//
+//	--alternatives-json '[{"name":"frr","supportedTransports":["ssh"],"requiredCapabilities":["FRRCapable"]}]'
+func parseAlternativesJSONFlag(value string) ([]collection.Alternative, error) {
+	if value == "" {
+		return nil, nil
+	}
+	raw := []byte(value)
+	source := "--alternatives-json"
+	if strings.HasPrefix(value, "@") {
+		path := strings.TrimPrefix(value, "@")
+		contents, err := os.ReadFile(path) // #nosec G304 -- a path the operator typed on their own command line, in their own repository
+		if err != nil {
+			return nil, fmt.Errorf("reading --alternatives-json file: %w", err)
+		}
+		raw = contents
+		source = path
+	}
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.DisallowUnknownFields()
+	var alts []collection.Alternative
+	if err := dec.Decode(&alts); err != nil {
+		return nil, fmt.Errorf("parsing %s as a list of collection.Alternative: %w", source, err)
+	}
+	return alts, nil
+}
+
 // parseCapabilitiesFlag splits a comma-separated --capabilities flag value
 // into capability.Name values. An empty string yields no capabilities, not
 // one containing a single empty Name.

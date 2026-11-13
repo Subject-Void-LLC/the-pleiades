@@ -29,12 +29,13 @@ func runForgeNewCollection(args []string) error {
 	site := fs.String("site", "target", "where the method's code runs: target (on or against the device), controller (in the host process) or hybrid")
 	device := fs.String("device", "required", "whether the method acts on a device: required, optional (decided per call by a DeviceCall) or none")
 	engineVersion := fs.String("engine-version", "", "minimum core engine version constraint (unparsed, e.g. >=1.0.0)")
+	alternativesJSON := fs.String("alternatives-json", "", "the kinds of device the method serves, as a JSON list of pkg/collection.Alternative objects (name, supportedTransports, requiredCapabilities), or @path to read it from a file")
 	docJSON := fs.String("doc-json", "", "reference documentation as a JSON pkg/collection.Doc object, or @path to read it from a file")
 	skipExisting := fs.Bool("skip-existing", false, "leave an entry already there alone (any of its files, or its method already registered in this binary) instead of refusing, for regenerating a catalog in place")
 
 	name, err := parseOneArg(fs, args)
 	if err != nil {
-		return fmt.Errorf("usage: pleiades forge new-collection <namespace.method> [--capabilities Name1,Name2] [--transports ssh] [--requires-elevation] [--site target|controller|hybrid] [--device required|optional|none] [--engine-version x.y.z] [--doc-json '{...}'|@file.json] [--skip-existing] [--dir .]: %w", err)
+		return fmt.Errorf("usage: pleiades forge new-collection <namespace.method> [--capabilities Name1,Name2] [--transports ssh] [--requires-elevation] [--site target|controller|hybrid] [--device required|optional|none] [--engine-version x.y.z] [--alternatives-json '[...]'|@file.json] [--doc-json '{...}'|@file.json] [--skip-existing] [--dir .]: %w", err)
 	}
 
 	var transports []string
@@ -46,11 +47,16 @@ func runForgeNewCollection(args []string) error {
 	if err != nil {
 		return err
 	}
+	alternatives, err := parseAlternativesJSONFlag(*alternativesJSON)
+	if err != nil {
+		return err
+	}
 
 	cfg := collectionscaffold.Config{
 		Name:              name,
 		Capabilities:      parseCapabilitiesFlag(*capabilitiesFlag),
 		Transports:        transports,
+		Alternatives:      alternatives,
 		RequiresElevation: *requiresElevation,
 		Site:              collection.Site(*site),
 		Device:            collection.DeviceUse(*device),

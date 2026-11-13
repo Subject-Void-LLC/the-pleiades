@@ -9,6 +9,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/forge/collectionscaffold"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport/gooverlay"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 )
 
 // repoRoot locates the module root from this test file's own package
@@ -44,13 +45,22 @@ func TestGenerate_ReleaseGate(t *testing.T) {
 	// The second method is a Go keyword, which the method segment may be:
 	// it is a file name and, capitalized, a function, never a package.
 	for _, method := range []string{"check", "import"} {
-		t.Run(method, func(t *testing.T) { releaseGate(t, root, method) })
+		t.Run(method, func(t *testing.T) { releaseGate(t, root, method, nil) })
 	}
+	// A method serving two kinds of device, as wait.routes does: the
+	// generated manifest declares both, and its init's MustRegister (which
+	// refuses alternatives it could not choose between) passes.
+	t.Run("alternatives", func(t *testing.T) {
+		releaseGate(t, root, "routes", []collection.Alternative{
+			{Name: "frr", SupportedTransports: []string{"ssh"}, RequiredCapabilities: []capability.Name{capability.NameFRR, capability.NameCommandExec}},
+			{Name: "ios", SupportedTransports: []string{"ssh"}, RequiredCapabilities: []capability.Name{capability.NameCiscoIOS}},
+		})
+	})
 }
 
 // releaseGate generates the method named method in a package of its own,
-// builds it and runs its generated tests.
-func releaseGate(t *testing.T, root, method string) {
+// with alts as its alternatives, builds it and runs its generated tests.
+func releaseGate(t *testing.T, root, method string, alts []collection.Alternative) {
 	t.Helper()
 	pkg := fmt.Sprintf("relgate%d%s", os.Getpid(), method)
 	name := "test." + pkg + "." + method
@@ -59,6 +69,10 @@ func releaseGate(t *testing.T, root, method string) {
 		Name:         name,
 		Capabilities: []capability.Name{capability.NameSSHTransport},
 		Transports:   []string{"ssh"},
+		Alternatives: alts,
+	}
+	if alts != nil {
+		cfg.Capabilities = nil
 	}
 	files, err := collectionscaffold.Generate(cfg)
 	if err != nil {

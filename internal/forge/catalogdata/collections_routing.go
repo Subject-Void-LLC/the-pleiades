@@ -118,9 +118,15 @@ var routingCollections = []collectionscaffold.Config{
 		},
 	},
 	{
-		Name:          "wait.routes",
-		Capabilities:  []capability.Name{},
-		Transports:    []string{"ssh", "telnet", "console"},
+		Name:         "wait.routes",
+		Capabilities: []capability.Name{},
+		Transports:   []string{"ssh", "telnet", "console"},
+		// The two kinds of router it reads, as internal/catalog/wait's
+		// routeKinds declares them (held equal by internal/archtest).
+		Alternatives: []collection.Alternative{
+			{Name: "frr", SupportedTransports: []string{"ssh"}, RequiredCapabilities: []capability.Name{capability.NameFRR, capability.NameCommandExec}},
+			{Name: "ios", SupportedTransports: []string{"ssh", "telnet", "console"}, RequiredCapabilities: []capability.Name{capability.NameCiscoIOS}},
+		},
 		EngineVersion: engineVersion,
 		Doc: collection.Doc{
 			Summary:     "Waits until a router has a route to every prefix given, or with state absent has none left, and its routing table has stopped changing.",

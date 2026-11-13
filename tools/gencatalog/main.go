@@ -353,6 +353,13 @@ func newCollectionArgs(cfg collectionscaffold.Config) ([]string, error) {
 	if len(cfg.Transports) > 0 {
 		args = append(args, "--transports", strings.Join(cfg.Transports, ","))
 	}
+	if len(cfg.Alternatives) > 0 {
+		alts, err := json.Marshal(cfg.Alternatives)
+		if err != nil {
+			return nil, fmt.Errorf("encoding %s's Alternatives as JSON: %w", cfg.Name, err)
+		}
+		args = append(args, "--alternatives-json", string(alts))
+	}
 	if cfg.RequiresElevation {
 		args = append(args, "--requires-elevation")
 	}

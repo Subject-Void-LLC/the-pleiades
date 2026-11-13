@@ -369,6 +369,38 @@ func TestGenerate_StatesTheExecutionContext(t *testing.T) {
 	}
 }
 
+// TestGenerate_DeclaresItsAlternatives: a config's alternatives come out
+// in the generated manifest, each with its transports and capabilities, so
+// a method regenerated from catalogdata (wait.routes) keeps the kinds of
+// device it serves; one Register would refuse (a single alternative) is
+// refused before a file is written; and a method with none gets no field.
+func TestGenerate_DeclaresItsAlternatives(t *testing.T) {
+	cfg := collectionscaffold.Config{Name: "wait.routes", Transports: []string{"ssh", "telnet"}, Alternatives: []collection.Alternative{
+		{Name: "frr", SupportedTransports: []string{"ssh"}, RequiredCapabilities: []capability.Name{capability.NameFRR, capability.NameCommandExec}},
+		{Name: "ios", SupportedTransports: []string{"ssh", "telnet"}, RequiredCapabilities: []capability.Name{capability.NameCiscoIOS}},
+	}}
+	files, err := collectionscaffold.Generate(cfg)
+	if err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	for _, want := range []string{
+		`{Name: "frr", SupportedTransports: []string{"ssh"}, RequiredCapabilities: []capability.Name{capability.Name("FRRCapable"), capability.Name("CommandExecCapable")}}`,
+		`{Name: "ios", SupportedTransports: []string{"ssh", "telnet"}, RequiredCapabilities: []capability.Name{capability.Name("CiscoIOSCapable")}}`,
+	} {
+		if !strings.Contains(string(files[0].Content), want) {
+			t.Errorf("the generated manifest is missing %s:\n%s", want, files[0].Content)
+		}
+	}
+	cfg.Alternatives = cfg.Alternatives[:1]
+	if _, err := collectionscaffold.Generate(cfg); err == nil || !strings.Contains(err.Error(), "declares one alternative") {
+		t.Errorf("a lone alternative: %v", err)
+	}
+	plain, err := collectionscaffold.Generate(collectionscaffold.Config{Name: "demo.plain"})
+	if err != nil || strings.Contains(string(plain[0].Content), "Alternatives:") {
+		t.Errorf("a method with no alternatives: err %v, an Alternatives field present", err)
+	}
+}
+
 // TestGenerate_RefusesAnIncoherentExecutionContext: what collection.Register
 // would refuse at process start is refused before a file is written.
 func TestGenerate_RefusesAnIncoherentExecutionContext(t *testing.T) {
