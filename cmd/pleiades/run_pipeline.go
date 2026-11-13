@@ -39,6 +39,10 @@ import (
 
 // runOptions are the settings run and adhoc share.
 type runOptions struct {
+	// ctx bounds the run's execution: an onboarding probe's sets its
+	// --timeout. Nil means context.Background(), as every command that has
+	// no cancellation surface of its own runs.
+	ctx context.Context
 	// dir is the project directory.
 	dir string
 	// mode is what --mode asked for; check_mode in the runbook can narrow it.
@@ -171,7 +175,13 @@ func carryOut(opts runOptions, src runSource) (*runReport, error) {
 		return nil, err
 	}
 	rep := planReport(src.label, items, dag, mode, world)
-	if report := validate.Validate(world); report.HasErrors() {
+	report := validate.Validate(world)
+	// The grant warnings validation gives (validate.GrantWarnings) are the
+	// one kind a run reports, at its start, refused or not: a grant on a
+	// device it reaches that grants nothing, or counts only with a warning.
+	grantWarnings := grantRunWarnings(report, items)
+	if report.HasErrors() {
+		rep.Warnings = append(rep.Warnings, grantWarnings...)
 		rep.Validation = validationIssues(report, items)
 		addNotRun(rep, notRunRefused)
 		rep.Outcome = runOutcome{Status: "invalid", Message: "validation failed, not executing", ExitCode: 1}
@@ -254,6 +264,7 @@ func carryOut(opts runOptions, src runSource) (*runReport, error) {
 		conc.startTick = runTick
 		defer conc.release()
 	}
+	rep.Warnings = append(rep.Warnings, grantWarnings...)
 
 	if !opts.asJSON {
 		printRunWarnings(rep, "start")
@@ -271,15 +282,19 @@ func carryOut(opts runOptions, src runSource) (*runReport, error) {
 	defer closeExecutor()
 
 	// A CLI subcommand has no cancellation surface of its own yet, so a
-	// fresh background context is used here rather than threading one
-	// through every subcommand's flag parsing, mirroring loadWorld's own
-	// precedent (load.go).
+	// fresh background context is used here unless the caller bounded the
+	// run (an onboarding probe), mirroring loadWorld's own precedent
+	// (load.go).
+	runCtx := opts.ctx
+	if runCtx == nil {
+		runCtx = context.Background()
+	}
 	var result engine.RunResult
 	if serial == nil {
-		result, err = executor.Run(context.Background(), dag)
+		result, err = executor.Run(runCtx, dag)
 	} else {
 		var stopped *clireport.RunWarning
-		result, err, stopped = runBatches(context.Background(), executor, dag, serial, !opts.asJSON)
+		result, err, stopped = runBatches(runCtx, executor, dag, serial, !opts.asJSON)
 		if stopped != nil {
 			rep.Warnings = append(rep.Warnings, *stopped)
 		}

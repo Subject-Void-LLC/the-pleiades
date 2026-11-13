@@ -73,10 +73,14 @@ const (
 	// WarnSerialStopped is a serial: batch whose failure stopped the
 	// rollout: Devices names every device of the batches that did not run.
 	WarnSerialStopped = "serial_stopped"
+	// WarnGrant is a grant of a capability an external program defines, on
+	// a device the run reaches, that grants nothing or counts only with a
+	// warning (validation's grant warnings): Devices names the device.
+	WarnGrant = "grant"
 )
 
 // KnownWarningKinds are every RunWarning.Kind this producer writes.
-var KnownWarningKinds = []string{WarnConcurrentRun, WarnConcurrentChange, WarnConcurrentUnknown, WarnSerialStopped}
+var KnownWarningKinds = []string{WarnConcurrentRun, WarnConcurrentChange, WarnConcurrentUnknown, WarnSerialStopped, WarnGrant}
 
 // RunReport is one run, as both views print it.
 type RunReport struct {
@@ -112,8 +116,10 @@ type RunReport struct {
 	Journal string `json:"journal,omitempty"`
 	// Warnings are about the run as a whole: another run changing the same
 	// devices when it started (concurrent_run), or a change another run
-	// journaled to them while it worked (concurrent_change). A check has
-	// none, since it changes nothing.
+	// journaled to them while it worked (concurrent_change), which a check
+	// never has, since it changes nothing; and, in either mode, a grant of an
+	// external program's capability on a device it reaches that grants
+	// nothing or counts only with a warning (grant).
 	Warnings []RunWarning `json:"warnings,omitempty"`
 	// Rollback is, for `pleiades rollback`, what it planned: the run it
 	// undoes, what it leaves in place, what nobody can say changed, and,
@@ -270,8 +276,8 @@ type RunOutcome struct {
 // RunWarning is something about the run as a whole that the person running
 // it has to know, shown in the text view and kept in --json.
 type RunWarning struct {
-	// Kind is concurrent_run, concurrent_change, concurrent_unknown or
-	// serial_stopped.
+	// Kind is concurrent_run, concurrent_change, concurrent_unknown,
+	// serial_stopped or grant.
 	Kind string `json:"kind"`
 	// When is "start" for what the run found as it began, "end" for what
 	// it found as it ended.
@@ -285,7 +291,8 @@ type RunWarning struct {
 	Runbook string `json:"runbook,omitempty"`
 	// PID is the other run's process, for a concurrent_run.
 	PID int `json:"pid,omitempty"`
-	// Devices names the devices the two runs share.
+	// Devices names the devices the two runs share, or, for a grant, the
+	// device holding it.
 	Devices []string `json:"devices,omitempty"`
 }
 

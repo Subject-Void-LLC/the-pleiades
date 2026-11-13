@@ -140,12 +140,16 @@ var Root = Command{
 		},
 		{
 			Name:       "revoke-capability",
-			Positional: "<device> <capability>",
-			Synopsis:   "take back a device's grant of a capability an external program defines",
+			Positional: "<device> <capability> | --build <digest>",
+			Synopsis:   "take back a device's grant of a capability an external program defines, or every grant one program build probed",
 			Flags: []Flag{
 				{Name: "dir", Type: "string", Default: ".", Doc: "project directory"},
+				{Name: "build", Type: "string", Default: "", Doc: "revoke, on every device, each grant the program build with this digest (sha256:<hex>) probed, keeping every other build's grants and every assertion"},
 			},
-			Examples: []string{"pleiades revoke-capability tenancy oci.tenancy_api"},
+			Examples: []string{
+				"pleiades revoke-capability tenancy oci.tenancy_api",
+				"pleiades revoke-capability --build sha256:4f2a...",
+			},
 		},
 		{
 			Name:       "trust-host",

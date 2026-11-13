@@ -1203,6 +1203,10 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 1197. A set_fact fact named target retargeted its own task, since TaskTarget reads params.target on every task (a repeat of 323) (fixed before push)
 1198. A recorded undo kept a value that held a secret the run knew, since the journal's undo values were held to an identifier allowlist alone (fixed before push)
 1199. The playbook converter raised vars.precedence wherever two vars scopes met, though Ansible and the runbook pick the same winner in all but two cases (fixed before push)
+1200. A Runner never held a lapsed data-capability grant to its definition, since a device type's capability list carried the name without the grant (fixed before push)
+1201. pleiades onboard --timeout did not bound an external program's probe, which ran under the loader's 30-minute call limit (fixed before push)
+1202. Two external programs could share a namespace and define capabilities in it, though Phase 127a's decision assumed the loader refused it (fixed before push)
+1203. A grant's time decoded to zero when malformed and did not survive its own encoding when out of range (fixed before push)
 1211. TestPort_WaitsForAPortToOpen chose a free port, released it, and bound it later; a lost bind returned silently, so the wait timed out (a repeat of 601) (fixed on the pull request)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.

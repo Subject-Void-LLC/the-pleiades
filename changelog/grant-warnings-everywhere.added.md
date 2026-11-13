@@ -1,0 +1,1 @@
+`pleiades run` and a Runner now report the grant warnings `pleiades validate` gives (a grant no loaded program defines, a lapsed grant no task needs, a grant that counts only with a warning): a run lists them at its start, in `--json` as warnings of kind `grant`, and a Runner writes them to the job's log before its tasks run.

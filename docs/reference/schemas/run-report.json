@@ -421,7 +421,7 @@
       "description": "RunWarning is something about the run as a whole that the person running it has to know, shown in the text view and kept in --json.",
       "properties": {
         "devices": {
-          "description": "Devices names the devices the two runs share.",
+          "description": "Devices names the devices the two runs share, or, for a grant, the device holding it.",
           "items": {
             "type": "string"
           },
@@ -431,12 +431,13 @@
           ]
         },
         "kind": {
-          "description": "Kind is concurrent_run, concurrent_change, concurrent_unknown or serial_stopped. Known values: concurrent_run, concurrent_change, concurrent_unknown, serial_stopped. A newer producer may add others, and a reader treats one it does not know as not a pass.",
+          "description": "Kind is concurrent_run, concurrent_change, concurrent_unknown, serial_stopped or grant. Known values: concurrent_run, concurrent_change, concurrent_unknown, serial_stopped, grant. A newer producer may add others, and a reader treats one it does not know as not a pass.",
           "examples": [
             "concurrent_run",
             "concurrent_change",
             "concurrent_unknown",
-            "serial_stopped"
+            "serial_stopped",
+            "grant"
           ],
           "type": "string"
         },
@@ -816,7 +817,7 @@
       ]
     },
     "warnings": {
-      "description": "Warnings are about the run as a whole: another run changing the same devices when it started (concurrent_run), or a change another run journaled to them while it worked (concurrent_change). A check has none, since it changes nothing.",
+      "description": "Warnings are about the run as a whole: another run changing the same devices when it started (concurrent_run), or a change another run journaled to them while it worked (concurrent_change), which a check never has, since it changes nothing; and, in either mode, a grant of an external program's capability on a device it reaches that grants nothing or counts only with a warning (grant).",
       "items": {
         "$ref": "#/$defs/RunWarning"
       },

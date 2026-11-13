@@ -7,6 +7,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory/inventorytest"
 )
 
@@ -42,6 +43,41 @@ func TestCheckCapabilities(t *testing.T) {
 			}
 			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 				t.Fatalf("err = %v, want it to contain %q", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+// notingStub is a device that records grants, saying what became of each
+// (inventory.GrantNoter), as every device built on record.Base does.
+type notingStub struct {
+	*inventorytest.Stub
+	notes []inventory.GrantNote
+}
+
+// GrantNotes implements inventory.GrantNoter.
+func (s notingStub) GrantNotes() []inventory.GrantNote { return s.notes }
+
+// TestCheckCapabilities_ALapsedGrantSaysWhy: a device without a capability
+// it records a lapsed grant of is refused with the grant's own reason; a
+// warning, or a lapse of another capability, adds nothing.
+func TestCheckCapabilities_ALapsedGrantSaysWhy(t *testing.T) {
+	m := collection.Manifest{RequiredCapabilities: []capability.Name{"acme.widget_api"}}
+	why := "program \"widgets\"'s definition of acme.widget_api (revision 2) is not the one device d1's grant was made against; onboard it again: `pleiades onboard d1`"
+	for _, tc := range []struct {
+		name  string
+		notes []inventory.GrantNote
+		want  string
+	}{
+		{"a lapse of the capability", []inventory.GrantNote{{Capability: "acme.widget_api", Lapsed: true, Reason: why}}, `which device "d1" does not have: ` + why},
+		{"a warning only", []inventory.GrantNote{{Capability: "acme.widget_api", Reason: "a warning"}}, `which device "d1" does not have`},
+		{"a lapse of another", []inventory.GrantNote{{Capability: "acme.other", Lapsed: true, Reason: "elsewhere"}}, `which device "d1" does not have`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			device := notingStub{Stub: &inventorytest.Stub{StubName: "d1"}, notes: tc.notes}
+			err := collection.CheckCapabilities(device, "acme.widget.read", m)
+			if err == nil || !strings.HasSuffix(err.Error(), tc.want) {
+				t.Fatalf("err = %v, want it to end %q", err, tc.want)
 			}
 		})
 	}

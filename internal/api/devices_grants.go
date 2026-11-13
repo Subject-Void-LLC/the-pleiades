@@ -25,6 +25,12 @@ type grantRequest struct {
 	Capability string         `json:"capability"`
 	Properties map[string]any `json:"properties"`
 	Reason     string         `json:"reason"`
+	// Definition is the digest of the capability's definition the caller
+	// held the grant to (capability.DefinitionDigest), which `pleiades doc
+	// <capability>` prints. The Controller loads no program, so it cannot
+	// compute it; it checks the shape, and a Runner holds the grant to the
+	// definition it loaded, granting nothing when the two differ.
+	Definition string `json:"definition"`
 }
 
 // grantDTO is one grant on the wire.
@@ -35,7 +41,12 @@ type grantDTO struct {
 	Properties map[string]any `json:"properties"`
 	By         string         `json:"by,omitempty"`
 	Reason     string         `json:"reason,omitempty"`
-	At         time.Time      `json:"at"`
+	// At is when it was granted, left out for a grant whose recorded time
+	// could not be read (Unreadable says why), never shown as the zero time.
+	At         *time.Time `json:"at,omitempty"`
+	Definition string     `json:"definition,omitempty"`
+	Build      string     `json:"build,omitempty"`
+	Unreadable string     `json:"unreadable,omitempty"`
 }
 
 // grantsDTO is a device's grants after a change.
@@ -72,6 +83,10 @@ func (h *DeviceHandler) GrantCapability(w http.ResponseWriter, r *http.Request) 
 		RespondError(w, r, http.StatusUnprocessableEntity, err.Error())
 		return
 	}
+	if !capability.IsDefinitionDigest(req.Definition) {
+		RespondError(w, r, http.StatusUnprocessableEntity, "definition must be the digest of the capability's definition, sha256:<64 lower case hex>, as `pleiades doc <capability>` prints it")
+		return
+	}
 	if req.Properties == nil {
 		req.Properties = map[string]any{}
 	}
@@ -83,8 +98,9 @@ func (h *DeviceHandler) GrantCapability(w http.ResponseWriter, r *http.Request) 
 	// by, as the loader does, and a grant rides every dispatch to the
 	// device, so a credential put here would travel the message stream
 	// (the branch review's F4).
-	for k := range req.Properties {
-		if redact.SecretName(k) {
+	for k, v := range req.Properties {
+		s, isText := v.(string)
+		if redact.SecretName(k) || (isText && redact.SecretShaped(s)) {
 			RespondError(w, r, http.StatusUnprocessableEntity, "a grant's property never holds a secret; the device's credential reaches a method on its own")
 			return
 		}
@@ -108,6 +124,7 @@ func (h *DeviceHandler) GrantCapability(w http.ResponseWriter, r *http.Request) 
 		By:         actor,
 		Reason:     req.Reason,
 		At:         time.Now().UTC(),
+		Definition: req.Definition,
 	}); err != nil {
 		h.logger.ErrorContext(r.Context(), "recording a grant failed", slog.String("device", name), slog.String("error", err.Error()))
 		RespondError(w, r, http.StatusInternalServerError, "internal error")
@@ -181,10 +198,16 @@ func toGrantsDTO(name string, item pkginventory.InventoryItem) *grantsDTO {
 		return out
 	}
 	for _, g := range grants {
-		out.Grants = append(out.Grants, grantDTO{
+		dto := grantDTO{
 			Capability: string(g.Capability), Source: string(g.Source), Program: g.Program,
-			Properties: g.Properties, By: g.By, Reason: strings.TrimSpace(g.Reason), At: g.At,
-		})
+			Properties: g.Properties, By: g.By, Reason: strings.TrimSpace(g.Reason),
+			Definition: g.Definition, Build: g.Build, Unreadable: g.Unreadable,
+		}
+		if g.Unreadable == "" {
+			at := g.At
+			dto.At = &at
+		}
+		out.Grants = append(out.Grants, dto)
 	}
 	return out
 }

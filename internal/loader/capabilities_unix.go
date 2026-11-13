@@ -7,6 +7,8 @@ package loader
 import (
 	"fmt"
 	"reflect"
+	"slices"
+	"strings"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/redact"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
@@ -23,8 +25,11 @@ import (
 // Pleiades, a name this process already defines, a name two programs both
 // define (claimedBy, across the directory), a property whose name reads as
 // a secret (a grant's properties travel in the dispatch payload, and a
-// secret has no business there), and text a terminal would act on.
-func validateCapabilities(c candidate, reserved map[string]bool, claimedBy map[capability.Name]string) (map[capability.Name]bool, []error) {
+// secret has no business there), text a terminal would act on, and a
+// namespace another program's methods also use (namespaces, from
+// methodNamespaces): a capability belongs to the one program whose
+// namespace it is, and a namespace two programs share has no one owner.
+func validateCapabilities(c candidate, reserved map[string]bool, claimedBy map[capability.Name]string, namespaces map[string][]string) (map[capability.Name]bool, []error) {
 	defined := map[capability.Name]bool{}
 	if len(c.desc.Capabilities) == 0 {
 		return defined, nil
@@ -46,6 +51,11 @@ func validateCapabilities(c candidate, reserved map[string]bool, claimedBy map[c
 		}
 		if ns := capability.DataNamespace(def.Name); reserved[ns] {
 			fail(fmt.Errorf("capability %q is in the %q namespace, which belongs to The Pleiades itself", def.Name, ns))
+			continue
+		}
+		if others := othersUsing(namespaces[capability.DataNamespace(def.Name)], c.path); len(others) > 0 {
+			fail(fmt.Errorf("capability %q is in the %q namespace, which the methods of %s also use; a capability belongs to the one program whose namespace it is, so it is not defined",
+				def.Name, capability.DataNamespace(def.Name), strings.Join(others, " and ")))
 			continue
 		}
 		if _, taken := capability.Lookup(def.Name); taken {
@@ -70,4 +80,31 @@ func validateCapabilities(c candidate, reserved map[string]bool, claimedBy map[c
 		defined[def.Name] = true
 	}
 	return defined, problems
+}
+
+// methodNamespaces maps each namespace a method of any program in found
+// uses to the programs whose methods use it, each named once, in the order
+// found lists them.
+func methodNamespaces(found []candidate) map[string][]string {
+	out := map[string][]string{}
+	for _, c := range found {
+		for _, m := range c.desc.Methods {
+			ns, _, _ := strings.Cut(m.Name, ".")
+			if !slices.Contains(out[ns], c.path) {
+				out[ns] = append(out[ns], c.path)
+			}
+		}
+	}
+	return out
+}
+
+// othersUsing returns the programs in users other than path.
+func othersUsing(users []string, path string) []string {
+	var out []string
+	for _, u := range users {
+		if u != path {
+			out = append(out, u)
+		}
+	}
+	return out
 }

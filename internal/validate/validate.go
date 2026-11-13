@@ -176,6 +176,7 @@ func Validate(world WorldView) Report {
 	warnings := append(UnmatchedTargetWarnings(world), VarShadowWarnings(world)...)
 	warnings = append(warnings, SetFactOverrideWarnings(world)...)
 	warnings = append(append(warnings, UntilWarnings(world)...), StatementParamWarnings(world)...)
+	warnings = append(warnings, GrantWarnings(world)...)
 	return Report{Findings: findings, Routes: routes, Warnings: warnings}
 }
 

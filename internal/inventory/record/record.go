@@ -16,9 +16,11 @@ package record
 
 import (
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/redact"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 )
@@ -106,14 +108,29 @@ type Base struct {
 	// baseVersion does not, so a repository can still name the row state
 	// it read even after several in-memory mutations.
 	baseVersion uint64
+
+	// grantNotes say what became of each grant the record held when this
+	// Base was built (withGrants): one that grants nothing and why, or one
+	// that counts with a warning. Fixed at build, as caps is.
+	grantNotes []inventory.GrantNote
 }
 
 // NewBase copies the Record's data into a fresh Base so later mutation of
 // the item never reaches back into the Record it was built from. It
 // returns a pointer, and concrete types embed that pointer rather than a
 // value, so the embedded sync.RWMutex is never copied.
+//
+// A data capability (capability.IsDataName) comes only from a grant: every
+// one in caps is dropped before withGrants adds the ones rec's grants
+// grant. A type unions rec.Capabilities into its baseline, and that list
+// can name a data capability without the grant behind it: a classification
+// rule's claim, or the capability list a Controller ships with a dispatch,
+// which keeps every grant's name as recorded since it holds no definition
+// to judge it by. Kept, it would declare the capability whatever became of
+// the grant, and a data capability's structural assertion is always true.
 func NewBase(rec Record, caps []capability.Name) *Base {
-	caps = withGrants(rec, caps)
+	caps = slices.DeleteFunc(slices.Clone(caps), capability.IsDataName)
+	caps, notes := withGrants(rec, caps)
 	props := make(map[string]inventory.PropertyValue, len(rec.Properties))
 	for k, v := range rec.Properties {
 		props[k] = v
@@ -136,7 +153,14 @@ func NewBase(rec Record, caps []capability.Name) *Base {
 		version:     rec.Version,
 		baseVersion: rec.Version,
 		history:     append([]inventory.Revision(nil), rec.History...),
+		grantNotes:  notes,
 	}
+}
+
+// GrantNotes implements inventory.GrantNoter: what became of each grant
+// this device's record held when it was built.
+func (b *Base) GrantNotes() []inventory.GrantNote {
+	return append([]inventory.GrantNote(nil), b.grantNotes...)
 }
 
 // BaseVersion reports the version a Base was hydrated at, before any
@@ -280,7 +304,38 @@ func (b *Base) RecordDiscovery(d inventory.Discovery) {
 // plugin reaches does. The caller has held g to its capability's definition
 // and rebuilds the item afterwards, which is when a capability it grants
 // is declared.
+//
+// A grant is refused unless it carries the digest of the definition it was
+// held to (capability.DefinitionDigest): without one, a later change to
+// what the capability means could not withdraw it. It is refused, too,
+// without a time a grant may hold (inventory.ValidateGrantTime). A probed grant's build
+// must have a digest's shape; an asserted one names no build, since no
+// build made it.
 func (b *Base) RecordGrant(g inventory.Grant) error {
+	if !capability.IsDefinitionDigest(g.Definition) {
+		return fmt.Errorf("a grant of %s must carry the digest of the definition it was made against (sha256:<64 hex>), got %q", g.Capability, g.Definition)
+	}
+	// Written only with a time it reads back as the same instant, so a read
+	// never meets a grant that silently lost when it was made.
+	if err := inventory.ValidateGrantTime(g.At); err != nil {
+		return fmt.Errorf("a grant of %s cannot be written: %w", g.Capability, err)
+	}
+	switch {
+	case g.Source == inventory.GrantAsserted && g.Build != "":
+		return fmt.Errorf("an asserted grant of %s names no build, since no build made it", g.Capability)
+	case g.Build != "" && !inventory.IsBuildDigest(g.Build):
+		return fmt.Errorf("a probed grant of %s names its build by digest (sha256:<64 hex>), got %q", g.Capability, g.Build)
+	}
+	// A grant rides every dispatch of its device in the clear, and is
+	// written to the inventory's state file, so a value shaped like a
+	// secret (a private key, a token, a URL carrying a password) is refused
+	// whoever offers it: a probe that printed one, or an operator. The value
+	// itself is never quoted.
+	for key, value := range g.Properties {
+		if s, ok := value.(string); ok && redact.SecretShaped(s) {
+			return fmt.Errorf("a grant of %s may not hold a secret, and its property %q is shaped like one; a secret belongs in the device's credential", g.Capability, key)
+		}
+	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	grants, _, err := inventory.GrantsFrom(inventory.NewProperties(b.props))

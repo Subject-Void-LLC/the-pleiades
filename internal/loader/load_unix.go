@@ -166,9 +166,10 @@ func validateCandidates(found []candidate, running string, reserved map[string]b
 	claimedBy := map[string]string{}
 	capabilitiesClaimedBy := map[capability.Name]string{}
 	factsDeclared := map[string]declaredFact{}
+	namespaces := methodNamespaces(found)
 	for _, c := range found {
 		problems = append(problems, crossProgramFacts(c, factsDeclared)...)
-		defined, capabilityProblems := validateCapabilities(c, reserved, capabilitiesClaimedBy)
+		defined, capabilityProblems := validateCapabilities(c, reserved, capabilitiesClaimedBy, namespaces)
 		problems = append(problems, capabilityProblems...)
 		var unchecked []string
 		for _, m := range c.desc.Methods {

@@ -21,6 +21,7 @@ func TestDoc_RendersAProgramsCapability(t *testing.T) {
 		Requires:   []capability.Name{capability.NameSSHTransport},
 		Properties: []capability.DataProperty{{Name: "model", Type: "string", Required: true, Description: "The widget model."}},
 		Probe:      "doctest.widget.probe",
+		Revision:   3,
 	}
 	if err := capability.RegisterData(def); err != nil {
 		t.Fatal(err)
@@ -30,7 +31,9 @@ func TestDoc_RendersAProgramsCapability(t *testing.T) {
 	if runErr != nil {
 		t.Fatal(runErr)
 	}
-	for _, want := range []string{"doctest.widget\n==============", "A widget this account may turn.", "defined by: doctest", "SSHTransportCapable", "its probe doctest.widget.probe", "pleiades grant-capability <device> doctest.widget", "model", "string, required"} {
+	// The digest a client asserting it through the API supplies.
+	digest := "definition: " + capability.DefinitionDigest(def) + "\n"
+	for _, want := range []string{"doctest.widget\n==============", "A widget this account may turn.", "defined by: doctest", "SSHTransportCapable", "revision:   3\n", digest, "its probe doctest.widget.probe", "pleiades grant-capability <device> doctest.widget", "model", "string, required"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("doc printed no %q:\n%s", want, out)
 		}

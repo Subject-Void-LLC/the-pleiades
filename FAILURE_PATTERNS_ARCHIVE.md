@@ -29567,3 +29567,60 @@ still holds its property: three `-race` runs pass, and it still fails a method t
 
 **Lesson.** A test that frees a port to bind it later must retry the bind and report a lost one; a silent return turns a race into a
 timeout nobody can read.
+
+## 1200. A Runner never held a lapsed data-capability grant to its definition, since a device type's capability list carried the name without the grant (fixed before push)
+
+**Symptom.** A dispatch whose grant no longer fit its definition (wrong properties, a bumped revision) still passed the Runner's
+capability check, so a method could run on a grant its own program's definition refused. The old release gate passed only because the
+example method checks its grant itself. Measured.
+
+**Root cause.** Device types such as linux_server add `rec.Capabilities` to their baseline; the Controller's capability list keeps a
+data capability's name as recorded, and a data capability's structural check is always true, so the name was declared without its
+grant. A classification rule could do the same.
+
+**Fix.** `record.NewBase` drops every data-capability name before `withGrants` adds the ones grants actually grant. Proof:
+`TestGrant_ADataCapabilityInTheCapabilityListIsNotAGrant` and the Runner gate's revision case, each failing on the old `NewBase`.
+Reach: a grant had to be made first, by an admin (`inventory:assert`) or a probe.
+
+**Lesson.** A capability that only a grant may confer is removed from every other source before the grants are applied, not trusted
+from a list that never held the grant.
+
+## 1201. pleiades onboard --timeout did not bound an external program's probe, which ran under the loader's 30-minute call limit (fixed before push)
+
+**Symptom.** A probe that hung held `onboard` far past `--timeout`; the hang test reached its 45 s deadline and left a `sleep 120`
+behind.
+
+**Root cause.** `runProgramProbes` ran the probe pipeline on `context.Background()`.
+
+**Fix.** `runOptions.ctx`, and each probe gets the command's own `--timeout`. Proof: `TestOnboard_AProbeThatHangsIsStoppedAtTheTimeout`
+returns in about 2 s with no stray process.
+
+**Lesson.** A command's timeout is passed down as its context to every call it makes, never replaced by a fresh one.
+
+## 1202. Two external programs could share a namespace and define capabilities in it, though Phase 127a's decision assumed the loader refused it (fixed before push)
+
+**Symptom.** Case 2 of the capability decision ("two programs defining in one namespace are refused at load") rested on a false
+premise: only duplicate method names were refused.
+
+**Root cause.** The namespace-ownership check covered methods, not data capabilities.
+
+**Fix.** A capability in a namespace another program's methods use is refused, naming that program; programs sharing a namespace for
+methods only still load. Proof: `TestLoad_ACapabilityInANamespaceTwoProgramsShareIsRefused`.
+
+**Lesson.** Check a decision's premises in the code before building on them; a decision by edge cases is only as good as its case
+list's facts.
+
+## 1203. A grant's time decoded to zero when malformed and did not survive its own encoding when out of range (fixed before push)
+
+**Symptom.** A grant whose `at` was missing, not text or not RFC 3339 read back with a zero time, silently; an out-of-range year broke
+the encode and decode fixed point; a fractional second was dropped on write.
+
+**Root cause.** The reader swallowed the parse error, and the writer wrote whatever time it was given at second precision.
+
+**Fix.** `RecordGrant` refuses a time with no value or a UTC year outside 1 to 9999; the time is written in UTC with nanoseconds;
+`GrantsFrom` marks a grant it cannot read `Unreadable` (cut to 64 bytes) and `withGrants` lapses it with "cannot be read; onboard it
+again", which `external.Granted` and the API's view honor. Proof: `TestGrantsFrom_ATimeItCannotReadLeavesTheGrantUnreadable` (nine
+cases), `TestGrants_EveryTimeItAcceptsSurvivesItsEncoding`, `TestWithGrants_AnUnreadableTimeLapsesTheGrant`, `FuzzGrantsFrom`'s
+round-trip property (6.4M executions), each failing on the old code.
+
+**Lesson.** A value read back from storage that fails to parse is reported as unreadable, never defaulted.

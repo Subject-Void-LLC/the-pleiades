@@ -336,6 +336,11 @@ func printCapability(def capability.DataDefinition) {
 		requires[i] = string(r)
 	}
 	fmt.Printf("requires:   %s\n", joinOrDash(requires))
+	// The digest every grant of it carries, which a client asserting it
+	// through the Controller's API supplies (the Controller loads no program
+	// to compute it from), and the revision its author last bumped.
+	fmt.Printf("revision:   %d\n", def.Revision)
+	fmt.Printf("definition: %s\n", capability.DefinitionDigest(def))
 	fmt.Println("granted by:")
 	if def.Probe != "" {
 		fmt.Printf("  its probe %s, which pleiades onboard <device> runs\n", def.Probe)

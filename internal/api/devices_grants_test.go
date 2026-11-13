@@ -25,6 +25,20 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory/inventorytest"
 )
 
+// widgetDigest is a definition digest of the shape a client supplies,
+// computed from a definition as `pleiades doc` would print it.
+var widgetDigest = capability.DefinitionDigest(capability.DataDefinition{Name: "acme.widget_api", Provider: "widgets"})
+
+// grantBody is a grant request's body for acme.widget_api with reason and
+// the definition digest, and props as its properties when not empty.
+func grantBody(reason, props string) string {
+	body := `{"capability":"acme.widget_api","reason":"` + reason + `","definition":"` + widgetDigest + `"`
+	if props != "" {
+		body += `,"properties":` + props
+	}
+	return body + "}"
+}
+
 // grantRouter mounts both grant routes over a file inventory holding the
 // linux_server w1, and returns the router and the inventory's path.
 func grantRouter(t *testing.T) (http.Handler, string) {
@@ -76,8 +90,8 @@ func serveGrant(router http.Handler, method, target, body string) *httptest.Resp
 func TestGrantRoutes_AnAssertionIsRecordedAndRevoked(t *testing.T) {
 	router, path := grantRouter(t)
 	rec := serveGrant(router, http.MethodPost, "/inventory/devices/w1/capabilities",
-		`{"capability":"acme.widget_api","properties":{"endpoint":"https://w","port":443},"reason":"the lab controller"}`)
-	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"source":"assertion"`) {
+		grantBody("the lab controller", `{"endpoint":"https://w","port":443}`))
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"source":"assertion"`) || !strings.Contains(rec.Body.String(), `"definition":"`+widgetDigest+`"`) {
 		t.Fatalf("grant = %d %s", rec.Code, rec.Body.String())
 	}
 	item, err := inventory.NewFileRepository(path, inventory.NewItemFactory()).GetByName(context.Background(), "w1")
@@ -85,8 +99,8 @@ func TestGrantRoutes_AnAssertionIsRecordedAndRevoked(t *testing.T) {
 		t.Fatal(err)
 	}
 	grants, _, err := pkginventory.GrantsFrom(item.Properties())
-	if err != nil || len(grants) != 1 || grants[0].Reason != "the lab controller" || grants[0].By == "" {
-		t.Fatalf("stored grants = %+v, %v; want the assertion with its reason and its author", grants, err)
+	if err != nil || len(grants) != 1 || grants[0].Reason != "the lab controller" || grants[0].By == "" || grants[0].Definition != widgetDigest {
+		t.Fatalf("stored grants = %+v, %v; want the assertion with its reason, its author and its definition digest", grants, err)
 	}
 
 	if rec := serveGrant(router, http.MethodDelete, "/inventory/devices/w1/capabilities/acme.widget_api", ""); rec.Code != http.StatusOK {
@@ -106,13 +120,14 @@ func TestGrantRoutes_RefuseWhatTheyCannotRecord(t *testing.T) {
 		name, target, body string
 		status             int
 	}{
-		{"a compiled capability", "w1", `{"capability":"SSHTransportCapable","reason":"x"}`, http.StatusUnprocessableEntity},
-		{"not a data name", "w1", `{"capability":"widget","reason":"x"}`, http.StatusUnprocessableEntity},
-		{"no reason", "w1", `{"capability":"acme.widget_api"}`, http.StatusUnprocessableEntity},
-		{"a malformed property", "w1", `{"capability":"acme.widget_api","reason":"x","properties":{"Bad-Name":"y"}}`, http.StatusUnprocessableEntity},
-		{"a nested property", "w1", `{"capability":"acme.widget_api","reason":"x","properties":{"list":["a"]}}`, http.StatusUnprocessableEntity},
-		{"a secret-named property", "w1", `{"capability":"acme.widget_api","reason":"x","properties":{"api_token":"t0ken"}}`, http.StatusUnprocessableEntity},
-		{"an unknown device", "nobody", `{"capability":"acme.widget_api","reason":"x"}`, http.StatusNotFound},
+		{"a compiled capability", "w1", `{"capability":"SSHTransportCapable","reason":"x","definition":"` + widgetDigest + `"}`, http.StatusUnprocessableEntity},
+		{"not a data name", "w1", `{"capability":"widget","reason":"x","definition":"` + widgetDigest + `"}`, http.StatusUnprocessableEntity},
+		{"no reason", "w1", `{"capability":"acme.widget_api","definition":"` + widgetDigest + `"}`, http.StatusUnprocessableEntity},
+		{"a malformed property", "w1", grantBody("x", `{"Bad-Name":"y"}`), http.StatusUnprocessableEntity},
+		{"a nested property", "w1", grantBody("x", `{"list":["a"]}`), http.StatusUnprocessableEntity},
+		{"a secret-named property", "w1", grantBody("x", `{"api_token":"t0ken"}`), http.StatusUnprocessableEntity},
+		{"a property shaped like a secret", "w1", grantBody("x", `{"endpoint":"https://ops:hunter2-Orchid@widgets.example/api"}`), http.StatusUnprocessableEntity},
+		{"an unknown device", "nobody", grantBody("x", ""), http.StatusNotFound},
 	} {
 		if rec := serveGrant(router, http.MethodPost, "/inventory/devices/"+tc.target+"/capabilities", tc.body); rec.Code != tc.status {
 			t.Errorf("%s: %d %s, want %d", tc.name, rec.Code, rec.Body.String(), tc.status)
@@ -169,7 +184,7 @@ func TestGrantRoutes_AnInventoryWriterIsRefused(t *testing.T) {
 		return rec.Code
 	}
 	writer := &auth.Identity{Subject: "writer", Role: auth.RoleOperator, Scopes: []auth.Scope{auth.ScopeInventoryWrite, auth.ScopeInventoryOnboard}}
-	if code := send(writer, http.MethodPost, "/inventory/devices/w1/capabilities", `{"capability":"acme.widget_api","reason":"x"}`); code != http.StatusForbidden {
+	if code := send(writer, http.MethodPost, "/inventory/devices/w1/capabilities", grantBody("x", "")); code != http.StatusForbidden {
 		t.Errorf("grant by an inventory writer = %d, want 403", code)
 	}
 	if code := send(writer, http.MethodDelete, "/inventory/devices/w1/capabilities/acme.widget_api", ""); code != http.StatusForbidden {
@@ -183,23 +198,31 @@ func TestGrantRoutes_AnInventoryWriterIsRefused(t *testing.T) {
 		t.Error("a refused grant was written")
 	}
 	admin := &auth.Identity{Subject: "admin", Role: auth.RoleAdmin, Scopes: auth.ScopesForRole(auth.RoleAdmin)}
-	if code := send(admin, http.MethodPost, "/inventory/devices/w1/capabilities", `{"capability":"acme.widget_api","reason":"x"}`); code != http.StatusOK {
+	if code := send(admin, http.MethodPost, "/inventory/devices/w1/capabilities", grantBody("x", "")); code != http.StatusOK {
 		t.Errorf("grant by an admin = %d, want 200", code)
 	}
 }
 
 // TestGrantRoutes_RefuseABadRequest: a name over the bound, a body that is
-// not JSON, and a revoke of a name that is no data capability's or of an
-// unknown device each answer with their own status.
+// not JSON, a grant carrying no definition digest or one of the wrong
+// shape, and a revoke of a name that is no data capability's or of an
+// unknown device each answer with their own status, and no refused grant
+// is written.
 func TestGrantRoutes_RefuseABadRequest(t *testing.T) {
-	router, _ := grantRouter(t)
+	router, path := grantRouter(t)
 	long := strings.Repeat("w", 300)
+	digest := strings.TrimPrefix(widgetDigest, capability.DefinitionDigestPrefix)
 	for _, tc := range []struct {
 		name, method, target, body string
 		status                     int
 	}{
 		{"a grant to a name over the bound", http.MethodPost, "/inventory/devices/" + long + "/capabilities", `{}`, http.StatusBadRequest},
 		{"a body that is not JSON", http.MethodPost, "/inventory/devices/w1/capabilities", `{`, http.StatusBadRequest},
+		{"a grant with no definition digest", http.MethodPost, "/inventory/devices/w1/capabilities", `{"capability":"acme.widget_api","reason":"x"}`, http.StatusUnprocessableEntity},
+		{"a definition digest without its prefix", http.MethodPost, "/inventory/devices/w1/capabilities", `{"capability":"acme.widget_api","reason":"x","definition":"` + digest + `"}`, http.StatusUnprocessableEntity},
+		{"a definition digest in upper case", http.MethodPost, "/inventory/devices/w1/capabilities", `{"capability":"acme.widget_api","reason":"x","definition":"` + strings.ToUpper(widgetDigest) + `"}`, http.StatusUnprocessableEntity},
+		{"a definition digest cut short", http.MethodPost, "/inventory/devices/w1/capabilities", `{"capability":"acme.widget_api","reason":"x","definition":"` + widgetDigest[:40] + `"}`, http.StatusUnprocessableEntity},
+		{"a definition digest that is not text", http.MethodPost, "/inventory/devices/w1/capabilities", `{"capability":"acme.widget_api","reason":"x","definition":7}`, http.StatusBadRequest},
 		{"a revoke from a name over the bound", http.MethodDelete, "/inventory/devices/" + long + "/capabilities/acme.widget_api", "", http.StatusBadRequest},
 		{"a revoke of no data capability", http.MethodDelete, "/inventory/devices/w1/capabilities/SSHTransportCapable", "", http.StatusBadRequest},
 		{"a revoke from an unknown device", http.MethodDelete, "/inventory/devices/nobody/capabilities/acme.widget_api", "", http.StatusNotFound},
@@ -208,7 +231,13 @@ func TestGrantRoutes_RefuseABadRequest(t *testing.T) {
 			t.Errorf("%s: %d %s, want %d", tc.name, rec.Code, rec.Body.String(), tc.status)
 		}
 	}
-
+	item, err := inventory.NewFileRepository(path, inventory.NewItemFactory()).GetByName(context.Background(), "w1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, present := item.Properties().Raw()[pkginventory.GrantedProperty]; present {
+		t.Error("a refused grant was written")
+	}
 }
 
 // TestGrantRoutes_AMalformedStoredGrantIsNotWrittenOver: a stored device
@@ -220,7 +249,7 @@ func TestGrantRoutes_AMalformedStoredGrantIsNotWrittenOver(t *testing.T) {
 	if err := os.WriteFile(path, []byte("hosts:\n  - id: h1\n    name: w1\n    type: linux_server\n    properties: {host: 10.0.0.1, granted: acme.widget_api}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if rec := serveGrant(router, http.MethodPost, "/inventory/devices/w1/capabilities", `{"capability":"acme.widget_api","reason":"x"}`); rec.Code != http.StatusInternalServerError {
+	if rec := serveGrant(router, http.MethodPost, "/inventory/devices/w1/capabilities", grantBody("x", "")); rec.Code != http.StatusInternalServerError {
 		t.Errorf("a grant over a malformed one = %d %s, want 500", rec.Code, rec.Body.String())
 	}
 	if rec := serveGrant(router, http.MethodDelete, "/inventory/devices/w1/capabilities/acme.widget_api", ""); rec.Code != http.StatusInternalServerError {
@@ -271,7 +300,7 @@ func TestGrantRoutes_ADeviceThatCannotTakeTheGrant(t *testing.T) {
 		router.ServeHTTP(rec, httptest.NewRequest(method, target, strings.NewReader(body)))
 		return rec
 	}
-	grant := `{"capability":"acme.widget_api","reason":"x"}`
+	grant := grantBody("x", "")
 	revoke := "/inventory/devices/w1/capabilities/acme.widget_api"
 
 	plain := &inventorytest.Stub{StubName: "w1"}
@@ -308,5 +337,16 @@ func TestGrantRoutes_ADeviceThatCannotTakeTheGrant(t *testing.T) {
 	rec := serve(unreadable, http.MethodPost, "/inventory/devices/w1/capabilities", grant)
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"grants":[]`) {
 		t.Errorf("a grant on a device whose grants cannot be read = %d %s, want 200 with none", rec.Code, rec.Body.String())
+	}
+
+	// A stored grant whose time cannot be read is shown as unreadable, with
+	// no time, never as the zero time.
+	untimed := newGrantHolder(nil, map[string]pkginventory.PropertyValue{pkginventory.GrantedProperty: map[string]any{
+		"acme.old_api": map[string]any{"source": "assertion", "reason": "r", "at": "yesterday"},
+	}})
+	rec = serve(untimed, http.MethodPost, "/inventory/devices/w1/capabilities", grant)
+	body := rec.Body.String()
+	if rec.Code != http.StatusOK || !strings.Contains(body, `"unreadable":"its time \"yesterday\" is not an RFC 3339 time"`) || strings.Contains(body, `"at":`) {
+		t.Errorf("a grant whose time cannot be read = %d %s, want it shown unreadable with no time", rec.Code, body)
 	}
 }

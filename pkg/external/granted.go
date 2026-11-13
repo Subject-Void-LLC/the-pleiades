@@ -24,7 +24,9 @@ func Granted(device inventory.InventoryItem, name capability.Name) (map[string]a
 		return nil, false
 	}
 	for _, g := range grants {
-		if g.Capability == name {
+		// A grant whose record could not be read whole is not one, here or
+		// anywhere (inventory.Grant.Unreadable).
+		if g.Capability == name && g.Unreadable == "" {
 			return g.Properties, true
 		}
 	}

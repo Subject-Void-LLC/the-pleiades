@@ -769,7 +769,10 @@ var grantsSchema = map[string]any{
 					"properties": map[string]any{"type": "object", "description": "The grant's own properties."},
 					"by":         map[string]any{"type": "string", "description": "Who asserted an asserted grant."},
 					"reason":     map[string]any{"type": "string", "description": "Why it was asserted."},
-					"at":         map[string]any{"type": "string", "format": "date-time"},
+					"at":         map[string]any{"type": "string", "format": "date-time", "description": "When it was granted. Absent on a grant whose recorded time could not be read (unreadable says why)."},
+					"unreadable": map[string]any{"type": "string", "description": "Why a recorded grant could not be read whole (its time is missing, malformed or out of range); such a grant grants nothing."},
+					"definition": map[string]any{"type": "string", "description": "The digest of the capability's definition the grant was made against, sha256:<hex>. A grant counts only while the definition a Runner loads digests the same; absent on a grant made before grants carried one."},
+					"build":      map[string]any{"type": "string", "description": "For a probed grant, the digest of the program build whose probe made it: provenance, which never decides whether the grant counts."},
 				},
 			},
 		},
@@ -787,10 +790,11 @@ var GrantCapability = Endpoint{
 	Rel:        auth.RelGrant,
 	Summary:    "Grant a device a program's capability",
 	Description: "Records an operator's assertion that a device holds a capability an external program defines " +
-		"(<namespace>.<name>), with the grant's properties and a required reason, as a revision naming who made it. " +
-		"The Controller loads no program, so it checks the grant's shape here (the name, the reason, and properties " +
-		"that are bounded strings, bools or whole numbers) and a Runner holds it to the capability's definition " +
-		"before a method requiring it runs, refusing a grant that does not fit. A compiled capability is refused: " +
+		"(<namespace>.<name>), with the grant's properties, a required reason, and the digest of the definition it was " +
+		"held to (definition, as `pleiades doc <capability>` prints it), as a revision naming who made it. " +
+		"The Controller loads no program, so it checks the grant's shape here (the name, the reason, the digest's form, and properties " +
+		"that are bounded strings, bools or whole numbers, none named or shaped like a secret) and a Runner holds it to the capability's definition " +
+		"before a method requiring it runs, refusing a grant that does not fit or whose digest is not the definition's it loaded. A compiled capability is refused: " +
 		"only onboarding grants one. It needs inventory:assert, which no role but admin holds.",
 	Params: []Param{
 		{Name: "name", In: "path", Required: true, Type: "string", Description: "The device's name."},
@@ -798,11 +802,12 @@ var GrantCapability = Endpoint{
 	RequestContentType: "application/json",
 	RequestSchema: map[string]any{
 		"type":     "object",
-		"required": []string{"capability", "reason"},
+		"required": []string{"capability", "reason", "definition"},
 		"properties": map[string]any{
 			"capability": map[string]any{"type": "string"},
 			"properties": map[string]any{"type": "object"},
 			"reason":     map[string]any{"type": "string"},
+			"definition": map[string]any{"type": "string", "pattern": "^sha256:[0-9a-f]{64}$", "description": "The digest of the capability's definition, as `pleiades doc <capability>` prints it."},
 		},
 	},
 	Responses: []Response{
@@ -810,7 +815,7 @@ var GrantCapability = Endpoint{
 		{Status: http.StatusBadRequest, Description: "name is unusable, or the body is not a grant.", Schema: errorSchema("")},
 		{Status: http.StatusNotFound, Description: "No device with that name exists.", Schema: errorSchema("")},
 		{Status: http.StatusConflict, Description: "The device was modified concurrently, or the inventory is read-only.", Schema: errorSchema("")},
-		{Status: http.StatusUnprocessableEntity, Description: "The capability is compiled into The Pleiades or not a data capability's name, the reason is missing, or a property is malformed.", Schema: errorSchema("")},
+		{Status: http.StatusUnprocessableEntity, Description: "The capability is compiled into The Pleiades or not a data capability's name, the reason is missing, the definition digest is missing or malformed, or a property is malformed or holds a secret.", Schema: errorSchema("")},
 	},
 }
 

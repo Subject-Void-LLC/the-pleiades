@@ -5,6 +5,7 @@ package inventory
 import (
 	"errors"
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -53,18 +54,87 @@ type Grant struct {
 	By     string
 	Reason string
 
-	// At is when it was granted.
+	// At is when it was granted (ValidateGrantTime). It is the zero time
+	// only on a grant whose recorded time could not be read, which then
+	// says why in Unreadable.
 	At time.Time
+
+	// Unreadable is why a recorded grant could not be read whole: its time
+	// is missing, is not text, is not an RFC 3339 time, or falls outside
+	// the years a grant may hold. GrantsFrom sets it rather than inventing a
+	// time, and such a grant grants nothing (record.NewBase), saying this.
+	// No writer sets it.
+	Unreadable string
 
 	// Binding is, for a probed grant on a device type that binds what its
 	// probes trust (record.DiscoveryBinding), the digest of those
 	// properties when the probe ran; a grant whose binding no longer
 	// matches grants nothing, as a stale discovery does.
 	Binding string
+
+	// Definition is the digest of the capability's definition the grant was
+	// made against (capability.DefinitionDigest). A grant counts only while
+	// the definition this process holds digests the same, so a definition
+	// that changed meaning (or whose author bumped its revision) withdraws
+	// every grant made before it. Probed and asserted grants carry it alike;
+	// one written before it existed carries none (a legacy grant).
+	Definition string
+
+	// Build is, for a probed grant, the SHA-256 of the program build whose
+	// probe made it ("sha256:<hex>"): where the grant came from, kept so an
+	// admin can revoke every grant a build later found to be bad probed. It
+	// never decides whether a grant counts, since one source builds to a
+	// different digest on every platform.
+	Build string
+}
+
+// buildDigest is the shape of a program build's digest, as the loader
+// writes it: its SHA-256 as "sha256:" and lower case hex.
+var buildDigest = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
+
+// IsBuildDigest reports whether s has the shape of a program build's
+// digest, the shape Grant.Build holds.
+func IsBuildDigest(s string) bool { return buildDigest.MatchString(s) }
+
+// GrantNote is what became of one recorded grant when its device was
+// built: a grant that grants nothing (Lapsed), or one that counts with a
+// warning, and why, in words that name the device, the capability and what
+// to do.
+type GrantNote struct {
+	Capability capability.Name
+	Lapsed     bool
+	Reason     string
+}
+
+// GrantNoter is a device that can say what became of each grant it
+// records. A capability check that finds a device without a capability it
+// was granted (collection.CheckCapabilities) reads the reason here, so a
+// grant that lapsed says why rather than reading as never granted.
+type GrantNoter interface {
+	GrantNotes() []GrantNote
+}
+
+// LapsedGrant returns why device's grant of name grants nothing, or the
+// empty string when device records no such grant or cannot say.
+func LapsedGrant(device InventoryItem, name capability.Name) string {
+	noter, ok := device.(GrantNoter)
+	if !ok {
+		return ""
+	}
+	for _, n := range noter.GrantNotes() {
+		if n.Capability == name && n.Lapsed {
+			return n.Reason
+		}
+	}
+	return ""
 }
 
 // GrantsProperty encodes grants as the value GrantedProperty holds, keyed
-// by capability, in plain types every inventory store round-trips.
+// by capability, in plain types every inventory store round-trips. A
+// grant's time is written in UTC to the nanosecond (RFC 3339 with its
+// fraction, which a whole second leaves out), so reading it back gives the
+// same instant; a time ValidateGrantTime refuses is not written at all, so
+// the grant reads back as unreadable rather than as a time it never had.
 func GrantsProperty(grants []Grant) map[string]any {
 	out := make(map[string]any, len(grants))
 	for _, g := range grants {
@@ -75,7 +145,9 @@ func GrantsProperty(grants []Grant) map[string]any {
 		entry := map[string]any{
 			"source":     string(g.Source),
 			"properties": props,
-			"at":         g.At.UTC().Format(time.RFC3339),
+		}
+		if ValidateGrantTime(g.At) == nil {
+			entry["at"] = g.At.UTC().Format(time.RFC3339Nano)
 		}
 		if g.Program != "" {
 			entry["program"] = g.Program
@@ -88,6 +160,12 @@ func GrantsProperty(grants []Grant) map[string]any {
 		}
 		if g.Binding != "" {
 			entry["binding"] = g.Binding
+		}
+		if g.Definition != "" {
+			entry["definition"] = g.Definition
+		}
+		if g.Build != "" {
+			entry["build"] = g.Build
 		}
 		out[string(g.Capability)] = entry
 	}
@@ -132,11 +210,12 @@ func GrantsFrom(props Properties) ([]Grant, bool, error) {
 		g.By, _ = entry["by"].(string)
 		g.Reason, _ = entry["reason"].(string)
 		g.Binding, _ = entry["binding"].(string)
-		if at, ok := entry["at"].(string); ok {
-			if t, err := time.Parse(time.RFC3339, at); err == nil {
-				g.At = t
-			}
-		}
+		// Kept as recorded, whatever their shape: a digest that is not one
+		// matches no definition, so the grant lapses and says why, rather
+		// than the device refusing to load.
+		g.Definition, _ = entry["definition"].(string)
+		g.Build, _ = entry["build"].(string)
+		g.At, g.Unreadable = grantTimeFrom(entry)
 		grants = append(grants, g)
 	}
 	sort.Slice(grants, func(i, j int) bool { return grants[i].Capability < grants[j].Capability })

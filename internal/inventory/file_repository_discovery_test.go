@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/generic"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
@@ -81,7 +82,8 @@ func TestFileRepository_KeepsAGrantInTheStateFile(t *testing.T) {
 	if !ok {
 		t.Fatalf("%T has no RecordGrant", item)
 	}
-	if err := g.RecordGrant(inventory.Grant{Capability: "acme.widget_api", Source: inventory.GrantAsserted, By: "ops", Reason: "lab", Properties: map[string]any{"endpoint": "https://w"}}); err != nil {
+	digest := capability.DefinitionDigest(capability.DataDefinition{Name: "acme.widget_api", Provider: "widgets"})
+	if err := g.RecordGrant(inventory.Grant{Capability: "acme.widget_api", Source: inventory.GrantAsserted, By: "ops", Reason: "lab", Properties: map[string]any{"endpoint": "https://w"}, Definition: digest, At: time.Now()}); err != nil {
 		t.Fatal(err)
 	}
 	if err := repo.Save(context.Background(), item); err != nil {
@@ -96,8 +98,8 @@ func TestFileRepository_KeepsAGrantInTheStateFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	grants, _, err := inventory.GrantsFrom(reloaded.Properties())
-	if err != nil || len(grants) != 1 || grants[0].Capability != "acme.widget_api" || grants[0].Reason != "lab" {
-		t.Fatalf("after a reload: grants %+v, %v", grants, err)
+	if err != nil || len(grants) != 1 || grants[0].Capability != "acme.widget_api" || grants[0].Reason != "lab" || grants[0].Definition != digest {
+		t.Fatalf("after a reload: grants %+v, %v; want the grant with its definition digest", grants, err)
 	}
 
 	byHand := filepath.Join(t.TempDir(), DefaultInventoryFilename)
@@ -109,6 +111,50 @@ func TestFileRepository_KeepsAGrantInTheStateFile(t *testing.T) {
 	}
 }
 
+// TestGrant_ADataCapabilityInTheCapabilityListIsNotAGrant: a linux_server
+// whose record lists a data capability among its capabilities (a
+// classification rule's claim, or the list a Controller ships with a
+// dispatch, which a Runner rebuilds the device from) holds it only through
+// a grant that holds: not with no grant, and not with one made against a
+// definition the program has since changed, which says why.
+func TestGrant_ADataCapabilityInTheCapabilityListIsNotAGrant(t *testing.T) {
+	t.Cleanup(capability.SnapshotForTest())
+	def := capability.DataDefinition{Name: "acme.widget_api", Provider: "widgets", Revision: 2}
+	if err := capability.RegisterData(def); err != nil {
+		t.Fatal(err)
+	}
+	stale := def
+	stale.Revision = 1
+	listed := []capability.Name{capability.NameSSHTransport, "acme.widget_api"}
+	build := func(grants ...inventory.Grant) inventory.InventoryItem {
+		t.Helper()
+		props := map[string]inventory.PropertyValue{"host": "10.0.0.4"}
+		if len(grants) > 0 {
+			props[inventory.GrantedProperty] = inventory.GrantsProperty(grants)
+		}
+		item, err := NewItemFactory().Build(record.Record{ID: "h4", Name: "web4", Type: "linux_server", Properties: props, Capabilities: listed})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return item
+	}
+	grant := inventory.Grant{Capability: "acme.widget_api", Source: inventory.GrantAsserted, By: "ops", Reason: "lab", Definition: capability.DefinitionDigest(def), At: time.Unix(1700000000, 0)}
+	if !build(grant).HasCapability("acme.widget_api") {
+		t.Fatal("a grant that holds does not grant the capability, so this test proves nothing")
+	}
+	if item := build(); item.HasCapability("acme.widget_api") {
+		t.Error("a data capability in the record's capability list counted with no grant at all")
+	}
+	grant.Definition = capability.DefinitionDigest(stale)
+	item := build(grant)
+	if item.HasCapability("acme.widget_api") {
+		t.Error("a data capability in the record's capability list counted over a grant that lapsed")
+	}
+	if why := inventory.LapsedGrant(item, "acme.widget_api"); !strings.Contains(why, "revision 2") {
+		t.Errorf("the lapsed grant says %q, want why", why)
+	}
+}
+
 // TestGrant_AProbedGrantLapsesWhenTheDeviceIsRepointed: a probed grant on a
 // generic_http device holds while the properties its type binds are as the
 // probe found them, and grants nothing once the device points elsewhere,
@@ -117,7 +163,8 @@ func TestGrant_AProbedGrantLapsesWhenTheDeviceIsRepointed(t *testing.T) {
 	// The program's definition, as the loader registers it: a grant of a
 	// capability this process does not define grants nothing anywhere.
 	t.Cleanup(capability.SnapshotForTest())
-	if err := capability.RegisterData(capability.DataDefinition{Name: "acme.widget_api", Provider: "widgets"}); err != nil {
+	def := capability.DataDefinition{Name: "acme.widget_api", Provider: "widgets"}
+	if err := capability.RegisterData(def); err != nil {
 		t.Fatal(err)
 	}
 	props := map[string]inventory.PropertyValue{"base_url": "https://api.example.test"}
@@ -131,6 +178,7 @@ func TestGrant_AProbedGrantLapsesWhenTheDeviceIsRepointed(t *testing.T) {
 			"base_url": baseURL,
 			inventory.GrantedProperty: inventory.GrantsProperty([]inventory.Grant{{
 				Capability: "acme.widget_api", Source: inventory.GrantProbed, Program: "widgets", Binding: binding,
+				Definition: capability.DefinitionDigest(def), At: time.Unix(1700000000, 0),
 			}}),
 		}
 		item, err := NewItemFactory().Build(record.Record{ID: "h1", Name: "api1", Type: "generic_http", Properties: p})

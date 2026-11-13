@@ -1,0 +1,1 @@
+A grant's recorded time now reads back as the same instant it was written: a fraction of a second is kept, a time outside the years 1 to 9999 is refused when a grant is written, and a grant whose time is missing, malformed or out of range grants nothing and says why (the API shows it as `unreadable`, with no time) instead of reading as the zero time.
