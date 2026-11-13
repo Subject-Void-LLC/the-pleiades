@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
@@ -85,7 +84,7 @@ func loadWorldYAML(dir, label string, payload []byte) ([]pkginventory.InventoryI
 func loadInventory(dir string) ([]pkginventory.InventoryItem, error) {
 	ctx := context.Background()
 
-	inventoryPath := filepath.Join(dir, inventory.DefaultInventoryFilename)
+	inventoryPath := inventoryFile(dir)
 	repo := inventory.NewFileRepository(inventoryPath, inventory.NewItemFactory())
 
 	// GetGroup's Selector is Crawl tier's honest no-op: neither Repository

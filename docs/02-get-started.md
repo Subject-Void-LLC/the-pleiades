@@ -176,6 +176,24 @@ that can read `.pleiades/`: `master.key` opens the seal key, and `add-credential
 password in `credentials.yaml` under that same master key. To keep a password from an agent
 or a script, keep `.pleiades/` out of its reach, for example by running it as another user.
 
+**The vault and the inventory somewhere else.** Every command reads the inventory and the
+vault from `--dir` (default `.`). To run runbooks kept in one folder against credentials
+kept in another, give `--vault <dir>`, the directory whose `.pleiades/` holds the vault, and
+`--inventory <file>` (Ansible's `-i`), each in place of `--dir`'s own part only:
+
+```console
+$ pleiades run runbooks/patch.yaml --vault ~/pleiades-lab --inventory ~/pleiades-lab/inventory.yaml
+```
+
+Everything secret moves with `--vault`: `master.key`, `credentials.yaml` with its named
+secrets, `seal.key`, and the key that fact digests are keyed with, which comes from the
+master key. The journal, the fact store, `run.lock` and the rest of `.pleiades/` stay under
+`--dir`. `group_vars/` and `host_vars/` are read beside the `--inventory` file. A `--vault`
+holding no `master.key` is refused, naming the file it looked for, rather than given a new
+key (set `PLEIADES_MASTER_KEY` to supply one instead), and its files are held to the same
+owner-only check as a project's own. `pleiades <command> --help` lists the two flags on each
+command that reads the inventory or the vault.
+
 ### 5. Validate
 
 ```console

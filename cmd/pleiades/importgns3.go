@@ -12,7 +12,6 @@ import (
 	"net"
 	"net/url"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -58,6 +57,7 @@ type gns3Result struct {
 // other node is reported with its console type and left out.
 func runImportGNS3(args []string) error {
 	fs := flag.NewFlagSet("import-gns3", flag.ContinueOnError)
+	addInventoryFlag(fs)
 	dir := fs.String("dir", ".", "project directory")
 	server := fs.String("server", "", "the GNS3 server's base URL, e.g. http://gns3.lab:3080")
 	project := fs.String("project", "", "the project to import, by name or id")
@@ -114,7 +114,7 @@ func runImportGNS3(args []string) error {
 		return err
 	}
 
-	invPath := filepath.Join(*dir, inventory.DefaultInventoryFilename)
+	invPath := inventoryFile(*dir)
 	hosts, err := inventory.ReadHosts(invPath)
 	if err != nil {
 		return fmt.Errorf("failed to read inventory (did you run 'pleiades init'?): %w", err)

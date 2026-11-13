@@ -12,7 +12,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts"
@@ -50,6 +49,7 @@ func runFacts(args []string) error {
 		return fmt.Errorf("%s: %w", factsUsage, errMissingPositional)
 	}
 	fs := flag.NewFlagSet("facts", flag.ContinueOnError)
+	addInventoryFlag(fs)
 	dir := fs.String("dir", ".", "project directory")
 	asJSON := fs.Bool("json", false, "print one JSON document instead of text")
 	verify := fs.Bool("verify", false, "check the host's fact chain instead of showing its facts")
@@ -61,7 +61,7 @@ func runFacts(args []string) error {
 		return fmt.Errorf("%s: %w", factsUsage, errMissingPositional)
 	}
 	ctx := context.Background()
-	repo := inv.NewFileRepository(filepath.Join(*dir, inv.DefaultInventoryFilename), inv.NewItemFactory())
+	repo := inv.NewFileRepository(inventoryFile(*dir), inv.NewItemFactory())
 	item, err := repo.GetByName(ctx, positionals[0])
 	if err != nil {
 		return fmt.Errorf("host %q: %w", positionals[0], err)

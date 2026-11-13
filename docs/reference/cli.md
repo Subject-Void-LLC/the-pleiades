@@ -35,6 +35,7 @@ add a host to the static inventory
 | Flag | Type | Default | Description |
 | --- | --- | --- | --- |
 | --dir | `string` | `.` | project directory |
+| --inventory | `string` | - | inventory file to read and write, in place of --dir's inventory.yaml; group_vars/ and host_vars/ are read beside it |
 | --type | `string` | - | device type (e.g. linux_server, cisco_router) |
 | --classify | `string` | - | comma-separated classification path (e.g. linux_server,debian_family,ubuntu), an alternative to --type |
 | --tags | `string` | - | comma-separated tags (repeatable); --tag is the same flag |
@@ -52,6 +53,7 @@ change an existing host's properties and tags
 | Flag | Type | Default | Description |
 | --- | --- | --- | --- |
 | --dir | `string` | `.` | project directory |
+| --inventory | `string` | - | inventory file to read and write, in place of --dir's inventory.yaml; group_vars/ and host_vars/ are read beside it |
 | --set | `key=value` | - | device property to add or replace, as key=value (repeatable) |
 | --unset | `string` | - | device property to remove (repeatable) |
 | --tag | `string` | - | tag to add, or several separated by commas (repeatable) |
@@ -73,6 +75,7 @@ assert that a device holds a capability an external program defines, with a reas
 | Flag | Type | Default | Description |
 | --- | --- | --- | --- |
 | --dir | `string` | `.` | project directory |
+| --inventory | `string` | - | inventory file to read and write, in place of --dir's inventory.yaml; group_vars/ and host_vars/ are read beside it |
 | --reason | `string` | - | why this device holds the capability, recorded with the grant (required) |
 | --set | `key=value` | - | grant property as key=value (repeatable) |
 
@@ -80,18 +83,16 @@ assert that a device holds a capability an external program defines, with a reas
 
 ## pleiades revoke-capability
 
-take back a device's grant of a capability an external program defines, or every grant one program build probed
+take back a device's grant of a capability an external program defines
 
-`pleiades revoke-capability <device> <capability> | --build <digest> [flags]`
+`pleiades revoke-capability <device> <capability> [flags]`
 
 | Flag | Type | Default | Description |
 | --- | --- | --- | --- |
 | --dir | `string` | `.` | project directory |
-| --build | `string` | - | revoke, on every device, each grant the program build with this digest (sha256:<hex>) probed, keeping every other build's grants and every assertion |
+| --inventory | `string` | - | inventory file to read and write, in place of --dir's inventory.yaml; group_vars/ and host_vars/ are read beside it |
 
 `pleiades revoke-capability tenancy oci.tenancy_api`
-
-`pleiades revoke-capability --build sha256:4f2a...`
 
 ## pleiades trust-host
 
@@ -102,6 +103,8 @@ trust a device's SSH host keys, read from its VM's console or taken on first con
 | Flag | Type | Default | Description |
 | --- | --- | --- | --- |
 | --dir | `string` | `.` | project directory |
+| --inventory | `string` | - | inventory file to read and write, in place of --dir's inventory.yaml; group_vars/ and host_vars/ are read beside it |
+| --vault | `string` | - | directory whose .pleiades/ holds the credential vault (master.key, credentials.yaml, seal.key), in place of --dir's; the journal and facts stay under --dir |
 | --from-console | `string` | - | the VirtualBox host running the device's VM, whose console log holds its host keys |
 | --vm | `string` | - | with --from-console, the VM's name on the host, when it is not the device's |
 | --first-connect | `bool` | `false` | trust whatever host keys answer at the device's address, unverified; refused for a device not flagged ephemeral unless --reason says why |
@@ -122,6 +125,8 @@ store an encrypted credential for a device
 | Flag | Type | Default | Description |
 | --- | --- | --- | --- |
 | --dir | `string` | `.` | project directory |
+| --inventory | `string` | - | inventory file to read and write, in place of --dir's inventory.yaml; group_vars/ and host_vars/ are read beside it |
+| --vault | `string` | - | directory whose .pleiades/ holds the credential vault (master.key, credentials.yaml, seal.key), in place of --dir's; the journal and facts stay under --dir |
 | --username | `string` | - | account name to authenticate as |
 | --password | `string` | - | password to authenticate with (prompted interactively if --key is also absent and this is empty) |
 | --password-stdin | `bool` | `false` | read the password to authenticate with as one line on standard input |
@@ -159,6 +164,7 @@ list the project's device credentials by name, account and kind, marking unbound
 | Flag | Type | Default | Description |
 | --- | --- | --- | --- |
 | --dir | `string` | `.` | project directory |
+| --vault | `string` | - | directory whose .pleiades/ holds the credential vault (master.key, credentials.yaml, seal.key), in place of --dir's; the journal and facts stay under --dir |
 | --json | `bool` | `false` | print one JSON document instead of text |
 
 `pleiades list-credentials`
@@ -174,6 +180,7 @@ print this project's public seal key, making the key pair on first use
 | Flag | Type | Default | Description |
 | --- | --- | --- | --- |
 | --dir | `string` | `.` | project directory |
+| --vault | `string` | - | directory whose .pleiades/ holds the credential vault (master.key, credentials.yaml, seal.key), in place of --dir's; the journal and facts stay under --dir |
 | --json | `bool` | `false` | print one JSON document instead of text |
 
 `pleiades seal-key`
@@ -208,6 +215,7 @@ store an encrypted account for one container registry, given only to pulls and p
 | Flag | Type | Default | Description |
 | --- | --- | --- | --- |
 | --dir | `string` | `.` | project directory |
+| --vault | `string` | - | directory whose .pleiades/ holds the credential vault (master.key, credentials.yaml, seal.key), in place of --dir's; the journal and facts stay under --dir |
 | --username | `string` | - | the registry account |
 | --password-stdin | `bool` | `false` | read the password or token as one line on standard input |
 
@@ -224,6 +232,7 @@ store a named PostgreSQL connection, its password encrypted, given only to a db.
 | Flag | Type | Default | Description |
 | --- | --- | --- | --- |
 | --dir | `string` | `.` | project directory |
+| --vault | `string` | - | directory whose .pleiades/ holds the credential vault (master.key, credentials.yaml, seal.key), in place of --dir's; the journal and facts stay under --dir |
 | --host | `string` | - | the server as the device a task runs on sees it: a name, an address, or its Unix socket directory |
 | --port | `int` | `5432` | the server's port |
 | --user | `string` | - | the login |
@@ -248,6 +257,7 @@ list the stored database connections, never a password
 | Flag | Type | Default | Description |
 | --- | --- | --- | --- |
 | --dir | `string` | `.` | project directory |
+| --vault | `string` | - | directory whose .pleiades/ holds the credential vault (master.key, credentials.yaml, seal.key), in place of --dir's; the journal and facts stay under --dir |
 | --json | `bool` | `false` | print one JSON document instead of text |
 
 `pleiades list-database-connections --json`
@@ -261,6 +271,7 @@ remove a stored database connection
 | Flag | Type | Default | Description |
 | --- | --- | --- | --- |
 | --dir | `string` | `.` | project directory |
+| --vault | `string` | - | directory whose .pleiades/ holds the credential vault (master.key, credentials.yaml, seal.key), in place of --dir's; the journal and facts stay under --dir |
 
 `pleiades remove-database-connection appdb`
 
@@ -273,6 +284,7 @@ store one field of a named secret, encrypted, for a runbook to name as {{ secret
 | Flag | Type | Default | Description |
 | --- | --- | --- | --- |
 | --dir | `string` | `.` | project directory |
+| --vault | `string` | - | directory whose .pleiades/ holds the credential vault (master.key, credentials.yaml, seal.key), in place of --dir's; the journal and facts stay under --dir |
 | --field | `string` | - | the field of the secret to store, a lowercase identifier |
 | --value-stdin | `bool` | `false` | read the value as one line on standard input |
 | --value-file | `string` | - | a file `pleiades seal` wrote holding the value |
@@ -294,6 +306,7 @@ list the stored named secrets and their fields, never a value
 | Flag | Type | Default | Description |
 | --- | --- | --- | --- |
 | --dir | `string` | `.` | project directory |
+| --vault | `string` | - | directory whose .pleiades/ holds the credential vault (master.key, credentials.yaml, seal.key), in place of --dir's; the journal and facts stay under --dir |
 | --json | `bool` | `false` | print one JSON document instead of text |
 
 `pleiades list-secrets --json`
@@ -307,6 +320,7 @@ remove a stored named secret, or one of its fields
 | Flag | Type | Default | Description |
 | --- | --- | --- | --- |
 | --dir | `string` | `.` | project directory |
+| --vault | `string` | - | directory whose .pleiades/ holds the credential vault (master.key, credentials.yaml, seal.key), in place of --dir's; the journal and facts stay under --dir |
 | --field | `string` | - | remove only this field; the whole secret when empty |
 
 `pleiades remove-secret dmvpn`
@@ -322,6 +336,8 @@ remove a host from the inventory, and with flags its credential and the known_ho
 | Flag | Type | Default | Description |
 | --- | --- | --- | --- |
 | --dir | `string` | `.` | project directory |
+| --inventory | `string` | - | inventory file to read and write, in place of --dir's inventory.yaml; group_vars/ and host_vars/ are read beside it |
+| --vault | `string` | - | directory whose .pleiades/ holds the credential vault (master.key, credentials.yaml, seal.key), in place of --dir's; the journal and facts stay under --dir |
 | --credential | `bool` | `false` | also remove the host's stored credential |
 | --forget-host-keys | `bool` | `false` | also remove the known_hosts lines trusting the host's SSH address, unless another device is reached there |
 | --leave-references | `bool` | `false` | remove the host even when another host names it in a property (a console node's console_server) |
@@ -340,6 +356,7 @@ remove a device's stored credential, leaving the device in the inventory
 | Flag | Type | Default | Description |
 | --- | --- | --- | --- |
 | --dir | `string` | `.` | project directory |
+| --vault | `string` | - | directory whose .pleiades/ holds the credential vault (master.key, credentials.yaml, seal.key), in place of --dir's; the journal and facts stay under --dir |
 
 `pleiades remove-credential br4`
 
@@ -352,6 +369,8 @@ make one kubeconfig context a kubernetes_cluster device and its stored credentia
 | Flag | Type | Default | Description |
 | --- | --- | --- | --- |
 | --dir | `string` | `.` | project directory |
+| --inventory | `string` | - | inventory file to read and write, in place of --dir's inventory.yaml; group_vars/ and host_vars/ are read beside it |
+| --vault | `string` | - | directory whose .pleiades/ holds the credential vault (master.key, credentials.yaml, seal.key), in place of --dir's; the journal and facts stay under --dir |
 | --kubeconfig | `string` | - | the kubeconfig to read, or - for standard input; never a default location |
 | --context | `string` | - | the context to import; the kubeconfig's current context when empty |
 | --replace | `bool` | `false` | replace the connection settings and credential of a cluster already in the inventory |
@@ -370,6 +389,8 @@ make a containerlab lab's nodes generic_ssh devices, from the topology-data.json
 | Flag | Type | Default | Description |
 | --- | --- | --- | --- |
 | --dir | `string` | `.` | project directory |
+| --inventory | `string` | - | inventory file to read and write, in place of --dir's inventory.yaml; group_vars/ and host_vars/ are read beside it |
+| --vault | `string` | - | directory whose .pleiades/ holds the credential vault (master.key, credentials.yaml, seal.key), in place of --dir's; the journal and facts stay under --dir |
 | --topology | `string` | - | containerlab's topology-data.json for the lab, written on deploy |
 | --api | `string` | - | instead of --topology: the inventory device of a containerlab API server (onboarded, with its login stored), whose inspect of --lab is read |
 | --lab | `string` | - | the lab's name, which the file must be for |
@@ -396,6 +417,8 @@ make a Cisco Modeling Labs lab's nodes generic_ssh devices at their management a
 | Flag | Type | Default | Description |
 | --- | --- | --- | --- |
 | --dir | `string` | `.` | project directory |
+| --inventory | `string` | - | inventory file to read and write, in place of --dir's inventory.yaml; group_vars/ and host_vars/ are read beside it |
+| --vault | `string` | - | directory whose .pleiades/ holds the credential vault (master.key, credentials.yaml, seal.key), in place of --dir's; the journal and facts stay under --dir |
 | --server | `string` | - | the CML controller's base URL, e.g. https://cml.lab |
 | --lab | `string` | - | the lab to import, by title or id |
 | --nodes | `string` | - | comma-separated nodes to import; every node when empty |
@@ -425,6 +448,7 @@ make a GNS3 project's nodes console_device devices at their telnet consoles, rea
 | Flag | Type | Default | Description |
 | --- | --- | --- | --- |
 | --dir | `string` | `.` | project directory |
+| --inventory | `string` | - | inventory file to read and write, in place of --dir's inventory.yaml; group_vars/ and host_vars/ are read beside it |
 | --server | `string` | - | the GNS3 server's base URL, e.g. http://gns3.lab:3080 |
 | --project | `string` | - | the project to import, by name or id |
 | --nodes | `string` | - | comma-separated nodes to import; every node when empty |
@@ -447,6 +471,8 @@ probe a device over its protocol and record what it proved: a generic device's c
 | Flag | Type | Default | Description |
 | --- | --- | --- | --- |
 | --dir | `string` | `.` | project directory |
+| --inventory | `string` | - | inventory file to read and write, in place of --dir's inventory.yaml; group_vars/ and host_vars/ are read beside it |
+| --vault | `string` | - | directory whose .pleiades/ holds the credential vault (master.key, credentials.yaml, seal.key), in place of --dir's; the journal and facts stay under --dir |
 | --json | `bool` | `false` | print the result as JSON, in the same model the text shows |
 | --timeout | `duration` | `30s` | how long the probe may take |
 
@@ -463,6 +489,7 @@ check runbooks against the inventory; with none named, every one in runbooks/
 | Flag | Type | Default | Description |
 | --- | --- | --- | --- |
 | --dir | `string` | `.` | project directory |
+| --inventory | `string` | - | inventory file to read and write, in place of --dir's inventory.yaml; group_vars/ and host_vars/ are read beside it |
 | --tags | `string` | - | run only the tasks carrying one of these tags (comma-separated, repeatable); all, tagged, untagged, always and never keep Ansible's meanings, and a task tagged never runs only when named |
 | --skip-tags | `string` | - | leave out the tasks carrying one of these tags, even ones --tags selects (comma-separated, repeatable) |
 | --extra-vars | `string` | - | a variable the run will start with, read exactly as run reads it (key=value, key:=yaml or @file.yaml, repeatable); a parameter reading vars.<name> that none of these gives, with no \| default(...), is reported |
@@ -485,6 +512,8 @@ build, validate, and run a runbook
 | Flag | Type | Default | Description |
 | --- | --- | --- | --- |
 | --dir | `string` | `.` | project directory |
+| --inventory | `string` | - | inventory file to read and write, in place of --dir's inventory.yaml; group_vars/ and host_vars/ are read beside it |
+| --vault | `string` | - | directory whose .pleiades/ holds the credential vault (master.key, credentials.yaml, seal.key), in place of --dir's; the journal and facts stay under --dir |
 | --mode | `string` | `execute` | execute applies changes; check reports what each task would change and changes nothing |
 | --verbose | `bool` | `false` | print each task's own output (stdout, exit status, diffs), not just whether it changed |
 | --v | `bool` | `false` | shorthand for --verbose |
@@ -526,6 +555,8 @@ run one method against a device, a tag or a comma list of devices, or with - (or
 | Flag | Type | Default | Description |
 | --- | --- | --- | --- |
 | --dir | `string` | `.` | project directory |
+| --inventory | `string` | - | inventory file to read and write, in place of --dir's inventory.yaml; group_vars/ and host_vars/ are read beside it |
+| --vault | `string` | - | directory whose .pleiades/ holds the credential vault (master.key, credentials.yaml, seal.key), in place of --dir's; the journal and facts stay under --dir |
 | --mode | `string` | `execute` | execute applies changes; check reports what the method would change and changes nothing |
 | --verbose | `bool` | `false` | print the method's own output (stdout, exit status, diffs), not just whether it changed |
 | --v | `bool` | `false` | shorthand for --verbose |
@@ -562,6 +593,8 @@ undo a run from its journal: every device it changed, newest change first
 | Flag | Type | Default | Description |
 | --- | --- | --- | --- |
 | --dir | `string` | `.` | project directory |
+| --inventory | `string` | - | inventory file to read and write, in place of --dir's inventory.yaml; group_vars/ and host_vars/ are read beside it |
+| --vault | `string` | - | directory whose .pleiades/ holds the credential vault (master.key, credentials.yaml, seal.key), in place of --dir's; the journal and facts stay under --dir |
 | --mode | `string` | `execute` | execute undoes the changes; check reports what each undo would change and changes nothing |
 | --runbook | `string` | - | the runbook the run ran, when a task's undo is its rollback: list; found in DIR/runbooks when unset |
 | --leave | `string` | - | a node whose change to leave in place rather than undo (repeatable) |
@@ -596,6 +629,7 @@ what this project's runs observed about a host: each fact's current value, or on
 | Flag | Type | Default | Description |
 | --- | --- | --- | --- |
 | --dir | `string` | `.` | project directory |
+| --inventory | `string` | - | inventory file to read and write, in place of --dir's inventory.yaml; group_vars/ and host_vars/ are read beside it |
 | --json | `bool` | `false` | print one JSON document instead of text |
 | --verify | `bool` | `false` | check the host's fact chain instead of showing its facts; exits non-zero when it is broken |
 
@@ -652,6 +686,8 @@ pull devices from an external source into the local inventory
 | Flag | Type | Default | Description |
 | --- | --- | --- | --- |
 | --dir | `string` | `.` | project directory holding inventory.yaml |
+| --inventory | `string` | - | inventory file to read and write, in place of --dir's inventory.yaml; group_vars/ and host_vars/ are read beside it |
+| --vault | `string` | - | directory whose .pleiades/ holds the credential vault (master.key, credentials.yaml, seal.key), in place of --dir's; the journal and facts stay under --dir |
 | --plugin | `string` | - | sync plugin to run (see 'pleiades inventory plugins') |
 | --endpoint | `string` | - | upstream base URL, overriding the plugin's default |
 | --credential | `string` | - | credential store entry to authenticate with, defaulting to the plugin name |
@@ -873,7 +909,6 @@ generate a new namespaced Collection method package
 | --site | `string` | `target` | where the method's code runs: target (on or against the device), controller (in the host process) or hybrid |
 | --device | `string` | `required` | whether the method acts on a device: required, optional (decided per call by a DeviceCall the generated file stubs) or none |
 | --engine-version | `string` | - | minimum core engine version constraint (unparsed, e.g. >=1.0.0) |
-| --alternatives-json | `string` | - | the kinds of device the method serves, as a JSON list of pkg/collection.Alternative objects (name, supportedTransports, requiredCapabilities), or @path to read it from a file |
 | --doc-json | `string` | - | reference documentation as a JSON pkg/collection.Doc object, or @path to read it from a file |
 | --skip-existing | `bool` | `false` | leave an already-generated entry alone instead of refusing, for regenerating a catalog in place |
 

@@ -11,7 +11,6 @@ import (
 	"io"
 	"io/fs"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
@@ -38,7 +37,7 @@ func credentialBinding(dir, name string, noDevice bool, warn io.Writer) (unbound
 	var items []pkginventory.InventoryItem
 	// A project with no inventory yet (credentials first, hosts after) has no
 	// device of any name, which is not a failure to read one.
-	if _, statErr := os.Stat(filepath.Join(dir, inventory.DefaultInventoryFilename)); !errors.Is(statErr, fs.ErrNotExist) {
+	if _, statErr := os.Stat(inventoryFile(dir)); !errors.Is(statErr, fs.ErrNotExist) {
 		items, err = loadInventory(dir)
 	}
 	if err != nil {

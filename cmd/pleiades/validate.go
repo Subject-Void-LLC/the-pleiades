@@ -61,6 +61,7 @@ func (c runbookCheck) failed() bool {
 // when nothing was left to check.
 func runValidate(args []string) error {
 	fs := flag.NewFlagSet("validate", flag.ContinueOnError)
+	addInventoryFlag(fs)
 	dir := fs.String("dir", ".", "project directory")
 	selection := tagFlags(fs)
 	// The same flag, and the same parser, as run's, so a runbook is

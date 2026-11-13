@@ -31,6 +31,7 @@ import (
 // steer how the undo's tasks run, and the ones that decide what is undone.
 func newRollbackFlags() (*flag.FlagSet, *runFlags, rollbackFlags) {
 	fs := flag.NewFlagSet("rollback", flag.ContinueOnError)
+	addProjectFlags(fs)
 	flags := addRunFlags(fs)
 	rf := rollbackFlags{leave: map[string]bool{}, allowPartial: map[string]bool{}, allowUnknown: map[string]bool{}, allowSkew: map[string]bool{}, despite: map[string]bool{}}
 	rf.runbook = fs.String("runbook", "", "the runbook the run ran, when a task's undo is its rollback: list (found in DIR/runbooks when unset)")

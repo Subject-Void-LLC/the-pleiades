@@ -59,6 +59,7 @@ import (
 // answer to a question that already has one.
 func runAddCredential(args []string) error {
 	fs := flag.NewFlagSet("add-credential", flag.ContinueOnError)
+	addProjectFlags(fs)
 	dir := fs.String("dir", ".", "project directory")
 	username := fs.String("username", "", "account name to authenticate as")
 	password := fs.String("password", "", "password to authenticate with (prompted interactively if --key is also absent and this is empty)")
@@ -305,7 +306,7 @@ func openPasswordFile(dir, path string, passphraseGiven bool, readPassphrase fun
 	if err != nil {
 		return "", fmt.Errorf("%s: %w", path, err)
 	}
-	key, err := credential.ResolveMasterKey(dir)
+	key, err := credential.ResolveMasterKey(vaultDir(dir))
 	if err != nil {
 		return "", fmt.Errorf("failed to resolve master key: %w", err)
 	}
@@ -313,7 +314,7 @@ func openPasswordFile(dir, path string, passphraseGiven bool, readPassphrase fun
 	if passphraseGiven {
 		passphrase = func() (string, error) { return readPassphrase("sealed file passphrase: ") }
 	}
-	opened, err := credential.OpenSealedPassword(dir, key, file, passphrase)
+	opened, err := credential.OpenSealedPassword(vaultDir(dir), key, file, passphrase)
 	if err != nil {
 		return "", fmt.Errorf("%s: %w", path, err)
 	}
@@ -323,12 +324,12 @@ func openPasswordFile(dir, path string, passphraseGiven bool, readPassphrase fun
 // saveCredential encrypts cred into dir's credential store for device name,
 // marked as opts says.
 func saveCredential(dir, name string, cred credential.Credential, opts credential.SaveOptions) error {
-	key, err := credential.ResolveMasterKey(dir)
+	key, err := credential.ResolveMasterKey(vaultDir(dir))
 	if err != nil {
 		return fmt.Errorf("failed to resolve master key: %w", err)
 	}
 
-	if err := credential.SaveFileStoreWith(dir, key, name, cred, opts); err != nil {
+	if err := credential.SaveFileStoreWith(vaultDir(dir), key, name, cred, opts); err != nil {
 		return fmt.Errorf("failed to save credential: %w", err)
 	}
 
@@ -341,11 +342,11 @@ func saveCredential(dir, name string, cred credential.Credential, opts credentia
 // which is what a machine is given so the key may log in to it. The entry is
 // marked as opts says.
 func generateCredential(dir, device, username string, replace bool, opts credential.SaveOptions) error {
-	key, err := credential.ResolveMasterKey(dir)
+	key, err := credential.ResolveMasterKey(vaultDir(dir))
 	if err != nil {
 		return fmt.Errorf("failed to resolve master key: %w", err)
 	}
-	store, err := credential.NewFileStore(dir, key)
+	store, err := credential.NewFileStore(vaultDir(dir), key)
 	if err != nil {
 		return fmt.Errorf("failed to open the credential store: %w", err)
 	}
@@ -365,7 +366,7 @@ func generateCredential(dir, device, username string, replace bool, opts credent
 	if err != nil {
 		return err
 	}
-	if err := credential.SaveFileStoreWith(dir, key, device, cred, opts); err != nil {
+	if err := credential.SaveFileStoreWith(vaultDir(dir), key, device, cred, opts); err != nil {
 		return fmt.Errorf("failed to save credential: %w", err)
 	}
 	fmt.Printf("stored a generated credential for device %q%s: an ed25519 key and a %d-character password, for %s\n",

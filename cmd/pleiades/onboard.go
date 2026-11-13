@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -29,6 +28,7 @@ import (
 // carries the reason.
 func runOnboard(args []string) error {
 	fs := flag.NewFlagSet("onboard", flag.ContinueOnError)
+	addProjectFlags(fs)
 	dir := fs.String("dir", ".", "project directory")
 	asJSON := fs.Bool("json", false, "print the result as JSON")
 	timeout := fs.Duration("timeout", 30*time.Second, "how long the probe may take")
@@ -42,8 +42,8 @@ func runOnboard(args []string) error {
 
 	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
 	defer cancel()
-	repo := inv.NewFileRepository(filepath.Join(*dir, inv.DefaultInventoryFilename), inv.NewItemFactory())
-	store := credential.NewLazyFileStore(*dir)
+	repo := inv.NewFileRepository(inventoryFile(*dir), inv.NewItemFactory())
+	store := credential.NewLazyFileStore(vaultDir(*dir))
 	secrets := onboard.SecretsFrom(store)
 	// A device reached through a route of SSH hops (a cluster behind a
 	// bastion) is probed through it, resolved as a run resolves it.

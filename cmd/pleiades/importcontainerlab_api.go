@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"net/netip"
 	"net/url"
-	"path/filepath"
 	"strings"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
@@ -30,7 +29,7 @@ const inspectMethod = "virt.clab.lab.info"
 // the server named, and an address is the management address or a published
 // SSH port, exactly as the topology file would have given.
 func readInspect(ctx context.Context, dir, device, lab string) (clabTopology, error) {
-	repo := inv.NewFileRepository(filepath.Join(dir, inv.DefaultInventoryFilename), inv.NewItemFactory())
+	repo := inv.NewFileRepository(inventoryFile(dir), inv.NewItemFactory())
 	item, err := repo.GetByName(ctx, device)
 	if err != nil {
 		return clabTopology{}, err
@@ -42,7 +41,7 @@ func readInspect(ctx context.Context, dir, device, lab string) (clabTopology, er
 	if !item.HasCapability(capability.NameClabAPI) {
 		return clabTopology{}, fmt.Errorf("device %q is not a containerlab API server onboarding recognised: run pleiades onboard %s first", device, device)
 	}
-	rc, err := engine.NewCredentialRunbookContext(credential.NewLazyFileStore(dir))(ctx, item)
+	rc, err := engine.NewCredentialRunbookContext(credential.NewLazyFileStore(vaultDir(dir)))(ctx, item)
 	if err != nil {
 		return clabTopology{}, err
 	}

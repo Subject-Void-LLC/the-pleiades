@@ -26,6 +26,7 @@ const maxCAFileBytes = 1 << 20
 // which no device name can address.
 func runAddDatabaseConnection(args []string) error {
 	fs := flag.NewFlagSet("add-database-connection", flag.ContinueOnError)
+	addVaultFlag(fs)
 	dir := fs.String("dir", ".", "project directory")
 	host := fs.String("host", "", "the server as the device a task runs on sees it: a name, an address, or its Unix socket directory")
 	port := fs.Int("port", 0, "the server's port (default 5432)")
@@ -77,11 +78,11 @@ func runAddDatabaseConnection(args []string) error {
 	if conn.Password == "" && !*noPassword {
 		return fmt.Errorf("the password is empty; pass --no-password for a login that sends none")
 	}
-	key, err := credential.ResolveMasterKey(*dir)
+	key, err := credential.ResolveMasterKey(vaultDir(*dir))
 	if err != nil {
 		return fmt.Errorf("failed to resolve credential master key: %w", err)
 	}
-	if err := credential.SaveDatabaseConnection(*dir, key, conn); err != nil {
+	if err := credential.SaveDatabaseConnection(vaultDir(*dir), key, conn); err != nil {
 		return err
 	}
 	fmt.Printf("stored database connection %s (%s@%s:%d)\n", conn.Name, termsafe.EscapeLine(conn.User), termsafe.EscapeLine(conn.Host), conn.EffectivePort())
@@ -109,6 +110,7 @@ type databaseConnectionView struct {
 // password.
 func runListDatabaseConnections(args []string) error {
 	fs := flag.NewFlagSet("list-database-connections", flag.ContinueOnError)
+	addVaultFlag(fs)
 	dir := fs.String("dir", ".", "project directory")
 	asJSON := fs.Bool("json", false, "print one JSON document instead of text")
 	if err := fs.Parse(args); err != nil {
@@ -117,7 +119,7 @@ func runListDatabaseConnections(args []string) error {
 	if fs.NArg() > 0 {
 		return fmt.Errorf("usage: pleiades list-database-connections [--dir DIR] [--json]")
 	}
-	conns, err := credential.ListDatabaseConnections(*dir)
+	conns, err := credential.ListDatabaseConnections(vaultDir(*dir))
 	if err != nil {
 		return err
 	}
@@ -154,6 +156,7 @@ func runListDatabaseConnections(args []string) error {
 // runRemoveDatabaseConnection removes the named connection.
 func runRemoveDatabaseConnection(args []string) error {
 	fs := flag.NewFlagSet("remove-database-connection", flag.ContinueOnError)
+	addVaultFlag(fs)
 	dir := fs.String("dir", ".", "project directory")
 	name, err := parseOneArg(fs, args)
 	if err != nil && !isPositionalCountErr(err) {
@@ -162,7 +165,7 @@ func runRemoveDatabaseConnection(args []string) error {
 	if err != nil || name == "" {
 		return fmt.Errorf("usage: pleiades remove-database-connection <name> [--dir DIR]")
 	}
-	removed, err := credential.RemoveDatabaseConnection(*dir, name)
+	removed, err := credential.RemoveDatabaseConnection(vaultDir(*dir), name)
 	if err != nil {
 		return err
 	}

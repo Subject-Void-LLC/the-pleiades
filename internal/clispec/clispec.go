@@ -99,6 +99,7 @@ var Root = Command{
 			Synopsis:   "add a host to the static inventory",
 			Flags: []Flag{
 				{Name: "dir", Type: "string", Default: ".", Doc: "project directory"},
+				{Name: "inventory", Type: "string", Default: "", Doc: "inventory file to read and write, in place of --dir's inventory.yaml; group_vars/ and host_vars/ are read beside it"},
 				{Name: "type", Type: "string", Default: "", Doc: "device type (e.g. linux_server, cisco_router)"},
 				{Name: "classify", Type: "string", Default: "", Doc: "comma-separated classification path (e.g. linux_server,debian_family,ubuntu), an alternative to --type"},
 				{Name: "tags", Type: "string", Default: "", Doc: "comma-separated tags (repeatable); --tag is the same flag"},
@@ -113,6 +114,7 @@ var Root = Command{
 			Synopsis:   "change an existing host's properties and tags",
 			Flags: []Flag{
 				{Name: "dir", Type: "string", Default: ".", Doc: "project directory"},
+				{Name: "inventory", Type: "string", Default: "", Doc: "inventory file to read and write, in place of --dir's inventory.yaml; group_vars/ and host_vars/ are read beside it"},
 				{Name: "set", Type: "key=value", Default: "", Doc: "device property to add or replace, as key=value (repeatable)"},
 				{Name: "unset", Type: "string", Default: "", Doc: "device property to remove (repeatable)"},
 				{Name: "tag", Type: "string", Default: "", Doc: "tag to add, or several separated by commas (repeatable)"},
@@ -131,6 +133,7 @@ var Root = Command{
 			Synopsis:   "assert that a device holds a capability an external program defines, with a reason",
 			Flags: []Flag{
 				{Name: "dir", Type: "string", Default: ".", Doc: "project directory"},
+				{Name: "inventory", Type: "string", Default: "", Doc: "inventory file to read and write, in place of --dir's inventory.yaml; group_vars/ and host_vars/ are read beside it"},
 				{Name: "reason", Type: "string", Default: "", Doc: "why this device holds the capability, recorded with the grant (required)"},
 				{Name: "set", Type: "key=value", Default: "", Doc: "grant property as key=value (repeatable)"},
 			},
@@ -145,6 +148,7 @@ var Root = Command{
 			Flags: []Flag{
 				{Name: "dir", Type: "string", Default: ".", Doc: "project directory"},
 				{Name: "build", Type: "string", Default: "", Doc: "revoke, on every device, each grant the program build with this digest (sha256:<hex>) probed, keeping every other build's grants and every assertion"},
+				{Name: "inventory", Type: "string", Default: "", Doc: "inventory file to read and write, in place of --dir's inventory.yaml; group_vars/ and host_vars/ are read beside it"},
 			},
 			Examples: []string{
 				"pleiades revoke-capability tenancy oci.tenancy_api",
@@ -157,6 +161,8 @@ var Root = Command{
 			Synopsis:   "trust a device's SSH host keys, read from its VM's console or taken on first connect",
 			Flags: []Flag{
 				{Name: "dir", Type: "string", Default: ".", Doc: "project directory"},
+				{Name: "inventory", Type: "string", Default: "", Doc: "inventory file to read and write, in place of --dir's inventory.yaml; group_vars/ and host_vars/ are read beside it"},
+				{Name: "vault", Type: "string", Default: "", Doc: "directory whose .pleiades/ holds the credential vault (master.key, credentials.yaml, seal.key), in place of --dir's; the journal and facts stay under --dir"},
 				{Name: "from-console", Type: "string", Default: "", Doc: "the VirtualBox host running the device's VM, whose console log holds its host keys"},
 				{Name: "vm", Type: "string", Default: "", Doc: "with --from-console, the VM's name on the host, when it is not the device's"},
 				{Name: "first-connect", Type: "bool", Default: "false", Doc: "trust whatever host keys answer at the device's address, unverified; refused for a device not flagged ephemeral unless --reason says why"},
@@ -175,6 +181,8 @@ var Root = Command{
 			Synopsis:   "store an encrypted credential for a device",
 			Flags: []Flag{
 				{Name: "dir", Type: "string", Default: ".", Doc: "project directory"},
+				{Name: "inventory", Type: "string", Default: "", Doc: "inventory file to read and write, in place of --dir's inventory.yaml; group_vars/ and host_vars/ are read beside it"},
+				{Name: "vault", Type: "string", Default: "", Doc: "directory whose .pleiades/ holds the credential vault (master.key, credentials.yaml, seal.key), in place of --dir's; the journal and facts stay under --dir"},
 				{Name: "username", Type: "string", Default: "", Doc: "account name to authenticate as"},
 				{Name: "password", Type: "string", Default: "", Doc: "password to authenticate with (prompted interactively if --key is also absent and this is empty)"},
 				{Name: "password-stdin", Type: "bool", Default: "false", Doc: "read the password to authenticate with as one line on standard input"},
@@ -205,6 +213,7 @@ var Root = Command{
 			Synopsis: "list the project's device credentials by name, account and kind, marking unbound ones, never a value",
 			Flags: []Flag{
 				{Name: "dir", Type: "string", Default: ".", Doc: "project directory"},
+				{Name: "vault", Type: "string", Default: "", Doc: "directory whose .pleiades/ holds the credential vault (master.key, credentials.yaml, seal.key), in place of --dir's; the journal and facts stay under --dir"},
 				{Name: "json", Type: "bool", Default: "false", Doc: "print one JSON document instead of text"},
 			},
 			Examples: []string{"pleiades list-credentials", "pleiades list-credentials --json"},
@@ -214,6 +223,7 @@ var Root = Command{
 			Synopsis: "print this project's public seal key, making the key pair on first use",
 			Flags: []Flag{
 				{Name: "dir", Type: "string", Default: ".", Doc: "project directory"},
+				{Name: "vault", Type: "string", Default: "", Doc: "directory whose .pleiades/ holds the credential vault (master.key, credentials.yaml, seal.key), in place of --dir's; the journal and facts stay under --dir"},
 				{Name: "json", Type: "bool", Default: "false", Doc: "print one JSON document instead of text"},
 			},
 			Examples: []string{"pleiades seal-key"},
@@ -241,6 +251,7 @@ var Root = Command{
 			Synopsis:   "store an encrypted account for one container registry, given only to pulls and pushes on that registry",
 			Flags: []Flag{
 				{Name: "dir", Type: "string", Default: ".", Doc: "project directory"},
+				{Name: "vault", Type: "string", Default: "", Doc: "directory whose .pleiades/ holds the credential vault (master.key, credentials.yaml, seal.key), in place of --dir's; the journal and facts stay under --dir"},
 				{Name: "username", Type: "string", Default: "", Doc: "the registry account"},
 				{Name: "password-stdin", Type: "bool", Default: "false", Doc: "read the password or token as one line on standard input"},
 			},
@@ -255,6 +266,7 @@ var Root = Command{
 			Synopsis:   "store a named PostgreSQL connection, its password encrypted, given only to a db.pg task that names it",
 			Flags: []Flag{
 				{Name: "dir", Type: "string", Default: ".", Doc: "project directory"},
+				{Name: "vault", Type: "string", Default: "", Doc: "directory whose .pleiades/ holds the credential vault (master.key, credentials.yaml, seal.key), in place of --dir's; the journal and facts stay under --dir"},
 				{Name: "host", Type: "string", Default: "", Doc: "the server as the device a task runs on sees it: a name, an address, or its Unix socket directory"},
 				{Name: "port", Type: "int", Default: "5432", Doc: "the server's port"},
 				{Name: "user", Type: "string", Default: "", Doc: "the login"},
@@ -276,6 +288,7 @@ var Root = Command{
 			Synopsis: "list the stored database connections, never a password",
 			Flags: []Flag{
 				{Name: "dir", Type: "string", Default: ".", Doc: "project directory"},
+				{Name: "vault", Type: "string", Default: "", Doc: "directory whose .pleiades/ holds the credential vault (master.key, credentials.yaml, seal.key), in place of --dir's; the journal and facts stay under --dir"},
 				{Name: "json", Type: "bool", Default: "false", Doc: "print one JSON document instead of text"},
 			},
 			Examples: []string{"pleiades list-database-connections --json"},
@@ -286,6 +299,7 @@ var Root = Command{
 			Synopsis:   "remove a stored database connection",
 			Flags: []Flag{
 				{Name: "dir", Type: "string", Default: ".", Doc: "project directory"},
+				{Name: "vault", Type: "string", Default: "", Doc: "directory whose .pleiades/ holds the credential vault (master.key, credentials.yaml, seal.key), in place of --dir's; the journal and facts stay under --dir"},
 			},
 			Examples: []string{"pleiades remove-database-connection appdb"},
 		},
@@ -295,6 +309,7 @@ var Root = Command{
 			Synopsis:   "store one field of a named secret, encrypted, for a runbook to name as {{ secret.<name>.<field> }} in a parameter its method resolves",
 			Flags: []Flag{
 				{Name: "dir", Type: "string", Default: ".", Doc: "project directory"},
+				{Name: "vault", Type: "string", Default: "", Doc: "directory whose .pleiades/ holds the credential vault (master.key, credentials.yaml, seal.key), in place of --dir's; the journal and facts stay under --dir"},
 				{Name: "field", Type: "string", Default: "", Doc: "the field of the secret to store, a lowercase identifier"},
 				{Name: "value-stdin", Type: "bool", Default: "false", Doc: "read the value as one line on standard input"},
 				{Name: "value-file", Type: "string", Default: "", Doc: "a file `pleiades seal` wrote holding the value"},
@@ -313,6 +328,7 @@ var Root = Command{
 			Synopsis: "list the stored named secrets and their fields, never a value",
 			Flags: []Flag{
 				{Name: "dir", Type: "string", Default: ".", Doc: "project directory"},
+				{Name: "vault", Type: "string", Default: "", Doc: "directory whose .pleiades/ holds the credential vault (master.key, credentials.yaml, seal.key), in place of --dir's; the journal and facts stay under --dir"},
 				{Name: "json", Type: "bool", Default: "false", Doc: "print one JSON document instead of text"},
 			},
 			Examples: []string{"pleiades list-secrets --json"},
@@ -323,6 +339,7 @@ var Root = Command{
 			Synopsis:   "remove a stored named secret, or one of its fields",
 			Flags: []Flag{
 				{Name: "dir", Type: "string", Default: ".", Doc: "project directory"},
+				{Name: "vault", Type: "string", Default: "", Doc: "directory whose .pleiades/ holds the credential vault (master.key, credentials.yaml, seal.key), in place of --dir's; the journal and facts stay under --dir"},
 				{Name: "field", Type: "string", Default: "", Doc: "remove only this field; the whole secret when empty"},
 			},
 			Examples: []string{"pleiades remove-secret dmvpn", "pleiades remove-secret dmvpn --field psk"},
@@ -333,6 +350,8 @@ var Root = Command{
 			Synopsis:   "remove a host from the inventory, and with flags its credential and the known_hosts lines trusting its address; the journal keeps its runs",
 			Flags: []Flag{
 				{Name: "dir", Type: "string", Default: ".", Doc: "project directory"},
+				{Name: "inventory", Type: "string", Default: "", Doc: "inventory file to read and write, in place of --dir's inventory.yaml; group_vars/ and host_vars/ are read beside it"},
+				{Name: "vault", Type: "string", Default: "", Doc: "directory whose .pleiades/ holds the credential vault (master.key, credentials.yaml, seal.key), in place of --dir's; the journal and facts stay under --dir"},
 				{Name: "credential", Type: "bool", Default: "false", Doc: "also remove the host's stored credential"},
 				{Name: "forget-host-keys", Type: "bool", Default: "false", Doc: "also remove the known_hosts lines trusting the host's SSH address, unless another device is reached there"},
 				{Name: "leave-references", Type: "bool", Default: "false", Doc: "remove the host even when another host names it in a property (a console node's console_server)"},
@@ -346,6 +365,7 @@ var Root = Command{
 			Synopsis:   "remove a device's stored credential, leaving the device in the inventory",
 			Flags: []Flag{
 				{Name: "dir", Type: "string", Default: ".", Doc: "project directory"},
+				{Name: "vault", Type: "string", Default: "", Doc: "directory whose .pleiades/ holds the credential vault (master.key, credentials.yaml, seal.key), in place of --dir's; the journal and facts stay under --dir"},
 			},
 			Examples: []string{"pleiades remove-credential br4"},
 		},
@@ -355,6 +375,8 @@ var Root = Command{
 			Synopsis:   "make one kubeconfig context a kubernetes_cluster device and its stored credential, refusing anything in it that would run a program or read a file",
 			Flags: []Flag{
 				{Name: "dir", Type: "string", Default: ".", Doc: "project directory"},
+				{Name: "inventory", Type: "string", Default: "", Doc: "inventory file to read and write, in place of --dir's inventory.yaml; group_vars/ and host_vars/ are read beside it"},
+				{Name: "vault", Type: "string", Default: "", Doc: "directory whose .pleiades/ holds the credential vault (master.key, credentials.yaml, seal.key), in place of --dir's; the journal and facts stay under --dir"},
 				{Name: "kubeconfig", Type: "string", Default: "", Doc: "the kubeconfig to read, or - for standard input; never a default location"},
 				{Name: "context", Type: "string", Default: "", Doc: "the context to import; the kubeconfig's current context when empty"},
 				{Name: "replace", Type: "bool", Default: "false", Doc: "replace the connection settings and credential of a cluster already in the inventory"},
@@ -370,6 +392,8 @@ var Root = Command{
 			Synopsis: "make a containerlab lab's nodes generic_ssh devices, from the topology-data.json it wrote on deploy, refusing any node that is not the named lab's",
 			Flags: []Flag{
 				{Name: "dir", Type: "string", Default: ".", Doc: "project directory"},
+				{Name: "inventory", Type: "string", Default: "", Doc: "inventory file to read and write, in place of --dir's inventory.yaml; group_vars/ and host_vars/ are read beside it"},
+				{Name: "vault", Type: "string", Default: "", Doc: "directory whose .pleiades/ holds the credential vault (master.key, credentials.yaml, seal.key), in place of --dir's; the journal and facts stay under --dir"},
 				{Name: "topology", Type: "string", Default: "", Doc: "containerlab's topology-data.json for the lab, written on deploy"},
 				{Name: "api", Type: "string", Default: "", Doc: "instead of --topology: the inventory device of a containerlab API server (onboarded, with its login stored), whose inspect of --lab is read"},
 				{Name: "lab", Type: "string", Default: "", Doc: "the lab's name, which the file must be for"},
@@ -392,6 +416,8 @@ var Root = Command{
 			Synopsis: "make a Cisco Modeling Labs lab's nodes generic_ssh devices at their management addresses, read from the controller's API; an address is the one the controller observed or one --address gives, never one guessed from a configuration",
 			Flags: []Flag{
 				{Name: "dir", Type: "string", Default: ".", Doc: "project directory"},
+				{Name: "inventory", Type: "string", Default: "", Doc: "inventory file to read and write, in place of --dir's inventory.yaml; group_vars/ and host_vars/ are read beside it"},
+				{Name: "vault", Type: "string", Default: "", Doc: "directory whose .pleiades/ holds the credential vault (master.key, credentials.yaml, seal.key), in place of --dir's; the journal and facts stay under --dir"},
 				{Name: "server", Type: "string", Default: "", Doc: "the CML controller's base URL, e.g. https://cml.lab"},
 				{Name: "lab", Type: "string", Default: "", Doc: "the lab to import, by title or id"},
 				{Name: "nodes", Type: "string", Default: "", Doc: "comma-separated nodes to import; every node when empty"},
@@ -418,6 +444,7 @@ var Root = Command{
 			Synopsis: "make a GNS3 project's nodes console_device devices at their telnet consoles, read from the server's own API (3.x or 2.2), skipping any node without a telnet console",
 			Flags: []Flag{
 				{Name: "dir", Type: "string", Default: ".", Doc: "project directory"},
+				{Name: "inventory", Type: "string", Default: "", Doc: "inventory file to read and write, in place of --dir's inventory.yaml; group_vars/ and host_vars/ are read beside it"},
 				{Name: "server", Type: "string", Default: "", Doc: "the GNS3 server's base URL, e.g. http://gns3.lab:3080"},
 				{Name: "project", Type: "string", Default: "", Doc: "the project to import, by name or id"},
 				{Name: "nodes", Type: "string", Default: "", Doc: "comma-separated nodes to import; every node when empty"},
@@ -438,6 +465,8 @@ var Root = Command{
 			Synopsis:   "probe a device over its protocol and record what it proved: a generic device's capabilities, the container engines a host runs, or what a Kubernetes cluster serves",
 			Flags: []Flag{
 				{Name: "dir", Type: "string", Default: ".", Doc: "project directory"},
+				{Name: "inventory", Type: "string", Default: "", Doc: "inventory file to read and write, in place of --dir's inventory.yaml; group_vars/ and host_vars/ are read beside it"},
+				{Name: "vault", Type: "string", Default: "", Doc: "directory whose .pleiades/ holds the credential vault (master.key, credentials.yaml, seal.key), in place of --dir's; the journal and facts stay under --dir"},
 				{Name: "json", Type: "bool", Default: "false", Doc: "print the result as JSON, in the same model the text shows"},
 				{Name: "timeout", Type: "duration", Default: "30s", Doc: "how long the probe may take"},
 			},
@@ -452,6 +481,7 @@ var Root = Command{
 			Synopsis:   "check runbooks against the inventory; with none named, every one in runbooks/",
 			Flags: []Flag{
 				{Name: "dir", Type: "string", Default: ".", Doc: "project directory"},
+				{Name: "inventory", Type: "string", Default: "", Doc: "inventory file to read and write, in place of --dir's inventory.yaml; group_vars/ and host_vars/ are read beside it"},
 				{Name: "tags", Type: "string", Default: "", Doc: "run only the tasks carrying one of these tags (comma-separated, repeatable); all, tagged, untagged, always and never keep Ansible's meanings, and a task tagged never runs only when named"},
 				{Name: "skip-tags", Type: "string", Default: "", Doc: "leave out the tasks carrying one of these tags, even ones --tags selects (comma-separated, repeatable)"},
 				{Name: "extra-vars", Type: "string", Default: "", Doc: "a variable the run will start with, read exactly as run reads it (key=value, key:=yaml or @file.yaml, repeatable); a parameter reading vars.<name> that none of these gives, with no | default(...), is reported"},
@@ -465,6 +495,8 @@ var Root = Command{
 			Synopsis:   "build, validate, and run a runbook",
 			Flags: []Flag{
 				{Name: "dir", Type: "string", Default: ".", Doc: "project directory"},
+				{Name: "inventory", Type: "string", Default: "", Doc: "inventory file to read and write, in place of --dir's inventory.yaml; group_vars/ and host_vars/ are read beside it"},
+				{Name: "vault", Type: "string", Default: "", Doc: "directory whose .pleiades/ holds the credential vault (master.key, credentials.yaml, seal.key), in place of --dir's; the journal and facts stay under --dir"},
 				{Name: "mode", Type: "string", Default: "execute", Doc: "execute applies changes; check reports what each task would change and changes nothing"},
 				{Name: "verbose", Type: "bool", Default: "false", Doc: "print each task's own output (stdout, exit status, diffs), not just whether it changed"},
 				{Name: "v", Type: "bool", Default: "false", Doc: "shorthand for --verbose"},
@@ -497,6 +529,8 @@ var Root = Command{
 			Synopsis:   "run one method against a device, a tag or a comma list of devices, or with - (or no hosts at all) one that needs no device, with no runbook written",
 			Flags: []Flag{
 				{Name: "dir", Type: "string", Default: ".", Doc: "project directory"},
+				{Name: "inventory", Type: "string", Default: "", Doc: "inventory file to read and write, in place of --dir's inventory.yaml; group_vars/ and host_vars/ are read beside it"},
+				{Name: "vault", Type: "string", Default: "", Doc: "directory whose .pleiades/ holds the credential vault (master.key, credentials.yaml, seal.key), in place of --dir's; the journal and facts stay under --dir"},
 				{Name: "mode", Type: "string", Default: "execute", Doc: "execute applies changes; check reports what the method would change and changes nothing"},
 				{Name: "verbose", Type: "bool", Default: "false", Doc: "print the method's own output (stdout, exit status, diffs), not just whether it changed"},
 				{Name: "v", Type: "bool", Default: "false", Doc: "shorthand for --verbose"},
@@ -525,6 +559,8 @@ var Root = Command{
 			Synopsis:   "undo a run from its journal: every device it changed, newest change first",
 			Flags: []Flag{
 				{Name: "dir", Type: "string", Default: ".", Doc: "project directory"},
+				{Name: "inventory", Type: "string", Default: "", Doc: "inventory file to read and write, in place of --dir's inventory.yaml; group_vars/ and host_vars/ are read beside it"},
+				{Name: "vault", Type: "string", Default: "", Doc: "directory whose .pleiades/ holds the credential vault (master.key, credentials.yaml, seal.key), in place of --dir's; the journal and facts stay under --dir"},
 				{Name: "mode", Type: "string", Default: "execute", Doc: "execute undoes the changes; check reports what each undo would change and changes nothing"},
 				{Name: "runbook", Type: "string", Default: "", Doc: "the runbook the run ran, when a task's undo is its rollback: list; found in DIR/runbooks when unset"},
 				{Name: "leave", Type: "string", Default: "", Doc: "a node whose change to leave in place rather than undo (repeatable)"},
@@ -554,6 +590,7 @@ var Root = Command{
 			Synopsis:   "what this project's runs observed about a host: each fact's current value, or one fact's history, with its kind and the run that saw it; --verify checks the stored values' hash chain",
 			Flags: []Flag{
 				{Name: "dir", Type: "string", Default: ".", Doc: "project directory"},
+				{Name: "inventory", Type: "string", Default: "", Doc: "inventory file to read and write, in place of --dir's inventory.yaml; group_vars/ and host_vars/ are read beside it"},
 				{Name: "json", Type: "bool", Default: "false", Doc: "print one JSON document instead of text"},
 				{Name: "verify", Type: "bool", Default: "false", Doc: "check the host's fact chain instead of showing its facts; exits non-zero when it is broken"},
 			},
@@ -594,6 +631,8 @@ var Root = Command{
 					Synopsis: "pull devices from an external source into the local inventory",
 					Flags: []Flag{
 						{Name: "dir", Type: "string", Default: ".", Doc: "project directory holding inventory.yaml"},
+						{Name: "inventory", Type: "string", Default: "", Doc: "inventory file to read and write, in place of --dir's inventory.yaml; group_vars/ and host_vars/ are read beside it"},
+						{Name: "vault", Type: "string", Default: "", Doc: "directory whose .pleiades/ holds the credential vault (master.key, credentials.yaml, seal.key), in place of --dir's; the journal and facts stay under --dir"},
 						{Name: "plugin", Type: "string", Default: "", Doc: "sync plugin to run (see 'pleiades inventory plugins')"},
 						{Name: "endpoint", Type: "string", Default: "", Doc: "upstream base URL, overriding the plugin's default"},
 						{Name: "credential", Type: "string", Default: "", Doc: "credential store entry to authenticate with, defaulting to the plugin name"},

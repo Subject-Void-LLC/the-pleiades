@@ -449,7 +449,7 @@ func outcomeError(outcome runOutcome) error {
 // the environment variable are, since the engine reads a relative guard
 // against the project directory instead.
 func projectWriteGuards(dir string) []string {
-	paths := inventory.FileRepositoryPaths(filepath.Join(dir, inventory.DefaultInventoryFilename))
+	paths := inventory.FileRepositoryPaths(inventoryFile(dir))
 	if collections := os.Getenv(collectionsDirEnv); collections != "" {
 		paths = append(paths, collections)
 	}
@@ -504,7 +504,7 @@ func newRunExecutor(opts runOptions, world validate.WorldView, sink engine.Journ
 	// The first lookup of a credential stored for a name no device had
 	// (add-credential's unbound mark) says so, once, and clears the mark: a
 	// device added later under that name is now sent it.
-	credentials := credential.NoticeUnbound(credential.NewLazyFileStore(opts.dir), opts.dir, func(name string) {
+	credentials := credential.NoticeUnbound(credential.NewLazyFileStore(vaultDir(opts.dir)), vaultDir(opts.dir), func(name string) {
 		fmt.Fprintf(os.Stderr, "warning: device %q is using a credential stored before any inventory device had that name (marked unbound); "+
 			"if it is not the one meant for this device, replace it with pleiades add-credential\n", termsafe.EscapeLine(name))
 	})
@@ -514,7 +514,7 @@ func newRunExecutor(opts runOptions, world validate.WorldView, sink engine.Journ
 	// executor's hop chain needs GetByName and GroupAncestry, which a
 	// plain slice cannot answer. NewFileRepository wraps a path and reads
 	// nothing until asked, so it is cheap to build twice.
-	inventoryRepo := inventory.NewFileRepository(filepath.Join(opts.dir, inventory.DefaultInventoryFilename), inventory.NewItemFactory())
+	inventoryRepo := inventory.NewFileRepository(inventoryFile(opts.dir), inventory.NewItemFactory())
 
 	// One SSH connection per device, kept open between that device's
 	// tasks and closed when the run ends, unless --persist-connections=false
@@ -566,7 +566,7 @@ func newRunExecutor(opts runOptions, world validate.WorldView, sink engine.Journ
 		// A digest of a file not everyone may read is kept only keyed, under a
 		// key derived from the project's master key, which is read only when
 		// such a digest turns up (internal/facts' keyed digests).
-		engine.WithFactDigestKeyer(facts.NewLazyKeyer(func() ([]byte, error) { return credential.ResolveMasterKey(opts.dir) }, "project")),
+		engine.WithFactDigestKeyer(facts.NewLazyKeyer(func() ([]byte, error) { return credential.ResolveMasterKey(vaultDir(opts.dir)) }, "project")),
 		// --setting's values, for every task leaving the parameter out.
 		engine.WithRunSettings(opts.settings),
 	)
@@ -574,7 +574,7 @@ func newRunExecutor(opts runOptions, world validate.WorldView, sink engine.Journ
 	// Every named secret of the project is masked from the run's start, not
 	// only those a task resolves: a task that reads a device's configuration
 	// prints a pre-shared key no task of this run asked for.
-	known, err := credential.SecretValues(opts.dir)
+	known, err := credential.SecretValues(vaultDir(opts.dir))
 	if err != nil {
 		closeAll()
 		return nil, nil, fmt.Errorf("reading the project's named secrets to mask them: %w", err)

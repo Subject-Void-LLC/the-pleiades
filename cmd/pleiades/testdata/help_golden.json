@@ -37,7 +37,7 @@
   "add-host web1 --help": {
     "code": 0,
     "stdout": "",
-    "stderr": "Usage of add-host:\n  -classify string\n    \tcomma-separated classification path (e.g. linux_server,debian_family,ubuntu), an alternative to --type\n  -dir string\n    \tproject directory (default \".\")\n  -set value\n    \tdevice property as key=value (repeatable)\n  -tag value\n    \ta tag, or several separated by commas (repeatable); --tags is the same flag\n  -tags value\n    \tcomma-separated tags (repeatable); --tag is the same flag\n  -type string\n    \tdevice type (e.g. linux_server, cisco_router)\n"
+    "stderr": "Usage of add-host:\n  -classify string\n    \tcomma-separated classification path (e.g. linux_server,debian_family,ubuntu), an alternative to --type\n  -dir string\n    \tproject directory (default \".\")\n  -inventory value\n    \tinventory file to read and write, in place of --dir's inventory.yaml; group_vars/ and host_vars/ are read beside it\n  -set value\n    \tdevice property as key=value (repeatable)\n  -tag value\n    \ta tag, or several separated by commas (repeatable); --tags is the same flag\n  -tags value\n    \tcomma-separated tags (repeatable); --tag is the same flag\n  -type string\n    \tdevice type (e.g. linux_server, cisco_router)\n"
   },
   "add-registry-credential --help": {
     "code": 0,
@@ -62,22 +62,22 @@
   "adhoc --help": {
     "code": 0,
     "stdout": "",
-    "stderr": "usage: pleiades adhoc \u003chosts | a,b,c | -\u003e \u003cmethod\u003e [key=value | key:=yaml ...] [--allow-unchecked X] [--dir X] [--fail-on-rescue] [--forks X] [--json] [--limit X] [--mode X] [--persist-connections] [--setting X] [--timeout X] [--verbose]\n"
+    "stderr": "usage: pleiades adhoc \u003chosts | a,b,c | -\u003e \u003cmethod\u003e [key=value | key:=yaml ...] [--allow-unchecked X] [--dir X] [--fail-on-rescue] [--forks X] [--inventory X] [--json] [--limit X] [--mode X] [--persist-connections] [--setting X] [--timeout X] [--vault X] [--verbose]\n"
   },
   "adhoc -h": {
     "code": 0,
     "stdout": "",
-    "stderr": "usage: pleiades adhoc \u003chosts | a,b,c | -\u003e \u003cmethod\u003e [key=value | key:=yaml ...] [--allow-unchecked X] [--dir X] [--fail-on-rescue] [--forks X] [--json] [--limit X] [--mode X] [--persist-connections] [--setting X] [--timeout X] [--verbose]\n"
+    "stderr": "usage: pleiades adhoc \u003chosts | a,b,c | -\u003e \u003cmethod\u003e [key=value | key:=yaml ...] [--allow-unchecked X] [--dir X] [--fail-on-rescue] [--forks X] [--inventory X] [--json] [--limit X] [--mode X] [--persist-connections] [--setting X] [--timeout X] [--vault X] [--verbose]\n"
   },
   "adhoc web1 --help": {
     "code": 0,
     "stdout": "",
-    "stderr": "usage: pleiades adhoc \u003chosts | a,b,c | -\u003e \u003cmethod\u003e [key=value | key:=yaml ...] [--allow-unchecked X] [--dir X] [--fail-on-rescue] [--forks X] [--json] [--limit X] [--mode X] [--persist-connections] [--setting X] [--timeout X] [--verbose]\n"
+    "stderr": "usage: pleiades adhoc \u003chosts | a,b,c | -\u003e \u003cmethod\u003e [key=value | key:=yaml ...] [--allow-unchecked X] [--dir X] [--fail-on-rescue] [--forks X] [--inventory X] [--json] [--limit X] [--mode X] [--persist-connections] [--setting X] [--timeout X] [--vault X] [--verbose]\n"
   },
   "adhoc web1 exec.command --help": {
     "code": 0,
     "stdout": "",
-    "stderr": "Usage of adhoc:\n  -allow-unchecked value\n    \ta method whose tasks may go unchecked without making the check incomplete (repeatable)\n  -dir string\n    \tproject directory (default \".\")\n  -fail-on-rescue\n    \tend with status 4 when a block's rescue: answered a failure, so a gate never passes through a fallback\n  -forks int\n    \thow many devices are worked on at once, 1 to 1000 (Ansible's forks, with the same default) (default 5)\n  -json\n    \tprint the run as one JSON document, with every task's output, instead of text\n  -limit string\n    \trun on only these of the runbook's devices: names, tags or globs, comma separated, ! to exclude and \u0026 to intersect (Ansible's --limit)\n  -mode string\n    \texecute applies changes; check reports what each task would change and changes nothing (default \"execute\")\n  -persist-connections\n    \tkeep one SSH connection per device open between its tasks; =false logs in afresh for every task (default true)\n  -setting value\n    \ta run setting, \u003cmethod\u003e.\u003cparameter\u003e=\u003cvalue\u003e (file.remove.check_forbidden=warn), for every task that leaves the parameter out (repeatable)\n  -timeout value\n    \thow long the call may run on each device before it is stopped and fails, as a task's timeout key: whole seconds (40) or a duration (40s, 5m), up to 86400 seconds (0: no bound)\n  -v\tshorthand for --verbose\n  -verbose\n    \tprint each task's own output (stdout, exit status, diffs), not just whether it changed\n"
+    "stderr": "Usage of adhoc:\n  -allow-unchecked value\n    \ta method whose tasks may go unchecked without making the check incomplete (repeatable)\n  -dir string\n    \tproject directory (default \".\")\n  -fail-on-rescue\n    \tend with status 4 when a block's rescue: answered a failure, so a gate never passes through a fallback\n  -forks int\n    \thow many devices are worked on at once, 1 to 1000 (Ansible's forks, with the same default) (default 5)\n  -inventory value\n    \tinventory file to read and write, in place of --dir's inventory.yaml; group_vars/ and host_vars/ are read beside it\n  -json\n    \tprint the run as one JSON document, with every task's output, instead of text\n  -limit string\n    \trun on only these of the runbook's devices: names, tags or globs, comma separated, ! to exclude and \u0026 to intersect (Ansible's --limit)\n  -mode string\n    \texecute applies changes; check reports what each task would change and changes nothing (default \"execute\")\n  -persist-connections\n    \tkeep one SSH connection per device open between its tasks; =false logs in afresh for every task (default true)\n  -setting value\n    \ta run setting, \u003cmethod\u003e.\u003cparameter\u003e=\u003cvalue\u003e (file.remove.check_forbidden=warn), for every task that leaves the parameter out (repeatable)\n  -timeout value\n    \thow long the call may run on each device before it is stopped and fails, as a task's timeout key: whole seconds (40) or a duration (40s, 5m), up to 86400 seconds (0: no bound)\n  -v\tshorthand for --verbose\n  -vault value\n    \tdirectory whose .pleiades/ holds the credential vault (master.key, credentials.yaml, seal.key), in place of --dir's; the journal and facts stay under --dir\n  -verbose\n    \tprint each task's own output (stdout, exit status, diffs), not just whether it changed\n"
   },
   "ai --help": {
     "code": 0,
@@ -152,7 +152,7 @@
   "facts web1 --help": {
     "code": 0,
     "stdout": "",
-    "stderr": "Usage of facts:\n  -dir string\n    \tproject directory (default \".\")\n  -json\n    \tprint one JSON document instead of text\n  -verify\n    \tcheck the host's fact chain instead of showing its facts\n"
+    "stderr": "Usage of facts:\n  -dir string\n    \tproject directory (default \".\")\n  -inventory value\n    \tinventory file to read and write, in place of --dir's inventory.yaml; group_vars/ and host_vars/ are read beside it\n  -json\n    \tprint one JSON document instead of text\n  -verify\n    \tcheck the host's fact chain instead of showing its facts\n"
   },
   "forge --help": {
     "code": 0,
@@ -197,7 +197,7 @@
   "grant-capability web1 acme.thing -h": {
     "code": 0,
     "stdout": "",
-    "stderr": "Usage of grant-capability:\n  -dir string\n    \tproject directory (default \".\")\n  -reason string\n    \twhy this device holds the capability, recorded with the grant (required)\n  -set value\n    \tgrant property as key=value (repeatable)\n"
+    "stderr": "Usage of grant-capability:\n  -dir string\n    \tproject directory (default \".\")\n  -inventory value\n    \tinventory file to read and write, in place of --dir's inventory.yaml; group_vars/ and host_vars/ are read beside it\n  -reason string\n    \twhy this device holds the capability, recorded with the grant (required)\n  -set value\n    \tgrant property as key=value (repeatable)\n"
   },
   "import --help": {
     "code": 0,
@@ -222,32 +222,32 @@
   "import-cml --help": {
     "code": 0,
     "stdout": "",
-    "stderr": "Usage of import-cml:\n  -address value\n    \tNODE=IP: the node's management address, where the controller observed none or several (repeatable)\n  -allow-plaintext\n    \tsend the password over plain HTTP to a controller that is not this machine\n  -controller string\n    \ta cml_controller device of this project: its api_base, TLS settings and stored login, in place of --server, --tls-*, --username and the password\n  -dir string\n    \tproject directory (default \".\")\n  -json\n    \tprint the result as one JSON document\n  -lab string\n    \tthe lab to import, by title or id\n  -nodes string\n    \tcomma-separated nodes to import; every node when empty\n  -onboard\n    \tonboard each node once it is imported (needs a credential and trusted host keys)\n  -password-stdin\n    \tread the password from the first line of standard input, instead of PLEIADES_CML_PASSWORD\n  -replace\n    \treplace the address of a node already in the inventory as the same device type\n  -server string\n    \tthe CML controller's base URL, e.g. https://cml.lab\n  -tls-ca string\n    \ta PEM file of the CAs the controller's certificate must chain to\n  -tls-fingerprint string\n    \ttrust only the controller certificate with this SHA-256 fingerprint (sha256:\u003chex\u003e), whatever its issuer or dates\n  -trust-first-connect\n    \ttrust whatever host keys answer at each node's address, unverified, as trust-host --first-connect does\n  -username string\n    \tthe controller account to log in as\n  -via string\n    \thow the nodes are reached: ssh; telnet for a lab whose nodes run no SSH server (a login crossing in cleartext); or console, through the --controller device's console server, for nodes with no address reachable from here (default \"ssh\")\n"
+    "stderr": "Usage of import-cml:\n  -address value\n    \tNODE=IP: the node's management address, where the controller observed none or several (repeatable)\n  -allow-plaintext\n    \tsend the password over plain HTTP to a controller that is not this machine\n  -controller string\n    \ta cml_controller device of this project: its api_base, TLS settings and stored login, in place of --server, --tls-*, --username and the password\n  -dir string\n    \tproject directory (default \".\")\n  -inventory value\n    \tinventory file to read and write, in place of --dir's inventory.yaml; group_vars/ and host_vars/ are read beside it\n  -json\n    \tprint the result as one JSON document\n  -lab string\n    \tthe lab to import, by title or id\n  -nodes string\n    \tcomma-separated nodes to import; every node when empty\n  -onboard\n    \tonboard each node once it is imported (needs a credential and trusted host keys)\n  -password-stdin\n    \tread the password from the first line of standard input, instead of PLEIADES_CML_PASSWORD\n  -replace\n    \treplace the address of a node already in the inventory as the same device type\n  -server string\n    \tthe CML controller's base URL, e.g. https://cml.lab\n  -tls-ca string\n    \ta PEM file of the CAs the controller's certificate must chain to\n  -tls-fingerprint string\n    \ttrust only the controller certificate with this SHA-256 fingerprint (sha256:\u003chex\u003e), whatever its issuer or dates\n  -trust-first-connect\n    \ttrust whatever host keys answer at each node's address, unverified, as trust-host --first-connect does\n  -username string\n    \tthe controller account to log in as\n  -vault value\n    \tdirectory whose .pleiades/ holds the credential vault (master.key, credentials.yaml, seal.key), in place of --dir's; the journal and facts stay under --dir\n  -via string\n    \thow the nodes are reached: ssh; telnet for a lab whose nodes run no SSH server (a login crossing in cleartext); or console, through the --controller device's console server, for nodes with no address reachable from here (default \"ssh\")\n"
   },
   "import-cml -h": {
     "code": 0,
     "stdout": "",
-    "stderr": "Usage of import-cml:\n  -address value\n    \tNODE=IP: the node's management address, where the controller observed none or several (repeatable)\n  -allow-plaintext\n    \tsend the password over plain HTTP to a controller that is not this machine\n  -controller string\n    \ta cml_controller device of this project: its api_base, TLS settings and stored login, in place of --server, --tls-*, --username and the password\n  -dir string\n    \tproject directory (default \".\")\n  -json\n    \tprint the result as one JSON document\n  -lab string\n    \tthe lab to import, by title or id\n  -nodes string\n    \tcomma-separated nodes to import; every node when empty\n  -onboard\n    \tonboard each node once it is imported (needs a credential and trusted host keys)\n  -password-stdin\n    \tread the password from the first line of standard input, instead of PLEIADES_CML_PASSWORD\n  -replace\n    \treplace the address of a node already in the inventory as the same device type\n  -server string\n    \tthe CML controller's base URL, e.g. https://cml.lab\n  -tls-ca string\n    \ta PEM file of the CAs the controller's certificate must chain to\n  -tls-fingerprint string\n    \ttrust only the controller certificate with this SHA-256 fingerprint (sha256:\u003chex\u003e), whatever its issuer or dates\n  -trust-first-connect\n    \ttrust whatever host keys answer at each node's address, unverified, as trust-host --first-connect does\n  -username string\n    \tthe controller account to log in as\n  -via string\n    \thow the nodes are reached: ssh; telnet for a lab whose nodes run no SSH server (a login crossing in cleartext); or console, through the --controller device's console server, for nodes with no address reachable from here (default \"ssh\")\n"
+    "stderr": "Usage of import-cml:\n  -address value\n    \tNODE=IP: the node's management address, where the controller observed none or several (repeatable)\n  -allow-plaintext\n    \tsend the password over plain HTTP to a controller that is not this machine\n  -controller string\n    \ta cml_controller device of this project: its api_base, TLS settings and stored login, in place of --server, --tls-*, --username and the password\n  -dir string\n    \tproject directory (default \".\")\n  -inventory value\n    \tinventory file to read and write, in place of --dir's inventory.yaml; group_vars/ and host_vars/ are read beside it\n  -json\n    \tprint the result as one JSON document\n  -lab string\n    \tthe lab to import, by title or id\n  -nodes string\n    \tcomma-separated nodes to import; every node when empty\n  -onboard\n    \tonboard each node once it is imported (needs a credential and trusted host keys)\n  -password-stdin\n    \tread the password from the first line of standard input, instead of PLEIADES_CML_PASSWORD\n  -replace\n    \treplace the address of a node already in the inventory as the same device type\n  -server string\n    \tthe CML controller's base URL, e.g. https://cml.lab\n  -tls-ca string\n    \ta PEM file of the CAs the controller's certificate must chain to\n  -tls-fingerprint string\n    \ttrust only the controller certificate with this SHA-256 fingerprint (sha256:\u003chex\u003e), whatever its issuer or dates\n  -trust-first-connect\n    \ttrust whatever host keys answer at each node's address, unverified, as trust-host --first-connect does\n  -username string\n    \tthe controller account to log in as\n  -vault value\n    \tdirectory whose .pleiades/ holds the credential vault (master.key, credentials.yaml, seal.key), in place of --dir's; the journal and facts stay under --dir\n  -via string\n    \thow the nodes are reached: ssh; telnet for a lab whose nodes run no SSH server (a login crossing in cleartext); or console, through the --controller device's console server, for nodes with no address reachable from here (default \"ssh\")\n"
   },
   "import-containerlab --help": {
     "code": 0,
     "stdout": "",
-    "stderr": "Usage of import-containerlab:\n  -api string\n    \tinstead of --topology: the inventory device of a containerlab API server (onboarded, with its login stored), whose inspect of --lab is read\n  -dir string\n    \tproject directory (default \".\")\n  -json\n    \tprint the result as one JSON document\n  -key string\n    \ta private key file stored as every imported node's credential\n  -lab string\n    \tthe lab's name, which the file must be for\n  -nodes string\n    \tcomma-separated nodes to import; every node when empty\n  -onboard\n    \tonboard each node once it is imported (needs a credential and trusted host keys)\n  -replace\n    \treplace the address of a node already in the inventory as a generic_ssh device\n  -topology string\n    \tcontainerlab's topology-data.json for the lab, written on deploy\n  -trust-first-connect\n    \ttrust whatever host keys answer at each node's address, unverified, as trust-host --first-connect does\n  -username string\n    \twith --key, the account every node is reached as\n"
+    "stderr": "Usage of import-containerlab:\n  -api string\n    \tinstead of --topology: the inventory device of a containerlab API server (onboarded, with its login stored), whose inspect of --lab is read\n  -dir string\n    \tproject directory (default \".\")\n  -inventory value\n    \tinventory file to read and write, in place of --dir's inventory.yaml; group_vars/ and host_vars/ are read beside it\n  -json\n    \tprint the result as one JSON document\n  -key string\n    \ta private key file stored as every imported node's credential\n  -lab string\n    \tthe lab's name, which the file must be for\n  -nodes string\n    \tcomma-separated nodes to import; every node when empty\n  -onboard\n    \tonboard each node once it is imported (needs a credential and trusted host keys)\n  -replace\n    \treplace the address of a node already in the inventory as a generic_ssh device\n  -topology string\n    \tcontainerlab's topology-data.json for the lab, written on deploy\n  -trust-first-connect\n    \ttrust whatever host keys answer at each node's address, unverified, as trust-host --first-connect does\n  -username string\n    \twith --key, the account every node is reached as\n  -vault value\n    \tdirectory whose .pleiades/ holds the credential vault (master.key, credentials.yaml, seal.key), in place of --dir's; the journal and facts stay under --dir\n"
   },
   "import-containerlab -h": {
     "code": 0,
     "stdout": "",
-    "stderr": "Usage of import-containerlab:\n  -api string\n    \tinstead of --topology: the inventory device of a containerlab API server (onboarded, with its login stored), whose inspect of --lab is read\n  -dir string\n    \tproject directory (default \".\")\n  -json\n    \tprint the result as one JSON document\n  -key string\n    \ta private key file stored as every imported node's credential\n  -lab string\n    \tthe lab's name, which the file must be for\n  -nodes string\n    \tcomma-separated nodes to import; every node when empty\n  -onboard\n    \tonboard each node once it is imported (needs a credential and trusted host keys)\n  -replace\n    \treplace the address of a node already in the inventory as a generic_ssh device\n  -topology string\n    \tcontainerlab's topology-data.json for the lab, written on deploy\n  -trust-first-connect\n    \ttrust whatever host keys answer at each node's address, unverified, as trust-host --first-connect does\n  -username string\n    \twith --key, the account every node is reached as\n"
+    "stderr": "Usage of import-containerlab:\n  -api string\n    \tinstead of --topology: the inventory device of a containerlab API server (onboarded, with its login stored), whose inspect of --lab is read\n  -dir string\n    \tproject directory (default \".\")\n  -inventory value\n    \tinventory file to read and write, in place of --dir's inventory.yaml; group_vars/ and host_vars/ are read beside it\n  -json\n    \tprint the result as one JSON document\n  -key string\n    \ta private key file stored as every imported node's credential\n  -lab string\n    \tthe lab's name, which the file must be for\n  -nodes string\n    \tcomma-separated nodes to import; every node when empty\n  -onboard\n    \tonboard each node once it is imported (needs a credential and trusted host keys)\n  -replace\n    \treplace the address of a node already in the inventory as a generic_ssh device\n  -topology string\n    \tcontainerlab's topology-data.json for the lab, written on deploy\n  -trust-first-connect\n    \ttrust whatever host keys answer at each node's address, unverified, as trust-host --first-connect does\n  -username string\n    \twith --key, the account every node is reached as\n  -vault value\n    \tdirectory whose .pleiades/ holds the credential vault (master.key, credentials.yaml, seal.key), in place of --dir's; the journal and facts stay under --dir\n"
   },
   "import-gns3 --help": {
     "code": 0,
     "stdout": "",
-    "stderr": "Usage of import-gns3:\n  -allow-plaintext\n    \tsend the password over plain HTTP to a server that is not this machine\n  -dir string\n    \tproject directory (default \".\")\n  -json\n    \tprint the result as one JSON document\n  -nodes string\n    \tcomma-separated nodes to import; every node when empty\n  -password-stdin\n    \tread the password from the first line of standard input, instead of PLEIADES_GNS3_PASSWORD\n  -project string\n    \tthe project to import, by name or id\n  -replace\n    \treplace the console address of a node already in the inventory as a console_device\n  -server string\n    \tthe GNS3 server's base URL, e.g. http://gns3.lab:3080\n  -username string\n    \tthe account to log in as (a 3.x server needs one; a 2.2 server takes it as basic auth)\n"
+    "stderr": "Usage of import-gns3:\n  -allow-plaintext\n    \tsend the password over plain HTTP to a server that is not this machine\n  -dir string\n    \tproject directory (default \".\")\n  -inventory value\n    \tinventory file to read and write, in place of --dir's inventory.yaml; group_vars/ and host_vars/ are read beside it\n  -json\n    \tprint the result as one JSON document\n  -nodes string\n    \tcomma-separated nodes to import; every node when empty\n  -password-stdin\n    \tread the password from the first line of standard input, instead of PLEIADES_GNS3_PASSWORD\n  -project string\n    \tthe project to import, by name or id\n  -replace\n    \treplace the console address of a node already in the inventory as a console_device\n  -server string\n    \tthe GNS3 server's base URL, e.g. http://gns3.lab:3080\n  -username string\n    \tthe account to log in as (a 3.x server needs one; a 2.2 server takes it as basic auth)\n"
   },
   "import-gns3 -h": {
     "code": 0,
     "stdout": "",
-    "stderr": "Usage of import-gns3:\n  -allow-plaintext\n    \tsend the password over plain HTTP to a server that is not this machine\n  -dir string\n    \tproject directory (default \".\")\n  -json\n    \tprint the result as one JSON document\n  -nodes string\n    \tcomma-separated nodes to import; every node when empty\n  -password-stdin\n    \tread the password from the first line of standard input, instead of PLEIADES_GNS3_PASSWORD\n  -project string\n    \tthe project to import, by name or id\n  -replace\n    \treplace the console address of a node already in the inventory as a console_device\n  -server string\n    \tthe GNS3 server's base URL, e.g. http://gns3.lab:3080\n  -username string\n    \tthe account to log in as (a 3.x server needs one; a 2.2 server takes it as basic auth)\n"
+    "stderr": "Usage of import-gns3:\n  -allow-plaintext\n    \tsend the password over plain HTTP to a server that is not this machine\n  -dir string\n    \tproject directory (default \".\")\n  -inventory value\n    \tinventory file to read and write, in place of --dir's inventory.yaml; group_vars/ and host_vars/ are read beside it\n  -json\n    \tprint the result as one JSON document\n  -nodes string\n    \tcomma-separated nodes to import; every node when empty\n  -password-stdin\n    \tread the password from the first line of standard input, instead of PLEIADES_GNS3_PASSWORD\n  -project string\n    \tthe project to import, by name or id\n  -replace\n    \treplace the console address of a node already in the inventory as a console_device\n  -server string\n    \tthe GNS3 server's base URL, e.g. http://gns3.lab:3080\n  -username string\n    \tthe account to log in as (a 3.x server needs one; a 2.2 server takes it as basic auth)\n"
   },
   "import-kubeconfig --help": {
     "code": 0,
@@ -302,32 +302,32 @@
   "list-credentials --help": {
     "code": 0,
     "stdout": "",
-    "stderr": "Usage of list-credentials:\n  -dir string\n    \tproject directory (default \".\")\n  -json\n    \tprint one JSON document instead of text\n"
+    "stderr": "Usage of list-credentials:\n  -dir string\n    \tproject directory (default \".\")\n  -json\n    \tprint one JSON document instead of text\n  -vault value\n    \tdirectory whose .pleiades/ holds the credential vault (master.key, credentials.yaml, seal.key), in place of --dir's; the journal and facts stay under --dir\n"
   },
   "list-credentials -h": {
     "code": 0,
     "stdout": "",
-    "stderr": "Usage of list-credentials:\n  -dir string\n    \tproject directory (default \".\")\n  -json\n    \tprint one JSON document instead of text\n"
+    "stderr": "Usage of list-credentials:\n  -dir string\n    \tproject directory (default \".\")\n  -json\n    \tprint one JSON document instead of text\n  -vault value\n    \tdirectory whose .pleiades/ holds the credential vault (master.key, credentials.yaml, seal.key), in place of --dir's; the journal and facts stay under --dir\n"
   },
   "list-database-connections --help": {
     "code": 0,
     "stdout": "",
-    "stderr": "Usage of list-database-connections:\n  -dir string\n    \tproject directory (default \".\")\n  -json\n    \tprint one JSON document instead of text\n"
+    "stderr": "Usage of list-database-connections:\n  -dir string\n    \tproject directory (default \".\")\n  -json\n    \tprint one JSON document instead of text\n  -vault value\n    \tdirectory whose .pleiades/ holds the credential vault (master.key, credentials.yaml, seal.key), in place of --dir's; the journal and facts stay under --dir\n"
   },
   "list-database-connections -h": {
     "code": 0,
     "stdout": "",
-    "stderr": "Usage of list-database-connections:\n  -dir string\n    \tproject directory (default \".\")\n  -json\n    \tprint one JSON document instead of text\n"
+    "stderr": "Usage of list-database-connections:\n  -dir string\n    \tproject directory (default \".\")\n  -json\n    \tprint one JSON document instead of text\n  -vault value\n    \tdirectory whose .pleiades/ holds the credential vault (master.key, credentials.yaml, seal.key), in place of --dir's; the journal and facts stay under --dir\n"
   },
   "list-secrets --help": {
     "code": 0,
     "stdout": "",
-    "stderr": "Usage of list-secrets:\n  -dir string\n    \tproject directory (default \".\")\n  -json\n    \tprint one JSON document instead of text\n"
+    "stderr": "Usage of list-secrets:\n  -dir string\n    \tproject directory (default \".\")\n  -json\n    \tprint one JSON document instead of text\n  -vault value\n    \tdirectory whose .pleiades/ holds the credential vault (master.key, credentials.yaml, seal.key), in place of --dir's; the journal and facts stay under --dir\n"
   },
   "list-secrets -h": {
     "code": 0,
     "stdout": "",
-    "stderr": "Usage of list-secrets:\n  -dir string\n    \tproject directory (default \".\")\n  -json\n    \tprint one JSON document instead of text\n"
+    "stderr": "Usage of list-secrets:\n  -dir string\n    \tproject directory (default \".\")\n  -json\n    \tprint one JSON document instead of text\n  -vault value\n    \tdirectory whose .pleiades/ holds the credential vault (master.key, credentials.yaml, seal.key), in place of --dir's; the journal and facts stay under --dir\n"
   },
   "onboard --help": {
     "code": 0,
@@ -372,7 +372,7 @@
   "remove-host web1 -h": {
     "code": 0,
     "stdout": "",
-    "stderr": "Usage of remove-host:\n  -credential\n    \talso remove the host's stored credential\n  -dir string\n    \tproject directory (default \".\")\n  -forget-host-keys\n    \talso remove the known_hosts lines trusting the host's SSH address, unless another device is reached there\n  -json\n    \tprint one JSON document instead of text\n  -leave-references\n    \tremove the host even when another host names it in a property\n"
+    "stderr": "Usage of remove-host:\n  -credential\n    \talso remove the host's stored credential\n  -dir string\n    \tproject directory (default \".\")\n  -forget-host-keys\n    \talso remove the known_hosts lines trusting the host's SSH address, unless another device is reached there\n  -inventory value\n    \tinventory file to read and write, in place of --dir's inventory.yaml; group_vars/ and host_vars/ are read beside it\n  -json\n    \tprint one JSON document instead of text\n  -leave-references\n    \tremove the host even when another host names it in a property\n  -vault value\n    \tdirectory whose .pleiades/ holds the credential vault (master.key, credentials.yaml, seal.key), in place of --dir's; the journal and facts stay under --dir\n"
   },
   "remove-secret --help": {
     "code": 0,
@@ -397,27 +397,27 @@
   "rollback --help": {
     "code": 0,
     "stdout": "",
-    "stderr": "usage: pleiades rollback \u003crun-id\u003e [--allow-partial X] [--allow-skew X] [--allow-unchecked X] [--allow-unknown X] [--despite-run X] [--dir X] [--fail-on-rescue] [--forks X] [--json] [--leave X] [--limit X] [--mode X] [--persist-connections] [--runbook X] [--setting X] [--verbose]\n"
+    "stderr": "usage: pleiades rollback \u003crun-id\u003e [--allow-partial X] [--allow-skew X] [--allow-unchecked X] [--allow-unknown X] [--despite-run X] [--dir X] [--fail-on-rescue] [--forks X] [--inventory X] [--json] [--leave X] [--limit X] [--mode X] [--persist-connections] [--runbook X] [--setting X] [--vault X] [--verbose]\n"
   },
   "rollback -h": {
     "code": 0,
     "stdout": "",
-    "stderr": "usage: pleiades rollback \u003crun-id\u003e [--allow-partial X] [--allow-skew X] [--allow-unchecked X] [--allow-unknown X] [--despite-run X] [--dir X] [--fail-on-rescue] [--forks X] [--json] [--leave X] [--limit X] [--mode X] [--persist-connections] [--runbook X] [--setting X] [--verbose]\n"
+    "stderr": "usage: pleiades rollback \u003crun-id\u003e [--allow-partial X] [--allow-skew X] [--allow-unchecked X] [--allow-unknown X] [--despite-run X] [--dir X] [--fail-on-rescue] [--forks X] [--inventory X] [--json] [--leave X] [--limit X] [--mode X] [--persist-connections] [--runbook X] [--setting X] [--vault X] [--verbose]\n"
   },
   "rollback run-1 --help": {
     "code": 0,
     "stdout": "",
-    "stderr": "Usage of rollback:\n  -allow-partial value\n    \ta node whose partial undo to run anyway (repeatable)\n  -allow-skew value\n    \ta node whose recorded undo to replay although its Collection's declarations differ from this build's (repeatable)\n  -allow-unchecked value\n    \ta method whose tasks may go unchecked without making the check incomplete (repeatable)\n  -allow-unknown value\n    \ta node whose unknown effect to accept, or unsealed for a journal with no seal (repeatable)\n  -despite-run value\n    \ta later run whose changes to the same devices to undo beneath (repeatable)\n  -dir string\n    \tproject directory (default \".\")\n  -fail-on-rescue\n    \tend with status 4 when a block's rescue: answered a failure, so a gate never passes through a fallback\n  -forks int\n    \thow many devices are worked on at once, 1 to 1000 (Ansible's forks, with the same default) (default 5)\n  -json\n    \tprint the run as one JSON document, with every task's output, instead of text\n  -leave value\n    \ta node whose change to leave in place rather than undo (repeatable)\n  -limit string\n    \trun on only these of the runbook's devices: names, tags or globs, comma separated, ! to exclude and \u0026 to intersect (Ansible's --limit)\n  -mode string\n    \texecute applies changes; check reports what each task would change and changes nothing (default \"execute\")\n  -persist-connections\n    \tkeep one SSH connection per device open between its tasks; =false logs in afresh for every task (default true)\n  -runbook string\n    \tthe runbook the run ran, when a task's undo is its rollback: list (found in DIR/runbooks when unset)\n  -setting value\n    \ta run setting, \u003cmethod\u003e.\u003cparameter\u003e=\u003cvalue\u003e (file.remove.check_forbidden=warn), for every task that leaves the parameter out (repeatable)\n  -v\tshorthand for --verbose\n  -verbose\n    \tprint each task's own output (stdout, exit status, diffs), not just whether it changed\n"
+    "stderr": "Usage of rollback:\n  -allow-partial value\n    \ta node whose partial undo to run anyway (repeatable)\n  -allow-skew value\n    \ta node whose recorded undo to replay although its Collection's declarations differ from this build's (repeatable)\n  -allow-unchecked value\n    \ta method whose tasks may go unchecked without making the check incomplete (repeatable)\n  -allow-unknown value\n    \ta node whose unknown effect to accept, or unsealed for a journal with no seal (repeatable)\n  -despite-run value\n    \ta later run whose changes to the same devices to undo beneath (repeatable)\n  -dir string\n    \tproject directory (default \".\")\n  -fail-on-rescue\n    \tend with status 4 when a block's rescue: answered a failure, so a gate never passes through a fallback\n  -forks int\n    \thow many devices are worked on at once, 1 to 1000 (Ansible's forks, with the same default) (default 5)\n  -inventory value\n    \tinventory file to read and write, in place of --dir's inventory.yaml; group_vars/ and host_vars/ are read beside it\n  -json\n    \tprint the run as one JSON document, with every task's output, instead of text\n  -leave value\n    \ta node whose change to leave in place rather than undo (repeatable)\n  -limit string\n    \trun on only these of the runbook's devices: names, tags or globs, comma separated, ! to exclude and \u0026 to intersect (Ansible's --limit)\n  -mode string\n    \texecute applies changes; check reports what each task would change and changes nothing (default \"execute\")\n  -persist-connections\n    \tkeep one SSH connection per device open between its tasks; =false logs in afresh for every task (default true)\n  -runbook string\n    \tthe runbook the run ran, when a task's undo is its rollback: list (found in DIR/runbooks when unset)\n  -setting value\n    \ta run setting, \u003cmethod\u003e.\u003cparameter\u003e=\u003cvalue\u003e (file.remove.check_forbidden=warn), for every task that leaves the parameter out (repeatable)\n  -v\tshorthand for --verbose\n  -vault value\n    \tdirectory whose .pleiades/ holds the credential vault (master.key, credentials.yaml, seal.key), in place of --dir's; the journal and facts stay under --dir\n  -verbose\n    \tprint each task's own output (stdout, exit status, diffs), not just whether it changed\n"
   },
   "run --help": {
     "code": 0,
     "stdout": "",
-    "stderr": "usage: pleiades run \u003crunbook.yaml\u003e [--allow-unchecked X] [--dir X] [--extra-vars X] [--fail-on-rescue] [--forks X] [--json] [--limit X] [--mode X] [--persist-connections] [--setting X] [--skip-tags X] [--tags X] [--verbose]\n"
+    "stderr": "usage: pleiades run \u003crunbook.yaml\u003e [--allow-unchecked X] [--dir X] [--extra-vars X] [--fail-on-rescue] [--forks X] [--inventory X] [--json] [--limit X] [--mode X] [--persist-connections] [--setting X] [--skip-tags X] [--tags X] [--vault X] [--verbose]\n"
   },
   "run -h": {
     "code": 0,
     "stdout": "",
-    "stderr": "usage: pleiades run \u003crunbook.yaml\u003e [--allow-unchecked X] [--dir X] [--extra-vars X] [--fail-on-rescue] [--forks X] [--json] [--limit X] [--mode X] [--persist-connections] [--setting X] [--skip-tags X] [--tags X] [--verbose]\n"
+    "stderr": "usage: pleiades run \u003crunbook.yaml\u003e [--allow-unchecked X] [--dir X] [--extra-vars X] [--fail-on-rescue] [--forks X] [--inventory X] [--json] [--limit X] [--mode X] [--persist-connections] [--setting X] [--skip-tags X] [--tags X] [--vault X] [--verbose]\n"
   },
   "seal --help": {
     "code": 0,
@@ -432,22 +432,22 @@
   "seal-key --help": {
     "code": 0,
     "stdout": "",
-    "stderr": "Usage of seal-key:\n  -dir string\n    \tproject directory (default \".\")\n  -json\n    \tprint one JSON document instead of text\n"
+    "stderr": "Usage of seal-key:\n  -dir string\n    \tproject directory (default \".\")\n  -json\n    \tprint one JSON document instead of text\n  -vault value\n    \tdirectory whose .pleiades/ holds the credential vault (master.key, credentials.yaml, seal.key), in place of --dir's; the journal and facts stay under --dir\n"
   },
   "seal-key -h": {
     "code": 0,
     "stdout": "",
-    "stderr": "Usage of seal-key:\n  -dir string\n    \tproject directory (default \".\")\n  -json\n    \tprint one JSON document instead of text\n"
+    "stderr": "Usage of seal-key:\n  -dir string\n    \tproject directory (default \".\")\n  -json\n    \tprint one JSON document instead of text\n  -vault value\n    \tdirectory whose .pleiades/ holds the credential vault (master.key, credentials.yaml, seal.key), in place of --dir's; the journal and facts stay under --dir\n"
   },
   "set-host --help": {
     "code": 0,
     "stdout": "",
-    "stderr": "Usage of set-host:\n  -dir string\n    \tproject directory (default \".\")\n  -set value\n    \tdevice property to add or replace, as key=value (repeatable)\n  -tag value\n    \ttag to add, or several separated by commas (repeatable)\n  -tags value\n    \tsame as --tag\n  -unset value\n    \tdevice property to remove (repeatable)\n  -untag value\n    \ttag to remove, or several separated by commas (repeatable)\n"
+    "stderr": "Usage of set-host:\n  -dir string\n    \tproject directory (default \".\")\n  -inventory value\n    \tinventory file to read and write, in place of --dir's inventory.yaml; group_vars/ and host_vars/ are read beside it\n  -set value\n    \tdevice property to add or replace, as key=value (repeatable)\n  -tag value\n    \ttag to add, or several separated by commas (repeatable)\n  -tags value\n    \tsame as --tag\n  -unset value\n    \tdevice property to remove (repeatable)\n  -untag value\n    \ttag to remove, or several separated by commas (repeatable)\n"
   },
   "set-host -h": {
     "code": 0,
     "stdout": "",
-    "stderr": "Usage of set-host:\n  -dir string\n    \tproject directory (default \".\")\n  -set value\n    \tdevice property to add or replace, as key=value (repeatable)\n  -tag value\n    \ttag to add, or several separated by commas (repeatable)\n  -tags value\n    \tsame as --tag\n  -unset value\n    \tdevice property to remove (repeatable)\n  -untag value\n    \ttag to remove, or several separated by commas (repeatable)\n"
+    "stderr": "Usage of set-host:\n  -dir string\n    \tproject directory (default \".\")\n  -inventory value\n    \tinventory file to read and write, in place of --dir's inventory.yaml; group_vars/ and host_vars/ are read beside it\n  -set value\n    \tdevice property to add or replace, as key=value (repeatable)\n  -tag value\n    \ttag to add, or several separated by commas (repeatable)\n  -tags value\n    \tsame as --tag\n  -unset value\n    \tdevice property to remove (repeatable)\n  -untag value\n    \ttag to remove, or several separated by commas (repeatable)\n"
   },
   "trust-host --help": {
     "code": 0,
@@ -462,17 +462,17 @@
   "validate --help": {
     "code": 0,
     "stdout": "",
-    "stderr": "Usage of validate:\n  -dir string\n    \tproject directory (default \".\")\n  -e value\n    \tshorthand for --extra-vars\n  -extra-vars value\n    \ta variable the run starts with, as key=value, key:=yaml or @file.yaml (repeatable); a runbook reads it as vars.\u003cname\u003e\n  -skip-tags value\n    \tleave out the tasks carrying one of these tags, even ones --tags selects (comma-separated, repeatable)\n  -tags value\n    \trun only the tasks carrying one of these tags (comma-separated, repeatable)\n"
+    "stderr": "Usage of validate:\n  -dir string\n    \tproject directory (default \".\")\n  -e value\n    \tshorthand for --extra-vars\n  -extra-vars value\n    \ta variable the run starts with, as key=value, key:=yaml or @file.yaml (repeatable); a runbook reads it as vars.\u003cname\u003e\n  -inventory value\n    \tinventory file to read and write, in place of --dir's inventory.yaml; group_vars/ and host_vars/ are read beside it\n  -skip-tags value\n    \tleave out the tasks carrying one of these tags, even ones --tags selects (comma-separated, repeatable)\n  -tags value\n    \trun only the tasks carrying one of these tags (comma-separated, repeatable)\n"
   },
   "validate -h": {
     "code": 0,
     "stdout": "",
-    "stderr": "Usage of validate:\n  -dir string\n    \tproject directory (default \".\")\n  -e value\n    \tshorthand for --extra-vars\n  -extra-vars value\n    \ta variable the run starts with, as key=value, key:=yaml or @file.yaml (repeatable); a runbook reads it as vars.\u003cname\u003e\n  -skip-tags value\n    \tleave out the tasks carrying one of these tags, even ones --tags selects (comma-separated, repeatable)\n  -tags value\n    \trun only the tasks carrying one of these tags (comma-separated, repeatable)\n"
+    "stderr": "Usage of validate:\n  -dir string\n    \tproject directory (default \".\")\n  -e value\n    \tshorthand for --extra-vars\n  -extra-vars value\n    \ta variable the run starts with, as key=value, key:=yaml or @file.yaml (repeatable); a runbook reads it as vars.\u003cname\u003e\n  -inventory value\n    \tinventory file to read and write, in place of --dir's inventory.yaml; group_vars/ and host_vars/ are read beside it\n  -skip-tags value\n    \tleave out the tasks carrying one of these tags, even ones --tags selects (comma-separated, repeatable)\n  -tags value\n    \trun only the tasks carrying one of these tags (comma-separated, repeatable)\n"
   },
   "validate a.yaml -h": {
     "code": 0,
     "stdout": "",
-    "stderr": "Usage of validate:\n  -dir string\n    \tproject directory (default \".\")\n  -e value\n    \tshorthand for --extra-vars\n  -extra-vars value\n    \ta variable the run starts with, as key=value, key:=yaml or @file.yaml (repeatable); a runbook reads it as vars.\u003cname\u003e\n  -skip-tags value\n    \tleave out the tasks carrying one of these tags, even ones --tags selects (comma-separated, repeatable)\n  -tags value\n    \trun only the tasks carrying one of these tags (comma-separated, repeatable)\n"
+    "stderr": "Usage of validate:\n  -dir string\n    \tproject directory (default \".\")\n  -e value\n    \tshorthand for --extra-vars\n  -extra-vars value\n    \ta variable the run starts with, as key=value, key:=yaml or @file.yaml (repeatable); a runbook reads it as vars.\u003cname\u003e\n  -inventory value\n    \tinventory file to read and write, in place of --dir's inventory.yaml; group_vars/ and host_vars/ are read beside it\n  -skip-tags value\n    \tleave out the tasks carrying one of these tags, even ones --tags selects (comma-separated, repeatable)\n  -tags value\n    \trun only the tasks carrying one of these tags (comma-separated, repeatable)\n"
   },
   "version --help": {
     "code": 0,

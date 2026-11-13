@@ -5,7 +5,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 	"sort"
 	"time"
 
@@ -143,7 +142,7 @@ func probedGrant(def capability.DataDefinition, build, binding string, props map
 func recordProbe(dir, name string, def capability.DataDefinition, build string, granted bool, props map[string]any) (bool, bool, error) {
 	ctx := context.Background()
 	factory := inv.NewItemFactory()
-	repo := inv.NewFileRepository(filepath.Join(dir, inv.DefaultInventoryFilename), factory)
+	repo := inv.NewFileRepository(inventoryFile(dir), factory)
 	item, err := repo.GetByName(ctx, name)
 	if err != nil {
 		return false, false, err

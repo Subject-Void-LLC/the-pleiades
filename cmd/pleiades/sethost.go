@@ -9,7 +9,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
@@ -76,6 +75,7 @@ const setHostUsage = "usage: pleiades set-host <name> [--set key=value ...] [--u
 // contradiction.
 func runSetHost(args []string) error {
 	fs := flag.NewFlagSet("set-host", flag.ContinueOnError)
+	addInventoryFlag(fs)
 	dir := fs.String("dir", ".", "project directory")
 	set := &keyValueList{}
 	fs.Var(set, "set", "device property to add or replace, as key=value (repeatable)")
@@ -115,7 +115,7 @@ func runSetHost(args []string) error {
 
 	ctx := context.Background()
 	factory := inv.NewItemFactory()
-	repo := inv.NewFileRepository(filepath.Join(*dir, inv.DefaultInventoryFilename), factory)
+	repo := inv.NewFileRepository(inventoryFile(*dir), factory)
 	item, err := repo.GetByName(ctx, name)
 	if err != nil {
 		return err

@@ -20,6 +20,7 @@ import (
 // decrypts nothing.
 func runListCredentials(args []string) error {
 	fs := flag.NewFlagSet("list-credentials", flag.ContinueOnError)
+	addVaultFlag(fs)
 	dir := fs.String("dir", ".", "project directory")
 	asJSON := fs.Bool("json", false, "print one JSON document instead of text")
 	if err := fs.Parse(args); err != nil {
@@ -28,7 +29,7 @@ func runListCredentials(args []string) error {
 	if fs.NArg() > 0 {
 		return errors.New("usage: pleiades list-credentials [--dir DIR] [--json]")
 	}
-	listed, err := credential.ListCredentials(*dir)
+	listed, err := credential.ListCredentials(vaultDir(*dir))
 	if err != nil {
 		return err
 	}

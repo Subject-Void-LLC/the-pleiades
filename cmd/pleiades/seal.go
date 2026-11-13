@@ -29,6 +29,7 @@ type sealKeyView struct {
 // on any machine, so that only this project opens the file.
 func runSealKey(args []string) error {
 	fs := flag.NewFlagSet("seal-key", flag.ContinueOnError)
+	addVaultFlag(fs)
 	dir := fs.String("dir", ".", "project directory")
 	asJSON := fs.Bool("json", false, "print one JSON document instead of text")
 	if err := fs.Parse(args); err != nil {
@@ -37,11 +38,11 @@ func runSealKey(args []string) error {
 	if fs.NArg() > 0 {
 		return fmt.Errorf("usage: pleiades seal-key [--dir DIR] [--json]")
 	}
-	key, err := credential.ResolveMasterKey(*dir)
+	key, err := credential.ResolveMasterKey(vaultDir(*dir))
 	if err != nil {
 		return fmt.Errorf("failed to resolve master key: %w", err)
 	}
-	priv, created, err := credential.SealKey(*dir, key)
+	priv, created, err := credential.SealKey(vaultDir(*dir), key)
 	if err != nil {
 		return err
 	}

@@ -7,7 +7,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"path/filepath"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/hosttrust"
@@ -34,6 +33,7 @@ type removedHost struct {
 // address. The journal keeps every run that touched it.
 func runRemoveHost(args []string) error {
 	fs := flag.NewFlagSet("remove-host", flag.ContinueOnError)
+	addProjectFlags(fs)
 	dir := fs.String("dir", ".", "project directory")
 	withCredential := fs.Bool("credential", false, "also remove the host's stored credential")
 	forgetKeys := fs.Bool("forget-host-keys", false, "also remove the known_hosts lines trusting the host's SSH address, unless another device is reached there")
@@ -44,7 +44,7 @@ func runRemoveHost(args []string) error {
 		return fmt.Errorf("%s: %w", removeHostUsage, err)
 	}
 
-	hostsPath := filepath.Join(*dir, inv.DefaultInventoryFilename)
+	hostsPath := inventoryFile(*dir)
 	out := removedHost{Host: name}
 	// The address is read before the host is gone, and kept only when no
 	// other device is reached at it.
@@ -80,7 +80,7 @@ func runRemoveHost(args []string) error {
 	}
 	out.ID, out.Type = spec.ID, spec.Type
 	if *withCredential {
-		if out.CredentialRemoved, err = credential.RemoveFileStore(*dir, name); err != nil {
+		if out.CredentialRemoved, err = credential.RemoveFileStore(vaultDir(*dir), name); err != nil {
 			return fmt.Errorf("host %s was removed, but not its credential: %w", name, err)
 		}
 	}
@@ -118,12 +118,13 @@ func runRemoveHost(args []string) error {
 // device itself in the inventory.
 func runRemoveCredential(args []string) error {
 	fs := flag.NewFlagSet("remove-credential", flag.ContinueOnError)
+	addVaultFlag(fs)
 	dir := fs.String("dir", ".", "project directory")
 	name, err := parseOneArg(fs, args)
 	if err != nil {
 		return fmt.Errorf("usage: pleiades remove-credential <device> [--dir DIR]: %w", err)
 	}
-	removed, err := credential.RemoveFileStore(*dir, name)
+	removed, err := credential.RemoveFileStore(vaultDir(*dir), name)
 	if err != nil {
 		return err
 	}

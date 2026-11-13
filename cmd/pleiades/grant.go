@@ -9,7 +9,6 @@ import (
 	"flag"
 	"fmt"
 	"os/user"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -37,6 +36,7 @@ type granting interface {
 // hold because it lacks a compiled capability the definition requires.
 func runGrantCapability(args []string) error {
 	fs := flag.NewFlagSet("grant-capability", flag.ContinueOnError)
+	addInventoryFlag(fs)
 	dir := fs.String("dir", ".", "project directory")
 	reason := fs.String("reason", "", "why this device holds the capability, recorded with the grant (required)")
 	set := &keyValueList{}
@@ -78,7 +78,7 @@ func runGrantCapability(args []string) error {
 	}
 
 	factory := inv.NewItemFactory()
-	repo := inv.NewFileRepository(filepath.Join(*dir, inv.DefaultInventoryFilename), factory)
+	repo := inv.NewFileRepository(inventoryFile(*dir), factory)
 	item, err := repo.GetByName(ctx, name)
 	if err != nil {
 		return err
@@ -119,6 +119,7 @@ func runGrantCapability(args []string) error {
 // (revokeByBuild).
 func runRevokeCapability(args []string) error {
 	fs := flag.NewFlagSet("revoke-capability", flag.ContinueOnError)
+	addInventoryFlag(fs)
 	dir := fs.String("dir", ".", "project directory")
 	build := fs.String("build", "", "revoke, on every device, each grant the program build with this digest probed")
 	positional, err := parseCheckedArgs(fs, args, func(p []string) error {
@@ -136,7 +137,7 @@ func runRevokeCapability(args []string) error {
 	name, capName := positional[0], capability.Name(positional[1])
 	ctx := context.Background()
 	factory := inv.NewItemFactory()
-	repo := inv.NewFileRepository(filepath.Join(*dir, inv.DefaultInventoryFilename), factory)
+	repo := inv.NewFileRepository(inventoryFile(*dir), factory)
 	item, err := repo.GetByName(ctx, name)
 	if err != nil {
 		return err
