@@ -77,10 +77,11 @@ func (l seedLogin) matches(source vboxmanage.Machine, login string) error {
 }
 
 // slot is where m's seed goes. A Linux clone's goes in a free IDE slot. A
-// Windows clone's goes on SATA: an image made on Hyper-V (Microsoft's
-// evaluation VHDX is) has no IDE driver running when Windows first looks
-// for its answer file, so a DVD on IDE is not seen, measured 2026-09-27;
-// Windows boots from SATA, so a DVD there is seen at once.
+// Windows clone's goes on SATA, the controller Windows boots from, where a
+// clone of Microsoft's evaluation VHDX read it on 2026-11-13. (The
+// 2026-09-27 reading that an image made on Hyper-V does not see a DVD on
+// IDE was taken while the DVD held only Autounattend.xml, which such an
+// image's first boot never looks for, so IDE is unmeasured, not refuted.)
 func (l seedLogin) slot(m vboxmanage.Machine) (vboxmanage.Slot, bool) {
 	if l.windows() {
 		return m.FreeSATASlot()

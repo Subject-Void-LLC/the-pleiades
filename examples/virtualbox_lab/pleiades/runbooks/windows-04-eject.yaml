@@ -1,5 +1,10 @@
 # The answer file holds the Administrator's password: take it out and
-# delete it now that the first boot has read it.
+# delete it now that the first boot has read it. virt.vbox.vm.clone already
+# deletes a Windows clone's once it has proven the login, so this reports no
+# change for one; it is kept for a clone made before that, and for Linux.
+# Blast radius: vengeance, the VirtualBox host; win-lab, a lab VM.
+# Changes: through virt.vbox.vm.eject_seed, which deletes the seed file.
+# Undo: none; the seed cannot be put back, and a new clone makes a new one.
 id: vbox-lab-windows-eject
 hosts: vengeance
 tasks:

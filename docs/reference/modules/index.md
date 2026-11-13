@@ -264,7 +264,7 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | [virt.vbox.snapshot.take](virt/vbox/snapshot/take.md) | implemented | Takes a snapshot of a VirtualBox VM under a name no other snapshot of it has. |
 | [virt.vbox.vm.addresses](virt/vbox/vm/addresses.md) | implemented | Reports the addresses a VM's host-only adapters were given, from VirtualBox's DHCP server and from virt.vbox.vm.clone. |
 | [virt.vbox.vm.attach_disk](virt/vbox/vm/attach_disk.md) | implemented | Gives a stopped VirtualBox VM a second disk, made new on the host when it is not there yet. |
-| [virt.vbox.vm.clone](virt/vbox/vm/clone.md) | implemented | Makes a VM as a linked clone of another's snapshot, seeded with a device's login by cloud-init or a Windows answer file. |
+| [virt.vbox.vm.clone](virt/vbox/vm/clone.md) | implemented | Makes a VM as a linked clone of another's snapshot, seeded with a device's login by cloud-init or a Windows answer file, which a Windows clone is proven to have taken. |
 | [virt.vbox.vm.delete](virt/vbox/vm/delete.md) | implemented | Deletes a stopped VirtualBox VM and its disks. |
 | [virt.vbox.vm.detach_disk](virt/vbox/vm/detach_disk.md) | implemented | Takes a disk off a stopped VirtualBox VM, deleting it from the host when asked. |
 | [virt.vbox.vm.eject_seed](virt/vbox/vm/eject_seed.md) | implemented | Takes a VM's seed out of its DVD drive and deletes it, once its first boot has read it. |
