@@ -13,6 +13,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport/refusing"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/winrmexec"
 )
 
 var errRefused = errors.New("connection refused")
@@ -227,5 +230,38 @@ func TestReadConnection_Backoff(t *testing.T) {
 		if _, err := readConnection(params); err == nil {
 			t.Errorf("%s: accepted", why)
 		}
+	}
+}
+
+// TestWaitForConnection_StopsAtATryThatCannotChange: a try failing with
+// stopWaiting (a WinRM credential the host refused) ends the wait at once,
+// mid-streak included, rather than trying again until the timeout.
+func TestWaitForConnection_StopsAtATryThatCannotChange(t *testing.T) {
+	refusal := errors.New("the host refused the credential")
+	s := &scripted{script: []error{errRefused, nil, &stopWaiting{err: refusal}, nil, nil}}
+	r := &recorder{}
+	w, err := waitForConnection(context.Background(), request(2, 0, 1, 2, false), s.try, r.recording())
+	if !errors.Is(err, refusal) || !strings.Contains(err.Error(), "stopped at try 3") {
+		t.Fatalf("err = %v, want the refusal, at the third try", err)
+	}
+	if s.tries != 3 || w.tries != 3 || w.failures != 2 {
+		t.Errorf("tries %d (made %d), failures %d; want 3, 3, 2", w.tries, s.tries, w.failures)
+	}
+}
+
+// TestWinRMTry_SortsTheWaitersAnswers: a host not serving yet is one more
+// failed try, and anything else the Waiter says ends the wait.
+func TestWinRMTry_SortsTheWaitersAnswers(t *testing.T) {
+	// A Waiter with no credential refuses before sending anything, which
+	// is the kind of answer that ends the wait.
+	try := winrmTry(winrmexec.NewWaiter(winrmexec.Target{Host: "127.0.0.1", Port: 1}, winrmexec.Auth{}, winrmexec.Options{}))
+	var stop *stopWaiting
+	if err := try(context.Background()); !errors.As(err, &stop) {
+		t.Fatalf("a credential the wait can never send: err = %v, want it to end the wait", err)
+	}
+	// A port nothing answers is not serving yet: the wait goes on.
+	try = winrmTry(winrmexec.NewWaiter(winrmexec.Target{Host: "127.0.0.1", Port: refusing.Port(t)}, winrmexec.Auth{Username: "u", Password: "p"}, winrmexec.Options{Timeout: 5 * time.Second}))
+	if err := try(context.Background()); err == nil || errors.As(err, &stop) || !errors.Is(err, winrmexec.ErrNotServing) {
+		t.Fatalf("a host that is down: err = %v, want one more failed try", err)
 	}
 }

@@ -8,6 +8,8 @@ import (
 	"errors"
 	"net"
 	"net/url"
+
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/breaker"
 )
 
 // Unreached reports whether the device never answered: a connection that
@@ -20,7 +22,15 @@ import (
 // password is one more failed login toward the account's lockout. Go reports
 // a TLS alert as a *net.OpError with Op "remote error", so that one is
 // excluded by name. A caller's own cancellation is not the network either.
+//
+// A call an open circuit refused is unreached too: nothing was sent, and
+// the circuit opened because the host stopped answering, which is how a
+// run's report reads the same refusal over SSH. It is never retried or
+// counted, though: Retryable and the circuit's own record leave it out.
 func (e *NotStartedError) Unreached() bool {
+	if errors.Is(e.Err, breaker.ErrOpen) {
+		return true
+	}
 	var opErr *net.OpError
 	if errors.As(e.Err, &opErr) {
 		return opErr.Op != "remote error"
@@ -30,4 +40,13 @@ func (e *NotStartedError) Unreached() bool {
 		return true
 	}
 	return errors.Is(e.Err, context.DeadlineExceeded)
+}
+
+// Retryable reports whether err is a failure a caller may try again knowing
+// nothing ran: the device was unreached, and not because an open circuit
+// refused the call, since asking again inside the cooldown is refused the
+// same way and after it the try is the probe's to make.
+func Retryable(err error) bool {
+	var notStarted *NotStartedError
+	return errors.As(err, &notStarted) && notStarted.Unreached() && !errors.Is(err, breaker.ErrOpen)
 }

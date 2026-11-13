@@ -55,11 +55,18 @@ const rebootProbeInterval = 5 * time.Second
 const bootTimeScript = `[Console]::OutputEncoding = [Text.Encoding]::UTF8
 (Get-CimInstance Win32_OperatingSystem).LastBootUpTime.ToUniversalTime().ToString('o')`
 
-// rebootRun, rebootSleep and rebootNow are how win.reboot reaches the host,
-// waits and reads the clock; a test replaces them.
+// rebootRun, rebootWaitRun, rebootSleep and rebootNow are how win.reboot
+// reaches the host, waits and reads the clock; a test replaces them.
+// rebootRun is an ordinary call, counted by the host's circuit breaker;
+// rebootWaitRun is one try of the wait after the restart, through the
+// wait's Waiter, which is neither counted nor refused and sends the
+// credential only once the listener answers.
 var (
 	rebootRun = func(ctx context.Context, target winrmexec.Target, auth winrmexec.Auth, shell winrmexec.Shell, script string, opts winrmexec.Options) (winrmexec.Result, error) {
 		return winrmexec.Run(ctx, target, auth, shell, script, opts)
+	}
+	rebootWaitRun = func(ctx context.Context, waiter *winrmexec.Waiter, script string) (winrmexec.Result, error) {
+		return waiter.Run(ctx, winrmexec.Command{Shell: winrmexec.ShellPowerShell, Script: script})
 	}
 	rebootSleep = func(ctx context.Context, d time.Duration) error {
 		if d <= 0 {
@@ -109,7 +116,7 @@ func init() {
 			SupportsCheck: true,
 			Doc: collection.Doc{
 				Summary:     "Restarts a Windows host over WinRM and waits until it is back, as ansible.windows.win_reboot does.",
-				Description: "Reads the host's last boot time, has shutdown.exe restart it pre_reboot_delay seconds later (closing applications that do not exit, and recorded as a planned restart for maintenance), then waits until the host answers over WinRM again with a later boot time, which is what shows it restarted rather than only answered, and then post_reboot_delay seconds more. reboot_timeout bounds the wait from the moment the restart is asked for; a try the host refuses, or does not answer within connect_timeout, is made again five seconds later. A restart already scheduled on the host is cancelled and replaced by this one. A run always reports a change, and a restart cannot be undone. A check reads the boot time and sends nothing.",
+				Description: "Reads the host's last boot time, has shutdown.exe restart it pre_reboot_delay seconds later (closing applications that do not exit, and recorded as a planned restart for maintenance), then waits until the host answers over WinRM again with a later boot time, which is what shows it restarted rather than only answered, and then post_reboot_delay seconds more. reboot_timeout bounds the wait from the moment the restart is asked for; a try the host does not answer within connect_timeout, or answers without serving, is made again five seconds later. The wait asks the listener with no credential until it answers and is neither counted toward the host's circuit breaker nor refused by it; a refused credential ends it at once rather than being sent again, and its success closes the circuit, so the task after it runs at once. A restart already scheduled on the host is cancelled and replaced by this one. A run always reports a change, and a restart cannot be undone. A check reads the boot time and sends nothing.",
 				Params: []collection.Param{
 					{Name: "reboot_timeout", Type: "int", Default: "600", Description: "How many seconds the host may take to come back, from the moment the restart is asked for."},
 					{Name: "pre_reboot_delay", Type: "int", Default: "2", Description: "How many seconds shutdown.exe waits before restarting, at least 0 and at most 600."},
@@ -199,10 +206,9 @@ func parseReboot(params map[string]any) (rebootSpec, error) {
 	return s, nil
 }
 
-// bootTime reads when the host last booted, one try bounded by limit.
-func bootTime(ctx context.Context, target winrmexec.Target, auth winrmexec.Auth, opts winrmexec.Options, limit time.Duration) (time.Time, error) {
-	opts.Timeout = limit
-	res, err := rebootRun(ctx, target, auth, winrmexec.ShellPowerShell, bootTimeScript, opts)
+// bootTime reads when the host last booted, one try through run.
+func bootTime(ctx context.Context, run func(context.Context, string) (winrmexec.Result, error)) (time.Time, error) {
+	res, err := run(ctx, bootTimeScript)
 	if err != nil {
 		return time.Time{}, err
 	}
@@ -271,7 +277,13 @@ func reboot(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 	if err != nil {
 		return fail(err)
 	}
-	before, err := bootTime(ctx, target, auth, opts, s.connect)
+	// Each try is bounded by connect_timeout, before the restart and after.
+	tryOpts := opts
+	tryOpts.Timeout = s.connect
+	counted := func(ctx context.Context, script string) (winrmexec.Result, error) {
+		return rebootRun(ctx, target, auth, winrmexec.ShellPowerShell, script, tryOpts)
+	}
+	before, err := bootTime(ctx, counted)
 	if err != nil {
 		return fail(err)
 	}
@@ -295,8 +307,19 @@ func reboot(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 		return fail(err)
 	}
 	why := "it kept answering with the boot time it had"
+	// One Waiter for the whole wait, so a credential the host refuses is
+	// sent once and ends it, and the tries while the host is down are not
+	// counted: counted, they would open the host's circuit for every task.
+	waiter := winrmexec.NewWaiter(target, auth, tryOpts)
+	waited := func(ctx context.Context, script string) (winrmexec.Result, error) {
+		return rebootWaitRun(ctx, waiter, script)
+	}
 	for {
-		after, err := bootTime(ctx, target, auth, opts, s.connect)
+		after, err := bootTime(ctx, waited)
+		var refused *winrmexec.CredentialRefusedError
+		if errors.As(err, &refused) {
+			return fail(fmt.Errorf("the host refused the credential once it was back, so the wait stopped rather than send it again: %w", err))
+		}
 		if err == nil && !after.Equal(before) {
 			elapsed := int(rebootNow().Sub(start).Round(time.Second) / time.Second)
 			if err := rebootSleep(ctx, s.post); err != nil {

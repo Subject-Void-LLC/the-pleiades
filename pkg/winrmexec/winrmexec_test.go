@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/breaker"
 )
 
 // Most of what this package promises is a refusal, and the rest is the
@@ -343,6 +345,9 @@ func TestUnbracketedAndBracketedIPv6ReachTheSameEndpoint(t *testing.T) {
 // task that destroys its own transport blocks for minutes rather than
 // failing fast) and it is not worth two minutes of every test run.
 func TestBracketedIPv6ReachesTheDial(t *testing.T) {
+	// Both spellings dial one address and so share one circuit, which a
+	// -count above two would otherwise open (LESSONS_LEARNED 159).
+	useCircuits(t, breaker.DefaultThreshold, breaker.DefaultCooldown)
 	auth := Auth{Username: "administrator", Password: "not-a-real-password"}
 
 	for _, host := range []string{"[::1]", "::1"} {

@@ -32,6 +32,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/transport"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/breaker"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/winrmexec"
@@ -47,7 +48,8 @@ type call struct {
 
 // recording returns a transport whose execute records each call and
 // answers with the next of results (the last repeats). It is built by
-// the same constructor New uses, so it carries a real circuit breaker.
+// the same constructor New uses. It does not reach pkg/winrmexec's circuit
+// breaker, which lives inside the real Execute: breaker_test.go runs that.
 func recording(results ...func() (winrmexec.Result, error)) (*winrmTransport, *[]call) {
 	var calls []call
 	tr := newTransport(winrmexec.Options{Timeout: 5}, func(_ context.Context, target winrmexec.Target, auth winrmexec.Auth, cmd winrmexec.Command, opts winrmexec.Options) (winrmexec.Result, error) {
@@ -132,7 +134,7 @@ func TestExecShell_Refusals(t *testing.T) {
 	}
 }
 
-// The failures the retry and breaker tests below sort, one of each kind.
+// The failures the retry tests below sort, one of each kind.
 var (
 	// refused is a network failure before the command started.
 	refused = &winrmexec.NotStartedError{Err: &net.OpError{Op: "dial", Err: errors.New("connection refused")}}
@@ -153,6 +155,9 @@ var (
 	// canceledBeforeShell is the caller giving up before any shell opened,
 	// which says nothing about the network.
 	canceledBeforeShell = &winrmexec.NotStartedError{Err: fmt.Errorf("%w: no shell opened on win1 within 5s, so the command was never sent", context.Canceled)}
+	// circuitOpen is pkg/winrmexec refusing the call because the endpoint's
+	// circuit is open: nothing was sent, and asking again is refused too.
+	circuitOpen = &winrmexec.NotStartedError{Err: fmt.Errorf("%w for win1:5985", breaker.ErrOpen)}
 )
 
 // timeoutErr is a net.Error that says it timed out.
@@ -178,6 +183,7 @@ func TestRetry(t *testing.T) {
 		{name: "a deadline before any shell opened is retried", results: []func() (winrmexec.Result, error){fails(silentHost), ok("", 0)}, wantCalls: 2},
 		{name: "a cancellation before any shell opened is not retried", results: []func() (winrmexec.Result, error){fails(canceledBeforeShell)}, wantCalls: 1, wantErr: true},
 		{name: "a failure after the command started is not retried", results: []func() (winrmexec.Result, error){fails(midCommand)}, wantCalls: 1, wantErr: true},
+		{name: "a refusal by an open circuit is not retried", results: []func() (winrmexec.Result, error){fails(circuitOpen)}, wantCalls: 1, wantErr: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -197,9 +203,6 @@ func TestNew_UsesWinrmexec(t *testing.T) {
 	tr, ok := New(winrmexec.Options{}).(*winrmTransport)
 	if !ok || tr.execute == nil {
 		t.Fatal("New must wire winrmexec.Execute")
-	}
-	if tr.breaker == nil {
-		t.Fatal("New must give the transport a circuit breaker")
 	}
 }
 
