@@ -1221,6 +1221,8 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 1228. The JWKS keys never aged: background refresh errors were discarded, so during an IdP outage a withdrawn key stayed trusted with nothing logged (a repeat in kind of 205) (fixed)
 1229. JWKS_URL silently took precedence over JWT_SECRET, so a Controller set up with a secret and moved to an IdP kept the static secret as a mint-anything fallback by restart, and the JWKS URL could be plain http (fixed)
 1230. A refused SSH login was recorded as the circuit breaker's success, clearing any failure streak, so a failing AAA server never opens the circuit (open)
+1231. A clear-text IOS secret whose first word is a small number kept that word unmasked, in net.ios.facts' configuration and in Batfish's snapshot (security; a repeat of 705) (fixed before push)
+1232. A passing Batfish check silently left out IOS XE's Mgmt-intf management VRF, whose interfaces Batfish deactivates (a repeat of 585) (fixed before push)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 
