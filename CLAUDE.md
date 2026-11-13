@@ -311,7 +311,8 @@ pre-1.0 project and the honest state is not what the docs' introductions might i
   is a child of `CommandExecCapable`; the transport check is what keeps SSH-only `exec.command` off
   a Windows server.
 - **One circuit breaker, `pkg/breaker` (Phase 75).** `pkg/remoteexec` (SSH, telnet, serial-over-TCP)
-  and `internal/transport/winrm` share it; every platform instance is an unexported field, and
+  and `pkg/winrmexec` share it (the WinRM path's one breaker lives in `pkg/winrmexec`;
+  `internal/transport/winrm` has none of its own); every platform instance is an unexported field, and
   `internal/archtest`'s `TestNoPlatformCircuitIsReachable` refuses one anywhere a Collection could
   reach. Only a network failure counts: a refused credential (SSH's "unable to authenticate", a
   WinRM 401 or TLS alert) and an SSH host key known_hosts refuses (unknown, changed or revoked) are
