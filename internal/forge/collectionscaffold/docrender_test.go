@@ -36,6 +36,7 @@ func fullyPopulatedDoc() collection.Doc {
 			RunSetting:        true,
 			Format:            collection.ParamFormatCommand,
 			Risk:              collection.ParamRiskHostEscape,
+			Entries:           []collection.Param{{Name: "key", Type: "string", Description: "One entry's key."}},
 		}},
 		Fragments: []string{"ssh_connection"},
 		Returns: []collection.ReturnField{{
@@ -103,6 +104,27 @@ func TestGenerateRendersEveryDocField(t *testing.T) {
 	}
 }
 
+// TestGenerateRendersNestedEntries: a structured parameter's entries, an
+// entry's own format and entries of their own come out as Go source, so a
+// regenerated net.batfish.check keeps every key validate holds it to.
+func TestGenerateRendersNestedEntries(t *testing.T) {
+	files, err := collectionscaffold.Generate(collectionscaffold.Config{Name: "net.batfish.check", Doc: collection.Doc{Params: []collection.Param{{
+		Name: "scenarios", Type: "list of dict", Description: "x", Entries: []collection.Param{
+			{Name: "src", Type: "string", Description: "y", Format: collection.ParamFormatProjectPath},
+			{Name: "assertions", Type: "list of dict", Required: true, Description: "z", Entries: []collection.Param{{Name: "ospf_established", Type: "bool", Description: "w"}}},
+		},
+	}}}})
+	if err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	source := string(files[0].Content)
+	want := `Entries: []collection.Param{{Name: "src", Type: "string", Description: "y", Format: collection.ParamFormatProjectPath}, ` +
+		`{Name: "assertions", Type: "list of dict", Required: true, Description: "z", Entries: []collection.Param{{Name: "ospf_established", Type: "bool", Description: "w"}}}}`
+	if !strings.Contains(source, want) {
+		t.Fatalf("generated source is missing the nested entries %s\ngot:\n%s", want, source)
+	}
+}
+
 // TestRenderedDocFixtureCoversEveryField proves fullyPopulatedDoc leaves
 // no field zero.
 //
@@ -132,7 +154,9 @@ func assertNoZeroFields(t *testing.T, v reflect.Value, path string) {
 			t.Errorf("%s is zero: add it to fullyPopulatedDoc, and teach renderDoc to emit it", where)
 			continue
 		}
-		if value.Kind() == reflect.Slice && value.Type().Elem().Kind() == reflect.Struct {
+		// A slice of the struct's own type (Param.Entries) is the same
+		// fields again, already walked here, so it is not walked forever.
+		if value.Kind() == reflect.Slice && value.Type().Elem().Kind() == reflect.Struct && value.Type().Elem() != typ {
 			assertNoZeroFields(t, value.Index(0), where+"[0]")
 		}
 	}

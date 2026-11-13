@@ -15,7 +15,7 @@ Builds a snapshot from each device's whole configuration (config, or src: a file
 | Capabilities | `BatfishAPICapable` |
 | Transports | `https` |
 | Requires elevation | no |
-| Runs | on or against the target device; acts on its target device |
+| Runs | in the host process (the CLI or a Runner); acts on its target device |
 | Check mode | Supported: reports what it would change and changes nothing |
 | Absence | No exists return: it is a gate: failing on what it asserts is not so is its purpose |
 | Engine version | `>=0.2.0` |
@@ -25,11 +25,36 @@ Builds a snapshot from each device's whole configuration (config, or src: a file
 | Name | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
 | `devices` | `list of dict` | yes | - | Each device's whole configuration: name (the node's name, which a Cisco configuration's hostname must match), format (frr, the default, or cisco_ios), and config (the text, e.g. a registered net.frr.facts result's running_config) or src (a file in the project, read by the command line only). |
+| `devices[].name` | `string` | yes | - | The node's name, which a Cisco configuration's hostname must match. |
+| `devices[].format` | `string` | no | `frr` | The configuration's format. **Choices:** `frr`, `cisco_ios`. |
+| `devices[].config` | `string` | no | - | The whole configuration's text, e.g. a registered net.frr.facts result's running_config. Give config or src. |
+| `devices[].src` | `string` | no | - | A file in the project holding the whole configuration, read by the command line only. Give config or src. |
 | `assertions` | `list of dict` | no | - | What must hold of the configurations as given, each a map with a single key: ospf_established: true (every OSPF session Batfish finds is established, and there is one); bgp_established: true (the same for BGP); route: {node, prefix, next_hops, protocol, vrf}, where protocol is bgp, connected, eigrp, isis, kernel, local, ospf, rip or static (Batfish's own ibgp, aggregate, ospfIA, ospfE1, ospfE2, isisL1, isisL2 and eigrpEX are read as their family, so ibgp is written bgp); no_route: {node, prefix, vrf} (vrf narrows either to one VRF, such as default or a front-door VRF; without it every VRF the model has counts, so a front door's default route is a route to 0.0.0.0/0); reach: {from (node, every interface of it; node[interface], the node sending from that interface's address in its VRF; or @enter(node[interface]), a packet arriving on it from the wire, which Batfish cannot trace for an interface in a VRF; the interface may be quoted, node["Ethernet0/1"]), dst (an address), delivered (default true), through (nodes), avoids (nodes), accepted_by (the node that must answer dst, such as an HSRP or VRRP group's elected owner of a virtual address)}; routes_match: {node, routes (net.frr.facts' routes for that node), ignore (prefixes the configurations do not hold, such as a management network), vrf}, comparing connected, static, OSPF, BGP, IS-IS, EIGRP and RIP routes by prefix, protocol and next hop; question: {name (any Batfish question, e.g. hsrpProperties, filterLineReachability), variables, where (column: value), min_rows (default 1), max_rows}, the rows matching where counted. |
+| `assertions[].ospf_established` | `bool` | no | - | true: every OSPF session Batfish finds is established, and there is one. |
+| `assertions[].bgp_established` | `bool` | no | - | true: the same for BGP. |
+| `assertions[].route` | `dict` | no | - | A route present: node, prefix, next_hops, protocol, vrf. |
+| `assertions[].no_route` | `dict` | no | - | A route absent: node, prefix, vrf. |
+| `assertions[].reach` | `dict` | no | - | A flow: from, dst, delivered, through, avoids, accepted_by. |
+| `assertions[].routes_match` | `dict` | no | - | A node's modelled routes equal to the ones read live: node, routes, ignore, vrf. |
+| `assertions[].question` | `dict` | no | - | Any Batfish question: name, variables, where, min_rows, max_rows. |
 | `scenarios` | `list of dict` | no | - | Each a name, down_interfaces (node[interface], e.g. r1[eth2]) and down_nodes, and its own assertions, checked on the snapshot with those down. |
+| `scenarios[].name` | `string` | yes | - | The scenario's name. |
+| `scenarios[].down_interfaces` | `list of string` | no | - | Interfaces taken down, each node[interface], e.g. r1[eth2]. |
+| `scenarios[].down_nodes` | `list of string` | no | - | Nodes taken down. |
+| `scenarios[].assertions` | `list of dict` | yes | - | What must hold with those down, as the assertions parameter. |
+| `scenarios[].assertions[].ospf_established` | `bool` | no | - | true: every OSPF session Batfish finds is established, and there is one. |
+| `scenarios[].assertions[].bgp_established` | `bool` | no | - | true: the same for BGP. |
+| `scenarios[].assertions[].route` | `dict` | no | - | A route present: node, prefix, next_hops, protocol, vrf. |
+| `scenarios[].assertions[].no_route` | `dict` | no | - | A route absent: node, prefix, vrf. |
+| `scenarios[].assertions[].reach` | `dict` | no | - | A flow: from, dst, delivered, through, avoids, accepted_by. |
+| `scenarios[].assertions[].routes_match` | `dict` | no | - | A node's modelled routes equal to the ones read live: node, routes, ignore, vrf. |
+| `scenarios[].assertions[].question` | `dict` | no | - | Any Batfish question: name, variables, where, min_rows, max_rows. |
 | `network` | `string` | no | `pleiades` | What the name of the Batfish network this task makes begins with, followed by a hyphen and 16 random hexadecimal digits (a lab's name, such as pleiades-cvd-opus, makes pleiades-cvd-opus-1f3a...), so the networks each lab makes on one shared Batfish service read as that lab's. 1 to 64 letters, digits, dots, hyphens and underscores, beginning with a letter or digit. The random part keeps two runs given the same name apart, and each task deletes only the network it made, when it ends. The whole name is returned as network. |
 | `expect_devices` | `list of string` | no | - | Names of every device the lab holds that this check is meant to stand for. One with no entry in devices (a Linux bridge, a host) is listed in not_modelled as absent from the model, so a passing check is not read as covering a device it never saw. Reported only; it never fails the task. |
 | `accept_unrecognized` | `list of dict` | no | - | Lines Batfish did not recognise, or features it does not model, that the task accepts: each a text (the line, trimmed; a line holding a secret is matched without it, so ip ospf authentication-key accepts that line) or a feature (glbp, ip_sla, sla_tracking, bfd, nhrp), and a reason (why the model may ignore it). Every other unrecognised line fails the task. |
+| `accept_unrecognized[].text` | `string` | no | - | The line Batfish did not recognise, trimmed. Give text or feature. |
+| `accept_unrecognized[].feature` | `string` | no | - | A feature Batfish parses and does not model (glbp, ip_sla, sla_tracking, bfd, nhrp). Give text or feature. |
+| `accept_unrecognized[].reason` | `string` | yes | - | Why the model may ignore it. |
 
 ## Returns
 

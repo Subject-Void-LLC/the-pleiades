@@ -203,21 +203,18 @@ func (e *collectionActionExecutor) run(ctx context.Context, task *Task, device i
 		return ActionResult{}, fmt.Errorf("collection method %q is registered as implemented but carries no implementation", task.FQCN)
 	}
 
-	// The method's required capabilities, checked here as well as at plan
-	// time (validate.CapabilityRule) and at admission (internal/dispatch),
+	// The method's required capabilities, transports and, for a method
+	// serving more than one kind of device, the kind this device is
+	// (collection.Admits), checked here as well as at plan time (validate's
+	// capability and transport rules) and at admission (internal/dispatch),
 	// since a plan can run against an inventory that changed after it was
-	// checked. A call is held to the shape its parameters select
-	// (Manifest.For: net.trace from a container needs a container host,
-	// not SSH), with its parameters as rendered.
+	// checked, and a grant can lapse after admission. A call is held to the
+	// shape its parameters select (Manifest.For: net.trace from a container
+	// needs a container host, not SSH), with its parameters as rendered. The
+	// transport check is what keeps exec.command, an SSH method, off a
+	// Windows server that has CommandExecCapable through WindowsShellCapable.
 	shaped := desc.Manifest.For(task.Params)
-	if err := collection.CheckCapabilities(device, task.FQCN, shaped); err != nil {
-		return ActionResult{}, err
-	}
-	// The same transport check pleiades validate makes (TransportRule),
-	// again here for the same reason. It is what keeps exec.command, an SSH
-	// method, off a Windows server that has CommandExecCapable through
-	// WindowsShellCapable.
-	if err := collection.CheckTransports(device, task.FQCN, shaped); err != nil {
+	if err := collection.Admits(device, task.FQCN, shaped); err != nil {
 		return ActionResult{}, err
 	}
 

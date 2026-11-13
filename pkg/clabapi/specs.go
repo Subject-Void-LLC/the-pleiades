@@ -71,7 +71,7 @@ func Specs() []Spec {
 	deployParams := []collection.Param{
 		pLab,
 		{Name: "topology", Type: "dict", Description: "The topology as a mapping, as containerlab's topology file is (name, topology: nodes, links). The three topology, topology_file and source_url are alternatives: give only one."},
-		{Name: "topology_file", Type: "string", Description: "A containerlab topology YAML file in the project directory, read by the command line; refused on a Walk-tier Runner, where topology is the way. The three topology, topology_file and source_url are alternatives: give only one."},
+		{Name: "topology_file", Type: "string", Description: "A containerlab topology YAML file in the project directory, read by the command line; refused on a Walk-tier Runner, where topology is the way. The three topology, topology_file and source_url are alternatives: give only one.", Format: collection.ParamFormatProjectPath},
 		{Name: "source_url", Type: "string", Description: "A URL of a Git repository holding the topology, which the server fetches. The three topology, topology_file and source_url are alternatives: give only one."},
 		{Name: "max_workers", Type: "int", Description: "How many nodes the server starts at once; the server's own default when unset."},
 		{Name: "network", Type: "string", Description: "The management network's name, when it is not clab."},

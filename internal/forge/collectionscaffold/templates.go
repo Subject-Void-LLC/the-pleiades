@@ -58,7 +58,7 @@ func init() {
 			RequiredCapabilities: []capability.Name{
 {{range .Capabilities}}				capability.Name({{quote .}}),
 {{end}}			},
-			ExecutionContext: collection.ExecutionContext{
+{{.Alternatives}}			ExecutionContext: collection.ExecutionContext{
 				RequiresElevation: {{.RequiresElevation}},
 				Site:              collection.{{.Site}},
 				Device:            collection.{{.Device}},

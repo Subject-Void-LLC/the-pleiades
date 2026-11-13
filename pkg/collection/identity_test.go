@@ -197,6 +197,19 @@ func TestUndoDigest_CoversWhatAReplayReadsAndNothingElse(t *testing.T) {
 	moved("a parameter's format", spec, edit("path", func(p *collection.Param) { p.Format = collection.ParamFormatTemplateFile }))
 	moved("a parameter a run setting may fill", spec, edit("mode", func(p *collection.Param) { p.RunSetting = true }))
 	moved("a parameter that may hold secret references", spec, edit("path", func(p *collection.Param) { p.SecretRefs = true }))
+	moved("a parameter's entries", spec, edit("mode", func(p *collection.Param) {
+		p.Entries = []collection.Param{{Name: "key", Type: "string", Description: "x"}}
+	}))
+	twoEntries := func(names ...string) map[string]collection.Param {
+		return edit("mode", func(p *collection.Param) {
+			for _, n := range names {
+				p.Entries = append(p.Entries, collection.Param{Name: n, Type: "string"})
+			}
+		})
+	}
+	if collection.UndoDigest(spec, twoEntries("a", "b")) != collection.UndoDigest(spec, twoEntries("b", "a")) {
+		t.Error("the order of a parameter's entries moved the digest")
+	}
 	renamed := maps.Clone(params)
 	renamed["file"] = renamed["path"]
 	delete(renamed, "path")
@@ -220,7 +233,7 @@ func TestUndoDigest_DecidesEveryField(t *testing.T) {
 		},
 		reflect.TypeFor[collection.Param](): {
 			"Name": true, "Type": true, "Required": true, "Default": true, "AliasOf": true,
-			"Choices": true, "ChoicesIgnoreCase": true, "Format": true, "RunSetting": true, "SecretRefs": true,
+			"Choices": true, "ChoicesIgnoreCase": true, "Format": true, "RunSetting": true, "SecretRefs": true, "Entries": true,
 			// Left out: prose, and a mark nothing at run time reads.
 			"Description": false, "Risk": false,
 		},

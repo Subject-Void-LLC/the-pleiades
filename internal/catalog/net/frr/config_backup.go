@@ -99,6 +99,13 @@ func (s *session) readBackup(ctx context.Context, dir, backup string, force bool
 	if text, _, err = read(backup, true); err != nil {
 		return "", "", false, err
 	}
+	if strings.TrimSpace(text) == "" {
+		// No configuration FRR runs is empty, so an empty or blank backup
+		// was cut short or emptied since. frr-reload refuses an empty file
+		// but reloads a blank one to no configuration at all, deleting
+		// everything, so it is refused here, force or not.
+		return "", "", false, fmt.Errorf("%s: the backup %s is empty, which no configuration the router ran is, so it is not restored", configFQCN, backup)
+	}
 	if saved, hasSaved, err = read(backup+savedSuffix, false); err != nil {
 		return "", "", false, err
 	}

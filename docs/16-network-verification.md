@@ -491,6 +491,19 @@ without the person's say-so.
 
 `pleiades doc <method>` prints each one's full contract.
 
+`wait.routes` reads two kinds of router: FRR (`FRRCapable` and `CommandExecCapable`, over SSH) and Cisco IOS
+(`CiscoIOSCapable`, over SSH, Telnet or a console server). A task whose device is neither is refused by
+`pleiades validate`, by a Runner before it runs anything, and by a Controller when it admits the device; the
+method checks again when it runs, in case a grant lapsed in between. `pleiades doc wait.routes` lists the two
+kinds under its attributes.
+
+`pleiades validate` also holds each entry of `net.batfish.check`'s `devices`, `assertions`, `scenarios` and
+`accept_unrecognized` to the keys `pleiades doc net.batfish.check` lists under each one. An unquoted comma in a
+YAML flow mapping ends the value, so `{text: x, reason: lab only, not production}` is three keys, and validation
+refuses it naming the stray one; quote a value that holds a comma. A Runner holds no project, so on the Walk tier
+a task naming a project file (a device's `src`, `net.frr.config`'s `src`) is refused before any task runs: give
+the configuration as `config` there.
+
 ### Keeping a running configuration as a candidate file
 
 A candidate is a whole configuration file in the project, and the natural start is what the router

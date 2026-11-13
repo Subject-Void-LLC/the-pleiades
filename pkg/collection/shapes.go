@@ -39,7 +39,9 @@ type CallShape struct {
 
 // For returns the manifest a call with params is held to: m itself, or, when
 // params give the Param of one of m.Shapes, m with that shape's transports
-// and capabilities in place of its own (and no shapes). The first shape
+// and capabilities in place of its own (and no shapes). A manifest with
+// Shapes has no Alternatives (ValidateAlternatives), so a shaped manifest
+// has none either. The first shape
 // given wins; a method whose shapes cannot combine refuses a call giving
 // two itself.
 //
@@ -61,33 +63,38 @@ func (m Manifest) For(params map[string]any) Manifest {
 	return m
 }
 
-// CheckShape refuses a device a call held to m cannot run on: a capability
-// it lacks (CheckCapabilities), then a transport it does not reach
-// (CheckTransports). m is a manifest For has already shaped.
+// CheckShape is Admits, under the name it had before alternatives existed.
+//
+// Deprecated: call Admits.
 func CheckShape(device inventory.InventoryItem, fqcn string, m Manifest) error {
-	if err := CheckCapabilities(device, fqcn, m); err != nil {
-		return err
-	}
-	return CheckTransports(device, fqcn, m)
+	return Admits(device, fqcn, m)
 }
 
-// CheckAnyShape refuses a device no call of the method could run on: it
-// fits neither the manifest's own shape nor any of its Shapes. It is for a
-// question asked without a call's parameters (a Controller admitting a
-// device for every method a runbook names); a call's own parameters are
-// held to their one shape through For and CheckShape. The error is the
-// manifest's own shape's.
-func CheckAnyShape(device inventory.InventoryItem, fqcn string, m Manifest) error {
-	err := CheckShape(device, fqcn, m)
+// AdmitsAnyShape refuses a device no call of the method could run on: it
+// fits neither the manifest's own shape nor any of its Shapes (Admits, so a
+// manifest's alternatives are held too). It is for a question asked without
+// a call's parameters (a Controller admitting a device for every method a
+// runbook names); a call's own parameters are held to their one shape
+// through For and Admits. The error is the manifest's own shape's.
+func AdmitsAnyShape(device inventory.InventoryItem, fqcn string, m Manifest) error {
+	err := Admits(device, fqcn, m)
 	if err == nil {
 		return nil
 	}
 	for _, s := range m.Shapes {
-		if CheckShape(device, fqcn, m.For(map[string]any{s.Param: true})) == nil {
+		if Admits(device, fqcn, m.For(map[string]any{s.Param: true})) == nil {
 			return nil
 		}
 	}
 	return err
+}
+
+// CheckAnyShape is AdmitsAnyShape, under the name it had before
+// alternatives existed.
+//
+// Deprecated: call AdmitsAnyShape.
+func CheckAnyShape(device inventory.InventoryItem, fqcn string, m Manifest) error {
+	return AdmitsAnyShape(device, fqcn, m)
 }
 
 // checkShapes refuses a shape that selects by an undocumented, reserved or

@@ -32,6 +32,14 @@ type Config struct {
 	// it checks Capabilities.
 	Transports []string
 
+	// Alternatives feeds Manifest.Alternatives: the kinds of device a method
+	// serving more than one needs, each with its own capabilities and
+	// transports (wait.routes: FRR or Cisco IOS). Empty for nearly every
+	// method. Validate holds them to collection.ValidateAlternatives, with
+	// Transports as the manifest's own, so a regenerated method is born
+	// with the alternatives its code chooses between.
+	Alternatives []collection.Alternative
+
 	// RequiresElevation feeds Manifest.ExecutionContext.RequiresElevation.
 	RequiresElevation bool
 
@@ -144,6 +152,11 @@ func (c Config) Validate() error {
 	}
 	if err := c.validateExecutionContext(); err != nil {
 		return err
+	}
+	// collection.Register refuses alternatives it could not choose between;
+	// said here, before a file is written.
+	if err := collection.ValidateAlternatives(c.Name, collection.Manifest{SupportedTransports: c.Transports, Alternatives: c.Alternatives}); err != nil {
+		return fmt.Errorf("collectionscaffold: %w", err)
 	}
 	for _, p := range c.Doc.Params {
 		// collection.Register refuses this at process start, which for a

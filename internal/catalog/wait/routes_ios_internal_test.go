@@ -14,9 +14,11 @@ import (
 	"testing"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory/inventorytest"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/iosparse"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/netcli"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
 
 // iosTable is show ip route from an IOS XE router: a connected tunnel, a
@@ -80,7 +82,7 @@ func TestIOSRoutes(t *testing.T) {
 		t.Error("an uptime moved the fingerprint")
 	}
 
-	if _, _, err := routeReader(context.Background(), nil, &inventorytest.Stub{StubName: "linux1"}, nil); err == nil || !strings.Contains(err.Error(), "neither an FRR router") {
+	if _, _, err := routeReader(context.Background(), nil, &inventorytest.Stub{StubName: "linux1"}, nil); err == nil || !strings.Contains(err.Error(), `device "linux1" is none of them`) {
 		t.Errorf("a device neither FRR nor IOS: %v", err)
 	}
 }
@@ -170,8 +172,8 @@ func TestRouteReader_RefusesWhatItCannotOpen(t *testing.T) {
 		t.Errorf("no device: %v", err)
 	}
 	for name, caps := range map[string][]capability.Name{
-		"frr1": {capability.NameFRR, capability.NameCommandExec},
-		"ios1": {capability.NameCiscoIOS},
+		"frr1": {capability.NameFRR, capability.NameCommandExec, capability.NameSSHTransport},
+		"ios1": {capability.NameCiscoIOS, capability.NameSSHTransport},
 	} {
 		read, closer, err := routeReader(context.Background(), emptyRC{}, &inventorytest.Stub{StubName: name, Caps: caps}, nil)
 		if err == nil || read != nil || closer != nil {
@@ -180,5 +182,30 @@ func TestRouteReader_RefusesWhatItCannotOpen(t *testing.T) {
 	}
 	if number(3) != 3 {
 		t.Error("number(3) is not 3")
+	}
+}
+
+// TestRouteReader_ReadsAnIOSRouterThroughItsSession: an IOS router's kind
+// opens its CLI session, reads the table through it, and its closer closes
+// that session.
+func TestRouteReader_ReadsAnIOSRouterThroughItsSession(t *testing.T) {
+	shell := &memIOS{table: iosTable, buf: "r1#"}
+	saved := openCLI
+	t.Cleanup(func() { openCLI = saved })
+	openCLI = func(ctx context.Context, _ sdk.RunbookContext, _ inventory.InventoryItem, _ map[string]any, _ string, dialect netcli.Dialect) (*netcli.Session, error) {
+		return netcli.Open(ctx, shell, dialect, netcli.Options{})
+	}
+	dev := &inventorytest.Stub{StubName: "ios1", Caps: []capability.Name{capability.NameCiscoIOS, capability.NameSSHTransport}}
+	read, closer, err := routeReader(context.Background(), emptyRC{}, dev, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closer()
+	table, err := read(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r := table["10.3.3.0/24"]; len(r) != 1 {
+		t.Errorf("the OSPF route read through the IOS kind = %+v", r)
 	}
 }

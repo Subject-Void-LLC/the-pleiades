@@ -1238,7 +1238,7 @@ your method can use, or none if it calls an API rather than its device, and writ
 the test that targets a device reaching only some other transport.
 
 Your manifest's `RequiredCapabilities` is checked in three places by one
-function, `collection.CheckCapabilities`: `validate` (`internal/validate`'s
+function, `collection.Admits`: `validate` (`internal/validate`'s
 `CapabilityRule`, which the Runner's preflight also runs), a Controller admitting
 each device when a job is launched, and the engine before it invokes the method.
 Each compares every name against the device, resolving the capability hierarchy
@@ -1248,6 +1248,25 @@ rather than merely naming it. A call that runs with no device is refused when th
 method requires any capability, since nothing can supply it. A task with a `when:`
 of its own is checked only by the engine, on each device where its condition holds,
 because `validate` and admission cannot know which devices the run will skip it on.
+
+A method that serves more than one kind of device, each needing different
+capabilities and transports, declares them as `Alternatives` (`wait.routes`: an FRR
+router needs `FRRCapable` and `CommandExecCapable` over SSH, a Cisco IOS one
+`CiscoIOSCapable` over SSH, Telnet or a console). A device must fit one alternative
+whole, and `collection.Admits` holds it to that in the same three places. The
+manifest's own `SupportedTransports` are then the union of the alternatives', and
+its `RequiredCapabilities` only what every kind needs. The method picks its code
+with `collection.ChooseAlternative`, so what was admitted and what runs cannot
+disagree. An alternative may name only capabilities your program defines or ones
+compiled into The Pleiades, as `RequiredCapabilities` may.
+
+A parameter of type `list of dict` (or `dict`) can describe the keys of its
+entries with `Entries`, each written as a parameter is (name, type, required,
+choices, format, description, and `Entries` of its own for a nested list).
+`validate` then refuses an entry holding a key not listed, missing a required
+one, or holding a value of another type, before the run, and `pleiades doc` and
+the reference list the keys. An entry field marked `ParamFormatProjectPath` is
+refused on a Walk-tier Runner, which holds no project, as such a parameter is.
 
 Write the test for it yourself: target a device lacking the capability and assert
 the refusal. That test is also how you find out whether your requirement is the

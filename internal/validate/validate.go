@@ -51,6 +51,14 @@ type WorldView struct {
 	// the advice says so rather than naming a flag it does not have.
 	VariablesFlag string
 
+	// NoProjectDirectory says the run has no project directory on the
+	// machine that runs its methods: a Walk-tier Runner, which is handed a
+	// runbook, never the project around it. ProjectFileRule then refuses a
+	// task naming a project file, which the method could only answer at run
+	// time with sdk.ErrNoProjectFiles. Left false (the command line), a
+	// project file is the project's to hold.
+	NoProjectDirectory bool
+
 	// resolveCache memoizes Resolve by target string. Unexported and
 	// unset by every caller that builds a WorldView directly (Resolve is
 	// nil-safe and falls back to computing directly), so this changes

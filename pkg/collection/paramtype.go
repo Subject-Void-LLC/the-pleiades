@@ -135,6 +135,9 @@ func checkParamTypes(d Descriptor) error {
 		if err := checkRunSetting(d, p); err != nil {
 			return err
 		}
+		if err := checkEntries(d.Name, p.Name, p.Type, p.Entries); err != nil {
+			return err
+		}
 	}
 	return nil
 }

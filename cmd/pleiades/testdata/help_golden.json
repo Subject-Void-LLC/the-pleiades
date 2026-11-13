@@ -172,7 +172,7 @@
   "forge new-collection --help": {
     "code": 0,
     "stdout": "",
-    "stderr": "usage: pleiades forge new-collection \u003cnamespace.method\u003e [--capabilities Name1,Name2] [--transports ssh] [--requires-elevation] [--site target|controller|hybrid] [--device required|optional|none] [--engine-version x.y.z] [--doc-json '{...}'|@file.json] [--skip-existing] [--dir .]\n"
+    "stderr": "usage: pleiades forge new-collection \u003cnamespace.method\u003e [--capabilities Name1,Name2] [--transports ssh] [--requires-elevation] [--site target|controller|hybrid] [--device required|optional|none] [--engine-version x.y.z] [--alternatives-json '[...]'|@file.json] [--doc-json '{...}'|@file.json] [--skip-existing] [--dir .]\n"
   },
   "forge new-device -h": {
     "code": 0,

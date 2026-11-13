@@ -1,0 +1,1 @@
+`net.frr.config` now refuses a blank candidate, and an undo whose backup is empty or blank, before anything reaches the router. Before, a candidate of only whitespace passed the check and frr-reload reloaded the router to no configuration at all, deleting everything it ran, and a blank backup restored with force did the same.

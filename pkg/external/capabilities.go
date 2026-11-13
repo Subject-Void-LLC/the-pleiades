@@ -57,12 +57,14 @@ func CheckCapabilities(defs []capability.DataDefinition, methods []collection.De
 			return fmt.Errorf("capability %q names the probe %q, which is not one of this program's methods", def.Name, def.Probe)
 		case !probe.Manifest.Reversibility.ReadOnly:
 			return fmt.Errorf("capability %q names the probe %q, which does not declare that it only reads: a probe runs during onboarding and must change nothing", def.Name, def.Probe)
-		case slices.Contains(probe.Manifest.RequiredCapabilities, def.Name):
+		case slices.Contains(probe.Manifest.NamedCapabilities(), def.Name):
 			return fmt.Errorf("capability %q names the probe %q, which requires it: a probe runs before the device holds it", def.Name, def.Probe)
 		}
 	}
 	for _, m := range methods {
-		for _, req := range m.Manifest.RequiredCapabilities {
+		// Every capability the manifest names, its call shapes' and its
+		// alternatives' included (Manifest.NamedCapabilities).
+		for _, req := range m.Manifest.NamedCapabilities() {
 			if capability.IsDataName(req) && !defined[req] {
 				return fmt.Errorf("%q requires %q, which this program does not define", m.Name, req)
 			}

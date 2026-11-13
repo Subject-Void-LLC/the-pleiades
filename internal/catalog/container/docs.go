@@ -273,7 +273,7 @@ func copyInDoc() collection.Doc {
 			nameParam,
 			{Name: paramDest, Type: "string", Required: true, Description: "The file's absolute path inside the container; its directory must exist."},
 			{Name: paramContent, Type: "string", Description: "The bytes the file should hold. Set content or src, not both."},
-			{Name: paramSrc, Type: "string", Description: "A file in the project directory whose bytes the file should hold, relative to it."},
+			{Name: paramSrc, Type: "string", Description: "A file in the project directory whose bytes the file should hold, relative to it.", Format: collection.ParamFormatProjectPath},
 			{Name: paramMode, Type: "string", Default: "0644", Description: "The file's mode, in octal."},
 			containerengine.HostKeyParam,
 		},

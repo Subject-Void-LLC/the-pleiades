@@ -178,9 +178,10 @@ func notUndone(job *Job, a admission) admission {
 }
 
 // methodsAdmit refuses device when a method in methods cannot run on it: a
-// transport the method needs that the device does not reach, or a
-// capability the method requires that the device lacks. The checks are
-// collection.CheckTransports and CheckCapabilities, which the Runner's
+// transport the method needs that the device does not reach, a capability
+// the method requires that the device lacks, or, for a method serving more
+// than one kind of device (wait.routes: FRR or Cisco IOS), a device of none
+// of its kinds. The check is collection.Admits, which the Runner's
 // preflight (validate's rules) and the engine make again, so admission and
 // execution answer the same question the same way. Until Phase 117b
 // admission asked only engine.ActionCapability, which names two legacy
@@ -204,7 +205,7 @@ func methodsAdmit(device pkginventory.InventoryItem, methods []string) error {
 		// method whose calls take more than one shape admits a device any
 		// of them fits; the Runner's preflight and its engine hold each call
 		// to its own (collection.Manifest.For).
-		if err := collection.CheckAnyShape(device, fqcn, manifest); err != nil {
+		if err := collection.AdmitsAnyShape(device, fqcn, manifest); err != nil {
 			return err
 		}
 	}

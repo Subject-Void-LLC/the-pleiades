@@ -298,7 +298,8 @@ pre-1.0 project and the honest state is not what the docs' introductions might i
   `collection.CheckTransports`; the vocabulary and the capability reaching each transport are
   `pkg/capability`'s `ReachedBy`, and `collection.Register` refuses an unknown name). The generic
   `pkg.*`/`svc.*` dispatchers declare the union of their concrete methods' transports and re-check
-  the concrete one. Required capabilities are compared by `collection.CheckCapabilities` at plan time
+  the concrete one. Required capabilities, and for a method serving more than one kind of device its
+  `Manifest.Alternatives` (`wait.routes`: FRR or Cisco IOS), are checked by `collection.Admits` at plan time
   (`CapabilityRule`, which also keeps the legacy `engine.ActionCapability` check for `ssh_exec`,
   `winrm_exec` and the other four transport actions), at a Controller's admission of each device
   (`dispatch.methodsAdmit`, with the transports, for every method the runbook names that the

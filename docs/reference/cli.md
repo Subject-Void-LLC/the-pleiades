@@ -855,6 +855,7 @@ generate a new namespaced Collection method package
 | --site | `string` | `target` | where the method's code runs: target (on or against the device), controller (in the host process) or hybrid |
 | --device | `string` | `required` | whether the method acts on a device: required, optional (decided per call by a DeviceCall the generated file stubs) or none |
 | --engine-version | `string` | - | minimum core engine version constraint (unparsed, e.g. >=1.0.0) |
+| --alternatives-json | `string` | - | the kinds of device the method serves, as a JSON list of pkg/collection.Alternative objects (name, supportedTransports, requiredCapabilities), or @path to read it from a file |
 | --doc-json | `string` | - | reference documentation as a JSON pkg/collection.Doc object, or @path to read it from a file |
 | --skip-existing | `bool` | `false` | leave an already-generated entry alone instead of refusing, for regenerating a catalog in place |
 

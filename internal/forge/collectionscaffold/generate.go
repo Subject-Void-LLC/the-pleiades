@@ -9,6 +9,7 @@ import (
 	"text/template"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/buildinfo"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 )
 
 // GeneratedFile is one file Generate produces: a path relative to the
@@ -50,6 +51,11 @@ type templateData struct {
 	// generated source that does not compile, reported as a formatting
 	// error a long way from the branch that caused it.
 	Doc string
+
+	// Alternatives is the already-rendered Go source for the manifest's
+	// Alternatives field (see renderAlternatives), or the empty string when
+	// the method declares none.
+	Alternatives string
 }
 
 var funcMap = template.FuncMap{
@@ -84,6 +90,7 @@ func Generate(cfg Config) ([]GeneratedFile, error) {
 		Device:            cfg.deviceIdentifier(),
 		DeviceCall:        cfg.needsDeviceCall(),
 		Doc:               renderDoc(cfg.Doc),
+		Alternatives:      renderAlternatives(cfg.Alternatives),
 	}
 	for _, c := range cfg.Capabilities {
 		data.Capabilities = append(data.Capabilities, string(c))
@@ -103,6 +110,33 @@ func Generate(cfg Config) ([]GeneratedFile, error) {
 		{Path: base + cfg.MethodSegment() + ".go", Content: sourceFile},
 		{Path: base + cfg.MethodSegment() + "_test.go", Content: testFile},
 	}, nil
+}
+
+// renderAlternatives returns the Go source for a generated Manifest's
+// Alternatives field, including the key and the trailing comma, or the
+// empty string for a method that declares none. Each alternative's
+// capabilities are written as capability.Name values, as the manifest's own
+// are, and go/format owns the layout.
+func renderAlternatives(alts []collection.Alternative) string {
+	if len(alts) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("Alternatives: []collection.Alternative{\n")
+	for _, a := range alts {
+		caps := make([]string, len(a.RequiredCapabilities))
+		for i, c := range a.RequiredCapabilities {
+			caps[i] = "capability.Name(" + strconv.Quote(string(c)) + ")"
+		}
+		fields := []string{"Name: " + strconv.Quote(a.Name)}
+		if len(a.SupportedTransports) > 0 {
+			fields = append(fields, "SupportedTransports: "+renderStringSlice(a.SupportedTransports))
+		}
+		fields = append(fields, "RequiredCapabilities: []capability.Name{"+strings.Join(caps, ", ")+"}")
+		b.WriteString("{" + strings.Join(fields, ", ") + "},\n")
+	}
+	b.WriteString("},\n")
+	return b.String()
 }
 
 // renderAndFormat executes tmpl and formats the result via go/format

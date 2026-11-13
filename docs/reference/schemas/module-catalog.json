@@ -1890,7 +1890,8 @@
         {
           "name": "src",
           "type": "string",
-          "description": "A file in the project directory whose bytes the file should hold, relative to it."
+          "description": "A file in the project directory whose bytes the file should hold, relative to it.",
+          "format": "project_path"
         },
         {
           "name": "mode",
@@ -7780,7 +7781,8 @@
         {
           "name": "src",
           "type": "string",
-          "description": "A file in the project directory whose bytes the file should hold, as a path relative to that directory: it must stay inside it, pass through no symbolic link, not be in .pleiades, and be a regular file of at most 64 MiB. Read by the command line, which holds the project; refused on a Walk-tier Runner, which cannot see it, where content is the way. Set content or src, not both."
+          "description": "A file in the project directory whose bytes the file should hold, as a path relative to that directory: it must stay inside it, pass through no symbolic link, not be in .pleiades, and be a regular file of at most 64 MiB. Read by the command line, which holds the project; refused on a Walk-tier Runner, which cannot see it, where content is the way. Set content or src, not both.",
+          "format": "project_path"
         },
         {
           "name": "mode",
@@ -10768,7 +10770,7 @@
       "BatfishAPICapable"
     ],
     "executionContext": {
-      "site": "target",
+      "site": "controller",
       "device": "required"
     },
     "engineVersion": ">=0.2.0",
@@ -10788,17 +10790,144 @@
           "name": "devices",
           "type": "list of dict",
           "required": true,
-          "description": "Each device's whole configuration: name (the node's name, which a Cisco configuration's hostname must match), format (frr, the default, or cisco_ios), and config (the text, e.g. a registered net.frr.facts result's running_config) or src (a file in the project, read by the command line only)."
+          "description": "Each device's whole configuration: name (the node's name, which a Cisco configuration's hostname must match), format (frr, the default, or cisco_ios), and config (the text, e.g. a registered net.frr.facts result's running_config) or src (a file in the project, read by the command line only).",
+          "entries": [
+            {
+              "name": "name",
+              "type": "string",
+              "required": true,
+              "description": "The node's name, which a Cisco configuration's hostname must match."
+            },
+            {
+              "name": "format",
+              "type": "string",
+              "default": "frr",
+              "choices": [
+                "frr",
+                "cisco_ios"
+              ],
+              "description": "The configuration's format."
+            },
+            {
+              "name": "config",
+              "type": "string",
+              "description": "The whole configuration's text, e.g. a registered net.frr.facts result's running_config. Give config or src."
+            },
+            {
+              "name": "src",
+              "type": "string",
+              "description": "A file in the project holding the whole configuration, read by the command line only. Give config or src.",
+              "format": "project_path"
+            }
+          ]
         },
         {
           "name": "assertions",
           "type": "list of dict",
-          "description": "What must hold of the configurations as given, each a map with a single key: ospf_established: true (every OSPF session Batfish finds is established, and there is one); bgp_established: true (the same for BGP); route: {node, prefix, next_hops, protocol, vrf}, where protocol is bgp, connected, eigrp, isis, kernel, local, ospf, rip or static (Batfish's own ibgp, aggregate, ospfIA, ospfE1, ospfE2, isisL1, isisL2 and eigrpEX are read as their family, so ibgp is written bgp); no_route: {node, prefix, vrf} (vrf narrows either to one VRF, such as default or a front-door VRF; without it every VRF the model has counts, so a front door's default route is a route to 0.0.0.0/0); reach: {from (node, every interface of it; node[interface], the node sending from that interface's address in its VRF; or @enter(node[interface]), a packet arriving on it from the wire, which Batfish cannot trace for an interface in a VRF; the interface may be quoted, node[\"Ethernet0/1\"]), dst (an address), delivered (default true), through (nodes), avoids (nodes), accepted_by (the node that must answer dst, such as an HSRP or VRRP group's elected owner of a virtual address)}; routes_match: {node, routes (net.frr.facts' routes for that node), ignore (prefixes the configurations do not hold, such as a management network), vrf}, comparing connected, static, OSPF, BGP, IS-IS, EIGRP and RIP routes by prefix, protocol and next hop; question: {name (any Batfish question, e.g. hsrpProperties, filterLineReachability), variables, where (column: value), min_rows (default 1), max_rows}, the rows matching where counted."
+          "description": "What must hold of the configurations as given, each a map with a single key: ospf_established: true (every OSPF session Batfish finds is established, and there is one); bgp_established: true (the same for BGP); route: {node, prefix, next_hops, protocol, vrf}, where protocol is bgp, connected, eigrp, isis, kernel, local, ospf, rip or static (Batfish's own ibgp, aggregate, ospfIA, ospfE1, ospfE2, isisL1, isisL2 and eigrpEX are read as their family, so ibgp is written bgp); no_route: {node, prefix, vrf} (vrf narrows either to one VRF, such as default or a front-door VRF; without it every VRF the model has counts, so a front door's default route is a route to 0.0.0.0/0); reach: {from (node, every interface of it; node[interface], the node sending from that interface's address in its VRF; or @enter(node[interface]), a packet arriving on it from the wire, which Batfish cannot trace for an interface in a VRF; the interface may be quoted, node[\"Ethernet0/1\"]), dst (an address), delivered (default true), through (nodes), avoids (nodes), accepted_by (the node that must answer dst, such as an HSRP or VRRP group's elected owner of a virtual address)}; routes_match: {node, routes (net.frr.facts' routes for that node), ignore (prefixes the configurations do not hold, such as a management network), vrf}, comparing connected, static, OSPF, BGP, IS-IS, EIGRP and RIP routes by prefix, protocol and next hop; question: {name (any Batfish question, e.g. hsrpProperties, filterLineReachability), variables, where (column: value), min_rows (default 1), max_rows}, the rows matching where counted.",
+          "entries": [
+            {
+              "name": "ospf_established",
+              "type": "bool",
+              "description": "true: every OSPF session Batfish finds is established, and there is one."
+            },
+            {
+              "name": "bgp_established",
+              "type": "bool",
+              "description": "true: the same for BGP."
+            },
+            {
+              "name": "route",
+              "type": "dict",
+              "description": "A route present: node, prefix, next_hops, protocol, vrf."
+            },
+            {
+              "name": "no_route",
+              "type": "dict",
+              "description": "A route absent: node, prefix, vrf."
+            },
+            {
+              "name": "reach",
+              "type": "dict",
+              "description": "A flow: from, dst, delivered, through, avoids, accepted_by."
+            },
+            {
+              "name": "routes_match",
+              "type": "dict",
+              "description": "A node's modelled routes equal to the ones read live: node, routes, ignore, vrf."
+            },
+            {
+              "name": "question",
+              "type": "dict",
+              "description": "Any Batfish question: name, variables, where, min_rows, max_rows."
+            }
+          ]
         },
         {
           "name": "scenarios",
           "type": "list of dict",
-          "description": "Each a name, down_interfaces (node[interface], e.g. r1[eth2]) and down_nodes, and its own assertions, checked on the snapshot with those down."
+          "description": "Each a name, down_interfaces (node[interface], e.g. r1[eth2]) and down_nodes, and its own assertions, checked on the snapshot with those down.",
+          "entries": [
+            {
+              "name": "name",
+              "type": "string",
+              "required": true,
+              "description": "The scenario's name."
+            },
+            {
+              "name": "down_interfaces",
+              "type": "list of string",
+              "description": "Interfaces taken down, each node[interface], e.g. r1[eth2]."
+            },
+            {
+              "name": "down_nodes",
+              "type": "list of string",
+              "description": "Nodes taken down."
+            },
+            {
+              "name": "assertions",
+              "type": "list of dict",
+              "required": true,
+              "description": "What must hold with those down, as the assertions parameter.",
+              "entries": [
+                {
+                  "name": "ospf_established",
+                  "type": "bool",
+                  "description": "true: every OSPF session Batfish finds is established, and there is one."
+                },
+                {
+                  "name": "bgp_established",
+                  "type": "bool",
+                  "description": "true: the same for BGP."
+                },
+                {
+                  "name": "route",
+                  "type": "dict",
+                  "description": "A route present: node, prefix, next_hops, protocol, vrf."
+                },
+                {
+                  "name": "no_route",
+                  "type": "dict",
+                  "description": "A route absent: node, prefix, vrf."
+                },
+                {
+                  "name": "reach",
+                  "type": "dict",
+                  "description": "A flow: from, dst, delivered, through, avoids, accepted_by."
+                },
+                {
+                  "name": "routes_match",
+                  "type": "dict",
+                  "description": "A node's modelled routes equal to the ones read live: node, routes, ignore, vrf."
+                },
+                {
+                  "name": "question",
+                  "type": "dict",
+                  "description": "Any Batfish question: name, variables, where, min_rows, max_rows."
+                }
+              ]
+            }
+          ]
         },
         {
           "name": "network",
@@ -10814,7 +10943,25 @@
         {
           "name": "accept_unrecognized",
           "type": "list of dict",
-          "description": "Lines Batfish did not recognise, or features it does not model, that the task accepts: each a text (the line, trimmed; a line holding a secret is matched without it, so ip ospf authentication-key accepts that line) or a feature (glbp, ip_sla, sla_tracking, bfd, nhrp), and a reason (why the model may ignore it). Every other unrecognised line fails the task."
+          "description": "Lines Batfish did not recognise, or features it does not model, that the task accepts: each a text (the line, trimmed; a line holding a secret is matched without it, so ip ospf authentication-key accepts that line) or a feature (glbp, ip_sla, sla_tracking, bfd, nhrp), and a reason (why the model may ignore it). Every other unrecognised line fails the task.",
+          "entries": [
+            {
+              "name": "text",
+              "type": "string",
+              "description": "The line Batfish did not recognise, trimmed. Give text or feature."
+            },
+            {
+              "name": "feature",
+              "type": "string",
+              "description": "A feature Batfish parses and does not model (glbp, ip_sla, sla_tracking, bfd, nhrp). Give text or feature."
+            },
+            {
+              "name": "reason",
+              "type": "string",
+              "required": true,
+              "description": "Why the model may ignore it."
+            }
+          ]
         }
       ],
       "returns": [
@@ -11456,7 +11603,8 @@
         {
           "name": "src",
           "type": "string",
-          "description": "A file in the project directory holding the whole intended configuration, read by the command line; refused on a Walk-tier Runner, where config is the way. Set config or src, not both."
+          "description": "A file in the project directory holding the whole intended configuration, read by the command line; refused on a Walk-tier Runner, where config is the way. Set config or src, not both.",
+          "format": "project_path"
         },
         {
           "name": "save",
@@ -13242,7 +13390,8 @@
           "name": "src",
           "type": "string",
           "required": true,
-          "description": "The capture file, a path relative to the project directory, such as captures/core1-wan.pcap."
+          "description": "The capture file, a path relative to the project directory, such as captures/core1-wan.pcap.",
+          "format": "project_path"
         },
         {
           "name": "pairs",
@@ -16490,7 +16639,8 @@
         {
           "name": "topology_file",
           "type": "string",
-          "description": "A containerlab topology YAML file in the project directory, read by the command line; refused on a Walk-tier Runner, where topology is the way. The three topology, topology_file and source_url are alternatives: give only one."
+          "description": "A containerlab topology YAML file in the project directory, read by the command line; refused on a Walk-tier Runner, where topology is the way. The three topology, topology_file and source_url are alternatives: give only one.",
+          "format": "project_path"
         },
         {
           "name": "source_url",
@@ -16901,7 +17051,8 @@
         {
           "name": "topology_file",
           "type": "string",
-          "description": "A containerlab topology YAML file in the project directory, read by the command line; refused on a Walk-tier Runner, where topology is the way. The three topology, topology_file and source_url are alternatives: give only one."
+          "description": "A containerlab topology YAML file in the project directory, read by the command line; refused on a Walk-tier Runner, where topology is the way. The three topology, topology_file and source_url are alternatives: give only one.",
+          "format": "project_path"
         },
         {
           "name": "source_url",
@@ -22280,6 +22431,29 @@
       "telnet",
       "console"
     ],
+    "alternatives": [
+      {
+        "name": "frr",
+        "supportedTransports": [
+          "ssh"
+        ],
+        "requiredCapabilities": [
+          "FRRCapable",
+          "CommandExecCapable"
+        ]
+      },
+      {
+        "name": "ios",
+        "supportedTransports": [
+          "ssh",
+          "telnet",
+          "console"
+        ],
+        "requiredCapabilities": [
+          "CiscoIOSCapable"
+        ]
+      }
+    ],
     "executionContext": {
       "site": "target",
       "device": "required"
@@ -22296,7 +22470,7 @@
     "noExistsReason": "it is a wait: failing at its timeout is its purpose",
     "doc": {
       "summary": "Waits until a router has a route to every prefix given, or with state absent has none left, and its routing table has stopped changing.",
-      "description": "A full OSPF adjacency is not convergence: shortest paths are computed after it, and a router can route the long way, or not at all, for a while after every neighbour is up. This waits for what a change needs: a selected route to each prefix (through the given next hops, when next_hops names any), and the routing table, uptimes aside, unchanged for stable_for seconds. With state absent it waits for the opposite, such as a withdrawn network or a failed link: no selected route to any prefix given (or, for a prefix next_hops names, a route through none of those next hops, so a failover away from one neighbour can be waited for), with the same stable_for. A table read with no selected route at all (not even a connected one, as a cut or refused read or output the parser does not recognize leaves it) is never taken as every route gone: the wait goes on. At timeout it fails naming each route still missing (or, with state absent, still there, or that the table read held no route), or saying the table never held still. It changes nothing. It reads an FRR router's table through vtysh (show ip route json, over SSH, the device granted FRRCapable and CommandExecCapable) and a Cisco IOS router's global table through its CLI (show ip route, over SSH, the controller's console or Telnet with insecure_telnet), and refuses any other device before contacting it. That refusal is made when the task runs: no single capability names both, so validate and a Controller's admission cannot hold the device to it beforehand.",
+      "description": "A full OSPF adjacency is not convergence: shortest paths are computed after it, and a router can route the long way, or not at all, for a while after every neighbour is up. This waits for what a change needs: a selected route to each prefix (through the given next hops, when next_hops names any), and the routing table, uptimes aside, unchanged for stable_for seconds. With state absent it waits for the opposite, such as a withdrawn network or a failed link: no selected route to any prefix given (or, for a prefix next_hops names, a route through none of those next hops, so a failover away from one neighbour can be waited for), with the same stable_for. A table read with no selected route at all (not even a connected one, as a cut or refused read or output the parser does not recognize leaves it) is never taken as every route gone: the wait goes on. At timeout it fails naming each route still missing (or, with state absent, still there, or that the table read held no route), or saying the table never held still. It changes nothing. It reads an FRR router's table through vtysh (show ip route json, over SSH, the device granted FRRCapable and CommandExecCapable) and a Cisco IOS router's global table through its CLI (show ip route, over SSH, the controller's console or Telnet with insecure_telnet), and refuses any other device before contacting it. The two kinds are the method's alternatives, each with its own capabilities and transports, so validate, a Controller's admission and the run itself all refuse a device that is neither, and the run checks again in case a grant lapsed after admission.",
       "params": [
         {
           "name": "prefixes",
@@ -23006,7 +23180,8 @@
           "name": "src",
           "type": "string",
           "required": true,
-          "description": "The file to copy, a slash-separated path relative to the project directory, as dist/tree.tar.gz."
+          "description": "The file to copy, a slash-separated path relative to the project directory, as dist/tree.tar.gz.",
+          "format": "project_path"
         },
         {
           "name": "path",

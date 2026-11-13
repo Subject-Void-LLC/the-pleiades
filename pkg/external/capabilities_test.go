@@ -111,6 +111,18 @@ func TestCheckCapabilities_HoldsEachDefinitionToItsProgram(t *testing.T) {
 			}
 		}, fmt.Sprintf("more than %d", capability.MaxDataDefinitions)},
 		"a negative revision": {func(p *external.Program) { p.Capabilities[0].Revision = -1 }, "revision -1"},
+		"an alternative's requirement it does not define": {func(p *external.Program) {
+			p.Methods[0].Manifest.Alternatives = []collection.Alternative{
+				{Name: "widget", RequiredCapabilities: []capability.Name{"acme.widget_api"}},
+				{Name: "gadget", RequiredCapabilities: []capability.Name{"acme.gadget_api"}},
+			}
+		}, "does not define"},
+		"a probe one alternative of which requires what it probes": {func(p *external.Program) {
+			p.Methods[1].Manifest.Alternatives = []collection.Alternative{
+				{Name: "plain", RequiredCapabilities: []capability.Name{capability.NameLinux}},
+				{Name: "widget", RequiredCapabilities: []capability.Name{"acme.widget_api"}},
+			}
+		}, "which requires it"},
 	} {
 		p := probed()
 		tc.mutate(&p)

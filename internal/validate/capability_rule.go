@@ -1,6 +1,7 @@
 package validate
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
@@ -9,8 +10,10 @@ import (
 
 // CapabilityRule refuses a task whose device lacks a capability its action
 // requires. For a Collection method that is every capability its manifest
-// requires (collection.CheckCapabilities, the check the engine makes again
-// before the method runs); for a legacy transport action it is the one
+// requires and, for a method serving more than one kind of device
+// (Manifest.Alternatives), being one of those kinds whole (collection.Admits,
+// the check the engine makes again before the method runs); for a legacy
+// transport action it is the one
 // engine.ActionCapability names. It resolves the task's effective target
 // (engine.TaskTarget: Params["target"], falling back to the runbook's own
 // Hosts default; a device name or a tag either way) and rejects any
@@ -85,27 +88,29 @@ func CapabilityRule(world WorldView) []Finding {
 }
 
 // methodCapabilityFindings checks a Collection method's required
-// capabilities against each device its task resolves to. A call that runs
-// with no device (engine.TaskTarget is empty and nothing resolved) is held
-// to the same check with no device, which refuses it when the method
-// requires any capability, as the engine would at run time.
+// capabilities, and for a method serving more than one kind of device the
+// kind each device is, against each device its task resolves to, through
+// collection.Admits, the check the engine and a Controller's admission make.
+// A transport refusal (*collection.TransportError) is TransportRule's to
+// report, which makes that half of Admits for every device itself. A call that runs with no device (engine.TaskTarget is
+// empty and nothing resolved) is held to the same check with no device,
+// which refuses it when the method requires anything of one, as the engine
+// would at run time.
 func methodCapabilityFindings(world WorldView, id string, task *engine.Task, desc collection.Descriptor) []Finding {
 	// The call is held to the shape its parameters select, as the engine
 	// holds it (collection.Manifest.For).
 	shaped := desc.Manifest.For(task.Params)
-	if len(shaped.RequiredCapabilities) == 0 {
-		return nil
-	}
 	target, devices := world.taskDevices(task)
 	if target == "" && len(devices) == 0 {
-		// The method requires a capability (above), so a call with no
-		// device is always refused.
-		err := collection.CheckCapabilities(nil, task.FQCN, shaped)
-		return []Finding{{RuleName: "capability", Node: id, Message: fmt.Sprintf("%v (task %s)", err, taskLabel(id, task))}}
+		if err := collection.Admits(nil, task.FQCN, shaped); err != nil {
+			return []Finding{{RuleName: "capability", Node: id, Message: fmt.Sprintf("%v (task %s)", err, taskLabel(id, task))}}
+		}
+		return nil
 	}
 	var findings []Finding
 	for _, dev := range devices {
-		if err := collection.CheckCapabilities(dev, task.FQCN, shaped); err != nil {
+		var transport *collection.TransportError
+		if err := collection.Admits(dev, task.FQCN, shaped); err != nil && !errors.As(err, &transport) {
 			findings = append(findings, Finding{
 				RuleName: "capability",
 				Node:     id,

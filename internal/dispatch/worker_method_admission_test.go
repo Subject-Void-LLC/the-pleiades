@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/api/wellknown"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/dispatch"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/runbook"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
@@ -188,5 +189,65 @@ func TestWorker_AdmitsFromTheInstalledCatalogInABinaryWithNoRegistry(t *testing.
 	}
 	if len(tasks) != 2 || bus.count() != 1 {
 		t.Errorf("%d tasks, %d dispatches; want 2 and 1", len(tasks), bus.count())
+	}
+}
+
+// TestWorker_RefusesARouterOfNeitherKindFromTheShippedCatalog: wait.routes
+// reads an FRR router or a Cisco IOS one (collection.Manifest.Alternatives).
+// A Controller admits from the module catalog it embeds, exactly as shipped
+// (wellknown.ModuleCatalog), so this installs that one: the FRR router and
+// the IOS router behind a console server are dispatched, and a Linux server
+// that runs commands over SSH is skipped naming both kinds. Before the
+// alternatives the method declared no capability, so the server was
+// dispatched and failed on the Runner.
+func TestWorker_RefusesARouterOfNeitherKindFromTheShippedCatalog(t *testing.T) {
+	t.Cleanup(collection.SnapshotForTest())
+	t.Cleanup(collection.CatalogForTest())
+	if err := collection.InstallCatalog(wellknown.ModuleCatalog); err != nil {
+		t.Fatal(err)
+	}
+	ctx := t.Context()
+	store := newTestJobStore(t)
+	bus := newCapturingBus()
+	stub := func(id, name string, caps ...capability.Name) *inventorytest.Stub {
+		return &inventorytest.Stub{StubID: pkginventory.DeviceID(id), StubName: name, StubState: pkginventory.StateActive,
+			Caps: caps, Props: map[string]pkginventory.PropertyValue{"host": "10.0.0.1"}}
+	}
+	repo := &fakeRepository{Devices: []pkginventory.InventoryItem{
+		stub("dev-frr", "r1", capability.NameFRR, capability.NameCommandExec, capability.NameSSHTransport),
+		stub("dev-ios", "r2", capability.NameCiscoIOS, capability.NameConsoleServed),
+		stub("dev-linux", "web1", capability.NameLinux, capability.NameCommandExec, capability.NameSSHTransport),
+	}}
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "settle.yaml"), []byte("id: settle\ntasks:\n  - name: routes settle\n    wait.routes:\n      prefixes: [10.1.0.0/24]\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runbooks, err := runbook.NewDirSource(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	evt := requestJob(t, ctx, store, "settle", "routers")
+	if err := dispatch.NewWorker(store, repo, runbooks, bus, nil).HandleJobRequested(evt); err != nil {
+		t.Fatal(err)
+	}
+	_, tasks, err := store.Get(ctx, jobIDFromEvent(t, evt))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, task := range tasks {
+		switch task.DeviceName {
+		case "r1", "r2":
+			if task.Outcome != dispatch.OutcomeDispatched {
+				t.Errorf("%s: %q %q, want dispatched", task.DeviceName, task.Outcome, task.Reason)
+			}
+		case "web1":
+			if task.Outcome != dispatch.OutcomeSkipped || !strings.Contains(task.Reason, `device "web1" is none of them`) ||
+				!strings.Contains(task.Reason, "frr (FRRCapable and CommandExecCapable, over ssh); ios (CiscoIOSCapable") {
+				t.Errorf("web1: %q %q, want skipped naming both kinds", task.Outcome, task.Reason)
+			}
+		}
+	}
+	if len(tasks) != 3 || bus.count() != 2 {
+		t.Errorf("%d tasks, %d dispatches; want 3 and 2", len(tasks), bus.count())
 	}
 }

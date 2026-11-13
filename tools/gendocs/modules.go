@@ -178,6 +178,17 @@ func writeModulePage(modulesDir, fqcn string, m collection.Manifest, someCalls b
 			[]string{"With " + code(s.Param) + ": capabilities", quoteList(shapeCaps)},
 			[]string{"With " + code(s.Param) + ": transports", quoteList(s.SupportedTransports)})
 	}
+	// A kind of device the method serves needs its own, and a device must
+	// be one of the kinds whole (collection.Alternative).
+	for _, a := range m.Alternatives {
+		altCaps := make([]string, len(a.RequiredCapabilities))
+		for i, c := range a.RequiredCapabilities {
+			altCaps[i] = string(c)
+		}
+		rows = append(rows,
+			[]string{"As " + code(a.Name) + ": capabilities", quoteList(altCaps)},
+			[]string{"As " + code(a.Name) + ": transports", quoteList(a.SupportedTransports)})
+	}
 	rows = append(rows,
 		[]string{"Requires elevation", yesNo(m.ExecutionContext.RequiresElevation)},
 		[]string{"Runs", runsWhere(m.ExecutionContext)},
@@ -291,13 +302,31 @@ func writeParameters(b *strings.Builder, doc collection.Doc) {
 		return
 	}
 
-	rows := make([][]string, len(params))
-	for i, p := range params {
-		rows[i] = []string{code(p.Name), code(p.Type), yesNo(p.Required), code(p.Default), riskNote(p.Risk) + secretRefsNote(p.SecretRefs) + runSettingNote(p.RunSetting) + aliasNote(p.AliasOf) + p.Description + choicesNote(p)}
+	rows := make([][]string, 0, len(params))
+	for _, p := range params {
+		rows = append(rows, []string{code(p.Name), code(p.Type), yesNo(p.Required), code(p.Default), riskNote(p.Risk) + secretRefsNote(p.SecretRefs) + runSettingNote(p.RunSetting) + aliasNote(p.AliasOf) + p.Description + choicesNote(p)})
+		rows = append(rows, entryRows(p.Name, p.Type, p.Entries)...)
 	}
 	b.WriteString("## Parameters\n\n")
 	b.WriteString(table([]string{"Name", "Type", "Required", "Default", "Description"}, rows))
 	b.WriteString("\n")
+}
+
+// entryRows are the rows of a structured parameter's entries
+// (collection.Param.Entries), each named by its place under the parameter
+// (devices[].src for an entry of a list, where.column for a key of a map),
+// at every depth, so a reader sees every key validate holds an entry to.
+func entryRows(place, typ string, entries []collection.Param) [][]string {
+	if typ == collection.ParamTypeListOfDict {
+		place += "[]"
+	}
+	var rows [][]string
+	for _, f := range entries {
+		at := place + "." + f.Name
+		rows = append(rows, []string{code(at), code(f.Type), yesNo(f.Required), code(f.Default), f.Description + choicesNote(f)})
+		rows = append(rows, entryRows(at, f.Type, f.Entries)...)
+	}
+	return rows
 }
 
 func writeReturns(b *strings.Builder, doc collection.Doc) {

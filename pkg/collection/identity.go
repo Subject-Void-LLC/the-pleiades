@@ -140,8 +140,9 @@ func DescriptionDigest(manifests map[string]Manifest, capabilities []capability.
 // and its two flags; and each parameter's name, type, whether it is
 // required, its default, the parameter it is an alias of, its closed set of
 // choices, its format (a recorded path read as a template_file is a
-// different replay), whether a run setting may fill it, and whether it may
-// hold secret references. A description and a risk mark move nothing, so a
+// different replay), whether a run setting may fill it, whether it may hold
+// secret references, and its entries, each digested the same way. A
+// description and a risk mark move nothing, so a
 // corrected sentence in a method's documentation never reads as skew.
 // TestUndoDigest_DecidesEveryField holds every field of sdk.InverseSpec and
 // Param to that list or to the list of what is left out. The sets (Record,
@@ -159,19 +160,34 @@ func UndoDigest(spec sdk.InverseSpec, params map[string]Param) string {
 		Format            string   `json:"format"`
 		RunSetting        bool     `json:"runSetting"`
 		SecretRefs        bool     `json:"secretRefs"`
+		// Entries are digested as their parameter is, since validation holds
+		// a replayed value to them. omitempty keeps the digest of every
+		// parameter without entries what it was before they existed, so no
+		// recorded undo reads as skew for a field it never had.
+		Entries []undoParam `json:"entries,omitempty"`
 	}
 	sorted := func(s []string) []string {
 		out := append([]string{}, s...)
 		sort.Strings(out)
 		return out
 	}
-	declared := make(map[string]undoParam, len(params))
-	for name, p := range params {
-		declared[name] = undoParam{
+	var digestOf func(p Param) undoParam
+	digestOf = func(p Param) undoParam {
+		u := undoParam{
 			Name: p.Name, Type: p.Type, Required: p.Required, Default: p.Default,
 			AliasOf: p.AliasOf, Choices: sorted(p.Choices), ChoicesIgnoreCase: p.ChoicesIgnoreCase,
 			Format: string(p.Format), RunSetting: p.RunSetting, SecretRefs: p.SecretRefs,
 		}
+		// Sorted by name, since their order means nothing to a replay.
+		for _, e := range p.Entries {
+			u.Entries = append(u.Entries, digestOf(e))
+		}
+		sort.Slice(u.Entries, func(i, j int) bool { return u.Entries[i].Name < u.Entries[j].Name })
+		return u
+	}
+	declared := make(map[string]undoParam, len(params))
+	for name, p := range params {
+		declared[name] = digestOf(p)
 	}
 	return canonicalDigest(struct {
 		FQCN             string               `json:"fqcn"`
