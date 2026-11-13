@@ -1,0 +1,1 @@
+A token whose key ID the Controller's cached JWKS key set lacks no longer makes it fetch the key set once per request: requests needing a fetch share one, at most one starts a minute, and a token with no key ID is refused without a fetch.

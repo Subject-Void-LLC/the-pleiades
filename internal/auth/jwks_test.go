@@ -135,7 +135,7 @@ func generateECTestToken(t testing.TB, key *ecdsa.PrivateKey, kid, role string, 
 
 func jwksTestServer(t testing.TB, doc string) *httptest.Server {
 	t.Helper()
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(doc))
 	}))
@@ -149,9 +149,12 @@ func jwksTestServer(t testing.TB, doc string) *httptest.Server {
 // TestJWKSKeyProvider_Close_StopsBackgroundRefreshWithNoLeak checks the
 // whole process, so every other test in this package leaking one of these
 // would fail that test, not just leave its own resources dangling).
-func newTestJWKSProvider(t testing.TB, url string, opts ...auth.JWKSOption) auth.KeyProvider {
+//
+// The server is a TLS one, since a JWKS URL must be https, and the provider
+// fetches through the server's own client, which trusts its certificate.
+func newTestJWKSProvider(t testing.TB, server *httptest.Server, opts ...auth.JWKSOption) auth.KeyProvider {
 	t.Helper()
-	provider, err := auth.NewJWKSKeyProvider(url, opts...)
+	provider, err := auth.NewJWKSKeyProvider(server.URL, append([]auth.JWKSOption{auth.WithHTTPClient(server.Client())}, opts...)...)
 	if err != nil {
 		t.Fatalf("NewJWKSKeyProvider: %v", err)
 	}
@@ -168,7 +171,7 @@ func TestJWKSKeyProvider_RealServer_RSA_VerifiesToken(t *testing.T) {
 	}
 	server := jwksTestServer(t, jwksDocumentForRSAKey(t, &key.PublicKey, "rsa-kid"))
 
-	provider := newTestJWKSProvider(t, server.URL)
+	provider := newTestJWKSProvider(t, server)
 	eval, err := auth.NewJWTEvaluator(provider, testIssuer, testAudience)
 	if err != nil {
 		t.Fatalf("NewJWTEvaluator: %v", err)
@@ -191,7 +194,7 @@ func TestJWKSKeyProvider_RealServer_EC_VerifiesToken(t *testing.T) {
 	}
 	server := jwksTestServer(t, jwksDocument(t, ecTestJWK(&key.PublicKey, "P-256", "ec-kid")))
 
-	provider := newTestJWKSProvider(t, server.URL)
+	provider := newTestJWKSProvider(t, server)
 	eval, err := auth.NewJWTEvaluator(provider, testIssuer, testAudience)
 	if err != nil {
 		t.Fatalf("NewJWTEvaluator: %v", err)
@@ -214,7 +217,7 @@ func TestJWKSKeyProvider_RejectsTokenSignedByUnrelatedKey(t *testing.T) {
 	}
 	server := jwksTestServer(t, jwksDocumentForRSAKey(t, &published.PublicKey, "rsa-kid"))
 
-	provider := newTestJWKSProvider(t, server.URL)
+	provider := newTestJWKSProvider(t, server)
 	eval, err := auth.NewJWTEvaluator(provider, testIssuer, testAudience)
 	if err != nil {
 		t.Fatalf("NewJWTEvaluator: %v", err)
@@ -240,7 +243,7 @@ func TestJWKSKeyProvider_KeyRotation_RefetchesOnUnknownKid(t *testing.T) {
 
 	var mu sync.Mutex
 	doc := jwksDocumentForRSAKey(t, &key1.PublicKey, "kid-1")
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		mu.Lock()
 		current := doc
 		mu.Unlock()
@@ -251,7 +254,7 @@ func TestJWKSKeyProvider_KeyRotation_RefetchesOnUnknownKid(t *testing.T) {
 
 	// Background refresh disabled: the only way key-2 can ever be found is
 	// the bounded, on-demand refetch inside Key() itself.
-	provider := newTestJWKSProvider(t, server.URL, auth.WithRefreshInterval(0))
+	provider := newTestJWKSProvider(t, server, auth.WithRefreshInterval(0))
 	eval, err := auth.NewJWTEvaluator(provider, testIssuer, testAudience)
 	if err != nil {
 		t.Fatalf("NewJWTEvaluator: %v", err)
@@ -282,7 +285,7 @@ func TestJWKSKeyProvider_RefreshFailureKeepsServingStaleGoodKeys(t *testing.T) {
 	}
 	var fail atomic.Bool
 	doc := jwksDocumentForRSAKey(t, &key.PublicKey, "rsa-kid")
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if fail.Load() {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
@@ -292,7 +295,7 @@ func TestJWKSKeyProvider_RefreshFailureKeepsServingStaleGoodKeys(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	provider := newTestJWKSProvider(t, server.URL, auth.WithRefreshInterval(0))
+	provider := newTestJWKSProvider(t, server, auth.WithRefreshInterval(0))
 	eval, err := auth.NewJWTEvaluator(provider, testIssuer, testAudience)
 	if err != nil {
 		t.Fatalf("NewJWTEvaluator: %v", err)
@@ -319,7 +322,7 @@ func TestJWKSKeyProvider_ConstructionFailsClosed(t *testing.T) {
 		t.Fatalf("generating RSA key: %v", err)
 	}
 
-	unreachable := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	unreachable := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
 	t.Cleanup(unreachable.Close)
@@ -341,7 +344,10 @@ func TestJWKSKeyProvider_ConstructionFailsClosed(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if _, err := auth.NewJWKSKeyProvider(tc.url); err == nil {
+			// Every httptest TLS server presents the same certificate, so one
+			// server's client trusts them all, and a failure below is the
+			// case's own rather than an untrusted certificate's.
+			if _, err := auth.NewJWKSKeyProvider(tc.url, auth.WithHTTPClient(unreachable.Client())); err == nil {
 				t.Errorf("expected construction to fail closed for %s", tc.name)
 			}
 		})
@@ -350,7 +356,7 @@ func TestJWKSKeyProvider_ConstructionFailsClosed(t *testing.T) {
 	// Control: the same construction succeeds against a genuinely good
 	// document, proving the failures above are real, not a broken control.
 	good := jwksTestServer(t, jwksDocumentForRSAKey(t, &validKey.PublicKey, "k1"))
-	newTestJWKSProvider(t, good.URL)
+	newTestJWKSProvider(t, good)
 }
 
 // TestJWKSKeyProvider_ARefusalSaysWhatTheIdPSaid: a key set fetch the
@@ -358,13 +364,13 @@ func TestJWKSKeyProvider_ConstructionFailsClosed(t *testing.T) {
 // body, as Keycloak and most IdPs write one), bounded and quoted, not the
 // status alone.
 func TestJWKSKeyProvider_ARefusalSaysWhatTheIdPSaid(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusServiceUnavailable)
 		_, _ = w.Write([]byte(`{"error":"temporarily_unavailable","error_description":"Realm pleiades is starting"}`))
 	}))
 	t.Cleanup(srv.Close)
-	_, err := auth.NewJWKSKeyProvider(srv.URL)
+	_, err := auth.NewJWKSKeyProvider(srv.URL, auth.WithHTTPClient(srv.Client()))
 	if err == nil || !strings.Contains(err.Error(), `unexpected status 503: "Realm pleiades is starting"`) {
 		t.Fatalf("err = %v, want the 503 and the IdP's own reason", err)
 	}
@@ -385,13 +391,13 @@ func TestJWKSKeyProvider_Close_StopsBackgroundRefreshWithNoLeak(t *testing.T) {
 	if err != nil {
 		t.Fatalf("generating RSA key: %v", err)
 	}
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(jwksDocumentForRSAKey(t, &key.PublicKey, "k1")))
 	}))
 	defer server.Close()
 
-	provider, err := auth.NewJWKSKeyProvider(server.URL, auth.WithRefreshInterval(10*time.Millisecond))
+	provider, err := auth.NewJWKSKeyProvider(server.URL, auth.WithHTTPClient(server.Client()), auth.WithRefreshInterval(10*time.Millisecond))
 	if err != nil {
 		t.Fatalf("NewJWKSKeyProvider: %v", err)
 	}

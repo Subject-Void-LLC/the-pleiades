@@ -29756,7 +29756,7 @@ days back, two sweeps, expecting one launch. If that test passes, this entry is 
 
 **Lesson.** A cap added to bound work must keep the property it bounds; test the far side of the cap, not only below it.
 
-## 1227. An unauthenticated request with an unknown kid made the Controller fetch the JWKS each time, with no single-flight, cooldown or negative cache, under a comment saying a garbage kid cannot hammer the IdP (a repeat in kind of 228) (open)
+## 1227. An unauthenticated request with an unknown kid made the Controller fetch the JWKS each time, with no single-flight, cooldown or negative cache, under a comment saying a garbage kid cannot hammer the IdP (a repeat in kind of 228) (fixed)
 
 **Symptom.** Found 2026-11-13 by the same outside review, confirmed by reading the code; no test was run. Security.
 `jwksKeyProvider.Key` (`internal/auth/jwks.go` lines 124 to 139) refetches the key set on every unknown `kid`. golang-jwt v5 runs the
@@ -29771,8 +29771,16 @@ single attempt per call, so a forged or garbage kid cannot be used to hammer the
 **Why 228 did not prevent it.** 228's lesson is to check a comment's safety claim against the code. The claim here was true of one call
 and read as true of the service; no test sent two requests.
 
-**Fix.** Open. First in the queued branch. Shape to decide there: one fetch in flight at a time, a minimum interval between
-unknown-kid fetches, and a short negative cache for a kid the fresh set did not hold.
+**Fix.** Fixed on `fix/outage-lessons`. `jwksKeyProvider.Key` (`internal/auth/jwks.go`) refuses an empty kid before any fetch, since
+every cached key has one, and sends an unknown kid to `refetchOnDemand` (`internal/auth/jwks_refetch.go`). Concurrent requests share
+one fetch, which runs on its own goroutine under its own 10 s timeout, so a caller that gives up returns at once without cancelling the
+fetch for the others. No request starts another fetch within one minute of the last (`defaultUnknownKidCooldown`), so a real rotation
+is late by at most a minute and the background refresh finds it anyway. A negative cache was not needed, because the cooldown covers
+every unknown kid at once. The refusals no longer echo the caller's kid. Proof, each red with the fix reverted:
+`TestJWKSKeyProvider_AnEmptyKidNeverFetches` (21 fetches, want 0), `TestJWKSKeyProvider_UnknownKidsWaitOutACooldown` (51 fetches, want
+1) and `TestJWKSKeyProvider_ConcurrentUnknownKidsShareOneFetch` (50 fetches, want 1; with the cooldown kept and the sharing removed, 49
+of 50 requests carrying a rotated key were refused). `TestJWKSKeyProvider_AWaitingRequestLeavesOnItsOwnDeadline` holds the detached
+fetch.
 
 **Lesson.** A bound on work an unauthenticated caller can trigger is stated and tested across requests, not within one.
 

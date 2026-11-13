@@ -7,6 +7,7 @@ import (
 	"crypto/rsa"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math/big"
@@ -30,6 +31,34 @@ import (
 const (
 	defaultJWKSTimeout         = 10 * time.Second
 	defaultJWKSRefreshInterval = 15 * time.Minute
+
+	// defaultUnknownKidCooldown is the shortest gap between two fetches a
+	// request can cause, by naming a kid the cache does not hold or by
+	// meeting a stale key set (FAILURE_PATTERNS 1227).
+	//
+	// A token's kid is read before its signature is checked, and before the
+	// rate limiter, so an anonymous caller chooses it. Without this gap each
+	// such request was one outbound fetch. One minute keeps that to one
+	// fetch a minute whatever the request rate, and costs a real key
+	// rotation at most a minute: a new kid arriving inside the gap is
+	// refused until it ends, and the background refresh finds it anyway.
+	defaultUnknownKidCooldown = time.Minute
+)
+
+// Refusals Key returns. None of them carries the caller's kid, which is
+// attacker-chosen text.
+var (
+	// errNoKid is a token with no kid header. Every key this provider holds
+	// has a kid (parseJWK refuses one without), so no fetch could find a key
+	// for it, and none is made.
+	errNoKid = errors.New("auth: the token names no kid, and every JWKS key has one")
+
+	// errUnknownKid is a kid the key set does not hold, even after a fetch.
+	errUnknownKid = errors.New("auth: no JWKS key has the token's kid")
+
+	// errRefetchCoolingDown is a fetch a request asked for inside the
+	// cooldown after the last one.
+	errRefetchCoolingDown = errors.New("the key set was fetched less than a cooldown ago")
 )
 
 // jwkSet is the RFC 7517 JSON Web Key Set document shape.
@@ -60,13 +89,22 @@ type jwk struct {
 type jwksKeyProvider struct {
 	jwksURL    string
 	httpClient *http.Client
+	now        func() time.Time // the clock the fetch cooldown is measured on
 
 	mu   sync.RWMutex
 	keys map[string]interface{} // kid -> *rsa.PublicKey or *ecdsa.PublicKey
 
-	refreshInterval time.Duration
-	stopCh          chan struct{}
-	stopOnce        sync.Once
+	refreshInterval    time.Duration
+	unknownKidCooldown time.Duration
+	stopCh             chan struct{}
+	stopOnce           sync.Once
+
+	// flightMu guards the request-path fetch: inflight is the one fetch
+	// running for requests, shared by every request that needs it, and
+	// lastOnDemand is when the latest one began, for the cooldown.
+	flightMu     sync.Mutex
+	inflight     *jwksFlight
+	lastOnDemand time.Time
 }
 
 // JWKSOption configures a jwksKeyProvider built by NewJWKSKeyProvider.
@@ -80,7 +118,8 @@ func WithHTTPClient(c *http.Client) JWKSOption {
 
 // WithRefreshInterval overrides the default 15 minute background refresh
 // interval. A non-positive duration disables background refresh entirely;
-// Key still refetches once, bounded, on an unknown kid.
+// a request still causes a fetch, shared and rate limited, on an unknown
+// kid.
 func WithRefreshInterval(d time.Duration) JWKSOption {
 	return func(p *jwksKeyProvider) { p.refreshInterval = d }
 }
@@ -100,11 +139,13 @@ func NewJWKSKeyProvider(jwksURL string, opts ...JWKSOption) (KeyProvider, error)
 	}
 
 	p := &jwksKeyProvider{
-		jwksURL:         jwksURL,
-		httpClient:      &http.Client{Timeout: defaultJWKSTimeout},
-		keys:            make(map[string]interface{}),
-		refreshInterval: defaultJWKSRefreshInterval,
-		stopCh:          make(chan struct{}),
+		jwksURL:            jwksURL,
+		httpClient:         &http.Client{Timeout: defaultJWKSTimeout},
+		now:                time.Now,
+		keys:               make(map[string]interface{}),
+		refreshInterval:    defaultJWKSRefreshInterval,
+		unknownKidCooldown: defaultUnknownKidCooldown,
+		stopCh:             make(chan struct{}),
 	}
 	for _, opt := range opts {
 		opt(p)
@@ -121,21 +162,29 @@ func NewJWKSKeyProvider(jwksURL string, opts ...JWKSOption) (KeyProvider, error)
 }
 
 // Key implements KeyProvider.
+//
+// An unknown kid (a rotation since the last refresh) causes one fetch,
+// shared by every request waiting on it and at most one per cooldown, so no
+// rate of requests can turn into the same rate of fetches from the IdP
+// (FAILURE_PATTERNS 1227).
 func (p *jwksKeyProvider) Key(ctx context.Context, kid string) (interface{}, error) {
-	if key, ok := p.lookup(kid); ok {
+	if kid == "" {
+		return nil, errNoKid
+	}
+	if key, known := p.lookup(kid); known {
 		return key, nil
 	}
-	// Unknown kid: one bounded refetch, covering the legitimate case of key
-	// rotation landing since our last cache refresh. Never repeated beyond
-	// this single attempt per call, so a forged or garbage kid cannot be
-	// used to hammer the IdP.
-	if err := p.refresh(ctx); err != nil {
-		return nil, fmt.Errorf("auth: refreshing JWKS after unknown kid %q: %w", kid, err)
-	}
-	if key, ok := p.lookup(kid); ok {
+
+	fetchErr := p.refetchOnDemand(ctx)
+	key, known := p.lookup(kid)
+	switch {
+	case known:
 		return key, nil
+	case fetchErr != nil:
+		return nil, fmt.Errorf("auth: the token's kid is not in the cached key set, and refreshing it failed: %w", fetchErr)
+	default:
+		return nil, errUnknownKid
 	}
-	return nil, fmt.Errorf("auth: no JWKS key found for kid %q", kid)
 }
 
 // Algorithms implements KeyProvider.
@@ -152,6 +201,7 @@ func (p *jwksKeyProvider) Close() error {
 	return nil
 }
 
+// lookup returns the cached key for kid and whether the cache holds one.
 func (p *jwksKeyProvider) lookup(kid string) (interface{}, bool) {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
@@ -159,6 +209,7 @@ func (p *jwksKeyProvider) lookup(kid string) (interface{}, bool) {
 	return key, ok
 }
 
+// runBackgroundRefresh refetches the key set every interval until Close.
 func (p *jwksKeyProvider) runBackgroundRefresh(interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
