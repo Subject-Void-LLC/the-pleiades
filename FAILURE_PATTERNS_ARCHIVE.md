@@ -29477,3 +29477,74 @@ false for a mode 000 directory, which root can search, so root was told "cannot 
 directory answers absent, an ordinary user answers cannot look), and `pkg/remotefile`'s tests.
 
 **Lesson.** Ask the kernel by doing the thing in a subshell, not a shell builtin that guesses from the bits.
+
+## 1196. An authored rollback: step rendered with the variables of the moment it ran, not the values its task ran with, so an undo after a set_fact undid the wrong thing (a repeat in kind of 572, 574 and 656) (fixed before push)
+
+**Symptom.** A block with `rollback_on_failure` whose authored `rollback:` step read a variable that a later `set_fact` changed undid
+the later value: it ran `unmake:web1-second-authored` where the task had made `web1-first-authored`. An undo step also never got
+the forward task's own block or task `vars:`. A later `pleiades rollback` had no variables at all.
+
+**Root cause.** `runUndoStep` called `prepare` and then `mergedVars` at undo time, and `propagateVars` skips `Rollback`, so the
+step saw the run's current variables, not its task's.
+
+**Why 572's, 574's and 656's lessons did not prevent it.** Each held undo steps to a rule tasks meet (what they read, the template
+rule, the device path); none asked which values a step renders with.
+
+**Fix.** `prepare` keeps the merged variables per (node, device) for every task whose `rollback:` steps read `vars`, and the
+undo renders with exactly those. A task that changed a device journals each templated step already rendered (journal format 3,
+`JournalEntry.AuthoredSteps`), held to the same identifier allowlist as a recorded undo (owner, 2026-11-12), and a later
+`pleiades rollback` or `POST /jobs/{id}/rollback` replays it; a step the journal could not keep, has no copy of, or that was edited
+since the run is refused by name before contact. Proof: `TestSetFact_AnUndoUsesTheValueItsTaskRanWith`,
+`TestJournal_AuthoredStepsAreRenderedWithTheValuesTheTaskRanWith`, `TestBuild_ReplaysATemplatedStepAsTheRunRenderedIt`,
+`TestBuild_RefusesATemplatedStepTheJournalCannotAnswerFor`, and the release gates `TestCLI_RollbackReplaysATemplatedStepAsTheRunRenderedIt`
+and `TestRollbackReleaseGate_ATemplatedStepIsUndoneAsTheJobRenderedIt` on real sshd, each failing under its mutation.
+
+**Lesson.** An undo is the forward step's mirror: it renders with the forward step's values, and the journal keeps them, or the
+undo is refused by name.
+
+## 1197. A set_fact fact named target retargeted its own task, since TaskTarget reads params.target on every task (a repeat of 323) (fixed before push)
+
+**Symptom.** `set_fact: {target: b, x: one}` ran only on device `b`, and also set a fact named `target` there.
+
+**Root cause.** `engine.TaskTarget` reads `params.target` on every task, and `splitFacts` kept every key that is not an option as a
+fact; `target` was both.
+
+**Why 323's lesson did not prevent it.** 323 was one method's parameter colliding with the selector; `set_fact`'s keys are free names
+and were never swept against the reserved ones.
+
+**Fix.** `target` is a `set_fact` option (`engine.IsSetFactOption`), skipped by `splitFacts`, validate's `VarNamesRule` and
+`varScopes`; the converter refuses an Ansible `set_fact` of `target` as `vars.unreadable`. Proof:
+`TestSetFact_TargetIsTheTasksTargetNeverAFact` (it ran `b: one b` on the old code), `TestSetFact_TargetIsNotAFact`, a converter case.
+
+**Lesson.** A free-named map on a task (facts, vars) is checked against every name the engine reads from params.
+
+## 1198. A recorded undo kept a value that held a secret the run knew, since the journal's undo values were held to an identifier allowlist alone (fixed before push)
+
+**Symptom.** Building the journaled authored steps added a "refuse a known secret" check there; the recorded undo
+(`inverse_params`) had none, so a recorded identifier whose value held a secret the run knew (a named secret, an injected
+credential value) was written to the journal.
+
+**Root cause.** The allowlist decides which parameters are identifiers, not whether an identifier's value is secret.
+
+**Fix.** One shared function, `engine.keptValue`, applies the identifier rule and refuses a value holding a known secret, for both
+paths; such an undo is incomplete, withheld for `secret` (`JournalEntry.InverseWithheld`, journal format 3), never written, and a
+later rollback refuses it by name (accepted only by `--leave`); an in-run `rollback_on_failure` refuses it too. Proof:
+`TestJournal_ARecordedUndoHoldingAKnownSecretIsWithheld` (the secret nowhere in the marshalled entry; disabling the check fails it
+and the authored-steps test), `TestBuild_RefusesARecordedUndoWithheldForASecret`, the strict reader's
+`TestReadRunHoldsAnUndosWithheldReasonToWhatABuildWrites`; the existing rollback release gates pass unchanged.
+
+**Lesson.** Two paths that keep values in the same record keep them by one function, or one of them drifts.
+
+## 1199. The playbook converter raised vars.precedence wherever two vars scopes met, though Ansible and the runbook pick the same winner in all but two cases (fixed before push)
+
+**Symptom.** A play's vars beside a task's or block's, or a `set_fact` beside play vars, drew a `vars.precedence` finding on a
+playbook whose conversion behaves exactly as Ansible.
+
+**Root cause.** `flagPrecedence` flagged any two scopes; Ansible ranks play < block < task < set_fact and the runbook its own vars <
+a device's set_fact < block < task, so they differ only for a `set_fact` beside a block's or task's vars.
+
+**Fix.** The finding is raised only for that pair (a `set_fact` beside task vars is flagged even when the reading task runs first,
+since the converter cannot know the order; the comment says so). Proof: `TestPrecedence_OnlyWhereTheWinnerDiffers`, one playbook per
+mix, each validated; four mutations each fail it.
+
+**Lesson.** A converter finding compares the two engines' answers, not the mere presence of the inputs that could differ.
