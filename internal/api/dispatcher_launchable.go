@@ -18,6 +18,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/dispatch"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/launch"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/launchable"
 )
@@ -93,6 +94,23 @@ func (d *Dispatcher) unattended(ctx context.Context, req launchable.Request) (la
 			Field:   launchable.TargetField,
 			Message: err.Error(),
 			Err:     err,
+		}
+	}
+
+	// A runbook that seeds a device's login is refused on every launch
+	// (LaunchTemplate), so it is refused at the schedule's write too, rather
+	// than at every firing: the same RefuseSeededLogins, naming the task, the
+	// method and the device. A runbook that cannot be resolved is left to the
+	// launch, as LaunchTemplate leaves it.
+	if d.runbooks != nil && launch.ResolveKind(tmpl.KindName) == launch.DefaultKind {
+		if rb, err := d.runbooks.Get(ctx, tmpl.Definition); err == nil {
+			if err := dispatch.RefuseSeededLogins(rb); err != nil {
+				return launch.Template{}, launch.Config{}, launchable.Refusal{
+					Field:   launchable.TargetField,
+					Message: err.Error(),
+					Err:     err,
+				}
+			}
 		}
 	}
 

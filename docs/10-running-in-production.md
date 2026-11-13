@@ -3135,7 +3135,8 @@ It then manages the VM over SSH like any other Linux host.
 Seeding a login is the CLI's alone for now. A task that seeds a device's login into a machine it
 creates (`virt.vbox.vm.clone`'s `login`, `virt.cml.node.create`'s `device`) is refused on the
 Controller before anything is published: a launch of such a template answers 422 naming the task
-and the device, and a job that reaches fan-out by another path fails with the same reason. A seed is
+and the device, a schedule of one is refused when it is written, and a job that reaches fan-out by
+another path fails with the same reason. A seed is
 as sensitive as the credential it comes from, so it will reach a Runner only when a Runner can fetch
 that credential itself at claim time.
 
