@@ -75,11 +75,12 @@ func runAddCredential(args []string) error {
 	stdinToken := fs.Bool("token-stdin", false, "read a bearer token as one line on standard input, for a device whose API takes one (a Kubernetes cluster, a language model provider's API key)")
 	promptEnable := fs.Bool("enable-password", false, "prompt for the secret a network device asks for to enter privileged mode (Cisco's enable), when this account lands in user mode")
 	stdinEnable := fs.Bool("enable-password-stdin", false, "read that enable secret as one line on standard input; with --password-stdin it is the second line")
+	noDevice := fs.Bool("no-device", false, "store the credential for a name no inventory device has (a sync source's account, a device added later), marked unbound; without it such a name is stored with a warning, and from 0.4.0 refused")
 
 	name, err := parseOneArg(fs, args)
 	if err != nil {
 		return fmt.Errorf("usage: pleiades add-credential <device> [--username <user>] "+
-			"[--password <password> | --password-stdin | --password-file <sealed file> [--passphrase] | --key <path> [--passphrase] | --certificate <path> --key <path> | --pfx <path> --passphrase | --token-stdin | --generate [--replace]] [--enable-password | --enable-password-stdin]; with --password-stdin and --enable-password-stdin, standard input is two lines, the password and then the enable secret: %w", err)
+			"[--password <password> | --password-stdin | --password-file <sealed file> [--passphrase] | --key <path> [--passphrase] | --certificate <path> --key <path> | --pfx <path> --passphrase | --token-stdin | --generate [--replace]] [--enable-password | --enable-password-stdin] [--no-device]; with --password-stdin and --enable-password-stdin, standard input is two lines, the password and then the enable secret: %w", err)
 	}
 
 	if *replace && !*generate {
@@ -91,6 +92,13 @@ func runAddCredential(args []string) error {
 	if *promptEnable && *stdinEnable {
 		return fmt.Errorf("--enable-password and --enable-password-stdin are mutually exclusive: an enable secret is read one way")
 	}
+	// Checked before any secret is read, so a refusal consumes no input and
+	// a warning is printed before a prompt asks for the secret.
+	unbound, err := credentialBinding(*dir, name, *noDevice, os.Stderr)
+	if err != nil {
+		return err
+	}
+	opts := credential.SaveOptions{Unbound: unbound}
 	if *stdinToken {
 		// A token is the whole identity, so it combines with nothing: a
 		// cluster credential carries one way of authenticating, and an
@@ -106,7 +114,7 @@ func runAddCredential(args []string) error {
 		if strings.TrimSpace(token) == "" {
 			return fmt.Errorf("--token-stdin read an empty token")
 		}
-		return saveCredential(*dir, name, credential.Credential{Token: strings.TrimSpace(token)})
+		return saveCredential(*dir, name, credential.Credential{Token: strings.TrimSpace(token)}, opts)
 	}
 	if *generate {
 		if *password != "" || *stdinPassword || *passwordFile != "" || *keyPath != "" || *certPath != "" || *pfxPath != "" || *promptPassphrase || *stdinPassphrase {
@@ -115,7 +123,7 @@ func runAddCredential(args []string) error {
 		if *username == "" {
 			return fmt.Errorf("--username is required")
 		}
-		return generateCredential(*dir, name, *username, *replace)
+		return generateCredential(*dir, name, *username, *replace, opts)
 	}
 
 	usesCertificate := *certPath != "" || *pfxPath != ""
@@ -277,7 +285,7 @@ func runAddCredential(args []string) error {
 		cred.EnablePassword = read
 	}
 
-	return saveCredential(*dir, name, cred)
+	return saveCredential(*dir, name, cred, opts)
 }
 
 // openPasswordFile opens the sealed file at path for its password. A
@@ -312,25 +320,27 @@ func openPasswordFile(dir, path string, passphraseGiven bool, readPassphrase fun
 	return opened, nil
 }
 
-// saveCredential encrypts cred into dir's credential store for device name.
-func saveCredential(dir, name string, cred credential.Credential) error {
+// saveCredential encrypts cred into dir's credential store for device name,
+// marked as opts says.
+func saveCredential(dir, name string, cred credential.Credential, opts credential.SaveOptions) error {
 	key, err := credential.ResolveMasterKey(dir)
 	if err != nil {
 		return fmt.Errorf("failed to resolve master key: %w", err)
 	}
 
-	if err := credential.SaveFileStore(dir, key, name, cred); err != nil {
+	if err := credential.SaveFileStoreWith(dir, key, name, cred, opts); err != nil {
 		return fmt.Errorf("failed to save credential: %w", err)
 	}
 
-	fmt.Printf("stored credential for device %q\n", name)
+	fmt.Printf("stored credential for device %q%s\n", name, unboundNote(opts))
 	return nil
 }
 
 // generateCredential stores a new random key and password for device in
 // dir's vault and prints the key's public half, labelled user@device,
-// which is what a machine is given so the key may log in to it.
-func generateCredential(dir, device, username string, replace bool) error {
+// which is what a machine is given so the key may log in to it. The entry is
+// marked as opts says.
+func generateCredential(dir, device, username string, replace bool, opts credential.SaveOptions) error {
 	key, err := credential.ResolveMasterKey(dir)
 	if err != nil {
 		return fmt.Errorf("failed to resolve master key: %w", err)
@@ -355,13 +365,21 @@ func generateCredential(dir, device, username string, replace bool) error {
 	if err != nil {
 		return err
 	}
-	if err := credential.SaveFileStore(dir, key, device, cred); err != nil {
+	if err := credential.SaveFileStoreWith(dir, key, device, cred, opts); err != nil {
 		return fmt.Errorf("failed to save credential: %w", err)
 	}
-	fmt.Printf("stored a generated credential for device %q: an ed25519 key and a %d-character password, for %s\n",
-		device, credential.GeneratedPasswordLength, username)
+	fmt.Printf("stored a generated credential for device %q%s: an ed25519 key and a %d-character password, for %s\n",
+		device, unboundNote(opts), credential.GeneratedPasswordLength, username)
 	fmt.Printf("public key: %s\n", public)
 	return nil
+}
+
+// unboundNote is what a stored message adds for an entry marked unbound.
+func unboundNote(opts credential.SaveOptions) string {
+	if opts.Unbound {
+		return " (unbound: no inventory device has this name)"
+	}
+	return ""
 }
 
 // promptSecret reads one secret with terminal echo disabled.

@@ -189,6 +189,7 @@ var Root = Command{
 				{Name: "generate", Type: "bool", Default: "false", Doc: "generate a new random ed25519 key and password, for a machine Pleiades will create; prints only the public key"},
 				{Name: "replace", Type: "bool", Default: "false", Doc: "with --generate, replace a credential already stored for the device"},
 				{Name: "token-stdin", Type: "bool", Default: "false", Doc: "read a bearer token as one line on standard input, for a device whose API takes one (a Kubernetes cluster, a language model provider's API key)"},
+				{Name: "no-device", Type: "bool", Default: "false", Doc: "store the credential for a name no inventory device has (a sync source's account, a device added later), marked unbound; without it such a name is stored with a warning, and from 0.4.0 refused"},
 			},
 			Examples: []string{
 				"pleiades add-credential web01 --username admin",
@@ -196,7 +197,17 @@ var Root = Command{
 				"pleiades add-credential cluster1 --token-stdin < token",
 				"pleiades add-credential ubuntu-lab --username root --generate",
 				"pleiades add-credential web01 --username root --password-file web01.sealed",
+				"pleiades add-credential netbox --token-stdin --no-device < token",
 			},
+		},
+		{
+			Name:     "list-credentials",
+			Synopsis: "list the project's device credentials by name, account and kind, marking unbound ones, never a value",
+			Flags: []Flag{
+				{Name: "dir", Type: "string", Default: ".", Doc: "project directory"},
+				{Name: "json", Type: "bool", Default: "false", Doc: "print one JSON document instead of text"},
+			},
+			Examples: []string{"pleiades list-credentials", "pleiades list-credentials --json"},
 		},
 		{
 			Name:     "seal-key",

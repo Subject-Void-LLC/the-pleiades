@@ -32,22 +32,7 @@ import (
 // since internal/inventory does not export it and this package should
 // not depend on an unrelated package purely for one small write helper.
 func SaveFileStore(dir string, key []byte, deviceName string, cred Credential) error {
-	svc, err := crypto.NewAESService(key)
-	if err != nil {
-		return fmt.Errorf("failed to initialize credential encryption: %w", err)
-	}
-
-	return updateCredentialsDocument(dir, func(doc *credentialsDocument) error {
-		if doc.Devices == nil {
-			doc.Devices = make(map[string]credentialEntry)
-		}
-		entry, err := buildCredentialEntry(svc, cred)
-		if err != nil {
-			return fmt.Errorf("failed to encrypt credential for device %s: %w", deviceName, err)
-		}
-		doc.Devices[deviceName] = entry
-		return nil
-	})
+	return SaveFileStoreWith(dir, key, deviceName, cred, SaveOptions{})
 }
 
 // updateCredentialsDocument reads the project's credential file, applies

@@ -136,6 +136,7 @@ store an encrypted credential for a device
 | --generate | `bool` | `false` | generate a new random ed25519 key and password, for a machine Pleiades will create; prints only the public key |
 | --replace | `bool` | `false` | with --generate, replace a credential already stored for the device |
 | --token-stdin | `bool` | `false` | read a bearer token as one line on standard input, for a device whose API takes one (a Kubernetes cluster, a language model provider's API key) |
+| --no-device | `bool` | `false` | store the credential for a name no inventory device has (a sync source's account, a device added later), marked unbound; without it such a name is stored with a warning, and from 0.4.0 refused |
 
 `pleiades add-credential web01 --username admin`
 
@@ -146,6 +147,23 @@ store an encrypted credential for a device
 `pleiades add-credential ubuntu-lab --username root --generate`
 
 `pleiades add-credential web01 --username root --password-file web01.sealed`
+
+`pleiades add-credential netbox --token-stdin --no-device < token`
+
+## pleiades list-credentials
+
+list the project's device credentials by name, account and kind, marking unbound ones, never a value
+
+`pleiades list-credentials [flags]`
+
+| Flag | Type | Default | Description |
+| --- | --- | --- | --- |
+| --dir | `string` | `.` | project directory |
+| --json | `bool` | `false` | print one JSON document instead of text |
+
+`pleiades list-credentials`
+
+`pleiades list-credentials --json`
 
 ## pleiades seal-key
 

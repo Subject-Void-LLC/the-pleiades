@@ -119,3 +119,17 @@ func TestSeededLogins_ReadsTheInstalledCatalog(t *testing.T) {
 		t.Errorf("SeededLogins = %q, want the catalog-only method's task named", got)
 	}
 }
+
+// TestNearMatches_CaseFirstThenTypos: a name differing only in case comes
+// first, then names at most two edits away and under half its length (web02
+// is two of four letters, so not), nearest first; a short name matches
+// nothing two edits away, and the name itself is never its own match.
+func TestNearMatches_CaseFirstThenTypos(t *testing.T) {
+	known := []string{"web01", "web02", "WEB1", "db01", "web1", "x"}
+	if got := engine.NearMatches("web1", known, 3); strings.Join(got, ",") != "WEB1,web01" {
+		t.Errorf("NearMatches(web1) = %v", got)
+	}
+	if got := engine.NearMatches("ab", []string{"xy", "ab"}, 3); len(got) != 0 {
+		t.Errorf("NearMatches(ab) = %v, want none", got)
+	}
+}

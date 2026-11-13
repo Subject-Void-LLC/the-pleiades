@@ -2,12 +2,12 @@
   "add-credential --help": {
     "code": 0,
     "stdout": "",
-    "stderr": "usage: pleiades add-credential \u003cdevice\u003e [--username \u003cuser\u003e] [--password \u003cpassword\u003e | --password-stdin | --password-file \u003csealed file\u003e [--passphrase] | --key \u003cpath\u003e [--passphrase] | --certificate \u003cpath\u003e --key \u003cpath\u003e | --pfx \u003cpath\u003e --passphrase | --token-stdin | --generate [--replace]] [--enable-password | --enable-password-stdin]; with --password-stdin and --enable-password-stdin, standard input is two lines, the password and then the enable secret\n"
+    "stderr": "usage: pleiades add-credential \u003cdevice\u003e [--username \u003cuser\u003e] [--password \u003cpassword\u003e | --password-stdin | --password-file \u003csealed file\u003e [--passphrase] | --key \u003cpath\u003e [--passphrase] | --certificate \u003cpath\u003e --key \u003cpath\u003e | --pfx \u003cpath\u003e --passphrase | --token-stdin | --generate [--replace]] [--enable-password | --enable-password-stdin] [--no-device]; with --password-stdin and --enable-password-stdin, standard input is two lines, the password and then the enable secret\n"
   },
   "add-credential -h": {
     "code": 0,
     "stdout": "",
-    "stderr": "usage: pleiades add-credential \u003cdevice\u003e [--username \u003cuser\u003e] [--password \u003cpassword\u003e | --password-stdin | --password-file \u003csealed file\u003e [--passphrase] | --key \u003cpath\u003e [--passphrase] | --certificate \u003cpath\u003e --key \u003cpath\u003e | --pfx \u003cpath\u003e --passphrase | --token-stdin | --generate [--replace]] [--enable-password | --enable-password-stdin]; with --password-stdin and --enable-password-stdin, standard input is two lines, the password and then the enable secret\n"
+    "stderr": "usage: pleiades add-credential \u003cdevice\u003e [--username \u003cuser\u003e] [--password \u003cpassword\u003e | --password-stdin | --password-file \u003csealed file\u003e [--passphrase] | --key \u003cpath\u003e [--passphrase] | --certificate \u003cpath\u003e --key \u003cpath\u003e | --pfx \u003cpath\u003e --passphrase | --token-stdin | --generate [--replace]] [--enable-password | --enable-password-stdin] [--no-device]; with --password-stdin and --enable-password-stdin, standard input is two lines, the password and then the enable secret\n"
   },
   "add-database-connection --help": {
     "code": 0,
@@ -298,6 +298,16 @@
     "code": 0,
     "stdout": "",
     "stderr": "Usage of journal:\n  -changed\n    \tlist only runs that changed something\n  -dir string\n    \tproject directory (default \".\")\n  -json\n    \tprint one JSON document instead of text\n  -since string\n    \tlist only runs that began this long ago or later (2h, 30m) or at or after this time (RFC 3339)\n"
+  },
+  "list-credentials --help": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "Usage of list-credentials:\n  -dir string\n    \tproject directory (default \".\")\n  -json\n    \tprint one JSON document instead of text\n"
+  },
+  "list-credentials -h": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "Usage of list-credentials:\n  -dir string\n    \tproject directory (default \".\")\n  -json\n    \tprint one JSON document instead of text\n"
   },
   "list-database-connections --help": {
     "code": 0,

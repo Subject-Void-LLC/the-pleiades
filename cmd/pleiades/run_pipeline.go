@@ -22,6 +22,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/lock"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/redact"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/render"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/termsafe"
 	serialtransport "github.com/Subject-Void-LLC/the-pleiades/internal/transport/serial"
 	serialtcptransport "github.com/Subject-Void-LLC/the-pleiades/internal/transport/serialtcp"
 	sshtransport "github.com/Subject-Void-LLC/the-pleiades/internal/transport/ssh"
@@ -499,7 +500,14 @@ func newRunExecutor(opts runOptions, world validate.WorldView, sink engine.Journ
 	// "noop"-only runbook never touches disk for it. It used to be built
 	// for the transport executor alone, which left every
 	// credential-needing Collection method unusable from this CLI.
-	credentials := credential.NewLazyFileStore(opts.dir)
+	//
+	// The first lookup of a credential stored for a name no device had
+	// (add-credential's unbound mark) says so, once, and clears the mark: a
+	// device added later under that name is now sent it.
+	credentials := credential.NoticeUnbound(credential.NewLazyFileStore(opts.dir), opts.dir, func(name string) {
+		fmt.Fprintf(os.Stderr, "warning: device %q is using a credential stored before any inventory device had that name (marked unbound); "+
+			"if it is not the one meant for this device, replace it with pleiades add-credential\n", termsafe.EscapeLine(name))
+	})
 
 	// A second, independent inventory.Repository from the same on-disk
 	// inventory.yaml the runbook was loaded against: the transport

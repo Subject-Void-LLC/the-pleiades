@@ -119,6 +119,17 @@ to `.pleiades/credentials.yaml`, AES-256-GCM encrypted with a locally held maste
 (`.pleiades/master.key`, generated on first use). Neither file is ever committed:
 both are gitignored by default.
 
+**A name the inventory does not have.** A credential is sent to whichever device carries
+its name, so a typo would leave the secret under the wrong name, and a device added later
+under that name would be sent a credential nobody chose for it. `add-credential` checks the
+name against the inventory first, before it reads any secret. A name no device has is still
+stored, with a warning naming the closest device names, and the entry is marked unbound;
+the first run that uses it says so once. Give `--no-device` when no device is meant (a sync
+source's account, a device you add later): the warning goes, the mark stays. From 0.4.0 a
+name the inventory does not have is refused without the flag. `pleiades list-credentials`
+lists every stored credential by name, account and kind, marks the unbound ones, and never
+shows a value.
+
 **A password in a sealed file.** When the password should never be typed or kept in the
 clear where the project runs, or an AI agent sets the project up and its shell refuses a
 `<` redirect, give `add-credential` a sealed file instead. The project prints its public

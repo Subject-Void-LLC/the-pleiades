@@ -80,6 +80,10 @@ type credentialEntry struct {
 	// EnablePasswordEncrypted holds a network device's enable secret.
 	// Phase 127c.
 	EnablePasswordEncrypted string `yaml:"enable_password_encrypted,omitempty"`
+	// Unbound marks an entry stored for a name no inventory device had at
+	// the time (add-credential without --no-device, or with it). Not a
+	// secret; see unbound.go.
+	Unbound bool `yaml:"unbound,omitempty"`
 }
 
 // fileStore is the Store implementation backed by credentialsFileName
