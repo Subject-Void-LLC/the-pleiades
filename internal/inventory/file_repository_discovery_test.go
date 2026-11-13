@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/generic"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
@@ -82,7 +83,7 @@ func TestFileRepository_KeepsAGrantInTheStateFile(t *testing.T) {
 		t.Fatalf("%T has no RecordGrant", item)
 	}
 	digest := capability.DefinitionDigest(capability.DataDefinition{Name: "acme.widget_api", Provider: "widgets"})
-	if err := g.RecordGrant(inventory.Grant{Capability: "acme.widget_api", Source: inventory.GrantAsserted, By: "ops", Reason: "lab", Properties: map[string]any{"endpoint": "https://w"}, Definition: digest}); err != nil {
+	if err := g.RecordGrant(inventory.Grant{Capability: "acme.widget_api", Source: inventory.GrantAsserted, By: "ops", Reason: "lab", Properties: map[string]any{"endpoint": "https://w"}, Definition: digest, At: time.Now()}); err != nil {
 		t.Fatal(err)
 	}
 	if err := repo.Save(context.Background(), item); err != nil {
@@ -137,7 +138,7 @@ func TestGrant_ADataCapabilityInTheCapabilityListIsNotAGrant(t *testing.T) {
 		}
 		return item
 	}
-	grant := inventory.Grant{Capability: "acme.widget_api", Source: inventory.GrantAsserted, By: "ops", Reason: "lab", Definition: capability.DefinitionDigest(def)}
+	grant := inventory.Grant{Capability: "acme.widget_api", Source: inventory.GrantAsserted, By: "ops", Reason: "lab", Definition: capability.DefinitionDigest(def), At: time.Unix(1700000000, 0)}
 	if !build(grant).HasCapability("acme.widget_api") {
 		t.Fatal("a grant that holds does not grant the capability, so this test proves nothing")
 	}
@@ -177,7 +178,7 @@ func TestGrant_AProbedGrantLapsesWhenTheDeviceIsRepointed(t *testing.T) {
 			"base_url": baseURL,
 			inventory.GrantedProperty: inventory.GrantsProperty([]inventory.Grant{{
 				Capability: "acme.widget_api", Source: inventory.GrantProbed, Program: "widgets", Binding: binding,
-				Definition: capability.DefinitionDigest(def),
+				Definition: capability.DefinitionDigest(def), At: time.Unix(1700000000, 0),
 			}}),
 		}
 		item, err := NewItemFactory().Build(record.Record{ID: "h1", Name: "api1", Type: "generic_http", Properties: p})

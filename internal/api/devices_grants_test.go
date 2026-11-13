@@ -338,4 +338,15 @@ func TestGrantRoutes_ADeviceThatCannotTakeTheGrant(t *testing.T) {
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"grants":[]`) {
 		t.Errorf("a grant on a device whose grants cannot be read = %d %s, want 200 with none", rec.Code, rec.Body.String())
 	}
+
+	// A stored grant whose time cannot be read is shown as unreadable, with
+	// no time, never as the zero time.
+	untimed := newGrantHolder(nil, map[string]pkginventory.PropertyValue{pkginventory.GrantedProperty: map[string]any{
+		"acme.old_api": map[string]any{"source": "assertion", "reason": "r", "at": "yesterday"},
+	}})
+	rec = serve(untimed, http.MethodPost, "/inventory/devices/w1/capabilities", grant)
+	body := rec.Body.String()
+	if rec.Code != http.StatusOK || !strings.Contains(body, `"unreadable":"its time \"yesterday\" is not an RFC 3339 time"`) || strings.Contains(body, `"at":`) {
+		t.Errorf("a grant whose time cannot be read = %d %s, want it shown unreadable with no time", rec.Code, body)
+	}
 }

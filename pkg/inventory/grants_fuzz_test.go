@@ -22,6 +22,12 @@ func FuzzGrantsFrom(f *testing.F) {
 	f.Add([]byte(`{"acme.appliance":{"source":"assertion","definition":7,"build":["x"]}}`))
 	f.Add([]byte(`{"acme.appliance":{"source":"rumour"}}`))
 	f.Add([]byte(`[]`))
+	// Times: a fraction, an offset, the edges of the years a grant may hold,
+	// and times that cross them once read in UTC.
+	f.Add([]byte(`{"acme.appliance":{"source":"probe","at":"2024-05-06T07:08:09.123456789+02:00"}}`))
+	f.Add([]byte(`{"acme.appliance":{"source":"probe","at":"9999-12-31T23:00:00-02:00"},"acme.b":{"source":"probe","at":"0001-01-01T00:30:00+01:00"}}`))
+	f.Add([]byte(`{"acme.appliance":{"source":"probe","at":"0000-01-01T00:00:00Z"},"acme.b":{"source":"probe","at":"0001-01-01T00:00:00Z"}}`))
+	f.Add([]byte(`{"acme.appliance":{"source":"probe","at":"yesterday"},"acme.b":{"source":"probe","at":17}}`))
 	f.Fuzz(func(t *testing.T, data []byte) {
 		var v any
 		if json.Unmarshal(data, &v) != nil {
@@ -40,6 +46,17 @@ func FuzzGrantsFrom(f *testing.F) {
 			if a.Capability != b.Capability || a.Source != b.Source || a.Program != b.Program ||
 				a.Binding != b.Binding || a.Definition != b.Definition || a.Build != b.Build {
 				t.Fatalf("grant %d changed in its own encoding:\n%+v\n%+v", i, a, b)
+			}
+			// Every time it accepts is the same instant once written and read
+			// again; a time it could not read stays unreadable, and is never
+			// the zero time passed off as one.
+			switch {
+			case (a.Unreadable == "") != (b.Unreadable == ""):
+				t.Fatalf("grant %d's time was readable %v, then %v: %q, %q", i, a.Unreadable == "", b.Unreadable == "", a.Unreadable, b.Unreadable)
+			case a.Unreadable == "" && (a.At.IsZero() || !a.At.Equal(b.At)):
+				t.Fatalf("grant %d's time %v read back as %v", i, a.At, b.At)
+			case a.Unreadable != "" && (!a.At.IsZero() || !b.At.IsZero()):
+				t.Fatalf("an unreadable grant carries a time: %v, %v", a.At, b.At)
 			}
 		}
 	})

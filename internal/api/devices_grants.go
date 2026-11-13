@@ -41,9 +41,12 @@ type grantDTO struct {
 	Properties map[string]any `json:"properties"`
 	By         string         `json:"by,omitempty"`
 	Reason     string         `json:"reason,omitempty"`
-	At         time.Time      `json:"at"`
-	Definition string         `json:"definition,omitempty"`
-	Build      string         `json:"build,omitempty"`
+	// At is when it was granted, left out for a grant whose recorded time
+	// could not be read (Unreadable says why), never shown as the zero time.
+	At         *time.Time `json:"at,omitempty"`
+	Definition string     `json:"definition,omitempty"`
+	Build      string     `json:"build,omitempty"`
+	Unreadable string     `json:"unreadable,omitempty"`
 }
 
 // grantsDTO is a device's grants after a change.
@@ -195,11 +198,16 @@ func toGrantsDTO(name string, item pkginventory.InventoryItem) *grantsDTO {
 		return out
 	}
 	for _, g := range grants {
-		out.Grants = append(out.Grants, grantDTO{
+		dto := grantDTO{
 			Capability: string(g.Capability), Source: string(g.Source), Program: g.Program,
-			Properties: g.Properties, By: g.By, Reason: strings.TrimSpace(g.Reason), At: g.At,
-			Definition: g.Definition, Build: g.Build,
-		})
+			Properties: g.Properties, By: g.By, Reason: strings.TrimSpace(g.Reason),
+			Definition: g.Definition, Build: g.Build, Unreadable: g.Unreadable,
+		}
+		if g.Unreadable == "" {
+			at := g.At
+			dto.At = &at
+		}
+		out.Grants = append(out.Grants, dto)
 	}
 	return out
 }

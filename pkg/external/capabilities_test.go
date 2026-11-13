@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
@@ -141,13 +142,19 @@ func TestServeProgram_RefusesANameAlreadyTaken(t *testing.T) {
 // and its properties, and nothing for a capability not granted, a device
 // with a malformed grant, or no device.
 func TestGranted_ReadsTheDevicesGrant(t *testing.T) {
+	at := time.Unix(1700000000, 0)
 	grants := inventory.GrantsProperty([]inventory.Grant{
-		{Capability: "acme.other", Source: inventory.GrantAsserted},
-		{Capability: "acme.widget_api", Source: inventory.GrantProbed, Program: "acme", Properties: map[string]any{"endpoint": "https://w"}},
+		{Capability: "acme.other", Source: inventory.GrantAsserted, At: at},
+		{Capability: "acme.widget_api", Source: inventory.GrantProbed, Program: "acme", Properties: map[string]any{"endpoint": "https://w"}, At: at},
+		// One whose time was lost cannot be read whole, so it is no grant.
+		{Capability: "acme.untimed_api", Source: inventory.GrantProbed, Program: "acme", Properties: map[string]any{"endpoint": "https://u"}},
 	})
 	device := &inventorytest.Stub{Props: map[string]inventory.PropertyValue{inventory.GrantedProperty: grants}}
 	if props, ok := external.Granted(device, "acme.widget_api"); !ok || props["endpoint"] != "https://w" {
 		t.Errorf("Granted = %v, %v; want the grant's properties", props, ok)
+	}
+	if props, ok := external.Granted(device, "acme.untimed_api"); ok {
+		t.Errorf("Granted read %v from a grant that cannot be read whole", props)
 	}
 	if _, ok := external.Granted(device, "acme.gadget_api"); ok {
 		t.Error("a capability not granted was found")

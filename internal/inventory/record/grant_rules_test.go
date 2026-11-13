@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/buildinfo"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
@@ -98,6 +99,37 @@ func TestWithGrants_ALapsedGrantNamesItsReason(t *testing.T) {
 	})
 }
 
+// TestWithGrants_AnUnreadableTimeLapsesTheGrant: a recorded grant whose
+// time cannot be read (missing, malformed, or outside the years a grant
+// may hold once in UTC) grants nothing, with one lapsed note saying why
+// and what to do, even against the definition it was made against.
+func TestWithGrants_AnUnreadableTimeLapsesTheGrant(t *testing.T) {
+	t.Cleanup(capability.SnapshotForTest())
+	if err := capability.RegisterData(widgetDefinition()); err != nil {
+		t.Fatal(err)
+	}
+	baseline := []capability.Name{capability.NameSSHTransport}
+	for name, at := range map[string]any{
+		"words":           "yesterday",
+		"a number":        float64(7),
+		"past year 9999":  "9999-12-31T23:00:00-02:00",
+		"before the year": "0001-01-01T00:30:00+01:00",
+	} {
+		t.Run(name, func(t *testing.T) {
+			entry := inventory.GrantsProperty([]inventory.Grant{widgetGrant(map[string]any{"endpoint": "https://w"})})
+			entry["acme.widget_api"].(map[string]any)["at"] = at
+			rec := record.Record{Name: "w1", Type: grantTypeName, Properties: map[string]inventory.PropertyValue{inventory.GrantedProperty: entry}}
+			if caps := capsOf(rec, baseline); slices.Contains(caps, "acme.widget_api") {
+				t.Fatalf("a grant whose time cannot be read still grants: %v", caps)
+			}
+			notes := notesOf(rec, baseline)
+			if len(notes) != 1 || !notes[0].Lapsed || !strings.Contains(notes[0].Reason, "cannot be read") || !strings.Contains(notes[0].Reason, "assert it again") {
+				t.Errorf("notes %+v, want one lapse saying the grant cannot be read and what to do", notes)
+			}
+		})
+	}
+}
+
 // TestWithGrants_ALegacyGrantCountsWithOneWarningOnA03Line: a grant
 // written before grants carried a definition digest still counts on a
 // 0.3.x tree, with exactly one note, a warning (not a lapse) naming the
@@ -173,6 +205,11 @@ func TestRecordGrant_RefusesAGrantWithoutItsDigest(t *testing.T) {
 		},
 		"a property shaped like a secret": func(g *inventory.Grant) {
 			g.Properties = map[string]any{"endpoint": "https://ops:hunter2-Orchid@widgets.example/api"}
+		},
+		"no time":                   func(g *inventory.Grant) { g.At = time.Time{} },
+		"a time past the year 9999": func(g *inventory.Grant) { g.At = time.Date(10000, 1, 1, 0, 0, 0, 0, time.UTC) },
+		"a time before the year 1": func(g *inventory.Grant) {
+			g.At = time.Date(1, 1, 1, 0, 30, 0, 0, time.FixedZone("east", 3600))
 		},
 	} {
 		t.Run(name, func(t *testing.T) {

@@ -307,12 +307,18 @@ func (b *Base) RecordDiscovery(d inventory.Discovery) {
 //
 // A grant is refused unless it carries the digest of the definition it was
 // held to (capability.DefinitionDigest): without one, a later change to
-// what the capability means could not withdraw it. A probed grant's build
+// what the capability means could not withdraw it. It is refused, too,
+// without a time a grant may hold (inventory.ValidateGrantTime). A probed grant's build
 // must have a digest's shape; an asserted one names no build, since no
 // build made it.
 func (b *Base) RecordGrant(g inventory.Grant) error {
 	if !capability.IsDefinitionDigest(g.Definition) {
 		return fmt.Errorf("a grant of %s must carry the digest of the definition it was made against (sha256:<64 hex>), got %q", g.Capability, g.Definition)
+	}
+	// Written only with a time it reads back as the same instant, so a read
+	// never meets a grant that silently lost when it was made.
+	if err := inventory.ValidateGrantTime(g.At); err != nil {
+		return fmt.Errorf("a grant of %s cannot be written: %w", g.Capability, err)
 	}
 	switch {
 	case g.Source == inventory.GrantAsserted && g.Build != "":

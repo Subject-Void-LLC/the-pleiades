@@ -60,6 +60,13 @@ func withGrants(rec Record, caps []capability.Name) ([]capability.Name, []invent
 		notes = append(notes, inventory.GrantNote{Capability: g.Capability, Lapsed: true, Reason: reason})
 	}
 	for _, g := range grants {
+		// A grant whose record could not be read whole (its time is missing,
+		// malformed or out of range) is not one: what else it says cannot be
+		// trusted to be what a writer wrote.
+		if g.Unreadable != "" {
+			lapse(g, fmt.Sprintf("device %s's grant of %s cannot be read: %s; %s", rec.Name, g.Capability, g.Unreadable, grantAgain(rec.Name, g)))
+			continue
+		}
 		// A grant on a bound type, probed or asserted, holds only while the
 		// properties it was made against are as they were (a repointed
 		// device is probed or vouched for again before a program sends its

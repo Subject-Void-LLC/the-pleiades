@@ -6412,6 +6412,7 @@
                       "items": {
                         "properties": {
                           "at": {
+                            "description": "When it was granted. Absent on a grant whose recorded time could not be read (unreadable says why).",
                             "format": "date-time",
                             "type": "string"
                           },
@@ -6445,6 +6446,10 @@
                           },
                           "source": {
                             "description": "probe or assertion.",
+                            "type": "string"
+                          },
+                          "unreadable": {
+                            "description": "Why a recorded grant could not be read whole (its time is missing, malformed or out of range); such a grant grants nothing.",
                             "type": "string"
                           }
                         },
@@ -6573,6 +6578,7 @@
                       "items": {
                         "properties": {
                           "at": {
+                            "description": "When it was granted. Absent on a grant whose recorded time could not be read (unreadable says why).",
                             "format": "date-time",
                             "type": "string"
                           },
@@ -6606,6 +6612,10 @@
                           },
                           "source": {
                             "description": "probe or assertion.",
+                            "type": "string"
+                          },
+                          "unreadable": {
+                            "description": "Why a recorded grant could not be read whole (its time is missing, malformed or out of range); such a grant grants nothing.",
                             "type": "string"
                           }
                         },

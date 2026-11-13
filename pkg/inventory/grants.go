@@ -54,8 +54,17 @@ type Grant struct {
 	By     string
 	Reason string
 
-	// At is when it was granted.
+	// At is when it was granted (ValidateGrantTime). It is the zero time
+	// only on a grant whose recorded time could not be read, which then
+	// says why in Unreadable.
 	At time.Time
+
+	// Unreadable is why a recorded grant could not be read whole: its time
+	// is missing, is not text, is not an RFC 3339 time, or falls outside
+	// the years a grant may hold. GrantsFrom sets it rather than inventing a
+	// time, and such a grant grants nothing (record.NewBase), saying this.
+	// No writer sets it.
+	Unreadable string
 
 	// Binding is, for a probed grant on a device type that binds what its
 	// probes trust (record.DiscoveryBinding), the digest of those
@@ -121,7 +130,11 @@ func LapsedGrant(device InventoryItem, name capability.Name) string {
 }
 
 // GrantsProperty encodes grants as the value GrantedProperty holds, keyed
-// by capability, in plain types every inventory store round-trips.
+// by capability, in plain types every inventory store round-trips. A
+// grant's time is written in UTC to the nanosecond (RFC 3339 with its
+// fraction, which a whole second leaves out), so reading it back gives the
+// same instant; a time ValidateGrantTime refuses is not written at all, so
+// the grant reads back as unreadable rather than as a time it never had.
 func GrantsProperty(grants []Grant) map[string]any {
 	out := make(map[string]any, len(grants))
 	for _, g := range grants {
@@ -132,7 +145,9 @@ func GrantsProperty(grants []Grant) map[string]any {
 		entry := map[string]any{
 			"source":     string(g.Source),
 			"properties": props,
-			"at":         g.At.UTC().Format(time.RFC3339),
+		}
+		if ValidateGrantTime(g.At) == nil {
+			entry["at"] = g.At.UTC().Format(time.RFC3339Nano)
 		}
 		if g.Program != "" {
 			entry["program"] = g.Program
@@ -200,11 +215,7 @@ func GrantsFrom(props Properties) ([]Grant, bool, error) {
 		// than the device refusing to load.
 		g.Definition, _ = entry["definition"].(string)
 		g.Build, _ = entry["build"].(string)
-		if at, ok := entry["at"].(string); ok {
-			if t, err := time.Parse(time.RFC3339, at); err == nil {
-				g.At = t
-			}
-		}
+		g.At, g.Unreadable = grantTimeFrom(entry)
 		grants = append(grants, g)
 	}
 	sort.Slice(grants, func(i, j int) bool { return grants[i].Capability < grants[j].Capability })
