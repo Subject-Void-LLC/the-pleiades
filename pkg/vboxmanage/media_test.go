@@ -2,8 +2,10 @@
 package vboxmanage_test
 
 import (
+	"fmt"
 	"os"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/vboxmanage"
@@ -58,6 +60,24 @@ func TestParseMedia_Edges(t *testing.T) {
 	} {
 		if got := vboxmanage.ParseMedia(tt.in); !reflect.DeepEqual(got, tt.want) {
 			t.Errorf("%s: %+v, want %+v", name, got, tt.want)
+		}
+	}
+}
+
+// BenchmarkLinkedClones reads a host of 1000 bases, each with one linked
+// clone, as list --long hdds writes it, and asks for one base's clones:
+// Forget's whole cost before it unregisters anything.
+func BenchmarkLinkedClones(b *testing.B) {
+	var text strings.Builder
+	for i := range 1000 {
+		fmt.Fprintf(&text, "UUID:           00000000-0000-4000-a000-%012d\r\nParent UUID:    base\r\nLocation:       G:\\b%d\\b.vdi\r\nIn use by VMs:  b%d (UUID: 00000000-0000-4000-b000-%012d)\r\n\r\n", i, i, i, i)
+		fmt.Fprintf(&text, "UUID:           00000000-0000-4000-c000-%012d\r\nParent UUID:    00000000-0000-4000-a000-%012d\r\nLocation:       G:\\c%d\\c.vdi\r\nIn use by VMs:  c%d (UUID: 00000000-0000-4000-d000-%012d)\r\n\r\n", i, i, i, i, i)
+	}
+	raw := text.String()
+	b.ReportAllocs()
+	for b.Loop() {
+		if got := vboxmanage.LinkedClones(vboxmanage.ParseMedia(raw), "00000000-0000-4000-b000-000000000500"); len(got) != 1 {
+			b.Fatalf("%+v", got)
 		}
 	}
 }

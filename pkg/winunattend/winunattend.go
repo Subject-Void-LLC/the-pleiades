@@ -127,13 +127,13 @@ func isDigits(s string) bool {
 }
 
 // checkPassword refuses a password an answer file cannot carry unchanged
-// (too long for Windows, invalid UTF-8, or holding a control character,
-// which XML cannot represent) and one Windows' default policy refuses:
+// (too long for Windows, invalid UTF-8, or holding a control character
+// or another character XML cannot represent, notXMLText) and one Windows' default policy refuses:
 // shorter than 8 characters, with fewer than three of upper case, lower
 // case, digits and other characters, or holding the account's name.
 // Setup would otherwise take the file and leave the account without it.
 func checkPassword(p string) error {
-	if len(p) > 127 || !utf8.ValidString(p) || strings.ContainsFunc(p, unicode.IsControl) {
+	if len(p) > 127 || !utf8.ValidString(p) || strings.ContainsFunc(p, notXMLText) {
 		return fmt.Errorf("winunattend: the password is longer than 127 characters or holds a character an answer file cannot carry")
 	}
 	kinds := 0
@@ -148,6 +148,14 @@ func checkPassword(p string) error {
 		return fmt.Errorf("winunattend: Windows refuses a password shorter than 8 characters, with fewer than three of upper case, lower case, digits and symbols, or holding the name Administrator")
 	}
 	return nil
+}
+
+// notXMLText reports whether r is a control character, or one outside XML
+// 1.0's Char production (U+FFFE and U+FFFF; valid UTF-8 holds no
+// surrogate). xml.EscapeText writes U+FFFD in place of such a character,
+// so an answer file would carry a password other than the one stored.
+func notXMLText(r rune) bool {
+	return unicode.IsControl(r) || r == 0xFFFE || r == 0xFFFF
 }
 
 // passwordAlphabet is what NewPassword draws from: letters and digits
