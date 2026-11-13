@@ -161,7 +161,9 @@ func TestConnection_ARefusedSSHHostKeyEndsTheWait(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(home, ".ssh", "known_hosts"), []byte(lines.String()), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	// USERPROFILE beside HOME: os.UserHomeDir reads it on Windows.
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 
 	right := sshdServer(s, testsupport.SSHDPassword)
 	start := time.Now()
