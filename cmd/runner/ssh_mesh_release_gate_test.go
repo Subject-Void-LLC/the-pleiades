@@ -392,6 +392,14 @@ func (w *jobWatch) completed(t *testing.T, within time.Duration) (wire.JobEvent,
 // device-side effect (or absence of one) itself.
 func (h *releaseGateHarness) dispatch(t *testing.T, payload wire.DispatchPayload) wire.JobEvent {
 	t.Helper()
+	events := h.dispatchEvents(t, payload)
+	return events[len(events)-1]
+}
+
+// dispatchEvents is dispatch returning every job event the dispatch's log
+// held, in order, up to and including its task.completed.
+func (h *releaseGateHarness) dispatchEvents(t *testing.T, payload wire.DispatchPayload) []wire.JobEvent {
+	t.Helper()
 	ctx := context.Background()
 
 	logConsumer, err := h.js.CreateOrUpdateConsumer(ctx, topology.StreamName, topology.LogViewerConsumerConfig(payload.JobID))
@@ -407,6 +415,7 @@ func (h *releaseGateHarness) dispatch(t *testing.T, payload wire.DispatchPayload
 		t.Fatalf("publish: %v", err)
 	}
 
+	var events []wire.JobEvent
 	deadline := time.Now().Add(30 * time.Second)
 	for time.Now().Before(deadline) {
 		msgs, err := logConsumer.Fetch(1, jetstream.FetchMaxWait(2*time.Second))
@@ -422,13 +431,14 @@ func (h *releaseGateHarness) dispatch(t *testing.T, payload wire.DispatchPayload
 			if err := json.Unmarshal(wrapped.Data, &jobEvt); err != nil {
 				t.Fatalf("unmarshal job event: %v", err)
 			}
+			events = append(events, jobEvt)
 			if jobEvt.Task == "task.completed" {
-				return jobEvt
+				return events
 			}
 		}
 	}
 	t.Fatal("timed out waiting for a task.completed job event")
-	return wire.JobEvent{}
+	return nil
 }
 
 // TestSSHMeshReleaseGate_RealSecretThroughTheFullChain is Phase 16's own

@@ -1055,8 +1055,14 @@ same, so:
   capability, which program and what to do (`pleiades onboard <device>` again, or the
   assertion again).
 - **The program removed, or its approval revoked**, leaves its grants defining nothing:
-  they grant nothing, and `pleiades validate` warns about each on a device the runbook
-  reaches.
+  they grant nothing, and validation warns about each on a device the runbook reaches.
+- **A grant whose recorded time cannot be read** (missing, malformed, or outside the
+  years 1 to 9999) grants nothing either, and says why.
+
+Validation gives these warnings the same way everywhere it runs: `pleiades validate`
+prints them, `pleiades run` reports them at its start (in `--json`, as warnings of kind
+`grant`), and a Runner writes them to the job's log before its tasks run. A lapsed grant
+that a task in the runbook needs is reported once, as the refusal of that task.
 
 `pleiades doc <capability>` prints the digest and the revision. A client asserting a grant
 through the Controller's API sends that digest as `definition`, since the Controller loads

@@ -3,6 +3,7 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -100,6 +101,44 @@ func TestValidate_WarnsOfAGrantNoLoadedProgramDefines(t *testing.T) {
 	if want := "[warning] grants: device w1's grant of clitest.widget_api grants nothing here: no loaded program defines clitest.widget_api"; !strings.Contains(out, want) {
 		t.Errorf("validate printed:\n%s\nwant the warning %q", out, want)
 	}
+}
+
+// TestRun_ReportsTheGrantWarningsValidationGives: `pleiades run` reports
+// the same grant warning validate does, as a run warning of kind grant
+// naming the device, before it touches anything; here the run is refused
+// for an undeclared parameter, so no device is contacted.
+func TestRun_ReportsTheGrantWarningsValidationGives(t *testing.T) {
+	dir := grantProject(t)
+	assertWidget(t, dir)
+	t.Setenv(collectionsDirEnv, "")
+	path := writeTestRunbook(t, dir, "refused.yaml", "id: refused\nhosts: w1\ntasks:\n  - name: reach it\n    net.ssh.ping:\n      not_a_parameter: 1\n")
+	restoreCaps, restoreMethods := capability.SnapshotForTest(), collection.SnapshotForTest()
+	defer func() {
+		restoreCaps()
+		restoreMethods()
+		resetLoadedCollections()
+	}()
+	var out string
+	if err := captureRun(t, &out, func() error { return runRunbook([]string{path, "--dir", dir, "--json"}) }); err == nil {
+		t.Fatalf("a run of a runbook with an undeclared parameter was not refused:\n%s", out)
+	}
+	var rep struct {
+		Warnings []struct {
+			Kind    string   `json:"kind"`
+			When    string   `json:"when"`
+			Message string   `json:"message"`
+			Devices []string `json:"devices"`
+		} `json:"warnings"`
+	}
+	if err := json.Unmarshal([]byte(out), &rep); err != nil {
+		t.Fatalf("run --json printed no report: %v\n%s", err, out)
+	}
+	for _, w := range rep.Warnings {
+		if w.Kind == "grant" && w.When == "start" && strings.Contains(w.Message, "no loaded program defines clitest.widget_api") && len(w.Devices) == 1 && w.Devices[0] == "w1" {
+			return
+		}
+	}
+	t.Errorf("run --json warnings %+v, want the grant warning on w1", rep.Warnings)
 }
 
 // TestValidate_ALapsedGrantNamesWhyAndWhatToDo: a new build of the program

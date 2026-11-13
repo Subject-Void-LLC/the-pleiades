@@ -252,7 +252,19 @@ func (a *Adapter) Execute(ctx context.Context, payload wire.DispatchPayload) (wi
 	// an unregistered or declared-only method, an undeclared parameter,
 	// or check_mode on an uncheckable task failed only when its own task
 	// was reached, after earlier tasks had already changed the device.
-	if err := validateDispatch(dag, device, mode); err != nil {
+	grantWarnings, err := validateDispatch(dag, device, mode)
+	// Each grant warning validation gave reaches the job's log first, as a
+	// task.warning event, whether or not the dispatch is refused: a lapsed
+	// grant is often why it was.
+	for _, warning := range grantWarnings {
+		event := wire.JobEvent{Status: "ok", Host: payload.DeviceHost, Task: "task.warning"}
+		event.Timestamp = time.Now().UTC().Format(time.RFC3339)
+		event.EventData.Message = "WARNING: " + warning
+		if pubErr := a.publish(ctx, payload.JobID, event); pubErr != nil {
+			return wire.Outcome{}, fmt.Errorf("failed to publish a warning: %w", pubErr)
+		}
+	}
+	if err != nil {
 		// Ended in the job's own log, like any other finished run, so a
 		// reader sees why nothing ran rather than a run that started and
 		// never finished. The findings name tasks, methods, parameter

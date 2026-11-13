@@ -175,7 +175,13 @@ func carryOut(opts runOptions, src runSource) (*runReport, error) {
 		return nil, err
 	}
 	rep := planReport(src.label, items, dag, mode, world)
-	if report := validate.Validate(world); report.HasErrors() {
+	report := validate.Validate(world)
+	// The grant warnings validation gives (validate.GrantWarnings) are the
+	// one kind a run reports, at its start, refused or not: a grant on a
+	// device it reaches that grants nothing, or counts only with a warning.
+	grantWarnings := grantRunWarnings(report, items)
+	if report.HasErrors() {
+		rep.Warnings = append(rep.Warnings, grantWarnings...)
 		rep.Validation = validationIssues(report, items)
 		addNotRun(rep, notRunRefused)
 		rep.Outcome = runOutcome{Status: "invalid", Message: "validation failed, not executing", ExitCode: 1}
@@ -258,6 +264,7 @@ func carryOut(opts runOptions, src runSource) (*runReport, error) {
 		conc.startTick = runTick
 		defer conc.release()
 	}
+	rep.Warnings = append(rep.Warnings, grantWarnings...)
 
 	if !opts.asJSON {
 		printRunWarnings(rep, "start")

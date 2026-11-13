@@ -58,10 +58,10 @@ func TestExternalCapabilityReleaseGate_TheRunnerHoldsAShippedGrant(t *testing.T)
 		t.Fatal("the loaded example defines no example.notebook")
 	}
 	digest := capability.DefinitionDigest(def)
-	dispatchGrant := func(g inventory.Grant) wire.JobEvent {
+	dispatchGrants := func(grants ...inventory.Grant) []wire.JobEvent {
 		t.Helper()
-		granted := inventory.GrantsProperty([]inventory.Grant{g})
-		return h.dispatch(t, wire.DispatchPayload{
+		granted := inventory.GrantsProperty(grants)
+		return h.dispatchEvents(t, wire.DispatchPayload{
 			JobID: uuid.New().String(), RunbookID: "notebook",
 			DeviceID: "release-gate-device", DeviceName: "release-gate-device", DeviceHost: h.sshHost, SSHPort: h.sshPort,
 			DeviceType: "linux_server",
@@ -71,6 +71,11 @@ func TestExternalCapabilityReleaseGate_TheRunnerHoldsAShippedGrant(t *testing.T)
 			Capabilities: []capability.Name{capability.NameSSHTransport, capability.NamePOSIXFileSystem, "example.notebook"},
 			Secrets:      credential.Flatten(credential.Credential{Username: releaseGateSSHUser, Password: releaseGateSSHPassword}),
 		})
+	}
+	dispatchGrant := func(g inventory.Grant) wire.JobEvent {
+		t.Helper()
+		events := dispatchGrants(g)
+		return events[len(events)-1]
 	}
 	dispatch := func(props map[string]any) wire.JobEvent {
 		t.Helper()
@@ -116,6 +121,26 @@ func TestExternalCapabilityReleaseGate_TheRunnerHoldsAShippedGrant(t *testing.T)
 		if evt.Status != "failed" || !strings.Contains(evt.EventData.Message, want) {
 			t.Errorf("a grant made against another revision: %+v, want a failure saying %q", evt, want)
 		}
+	}
+
+	// A grant of a capability no program this Runner loaded defines grants
+	// nothing; the job still runs, and the Runner's validation warns of it
+	// in the job's log, as `pleiades validate` and `pleiades run` do.
+	held := inventory.Grant{
+		Capability: "example.notebook", Source: inventory.GrantAsserted, Properties: map[string]any{"dir": notes},
+		By: "ops", Reason: "the release gate made the directory", At: time.Now(), Definition: digest,
+	}
+	gone := inventory.Grant{Capability: "gone.thing", Source: inventory.GrantAsserted, By: "ops", Reason: "a removed program", At: time.Now(), Definition: digest}
+	events := dispatchGrants(held, gone)
+	if final := events[len(events)-1]; final.Status != "ok" && final.Status != "changed" {
+		t.Errorf("the job beside a grant no program defines: %+v", final)
+	}
+	warned := false
+	for _, e := range events {
+		warned = warned || (e.Task == "task.warning" && strings.Contains(e.EventData.Message, "grant of gone.thing grants nothing here: no loaded program defines gone.thing"))
+	}
+	if !warned {
+		t.Errorf("the job log %+v holds no warning about the grant of gone.thing", events)
 	}
 }
 

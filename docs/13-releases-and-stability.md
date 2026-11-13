@@ -422,6 +422,10 @@ property, in the inventory and on every dispatch.
   onboarded again or the assertion made again.
 - **Mixed versions.** A Runner older than 0.4.0 ignores both digests and counts a grant
   as 0.3.0 did. A 0.4.0 Runner refuses a grant a 0.3.0 Controller stored, as above.
+- **The time.** From 0.4.0 a grant's `at` is written in UTC to the nanosecond, a form
+  every earlier release reads. A grant whose `at` is missing, malformed or outside the
+  years 1 to 9999 grants nothing and says why; the API shows it as `unreadable`, with no
+  `at`.
 - **The API.** `POST /inventory/devices/{name}/capabilities` requires `definition` from
   0.4.0, a break the changelog names.
 - **What is not covered.** The Go API of `pkg/` itself (the packages an external
