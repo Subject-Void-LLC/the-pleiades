@@ -35,14 +35,7 @@ func composeSummary(file string, plan *Plan, key []byte) string {
 	default:
 		lines = append(lines, "  MASTER_ENCRYPTION_KEY      unchanged")
 	}
-	switch plan.JWT {
-	case Generate:
-		lines = append(lines, "  JWT_SECRET                 new")
-	case Replace:
-		lines = append(lines, "  JWT_SECRET                 replaced; API tokens signed with the old one no longer work")
-	default:
-		lines = append(lines, "  JWT_SECRET                 unchanged")
-	}
+	lines = append(lines, tokenCheckLines(plan)...)
 	if plan.DigestKey != Keep {
 		lines = append(lines, "  PLEIADES_FACTS_DIGEST_KEY  new")
 	} else {
@@ -56,6 +49,35 @@ func composeSummary(file string, plan *Plan, key []byte) string {
 	return strings.Join(lines, "\n")
 }
 
+// tokenCheckLines are the summary's lines for how API tokens are checked:
+// the JWT secret, or the JWKS URL and, when a move to it removed one, the
+// JWT secret it replaced.
+func tokenCheckLines(plan *Plan) []string {
+	if !plan.UsesJWKS {
+		switch plan.JWT {
+		case Generate:
+			return []string{"  JWT_SECRET                 new"}
+		case Replace:
+			return []string{"  JWT_SECRET                 replaced; API tokens signed with the old one no longer work"}
+		default:
+			return []string{"  JWT_SECRET                 unchanged"}
+		}
+	}
+	var lines []string
+	switch plan.JWKS {
+	case Generate:
+		lines = append(lines, "  JWKS_URL                   "+plan.JWKSValue)
+	case Replace:
+		lines = append(lines, "  JWKS_URL                   "+plan.JWKSValue+"; API tokens the old identity provider signed no longer work")
+	default:
+		lines = append(lines, "  JWKS_URL                   unchanged")
+	}
+	if plan.JWT == Remove {
+		lines = append(lines, "  JWT_SECRET                 removed; API tokens signed with it no longer work")
+	}
+	return lines
+}
+
 // helmSummary says what a Helm run wrote and the commands that install it.
 func helmSummary(secretFile, valuesFile string, opts Options, key []byte) string {
 	ns := opts.Namespace
@@ -63,9 +85,15 @@ func helmSummary(secretFile, valuesFile string, opts Options, key []byte) string
 	if ns != "" {
 		nsFlag = " --namespace " + ns
 	}
+	tokens := "the JWT secret, "
+	values := fmt.Sprintf("and %s (no secrets).", valuesFile)
+	if opts.JWKSURL != "" {
+		tokens = ""
+		values = fmt.Sprintf("and %s (no secrets; it sets controller.jwksUrl, so the controller checks API tokens against %s and needs no JWT secret).", valuesFile, opts.JWKSURL)
+	}
 	return strings.Join([]string{
-		fmt.Sprintf("Wrote %s (the master key, fingerprint %s, the JWT secret, the facts digest key and the database password)", secretFile, keyregistry.Short(crypto.Fingerprint(key))),
-		fmt.Sprintf("and %s (no secrets).", valuesFile),
+		fmt.Sprintf("Wrote %s (the master key, fingerprint %s, %sthe facts digest key and the database password)", secretFile, keyregistry.Short(crypto.Fingerprint(key)), tokens),
+		values,
 		"",
 		"Install with:",
 		"  kubectl create" + nsFlag + " -f " + secretFile,

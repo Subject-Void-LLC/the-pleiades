@@ -1540,6 +1540,7 @@ up-plan:
 #
 #   make setup SETUP_FLAGS="--max-outage 2h --force"
 #   make setup SETUP_FLAGS="--new-jwt-secret --force"
+#   make setup SETUP_FLAGS="--jwks-url https://idp.example.com/keys --force"
 #   make setup SETUP_FLAGS="--destroy-existing-encryption-key"
 SETUP_FLAGS ?=
 
@@ -1556,7 +1557,7 @@ setup: setup-env-check
 # SETUP_OWNED_VARS are the variables setup writes to, or reads from, .env:
 # exactly setup.ComposeVariables(), which internal/setup's
 # TestMakefileRefusesEveryVariableSetupOwns holds it to.
-SETUP_OWNED_VARS := MASTER_ENCRYPTION_KEY MASTER_ENCRYPTION_KEY_VERSION MASTER_ENCRYPTION_KEY_PREVIOUS MASTER_ENCRYPTION_KEY_PREVIOUS_VERSION ROTATE_ENCRYPTION_KEYS JWT_SECRET PLEIADES_MAX_OUTAGE PLEIADES_FACTS_DIGEST_KEY
+SETUP_OWNED_VARS := MASTER_ENCRYPTION_KEY MASTER_ENCRYPTION_KEY_VERSION MASTER_ENCRYPTION_KEY_PREVIOUS MASTER_ENCRYPTION_KEY_PREVIOUS_VERSION ROTATE_ENCRYPTION_KEYS JWT_SECRET JWKS_URL PLEIADES_MAX_OUTAGE PLEIADES_FACTS_DIGEST_KEY
 
 # setup-env-check refuses when the shell exports one of those variables.
 # docker compose uses a shell variable over the same one in .env, so the

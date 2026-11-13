@@ -31,9 +31,10 @@ const (
 const ComposeFile = ".env"
 
 // ErrIncomplete is what --check returns for a compose env file that is
-// readable but lacks a key or a JWT secret, so a caller can tell "run setup"
-// from "something is wrong".
-var ErrIncomplete = errors.New("setup: the env file does not hold a MASTER_ENCRYPTION_KEY and a JWT_SECRET yet")
+// readable but lacks a key, or lacks both ways of checking API tokens (a JWT
+// secret or a JWKS URL), so a caller can tell "run setup" from "something is
+// wrong".
+var ErrIncomplete = errors.New("setup: the env file does not hold a MASTER_ENCRYPTION_KEY, and a JWT_SECRET or a JWKS_URL, yet")
 
 // Options is one run's request.
 type Options struct {
@@ -54,6 +55,11 @@ type Options struct {
 
 	// NewJWTSecret, Force and DestroyKey are the field flags.
 	NewJWTSecret, Force, DestroyKey bool
+
+	// JWKSURL is --jwks-url, empty when not given: the identity provider's
+	// published keys the controller checks API tokens against, written in
+	// place of a JWT secret.
+	JWKSURL string
 
 	// SecretName and Namespace name the Helm Secret.
 	SecretName, Namespace string
@@ -78,6 +84,10 @@ type Result struct {
 
 	// Possession is whether the operator re-entered that key.
 	Possession keyregistry.Possession
+
+	// TokenCheck names the variable the controller checks API tokens with:
+	// VarJWTSecret or VarJWKSURL. Set by --check and by a compose run.
+	TokenCheck string
 }
 
 // Run carries out one setup request. screen is nil when there is no
@@ -113,19 +123,14 @@ func runCompose(ctx context.Context, opts Options, dir *Dir, screen *Screen, out
 		return Result{}, fmt.Errorf("%w (in %s)", err, display)
 	}
 	if opts.Check {
-		_, hasKey := file.Get(VarMasterKey)
-		_, hasJWT := file.Get(VarJWTSecret)
-		if !hasKey || !hasJWT {
-			return Result{}, ErrIncomplete
-		}
-		return Result{File: display}, nil
+		return checkCompose(file, display)
 	}
 
 	answer, err := chooseBudget(opts, file, screen)
 	if err != nil {
 		return Result{}, err
 	}
-	plan, err := NewPlanBuilder(file, display, opts).MasterKey().JWTSecret().FactsDigestKey().Budget(answer).Build()
+	plan, err := NewPlanBuilder(file, display, opts).MasterKey().TokenCheck().FactsDigestKey().Budget(answer).Build()
 	if err != nil {
 		return Result{}, err
 	}
@@ -145,12 +150,22 @@ func runCompose(ctx context.Context, opts Options, dir *Dir, screen *Screen, out
 		result.Key = key
 		file.Set(VarMasterKey, crypto.EncodeKey(key))
 	}
-	if plan.JWT != Keep {
+	switch plan.JWT {
+	case Generate, Replace:
 		jwt, err := newSecretText()
 		if err != nil {
 			return Result{}, err
 		}
 		file.Set(VarJWTSecret, jwt)
+	case Remove:
+		file.Unset(VarJWTSecret)
+	}
+	if plan.JWKS != Keep {
+		file.Set(VarJWKSURL, plan.JWKSValue)
+	}
+	result.TokenCheck = VarJWTSecret
+	if plan.UsesJWKS {
+		result.TokenCheck = VarJWKSURL
 	}
 	if plan.DigestKey != Keep {
 		digestKey, err := newSecretText()
@@ -186,6 +201,27 @@ func runCompose(ctx context.Context, opts Options, dir *Dir, screen *Screen, out
 	}
 	fmt.Fprintln(out, composeSummary(display, plan, result.Key))
 	return result, nil
+}
+
+// checkCompose is --check: a file is complete when it holds a master key and
+// exactly one way of checking API tokens. Missing either is ErrIncomplete,
+// which `make up` answers by running setup. Holding both a JWT secret and a
+// JWKS URL is a refusal instead: the controller refuses to start with both,
+// and running setup would not decide for the operator which one they meant.
+func checkCompose(file *EnvFile, display string) (Result, error) {
+	_, hasKey := file.Get(VarMasterKey)
+	_, hasSecret := file.Get(VarJWTSecret)
+	_, hasURL := file.Get(VarJWKSURL)
+	switch {
+	case hasSecret && hasURL:
+		return Result{}, bothTokenChecks(display)
+	case !hasKey || (!hasSecret && !hasURL):
+		return Result{}, ErrIncomplete
+	case hasURL:
+		return Result{File: display, TokenCheck: VarJWKSURL}, nil
+	default:
+		return Result{File: display, TokenCheck: VarJWTSecret}, nil
+	}
 }
 
 // chooseBudget returns the outage budget a run writes when the file holds

@@ -40,6 +40,11 @@ func recoveryMatrix() string {
 		"  Replicas: every controller needs the same one, or a token works on one controller and fails on another.",
 		"  If it is lost: generate a new one and sign API tokens again. Browser sign-ins do not use it and are unaffected.",
 		"",
+		"JWKS_URL (in place of JWT_SECRET, when an identity provider signs your API tokens)",
+		"  Reinstall: set the same URL. The identity provider keeps the signing keys, so nothing here needs a backup.",
+		"  Replicas: every controller needs the same one.",
+		"  If the identity provider is unreachable: the controller keeps its last keys for 12 hours, then refuses every token until it reaches the provider again.",
+		"",
 		"PLEIADES_MAX_OUTAGE",
 		"  Raising it is free at any time. Lowering it discards broker messages older than the new window.",
 		"",
@@ -194,9 +199,19 @@ func alreadySetUp(file, fingerprint string) *Refusal {
 			"To change one setting in that file, name it:",
 			"  --max-outage <duration> --force      changes the outage budget",
 			"  --new-jwt-secret --force             replaces the JWT secret; API tokens signed with the old one stop working",
+			"  --jwks-url <url> --force             checks API tokens against an identity provider instead, removing the JWT secret",
 			"  --destroy-existing-encryption-key    replaces the master key; refused while any stored data is encrypted under it",
 		}, "\n"),
 	)
+}
+
+// bothTokenChecks is the refusal for a file holding a JWT secret and a JWKS
+// URL at once, which the controller refuses to start with. It names which
+// line to delete for each intention rather than choosing one.
+func bothTokenChecks(file string) *Refusal {
+	return refuse(fmt.Sprintf("%s holds both JWT_SECRET and JWKS_URL, and the controller refuses to start with both: each one decides who can sign an API token it accepts. "+
+		"To check tokens against your identity provider, delete the JWT_SECRET line, or run setup with --jwks-url <url> --force, which removes it. "+
+		"To keep the JWT secret, delete the JWKS_URL line.", file))
 }
 
 // needsForce is the refusal for a reversible change made without --force.

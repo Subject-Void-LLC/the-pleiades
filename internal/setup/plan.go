@@ -21,14 +21,26 @@ const (
 
 	// Replace writes a new value over one the file already has.
 	Replace
+
+	// Remove deletes a field the file has. Only the JWT secret is ever
+	// removed: when a deployment moves to JWKS_URL, since the controller
+	// refuses to start with both.
+	Remove
 )
 
 // Plan is the checked set of changes one run makes to a compose env file.
 // Only PlanBuilder.Build makes one, and it makes one only when every change
 // in it has passed the guard its field's class requires.
 type Plan struct {
-	// Key, JWT, Budget and DigestKey are the fields a run can write.
-	Key, JWT, Budget, DigestKey Action
+	// Key, JWT, JWKS, Budget and DigestKey are the fields a run can write.
+	Key, JWT, JWKS, Budget, DigestKey Action
+
+	// JWKSValue is the JWKS URL to write when JWKS is not Keep.
+	JWKSValue string
+
+	// UsesJWKS is true when the file, after this plan, checks API tokens
+	// against JWKS_URL rather than a JWT secret.
+	UsesJWKS bool
 
 	// BudgetValue is the budget to write when Budget is not Keep.
 	BudgetValue topology.OutageBudget
@@ -47,7 +59,7 @@ type Plan struct {
 
 // Changes reports whether the plan writes anything.
 func (p *Plan) Changes() bool {
-	return p.Key != Keep || p.JWT != Keep || p.Budget != Keep || p.DigestKey != Keep
+	return p.Key != Keep || p.JWT != Keep || p.JWKS != Keep || p.Budget != Keep || p.DigestKey != Keep
 }
 
 // PlanBuilder decides, field by field, what one run of the compose target
@@ -91,25 +103,73 @@ func (b *PlanBuilder) MasterKey() *PlanBuilder {
 	return b
 }
 
-// JWTSecret decides the JWT secret: generated when the file has none,
-// replaced only on --new-jwt-secret with --force.
-func (b *PlanBuilder) JWTSecret() *PlanBuilder {
+// TokenCheck decides how the controller checks API tokens: a JWT secret, or
+// an identity provider's keys at JWKS_URL. The file ends holding exactly
+// one, because the controller refuses to start with both
+// (FAILURE_PATTERNS 1229).
+//
+// With --jwks-url the file holds that URL and no JWT secret. Moving a file
+// that holds a JWT secret, or another URL, takes --force, since either
+// change rejects the API tokens signed until now. Without it, a file that
+// already uses JWKS_URL keeps it and gains no secret, and any other file
+// has its JWT secret generated when missing and replaced only on
+// --new-jwt-secret with --force.
+func (b *PlanBuilder) TokenCheck() *PlanBuilder {
 	if b.err != nil {
 		return b
 	}
-	if _, held := b.file.Get(VarJWTSecret); !held {
+	_, hasSecret := b.file.Get(VarJWTSecret)
+	heldURL, hasURL := b.file.Get(VarJWKSURL)
+	if b.opts.JWKSURL != "" {
+		b.jwksURL(heldURL, hasURL, hasSecret)
+		return b
+	}
+	switch {
+	case hasURL && hasSecret:
+		b.err = bothTokenChecks(b.display)
+	case hasURL && b.opts.NewJWTSecret:
+		b.err = refuse(fmt.Sprintf("%s checks API tokens against JWKS_URL, so it holds no JWT secret to replace. To check them with a JWT secret instead, delete the JWKS_URL line and run setup again, which writes one.", b.display))
+	case hasURL:
+		b.plan.UsesJWKS = true
+	case !hasSecret:
 		b.plan.JWT = Generate
-		return b
-	}
-	if !b.opts.NewJWTSecret {
-		return b
-	}
-	if !b.opts.Force {
+	case b.opts.NewJWTSecret && !b.opts.Force:
 		b.err = needsForce(b.display, "a JWT_SECRET; replacing it makes every API token signed with the old one stop working")
-		return b
+	case b.opts.NewJWTSecret:
+		b.plan.JWT = Replace
 	}
-	b.plan.JWT = Replace
 	return b
+}
+
+// jwksURL decides the token check when --jwks-url names a URL.
+func (b *PlanBuilder) jwksURL(heldURL string, hasURL, hasSecret bool) {
+	want := b.opts.JWKSURL
+	if b.opts.NewJWTSecret {
+		b.err = refuse("--jwks-url and --new-jwt-secret ask for opposite things: the controller checks API tokens against an identity provider's keys or against a JWT secret, never both. Name one.")
+		return
+	}
+	if err := validateJWKSURL(want); err != nil {
+		b.err = refuse("--jwks-url " + err.Error() + ".")
+		return
+	}
+	b.plan.UsesJWKS = true
+	switch {
+	case !hasURL:
+		b.plan.JWKS, b.plan.JWKSValue = Generate, want
+	case heldURL != want:
+		if !b.opts.Force {
+			b.err = needsForce(b.display, "a JWKS_URL; pointing it at another identity provider makes every API token the old one signed stop working")
+			return
+		}
+		b.plan.JWKS, b.plan.JWKSValue = Replace, want
+	}
+	if hasSecret {
+		if !b.opts.Force {
+			b.err = needsForce(b.display, "a JWT_SECRET, which --jwks-url removes, since the controller refuses to start with both; every API token signed with that secret stops working")
+			return
+		}
+		b.plan.JWT = Remove
+	}
 }
 
 // FactsDigestKey decides the facts digest key: generated when the file has

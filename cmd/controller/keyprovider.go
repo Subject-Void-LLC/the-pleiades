@@ -17,14 +17,15 @@ import (
 // Each one alone decides who may sign a token this controller accepts, so
 // setting both is two answers to one question, and ranking them hid the
 // second (FAILURE_PATTERNS 1229). `controller setup` writes JWT_SECRET into
-// the compose .env file and the Helm Secret, so the likely way to get here is
-// a deployment set up with a secret and then pointed at an identity provider.
-// The message says which to remove for each intention, because leaving the
+// the compose .env file and the Helm Secret unless it is given --jwks-url, so
+// the likely way to get here is a deployment set up with a secret and then
+// pointed at an identity provider by hand. The message says which to remove
+// for each intention, and the command that does it, because leaving the
 // secret in place means removing JWKS_URL on some later restart brings back a
 // key that signs any token.
 var errBothTokenSources = errors.New("JWKS_URL and JWT_SECRET are both set, and each one chooses how this controller checks API tokens, so set exactly one. " +
-	"To check tokens against your identity provider, remove JWT_SECRET: `controller setup` writes it into the compose .env file and the Helm Secret, " +
-	"and a JWT_SECRET left in place signs any token again the moment JWKS_URL is removed. " +
+	"To check tokens against your identity provider, remove JWT_SECRET: `controller setup --jwks-url <url> --force` removes it from the compose .env file and writes JWKS_URL, " +
+	"and the Helm chart reads none once controller.jwksUrl is set. A JWT_SECRET left in place signs any token again the moment JWKS_URL is removed. " +
 	"To keep the static secret, remove JWKS_URL")
 
 // loadKeyProvider builds the auth.KeyProvider this process verifies tokens
