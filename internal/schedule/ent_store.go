@@ -7,6 +7,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent"
 	entorg "github.com/Subject-Void-LLC/the-pleiades/internal/ent/organization"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/predicate"
 	entschedule "github.com/Subject-Void-LLC/the-pleiades/internal/ent/schedule"
 	entoccurrence "github.com/Subject-Void-LLC/the-pleiades/internal/ent/scheduleoccurrence"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/launchable"
@@ -309,12 +310,17 @@ func (s *entStore) ListDue(ctx context.Context, now time.Time, cursor DueCursor,
 
 // ClaimOccurrence is the duplicate-fire guard.
 //
-// It is one insert, and it must stay one insert. The unique index on
-// (schedule, occurrence_at) is what decides the race; a read-then-write
+// A first claim is one insert, and it must stay one insert. The unique index
+// on (schedule, occurrence_at) is what decides the race; a read-then-write
 // would let two replicas both observe "unclaimed" and both proceed, which
 // is precisely the failure this exists to prevent. A constraint violation
 // here is the expected, healthy outcome for the losing replica, not an
 // error to report.
+//
+// An occurrence whose launch failed is claimable once more, by reclaimFailed,
+// which is what lets the scanner retry it on its next sweep
+// (FAILURE_PATTERNS 1225). Every other existing row (claimed, fired, or
+// skipped for any other reason) still answers ErrAlreadyClaimed.
 func (s *entStore) ClaimOccurrence(ctx context.Context, scheduleID string, occurrenceAt time.Time) (Occurrence, error) {
 	sched, err := s.byScheduleID(ctx, scheduleID)
 	if err != nil {
@@ -327,9 +333,43 @@ func (s *entStore) ClaimOccurrence(ctx context.Context, scheduleID string, occur
 		Save(ctx)
 	if err != nil {
 		if ent.IsConstraintError(err) {
-			return Occurrence{}, ErrAlreadyClaimed
+			return s.reclaimFailed(ctx, sched.ID, scheduleID, occurrenceAt)
 		}
 		return Occurrence{}, fmt.Errorf("schedule: claim occurrence: %w", err)
+	}
+	return occurrenceToDomain(row, scheduleID), nil
+}
+
+// reclaimFailed takes back an occurrence whose launch failed, returning
+// ErrAlreadyClaimed when the existing row is anything else.
+//
+// It is one conditional update, the same kind of guard the insert is: the
+// row moves from skipped with launch_failed back to claimed only if it still
+// reads skipped with launch_failed when the database applies the write. Two
+// replicas that both try it are serialized on the row, and the second finds
+// it claimed and changes nothing, so a retried occurrence is launched by one
+// replica at most, as a first claim is.
+func (s *entStore) reclaimFailed(ctx context.Context, schedRowID int, scheduleID string, occurrenceAt time.Time) (Occurrence, error) {
+	thisOccurrence := []predicate.ScheduleOccurrence{
+		entoccurrence.HasScheduleWith(entschedule.IDEQ(schedRowID)),
+		entoccurrence.OccurrenceAtEQ(occurrenceAt.UTC()),
+	}
+	taken, err := s.client.ScheduleOccurrence.Update().
+		Where(thisOccurrence...).
+		Where(entoccurrence.OutcomeEQ(entoccurrence.OutcomeSkipped), entoccurrence.ReasonEQ(ReasonLaunchFailed)).
+		SetOutcome(entoccurrence.OutcomeClaimed).
+		ClearReason().
+		Save(ctx)
+	if err != nil {
+		return Occurrence{}, fmt.Errorf("schedule: re-claim occurrence: %w", err)
+	}
+	if taken == 0 {
+		return Occurrence{}, ErrAlreadyClaimed
+	}
+	// The row is this caller's now, so reading it back races nobody.
+	row, err := s.client.ScheduleOccurrence.Query().Where(thisOccurrence...).Only(ctx)
+	if err != nil {
+		return Occurrence{}, fmt.Errorf("schedule: read re-claimed occurrence: %w", err)
 	}
 	return occurrenceToDomain(row, scheduleID), nil
 }

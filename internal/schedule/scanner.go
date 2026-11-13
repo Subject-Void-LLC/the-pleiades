@@ -199,6 +199,11 @@ func (s *Scanner) Run(ctx context.Context, isLeader func() bool) {
 // A failure on one schedule is logged and does not abort the pass or any
 // future one: the schedule stays due and the next tick finds it again, so a
 // transient failure costs one interval of lateness rather than a lost run.
+// For a launch that failed after its occurrence was claimed, that holds
+// because the store lets a launch_failed occurrence be claimed once more
+// (FAILURE_PATTERNS 1225, TestSweepRetriesAnOccurrenceWhoseLaunchFailed). A
+// refused launch is the one failure not retried: fire records it and moves
+// the schedule on, since it can only fail again.
 func (s *Scanner) Sweep(ctx context.Context) {
 	now := s.now().UTC()
 	var cursor DueCursor
@@ -442,6 +447,23 @@ func (s *Scanner) fire(ctx context.Context, sched Schedule, occurrenceAt time.Ti
 				slog.String("schedule_id", sched.ScheduleID),
 				slog.String("error", err.Error()))
 		}
+		// A refusal is the launcher saying this can only ever fail (the
+		// template is gone, or it needs a value nobody is there to give), so
+		// it is recorded and the schedule moves on now: retrying it each
+		// sweep would only repeat the refusal.
+		var refusal launchable.Refusal
+		if errors.As(launchErr, &refusal) {
+			s.logger.Error("scheduler's launch was refused, and the occurrence will not be retried",
+				slog.String("schedule_id", sched.ScheduleID),
+				slog.String("name", sched.Name),
+				slog.Time("occurrence_at", occurrenceAt),
+				slog.String("error", launchErr.Error()))
+			return nil
+		}
+		// Anything else may be transient. Returning it leaves the schedule
+		// due, and the next sweep re-claims this same occurrence
+		// (ClaimOccurrence takes back a launch_failed row) and launches it
+		// again, which is what Sweep promises (FAILURE_PATTERNS 1225).
 		return launchErr
 	}
 

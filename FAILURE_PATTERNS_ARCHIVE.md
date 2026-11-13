@@ -29549,6 +29549,55 @@ mix, each validated; four mutations each fail it.
 
 **Lesson.** A converter finding compares the two engines' answers, not the mere presence of the inputs that could differ.
 
+## 1207. A WinRM call canceled while it held the half-open probe closed the open circuit, with no evidence the host was back (fixed before push)
+
+**Symptom.** A call holding the breaker's half-open probe and canceled before any shell opened was recorded as the host answering, so
+the circuit closed and the next call went to a host still down.
+
+**Root cause.** The old transport rule recorded any not-started error that was not "unreached" as a success, and a cancellation is one.
+
+**Fix.** `pkg/winrmexec`'s one breaker (`endpoints.record`) leaves a cancellation unrecorded. Proof: `TestRecord_ACanceledCallClosesNothing`,
+failing with the old rule.
+
+**Lesson.** A breaker records only what the remote side said; the caller giving up says nothing about the host.
+
+## 1208. A WinRM host value holding "/", "?", "#", "@", a backslash, a space or a control character moved the WS-Man URL (fixed before push)
+
+**Symptom.** "win1/x" was dialed at win1 on port 80 with the path "/x:5985/wsman": that listener was sent the credential's NTLM proof,
+and the call was keyed in a separate circuit. No inventory validation refused such a host.
+
+**Root cause.** The host property went into the URL as written.
+
+**Fix.** `checkHost` in `newExchange` and `Waiter.Run` refuses such a value before any traffic, uncounted. Proof: `TestCheckHost`,
+`TestExecute_AHostThatWouldMoveTheURLIsRefusedUncounted` (failing without the fix), `FuzzCheckHost_KeepsTheURLAuthority` (2.59M).
+
+**Lesson.** A value placed into a URL's authority is checked to be exactly an authority before the URL is built.
+
+## 1209. wait.connection over SSH retried a refused password or host key for its whole timeout, which can lock an account (fixed before push)
+
+**Symptom.** A wrong-password `wait.connection` tried every `sleep` seconds until its timeout: on a pam_faillock or domain account
+that locks it, and under OpenSSH's per-source penalties it can refuse the controller every connection to that host (inferred from a
+"circuit open" during the mutated run, not confirmed in sshd's configuration). A host key known_hosts refuses was retried the same way.
+The WinRM waits had the same weakness, fixed with the breaker.
+
+**Root cause.** The wait treated every failed try as "not yet".
+
+**Fix.** `sshTryFailed` stops at the first refused login or host key, failing at once ("stopped at try 1"), and still retries an
+unreachable or refusing host, through `remoteexec.DialError.Unreached()`. The WinRM waits ask the listener without a credential until it
+answers, then send it once. Proof, against the repo's real sshd container counting sshd's own log:
+`TestConnection_AWrongSSHPasswordIsSentOnce` (one failed login), `TestConnection_ARightSSHPasswordWaitsForAHostComingUpLate`,
+`TestConnection_ARefusedSSHHostKeyEndsTheWait` (no login attempted); and on win-check `TestWinRMGate_AWrongPasswordWaitSendsItOnce`
+(Windows' own BadPasswordAttempts 1 then 2 at a lockout threshold of 3).
+
+**Lesson.** A wait retries what can change by waiting (a host coming up), never a refusal (a wrong credential), which only repeats.
+
+## 1210. TestBracketedIPv6ReachesTheDial broke at -count=3 once the WinRM circuit became process-wide (a repeat in kind of LESSONS 159) (fixed before push)
+
+**Symptom.** The test always dials `[::1]:1`; with one process-wide circuit per address, its third run found the circuit open.
+
+**Fix.** The test installs its own circuits through `ResetCircuitsForTest`, the reset seam LESSONS 159 asks for.
+
+**Lesson.** A test of process-wide state takes a seam that resets it.
 ## 1211. TestPort_WaitsForAPortToOpen chose a free port, released it, and bound it later; a lost bind returned silently, so the wait timed out (a repeat of 601) (fixed on the pull request)
 
 **Symptom.** PR #165's strict `fast` job failed `TestPort_WaitsForAPortToOpen` (`internal/catalog/pleiades/builtin/wait`): "timed out after
@@ -29666,57 +29715,7 @@ forever through them. Proof: `TestGenerateRendersNestedEntries`, red with Entrie
 
 **Lesson.** A generator holds every field of the type it renders, and its fixture fails when a field is added without it.
 
-## 1207. A WinRM call canceled while it held the half-open probe closed the open circuit, with no evidence the host was back (fixed before push)
-
-**Symptom.** A call holding the breaker's half-open probe and canceled before any shell opened was recorded as the host answering, so
-the circuit closed and the next call went to a host still down.
-
-**Root cause.** The old transport rule recorded any not-started error that was not "unreached" as a success, and a cancellation is one.
-
-**Fix.** `pkg/winrmexec`'s one breaker (`endpoints.record`) leaves a cancellation unrecorded. Proof: `TestRecord_ACanceledCallClosesNothing`,
-failing with the old rule.
-
-**Lesson.** A breaker records only what the remote side said; the caller giving up says nothing about the host.
-
-## 1208. A WinRM host value holding "/", "?", "#", "@", a backslash, a space or a control character moved the WS-Man URL (fixed before push)
-
-**Symptom.** "win1/x" was dialed at win1 on port 80 with the path "/x:5985/wsman": that listener was sent the credential's NTLM proof,
-and the call was keyed in a separate circuit. No inventory validation refused such a host.
-
-**Root cause.** The host property went into the URL as written.
-
-**Fix.** `checkHost` in `newExchange` and `Waiter.Run` refuses such a value before any traffic, uncounted. Proof: `TestCheckHost`,
-`TestExecute_AHostThatWouldMoveTheURLIsRefusedUncounted` (failing without the fix), `FuzzCheckHost_KeepsTheURLAuthority` (2.59M).
-
-**Lesson.** A value placed into a URL's authority is checked to be exactly an authority before the URL is built.
-
-## 1209. wait.connection over SSH retried a refused password or host key for its whole timeout, which can lock an account (fixed before push)
-
-**Symptom.** A wrong-password `wait.connection` tried every `sleep` seconds until its timeout: on a pam_faillock or domain account
-that locks it, and under OpenSSH's per-source penalties it can refuse the controller every connection to that host (inferred from a
-"circuit open" during the mutated run, not confirmed in sshd's configuration). A host key known_hosts refuses was retried the same way.
-The WinRM waits had the same weakness, fixed with the breaker.
-
-**Root cause.** The wait treated every failed try as "not yet".
-
-**Fix.** `sshTryFailed` stops at the first refused login or host key, failing at once ("stopped at try 1"), and still retries an
-unreachable or refusing host, through `remoteexec.DialError.Unreached()`. The WinRM waits ask the listener without a credential until it
-answers, then send it once. Proof, against the repo's real sshd container counting sshd's own log:
-`TestConnection_AWrongSSHPasswordIsSentOnce` (one failed login), `TestConnection_ARightSSHPasswordWaitsForAHostComingUpLate`,
-`TestConnection_ARefusedSSHHostKeyEndsTheWait` (no login attempted); and on win-check `TestWinRMGate_AWrongPasswordWaitSendsItOnce`
-(Windows' own BadPasswordAttempts 1 then 2 at a lockout threshold of 3).
-
-**Lesson.** A wait retries what can change by waiting (a host coming up), never a refusal (a wrong credential), which only repeats.
-
-## 1210. TestBracketedIPv6ReachesTheDial broke at -count=3 once the WinRM circuit became process-wide (a repeat in kind of LESSONS 159) (fixed before push)
-
-**Symptom.** The test always dials `[::1]:1`; with one process-wide circuit per address, its third run found the circuit open.
-
-**Fix.** The test installs its own circuits through `ResetCircuitsForTest`, the reset seam LESSONS 159 asks for.
-
-**Lesson.** A test of process-wide state takes a seam that resets it.
-
-## 1225. A scheduled run whose launch failed after its occurrence was claimed was never launched, though Sweep's comment says a transient failure costs one interval of lateness (a repeat of 320) (open)
+## 1225. A scheduled run whose launch failed after its occurrence was claimed was never launched, though Sweep's comment says a transient failure costs one interval of lateness (a repeat of 320) (fixed)
 
 **Symptom.** Found 2026-11-13 by an outside review of lessons from the 2026-11-12 Microsoft 365 outage, and confirmed by reading the
 code; no test was run. In `internal/schedule/scanner.go`, `fire` claims the occurrence (`ClaimOccurrence`, `ent_store.go` lines 323 to
@@ -29735,8 +29734,22 @@ pass the comment promises.
 tell. 320 was recorded and never fixed, and its lesson (a test that fails once, then recovers) was never swept across the other
 comments that promise a retry.
 
-**Fix.** Open. Queued for a branch after `feat/127b-dispatcher-and-validate` merges, after the JWKS entries (1227 to 1229). The test
-to write first: a launch that fails once and then succeeds, across two sweeps, expecting one launch of that occurrence.
+**Fix.** Fixed on `fix/outage-lessons`, by a retryable claim rather than a readiness gate. `ClaimOccurrence`
+(`internal/schedule/ent_store.go`) still makes a first claim by one insert against the unique index, and on its constraint error now
+tries `reclaimFailed`: one conditional update that turns the row back to claimed only if it still reads skipped with `launch_failed`
+when the database applies it, so of two replicas retrying together one wins and the other gets `ErrAlreadyClaimed`, as with a first
+claim. Every other existing row (claimed and still launching, fired, skipped for any other reason) is never taken back. Since a failed
+launch already leaves the schedule due (`process` returns before `MarkFired`), the next sweep targets the same occurrence, re-claims it
+and launches it, and a success turns the row to fired; an occurrence superseded by a later one keeps reading `launch_failed`. A launch
+the launcher refused outright (`launchable.Refusal`: the template is gone, or it needs a prompted value) can only fail again, so `fire`
+records it and returns nil, and the schedule moves on at once instead of retrying every 30 s. Proof, each red with the fix reverted:
+`TestSweepRetriesAnOccurrenceWhoseLaunchFailed` (the test this entry asked for: one failure then success over two sweeps; reverted, 1
+attempt and 0 launches), `TestConcurrentSweepsRetryAFailedLaunchOnce` (eight replicas retrying launch it once; reverted, 0 times),
+`TestClaimOccurrenceReclaimsOnlyAFailedLaunch` (the store half), and `TestSweepDoesNotRetryARefusedLaunch` (red with the refusal branch
+removed: 2 attempts, schedule not advanced). Two residual risks, both older than this fix: a launch that fails after the dispatcher
+persisted its job (a publish whose acknowledgement was lost) is retried as a new job, so an ambiguous publish could run twice; and
+during a failover a replica that meets a row still claimed by the other advances the schedule, so if the other's launch then fails,
+that occurrence is not retried.
 
 **Lesson.** 320's again: a comment that promises recovery on the next pass needs a test that runs the next pass.
 

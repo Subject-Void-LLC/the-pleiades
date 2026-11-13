@@ -1,0 +1,1 @@
+A scheduled run whose launch failed is tried again on the next scan instead of being recorded as skipped and never run. A launch refused outright, such as one whose template was deleted, is still recorded once and not retried.
