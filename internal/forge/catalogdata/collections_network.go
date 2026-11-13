@@ -75,7 +75,7 @@ var networkCollections = []collectionscaffold.Config{
 		EngineVersion: engineVersion,
 		Doc: collection.Doc{
 			Summary:     "Opens a real SSH connection to the target and echoes a value back, to prove reachability.",
-			Description: "Dials the device's SSHTransportCapable host and port, authenticates with the credential the Controller attached to this dispatch, and runs a trivial, read-only remote command that echoes params.data (default \"pong\") back. Never reports changed: a connectivity check does not alter device state.",
+			Description: "Dials the device's SSHTransportCapable host and port, authenticates with the credential the Controller attached to this dispatch, and runs a trivial, read-only remote command that prints pong, which comes back as reply. It takes no parameters: unlike Ansible's ping it has no data to echo, and validation refuses one, on the command line and on a Runner alike. Never reports changed: a connectivity check does not alter device state.",
 			Returns: []collection.ReturnField{
 				{Name: "reply", Type: "string", Returned: "always", Description: "The trimmed value the remote command echoed back."},
 			},

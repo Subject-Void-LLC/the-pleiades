@@ -13503,7 +13503,7 @@
     "noBecomeReason": "its question is whether this login reaches the device, and a sudo in front of it would answer whether the login may become another account",
     "doc": {
       "summary": "Opens a real SSH connection to the target and echoes a value back, to prove reachability.",
-      "description": "Dials the device's SSHTransportCapable host and port, authenticates with the credential the Controller attached to this dispatch, and runs a trivial, read-only remote command that echoes params.data (default \"pong\") back. Never reports changed: a connectivity check does not alter device state.",
+      "description": "Dials the device's SSHTransportCapable host and port, authenticates with the credential the Controller attached to this dispatch, and runs a trivial, read-only remote command that prints pong, which comes back as reply. It takes no parameters: unlike Ansible's ping it has no data to echo, and validation refuses one, on the command line and on a Runner alike. Never reports changed: a connectivity check does not alter device state.",
       "returns": [
         {
           "name": "reply",
