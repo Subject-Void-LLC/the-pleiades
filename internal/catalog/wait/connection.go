@@ -65,7 +65,7 @@ func init() {
 				"its timeout and fail where the real run succeeds",
 			Doc: collection.Doc{
 				Summary:     "Waits until the target answers a command over its own connection, SSH or WinRM.",
-				Description: "Tries the device over the connection its other tasks use (WinRM for a device reached that way, such as a Windows server, and SSH for any other) until a command runs there, and fails when the timeout runs out first. It is Ansible's wait_for_connection: the task to put after one that starts or restarts a machine, before the tasks that need it. Each try logs in afresh with the device's credential and runs a command that does nothing, so a machine whose port answers before its account can log in is not taken for ready, and a session kept open from an earlier task is never taken for a login. Over WinRM each try first asks the listener with no credential, which is no logon attempt, and logs in only once the listener answers as a serving WinRM listener does; a refused credential ends the wait at once, so a wrong password is sent once in the whole wait rather than at every try, and waiting cannot lock the account. A WinRM wait is not counted toward the host's circuit breaker and is not refused by it, and its success closes it, so the task after it runs at once even when other tasks opened it while the host was down. A network device's CLI is not a shell with a command that does nothing, so for one that declares CiscoIOSCapable, or a cli_prompt, a try opens its terminal and waits for its prompt instead. A failed try is not an error, since it is what the task waits to see stop; the last one is quoted when the timeout ends the wait. The delay is spent out of the timeout rather than added to it, as wait_for_connection does. With backoff: exponential the gap after each failed try doubles from sleep up to max_sleep, each gap a random point in its upper half so machines restarted together do not try in step. With steady above 1 the machine must answer that many tries in a row, steady_interval apart, which a machine just resumed or restarted that answers once and then refuses for a while does not; a refusal mid-streak starts the streak, and the backoff, again. It changes nothing.",
+				Description: "Tries the device over the connection its other tasks use (WinRM for a device reached that way, such as a Windows server, and SSH for any other) until a command runs there, and fails when the timeout runs out first. It is Ansible's wait_for_connection: the task to put after one that starts or restarts a machine, before the tasks that need it. Each try logs in afresh with the device's credential and runs a command that does nothing, so a machine whose port answers before its account can log in is not taken for ready, and a session kept open from an earlier task is never taken for a login. Over WinRM each try first asks the listener with no credential, which is no logon attempt, and logs in only once the listener answers as a serving WinRM listener does; a refused credential ends the wait at once, so a wrong password is sent once in the whole wait rather than at every try, and waiting cannot lock the account. Over SSH a login the device refuses (a wrong password or key) ends the wait at once the same way, and so does a host key known_hosts refuses, since neither changes by being asked again; a device that does not answer, or refuses the connection, is tried again until the timeout. A WinRM wait is not counted toward the host's circuit breaker and is not refused by it, and its success closes it, so the task after it runs at once even when other tasks opened it while the host was down. A network device's CLI is not a shell with a command that does nothing, so for one that declares CiscoIOSCapable, or a cli_prompt, a try opens its terminal and waits for its prompt instead. A failed try is not an error, since it is what the task waits to see stop; the last one is quoted when the timeout ends the wait. The delay is spent out of the timeout rather than added to it, as wait_for_connection does. With backoff: exponential the gap after each failed try doubles from sleep up to max_sleep, each gap a random point in its upper half so machines restarted together do not try in step. With steady above 1 the machine must answer that many tries in a row, steady_interval apart, which a machine just resumed or restarted that answers once and then refuses for a while does not; a refusal mid-streak starts the streak, and the backoff, again. It changes nothing.",
 				Params: []collection.Param{
 					{Name: "timeout", Type: "int", Default: "600", Description: "How many seconds to wait in total before giving up, counted from the start of the task, so the delay comes out of it. Must be more than 0."},
 					{Name: "delay", Type: "int", Default: "0", Description: "How many seconds to wait before the first try. Must be shorter than the timeout, which it is spent out of."},
@@ -411,7 +411,7 @@ func cliDialect(device inventory.InventoryItem) (netcli.Dialect, bool) {
 func cliTry(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any, fqcn string, dialect netcli.Dialect) error {
 	conn, err := sdk.ConnectFresh(ctx, rc, device, params, fqcn)
 	if err != nil {
-		return err
+		return sshTryFailed(err)
 	}
 	defer func() { _ = conn.Close() }() // a try's connection has nothing left to report once it answered
 	shell, err := conn.Shell(ctx, remoteexec.ShellOptions{})
@@ -433,9 +433,25 @@ func cliTry(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 func sshTry(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any, fqcn string) error {
 	conn, err := sdk.ConnectFresh(ctx, rc, device, params, fqcn)
 	if err != nil {
-		return err
+		return sshTryFailed(err)
 	}
 	defer func() { _ = conn.Close() }() // a try's connection has nothing left to report once it answered
 	_, err = conn.Run(ctx, "exit 0")
+	return err
+}
+
+// sshTryFailed sorts a failed SSH login for the wait. A host that did not
+// answer (refused, reset, timed out) is one more failed try. A host that
+// answered and refused the credential, or whose host key this side
+// refused, ends the wait at once: neither changes by being asked again,
+// and a password sent at every try until the timeout locks an account
+// with a lockout threshold (pam_faillock, a directory account) in seconds.
+// pkg/remoteexec's DialError makes the same split for its own retries: it
+// is unreached for everything but those two and a cancellation.
+func sshTryFailed(err error) error {
+	var dialErr *remoteexec.DialError
+	if errors.As(err, &dialErr) && !dialErr.Unreached() && !errors.Is(err, context.Canceled) {
+		return &stopWaiting{err: fmt.Errorf("the device answered and refused this login, so the wait stops here rather than try it again: %w", err)}
+	}
 	return err
 }
