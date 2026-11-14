@@ -345,7 +345,7 @@ remove a host from the inventory, and with flags its credential and the known_ho
 | --inventory | `string` | - | inventory file to read and write, in place of --dir's inventory.yaml; group_vars/ and host_vars/ are read beside it |
 | --vault | `string` | - | directory whose .pleiades/ holds the credential vault (master.key, credentials.yaml, seal.key), in place of --dir's; the journal and facts stay under --dir |
 | --credential | `bool` | `false` | also remove the host's stored credential |
-| --forget-host-keys | `bool` | `false` | also remove the known_hosts lines trusting the host's SSH address, unless another device is reached there |
+| --forget-host-keys | `bool` | `false` | also remove the known_hosts lines trusting the host's SSH address and its NETCONF listener's, each unless another device is reached there |
 | --leave-references | `bool` | `false` | remove the host even when another host names it in a property (a console node's console_server) |
 | --json | `bool` | `false` | print one JSON document instead of text |
 

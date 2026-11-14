@@ -372,7 +372,7 @@
   "remove-host web1 -h": {
     "code": 0,
     "stdout": "",
-    "stderr": "Usage of remove-host:\n  -credential\n    \talso remove the host's stored credential\n  -dir string\n    \tproject directory (default \".\")\n  -forget-host-keys\n    \talso remove the known_hosts lines trusting the host's SSH address, unless another device is reached there\n  -inventory value\n    \tinventory file to read and write, in place of --dir's inventory.yaml; group_vars/ and host_vars/ are read beside it\n  -json\n    \tprint one JSON document instead of text\n  -leave-references\n    \tremove the host even when another host names it in a property\n  -vault value\n    \tdirectory whose .pleiades/ holds the credential vault (master.key, credentials.yaml, seal.key), in place of --dir's; the journal and facts stay under --dir\n"
+    "stderr": "Usage of remove-host:\n  -credential\n    \talso remove the host's stored credential\n  -dir string\n    \tproject directory (default \".\")\n  -forget-host-keys\n    \talso remove the known_hosts lines trusting the host's SSH address and its NETCONF listener's, each unless another device is reached there\n  -inventory value\n    \tinventory file to read and write, in place of --dir's inventory.yaml; group_vars/ and host_vars/ are read beside it\n  -json\n    \tprint one JSON document instead of text\n  -leave-references\n    \tremove the host even when another host names it in a property\n  -vault value\n    \tdirectory whose .pleiades/ holds the credential vault (master.key, credentials.yaml, seal.key), in place of --dir's; the journal and facts stay under --dir\n"
   },
   "remove-secret --help": {
     "code": 0,

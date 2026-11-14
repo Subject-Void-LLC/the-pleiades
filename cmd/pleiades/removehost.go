@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/hosttrust"
@@ -30,7 +31,7 @@ type removedHost struct {
 
 // runRemoveHost removes one host from the project's inventory, and with
 // flags its stored credential and the known_hosts lines trusting its SSH
-// address. The journal keeps every run that touched it.
+// address and its NETCONF listener's. The journal keeps every run that touched it.
 func runRemoveHost(args []string) error {
 	fs := flag.NewFlagSet("remove-host", flag.ContinueOnError)
 	// Removing a credential decrypts nothing, so the vault needs no key.
@@ -38,7 +39,7 @@ func runRemoveHost(args []string) error {
 	addKeylessVaultFlag(fs)
 	dir := fs.String("dir", ".", "project directory")
 	withCredential := fs.Bool("credential", false, "also remove the host's stored credential")
-	forgetKeys := fs.Bool("forget-host-keys", false, "also remove the known_hosts lines trusting the host's SSH address, unless another device is reached there")
+	forgetKeys := fs.Bool("forget-host-keys", false, "also remove the known_hosts lines trusting the host's SSH address and its NETCONF listener's, each unless another device is reached there")
 	leaveRefs := fs.Bool("leave-references", false, "remove the host even when another host names it in a property")
 	asJSON := fs.Bool("json", false, "print one JSON document instead of text")
 	name, err := parseOneArg(fs, args)
@@ -48,31 +49,12 @@ func runRemoveHost(args []string) error {
 
 	hostsPath := inventoryFile(*dir)
 	out := removedHost{Host: name}
-	// The address is read before the host is gone, and kept only when no
-	// other device is reached at it.
-	var address string
+	// The addresses are read before the host is gone, and each is kept
+	// only when no other device is reached at it.
+	var addresses []string
 	if *forgetKeys {
-		repo := inv.NewFileRepository(hostsPath, inv.NewItemFactory())
-		device, err := repo.GetByName(context.Background(), name)
-		if err != nil {
+		if addresses, out.HostKeysKept, err = addressesToForget(*dir, hostsPath, name); err != nil {
 			return err
-		}
-		if address, err = sshAddress(device); err != nil {
-			return fmt.Errorf("--forget-host-keys: %w", err)
-		}
-		others, err := loadInventory(*dir)
-		if err != nil {
-			return err
-		}
-		for _, other := range others {
-			if other.Name() == name {
-				continue
-			}
-			if a, err := sshAddress(other); err == nil && a == address {
-				out.HostKeysKept = fmt.Sprintf("%s is also reached at %s, so its host keys stay trusted", other.Name(), address)
-				address = ""
-				break
-			}
 		}
 	}
 
@@ -86,13 +68,17 @@ func runRemoveHost(args []string) error {
 			return fmt.Errorf("host %s was removed, but not its credential: %w", name, err)
 		}
 	}
-	if address != "" {
+	if len(addresses) > 0 {
 		path, err := remoteexec.KnownHostsFile()
 		if err != nil {
 			return err
 		}
-		if out.HostKeysRemoved, err = hosttrust.Remove(path, address); err != nil {
-			return fmt.Errorf("host %s was removed, but not its host keys: %w", name, err)
+		for _, address := range addresses {
+			removed, err := hosttrust.Remove(path, address)
+			if err != nil {
+				return fmt.Errorf("host %s was removed, but not its host keys at %s: %w", name, address, err)
+			}
+			out.HostKeysRemoved += removed
 		}
 	}
 
@@ -107,11 +93,11 @@ func runRemoveHost(args []string) error {
 			fmt.Println("it had no stored credential")
 		}
 	}
-	switch {
-	case out.HostKeysKept != "":
+	if out.HostKeysKept != "" {
 		fmt.Println(termsafe.EscapeLine(out.HostKeysKept))
-	case *forgetKeys:
-		fmt.Printf("removed %d known_hosts line(s) for %s\n", out.HostKeysRemoved, termsafe.EscapeLine(address))
+	}
+	if len(addresses) > 0 {
+		fmt.Printf("removed %d known_hosts line(s) for %s\n", out.HostKeysRemoved, termsafe.EscapeLine(strings.Join(addresses, " and ")))
 	}
 	return nil
 }
@@ -136,4 +122,52 @@ func runRemoveCredential(args []string) error {
 	}
 	fmt.Printf("removed the credential of %s\n", termsafe.EscapeLine(name))
 	return nil
+}
+
+// addressesToForget returns the addresses whose known_hosts lines
+// remove-host --forget-host-keys drops for the host name: its SSH address
+// and its NETCONF listener's, less each one another device in the project is
+// also reached at, whose keys must stay trusted. kept says which stayed and
+// why, empty when none did.
+func addressesToForget(dir, hostsPath, name string) (forget []string, kept string, err error) {
+	repo := inv.NewFileRepository(hostsPath, inv.NewItemFactory())
+	device, err := repo.GetByName(context.Background(), name)
+	if err != nil {
+		return nil, "", err
+	}
+	mine, err := trustedAddresses(device)
+	if err != nil {
+		return nil, "", fmt.Errorf("--forget-host-keys: %w", err)
+	}
+	others, err := loadInventory(dir)
+	if err != nil {
+		return nil, "", err
+	}
+	// Every address another device is reached at, with the first such
+	// device, so a shared one can be named.
+	sharedWith := map[string]string{}
+	for _, other := range others {
+		if other.Name() == name {
+			continue
+		}
+		// A device not reached over SSH has no address to share.
+		theirs, err := trustedAddresses(other)
+		if err != nil {
+			continue
+		}
+		for _, a := range theirs {
+			if _, seen := sharedWith[a]; !seen {
+				sharedWith[a] = other.Name()
+			}
+		}
+	}
+	var reasons []string
+	for _, address := range mine {
+		if other, shared := sharedWith[address]; shared {
+			reasons = append(reasons, fmt.Sprintf("%s is also reached at %s, so its host keys stay trusted", other, address))
+			continue
+		}
+		forget = append(forget, address)
+	}
+	return forget, strings.Join(reasons, "; "), nil
 }
