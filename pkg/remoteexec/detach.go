@@ -207,6 +207,7 @@ func (c *Conn) reconnect(ctx context.Context, err error) bool {
 	}
 	fresh, derr := c.redial(ctx)
 	if derr != nil {
+		c.redialRefused = authRejected(derr) || hostKeyRefused(derr)
 		return false
 	}
 	c.taint()
@@ -257,13 +258,16 @@ func (o stopOutcome) String() string {
 // ended, and on a fresh connection, as the same account, when the job's own
 // is already gone: a Runner's child is told to stop by the same signal that
 // closes its connections, so the one the job started on is often closed by
-// the time the stop runs. It reports what the stop found.
+// the time the stop runs, unless a redial was already refused. It reports
+// what the stop found.
 func (c *Conn) stopDetached(qdir string) stopOutcome {
 	ctx, cancel := context.WithTimeout(context.Background(), DetachStopBudget)
 	defer cancel()
 	ctx = withoutDetach(ctx)
 	stop := QuoteCommand([]string{"sh", "-c", detachStop(qdir)})
-	if res, err := c.run(ctx, stop, nil, detachAnswerLimit); err == nil || c.redial == nil {
+	if res, err := c.run(ctx, stop, nil, detachAnswerLimit); err == nil || c.redial == nil || c.redialRefused {
+		// A redial already refused is not sent again: the answer would be
+		// the same, and a refused password counts toward a lockout.
 		return stopResult(res, err)
 	}
 	fresh, err := c.redial(ctx)

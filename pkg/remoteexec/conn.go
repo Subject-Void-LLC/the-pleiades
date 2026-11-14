@@ -67,6 +67,11 @@ type Conn struct {
 	redial redialer
 	extra  []*ssh.Client
 
+	// redialRefused records that a redial was refused (the credential or the
+	// host key turned down), so the stop that follows does not send the
+	// same refused login again (detach.go).
+	redialRefused bool
+
 	// severVia, set for a connection opened through a route (ConnectVia),
 	// cuts it from the route's first hop inward; a cancelled command's watch
 	// calls it before closing the clients (conn_watch.go).

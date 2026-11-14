@@ -267,6 +267,32 @@ func TestDetached_ALostConnectionThatCannotBeRedialedIsNamed(t *testing.T) {
 	}
 }
 
+// TestDetached_ARefusedRedialIsSentOnce: a poll's connection drops and the
+// redial is refused (here the real server turning down a wrong password, as
+// after a rotation). The stop that follows does not dial again with the
+// credential just refused: one refused login, not two toward the account's
+// lockout, and the error says the job may still run.
+func TestDetached_ARefusedRedialIsSentOnce(t *testing.T) {
+	conn, srv, _ := detachedServer(t)
+	r := New(Options{InsecureSkipHostKeyVerify: true})
+	conn.redial = func(ctx context.Context) (*Conn, error) {
+		return r.Connect(ctx, nil, target(srv), PasswordAuth(srv.Username, "rotated-away"))
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, err := conn.Run(WithDetach(context.Background()), "sleep 2")
+		done <- err
+	}()
+	waitForPoll(t, srv)
+	srv.DropConnections()
+	if err := <-done; err == nil || !strings.Contains(err.Error(), "may still be running") {
+		t.Errorf("a refused redial: %v, want one naming the job that may still run", err)
+	}
+	if n := srv.Refusals(); n != 1 {
+		t.Errorf("the server refused %d logins; want 1, the redial's, and no second from the stop", n)
+	}
+}
+
 func TestDetached_ReconnectRefusesWhatIsNotADroppedConnection(t *testing.T) {
 	conn, _, _, _ := detachedConn(t)
 	for name, err := range map[string]error{"an exit status": &ssh.ExitError{}, "output too large": ErrOutputTooLarge} {
