@@ -3524,8 +3524,8 @@ deletes them, and nothing purges them on a schedule. The broker's retention is t
 one exception, derived from the outage budget (see
 [One number sets how long an outage may last](#one-number-sets-how-long-an-outage-may-last)).
 
-**Dead letters hold identifiers only.** A message that fails every delivery (or a dispatch
-whose run was refused a login, on its first) goes to a
+**Dead letters hold identifiers only.** A message that fails every delivery (or a `runbook`
+dispatch whose run was refused a login, on its first) goes to a
 dead-letter subject (`pleiades.dlq.<its subject>`) as a record of which message it was
 and why it failed: its subject, the event's id, type, correlation id, idempotency key
 and actor, the number of deliveries, and the failure's reason, masked as logs are. It

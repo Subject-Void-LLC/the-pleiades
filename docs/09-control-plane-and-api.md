@@ -374,9 +374,12 @@ already changed something, so a definition that is not safe to repeat can make i
 more than once. (A single command sent over SSH is still never resent; see
 [Running in production](10-running-in-production.md#a-command-is-never-retried-once-sent).)
 This is planned to become a stated policy that is off by default. One failure is never run
-again: a run in which a device refused a login (or this side refused its host key or
-certificate) is dead-lettered on its first delivery, since each delivery would send the
-refused password again toward the account's lockout, and the answer would not change.
+again: a `runbook` run in which a device refused a login (or this side refused its host key
+or certificate) is dead-lettered on its first delivery. A refused password would be sent
+again on each delivery, toward the account's lockout, and a refused host key or certificate
+gets the same answer from this Runner and needs a person to look at it. A `playbook` run is
+still delivered again after a refused login, since the Ansible adapter cannot tell one from
+another failure yet.
 
 ### How a job ends
 

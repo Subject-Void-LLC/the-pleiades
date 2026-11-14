@@ -3,6 +3,7 @@ package event_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -400,5 +401,107 @@ func TestDeadLetter_OnTheFirstDelivery(t *testing.T) {
 	}
 	for range again.Messages() {
 		t.Fatal("a dead-lettered message was delivered again")
+	}
+}
+
+// TestDeadLetter_SurvivesACanceledContextAndAFailedPublish proves DeadLetter
+// still dead-letters a message under a canceled context (a Runner's
+// shutdown cancels the one its last message ran on), and still terminates a
+// message whose dead letter cannot be published, since a redelivery is what
+// it exists to prevent.
+func TestDeadLetter_SurvivesACanceledContextAndAFailedPublish(t *testing.T) {
+	url := startNatsContainer(t)
+	ctx := context.Background()
+	nc, err := nats.Connect(url)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer nc.Close()
+	js, err := jetstream.New(nc)
+	if err != nil {
+		t.Fatalf("jetstream: %v", err)
+	}
+	if _, _, err := topology.ProvisionStream(ctx, js, topology.DefaultOutageBudget, false); err != nil {
+		t.Fatalf("ensure stream: %v", err)
+	}
+	const topic = "pleiades.events.dlq.dead-letter-survives"
+	consumer, err := js.CreateOrUpdateConsumer(ctx, topology.StreamName, topology.SubscribeConsumerConfig(topology.DurableName(topic), topic))
+	if err != nil {
+		t.Fatalf("consumer: %v", err)
+	}
+	fetchOne := func() jetstream.Msg {
+		t.Helper()
+		msgs, err := consumer.Fetch(1, jetstream.FetchMaxWait(5*time.Second))
+		if err != nil {
+			t.Fatalf("fetch: %v", err)
+		}
+		var msg jetstream.Msg
+		for m := range msgs.Messages() {
+			msg = m
+		}
+		return msg
+	}
+
+	// A canceled context: the dead letter is still published.
+	if _, err := js.Publish(ctx, topic, []byte(`{"id":"canceled-context"}`)); err != nil {
+		t.Fatalf("publish: %v", err)
+	}
+	msg := fetchOne()
+	if msg == nil {
+		t.Fatal("no message fetched")
+	}
+	canceled, cancel := context.WithCancel(ctx)
+	cancel()
+	if err := event.DeadLetter(canceled, js, msg, "a refused login"); err != nil {
+		t.Fatalf("DeadLetter under a canceled context: %v", err)
+	}
+	dlqConsumer, err := js.CreateOrUpdateConsumer(ctx, topology.StreamName, jetstream.ConsumerConfig{
+		FilterSubject: topology.DeadLetterSubject(topic),
+		DeliverPolicy: jetstream.DeliverAllPolicy,
+		AckPolicy:     jetstream.AckNonePolicy,
+	})
+	if err != nil {
+		t.Fatalf("dlq consumer: %v", err)
+	}
+	dlqMsgs, err := dlqConsumer.Fetch(1, jetstream.FetchMaxWait(5*time.Second))
+	if err != nil {
+		t.Fatalf("dlq fetch: %v", err)
+	}
+	found := false
+	for range dlqMsgs.Messages() {
+		found = true
+	}
+	if !found {
+		t.Fatal("no dead letter published under a canceled context")
+	}
+
+	// A publish that fails (its connection closed): the message is still
+	// terminated, so it is never delivered again.
+	if _, err := js.Publish(ctx, topic, []byte(`{"id":"failed-publish"}`)); err != nil {
+		t.Fatalf("publish: %v", err)
+	}
+	msg = fetchOne()
+	if msg == nil {
+		t.Fatal("no message fetched")
+	}
+	closedNC, err := nats.Connect(url)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	closedJS, err := jetstream.New(closedNC)
+	if err != nil {
+		t.Fatalf("jetstream: %v", err)
+	}
+	closedNC.Close()
+	if err := event.DeadLetter(ctx, closedJS, msg, "a refused login"); err == nil {
+		t.Fatal("DeadLetter reported success for a dead letter it could not publish")
+	}
+	// A terminated message refuses a second acknowledgement; an
+	// unterminated one would take this Nak and come straight back.
+	if err := msg.Nak(); !errors.Is(err, jetstream.ErrMsgAlreadyAckd) {
+		t.Errorf("Nak after DeadLetter = %v, want ErrMsgAlreadyAckd: the message was not terminated", err)
+	}
+	if again := fetchOne(); again != nil {
+		t.Fatalf("a message whose dead letter failed was delivered again: %s", again.Data())
 	}
 }

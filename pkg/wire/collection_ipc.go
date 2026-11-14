@@ -150,7 +150,10 @@ type ChildResponse struct {
 	// item, since that would only send the refused login again. An optional
 	// field, so a parent that predates it tries again as it always did, and
 	// a child that predates it is tried again as it always was. A child
-	// claiming it falsely only stops its own task's tries early.
+	// claiming it falsely stops its own task's tries early, and on a Runner
+	// ends its whole dispatch on that delivery, since the Runner dead-letters
+	// a refused run rather than redelivering it; it can fail its tasks anyway,
+	// so this costs a dispatch only retries.
 	Refused bool `json:"refused,omitempty"`
 }
 

@@ -8,13 +8,16 @@
 package native
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"os"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport/need"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
@@ -178,4 +181,42 @@ func sshdFailedLogins(t *testing.T, s *testsupport.SSHD, want int) int {
 		time.Sleep(100 * time.Millisecond)
 	}
 	return last
+}
+
+// completionFailingBus records every publish but fails the job's completion
+// event, the last thing a run publishes.
+type completionFailingBus struct{ mockBus }
+
+func (b *completionFailingBus) Publish(ctx context.Context, topic string, evt event.Event) error {
+	if bytes.Contains(evt.Data, []byte(`"task.completed"`)) {
+		return errors.New("deliberate completion publish failure")
+	}
+	return b.mockBus.Publish(ctx, topic, evt)
+}
+
+// TestAdapter_Execute_ARefusalSurvivesAFailedPublish proves a run whose
+// login was refused still says so when it ends on another failure, here
+// its completion event failing to publish: the Runner dead-letters it either way, since a
+// redelivery would send the refused login again.
+func TestAdapter_Execute_ARefusalSurvivesAFailedPublish(t *testing.T) {
+	need.POSIXShell(t)
+	srv, err := remoteexectest.Start(remoteexectest.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(srv.Close)
+	adapter, err := NewAdapter(&completionFailingBus{}, writeRunbook(t, "refused-1", refusedRunbook), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload := sessionDevice(srv).Payload()
+	payload.RunbookID = "refused-1"
+	payload.Secrets[wire.SecretPassword] = "wrong"
+	_, err = adapter.Execute(context.Background(), payload)
+	if err == nil || srv.Refusals() == 0 {
+		t.Fatalf("Execute = %v after %d refusals, want a failure after a refused login", err, srv.Refusals())
+	}
+	if !engine.Refused(err) {
+		t.Errorf("the run's failure %q does not say a login was refused", err)
+	}
 }

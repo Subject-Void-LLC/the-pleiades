@@ -324,8 +324,9 @@ func (p *program) interpret(ctx context.Context, fqcn string, mode collection.Mo
 		// party's text, and it is printed as the task's failure, where a
 		// newline or an escape sequence could fake lines of output.
 		// A refusal stays one (wire.ChildResponse.Failure), as an in-process
-		// method's refused login does; a program claiming one falsely only
-		// stops its own task's tries.
+		// method's refused login does; a program claiming one falsely stops
+		// its own task's tries, and on a Runner its dispatch's redelivery
+		// (wire.ChildResponse.Refused).
 		return wire.ChildResponse{Facts: resp.Facts}, resp.Failure(termsafe.EscapeLine(redact.Text(secrets, resp.Error)))
 	}
 	return resp, nil

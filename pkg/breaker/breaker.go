@@ -139,7 +139,9 @@ func (b *Breaker) Permitted(key string) bool {
 // Allow claims permission to call key, taking the half-open probe when
 // there is one to take. It must be called by the code that is about to
 // make the call and by nothing else, and that code must then record the
-// outcome with RecordSuccess or RecordFailure.
+// outcome with RecordSuccess, RecordFailure or RecordRefusal. A call its
+// own caller canceled records nothing: it says nothing about the target,
+// and a probe it held is reissued after its lease.
 //
 // Exactly one caller holds the probe at a time, which is what stops a
 // recovering target being hit by every waiting caller at once. The probe
