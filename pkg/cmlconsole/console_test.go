@@ -238,7 +238,9 @@ func TestAbandon_DeclinesOnlyWhatIsCertain(t *testing.T) {
 }
 
 // TestLogIn_ARefusalIsErrRefused: a login the node refused, or one the
-// credential cannot answer, is ErrRefused; a line that goes quiet is not.
+// credential cannot answer, is ErrRefused and answers Refused() true, which
+// is what stops the engine trying it again (engine.Refused); a line that
+// goes quiet is neither.
 func TestLogIn_ARefusalIsErrRefused(t *testing.T) {
 	for name, tc := range map[string]struct {
 		chunks  []string
@@ -252,6 +254,10 @@ func TestLogIn_ARefusalIsErrRefused(t *testing.T) {
 		err := cmlconsole.LogIn(context.Background(), &script{chunks: tc.chunks}, tc.login)
 		if err == nil || errors.Is(err, cmlconsole.ErrRefused) != tc.refused {
 			t.Errorf("%s: %v, refused %v", name, err, errors.Is(err, cmlconsole.ErrRefused))
+		}
+		var marked interface{ Refused() bool }
+		if got := errors.As(err, &marked) && marked.Refused(); got != tc.refused {
+			t.Errorf("%s: %v answers Refused() %v, want %v", name, err, got, tc.refused)
 		}
 	}
 }

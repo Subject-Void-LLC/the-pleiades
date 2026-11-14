@@ -1,6 +1,10 @@
 package wire
 
-import "github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
+import (
+	"errors"
+
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
+)
 
 // ChildRequest and ChildResponse are the two messages that cross the
 // per-task subprocess boundary PLAN.md Section 17.5 requires (a Collection
@@ -136,4 +140,40 @@ type ChildResponse struct {
 	// ordinary failure. An optional field, so a parent that predates it
 	// reads such an answer as a failed check, never as a passed one.
 	CannotCheck bool `json:"cannot_check,omitempty"`
+
+	// Refused reports that Error is a refusal the transport recognized: the
+	// device turned down the login, or this side turned down its host key
+	// or certificate (an error whose chain answers Refused() true, such as a
+	// refused pkg/remoteexec.DialError). The type does not survive the
+	// process boundary, so this carries the one fact a parent needs: the
+	// engine does not run the task again for its until, or its loop's next
+	// item, since that would only send the refused login again. An optional
+	// field, so a parent that predates it tries again as it always did, and
+	// a child that predates it is tried again as it always was. A child
+	// claiming it falsely stops its own task's tries early, and on a Runner
+	// ends its whole dispatch on that delivery, since the Runner dead-letters
+	// a refused run rather than redelivering it; it can fail its tasks anyway,
+	// so this costs a dispatch only retries.
+	Refused bool `json:"refused,omitempty"`
 }
+
+// Failure is the error a parent returns for a response carrying Error:
+// text is Error as the parent prepared it to print (masked, escaped), and
+// the error reports itself Refused when the child said it was one, so the
+// engine reads it exactly as it reads the same failure from a method run
+// in its own process.
+func (r ChildResponse) Failure(text string) error {
+	if r.Refused {
+		return refusedFailure(text)
+	}
+	return errors.New(text)
+}
+
+// refusedFailure is a child's failure the child read as a refusal.
+type refusedFailure string
+
+// Error implements error.
+func (e refusedFailure) Error() string { return string(e) }
+
+// Refused reports that the child read this failure as a refusal.
+func (refusedFailure) Refused() bool { return true }

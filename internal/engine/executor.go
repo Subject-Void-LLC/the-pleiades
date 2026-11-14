@@ -451,6 +451,21 @@ func (r RunResult) HasErrors() bool {
 	return false
 }
 
+// SawRefusal reports whether any task's run in r ended in a refusal
+// (Refused: the device turned down the login, or this side turned down its
+// host key or certificate), answered or not. A caller that would run the
+// whole runbook again after a failure (a Runner's redelivery) asks this
+// rather than HasErrors alone: an ignored or rescued refusal would be sent
+// again by that rerun too.
+func (r RunResult) SawRefusal() bool {
+	for _, n := range r.Nodes {
+		if n.Err != nil && Refused(n.Err) {
+			return true
+		}
+	}
+	return false
+}
+
 // Rescued reports whether a rescue: answered any failure in this run.
 func (r RunResult) Rescued() bool {
 	for _, n := range r.Nodes {

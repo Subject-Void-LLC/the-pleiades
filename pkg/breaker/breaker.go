@@ -4,7 +4,7 @@
 // just failed several times in a row.
 //
 // Both real remote-execution paths use it: pkg/remoteexec for SSH, telnet
-// and serial-over-TCP, and internal/transport/winrm for WinRM. It lives in
+// and serial-over-TCP, and pkg/winrmexec for WinRM. It lives in
 // pkg/ because pkg/remoteexec may not import internal/, and it is
 // exported for the same reason, not so that a Collection can reach a
 // circuit the platform owns. It cannot: this package holds no state of
@@ -20,6 +20,13 @@
 //     cooldown has passed since the most recent failure;
 //   - half-open: the cooldown passed and exactly one caller holds the
 //     probe. Its recorded outcome closes the circuit or opens it again.
+//
+// A call has three outcomes a caller can record, and they are not two:
+// RecordSuccess for a target that served, RecordFailure for one that did
+// not answer, and RecordRefusal for one that answered by refusing (a login
+// it turned down, or a host key or certificate this side turned down). A
+// refusal is not an outage, so it never opens a circuit, and it is not
+// proof the target serves, so it never closes one or clears a streak.
 package breaker
 
 import (
@@ -132,7 +139,9 @@ func (b *Breaker) Permitted(key string) bool {
 // Allow claims permission to call key, taking the half-open probe when
 // there is one to take. It must be called by the code that is about to
 // make the call and by nothing else, and that code must then record the
-// outcome with RecordSuccess or RecordFailure.
+// outcome with RecordSuccess, RecordFailure or RecordRefusal. A call its
+// own caller canceled records nothing: it says nothing about the target,
+// and a probe it held is reissued after its lease.
 //
 // Exactly one caller holds the probe at a time, which is what stops a
 // recovering target being hit by every waiting caller at once. The probe
@@ -209,6 +218,45 @@ func (b *Breaker) EndCooldown(key string) {
 		return
 	}
 	// Backdated by one cooldown, so Permitted and Allow read it as over.
+	e.openedAt = time.Now().Add(-b.cooldown)
+}
+
+// RecordRefusal records that key answered a call by refusing it: it
+// turned down the login, or this side turned down its host key or
+// certificate. Such an answer proves the path to key carries traffic and
+// nothing more, so it is recorded as neither of the other two outcomes.
+//
+//   - A closed circuit keeps its streak, neither cleared nor lengthened.
+//     Recording a refusal as a success once cleared the evidence of an
+//     outage: an AAA server that refused some logins and timed out others
+//     reset the count on every refusal, so the circuit never opened.
+//   - An open circuit stays open, its cooldown unchanged: no call was let
+//     through to refuse, so this changes nothing.
+//   - A half-open probe answered with a refusal is handed back. The
+//     circuit returns to open with its cooldown already over, so the next
+//     caller's call is the probe whose outcome decides, at once. It does not
+//     close, since nothing proved the target serves, and it does not get a
+//     fresh cooldown, since that would count the answer as an outage and
+//     make a caller with the right credential wait out a wrong one's turn.
+//
+// Stopping a refused credential from being sent again is not done here:
+// a circuit is per target and shared by every caller, so refusing calls
+// after one caller's credential was refused would refuse every other
+// caller's too (FAILURE_PATTERNS 399). The caller holding the credential
+// stops at its first refusal.
+func (b *Breaker) RecordRefusal(key string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	e, ok := b.entries[key]
+	if !ok || e.state != halfOpen {
+		// No history, a closed streak or an open circuit: all stay as they
+		// are.
+		return
+	}
+	// Backdated by one cooldown, so Permitted and Allow read it as over and
+	// hand the probe to the next caller.
+	e.state = open
 	e.openedAt = time.Now().Add(-b.cooldown)
 }
 

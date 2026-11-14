@@ -250,7 +250,17 @@ func (a *Agent) handleMessage(ctx context.Context, msg jetstream.Msg) {
 		// Queue entry named this exact line as the gap). Below
 		// a.maxDeliver attempts this Naks with backoff for redelivery;
 		// at or beyond it, the job is dead-lettered and terminated.
-		if dlqErr := event.HandleDeliveryFailure(ctx, a.js, msg, a.maxDeliver, execErr.Error()); dlqErr != nil {
+		//
+		// A refused login is dead-lettered on this delivery instead: every
+		// redelivery reruns the runbook and sends the refused password again,
+		// toward the account's lockout, and the answer will not change.
+		var dlqErr error
+		if refusedFailure(execErr) {
+			dlqErr = event.DeadLetter(ctx, a.js, msg, execErr.Error())
+		} else {
+			dlqErr = event.HandleDeliveryFailure(ctx, a.js, msg, a.maxDeliver, execErr.Error())
+		}
+		if dlqErr != nil {
 			a.logger.Error("failed to route failed delivery to dead letter handling", slog.String("error", dlqErr.Error()))
 		}
 		return
@@ -310,4 +320,13 @@ func (a *Agent) termMalformed(msg jetstream.Msg, description string, err error, 
 	if termErr := msg.Term(); termErr != nil {
 		a.logger.Error("failed to terminate message", slog.String("reason", description), slog.String("error", termErr.Error()))
 	}
+}
+
+// refusedFailure reports whether err, anywhere in its chain, says it was a
+// refusal through a Refused method: the structural test engine.Refused makes
+// (this package does not import the engine), which the native adapter's
+// failed run answers when one of its tasks' logins was refused.
+func refusedFailure(err error) bool {
+	var r interface{ Refused() bool }
+	return errors.As(err, &r) && r.Refused()
 }

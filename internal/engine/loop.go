@@ -235,7 +235,10 @@ type outcome struct {
 
 // loop runs task once for each of its items, in order, whatever one of them
 // does: an item that fails does not stop the rest, and the task fails if any
-// did (Ansible's rule).
+// did (Ansible's rule). The one exception is an item whose login was refused
+// (Refused), which ends the loop on this device, as Ansible stops sending a
+// host anything once its login fails: the later items would each send the
+// same refused login again.
 func (r *run) loop(ctx context.Context, nodeID string, task *Task, started time.Time, key string, devices []inventory.InventoryItem, roots map[string]any) []NodeResult {
 	items, err := r.loopItems(task, roots)
 	if err != nil {
@@ -287,6 +290,14 @@ func (r *run) loop(ctx context.Context, nodeID string, task *Task, started time.
 			}
 		}
 		out := r.tries(ctx, nodeID, task, started, key, devices, itemRoots, fmt.Sprintf(".item[%d]", k), label)
+		// A refused login or host key ends the loop on this device: every
+		// later item would send the same login and get the same answer, one
+		// more failed login toward the account's lockout each. The refused
+		// item's failure says so, and the register holds the items that ran.
+		stop := k < len(items)-1 && refusedRun(out.results)
+		if stop {
+			noteRefused(out.results, laterItemsNotRun(len(items)-1-k))
+		}
 		results = append(results, out.results...)
 		row := map[string]any{"item": item}
 		for name, v := range out.stats {
@@ -308,6 +319,9 @@ func (r *run) loop(ctx context.Context, nodeID string, task *Task, started time.
 		anyChanged = anyChanged || out.changed
 		anyFailed = anyFailed || out.failed
 		allSkipped = allSkipped && out.skipped
+		if stop {
+			break
+		}
 	}
 	if task.Register != "" {
 		aggregate := map[string]any{"results": rows, "changed": anyChanged, "failed": anyFailed, "skipped": allSkipped}
@@ -323,6 +337,15 @@ func (r *run) loop(ctx context.Context, nodeID string, task *Task, started time.
 		}
 	}
 	return results
+}
+
+// laterItemsNotRun is the note on a refused item's failure saying how many
+// of the loop's items after it were not run.
+func laterItemsNotRun(n int) string {
+	if n == 1 {
+		return "the loop's last item was not run, since it would only send the refused login again"
+	}
+	return fmt.Sprintf("the loop's %d later items were not run, since each would only send the refused login again", n)
 }
 
 // evalContext is the template context a task evaluates in with roots added.

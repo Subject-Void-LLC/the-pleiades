@@ -81,6 +81,11 @@ type refused string
 func (r refused) Error() string        { return "cmlconsole: " + string(r) }
 func (r refused) Is(target error) bool { return target == ErrRefused }
 
+// Refused reports the login refused, so the engine does not run its task
+// again for an until or its loop's next item (engine.Refused): another
+// attempt would be one more failed login, and the answer would not change.
+func (refused) Refused() bool { return true }
+
 // Questions a node's line can be left on whose decline is certain on IOS,
 // and the decline: at "[confirm]" any key but Enter or y declines, and
 // "[yes/no]:" takes "no" (both measured on IOL XE 17.15 through

@@ -26,8 +26,22 @@ type Login struct {
 // no account for.
 var ErrLoginNeeded = errors.New("telnetexec: the device asks for a login and no credential was given")
 
-// ErrLoginRefused is a device that turned down the login it was given.
-var ErrLoginRefused = errors.New("telnetexec: the device refused the login")
+// ErrLoginRefused is a device that turned down the login it was given. It
+// reports itself as a refusal (Refused), so a task's until or the next item
+// of its loop stops at it rather than send the same login again toward the
+// account's lockout. errors.Is still matches it, since its type is
+// comparable.
+var ErrLoginRefused error = loginRefusedError{}
+
+// loginRefusedError is ErrLoginRefused's type.
+type loginRefusedError struct{}
+
+// Error implements error.
+func (loginRefusedError) Error() string { return "telnetexec: the device refused the login" }
+
+// Refused reports that the device refused the login, which asking again
+// with the same login cannot change.
+func (loginRefusedError) Refused() bool { return true }
 
 // The prompts a login answers, each anchored to the end of what the
 // device has sent so far, so a banner that merely mentions a password is

@@ -31,6 +31,8 @@ var shellFreeServers = map[string]string{
 	"internal/catalog/net/netconf/netconf_session_internal_test.go:scriptedServer":                                             "a scripted NETCONF subsystem; no exec session is opened",
 	"internal/catalog/net/netconf/netconf_session_internal_test.go:TestOpenSession_FailsWhenTheDeviceOffersNoNetconfSubsystem": "asks only for a subsystem the server lacks",
 	"internal/engine/route_dial_test.go:newRouteFixture":                                                                       "a bastion forwarding to a local echo listener",
+	"internal/engine/refused_test.go:TestRefusedLogin_ARealServerIsSentItOnce":                                                 "every login is refused, so no session is ever opened",
+	"pkg/external/refused_test.go:TestInvokeRequest_ARefusedLoginIsMarked":                                                     "logs in and closes the connection; no exec session is opened",
 	"internal/hosttrust/hosttrust_test.go:TestScan":                                                                            "reads the host key and never logs in",
 	"internal/inventory/onboard/probe_kubernetes_onboard_live_test.go:TestKubernetesOnboard_NodesAndRoutes":                    "a bastion forwarding to the k3s API",
 	"internal/transport/serialtcp/serialtcp_test.go:TestExec_TunnelsThroughABastionWhenRouteIsSet":                             "a bastion forwarding to a console server",

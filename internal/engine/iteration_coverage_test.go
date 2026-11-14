@@ -144,8 +144,9 @@ func TestProjectTemplateFiles_ReadsOnlyInsideTheProject(t *testing.T) {
 }
 
 // TestUntil_OnlyTheMethodsOwnFailureIsTriedAgain: a failure that is not the
-// method's (here a render error on the first try's parameters) is not retried,
-// so a refused login is never tried again and again.
+// method's (here a render error on the first try's parameters) is not retried.
+// A refused login is the method's own failure, so this proves nothing about
+// it; TestUntil_ARefusedLoginIsNotTriedAgain does.
 func TestUntil_OnlyTheMethodsOwnFailureIsTriedAgain(t *testing.T) {
 	s, result, _ := runStepper(t, collection.ModeExecute, `id: nr
 hosts: web

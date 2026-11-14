@@ -19,6 +19,7 @@ package main_test
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"testing"
@@ -26,12 +27,14 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/journal"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 	"github.com/google/uuid"
 	_ "github.com/mattn/go-sqlite3"
+	"github.com/nats-io/nats.go/jetstream"
 )
 
 // journalRow is one row read back raw, holding only the columns these
@@ -146,10 +149,13 @@ func waitForJournalRows(t *testing.T, dbPath, jobID string, want int) []journalR
 // TestJournalReleaseGate_EveryRedeliveryJournalsAsItsOwnAttempt is the
 // redelivery gate.
 //
-// A dispatch carrying a deliberately wrong password fails inside the real
-// child process, against the real sshd container. native.Adapter.Execute
+// A dispatch naming a port nothing listens on, beside the real sshd
+// container, fails inside the real child process. native.Adapter.Execute
 // turns that into an error (result.HasErrors), the Runner's own delivery
 // policy Naks it, and JetStream redelivers it until MaxDeliver is spent.
+// Unreached, not refused: a refused login is dead-lettered on its first
+// delivery instead (FAILURE_PATTERNS 1238), which
+// TestJournalReleaseGate_ARefusedLoginJournalsOnceAndIsDeadLettered proves.
 // That is a real retry of the same dispatch, and the journal has to read
 // as one: the same job, the same device and the same graph node, five
 // times, distinguished only by an attempt number that the platform never
@@ -169,16 +175,17 @@ func TestJournalReleaseGate_EveryRedeliveryJournalsAsItsOwnAttempt(t *testing.T)
 
 	jobID := uuid.New().String()
 	payload := wire.DispatchPayload{
-		JobID:        jobID,
-		RunbookID:    "ping",
-		DeviceID:     "release-gate-device",
-		DeviceName:   "release-gate-device",
-		DeviceHost:   h.sshHost,
-		SSHPort:      h.sshPort,
+		JobID:      jobID,
+		RunbookID:  "ping",
+		DeviceID:   "release-gate-device",
+		DeviceName: "release-gate-device",
+		DeviceHost: h.sshHost,
+		// Nothing listens on port 1, so the dial is refused by the network
+		// at once: a task that really fails, not one stubbed into failing,
+		// and a failure a redelivery may answer differently.
+		SSHPort:      1,
 		Capabilities: []capability.Name{capability.NameSSHTransport},
-		// Wrong on purpose. The point is a task that really fails against
-		// a real device, not one stubbed into failing.
-		Secrets: credential.Flatten(credential.Credential{Username: releaseGateSSHUser, Password: "definitely-the-wrong-password"}),
+		Secrets:      credential.Flatten(credential.Credential{Username: releaseGateSSHUser, Password: releaseGateSSHPassword}),
 	}
 
 	final := h.dispatch(t, payload)
@@ -209,7 +216,7 @@ func TestJournalReleaseGate_EveryRedeliveryJournalsAsItsOwnAttempt(t *testing.T)
 			t.Errorf("row %d has outcome %q, want %q: every delivery really did fail", i, r.Outcome, "failed")
 		}
 		if r.FailureStage != "action" {
-			t.Errorf("row %d has failure stage %q, want %q: an SSH authentication failure happens while running the action", i, r.FailureStage, "action")
+			t.Errorf("row %d has failure stage %q, want %q: an SSH dial fails while running the action", i, r.FailureStage, "action")
 		}
 
 		tuple := fmt.Sprintf("%s|%s|%d|%s", r.JobID, r.DeviceID, r.Attempt, r.NodeID)
@@ -226,6 +233,74 @@ func TestJournalReleaseGate_EveryRedeliveryJournalsAsItsOwnAttempt(t *testing.T)
 	// exists to express instead.
 	if len(seenRun) != want {
 		t.Errorf("the %d deliveries carry %d distinct run ids, want %d: each retry is its own run", want, len(seenRun), want)
+	}
+}
+
+// TestJournalReleaseGate_ARefusedLoginJournalsOnceAndIsDeadLettered is the
+// other half of the redelivery gate. A dispatch carrying a wrong password is
+// refused by the real sshd, and the Runner dead-letters it on that first
+// delivery rather than having it redelivered, each redelivery being one
+// more refused password toward the account's lockout (FAILURE_PATTERNS
+// 1238). So the journal holds one attempt, no second ever arrives, and the
+// dispatch's dead letter says it was delivered once.
+func TestJournalReleaseGate_ARefusedLoginJournalsOnceAndIsDeadLettered(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping Release Gate container test in short mode")
+	}
+
+	h := newReleaseGateHarness(t)
+	dbPath := startJournalStore(t, h)
+
+	jobID := uuid.New().String()
+	payload := wire.DispatchPayload{
+		JobID:        jobID,
+		RunbookID:    "ping",
+		DeviceID:     "release-gate-refused",
+		DeviceName:   "release-gate-refused",
+		DeviceHost:   h.sshHost,
+		SSHPort:      h.sshPort,
+		Capabilities: []capability.Name{capability.NameSSHTransport},
+		// Wrong on purpose: the real sshd refuses it.
+		Secrets: credential.Flatten(credential.Credential{Username: releaseGateSSHUser, Password: "definitely-the-wrong-password"}),
+	}
+
+	final := h.dispatch(t, payload)
+	if final.Status != "failed" {
+		t.Fatalf("the refused delivery reported %q, want %q", final.Status, "failed")
+	}
+	rows := waitForJournalRows(t, dbPath, jobID, 1)
+	if len(rows) != 1 || rows[0].Attempt != 1 || rows[0].Outcome != "failed" {
+		t.Fatalf("journalled %+v, want one failed row at attempt 1", rows)
+	}
+
+	dlq, err := h.js.CreateOrUpdateConsumer(context.Background(), topology.StreamName, jetstream.ConsumerConfig{
+		FilterSubject: topology.DeadLetterSubject(topology.DispatchSubject(payload.DeviceID)),
+		DeliverPolicy: jetstream.DeliverAllPolicy,
+		AckPolicy:     jetstream.AckNonePolicy,
+	})
+	if err != nil {
+		t.Fatalf("dead letter consumer: %v", err)
+	}
+	msgs, err := dlq.Fetch(1, jetstream.FetchMaxWait(10*time.Second))
+	if err != nil {
+		t.Fatalf("fetch the dead letter: %v", err)
+	}
+	var envelope event.DeadLetterEnvelope
+	found := false
+	for m := range msgs.Messages() {
+		found = true
+		if err := json.Unmarshal(m.Data(), &envelope); err != nil {
+			t.Fatalf("decode the dead letter: %v", err)
+		}
+	}
+	if !found || envelope.NumDelivered != 1 {
+		t.Fatalf("dead letter found %v, delivered %d; want one, delivered once", found, envelope.NumDelivered)
+	}
+
+	// Long past every redelivery backoff the old path used: still one row.
+	time.Sleep(5 * time.Second)
+	if again := readJournalRaw(t, dbPath, jobID); len(again) != 1 {
+		t.Fatalf("a refused dispatch journalled %d rows, want 1: it was delivered again: %+v", len(again), again)
 	}
 }
 

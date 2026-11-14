@@ -318,7 +318,9 @@ pre-1.0 project and the honest state is not what the docs' introductions might i
   `internal/archtest`'s `TestNoPlatformCircuitIsReachable` refuses one anywhere a Collection could
   reach. Only a network failure counts: a refused credential (SSH's "unable to authenticate", a
   WinRM 401 or TLS alert) and an SSH host key known_hosts refuses (unknown, changed or revoked) are
-  neither retried nor counted. The half-open probe is leased, so a lost
+  neither retried nor counted, and not taken as proof of health either: `breaker.RecordRefusal` keeps a
+  failure streak and an open circuit as they are, and hands a half-open probe to the next caller
+  (FAILURE_PATTERNS 1230; a WinRM certificate this side refuses is the same). The half-open probe is leased, so a lost
   one is reissued after a cooldown (FAILURE_PATTERNS 146, 398). Since Phase 112 WinRM's breaker lives
   in `pkg/winrmexec` (one circuit per address and port, shared by `winrm_exec` and every Collection
   calling `winrmexec.Execute`, so each failure is counted once), and the waits (`wait.connection`,

@@ -317,8 +317,10 @@ func childAnswer(name string, mode collection.Mode, resp wire.ChildResponse, sec
 	}
 	if resp.Error != "" {
 		// The facts beside a failure are what the method recorded before it
-		// failed, which the engine keeps for the failed task's report.
-		return collection.Result{}, resp.Facts, errors.New(redact.Text(secrets, resp.Error))
+		// failed, which the engine keeps for the failed task's report. A
+		// refusal stays one (wire.ChildResponse.Failure), so the engine's
+		// until and loop stop at it here as in the CLI's own process.
+		return collection.Result{}, resp.Facts, resp.Failure(redact.Text(secrets, resp.Error))
 	}
 	return collection.Result{Changed: resp.Changed}, resp.Facts, nil
 }

@@ -3,6 +3,7 @@ package event
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -19,6 +20,10 @@ import (
 const (
 	dlqBaseDelay = 250 * time.Millisecond
 	dlqMaxDelay  = 30 * time.Second
+
+	// deadLetterBudget bounds DeadLetter's publish, which runs on a context
+	// of its own: the caller's may be a Runner's, canceled by its shutdown.
+	deadLetterBudget = 10 * time.Second
 )
 
 // DeadLetterEnvelope is what a message becomes once it is republished to
@@ -132,7 +137,48 @@ func HandleDeliveryFailure(ctx context.Context, js jetstream.JetStream, msg jets
 		return msg.NakWithDelay(delay)
 	}
 
-	data, err := json.Marshal(deadLetter(msg, meta.NumDelivered, reason))
+	return publishDeadLetter(ctx, js, msg, meta.NumDelivered, reason)
+}
+
+// DeadLetter dead-letters msg on this delivery, whatever its count, by the
+// same mechanism HandleDeliveryFailure uses once redelivery is exhausted:
+// its identifiers published to topology.DeadLetterSubject(msg.Subject()),
+// then terminated. It is for a failure a redelivery would only repeat, such
+// as a refused login, where each delivery sends the refused password again
+// toward the account's lockout. A message whose metadata cannot be read
+// (never a JetStream one) is still dead-lettered, recorded as delivered 0
+// times, since redelivering it is what this is called to prevent.
+//
+// The message is terminated even when the publish fails: a lost record is
+// better than a redelivery, which is the thing this exists to prevent. The
+// publish runs on a context of its own, bounded by deadLetterBudget and
+// detached from ctx's cancellation (a Runner's shutdown cancels ctx while
+// it finishes its last message), keeping ctx's values.
+func DeadLetter(ctx context.Context, js jetstream.JetStream, msg jetstream.Msg, reason string) error {
+	var delivered uint64
+	if meta, err := msg.Metadata(); err == nil {
+		delivered = meta.NumDelivered
+	}
+	pubCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), deadLetterBudget)
+	defer cancel()
+	data, err := json.Marshal(deadLetter(msg, delivered, reason))
+	if err == nil {
+		dlqSubject := topology.DeadLetterSubject(msg.Subject())
+		if _, perr := js.Publish(pubCtx, dlqSubject, data); perr != nil {
+			err = fmt.Errorf("failed to publish dead letter for %s to %s: %w", msg.Subject(), dlqSubject, perr)
+		}
+	} else {
+		err = fmt.Errorf("failed to marshal dead letter envelope for %s: %w", msg.Subject(), err)
+	}
+	if terr := msg.Term(); terr != nil {
+		return errors.Join(err, terr)
+	}
+	return err
+}
+
+// publishDeadLetter publishes msg's dead letter and terminates msg.
+func publishDeadLetter(ctx context.Context, js jetstream.JetStream, msg jetstream.Msg, numDelivered uint64, reason string) error {
+	data, err := json.Marshal(deadLetter(msg, numDelivered, reason))
 	if err != nil {
 		return fmt.Errorf("failed to marshal dead letter envelope for %s: %w", msg.Subject(), err)
 	}

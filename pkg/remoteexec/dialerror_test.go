@@ -31,6 +31,27 @@ func TestDialError_Unreached(t *testing.T) {
 	}
 }
 
+// TestDialError_Refused holds each dial failure to the refusal rule: a
+// login the device turned down, or a host key this side turned down, and
+// nothing else, so a caller stops trying again at exactly those.
+func TestDialError_Refused(t *testing.T) {
+	for name, tc := range map[string]struct {
+		err  error
+		want bool
+	}{
+		"a refused credential":                {errors.New("ssh handshake: ssh: handshake failed: ssh: unable to authenticate, attempted methods [none password]"), true},
+		"a refused host key":                  {fmt.Errorf("ssh handshake: %w", &knownhosts.KeyError{}), true},
+		"a revoked host key":                  {fmt.Errorf("ssh handshake: %w", &knownhosts.RevokedError{}), true},
+		"a TCP dial that timed out":           {errors.New("tcp dial: dial tcp 10.0.0.1:22: i/o timeout"), false},
+		"a handshake the device ended at EOF": {fmt.Errorf("ssh handshake: %w", io.EOF), false},
+		"the caller canceling":                {context.Canceled, false},
+	} {
+		if got := (&DialError{Addr: "10.0.0.1:22", Err: tc.err}).Refused(); got != tc.want {
+			t.Errorf("%s: Refused() = %v, want %v", name, got, tc.want)
+		}
+	}
+}
+
 // TestDialError_KeepsItsWordsAndChain: the message is the one this package
 // always wrote for a failed dial, and the cause stays reachable.
 func TestDialError_KeepsItsWordsAndChain(t *testing.T) {

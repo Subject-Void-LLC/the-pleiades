@@ -405,8 +405,18 @@ func (a *Adapter) Execute(ctx context.Context, payload wire.DispatchPayload) (wi
 	)
 
 	result, runErr := executor.Run(ctx, dag)
+	// failed marks a failure of a run in which a task's login was refused,
+	// on every return below, aborted ones included: the Runner dead-letters
+	// such a run rather than having it redelivered, which would send the
+	// refused login again.
+	failed := func(err error) error {
+		if result.SawRefusal() {
+			return refusedRunError{err}
+		}
+		return err
+	}
 	if runErr != nil {
-		return wire.Outcome{}, fmt.Errorf("execution aborted: %w", runErr)
+		return wire.Outcome{}, failed(fmt.Errorf("execution aborted: %w", runErr))
 	}
 
 	changed := false
@@ -433,7 +443,7 @@ func (a *Adapter) Execute(ctx context.Context, payload wire.DispatchPayload) (wi
 		event.Timestamp = time.Now().UTC().Format(time.RFC3339)
 		event.EventData.Message = "WARNING: " + warning
 		if err := a.publish(ctx, payload.JobID, event); err != nil {
-			return wire.Outcome{}, fmt.Errorf("failed to publish a warning: %w", err)
+			return wire.Outcome{}, failed(fmt.Errorf("failed to publish a warning: %w", err))
 		}
 	}
 
@@ -445,11 +455,11 @@ func (a *Adapter) Execute(ctx context.Context, payload wire.DispatchPayload) (wi
 	completed.Timestamp = time.Now().UTC().Format(time.RFC3339)
 	completed.EventData.Message = message
 	if err := a.publish(ctx, payload.JobID, completed); err != nil {
-		return wire.Outcome{}, fmt.Errorf("failed to publish completion event: %w", err)
+		return wire.Outcome{}, failed(fmt.Errorf("failed to publish completion event: %w", err))
 	}
 
 	if result.HasErrors() {
-		return wire.Outcome{}, fmt.Errorf("execution failed: %s", message)
+		return wire.Outcome{}, failed(fmt.Errorf("execution failed: %s", message))
 	}
 	return wire.Outcome{Unchecked: uncheckedCount(result)}, nil
 }
@@ -575,3 +585,15 @@ func runWarnings(result engine.RunResult, secrets []string) []string {
 func dispatchSecrets(payload wire.DispatchPayload) []string {
 	return append(childSecretValues(payload), injectedSecretValues(payload.Injected)...)
 }
+
+// refusedRunError is a failed run in which a task's login was refused. Its
+// Refused method is what engine.Refused and the Runner read, so the Runner
+// dead-letters the dispatch at once instead of letting JetStream redeliver
+// it, each delivery one more refused password toward the account's lockout.
+type refusedRunError struct{ error }
+
+// Refused reports that the run's failure includes a refusal.
+func (refusedRunError) Refused() bool { return true }
+
+// Unwrap exposes the run's failure.
+func (e refusedRunError) Unwrap() error { return e.error }
