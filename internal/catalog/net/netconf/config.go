@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
@@ -103,7 +104,7 @@ func init() {
 func configDoc() collection.Doc {
 	return collection.Doc{
 		Summary:     "Applies a configuration document to a device over NETCONF, with an optional pre-change backup.",
-		Description: "Opens an RFC 6241 NETCONF session over the SSH \"netconf\" subsystem and applies content to the chosen datastore with edit-config. Parameter names are ansible.netcommon.netconf_config's own, with its target parameter under its own alias, datastore, since target names the device a task runs on. The session negotiates RFC 6242 chunked framing whenever the device offers base:1.1, and requests rollback-on-error whenever the device advertises it, so a rejected document leaves the device unchanged rather than half configured; that matters most on a device offering only writable-running, which is what Cisco IOS XE offers, because such a device has no staging area and every element lands on the live configuration as it is applied. A datastore the device never advertised support for is refused when the session opens rather than at the first write, naming the missing capability. Unlike the net.cli.* and net.ios.config methods, a rejected element comes back as a structured error carrying the device's own error-tag and the XPath of the element it objected to. Reports changed whenever the document reaches the device and the device answers ok.",
+		Description: "Opens an RFC 6241 NETCONF session over the SSH \"netconf\" subsystem and applies content to the chosen datastore with edit-config. Parameter names are ansible.netcommon.netconf_config's own, with its target parameter under its own alias, datastore, since target names the device a task runs on. The session negotiates RFC 6242 chunked framing whenever the device offers base:1.1, and requests rollback-on-error whenever the device advertises it, so a rejected document leaves the device unchanged rather than half configured; that matters most on a device offering only writable-running, which is what Cisco IOS XE offers until its candidate datastore is configured, because such a device has no staging area and every element lands on the live configuration as it is applied. A datastore the device never advertised support for is refused when the session opens rather than at the first write, naming the missing capability. Unlike the net.cli.* and net.ios.config methods, a rejected element comes back as a structured error carrying the device's own error-tag and the XPath of the element it objected to. Reports changed whenever the document reaches the device and the device answers ok, except a candidate edit with commit false, which is validated and discarded and reports no change.",
 		Params: []collection.Param{
 			{Name: paramContent, Type: "string", Required: true, Description: "The configuration document to apply, as the XML that goes inside edit-config's <config> element. Per-element operations are expressed the standard way, with an nc:operation attribute; pair that with default_operation: none so the device changes only what the document explicitly names."},
 			{Name: paramDatastore, Type: "string", Choices: []string{"running", "candidate", "startup"}, ChoicesIgnoreCase: true, Description: "The datastore to configure: running, candidate or startup. Left unset it is chosen when the session opens, from what the device's hello advertises that session: running when it offers :writable-running, otherwise candidate (locked, validated when the device offers :validate, then committed). That is chosen afresh on every task, since a device's offer changes with its configuration: Cisco IOS XE offers only running until netconf-yang feature candidate-datastore is configured, and then only candidate. A datastore the device does not advertise is refused before anything is applied."},
@@ -249,12 +250,22 @@ func apply(ctx context.Context, rc sdk.RunbookContext, session netconfSession, d
 			}
 		} else {
 			locked = true
-			defer func() { _ = session.Unlock(ctx) }()
+			defer func() {
+				cctx, cancel := cleanupContext(ctx)
+				defer cancel()
+				_ = session.Unlock(cctx)
+			}()
 		}
 	}
+	// The cleanup runs on a context of its own, bounded: a task canceled or
+	// timed out mid-edit still discards what it staged and releases the
+	// lock, rather than leaving both to how the server treats a dropped
+	// session (a lock can outlive a client for up to an hour on some).
 	discard := func(cause error) error {
 		if candidate && locked {
-			if err := session.DiscardChanges(ctx); err != nil {
+			cctx, cancel := cleanupContext(ctx)
+			defer cancel()
+			if err := session.DiscardChanges(cctx); err != nil {
 				return fmt.Errorf("%w; discarding the staged edit failed too: %v", cause, err)
 			}
 		}
@@ -306,9 +317,26 @@ func apply(ctx context.Context, rc sdk.RunbookContext, session netconfSession, d
 		return collection.Result{Changed: false}, rc.SetStat(statApplied, false)
 	}
 	if err := session.Commit(ctx); err != nil {
+		var refused netconf.RPCErrors
+		if !errors.As(err, &refused) {
+			// No answer came back (a lost session, a deadline): the commit
+			// may have been applied, and the running configuration is the
+			// only witness of whether it was.
+			return collection.Result{}, discard(fmt.Errorf("committing: no answer came back, so whether the commit was applied is unknown; read the running configuration to tell: %w", err))
+		}
 		return collection.Result{}, discard(fmt.Errorf("committing: %w", err))
 	}
 	return collection.Result{Changed: true}, nil
+}
+
+// cleanupBudget bounds the candidate's discard and unlock after the task's
+// own context ended.
+const cleanupBudget = 10 * time.Second
+
+// cleanupContext is a context for cleanup that outlives the task's: not
+// canceled with it, bounded by cleanupBudget.
+func cleanupContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), cleanupBudget)
 }
 
 // hasParam reports whether the task set name at all.
@@ -442,9 +470,10 @@ func realOpenSession(ctx context.Context, rc sdk.RunbookContext, device inventor
 		return nil, fmt.Errorf("%s: %w", fqcn, err)
 	}
 
-	// The YANG library is cached for the run by the device's identity, and
-	// only for a session whose host key was verified.
-	cacheKey := string(device.ID())
+	// The YANG library is cached for the run by the device's identity and
+	// the account (access control may show two accounts different
+	// libraries), and only for a session whose host key was verified.
+	cacheKey := string(device.ID()) + "\x00" + rc.InjectSecrets()[wire.SecretUsername]
 	if skip, _ := sdk.BoolParamOr(params, sdk.ParamInsecureSkipHostKeyVerify, false); skip {
 		cacheKey = ""
 	}

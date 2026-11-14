@@ -416,3 +416,33 @@ func TestRequestDevice_TLSRefusalsSendNothing(t *testing.T) {
 		t.Errorf("the device received %d requests", n)
 	}
 }
+
+// TestRequestDevice_TheDevicesAnswerIsMaskedByItsForm: a device's own API
+// answering with its configuration (RESTCONF's /data, as a Catalyst 8000V
+// does) has its secrets masked before the body is recorded, as
+// net.ios.command's output is (FAILURE_PATTERNS 1247); a full URL is another
+// system's answer and is recorded as it came.
+func TestRequestDevice_TheDevicesAnswerIsMaskedByItsForm(t *testing.T) {
+	const hash = "$9$RLTXhZqoBxma0o$aaJlIdkbiUybkdQk8mLLEoFHRzzzzzzzzzzzzzzzzzz"
+	body := `{"Cisco-IOS-XE-native:username": [{"name": "netops", "secret": {"encryption": "9", "secret": "` + hash + `"}}]}`
+	srv := newRequestDeviceServer(t, func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		w.Header().Set("Content-Type", "application/yang-data+json")
+		_, _ = w.Write([]byte(body))
+	})
+	dev := requestAPIDevice(t, srv.URL+"/restconf", httpapi.AuthBasic, true)
+	rc := requestSecretsContext{newRequestContext(), map[string]string{"username": "api", "password": "api-secret"}}
+	if _, err := http.Request(context.Background(), rc, dev, map[string]any{"url": "/data/Cisco-IOS-XE-native:native/username"}); err != nil {
+		t.Fatal(err)
+	}
+	content, _ := rc.stats["content"].(string)
+	if strings.Contains(content, hash) || !strings.Contains(content, "netops") || !strings.Contains(content, `"encryption": "9"`) {
+		t.Errorf("content = %s, want the hash masked and the rest kept", content)
+	}
+	rc2 := requestSecretsContext{newRequestContext(), nil}
+	if _, err := http.Request(context.Background(), rc2, dev, map[string]any{"url": srv.URL + "/restconf/data", "validate_certs": false}); err != nil {
+		t.Fatal(err)
+	}
+	if content, _ := rc2.stats["content"].(string); !strings.Contains(content, hash) {
+		t.Errorf("a full URL's answer was changed: %s", content)
+	}
+}

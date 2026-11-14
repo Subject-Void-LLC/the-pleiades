@@ -70,7 +70,13 @@ func Command(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 	}
 	// show running-config is a show command, so its secrets are masked
 	// here as net.frr.facts masks them (the branch review's F1).
-	if err := rc.SetStat("stdout", netcfg.Mask(out)); err != nil {
+	// vtysh prints JSON on request (show ... json), so the output is masked
+	// by its form (FAILURE_PATTERNS 1247).
+	stdout, _, err := netcfg.MaskOutput(out)
+	if err != nil {
+		return collection.Result{}, fmt.Errorf("%s: the output is not returned: %w", commandFQCN, err)
+	}
+	if err := rc.SetStat("stdout", stdout); err != nil {
 		return collection.Result{}, err
 	}
 	if strings.HasSuffix(command, " json") {

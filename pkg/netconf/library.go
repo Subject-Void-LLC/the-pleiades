@@ -7,9 +7,11 @@ package netconf
 import (
 	"context"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 )
 
 // The YANG library's namespace, which RFC 8525 and RFC 7895 share.
@@ -111,12 +113,23 @@ func libraryModuleOf(f libraryModuleFields, deviations []string) Module {
 }
 
 // libraryCache holds a module set read from a server's YANG library, keyed by
-// the caller's identity for the device and the content-id the hello carried,
+// the caller's identity for the device and account (DiscoveryCacheKey: access
+// control may show two accounts different libraries) and the content-id the
+// hello carried,
 // so a run's later sessions to an unchanged device read the hello alone. A
 // session whose caller gave no identity (one whose host key was not
 // verified) neither reads nor fills it, and a server naming no content-id is
 // never cached.
 var libraryCache sync.Map // map[string]cachedLibrary
+
+// libraryCacheEntries counts libraryCache's entries, so the cache stays
+// bounded in a long-lived process (a Controller onboards in process): past
+// maxLibraryCacheEntries it is emptied rather than grown, which costs a
+// re-read, never a wrong answer.
+var libraryCacheEntries atomic.Int64
+
+// maxLibraryCacheEntries bounds libraryCache.
+const maxLibraryCacheEntries = 512
 
 // cachedLibrary is one cached read of a YANG library.
 type cachedLibrary struct {
@@ -151,8 +164,13 @@ func (s *Session) discoverLibrary(ctx context.Context, d Discovery, cacheKey str
 	}
 	raw, err := s.get(ctx, filter)
 	if err != nil {
-		if _, rejected := err.(RPCErrors); rejected {
+		var rejected RPCErrors
+		switch {
+		case errors.As(err, &rejected):
 			d.LibraryError = "the server refused the YANG library read: " + err.Error()
+			return d, nil
+		case errors.Is(err, errUnusableReply):
+			d.LibraryError = "the server's answer to the YANG library read was not usable: " + err.Error()
 			return d, nil
 		}
 		return d, err
@@ -172,6 +190,10 @@ func (s *Session) discoverLibrary(ctx context.Context, d Discovery, cacheKey str
 	}
 	lib := cachedLibrary{modules: kept, datastores: datastores, source: source, dropped: counted.Dropped, droppedSamples: counted.DroppedSamples}
 	if key != "" {
+		if libraryCacheEntries.Add(1) > maxLibraryCacheEntries {
+			libraryCache.Range(func(k, _ any) bool { libraryCache.Delete(k); return true })
+			libraryCacheEntries.Store(1)
+		}
 		libraryCache.Store(key, lib)
 	}
 	return withLibrary(d, lib), nil
@@ -181,6 +203,9 @@ func (s *Session) discoverLibrary(ctx context.Context, d Discovery, cacheKey str
 func withLibrary(d Discovery, lib cachedLibrary) Discovery {
 	d.Modules, d.Source, d.Dropped, d.DroppedSamples = lib.modules, lib.source, lib.dropped, lib.droppedSamples
 	d.Completeness = Complete
+	if d.Dropped > 0 {
+		d.Completeness = Partial
+	}
 	d.Datastores = datastoresFrom(d.Protocol, lib.datastores)
 	return d
 }

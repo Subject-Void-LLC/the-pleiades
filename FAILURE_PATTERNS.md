@@ -1251,6 +1251,11 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 1245. pkg/netconf failed a call on a warning-severity rpc-error, checked validate against 1.0 only, and backed up the session's target instead of running (fixed before push)
 1246. trust-host trusted only a device's SSH port while IOS XE's NETCONF listener presents a key of its own, and onboarding refused an untrusted certificate without its fingerprint, and a 401 as a refused credential when none was sent (fixed)
 1247. net.ios.command and net.cli.command masked their output as CLI text only, so the XML and JSON of "| format netconf-xml" and "| format restconf-json" returned every local secret as a raw type 9 hash (security; a repeat in kind of 704 and 718) (fixed)
+1248. MaskOutput's JSON branch read only the first JSON value and chose the masker by the output's first byte, so trailing CLI text went unmasked, a key given twice hid its first value, and ordinary CLI opening with a bracket was refused; its crypt rule missed IOS type 5, yescrypt and rounds= hashes (security; a repeat in kind of 578 and 23) (fixed before push)
+1249. add-credential's new same-as-username warning printed the username, which it does only when that username is the password (security) (fixed before push)
+1250. Onboarding stored a NETCONF device's yang_module_count as a Go int, which the Controller reads back from JSON as float64, so re-onboarding an unchanged device never compared equal (a repeat of 706) (fixed before push)
+1251. net.netconf.config's candidate discard and unlock ran on the task's context, so a task canceled after its edit left the edit staged and the lock held, and a commit with no answer read as a plain failure (a repeat in kind of 1241) (fixed before push)
+1252. NETCONF discovery failed the session on a YANG library answer it could not use, read a list that dropped an entry as complete, kept the volatile content-id in a stable fact, and cached a library by device alone though access control may show accounts different ones (fixed before push)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

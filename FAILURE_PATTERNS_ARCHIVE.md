@@ -30682,3 +30682,50 @@ router: both forms 0 hashes, 2 placeholders each.
 
 **Lesson.** A masker is chosen by the form of the text, not by the method that produced it; a device can print the same
 configuration as CLI, XML or JSON on request.
+
+## 1248. MaskOutput's JSON branch read only the first JSON value and chose the masker by the output's first byte, so trailing CLI text went unmasked, a key given twice hid its first value, and ordinary CLI opening with a bracket was refused; its crypt rule missed IOS type 5, yescrypt and rounds= hashes (security; a repeat in kind of 578 and 23) (fixed before push)
+
+**Symptom.** Found 2026-11-14 by the failure-pattern review of 1247's fix, before push. `"[0]\nusername admin password 0 X"`
+decoded as `[0]` and returned the password; `{"secret":"A","secret":"B"}` masked only B; NX-OS's `[#####] 100%` copy
+progress failed the task after the copy ran; `$1$mERr$...` (IOS type 5), `$y$...` and `$6$rounds=5000$...` matched no rule.
+
+**Root cause.** The branch was chosen by a prefix, not by the output being one whole document, and the decoder's first
+value was taken as the whole. The crypt pattern was written against type 9 only, and claimed "any crypt-shaped hash".
+
+**Fix.** A structured masker applies only to output that parses as one whole document (XML well-formed, JSON one value then
+EOF); anything else is CLI text, masked by `MaskFound` and by the `"secret": "x"` and `<secret>x</secret>` shapes. An object
+holding a key twice is refused. Non-secret JSON leaves are read by the CLI masker, as `MaskXML` reads its leaves. The crypt
+pattern covers a salt and hash after their own `$`, `rounds=`, and a long single run. Tests for each case
+(`pkg/netcfg/output_test.go`).
+
+**Lesson.** A masker for a structured form proves the whole text is that form before trusting it, and falls back to the
+stricter reading, never to none.
+
+## 1249. add-credential's new same-as-username warning printed the username, which it does only when that username is the password (security) (fixed before push)
+
+**Symptom.** Found by the same review. The warning quoted the username with `%q`, and it fires exactly when the password
+or enable secret equals the username, so it printed the secret to standard error. It also compared without case, though
+masking by value is exact.
+
+**Fix.** The warning names neither value and compares exactly; its test asserts no value is printed. **Lesson.** A message
+about a secret that equals another field names neither field's value.
+
+## 1250. Onboarding stored a NETCONF device's yang_module_count as a Go int, which the Controller reads back from JSON as float64, so re-onboarding an unchanged device never compared equal (a repeat of 706) (fixed before push)
+
+**Fix.** Stored as text, as every other probe's count is (`TestNetconfProbed_RecordsTheSummaryWholeAndAsText`). The same
+review found onboarding still cut a capability longer than 256 bytes mid-entry (a repeat in kind of 1243): it is now left
+out whole and counted.
+
+## 1251. net.netconf.config's candidate discard and unlock ran on the task's context, so a task canceled after its edit left the edit staged and the lock held, and a commit with no answer read as a plain failure (a repeat in kind of 1241) (fixed before push)
+
+**Fix.** Discard and unlock run on `context.WithoutCancel`, bounded at 10 s; a commit with no answer says its outcome is
+unknown. `TestConfig_CleanupOutlivesACanceledTask` fails with the cleanup on the task's context (measured), and
+`TestConfig_AFailedEditOrValidateDiscardsTheOwnEdit` covers the discards no test reached.
+
+## 1252. NETCONF discovery failed the session on a YANG library answer it could not use, read a list that dropped an entry as complete, kept the volatile content-id in a stable fact, and cached a library by device alone though access control may show accounts different ones (fixed before push)
+
+**Fix.** An answer read whole but unusable (no `<data>`, too deep, unparsable) leaves the hello's list partial; a broken stream
+or another message-id still ends the session. Any dropped entry makes the list partial. `netconf.capabilities` drops the
+content-id and module-set-id parameters. The cache is keyed by device and account and bounded at 512 entries. The same
+review moved the device API's answer in `http.request`, `net.ios.parse` and `net.frr.command` to `MaskOutput` (siblings of
+1247), and made the release gate check every form for crypt hashes and wait for the NETCONF listener's own refusal.

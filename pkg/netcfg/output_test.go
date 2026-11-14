@@ -152,18 +152,67 @@ func TestMaskOutput_ASecretUnderMetadataInJSONIsStillFound(t *testing.T) {
 	}
 }
 
-func TestMaskOutput_FailsClosedOnStructuredTextItCannotRead(t *testing.T) {
+// TestMaskOutput_BrokenStructuredTextIsMaskedAsText: output that opens like
+// XML or JSON but is not one whole document (cut short, or text after it) is
+// read as CLI text, with its secret-shaped fields and elements masked, never
+// returned as it is and never refused for its first byte.
+func TestMaskOutput_BrokenStructuredTextIsMaskedAsText(t *testing.T) {
 	for name, out := range map[string]string{
-		"broken XML":  "<config><secret>" + fakePSK + "</secret>",
-		"broken JSON": `{"secret": "` + fakePSK + `"`,
+		"XML cut short":          "<config><secret>" + fakePSK + "</secret>",
+		"JSON cut short":         `{"secret": "` + fakePSK + `"`,
+		"JSON then CLI (review)": "[0]\nusername admin password 0 " + fakePSK + "\n",
 	} {
-		masked, found, err := MaskOutput(out)
-		if err == nil || masked != "" || found != nil {
-			t.Errorf("%s: masked=%q found=%v err=%v; want an error and none of the text", name, masked, found, err)
+		masked, _, err := MaskOutput(out)
+		if err != nil {
+			t.Errorf("%s: %v, want it read as text", name, err)
+			continue
 		}
-		if err != nil && strings.Contains(err.Error(), fakePSK) {
-			t.Errorf("%s: the error quotes the secret: %v", name, err)
+		if strings.Contains(masked, fakePSK) {
+			t.Errorf("%s: the secret is still in %q", name, masked)
 		}
+	}
+}
+
+// TestMaskOutput_CLIThatOpensWithABracketIsNotRefused: NX-OS's copy progress
+// bar and Junos's {master:0} open with "[" or "{" and are plain text.
+func TestMaskOutput_CLIThatOpensWithABracketIsNotRefused(t *testing.T) {
+	for _, out := range []string{"[########################################] 100%\nCopy complete.\n", "{master:0}\n"} {
+		masked, _, err := MaskOutput(out)
+		if err != nil || masked != out {
+			t.Errorf("MaskOutput(%q) = %q, %v; want it unchanged", out, masked, err)
+		}
+	}
+}
+
+func TestMaskOutput_EveryCryptFormIsMasked(t *testing.T) {
+	for _, h := range []string{
+		"$1$mERr$hx5rVt7rPNoS4wqbXKX7m0",                       // IOS type 5, a four-character salt
+		"$y$j9T$abcdefgh$0123456789abcdefABCDEFghijklmnop",     // yescrypt
+		"$6$rounds=5000$saltsalt$hashhashhashhash0123456789ab", // sha512-crypt with rounds
+		fakeUserHash, // IOS type 9
+	} {
+		masked, _, err := MaskOutput("root:" + h + ":19000:0:99999:7:::\n")
+		if err != nil || strings.Contains(masked, h) {
+			t.Errorf("%s: masked %q, %v", h[:6], masked, err)
+		}
+	}
+}
+
+func TestMaskOutput_AJSONObjectHoldingAKeyTwiceIsRefused(t *testing.T) {
+	out := `{"secret": "` + fakePSK + `", "secret": "other-value-123"}`
+	masked, _, err := MaskOutput(out)
+	if err == nil || masked != "" || strings.Contains(err.Error(), fakePSK) {
+		t.Errorf("masked=%q err=%v; want an error, none of the text, and no secret in the error", masked, err)
+	}
+}
+
+// TestMaskOutput_CLITextInAJSONLeafIsMasked: a leaf that is not a secret's
+// may carry configuration text, read as MaskXML reads its leaves.
+func TestMaskOutput_CLITextInAJSONLeafIsMasked(t *testing.T) {
+	out := `{"config": "hostname r1\nusername admin password 0 ` + fakePSK + `\n"}`
+	masked, _, err := MaskOutput(out)
+	if err != nil || strings.Contains(masked, fakePSK) {
+		t.Errorf("masked=%q err=%v", masked, err)
 	}
 }
 

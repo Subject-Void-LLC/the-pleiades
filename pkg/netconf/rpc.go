@@ -3,6 +3,7 @@ package netconf
 import (
 	"context"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"io"
 	"strconv"
@@ -357,12 +358,12 @@ func (s *Session) do(ctx context.Context, body string) (*rpcReply, error) {
 		return nil, fmt.Errorf("netconf: reading the reply to message-id %s: %w", id, wrapCtx(ctx, err))
 	}
 	if err := checkDepth(raw, s.opts.maxDepth()); err != nil {
-		return nil, fmt.Errorf("netconf: reply to message-id %s: %w", id, err)
+		return nil, errors.Join(errUnusableReply, fmt.Errorf("netconf: reply to message-id %s: %w", id, err))
 	}
 
 	var reply rpcReply
 	if err := xml.Unmarshal(raw, &reply); err != nil {
-		return nil, fmt.Errorf("netconf: parsing the reply to message-id %s: %w", id, err)
+		return nil, errors.Join(errUnusableReply, fmt.Errorf("netconf: parsing the reply to message-id %s: %w", id, err))
 	}
 	if reply.MessageID != id {
 		return nil, fmt.Errorf("netconf: the server answered message-id %q with a reply for message-id %q; this session is no longer synchronized and is not safe to continue using",
@@ -396,10 +397,17 @@ func (s *Session) get(ctx context.Context, subtree string) ([]byte, error) {
 		return nil, err
 	}
 	if reply.Data == nil {
-		return nil, fmt.Errorf("netconf: the server's reply to get carried no <data> element")
+		return nil, errors.Join(errUnusableReply, fmt.Errorf("netconf: the server's reply to get carried no <data> element"))
 	}
 	return reply.raw, nil
 }
+
+// errUnusableReply marks a reply that was read whole, so the session is
+// still in step, but that answers nothing usable: too deep, not parsable, or
+// a get with no <data>. A caller that can do without the answer (discovery's
+// YANG library read) goes on; a broken stream or a reply for another
+// message-id is never one, since the session is then unsafe to continue.
+var errUnusableReply = errors.New("netconf: the reply was read but is not usable")
 
 // rpcReply is the subset of <rpc-reply> this client reads.
 //

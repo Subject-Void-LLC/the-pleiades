@@ -227,10 +227,13 @@ tasks:
 		return strings.Contains(out, "Confd Status: Started")
 	})
 	// Its NETCONF listener has a key of its own, which the first session is
-	// refused for, naming the command that trusts it.
-	if out, _ := g.try("adhoc", "R", "net.netconf.facts", "--json"); !strings.Contains(out, "trust-host R --first-connect --netconf") {
-		t.Fatalf("an untrusted NETCONF listener's refusal does not name the command:\n%s", out)
-	}
+	// refused for, naming the command that trusts it. confd reports Started
+	// a moment before port 830 listens, so the wait is for that refusal, not
+	// for the log line alone.
+	g.waitFor("the NETCONF listener to answer with its own host key", 5*time.Minute, func() bool {
+		out, _ := g.try("adhoc", "R", "net.netconf.facts", "--json")
+		return strings.Contains(out, "trust-host R --first-connect --netconf")
+	})
 	g.run("trust-host", "R", "--first-connect", "--netconf")
 	// The API's self-signed certificate is refused, naming its fingerprint,
 	// which is then pinned.
@@ -320,6 +323,20 @@ tasks:
 	g.task("changed", "RAPI", "http.request", "url="+lo, "method=DELETE", "status_code=204")
 	g.task("ok", "RAPI", "http.request", "url="+lo, headers, "status_code=404")
 	g.task("changed", "RAPI", "http.request", "url=/operations/cisco-ia:save-config", "method=POST", headers, "status_code:=[200,204]")
+
+	// No secret leaves the router in any form it prints its configuration
+	// in: CLI, the XML and JSON of "| format", and RESTCONF's own answer
+	// (FAILURE_PATTERNS 1247). Each holds the enable secret and the seeded
+	// login's secret, as type 9 hashes.
+	crypt := regexp.MustCompile(`\$[0-9A-Za-z]{1,2}\$[./0-9A-Za-z]{2,}`)
+	for _, command := range []string{"show running-config", "show running-config | format netconf-xml", "show running-config | format restconf-json"} {
+		if out := g.show(command); crypt.MatchString(out) || !strings.Contains(out, "pleiades-masked-") {
+			t.Errorf("%s: a crypt hash is in the output, or nothing was masked", command)
+		}
+	}
+	if body := fmt.Sprint(stats(g.task("ok", "RAPI", "http.request", "url=/data/Cisco-IOS-XE-native:native", headers, "status_code=200"))["content"]); crypt.MatchString(body) || !strings.Contains(body, "pleiades-masked-") {
+		t.Error("RESTCONF's /data answer holds a crypt hash, or nothing was masked")
+	}
 
 	// Day N: a NETCONF change undone by its rollback: list, after a CLI
 	// checkpoint the run's rollback returns the router to.

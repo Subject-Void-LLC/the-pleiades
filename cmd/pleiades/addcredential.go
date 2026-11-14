@@ -304,8 +304,11 @@ func sameAsUsernameWarnings(cred credential.Credential) []string {
 	}
 	var out []string
 	for _, s := range []struct{ what, value string }{{"password", cred.Password}, {"enable secret", cred.EnablePassword}} {
-		if s.value != "" && strings.EqualFold(s.value, cred.Username) {
-			out = append(out, fmt.Sprintf("the %s is the username itself; every run masks a secret wherever it appears, so the username %q, and every word holding it, will read as ******** in all output", s.what, cred.Username))
+		// Exact, as masking by value is: a secret differing only in case
+		// does not mask the username. The message names neither value,
+		// since the username here is the secret.
+		if s.value != "" && s.value == cred.Username {
+			out = append(out, fmt.Sprintf("the %s is the username itself; every run masks a secret wherever it appears, so the username, and every word holding it, will read as ******** in all output", s.what))
 		}
 	}
 	return out

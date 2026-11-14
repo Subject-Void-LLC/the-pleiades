@@ -74,6 +74,9 @@ func Facts(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventor
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
+	for _, w := range session.TakeWarnings() {
+		warnings = append(warnings, "the device warned: "+w.Error())
+	}
 	if len(warnings) > 0 {
 		if err := sdk.RecordWarnings(rc, warnings); err != nil {
 			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)

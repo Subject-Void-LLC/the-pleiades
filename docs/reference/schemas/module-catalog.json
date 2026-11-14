@@ -13075,7 +13075,7 @@
         "key": "netconf.capabilities",
         "kind": "stable",
         "type": "list",
-        "description": "Every NETCONF protocol capability the device's hello advertised (each URN under urn:ietf:params:netconf:, with its parameters), sorted; the YANG module capabilities are in yang.modules instead. Read on every session, so a device that changes what it offers (IOS XE drops :writable-running when its candidate datastore is turned on) reads as a change."
+        "description": "Every capability the device's hello advertised that names no YANG module (RFC 6241's own and a vendor's), with its parameters but the volatile content-id and module-set-id, which yang.content_id holds, sorted; the YANG module capabilities are in yang.modules instead. Left out, with a warning, when it does not fit in 60 KiB. Read on every session, so a device that changes what it offers (IOS XE drops :writable-running when its candidate datastore is turned on) reads as a change."
       },
       {
         "key": "netconf.datastores",
@@ -13116,7 +13116,7 @@
     ],
     "doc": {
       "summary": "Applies a configuration document to a device over NETCONF, with an optional pre-change backup.",
-      "description": "Opens an RFC 6241 NETCONF session over the SSH \"netconf\" subsystem and applies content to the chosen datastore with edit-config. Parameter names are ansible.netcommon.netconf_config's own, with its target parameter under its own alias, datastore, since target names the device a task runs on. The session negotiates RFC 6242 chunked framing whenever the device offers base:1.1, and requests rollback-on-error whenever the device advertises it, so a rejected document leaves the device unchanged rather than half configured; that matters most on a device offering only writable-running, which is what Cisco IOS XE offers, because such a device has no staging area and every element lands on the live configuration as it is applied. A datastore the device never advertised support for is refused when the session opens rather than at the first write, naming the missing capability. Unlike the net.cli.* and net.ios.config methods, a rejected element comes back as a structured error carrying the device's own error-tag and the XPath of the element it objected to. Reports changed whenever the document reaches the device and the device answers ok.",
+      "description": "Opens an RFC 6241 NETCONF session over the SSH \"netconf\" subsystem and applies content to the chosen datastore with edit-config. Parameter names are ansible.netcommon.netconf_config's own, with its target parameter under its own alias, datastore, since target names the device a task runs on. The session negotiates RFC 6242 chunked framing whenever the device offers base:1.1, and requests rollback-on-error whenever the device advertises it, so a rejected document leaves the device unchanged rather than half configured; that matters most on a device offering only writable-running, which is what Cisco IOS XE offers until its candidate datastore is configured, because such a device has no staging area and every element lands on the live configuration as it is applied. A datastore the device never advertised support for is refused when the session opens rather than at the first write, naming the missing capability. Unlike the net.cli.* and net.ios.config methods, a rejected element comes back as a structured error carrying the device's own error-tag and the XPath of the element it objected to. Reports changed whenever the document reaches the device and the device answers ok, except a candidate edit with commit false, which is validated and discarded and reports no change.",
       "params": [
         {
           "name": "content",
@@ -13209,13 +13209,13 @@
         {
           "name": "netconf.capabilities",
           "type": "list of string",
-          "returned": "on every session whose host key was verified",
-          "description": "Every NETCONF protocol capability the device's hello advertised (each URN under urn:ietf:params:netconf:, with its parameters), sorted; the YANG module capabilities are in yang.modules instead. Read on every session, so a device that changes what it offers (IOS XE drops :writable-running when its candidate datastore is turned on) reads as a change."
+          "returned": "on every session, as a stat; as a fact only when its host key was verified",
+          "description": "Every capability the device's hello advertised that names no YANG module (RFC 6241's own and a vendor's), with its parameters but the volatile content-id and module-set-id, which yang.content_id holds, sorted; the YANG module capabilities are in yang.modules instead. Left out, with a warning, when it does not fit in 60 KiB. Read on every session, so a device that changes what it offers (IOS XE drops :writable-running when its candidate datastore is turned on) reads as a change."
         },
         {
           "name": "netconf.datastores",
           "type": "list of string",
-          "returned": "on every session whose host key was verified",
+          "returned": "on every session, as a stat; as a fact only when its host key was verified",
           "description": "The datastores the session could use, sorted: running always, candidate and startup when the hello advertises them, and every datastore the device's YANG library lists (an NMDA device's operational and intended)."
         },
         {
@@ -13227,19 +13227,19 @@
         {
           "name": "yang.module_count",
           "type": "int",
-          "returned": "on every session whose host key was verified",
+          "returned": "on every session, as a stat; as a fact only when its host key was verified",
           "description": "How many YANG modules the device implements, as yang.modules counts them."
         },
         {
           "name": "yang.modules_digest",
           "type": "string",
-          "returned": "on every session whose host key was verified",
+          "returned": "on every session, as a stat; as a fact only when its host key was verified",
           "description": "The SHA-256 (hex) of the module set in its canonical form (every module's name, namespace, revision, features and deviations, sorted, as JSON), so two devices implementing the same modules read alike and any change to the set reads as a change of this one value."
         },
         {
           "name": "yang.completeness",
           "type": "string",
-          "returned": "on every session whose host key was verified",
+          "returned": "on every session, as a stat; as a fact only when its host key was verified",
           "description": "How far yang.modules is every module the device implements: complete (read from the YANG library, or from the hello of a device with none), partial (a library that could not be read, or came back empty for an account the device's access control hides it from), or unknown (a device that named no modules). A document is refused for a namespace the device does not serve only when this is complete."
         },
         {
@@ -13293,7 +13293,7 @@
         "key": "netconf.capabilities",
         "kind": "stable",
         "type": "list",
-        "description": "Every NETCONF protocol capability the device's hello advertised (each URN under urn:ietf:params:netconf:, with its parameters), sorted; the YANG module capabilities are in yang.modules instead. Read on every session, so a device that changes what it offers (IOS XE drops :writable-running when its candidate datastore is turned on) reads as a change."
+        "description": "Every capability the device's hello advertised that names no YANG module (RFC 6241's own and a vendor's), with its parameters but the volatile content-id and module-set-id, which yang.content_id holds, sorted; the YANG module capabilities are in yang.modules instead. Left out, with a warning, when it does not fit in 60 KiB. Read on every session, so a device that changes what it offers (IOS XE drops :writable-running when its candidate datastore is turned on) reads as a change."
       },
       {
         "key": "netconf.datastores",
@@ -13347,13 +13347,13 @@
         {
           "name": "netconf.capabilities",
           "type": "list of string",
-          "returned": "on every session whose host key was verified",
-          "description": "Every NETCONF protocol capability the device's hello advertised (each URN under urn:ietf:params:netconf:, with its parameters), sorted; the YANG module capabilities are in yang.modules instead. Read on every session, so a device that changes what it offers (IOS XE drops :writable-running when its candidate datastore is turned on) reads as a change."
+          "returned": "on every session, as a stat; as a fact only when its host key was verified",
+          "description": "Every capability the device's hello advertised that names no YANG module (RFC 6241's own and a vendor's), with its parameters but the volatile content-id and module-set-id, which yang.content_id holds, sorted; the YANG module capabilities are in yang.modules instead. Left out, with a warning, when it does not fit in 60 KiB. Read on every session, so a device that changes what it offers (IOS XE drops :writable-running when its candidate datastore is turned on) reads as a change."
         },
         {
           "name": "netconf.datastores",
           "type": "list of string",
-          "returned": "on every session whose host key was verified",
+          "returned": "on every session, as a stat; as a fact only when its host key was verified",
           "description": "The datastores the session could use, sorted: running always, candidate and startup when the hello advertises them, and every datastore the device's YANG library lists (an NMDA device's operational and intended)."
         },
         {
@@ -13365,19 +13365,19 @@
         {
           "name": "yang.module_count",
           "type": "int",
-          "returned": "on every session whose host key was verified",
+          "returned": "on every session, as a stat; as a fact only when its host key was verified",
           "description": "How many YANG modules the device implements, as yang.modules counts them."
         },
         {
           "name": "yang.modules_digest",
           "type": "string",
-          "returned": "on every session whose host key was verified",
+          "returned": "on every session, as a stat; as a fact only when its host key was verified",
           "description": "The SHA-256 (hex) of the module set in its canonical form (every module's name, namespace, revision, features and deviations, sorted, as JSON), so two devices implementing the same modules read alike and any change to the set reads as a change of this one value."
         },
         {
           "name": "yang.completeness",
           "type": "string",
-          "returned": "on every session whose host key was verified",
+          "returned": "on every session, as a stat; as a fact only when its host key was verified",
           "description": "How far yang.modules is every module the device implements: complete (read from the YANG library, or from the hello of a device with none), partial (a library that could not be read, or came back empty for an account the device's access control hides it from), or unknown (a device that named no modules). A document is refused for a namespace the device does not serve only when this is complete."
         },
         {

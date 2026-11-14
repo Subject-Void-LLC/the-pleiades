@@ -19,9 +19,11 @@ import (
 // item families, the native host families the fact-name rename fills (os.,
 // host., hardware., network., catalyst.), the management-plane families every
 // NETCONF session fills (netconf., yang.; 2026-11-14), and ansible_, because the playbook
-// converter's mapping reads facts by those names. A family is reserved in the
-// release before any built-in fills it, since adding one later would refuse a
-// program the release before loaded, which a patch release may not do.
+// converter's mapping reads facts by those names. A family is reserved no
+// later than the release in which a built-in first fills it, and in a minor
+// release, since reserving one later would refuse a program the release
+// before loaded, which a patch release may not do (netconf. and yang. were
+// reserved and filled together, for 0.4.0).
 var ReservedFactFamilies = []string{
 	"ansible_", "catalyst.", "file.", "group.", "hardware.", "host.", "netconf.", "network.", "os.",
 	"package.", "port.", "service.", "service_state.", "user.", "yang.",

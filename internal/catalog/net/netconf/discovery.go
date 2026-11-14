@@ -8,6 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
+	"sort"
 	"strings"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
@@ -47,9 +49,9 @@ const maxModulesFactBytes = 60 << 10
 
 // discoveryReturns documents the facts, one return each.
 func discoveryReturns() []collection.ReturnField {
-	const when = "on every session whose host key was verified"
+	const when = "on every session, as a stat; as a fact only when its host key was verified"
 	return []collection.ReturnField{
-		{Name: factCapabilities, Type: "list of string", Returned: when, Description: "Every NETCONF protocol capability the device's hello advertised (each URN under urn:ietf:params:netconf:, with its parameters), sorted; the YANG module capabilities are in yang.modules instead. Read on every session, so a device that changes what it offers (IOS XE drops :writable-running when its candidate datastore is turned on) reads as a change."},
+		{Name: factCapabilities, Type: "list of string", Returned: when, Description: "Every capability the device's hello advertised that names no YANG module (RFC 6241's own and a vendor's), with its parameters but the volatile content-id and module-set-id, which yang.content_id holds, sorted; the YANG module capabilities are in yang.modules instead. Left out, with a warning, when it does not fit in 60 KiB. Read on every session, so a device that changes what it offers (IOS XE drops :writable-running when its candidate datastore is turned on) reads as a change."},
 		{Name: factDatastores, Type: "list of string", Returned: when, Description: "The datastores the session could use, sorted: running always, candidate and startup when the hello advertises them, and every datastore the device's YANG library lists (an NMDA device's operational and intended)."},
 		{Name: factModules, Type: "list of string", Returned: "when the list fits in 60 KiB as JSON", Description: "Every YANG module the device implements, each as name@revision (the name alone for a module with no revision), sorted, read from the device's YANG library (RFC 8525, or RFC 7895's modules-state) when it advertises one and from the hello otherwise. An entry that is not a YANG identifier, a revision date or a printable namespace is left out whole, never cut short. Left out when the list does not fit; yang.module_count and yang.modules_digest are always recorded."},
 		{Name: factModuleCount, Type: "int", Returned: when, Description: "How many YANG modules the device implements, as yang.modules counts them."},
@@ -64,8 +66,12 @@ func discoveryReturns() []collection.ReturnField {
 // capability or invent a module, and what it says is not kept. It returns the
 // warnings the task should carry.
 func recordDiscovery(rc sdk.RunbookContext, params map[string]any, d netconf.Discovery) ([]string, error) {
+	capabilities, err := capabilitiesValue(d.Protocol)
+	if err != nil {
+		return nil, err
+	}
 	values := map[string]any{
-		factCapabilities: nonNil(d.Protocol),
+		factCapabilities: capabilities,
 		factDatastores:   nonNil(d.Datastores),
 		factModuleCount:  len(d.Modules),
 		factModuleDigest: d.ModulesDigest(),
@@ -82,6 +88,9 @@ func recordDiscovery(rc sdk.RunbookContext, params map[string]any, d netconf.Dis
 		values[factModules] = modules
 	}
 	var warnings []string
+	if len(capabilities) == 0 && len(d.Protocol) > 0 {
+		warnings = append(warnings, fmt.Sprintf("the device advertises %d capabilities, more than %s holds in 60 KiB; left out", len(d.Protocol), factCapabilities))
+	}
 	if modules == nil && len(d.Modules) > 0 {
 		warnings = append(warnings, fmt.Sprintf("the device implements %d YANG modules, more than %s holds in 60 KiB; recorded by count and digest only", len(d.Modules), factModules))
 	}
@@ -114,6 +123,51 @@ func recordDiscovery(rc sdk.RunbookContext, params map[string]any, d netconf.Dis
 		warnings = append(warnings, "the host key was not verified, so nothing this session discovered is recorded as a fact")
 	}
 	return warnings, nil
+}
+
+// volatileCapabilityParams are the parameters a capability carries that a
+// device may regenerate with nothing changed: the YANG library's content-id
+// and module-set-id. They are recorded in yang.content_id (volatile), so
+// netconf.capabilities, a stable fact, leaves them out.
+var volatileCapabilityParams = []string{"content-id", "module-set-id"}
+
+// capabilitiesValue is protocol as netconf.capabilities records it: each
+// capability without its volatile parameters, sorted, and empty when the list
+// does not fit in maxModulesFactBytes as JSON.
+func capabilitiesValue(protocol []string) ([]string, error) {
+	out := make([]string, 0, len(protocol))
+	for _, c := range protocol {
+		out = append(out, withoutVolatileParams(c))
+	}
+	sort.Strings(out)
+	raw, err := json.Marshal(out)
+	if err != nil {
+		return nil, err
+	}
+	if len(raw) > maxModulesFactBytes {
+		return []string{}, nil
+	}
+	return out, nil
+}
+
+// withoutVolatileParams is capability without its content-id and
+// module-set-id parameters, the others kept in their order.
+func withoutVolatileParams(capability string) string {
+	base, query, found := strings.Cut(capability, "?")
+	if !found {
+		return capability
+	}
+	var kept []string
+	for _, part := range strings.Split(query, "&") {
+		name, _, _ := strings.Cut(part, "=")
+		if !slices.Contains(volatileCapabilityParams, name) {
+			kept = append(kept, part)
+		}
+	}
+	if len(kept) == 0 {
+		return base
+	}
+	return base + "?" + strings.Join(kept, "&")
 }
 
 // modulesValue is modules as the fact's value, each name@revision (name alone

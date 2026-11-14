@@ -129,7 +129,11 @@ func Parse(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventor
 	}
 	// The output is recorded masked, as net.ios.command's is; the parser
 	// reads it as the device printed it, its secret fields masked after.
-	if err := rc.SetStat(statCommandStdout, netcfg.Mask(out)); err != nil {
+	stdout, err := maskedStdout(rc, out)
+	if err != nil {
+		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+	}
+	if err := rc.SetStat(statCommandStdout, stdout); err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
 	parser, parsed, err := iosparse.Parse(command, out)

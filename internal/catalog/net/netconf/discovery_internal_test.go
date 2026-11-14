@@ -5,6 +5,7 @@ package netconf
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -233,4 +234,77 @@ func itoa(i int) string {
 		b = append([]byte{byte('0' + i%10)}, b...)
 	}
 	return string(b)
+}
+
+// TestConfig_AFailedEditOrValidateDiscardsTheOwnEdit: every failure after the
+// candidate was locked and edited discards what this task staged.
+func TestConfig_AFailedEditOrValidateDiscardsTheOwnEdit(t *testing.T) {
+	for name, f := range map[string]*fakeSession{
+		"edit": func() *fakeSession {
+			f := candidateSession(true)
+			f.editErr = netconf.RPCErrors{{Tag: "invalid-value", Severity: "error"}}
+			return f
+		}(),
+		"validate": func() *fakeSession {
+			f := candidateSession(true)
+			f.validateErr = netconf.RPCErrors{{Tag: "operation-failed", Severity: "error"}}
+			return f
+		}(),
+	} {
+		useSession(t, f)
+		if _, err := Config(context.Background(), newStubContext(), nil, map[string]any{paramContent: nativeDoc}); err == nil {
+			t.Fatalf("%s: err = nil, want the failure", name)
+		}
+		if f.discarded != 1 || f.committed != 0 || f.unlocked != 1 {
+			t.Errorf("%s: discarded=%d committed=%d unlocked=%d; want the edit discarded, nothing committed, the lock released", name, f.discarded, f.committed, f.unlocked)
+		}
+	}
+}
+
+// TestConfig_CleanupOutlivesACanceledTask: a task whose context ends after
+// the edit (a timeout, a stopped run) still discards and unlocks, on a
+// context of its own.
+func TestConfig_CleanupOutlivesACanceledTask(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	f := candidateSession(true)
+	f.validateErr = netconf.RPCErrors{{Tag: "operation-failed", Severity: "error"}}
+	f.onValidate = cancel
+	useSession(t, f)
+	if _, err := Config(ctx, newStubContext(), nil, map[string]any{paramContent: nativeDoc}); err == nil {
+		t.Fatal("err = nil, want the failure")
+	}
+	if f.discarded != 1 || f.discardCtxErr != nil || f.unlockCtxErr != nil {
+		t.Errorf("discarded=%d discardCtxErr=%v unlockCtxErr=%v; want the cleanup on a live context", f.discarded, f.discardCtxErr, f.unlockCtxErr)
+	}
+}
+
+// TestConfig_ACommitWithNoAnswerSaysItsOutcomeIsUnknown: a commit whose
+// reply never came may have been applied.
+func TestConfig_ACommitWithNoAnswerSaysItsOutcomeIsUnknown(t *testing.T) {
+	f := candidateSession(true)
+	f.commitErr = errors.New("reading the reply: EOF")
+	useSession(t, f)
+	_, err := Config(context.Background(), newStubContext(), nil, map[string]any{paramContent: nativeDoc})
+	if err == nil || !strings.Contains(err.Error(), "whether the commit was applied is unknown") {
+		t.Errorf("err = %v, want the outcome said to be unknown", err)
+	}
+}
+
+func TestCapabilitiesValue_LeavesOutTheVolatileParameters(t *testing.T) {
+	got, err := capabilitiesValue([]string{
+		netconf.CapabilityYANGLibrary11 + "?revision=2019-01-04&content-id=fab9",
+		netconf.CapabilityYANGLibrary10 + "?revision=2019-01-04&module-set-id=fab9",
+		netconf.CapabilityBase11,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range got {
+		if strings.Contains(c, "fab9") {
+			t.Errorf("%s keeps a volatile parameter", c)
+		}
+	}
+	if len(got) != 3 || !strings.Contains(strings.Join(got, " "), "revision=2019-01-04") {
+		t.Errorf("capabilities = %v, want all three with their other parameters", got)
+	}
 }

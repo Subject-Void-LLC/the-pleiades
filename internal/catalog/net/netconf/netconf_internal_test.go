@@ -40,6 +40,13 @@ type fakeSession struct {
 	getSources  []netconf.Datastore
 	validateErr error
 
+	// discardCtxErr and unlockCtxErr are the context's error when discard
+	// and unlock ran, so a test can tell they ran on a live context.
+	discardCtxErr error
+	unlockCtxErr  error
+	// onValidate runs when Validate is called, before it answers.
+	onValidate func()
+
 	capabilities map[string]bool
 	getPayload   datastore.Payload
 	getErr       error
@@ -56,11 +63,15 @@ func (f *fakeSession) GetConfigFrom(ctx context.Context, source netconf.Datastor
 
 func (f *fakeSession) DiscardChanges(ctx context.Context) error {
 	f.discarded++
+	f.discardCtxErr = ctx.Err()
 	return nil
 }
 
 func (f *fakeSession) Validate(ctx context.Context) error {
 	f.validated++
+	if f.onValidate != nil {
+		f.onValidate()
+	}
 	return f.validateErr
 }
 
@@ -90,6 +101,7 @@ func (f *fakeSession) Lock(ctx context.Context) error {
 
 func (f *fakeSession) Unlock(ctx context.Context) error {
 	f.unlocked++
+	f.unlockCtxErr = ctx.Err()
 	return nil
 }
 

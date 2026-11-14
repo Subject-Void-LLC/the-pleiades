@@ -386,3 +386,30 @@ func findModule(modules []Module, name string) *Module {
 	}
 	return nil
 }
+
+// TestOpen_AnUnusableLibraryAnswerLeavesTheHelloPartial: a library get
+// answered with <ok/> and no <data> is read whole, so the session goes on,
+// with the hello's modules and the reason said.
+func TestOpen_AnUnusableLibraryAnswerLeavesTheHelloPartial(t *testing.T) {
+	caps := []string{CapabilityBase11, CapabilityYANGLibrary11 + "?content-id=x", "urn:a?module=a"}
+	d := &fakeDevice{hello: helloOf(caps), respond: func(req string) string {
+		return fmt.Sprintf(`<rpc-reply xmlns="urn:ietf:params:xml:ns:netconf:base:1.0" message-id="%s"><ok/></rpc-reply>`, messageIDOf(req))
+	}}
+	got := openAgainst(t, d, Options{}).Discovery()
+	if got.Completeness != Partial || !strings.Contains(got.LibraryError, "not usable") || len(got.Modules) != 1 {
+		t.Errorf("Discovery = %s, %q, %d modules; want partial, the reason, the hello's module", got.Completeness, got.LibraryError, len(got.Modules))
+	}
+}
+
+// TestDiscovery_ADroppedEntryMakesTheListPartial: a list that left out a
+// malformed module is not every module the server implements, so no
+// namespace is refused on it.
+func TestDiscovery_ADroppedEntryMakesTheListPartial(t *testing.T) {
+	d := discoverFromHello([]string{CapabilityBase11, "urn:x:w?module=w&revision=2024-1-1", "urn:x:v?module=v&revision=2024-01-01"})
+	if d.Completeness != Partial || d.Dropped != 1 {
+		t.Fatalf("Completeness = %s, Dropped = %d; want partial and one dropped", d.Completeness, d.Dropped)
+	}
+	if _, known := d.Serves("urn:x:w"); known {
+		t.Error("Serves answered on a list known to miss an entry")
+	}
+}
