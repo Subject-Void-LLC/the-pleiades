@@ -452,12 +452,12 @@
   "trust-host --help": {
     "code": 0,
     "stdout": "",
-    "stderr": "usage: pleiades trust-host \u003cdevice\u003e (--from-console \u003cvirtualbox host\u003e [--vm \u003cname\u003e] | --first-connect [--reason \u003cwhy\u003e]) [--replace]\n"
+    "stderr": "usage: pleiades trust-host \u003cdevice\u003e (--from-console \u003cvirtualbox host\u003e [--vm \u003cname\u003e] | --first-connect [--reason \u003cwhy\u003e]) [--netconf] [--replace]\n"
   },
   "trust-host -h": {
     "code": 0,
     "stdout": "",
-    "stderr": "usage: pleiades trust-host \u003cdevice\u003e (--from-console \u003cvirtualbox host\u003e [--vm \u003cname\u003e] | --first-connect [--reason \u003cwhy\u003e]) [--replace]\n"
+    "stderr": "usage: pleiades trust-host \u003cdevice\u003e (--from-console \u003cvirtualbox host\u003e [--vm \u003cname\u003e] | --first-connect [--reason \u003cwhy\u003e]) [--netconf] [--replace]\n"
   },
   "validate --help": {
     "code": 0,
