@@ -219,7 +219,15 @@ If The Pleiades is private to your organization, set {{code "GOPRIVATE"}} to its
 module path and give the go command credentials for it.
 
 Offline, or to build against a local checkout of The Pleiades, point the
-module at the checkout first:
+module at the checkout. An offline {{code "go mod tidy"}} reads every module
+the checkout's packages and their tests use from the module cache, so fill
+it from the checkout once while still online:
+
+~~~sh
+cd /path/to/the-pleiades && go mod download
+~~~
+
+Then, in this directory:
 
 ~~~sh
 go mod edit -replace github.com/Subject-Void-LLC/the-pleiades=/path/to/the-pleiades

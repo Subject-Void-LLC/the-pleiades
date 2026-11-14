@@ -30549,3 +30549,26 @@ whose completion publish fails still answers Refused; failing with that return u
 
 **Lesson.** A path that makes this delivery the last has to survive the conditions that end deliveries: a shutdown, a broker
 fault, every early return. Check each one against the guarantee, not against the path it replaced.
+
+## 1242. The scaffolded README's offline build needed the module cache to hold every module of the checkout's graph, which it never said, so a cold cache failed the release gate (a repeat of 482) (fixed)
+
+**Symptom.** 2026-11-14, Dependabot's PR #173 (the OpenTelemetry 1.47 bump), `containers (1)`:
+`cmd/pleiades`'s `TestCLI_AScriptRunsThroughTheLoader` failed "the README's step "go mod tidy" failed offline" on
+`go.uber.org/goleak: module lookup disabled by GOPROXY=off`, reached through `pkg/external tested by pkg/external.test`.
+It failed again alone. Every other run that week passed it.
+
+**Root cause.** An offline `go mod tidy` in the author's module, replaced onto the checkout, reads every module that the
+packages it reaches and their tests use, in other modules too: `goleak` through `pkg/external`'s TestMain, and
+`golang.org/x/term` through `golang.org/x/crypto/ssh`'s tests. The README told the author only that the pinned toolchain
+had to be present, and both release gates ran it on whatever cache the machine had. The bump changed go.sum, so setup-go's
+cache missed and the shard started cold, holding only what its own tests had downloaded.
+
+**Why 482's fix did not prevent it.** 482 kept testcontainers-go out of the SDK's test imports, and LESSONS 290 said a warm
+cache proves nothing, but the gates kept running on the warm cache, so nothing measured the README's offline promise itself.
+
+**Fix.** The README now has an online step before the offline block, `cd /path/to/the-pleiades && go mod download`, and both
+release gates (`internal/forge/externalscaffold`'s and `cmd/pleiades`'s) run it before the offline steps. Measured on an
+empty module cache: `TestGenerate_ReleaseGate` failed on `golang.org/x/term` without the change and passed with it, and
+`TestCLI_AScriptRunsThroughTheLoader` passed with it.
+
+**Lesson.** An offline promise is tested from a cold cache, or it is a statement about the machine the test ran on.

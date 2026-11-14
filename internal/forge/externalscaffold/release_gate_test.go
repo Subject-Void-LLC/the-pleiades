@@ -227,6 +227,14 @@ func buildIn(t *testing.T, cfg externalscaffold.Config, dir string, extraEnv []s
 		}
 	}
 
+	// The README's online step comes first, with this process's own
+	// environment: it fills the module cache from the checkout, and an
+	// offline tidy needs every module it holds, not only the ones this
+	// test binary was built from (FAILURE_PATTERNS 1242).
+	prepare := strings.ReplaceAll(onlinePrepareCommand(t, readme), "/path/to/the-pleiades", repoRoot(t))
+	if out, err := exec.Command("sh", "-c", prepare).CombinedOutput(); err != nil { // #nosec G204 -- the generated README's own command, the thing under test
+		t.Fatalf("the README's online step %q failed: %v\n%s", prepare, err, out)
+	}
 	commands := offlineBuildCommands(t, readme)
 	env := append(offlineEnv(), extraEnv...)
 	pinned := "GOTOOLCHAIN=" + moduleToolchain(t)
@@ -284,6 +292,21 @@ func offlineBuildCommands(t *testing.T, readme string) []string {
 	}
 	t.Fatalf("the README has no offline build block:\n%s", readme)
 	return nil
+}
+
+// onlinePrepareCommand returns the README's one online step before an
+// offline build: the fenced sh block whose only line fills the module cache
+// from the checkout. It fails the test if there is no such block.
+func onlinePrepareCommand(t *testing.T, readme string) string {
+	t.Helper()
+	for _, block := range strings.Split(readme, "~~~sh\n")[1:] {
+		body, _, _ := strings.Cut(block, "~~~")
+		if line := strings.TrimSpace(body); line == "cd /path/to/the-pleiades && go mod download" {
+			return line
+		}
+	}
+	t.Fatalf("the README has no online step filling the module cache:\n%s", readme)
+	return ""
 }
 
 // assertDescribe runs the built program with "describe" and checks the

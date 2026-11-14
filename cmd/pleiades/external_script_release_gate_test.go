@@ -201,6 +201,18 @@ func buildScaffoldedProgram(t *testing.T, dir, binary string) string {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The README's online step runs first, with this process's own
+	// environment: an offline tidy reads every module the checkout's
+	// packages and their tests use from the module cache, and a cold cache
+	// holds only what this test binary was built from (FAILURE_PATTERNS
+	// 1242).
+	const prepare = "cd /path/to/the-pleiades && go mod download"
+	if !strings.Contains(string(readme), "~~~sh\n"+prepare+"\n~~~") {
+		t.Fatalf("the README has no online step filling the module cache:\n%s", readme)
+	}
+	if out, err := exec.Command("sh", "-c", strings.ReplaceAll(prepare, "/path/to/the-pleiades", root)).CombinedOutput(); err != nil { // #nosec G204 -- the generated README's own command, the thing under test
+		t.Fatalf("the README's online step failed: %v\n%s", err, out)
+	}
 	var lines []string
 	for _, block := range strings.Split(string(readme), "~~~sh\n")[1:] {
 		body, _, _ := strings.Cut(block, "~~~")
