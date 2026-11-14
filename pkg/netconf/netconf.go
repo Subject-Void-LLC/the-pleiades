@@ -45,6 +45,12 @@
 //     configuration lands on the running datastore directly and Commit
 //     is unusable against it. It does advertise :rollback-on-error,
 //     which is what makes that safe; see Options.Target and SetConfig.
+//     That is IOS XE's default, not its nature: measured on a Catalyst
+//     8000V (17.15.1a) on 2026-11-14, configuring "netconf-yang feature
+//     candidate-datastore" makes the hello advertise :candidate,
+//     :validate and :confirmed-commit and withdraw :writable-running, so
+//     the datastore is chosen per session (Options.ChooseTarget,
+//     discovery.go).
 package netconf
 
 import (
@@ -85,8 +91,9 @@ type Datastore string
 const (
 	// Running is the datastore every NETCONF server has.
 	Running Datastore = "running"
-	// Candidate exists only on a server advertising :candidate. A real
-	// Cisco IOS XE device does not.
+	// Candidate exists only on a server advertising :candidate. Cisco IOS
+	// XE does only once its candidate datastore is configured, and then
+	// stops offering :writable-running.
 	Candidate Datastore = "candidate"
 	// Startup exists only on a server advertising :startup.
 	Startup Datastore = "startup"

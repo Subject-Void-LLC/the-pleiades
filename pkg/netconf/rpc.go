@@ -57,7 +57,7 @@ func (s *Session) GetConfig(ctx context.Context, p datastore.Path) (datastore.Pa
 //
 // This matters more here than it would on a device with a candidate
 // datastore, because a device offering only :writable-running (which is
-// exactly what Cisco IOS XE offers) has no staging area: every edit lands
+// what Cisco IOS XE offers by default) has no staging area: every edit lands
 // on the live configuration as it is applied.
 func (s *Session) SetConfig(ctx context.Context, p datastore.Path, payload datastore.Payload, op datastore.Operation) error {
 	if !op.Valid() {
@@ -160,7 +160,7 @@ type EditConfigRequest struct {
 //
 // This matters more here than it would on a device with a candidate
 // datastore, because a device offering only :writable-running (which is
-// exactly what Cisco IOS XE offers) has no staging area at all: every
+// what Cisco IOS XE offers by default) has no staging area at all: every
 // element lands on the live configuration as it is applied.
 func (s *Session) EditConfig(ctx context.Context, req EditConfigRequest) error {
 	if strings.TrimSpace(req.Config) == "" {
@@ -257,10 +257,10 @@ func (s *Session) Unlock(ctx context.Context) error {
 // does not advertise it, rather than being sent and rejected. This is
 // the datastore-family operation the shared pkg/datastore.Store port
 // deliberately does not carry: RESTCONF and gNMI have no commit at all,
-// so a caller reaches it by asserting for this concrete type. A real
-// Cisco IOS XE device does not offer :candidate, so this is exercised
-// against the container conformance target rather than against the
-// sandbox.
+// so a caller reaches it by asserting for this concrete type. It is
+// exercised against the container conformance target and, since
+// 2026-11-14, against a Catalyst 8000V with its candidate datastore
+// configured (cmd/pleiades's NETCONF and RESTCONF release gate).
 func (s *Session) Commit(ctx context.Context) error {
 	if !s.HasCapability(CapabilityCandidate) {
 		return fmt.Errorf("netconf: this device has no candidate datastore to commit (it does not advertise %s)", CapabilityCandidate)
