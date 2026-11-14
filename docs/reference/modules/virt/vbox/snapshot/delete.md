@@ -6,7 +6,7 @@ status: beta
 
 Deletes a snapshot of a VirtualBox VM.
 
-Makes sure a VM has no snapshot with this name. None under the name reports no change. The snapshot's saved state is merged away and cannot be brought back, so this cannot be undone. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A check reads the VM and sends nothing.
+Makes sure a VM has no snapshot with this name. None under the name reports no change. A VM that is not stopped (running, paused, or between states) is refused, in a check too: deleting a running VM's snapshot merges its disks while it runs, which on the lab host twice left the VM unreadable to VirtualBox, its settings holding no record of its disks. Stop it first with virt.vbox.vm.stop. The snapshot's saved state is merged away and cannot be brought back, so this cannot be undone. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A check reads the VM and sends nothing.
 
 ## Attributes
 

@@ -1220,6 +1220,13 @@ an operator.
   be checked but not changed until someone promotes it. `static_yaml` lands its entries as
   `active`. The **Read-only** column of the [sync plugin reference](reference/plugins.md)
   says which a source is.
+- **Already there under the same name.** A sync updates only the devices it added itself.
+  One another plugin added is a conflict, reported and left alone. So is one added by
+  hand (`add-host`, a line in `inventory.yaml`): the same name is no proof it is the same
+  machine, and taking it over would replace its properties and its owner. To let a sync
+  take over a hand-added device on purpose, name it: `pleiades inventory sync --plugin
+  vbox ... --adopt win-lab` (repeatable, one exact name each). From then on that plugin
+  owns it.
 - **Quarantined, and not added.** A record a plugin cannot place is quarantined with a
   reason, and it is **not** added to the inventory, since a device needs a type to exist.
   For example, `catalyst_center` quarantines a device whose software type is neither IOS
@@ -3147,6 +3154,20 @@ Windows host where WSL 2, Docker Desktop or Memory Integrity keeps Hyper-V runni
 then runs guests through the Windows Hypervisor Platform, and there a Linux guest with more than
 one CPU can hang early in its boot. The lab's "Limits and troubleshooting" section has the
 measurements and a change to the guest that avoids it.
+
+`pleiades inventory sync --plugin vbox` brings the host's VMs into the inventory as the devices
+that reach their guests, at the address `virt.vbox.vm.clone` recorded on each, `simulate-locked`
+until promoted. It never writes to the host, and a VM it cannot place (no recorded address, an
+address that is not an IP address, an OS type no rule places) is listed for review and not added.
+A device you added by hand under a VM's name is a conflict, left alone, until you name it with
+`--adopt` (above).
+
+`virt.vbox.media.prune` deletes the disks no registered VM uses and the folders that VMs VirtualBox
+no longer knows left under the machine folder. A check lists them first and removes nothing. A
+folder its own run empties is removed on the next run. It never touches anything outside the
+machine folder, however VirtualBox spells the path, nor anything at or under a symbolic link,
+junction or mount point. `virt.vbox.snapshot.delete` refuses a VM that is not stopped, since
+merging a running VM's disks left one unreadable to VirtualBox on the lab host.
 
 ## Data handling disclosure
 

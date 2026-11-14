@@ -119,7 +119,9 @@ func TestReconcile_QuotesTheUpstreamNameInEveryError(t *testing.T) {
 			}
 			p.classify = tt.classify
 
-			_, err := syncplugin.Reconcile(ctx, p, syncplugin.Config{Name: "scripted"}, repo, inv.NewItemFactory())
+			// A stored device was seeded by hand, so the sync adopts it by
+			// name to reach the update steps.
+			_, err := syncplugin.Reconcile(ctx, p, syncplugin.Config{Name: "scripted", Adopt: []string{name}}, repo, inv.NewItemFactory())
 			if err == nil {
 				t.Fatalf("Reconcile succeeded; want it to fail %s", tt.step)
 			}

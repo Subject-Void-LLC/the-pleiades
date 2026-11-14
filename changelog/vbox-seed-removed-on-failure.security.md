@@ -1,0 +1,1 @@
+`virt.vbox.vm.clone` deletes the seed it wrote (a Windows Administrator's password in clear, or a hash of a Linux login's) on every failure, even when the half-made VM cannot be deleted, where a failed unregister used to leave it on the host.

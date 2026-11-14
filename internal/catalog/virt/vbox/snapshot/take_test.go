@@ -68,12 +68,30 @@ func TestTake(t *testing.T) {
 	}
 }
 
+// TestTake_OfARunningVM: a running VM is snapshotted, but no undo is
+// recorded, since the undo would delete the snapshot from the running VM a
+// rollback brings back, which virt.vbox.snapshot.delete refuses; a warning
+// says so, and the rollback planner refuses the change by name.
 func TestTake_OfARunningVM(t *testing.T) {
 	vm := lab()
 	vm.State = vboxmanage.StateRunning
 	onModel(t, vboxmanagetest.New(vm))
-	if result, err := call(t, "virt.vbox.snapshot.take", false, newRecorder(), map[string]any{"vm": "ubuntu-lab", "name": "live"}); err != nil || !result.Changed {
-		t.Errorf("%+v, %v", result, err)
+	rc := newRecorder()
+	if result, err := call(t, "virt.vbox.snapshot.take", false, rc, map[string]any{"vm": "ubuntu-lab", "name": "live"}); err != nil || !result.Changed || len(vm.Snapshots) != 2 {
+		t.Fatalf("%+v, %v", result, err)
+	}
+	if _, ok := rc.stats[sdk.StatInverse]; ok {
+		t.Errorf("a snapshot of a running VM recorded an undo: %v", rc.stats[sdk.StatInverse])
+	}
+	if w, _ := rc.stats[sdk.StatWarnings].([]string); len(w) != 1 || !strings.Contains(w[0], "no undo is recorded") {
+		t.Errorf("warnings = %v", rc.stats[sdk.StatWarnings])
+	}
+	// The warning is the only record that no undo exists: failing to
+	// record it fails the task.
+	failing := newRecorder()
+	failing.failOn = sdk.StatWarnings
+	if _, err := call(t, "virt.vbox.snapshot.take", false, failing, map[string]any{"vm": "ubuntu-lab", "name": "live2"}); err == nil {
+		t.Error("a take whose warning could not be recorded succeeded")
 	}
 }
 

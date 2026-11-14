@@ -1,12 +1,10 @@
-// The "virt.vbox.vm.screenshot" method: a picture of a running VM's screen, saved where Pleiades runs.
+// The "virt.vbox.vm.screenshot" method: a picture of a running VM's screen, saved in the project.
 package vm
 
 import (
 	"context"
 	"encoding/binary"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
@@ -42,11 +40,11 @@ func init() {
 			Reversibility:   collection.Reversibility{Reversible: false, Notes: "The VM is not changed; the file at dest is replaced by the picture, and what it held before is not kept."},
 			SupportsCheck:   true,
 			Doc: collection.Doc{
-				Summary:     "Saves a picture of a running VM's screen as a PNG file on the machine running Pleiades.",
-				Description: "Takes a picture of a running VM's screen on the host, brings it back over the host's own connection, and writes it to dest on the machine running this task, as Ansible's fetch brings a file back; the host keeps no copy. It is how to see a VM with no window, such as one stopped at a first-boot screen or an installer's error. A VM that has not set a display mode yet (still in its firmware, or stopped before it drew anything) has no picture to take, and says so. The VM is not changed; dest is replaced when it exists. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A check reads the VM, takes no picture and writes nothing.",
+				Summary:     "Saves a picture of a running VM's screen as a PNG file in the project.",
+				Description: "Takes a picture of a running VM's screen on the host, brings it back over the host's own connection, and writes it to dest in the project the run belongs to, as Ansible's fetch brings a file back; the host keeps no copy. It is how to see a VM with no window, such as one stopped at a first-boot screen or an installer's error. dest is a path relative to the project directory, ending in .png; one that is absolute, climbs out of the project, passes through a symbolic link or names the project's .pleiades directory is refused, as every file a method writes into the project is, and so is a run with no project here, such as one on a Runner. A VM that has not set a display mode yet (still in its firmware, or stopped before it drew anything) has no picture to take, and says so. The VM is not changed; dest is replaced when it exists. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A check reads the VM, takes no picture and writes nothing.",
 				Params: []collection.Param{
 					{Name: "name", Type: "string", Required: true, Description: "The VM's name on the host. It must start with a letter or digit and hold only letters, digits, '.', '_' and '-', at most 63 characters; any other name is refused rather than quoted."},
-					{Name: "dest", Type: "string", Required: true, Description: "Where to write the PNG on the machine running this task. Its folder must exist."},
+					{Name: "dest", Type: "string", Required: true, Description: "Where in the project to write the PNG, a slash-separated path relative to the project directory ending in .png, such as shots/win-lab.png. A missing folder is created inside the project.", Format: collection.ParamFormatProjectPath},
 				},
 				Returns: []collection.ReturnField{
 					{Name: "dest", Type: "string", Returned: "always", Description: "Where the picture was written, or would be, in a check."},
@@ -55,7 +53,7 @@ func init() {
 					{Name: "bytes", Type: "int", Returned: "when not a check", Description: "The PNG file's size."},
 				},
 				Examples: []collection.Example{
-					{Name: "See where a Windows VM's first boot stopped", RunbookYAML: "- name: Save a picture of the lab VM's screen\n  virt.vbox.vm.screenshot:\n    name: win-lab\n    dest: ./win-lab.png\n"},
+					{Name: "See where a Windows VM's first boot stopped", RunbookYAML: "- name: Save a picture of the lab VM's screen\n  virt.vbox.vm.screenshot:\n    name: win-lab\n    dest: shots/win-lab.png\n"},
 				},
 				SeeAlso: []string{"virt.vbox.vm.log", "virt.vbox.vm.send_keys"},
 			},
@@ -76,6 +74,9 @@ const (
 
 	screenFile    = "screenshot.png"
 	maxScreenshot = 16 << 20
+	// screenshotPerm is the picture's mode in the project: its owner's
+	// alone, as every file a method writes there by default.
+	screenshotPerm = 0o600
 )
 
 // pngSignature is the eight bytes every PNG file starts with.
@@ -93,15 +94,35 @@ func CheckScreenshot(ctx context.Context, rc sdk.RunbookContext, device inventor
 }
 
 // runScreenshot takes the picture on the host, brings it back and writes
-// it to dest.
+// it to dest in the project, through the run's sdk.ProjectFileWriter.
+//
+// Until 2026-11-13 dest was any path on the machine running the task, written
+// with os.WriteFile: on a Runner, a runbook could replace any file the
+// Runner's account can write with a picture of a screen its author drew
+// (FAILURE_PATTERNS 1237, as 667 was for virt.cml.capture.stop). The
+// project writer is the one place the rules for a method's file live: a
+// relative path, inside the project, through no link, never .pleiades, and
+// none at all where the run has no project.
 func runScreenshot(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any, mode collection.Mode) (collection.Result, error) {
 	const fqcn = "virt.vbox.vm.screenshot"
 	dest, err := sdk.RequiredStringParam(params, paramDest)
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
-	if info, err := os.Stat(filepath.Dir(dest)); err != nil || !info.IsDir() {
-		return collection.Result{}, fmt.Errorf("%s: dest %q is not in a folder that exists here", fqcn, dest)
+	// A picture, never another of the project's files: a runbook a later
+	// rollback reads as it ran must not be replaced by a PNG.
+	if !strings.HasSuffix(dest, ".png") {
+		return collection.Result{}, fmt.Errorf("%s: %s %q must name a .png file", fqcn, paramDest, dest)
+	}
+	writer, ok := rc.(sdk.ProjectFileWriter)
+	if !ok {
+		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, sdk.ErrNoProjectFiles)
+	}
+	// The writer's own refusals, before the host is asked for anything, in a
+	// check as in a run: an absolute path, one out of the project or through
+	// a link, the project's .pleiades.
+	if _, err := writer.WriteProjectFile(dest, nil, screenshotPerm, false); err != nil {
+		return collection.Result{}, fmt.Errorf("%s: %s: %w", fqcn, paramDest, err)
 	}
 	h, name, err := target(rc, device, params, fqcn)
 	if err != nil {
@@ -128,7 +149,7 @@ func runScreenshot(ctx context.Context, rc sdk.RunbookContext, device inventory.
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
-	if err := writeLocal(dest, picture); err != nil {
+	if _, err := writer.WriteProjectFile(dest, picture, screenshotPerm, true); err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
 	for key, value := range map[string]int{statWidth: width, statHeight: height, statBytes: len(picture)} {
@@ -167,15 +188,4 @@ func pngSize(data []byte) (int, int, error) {
 		return 0, 0, fmt.Errorf("the host's picture is not a PNG")
 	}
 	return int(binary.BigEndian.Uint32(data[16:20])), int(binary.BigEndian.Uint32(data[20:24])), nil
-}
-
-// writeLocal writes data to path on this machine, readable by its owner
-// only: beside path first and then moved into place, so path never holds
-// part of a picture.
-func writeLocal(path string, data []byte) error {
-	part := path + ".pleiades-part"
-	if err := os.WriteFile(part, data, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(part, path)
 }

@@ -113,6 +113,16 @@ func TestCloneWindows(t *testing.T) {
 		t.Errorf("a Windows clone with no size is %v, not small", check.stats[statSize])
 	}
 	rc := administrator()
+	// The seed is read while the clone boots, as Windows reads it: once
+	// the clone is proven, it is deleted.
+	var seed []byte
+	var seedSlots []vboxmanage.Slot
+	guest(t, func(string, string) (string, error) {
+		vm := model.VM("win-lab")
+		seed = model.Files[vm.Folder+`\seed.iso`]
+		seedSlots = append([]vboxmanage.Slot(nil), vm.Slots...)
+		return "WIN-LAB", nil
+	})
 	if result, err := call(t, "virt.vbox.vm.clone", false, rc, winCloneParams()); err != nil || !result.Changed {
 		t.Fatalf("%+v, %v", result, err)
 	}
@@ -120,7 +130,6 @@ func TestCloneWindows(t *testing.T) {
 	if vm == nil || vm.MemoryMB != 2048 || vm.CPUs != 1 || vm.NICs[2].Kind != "hostonly" {
 		t.Fatalf("cloned %+v", vm)
 	}
-	seed := model.Files[vm.Folder+`\seed.iso`]
 	mac := vm.NICs[2].MAC
 	dashed := strings.Join([]string{mac[0:2], mac[2:4], mac[4:6], mac[6:8], mac[8:10], mac[10:12]}, "-")
 	for _, want := range []string{"<ComputerName>win-lab</ComputerName>", "<Value>" + labPass + "</Value>", "<Identifier>" + dashed + "</Identifier>", "192.168.56.30/24"} {
@@ -132,7 +141,7 @@ func TestCloneWindows(t *testing.T) {
 		t.Error("the seed does not name Autounattend.xml")
 	}
 	// On SATA, which Windows sees from its first instant, not IDE.
-	for _, s := range vm.Slots {
+	for _, s := range seedSlots {
 		if strings.HasSuffix(s.Medium, `\seed.iso`) && (s.Controller != "SATA" || s.Port != 1) {
 			t.Errorf("the seed went in %+v", s)
 		}

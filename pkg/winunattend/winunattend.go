@@ -10,9 +10,10 @@
 //
 // Both are built from typed values, and every value is written by an XML
 // escaper rather than spliced into text, so nothing a caller passes can
-// add an element. Windows Setup looks for Autounattend.xml at the root of
-// each removable drive at the start of every configuration pass, which is
-// how a DVD made here reaches both.
+// add an element. Windows Setup looks at the root of each removable drive
+// for Autounattend.xml when it installs from media, and for Unattend.xml
+// in a generalized image's first boot, which is how a DVD made here
+// reaches both.
 package winunattend
 
 import (
@@ -31,8 +32,17 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/iso9660"
 )
 
-// FileName is the name Windows Setup looks for at a removable drive's root.
+// FileName is the name Windows Setup looks for at a removable drive's root
+// in the windowsPE pass, when it installs from media.
 const FileName = "Autounattend.xml"
+
+// GeneralizedFileName is the name a generalized image's first boot looks
+// for at a removable drive's root, in the specialize and oobeSystem passes.
+// Measured 2026-11-13 on Microsoft's Windows Server 2025 evaluation VHDX:
+// its setup log reads "Found usable unattend file for pass [specialize] at
+// [D:\unattend.xml]", and with FileName alone on the drive (2026-09-27) it
+// found none.
+const GeneralizedFileName = "Unattend.xml"
 
 // VolumeID is the label of the ISO images this package writes.
 const VolumeID = "PLEIADES"
@@ -117,13 +127,13 @@ func isDigits(s string) bool {
 }
 
 // checkPassword refuses a password an answer file cannot carry unchanged
-// (too long for Windows, invalid UTF-8, or holding a control character,
-// which XML cannot represent) and one Windows' default policy refuses:
+// (too long for Windows, invalid UTF-8, or holding a control character
+// or another character XML cannot represent, notXMLText) and one Windows' default policy refuses:
 // shorter than 8 characters, with fewer than three of upper case, lower
 // case, digits and other characters, or holding the account's name.
 // Setup would otherwise take the file and leave the account without it.
 func checkPassword(p string) error {
-	if len(p) > 127 || !utf8.ValidString(p) || strings.ContainsFunc(p, unicode.IsControl) {
+	if len(p) > 127 || !utf8.ValidString(p) || strings.ContainsFunc(p, notXMLText) {
 		return fmt.Errorf("winunattend: the password is longer than 127 characters or holds a character an answer file cannot carry")
 	}
 	kinds := 0
@@ -138,6 +148,14 @@ func checkPassword(p string) error {
 		return fmt.Errorf("winunattend: Windows refuses a password shorter than 8 characters, with fewer than three of upper case, lower case, digits and symbols, or holding the name Administrator")
 	}
 	return nil
+}
+
+// notXMLText reports whether r is a control character, or one outside XML
+// 1.0's Char production (U+FFFE and U+FFFF; valid UTF-8 holds no
+// surrogate). xml.EscapeText writes U+FFFD in place of such a character,
+// so an answer file would carry a password other than the one stored.
+func notXMLText(r rune) bool {
+	return unicode.IsControl(r) || r == 0xFFFE || r == 0xFFFF
 }
 
 // passwordAlphabet is what NewPassword draws from: letters and digits
@@ -248,20 +266,27 @@ func password(name, value string) *node {
 	return el(name, leaf("Value", value), leaf("PlainText", "true"))
 }
 
-// ISO returns the seed as a DVD image holding FileName, every date in it
-// modified.
+// ISO returns the seed as a DVD image holding it twice, as FileName and as
+// GeneralizedFileName, every date in it modified: a base Install made
+// reads the first through the registry pointer it leaves, and any other
+// generalized image the second.
 func (s Seed) ISO(modified time.Time) ([]byte, error) {
 	answer, err := s.XML()
 	if err != nil {
 		return nil, err
 	}
-	return image(answer, modified)
+	return image(answer, modified, GeneralizedFileName)
 }
 
-// image writes answer into an ISO as FileName.
-func image(answer []byte, modified time.Time) ([]byte, error) {
+// image writes answer into an ISO as FileName, and again under each name
+// in also.
+func image(answer []byte, modified time.Time, also ...string) ([]byte, error) {
 	var b bytes.Buffer
-	if err := iso9660.Write(&b, VolumeID, modified, []iso9660.File{{Name: FileName, Data: answer}}); err != nil {
+	files := []iso9660.File{{Name: FileName, Data: answer}}
+	for _, name := range also {
+		files = append(files, iso9660.File{Name: name, Data: answer})
+	}
+	if err := iso9660.Write(&b, VolumeID, modified, files); err != nil {
 		return nil, fmt.Errorf("winunattend: %w", err)
 	}
 	return b.Bytes(), nil

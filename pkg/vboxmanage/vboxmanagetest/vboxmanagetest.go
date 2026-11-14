@@ -126,6 +126,11 @@ type Host struct {
 	// The answer is written under the host's lock, so a guest must not
 	// call the host.
 	Guests map[string]func(typed string) []byte
+	// Orphans are registered disks no machine uses (prune.go).
+	Orphans []Orphan
+	// Links are the paths on the host that are symbolic links, junctions or
+	// mount points (prune.go).
+	Links []string
 
 	mu    sync.Mutex
 	vms   []*VM
@@ -311,6 +316,8 @@ func (h *Host) vboxmanage(args []string) vboxmanage.Output {
 	switch {
 	case len(args) == 2 && args[0] == "list":
 		return h.list(args[1])
+	case len(args) == 3 && args[0] == "list" && args[1] == "--long" && args[2] == "hdds":
+		return h.listMedia()
 	case len(args) == 3 && args[0] == "showvminfo" && args[2] == "--machinereadable":
 		vm := h.find(args[1])
 		if vm == nil {
@@ -336,6 +343,9 @@ func (h *Host) vboxmanage(args []string) vboxmanage.Output {
 	case len(args) >= 3 && args[0] == "closemedium" && args[1] == "dvd":
 		return h.closemedium(args[2], args[3:])
 	case (len(args) == 3 || len(args) == 4) && args[0] == "closemedium" && args[1] == "disk":
+		if out, ok := h.closeOrphan(args[2], args[3:]); ok {
+			return out
+		}
 		return h.closeDisk(args[2], args[3:])
 	case len(args) >= 2 && args[0] == "createvm":
 		return h.createvm(args[1:])
@@ -395,6 +405,8 @@ func (h *Host) list(what string) vboxmanage.Output {
 		return h.hostinfo()
 	case "hdds":
 		return h.listHDDs()
+	case "systemproperties":
+		return h.systemProperties()
 	}
 	var b strings.Builder
 	for _, vm := range h.vms {

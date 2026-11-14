@@ -4,9 +4,9 @@ status: beta
 
 # virt.vbox.vm.screenshot
 
-Saves a picture of a running VM's screen as a PNG file on the machine running Pleiades.
+Saves a picture of a running VM's screen as a PNG file in the project.
 
-Takes a picture of a running VM's screen on the host, brings it back over the host's own connection, and writes it to dest on the machine running this task, as Ansible's fetch brings a file back; the host keeps no copy. It is how to see a VM with no window, such as one stopped at a first-boot screen or an installer's error. A VM that has not set a display mode yet (still in its firmware, or stopped before it drew anything) has no picture to take, and says so. The VM is not changed; dest is replaced when it exists. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A check reads the VM, takes no picture and writes nothing.
+Takes a picture of a running VM's screen on the host, brings it back over the host's own connection, and writes it to dest in the project the run belongs to, as Ansible's fetch brings a file back; the host keeps no copy. It is how to see a VM with no window, such as one stopped at a first-boot screen or an installer's error. dest is a path relative to the project directory, ending in .png; one that is absolute, climbs out of the project, passes through a symbolic link or names the project's .pleiades directory is refused, as every file a method writes into the project is, and so is a run with no project here, such as one on a Runner. A VM that has not set a display mode yet (still in its firmware, or stopped before it drew anything) has no picture to take, and says so. The VM is not changed; dest is replaced when it exists. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A check reads the VM, takes no picture and writes nothing.
 
 ## Attributes
 
@@ -24,7 +24,7 @@ Takes a picture of a running VM's screen on the host, brings it back over the ho
 | Name | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
 | `name` | `string` | yes | - | The VM's name on the host. It must start with a letter or digit and hold only letters, digits, '.', '_' and '-', at most 63 characters; any other name is refused rather than quoted. |
-| `dest` | `string` | yes | - | Where to write the PNG on the machine running this task. Its folder must exist. |
+| `dest` | `string` | yes | - | Where in the project to write the PNG, a slash-separated path relative to the project directory ending in .png, such as shots/win-lab.png. A missing folder is created inside the project. |
 
 ## Returns
 
@@ -56,6 +56,6 @@ See where a Windows VM's first boot stopped:
 - name: Save a picture of the lab VM's screen
   virt.vbox.vm.screenshot:
     name: win-lab
-    dest: ./win-lab.png
+    dest: shots/win-lab.png
 ```
 

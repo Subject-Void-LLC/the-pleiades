@@ -98,6 +98,26 @@ type Config struct {
 	// CredentialName does: a Config must stay safe to log, serialize, or
 	// embed in an error.
 	Settings map[string]string
+
+	// Adopt names the devices added by hand (no sync owner) that this sync
+	// may take over. Every other hand-added device under a name the
+	// upstream reports is a conflict the sync reports and leaves alone,
+	// as one another plugin owns already is: a typed name in a hosts file
+	// and a discovered VM of the same name are not known to be the same
+	// machine, and taking one over replaces its properties and its owner.
+	// It is shared, not per plugin, so it does not break Endpoint's rule.
+	Adopt []string
+}
+
+// Adopts reports whether the sync may take over the hand-added device
+// under name, which Adopt must name exactly.
+func (c Config) Adopts(name string) bool {
+	for _, a := range c.Adopt {
+		if a == name {
+			return true
+		}
+	}
+	return false
 }
 
 // Setting returns the per-plugin setting at key, and whether it was

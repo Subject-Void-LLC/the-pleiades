@@ -460,6 +460,7 @@
     "virt.fusion.vm.info": "virt.fusion",
     "virt.fusion.vm.start": "virt.fusion",
     "virt.fusion.vm.stop": "virt.fusion",
+    "virt.vbox.media.prune": "virt.vbox",
     "virt.vbox.snapshot.delete": "virt.vbox",
     "virt.vbox.snapshot.restore": "virt.vbox",
     "virt.vbox.snapshot.take": "virt.vbox",

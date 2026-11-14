@@ -28,10 +28,10 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | `pleiades` | 3 | 3 |
 | `scan` | 3 | 3 |
 | `svc` | 16 | 16 |
-| `virt` | 82 | 82 |
+| `virt` | 83 | 83 |
 | `wait` | 4 | 4 |
 | `win` | 12 | 12 |
-| **total** | **259** | **257** |
+| **total** | **260** | **258** |
 
 ## All methods
 
@@ -259,12 +259,13 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | [virt.fusion.vm.info](virt/fusion/vm/info.md) | implemented | Reports a VMware Fusion VM's power state and its guest's address. |
 | [virt.fusion.vm.start](virt/fusion/vm/start.md) | implemented | Starts a VMware Fusion VM with no window, and holds the Mac awake while it runs. |
 | [virt.fusion.vm.stop](virt/fusion/vm/stop.md) | implemented | Stops or suspends a VMware Fusion VM. |
+| [virt.vbox.media.prune](virt/vbox/media/prune.md) | implemented | Deletes the disks no registered VM uses and the leftover folders of VMs VirtualBox no longer knows, under the host's machine folder. |
 | [virt.vbox.snapshot.delete](virt/vbox/snapshot/delete.md) | implemented | Deletes a snapshot of a VirtualBox VM. |
 | [virt.vbox.snapshot.restore](virt/vbox/snapshot/restore.md) | implemented | Puts a VirtualBox VM back to a snapshot, discarding its current state. |
 | [virt.vbox.snapshot.take](virt/vbox/snapshot/take.md) | implemented | Takes a snapshot of a VirtualBox VM under a name no other snapshot of it has. |
 | [virt.vbox.vm.addresses](virt/vbox/vm/addresses.md) | implemented | Reports the addresses a VM's host-only adapters were given, from VirtualBox's DHCP server and from virt.vbox.vm.clone. |
 | [virt.vbox.vm.attach_disk](virt/vbox/vm/attach_disk.md) | implemented | Gives a stopped VirtualBox VM a second disk, made new on the host when it is not there yet. |
-| [virt.vbox.vm.clone](virt/vbox/vm/clone.md) | implemented | Makes a VM as a linked clone of another's snapshot, seeded with a device's login by cloud-init or a Windows answer file. |
+| [virt.vbox.vm.clone](virt/vbox/vm/clone.md) | implemented | Makes a VM as a linked clone of another's snapshot, seeded with a device's login by cloud-init or a Windows answer file, which a Windows clone is proven to have taken. |
 | [virt.vbox.vm.delete](virt/vbox/vm/delete.md) | implemented | Deletes a stopped VirtualBox VM and its disks. |
 | [virt.vbox.vm.detach_disk](virt/vbox/vm/detach_disk.md) | implemented | Takes a disk off a stopped VirtualBox VM, deleting it from the host when asked. |
 | [virt.vbox.vm.eject_seed](virt/vbox/vm/eject_seed.md) | implemented | Takes a VM's seed out of its DVD drive and deletes it, once its first boot has read it. |
@@ -276,7 +277,7 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | [virt.vbox.vm.list](virt/vbox/vm/list.md) | implemented | Lists the VMs on a VirtualBox host, with their state and the address Pleiades gave them. |
 | [virt.vbox.vm.log](virt/vbox/vm/log.md) | implemented | Reads the end of a VM's VirtualBox log, optionally only the lines matching a pattern. |
 | [virt.vbox.vm.resize](virt/vbox/vm/resize.md) | implemented | Changes a stopped VirtualBox VM's CPUs and memory, by T-shirt size or by count. |
-| [virt.vbox.vm.screenshot](virt/vbox/vm/screenshot.md) | implemented | Saves a picture of a running VM's screen as a PNG file on the machine running Pleiades. |
+| [virt.vbox.vm.screenshot](virt/vbox/vm/screenshot.md) | implemented | Saves a picture of a running VM's screen as a PNG file in the project. |
 | [virt.vbox.vm.send_keys](virt/vbox/vm/send_keys.md) | implemented | Types into a running VM's console, as its keyboard would. |
 | [virt.vbox.vm.start](virt/vbox/vm/start.md) | implemented | Starts a VirtualBox VM with no window. |
 | [virt.vbox.vm.stop](virt/vbox/vm/stop.md) | implemented | Stops a VirtualBox VM, by its power button or by cutting its power. |

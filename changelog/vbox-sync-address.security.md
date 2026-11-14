@@ -1,0 +1,1 @@
+The `vbox` sync plugin quarantines a VM whose recorded address is not an IP address, or whose recorded login device is not a device name, where it used to store any text VirtualBox held as the device's host, the address the device's credential is sent to.

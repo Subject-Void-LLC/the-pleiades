@@ -52,8 +52,8 @@ func init() {
 			// A Windows VM admits the Administrator's password, not a key.
 			SeedsLoginPassword: true,
 			Doc: collection.Doc{
-				Summary:     "Makes a VM as a linked clone of another's snapshot, seeded with a device's login by cloud-init or a Windows answer file.",
-				Description: "Makes sure a VM of this name exists, creating it as a linked clone of a snapshot of another VM, so it takes little space and starts from that snapshot's disk. A VM already under the name reports no change and is not reconfigured or reseeded; when its CPUs or memory are not those asked for, the task says so in a warning, and virt.vbox.vm.resize changes them. The new VM gets the size asked for, or the memory and CPUs, and one larger than the host is refused: more CPUs than it has processors online, or more memory than it has. It also gets a NAT adapter for the internet, a host-only adapter at a fixed address, a serial console written to console.log in its folder (virt.vbox.vm.host_keys reads a Linux VM's SSH host keys from there), and a seed on its DVD drive: a cloud-init NoCloud seed, or for a VM of a Windows OS type a Windows answer file (Autounattend.xml). The seed is built by Pleiades, not on the host, and reaches the host on the command's standard input, never on a command line. For a Linux VM it carries login's user name, the public half of its key and a salted hash of its password, taken from the vault by pleiades add-credential login --generate; never the key or the password. SSH then admits the key only; the password is for the VM's console. A login of root may log in by key; any other user gets passwordless sudo. A Windows VM is reached over WinRM by the built-in Administrator's password, and an answer file can hold nothing else, so for one the login must be a device reached over WinRM whose credential names Administrator, and the answer file carries that password itself, beside the computer name, the fixed address and the first-boot screens it skips. Windows reads that answer file at first boot only from a base virt.vbox.vm.install made, which points it at the clone's one DVD (D:); a clone of another generalized image, such as Microsoft's evaluation VHDX, stops at its first-boot screens. A Windows VM given no size is small rather than xsmall. The seed stays in the VM's folder until virt.vbox.vm.eject_seed or virt.vbox.vm.delete removes it: eject it once the first boot has read it. The address and login are recorded on the VM as VirtualBox extradata (pleiades/address, pleiades/device), which virt.vbox.vm.list reports, since VirtualBox cannot know a guest's address without its Guest Additions. The VM is not started. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A check reads the host's VMs and the snapshot, and sends nothing.",
+				Summary:     "Makes a VM as a linked clone of another's snapshot, seeded with a device's login by cloud-init or a Windows answer file, which a Windows clone is proven to have taken.",
+				Description: "Makes sure a VM of this name exists, creating it as a linked clone of a snapshot of another VM, so it takes little space and starts from that snapshot's disk. A VM already under the name reports no change and is not reconfigured or reseeded; when its CPUs or memory are not those asked for, the task says so in a warning, and virt.vbox.vm.resize changes them. The new VM gets the size asked for, or the memory and CPUs, and one larger than the host is refused: more CPUs than it has processors online, or more memory than it has. It also gets a NAT adapter for the internet, a host-only adapter at a fixed address, a serial console written to console.log in its folder (virt.vbox.vm.host_keys reads a Linux VM's SSH host keys from there), and a seed on its DVD drive: a cloud-init NoCloud seed, or for a VM of a Windows OS type a Windows answer file (Autounattend.xml). The seed is built by Pleiades, not on the host, and reaches the host on the command's standard input, never on a command line. For a Linux VM it carries login's user name, the public half of its key and a salted hash of its password, taken from the vault by pleiades add-credential login --generate; never the key or the password. SSH then admits the key only; the password is for the VM's console. A login of root may log in by key; any other user gets passwordless sudo. A Windows VM is reached over WinRM by the built-in Administrator's password, and an answer file can hold nothing else, so for one the login must be a device reached over WinRM whose credential names Administrator, and the answer file carries that password itself, beside the computer name, the fixed address and the first-boot screens it skips. The DVD holds it twice, as Unattend.xml, which a generalized image's first boot reads from a removable drive (measured on Microsoft's evaluation VHDX), and as Autounattend.xml, which a base virt.vbox.vm.install made points Windows at. A base that is not generalized ignores the answer file without a word and boots with its own account and name, so a Windows clone is proven: it is started, and the task waits up to timeout for its seeded Administrator to log in over WinRM at its fixed address, from where Pleiades runs, and for it to report the computer name asked for. Proven, it is shut down through its power button (its power cut after five minutes) and its seed deleted, since the answer file holds the password in clear. A clone that is not proven is powered off and deleted, and the task fails. A Windows VM given no size is small rather than xsmall. A Linux VM's seed stays in its folder until virt.vbox.vm.eject_seed or virt.vbox.vm.delete removes it: eject it once the first boot has read it. Any failure after the seed was written deletes it with the half-made VM, and deletes it on its own when the VM cannot be deleted. The address and login are recorded on the VM as VirtualBox extradata (pleiades/address, pleiades/device), which virt.vbox.vm.list reports, since VirtualBox cannot know a guest's address without its Guest Additions. The VM is left stopped: a Linux one is never started, and a Windows one is stopped again once proven. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A check reads the host's VMs and the snapshot, and sends nothing.",
 				Params: []collection.Param{
 					{Name: "name", Type: "string", Required: true, Description: "The VM's name on the host. It must start with a letter or digit and hold only letters, digits, '.', '_' and '-', at most 63 characters; any other name is refused rather than quoted."},
 					{Name: "from", Type: "string", Required: true, Description: "The VM to clone, named as name is."},
@@ -67,6 +67,7 @@ func init() {
 					{Name: "paravirt_provider", Type: "string", Choices: vboxmanage.ParavirtProviders, Description: "The paravirtualization interface the guest is offered, as VBoxManage modifyvm --paravirt-provider takes it: default picks one by the guest's OS type (kvm for Linux, hyperv for Windows), and none offers nothing, so the guest keeps time by its own clocks. Left out, the VM keeps from's."},
 					{Name: "host_only_adapter", Type: "string", Default: "VirtualBox Host-Only Ethernet Adapter", Description: "The host's host-only adapter, as VBoxManage list hostonlyifs names it."},
 					{Name: "packages", Type: "list of string", Description: "Packages a Linux or FreeBSD VM's first boot installs as root, from the guest's own repositories over its NAT adapter: cloud-init's packages list, which FreeBSD's nuageinit reads too, bootstrapping pkg first. Each is a package name of letters, digits and . + _ -, at most 64 of them. On FreeBSD, whose base system has no sudo, listing sudo is what gives a login other than root the passwordless sudo the seed grants it. Refused for a Windows VM, whose answer file installs nothing. Like the rest of the seed, it is read at the first boot only, so a VM already under the name is not changed."},
+					{Name: "timeout", Type: "int", Default: "1200", Description: "For a Windows VM only: how many seconds its first boot is given to let its seeded Administrator log in over WinRM at address. A clone not in by then is powered off and deleted. Refused for a Linux or FreeBSD VM, which clone does not start."},
 				},
 				Returns: []collection.ReturnField{
 					{Name: "uuid", Type: "string", Returned: "when not a check that would clone", Description: "The VM's UUID, which is also a Linux VM's cloud-init instance ID."},
@@ -76,7 +77,7 @@ func init() {
 				},
 				Examples: []collection.Example{
 					{Name: "Clone and start a lab VM", RunbookYAML: "- name: Make the lab VM from the base's clean snapshot\n  virt.vbox.vm.clone:\n    name: ubuntu-lab\n    from: ubuntu-2404-base\n    snapshot: base\n    login: ubuntu-lab\n    address: 192.168.56.10/24\n    size: small\n\n- name: Start it\n  virt.vbox.vm.start:\n    name: ubuntu-lab\n"},
-					{Name: "Clone a Windows VM", RunbookYAML: "- name: Make a Windows lab VM, seeded with win-lab's Administrator password\n  virt.vbox.vm.clone:\n    name: win-lab\n    from: ws2025-base\n    snapshot: base\n    login: win-lab\n    address: 192.168.56.30/24\n    size: medium\n"},
+					{Name: "Clone a Windows VM", RunbookYAML: "- name: Make a Windows lab VM, seeded with win-lab's Administrator password\n  virt.vbox.vm.clone:\n    name: win-lab\n    from: ws2025-base\n    snapshot: base\n    login: win-lab\n    address: 192.168.56.30/24\n    size: small\n"},
 				},
 				SeeAlso: []string{"virt.vbox.vm.import_ova", "virt.vbox.vm.import_disk", "virt.vbox.vm.install", "virt.vbox.vm.start", "virt.vbox.vm.host_keys", "virt.vbox.vm.eject_seed", "virt.vbox.vm.resize", "virt.vbox.vm.delete", "virt.vbox.vm.list"},
 			},
@@ -124,6 +125,9 @@ type cloneRequest struct {
 	sized bool
 	// packages are what a Linux or FreeBSD clone's first boot installs.
 	packages []string
+	// proveTimeout is how long a Windows clone's first boot is given to
+	// let its seeded Administrator in.
+	proveTimeout time.Duration
 }
 
 // defaultShape is a clone's shape when the task asks for none: xsmall.
@@ -177,6 +181,9 @@ func readClone(params map[string]any, name string) (cloneRequest, error) {
 	if c.packages, _, err = sdk.StringSlice(params, paramPackages); err != nil {
 		return c, err
 	}
+	if c.proveTimeout, err = seconds(params, paramTimeout, defaultProveTimeout); err != nil {
+		return c, err
+	}
 	c.shape, c.sized, err = readShape(params, defaultShape)
 	return c, err
 }
@@ -209,6 +216,11 @@ func runClone(ctx context.Context, rc sdk.RunbookContext, device inventory.Inven
 	}
 	if err := login.check(c.hostname, c.address, c.packages); err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+	}
+	// Only a Windows clone is started and waited for, so a timeout given
+	// for any other would be read and never used.
+	if _, given := params[paramTimeout]; given && !login.windows() {
+		return collection.Result{}, fmt.Errorf("%s: timeout is how long a Windows VM's first boot is given to let its seeded Administrator in; a Linux or FreeBSD VM is not started by clone", fqcn)
 	}
 	if err := rc.SetStat(statAddress, c.address.Addr().String()); err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
@@ -293,61 +305,71 @@ func recordFound(rc sdk.RunbookContext, fqcn string, m vboxmanage.Machine, c clo
 	return nil
 }
 
-// makeClone clones, configures and seeds the VM. A failure after the
-// clone deletes what was made, so a later run starts over rather than
-// finding a VM of the name and taking it for a finished one.
+// makeClone clones, configures and seeds the VM. A Windows one is started
+// to prove it took its answer file, then shut down and its seed deleted.
+// A failure after the clone powers
+// off and deletes what was made, its seed with it, so a later run starts
+// over rather than finding a VM of the name and taking it for a finished
+// one, and no failure leaves a seed holding a login on the host.
 func makeClone(ctx context.Context, h vboxmanage.Host, name, snapshotUUID, folder string, c cloneRequest, login seedLogin) (vboxmanage.Machine, error) {
 	if err := h.CloneLinked(ctx, c.from, snapshotUUID, name, folder); err != nil {
 		return vboxmanage.Machine{}, err
 	}
-	m, err := seedClone(ctx, h, name, c, login)
-	if err != nil {
-		if cleanup := deleteVM(ctx, h, name); cleanup != nil {
-			return vboxmanage.Machine{}, fmt.Errorf("%w; deleting the half-made %s then failed too: %v", err, name, cleanup)
+	m, seed, err := seedClone(ctx, h, name, c, login)
+	if err == nil && login.windows() {
+		if err = proveWindowsClone(ctx, h, name, c, login); err == nil {
+			if err = settleWindowsClone(ctx, h, name, seed); err == nil {
+				m, err = h.Machine(ctx, name)
+			}
 		}
-		return vboxmanage.Machine{}, fmt.Errorf("%w; the half-made %s was deleted", err, name)
+	}
+	if err != nil {
+		return vboxmanage.Machine{}, discardClone(ctx, h, name, seed, err)
 	}
 	return m, nil
 }
 
-// seedClone gives a freshly cloned VM its hardware and its seed.
-func seedClone(ctx context.Context, h vboxmanage.Host, name string, c cloneRequest, login seedLogin) (vboxmanage.Machine, error) {
+// seedClone gives a freshly cloned VM its hardware and its seed. It
+// returns the seed's path on the host once it knows where the seed goes,
+// failed or not, so a failure after the upload can still delete it.
+func seedClone(ctx context.Context, h vboxmanage.Host, name string, c cloneRequest, login seedLogin) (vboxmanage.Machine, string, error) {
 	m, err := h.Machine(ctx, name)
 	if err != nil {
-		return m, err
+		return m, "", err
 	}
 	dir, err := vmDir(m)
 	if err != nil {
-		return m, err
+		return m, "", err
 	}
+	iso := dir + `\` + seedFile
 	hw := vboxmanage.Hardware{MemoryMB: c.shape.memoryMB, CPUs: c.shape.cpus, HostOnlyAdapter: c.adapter, ConsoleLog: dir + `\` + consoleFile, Paravirt: c.paravirt}
 	if err := h.Configure(ctx, name, hw); err != nil {
-		return m, err
+		return m, iso, err
 	}
 	for key, value := range map[string]string{vboxmanage.ExtraAddress: c.address.Addr().String(), vboxmanage.ExtraDevice: c.login} {
 		if err := h.SetExtraData(ctx, name, key, value); err != nil {
-			return m, err
+			return m, iso, err
 		}
 	}
 	if m, err = h.Machine(ctx, name); err != nil {
-		return m, err
+		return m, iso, err
 	}
 	image, err := login.image(m, c, now().UTC())
 	if err != nil {
-		return m, err
+		return m, iso, err
 	}
 	slot, ok := login.slot(m)
 	if !ok {
-		return m, fmt.Errorf("%s has no free slot for its seed: %s", name, login.slotNeed())
+		return m, iso, fmt.Errorf("%s has no free slot for its seed: %s", name, login.slotNeed())
 	}
-	iso := dir + `\` + seedFile
 	if err := h.Upload(ctx, iso, image); err != nil {
-		return m, err
+		return m, iso, err
 	}
 	if err := h.AttachDVD(ctx, name, slot, iso); err != nil {
-		return m, err
+		return m, iso, err
 	}
-	return h.Machine(ctx, name)
+	m, err = h.Machine(ctx, name)
+	return m, iso, err
 }
 
 // vmDir is the folder holding m's settings file.

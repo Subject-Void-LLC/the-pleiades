@@ -29803,6 +29803,42 @@ the task rather than building a machine with no login).
 **Lesson.** A refusal of what a job would do sits before the job crosses a trust boundary, and every path that starts
 the job (launch, schedule write, fan-out) asks the same function.
 
+## 1215. A Windows seed DVD carried its answer file only as Autounattend.xml, a name a generalized image's first boot never reads, so clones of Microsoft's evaluation VHDX ignored it (a repeat of 361 and 364) (fixed on this branch; on main since 955e62ff, 2026-09-27)
+
+**Symptom.** A linked clone of Microsoft's Windows Server evaluation VHDX stopped at OOBE's first screens with a DHCP
+address (361, 2026-09-27), and clones of a base `virt.vbox.vm.install` made found no answer file in specialize until the
+install pointed the registry at the DVD (364). On 2026-11-13, on the lab host, a linked clone of the Windows Server 2025
+evaluation VHDX given a DVD holding the same answer under both names logged in as its seeded Administrator at its fixed
+address, named `P112-A`. Its setup log read "Found usable unattend file for pass [specialize] at [D:\unattend.xml]", in
+the specialize and oobeSystem passes. With `Autounattend.xml` alone on the drive it found none.
+
+**Root cause.** Windows Setup looks for `Autounattend.xml` at a removable drive's root in the windowsPE pass, when it
+installs from media. A generalized image's first boot (specialize, oobeSystem) looks there for `Unattend.xml`.
+`winunattend.Seed.ISO` wrote only `FileName` (`Autounattend.xml`), so every seed DVD carried the name the first boot does
+not read.
+
+**What 361 and 364 got wrong.** 361 concluded the DVD did not exist for Windows while it searched (devices set up only
+after OOBE), so the VHDX could not be seeded from a DVD at all. 364's third finding concluded that a generalized image,
+once booted, searches only fixed places and never removable media. Both read "no unattend file found" as "did not look
+at the DVD". Each measurement varied the drive, the controller (IDE, SATA) or the pass, and held the file name constant,
+so neither could tell a location not searched from a name not looked for. 364's registry pointer (`UnattendFile` at
+`D:\Autounattend.xml`) did work for install-made bases and stays; its findings about the cached copy and the
+`Generalize` timing are not touched by this. The seed slot's comment (`internal/catalog/virt/vbox/vm/seed.go`) now says
+361's IDE reading was taken with only `Autounattend.xml` on the DVD, so IDE is unmeasured, not refuted.
+
+**Why 364's lesson did not prevent it.** 364's lesson asked to measure which entries of a documented search order the
+platform consults. The measurement did that for places and not for names, and the roadmap carried 361's conclusion
+forward as a measured fact until the 2026-11-11 review questioned it.
+
+**Fix.** `9b73eda7`: `Seed.ISO` writes the answer twice, as `FileName` and as `GeneralizedFileName` (`Unattend.xml`);
+an install's media keeps only `Autounattend.xml`. Proof: `TestISOsCarryTheAnswerFileUnderItsName`
+(`pkg/winunattend/winunattend_test.go`); live, `TestLab_VBoxReleaseGate` passed on the lab host on 2026-11-13 in 482 s
+(the VHDX imported, a clone proven by its seeded login and its computer name), and
+`TestLab_WindowsClonesTakeTheirOwnAnswerFiles` passed against the lab host.
+
+**Lesson.** A search that finds nothing rules out only what the measurement varied. Before concluding a place is not
+searched, vary every input of the search, the file name included, and read the vendor's table for each pass separately.
+
 ## 1216. NoticeUnbound wrapped the run's credential store in a type that answered Lookup alone, so every named secret, registry account and database connection in a run failed as unresolvable (a repeat of 70) (fixed before push)
 
 **Symptom.** After `de7b2bb2` wrapped the CLI run's store in `credential.NoticeUnbound`,
@@ -29868,6 +29904,147 @@ loose `credentials.yaml` is still refused naming the `chmod`) and `TestCLI_AddCr
 
 **Lesson.** A flag shared by many commands carries a precondition only as strict as the least demanding command needs;
 and a message names the path the code used, never the default it would have used.
+
+## 1219. virt.vbox.vm.clone left its seed ISO on the host when a failed clone's delete also failed, and did not power off a failed clone VirtualBox would not describe, which keeps its seed locked (a repeat in kind of 365 and 728) (fixed on this branch; on main since 40900aeb, 2026-09-27)
+
+**Symptom.** Found in the code while building the Windows proof step (`e5da2861`); the commits cite no lab occurrence. A
+clone that failed after its seed was uploaded, and whose cleanup then failed at the drive detach or the unregister, left
+`seed.iso` in the VM's folder. A Windows seed holds the Administrator's password in clear; a Linux seed holds a salted
+hash of the login's password.
+
+**Root cause.** `makeClone`'s failure path called `deleteVM`, and the seed's file was removed only as one step of that
+delete, after the detach and the unregister. A delete that stopped at an earlier step never reached it. Then, as first
+written in `e5da2861`, `discardClone` powered the VM off only when `h.Machine` could read it as running or paused; a VM
+VirtualBox will not describe may still run, and a running VM keeps its DVD image locked (365), so the seed's delete would
+fail too.
+
+**Why 365 and 728 did not hold.** 728's lesson (a method undoes its own making when a later step fails) was met for the
+VM, but the seed's removal rode on the VM's delete succeeding. 365 found that a running VM locks its seed; its fix
+covered `virt.vbox.vm.eject_seed` only.
+
+**Fix.** `e5da2861`: `seedClone` returns the seed's path as soon as it is known, failed or not, and `discardClone`
+deletes the VM with its seed, or the seed on its own when the VM cannot be deleted; the error says what became of each.
+`a1b13c61`: `discardClone` powers the VM off whether or not VirtualBox will describe it (a VM not running is not an
+error). Proof: `TestClone_SeedISORemovedOnFailure` (cases "the attach fails and the unregister too" and "the proof fails
+and the delete too", each asserting the seed's own deletion), `TestDiscardClone_Edges`, `TestSeedClone_StepsFailing`.
+
+**Lesson.** The cleanup of a file holding a secret stands on its own path. It never waits on another cleanup succeeding,
+and a VM is powered off before its files are deleted without first asking whether VirtualBox can read it.
+
+## 1220. pkg/winunattend let a password holding U+FFFE or U+FFFF through, and xml.EscapeText wrote U+FFFD in its place, so the answer file set a password other than the stored one (a repeat in kind of 328, 370 and 932) (fixed on this branch; on main since 955e62ff, 2026-09-27)
+
+**Symptom.** Found while writing `FuzzSeedXML` and `FuzzInstallXML` (`5348b3dc`), which decode the answer file and hold
+every caller value to its own element; the commit does not say whether a fuzzer or the reading found it. A password ending in U+FFFE passed `checkPassword`, and the rendered answer file held
+U+FFFD where the stored password held U+FFFE. Windows would set that password, which nobody chose, and the vaulted one
+would not log in. Latent: no lab run met it.
+
+**Root cause.** `checkPassword` refused invalid UTF-8 and `unicode.IsControl`, using control characters as its test for
+"XML cannot carry this". U+FFFE and U+FFFF are not control characters, but they fall outside XML 1.0's Char production.
+`xml.EscapeText` does not fail on such a character; it writes U+FFFD in its place. Valid UTF-8 holds no surrogate, so
+these two are the whole gap.
+
+**Why 328, 370 and 932 did not hold.** Each fixed invalid UTF-8 repaired into U+FFFD by a rune conversion. This input is
+valid UTF-8, and the repair happens inside an encoder, not a loop, so a rule written about byte handling did not point
+at it.
+
+**Fix.** `5348b3dc`: `checkPassword` refuses whatever `notXMLText` names (a control character, U+FFFE or U+FFFF). The
+fuzz targets' seed corpus holds a U+FFFE password for the seed and a U+FFFF one for the install
+(`pkg/winunattend/render_fuzz_test.go`), and the fuzzers check that each decoded value equals the value given.
+
+**Lesson.** Decide what an encoder can carry from the format's own grammar, not from a nearby predicate, and test the
+round trip: an encoder that substitutes a character never returns an error.
+
+## 1221. virt.vbox.snapshot.delete deleted a running VM's snapshot, merging its disks while it ran, and on the lab host the release gate's rollback twice left the clone inaccessible with no MediaRegistry in its .vbox (fixed on this branch; on main since 0a6867fe, 2026-09-26)
+
+**Symptom.** `TestLab_VBoxReleaseGate`, 2026-11-13, failed at its second rollback in two runs (clones `f9ae7291` and
+`ba8858bb`). Its snapshot run took a snapshot of the running clone, stopped it, and restored the snapshot. The rollback
+of that run, newest first, undid the stop (starting the clone from the restored saved state) and then replayed the
+take's recorded undo, deleting the snapshot while the clone ran. VirtualBox then listed the clone as inaccessible, its
+settings file holding no MediaRegistry, so the make run's undo could not find the clone and the base could not be
+deleted.
+
+**Root cause.** `runDelete`'s own comment said VirtualBox deletes a running VM's snapshot too, merging its disks while
+the VM runs, and allowed it; `TestDelete_OfARunningVM` asserted that it succeeds, on a model host that merges nothing.
+`virt.vbox.snapshot.take` recorded the delete as its undo whatever the VM's state, and a rollback replays an undo
+against the state it has restored, which for a snapshot taken of a running VM is running again. Why VirtualBox's online
+merge left the settings without a media registry is not known; the method no longer asks for one.
+
+**Fix.** `3f175dd2`: the delete refuses a VM that is not stopped (running, paused or between states; a saved VM counts
+as stopped), in a check too, naming the state and `virt.vbox.vm.stop`. A take of a VM that is not stopped records no
+undo and says so in a warning, so a rollback refuses that change by name before contact and only `--leave` accepts it.
+The gate now holds the rollback to that refusal ("recorded no undo", naming `--leave tasks[0]`), checks the refused
+rollback changed nothing, then leaves `tasks[0]` and `tasks[2]` by name. Proof: `TestDelete_RefusesAVMThatIsNotStopped`,
+`TestTake_OfARunningVM` (no `inverse` stat, one warning, and a warning that cannot be recorded fails the task);
+`TestLab_VBoxReleaseGate` passed on the lab host on 2026-11-13 in 482 s.
+
+**Search.** No earlier entry records this class. The nearest are 385 and 527, each a VirtualBox method judging a VM's
+state wrongly, and in kind 1037, a test that pinned a defect as the expected behavior.
+
+**Lesson.** An undo runs against the state the rollback has put back, not the state after the run. A method whose undo
+is unsafe in the state it was recorded in records none and says why. A model host that accepts what the real host
+damages makes a test assert the damage; measure the dangerous call on the real host before modeling it as allowed.
+
+## 1222. An inventory sync silently took over a device added by hand under a name the upstream reported, replacing its properties and its owner (fixed on this branch; on main since ad1ff164, 2026-08-06)
+
+**Symptom.** A device added with `add-host` or written into `hosts.yaml` (no sync owner) under a name a sync plugin
+reported was adopted by that sync on its next run: its properties were overwritten from upstream and, when anything changed,
+its owner set to the plugin (1223), with no conflict reported. A typed name in a hosts file and a discovered VM of the same name are not known to
+be the same machine. The commit (`08b43d3b`) records the rule change, not an incident.
+
+**Root cause.** Section 11's One Authority Per Item was enforced against a different owner only. `reconcileOne` treated
+an empty owner as "predates provenance tracking, which this source may adopt", the reading 57's fix relied on when it
+stopped naming the file backend as every hand-written host's owner.
+
+**Search.** Not a repeat: 57 is the decision this reverses, not the same defect.
+
+**Fix.** `08b43d3b`: a hand-added device under a reported name is a conflict the sync reports and leaves alone, with a
+reason naming `--adopt <name>`, unless `syncplugin.Config.Adopt` names it exactly (`Config.Adopts`). `pleiades inventory
+sync --adopt <name>` (repeatable; an empty name refused) sets it. Proof: `TestReconcile_AdoptsAHandAddedDeviceOnlyByName`
+(another name, or the same name in another case, is not an adoption), `TestConfig_Adopts`,
+`TestRunInventorySync_AdoptsAHandAddedDeviceOnlyWhenNamed`, and `TestPluginConformance_HandAddedDeviceIsAConflictUntilAdopted`,
+which holds every registered plugin to the rule.
+
+**Lesson.** A matching name is not proof of identity. Taking over a record someone else wrote needs a consent that names
+it.
+
+## 1223. A sync's adoption of a device whose properties already matched upstream saved nothing, since a repository saves only a moved version and a new owner moved none (fixed on this branch; on main since ad1ff164, 2026-08-06)
+
+**Symptom.** Adopting a hand-added device whose stored properties equal what the upstream reports came back
+`unchanged`, and the new owner was never written, so the next sync found the device hand-added again. Before 1222 this
+was hidden, because each sync adopted it again silently.
+
+**Root cause.** `updateDevice` rebuilt the item with the new `Source`, but its version moved only through `AddInfo` on a
+changed property. `Save` is skipped when the version did not move, so a change of owner alone was dropped.
+
+**Fix.** `08b43d3b`: `record.Base.RecordAdoption(previous)` records the change of owner as a `source` revision
+(`RevisionFieldSource`) and moves the version; `updateDevice` calls it whenever the stored owner differs from the
+sync's, and fails, naming the device, when the item cannot record it. A read-only inventory reports the adoption as a
+would-update and writes nothing. Proof: `TestRecordAdoption`, and `TestReconcile_AdoptsAHandAddedDeviceOnlyByName`
+(the owner is the plugin after an adoption where nothing else moved, and the next sync is `unchanged`).
+
+**Lesson.** Every field a save must persist has to move what the store reads as "changed"; a field set outside that path
+is dropped by the no-op check that exists to save writes.
+
+## 1224. static_yaml's Sync reconciled under a Config of its own holding only its name, dropping the Config the caller connected it with, --adopt included (a repeat in kind of 180) (fixed on this branch; on main since ad1ff164, 2026-08-06)
+
+**Symptom.** With 1222's `--adopt <name>`, a `static_yaml` sync would have reported the named hand-added device as a
+conflict, since the adoption never reached the shared reconcile driver. The commit (`08b43d3b`) does not say how it was
+found; the conformance test it adds runs every plugin through the same adoption.
+
+**Root cause.** `staticyaml.Plugin.Sync` called `syncplugin.Reconcile` with `syncplugin.Config{Name: Name}`, built
+fresh, rather than the Config `Connect` was given. Until `Adopt` existed, `Reconcile` read nothing from its Config but
+`Name`, so the loss had no effect and no test could see it.
+
+**Why 180 did not hold.** 180 made every plugin open and connect through `syncplugin.Open` with the caller's Config, so a
+value the CLI passes reaches `Connect`. The Config's second hand-off, from `Sync` into the driver, was each plugin's own
+code, and nothing checked it.
+
+**Fix.** `08b43d3b`: the plugin keeps the Config `Connect` received and `Sync` reconciles under it (its `Name` set to the
+plugin's), and `Sync` before `Connect` returns `syncplugin.ErrNotConnected`. Proof:
+`TestPluginConformance_HandAddedDeviceIsAConflictUntilAdopted`, which adopts through each plugin's own `Sync`.
+
+**Lesson.** When a value crosses more than one hand-off, the shared test has to exercise the last one; a field nothing
+reads yet is exactly where a dropped Config hides.
 
 ## 1225. A scheduled run whose launch failed after its occurrence was claimed was never launched, though Sweep's comment says a transient failure costs one interval of lateness (a repeat of 320) (fixed)
 
@@ -30107,6 +30284,132 @@ interface the configuration leaves up and Batfish holds inactive, which would ca
 
 **Lesson.** A measured list of what a model ignores is only as complete as the configurations measured: hold a real
 device's whole configuration to the model, and ask the model which configured things it set aside.
+
+## 1233. virt.vbox.media.prune and virt.vbox.vm.delete decided what was inside a folder by its lower-cased text, so a disk named through ".." or a folder spelled with the Kelvin sign counted as inside and was deleted (a repeat in kind of 260, 807 and 1105) (fixed on this branch)
+
+**Symptom.** Found 2026-11-13 by the Phase 112 Schema/Injection Hardening audit, from the code, not on a host.
+`PlanPrune`'s `within` lower-cased both paths with `strings.ToLower`, turned `/` into `\`, and took a prefix. So a
+registered disk VirtualBox named `G:\Lab\..\Windows\x.vdi`, with no VM using it, was planned for `closemedium --delete`
+under the machine folder `G:\Lab`. A folder named with the Kelvin sign (U+212A) in place of K counted as inside a
+machine folder spelled with K: Go folds U+212A to k, and Windows' own upper-case table does not, so it is another
+folder. `virt.vbox.vm.delete` chose which DVD image to delete with the VM by the same kind of prefix (`under`), so an
+image named `<vm folder>/../../iso/tools.iso` was deleted as the VM's own. The prune also never looked for links: a disk
+reached through a junction under the machine folder would go to `closemedium --delete`, which deletes the file wherever
+the junction leads.
+
+**Root cause.** A containment check made on a path's text. VirtualBox writes the paths it reports in full, so no real
+run is known to have met one, but the check trusted text it did not make, from a host reached over WinRM, where no
+`os.Root` can resolve a path.
+
+**Why 260, 807 and 1105 did not hold.** 260 opened files through an `os.Root`, which works only on the local
+filesystem. 807 keyed a ledger by the device's own resolution of a path. 1105 matched JSON keys the way
+`encoding/json` folds them. Each fixed its own comparison. The prune and the delete were new code comparing Windows
+host paths, and nothing shared covered that.
+
+**Fix.** `d1f3a70c`: one rule, `vboxmanage.Within` (`pkg/vboxmanage/hostpath.go`). A path counts only from a drive's
+root, by ASCII case alone, with either separator. A segment of only dots and spaces, a stream (a second colon), a UNC
+or `\\?\` path, or no drive puts a path inside nothing. A path that keeps what is under it (a VM's folder, a disk that
+stays, a link) but cannot be placed keeps everything. `PlanPrune`, `Machine.SlotsHolding` and `vm.delete` use it. The
+prune reads the links under the machine folder (`Host.Links`, a .NET walk that follows none) and deletes nothing at or
+under one, and `RemoveFolder` refuses a folder that is or holds one at the moment it removes it. Proof:
+`TestPlanPrune_NothingOutsideTheRootByName`, `TestPrune_NothingOutsideTheFolderByName`,
+`TestDelete_AnImageOutsideTheFolderByNameIsKept`, `TestPlanPrune_Links`, `TestPrune_NothingThroughALink`,
+`TestPruneHostCalls_Links`; each fails with the old rule restored. On win-check (Windows PowerShell 5.1.26100) the link
+scripts found two real junctions and refused both folders, the targets intact. A control there with the old
+`Remove-Item -Recurse -Force` removed the junctions without following them, so the folder half was not measured as a
+defect; the refusal does not rest on how a tool treats a link. Left open: a link made between the plan and a disk's
+delete is not caught for disks (a folder is checked again when it is removed).
+
+**Lesson.** A path from a remote host is compared by its segments, under that host's rules for case and separators,
+never by its text, and what a link reaches is never the folder's to delete.
+
+## 1234. vboxmanage.CheckPath read only backslashes as separators, so G:\Lab/.. passed its ".." check and named G:\ (a sibling of 1233) (fixed on this branch)
+
+**Symptom.** Found by the same audit, 2026-11-13. `CheckPath` refused `\..\` and a final `\..`, but Windows reads `/` as
+a separator too. `G:\Lab/..`, `G:\Lab/../Windows/x.iso` and `G:\Lab\./x` passed, and every host path the `virt.vbox.*`
+methods send goes through `CheckPath`: `RemoveFolder` would have sent `G:\Lab/..` to `Remove-Item -Recurse`, and
+`vm.delete` sent a `/..` image path to `closemedium --delete` (1233). A `windows_server`'s `vm_folder` took
+`G:\Lab\..\Windows` at the record's write and was refused only when a prune or a clone sent it.
+
+**Root cause.** The check searched for two spellings of the step out of a folder rather than splitting the path the
+way Windows does.
+
+**Fix.** `d1f3a70c`: `CheckPath` splits on both separators and refuses any segment of only dots and spaces, a doubled
+separator, and anything a WS-Man message cannot carry (U+FFFE, U+FFFF, invalid UTF-8). `98771526` holds `vm_folder` and
+`vboxmanage_path` to the same rule when the record is written. Proof: `TestHostile_PathsNeverReachTheHost` and
+`TestServer_RefusesAMachineFolderThatClimbsOut`, each failing with the old check.
+
+**Lesson.** A path check splits the path as its file system does; a search for spellings of ".." misses every spelling
+it did not list.
+
+## 1235. TestLab_FreeBSDVMRollback could not pass once Phase 131 made a read of a missing VM succeed, had no cleanup, never reached its guest over SSH, and cloned at bsd-check's address (a repeat in kind of 952) (fixed on this branch)
+
+**Symptom.** Found 2026-11-13 closing Phase 112's Release Gate. The gate's last step read a VM that is not there with
+`virt.vbox.vm.host_keys`, to make the run fail on a step that changes nothing. Since `b617af7f` (Phase 131,
+2026-10-28) that read answers `exists: false` and succeeds, so the run exits 0 and the gate fails. It had no cleanup,
+so that failure leaves its VM running on the lab host. Its comment and the roadmap called it the Release Gate's SSH
+path, but nothing in it used SSH: the host keys came over WinRM from the console. And it cloned at 192.168.56.42,
+bsd-check's address.
+
+**Root cause.** 790's class, through 952: a change to a method an older lab gate reads, checked in passes where that
+gate skips.
+
+**Why 952 did not hold.** 952's lesson asks a change to run the lab gates that read the family it changes. Nothing maps
+a method to the lab gates that call it, and Phase 131 changed many methods at once.
+
+**Fix.** `7a160679`: the run fails on `virt.vbox.vm.log` with a pattern that does not compile, a read-only failure. The
+gate adds its own `generic_ssh` device and generated login, clones at 192.168.56.44, trusts the guest's keys from its
+console (`trust-host --from-console`), onboards it over SSH, and pings it, with a control against an empty known_hosts
+refused on the host key. A cleanup stops the VM (ACPI, then power off), deletes it, and removes the device and login
+whatever happens. It passed on the lab host on 2026-11-13 in 108.5 s. Its first run failed on the test's own mistake
+(`net.ssh.ping` declares no `data`), and the cleanup left the lab as it was.
+
+**Lesson.** A lab gate gets a cleanup that undoes what it made however it fails, and the failing step it depends on is
+checked against the method's current contract, not the one it had when the gate was written.
+
+## 1236. The vbox sync plugin stored whatever text a VM's extradata held as the device's host, where its credential is sent, and as its login device (fixed on this branch)
+
+**Symptom.** Found by the audit, 2026-11-13, from the code. `vmRecord` copied `pleiades/address` into `host` and `ip`,
+and `pleiades/device` into `vbox_login_device`, with no check. `virt.vbox.vm.clone` writes an IP address there, but the
+plugin took a host name, `192.168.56.31; rm -rf /` or `\\server\share` alike, and a synced device's credential goes to
+its host. Low severity: only the VirtualBox account can write extradata; a guest cannot.
+
+**Root cause.** Text from the source of truth was stored as the address a credential is sent to, on the assumption
+that only The Pleiades wrote it.
+
+**Fix.** `4b78c629`: `Classify` takes only an IP address with no zone, as the clone records one, and a login device
+that passes `recordname.Check`; anything else quarantines the VM with the reason. Proof:
+`TestSync_HostileInputNeverBecomesADevice` (fails with the checks removed), through the shared driver into a real file
+inventory.
+
+**Lesson.** A sync plugin holds every value that decides where a credential goes to the form its own writer produces.
+
+## 1237. virt.vbox.vm.screenshot wrote dest with os.WriteFile wherever it named on the machine running the task, so on a Runner a runbook could replace any file the Runner's account can write (security) (a repeat in kind of 618 and 667) (fixed on this branch)
+
+**Symptom.** Found by the audit, 2026-11-13, reasoned from the code, not exploited. `dest` was any path: the method
+checked only that its folder existed, wrote a `.pleiades-part` file beside it and renamed it over the target. On the
+command line that is the person's own machine. On a Runner the task runs as the Runner's account, so anyone allowed to
+launch a runbook (`runbook:execute`) could replace the Runner's configuration, a script it runs, or any file its
+account can write, with a PNG of a screen the runbook's author can draw on through `virt.vbox.vm.send_keys`.
+
+**Root cause.** A method wrote a local file around `sdk.ProjectFileWriter`, the one place the rules for a method's file
+live. The method predates 667 (written 2026-09-27).
+
+**Why 618 and 667 did not hold.** Each fixed a method that already wrote through the project writer: 618 where its path
+may come from and the guard, 667 the kind of file. Neither looked for a method writing local files around the writer,
+and nothing checked for one.
+
+**Fix.** `590b9552`: `dest` is a project-relative path ending in `.png` (`ParamFormatProjectPath`), written through
+`sdk.ProjectFileWriter`, which refuses an absolute path, a climb out of the project, a path through a symbolic link
+and `.pleiades` before the host is asked for a picture, in a check as in a run; a run with no project (a Runner's) is
+refused with `sdk.ErrNoProjectFiles`. Breaking: `changelog/vbox-screenshot-dest-in-project.breaking.md`; no shipped
+runbook named an absolute `dest`. `e1b0686a` adds `TestCatalogWritesLocalFilesOnlyThroughTheProjectWriter`: a
+Collection method's `os.WriteFile`, `Create`, `OpenFile`, `Rename`, `Remove` and the like fail unless the function is
+named with why no runbook chooses the path. Proof: `TestScreenshot_DestStaysInTheProject`, over the command line's own
+project writer, which fails with the old method (it wrote the absolute path), and the archtest, which fails on it too.
+
+**Lesson.** A Collection method writes where The Pleiades runs only through the project writer, and a structural check,
+not a review, keeps it so.
 
 ## 1240. revoke-capability --build, added on main while --inventory was swept into every other command, read the --inventory file and wrote --dir's inventory.yaml (a repeat of 183) (fixed before push)
 

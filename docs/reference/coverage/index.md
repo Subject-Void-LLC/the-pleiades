@@ -39,6 +39,6 @@ These methods belong to no collection with a ledger, so their coverage of their 
 | `pleiades` | 3 |
 | `scan` | 3 |
 | `svc` | 16 |
-| `virt` | 38 |
+| `virt` | 39 |
 | `wait` | 4 |
 | `win` | 12 |

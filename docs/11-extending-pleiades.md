@@ -1187,9 +1187,10 @@ add/update/conflict decision). `Close` releases whatever `Connect` acquired.
 This contract is verified by a real conformance suite
 (`internal/inventory/plugins/conformance_test.go`), not by convention alone: one
 shared set of assertions drives every real `Plugin` implementation through identical
-call sequences. The three plugins that exist today (`static_yaml`, a local file with
-no auth or paging; `catalyst_center`, an authenticated, paged REST API; and `aws`,
-which reads EC2 instances through the AWS SDK) are deliberately unalike, so the
+call sequences. The four plugins that exist today (`static_yaml`, a local file with
+no auth or paging; `catalyst_center`, an authenticated, paged REST API; `aws`,
+which reads EC2 instances through the AWS SDK; and `vbox`, which reads a VirtualBox
+host's VMs over WinRM through VBoxManage) are deliberately unalike, so the
 suite is shaped by all of them rather than by whichever was written first. A new
 plugin joins the suite by adding one entry to its backend table, never by editing a
 test function; if your new plugin fails an assertion the others pass, that is the

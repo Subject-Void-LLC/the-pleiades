@@ -57,15 +57,18 @@ func (r *recorder) diff(t *testing.T) (before, after map[string]any) {
 var host = &inventorytest.Stub{StubName: "vengeance", Caps: []capability.Name{capability.NameVirtualBox, capability.NameWinRM}}
 
 // onModel makes each method reach model instead of a real host, and
-// shortens the stop method's polling.
+// shortens the stop method's polling. A Windows clone's login is answered
+// by a guest that took its answer file, named win-lab, so no test reaches
+// a real machine's WinRM; a test of another guest replaces it (guest).
 func onModel(t *testing.T, model *vboxmanagetest.Host) {
 	t.Helper()
-	oldHost, oldPoll := hostFunc, pollInterval
+	oldHost, oldPoll, oldGuest, oldInterval := hostFunc, pollInterval, proveGuest, proveInterval
 	hostFunc = func(sdk.RunbookContext, inventory.InventoryItem) (vboxmanage.Host, error) {
 		return model.VBoxHost(), nil
 	}
-	pollInterval = time.Millisecond
-	t.Cleanup(func() { hostFunc, pollInterval = oldHost, oldPoll })
+	pollInterval, proveInterval = time.Millisecond, time.Millisecond
+	proveGuest = func(context.Context, string, string) (string, error) { return "WIN-LAB", nil }
+	t.Cleanup(func() { hostFunc, pollInterval, proveGuest, proveInterval = oldHost, oldPoll, oldGuest, oldInterval })
 }
 
 // lab is a stopped VM, as the lab's are.

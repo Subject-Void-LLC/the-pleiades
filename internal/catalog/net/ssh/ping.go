@@ -53,9 +53,12 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
 
-// paramData is the optional string a runbook task can set to change what
-// this method echoes back, mirroring Ansible's own ping module ("data"
-// defaults to "pong"). paramInsecureSkipHostKeyVerify is the escape
+// paramData is a value a caller handing the method its parameters
+// directly can have echoed in place of "pong", as this package's tests do to
+// hold the quoting of what is echoed. No runbook can set it: the method
+// declares no parameters, and validation (internal/validate's params rule,
+// which the command line and a Runner both run) refuses one it does not
+// declare, so a runbook's ping always replies pong. paramInsecureSkipHostKeyVerify is the escape
 // hatch for a target with no known_hosts entry yet, off by default:
 // skipping host key verification is a real MITM exposure, so it must be
 // set explicitly and loudly by the runbook author, never assumed.
@@ -96,7 +99,7 @@ func init() {
 			SupportsCheck: true,
 			Doc: collection.Doc{
 				Summary:     "Opens a real SSH connection to the target and echoes a value back, to prove reachability.",
-				Description: "Dials the device's SSHTransportCapable host and port, authenticates with the credential the Controller attached to this dispatch, and runs a trivial, read-only remote command that echoes params.data (default \"pong\") back. Never reports changed: a connectivity check does not alter device state.",
+				Description: "Dials the device's SSHTransportCapable host and port, authenticates with the credential the Controller attached to this dispatch, and runs a trivial, read-only remote command that prints pong, which comes back as reply. It takes no parameters: unlike Ansible's ping it has no data to echo, and validation refuses one, on the command line and on a Runner alike. Never reports changed: a connectivity check does not alter device state.",
 				Returns: []collection.ReturnField{
 					{Name: "reply", Type: "string", Returned: "always", Description: "The trimmed value the remote command echoed back."},
 				},

@@ -1,0 +1,1 @@
+`virt.vbox.media.prune` deletes nothing at or under a symbolic link, junction or mount point under the machine folder, and removes no folder that is one or holds one; the folder is checked again at the moment it is removed. What a link reaches can be anywhere, so it is never the machine folder's to delete.

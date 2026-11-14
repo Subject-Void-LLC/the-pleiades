@@ -131,13 +131,12 @@ func (m Machine) FreeSATASlot() (Slot, bool) {
 }
 
 // SlotsHolding returns the slots holding a medium at a path under folder,
-// compared without regard to case or to which separator VirtualBox wrote.
+// compared as Within compares: by ASCII case, with either separator, and
+// never through a ".." segment.
 func (m Machine) SlotsHolding(folder string) []Slot {
-	prefix := strings.ToLower(strings.ReplaceAll(folder, "/", `\`)) + `\`
 	var held []Slot
 	for _, s := range m.Slots {
-		medium := strings.ToLower(strings.ReplaceAll(s.Medium, "/", `\`))
-		if strings.HasPrefix(medium, prefix) {
+		if !samePath(s.Medium, folder) && within(folder, s.Medium) {
 			held = append(held, s)
 		}
 	}
@@ -305,12 +304,21 @@ func (h Host) CloseDVD(ctx context.Context, path string, remove bool) error {
 // settings, logs and disks stay where they are. It is for a machine
 // VirtualBox cannot read (Ref.Inaccessible), whose files Unregister could
 // not find, and which, left registered, makes VirtualBox 7.2's autostart
-// service refuse to start any machine of the account.
+// service refuse to start any machine of the account. A machine with
+// linked clones is refused (LinkedClones), since forgetting it leaves
+// their disks descending from disks no registered machine owns.
 func (h Host) Forget(ctx context.Context, uuid string) error {
 	if !uuidPattern.MatchString(uuid) {
 		return fmt.Errorf("vboxmanage: %q is not a VirtualBox UUID", uuid)
 	}
-	_, err := h.run(ctx, "unregistervm", uuid)
+	media, err := h.Media(ctx)
+	if err != nil {
+		return err
+	}
+	if clones := LinkedClones(media, uuid); len(clones) > 0 {
+		return refuseLinked(uuid, clones)
+	}
+	_, err = h.run(ctx, "unregistervm", uuid)
 	return err
 }
 

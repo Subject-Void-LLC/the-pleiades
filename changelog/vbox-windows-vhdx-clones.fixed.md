@@ -1,0 +1,1 @@
+A linked clone of a generalized Windows image other than one `virt.vbox.vm.install` made, such as Microsoft's Windows Server evaluation VHDX, now takes its answer file: `virt.vbox.vm.clone` writes it to the DVD as `Unattend.xml` too, the name such an image's first boot reads.

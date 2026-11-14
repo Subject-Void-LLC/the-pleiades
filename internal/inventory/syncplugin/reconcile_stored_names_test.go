@@ -24,8 +24,8 @@ import (
 // seededRepo is a store holding one linux_server at host 10.0.0.1 under
 // name, written past Create the way a release before the rule could have:
 // the ent store through the generated client, the file store through
-// hosts.yaml written by hand. Neither records a source, so a sync may adopt
-// the device, as it adopts any hand-written entry.
+// hosts.yaml written by hand. Neither records a source, so a sync takes the
+// device over only when told to adopt it by name.
 type seededRepo struct {
 	name string
 	open func(t *testing.T, name string) inv.Repository
@@ -81,7 +81,10 @@ func TestReconcile_UpdatesADeviceStoredUnderANameTheRuleNowRefuses(t *testing.T)
 				},
 			}
 
-			report := reconcile(t, p, repo)
+			report, err := syncplugin.Reconcile(context.Background(), p, syncplugin.Config{Name: "scripted", Adopt: []string{stored}}, repo, inv.NewItemFactory())
+			if err != nil {
+				t.Fatal(err)
+			}
 			outcomes := map[string]syncplugin.Outcome{}
 			for _, res := range report.Results {
 				outcomes[res.Name] = res.Outcome

@@ -1,10 +1,17 @@
 # Make the Windows lab VM from the base and boot it.
+# Blast radius: vengeance, the VirtualBox host; win-lab, a lab VM nothing
+#   else depends on.
+# Changes: through virt.vbox.vm.clone and virt.vbox.vm.start.
+# Undo: pleiades rollback of this run stops and deletes win-lab.
 #
 # login names the inventory device whose stored credential the VM gets. It
 # must be a Windows device (reached over WinRM) whose credential names
 # Administrator: run `pleiades add-credential win-lab --username
 # Administrator --generate` first. Its password goes into the VM's answer
-# file, so eject the seed once the first boot is done (04).
+# file. The clone task boots the VM once to prove its Administrator logs
+# in with that password at its address under its own name, then shuts it
+# down and deletes the answer file; a clone not proven is deleted and the
+# task fails. The start task then boots it for use.
 #
 # With no size, a Windows clone is small (one CPU). Keep it that way on a
 # host where WSL 2 or Docker Desktop runs if the base boots with EFI: see

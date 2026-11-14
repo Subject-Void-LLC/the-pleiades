@@ -38,7 +38,7 @@ func init() {
 			SupportsCheck:   true,
 			Doc: collection.Doc{
 				Summary:     "Deletes a snapshot of a VirtualBox VM.",
-				Description: "Makes sure a VM has no snapshot with this name. None under the name reports no change. The snapshot's saved state is merged away and cannot be brought back, so this cannot be undone. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A check reads the VM and sends nothing.",
+				Description: "Makes sure a VM has no snapshot with this name. None under the name reports no change. A VM that is not stopped (running, paused, or between states) is refused, in a check too: deleting a running VM's snapshot merges its disks while it runs, which on the lab host twice left the VM unreadable to VirtualBox, its settings holding no record of its disks. Stop it first with virt.vbox.vm.stop. The snapshot's saved state is merged away and cannot be brought back, so this cannot be undone. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A check reads the VM and sends nothing.",
 				Params: []collection.Param{
 					{Name: "vm", Type: "string", Required: true, Description: "The VM whose snapshot this is, named as for virt.vbox.vm.start."},
 					{Name: "name", Type: "string", Required: true, Description: "The snapshot's name, under the same rule as a VM's. VirtualBox lets two snapshots share a name; virt.vbox.snapshot.take never makes a second, and the methods that find a snapshot by name refuse one that matches more than one unless uuid says which."},
@@ -70,8 +70,11 @@ func CheckDelete(ctx context.Context, rc sdk.RunbookContext, device inventory.In
 	return runDelete(ctx, rc, device, params, collection.ModeCheck)
 }
 
-// runDelete deletes the snapshot named, when there is one. VirtualBox
-// deletes a running VM's snapshot too, merging its disk while the VM runs.
+// runDelete deletes the snapshot named, when there is one, from a VM that
+// is stopped. VirtualBox deletes a running VM's snapshot too, merging its
+// disks while it runs, and on the lab host that twice left the VM
+// inaccessible (its settings rewritten with no media registry), so a VM
+// that is not stopped is refused, in a check as in a run.
 func runDelete(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any, mode collection.Mode) (collection.Result, error) {
 	const fqcn = "virt.vbox.snapshot.delete"
 	h, r, err := target(rc, device, params, fqcn)
@@ -88,6 +91,9 @@ func runDelete(ctx context.Context, rc sdk.RunbookContext, device inventory.Inve
 	}
 	if !found {
 		return collection.Result{}, recordExists(rc, fqcn, false, false)
+	}
+	if !m.Off() {
+		return collection.Result{}, fmt.Errorf("%s: %q is %s; a snapshot is deleted only from a stopped VM, since merging its disks while it runs can leave the VM unreadable to VirtualBox; stop it first with virt.vbox.vm.stop", fqcn, r.vm, m.State)
 	}
 	if err := rc.SetStat(statUUID, s.UUID); err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)

@@ -208,6 +208,48 @@ func TestRunInventorySync_WritesInventory(t *testing.T) {
 	}
 }
 
+// TestRunInventorySync_AdoptsAHandAddedDeviceOnlyWhenNamed: a switch added
+// by hand under the name the controller reports is a conflict the sync
+// leaves alone, and --adopt sw1 takes it over, the controller then its
+// owner; an empty --adopt is refused.
+func TestRunInventorySync_AdoptsAHandAddedDeviceOnlyWhenNamed(t *testing.T) {
+	dir := newSyncProject(t)
+	srv := fakeController(t)
+	if err := runAddHost([]string{"sw1", "--type", "cisco_switch", "--set", "host=10.9.9.9", "--dir", dir}); err != nil {
+		t.Fatalf("add-host: %v", err)
+	}
+	sync := func(extra ...string) string {
+		t.Helper()
+		return captureStdout(t, func() {
+			if err := runInventorySync(append([]string{"--plugin", "catalyst_center", "--endpoint", srv.URL, "--dir", dir}, extra...)); err != nil {
+				t.Fatalf("inventory sync %v: %v", extra, err)
+			}
+		})
+	}
+	owner := func() (string, string) {
+		t.Helper()
+		item, err := inv.NewFileRepository(filepath.Join(dir, "inventory.yaml"), inv.NewItemFactory()).GetByName(t.Context(), "sw1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		host, _ := item.Properties().String("host")
+		return item.Source().Plugin, host
+	}
+	if out := sync(); !strings.Contains(out, "--adopt sw1") {
+		t.Errorf("the hand-added switch's conflict does not say how to adopt it:\n%s", out)
+	}
+	if plugin, host := owner(); plugin != "" || host != "10.9.9.9" {
+		t.Fatalf("the hand-added switch was taken over without --adopt: owner %q, host %s", plugin, host)
+	}
+	sync("--adopt", "sw1")
+	if plugin, host := owner(); plugin != "catalyst_center" || host != "10.0.0.1" {
+		t.Errorf("after --adopt sw1: owner %q, host %s", plugin, host)
+	}
+	if err := runInventorySync([]string{"--plugin", "catalyst_center", "--endpoint", srv.URL, "--dir", dir, "--adopt", " "}); err == nil {
+		t.Error("an empty --adopt was accepted")
+	}
+}
+
 // TestRunInventorySync_ReadOnlyIsADryRun proves --read-only reports what
 // would change and writes nothing. This is the simulate-first proof, and
 // the distinction that matters is that it reports rather than aborting: an

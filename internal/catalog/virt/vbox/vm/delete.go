@@ -40,7 +40,7 @@ func init() {
 			SupportsCheck:   true,
 			Doc: collection.Doc{
 				Summary:     "Deletes a stopped VirtualBox VM and its disks.",
-				Description: "Makes sure no VM of this name exists. None reports no change. A running or paused VM is refused: stop it first with virt.vbox.vm.stop. A saved VM's state (virt.vbox.vm.stop's mode save) is discarded first, since VirtualBox will not detach media from a saved VM and the delete throws that memory away anyway. The VM is unregistered and its disks deleted, along with a seed ISO or console log virt.vbox.vm.clone put in its folder and a screenshot virt.vbox.vm.install saved there; install media attached from anywhere else (a shared ISO) is detached, never deleted. A VM that others were linked-cloned from is refused by VirtualBox while they exist. This cannot be undone. A VM VirtualBox lists as <inaccessible> (its folder deleted or unreadable) is named by the UUID list vms shows for it, and is only unregistered: nothing is deleted, since VirtualBox cannot read where its disks are. Left registered, such a VM makes VirtualBox 7.2's autostart service refuse to start any of the account's VMs. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A check reads the VM and sends nothing, and reports a running or paused VM as not checkable, since an earlier task in the same run may stop it.",
+				Description: "Makes sure no VM of this name exists. None reports no change. A running or paused VM is refused: stop it first with virt.vbox.vm.stop. A saved VM's state (virt.vbox.vm.stop's mode save) is discarded first, since VirtualBox will not detach media from a saved VM and the delete throws that memory away anyway. The VM is unregistered and its disks deleted, along with a seed ISO or console log virt.vbox.vm.clone put in its folder and a screenshot virt.vbox.vm.install saved there; install media attached from anywhere else (a shared ISO) is detached, never deleted. A VM that others were linked-cloned from is refused by VirtualBox while they exist. This cannot be undone. A VM VirtualBox lists as <inaccessible> (its folder deleted or unreadable) is named by the UUID list vms shows for it, and is only unregistered: nothing is deleted, since VirtualBox cannot read where its disks are. One that linked clones descend from is refused, naming them, since forgetting it would leave their disks descending from disks no registered VM owns: delete the clones first. Left registered, such a VM makes VirtualBox 7.2's autostart service refuse to start any of the account's VMs. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A check reads the VM and sends nothing, and reports a running or paused VM as not checkable, since an earlier task in the same run may stop it.",
 				Params: []collection.Param{
 					{Name: "name", Type: "string", Required: true, Description: "The VM's name on the host. It must start with a letter or digit and hold only letters, digits, '.', '_' and '-', at most 63 characters; any other name is refused rather than quoted."},
 					{Name: "uuid", Type: "string", Description: "When set, the VM under name must be this one, by its VirtualBox UUID, or the task is refused and nothing is deleted. A rollback sets it, so undoing the task that made a VM never deletes a different VM made later under the same name."},
@@ -195,7 +195,11 @@ func deleteVM(ctx context.Context, h vboxmanage.Host, name string) error {
 		if err := h.Detach(ctx, name, slot); err != nil {
 			return err
 		}
-		if under(dir, slot.Medium) {
+		// Only an image in the VM's own folder is deleted, decided as a prune
+		// decides (vboxmanage.Within): a path through "..", a UNC path or a
+		// name differing only outside ASCII is somewhere else, so detached
+		// and kept.
+		if !strings.EqualFold(dir, slot.Medium) && vboxmanage.Within(dir, slot.Medium) {
 			if err := h.CloseDVD(ctx, slot.Medium, true); err != nil {
 				return err
 			}
@@ -211,11 +215,4 @@ func deleteVM(ctx context.Context, h vboxmanage.Host, name string) error {
 		}
 	}
 	return h.Remove(ctx, dir+`\`+consoleFile, true)
-}
-
-// under reports whether path is inside dir, without regard to case or to
-// which separator VirtualBox wrote.
-func under(dir, path string) bool {
-	norm := func(s string) string { return strings.ToLower(strings.ReplaceAll(s, "/", `\`)) }
-	return strings.HasPrefix(norm(path), norm(dir)+`\`)
 }

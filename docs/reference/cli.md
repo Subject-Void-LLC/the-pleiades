@@ -698,6 +698,7 @@ pull devices from an external source into the local inventory
 | --read-only | `bool` | `false` | refuse every write to the local inventory, reporting what would have changed |
 | --insecure-skip-verify | `bool` | `false` | skip TLS certificate verification against the upstream system |
 | --set | `string` | - | a plugin-specific setting as key=value, repeatable (see 'pleiades inventory plugins') |
+| --adopt | `string` | - | a device added by hand that this sync may take over, by its exact name, repeatable; every other hand-added device under a name the source reports is a conflict left alone |
 
 `pleiades inventory sync --plugin catalyst_center --endpoint https://dnac.example.com`
 

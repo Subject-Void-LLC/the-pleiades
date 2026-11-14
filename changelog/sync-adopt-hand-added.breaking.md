@@ -1,0 +1,1 @@
+`pleiades inventory sync` no longer takes over a device added by hand under the same name: it reports a conflict and leaves the device alone, as it already did for one another plugin owns. `--adopt <name>` (repeatable) takes one over on purpose.

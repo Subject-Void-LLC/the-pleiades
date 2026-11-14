@@ -22,4 +22,5 @@ import (
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/inventory/plugins/aws"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/inventory/plugins/catalystcenter"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/inventory/plugins/staticyaml"
+	_ "github.com/Subject-Void-LLC/the-pleiades/internal/inventory/plugins/vbox"
 )

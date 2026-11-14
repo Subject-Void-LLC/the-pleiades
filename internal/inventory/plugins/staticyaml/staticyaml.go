@@ -68,6 +68,10 @@ type Plugin struct {
 	// detectable rather than a nil-pointer panic later.
 	path string
 
+	// cfg is the Config Connect was given, which Sync reconciles under, so
+	// what it carries (the devices to adopt among them) reaches the driver.
+	cfg syncplugin.Config
+
 	// unplaced holds, by host name, why the last Discover could not
 	// resolve an entry's classify path, so Classify can quarantine that
 	// entry with the reason rather than a generic one.
@@ -97,6 +101,7 @@ func (p *Plugin) Connect(_ context.Context, cfg syncplugin.Config) error {
 		return fmt.Errorf("sync plugin %q: endpoint must be a file:// URL, got %q", Name, cfg.Endpoint)
 	}
 	p.path = path
+	p.cfg = cfg
 	return nil
 }
 
@@ -177,9 +182,15 @@ func (p *Plugin) Classify(_ context.Context, rec record.Record) (syncplugin.Clas
 	}, nil
 }
 
-// Sync reconciles the document into repo through the shared driver.
+// Sync reconciles the document into repo through the shared driver, under
+// the Config Connect was given. It used to reconcile under a Config of its
+// own holding only the name, which dropped whatever else the caller set.
 func (p *Plugin) Sync(ctx context.Context, repo inv.Repository) (syncplugin.Reconciliation, error) {
-	cfg := syncplugin.Config{Name: Name}
+	if p.path == "" {
+		return syncplugin.Reconciliation{}, syncplugin.ErrNotConnected
+	}
+	cfg := p.cfg
+	cfg.Name = Name
 	return syncplugin.Reconcile(ctx, p, cfg, repo, p.factory)
 }
 

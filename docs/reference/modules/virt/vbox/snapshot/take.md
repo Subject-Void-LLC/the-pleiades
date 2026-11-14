@@ -6,7 +6,7 @@ status: beta
 
 Takes a snapshot of a VirtualBox VM under a name no other snapshot of it has.
 
-Makes sure a VM has a snapshot with this name. A snapshot already under the name reports no change and takes no second one, although VirtualBox itself would. A running VM can be snapshotted; a snapshot of a running VM holds its memory too. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A check reads the VM and sends nothing.
+Makes sure a VM has a snapshot with this name. A snapshot already under the name reports no change and takes no second one, although VirtualBox itself would. A running VM can be snapshotted; a snapshot of a running VM holds its memory too. Its undo would delete the snapshot from the running VM a rollback brings back, which virt.vbox.snapshot.delete refuses, so a snapshot taken of a VM that is not stopped records no undo and says so in a warning: a rollback refuses that change by name before it contacts anything, and --leave accepts it. The task's target is the VirtualBox host (a device with virtualbox: true), not the VM, which is a resource on it. A check reads the VM and sends nothing.
 
 ## Attributes
 
@@ -38,7 +38,7 @@ Makes sure a VM has a snapshot with this name. A snapshot already under the name
 
 **Can be undone.** A run that changes something records the instruction that reverses it, as an `inverse` stat holding the method to call and the parameters to call it with, resolved from the state this run actually found. A run that changed nothing records no instruction, which is how it says that undoing it means doing nothing.
 
-A run that took a snapshot emits virt.vbox.snapshot.delete naming it by UUID, so the undo deletes that snapshot and no other of the same name; one that found a snapshot under the name emits nothing.
+A run that took a snapshot of a stopped VM emits virt.vbox.snapshot.delete naming it by UUID, so the undo deletes that snapshot and no other of the same name; one that found a snapshot under the name emits nothing, and so does one that snapshotted a running VM, whose undo would be a delete from a running VM that virt.vbox.snapshot.delete refuses.
 
 `pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
 

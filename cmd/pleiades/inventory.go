@@ -144,6 +144,22 @@ func (f settingFlag) Set(raw string) error {
 	return nil
 }
 
+// adoptFlag collects repeated --adopt names: the hand-added devices a
+// sync may take over (syncplugin.Config.Adopt).
+type adoptFlag []string
+
+// String renders the names for flag's usage output.
+func (f *adoptFlag) String() string { return strings.Join(*f, ",") }
+
+// Set records one name, refusing an empty one, which names no device.
+func (f *adoptFlag) Set(name string) error {
+	if strings.TrimSpace(name) == "" {
+		return fmt.Errorf("--adopt expects a device name")
+	}
+	*f = append(*f, name)
+	return nil
+}
+
 // runInventorySync pulls devices from an external source into the project's
 // inventory.
 func runInventorySync(args []string) error {
@@ -158,6 +174,8 @@ func runInventorySync(args []string) error {
 	insecure := fs.Bool("insecure-skip-verify", false, "skip TLS certificate verification against the upstream system")
 	settings := settingFlag{}
 	fs.Var(settings, "set", "a plugin-specific setting as key=value, repeatable (see 'pleiades inventory plugins')")
+	var adopt adoptFlag
+	fs.Var(&adopt, "adopt", "a device added by hand that this sync may take over, by its exact name, repeatable; every other hand-added device under a name the source reports is a conflict left alone")
 
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -188,6 +206,7 @@ func runInventorySync(args []string) error {
 	if len(settings) > 0 {
 		cfg.Settings = settings
 	}
+	cfg.Adopt = adopt
 
 	// syncplugin.Open is the ONE construction path, shared with the
 	// conformance suite, so a plugin cannot pass its tests while being

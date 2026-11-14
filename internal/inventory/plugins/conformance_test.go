@@ -23,10 +23,13 @@ import (
 	awsplugin "github.com/Subject-Void-LLC/the-pleiades/internal/inventory/plugins/aws"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/plugins/catalystcenter"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/plugins/staticyaml"
+	vboxplugin "github.com/Subject-Void-LLC/the-pleiades/internal/inventory/plugins/vbox"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/syncplugin"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/awscloud"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/vboxmanage"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/vboxmanage/vboxmanagetest"
 )
 
 // This is the sync plugin conformance suite, the direct analogue of
@@ -172,7 +175,54 @@ func pluginBackends() []pluginBackend {
 				}
 			},
 		},
+		{
+			name:      "vbox",
+			newPlugin: newVBoxBackend,
+			// One device a VM, and the host itself is not one.
+			extraDevices: 0,
+			// A VM of an OS type no rule places.
+			unclassifiable: conformanceHost{Name: "mystery1", IP: "10.0.0.9", SoftwareType: "Other/Unknown (64-bit)"},
+		},
 	}
+}
+
+// newVBoxBackend registers one VM a host on a model VirtualBox host
+// (pkg/vboxmanage/vboxmanagetest, which stands in for VirtualBox in every
+// vbox test), each with the fixed address virt.vbox.vm.clone records, and
+// connects a plugin to it. The fixture's switches become Ubuntu VMs, since
+// a VirtualBox host runs no switch; a host's SoftwareType, when it is not
+// the fixture's IOS-XE, is the VM's OS type as showvminfo describes it.
+// Only the WinRM transport is replaced: the plugin is opened, connected and
+// synced exactly as pleiades inventory sync does, and the real transport is
+// proven against the lab host.
+func newVBoxBackend(t *testing.T, hosts []conformanceHost) (syncplugin.Plugin, syncplugin.Config) {
+	t.Helper()
+	vms := make([]*vboxmanagetest.VM, 0, len(hosts))
+	for i, h := range hosts {
+		osType := "Ubuntu (64-bit)"
+		if h.SoftwareType != "" && h.SoftwareType != "IOS-XE" {
+			osType = h.SoftwareType
+		}
+		vms = append(vms, &vboxmanagetest.VM{Name: h.Name, UUID: fmt.Sprintf("00000000-0000-4000-b000-%012d", i+1), State: vboxmanage.StatePoweroff,
+			MemoryMB: 1024, CPUs: 1, OSType: osType, Extra: map[string]string{vboxmanage.ExtraAddress: h.IP, vboxmanage.ExtraDevice: h.Name}})
+	}
+	model := vboxmanagetest.New(vms...)
+	old := vboxplugin.HostFunc
+	vboxplugin.HostFunc = func(vboxplugin.Endpoint, map[string]string) (vboxmanage.Host, error) { return model.VBoxHost(), nil }
+	t.Cleanup(func() { vboxplugin.HostFunc = old })
+
+	cfg := syncplugin.Config{
+		Name:     vboxplugin.Name,
+		Endpoint: "https://vbox-host.example:5986",
+		ReadOnly: true,
+		// The host's own stored credential, as a user names it with
+		// --credential.
+		CredentialName: "vbox-host",
+	}
+	deps := syncplugin.Deps{
+		Credentials: staticStore{credential.Credential{Username: "pleiades-gate", Password: "Lab-Passw0rd-1"}},
+	}
+	return openThroughRegistry(t, vboxplugin.Name, cfg, deps), cfg
 }
 
 // newStaticYAMLBackend writes an upstream document and connects a plugin to
@@ -596,6 +646,68 @@ func TestPluginConformance_ForeignOwnerIsAConflict(t *testing.T) {
 			}
 			if item.Source().Plugin != "netbox" {
 				t.Errorf("the original owner was overwritten: Source().Plugin = %q", item.Source().Plugin)
+			}
+		})
+	}
+}
+
+// TestPluginConformance_HandAddedDeviceIsAConflictUntilAdopted proves every
+// plugin leaves a device added by hand alone when the upstream reports the
+// same name, reporting a conflict that says how to adopt it, and takes it
+// over, recording itself as the owner, only when the sync names it in
+// Config.Adopt. A typed hosts entry and a discovered device sharing a name
+// are not known to be one machine.
+func TestPluginConformance_HandAddedDeviceIsAConflictUntilAdopted(t *testing.T) {
+	for _, backend := range pluginBackends() {
+		t.Run(backend.name, func(t *testing.T) {
+			hosts := conformanceHosts()
+			p, cfg := backend.newPlugin(t, hosts)
+			ctx := context.Background()
+			path := filepath.Join(t.TempDir(), "inventory.yaml")
+			if err := inv.WriteHosts(path, []inv.HostSpec{{ID: "hand-sw1", Name: "sw1", Type: "linux_server", Properties: map[string]interface{}{"host": "10.9.9.9", "owner_note": "typed by hand"}}}); err != nil {
+				t.Fatal(err)
+			}
+			repo := inv.NewFileRepository(path, inv.NewItemFactory())
+
+			report, err := p.Sync(ctx, repo)
+			if err != nil {
+				t.Fatalf("Sync: %v", err)
+			}
+			conflict := false
+			for _, r := range report.Results {
+				if r.Name == "sw1" {
+					conflict = r.Outcome == syncplugin.OutcomeConflict && strings.Contains(r.Reason, "--adopt sw1")
+				}
+			}
+			if !conflict {
+				t.Fatalf("the hand-added sw1 was not a conflict naming --adopt: %+v", report.Results)
+			}
+			item, err := repo.GetByName(ctx, "sw1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if host, _ := item.Properties().String("host"); item.Source().Plugin != "" || host != "10.9.9.9" {
+				t.Errorf("the hand-added sw1 was taken over: source %q, host %q", item.Source().Plugin, host)
+			}
+
+			adopting := cfg
+			adopting.Adopt = []string{"sw1"}
+			if err := p.Connect(ctx, adopting); err != nil {
+				t.Fatalf("Connect with an adoption: %v", err)
+			}
+			report, err = p.Sync(ctx, repo)
+			if err != nil {
+				t.Fatalf("Sync with an adoption: %v", err)
+			}
+			if got := report.Count(syncplugin.OutcomeConflict); got != 0 {
+				t.Errorf("an adopted device is still a conflict: %+v", report.Results)
+			}
+			item, err = repo.GetByName(ctx, "sw1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if item.Source().Plugin != cfg.Name {
+				t.Errorf("the adopted sw1 is owned by %q, want %q", item.Source().Plugin, cfg.Name)
 			}
 		})
 	}

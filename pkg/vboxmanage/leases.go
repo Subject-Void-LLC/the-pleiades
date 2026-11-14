@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/winrmexec"
 )
 
 // tagLeases is the first line of the script that reads a leases file.
@@ -65,14 +67,18 @@ func ParseLeases(text string) ([]Lease, error) {
 }
 
 // DHCPLeases returns the leases VirtualBox's DHCP server for the host-only
-// adapter holds for this account, none when it has handed out none.
+// adapter holds for this account, none when it has handed out none. The
+// adapter's name goes into the script through winrmexec.QuotePS, as every
+// value spliced into a script here does (FAILURE_PATTERNS 354), although
+// CheckAdapter already admits no quote character: one rule, not a second
+// reason to trust a pattern.
 func (h Host) DHCPLeases(ctx context.Context, adapter string) ([]Lease, error) {
 	if err := CheckAdapter(adapter); err != nil {
 		return nil, err
 	}
 	script := tagLeases + `
 $ErrorActionPreference = 'Stop'
-$adapter = '` + adapter + `'
+$adapter = ` + winrmexec.QuotePS(adapter) + `
 $path = Join-Path $env:USERPROFILE ('.VirtualBox\HostInterfaceNetworking-' + $adapter + '-Dhcpd.leases')
 if (-not (Test-Path -LiteralPath $path)) { exit 3 }
 [Convert]::ToBase64String([IO.File]::ReadAllBytes($path))
