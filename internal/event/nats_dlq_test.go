@@ -320,3 +320,85 @@ func TestHandleDeliveryFailure_NonPositiveMaxDeliverDeadLettersImmediately(t *te
 		t.Fatal("expected an immediate dead letter for maxDeliver=0, got none")
 	}
 }
+
+// TestDeadLetter_OnTheFirstDelivery proves DeadLetter dead-letters a message
+// on its first delivery, which HandleDeliveryFailure would have Nak'd for
+// redelivery, keeping its identifiers and the delivery count, and terminates
+// it so it is never delivered again.
+func TestDeadLetter_OnTheFirstDelivery(t *testing.T) {
+	url := startNatsContainer(t)
+	ctx := context.Background()
+
+	nc, err := nats.Connect(url)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer nc.Close()
+	js, err := jetstream.New(nc)
+	if err != nil {
+		t.Fatalf("jetstream: %v", err)
+	}
+	if _, _, err := topology.ProvisionStream(ctx, js, topology.DefaultOutageBudget, false); err != nil {
+		t.Fatalf("ensure stream: %v", err)
+	}
+
+	const topic = "pleiades.events.dlq.dead-letter-now"
+	if _, err := js.Publish(ctx, topic, []byte(`{"id":"dead-letter-now","type":"runbook.dispatched"}`)); err != nil {
+		t.Fatalf("publish: %v", err)
+	}
+	consumer, err := js.CreateOrUpdateConsumer(ctx, topology.StreamName, topology.SubscribeConsumerConfig(topology.DurableName(topic), topic))
+	if err != nil {
+		t.Fatalf("consumer: %v", err)
+	}
+	msgs, err := consumer.Fetch(1, jetstream.FetchMaxWait(5*time.Second))
+	if err != nil {
+		t.Fatalf("fetch: %v", err)
+	}
+	var msg jetstream.Msg
+	for m := range msgs.Messages() {
+		msg = m
+	}
+	if msg == nil {
+		t.Fatal("no message fetched")
+	}
+
+	if err := event.DeadLetter(ctx, js, msg, "a refused login"); err != nil {
+		t.Fatalf("DeadLetter: %v", err)
+	}
+
+	dlqConsumer, err := js.CreateOrUpdateConsumer(ctx, topology.StreamName, jetstream.ConsumerConfig{
+		FilterSubject: topology.DeadLetterSubject(topic),
+		DeliverPolicy: jetstream.DeliverAllPolicy,
+		AckPolicy:     jetstream.AckNonePolicy,
+	})
+	if err != nil {
+		t.Fatalf("dlq consumer: %v", err)
+	}
+	dlqMsgs, err := dlqConsumer.Fetch(1, jetstream.FetchMaxWait(5*time.Second))
+	if err != nil {
+		t.Fatalf("dlq fetch: %v", err)
+	}
+	var envelope event.DeadLetterEnvelope
+	found := false
+	for m := range dlqMsgs.Messages() {
+		found = true
+		if err := json.Unmarshal(m.Data(), &envelope); err != nil {
+			t.Fatalf("unmarshal dead letter: %v", err)
+		}
+	}
+	if !found {
+		t.Fatal("expected a dead letter on the first delivery, got none")
+	}
+	if envelope.EventID != "dead-letter-now" || envelope.NumDelivered != 1 || envelope.Reason != "a refused login" {
+		t.Errorf("dead letter = %+v, want event dead-letter-now, delivered once, reason kept", envelope)
+	}
+
+	// Terminated: nothing is redelivered.
+	again, err := consumer.Fetch(1, jetstream.FetchMaxWait(2*time.Second))
+	if err != nil {
+		t.Fatalf("refetch: %v", err)
+	}
+	for range again.Messages() {
+		t.Fatal("a dead-lettered message was delivered again")
+	}
+}

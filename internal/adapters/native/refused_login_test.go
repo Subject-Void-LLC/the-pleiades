@@ -79,12 +79,26 @@ func TestAdapter_Execute_ARefusedLoginIsSentOncePerTask(t *testing.T) {
 	for _, persist := range []bool{true, false} {
 		before := srv.Refusals()
 		payload.PersistConnections = persist
-		if _, err := adapter.Execute(context.Background(), payload); err == nil {
+		_, err := adapter.Execute(context.Background(), payload)
+		if err == nil {
 			t.Fatalf("persist %v: a run whose logins were refused succeeded", persist)
+		}
+		// The Runner dead-letters a run whose failure says so, rather than
+		// redelivering it to send the refused login again.
+		if !engine.Refused(err) || !strings.HasPrefix(err.Error(), "execution failed: ") {
+			t.Errorf("persist %v: the run's failure %q (Refused %v) does not say a login was refused", persist, err, engine.Refused(err))
 		}
 		if got := srv.Refusals() - before; got != 2 {
 			t.Errorf("persist %v: the server refused %d passwords for two tasks, want 2: the until task or the loop sent the refused login again", persist, got)
 		}
+	}
+
+	// Control: a run that failed only because nothing answered is an
+	// ordinary failure, which the Runner may redeliver.
+	unreached := payload
+	unreached.DeviceHost, unreached.SSHPort = "127.0.0.1", 1
+	if _, err := adapter.Execute(context.Background(), unreached); err == nil || engine.Refused(err) {
+		t.Errorf("a run nothing answered failed with %v (Refused %v), want an ordinary failure", err, engine.Refused(err))
 	}
 }
 

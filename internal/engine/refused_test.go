@@ -204,3 +204,28 @@ func TestRefusedLogin_ARealServerIsSentItOnce(t *testing.T) {
 		})
 	}
 }
+
+// TestRunResult_SawRefusal proves a run reports a refusal among its tasks'
+// runs, whichever transport refused and whether a rescue or ignore_errors
+// answered it, since a rerun of the whole runbook would send that login
+// again; and reports none for a run whose failures are all ordinary.
+func TestRunResult_SawRefusal(t *testing.T) {
+	ordinary := engine.NodeResult{Err: errors.New("command exited 1")}
+	for name, err := range refusals {
+		for how, n := range map[string]engine.NodeResult{
+			"unanswered": {Err: err},
+			"ignored":    {Err: err, Ignored: true},
+			"rescued":    {Err: err, RescuedBy: "recover"},
+		} {
+			if !(engine.RunResult{Nodes: []engine.NodeResult{ordinary, n, {}}}).SawRefusal() {
+				t.Errorf("%s, %s: a run with a refused login did not report it", name, how)
+			}
+		}
+	}
+	if (engine.RunResult{Nodes: []engine.NodeResult{ordinary, {}}}).SawRefusal() {
+		t.Error("a run whose only failure was ordinary reported a refusal")
+	}
+	if (engine.RunResult{}).SawRefusal() {
+		t.Error("an empty run reported a refusal")
+	}
+}

@@ -373,7 +373,10 @@ dead-lettered. Each delivery runs the whole definition from the start, including
 already changed something, so a definition that is not safe to repeat can make its change
 more than once. (A single command sent over SSH is still never resent; see
 [Running in production](10-running-in-production.md#a-command-is-never-retried-once-sent).)
-This is planned to become a stated policy that is off by default.
+This is planned to become a stated policy that is off by default. One failure is never run
+again: a run in which a device refused a login (or this side refused its host key or
+certificate) is dead-lettered on its first delivery, since each delivery would send the
+refused password again toward the account's lockout, and the answer would not change.
 
 ### How a job ends
 

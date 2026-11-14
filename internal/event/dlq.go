@@ -132,7 +132,28 @@ func HandleDeliveryFailure(ctx context.Context, js jetstream.JetStream, msg jets
 		return msg.NakWithDelay(delay)
 	}
 
-	data, err := json.Marshal(deadLetter(msg, meta.NumDelivered, reason))
+	return publishDeadLetter(ctx, js, msg, meta.NumDelivered, reason)
+}
+
+// DeadLetter dead-letters msg on this delivery, whatever its count, by the
+// same mechanism HandleDeliveryFailure uses once redelivery is exhausted:
+// its identifiers published to topology.DeadLetterSubject(msg.Subject()),
+// then terminated. It is for a failure a redelivery would only repeat, such
+// as a refused login, where each delivery sends the refused password again
+// toward the account's lockout. A message whose metadata cannot be read
+// (never a JetStream one) is still dead-lettered, recorded as delivered 0
+// times, since redelivering it is what this is called to prevent.
+func DeadLetter(ctx context.Context, js jetstream.JetStream, msg jetstream.Msg, reason string) error {
+	var delivered uint64
+	if meta, err := msg.Metadata(); err == nil {
+		delivered = meta.NumDelivered
+	}
+	return publishDeadLetter(ctx, js, msg, delivered, reason)
+}
+
+// publishDeadLetter publishes msg's dead letter and terminates msg.
+func publishDeadLetter(ctx context.Context, js jetstream.JetStream, msg jetstream.Msg, numDelivered uint64, reason string) error {
+	data, err := json.Marshal(deadLetter(msg, numDelivered, reason))
 	if err != nil {
 		return fmt.Errorf("failed to marshal dead letter envelope for %s: %w", msg.Subject(), err)
 	}

@@ -327,3 +327,106 @@ func TestAgent_ReleaseGate_PullsFiveDispatchesWithoutDuplicating(t *testing.T) {
 		t.Fatalf("some (JobID, DeviceID) pairs executed more than once: %v", dups)
 	}
 }
+
+// refusedError is a failed run whose login was refused, as the native
+// adapter reports one: an error with a Refused method answering true.
+type refusedError struct{ error }
+
+func (refusedError) Refused() bool { return true }
+
+// refusingAdapter fails every run with a refused login.
+type refusingAdapter struct {
+	attempts chan struct{}
+}
+
+func (a *refusingAdapter) Execute(context.Context, wire.DispatchPayload) (wire.Outcome, error) {
+	a.attempts <- struct{}{}
+	return wire.Outcome{}, fmt.Errorf("execution failed: %w", refusedError{errors.New("ssh: unable to authenticate")})
+}
+
+// TestAgent_ARefusedRunIsDeadLetteredOnItsFirstDelivery proves, against a
+// real NATS container, that a dispatch whose run was refused its login runs
+// once and is dead-lettered on that delivery, where an ordinary failure is
+// redelivered up to topology.MaxDeliverDefault times
+// (TestAgent_FailedExecutionEventuallyDeadLetters): each redelivery would
+// send the refused password again, toward the account's lockout.
+func TestAgent_ARefusedRunIsDeadLetteredOnItsFirstDelivery(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	ctx := context.Background()
+	url := testsupport.StartNATS(t).URL()
+
+	bus, err := event.NewNatsBus(ctx, url, nil, topology.StreamProvisioner, topology.DefaultOutageBudget, false)
+	if err != nil {
+		t.Fatalf("nats bus: %v", err)
+	}
+	defer bus.Close() // before the container's t.Cleanup; see TestAgent_FailedExecutionEventuallyDeadLetters
+	nc, err := nats.Connect(url)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer nc.Close()
+	js, err := jetstream.New(nc)
+	if err != nil {
+		t.Fatalf("jetstream: %v", err)
+	}
+	consumer, err := js.CreateOrUpdateConsumer(ctx, topology.StreamName, topology.DispatchConsumerConfig())
+	if err != nil {
+		t.Fatalf("consumer: %v", err)
+	}
+
+	adapter := &refusingAdapter{attempts: make(chan struct{}, topology.MaxDeliverDefault+2)}
+	agent := runner.NewAgent(consumer, adapter, js, lock.NewInProcessManager(), topology.MaxDeliverDefault, slog.Default(), nil)
+	agentCtx, cancelAgent := context.WithCancel(ctx)
+	defer cancelAgent()
+	go agent.Run(agentCtx)
+
+	payload := wire.DispatchPayload{JobID: testJobID, RunbookID: "pb-1", DeviceID: "refused-device", DeviceName: "dev-1", DeviceHost: "10.0.0.1"}
+	evt, err := event.WrapPayload("dispatch-refused", "runbook.dispatched", payload)
+	if err != nil {
+		t.Fatalf("wrap payload: %v", err)
+	}
+	if err := bus.Publish(ctx, topology.DispatchSubject(payload.DeviceID), *evt); err != nil {
+		t.Fatalf("publish: %v", err)
+	}
+
+	select {
+	case <-adapter.attempts:
+	case <-time.After(20 * time.Second):
+		t.Fatal("timed out waiting for the one execution attempt")
+	}
+	// The backoff before a first redelivery is well under this wait.
+	select {
+	case <-adapter.attempts:
+		t.Fatal("a refused run was redelivered, sending the refused login again")
+	case <-time.After(5 * time.Second):
+	}
+
+	dlqConsumer, err := js.CreateOrUpdateConsumer(ctx, topology.StreamName, jetstream.ConsumerConfig{
+		FilterSubject: topology.DeadLetterSubject(topology.DispatchSubject(payload.DeviceID)),
+		DeliverPolicy: jetstream.DeliverAllPolicy,
+		AckPolicy:     jetstream.AckNonePolicy,
+	})
+	if err != nil {
+		t.Fatalf("dlq consumer: %v", err)
+	}
+	msgs, err := dlqConsumer.Fetch(1, jetstream.FetchMaxWait(10*time.Second))
+	if err != nil {
+		t.Fatalf("fetch dlq: %v", err)
+	}
+	var envelope event.DeadLetterEnvelope
+	found := false
+	for m := range msgs.Messages() {
+		found = true
+		if err := json.Unmarshal(m.Data(), &envelope); err != nil {
+			t.Fatalf("unmarshal dead letter: %v", err)
+		}
+	}
+	if !found {
+		t.Fatal("no dead letter for the refused run")
+	}
+	if envelope.NumDelivered != 1 || envelope.EventID != "dispatch-refused" || !strings.Contains(envelope.Reason, "unable to authenticate") {
+		t.Errorf("dead letter = %+v, want dispatch-refused delivered once with the refusal as its reason", envelope)
+	}
+}

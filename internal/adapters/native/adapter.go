@@ -449,7 +449,13 @@ func (a *Adapter) Execute(ctx context.Context, payload wire.DispatchPayload) (wi
 	}
 
 	if result.HasErrors() {
-		return wire.Outcome{}, fmt.Errorf("execution failed: %s", message)
+		err := fmt.Errorf("execution failed: %s", message)
+		if result.SawRefusal() {
+			// The Runner dead-letters a refused run rather than having it
+			// redelivered, which would send the refused login again.
+			return wire.Outcome{}, refusedRunError{err}
+		}
+		return wire.Outcome{}, err
 	}
 	return wire.Outcome{Unchecked: uncheckedCount(result)}, nil
 }
@@ -575,3 +581,15 @@ func runWarnings(result engine.RunResult, secrets []string) []string {
 func dispatchSecrets(payload wire.DispatchPayload) []string {
 	return append(childSecretValues(payload), injectedSecretValues(payload.Injected)...)
 }
+
+// refusedRunError is a failed run in which a task's login was refused. Its
+// Refused method is what engine.Refused and the Runner read, so the Runner
+// dead-letters the dispatch at once instead of letting JetStream redeliver
+// it, each delivery one more refused password toward the account's lockout.
+type refusedRunError struct{ error }
+
+// Refused reports that the run's failure includes a refusal.
+func (refusedRunError) Refused() bool { return true }
+
+// Unwrap exposes the run's failure.
+func (e refusedRunError) Unwrap() error { return e.error }
