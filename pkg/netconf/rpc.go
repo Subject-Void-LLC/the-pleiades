@@ -26,7 +26,7 @@ func (s *Session) GetConfig(ctx context.Context, p datastore.Path) (datastore.Pa
 		return datastore.Payload{}, err
 	}
 
-	body := fmt.Sprintf("<get-config><source><%s/></source>%s</get-config>", s.opts.target(), filter)
+	body := fmt.Sprintf("<get-config><source><%s/></source>%s</get-config>", s.target, filter)
 	reply, err := s.do(ctx, body)
 	if err != nil {
 		return datastore.Payload{}, err
@@ -68,7 +68,7 @@ func (s *Session) SetConfig(ctx context.Context, p datastore.Path, payload datas
 			return fmt.Errorf("netconf: a %s carries no payload, but %d bytes were supplied: refusing rather than silently discarding configuration the caller passed", op, len(payload.Bytes))
 		}
 		if p.IsRoot() {
-			return fmt.Errorf("netconf: refusing to %s the root of the %s datastore: name the subtree to remove", op, s.opts.target())
+			return fmt.Errorf("netconf: refusing to %s the root of the %s datastore: name the subtree to remove", op, s.target)
 		}
 	} else if payload.IsEmpty() {
 		return fmt.Errorf("netconf: a %s needs a payload, but none was supplied", op)
@@ -201,7 +201,7 @@ func (s *Session) EditConfig(ctx context.Context, req EditConfigRequest) error {
 		return fmt.Errorf("netconf: unknown error-option %q: RFC 6241 defines stop-on-error, continue-on-error and rollback-on-error", errorOption)
 	}
 
-	if s.opts.target() == Running && !s.HasCapability(CapabilityWritableRunning) {
+	if s.target == Running && !s.HasCapability(CapabilityWritableRunning) {
 		return fmt.Errorf("netconf: this device does not allow writing to the running datastore directly (it does not advertise %s); target the candidate datastore and Commit instead", CapabilityWritableRunning)
 	}
 
@@ -212,7 +212,7 @@ func (s *Session) EditConfig(ctx context.Context, req EditConfigRequest) error {
 
 	body := fmt.Sprintf(
 		"<edit-config><target><%s/></target><default-operation>%s</default-operation>%s<config>%s</config></edit-config>",
-		s.opts.target(), defaultOp, errorElement, req.Config)
+		s.target, defaultOp, errorElement, req.Config)
 
 	reply, err := s.do(ctx, body)
 	if err != nil {
@@ -243,12 +243,12 @@ func rootDefaultOperation(op datastore.Operation) string {
 // Lock acquires a lock on this session's target datastore, so another
 // client cannot change it underneath a read-modify-write.
 func (s *Session) Lock(ctx context.Context) error {
-	return s.expectOK(ctx, fmt.Sprintf("<lock><target><%s/></target></lock>", s.opts.target()), "lock")
+	return s.expectOK(ctx, fmt.Sprintf("<lock><target><%s/></target></lock>", s.target), "lock")
 }
 
 // Unlock releases the lock Lock acquired.
 func (s *Session) Unlock(ctx context.Context) error {
-	return s.expectOK(ctx, fmt.Sprintf("<unlock><target><%s/></target></unlock>", s.opts.target()), "unlock")
+	return s.expectOK(ctx, fmt.Sprintf("<unlock><target><%s/></target></unlock>", s.target), "unlock")
 }
 
 // Commit copies the candidate datastore into running.
@@ -279,10 +279,24 @@ func (s *Session) DiscardChanges(ctx context.Context) error {
 // Validate asks the server to check the target datastore's contents
 // without applying anything.
 func (s *Session) Validate(ctx context.Context) error {
-	if !s.HasCapability(CapabilityValidate10) {
-		return fmt.Errorf("netconf: this device does not support validate (it does not advertise %s)", CapabilityValidate10)
+	if !s.CanValidate() {
+		return fmt.Errorf("netconf: this device does not support validate (it advertises neither %s nor %s)", CapabilityValidate10, CapabilityValidate11)
 	}
-	return s.expectOK(ctx, fmt.Sprintf("<validate><source><%s/></source></validate>", s.opts.target()), "validate")
+	return s.expectOK(ctx, fmt.Sprintf("<validate><source><%s/></source></validate>", s.target), "validate")
+}
+
+// CanValidate reports whether the server advertises :validate, at 1.0 or 1.1.
+func (s *Session) CanValidate() bool {
+	return s.HasCapability(CapabilityValidate10) || s.HasCapability(CapabilityValidate11)
+}
+
+// GetConfigFrom reads the subtree p addresses from source, which need not be
+// this session's target: a backup before a candidate edit reads running.
+func (s *Session) GetConfigFrom(ctx context.Context, source Datastore, p datastore.Path) (datastore.Payload, error) {
+	saved := s.target
+	s.target = source
+	defer func() { s.target = saved }()
+	return s.GetConfig(ctx, p)
 }
 
 // Close ends the session politely with <close-session/> and then closes
@@ -354,14 +368,37 @@ func (s *Session) do(ctx context.Context, body string) (*rpcReply, error) {
 		return nil, fmt.Errorf("netconf: the server answered message-id %q with a reply for message-id %q; this session is no longer synchronized and is not safe to continue using",
 			id, reply.MessageID)
 	}
-	if len(reply.Errors) > 0 {
-		errs := make(RPCErrors, 0, len(reply.Errors))
-		for _, e := range reply.Errors {
-			errs = append(errs, e.decode())
+	// A warning is not a failure: RFC 6241 section 4.3 gives every
+	// rpc-error a severity, and a server may answer <ok/> or <data> with
+	// warnings beside it. Only error severity fails the call; warnings are
+	// kept for TakeWarnings.
+	var errs RPCErrors
+	for _, e := range reply.Errors {
+		if d := e.decode(); strings.EqualFold(d.Severity, "warning") {
+			s.warnings = append(s.warnings, d)
+		} else {
+			errs = append(errs, d)
 		}
+	}
+	if len(errs) > 0 {
 		return nil, errs
 	}
+	reply.raw = raw
 	return &reply, nil
+}
+
+// get issues RFC 6241's <get> with a subtree filter and returns the whole
+// reply, for a reader that decodes it with namespace-qualified tags rather
+// than from <data>'s inner XML, whose prefixes may be declared outside it.
+func (s *Session) get(ctx context.Context, subtree string) ([]byte, error) {
+	reply, err := s.do(ctx, `<get><filter type="subtree">`+subtree+`</filter></get>`)
+	if err != nil {
+		return nil, err
+	}
+	if reply.Data == nil {
+		return nil, fmt.Errorf("netconf: the server's reply to get carried no <data> element")
+	}
+	return reply.raw, nil
 }
 
 // rpcReply is the subset of <rpc-reply> this client reads.
@@ -376,6 +413,9 @@ type rpcReply struct {
 	Errors    []rpcErrorXML `xml:"rpc-error"`
 	OK        *okElement    `xml:"ok"`
 	Data      *innerElement `xml:"data"`
+
+	// raw is the whole reply as it was read.
+	raw []byte
 }
 
 type okElement struct{}

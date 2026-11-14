@@ -154,6 +154,20 @@ type Options struct {
 	// ClientCapabilities are advertised to the server in addition to
 	// base:1.0 and base:1.1, which this package always advertises.
 	ClientCapabilities []string
+
+	// ChooseTarget, with Target empty, has Open choose the datastore from
+	// what the server advertised: running when it advertises
+	// :writable-running, otherwise candidate when it advertises
+	// :candidate, otherwise running (a session that can only read). Without
+	// it an empty Target means Running, as it always has.
+	ChooseTarget bool
+
+	// DiscoveryCacheKey names the device for the YANG library cache
+	// (discovery.go): sessions given the same key, to a server whose hello
+	// carries the same content-id, read the library once. Leave it empty
+	// for a session whose host key was not verified, which then neither
+	// reads nor fills the cache.
+	DiscoveryCacheKey string
 }
 
 func (o Options) maxMessageBytes() int {
@@ -207,6 +221,15 @@ type Session struct {
 	serverCapabilities []string
 	capabilitySet      map[string]struct{}
 	sessionID          string
+
+	// target is the datastore this session reads and writes, resolved in
+	// Open from Options and, with ChooseTarget, from the hello.
+	target Datastore
+	// discovery is what Open learned about the server.
+	discovery Discovery
+	// warnings are the warning-severity rpc-errors replies carried beside
+	// an answer, which are not failures (Junos sends them beside <ok/>).
+	warnings []RPCError
 
 	// messageID is the RFC 6241 section 4.1 message-id, monotonic per
 	// session and compared against every reply. Atomic so that the
@@ -290,17 +313,53 @@ func Open(ctx context.Context, rwc io.ReadWriteCloser, opts Options) (*Session, 
 	s.w.setFraming(framing)
 	s.r.maxBytes = opts.maxMessageBytes()
 
+	// Discovery, on every session (owner decision 2026-11-14): the hello's
+	// capabilities and modules, completed from the YANG library when the
+	// server advertises one, before anything else is sent.
+	s.discovery, err = s.discoverLibrary(ctx, discoverFromHello(s.serverCapabilities), opts.DiscoveryCacheKey)
+	if err != nil {
+		return nil, fmt.Errorf("netconf: reading the server's YANG library: %w", wrapCtx(ctx, err))
+	}
+	s.target = s.chooseTarget()
 	if err := s.checkTarget(); err != nil {
 		return nil, err
 	}
 	return s, nil
 }
 
+// chooseTarget resolves the session's datastore: Options.Target when set,
+// else with ChooseTarget the one the server's capabilities make writable,
+// else Running.
+func (s *Session) chooseTarget() Datastore {
+	if s.opts.Target != "" || !s.opts.ChooseTarget {
+		return s.opts.target()
+	}
+	switch {
+	case s.HasCapability(CapabilityWritableRunning):
+		return Running
+	case s.HasCapability(CapabilityCandidate):
+		return Candidate
+	default:
+		return Running
+	}
+}
+
+// Discovery is what the session learned about its server when it opened.
+func (s *Session) Discovery() Discovery { return s.discovery }
+
+// TakeWarnings returns the warning-severity rpc-errors the server sent
+// beside its answers since the last call, and forgets them.
+func (s *Session) TakeWarnings() []RPCError {
+	out := s.warnings
+	s.warnings = nil
+	return out
+}
+
 // checkTarget refuses a configured Target the server never advertised
 // support for, naming the capability rather than the datastore, since
 // the capability is what an operator has to enable on the device.
 func (s *Session) checkTarget() error {
-	switch s.opts.target() {
+	switch s.target {
 	case Running:
 		// Every server has a running datastore. Writing to it directly
 		// additionally needs :writable-running, but that is SetConfig's
@@ -312,11 +371,11 @@ func (s *Session) checkTarget() error {
 			return fmt.Errorf("netconf: this device does not support the candidate datastore (it does not advertise %s); use the running datastore instead", CapabilityCandidate)
 		}
 	case Startup:
-		if !s.HasCapability("urn:ietf:params:netconf:capability:startup:1.0") {
-			return fmt.Errorf("netconf: this device does not support the startup datastore (it does not advertise urn:ietf:params:netconf:capability:startup:1.0)")
+		if !s.HasCapability(CapabilityStartup) {
+			return fmt.Errorf("netconf: this device does not support the startup datastore (it does not advertise %s)", CapabilityStartup)
 		}
 	default:
-		return fmt.Errorf("netconf: unknown datastore %q: valid datastores are running, candidate and startup", s.opts.target())
+		return fmt.Errorf("netconf: unknown datastore %q: valid datastores are running, candidate and startup", s.target)
 	}
 	return nil
 }
@@ -381,7 +440,7 @@ func (s *Session) SessionID() string { return s.sessionID }
 func (s *Session) Framing() Framing { return s.framing }
 
 // Target reports the datastore this session reads and writes.
-func (s *Session) Target() Datastore { return s.opts.target() }
+func (s *Session) Target() Datastore { return s.target }
 
 // capabilitySet indexes advertised capabilities by their URN with any
 // query parameters stripped; see HasCapability for why.

@@ -17,13 +17,14 @@ import (
 // ReservedFactFamilies are the fact families no external Collection may
 // declare into, whether or not a built-in method declares them today: the
 // item families, the native host families the fact-name rename fills (os.,
-// host., hardware., network., catalyst.), and ansible_, because the playbook
+// host., hardware., network., catalyst.), the management-plane families every
+// NETCONF session fills (netconf., yang.; 2026-11-14), and ansible_, because the playbook
 // converter's mapping reads facts by those names. A family is reserved in the
 // release before any built-in fills it, since adding one later would refuse a
 // program the release before loaded, which a patch release may not do.
 var ReservedFactFamilies = []string{
-	"ansible_", "catalyst.", "file.", "group.", "hardware.", "host.", "network.", "os.",
-	"package.", "port.", "service.", "service_state.", "user.",
+	"ansible_", "catalyst.", "file.", "group.", "hardware.", "host.", "netconf.", "network.", "os.",
+	"package.", "port.", "service.", "service_state.", "user.", "yang.",
 }
 
 // ReservedFact reports what reserves a key or family s declares: the fact
