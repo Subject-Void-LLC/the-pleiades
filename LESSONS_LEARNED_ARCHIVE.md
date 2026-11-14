@@ -8266,3 +8266,18 @@ way to keep it there: one function both call, not two that agree today.
 `journal.IdentityProblem`) and the place notes are said (`internal/journal/notes.go`) in one package both call. Test
 it by feeding one batch to both and comparing what each stored and said (`TestNodeConsumers_JudgeIdentityAndSkewAlike`).
 When a fix lands in one consumer, look at the other before closing it.
+
+## 446. A protocol is supported when Day 0 through Day N run through the product on a real device; captured replies prove only the parsers
+
+**Rule.** Before claiming a protocol works, run its whole life through `pleiades` on a real device: bring-up with the
+protocol on from the first boot, every trust step (host keys, certificates, credentials) done by a command, first
+configuration, change, replace, delete, a refusal that must leave nothing applied, the device changing what it offers, read
+back over a second path, save, undo, and teardown. Each step done with another tool is a gap to build. Captured replies are
+fixtures for the parsers and nothing more.
+
+**Why.** 2026-11-14, the CML lab (owner: "just building the fixtures is not enough to claim we can use netconf or
+restconf. we need to do day 0 through day n operations"). The fixtures were in hand within the hour; the Day 0 to Day N run
+then found that the NETCONF listener's key could not be trusted through the product, that a certificate's fingerprint could
+not be learned through it, that turning the candidate datastore on broke every default runbook, that `commit: false` left
+an edit for someone else to commit, and that onboarding cut the module list short (FAILURE_PATTERNS 1243 to 1246). None of
+those shows in a parser test.

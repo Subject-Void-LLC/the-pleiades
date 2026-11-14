@@ -1246,6 +1246,10 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 1240. revoke-capability --build, added on main while --inventory was swept into every other command, read the --inventory file and wrote --dir's inventory.yaml (a repeat of 183) (fixed before push)
 1241. The Runner's dead letter for a refused run was published on the shutdown-canceled context and skipped Term when the publish failed, and three of the adapter's returns dropped the refusal, so a refused run could still be redelivered (a repeat in kind of 84) (fixed before push)
 1242. The scaffolded README's offline build needed the module cache to hold every module of the checkout's graph, which it never said, so a cold cache failed the release gate (a repeat of 482) (fixed)
+1243. Onboarding recorded a NETCONF device's hello through the 256-entry, 256-byte fact list, so a real IOS XE router's module list was cut short and one entry cut mid-name (a repeat in kind of 871) (fixed)
+1244. net.netconf.config wrote the datastore the runbook named, or running, never what the device offered that session, so turning IOS XE's candidate datastore on broke every default runbook, and commit: false left the edit staged for the next client's commit (fixed)
+1245. pkg/netconf failed a call on a warning-severity rpc-error, checked validate against 1.0 only, and backed up the session's target instead of running (fixed before push)
+1246. trust-host trusted only a device's SSH port while IOS XE's NETCONF listener presents a key of its own, and onboarding refused an untrusted certificate without its fingerprint, and a 401 as a refused credential when none was sent (fixed)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

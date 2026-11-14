@@ -478,6 +478,7 @@ story, per `.AGENTS/AGENTS.md`.
 443. When a reader rule is found to read release data, the toolchain's Unicode tables included, sweep every check that reader and every reader of the same store makes, not only the field the finding named; a frozen rule compares code point numbers and calls no unicode function (a refinement of 415 and 422; FAILURE_PATTERNS 1003, 1023, 1031 and 1159) (2026-11-10)
 444. When one tier's record is bound to another's, pin the data the consumers judge by, not a version of where it came from: a version computed over a definition that deliberately omits a field cannot vouch for that field, and a job that pinned nothing carries nothing (a refinement of 415; FAILURE_PATTERNS 1164 and 1165) (2026-11-11)
 445. Two consumers of one batch share one judging function, one noting point and one first-party rule: a rule each writes for itself drifts the first time either changes (a refinement of 244; FAILURE_PATTERNS 1007, 1168 and 1171) (2026-11-11)
+446. A protocol is supported when Day 0 through Day N run through the product on a real device; captured replies prove only the parsers (2026-11-14).
 
 Each entry above is the rule only. Full reasoning and the incident that produced it lives in [`LESSONS_LEARNED_ARCHIVE.md`](LESSONS_LEARNED_ARCHIVE.md), same entry numbers. Read an archive entry when its rule is directly relevant to what you're doing and you need the *why*; the rule sentence above is usually enough on its own.
 
