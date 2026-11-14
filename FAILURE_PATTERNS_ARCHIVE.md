@@ -30211,7 +30211,7 @@ fail against the old chart (its schema refused `controller.jwksUrl`), against th
 78 to 86), and `HasScope` passes on `*` or on role `admin` (`evaluator.go` lines 34 and 44). With a static secret, whoever holds it
 mints any role. Related to 20.
 
-## 1230. A refused SSH login was recorded as the circuit breaker's success, clearing any failure streak, so a failing AAA server never opens the circuit (open)
+## 1230. A refused SSH login was recorded as the circuit breaker's success, clearing any failure streak, so a failing AAA server never opens the circuit (fixed)
 
 **Symptom.** Found 2026-11-13 by the same outside review, confirmed by reading the code; no test was run.
 `pkg/remoteexec/dial.go` lines 152 to 154 call `r.breaker.RecordSuccess(addr)` when `authRejected` or `hostKeyRefused` holds, which
@@ -30226,7 +30226,19 @@ recording it as a success is what clears an outage's evidence.
 **Not a repeat.** No earlier entry records this class; it was introduced by 399's fix and carried into 429. Related: on
 `feat/112-winrm-breaker`, 1207 records a WinRM breaker closed on a canceled probe with no evidence the host was back.
 
-**Fix.** Open; queued after the JWKS entries. Shape to decide there: record a refusal as neither success nor failure.
+**Fix.** `4e0643c7`: a refusal is a third outcome, `breaker.RecordRefusal`, recorded as neither a success nor a failure. In a
+closed circuit the failure streak is kept, neither cleared nor lengthened, so failures on either side of refusals still reach the
+threshold. An open circuit is unchanged, since no call it allows can produce a refusal. A refusal answering the half-open probe hands
+the probe back: the circuit returns to open with its cooldown already over, so the next caller is the probe at once and its outcome
+decides. Closing would take the answer for health, and a fresh cooldown would make a caller holding the right credential wait out a
+wrong one's turn. A refusal still never opens a circuit (399's reason: a circuit is per address and shared, so one wrong credential
+must not refuse a right one), and repeated refusals are stopped by the caller holding the credential, which stops at its first one:
+the dial retry (399, 429), both transports' waits (1209), and now the engine's `until` and `loop` and a detached job's stop (1238).
+`pkg/winrmexec` keeps the same rule for a refused WinRM credential or certificate. Proof, each failing with `RecordSuccess` restored:
+`TestConnect_ARefusalDoesNotClearAnOutagesStreak` and `TestConnect_ARefusedProbeDoesNotCloseTheCircuit` (`pkg/remoteexec`, a real
+x/crypto SSH server refusing a password, and one whose host key known_hosts does not name), and
+`TestExecute_ARefusalDoesNotClearAnOutagesStreak` and `TestExecute_ARefusedProbeDoesNotCloseTheCircuit` (`pkg/winrmexec`, a host
+refusing NTLM through the real `Execute`, and a real TLS listener with an untrusted certificate).
 
 **Lesson.** A breaker records only what it measures. An answer that is not an outage is also not proof of health.
 
@@ -30410,6 +30422,61 @@ project writer, which fails with the old method (it wrote the absolute path), an
 
 **Lesson.** A Collection method writes where The Pleiades runs only through the project writer, and a structural check,
 not a review, keeps it so.
+
+## 1238. The engine's until resent a refused login on every retry and a loop once per item, and a detached job's stop redialed a refused reconnect, though retry.go's comment said a refused credential is never tried again (a repeat in kind of 399 and 1209) (fixed before push)
+
+**Symptom.** Found 2026-11-13 while fixing 1230. Measured against a real SSH server: a task with `retries: 5` and a wrong password sent
+it six times, a loop sent it once per item, and a looped `until` sent it items times tries (12 in the test). The Runner path did the
+same: `TestAdapter_Execute_SSHDCountsOneFailedLoginPerTask` counted 3 failed logins in the pinned OpenSSH container's own log before
+its per-source penalty began refusing the connection. Separately, a detached job whose poll lost its connection and whose redial was
+refused dialed again with the same credential to stop the job: two refused logins for one lost connection, measured against the
+in-process server.
+
+**Root cause.** `hasNonActionFailure` stops `until` only for failures outside the method's own run, and a refused login is the
+method's own (stage `action`), so it counted as a failure worth trying again, though `retry.go`'s comment said a refused
+credential is never tried again and `TestUntil_OnlyTheMethodsOwnFailureIsTriedAgain`'s comment said it proved so. A loop runs every item after a failed one by design. On a Runner
+the error's type did not survive the per-task child, so the parent could not tell a refusal anyway. `stopDetached` redialed whenever
+the job's connection was gone, without knowing the reconnect before it had just been refused.
+
+**Why 399's and 1209's fixes did not hold.** Each fixed the one caller it found (the dial retry, then the waits) and stated the rule
+in a comment. Nothing made every caller that repeats a call ask whether the last failure was a refusal, and two more callers repeated
+calls: the engine's retry loops and the detached stop.
+
+**Fix.** `04c120cb`: a run whose failure is a refusal (`engine.Refused`: the device turned down the login, or this side turned down
+its host key or certificate) is not tried again for `until`, and a loop runs no item after it on that device. The failure says so and
+stays the failure it was, at its stage, so `ignore_errors` and the report read it as before. Each transport's error says whether it is
+a refusal (`remoteexec.DialError.Refused`, `winrmexec.NotStartedError.Refused`, `telnetexec.ErrLoginRefused`), and
+`wire.ChildResponse` gains `refused` so a Runner's child carries it to the parent; it is optional both ways. `1619d422`: `reconnect`
+records a refused redial and `stopDetached` does not redial after one. Proof, each failing with the stop disabled:
+`TestUntil_ARefusedLoginIsNotTriedAgain`, `TestLoop_ARefusedLoginEndsTheLoop`, `TestLoop_UntilInsideALoopStopsBoth`,
+`TestRefusedLogin_ARealServerIsSentItOnce`, `TestAdapter_Execute_ARefusedLoginIsSentOncePerTask`,
+`TestAdapter_Execute_SSHDCountsOneFailedLoginPerTask` and `TestDetached_ARefusedRedialIsSentOnce` (2 refusals before, 1 after).
+
+**Still open.** On the Walk tier a refused task's message is redelivered up to the consumer's delivery limit
+(`internal/runner/agent_handle.go`'s `HandleDeliveryFailure`, with the adapter flattening the error), so a refusal can still be sent
+once per delivery. Whether to terminate such a message instead is an owner decision.
+
+**Lesson.** A rule about repeating calls belongs to every loop that repeats one. When it holds only in the caller that was fixed,
+the next loop written breaks it again.
+
+## 1239. A canceled SSH dial was counted against the address's circuit, so a stopped run's dials could open a healthy bastion's circuit for every other caller (the SSH side of 1207) (fixed before push)
+
+**Symptom.** Found 2026-11-13 while fixing 1230. Both SSH dial retry loops (`dialWithRetry`, and `dialFinalLegWithRetry` for
+`DialThroughHops`' final leg) recorded every dial error as a breaker failure, including one the caller's own cancellation caused:
+`closeOnDone` closes the connection under a canceled handshake, and the handshake's I/O error was counted. Measured: at a threshold of
+one, the call after a canceled handshake met "circuit open". Five tasks of a stopped run dialing one bastion would open its circuit for
+every device behind it for thirty seconds.
+
+**Root cause.** The retry loops recorded a failure for any dial error without asking whether the caller had given up.
+`pkg/winrmexec` already left a cancellation unrecorded (1207), but nothing held the two breakers to one rule.
+
+**Fix.** `d9f90c70`: a dial whose caller canceled its context is left unrecorded in both loops; a passed deadline is still a failure,
+as WinRM's `Unreached` also says. A half-open probe a canceled dial held is reissued after its lease. Proof, each failing with the old
+rule: `TestConnect_ACanceledDialIsNotCounted` (a real listener that accepts and never speaks) and
+`TestDialFinalLegWithRetry_ACanceledDialIsNotCounted`.
+
+**Lesson.** A rule fixed in one transport's breaker is checked in every other transport's breaker on the same branch. A caller
+giving up says nothing about the host, whichever protocol it was speaking.
 
 ## 1240. revoke-capability --build, added on main while --inventory was swept into every other command, read the --inventory file and wrote --dir's inventory.yaml (a repeat of 183) (fixed before push)
 
