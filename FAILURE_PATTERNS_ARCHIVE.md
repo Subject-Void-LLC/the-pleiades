@@ -29899,3 +29899,58 @@ recording it as a success is what clears an outage's evidence.
 **Fix.** Open; queued after the JWKS entries. Shape to decide there: record a refusal as neither success nor failure.
 
 **Lesson.** A breaker records only what it measures. An answer that is not an outage is also not proof of health.
+
+## 1231. A clear-text IOS secret whose first word is a small number kept that word unmasked, in net.ios.facts' configuration and in Batfish's snapshot (security; a repeat of 705) (fixed before push)
+
+**Symptom.** 2026-11-13, proving Phase 127b against the DevNet CML sandbox's real IOL XE 17.15.1 router R1. Its own
+running configuration holds `username admin password 0 15 <word>` (the line's shape confirmed on the device with
+`show running-config | count`, never by reading the secret). `net.ios.facts` returned it as
+`username admin password 0 15 pleiades-masked-...`, so `15`, the first word of the password IOS stores, stood in the
+clear in the `ansible_net_config` stat, in `net.ios.command` output, and in the snapshot `net.batfish.check` uploaded to
+Batfish. `TestCLI_BatfishModelsARealIOSXERunningConfig`'s recording proxy caught it: snapshot line 98 kept a word of
+its secret before the placeholder.
+
+**Root cause.** `pkg/netcfg/mask.go`'s `maskLine` finds where a secret starts by skipping, after the secret word, every
+word of one to three digits (a key id or an encryption type) and the words in `skipped`. After type `0`, IOS reads the
+whole rest of the line as the secret, so a secret whose first word is itself a small number lost that word to the skip,
+and 705's run-to-the-end-of-the-line rule started one word late.
+
+**Why 705 did not prevent it.** 705 made a clear-text secret run to the end of its line, but from wherever the skip
+loop stopped, and its tests used secrets of letters only. `MaskChecked`, 705's fail-closed check, reads each line again
+only past its last placeholder, so a secret word left before the placeholder was never looked at. Every made-up test
+secret was a word no rule would skip; the first real configuration had one that was.
+
+**Fix.** `3848ea23`: type `0` ends the skipped words (a `0` after `level` is a privilege level and still skipped), so
+everything after it is the secret. Proof: `TestMask_ClearTextSecretBeginningWithANumberIsMaskedWhole`, red on the old
+code, and the release gate, red on the old masker against the real router. The gate's check is general: no word may
+stand between a placeholder and its secret word other than one encryption type (and a `level N`).
+
+**Lesson.** Test a masker on a real device's whole configuration, and check what stands before a placeholder as well
+as after it: made-up secrets are shaped to fit the rules that mask them.
+
+## 1232. A passing Batfish check silently left out IOS XE's Mgmt-intf management VRF, whose interfaces Batfish deactivates (a repeat of 585) (fixed before push)
+
+**Symptom.** 2026-11-13, the same proof. The gate asked the model for each route R1's own configuration holds. Every
+default-VRF route held; the connected and default routes in `Mgmt-intf` did not exist in the model. `interfaceProperties`
+showed why: Ethernet0/2, in `vrf forwarding Mgmt-intf`, is Admin_Up true and Active false, and the VRF holds no route at
+all. Batfish reports nothing for it (no parse warning, no unrecognised line), so `net.batfish.check` passed a
+configuration whose management network was not in the model. `virt.cml.node.create`'s day-0 configuration puts every
+node's management interface in that VRF, so every CML lab node checked this way had it.
+
+**Root cause.** The fail-closed coverage (`internal/catalog/net/batfish/coverage.go`) refuses only the features measured
+so far, and nobody had measured the management VRF: Batfish's own choice to deactivate it is not a parse result, and the
+gate reads parse results and the measured list.
+
+**Why 585 did not prevent it.** 585 built the measured list from features its author thought to test on hand-written
+configurations (FHRP, SLA, BFD, later NHRP). Its lesson, "a parser recognising a line is not the model acting on it",
+was right, and was applied only to features someone named in advance. No real device's whole configuration had been
+held to the model until this proof, and the first one tripped a gap in the first run.
+
+**Fix.** `9d59e86a`: a measured `management_vrf` entry matching `vrf forwarding Mgmt-intf` (only that name was measured;
+`Mgmt-vrf` is not matched), refused until accepted by name with a reason. Proof: `TestUnmodelledIn_ManagementVRF`, red
+without the entry, and `TestCLI_BatfishModelsARealIOSXERunningConfig`, which asserts the refusal names the VRF's line
+and passes once it is accepted. Owner decision, 2026-11-13: refuse unless accepted. Not done: a general refusal of any
+interface the configuration leaves up and Batfish holds inactive, which would catch the next one without a measurement.
+
+**Lesson.** A measured list of what a model ignores is only as complete as the configurations measured: hold a real
+device's whole configuration to the model, and ask the model which configured things it set aside.

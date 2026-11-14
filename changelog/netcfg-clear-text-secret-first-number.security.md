@@ -1,0 +1,1 @@
+A clear-text IOS secret whose first word is a small number, such as `username admin password 0 15 <word>`, is now masked whole: that first word used to stay in the clear in `net.ios.facts`' configuration, `net.ios.command` output and the snapshot `net.batfish.check` sends to Batfish.

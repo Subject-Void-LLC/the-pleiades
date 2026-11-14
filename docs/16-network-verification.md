@@ -169,6 +169,15 @@ are in the node's configuration, which the controller keeps and anyone who can r
 type 9 hash is scrypt and slow to attack, but it is still a verifier of the password, so give a node the
 login of a device that exists only in the lab, never one that shares a credential with real equipment.
 
+Because the management interface is in `Mgmt-intf`, a `net.batfish.check` of such a node's configuration
+is refused until the task accepts the management VRF by name, since Batfish leaves that VRF out of its model
+(see [What the model sees](#what-the-model-sees)):
+
+```yaml
+accept_unrecognized:
+  - {feature: management_vrf, reason: "the lab's management network, reached out of band"}
+```
+
 ```yaml
 # What this does: builds a one-router lab, the router standing for the inventory device P1.
 # Blast radius: the CML controller cml; one new lab, cvd.
@@ -629,8 +638,8 @@ for a line or by `feature` for a feature, with a reason.
 | | FRR | Cisco IOS |
 | --- | --- | --- |
 | Modelled | connected and static routes, OSPF (including passive interfaces), BGP | the same, HSRP with interface tracking (failover included), VRRP |
-| Reported unrecognised | `ip ospf authentication-key` (so a key mismatch is not modelled), `no bgp ebgp-requires-policy`, VRRP | DMVPN's `tunnel mode gre multipoint`, `tunnel vrf`, `if-state nhrp`, IKEv2's `match fvrf` and `prf`, and an mGRE tunnel's missing destination (a convert warning) |
-| Parsed, then ignored | | GLBP (no forwarder is elected), IP SLA, SLA tracking (an SLA-tracked route never fails over), BFD, NHRP (nothing is resolved over a DMVPN cloud, and BGP over it never establishes in the model) |
+| Reported unrecognised | `ip ospf authentication-key` (so a key mismatch is not modelled), `no bgp ebgp-requires-policy`, VRRP | DMVPN's `tunnel mode gre multipoint`, `tunnel vrf`, `if-state nhrp`, IKEv2's `match fvrf` and `prf`, and an mGRE tunnel's missing destination (a convert warning); on an IOL XE 17.15 router's own configuration, a self-signed trustpoint's `hash sha256`, `ip ssh bulk-mode 131072` and `no logging btrace` |
+| Parsed, then ignored | | GLBP (no forwarder is elected), IP SLA, SLA tracking (an SLA-tracked route never fails over), BFD, NHRP (nothing is resolved over a DMVPN cloud, and BGP over it never establishes in the model), IOS XE's `Mgmt-intf` management VRF (feature `management_vrf`: every interface in it is deactivated, so the VRF holds no route; `Mgmt-vrf` is not yet measured) |
 
 The configuration formats taken are `frr` and `cisco_ios`. Batfish reads Arista EOS and Junos as
 they are too. They will be accepted once their device types exist and each format is proven against

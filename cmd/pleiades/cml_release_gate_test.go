@@ -23,8 +23,10 @@ var cmlGateSettings = []string{
 	"PLEIADES_CML_NODE_USERNAME", "PLEIADES_CML_NODE_PASSWORD", "PLEIADES_CML_NODE_ENABLE",
 }
 
-// TestCLI_ImportCMLReachesIOSOverTelnet is the release gate.
-func TestCLI_ImportCMLReachesIOSOverTelnet(t *testing.T) {
+// cmlGateEnv returns the gate's settings, skipping the test with a "needs"
+// line naming each one missing, so a run off the sandbox's VPN (CI) skips.
+func cmlGateEnv(t *testing.T) map[string]string {
+	t.Helper()
 	env := map[string]string{}
 	missing := []string{}
 	for _, k := range cmlGateSettings {
@@ -34,14 +36,76 @@ func TestCLI_ImportCMLReachesIOSOverTelnet(t *testing.T) {
 	}
 	testsupport.Require(t, "a CML controller", len(missing) == 0,
 		"set "+strings.Join(missing, ", ")+" (tests/cml/.env.example) and run on the CML sandbox's VPN (tests/cml/vpn.sh)")
-	node := env["PLEIADES_CML_NODE"]
-	dir := t.TempDir()
-	run := func(stdin string, args ...string) (string, error) {
+	return env
+}
+
+// cmlRunner returns how a gate runs the binary in its project at dir: with
+// stdin when there is any (a secret goes in on a pipe, never a flag), and
+// otherwise with the controller's password in the environment import-cml
+// reads it from and a known_hosts file of the project's own, so trusting
+// the controller's console server never writes to the user's.
+func cmlRunner(t *testing.T, env map[string]string, dir string) func(string, ...string) (string, error) {
+	t.Helper()
+	knownHosts := filepath.Join(t.TempDir(), "known_hosts")
+	if err := os.WriteFile(knownHosts, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return func(stdin string, args ...string) (string, error) {
 		if stdin != "" {
 			return runPleiadesWithStdin(t, dir, stdin, args...)
 		}
-		return runPleiadesWithEnv(t, dir, map[string]string{"PLEIADES_CML_PASSWORD": env["PLEIADES_CML_PASSWORD"]}, args...)
+		return runPleiadesWithEnv(t, dir, map[string]string{"PLEIADES_CML_PASSWORD": env["PLEIADES_CML_PASSWORD"], "PLEIADES_KNOWN_HOSTS": knownHosts}, args...)
 	}
+}
+
+// cmlImportNode makes the project run works in and imports the gate's node
+// into it from the CML controller, reached as via says: "telnet", at the
+// node's own address, or "console", through the controller's console
+// server, which needs no route to the node (a cml_controller device, cml,
+// holds the controller's login).
+func cmlImportNode(t *testing.T, env map[string]string, run func(string, ...string) (string, error), via string) {
+	t.Helper()
+	must := func(stdin string, args ...string) string {
+		t.Helper()
+		out, err := run(stdin, args...)
+		if err != nil {
+			t.Fatalf("%s: %v\n%s", strings.Join(args, " "), err, out)
+		}
+		return out
+	}
+	must("", "init")
+	node := env["PLEIADES_CML_NODE"]
+	var out string
+	if via == "console" {
+		must("", "add-host", "cml", "--type", "cml_controller", "--set", "api_base="+env["PLEIADES_CML_URL"], "--set", "tls_fingerprint="+env["PLEIADES_CML_TLS_FINGERPRINT"])
+		must(env["PLEIADES_CML_PASSWORD"]+"\n", "add-credential", "cml", "--username", env["PLEIADES_CML_USERNAME"], "--password-stdin")
+		must("", "trust-host", "cml", "--first-connect", "--reason", "the lab controller, trusted by the release gate")
+		out = must("", "import-cml", "--controller", "cml", "--lab", env["PLEIADES_CML_LAB"], "--via", "console", "--nodes", node, "--json")
+	} else {
+		out = must("", "import-cml", "--server", env["PLEIADES_CML_URL"], "--lab", env["PLEIADES_CML_LAB"], "--username", env["PLEIADES_CML_USERNAME"],
+			"--tls-fingerprint", env["PLEIADES_CML_TLS_FINGERPRINT"], "--via", "telnet", "--nodes", node, "--address", node+"="+env["PLEIADES_CML_NODE_ADDRESS"], "--json")
+	}
+	if !strings.Contains(out, `"type": "cisco_router"`) || !strings.Contains(out, `"via": "`+via+`"`) {
+		t.Fatalf("import-cml --via %s:\n%s", via, out)
+	}
+}
+
+// cmlAddEnableCredential stores the node's login with its enable secret,
+// which privileged commands (show running-config) need.
+func cmlAddEnableCredential(t *testing.T, env map[string]string, run func(string, ...string) (string, error)) {
+	t.Helper()
+	if out, err := run(env["PLEIADES_CML_NODE_PASSWORD"]+"\n"+env["PLEIADES_CML_NODE_ENABLE"]+"\n", "add-credential", env["PLEIADES_CML_NODE"],
+		"--username", env["PLEIADES_CML_NODE_USERNAME"], "--password-stdin", "--enable-password-stdin"); err != nil {
+		t.Fatalf("add-credential with the enable secret: %v\n%s", err, out)
+	}
+}
+
+// TestCLI_ImportCMLReachesIOSOverTelnet is the release gate.
+func TestCLI_ImportCMLReachesIOSOverTelnet(t *testing.T) {
+	env := cmlGateEnv(t)
+	node := env["PLEIADES_CML_NODE"]
+	dir := t.TempDir()
+	run := cmlRunner(t, env, dir)
 	task := func(args ...string) map[string]any {
 		t.Helper()
 		out, err := run("", append(args, "insecure_telnet=true", "--json")...)
@@ -53,14 +117,7 @@ func TestCLI_ImportCMLReachesIOSOverTelnet(t *testing.T) {
 		}
 		return report.Tasks[0]
 	}
-	if out, err := run("", "init"); err != nil {
-		t.Fatalf("init: %v\n%s", err, out)
-	}
-	out, err := run("", "import-cml", "--server", env["PLEIADES_CML_URL"], "--lab", env["PLEIADES_CML_LAB"], "--username", env["PLEIADES_CML_USERNAME"],
-		"--tls-fingerprint", env["PLEIADES_CML_TLS_FINGERPRINT"], "--via", "telnet", "--nodes", node, "--address", node+"="+env["PLEIADES_CML_NODE_ADDRESS"], "--json")
-	if err != nil || !strings.Contains(out, `"type": "cisco_router"`) || !strings.Contains(out, `"via": "telnet"`) {
-		t.Fatalf("import-cml: %v\n%s", err, out)
-	}
+	cmlImportNode(t, env, run, "telnet")
 
 	// User mode: facts and a command, and configuration refused by name.
 	if out, err := run(env["PLEIADES_CML_NODE_PASSWORD"]+"\n", "add-credential", node, "--username", env["PLEIADES_CML_NODE_USERNAME"], "--password-stdin"); err != nil {
@@ -85,10 +142,7 @@ func TestCLI_ImportCMLReachesIOSOverTelnet(t *testing.T) {
 	}
 
 	// With the enable secret: the change is made, read back and removed.
-	if out, err := run(env["PLEIADES_CML_NODE_PASSWORD"]+"\n"+env["PLEIADES_CML_NODE_ENABLE"]+"\n", "add-credential", node, "--username", env["PLEIADES_CML_NODE_USERNAME"],
-		"--password-stdin", "--enable-password-stdin"); err != nil {
-		t.Fatalf("add-credential with the enable secret: %v\n%s", err, out)
-	}
+	cmlAddEnableCredential(t, env, run)
 	t.Cleanup(func() {
 		task("adhoc", node, "net.ios.config", `lines:=["no interface Loopback199"]`, "checkpoint:=false")
 	})
@@ -132,7 +186,7 @@ tasks:
 `), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	out, err = run("", "run", "runbooks/loopback.yaml", "--json")
+	out, err := run("", "run", "runbooks/loopback.yaml", "--json")
 	var ran struct {
 		RunID string `json:"run_id"`
 	}
