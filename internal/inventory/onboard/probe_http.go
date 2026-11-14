@@ -157,7 +157,9 @@ func (httpProber) get(ctx context.Context, client *http.Client, u *url.URL, mode
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, nil, err
+		// A certificate nothing trusts is named by its fingerprint, so a
+		// person can check it with the device's owner and pin it.
+		return nil, nil, devicetls.Explain(err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
@@ -170,6 +172,8 @@ func (httpProber) get(ctx context.Context, client *http.Client, u *url.URL, mode
 		return farside.Masked(string(body), func(s string) string { return redact.Text(redact.MapValues(secrets), s) })
 	}
 	switch {
+	case (resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden) && mode == httpapi.AuthNone:
+		return nil, nil, fmt.Errorf("the API asked for a credential (%d), and this device sends none: set its %s property to basic or bearer to send its stored credential: %s", resp.StatusCode, generic.HTTPAuthProperty, said())
 	case resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden:
 		return nil, nil, fmt.Errorf("the API refused the credential (%d): %s", resp.StatusCode, said())
 	case resp.StatusCode >= 500:

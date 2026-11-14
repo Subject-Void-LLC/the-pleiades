@@ -47,6 +47,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/farside"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/httpapi"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
@@ -301,7 +302,9 @@ func Request(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 	resp, err := spec.client(deviceTLS).Do(req)
 	elapsed := time.Since(started)
 	if err != nil {
-		return collection.Result{}, fmt.Errorf("%s: %s %s: %w", fqcn, spec.method, spec.url, err)
+		// A certificate nothing trusts is named by its fingerprint, so a
+		// person can check it with the device's owner and pin it.
+		return collection.Result{}, fmt.Errorf("%s: %s %s: %w", fqcn, spec.method, spec.url, devicetls.Explain(err))
 	}
 	defer func() { _ = resp.Body.Close() }()
 

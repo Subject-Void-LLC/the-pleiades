@@ -133,7 +133,9 @@ func TestHTTPProbe_SaysWhatTheAPISaid(t *testing.T) {
 	}))
 	defer srv.Close()
 	for path, want := range map[string]string{
-		"/denied": `refused the credential (403): "token ******** lacks scope read:api"`,
+		// The device sends no credential (no http_auth), so the refusal says
+		// that rather than that a credential was refused.
+		"/denied": `asked for a credential (403), and this device sends none: set its http_auth property to basic or bearer to send its stored credential: "token ******** lacks scope read:api"`,
 		"/proxy":  `server error (502): "502 Bad Gateway 502 Bad Gateway nginx"`,
 	} {
 		dev := build(t, generic.TypeHTTP, map[string]inventory.PropertyValue{devicetls.CAPEMProperty: caPEM(srv), generic.BaseURLProperty: srv.URL + path})
