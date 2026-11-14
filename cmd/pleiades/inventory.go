@@ -9,7 +9,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -149,6 +148,7 @@ func (f settingFlag) Set(raw string) error {
 // inventory.
 func runInventorySync(args []string) error {
 	fs := flag.NewFlagSet("inventory sync", flag.ContinueOnError)
+	addProjectFlags(fs)
 	dir := fs.String("dir", ".", "project directory holding inventory.yaml")
 	pluginName := fs.String("plugin", "", "sync plugin to run (see 'pleiades inventory plugins')")
 	endpoint := fs.String("endpoint", "", "upstream base URL, overriding the plugin's default")
@@ -195,7 +195,7 @@ func runInventorySync(args []string) error {
 	// hands every plugin the same Deps, which is what replaced a
 	// per-plugin type switch that had grown one arm and needed three.
 	plugin, err := syncplugin.Open(desc, cfg, syncplugin.Deps{
-		Credentials: credential.NewLazyFileStore(*dir),
+		Credentials: credential.NewLazyFileStore(vaultDir(*dir)),
 	})
 	if err != nil {
 		return err
@@ -207,7 +207,7 @@ func runInventorySync(args []string) error {
 		return err
 	}
 
-	repo := inv.Repository(inv.NewFileRepository(filepath.Join(*dir, "inventory.yaml"), inv.NewItemFactory()))
+	repo := inv.Repository(inv.NewFileRepository(inventoryFile(*dir), inv.NewItemFactory()))
 	if *readOnly {
 		repo = inv.NewReadOnlyRepository(repo)
 	}

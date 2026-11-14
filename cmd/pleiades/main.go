@@ -35,6 +35,7 @@ var commands = map[string]commandFunc{
 	"grant-capability":           runGrantCapability,
 	"revoke-capability":          runRevokeCapability,
 	"add-credential":             runAddCredential,
+	"list-credentials":           runListCredentials,
 	"seal-key":                   runSealKey,
 	"seal":                       runSeal,
 	"add-registry-credential":    runAddRegistryCredential,

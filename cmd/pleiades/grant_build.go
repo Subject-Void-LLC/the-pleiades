@@ -5,7 +5,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 
 	inv "github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
@@ -25,7 +24,7 @@ func revokeByBuild(dir, build string) error {
 	}
 	ctx := context.Background()
 	factory := inv.NewItemFactory()
-	repo := inv.NewFileRepository(filepath.Join(dir, inv.DefaultInventoryFilename), factory)
+	repo := inv.NewFileRepository(inventoryFile(dir), factory)
 	items, err := loadInventory(dir)
 	if err != nil {
 		return err

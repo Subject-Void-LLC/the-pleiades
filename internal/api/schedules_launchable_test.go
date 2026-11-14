@@ -37,6 +37,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/launchable/types/jobtemplate"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/launchable/types/projectsync"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/project"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/runbook"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/schedule"
 )
 
@@ -69,6 +70,13 @@ type launchableScheduleFixture struct {
 // holds is exactly what several of these cases are about.
 func newLaunchableScheduleFixture(t *testing.T, identity *auth.Identity) *launchableScheduleFixture {
 	t.Helper()
+	return newLaunchableScheduleFixtureFor(t, identity, newTestRunbookSource(t, "patch-edge"), "patch-edge")
+}
+
+// newLaunchableScheduleFixtureFor is newLaunchableScheduleFixture with both
+// templates naming definition, resolved from runbooks.
+func newLaunchableScheduleFixtureFor(t *testing.T, identity *auth.Identity, runbooks runbook.Source, definition string) *launchableScheduleFixture {
+	t.Helper()
 	ctx := context.Background()
 
 	client := newSerializedSQLiteClient(t, fmt.Sprintf("schedlaunch-%d", scheduleFixtureSeq.Add(1)))
@@ -78,16 +86,16 @@ func newLaunchableScheduleFixture(t *testing.T, identity *auth.Identity) *launch
 	otherInv := client.Inventory.Create().SetName("ledgers").SetOrganization(other).SaveX(ctx)
 
 	templates := launch.NewEntStore(client, launch.StaticCatalog(
-		launch.CatalogEntry{Kind: "runbook", Definition: "patch-edge"},
+		launch.CatalogEntry{Kind: "runbook", Definition: definition},
 	))
 	tmpl, err := templates.Create(ctx, launch.Template{
-		Name: "patch the edge", KindName: "runbook", Definition: "patch-edge", InventoryID: inv.ID,
+		Name: "patch the edge", KindName: "runbook", Definition: definition, InventoryID: inv.ID,
 	})
 	if err != nil {
 		t.Fatalf("creating a template: %v", err)
 	}
 	otherTmpl, err := templates.Create(ctx, launch.Template{
-		Name: "close the books", KindName: "runbook", Definition: "patch-edge", InventoryID: otherInv.ID,
+		Name: "close the books", KindName: "runbook", Definition: definition, InventoryID: otherInv.ID,
 	})
 	if err != nil {
 		t.Fatalf("creating another organization's template: %v", err)
@@ -121,7 +129,7 @@ func newLaunchableScheduleFixture(t *testing.T, identity *auth.Identity) *launch
 
 	// The real launchers behind the real router, so a preflight refusal is the
 	// launcher's own rather than a stub's idea of one.
-	dispatcher := api.NewDispatcher(newTestRunbookSource(t, "patch-edge"), newTestJobStore(t), newCapturingBus(),
+	dispatcher := api.NewDispatcher(runbooks, newTestJobStore(t), newCapturingBus(),
 		api.WithTemplates(templates), api.WithLaunchConfigs(templates))
 	runner := project.NewRunner(projects, stubSyncer{}, slog.New(slog.NewJSONHandler(io.Discard, nil)))
 	t.Cleanup(func() { _ = runner.Shutdown(ctx) })

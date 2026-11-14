@@ -295,7 +295,7 @@ func TestDialThroughHop_TunneledConnRemoteAddrIsZero(t *testing.T) {
 		t.Fatalf("hostKeyCallback: %v", err)
 	}
 
-	bastionClient, err := r.dial(context.Background(), bastionAddr, testAuth.clientConfig(hostKeyCB, 2*time.Second))
+	bastionClient, err := r.dial(context.Background(), bastionAddr, testAuth.clientConfig(hostKeyCB, bastionAddr, 2*time.Second))
 	if err != nil {
 		t.Fatalf("dial bastion: %v", err)
 	}

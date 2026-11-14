@@ -3,7 +3,6 @@ package main
 import (
 	"flag"
 	"fmt"
-	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -95,6 +94,7 @@ func parsePropertyValue(raw string) interface{} {
 // Type is present (see ResolveHostType's doc comment).
 func runAddHost(args []string) error {
 	fs := flag.NewFlagSet("add-host", flag.ContinueOnError)
+	addInventoryFlag(fs)
 	dir := fs.String("dir", ".", "project directory")
 	deviceType := fs.String("type", "", "device type (e.g. linux_server, cisco_router)")
 	classifyFlag := fs.String("classify", "", "comma-separated classification path (e.g. linux_server,debian_family,ubuntu), an alternative to --type")
@@ -146,7 +146,7 @@ func runAddHost(args []string) error {
 		resolvedType = *result.Value.Type
 	}
 
-	path := filepath.Join(*dir, inventory.DefaultInventoryFilename)
+	path := inventoryFile(*dir)
 	hosts, err := inventory.ReadHosts(path)
 	if err != nil {
 		return fmt.Errorf("failed to read inventory (did you run 'pleiades init'?): %w", err)

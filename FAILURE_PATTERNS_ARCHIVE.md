@@ -29716,6 +29716,159 @@ answers, then send it once. Proof, against the repo's real sshd container counti
 
 **Lesson.** A test of process-wide state takes a seam that resets it.
 
+## 1212. pkg/remoteexec offered Go's default host key order, not the types known_hosts pins for the host first, so a known_hosts holding only a device's ed25519 key refused it as a changed key (a repeat of 319) (fixed on this branch; on main until it merges)
+
+**Symptom.** Measured 2026-09-25 against a lab VM (Phase 112's dogfood finding): a `known_hosts` file holding only the
+device's ed25519 key refused the connection with `knownhosts: key mismatch`, although the key it held was right. The
+server also held an ECDSA key and answered with that one.
+
+**Root cause.** `pkg/remoteexec` set no `ssh.ClientConfig.HostKeyAlgorithms`, so the client offered
+`golang.org/x/crypto/ssh`'s default order, which puts ECDSA ahead of ed25519. A server holding both proved itself with
+its ECDSA key, and `knownhosts` reads a host known under one key type and presenting another as a changed key, not an
+unknown one. OpenSSH puts the algorithms of the keys it already holds for the host first (`order_hostkeyalgs`).
+
+**Why 319's fix did not hold.** 319 met the same refusal in the SFTP release gate and fixed the test fixture:
+`testsupport.SSHD.KnownHosts` was made to list every one of the server's key types. That made every container test
+pass while the client kept the defect, so a user's file pinning one type still failed. 319's lesson ("pin all of the
+server's key types, or pin the algorithm too") was a rule for test authors; nobody asked why the product could not
+verify a correct single pin.
+
+**Fix.** `566c0d14`: `hostKeyAlgorithms` (`pkg/remoteexec/hostkeyalgos.go`) asks the connection's own known_hosts
+callback about a probe key no host holds, reads the keys it does hold for the address from `knownhosts.KeyError.Want`
+(so hashed names, wildcards and the bracketed host and port form match exactly as the handshake's check does), and
+offers their algorithms first, then every other default algorithm. It orders and does not restrict: a server whose key
+really changed still presents another type and is refused as a changed key, rather than failing with "no common
+algorithm", which would be retried and charged to the address's circuit. Verification skipped, an unknown host and an
+`@cert-authority` entry keep the default order. Proof: `TestSSHContainer_APinnedHostKeyOfAnyOneTypeVerifies` (a real
+OpenSSH server, one connection per key type with only that key pinned), `TestConnect_APinnedKeyOfAnyOneTypeIsAccepted`,
+`TestConnect_AChangedKeyOfAnotherTypeIsStillAKeyError`, `TestHostKeyAlgorithms_OrdersTheKnownTypesFirst` and
+`TestHostKeyAlgorithms_LeavesTheDefaultAlone` (`pkg/remoteexec/hostkeyalgos_test.go`). The fixture still lists every
+type, and its comment now says why.
+
+**Lesson.** When a test fixture has to be widened to make correct input pass, the product has the defect too: fix the
+product, and keep one test that feeds it the narrow input a user would.
+
+## 1213. On the Walk tier a device reached through a console server was skipped as "has no host property", which hid that only the CLI resolves a console server (a repeat in kind of 595) (fixed on this branch; on main until it merges)
+
+**Symptom.** A CML node imported with `--via console` has no address of its own. A job that named it skipped it with
+the reason that it has no `host` property, which sends the operator after the inventory record rather than to the
+real limit: a Runner holds neither the console server's device nor its login.
+
+**Root cause.** `Worker.admit` (`internal/dispatch/worker_devices.go`) had no case for `capability.ConsoleServedCapable`.
+The device fell through to the generic host check, which spoke first and named the wrong cause.
+
+**Why 595's fix did not hold.** 595 fixed one summary (`hosttrust.Scan` keeping the last attempt's cause). Its lesson,
+that a summary without its cause names the wrong layer, was never applied to the admission checks, where a general
+check ahead of a specific one does the same.
+
+**Fix.** `8dadc344`: admission skips a console-served device before the host check, naming the device, its console
+server and that only the pleiades CLI resolves one so far. Proof: `TestWorker_SkipsAConsoleServedDeviceNamingItsServer`
+(`internal/dispatch/worker_console_test.go`: skipped naming `console server "cml"` and the CLI, the addressed device in
+the same job dispatched, one dispatch on the bus) and, on real NATS with a real Runner,
+`TestCMLWalkReleaseGate_AControllerTaskRunsAndAConsoleDeviceIsRefused` (`cmd/runner/cml_walk_release_gate_test.go`),
+where a console device dispatched anyway, with a host the Runner could dial, is refused naming the console server.
+
+**Lesson.** Order refusals from the most specific to the most general, so the reason given is the real one.
+
+## 1214. A runbook that seeds a login was published to JetStream and refused only by the Runner; and once the Controller refused it at launch, a schedule of one was still accepted at the write (a repeat in kind of 268) (fixed on this branch: the publish on main until it merges, the schedule half before push)
+
+**Symptom.** A template whose runbook seeds a device's login into a machine it creates (`virt.vbox.vm.clone`'s `login`,
+`virt.cml.node.create`'s `device`) launched, fanned out and put a dispatch on the stream, and the Runner's engine then
+refused the seeding call (`seedLogin`). The operator learned it from a failed task, after the dispatch (with the
+device's credential, as every dispatch carries) had crossed the stream. After the first fix, `POST /schedules` still
+accepted a schedule of such a template, which would have failed at every firing.
+
+**Root cause.** The refusal lived only on the Runner. The owner decided on 2026-11-11 that a seed reaches a Runner only
+through the claim-time credential fetch (Phase 105) and that the refusal must sit in the Controller before publish; a
+text search found no `SeedsLogin` in `internal/dispatch`. The first fix added the refusal to `LaunchTemplate` and to
+fan-out, but the schedule's write runs `Dispatcher.unattended` (`internal/api/dispatcher_launchable.go`), a separate
+preflight that never called it.
+
+**Why 268's lesson did not prevent it.** 268's general form is that any mechanism causing work to happen later checks
+now what that work needs. 268 enforced it for the launch scope only; nothing requires a refusal added to the launch to
+be asked at the schedule's write too.
+
+**Fix.** `aa5fbac9`: `engine.SeededLogins` names every task (and rollback step) whose method's manifest sets
+`SeedsLogin` and that sets or requires the parameter, reading the module catalog the Controller embeds;
+`dispatch.RefuseSeededLogins` wraps `ErrSeededLogin`; `LaunchTemplate` refuses before the job exists (422 naming the
+task, the method and the device, no secret), and fan-out refuses a job whatever started it. `650c5f35`: the schedule
+preflight calls the same `RefuseSeededLogins`. Proof: `TestController_RefusesASeededLoginBeforePublish` (real NATS: the
+job fails naming the task, the stream holds no message on any dispatch or check subject, and a control runbook puts
+exactly one there), `TestLaunchTemplate_RefusesASeededLoginBeforeTheJobExists`, `TestLaunchFromTemplate_ASeededLoginIs422`,
+`TestWorker_RefusesASeededLoginBeforeAnyDispatch`, `TestSeededLogins_NamesEveryTaskThatWouldSeed`,
+`TestSeededLogins_ReadsTheInstalledCatalog`, `TestSchedules_ASeededLoginIsRefusedAtTheWrite`, and
+`TestAdapter_Execute_ASeedingTaskIsRefusedNotRunWithoutItsSeed` (a Runner that drops forged `seed_*` keys still refuses
+the task rather than building a machine with no login).
+
+**Lesson.** A refusal of what a job would do sits before the job crosses a trust boundary, and every path that starts
+the job (launch, schedule write, fan-out) asks the same function.
+
+## 1216. NoticeUnbound wrapped the run's credential store in a type that answered Lookup alone, so every named secret, registry account and database connection in a run failed as unresolvable (a repeat of 70) (fixed before push)
+
+**Symptom.** After `de7b2bb2` wrapped the CLI run's store in `credential.NoticeUnbound`,
+`TestCLI_SecretReferencesReachTheDeviceOnly` failed: every `{{ secret.<name>.<field> }}` reference in a run was
+unresolvable.
+
+**Root cause.** Callers find named secrets, registry accounts and database connections by a type assertion on the store
+they were handed (`SecretStore`, `RegistryStore`, `DatabaseStore`). The wrapper implemented only `Store`, so every
+assertion on it failed.
+
+**Why 70's lesson did not prevent it.** 70 is the same property of wrapping (a decorator hides each optional interface
+it does not declare), found on `http.ResponseWriter` and fixed there by removing the wrapper. Its lesson was written
+about HTTP middleware, and nothing checks a new wrapper elsewhere for the interfaces its callers assert.
+
+**Fix.** `efa36502`: when the inner store answers all three, `NoticeUnbound` returns a struct embedding the wrapper and
+the inner store for each, so each passes straight to the inner store; one that answers none stays a bare `Store`.
+Proof: `TestNoticeUnbound_KeepsTheStoresOtherAnswers` (`internal/credential/unbound_test.go`: a named secret read
+through the wrapper, both other interfaces present, and none claimed for a store that lacks them), and
+`TestCLI_SecretReferencesReachTheDeviceOnly` passing again.
+
+**Lesson.** Before wrapping a value, list every interface its callers assert on it, and forward each one or say why not.
+
+## 1217. A master.key, credentials.yaml or seal.key that another account could read or write, or that another user owned, was used (fixed on this branch; on main until it merges)
+
+**Symptom.** Found 2026-11-13, when the owner decided such files are refused (`internal/crypto/private_file.go`'s
+comment); Phase 112's `--vault` item had assumed the default vault was already refused when loose. The CLI, the Runner and the Controller's
+`CONTROLLER_CREDENTIALS_DIR` read the vault files with `os.ReadFile` and never looked at their mode or owner. A file
+loosened by hand, copied with its mode changed, or kept on a filesystem without POSIX modes (a Windows drive under WSL)
+was used as if private. OpenSSH refuses a private key in that state.
+
+**Root cause.** Pleiades writes each file 0600, and the read side assumed the write side's mode still held.
+`crypto.ResolveKey`, `credential.readCredentialsDocument` and `credential.LoadSealKey` each read the path with no check.
+
+**Fix.** `78345e86`: `crypto.ReadPrivateFile` opens the file and checks the open file (`fstat`, so what is checked is
+what is read): a mode granting group or others any access, or an owner other than the effective user, is refused with
+`ErrLooseSecretFile`, naming the file and the `chmod 600` or `chown` that fixes it. The three readers use it, and a
+missing file still reads as not existing. Windows checks nothing, since POSIX modes do not apply there (615); the docs
+and the changelog say so. Proof: `TestCLI_ALooseMasterKeyIsRefused` (`cmd/pleiades/loose_vault_test.go`),
+`TestCredentialFile_ALooseFileIsRefused`, `TestResolveKey_RefusesALooseKeyFile`,
+`TestReadPrivateFile_RefusesAFileAnotherUserOwns`, `TestCheckPrivate_RefusesAnotherUsersFile` and
+`TestReadPrivateFile_MissingFileIsNotExist`. A behavior change, stated in `changelog/loose-vault-refused.security.md`.
+
+**Lesson.** A file holding a secret is checked for its mode and owner where it is read, on the open file, not trusted
+because the writer set them.
+
+## 1218. remove-host and remove-credential with --vault required a master key though removing decrypts nothing, and add-credential's warning named inventory.yaml rather than the --inventory file it read (fixed before push)
+
+**Symptom.** With `--vault` naming a vault that held no `master.key` (the key supplied another way, or the vault being
+cleaned up), `remove-credential` and `remove-host --credential` refused with "holds no master key", although removing
+an entry reads and rewrites `credentials.yaml` and decrypts nothing. Separately, `add-credential db07 --inventory
+hosts.yaml` warned `no device named "db07" in inventory.yaml`, naming a file it had not read.
+
+**Root cause.** `e396d6a4` gave every vault command one `addVaultFlag`, whose parse refuses a vault with no key; that
+rule fits a command that decrypts and not one that only removes. The warning in `de7b2bb2` printed the constant
+`inventory.DefaultInventoryFilename`, and `e396d6a4` then let `--inventory` read another file without changing the
+message.
+
+**Fix.** `a8cb55a4`: `addKeylessVaultFlag` registers `--vault` without the key requirement for the two removal commands
+(the file is still held to the private-file check, 1217), and the warning names `inventoryFile(dir)`, the file actually
+read. Proof: `TestCLI_RemovingFromAVaultNeedsNoKey` (both removals succeed with the key deleted, no key is made, and a
+loose `credentials.yaml` is still refused naming the `chmod`) and `TestCLI_AddCredential_NamesTheInventoryItRead`
+(`cmd/pleiades/vault_inventory_flags_test.go`).
+
+**Lesson.** A flag shared by many commands carries a precondition only as strict as the least demanding command needs;
+and a message names the path the code used, never the default it would have used.
+
 ## 1225. A scheduled run whose launch failed after its occurrence was claimed was never launched, though Sweep's comment says a transient failure costs one interval of lateness (a repeat of 320) (fixed)
 
 **Symptom.** Found 2026-11-13 by an outside review of lessons from the 2026-11-12 Microsoft 365 outage, and confirmed by reading the
@@ -29954,3 +30107,29 @@ interface the configuration leaves up and Batfish holds inactive, which would ca
 
 **Lesson.** A measured list of what a model ignores is only as complete as the configurations measured: hold a real
 device's whole configuration to the model, and ask the model which configured things it set aside.
+
+## 1240. revoke-capability --build, added on main while --inventory was swept into every other command, read the --inventory file and wrote --dir's inventory.yaml (a repeat of 183) (fixed before push)
+
+**Symptom.** Found rebasing `feat/112-cli-and-127d-runner` onto main on 2026-11-13: the only conflict was the
+`revoke-capability` flag list in `internal/clispec`, where the branch added `--inventory` and main had added `--build`.
+Both resolved cleanly and the package built. With both flags, `revokeByBuild` loaded the devices through `loadInventory`,
+which honors `--inventory`, and saved through a repository opened on `filepath.Join(dir, DefaultInventoryFilename)`,
+which does not. Measured: with the inventory moved to another directory, the revoke failed with "failed to read inventory
+file <dir>/inventory.yaml"; with both files present it would have written the revocation into the wrong one.
+
+**Root cause.** The branch swept every command onto `inventoryFile(dir)` (`e396d6a4`) before main merged
+`revoke-capability --build` (Phase 127a, `grant_build.go`), which built the path itself as the code it copied once had.
+A rebase merges text, not intent: nothing conflicted at the call, so nothing showed it.
+
+**Why 183's lesson did not prevent it.** 183 says a sweep has to find every site carrying the construction. This sweep
+did, at the time it ran; the new site arrived afterward, from code the sweep never saw. A sweep checked once by
+reading holds only until the next merge. Only a test that refuses the construction keeps holding.
+
+**Fix.** `revokeByBuild` opens its repository on `inventoryFile(dir)`. `TestRevokeCapability_ByBuildKeepsEveryOtherGrant`
+now revokes a second build through `--inventory` with the inventory and its state file moved, and fails with the old
+path. `TestInventoryPathComesFromInventoryFile` (`cmd/pleiades/inventory_path_guard_internal_test.go`) parses every
+non-test file of the package and refuses a `filepath.Join` given `DefaultInventoryFilename` anywhere but
+`project_paths.go`. It names `grant_build.go:28` against the old code.
+
+**Lesson.** When a branch sweeps a construction across a package, the sweep ends with a test that refuses the old
+construction, so code merged later is held to it too. A clean rebase says only that no line conflicted.

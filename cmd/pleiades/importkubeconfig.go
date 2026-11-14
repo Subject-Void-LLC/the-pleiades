@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"slices"
 
 	"github.com/google/uuid"
@@ -45,6 +44,7 @@ type importResult struct {
 // from the path given, never from KUBECONFIG or a home directory.
 func runImportKubeconfig(args []string) error {
 	fs := flag.NewFlagSet("import-kubeconfig", flag.ContinueOnError)
+	addProjectFlags(fs)
 	dir := fs.String("dir", ".", "project directory")
 	path := fs.String("kubeconfig", "", "the kubeconfig to read, or - for standard input; never a default location")
 	contextName := fs.String("context", "", "the context to import; the kubeconfig's current context when empty")
@@ -58,7 +58,7 @@ func runImportKubeconfig(args []string) error {
 		return fmt.Errorf("--kubeconfig is required: the import reads the file it is given, never KUBECONFIG or ~/.kube/config")
 	}
 
-	invPath := filepath.Join(*dir, inventory.DefaultInventoryFilename)
+	invPath := inventoryFile(*dir)
 	hosts, err := inventory.ReadHosts(invPath)
 	if err != nil {
 		return fmt.Errorf("failed to read inventory (did you run 'pleiades init'?): %w", err)
@@ -136,14 +136,14 @@ func runImportKubeconfig(args []string) error {
 	}
 
 	cred := credential.Credential{Token: imported.Token, CertificatePEM: imported.ClientCertPEM, PrivateKeyPEM: imported.ClientKeyPEM}
-	key, err := credential.ResolveMasterKey(*dir)
+	key, err := credential.ResolveMasterKey(vaultDir(*dir))
 	if err != nil {
 		return fmt.Errorf("failed to resolve master key: %w", err)
 	}
 	// The credential first: a record written without one would be a
 	// cluster nothing can reach, while a credential written without its
 	// record is inert until the record exists.
-	if err := credential.SaveFileStore(*dir, key, name, cred); err != nil {
+	if err := credential.SaveFileStore(vaultDir(*dir), key, name, cred); err != nil {
 		return fmt.Errorf("failed to save the cluster's credential: %w", err)
 	}
 	if err := inventory.WriteHosts(invPath, hosts); err != nil {

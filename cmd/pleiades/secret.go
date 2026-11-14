@@ -28,6 +28,7 @@ const addSecretUsage = "usage: pleiades add-secret <name> --field <field> (--val
 // disagree with the runbook.
 func runAddSecret(args []string) error {
 	fs := flag.NewFlagSet("add-secret", flag.ContinueOnError)
+	addVaultFlag(fs)
 	dir := fs.String("dir", ".", "project directory")
 	field := fs.String("field", "", "the field of the secret to store")
 	fromStdin := fs.Bool("value-stdin", false, "read the value as one line on standard input")
@@ -63,7 +64,7 @@ func runAddSecret(args []string) error {
 	}
 
 	if !*replace {
-		existing, err := credential.ListSecrets(*dir)
+		existing, err := credential.ListSecrets(vaultDir(*dir))
 		if err != nil {
 			return err
 		}
@@ -102,11 +103,11 @@ func runAddSecret(args []string) error {
 	if err := secretref.CheckValue(value); err != nil {
 		return fmt.Errorf("secret %s.%s: %w", name, *field, err)
 	}
-	key, err := credential.ResolveMasterKey(*dir)
+	key, err := credential.ResolveMasterKey(vaultDir(*dir))
 	if err != nil {
 		return fmt.Errorf("failed to resolve master key: %w", err)
 	}
-	if err := credential.SaveSecretField(*dir, key, name, *field, value); err != nil {
+	if err := credential.SaveSecretField(vaultDir(*dir), key, name, *field, value); err != nil {
 		return err
 	}
 	how := "stored"
@@ -121,6 +122,7 @@ func runAddSecret(args []string) error {
 // value.
 func runListSecrets(args []string) error {
 	fs := flag.NewFlagSet("list-secrets", flag.ContinueOnError)
+	addVaultFlag(fs)
 	dir := fs.String("dir", ".", "project directory")
 	asJSON := fs.Bool("json", false, "print one JSON document instead of text")
 	if err := fs.Parse(args); err != nil {
@@ -129,7 +131,7 @@ func runListSecrets(args []string) error {
 	if fs.NArg() > 0 {
 		return errors.New("usage: pleiades list-secrets [--dir DIR] [--json]")
 	}
-	secrets, err := credential.ListSecrets(*dir)
+	secrets, err := credential.ListSecrets(vaultDir(*dir))
 	if err != nil {
 		return err
 	}
@@ -149,6 +151,7 @@ func runListSecrets(args []string) error {
 // runRemoveSecret removes one field of a named secret, or the whole secret.
 func runRemoveSecret(args []string) error {
 	fs := flag.NewFlagSet("remove-secret", flag.ContinueOnError)
+	addVaultFlag(fs)
 	dir := fs.String("dir", ".", "project directory")
 	field := fs.String("field", "", "remove only this field; the whole secret when empty")
 	name, err := parseOneArg(fs, args)
@@ -158,7 +161,7 @@ func runRemoveSecret(args []string) error {
 	if err != nil || name == "" {
 		return errors.New("usage: pleiades remove-secret <name> [--field <field>] [--dir DIR]")
 	}
-	removed, err := credential.RemoveSecret(*dir, name, *field)
+	removed, err := credential.RemoveSecret(vaultDir(*dir), name, *field)
 	if err != nil {
 		return err
 	}

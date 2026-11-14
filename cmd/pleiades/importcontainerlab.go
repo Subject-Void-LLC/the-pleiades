@@ -11,7 +11,6 @@ import (
 	"io"
 	"net/netip"
 	"os"
-	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -82,6 +81,7 @@ type clabResult struct {
 // another lab, or a lab name that is not the file's, is refused.
 func runImportContainerlab(args []string) error {
 	fs := flag.NewFlagSet("import-containerlab", flag.ContinueOnError)
+	addProjectFlags(fs)
 	dir := fs.String("dir", ".", "project directory")
 	path := fs.String("topology", "", "containerlab's topology-data.json for the lab, written on deploy")
 	api := fs.String("api", "", "instead of --topology: the inventory device of a containerlab API server (onboarded, with its login stored), whose inspect of --lab is read")
@@ -129,7 +129,7 @@ func runImportContainerlab(args []string) error {
 		return err
 	}
 
-	invPath := filepath.Join(*dir, inventory.DefaultInventoryFilename)
+	invPath := inventoryFile(*dir)
 	hosts, err := inventory.ReadHosts(invPath)
 	if err != nil {
 		return fmt.Errorf("failed to read inventory (did you run 'pleiades init'?): %w", err)
@@ -156,12 +156,12 @@ func runImportContainerlab(args []string) error {
 		if err != nil {
 			return fmt.Errorf("reading --key: %w", err)
 		}
-		key, err := credential.ResolveMasterKey(*dir)
+		key, err := credential.ResolveMasterKey(vaultDir(*dir))
 		if err != nil {
 			return fmt.Errorf("failed to resolve master key: %w", err)
 		}
 		for _, n := range res.Nodes {
-			if err := credential.SaveFileStore(*dir, key, n.Device, credential.Credential{Username: *username, PrivateKeyPEM: pem}); err != nil {
+			if err := credential.SaveFileStore(vaultDir(*dir), key, n.Device, credential.Credential{Username: *username, PrivateKeyPEM: pem}); err != nil {
 				return fmt.Errorf("failed to save %s's credential: %w", n.Device, err)
 			}
 		}

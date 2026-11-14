@@ -38,6 +38,7 @@ func runRunbook(args []string) error {
 	// and fail with a usage error naming neither the flag nor why. The
 	// runbook path is the thing a person types first.
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
+	addProjectFlags(fs)
 	flags := addRunFlags(fs)
 	selection := tagFlags(fs)
 	extraVars := addExtraVarsFlag(fs)

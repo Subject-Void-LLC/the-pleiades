@@ -119,6 +119,26 @@ to `.pleiades/credentials.yaml`, AES-256-GCM encrypted with a locally held maste
 (`.pleiades/master.key`, generated on first use). Neither file is ever committed:
 both are gitignored by default.
 
+**A loose vault is refused.** Like OpenSSH with a private key, `pleiades` refuses a
+`master.key`, `credentials.yaml` or `seal.key` that group or others can read or write, or
+that another user owns, before it reads any secret, and says how to fix it (`chmod 600
+.pleiades/master.key`, or `chown` to your user). Pleiades writes each of them 0600, so only
+a file loosened by hand, copied with its mode changed, or kept on a filesystem that cannot
+hold POSIX modes (such as a Windows drive mounted into WSL) is refused. On Windows itself no
+mode or owner is checked: POSIX modes do not apply there, and the file is protected only by
+its folder's access control, so keep the project inside your own profile.
+
+**A name the inventory does not have.** A credential is sent to whichever device carries
+its name, so a typo would leave the secret under the wrong name, and a device added later
+under that name would be sent a credential nobody chose for it. `add-credential` checks the
+name against the inventory first, before it reads any secret. A name no device has is still
+stored, with a warning naming the closest device names, and the entry is marked unbound;
+the first run that uses it says so once. Give `--no-device` when no device is meant (a sync
+source's account, a device you add later): the warning goes, the mark stays. From 0.4.0 a
+name the inventory does not have is refused without the flag. `pleiades list-credentials`
+lists every stored credential by name, account and kind, marks the unbound ones, and never
+shows a value.
+
 **A password in a sealed file.** When the password should never be typed or kept in the
 clear where the project runs, or an AI agent sets the project up and its shell refuses a
 `<` redirect, give `add-credential` a sealed file instead. The project prints its public
@@ -155,6 +175,24 @@ plaintext never exists where the project runs. It does not hide the password fro
 that can read `.pleiades/`: `master.key` opens the seal key, and `add-credential` stores the
 password in `credentials.yaml` under that same master key. To keep a password from an agent
 or a script, keep `.pleiades/` out of its reach, for example by running it as another user.
+
+**The vault and the inventory somewhere else.** Every command reads the inventory and the
+vault from `--dir` (default `.`). To run runbooks kept in one folder against credentials
+kept in another, give `--vault <dir>`, the directory whose `.pleiades/` holds the vault, and
+`--inventory <file>` (Ansible's `-i`), each in place of `--dir`'s own part only:
+
+```console
+$ pleiades run runbooks/patch.yaml --vault ~/pleiades-lab --inventory ~/pleiades-lab/inventory.yaml
+```
+
+Everything secret moves with `--vault`: `master.key`, `credentials.yaml` with its named
+secrets, `seal.key`, and the key that fact digests are keyed with, which comes from the
+master key. The journal, the fact store, `run.lock` and the rest of `.pleiades/` stay under
+`--dir`. `group_vars/` and `host_vars/` are read beside the `--inventory` file. A `--vault`
+holding no `master.key` is refused, naming the file it looked for, rather than given a new
+key (set `PLEIADES_MASTER_KEY` to supply one instead), and its files are held to the same
+owner-only check as a project's own. `pleiades <command> --help` lists the two flags on each
+command that reads the inventory or the vault.
 
 ### 5. Validate
 

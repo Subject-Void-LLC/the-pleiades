@@ -33,7 +33,11 @@ func sealKeyPath(dir string) string {
 // LoadSealKey returns the project's seal key, decrypted with the master key
 // key, or ErrNoSealKey when the project has none.
 func LoadSealKey(dir string, key []byte) (*sealed.PrivateKey, error) {
-	data, err := os.ReadFile(sealKeyPath(dir))
+	// Read only when it is its owner's alone, like the master key.
+	data, err := crypto.ReadPrivateFile(sealKeyPath(dir))
+	if errors.Is(err, crypto.ErrLooseSecretFile) {
+		return nil, err
+	}
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, ErrNoSealKey
 	}

@@ -5,7 +5,11 @@
 // writes into a machine it creates. The engine derives them, from the
 // executing build's own manifest and the credential store, and only on the
 // pleiades CLI: on a Runner the engine refuses a seeding call outright
-// (engine's seedLogin), and no Controller puts a seed_* key on a dispatch.
+// (engine's seedLogin), no Controller puts a seed_* key on a dispatch, and
+// the Controller refuses a runbook with a seeding task before it publishes
+// anything (internal/dispatch's RefuseSeededLogins). Dropping the keys never
+// lets the task run without its seed: the engine's refusal still stands
+// (TestAdapter_Execute_ASeedingTaskIsRefusedNotRunWithoutItsSeed).
 // So a dispatch carrying one was not built by any Controller's code path:
 // a forged payload, or a later Controller that decides seeds from its own
 // catalog, which may differ from this Runner's. Either way the decision is

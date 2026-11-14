@@ -233,9 +233,12 @@ whatever a task says about its own target's, each console connection is a fresh 
 has a time limit of its own. When the task ends the line is logged out, so the next person on that console
 meets a login rather than this task's privileged prompt, unless the connection is already gone by then (a
 task that ran out of time, a dropped network). For that case a node `virt.cml.node.create` seeded logs an
-idle console session out itself after five minutes (`exec-timeout 5 0`). The controller resolves only on
-the CLI so far; a Runner refuses a console device, and `virt.cml.node.create` with `device:`, whose seed a
-Runner cannot resolve either.
+idle console session out itself after five minutes (`exec-timeout 5 0`). A console server is resolved
+only on the CLI so far. On the Walk tier the Controller skips a console-served device with a reason naming
+its console server, and a Runner refuses one dispatched to it anyway. `virt.cml.node.create` with
+`device:` is refused on the Controller before anything is published, since its seed may reach a Runner
+only once a Runner can fetch the credential itself. The other `virt.cml` methods run from a Runner like
+any other API task, the controller's base URL, pin and login traveling with the dispatch.
 
 ### Failing a link and reading what crossed it
 

@@ -18,6 +18,7 @@ import (
 // registries section, which no device name can address.
 func runAddRegistryCredential(args []string) error {
 	fs := flag.NewFlagSet("add-registry-credential", flag.ContinueOnError)
+	addVaultFlag(fs)
 	dir := fs.String("dir", ".", "project directory")
 	username := fs.String("username", "", "the registry account")
 	stdinPassword := fs.Bool("password-stdin", false, "read the password or token as one line on standard input")
@@ -44,11 +45,11 @@ func runAddRegistryCredential(args []string) error {
 	if password == "" {
 		return fmt.Errorf("the password or token is empty")
 	}
-	key, err := credential.ResolveMasterKey(*dir)
+	key, err := credential.ResolveMasterKey(vaultDir(*dir))
 	if err != nil {
 		return fmt.Errorf("failed to resolve credential master key: %w", err)
 	}
-	if err := credential.SaveRegistryCredential(*dir, key, normalized, *username, password); err != nil {
+	if err := credential.SaveRegistryCredential(vaultDir(*dir), key, normalized, *username, password); err != nil {
 		return err
 	}
 	fmt.Printf("stored credential for registry %q\n", normalized)

@@ -12,7 +12,6 @@ import (
 	"net/netip"
 	"net/url"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -115,6 +114,7 @@ func (a addressFlags) Set(v string) error {
 // addresses its own configuration names, which are only ever a hint.
 func runImportCML(args []string) error {
 	fs := flag.NewFlagSet("import-cml", flag.ContinueOnError)
+	addProjectFlags(fs)
 	dir := fs.String("dir", ".", "project directory")
 	server := fs.String("server", "", "the CML controller's base URL, e.g. https://cml.lab")
 	lab := fs.String("lab", "", "the lab to import, by title or id")
@@ -192,7 +192,7 @@ func runImportCML(args []string) error {
 		return err
 	}
 
-	invPath := filepath.Join(*dir, inventory.DefaultInventoryFilename)
+	invPath := inventoryFile(*dir)
 	hosts, err := inventory.ReadHosts(invPath)
 	if err != nil {
 		return fmt.Errorf("failed to read inventory (did you run 'pleiades init'?): %w", err)
@@ -482,12 +482,12 @@ func cmlByFlags(ctx context.Context, server, username string, passwordStdin bool
 // settings, so the controller's password comes from the vault and never
 // from standard input or the environment.
 func cmlByController(ctx context.Context, dir, name string) (cmlConnection, error) {
-	repo := inventory.NewFileRepository(filepath.Join(dir, inventory.DefaultInventoryFilename), inventory.NewItemFactory())
+	repo := inventory.NewFileRepository(inventoryFile(dir), inventory.NewItemFactory())
 	device, err := repo.GetByName(ctx, name)
 	if err != nil {
 		return cmlConnection{}, fmt.Errorf("--controller %s: %w", name, err)
 	}
-	cred, err := credential.NewLazyFileStore(dir).Lookup(ctx, name)
+	cred, err := credential.NewLazyFileStore(vaultDir(dir)).Lookup(ctx, name)
 	if errors.Is(err, credential.ErrNotFound) {
 		return cmlConnection{}, fmt.Errorf("--controller %s has no login stored (pleiades add-credential %s --username <user> --password-stdin)", name, name)
 	}

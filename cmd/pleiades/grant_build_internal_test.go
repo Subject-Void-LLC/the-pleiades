@@ -141,4 +141,31 @@ func TestRevokeCapability_ByBuildKeepsEveryOtherGrant(t *testing.T) {
 	if g := grantsOn(t, dir, "r2"); len(g) != 1 {
 		t.Errorf("a refused revoke changed r2: %+v", g)
 	}
+
+	// --inventory: the same revoke reads and writes the file it names (and
+	// the state file beside it, where grants live), not --dir's
+	// inventory.yaml, which no longer exists.
+	elsewhere := t.TempDir()
+	moved := filepath.Join(elsewhere, "hosts.yaml")
+	if err := os.Rename(filepath.Join(dir, "inventory.yaml"), moved); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(filepath.Join(dir, ".inventory-state.generated.yaml"), filepath.Join(elsewhere, ".inventory-state.generated.yaml")); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { inventoryOverride = "" })
+	if err := captureRun(t, &out, func() error {
+		return runRevokeCapability([]string{"--build", second, "--dir", dir, "--inventory", moved})
+	}); err != nil {
+		t.Fatalf("revoke-capability --build --inventory = %v\n%s", err, out)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "inventory.yaml")); err == nil {
+		t.Error("revoke-capability --build --inventory wrote --dir's inventory.yaml")
+	}
+	if g := grantsOn(t, dir, "r2"); len(g) != 0 {
+		t.Errorf("r2 in the --inventory file keeps %+v, a grant the revoked build probed", g)
+	}
+	if g := grantsOn(t, dir, "r3"); len(g) != 1 {
+		t.Errorf("r3 in the --inventory file lost its assertion: %+v", g)
+	}
 }

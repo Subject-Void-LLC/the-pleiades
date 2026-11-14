@@ -326,6 +326,7 @@ func (d *dirSource) resolve(ctx context.Context, id string) (cacheEntry, error) 
 		Version:       dag.Version,
 		Nodes:         nodes,
 		GraphDigest:   GraphDigest(nodes),
+		SeededLogins:  engine.SeededLogins(dag),
 		// Catalog metadata, read from the file rather than stored beside
 		// it. Name falls back to the id so a runbook that never set one is
 		// still listed by something a human can read.

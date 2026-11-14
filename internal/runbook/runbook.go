@@ -113,6 +113,14 @@ type Runbook struct {
 	// rollback: lists included.
 	GraphDigest string
 
+	// SeededLogins is engine.SeededLogins of the compiled DAG: one line per
+	// task that would seed a device's login into a machine it creates. The
+	// Controller refuses such a job before it publishes anything
+	// (internal/dispatch's ErrSeededLogin), since a seed reaches a Runner only
+	// through the claim-time credential fetch, which is not built yet. Empty
+	// for a runbook that seeds nothing.
+	SeededLogins []string
+
 	// Name, Description, Category and Labels are the catalog metadata a
 	// reader browsing runbooks needs and an executor does not. They come
 	// straight from the compiled WorkflowDef, so a runbook is described by

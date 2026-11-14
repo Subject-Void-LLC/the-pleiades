@@ -10,7 +10,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -60,6 +59,7 @@ func isEphemeral(device inventory.InventoryItem) bool {
 // is recorded on the device.
 func runTrustHost(args []string) error {
 	fs := flag.NewFlagSet("trust-host", flag.ContinueOnError)
+	addProjectFlags(fs)
 	dir := fs.String("dir", ".", "project directory")
 	fromConsole := fs.String("from-console", "", "the VirtualBox host running the device's VM, whose console log holds its host keys")
 	vm := fs.String("vm", "", "with --from-console, the VM's name on the host, when it is not the device's")
@@ -86,7 +86,7 @@ func runTrustHost(args []string) error {
 
 	ctx, cancel := context.WithTimeout(context.Background(), *timeout+30*time.Second)
 	defer cancel()
-	repo := inv.NewFileRepository(filepath.Join(*dir, inv.DefaultInventoryFilename), inv.NewItemFactory())
+	repo := inv.NewFileRepository(inventoryFile(*dir), inv.NewItemFactory())
 	device, err := repo.GetByName(ctx, name)
 	if err != nil {
 		return err
@@ -203,7 +203,7 @@ func consoleKeys(ctx context.Context, dir string, repo inv.Repository, host, vm 
 	if err := collection.CheckCapabilities(device, hostKeysMethod, desc.Manifest); err != nil {
 		return nil, fmt.Errorf("%w; set virtualbox: true on it", err)
 	}
-	rc, err := engine.NewCredentialRunbookContext(credential.NewLazyFileStore(dir))(ctx, device)
+	rc, err := engine.NewCredentialRunbookContext(credential.NewLazyFileStore(vaultDir(dir)))(ctx, device)
 	if err != nil {
 		return nil, err
 	}

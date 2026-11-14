@@ -286,6 +286,41 @@ func nearestKey(k string, known map[string]bool) string {
 	return best
 }
 
+// NearMatches returns up to limit names in known that are plausible typos
+// of name, by nearestKey's rule: one differing only in case first, then
+// those at most two edits away and fewer than half of name's length, nearest
+// first and alphabetical among equals. add-credential names them when the
+// device it was given is not in the inventory.
+func NearMatches(name string, known []string, limit int) []string {
+	type near struct {
+		name string
+		dist int
+	}
+	var found []near
+	for _, candidate := range known {
+		switch {
+		case candidate == name:
+		case strings.EqualFold(candidate, name):
+			found = append(found, near{candidate, 0})
+		default:
+			if d := editDistance(name, candidate); d <= 2 && d*2 < len(name) {
+				found = append(found, near{candidate, d})
+			}
+		}
+	}
+	sort.Slice(found, func(i, j int) bool {
+		if found[i].dist != found[j].dist {
+			return found[i].dist < found[j].dist
+		}
+		return found[i].name < found[j].name
+	})
+	out := make([]string, 0, min(limit, len(found)))
+	for i := 0; i < len(found) && i < limit; i++ {
+		out = append(out, found[i].name)
+	}
+	return out
+}
+
 // editDistance is the Levenshtein distance between a and b.
 func editDistance(a, b string) int {
 	prev := make([]int, len(b)+1)
