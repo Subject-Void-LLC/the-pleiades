@@ -139,6 +139,51 @@ func TestAdhoc_AMethodThatNeedsNoDeviceTakesNoHosts(t *testing.T) {
 	}
 }
 
+// TestAdhoc_MissingHostsNameTheDash proves a call whose hosts were left out
+// says the hosts come first and that a call with no device takes "-", and
+// that a method acting on a device on every call is asked for a device
+// rather than told "-", which validation would refuse. A help request still
+// answers with the usage line alone.
+func TestAdhoc_MissingHostsNameTheDash(t *testing.T) {
+	dir := t.TempDir()
+	if err := runInit([]string{"--dir", dir}); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		args []string
+		want string
+	}{
+		// http.request needs a device only for a path url, so "-" is named.
+		{[]string{"http.request", "url=https://example.invalid/"}, "or - for a call with no device (pleiades adhoc - http.request url=https://example.invalid/)"},
+		{[]string{"virt.cml.lab.list", "name=x"}, "name the device or tag it runs on before it (pleiades adhoc <device> virt.cml.lab.list name=x)"},
+		{[]string{"virt.cml.lab.list"}, "(pleiades adhoc <device> virt.cml.lab.list)"},
+		{nil, "or - for a call with no device (pleiades adhoc - <method>)"},
+		{[]string{"-", "url=x"}, "name the method after the - (pleiades adhoc - <method> url=x)"},
+		{[]string{"r1", "command=ls"}, "name the method after the hosts (pleiades adhoc r1 <method> command=ls), or, when r1 is the method, the hosts before it, - for a call with no device"},
+	} {
+		err := runAdhoc(append(tc.args, "--dir", dir))
+		if err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("adhoc %v: %v\nwant it to say %q", tc.args, err, tc.want)
+		}
+	}
+
+	// With --json the refusal is the report's message.
+	var err error
+	out := captureStdout(t, func() {
+		err = runAdhoc([]string{"http.request", "url=https://example.invalid/", "--dir", dir, "--json"})
+	})
+	var rep runReport
+	jerr := json.Unmarshal([]byte(out), &rep)
+	if err == nil || jerr != nil || rep.Outcome.Status != "invalid" || !strings.Contains(rep.Outcome.Message, "pleiades adhoc - http.request") {
+		t.Errorf("--json: %v, %v\n%s", err, jerr, out)
+	}
+
+	// Help is answered as designed, with no hint.
+	if err := runAdhoc([]string{"-h"}); err == nil || strings.Contains(err.Error(), "hosts first") {
+		t.Errorf("adhoc -h: %v", err)
+	}
+}
+
 func TestSinceTime(t *testing.T) {
 	now := time.Date(2026, 10, 25, 18, 0, 0, 0, time.UTC)
 	for text, want := range map[string]time.Time{
