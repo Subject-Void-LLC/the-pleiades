@@ -494,6 +494,7 @@
     "virt.vbox.vm.start": "virt.vbox",
     "virt.vbox.vm.stop": "virt.vbox",
     "wait.connection": "wait",
+    "wait.netconf": "wait",
     "wait.path": "wait",
     "wait.routes": "wait",
     "wait.search": "wait",

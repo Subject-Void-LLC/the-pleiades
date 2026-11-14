@@ -324,6 +324,30 @@ func TestConnectFresh_NeverBorrows(t *testing.T) {
 	}
 }
 
+// TestConnectFreshPort_LogsInAtThePortEveryTime proves ConnectFreshPort
+// dials the port it is given over the device's own, and logs in afresh on
+// every call through a context that keeps a pool.
+func TestConnectFreshPort_LogsInAtThePortEveryTime(t *testing.T) {
+	srv := startServer(t)
+	// The device's own SSH port answers nothing, so a login can only have
+	// used the explicit port.
+	device := &sshDevice{Stub: newStub(), host: srv.Host, port: 1}
+	params := map[string]any{sdk.ParamInsecureSkipHostKeyVerify: true}
+	pool := remoteexec.NewPool(0)
+	t.Cleanup(func() { _ = pool.Close() })
+	rc := &pooledContext{secretContext: newSecretContext(srv.Secrets()), pool: pool}
+	for range 2 {
+		conn, err := sdk.ConnectFreshPort(context.Background(), rc, device, params, "test.connect", srv.Port)
+		if err != nil {
+			t.Fatalf("ConnectFreshPort: %v", err)
+		}
+		_ = conn.Close()
+	}
+	if got := srv.Logins(); got != 2 {
+		t.Errorf("two fresh connections through a pool: %d logins, want 2", got)
+	}
+}
+
 // fakeSudo puts a stand-in for sudo first on PATH: it checks it was called as
 // the engine's elevation calls it (-n -u USER --), refuses the account
 // "locked" as a sudo that needs a password does, and otherwise runs the

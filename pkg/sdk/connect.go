@@ -69,8 +69,21 @@ func ConnectPort(ctx context.Context, rc RunbookContext, device inventory.Invent
 	return connect(ctx, rc, device, params, fqcn, port, true)
 }
 
-// connect opens the connection Connect, ConnectPort and ConnectFresh
-// describe, borrowing from the run's pool only when pooled is set.
+// ConnectFreshPort is ConnectFresh against an explicit TCP port, as
+// ConnectPort is Connect against one: it always logs in, and its Close ends
+// the connection rather than lending it on.
+//
+// It is for wait.netconf, whose question is whether a device's NETCONF
+// listener (capability.NetconfCapable's NetconfPort) lets the account in
+// now, a question a session borrowed from an earlier net.netconf.* task
+// would answer for the past. A port of 0 means the device's SSH port.
+func ConnectFreshPort(ctx context.Context, rc RunbookContext, device inventory.InventoryItem, params map[string]any, fqcn string, port int) (*remoteexec.Conn, error) {
+	return connect(ctx, rc, device, params, fqcn, port, false)
+}
+
+// connect opens the connection Connect, ConnectPort, ConnectFresh and
+// ConnectFreshPort describe, borrowing from the run's pool only when pooled
+// is set.
 func connect(ctx context.Context, rc RunbookContext, device inventory.InventoryItem, params map[string]any, fqcn string, port int, pooled bool) (*remoteexec.Conn, error) {
 	if device == nil {
 		return nil, fmt.Errorf("%s: no target device: set the task's target or the runbook's hosts", fqcn)
