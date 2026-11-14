@@ -446,3 +446,21 @@ func TestRequestDevice_TheDevicesAnswerIsMaskedByItsForm(t *testing.T) {
 		t.Errorf("a full URL's answer was changed: %s", content)
 	}
 }
+
+// TestRequestDevice_AnAnswerMaskingCannotVouchForIsNotRecorded: a device
+// answer that masking refuses (an object holding a key twice) fails the task
+// and records none of the body.
+func TestRequestDevice_AnAnswerMaskingCannotVouchForIsNotRecorded(t *testing.T) {
+	srv := newRequestDeviceServer(t, func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		_, _ = w.Write([]byte(`{"secret": "Gx-first-0123456789", "secret": "Gx-second-0123456789"}`))
+	})
+	dev := requestAPIDevice(t, srv.URL, httpapi.AuthBasic, true)
+	rc := requestSecretsContext{newRequestContext(), map[string]string{"username": "api", "password": "api-secret"}}
+	_, err := http.Request(context.Background(), rc, dev, map[string]any{"url": "/data"})
+	if err == nil || !strings.Contains(err.Error(), "not recorded") || strings.Contains(err.Error(), "Gx-first") {
+		t.Fatalf("err = %v, want a refusal that quotes no secret", err)
+	}
+	if _, ok := rc.stats["content"]; ok {
+		t.Error("the body was recorded")
+	}
+}

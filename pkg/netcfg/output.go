@@ -170,16 +170,11 @@ func maskJSON(out string) (string, []string, error) {
 	sort.Slice(found, func(i, j int) bool { return len(found[i]) > len(found[j]) })
 	masked := out
 	for _, v := range found {
-		quoted, err := jsonQuote(v)
-		if err != nil {
-			return "", nil, errJSONSecretNotFound
-		}
-		inner := strings.TrimSuffix(strings.TrimPrefix(quoted, `"`), `"`)
+		inner := jsonInner(v)
 		if !strings.Contains(masked, inner) {
 			return "", nil, errJSONSecretNotFound
 		}
-		placeholder, _ := jsonQuote(Placeholder(v))
-		masked = strings.ReplaceAll(masked, inner, strings.TrimSuffix(strings.TrimPrefix(placeholder, `"`), `"`))
+		masked = strings.ReplaceAll(masked, inner, jsonInner(Placeholder(v)))
 	}
 	return masked, found, nil
 }
@@ -275,14 +270,12 @@ func walkJSON(v any, inSecret, inSNMP bool, secret, text func(string)) {
 	}
 }
 
-// jsonQuote is s as a JSON string literal, without HTML escaping, the way a
-// device writes one.
-func jsonQuote(s string) (string, error) {
+// jsonInner is s as it stands between the quotes of a JSON string literal,
+// without HTML escaping, the way a device writes one.
+func jsonInner(s string) string {
 	var b bytes.Buffer
 	enc := json.NewEncoder(&b)
 	enc.SetEscapeHTML(false)
-	if err := enc.Encode(s); err != nil {
-		return "", err
-	}
-	return strings.TrimSuffix(b.String(), "\n"), nil
+	_ = enc.Encode(s) // #nosec G104 -- encoding a Go string into a buffer cannot fail
+	return strings.TrimSuffix(strings.TrimPrefix(strings.TrimSuffix(b.String(), "\n"), `"`), `"`)
 }
