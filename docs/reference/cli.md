@@ -83,16 +83,19 @@ assert that a device holds a capability an external program defines, with a reas
 
 ## pleiades revoke-capability
 
-take back a device's grant of a capability an external program defines
+take back a device's grant of a capability an external program defines, or every grant one program build probed
 
-`pleiades revoke-capability <device> <capability> [flags]`
+`pleiades revoke-capability <device> <capability> | --build <digest> [flags]`
 
 | Flag | Type | Default | Description |
 | --- | --- | --- | --- |
 | --dir | `string` | `.` | project directory |
+| --build | `string` | - | revoke, on every device, each grant the program build with this digest (sha256:<hex>) probed, keeping every other build's grants and every assertion |
 | --inventory | `string` | - | inventory file to read and write, in place of --dir's inventory.yaml; group_vars/ and host_vars/ are read beside it |
 
 `pleiades revoke-capability tenancy oci.tenancy_api`
+
+`pleiades revoke-capability --build sha256:4f2a...`
 
 ## pleiades trust-host
 
@@ -909,6 +912,7 @@ generate a new namespaced Collection method package
 | --site | `string` | `target` | where the method's code runs: target (on or against the device), controller (in the host process) or hybrid |
 | --device | `string` | `required` | whether the method acts on a device: required, optional (decided per call by a DeviceCall the generated file stubs) or none |
 | --engine-version | `string` | - | minimum core engine version constraint (unparsed, e.g. >=1.0.0) |
+| --alternatives-json | `string` | - | the kinds of device the method serves, as a JSON list of pkg/collection.Alternative objects (name, supportedTransports, requiredCapabilities), or @path to read it from a file |
 | --doc-json | `string` | - | reference documentation as a JSON pkg/collection.Doc object, or @path to read it from a file |
 | --skip-existing | `bool` | `false` | leave an already-generated entry alone instead of refusing, for regenerating a catalog in place |
 
