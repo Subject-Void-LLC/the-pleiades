@@ -183,7 +183,7 @@ func TestKeepModules_RefusesAMalformedEntryWhole(t *testing.T) {
 		ok, // a duplicate
 		{Name: "bad\x1bname", Namespace: "urn:x"},
 		{Name: "rev", Namespace: "urn:x", Revision: "2024-1-1"},
-		{Name: "ns", Namespace: "urn:‮x"},
+		{Name: "ns", Namespace: "urn:\xe2\x80\xaex"},
 		{Name: "long", Namespace: "urn:" + strings.Repeat("x", maxNamespaceBytes)},
 		{Name: "", Namespace: "urn:x"},
 		{Name: "alpha", Namespace: "urn:alpha"},
@@ -198,7 +198,7 @@ func TestKeepModules_RefusesAMalformedEntryWhole(t *testing.T) {
 		t.Errorf("Dropped = %d, want the five malformed entries", d.Dropped)
 	}
 	for _, s := range d.DroppedSamples {
-		if strings.ContainsAny(s, "\x1b‮") {
+		if strings.ContainsAny(s, "\x1b\xe2\x80\xae") {
 			t.Errorf("sample %s carries a control character; samples are quoted", s)
 		}
 	}
