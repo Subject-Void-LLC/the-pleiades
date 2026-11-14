@@ -13,6 +13,7 @@ package netconf
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -25,6 +26,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
+	"golang.org/x/crypto/ssh/knownhosts"
 )
 
 // Parameter names come from ansible.netcommon.netconf_config rather than
@@ -423,6 +425,14 @@ func realOpenSession(ctx context.Context, rc sdk.RunbookContext, device inventor
 
 	conn, err := sdk.ConnectPort(ctx, rc, device, params, fqcn, netconfDev.NetconfPort())
 	if err != nil {
+		// A NETCONF server is an SSH server of its own, often with its own
+		// key (IOS XE's is OpenSSH on 830 beside Cisco's SSH on 22), so a
+		// device whose SSH key is trusted can still present an unknown one
+		// here; the refusal says how to trust it.
+		var keyErr *knownhosts.KeyError
+		if errors.As(err, &keyErr) && len(keyErr.Want) == 0 {
+			return nil, fmt.Errorf("%w; its NETCONF listener presents a host key of its own, separate from its SSH one: trust it with pleiades trust-host %s --first-connect --netconf", err, device.Name())
+		}
 		return nil, err
 	}
 

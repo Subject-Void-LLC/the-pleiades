@@ -179,3 +179,30 @@ func TestTrustHost_ConsoleAnswer(t *testing.T) {
 		t.Errorf("one key: %v, %v", keys, err)
 	}
 }
+
+// TestTrustHost_TheNETCONFListener trusts a device's NETCONF listener, the
+// port net.netconf.* and onboarding dial, which may present a key of its own,
+// and refuses the flag where it cannot apply.
+func TestTrustHost_TheNETCONFListener(t *testing.T) {
+	dir, _, srv := trustProject(t)
+	captureStdout(t, func() {
+		if err := runAddHost([]string{"nc", "--type", "generic_netconf", "--set", "host=" + srv.Host, "--set", "netconf_port=" + strconv.Itoa(srv.Port), "--set", "ephemeral=true", "--dir", dir}); err != nil {
+			t.Fatal(err)
+		}
+	})
+	var err error
+	out := captureStdout(t, func() { err = runTrustHost([]string{"nc", "--first-connect", "--netconf", "--dir", dir}) })
+	if err != nil || !strings.Contains(out, srv.Host+":"+strconv.Itoa(srv.Port)) || !strings.Contains(out, "1 key(s) added") {
+		t.Fatalf("trusting the NETCONF listener: %v\n%s", err, out)
+	}
+	auth := remoteexec.PasswordAuth(srv.Username, srv.Password)
+	if _, err := remoteexec.New(remoteexec.Options{}).Run(context.Background(), nil, remoteexec.Target{Host: srv.Host, Port: srv.Port}, auth, "true"); err != nil {
+		t.Errorf("a connection against the trusted NETCONF key: %v", err)
+	}
+	if err := runTrustHost([]string{"lab", "--first-connect", "--netconf", "--dir", dir}); err == nil || !strings.Contains(err.Error(), "no NETCONF listener") {
+		t.Errorf("a device with no NETCONF listener: %v", err)
+	}
+	if err := runTrustHost([]string{"nc", "--from-console", "vbox", "--netconf", "--dir", dir}); err == nil || !strings.Contains(err.Error(), "does not go with --from-console") {
+		t.Errorf("--netconf with --from-console: %v", err)
+	}
+}

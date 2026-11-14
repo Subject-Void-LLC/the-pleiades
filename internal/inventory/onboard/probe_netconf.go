@@ -11,6 +11,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/netconf"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
+	"golang.org/x/crypto/ssh/knownhosts"
 )
 
 type netconfProber struct{}
@@ -42,6 +43,10 @@ func (netconfProber) Probe(ctx context.Context, device inventory.InventoryItem, 
 	target := remoteexec.Target{Host: dev.SSHHost(), Port: dev.NetconfPort()}
 	conn, err := remoteexec.Shared(remoteexec.Options{}).Connect(ctx, nil, target, auth)
 	if err != nil {
+		var keyErr *knownhosts.KeyError
+		if errors.As(err, &keyErr) && len(keyErr.Want) == 0 {
+			return Probed{}, fmt.Errorf("%w; its NETCONF listener presents a host key of its own, separate from its SSH one: trust it with pleiades trust-host %s --first-connect --netconf", err, device.Name())
+		}
 		return Probed{}, err
 	}
 	defer func() { _ = conn.Close() }()
