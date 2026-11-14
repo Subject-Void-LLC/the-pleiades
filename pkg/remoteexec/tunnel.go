@@ -205,7 +205,11 @@ func (r *Runner) dialFinalLegWithRetry(ctx context.Context, dial finalDialFunc, 
 
 		conn, err := dial(ctx, addr)
 		if err != nil {
-			r.breaker.RecordFailure(addr)
+			// A caller that gave up says nothing about the address
+			// (callerCanceled).
+			if !callerCanceled(ctx) {
+				r.breaker.RecordFailure(addr)
+			}
 			return nil, err
 		}
 		return conn, nil

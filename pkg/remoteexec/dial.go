@@ -157,6 +157,13 @@ func (r *Runner) dialWithRetry(ctx context.Context, dial dialFunc, addr string, 
 				r.breaker.RecordRefusal(addr)
 				return nil, err
 			}
+			if callerCanceled(ctx) {
+				// The caller gave up mid-dial: the address was never heard
+				// from either way, so nothing is recorded, as pkg/winrmexec
+				// records nothing for it (FAILURE_PATTERNS 1207). A probe this
+				// call held is reissued after its lease.
+				return nil, err
+			}
 			r.breaker.RecordFailure(addr)
 			return nil, err
 		}
@@ -171,6 +178,16 @@ func (r *Runner) dialWithRetry(ctx context.Context, dial dialFunc, addr string, 
 	}
 
 	return retry.Do(ctx, delay, r.opts.MaxRetries, retryable, fn)
+}
+
+// callerCanceled reports whether ctx was canceled by its caller, as opposed
+// to running out of time. A dial that failed because its caller gave up
+// says nothing about the address, and recording it as a failure let a
+// stopped run's canceled dials open a healthy address's circuit for every
+// other caller. A dial whose deadline passed is still a failure: the
+// address did not answer in the time it was given.
+func callerCanceled(ctx context.Context) bool {
+	return errors.Is(ctx.Err(), context.Canceled)
 }
 
 // authRejectedText is what golang.org/x/crypto/ssh's client returns when
