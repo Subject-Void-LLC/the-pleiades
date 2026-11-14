@@ -13266,6 +13266,139 @@
       ]
     }
   },
+  "net.netconf.facts": {
+    "supportedTransports": [
+      "netconf"
+    ],
+    "requiredCapabilities": [
+      "NetconfCapable",
+      "SSHTransportCapable"
+    ],
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
+    "engineVersion": ">=0.4.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "A read-only fact gatherer changes nothing on the device, so there is nothing to undo.",
+      "readOnly": true
+    },
+    "supportsCheck": true,
+    "noExistsReason": "it describes the device itself; a device not there is unreachable, not absent",
+    "noBecomeReason": "it speaks NETCONF over an SSH subsystem, which no sudo prefix reaches, so it would run as the login",
+    "facts": [
+      {
+        "key": "netconf.capabilities",
+        "kind": "stable",
+        "type": "list",
+        "description": "Every NETCONF protocol capability the device's hello advertised (each URN under urn:ietf:params:netconf:, with its parameters), sorted; the YANG module capabilities are in yang.modules instead. Read on every session, so a device that changes what it offers (IOS XE drops :writable-running when its candidate datastore is turned on) reads as a change."
+      },
+      {
+        "key": "netconf.datastores",
+        "kind": "stable",
+        "type": "list",
+        "description": "The datastores the session could use, sorted: running always, candidate and startup when the hello advertises them, and every datastore the device's YANG library lists (an NMDA device's operational and intended)."
+      },
+      {
+        "key": "yang.modules",
+        "kind": "stable",
+        "type": "list",
+        "description": "Every YANG module the device implements, each as name@revision (the name alone for a module with no revision), sorted, read from the device's YANG library (RFC 8525, or RFC 7895's modules-state) when it advertises one and from the hello otherwise. An entry that is not a YANG identifier, a revision date or a printable namespace is left out whole, never cut short. Left out when the list does not fit; yang.module_count and yang.modules_digest are always recorded."
+      },
+      {
+        "key": "yang.module_count",
+        "kind": "stable",
+        "type": "integer",
+        "description": "How many YANG modules the device implements, as yang.modules counts them."
+      },
+      {
+        "key": "yang.modules_digest",
+        "kind": "stable",
+        "type": "string",
+        "description": "The SHA-256 (hex) of the module set in its canonical form (every module's name, namespace, revision, features and deviations, sorted, as JSON), so two devices implementing the same modules read alike and any change to the set reads as a change of this one value."
+      },
+      {
+        "key": "yang.completeness",
+        "kind": "stable",
+        "type": "string",
+        "description": "How far yang.modules is every module the device implements: complete (read from the YANG library, or from the hello of a device with none), partial (a library that could not be read, or came back empty for an account the device's access control hides it from), or unknown (a device that named no modules). A document is refused for a namespace the device does not serve only when this is complete."
+      },
+      {
+        "key": "yang.content_id",
+        "kind": "volatile",
+        "type": "string",
+        "description": "The YANG library's content-id from the hello, a hint the device may regenerate on restart; yang.modules_digest is the module set's identity."
+      }
+    ],
+    "doc": {
+      "summary": "Records what a NETCONF session discovers about a device: its capabilities, datastores and YANG modules.",
+      "description": "Opens an RFC 6241 NETCONF session over the SSH \"netconf\" subsystem, exactly as net.netconf.config does, and records what the session discovered, changing nothing: every capability the hello advertised that names no YANG module, the datastores the session could use, and the YANG modules the device implements, read from its YANG library (RFC 8525, or RFC 7895's modules-state) when it advertises one, since a YANG 1.1 device need not list its modules in the hello. The same facts every net.netconf.config session records, so a device read on a schedule shows a change in what it offers (IOS XE drops :writable-running when its candidate datastore is turned on) as drift. A session whose host key was not verified records its findings as stats only, never as facts. Reports no change, and a check runs it for real.",
+      "params": [
+        {
+          "name": "insecure_skip_host_key_verify",
+          "type": "bool",
+          "default": "false",
+          "description": "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it; nothing the session discovers is then recorded as a fact."
+        }
+      ],
+      "returns": [
+        {
+          "name": "netconf.capabilities",
+          "type": "list of string",
+          "returned": "on every session whose host key was verified",
+          "description": "Every NETCONF protocol capability the device's hello advertised (each URN under urn:ietf:params:netconf:, with its parameters), sorted; the YANG module capabilities are in yang.modules instead. Read on every session, so a device that changes what it offers (IOS XE drops :writable-running when its candidate datastore is turned on) reads as a change."
+        },
+        {
+          "name": "netconf.datastores",
+          "type": "list of string",
+          "returned": "on every session whose host key was verified",
+          "description": "The datastores the session could use, sorted: running always, candidate and startup when the hello advertises them, and every datastore the device's YANG library lists (an NMDA device's operational and intended)."
+        },
+        {
+          "name": "yang.modules",
+          "type": "list of string",
+          "returned": "when the list fits in 60 KiB as JSON",
+          "description": "Every YANG module the device implements, each as name@revision (the name alone for a module with no revision), sorted, read from the device's YANG library (RFC 8525, or RFC 7895's modules-state) when it advertises one and from the hello otherwise. An entry that is not a YANG identifier, a revision date or a printable namespace is left out whole, never cut short. Left out when the list does not fit; yang.module_count and yang.modules_digest are always recorded."
+        },
+        {
+          "name": "yang.module_count",
+          "type": "int",
+          "returned": "on every session whose host key was verified",
+          "description": "How many YANG modules the device implements, as yang.modules counts them."
+        },
+        {
+          "name": "yang.modules_digest",
+          "type": "string",
+          "returned": "on every session whose host key was verified",
+          "description": "The SHA-256 (hex) of the module set in its canonical form (every module's name, namespace, revision, features and deviations, sorted, as JSON), so two devices implementing the same modules read alike and any change to the set reads as a change of this one value."
+        },
+        {
+          "name": "yang.completeness",
+          "type": "string",
+          "returned": "on every session whose host key was verified",
+          "description": "How far yang.modules is every module the device implements: complete (read from the YANG library, or from the hello of a device with none), partial (a library that could not be read, or came back empty for an account the device's access control hides it from), or unknown (a device that named no modules). A document is refused for a namespace the device does not serve only when this is complete."
+        },
+        {
+          "name": "yang.content_id",
+          "type": "string",
+          "returned": "when the device advertises yang-library:1.1",
+          "description": "The YANG library's content-id from the hello, a hint the device may regenerate on restart; yang.modules_digest is the module set's identity."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Read what a device offers over NETCONF",
+          "runbookYaml": "- name: Discover the device's YANG modules and datastores\n  net.netconf.facts:\n  register: discovered\n"
+        }
+      ],
+      "seeAlso": [
+        "net.netconf.config",
+        "net.ios.facts"
+      ]
+    }
+  },
   "net.ovs.bridge": {
     "supportedTransports": [
       "ssh"

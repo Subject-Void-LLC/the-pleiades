@@ -23,7 +23,7 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | `gate` | 2 | 2 |
 | `http` | 3 | 3 |
 | `identity` | 6 | 6 |
-| `net` | 30 | 28 |
+| `net` | 31 | 29 |
 | `pkg` | 9 | 9 |
 | `pleiades` | 3 | 3 |
 | `scan` | 3 | 3 |
@@ -31,7 +31,7 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | `virt` | 83 | 83 |
 | `wait` | 4 | 4 |
 | `win` | 12 | 12 |
-| **total** | **260** | **258** |
+| **total** | **261** | **259** |
 
 ## All methods
 
@@ -162,6 +162,7 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | [net.linux.bridge](net/linux/bridge.md) | implemented | Makes a Linux bridge exist with the ports given, or not exist. |
 | [net.linux.route](net/linux/route.md) | implemented | Makes a route present in a Linux host's main routing table, or absent. |
 | [net.netconf.config](net/netconf/config.md) | implemented | Applies a configuration document to a device over NETCONF, with an optional pre-change backup. |
+| [net.netconf.facts](net/netconf/facts.md) | implemented | Records what a NETCONF session discovers about a device: its capabilities, datastores and YANG modules. |
 | [net.ovs.bridge](net/ovs/bridge.md) | implemented | Makes an Open vSwitch bridge exist with the datapath given, or not exist. |
 | [net.ovs.port](net/ovs/port.md) | implemented | Makes a port exist on an Open vSwitch bridge with the VLAN tag given, or not exist. |
 | [net.pcap.summary](net/pcap/summary.md) | implemented | Counts a packet capture in the project by protocol and address pair, encrypted apart from cleartext. |

@@ -373,6 +373,7 @@
     "net.linux.bridge": "net",
     "net.linux.route": "net",
     "net.netconf.config": "net",
+    "net.netconf.facts": "net",
     "net.ovs.bridge": "net",
     "net.ovs.port": "net",
     "net.pcap.summary": "net",
