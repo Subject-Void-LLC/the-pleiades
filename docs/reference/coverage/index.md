@@ -34,7 +34,7 @@ These methods belong to no collection with a ledger, so their coverage of their 
 | `gate` | 2 |
 | `http` | 3 |
 | `identity` | 6 |
-| `net` | 30 |
+| `net` | 31 |
 | `pkg` | 6 |
 | `pleiades` | 3 |
 | `scan` | 3 |

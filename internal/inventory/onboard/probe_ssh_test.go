@@ -199,3 +199,27 @@ func TestNetconfProbe_NoSubsystemProvesNothing(t *testing.T) {
 		t.Fatal("a server without NETCONF proved NetconfCapable")
 	}
 }
+
+// TestNetconfProbed_RecordsTheSummaryWholeAndAsText: the module count is
+// text, so a record read back from the Controller's JSON column compares
+// equal, and a capability too long for an entry is left out whole and
+// counted, never cut short.
+func TestNetconfProbed_RecordsTheSummaryWholeAndAsText(t *testing.T) {
+	long := "urn:ietf:params:netconf:capability:example:1.0?" + strings.Repeat("x", 300)
+	got := netconfProbed(netconf.Discovery{
+		Protocol:     []string{netconf.CapabilityBase11, long},
+		Modules:      []netconf.Module{{Name: "m", Namespace: "urn:m"}},
+		Completeness: netconf.Complete,
+		Datastores:   []string{"running"},
+	}, "chunked")
+	if got.Facts["yang_module_count"] != "1" {
+		t.Errorf("yang_module_count = %#v, want the text \"1\"", got.Facts["yang_module_count"])
+	}
+	caps, _ := got.Facts["netconf_capabilities"].([]any)
+	if len(caps) != 1 || caps[0] != netconf.CapabilityBase11 {
+		t.Errorf("netconf_capabilities = %v, want the long one left out whole", caps)
+	}
+	if len(got.Warnings) != 1 || !strings.Contains(got.Warnings[0], "left out of the record whole") {
+		t.Errorf("warnings = %v", got.Warnings)
+	}
+}

@@ -28,7 +28,24 @@ type fakeSession struct {
 	locked    int
 	unlocked  int
 	committed int
+	discarded int
+	validated int
 	closed    bool
+
+	// target is the datastore the session writes, as Open would have
+	// resolved it; useSession sets it from what Config asked for.
+	target      netconf.Datastore
+	discovery   netconf.Discovery
+	warnings    []netconf.RPCError
+	getSources  []netconf.Datastore
+	validateErr error
+
+	// discardCtxErr and unlockCtxErr are the context's error when discard
+	// and unlock ran, so a test can tell they ran on a live context.
+	discardCtxErr error
+	unlockCtxErr  error
+	// onValidate runs when Validate is called, before it answers.
+	onValidate func()
 
 	capabilities map[string]bool
 	getPayload   datastore.Payload
@@ -38,9 +55,38 @@ type fakeSession struct {
 	commitErr    error
 }
 
-func (f *fakeSession) GetConfig(ctx context.Context, p datastore.Path) (datastore.Payload, error) {
+func (f *fakeSession) GetConfigFrom(ctx context.Context, source netconf.Datastore, p datastore.Path) (datastore.Payload, error) {
 	f.getCalls = append(f.getCalls, p)
+	f.getSources = append(f.getSources, source)
 	return f.getPayload, f.getErr
+}
+
+func (f *fakeSession) DiscardChanges(ctx context.Context) error {
+	f.discarded++
+	f.discardCtxErr = ctx.Err()
+	return nil
+}
+
+func (f *fakeSession) Validate(ctx context.Context) error {
+	f.validated++
+	if f.onValidate != nil {
+		f.onValidate()
+	}
+	return f.validateErr
+}
+
+func (f *fakeSession) CanValidate() bool {
+	return f.capabilities[netconf.CapabilityValidate10] || f.capabilities[netconf.CapabilityValidate11]
+}
+
+func (f *fakeSession) Target() netconf.Datastore { return f.target }
+
+func (f *fakeSession) Discovery() netconf.Discovery { return f.discovery }
+
+func (f *fakeSession) TakeWarnings() []netconf.RPCError {
+	out := f.warnings
+	f.warnings = nil
+	return out
 }
 
 func (f *fakeSession) EditConfig(ctx context.Context, req netconf.EditConfigRequest) error {
@@ -55,6 +101,7 @@ func (f *fakeSession) Lock(ctx context.Context) error {
 
 func (f *fakeSession) Unlock(ctx context.Context) error {
 	f.unlocked++
+	f.unlockCtxErr = ctx.Err()
 	return nil
 }
 
@@ -86,6 +133,12 @@ func useSession(t *testing.T, f *fakeSession) *netconf.Datastore {
 	var seen netconf.Datastore
 	swapOpenSession(t, func(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any, fqcn string, target netconf.Datastore) (netconfSession, error) {
 		seen = target
+		if f.target == "" {
+			f.target = target
+		}
+		if f.target == "" {
+			f.target = netconf.Running
+		}
 		return f, nil
 	})
 	return &seen
@@ -199,8 +252,10 @@ func TestConfig_AppliesContentAndReportsChanged(t *testing.T) {
 	if !res.Changed {
 		t.Error("Result.Changed = false, want true")
 	}
-	if *target != netconf.Running {
-		t.Errorf("target = %q, want running by default", *target)
+	// An unset datastore is left to the session, which chooses it from the
+	// device's hello (pkg/netconf's Options.ChooseTarget).
+	if *target != "" {
+		t.Errorf("target = %q, want none, so the session chooses from the hello", *target)
 	}
 	if len(f.editCalls) != 1 {
 		t.Fatalf("EditConfig called %d times, want 1", len(f.editCalls))

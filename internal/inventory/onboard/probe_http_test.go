@@ -50,8 +50,29 @@ func TestHTTPProbe_UntrustedCertificateProvesNothing(t *testing.T) {
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
 	defer srv.Close()
 	dev := build(t, generic.TypeHTTP, map[string]inventory.PropertyValue{generic.BaseURLProperty: srv.URL})
-	if _, err := (httpProber{}).Probe(context.Background(), dev, nil); err == nil || !strings.Contains(err.Error(), "certificate") {
+	_, err := (httpProber{}).Probe(context.Background(), dev, nil)
+	if err == nil || !strings.Contains(err.Error(), "certificate") {
 		t.Fatalf("err %v, want a certificate refusal", err)
+	}
+	// The refusal names the certificate it saw, in the form a pin takes, so
+	// a person can check it and pin it without another tool.
+	if want := devicetls.Fingerprint(srv.Certificate()); !strings.Contains(err.Error(), want) || !strings.Contains(err.Error(), devicetls.FingerprintProperty) {
+		t.Errorf("err %v, want the presented certificate's fingerprint %s and how to pin it", err, want)
+	}
+}
+
+// TestHTTPProbe_ACredentialAskedForAndNotSentSaysSo: a device whose record
+// sends no credential (http_auth unset) is told so when the API answers 401,
+// rather than told its credential was refused.
+func TestHTTPProbe_ACredentialAskedForAndNotSentSaysSo(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer srv.Close()
+	dev := build(t, generic.TypeHTTP, map[string]inventory.PropertyValue{devicetls.CAPEMProperty: caPEM(srv), generic.BaseURLProperty: srv.URL})
+	_, err := (httpProber{}).Probe(context.Background(), dev, map[string]string{"username": "u", "password": "p"})
+	if err == nil || !strings.Contains(err.Error(), "sends none") || !strings.Contains(err.Error(), generic.HTTPAuthProperty) {
+		t.Fatalf("err %v, want it to say no credential was sent and name %s", err, generic.HTTPAuthProperty)
 	}
 }
 

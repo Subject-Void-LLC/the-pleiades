@@ -113,11 +113,14 @@ trust a device's SSH host keys, read from its VM's console or taken on first con
 | --first-connect | `bool` | `false` | trust whatever host keys answer at the device's address, unverified; refused for a device not flagged ephemeral unless --reason says why |
 | --reason | `string` | - | with --first-connect on a device not flagged ephemeral (a lab node an import flags), why its keys are trusted unverified; recorded on the device |
 | --replace | `bool` | `false` | drop keys already trusted for the device's address that differ, as after a VM is made again |
+| --netconf | `bool` | `false` | trust the device's NETCONF listener (its netconf_port, 830 unless set) instead of its SSH one: a NETCONF server may present a key of its own, as IOS XE's does |
 | --timeout | `duration` | `5m0s` | how long to wait for the keys |
 
 `pleiades trust-host ubuntu-lab --from-console vengeance`
 
 `pleiades trust-host lab-switch --first-connect`
+
+`pleiades trust-host lab-router --first-connect --netconf`
 
 ## pleiades add-credential
 

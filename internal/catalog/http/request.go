@@ -47,9 +47,11 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/farside"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/httpapi"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/netcfg"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
 
@@ -301,7 +303,9 @@ func Request(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 	resp, err := spec.client(deviceTLS).Do(req)
 	elapsed := time.Since(started)
 	if err != nil {
-		return collection.Result{}, fmt.Errorf("%s: %s %s: %w", fqcn, spec.method, spec.url, err)
+		// A certificate nothing trusts is named by its fingerprint, so a
+		// person can check it with the device's owner and pin it.
+		return collection.Result{}, fmt.Errorf("%s: %s %s: %w", fqcn, spec.method, spec.url, devicetls.Explain(err))
 	}
 	defer func() { _ = resp.Body.Close() }()
 
@@ -321,6 +325,18 @@ func Request(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 			fqcn, spec.method, spec.url, requestMaxBodyBytes>>20)
 	}
 
+	if spec.device != nil {
+		// A device's own API answers with its configuration (RESTCONF's
+		// /data), where its secrets are a field's value: masked by form, as
+		// net.ios.command's output is (FAILURE_PATTERNS 1247), before the
+		// body is recorded or quoted in a refusal.
+		masked, found, err := netcfg.MaskOutput(string(content))
+		if err != nil {
+			return collection.Result{}, fmt.Errorf("%s: %s %s: the device's answer is not recorded: %w", fqcn, spec.method, spec.url, err)
+		}
+		sdk.RegisterSecret(rc, netcfg.Learnable(found)...)
+		content = []byte(masked)
+	}
 	if err := requestRecord(rc, resp, content, elapsed); err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}

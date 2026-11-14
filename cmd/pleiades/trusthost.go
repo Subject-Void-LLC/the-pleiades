@@ -66,10 +66,11 @@ func runTrustHost(args []string) error {
 	firstConnect := fs.Bool("first-connect", false, "trust whatever host keys answer at the device's address, unverified")
 	reason := fs.String("reason", "", "with --first-connect on a device not flagged ephemeral (a lab node an import flags), why its keys are trusted unverified; recorded on the device")
 	replace := fs.Bool("replace", false, "drop keys already trusted for the device's address that differ, as after a VM is made again")
+	netconfListener := fs.Bool("netconf", false, "trust the device's NETCONF listener (its netconf_port, 830 unless set) instead of its SSH one: a NETCONF server may present a key of its own, as IOS XE's does")
 	timeout := fs.Duration("timeout", 5*time.Minute, "how long to wait for the keys")
 	name, err := parseOneArg(fs, args)
 	if err != nil {
-		return fmt.Errorf("usage: pleiades trust-host <device> (--from-console <virtualbox host> [--vm <name>] | --first-connect [--reason <why>]) [--replace]: %w", err)
+		return fmt.Errorf("usage: pleiades trust-host <device> (--from-console <virtualbox host> [--vm <name>] | --first-connect [--reason <why>]) [--netconf] [--replace]: %w", err)
 	}
 	if (*fromConsole == "") == !*firstConnect {
 		return errors.New("name one source of keys: --from-console <virtualbox host>, or --first-connect")
@@ -83,6 +84,9 @@ func runTrustHost(args []string) error {
 	if *timeout <= 0 {
 		return errors.New("--timeout must be positive")
 	}
+	if *netconfListener && *fromConsole != "" {
+		return errors.New("--netconf does not go with --from-console: a console log shows the keys of the VM's SSH server, which its NETCONF server need not use")
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), *timeout+30*time.Second)
 	defer cancel()
@@ -92,6 +96,9 @@ func runTrustHost(args []string) error {
 		return err
 	}
 	address, err := sshAddress(device)
+	if *netconfListener {
+		address, err = netconfAddress(device)
+	}
 	if err != nil {
 		return err
 	}
@@ -184,6 +191,24 @@ func sshAddress(device inventory.InventoryItem) (string, error) {
 	port := ssh.SSHPort()
 	if port == 0 || port == 22 {
 		return ssh.SSHHost(), nil
+	}
+	return ssh.SSHHost() + ":" + strconv.Itoa(port), nil
+}
+
+// netconfAddress is the host and port a device's NETCONF listener answers at,
+// which pkg/netconf's sessions dial (net.netconf.*, onboarding's probe). A
+// NETCONF server is an SSH server of its own on that port, with keys that
+// need not be the device's SSH ones: on a Catalyst 8000V (IOS XE 17.15.1a)
+// port 22 is Cisco's SSH and port 830 OpenSSH 9.1, each with its own key.
+func netconfAddress(device inventory.InventoryItem) (string, error) {
+	nc, ok := device.(capability.NetconfCapable)
+	ssh, hasHost := device.(capability.SSHTransportCapable)
+	if !ok || !hasHost || ssh.SSHHost() == "" {
+		return "", fmt.Errorf("device %q has no NETCONF listener at an address", device.Name())
+	}
+	port := nc.NetconfPort()
+	if port == 0 {
+		port = 830
 	}
 	return ssh.SSHHost() + ":" + strconv.Itoa(port), nil
 }

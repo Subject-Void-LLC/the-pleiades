@@ -168,11 +168,13 @@ var Root = Command{
 				{Name: "first-connect", Type: "bool", Default: "false", Doc: "trust whatever host keys answer at the device's address, unverified; refused for a device not flagged ephemeral unless --reason says why"},
 				{Name: "reason", Type: "string", Default: "", Doc: "with --first-connect on a device not flagged ephemeral (a lab node an import flags), why its keys are trusted unverified; recorded on the device"},
 				{Name: "replace", Type: "bool", Default: "false", Doc: "drop keys already trusted for the device's address that differ, as after a VM is made again"},
+				{Name: "netconf", Type: "bool", Default: "false", Doc: "trust the device's NETCONF listener (its netconf_port, 830 unless set) instead of its SSH one: a NETCONF server may present a key of its own, as IOS XE's does"},
 				{Name: "timeout", Type: "duration", Default: "5m0s", Doc: "how long to wait for the keys"},
 			},
 			Examples: []string{
 				"pleiades trust-host ubuntu-lab --from-console vengeance",
 				"pleiades trust-host lab-switch --first-connect",
+				"pleiades trust-host lab-router --first-connect --netconf",
 			},
 		},
 		{

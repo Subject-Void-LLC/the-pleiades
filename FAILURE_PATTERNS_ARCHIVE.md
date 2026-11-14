@@ -30572,3 +30572,160 @@ empty module cache: `TestGenerate_ReleaseGate` failed on `golang.org/x/term` wit
 `TestCLI_AScriptRunsThroughTheLoader` passed with it.
 
 **Lesson.** An offline promise is tested from a cold cache, or it is a statement about the machine the test ran on.
+
+## 1243. Onboarding recorded a NETCONF device's hello through the 256-entry, 256-byte fact list, so a real IOS XE router's module list was cut short and one entry cut mid-name (a repeat in kind of 871) (fixed)
+
+**Symptom.** 2026-11-14, the CML lab, a Catalyst 8000V on IOS XE 17.15.1a. `pleiades onboard` of a `generic_netconf` device
+recorded 133 capabilities in `netconf_capabilities`, 117 of them modules. `Cisco-IOS-XE-native`, the module every document
+used, was not among them, and one entry ended in `deviations=...,cisco-xe`, a module that does not exist.
+
+**Root cause.** The probe passed the hello's URNs through `factList`, which keeps 256 entries of at most 256 bytes and
+silently drops or cuts the rest. A real IOS XE hello carries about 350 capabilities, and module capabilities with features and
+deviations run past 256 bytes. Nothing said the list was incomplete. Separately, the hello is not a module list at all on a
+YANG 1.1 server (RFC 7950 section 5.6.4): this router's hello names 338 modules and its YANG library 559.
+
+**Why 871's lesson did not prevent it.** 871 fixed one parser that cut a field to its column width. The rule (a bound refuses
+an entry whole, never cuts it) was not carried to the shared fact-list helper.
+
+**Fix.** Every NETCONF session builds one `pkg/netconf.Discovery` from the hello and, when the server advertises one, its YANG
+library (RFC 8525, or RFC 7895's modules-state), which is authoritative. An entry that is not an identifier, a revision date
+or a printable namespace is refused whole and named in a warning; nothing is cut. Onboarding records the protocol capabilities
+in full and the module set by count, digest and completeness; the module list itself is a fact every `net.netconf.*` session
+records, as `name@revision` (559 modules, 20.6 KB). Proof: `TestReadLibrary_ARealIOSXEYANGLibrary` (559 modules, none dropped,
+from the captured reply), `TestKeepModules_RefusesAMalformedEntryWhole`, and the live onboarding of the lab's router.
+
+**Lesson.** A list from a device is either complete or says it is not: refuse an entry whole, count what was refused, and
+record how complete the rest is.
+
+## 1244. net.netconf.config wrote the datastore the runbook named, or running, never what the device offered that session, so turning IOS XE's candidate datastore on broke every default runbook, and commit: false left the edit staged for the next client's commit (fixed)
+
+**Symptom.** 2026-11-14, the CML lab. After `netconf-yang feature candidate-datastore`, every `net.netconf.config` task with
+no datastore failed: "this device does not allow writing to the running datastore directly". Separately, a task with
+`datastore: candidate` and `commit: false` left its edit staged in the shared candidate after the session ended, and a later
+task's commit applied it (Loopback300 appeared from a run that had committed nothing of it).
+
+**Root cause.** The datastore was a runbook constant defaulting to running, and the method's doc said "Cisco IOS XE offers only
+running". IOS XE drops `:writable-running` from its hello when the candidate is turned on, so what a device offers is
+configuration, not identity. `commit: false` followed `ansible.netcommon.netconf_config` and left the edit staged, and the
+candidate was locked only when the runbook asked, so nothing stopped another client's staged work being committed, or this
+task's staging being committed by someone else.
+
+**Fix.** With no datastore named the session chooses from that session's hello: running where `:writable-running` is
+offered, otherwise the candidate. The candidate path always locks (`lock: never` is refused there; the lock is refused while
+another client's changes sit in the candidate), validates when `:validate` 1.0 or 1.1 is offered, commits, and discards on
+failure only after its own lock was granted. `commit: false` validates and discards, reporting no change with `validated`
+and `applied`, and is refused on running. Proven live: candidate on, then off, moved the chosen datastore with no runbook
+change; `commit: false` left no Loopback; the fact history recorded each change of `netconf.datastores`.
+
+**Lesson.** What a protocol session may do is negotiated by that session; a runbook names an intent, and a stored fact is
+history, never the answer for the next session.
+
+## 1245. pkg/netconf failed a call on a warning-severity rpc-error, checked validate against 1.0 only, and backed up the session's target instead of running (fixed before push)
+
+**Symptom.** Found 2026-11-14 by the edge-case review of the discovery design, before push. `do()` returned every
+`<rpc-error>` as a failure, whatever its `error-severity`, so a server answering `<ok/>` with a warning beside it (Junos does on
+commit) would have an applied change reported failed and then discarded. `Validate()` asked only for `validate:1.0`, refusing a
+1.1-only server. `backup: true` read the session's target, so on the candidate path it would capture the candidate, not the
+configuration in effect.
+
+**Root cause.** Each was written against the one device measured at the time (IOS XE without candidate), where all three
+coincide: no warnings, both validate versions, running as the target.
+
+**Fix.** Warnings are kept apart (`Session.TakeWarnings`) and reported as task warnings; `CanValidate` takes either version;
+the backup reads running through `GetConfigFrom`. Proof: `TestDo_AWarningBesideOKIsNotAFailure`,
+`TestValidate_AValidate11OnlyServerValidates`, `TestConfig_TheBackupReadsRunningOnTheCandidatePath`.
+
+**Lesson.** A client written against one server's answers has that server's coincidences built in; name the spec's cases the
+measured server did not exercise.
+
+## 1246. trust-host trusted only a device's SSH port while IOS XE's NETCONF listener presents a key of its own, and onboarding refused an untrusted certificate without its fingerprint, and a 401 as a refused credential when none was sent (fixed)
+
+**Symptom.** 2026-11-14, the CML lab. After `trust-host C8K --first-connect`, every NETCONF session failed "knownhosts: key is
+unknown": port 830 is OpenSSH 9.1 with its own RSA key, beside Cisco's SSH on 22. It could only be trusted by editing
+known_hosts by hand. Onboarding the router's RESTCONF API refused its self-signed certificate without naming it, so its
+fingerprint was read with another tool before it could be pinned; with `http_auth` unset it said "the API refused the
+credential (401)" when none had been sent.
+
+**Root cause.** `trust-host` knew one address per device. The HTTP probe and `http.request` never passed a TLS refusal through
+`devicetls.Explain`, which `pkg/cml` already used. The 401 message assumed a credential was sent.
+
+**Fix.** `trust-host --netconf` trusts the NETCONF listener; `net.netconf.*` and the onboarding probe name that command when
+the listener's key is unknown. The probe and `http.request` explain an untrusted certificate (subject, issuer, expiry,
+fingerprint, how to pin it), and a 401 or 403 to a device sending no credential says so and names `http_auth`. Proof:
+`TestTrustHost_TheNETCONFListener`, `TestHTTPProbe_UntrustedCertificateProvesNothing` (now requires the fingerprint),
+`TestHTTPProbe_ACredentialAskedForAndNotSentSaysSo`, and the lab run of each.
+
+**Lesson.** Every step of a protocol's Day 0 is something a user does through the product; a step done with another tool is
+a gap, found only by doing Day 0 end to end.
+
+## 1247. net.ios.command and net.cli.command masked their output as CLI text only, so the XML and JSON of "| format netconf-xml" and "| format restconf-json" returned every local secret as a raw type 9 hash (security; a repeat in kind of 704 and 718) (fixed)
+
+**Symptom.** 2026-11-14, the CML lab, a Catalyst 8000V on IOS XE 17.15.1a. `net.ios.command` with `show running-config |
+format netconf-xml` printed the enable secret and each local user's secret as `$9$...` hashes, where the CLI form of the
+same command masks them. The blind CVD lab's run 8 agent found the same with `| format restconf-json` and wrote the hashes
+into a scratch file (`AAR-run8-opus-netconf.md`).
+
+**Root cause.** Both methods passed their output to `netcfg.MaskFound`, which reads configuration lines: a secret after a
+word. In XML a secret is an element's text and in JSON a field's value, so nothing precedes it, and the crypt-shaped rule
+existed only in `MaskXML`. A type 9 hash is an offline-crackable form of the password; a device's plain or type 7 key in
+the same forms would have been returned as it is.
+
+**Why 704 and 718 did not prevent it.** Both fixed what `MaskXML` reaches inside a NETCONF backup. The output of a show
+command was taken to be CLI text, and no rule said a masker is chosen by the form of the text, not by the method.
+
+**Fix.** `netcfg.MaskOutput` masks by form: output opening with `<` through `MaskXML`, with `{` or `[` by the JSON field
+names `MaskXML` reads (an enclosing secret field covering its leaves, metadata excepted), anything else through
+`MaskFound`, and a crypt-shaped value wherever it stands. Structured output it cannot parse is not returned. Both methods
+use it. Proof: `TestMaskFound_ReadsCLITextOnly` (the control: the CLI masker leaves both forms' hashes),
+`TestMaskOutput_MasksEverySecretInEachForm`, `TestMaskOutput_FailsClosedOnStructuredTextItCannotRead`, and the live
+router: both forms 0 hashes, 2 placeholders each.
+
+**Lesson.** A masker is chosen by the form of the text, not by the method that produced it; a device can print the same
+configuration as CLI, XML or JSON on request.
+
+## 1248. MaskOutput's JSON branch read only the first JSON value and chose the masker by the output's first byte, so trailing CLI text went unmasked, a key given twice hid its first value, and ordinary CLI opening with a bracket was refused; its crypt rule missed IOS type 5, yescrypt and rounds= hashes (security; a repeat in kind of 578 and 23) (fixed before push)
+
+**Symptom.** Found 2026-11-14 by the failure-pattern review of 1247's fix, before push. `"[0]\nusername admin password 0 X"`
+decoded as `[0]` and returned the password; `{"secret":"A","secret":"B"}` masked only B; NX-OS's `[#####] 100%` copy
+progress failed the task after the copy ran; `$1$mERr$...` (IOS type 5), `$y$...` and `$6$rounds=5000$...` matched no rule.
+
+**Root cause.** The branch was chosen by a prefix, not by the output being one whole document, and the decoder's first
+value was taken as the whole. The crypt pattern was written against type 9 only, and claimed "any crypt-shaped hash".
+
+**Fix.** A structured masker applies only to output that parses as one whole document (XML well-formed, JSON one value then
+EOF); anything else is CLI text, masked by `MaskFound` and by the `"secret": "x"` and `<secret>x</secret>` shapes. An object
+holding a key twice is refused. Non-secret JSON leaves are read by the CLI masker, as `MaskXML` reads its leaves. The crypt
+pattern covers a salt and hash after their own `$`, `rounds=`, and a long single run. Tests for each case
+(`pkg/netcfg/output_test.go`).
+
+**Lesson.** A masker for a structured form proves the whole text is that form before trusting it, and falls back to the
+stricter reading, never to none.
+
+## 1249. add-credential's new same-as-username warning printed the username, which it does only when that username is the password (security) (fixed before push)
+
+**Symptom.** Found by the same review. The warning quoted the username with `%q`, and it fires exactly when the password
+or enable secret equals the username, so it printed the secret to standard error. It also compared without case, though
+masking by value is exact.
+
+**Fix.** The warning names neither value and compares exactly; its test asserts no value is printed. **Lesson.** A message
+about a secret that equals another field names neither field's value.
+
+## 1250. Onboarding stored a NETCONF device's yang_module_count as a Go int, which the Controller reads back from JSON as float64, so re-onboarding an unchanged device never compared equal (a repeat of 706) (fixed before push)
+
+**Fix.** Stored as text, as every other probe's count is (`TestNetconfProbed_RecordsTheSummaryWholeAndAsText`). The same
+review found onboarding still cut a capability longer than 256 bytes mid-entry (a repeat in kind of 1243): it is now left
+out whole and counted.
+
+## 1251. net.netconf.config's candidate discard and unlock ran on the task's context, so a task canceled after its edit left the edit staged and the lock held, and a commit with no answer read as a plain failure (a repeat in kind of 1241) (fixed before push)
+
+**Fix.** Discard and unlock run on `context.WithoutCancel`, bounded at 10 s; a commit with no answer says its outcome is
+unknown. `TestConfig_CleanupOutlivesACanceledTask` fails with the cleanup on the task's context (measured), and
+`TestConfig_AFailedEditOrValidateDiscardsTheOwnEdit` covers the discards no test reached.
+
+## 1252. NETCONF discovery failed the session on a YANG library answer it could not use, read a list that dropped an entry as complete, kept the volatile content-id in a stable fact, and cached a library by device alone though access control may show accounts different ones (fixed before push)
+
+**Fix.** An answer read whole but unusable (no `<data>`, too deep, unparsable) leaves the hello's list partial; a broken stream
+or another message-id still ends the session. Any dropped entry makes the list partial. `netconf.capabilities` drops the
+content-id and module-set-id parameters. The cache is keyed by device and account and bounded at 512 entries. The same
+review moved the device API's answer in `http.request`, `net.ios.parse` and `net.frr.command` to `MaskOutput` (siblings of
+1247), and made the release gate check every form for crypt hashes and wait for the NETCONF listener's own refusal.
