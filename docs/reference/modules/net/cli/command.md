@@ -34,7 +34,7 @@ Opens an interactive session over SSH (or over Telnet, with insecure_telnet) and
 
 | Name | Type | Returned | Description |
 | --- | --- | --- | --- |
-| `stdout` | `string` | always | Everything the device printed in response to the command, its questions and the echo of each answer included, with the echoed command line and the trailing prompt removed. |
+| `stdout` | `string` | always | Everything the device printed in response to the command, its questions and the echo of each answer included, with the echoed command line and the trailing prompt removed. Its secrets (a pre-shared key, a password, a community, any crypt-shaped hash) are masked, whether the device printed them as CLI text, XML or JSON; output that opens as XML or JSON and does not parse is not returned, since masking cannot vouch for it. |
 | `exchanges` | `list of dict` | when prompts, ask or expect_disconnect is set | Each question the device asked and what was typed: question and answer, with prompt (the entry's index) or, for the model, choice, reason, provider, model, confidence, usage and review. |
 | `disconnected` | `bool` | when prompts, ask or expect_disconnect is set | Whether the device closed the session after an answer (expect_disconnect). |
 

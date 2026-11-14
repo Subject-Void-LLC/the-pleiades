@@ -1250,6 +1250,7 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 1244. net.netconf.config wrote the datastore the runbook named, or running, never what the device offered that session, so turning IOS XE's candidate datastore on broke every default runbook, and commit: false left the edit staged for the next client's commit (fixed)
 1245. pkg/netconf failed a call on a warning-severity rpc-error, checked validate against 1.0 only, and backed up the session's target instead of running (fixed before push)
 1246. trust-host trusted only a device's SSH port while IOS XE's NETCONF listener presents a key of its own, and onboarding refused an untrusted certificate without its fingerprint, and a 401 as a refused credential when none was sent (fixed)
+1247. net.ios.command and net.cli.command masked their output as CLI text only, so the XML and JSON of "| format netconf-xml" and "| format restconf-json" returned every local secret as a raw type 9 hash (security; a repeat in kind of 704 and 718) (fixed)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

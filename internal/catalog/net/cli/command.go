@@ -63,7 +63,7 @@ func commandDoc() collection.Doc {
 	params = append(params, clidialog.Params()...)
 	params = append(params, collection.Param{Name: sdk.ParamInsecureSkipHostKeyVerify, Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."})
 	params = append(params, collection.Param{Name: sdk.ParamInsecureTelnet, Type: "bool", Default: "false", Description: "Reach a device that has no SSH over bare Telnet, answering its login with the task's credential. Telnet carries everything, the login included, in cleartext, so set this only for a device on a network you trust."})
-	returns := []collection.ReturnField{{Name: statStdout, Type: "string", Returned: "always", Description: "Everything the device printed in response to the command, its questions and the echo of each answer included, with the echoed command line and the trailing prompt removed."}}
+	returns := []collection.ReturnField{{Name: statStdout, Type: "string", Returned: "always", Description: "Everything the device printed in response to the command, its questions and the echo of each answer included, with the echoed command line and the trailing prompt removed. Its secrets (a pre-shared key, a password, a community, any crypt-shaped hash) are masked, whether the device printed them as CLI text, XML or JSON; output that opens as XML or JSON and does not parse is not returned, since masking cannot vouch for it."}}
 	return collection.Doc{
 		Summary: "Runs one show/exec-mode command against a network device's CLI.",
 		Description: "Opens an interactive session over SSH (or over Telnet, with insecure_telnet) and runs one command, matched against the device's own declared cli_prompt property (a generic Dialect, built by netcli.FromPrompt, with no vendor-specific paging, configuration-mode or error convention of its own). Reports the command's own output, with its echoed input line and the trailing prompt both stripped. A command cannot be inspected, so this reports changed every time it reaches the device without error, the same convention exec.command established: pair it with when/when_or/when_cel when idempotence matters. Refuses outright when the target device's cli_prompt property is unset, rather than guessing at a prompt shape. Because this method has no known paging convention for a generic device, a command whose output is longer than the device's own terminal length can pause on a pager prompt this method cannot answer (verified directly against a real device); each command is bounded to 30 seconds so that failure is a clear, timely error rather than an indefinite hang. Pipe a long-output command through the device's own output filter (e.g. \"show running-config | include hostname\") to avoid triggering it, or use net.ios.config, whose vendor-specific dialect disables paging for real. " +
@@ -111,7 +111,11 @@ func Command(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 		if err != nil {
 			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 		}
-		if err := rc.SetStat(statStdout, maskOutput(rc, out)); err != nil {
+		masked, err := maskOutput(rc, out)
+		if err != nil {
+			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+		}
+		if err := rc.SetStat(statStdout, masked); err != nil {
 			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 		}
 		return collection.Result{Changed: true}, nil
@@ -122,7 +126,11 @@ func Command(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
 	stats := clidialog.Stats(res)
-	stats[statStdout] = maskOutput(rc, res.Output)
+	masked, err := maskOutput(rc, res.Output)
+	if err != nil {
+		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+	}
+	stats[statStdout] = masked
 	for k, v := range stats {
 		if err := rc.SetStat(k, v); err != nil {
 			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
@@ -132,11 +140,15 @@ func Command(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 }
 
 // maskOutput masks the secrets a device printed (a show of its
-// configuration), as net.ios.command masks its own, and adds each one long
-// enough to the run's masking set, so it is masked wherever else the run
-// prints it.
-func maskOutput(rc sdk.RunbookContext, out string) string {
-	masked, found := netcfg.MaskFound(out)
+// configuration), as net.ios.command masks its own, by the form it printed
+// them in (netcfg.MaskOutput), and adds each one long enough to the run's
+// masking set, so it is masked wherever else the run prints it. Output that
+// opens as XML or JSON and does not read as one is not returned.
+func maskOutput(rc sdk.RunbookContext, out string) (string, error) {
+	masked, found, err := netcfg.MaskOutput(out)
+	if err != nil {
+		return "", fmt.Errorf("the output is not returned: %w", err)
+	}
 	sdk.RegisterSecret(rc, netcfg.Learnable(found)...)
-	return masked
+	return masked, nil
 }

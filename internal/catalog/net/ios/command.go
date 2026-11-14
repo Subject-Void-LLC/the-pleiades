@@ -78,12 +78,12 @@ func commandDoc() collection.Doc {
 	params = append(params, clidialog.Params()...)
 	params = append(params, collection.Param{Name: sdk.ParamInsecureSkipHostKeyVerify, Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."})
 	params = append(params, collection.Param{Name: sdk.ParamInsecureTelnet, Type: "bool", Default: "false", Description: "Reach a device that has no SSH over bare Telnet, answering its login with the task's credential. Telnet carries everything, the login included, in cleartext, so set this only for a device on a network you trust."})
-	returns := []collection.ReturnField{{Name: statCommandStdout, Type: "string", Returned: "always", Description: "Everything the device printed in response to the command, its questions and the echo of each answer included, with the echoed command line and the trailing prompt removed."}}
+	returns := []collection.ReturnField{{Name: statCommandStdout, Type: "string", Returned: "always", Description: "Everything the device printed in response to the command, its questions and the echo of each answer included, with the echoed command line and the trailing prompt removed. Its secrets (a pre-shared key, a password, a community, any crypt-shaped hash) are masked, whether the device printed them as CLI text, XML or JSON; output that opens as XML or JSON and does not parse is not returned, since masking cannot vouch for it."}}
 	return collection.Doc{
 		Summary: "Runs one exec-mode command on a Cisco IOS device, answering the questions it asks as the task says.",
 		Description: "Opens an interactive PTY session over SSH using netcli.IOS's own paging, prompt and error conventions, so it needs no cli_prompt property and long output is never paused by a pager, and runs one command. A line in IOS's error forms (\"% ...\" or \"%Error ...\") fails the task, unless accept takes it; a command that only reads fails only on IOS's own refusal of the line (% Invalid input, % Incomplete command, % Ambiguous command, % Unrecognized command, %Error), since a \"% \" line in what it shows is the device's data. " +
 			"A command that asks questions before it finishes (copy asks for a destination filename, delete and reload ask to confirm) is answered from prompts, each answer written in the task. A question nobody listed can go to a model with ask, which picks one of the task's own choices by id or refuses, and never types an answer of its own: on IOS one Enter both accepts a default filename and confirms a reload, so only the task's author knows what an answer does. A question nobody answers waits until the task's timeout, and the failure names it. With expect_disconnect, the device closing the session after an answer is the command's success, which is how reload ends. " +
-			"It has no time limit of its own, so set the task's timeout for a long copy. The output is everything the device printed after the echoed command, its questions and the echo of each answer included, with the trailing prompt removed and its secrets (a pre-shared key, a password, a community) masked; every named secret of the project is masked by value besides. A command that only reads (show, or IOS's abbreviation of it, and dir, more, ping, traceroute and terminal written in full, the last changing only this session) reports unchanged, unless its output is sent to a file with | redirect, | append or | tee; any other command, debug among them, cannot be inspected, so it reports changed every time it runs without error.",
+			"It has no time limit of its own, so set the task's timeout for a long copy. The output is everything the device printed after the echoed command, its questions and the echo of each answer included, with the trailing prompt removed and its secrets (a pre-shared key, a password, a community, and any crypt-shaped hash) masked, whether the device printed them as CLI text or as the XML or JSON of \"| format netconf-xml\" and \"| format restconf-json\"; output that opens as XML or JSON and does not parse is not returned, since masking cannot vouch for it; every named secret of the project is masked by value besides. A command that only reads (show, or IOS's abbreviation of it, and dir, more, ping, traceroute and terminal written in full, the last changing only this session) reports unchanged, unless its output is sent to a file with | redirect, | append or | tee; any other command, debug among them, cannot be inspected, so it reports changed every time it runs without error.",
 		Params:   params,
 		Returns:  append(returns, clidialog.Returns()...),
 		Examples: commandExamples(),
@@ -154,7 +154,11 @@ func Command(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 	}
 	// What the device printed can hold its secrets (show running-config), so
 	// it is masked before it is a stat, as a configuration's differences are.
-	if err := rc.SetStat(statCommandStdout, learnSecrets(rc, res.Output)); err != nil {
+	stdout, err := maskedStdout(rc, res.Output)
+	if err != nil {
+		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+	}
+	if err := rc.SetStat(statCommandStdout, stdout); err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
 	if dialog {
@@ -168,6 +172,21 @@ func Command(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 	// inspected, so it reports changed, as net.cli.command and exec.command
 	// do. A second run of a read-only task then proves nothing changed.
 	return collection.Result{Changed: !readOnly}, nil
+}
+
+// maskedStdout is a command's output with every secret masked by the form the
+// device printed it in (netcfg.MaskOutput: CLI text, or the XML or JSON of
+// "| format netconf-xml" and "| format restconf-json", and any crypt-shaped
+// value wherever it stands), each one long enough added to the run's masking
+// set. Output that opens as XML or JSON and does not read as one is not
+// returned: nothing could vouch for what it holds.
+func maskedStdout(rc sdk.RunbookContext, text string) (string, error) {
+	masked, found, err := netcfg.MaskOutput(text)
+	if err != nil {
+		return "", fmt.Errorf("the output is not returned: %w", err)
+	}
+	sdk.RegisterSecret(rc, netcfg.Learnable(found)...)
+	return masked, nil
 }
 
 // learnSecrets masks the secrets text holds and adds each long enough to

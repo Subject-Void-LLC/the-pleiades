@@ -286,7 +286,29 @@ func runAddCredential(args []string) error {
 		cred.EnablePassword = read
 	}
 
+	for _, w := range sameAsUsernameWarnings(cred) {
+		fmt.Fprintln(os.Stderr, "WARNING: "+w)
+	}
 	return saveCredential(*dir, name, cred, opts)
+}
+
+// sameAsUsernameWarnings says when a password or enable secret is the
+// account's own username. Every run masks a credential's secret by value
+// wherever it appears, so such a username, and every word holding it, is
+// masked in all output too: a lab whose login was cisco/cisco read cisco.com
+// as ********.com in every show command (blind CVD lab, run 8, 2026-11-14).
+// Nothing is refused; the masking is right, since that word is the password.
+func sameAsUsernameWarnings(cred credential.Credential) []string {
+	if cred.Username == "" {
+		return nil
+	}
+	var out []string
+	for _, s := range []struct{ what, value string }{{"password", cred.Password}, {"enable secret", cred.EnablePassword}} {
+		if s.value != "" && strings.EqualFold(s.value, cred.Username) {
+			out = append(out, fmt.Sprintf("the %s is the username itself; every run masks a secret wherever it appears, so the username %q, and every word holding it, will read as ******** in all output", s.what, cred.Username))
+		}
+	}
+	return out
 }
 
 // openPasswordFile opens the sealed file at path for its password. A

@@ -30657,3 +30657,28 @@ fingerprint, how to pin it), and a 401 or 403 to a device sending no credential 
 
 **Lesson.** Every step of a protocol's Day 0 is something a user does through the product; a step done with another tool is
 a gap, found only by doing Day 0 end to end.
+
+## 1247. net.ios.command and net.cli.command masked their output as CLI text only, so the XML and JSON of "| format netconf-xml" and "| format restconf-json" returned every local secret as a raw type 9 hash (security; a repeat in kind of 704 and 718) (fixed)
+
+**Symptom.** 2026-11-14, the CML lab, a Catalyst 8000V on IOS XE 17.15.1a. `net.ios.command` with `show running-config |
+format netconf-xml` printed the enable secret and each local user's secret as `$9$...` hashes, where the CLI form of the
+same command masks them. The blind CVD lab's run 8 agent found the same with `| format restconf-json` and wrote the hashes
+into a scratch file (`AAR-run8-opus-netconf.md`).
+
+**Root cause.** Both methods passed their output to `netcfg.MaskFound`, which reads configuration lines: a secret after a
+word. In XML a secret is an element's text and in JSON a field's value, so nothing precedes it, and the crypt-shaped rule
+existed only in `MaskXML`. A type 9 hash is an offline-crackable form of the password; a device's plain or type 7 key in
+the same forms would have been returned as it is.
+
+**Why 704 and 718 did not prevent it.** Both fixed what `MaskXML` reaches inside a NETCONF backup. The output of a show
+command was taken to be CLI text, and no rule said a masker is chosen by the form of the text, not by the method.
+
+**Fix.** `netcfg.MaskOutput` masks by form: output opening with `<` through `MaskXML`, with `{` or `[` by the JSON field
+names `MaskXML` reads (an enclosing secret field covering its leaves, metadata excepted), anything else through
+`MaskFound`, and a crypt-shaped value wherever it stands. Structured output it cannot parse is not returned. Both methods
+use it. Proof: `TestMaskFound_ReadsCLITextOnly` (the control: the CLI masker leaves both forms' hashes),
+`TestMaskOutput_MasksEverySecretInEachForm`, `TestMaskOutput_FailsClosedOnStructuredTextItCannotRead`, and the live
+router: both forms 0 hashes, 2 placeholders each.
+
+**Lesson.** A masker is chosen by the form of the text, not by the method that produced it; a device can print the same
+configuration as CLI, XML or JSON on request.
