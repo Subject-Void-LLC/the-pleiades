@@ -30423,7 +30423,7 @@ project writer, which fails with the old method (it wrote the absolute path), an
 **Lesson.** A Collection method writes where The Pleiades runs only through the project writer, and a structural check,
 not a review, keeps it so.
 
-## 1238. The engine's until resent a refused login on every retry and a loop once per item, a detached job's stop redialed a refused reconnect, and a Runner redelivered a refused run up to five times, though retry.go's comment said a refused credential is never tried again (a repeat in kind of 399 and 1209) (fixed before push)
+## 1238. The engine's until resent a refused login on every retry and a loop once per item, a detached job's stop redialed a refused reconnect, and a Runner redelivered a refused runbook run up to five times, though retry.go's comment said a refused credential is never tried again (a repeat of 694, and in kind of 399 and 1209) (fixed before push)
 
 **Symptom.** Found 2026-11-13 while fixing 1230. Measured against a real SSH server: a task with `retries: 5` and a wrong password sent
 it six times, a loop sent it once per item, and a looped `until` sent it items times tries (12 in the test). The Runner path did the
@@ -30438,7 +30438,10 @@ credential is never tried again and `TestUntil_OnlyTheMethodsOwnFailureIsTriedAg
 the error's type did not survive the per-task child, so the parent could not tell a refusal anyway. `stopDetached` redialed whenever
 the job's connection was gone, without knowing the reconnect before it had just been refused.
 
-**Why 399's and 1209's fixes did not hold.** Each fixed the one caller it found (the dial retry, then the waits) and stated the rule
+**Why 694's, 399's and 1209's fixes did not hold.** 694 fixed this very loop by stage: only an action-stage failure is tried again,
+on the assumption that a refused login is not one. A method that dials for itself fails at the action stage, so the assumption
+was wrong, and 694's proof (`TestUntil_OnlyTheMethodsOwnFailureIsTriedAgain`) used a render failure while its comment claimed
+more. 399 and 1209 each fixed the one caller they found (the dial retry, then the waits) and stated the rule
 in a comment. Nothing made every caller that repeats a call ask whether the last failure was a refusal, and two more callers repeated
 calls: the engine's retry loops and the detached stop.
 
@@ -30459,7 +30462,13 @@ was refused (`engine.RunResult.SawRefusal`, answered or not, since a rerun would
 and the Runner dead-letters such a dispatch on its first delivery (`event.DeadLetter`). Other failures keep their
 redelivery. Proof, each failing with the old path: `TestAgent_ARefusedRunIsDeadLetteredOnItsFirstDelivery` (real NATS: one
 execution, one dead letter delivered once) and the refusal assertion in `TestAdapter_Execute_ARefusedLoginIsSentOncePerTask`;
-the new parts are held by `TestDeadLetter_OnTheFirstDelivery` (real NATS) and `TestRunResult_SawRefusal`.
+the new parts are held by `TestDeadLetter_OnTheFirstDelivery` (real NATS) and `TestRunResult_SawRefusal`. The Ansible (`playbook`) kind is still redelivered:
+its adapter cannot tell a refused login from another failure (an UNREACHABLE text match would be fragile), and docs/09 says so.
+
+**A sibling site, found by the review.** `pkg/cmlconsole`'s refused console login was `ErrRefused` but answered no `Refused()`, so
+`until` and `loop` still resent a refused password to a console-reached device on the Crawl tier. It now answers `Refused()`
+true, held by `TestLogIn_ARefusalIsErrRefused`. `pkg/kubeapi.ErrCredentialRefused` is unmarked too and stays latent until a
+Kubernetes method exists (Phase 119g).
 
 **Lesson.** A rule about repeating calls belongs to every loop that repeats one. When it holds only in the caller that was fixed,
 the next loop written breaks it again.
@@ -30508,3 +30517,30 @@ non-test file of the package and refuses a `filepath.Join` given `DefaultInvento
 
 **Lesson.** When a branch sweeps a construction across a package, the sweep ends with a test that refuses the old
 construction, so code merged later is held to it too. A clean rebase says only that no line conflicted.
+
+## 1241. The Runner's dead letter for a refused run was published on the shutdown-canceled context and skipped Term when the publish failed, and three of the adapter's returns dropped the refusal, so a refused run could still be redelivered (a repeat in kind of 84) (fixed before push)
+
+**Symptom.** Found 2026-11-14 by the failure-pattern review of the commit that dead-letters a refused run (1238), before push.
+`event.DeadLetter` published on `handleMessage`'s context, which a Runner's shutdown cancels, and returned before `msg.Term()` when
+the publish failed. So a Runner stopping while a refused run finished, or a broker hiccup, left the dispatch unterminated, to be
+redelivered after AckWait and to send the refused password again. Separately, `native.Adapter.Execute` marked the refusal only on
+its `HasErrors` return: a run aborted by its context (an interruptible job, a heartbeat self-abort, a shutdown) or one whose warning
+or completion publish failed returned a plain error, and the Runner redelivered it.
+
+**Root cause.** The new path's whole purpose was "this delivery is the last", but it ran on the same assumptions as the path it
+replaced. A Nak needs no context and costs nothing if lost, so `HandleDeliveryFailure` never had to care. A dead letter does. The
+marker went on the one return the change was written for, and not on the returns written before it.
+
+**Why 84's lesson did not prevent it.** 84 moved `reportResult`'s write-ahead log append off the shutdown context, and
+`agent_wal.go` explains why. The rule lives in that one function's comment, so the next durable step added beside it (the dead
+letter) was written without it.
+
+**Fix.** `event.DeadLetter` publishes on `context.WithoutCancel(ctx)` bounded by `deadLetterBudget` (10 s), and terminates the
+message even when the publish fails, returning both errors: a lost record is better than a redelivery. The adapter applies one
+`failed` wrapper to every return after the run, aborted ones included. Proof: `TestDeadLetter_SurvivesACanceledContextAndAFailedPublish`
+(real NATS: a dead letter published under a canceled context; a message whose dead letter could not be published refuses a later
+Nak as already acknowledged and is not delivered again) and `TestAdapter_Execute_ARefusalSurvivesAFailedPublish` (a refused run
+whose completion publish fails still answers Refused; failing with that return unwrapped).
+
+**Lesson.** A path that makes this delivery the last has to survive the conditions that end deliveries: a shutdown, a broker
+fault, every early return. Check each one against the guarantee, not against the path it replaced.
