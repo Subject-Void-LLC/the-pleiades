@@ -128,8 +128,10 @@ func netconfTry(ctx context.Context, rc sdk.RunbookContext, device inventory.Inv
 	if err != nil {
 		var keyErr *knownhosts.KeyError
 		if errors.As(err, &keyErr) && len(keyErr.Want) == 0 {
-			return &stopWaiting{err: fmt.Errorf("known_hosts holds no key for this NETCONF listener, so no credential was sent and the wait stops here; "+
-				"trust it first with pleiades trust-host %s --first-connect --netconf: %w", device.Name(), err)}
+			// The handshake reached the key, so the listener is up: what is
+			// left is trusting its key, which no number of tries changes.
+			return &stopWaiting{err: fmt.Errorf("the NETCONF listener answered, but known_hosts holds no key for it, so no credential was sent and the wait stops here; "+
+				"trust it with pleiades trust-host %s --first-connect --netconf, then run the task again: %w", device.Name(), err)}
 		}
 		return sshTryFailed(err)
 	}
