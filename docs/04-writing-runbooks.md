@@ -429,7 +429,7 @@ that reads `device`, or a variable that can differ by device (a `set_fact`, a de
 variables), is decided on each target device with that device's values. A condition that reads
 only the run's data is decided once for the task.
 
-```yaml
+```text
 - name: save the core router's configuration when it is a Cisco IOS device
   net.ios.save:
     target: core1
