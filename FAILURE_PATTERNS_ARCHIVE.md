@@ -30462,7 +30462,12 @@ was refused (`engine.RunResult.SawRefusal`, answered or not, since a rerun would
 and the Runner dead-letters such a dispatch on its first delivery (`event.DeadLetter`). Other failures keep their
 redelivery. Proof, each failing with the old path: `TestAgent_ARefusedRunIsDeadLetteredOnItsFirstDelivery` (real NATS: one
 execution, one dead letter delivered once) and the refusal assertion in `TestAdapter_Execute_ARefusedLoginIsSentOncePerTask`;
-the new parts are held by `TestDeadLetter_OnTheFirstDelivery` (real NATS) and `TestRunResult_SawRefusal`. The Ansible (`playbook`) kind is still redelivered:
+the new parts are held by `TestDeadLetter_OnTheFirstDelivery` (real NATS) and `TestRunResult_SawRefusal`. One consumer of the old rule was missed and
+found by branch-containers, not pr-check (which does not schedule `cmd/runner` for a change under `internal/runner` or
+`internal/event`): `TestJournalReleaseGate_EveryRedeliveryJournalsAsItsOwnAttempt` used a wrong password to make a dispatch
+fail and be redelivered five times, and journalled one row. It now fails on an unreached port, which is still redelivered,
+and `TestJournalReleaseGate_ARefusedLoginJournalsOnceAndIsDeadLettered` holds the refused case (one row, one dead letter
+delivered once, no second delivery). The Ansible (`playbook`) kind is still redelivered:
 its adapter cannot tell a refused login from another failure (an UNREACHABLE text match would be fragile), and docs/09 says so.
 
 **A sibling site, found by the review.** `pkg/cmlconsole`'s refused console login was `ErrRefused` but answered no `Refused()`, so
