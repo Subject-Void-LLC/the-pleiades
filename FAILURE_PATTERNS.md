@@ -1245,6 +1245,7 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 1239. A canceled SSH dial was counted against the address's circuit, so a stopped run's dials could open a healthy bastion's circuit for every other caller (the SSH side of 1207) (fixed before push)
 1240. revoke-capability --build, added on main while --inventory was swept into every other command, read the --inventory file and wrote --dir's inventory.yaml (a repeat of 183) (fixed before push)
 1241. The Runner's dead letter for a refused run was published on the shutdown-canceled context and skipped Term when the publish failed, and three of the adapter's returns dropped the refusal, so a refused run could still be redelivered (a repeat in kind of 84) (fixed before push)
+1242. The scaffolded README's offline build needed the module cache to hold every module of the checkout's graph, which it never said, so a cold cache failed the release gate (a repeat of 482) (fixed)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 
