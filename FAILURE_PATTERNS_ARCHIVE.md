@@ -30423,7 +30423,7 @@ project writer, which fails with the old method (it wrote the absolute path), an
 **Lesson.** A Collection method writes where The Pleiades runs only through the project writer, and a structural check,
 not a review, keeps it so.
 
-## 1238. The engine's until resent a refused login on every retry and a loop once per item, and a detached job's stop redialed a refused reconnect, though retry.go's comment said a refused credential is never tried again (a repeat in kind of 399 and 1209) (fixed before push)
+## 1238. The engine's until resent a refused login on every retry and a loop once per item, a detached job's stop redialed a refused reconnect, and a Runner redelivered a refused run up to five times, though retry.go's comment said a refused credential is never tried again (a repeat in kind of 399 and 1209) (fixed before push)
 
 **Symptom.** Found 2026-11-13 while fixing 1230. Measured against a real SSH server: a task with `retries: 5` and a wrong password sent
 it six times, a loop sent it once per item, and a looped `until` sent it items times tries (12 in the test). The Runner path did the
@@ -30452,9 +30452,14 @@ records a refused redial and `stopDetached` does not redial after one. Proof, ea
 `TestRefusedLogin_ARealServerIsSentItOnce`, `TestAdapter_Execute_ARefusedLoginIsSentOncePerTask`,
 `TestAdapter_Execute_SSHDCountsOneFailedLoginPerTask` and `TestDetached_ARefusedRedialIsSentOnce` (2 refusals before, 1 after).
 
-**Still open.** On the Walk tier a refused task's message is redelivered up to the consumer's delivery limit
-(`internal/runner/agent_handle.go`'s `HandleDeliveryFailure`, with the adapter flattening the error), so a refusal can still be sent
-once per delivery. Whether to terminate such a message instead is an owner decision.
+**Walk redelivery (owner decision 2026-11-14).** A Runner redelivered every failed dispatch up to
+`topology.MaxDeliverDefault` (5) times (`internal/runner/agent_handle.go`'s `HandleDeliveryFailure`), each rerunning the
+runbook and so sending a refused login once per delivery. The adapter's failed run now carries `Refused` when any task's run
+was refused (`engine.RunResult.SawRefusal`, answered or not, since a rerun would send an ignored or rescued refusal again),
+and the Runner dead-letters such a dispatch on its first delivery (`event.DeadLetter`). Other failures keep their
+redelivery. Proof, each failing with the old path: `TestAgent_ARefusedRunIsDeadLetteredOnItsFirstDelivery` (real NATS: one
+execution, one dead letter delivered once) and the refusal assertion in `TestAdapter_Execute_ARefusedLoginIsSentOncePerTask`;
+the new parts are held by `TestDeadLetter_OnTheFirstDelivery` (real NATS) and `TestRunResult_SawRefusal`.
 
 **Lesson.** A rule about repeating calls belongs to every loop that repeats one. When it holds only in the caller that was fixed,
 the next loop written breaks it again.

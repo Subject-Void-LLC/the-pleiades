@@ -1241,7 +1241,7 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 1235. TestLab_FreeBSDVMRollback could not pass once Phase 131 made a read of a missing VM succeed, had no cleanup, never reached its guest over SSH, and cloned at bsd-check's address (a repeat in kind of 952) (fixed on this branch)
 1236. The vbox sync plugin stored whatever text a VM's extradata held as the device's host, where its credential is sent, and as its login device (fixed on this branch)
 1237. virt.vbox.vm.screenshot wrote dest with os.WriteFile wherever it named on the machine running the task, so on a Runner a runbook could replace any file the Runner's account can write (security) (a repeat in kind of 618 and 667) (fixed on this branch)
-1238. The engine's until resent a refused login on every retry and a loop once per item, and a detached job's stop redialed a refused reconnect, though retry.go's comment said a refused credential is never tried again (a repeat in kind of 399 and 1209) (fixed before push)
+1238. The engine's until resent a refused login on every retry and a loop once per item, a detached job's stop redialed a refused reconnect, and a Runner redelivered a refused run up to five times, though retry.go's comment said a refused credential is never tried again (a repeat in kind of 399 and 1209) (fixed before push)
 1239. A canceled SSH dial was counted against the address's circuit, so a stopped run's dials could open a healthy bastion's circuit for every other caller (the SSH side of 1207) (fixed before push)
 1240. revoke-capability --build, added on main while --inventory was swept into every other command, read the --inventory file and wrote --dir's inventory.yaml (a repeat of 183) (fixed before push)
 
