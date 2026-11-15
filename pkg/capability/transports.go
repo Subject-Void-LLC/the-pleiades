@@ -20,6 +20,10 @@ const (
 	// TransportRestconf is RFC 8040 RESTCONF, YANG data over HTTPS
 	// (RestconfCapable).
 	TransportRestconf = "restconf"
+
+	// TransportGNMI is OpenConfig gNMI over gRPC (GNMICapable).
+	TransportGNMI = "gnmi"
+
 	// TransportHTTPS is a device's own HTTP API.
 	TransportHTTPS = "https"
 
@@ -82,6 +86,7 @@ var reachedBy = map[string][]Name{
 	TransportWinRM:        {NameWinRM},
 	TransportNetconf:      {NameNetconf},
 	TransportRestconf:     {NameRestconf},
+	TransportGNMI:         {NameGNMI},
 	TransportHTTPS:        {NameHTTPAPI, NameCatalystAPI, NameAIProvider, NameCloudflareAPI, NameBatfishAPI, NameCMLAPI, NameClabAPI},
 	TransportEngineLocal:  {NameEngineLocal},
 	TransportEngineSocket: {NameEngineSocket},

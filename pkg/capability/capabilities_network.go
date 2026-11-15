@@ -9,6 +9,7 @@ const (
 	NameFileTransfer       Name = "FileTransferCapable"
 	NameCatalystAPI        Name = "CatalystAPICapable"
 	NameRestconf           Name = "RestconfCapable"
+	NameGNMI               Name = "GNMICapable"
 )
 
 // NetworkCLICapable is satisfied by any network device exposing a
@@ -131,6 +132,36 @@ type RestconfCapable interface {
 	RestconfAllowPlaintextCredentials() bool
 }
 
+// GNMICapable is satisfied by a device that serves gNMI (OpenConfig's gRPC
+// Network Management Interface): its configuration and state as YANG-modeled
+// paths, read with Get and Subscribe and written with Set, over gRPC.
+//
+// It is a sibling of NetconfCapable, RestconfCapable and GRPCCapable, not a
+// child of any. A gNMI server need have no NETCONF listener and no RESTCONF
+// root, so nesting it would let capability.Resolves answer "yes" to a
+// question only true of a sibling. Nor is it a child of GRPCCapable, although
+// gNMI runs over gRPC: generic_grpc's discovery asks the standard health and
+// reflection services and sends a stored password as a bearer token, while a
+// gNMI server is proved by its own Capabilities RPC and, by the gNMI
+// specification, takes its credential as username and password metadata, so
+// a device answering one says nothing about the other.
+type GNMICapable interface {
+	// GNMITarget returns the gNMI server's address as host:port.
+	GNMITarget() string
+	// GNMIAuth returns how the device's stored credential is sent: "password"
+	// (the username and password metadata the gNMI specification names),
+	// "bearer" (the credential's token as an authorization bearer token), or
+	// "none" (no credential metadata, as with a client certificate alone).
+	GNMIAuth() string
+	// GNMIPlaintext reports whether the connection is made without TLS. It
+	// is false unless the device's record says otherwise.
+	GNMIPlaintext() bool
+	// GNMIAllowPlaintextCredentials reports whether the device's record
+	// accepts sending its credential over a plaintext connection, which is a
+	// further opt-in beside GNMIPlaintext.
+	GNMIAllowPlaintextCredentials() bool
+}
+
 func init() {
 	Register(Descriptor{
 		Name:   NameNetworkCLI,
@@ -165,5 +196,9 @@ func init() {
 	Register(Descriptor{
 		Name:   NameRestconf,
 		Assert: func(item any) bool { _, ok := item.(RestconfCapable); return ok },
+	})
+	Register(Descriptor{
+		Name:   NameGNMI,
+		Assert: func(item any) bool { _, ok := item.(GNMICapable); return ok },
 	})
 }
