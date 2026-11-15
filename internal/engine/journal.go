@@ -659,7 +659,7 @@ type FailureStage string
 // The stages a node execution can fail at, one per failure call site in
 // the executor, and the projection maps every one
 // explicitly and fails closed on any branch it does not recognize
-// (validFailureStage, journal_entry.go).
+// (validFailureStage, journal_kinds.go).
 //
 // Each constant below cites the executor.go line that tags a result with
 // it. Those line numbers rot whenever executor.go moves, and nothing in
