@@ -21,8 +21,11 @@ import (
 // 8040 section 2.5 requires a RESTCONF server to authenticate every client.
 //
 // RestconfCapable itself is discovered: onboarding reads the origin's
-// host-meta, the server's capabilities and its YANG library over a verified
-// connection, and only a root host-meta names grants it.
+// host-meta, then the server's capabilities and its YANG library, and grants
+// it only when the root host-meta names answers one of those reads. Over
+// https the server's certificate is always verified; over http:// (allowed
+// only with http_auth none, or with http_allow_plaintext_credentials) it is
+// granted with a warning that nothing proved which server answered.
 type Restconf struct {
 	*record.Base
 	baseURL        *url.URL
