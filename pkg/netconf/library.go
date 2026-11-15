@@ -9,107 +9,38 @@ import (
 	"encoding/xml"
 	"errors"
 	"fmt"
-	"strings"
 	"sync"
 	"sync/atomic"
+
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/yanglib"
 )
 
-// The YANG library's namespace, which RFC 8525 and RFC 7895 share.
-const yangLibraryNamespace = "urn:ietf:params:xml:ns:yang:ietf-yang-library"
-
-// libraryReply is an rpc-reply carrying RFC 8525's yang-library, read with
+// libraryReply is an rpc-reply carrying the YANG library, read with
 // namespace-qualified tags on the elements that carry one, so a reply that
 // declares its prefixes on rpc-reply (as Junos does) is read the same as one
-// that does not.
+// that does not. The containers are pkg/yanglib's, which RESTCONF reads too.
 type libraryReply struct {
 	Data struct {
-		Library *struct {
-			ModuleSets []struct {
-				Modules []libraryModule `xml:"module"`
-			} `xml:"module-set"`
-			Datastores []struct {
-				Name string `xml:"name"`
-			} `xml:"datastore"`
-			ContentID string `xml:"content-id"`
-		} `xml:"urn:ietf:params:xml:ns:yang:ietf-yang-library yang-library"`
-		State *struct {
-			ModuleSetID string `xml:"module-set-id"`
-			Modules     []struct {
-				libraryModuleFields
-				Conformance string `xml:"conformance-type"`
-				Deviations  []struct {
-					Name string `xml:"name"`
-				} `xml:"deviation"`
-			} `xml:"module"`
-		} `xml:"urn:ietf:params:xml:ns:yang:ietf-yang-library modules-state"`
+		Library *yanglib.YANGLibrary  `xml:"urn:ietf:params:xml:ns:yang:ietf-yang-library yang-library"`
+		State   *yanglib.ModulesState `xml:"urn:ietf:params:xml:ns:yang:ietf-yang-library modules-state"`
 	} `xml:"urn:ietf:params:xml:ns:netconf:base:1.0 data"`
 }
 
-// libraryModuleFields are the fields RFC 8525's and RFC 7895's module entries
-// share.
-type libraryModuleFields struct {
-	Name      string   `xml:"name"`
-	Revision  string   `xml:"revision"`
-	Namespace string   `xml:"namespace"`
-	Features  []string `xml:"feature"`
-}
-
-// libraryModule is one implemented module of an RFC 8525 module set; its
-// deviation entries name the deviating modules.
-type libraryModule struct {
-	libraryModuleFields
-	Deviations []string `xml:"deviation"`
-}
-
-// readLibrary reads the module set (and, from RFC 8525, the datastores) from
-// an rpc-reply to a get of the YANG library. An empty data element is not an
-// error; it is reported as no modules.
-func readLibrary(raw []byte) (modules []Module, datastores []string, err error) {
+// readLibrary reads the library (RFC 8525's, or RFC 7895's modules-state)
+// from an rpc-reply to a get of it. An empty data element is not an error;
+// it is reported as no modules.
+func readLibrary(raw []byte) (yanglib.Library, error) {
 	var reply libraryReply
 	if err := xml.Unmarshal(raw, &reply); err != nil {
-		return nil, nil, fmt.Errorf("reading the YANG library: %w", err)
+		return yanglib.Library{}, fmt.Errorf("reading the YANG library: %w", err)
 	}
-	if lib := reply.Data.Library; lib != nil {
-		for _, set := range lib.ModuleSets {
-			for _, m := range set.Modules {
-				modules = append(modules, libraryModuleOf(m.libraryModuleFields, m.Deviations))
-			}
-		}
-		for _, ds := range lib.Datastores {
-			// An identityref such as "ds:running"; the name is after the
-			// prefix.
-			name := strings.TrimSpace(ds.Name)
-			if i := strings.LastIndexByte(name, ':'); i >= 0 {
-				name = name[i+1:]
-			}
-			datastores = append(datastores, name)
-		}
-		return modules, datastores, nil
+	switch {
+	case reply.Data.Library != nil:
+		return reply.Data.Library.Library(), nil
+	case reply.Data.State != nil:
+		return reply.Data.State.Library(), nil
 	}
-	if state := reply.Data.State; state != nil {
-		for _, m := range state.Modules {
-			if strings.TrimSpace(m.Conformance) == "import" {
-				continue
-			}
-			var deviations []string
-			for _, d := range m.Deviations {
-				deviations = append(deviations, d.Name)
-			}
-			modules = append(modules, libraryModuleOf(m.libraryModuleFields, deviations))
-		}
-	}
-	return modules, nil, nil
-}
-
-// libraryModuleOf is a library entry as a Module, every field trimmed.
-func libraryModuleOf(f libraryModuleFields, deviations []string) Module {
-	return Module{
-		Name:       strings.TrimSpace(f.Name),
-		Namespace:  strings.TrimSpace(f.Namespace),
-		Revision:   strings.TrimSpace(f.Revision),
-		Features:   f.Features,
-		Deviations: deviations,
-	}
+	return yanglib.Library{}, nil
 }
 
 // libraryCache holds a module set read from a server's YANG library, keyed by
@@ -131,14 +62,9 @@ var libraryCacheEntries atomic.Int64
 // maxLibraryCacheEntries bounds libraryCache.
 const maxLibraryCacheEntries = 512
 
-// cachedLibrary is one cached read of a YANG library.
-type cachedLibrary struct {
-	modules        []Module
-	datastores     []string
-	source         string
-	dropped        int
-	droppedSamples []string
-}
+// cachedLibrary is one cached read of a YANG library, after the refusal
+// rules.
+type cachedLibrary = yanglib.Kept
 
 // discoverLibrary completes d from the server's YANG library when the hello
 // advertises one. A library that cannot be read leaves d as the hello gave
@@ -149,9 +75,9 @@ func (s *Session) discoverLibrary(ctx context.Context, d Discovery, cacheKey str
 	var filter, source string
 	switch {
 	case s.HasCapability(CapabilityYANGLibrary11):
-		filter, source = `<yang-library xmlns="`+yangLibraryNamespace+`"/>`, "yang-library:1.1"
+		filter, source = `<yang-library xmlns="`+yanglib.Namespace+`"/>`, yanglib.SourceLibrary11
 	case s.HasCapability(CapabilityYANGLibrary10):
-		filter, source = `<modules-state xmlns="`+yangLibraryNamespace+`"/>`, "yang-library:1.0"
+		filter, source = `<modules-state xmlns="`+yanglib.Namespace+`"/>`, yanglib.SourceLibrary10
 	default:
 		return d, nil
 	}
@@ -175,20 +101,21 @@ func (s *Session) discoverLibrary(ctx context.Context, d Discovery, cacheKey str
 		}
 		return d, err
 	}
-	modules, datastores, err := readLibrary(raw)
+	read, err := readLibrary(raw)
 	if err != nil {
 		d.LibraryError = err.Error()
 		return d, nil
 	}
+	// The source is the capability the read was chosen by, as it always
+	// was, whichever container the reply carried.
+	read.Source = source
 	// The library replaces the hello's module list, so what it drops is
 	// counted afresh, beside what the hello's protocol entries dropped.
-	counted := Discovery{Dropped: d.Dropped, DroppedSamples: d.DroppedSamples}
-	kept := keepModules(modules, &counted)
-	if len(kept) == 0 {
-		d.LibraryError = "the YANG library came back empty, as it does for an account the server's access control hides it from"
+	lib, err := yanglib.Keep(read, Discovery{Dropped: d.Dropped, DroppedSamples: d.DroppedSamples})
+	if err != nil {
+		d.LibraryError = err.Error()
 		return d, nil
 	}
-	lib := cachedLibrary{modules: kept, datastores: datastores, source: source, dropped: counted.Dropped, droppedSamples: counted.DroppedSamples}
 	if key != "" {
 		if libraryCacheEntries.Add(1) > maxLibraryCacheEntries {
 			libraryCache.Range(func(k, _ any) bool { libraryCache.Delete(k); return true })
@@ -199,13 +126,10 @@ func (s *Session) discoverLibrary(ctx context.Context, d Discovery, cacheKey str
 	return withLibrary(d, lib), nil
 }
 
-// withLibrary is d completed from a read of the YANG library.
+// withLibrary is d completed from a read of the YANG library, its datastores
+// the hello's and the library's together.
 func withLibrary(d Discovery, lib cachedLibrary) Discovery {
-	d.Modules, d.Source, d.Dropped, d.DroppedSamples = lib.modules, lib.source, lib.dropped, lib.droppedSamples
-	d.Completeness = Complete
-	if d.Dropped > 0 {
-		d.Completeness = Partial
-	}
-	d.Datastores = datastoresFrom(d.Protocol, lib.datastores)
+	d = d.WithLibrary(lib)
+	d.Datastores = datastoresFrom(d.Protocol, lib.Datastores)
 	return d
 }
