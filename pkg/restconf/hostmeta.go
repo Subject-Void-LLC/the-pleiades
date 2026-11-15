@@ -34,13 +34,19 @@ const relRestconf = "restconf"
 // maxRootBytes bounds a root's href.
 const maxRootBytes = 1024
 
-// DiscoverRoot reads the origin's host-meta and returns the RESTCONF root
+// DiscoverRoot reads the origin's host-meta, with no credential unless the
+// server asks for one, and returns the RESTCONF root
 // its restconf link names, as an escaped path with no trailing slash ("" for
 // a root at the origin itself), which later reads are made under. A missing
 // document, one that is not XRD, one naming no restconf link or two
 // different ones, and a root off the device's origin are each an error.
 func (c *Client) DiscoverRoot(ctx context.Context) (string, error) {
-	a, err := c.get(ctx, hostMetaPath, "application/xrd+xml", MaxHostMetaBytes, false)
+	// Read with no credential first; only a server that asks for one (401)
+	// is sent it, and a refusal of that is a RefusedError.
+	a, err := c.getAnonymous(ctx, hostMetaPath, "application/xrd+xml", MaxHostMetaBytes)
+	if err == nil && a.status == http.StatusUnauthorized {
+		a, err = c.get(ctx, hostMetaPath, "application/xrd+xml", MaxHostMetaBytes, false)
+	}
 	if err != nil {
 		return "", fmt.Errorf("reading %s: %w", hostMetaPath, err)
 	}

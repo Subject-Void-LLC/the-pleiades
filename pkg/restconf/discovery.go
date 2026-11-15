@@ -90,6 +90,16 @@ func isFatal(err error) bool {
 // errUnusable marks an answer that arrived but could not be read.
 var errUnusable = errors.New("the answer could not be read")
 
+// Capabilities reads the capability URIs ietf-restconf-monitoring lists,
+// under the root DiscoverRoot found, as they were sent (not yet held to
+// yanglib's rules). It is the authenticated read under the root that says a
+// server is answering RESTCONF, not merely HTTPS: a refused credential is a
+// RefusedError, another status a *StatusError, and an answer that is not the
+// list an unusable one.
+func (c *Client) Capabilities(ctx context.Context) ([]string, error) {
+	return c.capabilities(ctx)
+}
+
 // capabilities reads the capability URIs ietf-restconf-monitoring lists. A
 // server answers with the capabilities container itself, as RFC 8040 section
 // 3.5 has it (IOS XE, a Tail-f ConfD server, does), or wrapped in its

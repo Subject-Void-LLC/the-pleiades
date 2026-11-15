@@ -532,3 +532,38 @@ func TestDiscover_ARefusedCapabilityLeavesTheLibraryComplete(t *testing.T) {
 		t.Errorf("Dropped = %d, ModulesDropped = %d, Completeness = %s; want the capability counted and the library complete", d.Dropped, d.ModulesDropped, d.Completeness)
 	}
 }
+
+// TestDiscoverRoot_SendsTheCredentialOnlyWhenHostMetaAsksForIt: host-meta is
+// read with no credential first; a server that answers 401 there is asked
+// again with it, once.
+func TestDiscoverRoot_SendsTheCredentialOnlyWhenHostMetaAsksForIt(t *testing.T) {
+	opts := login
+	opts.Override = map[string]http.HandlerFunc{"/.well-known/host-meta": func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") == "" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		w.Header().Set("Content-Type", "application/xrd+xml")
+		_, _ = w.Write([]byte(`<XRD xmlns="http://docs.oasis-open.org/ns/xri/xrd-1.0"><Link rel="restconf" href="/restconf"/></XRD>`))
+	}}
+	s := restconftest.New(t, opts)
+	client, _, err := restconf.ClientFor(restconftest.NewDevice(t, s), "router", restconftest.Secrets(s))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	if root, err := client.DiscoverRoot(context.Background()); err != nil || root != "/restconf" {
+		t.Fatalf("DiscoverRoot = %q, %v", root, err)
+	}
+	if len(s.Paths()) != 2 || s.Logins() != 1 {
+		t.Errorf("%d requests with %d logins, want one without and one with the credential", len(s.Paths()), s.Logins())
+	}
+	plain := restconftest.New(t, login)
+	c2, _, err := restconf.ClientFor(restconftest.NewDevice(t, plain), "router", restconftest.Secrets(plain))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c2.DiscoverRoot(context.Background()); err != nil || plain.Logins() != 0 {
+		t.Errorf("a host-meta asking for nothing was sent the credential (%d logins, %v)", plain.Logins(), err)
+	}
+}

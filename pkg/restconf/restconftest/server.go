@@ -22,6 +22,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -110,8 +111,13 @@ type Server struct {
 	mu   sync.Mutex
 	// paths are the escaped paths requested, in order.
 	paths []string
-	// unauthenticated counts requests that carried no Authorization header.
+	// unauthenticated counts requests other than host-meta's that carried no
+	// Authorization header.
 	unauthenticated int
+	// logins counts requests that carried one.
+	logins int
+	// connections counts the connections clients opened.
+	connections int
 	// stored are the resources writes made, by escaped path.
 	stored map[string]resource
 	// methods are the methods requested, in order, beside paths.
@@ -138,9 +144,17 @@ func New(t testing.TB, opts Options) *Server {
 	}
 	s := &Server{opts: opts, stored: map[string]resource{}}
 	modulesState := ModulesStateXML(t)
-	s.Server = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	s.Server = httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s.serve(w, r, modulesState)
 	}))
+	s.Config.ConnState = func(_ net.Conn, state http.ConnState) {
+		if state == http.StateNew {
+			s.mu.Lock()
+			s.connections++
+			s.mu.Unlock()
+		}
+	}
+	s.StartTLS()
 	t.Cleanup(s.Close)
 	return s
 }
@@ -157,7 +171,23 @@ func (s *Server) Paths() []string {
 	return append([]string(nil), s.paths...)
 }
 
-// Unauthenticated returns how many requests carried no credential.
+// Logins returns how many requests carried a credential.
+func (s *Server) Logins() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.logins
+}
+
+// Connections returns how many connections clients opened.
+func (s *Server) Connections() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.connections
+}
+
+// Unauthenticated returns how many requests other than host-meta's carried
+// no credential: host-meta is read with none, as RFC 8040's client finds the
+// root first.
 func (s *Server) Unauthenticated() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -170,7 +200,9 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, modulesState []by
 	s.mu.Lock()
 	s.paths = append(s.paths, path)
 	s.methods = append(s.methods, r.Method)
-	if r.Header.Get("Authorization") == "" {
+	if r.Header.Get("Authorization") != "" {
+		s.logins++
+	} else if path != "/.well-known/host-meta" {
 		s.unauthenticated++
 	}
 	s.mu.Unlock()

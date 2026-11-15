@@ -101,6 +101,13 @@ func New(base string, hc *http.Client, auth string, allowPlaintext bool, secrets
 	return &Client{base: u, hc: hc, auth: auth, secrets: secrets}, nil
 }
 
+// Close drops the client's idle connections, so a caller that makes a fresh
+// client for each try (wait.restconf) never takes a connection kept open
+// from an earlier one as an answer.
+func (c *Client) Close() {
+	c.hc.CloseIdleConnections()
+}
+
 // Verified reports whether the server's identity is verified on every
 // request: true over https, where pkg/devicetls always verifies the
 // certificate (a chain, a pinned authority or a pinned certificate), and
@@ -131,6 +138,15 @@ func (c *Client) get(ctx context.Context, ref, accept string, limit int64, data 
 	return c.do(ctx, http.MethodGet, ref, accept, "", nil, limit, data)
 }
 
+// getAnonymous is get sending no credential, and judging no refusal: the
+// caller reads the status. host-meta is read this way first, since RFC 8040
+// has a client find the root before it authenticates anything, and a
+// credential sent where none is asked for is one more place it could be
+// echoed or logged.
+func (c *Client) getAnonymous(ctx context.Context, ref, accept string, limit int64) (answer, error) {
+	return c.send(ctx, http.MethodGet, ref, accept, "", nil, limit, false, true)
+}
+
 // do sends one authenticated request and reads at most limit bytes of the
 // answer. A transport failure is an error, a certificate nothing trusts named
 // by its fingerprint (devicetls.Explain). A refused credential is a
@@ -144,6 +160,11 @@ func (c *Client) get(ctx context.Context, ref, accept string, limit int64, data 
 // for the caller to judge with every other status. An answer past limit is
 // unusable.
 func (c *Client) do(ctx context.Context, method, ref, accept, contentType string, body []byte, limit int64, data bool) (answer, error) {
+	return c.send(ctx, method, ref, accept, contentType, body, limit, data, false)
+}
+
+// send is do, sending no credential and judging no refusal when anonymous.
+func (c *Client) send(ctx context.Context, method, ref, accept, contentType string, body []byte, limit int64, data, anonymous bool) (answer, error) {
 	if c.refusal != nil {
 		// The credential was refused once; it is not sent again.
 		return answer{}, c.refusal
@@ -166,8 +187,10 @@ func (c *Client) do(ctx context.Context, method, ref, accept, contentType string
 	if contentType != "" {
 		req.Header.Set("Content-Type", contentType)
 	}
-	if err := httpapi.Authorize(req, c.auth, c.secrets); err != nil {
-		return answer{}, err
+	if !anonymous {
+		if err := httpapi.Authorize(req, c.auth, c.secrets); err != nil {
+			return answer{}, err
+		}
 	}
 	resp, err := c.hc.Do(req)
 	if err != nil {
@@ -181,7 +204,7 @@ func (c *Client) do(ctx context.Context, method, ref, accept, contentType string
 		return answer{}, fmt.Errorf("reading the answer to %s %s: %w", method, u.EscapedPath(), err)
 	}
 	a := answer{status: resp.StatusCode, mediaType: mediaTypeOf(resp.Header.Get("Content-Type")), body: read, location: resp.Header.Get("Location")}
-	if c.refuses(a.status, data) {
+	if !anonymous && c.refuses(a.status, data) {
 		if int64(len(a.body)) > limit {
 			a.body = nil
 		}
