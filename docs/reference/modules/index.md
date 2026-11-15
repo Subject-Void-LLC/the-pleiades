@@ -29,9 +29,9 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | `scan` | 3 | 3 |
 | `svc` | 16 | 16 |
 | `virt` | 83 | 83 |
-| `wait` | 5 | 5 |
+| `wait` | 6 | 6 |
 | `win` | 12 | 12 |
-| **total** | **264** | **262** |
+| **total** | **265** | **263** |
 
 ## All methods
 
@@ -287,6 +287,7 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | [wait.connection](wait/connection.md) | implemented | Waits until the target answers a command over its own connection, SSH or WinRM. |
 | [wait.netconf](wait/netconf.md) | implemented | Waits until the target's NETCONF listener lets its account in and sends its hello. |
 | [wait.path](wait/path.md) | implemented | Waits for a file path on the target to exist (or stop existing). |
+| [wait.restconf](wait/restconf.md) | implemented | Waits until the target's RESTCONF server answers its account with the capability list under its root. |
 | [wait.routes](wait/routes.md) | implemented | Waits until a router has a route to every prefix given, or with state absent has none left, and its routing table has stopped changing. |
 | [wait.search](wait/search.md) | implemented | Waits for a pattern to appear in a file's contents on the target. |
 | [win.archive.extract](win/archive/extract.md) | implemented | Extracts a .zip, .tar or .tar.gz already on a Windows host into a folder there, over WinRM. |

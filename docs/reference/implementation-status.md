@@ -6,7 +6,7 @@ status: beta
 
 The full declared-versus-implemented matrix for every registered Collection method. See [Start here](../01-start-here.md#implementation-status) for what this means for the product as a whole.
 
-**262 of 264 methods are implemented.**
+**263 of 265 methods are implemented.**
 
 ## Implemented
 
@@ -95,6 +95,7 @@ The full declared-versus-implemented matrix for every registered Collection meth
 - [wait.search](modules/wait/search.md)
 - [wait.connection](modules/wait/connection.md)
 - [wait.netconf](modules/wait/netconf.md)
+- [wait.restconf](modules/wait/restconf.md)
 - [facts.gather](modules/facts/gather.md)
 - [gate.list](modules/gate/list.md)
 - [gate.run](modules/gate/run.md)

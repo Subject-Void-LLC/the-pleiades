@@ -40,5 +40,5 @@ These methods belong to no collection with a ledger, so their coverage of their 
 | `scan` | 3 |
 | `svc` | 16 |
 | `virt` | 39 |
-| `wait` | 5 |
+| `wait` | 6 |
 | `win` | 12 |

@@ -20557,7 +20557,7 @@
     "seedsLoginIOSSecret": true,
     "doc": {
       "summary": "Creates a node in a CML lab, optionally seeded with an inventory device's login and address.",
-      "description": "Makes a node from a node definition, with the definition's interfaces, stopped. With device, the node stands for that inventory device (a cisco_router or cisco_switch; only an IOS or IOS XE definition): its day-0 configuration sets the hostname to the label, puts the device's host on management_interface in the Mgmt-intf VRF with a default route to management_gateway, enables SSH, and creates the device's login as \"username <user> privilege 15 secret 9 <hash>\" (and \"enable secret 9\" when the credential has an enable password), from the device's stored credential. The passwords never reach the runbook or the task's output: the method is handed type 9 hashes only. The hashes are in the node's configuration, which the controller keeps and anyone who can read the lab can read, so seed a node only from a device whose credential exists only in the lab. The console line logs an idle session out after five minutes. The vty lines (line vty 0 4) take SSH only (transport input ssh), so a seeded node refuses Telnet. configuration adds lines after those, so \"line vty 0 4\" then \" transport input ssh telnet\" there lets Telnet in as well. On a cat8000v (Catalyst 8000V) node, configuration is also where two things later tasks need are set at day 0: the node has no crypto commands unless it sets \"license boot level network-advantage\", and with it the node reloads once after CML reports it BOOTED; and IOS XE serves NETCONF and RESTCONF only with \"aaa new-model\", \"aaa authentication login default local\" and \"aaa authorization exec default local\", while \"netconf-yang feature candidate-datastore\" gives it the candidate datastore. wait.netconf waits for its NETCONF listener. A node's interfaces are named as its definition names them, as CML 2.7.2 makes them: iol-xe has Loopback0 and Ethernet0/0 to Ethernet0/3 (and Ethernet1/0 on with interfaces), an unmanaged_switch has port0 to port7, and an external_connector has one interface, port, so it takes one link: join several nodes to it through an unmanaged switch. interfaces in the result lists them. A label the lab already uses is refused, so a second run is a refusal rather than a second node. Its undo is virt.cml.node.delete of the node's id. The task's target is a cml_controller device (its api_base, TLS settings and its own credential, stored with add-credential --password-stdin); the method runs on this machine and talks to the controller's REST API. A check reads the lab, the definition and the label and changes nothing.",
+      "description": "Makes a node from a node definition, with the definition's interfaces, stopped. With device, the node stands for that inventory device (a cisco_router or cisco_switch; only an IOS or IOS XE definition): its day-0 configuration sets the hostname to the label, puts the device's host on management_interface in the Mgmt-intf VRF with a default route to management_gateway, enables SSH, and creates the device's login as \"username <user> privilege 15 secret 9 <hash>\" (and \"enable secret 9\" when the credential has an enable password), from the device's stored credential. The passwords never reach the runbook or the task's output: the method is handed type 9 hashes only. The hashes are in the node's configuration, which the controller keeps and anyone who can read the lab can read, so seed a node only from a device whose credential exists only in the lab. The console line logs an idle session out after five minutes. The vty lines (line vty 0 4) take SSH only (transport input ssh), so a seeded node refuses Telnet. configuration adds lines after those, so \"line vty 0 4\" then \" transport input ssh telnet\" there lets Telnet in as well. On a cat8000v (Catalyst 8000V) node, configuration is also where two things later tasks need are set at day 0: the node has no crypto commands unless it sets \"license boot level network-advantage\", and with it the node reloads once after CML reports it BOOTED; and IOS XE serves NETCONF and RESTCONF only with \"aaa new-model\", \"aaa authentication login default local\" and \"aaa authorization exec default local\", while \"netconf-yang feature candidate-datastore\" gives it the candidate datastore. wait.netconf waits for its NETCONF listener, and wait.restconf for its RESTCONF server, which on a Catalyst 8000V answers 502 under /restconf for minutes after its HTTPS answers. A node's interfaces are named as its definition names them, as CML 2.7.2 makes them: iol-xe has Loopback0 and Ethernet0/0 to Ethernet0/3 (and Ethernet1/0 on with interfaces), an unmanaged_switch has port0 to port7, and an external_connector has one interface, port, so it takes one link: join several nodes to it through an unmanaged switch. interfaces in the result lists them. A label the lab already uses is refused, so a second run is a refusal rather than a second node. Its undo is virt.cml.node.delete of the node's id. The task's target is a cml_controller device (its api_base, TLS settings and its own credential, stored with add-credential --password-stdin); the method runs on this machine and talks to the controller's REST API. A check reads the lab, the definition and the label and changes nothing.",
       "params": [
         {
           "name": "lab",
@@ -20656,7 +20656,8 @@
         "virt.cml.link.create",
         "virt.cml.node.delete",
         "virt.cml.lab.start",
-        "wait.netconf"
+        "wait.netconf",
+        "wait.restconf"
       ]
     }
   },
@@ -23185,6 +23186,130 @@
       "seeAlso": [
         "wait.search",
         "pleiades.builtin.wait.port"
+      ]
+    }
+  },
+  "wait.restconf": {
+    "supportedTransports": [
+      "restconf"
+    ],
+    "requiredCapabilities": [
+      "RestconfCapable"
+    ],
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
+    "engineVersion": ">=0.4.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "This method waits for a device's RESTCONF server to answer and changes nothing on it, so there is nothing to undo.",
+      "readOnly": true
+    },
+    "supportsCheck": false,
+    "noCheckReason": "what it waits for is usually a device an earlier task starts or restarts, which a check never does, so a check would wait out its timeout and fail where the real run succeeds",
+    "noExistsReason": "it is a wait: failing at its timeout is its purpose",
+    "noBecomeReason": "it speaks RESTCONF over HTTPS to the device's own API, which no sudo prefix reaches",
+    "doc": {
+      "summary": "Waits until the target's RESTCONF server answers its account with the capability list under its root.",
+      "description": "Tries the device's RESTCONF server until an authenticated read under its root answers, and fails when the timeout runs out first: each try reads the origin's /.well-known/host-meta to find the root, then the capability list ietf-restconf-monitoring keeps under it, through the same client the net.restconf.* methods use. It is the task to put between one that starts a network device and the first net.restconf.* task: a device's HTTPS can answer long before its RESTCONF does (a Catalyst 8000V running IOS XE 17.15.1a, measured, served its web server's own page at / over TLS 1.3 while every read under /restconf answered 502 for more than seven minutes after its licence reload), so an answer at / is not readiness, and wait.connection, which logs in over SSH, says nothing about it. Each try is a new client on a new connection, so a connection kept open from an earlier try is never taken for an answer. The device's own TLS settings decide which certificate is trusted, and nothing here can weaken them: a certificate they do not trust ends the wait at once, before any request is sent, naming its subject and fingerprint and the tls_fingerprint or tls_ca_pem property that would trust it once checked; and so does a login the device refuses (401, or 403 to the first read under the root), since neither changes by being asked again and a password sent at every try can lock the account. A server that refuses or resets the connection, sends no answer within connect_timeout, answers 500, 502, 503 or 504, answers anything but the capability list, or answers host-meta with 404 is tried again until the timeout; a 404 there is taken as not ready yet rather than final, since IOS XE serves host-meta from the same web server that answers 502 while its RESTCONF starts. A failed try is not an error, since it is what the task waits to see stop; the last one is quoted when the timeout ends the wait. The delay, backoff and steady parameters work as wait.connection's do. It changes nothing.",
+      "params": [
+        {
+          "name": "timeout",
+          "type": "int",
+          "default": "600",
+          "description": "How many seconds to wait in total before giving up, counted from the start of the task, so the delay comes out of it. Must be more than 0."
+        },
+        {
+          "name": "delay",
+          "type": "int",
+          "default": "0",
+          "description": "How many seconds to wait before the first try. Must be shorter than the timeout, which it is spent out of."
+        },
+        {
+          "name": "sleep",
+          "type": "int",
+          "default": "5",
+          "description": "How many seconds to wait between tries, or with backoff: exponential before the second try, the gap doubling after each failed one. Must be more than 0."
+        },
+        {
+          "name": "backoff",
+          "type": "string",
+          "default": "fixed",
+          "choices": [
+            "fixed",
+            "exponential"
+          ],
+          "description": "How the gap between failed tries grows: fixed keeps it at sleep; exponential doubles it after each failed try, up to max_sleep, each gap a random point in its upper half."
+        },
+        {
+          "name": "max_sleep",
+          "type": "int",
+          "default": "60",
+          "description": "With backoff: exponential, the longest gap between tries, in seconds. Not less than sleep; refused with backoff: fixed, where it would do nothing."
+        },
+        {
+          "name": "steady",
+          "type": "int",
+          "default": "1",
+          "description": "How many tries in a row must open a session before the listener counts as ready. Each is its own login. Must be at least 1, and the streak must fit in the timeout after the delay."
+        },
+        {
+          "name": "steady_interval",
+          "type": "int",
+          "default": "10",
+          "description": "With steady above 1, the seconds between the answering tries. Must be more than 0; refused with steady 1, where it would do nothing."
+        },
+        {
+          "name": "connect_timeout",
+          "type": "int",
+          "default": "20",
+          "description": "How many seconds one try may take, from the connection to the capability list's answer, before it counts as failed. Must be more than 0."
+        }
+      ],
+      "returns": [
+        {
+          "name": "elapsed",
+          "type": "int",
+          "returned": "always",
+          "description": "How many whole seconds the task waited, including the delay."
+        },
+        {
+          "name": "root",
+          "type": "string",
+          "returned": "always",
+          "description": "The RESTCONF root host-meta named on the try that answered, as an escaped path such as /restconf, or / for a root at the device's origin itself."
+        },
+        {
+          "name": "tries",
+          "type": "int",
+          "returned": "always",
+          "description": "How many tries the task made, answered or not."
+        },
+        {
+          "name": "failures",
+          "type": "int",
+          "returned": "always",
+          "description": "How many of those tries did not answer."
+        },
+        {
+          "name": "diff",
+          "type": "dict",
+          "returned": "always",
+          "description": "The root that answered. Both halves are identical, since a wait changes nothing."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Wait for a router's RESTCONF server after it boots",
+          "runbookYaml": "- name: Wait for the router's RESTCONF server to answer its account\n  wait.restconf:\n    timeout: 900\n    sleep: 10\n"
+        }
+      ],
+      "seeAlso": [
+        "wait.netconf",
+        "net.restconf.config",
+        "net.restconf.facts"
       ]
     }
   },

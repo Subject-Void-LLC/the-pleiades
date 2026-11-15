@@ -503,6 +503,7 @@
     "wait.connection": "wait",
     "wait.netconf": "wait",
     "wait.path": "wait",
+    "wait.restconf": "wait",
     "wait.routes": "wait",
     "wait.search": "wait",
     "win.archive.extract": "win",
