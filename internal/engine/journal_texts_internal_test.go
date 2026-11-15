@@ -4,9 +4,14 @@
 package engine
 
 import (
+	"context"
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
 
 func TestRecordedValue_KeepsAListOfIdentifiers(t *testing.T) {
@@ -39,6 +44,37 @@ func TestRecordedValue_RefusesAListItCannotHoldExactly(t *testing.T) {
 	} {
 		if p, ok := recordedValue("dependencies", value, true); ok {
 			t.Errorf("%s: recorded %+v", name, p)
+		}
+	}
+}
+
+// TestListParam_ReadsEveryStringListType: a parameter declared "list of
+// string" is a list for the journal exactly as one declared "list" is, so
+// an undo naming one (net.linux.bridge records ports and detach_ports so)
+// is kept whole instead of being marked not recorded in full; a list of
+// dicts is not, since the journal holds lists of text only.
+func TestListParam_ReadsEveryStringListType(t *testing.T) {
+	t.Cleanup(collection.SnapshotForTest())
+	noop := func(context.Context, sdk.RunbookContext, inventory.InventoryItem, map[string]any) (collection.Result, error) {
+		return collection.Result{}, nil
+	}
+	if err := collection.Register(collection.Descriptor{
+		Name: "listparamtest.target",
+		Manifest: collection.Manifest{Status: collection.StatusImplemented,
+			Reversibility: collection.Reversibility{Notes: "fixture"},
+			Doc: collection.Doc{Params: []collection.Param{
+				{Name: "plain", Type: collection.ParamTypeList},
+				{Name: "strings", Type: collection.ParamTypeListOfString},
+				{Name: "dicts", Type: collection.ParamTypeListOfDict},
+				{Name: "text", Type: collection.ParamTypeString},
+			}}},
+		Invoke: noop,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for key, want := range map[string]bool{"plain": true, "strings": true, "dicts": false, "text": false, "absent": false} {
+		if got := ListParam("listparamtest.target", key); got != want {
+			t.Errorf("ListParam(%q) = %v, want %v", key, got, want)
 		}
 	}
 }
