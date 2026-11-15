@@ -209,7 +209,7 @@ tasks:
 	// Refusals: a value the router rejects comes back structured; a module
 	// the router does not implement and a patch of an absent entry are
 	// refused before anything is sent.
-	bad := g.task("failed", "RC", "net.restconf.config", entry, "method=patch",
+	bad := g.task("failed", "RC", "net.restconf.config", "path=Cisco-IOS-XE-native:native/interface/Loopback=300", "method=patch",
 		`content={"Cisco-IOS-XE-native:Loopback": {"name": 300, "ip": {"address": {"primary": {"address": "999.1.1.1", "mask": "255.255.255.255"}}}}}`)
 	if !strings.Contains(fmt.Sprint(bad["error"]), "malformed-message") {
 		t.Errorf("a bad value: %v", bad["error"])
@@ -258,8 +258,8 @@ tasks:
 	}
 
 	// A restart of RESTCONF, waited for through its 502s.
-	g.run("adhoc", "R", "net.ios.config", "lines=no restconf")
-	g.run("adhoc", "R", "net.ios.config", "lines=restconf")
+	g.run("adhoc", "R", "net.ios.config", "lines:=[no restconf]")
+	g.run("adhoc", "R", "net.ios.config", "lines:=[restconf]")
 	waited := stats(g.task("ok", "RC", "wait.restconf", "timeout=900", "sleep=10"))
 	if toInt(waited["tries"]) < 1 {
 		t.Errorf("wait.restconf after a restart: %v", waited)
