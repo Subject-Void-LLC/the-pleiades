@@ -914,6 +914,21 @@
         "linux/amd64"
       ]
     },
+    "internal/catalog/net/gnmi": {
+      "seconds": {
+        "min": 3,
+        "max": 3
+      },
+      "memory_mb": {
+        "min": 83,
+        "max": 83
+      },
+      "runs": 1,
+      "last": "2026-11-15",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
     "internal/catalog/net/ios": {
       "seconds": {
         "min": 11,
@@ -3451,6 +3466,47 @@
       "last": "2026-10-29",
       "hosts": [
         "freebsd/amd64",
+        "linux/amd64"
+      ]
+    },
+    "pkg/gnmi": {
+      "seconds": {
+        "min": 2,
+        "max": 2
+      },
+      "memory_mb": {
+        "min": 60,
+        "max": 60
+      },
+      "runs": 1,
+      "last": "2026-11-15",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "pkg/gnmi/gnmilive": {
+      "seconds": {
+        "min": 45,
+        "max": 45
+      },
+      "memory_mb": {
+        "min": 1511,
+        "max": 1511
+      },
+      "runs": 1,
+      "last": "2026-11-15",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "pkg/gnmi/gnmitest": {
+      "seconds": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 1,
+      "last": "2026-11-15",
+      "hosts": [
         "linux/amd64"
       ]
     },
