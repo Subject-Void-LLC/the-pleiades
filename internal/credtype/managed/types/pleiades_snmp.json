@@ -3,7 +3,7 @@
   "namespace": "pleiades_snmp",
   "kind": "snmp",
   "managed": true,
-  "description": "An SNMPv1/v2c community, or an SNMPv3 USM user with its protocols and passphrases. AWX has no such type, so its namespace is this platform's own. On the native path it becomes the SNMP credential of each device of the job that can be logged into, in place of the SNMP fields of that device's own stored credential and beside its login; the Ansible path is given nothing from it. AES-192 and AES-256 are named twice, since two drafts extend a passphrase's key differently: aes192 and aes256 for the Blumenthal draft (net-snmp's), aes192-reeder and aes256-reeder for the Reeder draft (the Cisco variant). No SNMP client exists yet; Phase 97 builds one and proves each protocol.",
+  "description": "An SNMPv1/v2c community, or an SNMPv3 USM user with its protocols and passphrases. AWX has no such type, so its namespace is this platform's own. On the native path it becomes the SNMP credential of each device of the job that can be logged into, in place of the SNMP fields of that device's own stored credential and beside its login; the Ansible path is given nothing from it. AES-192 and AES-256 are named twice, since two drafts extend a passphrase's key differently: aes192 and aes256 for the Blumenthal draft (net-snmp's), aes192-reeder and aes256-reeder for the Reeder draft (the Cisco variant). No method speaks SNMP yet, so each protocol is accepted here and proven against a real agent before it is called supported.",
   "inputs": {
     "fields": [
       {

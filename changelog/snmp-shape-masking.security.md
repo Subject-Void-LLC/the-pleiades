@@ -1,0 +1,1 @@
+SNMP communities and SNMPv3 passphrases are masked by their shape in every output the platform masks: IOS `snmp-server community` and `snmp-server user` lines, and net-snmp `rocommunity`, `rwcommunity`, `com2sec` and `createUser` lines, keeping the keyword so a line still reads `snmp-server community ******** RO`. Network configuration a method reads masks the net-snmp lines too.

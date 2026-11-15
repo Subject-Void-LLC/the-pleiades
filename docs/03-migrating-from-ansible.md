@@ -617,9 +617,9 @@ work at first and then silently stop tracking the shipped one when a later relea
 corrects it. `kubernetes_bearer_token` is one AWX builds in Python; The Pleiades
 reproduces its behaviour in code, with one deliberate difference described under
 [Kubernetes clusters](10-running-in-production.md#kubernetes-clusters). The
-Pleiades also ships one type AWX has no counterpart for,
-`pleiades_kubernetes_client_certificate`; a namespace beginning `pleiades_` is
-always this platform's own.
+Pleiades also ships types AWX has no counterpart for,
+`pleiades_kubernetes_client_certificate`, `pleiades_postgres` and `pleiades_snmp`;
+a namespace beginning `pleiades_` is always this platform's own.
 
 **Not implemented.** A type AWX manages and The Pleiades does not, reported with the
 reason. Each is one of four things: AWX builds the type's environment in Python
