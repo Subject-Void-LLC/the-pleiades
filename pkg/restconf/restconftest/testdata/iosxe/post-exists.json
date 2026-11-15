@@ -1,0 +1,12 @@
+{
+  "ietf-restconf:errors": {
+    "error": [
+      {
+        "error-type": "application",
+        "error-tag": "data-exists",
+        "error-path": "/Cisco-IOS-XE-native:native/interface",
+        "error-message": "object already exists: /ios:native/ios:interface/ios:Loopback[ios:name='7701']"
+      }
+    ]
+  }
+}

@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -17,8 +18,11 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec/remoteexectest"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/restconf"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/restconf/restconftest"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/telnetexec"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/winrmexec"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
@@ -32,7 +36,11 @@ var refusals = map[string]error{
 	"an SSH host key": fmt.Errorf("exec.command: %w", &remoteexec.DialError{Addr: "a:22", Err: &knownhosts.KeyError{}}),
 	"a WinRM credential": fmt.Errorf("win.feature: %w", &winrmexec.NotStartedError{
 		Err: &net.OpError{Op: "remote error", Err: errors.New("tls: bad certificate")}}),
-	"a Telnet login":                  fmt.Errorf("net.cli.command: %w at a:23", telnetexec.ErrLoginRefused),
+	"a Telnet login": fmt.Errorf("net.cli.command: %w at a:23", telnetexec.ErrLoginRefused),
+	"a RESTCONF credential": fmt.Errorf("net.restconf.config: discovering the device: %w", &restconf.RefusedError{
+		Answer: &restconf.StatusError{Status: 401}}),
+	"a device certificate": fmt.Errorf("net.restconf.facts: %w", &url.Error{Op: "Get", URL: "https://a/.well-known/host-meta",
+		Err: &devicetls.UntrustedError{Fingerprint: "sha256:00", Cause: errors.New("its fingerprint is not the pinned sha256:11")}}),
 	"one that crossed from its child": wire.ChildResponse{Error: "exec.command: unable to authenticate", Refused: true}.Failure("exec.command: unable to authenticate"),
 }
 
@@ -227,5 +235,38 @@ func TestRunResult_SawRefusal(t *testing.T) {
 	}
 	if (engine.RunResult{}).SawRefusal() {
 		t.Error("an empty run reported a refusal")
+	}
+}
+
+// TestRefusedLogin_ARESTCONFServerIsSentItOnce runs an until task and a loop
+// whose method discovers a RESTCONF server over real TLS with a password it
+// refuses (401), and counts the logins the server was sent: one per task.
+// IOS XE counts each toward "aaa local authentication attempts max-fail".
+func TestRefusedLogin_ARESTCONFServerIsSentItOnce(t *testing.T) {
+	srv := restconftest.New(t, restconftest.Options{Username: "admin", Password: "right-Password-1"})
+	login := func(int, *engine.Task) (engine.ActionResult, error) {
+		client, _, err := restconf.ClientFor(restconftest.NewDevice(t, srv), "router", map[string]string{"username": "admin", "password": "wrong"})
+		if err != nil {
+			return engine.ActionResult{}, err
+		}
+		if _, err := client.Discover(context.Background()); err != nil {
+			return engine.ActionResult{}, fmt.Errorf("rbtest.step: %w", err)
+		}
+		return engine.ActionResult{}, nil
+	}
+	for name, runbook := range map[string]string{
+		"until": "    register: r\n    until: [\"result.r.ok == true\"]\n    retries: 3\n    delay: 0\n",
+		"loop":  "    loop: [a, b, c]\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			before := srv.Logins()
+			_, result, _ := runStepper(t, collection.ModeExecute, "id: real\nhosts: web\ntasks:\n  - rbtest.step:\n      note: x\n"+runbook, login)
+			if !result.HasErrors() {
+				t.Fatal("a refused login did not fail the task")
+			}
+			if got := srv.Logins() - before; got != 1 {
+				t.Fatalf("the server was sent %d logins for one task, want 1", got)
+			}
+		})
 	}
 }

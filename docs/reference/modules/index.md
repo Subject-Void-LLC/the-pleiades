@@ -23,15 +23,15 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | `gate` | 2 | 2 |
 | `http` | 3 | 3 |
 | `identity` | 6 | 6 |
-| `net` | 31 | 29 |
+| `net` | 33 | 31 |
 | `pkg` | 9 | 9 |
 | `pleiades` | 3 | 3 |
 | `scan` | 3 | 3 |
 | `svc` | 16 | 16 |
 | `virt` | 83 | 83 |
-| `wait` | 5 | 5 |
+| `wait` | 6 | 6 |
 | `win` | 12 | 12 |
-| **total** | **262** | **260** |
+| **total** | **265** | **263** |
 
 ## All methods
 
@@ -166,6 +166,8 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | [net.ovs.bridge](net/ovs/bridge.md) | implemented | Makes an Open vSwitch bridge exist with the datapath given, or not exist. |
 | [net.ovs.port](net/ovs/port.md) | implemented | Makes a port exist on an Open vSwitch bridge with the VLAN tag given, or not exist. |
 | [net.pcap.summary](net/pcap/summary.md) | implemented | Counts a packet capture in the project by protocol and address pair, encrypted apart from cleartext. |
+| [net.restconf.config](net/restconf/config.md) | implemented | Writes one YANG data resource over RESTCONF (post, put, patch or delete), reporting whether it changed, with an optional pre-change backup. |
+| [net.restconf.facts](net/restconf/facts.md) | implemented | Records what a device's RESTCONF server says about it: its root, capabilities, datastores and YANG modules. |
 | [net.ssh.ping](net/ssh/ping.md) | implemented | Opens a real SSH connection to the target and echoes a value back, to prove reachability. |
 | [net.trace](net/trace.md) | implemented | Traces the path to an address from a Linux device or a container on a container host, and fails when it is not the path expected. |
 | [pkg.apt.install](pkg/apt/install.md) | implemented | Makes sure a package is installed via APT. |
@@ -285,6 +287,7 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | [wait.connection](wait/connection.md) | implemented | Waits until the target answers a command over its own connection, SSH or WinRM. |
 | [wait.netconf](wait/netconf.md) | implemented | Waits until the target's NETCONF listener lets its account in and sends its hello. |
 | [wait.path](wait/path.md) | implemented | Waits for a file path on the target to exist (or stop existing). |
+| [wait.restconf](wait/restconf.md) | implemented | Waits until the target's RESTCONF server answers its account with the capability list under its root. |
 | [wait.routes](wait/routes.md) | implemented | Waits until a router has a route to every prefix given, or with state absent has none left, and its routing table has stopped changing. |
 | [wait.search](wait/search.md) | implemented | Waits for a pattern to appear in a file's contents on the target. |
 | [win.archive.extract](win/archive/extract.md) | implemented | Extracts a .zip, .tar or .tar.gz already on a Windows host into a folder there, over WinRM. |

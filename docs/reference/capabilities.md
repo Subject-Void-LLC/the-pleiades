@@ -48,6 +48,7 @@ What a device *can do*, not what it *is*. A Collection method declares which cap
 | `PosixAccountCapable` | - | - |
 | `RFC2217Capable` | - | - |
 | `RawPassthroughCapable` | - | - |
+| `RestconfCapable` | - | - |
 | `SSHTransportCapable` | - | - |
 | `SerialCapable` | - | - |
 | `ServiceManagerCapable` | - | `SystemdCapable`, `WindowsServiceCapable` |
@@ -62,7 +63,7 @@ What a device *can do*, not what it *is*. A Collection method declares which cap
 | `WindowsServiceCapable` | `ServiceManagerCapable` | - |
 | `WindowsShellCapable` | `CommandExecCapable` | - |
 
-51 capabilities registered.
+52 capabilities registered.
 
 ## Transports
 
@@ -78,6 +79,7 @@ How a method's work reaches its device. A method lists the transports it uses; a
 | `https` | `HTTPAPICapable`, `CatalystAPICapable`, `AIProviderCapable`, `CloudflareAPICapable`, `BatfishAPICapable`, `CMLAPICapable`, `ContainerlabAPICapable` |
 | `kubernetes` | `KubernetesCapable` |
 | `netconf` | `NetconfCapable` |
+| `restconf` | `RestconfCapable` |
 | `ssh` | `SSHTransportCapable` |
 | `telnet` | `TelnetCapable` |
 | `winrm` | `WinRMCapable` |

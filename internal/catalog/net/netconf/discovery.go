@@ -3,7 +3,6 @@
 package netconf
 
 import (
-	"encoding/json"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -15,50 +14,46 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/netconf"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/yangfacts"
 )
 
-// The facts every NETCONF session records about its device. The module set
-// belongs to the device's management plane rather than to NETCONF (RESTCONF
-// on the same device serves the same library), so it is the yang. family; the
-// capabilities and datastores are NETCONF's own.
+// The facts every NETCONF session records about its device. The data models
+// belong to the device's management plane rather than to NETCONF (RESTCONF
+// on the same device serves the same library), so they are the yang. family,
+// built by pkg/yangfacts for every protocol and protocol-neutral (owner
+// decision 2026-11-15); the capabilities, the datastores and the modules
+// NETCONF's server lists for itself are NETCONF's own.
 const (
 	factCapabilities = "netconf.capabilities"
 	factDatastores   = "netconf.datastores"
-	factModules      = "yang.modules"
-	factModuleCount  = "yang.module_count"
-	factModuleDigest = "yang.modules_digest"
-	factCompleteness = "yang.completeness"
-	factContentID    = "yang.content_id"
+	factOwnModules   = "netconf.modules"
+	factModules      = yangfacts.FactModules
+	factModuleCount  = yangfacts.FactModuleCount
+	factModuleDigest = yangfacts.FactModuleDigest
+	factCompleteness = yangfacts.FactCompleteness
+	factContentID    = yangfacts.FactContentID
 )
 
 // discoveryFactKeys are every fact a session may record, for the manifest.
-var discoveryFactKeys = []string{
-	factCapabilities, factDatastores, factModules, factModuleCount, factModuleDigest, factCompleteness, factContentID,
-}
+var discoveryFactKeys = append([]string{factCapabilities, factDatastores, factOwnModules}, yangfacts.FactKeys...)
 
-// maxModulesFactBytes is the most the module list may take as JSON and still
-// be recorded, under the fact store's 64 KiB value bound with room for its own
-// encoding. The list is each module's name@revision, which is what a fleet
-// query asks of it (devices implementing Cisco-IOS-XE-native); the full
-// entries, with namespaces, features and deviations, are what
-// yang.modules_digest covers. A list past the bound is left out and the count
-// and digest, always present, still are, so the fact never changes type.
-// Measured on a Catalyst 8000V (IOS XE 17.15.1a): 559 modules as full entries
-// passed 60 KiB, as name@revision they are about 20 KiB.
-const maxModulesFactBytes = 60 << 10
+// netconfSource is where a NETCONF session reads the yang.* facts from.
+var netconfSource = yangfacts.Source{
+	Modules:       "from the device's YANG library (RFC 8525, or RFC 7895's modules-state) when it advertises one and from the hello otherwise",
+	Completeness:  "How far yang.modules is every module the device implements: complete (read from the YANG library, or from the hello of a device with none), partial (a library that could not be read, or came back empty for an account the device's access control hides it from), or unknown (a device that named no modules). A document is refused for a namespace the device does not serve only when this is complete.",
+	ContentID:     "when the device advertises yang-library:1.1",
+	ContentIDFrom: "from the hello",
+	Fallback:      "the hello's, ",
+}
 
 // discoveryReturns documents the facts, one return each.
 func discoveryReturns() []collection.ReturnField {
 	const when = "on every session, as a stat; as a fact only when its host key was verified"
-	return []collection.ReturnField{
+	return append([]collection.ReturnField{
 		{Name: factCapabilities, Type: "list of string", Returned: when, Description: "Every capability the device's hello advertised that names no YANG module (RFC 6241's own and a vendor's), with its parameters but the volatile content-id and module-set-id, which yang.content_id holds, sorted; the YANG module capabilities are in yang.modules instead. Left out, with a warning, when it does not fit in 60 KiB. Read on every session, so a device that changes what it offers (IOS XE drops :writable-running when its candidate datastore is turned on) reads as a change."},
 		{Name: factDatastores, Type: "list of string", Returned: when, Description: "The datastores the session could use, sorted: running always, candidate and startup when the hello advertises them, and every datastore the device's YANG library lists (an NMDA device's operational and intended)."},
-		{Name: factModules, Type: "list of string", Returned: "when the list fits in 60 KiB as JSON", Description: "Every YANG module the device implements, each as name@revision (the name alone for a module with no revision), sorted, read from the device's YANG library (RFC 8525, or RFC 7895's modules-state) when it advertises one and from the hello otherwise. An entry that is not a YANG identifier, a revision date or a printable namespace is left out whole, never cut short. Left out when the list does not fit; yang.module_count and yang.modules_digest are always recorded."},
-		{Name: factModuleCount, Type: "int", Returned: when, Description: "How many YANG modules the device implements, as yang.modules counts them."},
-		{Name: factModuleDigest, Type: "string", Returned: when, Description: "The SHA-256 (hex) of the module set in its canonical form (every module's name, namespace, revision, features and deviations, sorted, as JSON), so two devices implementing the same modules read alike and any change to the set reads as a change of this one value."},
-		{Name: factCompleteness, Type: "string", Returned: when, Description: "How far yang.modules is every module the device implements: complete (read from the YANG library, or from the hello of a device with none), partial (a library that could not be read, or came back empty for an account the device's access control hides it from), or unknown (a device that named no modules). A document is refused for a namespace the device does not serve only when this is complete."},
-		{Name: factContentID, Type: "string", Returned: "when the device advertises yang-library:1.1", Description: "The YANG library's content-id from the hello, a hint the device may regenerate on restart; yang.modules_digest is the module set's identity."},
-	}
+		{Name: factOwnModules, Type: "list of string", Returned: when, Description: yangfacts.OwnModulesDescription("NETCONF")},
+	}, yangfacts.Returns(when, netconfSource)...)
 }
 
 // recordDiscovery records d as facts and stats on the device, unless the
@@ -70,54 +65,32 @@ func recordDiscovery(rc sdk.RunbookContext, params map[string]any, d netconf.Dis
 	if err != nil {
 		return nil, err
 	}
-	values := map[string]any{
-		factCapabilities: capabilities,
-		factDatastores:   nonNil(d.Datastores),
-		factModuleCount:  len(d.Modules),
-		factModuleDigest: d.ModulesDigest(),
-		factCompleteness: string(d.Completeness),
-	}
-	if d.ContentID != "" {
-		values[factContentID] = d.ContentID
-	}
-	modules, err := modulesValue(d.Modules)
+	values, schemaWarnings, err := yangfacts.Values(d, netconfSource)
 	if err != nil {
 		return nil, err
 	}
-	if modules != nil {
-		values[factModules] = modules
-	}
+	values[factCapabilities] = capabilities
+	values[factDatastores] = yangfacts.NonNil(d.Datastores)
 	var warnings []string
+	own, fits, err := yangfacts.OwnModules(d)
+	if err != nil {
+		return nil, err
+	}
+	if fits {
+		values[factOwnModules] = own
+	} else {
+		warnings = append(warnings, "the modules NETCONF's server lists for itself do not fit in 60 KiB; "+factOwnModules+" is left out")
+	}
 	if len(capabilities) == 0 && len(d.Protocol) > 0 {
 		warnings = append(warnings, fmt.Sprintf("the device advertises %d capabilities, more than %s holds in 60 KiB; left out", len(d.Protocol), factCapabilities))
 	}
-	if modules == nil && len(d.Modules) > 0 {
-		warnings = append(warnings, fmt.Sprintf("the device implements %d YANG modules, more than %s holds in 60 KiB; recorded by count and digest only", len(d.Modules), factModules))
-	}
-	if d.LibraryError != "" {
-		warnings = append(warnings, "the device's YANG library was not read ("+d.LibraryError+"); the module list is the hello's, "+string(d.Completeness))
-	}
-	if d.Dropped > 0 {
-		warnings = append(warnings, fmt.Sprintf("%d malformed or oversized capability or module entries from the device were left out: %s", d.Dropped, strings.Join(d.DroppedSamples, ", ")))
-	}
+	warnings = append(warnings, schemaWarnings...)
 	skip, err := sdk.BoolParamOr(params, sdk.ParamInsecureSkipHostKeyVerify, false)
 	if err != nil {
 		return nil, err
 	}
-	for _, key := range discoveryFactKeys {
-		value, ok := values[key]
-		if !ok {
-			continue
-		}
-		if err := rc.SetStat(key, value); err != nil {
-			return nil, err
-		}
-		if skip {
-			continue
-		}
-		if err := rc.EmitFact(key, value); err != nil {
-			return nil, err
-		}
+	if err := yangfacts.Record(rc, discoveryFactKeys, values, !skip); err != nil {
+		return nil, err
 	}
 	if skip {
 		warnings = append(warnings, "the host key was not verified, so nothing this session discovered is recorded as a fact")
@@ -133,18 +106,14 @@ var volatileCapabilityParams = []string{"content-id", "module-set-id"}
 
 // capabilitiesValue is protocol as netconf.capabilities records it: each
 // capability without its volatile parameters, sorted, and empty when the list
-// does not fit in maxModulesFactBytes as JSON.
+// does not fit in yangfacts.MaxListFactBytes as JSON.
 func capabilitiesValue(protocol []string) ([]string, error) {
 	out := make([]string, 0, len(protocol))
 	for _, c := range protocol {
 		out = append(out, withoutVolatileParams(c))
 	}
 	sort.Strings(out)
-	raw, err := json.Marshal(out)
-	if err != nil {
-		return nil, err
-	}
-	if len(raw) > maxModulesFactBytes {
+	if !yangfacts.Fits(out) {
 		return []string{}, nil
 	}
 	return out, nil
@@ -168,35 +137,6 @@ func withoutVolatileParams(capability string) string {
 		return base
 	}
 	return base + "?" + strings.Join(kept, "&")
-}
-
-// modulesValue is modules as the fact's value, each name@revision (name alone
-// for a module with no revision), nil when the list does not fit.
-func modulesValue(modules []netconf.Module) ([]string, error) {
-	out := make([]string, 0, len(modules))
-	for _, m := range modules {
-		if m.Revision == "" {
-			out = append(out, m.Name)
-		} else {
-			out = append(out, m.Name+"@"+m.Revision)
-		}
-	}
-	raw, err := json.Marshal(out)
-	if err != nil {
-		return nil, err
-	}
-	if len(raw) > maxModulesFactBytes {
-		return nil, nil
-	}
-	return out, nil
-}
-
-// nonNil is list, or an empty list for nil, so a fact is always a list.
-func nonNil(list []string) []string {
-	if list == nil {
-		return []string{}
-	}
-	return list
 }
 
 // baseNamespace is NETCONF's own namespace, which a document names for its

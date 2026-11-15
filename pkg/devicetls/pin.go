@@ -43,6 +43,13 @@ func (e *UntrustedError) Error() string {
 // Unwrap returns why the certificate was not trusted.
 func (e *UntrustedError) Unwrap() error { return e.Cause }
 
+// Refused reports that this side refused the device's certificate: asking
+// again presents the same certificate and gets the same refusal, so the
+// engine's Refused stops a task's until and its loop's next item from
+// trying again, as it does for an SSH host key known_hosts refuses. No
+// credential was sent: the handshake ended before any request.
+func (e *UntrustedError) Refused() bool { return true }
+
 // untrusted describes leaf as an UntrustedError for cause.
 func untrusted(leaf *x509.Certificate, cause error) *UntrustedError {
 	return &UntrustedError{

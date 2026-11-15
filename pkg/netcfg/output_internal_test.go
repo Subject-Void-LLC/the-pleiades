@@ -8,16 +8,17 @@ import (
 
 // TestMaskOutput_TheRemainingPaths covers the answers MaskOutput gives that
 // its form tests do not reach: well-formed XML that MaskXML refuses, a
-// secret the device escaped so it cannot be found in place, a non-secret
-// shape left alone, and arrays of scalars inside an object.
+// secret the device escaped another way (masked whole all the same, since
+// the leaf is read decoded), a non-secret shape left alone, and arrays of
+// scalars inside an object.
 func TestMaskOutput_TheRemainingPaths(t *testing.T) {
 	if _, _, err := MaskOutput(`<config password="x"/>`); err == nil {
 		t.Error("an attribute naming a secret was not refused")
 	}
 	// A JSON \u escape, built in code so no tool turns it into the letter.
 	escaped := `{"secret": "` + string(rune(92)) + `u0041bcdefghijkl"}`
-	if _, _, err := MaskOutput(escaped); err == nil {
-		t.Error("a secret escaped so it cannot be replaced in place was not refused")
+	if masked, _, err := MaskOutput(escaped); err != nil || masked != `{"secret": "`+Placeholder("Abcdefghijkl")+`"}` {
+		t.Errorf("a secret the device escaped = %q, %v; want it masked whole", masked, err)
 	}
 	out := `<name>r1</name><type>9</type><secret></secret> cut short`
 	if masked, _, err := MaskOutput(out); err != nil || masked != out {

@@ -468,6 +468,7 @@ DOCKER_DEPENDENT_PACKAGES := \
 	github.com/Subject-Void-LLC/the-pleiades/pkg/kubeapi \
 	github.com/Subject-Void-LLC/the-pleiades/pkg/netconf \
 	github.com/Subject-Void-LLC/the-pleiades/pkg/pgclient \
+	github.com/Subject-Void-LLC/the-pleiades/pkg/restconf/restconflive \
 	github.com/Subject-Void-LLC/the-pleiades/pkg/scpxfer \
 	github.com/Subject-Void-LLC/the-pleiades/pkg/sftpxfer \
 	github.com/Subject-Void-LLC/the-pleiades/tests/e2e

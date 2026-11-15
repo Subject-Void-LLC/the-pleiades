@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/datastore"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/yanglib"
 )
 
 // The fixtures in testdata were captured on 2026-11-14 from a Cisco Catalyst
@@ -100,12 +101,12 @@ func TestDiscoverFromHello_ARealIOSXEHello(t *testing.T) {
 }
 
 func TestReadLibrary_ARealIOSXEYANGLibrary(t *testing.T) {
-	modules, datastores, err := readLibrary([]byte(fixture(t, "c8k-17.15.1a-yang-library-reply.xml.gz")))
+	lib, err := readLibrary([]byte(fixture(t, "c8k-17.15.1a-yang-library-reply.xml.gz")))
 	if err != nil {
 		t.Fatal(err)
 	}
 	var d Discovery
-	kept := keepModules(modules, &d)
+	kept := yanglib.KeepModules(lib.Modules, &d)
 	if len(kept) != 559 || d.Dropped != 0 {
 		t.Fatalf("library modules = %d with %d dropped (%v), want all 559 kept", len(kept), d.Dropped, d.DroppedSamples)
 	}
@@ -113,7 +114,7 @@ func TestReadLibrary_ARealIOSXEYANGLibrary(t *testing.T) {
 	if native == nil || native.Namespace != "http://cisco.com/ns/yang/Cisco-IOS-XE-native" || native.Revision != "2024-07-01" {
 		t.Errorf("Cisco-IOS-XE-native = %+v, want its namespace and the 2024-07-01 revision", native)
 	}
-	if got := strings.Join(datastoresFrom(nil, datastores), ","); got != "intended,operational,running" {
+	if got := strings.Join(datastoresFrom(nil, lib.Datastores), ","); got != "intended,operational,running" {
 		t.Errorf("datastores = %q, want the NMDA set the library lists", got)
 	}
 }
@@ -123,16 +124,16 @@ func TestReadLibrary_ARealIOSXEYANGLibrary(t *testing.T) {
 // import-only ones among them, and with those left out the implemented set
 // is the yang-library's own.
 func TestReadLibrary_ModulesStateLeavesImportOnlyModulesOut(t *testing.T) {
-	library, _, err := readLibrary([]byte(fixture(t, "c8k-17.15.1a-yang-library-reply.xml.gz")))
+	library, err := readLibrary([]byte(fixture(t, "c8k-17.15.1a-yang-library-reply.xml.gz")))
 	if err != nil {
 		t.Fatal(err)
 	}
-	state, _, err := readLibrary([]byte(fixture(t, "c8k-17.15.1a-modules-state-reply.xml.gz")))
+	state, err := readLibrary([]byte(fixture(t, "c8k-17.15.1a-modules-state-reply.xml.gz")))
 	if err != nil {
 		t.Fatal(err)
 	}
 	var a, b Discovery
-	fromLibrary, fromState := keepModules(library, &a), keepModules(state, &b)
+	fromLibrary, fromState := yanglib.KeepModules(library.Modules, &a), yanglib.KeepModules(state.Modules, &b)
 	if len(fromState) == 0 {
 		t.Fatal("modules-state gave no modules")
 	}
@@ -163,44 +164,16 @@ func TestReadLibrary_PrefixesDeclaredOnTheReply(t *testing.T) {
 		`<yl:module><yl:name>junos-conf-root</yl:name><yl:revision>2023-01-01</yl:revision><yl:namespace>http://yang.juniper.net/junos/conf/root</yl:namespace><yl:feature>f1</yl:feature></yl:module>` +
 		`</yl:module-set><yl:datastore><yl:name xmlns:ds="urn:ietf:params:xml:ns:yang:ietf-datastores">ds:running</yl:name></yl:datastore>` +
 		`<yl:content-id>7</yl:content-id></yl:yang-library></nc:data></nc:rpc-reply>`
-	modules, datastores, err := readLibrary([]byte(reply))
+	lib, err := readLibrary([]byte(reply))
 	if err != nil {
 		t.Fatal(err)
 	}
+	modules, datastores := lib.Modules, lib.Datastores
 	if len(modules) != 1 || modules[0].Name != "junos-conf-root" || modules[0].Namespace != "http://yang.juniper.net/junos/conf/root" || len(modules[0].Features) != 1 {
 		t.Errorf("modules = %+v, want the one prefixed module with its feature", modules)
 	}
 	if len(datastores) != 1 || datastores[0] != "running" {
 		t.Errorf("datastores = %v, want running, read from the ds: identityref", datastores)
-	}
-}
-
-func TestKeepModules_RefusesAMalformedEntryWhole(t *testing.T) {
-	ok := Module{Name: "good", Namespace: "urn:good", Revision: "2024-01-01", Features: []string{"b", "a", "bad feature"}}
-	var d Discovery
-	kept := keepModules([]Module{
-		ok,
-		ok, // a duplicate
-		{Name: "bad\x1bname", Namespace: "urn:x"},
-		{Name: "rev", Namespace: "urn:x", Revision: "2024-1-1"},
-		{Name: "ns", Namespace: "urn:\xe2\x80\xaex"},
-		{Name: "long", Namespace: "urn:" + strings.Repeat("x", maxNamespaceBytes)},
-		{Name: "", Namespace: "urn:x"},
-		{Name: "alpha", Namespace: "urn:alpha"},
-	}, &d)
-	if len(kept) != 2 || kept[0].Name != "alpha" || kept[1].Name != "good" {
-		t.Fatalf("kept = %+v, want alpha and good, sorted", kept)
-	}
-	if got := strings.Join(kept[1].Features, ","); got != "a,b" {
-		t.Errorf("features = %q, want the identifiers alone, sorted", got)
-	}
-	if d.Dropped != 5 {
-		t.Errorf("Dropped = %d, want the five malformed entries", d.Dropped)
-	}
-	for _, s := range d.DroppedSamples {
-		if strings.ContainsAny(s, "\x1b\xe2\x80\xae") {
-			t.Errorf("sample %s carries a control character; samples are quoted", s)
-		}
 	}
 }
 
@@ -411,5 +384,15 @@ func TestDiscovery_ADroppedEntryMakesTheListPartial(t *testing.T) {
 	}
 	if _, known := d.Serves("urn:x:w"); known {
 		t.Error("Serves answered on a list known to miss an entry")
+	}
+}
+
+// TestDiscovery_ARefusedProtocolCapabilityLeavesTheListComplete: a hello
+// capability that names no module, refused as unprintable, says nothing about
+// the modules, so a hello listing them all with no library is still complete.
+func TestDiscovery_ARefusedProtocolCapabilityLeavesTheListComplete(t *testing.T) {
+	d := discoverFromHello([]string{CapabilityBase11, "urn:vendor:bad\x1b", "urn:x:v?module=v&revision=2024-01-01"})
+	if d.Completeness != Complete || d.Dropped != 1 || d.ModulesDropped != 0 {
+		t.Errorf("Completeness = %s, Dropped = %d, ModulesDropped = %d; want complete with the capability counted", d.Completeness, d.Dropped, d.ModulesDropped)
 	}
 }

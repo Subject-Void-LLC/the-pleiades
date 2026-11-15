@@ -1,0 +1,11 @@
+{
+  "ietf-restconf:errors": {
+    "error": [
+      {
+        "error-type": "application",
+        "error-tag": "operation-failed",
+        "error-message": "Server is going down"
+      }
+    ]
+  }
+}

@@ -53,6 +53,7 @@
  "pkg/kubeapi": 37,
  "pkg/netconf": 23,
  "pkg/pgclient": 16,
+ "pkg/restconf/restconflive": 15,
  "pkg/scpxfer": 10,
  "pkg/sftpxfer": 12,
  "tests/e2e TestBackupReleaseGate_ComposeFromBackupToACleanMachine": 245,

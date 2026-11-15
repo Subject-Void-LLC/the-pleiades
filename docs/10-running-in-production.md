@@ -1245,8 +1245,8 @@ an operator.
   inventory to promote.
 - **Added through the API or the web UI.** A device created there is `active`, unless its
   type is a generic one (below).
-- **A generic device is onboarded.** A `generic_ssh`, `generic_netconf`, `generic_http` or
-  `generic_grpc` device, however it was added, starts `discovered`, which runs nothing.
+- **A generic device is onboarded.** A `generic_ssh`, `generic_netconf`, `generic_restconf`,
+  `generic_http` or `generic_grpc` device, however it was added, starts `discovered`, which runs nothing.
   Onboarding (`pleiades onboard <name>`, or `POST /api/v1/inventory/devices/{name}/onboard`)
   moves it to `onboarding`, probes it over its protocol, and moves it to `active` when the
   probe proves the device; a failed first probe leaves it `onboarding` with the reason in the
@@ -2035,7 +2035,7 @@ Controller connects to the device, not a Runner. So the Controller needs what a 
 needs: the device's credential in the same per-device store a dispatch reads
 (`CONTROLLER_CREDENTIALS_DIR`), the device's host key in its known_hosts
 (`PLEIADES_KNOWN_HOSTS`, or its own `~/.ssh/known_hosts`) for `generic_ssh` and
-`generic_netconf`, and, for a `generic_http` or `generic_grpc` device, a way to trust its
+`generic_netconf`, and, for a `generic_restconf`, `generic_http` or `generic_grpc` device, a way to trust its
 certificate: the system's roots, `SSL_CERT_FILE`, or the device's own `tls_ca_pem` (below). No
 probe skips a host key or a certificate check, and there is no setting that makes one.
 

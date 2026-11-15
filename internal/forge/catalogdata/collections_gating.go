@@ -264,6 +264,47 @@ var gatingCollections = []collectionscaffold.Config{
 			SeeAlso: []string{"wait.connection", "net.netconf.config", "virt.cml.lab.start"},
 		},
 	},
+	// wait.restconf is wait.netconf's RESTCONF sibling: a device's HTTPS can
+	// answer for minutes before its RESTCONF does (a Catalyst 8000V's read
+	// under /restconf answered 502 for over seven minutes, measured).
+	{
+		Name:          "wait.restconf",
+		Capabilities:  []capability.Name{capability.NameRestconf},
+		Transports:    []string{"restconf"},
+		EngineVersion: engineVersion,
+		Doc: collection.Doc{
+			Summary: "Waits until the target's RESTCONF server answers its account with the capability list under its root.",
+			Description: "Tries the device's RESTCONF server until an authenticated read under its root answers, and fails when the timeout runs out first: each try reads the origin's /.well-known/host-meta with no credential to find the root (taking the conventional /restconf when it answers 404 or a redirect, which is never followed), then, with the device's credential, the capability list ietf-restconf-monitoring keeps under it, through the same client the net.restconf.* methods use. " +
+				"It is the task to put between one that starts a network device and the first net.restconf.* task: a device's HTTPS can answer long before its RESTCONF does (a Catalyst 8000V running IOS XE 17.15.1a, measured, served its web server's own page at / over TLS 1.3 while every read under /restconf answered 502 for more than seven minutes after its licence reload), so an answer at / is not readiness, and wait.connection, which logs in over SSH, says nothing about it. " +
+				"Each try is a new client on a new connection, so a connection kept open from an earlier try is never taken for an answer. " +
+				"The device's own TLS settings decide which certificate is trusted, and nothing here can weaken them: a certificate they do not trust ends the wait at once, before any request is sent, naming its subject and fingerprint and the tls_fingerprint or tls_ca_pem property that would trust it once checked; and so does a login the device refuses (401, or 403 to the first read under the root), since neither changes by being asked again and a password sent at every try can lock the account. " +
+				"A server that refuses or resets the connection, sends no answer within connect_timeout, answers 500, 502, 503 or 504, answers anything but the capability list, or answers the capability read under the conventional root 404 is tried again until the timeout. A host-meta answered 404 or a redirect is not a failed try in itself: IOS XE answers host-meta only to a valid login, and otherwise, a wrong password included, with a 302 to its WebUI's login page, which answers 404 (measured on 17.15.1a, 2026-11-15), so the credential is never sent there and the read under /restconf decides, where a wrong password is a 401 that ends the wait after one attempt. " +
+				"A failed try is not an error, since it is what the task waits to see stop; the last one is quoted when the timeout ends the wait. " +
+				"The delay, backoff and steady parameters work as wait.connection's do. It changes nothing.",
+			Params: []collection.Param{
+				{Name: "timeout", Type: "int", Default: "600", Description: "How many seconds to wait in total before giving up, counted from the start of the task, so the delay comes out of it. Must be more than 0."},
+				{Name: "delay", Type: "int", Default: "0", Description: "How many seconds to wait before the first try. Must be shorter than the timeout, which it is spent out of."},
+				{Name: "sleep", Type: "int", Default: "5", Description: "How many seconds to wait between tries, or with backoff: exponential before the second try, the gap doubling after each failed one. Must be more than 0."},
+				{Name: "backoff", Type: "string", Default: "fixed", Choices: []string{"fixed", "exponential"}, Description: "How the gap between failed tries grows: fixed keeps it at sleep; exponential doubles it after each failed try, up to max_sleep, each gap a random point in its upper half."},
+				{Name: "max_sleep", Type: "int", Default: "60", Description: "With backoff: exponential, the longest gap between tries, in seconds. Not less than sleep; refused with backoff: fixed, where it would do nothing."},
+				{Name: "steady", Type: "int", Default: "1", Description: "How many tries in a row must open a session before the listener counts as ready. Each is its own login. Must be at least 1, and the streak must fit in the timeout after the delay."},
+				{Name: "steady_interval", Type: "int", Default: "10", Description: "With steady above 1, the seconds between the answering tries. Must be more than 0; refused with steady 1, where it would do nothing."},
+				{Name: "connect_timeout", Type: "int", Default: "20", Description: "How many seconds one try may take, from the connection to the capability list's answer, before it counts as failed. Must be more than 0."},
+			},
+			Returns: []collection.ReturnField{
+				{Name: "elapsed", Type: "int", Returned: "always", Description: "How many whole seconds the task waited, including the delay."},
+				{Name: "root", Type: "string", Returned: "always", Description: "The RESTCONF root on the try that answered, as an escaped path such as /restconf, or / for a root at the device's origin itself."},
+				{Name: "root_source", Type: "string", Returned: "always", Description: "How root was learned: host-meta (its restconf link) or default (host-meta answered 404 or a redirect, as IOS XE answers it to anything but a valid login with a 302 to its WebUI's login page (404 there), and the read under the conventional /restconf answered)."},
+				{Name: "tries", Type: "int", Returned: "always", Description: "How many tries the task made, answered or not."},
+				{Name: "failures", Type: "int", Returned: "always", Description: "How many of those tries did not answer."},
+				{Name: "diff", Type: "dict", Returned: "always", Description: "The root that answered. Both halves are identical, since a wait changes nothing."},
+			},
+			Examples: []collection.Example{
+				{Name: "Wait for a router's RESTCONF server after it boots", RunbookYAML: "- name: Wait for the router's RESTCONF server to answer its account\n  wait.restconf:\n    timeout: 900\n    sleep: 10\n"},
+			},
+			SeeAlso: []string{"wait.netconf", "net.restconf.config", "net.restconf.facts"},
+		},
+	},
 	{
 		Name:          "facts.gather",
 		Capabilities:  []capability.Name{capability.NameFactGatherer},

@@ -12,15 +12,17 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/generic"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 )
 
 // addressed is the least each type needs to build.
 var addressed = map[string]map[string]inventory.PropertyValue{
-	generic.TypeSSH:     {"host": "10.0.0.1"},
-	generic.TypeNetconf: {"host": "10.0.0.2"},
-	generic.TypeHTTP:    {generic.BaseURLProperty: "https://api.example.com"},
-	generic.TypeGRPC:    {generic.GRPCTargetProperty: "grpc.example.com:443"},
+	generic.TypeSSH:      {"host": "10.0.0.1"},
+	generic.TypeNetconf:  {"host": "10.0.0.2"},
+	generic.TypeHTTP:     {generic.BaseURLProperty: "https://api.example.com"},
+	generic.TypeRestconf: {generic.BaseURLProperty: "https://router.example.com"},
+	generic.TypeGRPC:     {generic.GRPCTargetProperty: "grpc.example.com:443"},
 }
 
 // buildWith builds deviceType from its address, the extra properties and
@@ -157,6 +159,36 @@ func TestHTTP_RefusesUnusableRecords(t *testing.T) {
 	}
 }
 
+// TestRestconf_RefusesUnusableRecords covers the origin, credential and TLS
+// rules generic_restconf enforces, with basic authentication its default.
+func TestRestconf_RefusesUnusableRecords(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		props map[string]inventory.PropertyValue
+		ok    bool
+	}{
+		{"https with the default credential", map[string]inventory.PropertyValue{generic.BaseURLProperty: "https://r.example:8443"}, true},
+		{"https with a trailing slash", map[string]inventory.PropertyValue{generic.BaseURLProperty: "https://r.example/"}, true},
+		{"https with bearer", map[string]inventory.PropertyValue{generic.BaseURLProperty: "https://r.example", generic.HTTPAuthProperty: "bearer"}, true},
+		{"http without a credential", map[string]inventory.PropertyValue{generic.BaseURLProperty: "http://r.example", generic.HTTPAuthProperty: "none"}, true},
+		{"http with the default credential", map[string]inventory.PropertyValue{generic.BaseURLProperty: "http://r.example"}, false},
+		{"http with the opt-in", map[string]inventory.PropertyValue{generic.BaseURLProperty: "http://r.example", "http_allow_plaintext_credentials": true}, true},
+		{"an opt-in not a boolean", map[string]inventory.PropertyValue{generic.BaseURLProperty: "http://r.example", "http_allow_plaintext_credentials": "yes"}, false},
+		{"a path", map[string]inventory.PropertyValue{generic.BaseURLProperty: "https://r.example/restconf"}, false},
+		{"user information", map[string]inventory.PropertyValue{generic.BaseURLProperty: "https://u:p@r.example"}, false},
+		{"unknown credential mode", map[string]inventory.PropertyValue{generic.BaseURLProperty: "https://r.example", generic.HTTPAuthProperty: "digest"}, false},
+		{"a TLS setting over http", map[string]inventory.PropertyValue{generic.BaseURLProperty: "http://r.example", generic.HTTPAuthProperty: "none", "tls_server_name": "r"}, false},
+		{"no base URL", map[string]inventory.PropertyValue{generic.BaseURLProperty: ""}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := buildWith(t, generic.TypeRestconf, tc.props, nil)
+			if (err == nil) != tc.ok {
+				t.Fatalf("err %v, want ok=%v", err, tc.ok)
+			}
+		})
+	}
+}
+
 // TestGRPC_RefusesUnusableRecords covers the target and plaintext rules.
 func TestGRPC_RefusesUnusableRecords(t *testing.T) {
 	for _, tc := range []struct {
@@ -268,6 +300,32 @@ func TestAccessors(t *testing.T) {
 		t.Errorf("HTTP accessors: %q %q %q %q", api.HTTPBaseURL(), api.HTTPAuth(), api.OpenAPIPath(), api.IPAddress())
 	}
 
+	r, err := buildWith(t, generic.TypeRestconf, map[string]inventory.PropertyValue{generic.BaseURLProperty: "https://router.example.com:8443/"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rc := r.(interface {
+		capability.RestconfCapable
+		capability.NetworkAddressableCapable
+	})
+	if rc.RestconfBaseURL() != "https://router.example.com:8443/" || rc.RestconfAuth() != "basic" || rc.RestconfAllowPlaintextCredentials() || rc.IPAddress() != "router.example.com" {
+		t.Errorf("RESTCONF accessors: %q %q %v %q", rc.RestconfBaseURL(), rc.RestconfAuth(), rc.RestconfAllowPlaintextCredentials(), rc.IPAddress())
+	}
+	named, err := buildWith(t, generic.TypeRestconf, map[string]inventory.PropertyValue{"tls_server_name": "router.internal"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := named.(devicetls.Configured).TLSSettings().ServerName; got != "router.internal" {
+		t.Errorf("TLSSettings().ServerName = %q, want the record's tls_server_name", got)
+	}
+	binder := named.(inventory.DiscoveryBinder)
+	if binder.DiscoveryBinding() == "" || binder.DiscoveryBinding() != generic.Binding(generic.TypeRestconf, named.Properties()) {
+		t.Error("generic_restconf's discovery binding is not its bound properties' digest")
+	}
+	if _, err := buildWith(t, generic.TypeRestconf, map[string]inventory.PropertyValue{inventory.DiscoveredProperty: "yes"}, nil); err == nil {
+		t.Error("a malformed discovery was accepted by generic_restconf")
+	}
+
 	n, err := buildWith(t, generic.TypeNetconf, map[string]inventory.PropertyValue{"port": 2830, "netconf_port": 1830}, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -324,8 +382,9 @@ func TestSSH_ARecordSettingWinsOverTheDiscovery(t *testing.T) {
 // repointed is, per bound type, a change to the address its discovery was
 // made against.
 var repointed = map[string]map[string]inventory.PropertyValue{
-	generic.TypeHTTP: {generic.BaseURLProperty: "https://attacker.example.net"},
-	generic.TypeGRPC: {generic.GRPCTargetProperty: "attacker.example.net:443"},
+	generic.TypeHTTP:     {generic.BaseURLProperty: "https://attacker.example.net"},
+	generic.TypeRestconf: {generic.BaseURLProperty: "https://attacker.example.net"},
+	generic.TypeGRPC:     {generic.GRPCTargetProperty: "attacker.example.net:443"},
 }
 
 // TestGeneric_ARepointedDeviceHoldsOnlyItsBaseline is Phase 117a's S2 at

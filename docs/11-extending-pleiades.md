@@ -47,6 +47,7 @@ speaks rather than by what it is:
 |---|---|---|---|
 | `generic_ssh` | `host`, `port` | SSH transport, running a command | a POSIX shell, Linux, POSIX files, facts, systemd, firewalld, apt, dnf, POSIX accounts |
 | `generic_netconf` | `host`, `netconf_port` (830) | SSH transport | `NetconfCapable` |
+| `generic_restconf` | `base_url` (an origin with no path: the root comes from its `/.well-known/host-meta`), `http_auth` (`basic` unless set), the TLS settings | an address | `RestconfCapable` |
 | `generic_http` | `base_url`, `http_auth` (`none`, `basic`, `bearer`), the TLS settings | an address | `HTTPAPICapable` |
 | `generic_grpc` | `target` (`host:port`), `grpc_plaintext`, the TLS settings | an address | `GRPCCapable` |
 

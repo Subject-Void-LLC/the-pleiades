@@ -72,12 +72,12 @@ pre-1.0 project and the honest state is not what the docs' introductions might i
   secret is masked by value in every run (`engine.WithKnownSecrets`), `net.ios.command`'s stdout is masked,
   and `validate` warns on a key written out. A Runner and an external Collection cannot resolve one yet
   (`sdk.ErrNoNamedSecrets`). Proven live by `TestCLI_ANamedSecretKeysAnIKEv2TunnelAndNeverShows`.
-- **Module catalog: 259 registered FQCNs; 257 implemented, 2 declared-not-implemented (2026-11-02).** These counts
+- **Module catalog: 265 registered FQCNs; 263 implemented, 2 declared-not-implemented (2026-11-15).** These counts
   and every per-method status come from the generated
   `docs/reference/schemas/module-catalog.json`, which `tools/gendocs` builds from the real registry
   and which is authoritative over any hand-written tally in this file - read it rather than trusting
-  this paragraph, which has gone stale before. By namespace, implemented: `container` 37, `virt` 38, `ai` 11,
-  `svc` 16, `net` 25, `file` 14, `win` 12, `pkg` 9, `db` 6, `identity` 6, `cloud` 4, `build` 3, `edge` 3, `exec` 3, `fw` 3, `scan` 3, `wait` 4, `archive` 2, `fs` 2, `gate` 2,
+  this paragraph, which has gone stale before. By namespace, implemented: `virt` 83, `container` 37, `net` 31,
+  `svc` 16, `file` 14, `win` 12, `ai` 11, `pkg` 9, `db` 6, `identity` 6, `wait` 6, `cloud` 4, `build` 3, `edge` 3, `exec` 3, `fw` 3, `scan` 3, `archive` 2, `fs` 2, `gate` 2,
   `http` 3, `pleiades` 3, `facts` 1. The `svc` group is the 6 `svc.systemd.*`
   methods, the 5 `svc.windows.*` ones, and the 5 generic `svc.*` ones that resolve a device's
   service manager and dispatch to whichever applies, all built on `pkg/remotesvc`. The `net` group
@@ -95,12 +95,18 @@ pre-1.0 project and the honest state is not what the docs' introductions might i
   `pkg/netcli.Session.Dialog`, reading the parameters in `pkg/clidialog`; `ask:` hands a question
   nobody listed to a model (`pkg/aitask.Chooser`, Crawl tier only), which picks one of the
   author's own answers by id or refuses and never types its own. It is proven against a scripted
-  switch, not yet a real one. The thirteenth is
-  `net.netconf.config`, Phase 74a's, and it is the only one in the group that is not a terminal
-  session at all: it speaks RFC 6241 NETCONF over an SSH subsystem channel (`pkg/netconf`,
-  implementing the shared `pkg/datastore` port), so a rejected element comes back as a structured
-  error carrying the device's own error-tag and the XPath it objected to, rather than as a line of
-  vendor text. Its parameter names are `ansible.netcommon.netconf_config`'s.
+  switch, not yet a real one. Two families are not terminal sessions at all. `net.netconf.config`
+  (Phase 74a) and `net.netconf.facts` speak RFC 6241 NETCONF over an SSH subsystem channel
+  (`pkg/netconf`, implementing the shared `pkg/datastore` port), so a rejected element comes back as a
+  structured error carrying the device's own error-tag and the XPath it objected to, rather than as a
+  line of vendor text; parameter names are `ansible.netcommon.netconf_config`'s. `net.restconf.config`
+  and `net.restconf.facts` (Phase 74b) speak RFC 8040 RESTCONF over HTTPS (`pkg/restconf`) to a
+  `generic_restconf` device: change detection by reading before and after, an exact recorded undo for
+  a create, secret references in content; `wait.restconf` and `wait.netconf` wait for each listener.
+  Both families discover the device's YANG library on every session, and the `yang.*` facts are
+  protocol-neutral (each protocol's own modules go in `netconf.modules`/`restconf.modules`). RESTCONF is
+  proven on a real Catalyst 8000V by `TestCLI_RESTCONFFromDayZeroToDayN` (2026-11-15), NETCONF by
+  `TestCLI_NETCONFAndRESTCONFFromDayZeroToDayN`; neither on the Walk tier.
   **The short and decision-relevant list is what is NOT implemented, both of them:**
   `net.junos.config` and `net.eos.config`, which need a `JunosCapable`/`AristaEOSCapable` device
   type that does not exist yet (Phase 74d). (`file.template` is implemented: the engine renders the
@@ -165,7 +171,7 @@ pre-1.0 project and the honest state is not what the docs' introductions might i
   once; and a target already running (a project mid-sync) is a **skip** carrying
   `already_running`, never a failure, since a failure would be retried for as long as the first
   run lasts.
-- **Check mode is real for 244 of the 257 implemented methods (Phase 46; counts from the generated catalog, 2026-11-02).** `pleiades run --mode
+- **Check mode is real for 247 of the 263 implemented methods (Phase 46; counts from the generated catalog, 2026-11-15).** `pleiades run --mode
   check` runs each task's declared `Descriptor.Check` (`collection.ModeCheck`; the
   manifest's `SupportsCheck` must agree, enforced by `Register`) and names every other
   task as unchecked, ending non-zero. The engine refuses a check result carrying an
@@ -176,9 +182,9 @@ pre-1.0 project and the honest state is not what the docs' introductions might i
   checks only some calls answers the rest with `collection.CannotCheck`, and when the
   params alone decide (`exec.command`/`exec.shell` guards, `http.request`'s method) also
   sets `Descriptor.CheckCall`, which validation calls to refuse `check_mode` on such a
-  call. The thirteen methods with no check (`container.exec`, `net.cli.*`, `net.ios.command`,
-  `net.netconf.config`, `virt.clab.node.exec`, `virt.clab.vxlan.delete` and the six waits, `http.wait` among them; each
-  re-confirmed in C2c, 2026-11-02, when nine others gained a check) each carry
+  call. The sixteen methods with no check (`container.exec`, `net.cli.*`, `net.ios.command`,
+  `net.netconf.config`, `net.restconf.config`, `virt.clab.node.exec`, `virt.clab.vxlan.delete` and the eight waits, `http.wait`,
+  `wait.netconf` and `wait.restconf` among them; the first thirteen re-confirmed in C2c, 2026-11-02, when nine others gained a check) each carry
   `Manifest.NoCheckReason`, which `internal/archtest` requires of every built-in without
   check support. The generated module catalog's `supportsCheck` is the authority. The
   Walk tier runs checks too: the runbook launch kind's `mode` field (`launch.ModeField`, a
