@@ -139,6 +139,22 @@ func (d Discovery) ModulesDigest() string {
 	return hex.EncodeToString(sum[:])
 }
 
+// ServesModule reports whether the server implements the module named name,
+// with known false when the module list is not Complete, as Serves does: a
+// RESTCONF path names its modules by name where a NETCONF document names
+// them by namespace.
+func (d Discovery) ServesModule(name string) (served, known bool) {
+	if d.Completeness != Complete {
+		return false, false
+	}
+	for _, m := range d.Modules {
+		if m.Name == name {
+			return true, true
+		}
+	}
+	return false, true
+}
+
 // Serves reports whether the server implements a module in namespace. known
 // is false when the module list is not Complete, so no answer can be given:
 // a caller refuses a namespace only when known is true and served is false.

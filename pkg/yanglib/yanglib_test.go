@@ -355,3 +355,17 @@ func TestWithLibrary_ACapabilityDropLeavesTheListComplete(t *testing.T) {
 		t.Errorf("Completeness = %s, Dropped = %d, ModulesDropped = %d; want complete with the capability counted", d.Completeness, d.Dropped, d.ModulesDropped)
 	}
 }
+
+func TestDiscovery_ServesModuleByName(t *testing.T) {
+	d := Discovery{Completeness: Complete, Modules: []Module{{Name: "ietf-netconf-acm", Namespace: "urn:nacm"}}}
+	if served, known := d.ServesModule("ietf-netconf-acm"); !served || !known {
+		t.Errorf("ServesModule(ietf-netconf-acm) = %v, %v", served, known)
+	}
+	if served, known := d.ServesModule("absent"); served || !known {
+		t.Errorf("ServesModule(absent) = %v, %v; want not served, known", served, known)
+	}
+	d.Completeness = Partial
+	if _, known := d.ServesModule("absent"); known {
+		t.Error("ServesModule answered on a partial list")
+	}
+}

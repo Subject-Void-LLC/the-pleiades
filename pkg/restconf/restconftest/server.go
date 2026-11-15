@@ -98,6 +98,9 @@ type Options struct {
 	// Override answers the escaped request path it names with its handler,
 	// before anything above.
 	Override map[string]http.HandlerFunc
+	// PostChild is the node a POST creates under the path it is sent to,
+	// named in its answer's Location, as "group=ops"; empty refuses POST.
+	PostChild string
 }
 
 // Server is a RESTCONF server over TLS.
@@ -109,6 +112,16 @@ type Server struct {
 	paths []string
 	// unauthenticated counts requests that carried no Authorization header.
 	unauthenticated int
+	// stored are the resources writes made, by escaped path.
+	stored map[string]resource
+	// methods are the methods requested, in order, beside paths.
+	methods []string
+}
+
+// resource is one written resource: the document and its media type.
+type resource struct {
+	mediaType string
+	body      []byte
 }
 
 // New starts a Server answering as opts says, closed when t ends.
@@ -123,7 +136,7 @@ func New(t testing.TB, opts Options) *Server {
 	if opts.Capabilities == nil {
 		opts.Capabilities = Capabilities
 	}
-	s := &Server{opts: opts}
+	s := &Server{opts: opts, stored: map[string]resource{}}
 	modulesState := ModulesStateXML(t)
 	s.Server = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s.serve(w, r, modulesState)
@@ -156,6 +169,7 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, modulesState []by
 	path := r.URL.EscapedPath()
 	s.mu.Lock()
 	s.paths = append(s.paths, path)
+	s.methods = append(s.methods, r.Method)
 	if r.Header.Get("Authorization") == "" {
 		s.unauthenticated++
 	}
@@ -177,6 +191,9 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, modulesState []by
 		}
 	}
 	root := s.opts.Root
+	if s.write(w, r, path) {
+		return
+	}
 	switch path {
 	case "/.well-known/host-meta":
 		w.Header().Set("Content-Type", "application/xrd+xml")
@@ -331,4 +348,94 @@ func libraryJSON(doc []byte) ([]byte, error) {
 		"datastore":  datastores,
 		"content-id": parsed.ContentID,
 	}})
+}
+
+// Methods returns the methods requested so far, in order, beside Paths.
+func (s *Server) Methods() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]string(nil), s.methods...)
+}
+
+// Stored returns the document a write left at path, and whether one is there.
+func (s *Server) Stored(path string) ([]byte, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	res, ok := s.stored[path]
+	return res.body, ok
+}
+
+// Store puts a document at path, as a write would have.
+func (s *Server) Store(path, mediaType string, body []byte) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.stored[path] = resource{mediaType: mediaType, body: body}
+}
+
+// write answers a request under the root's /data or /ds/ietf-datastores:
+// running against the stored resources, reporting whether it did: a GET of a
+// stored resource returns it; PUT stores (201 new, 204 replaced); PATCH and
+// DELETE need the resource (404 otherwise; PATCH replaces it whole, which is
+// enough to tell a change from none); POST creates PostChild under the path
+// (409 resource-denied, RFC 8040 section 4.4.1, when it is there) and names it in Location.
+func (s *Server) write(w http.ResponseWriter, r *http.Request, path string) bool {
+	root := s.opts.Root
+	if !strings.HasPrefix(path, root+"/data/") && !strings.HasPrefix(path, root+"/ds/ietf-datastores:running/") {
+		return false
+	}
+	s.mu.Lock()
+	res, exists := s.stored[path]
+	s.mu.Unlock()
+	body, _ := io.ReadAll(io.LimitReader(r.Body, 16<<20))
+	mediaType := r.Header.Get("Content-Type")
+	switch r.Method {
+	case http.MethodGet:
+		if !exists {
+			return false
+		}
+		w.Header().Set("Content-Type", res.mediaType)
+		_, _ = w.Write(res.body)
+	case http.MethodPut:
+		s.Store(path, mediaType, body)
+		if exists {
+			w.WriteHeader(http.StatusNoContent)
+		} else {
+			w.WriteHeader(http.StatusCreated)
+		}
+	case http.MethodPatch:
+		if !exists {
+			s.errors(w, r, http.StatusNotFound, "application", "data-missing", "", "the resource does not exist")
+			return true
+		}
+		s.Store(path, mediaType, body)
+		w.WriteHeader(http.StatusNoContent)
+	case http.MethodDelete:
+		if !exists {
+			s.errors(w, r, http.StatusNotFound, "application", "data-missing", "", "the resource does not exist")
+			return true
+		}
+		s.mu.Lock()
+		delete(s.stored, path)
+		s.mu.Unlock()
+		w.WriteHeader(http.StatusNoContent)
+	case http.MethodPost:
+		if s.opts.PostChild == "" {
+			s.errors(w, r, http.StatusMethodNotAllowed, "protocol", "operation-not-supported", "", "post is not supported here")
+			return true
+		}
+		child := path + "/" + s.opts.PostChild
+		s.mu.Lock()
+		_, there := s.stored[child]
+		s.mu.Unlock()
+		if there {
+			s.errors(w, r, http.StatusConflict, "application", "resource-denied", "", "the resource already exists")
+			return true
+		}
+		s.Store(child, mediaType, body)
+		w.Header().Set("Location", s.URL+child)
+		w.WriteHeader(http.StatusCreated)
+	default:
+		return false
+	}
+	return true
 }

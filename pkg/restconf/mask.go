@@ -66,6 +66,9 @@ func (c *Client) secretForms() []string {
 			add(value)
 		}
 	}
+	for _, value := range c.extraSecrets {
+		add(value)
+	}
 	if user, pass := c.secrets[wire.SecretUsername], c.secrets[wire.SecretPassword]; pass != "" {
 		token := base64.StdEncoding.EncodeToString([]byte(user + ":" + pass))
 		add(token)
@@ -119,4 +122,18 @@ func replaceWord(text, word, with string) string {
 // wordRune reports whether r is a letter or a digit.
 func wordRune(r rune) bool {
 	return unicode.IsLetter(r) || unicode.IsDigit(r)
+}
+
+// MaskAlso adds values (a named secret a write resolved into its document)
+// to what the client masks by value in every answer, beside its credential.
+func (c *Client) MaskAlso(values ...string) {
+	c.extraSecrets = append(c.extraSecrets, values...)
+}
+
+// Mask is text with every value the client masks replaced by its
+// placeholder: its credential in each form it could be echoed in, and what
+// MaskAlso added. A caller recording a device's answer masks it here first,
+// then by shape (pkg/netcfg).
+func (c *Client) Mask(text string) string {
+	return c.maskSecrets(text)
 }

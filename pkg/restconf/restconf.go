@@ -63,6 +63,8 @@ type Client struct {
 	auth string
 	// secrets is the device's own credential, flattened.
 	secrets map[string]string
+	// extraSecrets are further values masked in every answer (MaskAlso).
+	extraSecrets []string
 	// dataAnswered is set once a read under the root was answered with a
 	// status that does not refuse the credential, after which a 403 is
 	// access control (do's rule).
@@ -112,11 +114,13 @@ func (c *Client) Base() string {
 	return c.base.String()
 }
 
-// answer is one bounded answer: its status, media type and body.
+// answer is one bounded answer: its status, media type and body, and the
+// Location header a POST's answer names its created resource in.
 type answer struct {
 	status    int
 	mediaType string
 	body      []byte
+	location  string
 }
 
 // get sends one authenticated GET of ref, a path on the device's origin as
@@ -176,7 +180,7 @@ func (c *Client) do(ctx context.Context, method, ref, accept, contentType string
 	if err != nil {
 		return answer{}, fmt.Errorf("reading the answer to %s %s: %w", method, u.EscapedPath(), err)
 	}
-	a := answer{status: resp.StatusCode, mediaType: mediaTypeOf(resp.Header.Get("Content-Type")), body: read}
+	a := answer{status: resp.StatusCode, mediaType: mediaTypeOf(resp.Header.Get("Content-Type")), body: read, location: resp.Header.Get("Location")}
 	if c.refuses(a.status, data) {
 		if int64(len(a.body)) > limit {
 			a.body = nil
