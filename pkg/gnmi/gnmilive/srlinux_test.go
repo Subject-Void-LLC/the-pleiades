@@ -104,6 +104,7 @@ func TestSRLinux_ItsCertificateIsRefusedUntilPinned(t *testing.T) {
 	if caps.Dropped != 0 || len(caps.VendorEncodings) == 0 {
 		t.Errorf("dropped %d %v, vendor encodings %v", caps.Dropped, caps.DroppedSamples, caps.VendorEncodings)
 	}
+	t.Logf("gNMI %s, %d models, encodings %v and vendor encodings %v", caps.Version, len(caps.Models), caps.Encodings, caps.VendorEncodings)
 }
 
 // TestSRLinux_AWrongPasswordIsRefusedAndNotSentAgain holds a wrong password

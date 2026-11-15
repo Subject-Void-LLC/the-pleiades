@@ -98,8 +98,9 @@ type Capabilities struct {
 	// Encodings are the encodings the server answers in, sorted by number.
 	Encodings []Encoding
 	// VendorEncodings are the numbers of encodings the server lists that
-	// gNMI does not name (a vendor's own: Nokia SR Linux 26.7.2 lists eight,
-	// measured 2026-11-15), sorted, once each, at most maxVendorEncodings.
+	// gNMI does not name (a vendor's own: Nokia SR Linux 26.7.2 lists eleven,
+	// 42 to 50, 52 and 53, measured 2026-11-15), sorted, once each, at most
+	// maxVendorEncodings.
 	// They are kept apart rather than counted as malformed: a vendor may
 	// extend the list, and nothing here sends one.
 	VendorEncodings []int32
