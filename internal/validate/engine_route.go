@@ -30,7 +30,7 @@ func EngineRoutes(world WorldView) []Route {
 			continue
 		}
 		kind := engineOf(shaped)
-		_, devices := world.taskDevices(task)
+		_, devices := world.reachedDevices(task)
 		for _, dev := range devices {
 			engine, carrier, err := containerengine.Route(dev, task.Params, kind)
 			if err != nil {

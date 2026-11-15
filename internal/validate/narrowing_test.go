@@ -68,27 +68,39 @@ func narrowedWorld(t *testing.T, runbook string) validate.WorldView {
 		Resolver: hidingResolver{world: whole, hidden: map[string]bool{"wan1": true, "core1": true}}}
 }
 
-// TestNarrowedWorld_AHiddenTargetIsNotRefused: CapabilityRule's check of a
-// transport action's target, and the unmatched-target warning, pass a target
-// the run's narrowing hid and still refuse or warn of one the inventory lacks.
-func TestNarrowedWorld_AHiddenTargetIsNotRefused(t *testing.T) {
-	for target, want := range map[string]bool{"wan": false, "nosuch": true} {
-		world := narrowedWorld(t, "id: n\nhosts: c8kv\ntasks:\n  - name: legacy\n    ssh_exec:\n      target: "+target+"\n      command: uptime\n")
-		refused := slices.ContainsFunc(validate.CapabilityRule(world), func(f validate.Finding) bool {
-			return strings.Contains(f.Message, "matches no inventory host or tag")
-		})
-		if refused != want {
-			t.Errorf("target %s: refused as matching nothing %v, want %v", target, refused, want)
+// TestNarrowedWorld_RulesHoldTheDevicesValidateHolds: a narrowed world's
+// rules hold a task to every device its target names, as validate with no
+// narrowing does: a transport action naming the hidden wan router that lacks
+// its capability is refused with the finding validate gives, a target the
+// inventory lacks is refused as matching nothing, and neither is warned of as
+// missing when the inventory has it. The blast radius is what the run reaches.
+func TestNarrowedWorld_RulesHoldTheDevicesValidateHolds(t *testing.T) {
+	messages := func(findings []validate.Finding) []string {
+		var out []string
+		for _, f := range findings {
+			out = append(out, f.Message)
 		}
-		if _, missing := world.ResolveAll(target); (len(missing) > 0) != want {
+		slices.Sort(out)
+		return out
+	}
+	for target, matchesNothing := range map[string]bool{"wan": false, "nosuch": true} {
+		world := narrowedWorld(t, "id: n\nhosts: c8kv\ntasks:\n  - name: legacy\n    ssh_exec:\n      target: "+target+"\n      command: uptime\n")
+		whole := world
+		whole.Resolver = nil
+		narrowed, unnarrowed := messages(validate.CapabilityRule(world)), messages(validate.CapabilityRule(whole))
+		if len(narrowed) == 0 || !slices.Equal(narrowed, unnarrowed) {
+			t.Errorf("target %s: narrowed %v, validate %v", target, narrowed, unnarrowed)
+		}
+		if got := slices.ContainsFunc(narrowed, func(m string) bool { return strings.Contains(m, "matches no inventory host or tag") }); got != matchesNothing {
+			t.Errorf("target %s: refused as matching nothing %v, want %v", target, got, matchesNothing)
+		}
+		if _, missing := world.ResolveAll(target); (len(missing) > 0) != matchesNothing {
 			t.Errorf("target %s: missing %v", target, missing)
 		}
-		if world.NarrowedAway(target) == want {
-			t.Errorf("target %s: NarrowedAway %v", target, !want)
-		}
 	}
-	if (validate.WorldView{}).NarrowedAway("") {
-		t.Error("an empty target was narrowed away")
+	world := narrowedWorld(t, "id: b\nhosts: c8kv\ntasks:\n  - noop: {}\n")
+	if radius := validate.CalculateBlastRadius(world); radius.DeviceCount != 1 {
+		t.Errorf("the narrowed blast radius counts %d devices, want br1 alone", radius.DeviceCount)
 	}
 }
 

@@ -6,6 +6,7 @@ package main
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"testing"
 
@@ -113,7 +114,9 @@ func TestLimit_ANameThatMatchesNothingIsStillRefused(t *testing.T) {
 // TestLimit_ValidationAgreesWithTheRunOnANarrowedTarget: the two checks that
 // read a target that resolves to nothing, CapabilityRule for a transport
 // action and the unmatched-target warning for a method, do not call a target
-// the limit hid one that matches nothing, and still do for one that does.
+// the limit hid one that matches nothing, and still do for one that does; and
+// the limited world's findings are validate's own (the wan router lacks the
+// transport action's capability, which both refuse).
 func TestLimit_ValidationAgreesWithTheRunOnANarrowedTarget(t *testing.T) {
 	for target, wantFinding := range map[string]bool{"wan": false, "nosuch": true} {
 		dag := buildRunbook(t, "id: v\nhosts: c8kv,wan\ntasks:\n  - name: legacy\n    ssh_exec:\n      target: "+target+"\n      command: uptime\n  - name: method\n    net.ios.command:\n      target: "+target+"\n      command: show version\n")
@@ -132,7 +135,24 @@ func TestLimit_ValidationAgreesWithTheRunOnANarrowedTarget(t *testing.T) {
 		if warned != wantFinding {
 			t.Errorf("target %s: unmatched-target warning %v, want %v", target, warned, wantFinding)
 		}
+		// Every rule holds the task to the devices validate holds it to, so
+		// the limited world finds exactly what validate finds.
+		whole := wanWorld()
+		whole.DAG = dag
+		if got, want := findingMessages(validate.Validate(world)), findingMessages(validate.Validate(whole)); len(want) == 0 || !slices.Equal(got, want) {
+			t.Errorf("target %s: under --limit %v, validate %v", target, got, want)
+		}
 	}
+}
+
+// findingMessages returns report's findings' messages, sorted.
+func findingMessages(report validate.Report) []string {
+	var out []string
+	for _, f := range report.Findings {
+		out = append(out, f.Message)
+	}
+	slices.Sort(out)
+	return out
 }
 
 // TestSerial_ATargetInAnotherBatchRunsInItsOwn: a task naming the wan router

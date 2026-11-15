@@ -111,10 +111,9 @@ func (s *varScopes) precedes(from, to string) bool {
 // A target rendered from data could be any device, so every device counts.
 //
 // The devices are those the target names in the whole inventory, as if the
-// run's narrowing (--limit, a serial: batch) hid nothing: the narrowing
-// chooses which of them run now, not what the task is written for, so a run
-// under --limit decides as validate, which takes no limit, decided. Before
-// this, a template reading a host_vars name only the hub defines, inside an
+// run's narrowing (--limit, a serial: batch) hid nothing (taskDevices), so a
+// run under --limit decides as validate, which takes no limit, decided.
+// Before this, a template reading a host_vars name only the hub defines, inside an
 // {% if %} only the hub takes, passed validate and was refused by run
 // --limit on a spoke (run 10).
 func (s *varScopes) deviceVarNames(task *engine.Task) map[string]bool {
@@ -122,7 +121,7 @@ func (s *varScopes) deviceVarNames(task *engine.Task) map[string]bool {
 	if target := engine.TaskTarget(s.world.DAG, task); engine.HasTemplate(target) {
 		items = s.world.Items
 	} else {
-		items = s.world.unnarrowedDevices(task)
+		_, items = s.world.taskDevices(task)
 	}
 	names := map[string]bool{}
 	for _, item := range items {

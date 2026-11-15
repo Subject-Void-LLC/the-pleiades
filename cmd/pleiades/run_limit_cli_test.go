@@ -82,3 +82,40 @@ tasks:
 		}
 	}
 }
+
+// TestCLI_RunUnderALimitRefusesWhatValidateRefuses: a transport action
+// naming the wan tag, whose one device is a Windows server without SSH, is
+// refused by validate, and by run --limit web1 with the same finding, though
+// the limit leaves the Windows server out.
+func TestCLI_RunUnderALimitRefusesWhatValidateRefuses(t *testing.T) {
+	dir := t.TempDir()
+	if out, err := runPleiades(t, dir, "init"); err != nil {
+		t.Fatalf("init: %v\n%s", err, out)
+	}
+	for _, host := range [][]string{{"web1", "linux_server", "web"}, {"win1", "windows_server", "wan"}} {
+		if out, err := runPleiades(t, dir, "add-host", host[0], "--type", host[1], "--set", "host=127.0.0.1", "--tag", host[2]); err != nil {
+			t.Fatalf("add-host %s: %v\n%s", host[0], err, out)
+		}
+	}
+	writeProject(t, dir, map[string]string{"runbooks/check.yaml": `# What this does: runs uptime on the wan router.
+# Blast radius: the wan router.
+# Changes: nothing.
+# Undo: nothing to undo.
+id: legacy_wan
+hosts: [web, wan]
+tasks:
+  - name: legacy
+    ssh_exec:
+      target: wan
+      command: uptime
+`})
+	const finding = `device "win1" does not have capability SSHTransportCapable, required by task tasks[0] (name "legacy")`
+	validated, err := runPleiades(t, dir, "validate", "runbooks/check.yaml")
+	if err == nil || !strings.Contains(validated, finding) {
+		t.Fatalf("validate: %v\n%s", err, validated)
+	}
+	ran, err := runPleiades(t, dir, "run", "runbooks/check.yaml", "--limit", "web1")
+	if err == nil || !strings.Contains(ran, finding) || !strings.Contains(ran, "validation failed") {
+		t.Fatalf("run --limit web1: %v\n%s", err, ran)
+	}
+}
