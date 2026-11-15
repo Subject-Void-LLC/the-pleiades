@@ -86,12 +86,17 @@ func (e *StatusError) HasTag(tag string) bool {
 // in every form it could be echoed in) and then by shape (pkg/netcfg); or,
 // when it holds none, its text as farside quotes it. A body masking refuses
 // is named as withheld, and none of it is kept.
-func statusError(a answer, mask func(string) string) *StatusError {
+func statusError(a answer, mask func(string) (string, error)) *StatusError {
 	e := &StatusError{Status: a.status}
 	if len(a.body) == 0 {
 		return e
 	}
-	masked, _, err := netcfg.MaskOutput(mask(string(a.body)))
+	byValue, err := mask(string(a.body))
+	if err != nil {
+		e.Said = "(the answer is withheld: masking cannot vouch for it)"
+		return e
+	}
+	masked, _, err := netcfg.MaskOutput(byValue)
 	if err != nil {
 		e.Said = "(the answer is withheld: masking cannot vouch for it)"
 		return e
@@ -109,7 +114,7 @@ func statusError(a answer, mask func(string) string) *StatusError {
 
 // statusError is a's StatusError, masked of the client's credential.
 func (c *Client) statusError(a answer) *StatusError {
-	return statusError(a, c.maskSecrets)
+	return statusError(a, c.Mask)
 }
 
 // errorEntry is one error entry in either encoding.

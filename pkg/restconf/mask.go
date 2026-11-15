@@ -133,7 +133,31 @@ func (c *Client) MaskAlso(values ...string) {
 // Mask is text with every value the client masks replaced by its
 // placeholder: its credential in each form it could be echoed in, and what
 // MaskAlso added. A caller recording a device's answer masks it here first,
-// then by shape (pkg/netcfg).
-func (c *Client) Mask(text string) string {
-	return c.maskSecrets(text)
+// then by shape (pkg/netcfg). An answer that is one whole JSON value is
+// masked value by value (netcfg.EditJSON), so a short credential equal to a
+// number is replaced as the whole value and the answer still parses; CVD run 11 (2026-11-15) showed
+// what a replacement across the text does to a document, with a GRE key in
+// the credential's place. Any other answer is masked as text, and one that
+// was well-formed XML and no longer is returns an error and none of it.
+func (c *Client) Mask(text string) (string, error) {
+	if netcfg.WholeJSON(text) {
+		return netcfg.EditJSON(text, c.wholeValue)
+	}
+	masked := c.maskSecrets(text)
+	if err := netcfg.KeepsForm(text, masked); err != nil {
+		return "", err
+	}
+	return masked, nil
+}
+
+// wholeValue is one value of a JSON answer, masked: a string as text is
+// (maskSecrets), so a device's message keeps its words, and a number any
+// credential form stands in replaced whole by its own placeholder, since
+// what would be left beside one is no number.
+func (c *Client) wholeValue(v string, number bool) string {
+	masked := c.maskSecrets(v)
+	if !number || masked == v {
+		return masked
+	}
+	return netcfg.Placeholder(v)
 }

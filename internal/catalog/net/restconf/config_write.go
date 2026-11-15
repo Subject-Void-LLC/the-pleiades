@@ -120,7 +120,11 @@ func recorded(rc sdk.RunbookContext, client *restconf.Client, body []byte) (stri
 	if len(body) == 0 {
 		return "", nil
 	}
-	masked, found, err := netcfg.MaskOutput(client.Mask(string(body)))
+	byValue, err := client.Mask(string(body))
+	if err != nil {
+		return "", err
+	}
+	masked, found, err := netcfg.MaskOutput(byValue)
 	if err != nil {
 		return "", err
 	}

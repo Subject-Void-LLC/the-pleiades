@@ -150,7 +150,7 @@ func TestIsJSON_ByMediaTypeThenByFirstByte(t *testing.T) {
 }
 
 func TestStatusError_ReadsAndBoundsTheServersErrors(t *testing.T) {
-	if e := statusError(answer{status: 404}, func(s string) string { return s }); len(e.Errors) != 0 || e.Said != "" || e.Error() != "the device answered 404 Not Found" {
+	if e := statusError(answer{status: 404}, func(s string) (string, error) { return s, nil }); len(e.Errors) != 0 || e.Said != "" || e.Error() != "the device answered 404 Not Found" {
 		t.Errorf("an empty answer = %q, %+v", e.Error(), e)
 	}
 	var b strings.Builder
@@ -162,7 +162,7 @@ func TestStatusError_ReadsAndBoundsTheServersErrors(t *testing.T) {
 		b.WriteString(`{"error-type":"protocol","error-tag":"lock-denied"}`)
 	}
 	b.WriteString(`]}}`)
-	e := statusError(answer{status: 409, mediaType: MediaTypeJSON, body: []byte(b.String())}, func(s string) string { return s })
+	e := statusError(answer{status: 409, mediaType: MediaTypeJSON, body: []byte(b.String())}, func(s string) (string, error) { return s, nil })
 	if len(e.Errors) != maxErrors || !e.HasTag("lock-denied") {
 		t.Errorf("kept %d errors, want %d", len(e.Errors), maxErrors)
 	}
