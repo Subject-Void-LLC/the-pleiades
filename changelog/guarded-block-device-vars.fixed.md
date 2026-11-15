@@ -1,0 +1,1 @@
+A task inside a block with a `rescue:`, an `always:` or `rollback_on_failure`, and the block's rescue and always tasks, now read the device's own variables (`group_vars`, `host_vars`) as a top-level task does, where they used to fail with "no value supplied for vars.<name>" though `pleiades validate` passed the runbook.

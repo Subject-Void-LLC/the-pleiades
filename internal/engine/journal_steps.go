@@ -83,7 +83,7 @@ func (r *run) renderedStep(nodeID string, index int, step Task, emitter *collect
 		rec.Withheld = WithheldUndeclared
 		return rec
 	}
-	roots := map[string]any{TemplateRootDevice: deviceRoot(device), hostVarsRoot: deviceVars(device)}
+	roots := deviceRoots(device)
 	if kept, ok := r.forward.of(nodeID, deviceID); ok {
 		roots[forwardVarsRoot] = kept
 	}

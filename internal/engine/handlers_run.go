@@ -140,8 +140,8 @@ func (r *run) runGuarded(ctx context.Context, nodeID string, task *Task, started
 }
 
 // rescueOn runs task nodeID on d alone (nil for a task with no device),
-// with d as its device root and, for a rescue task, d's failure as its error
-// root.
+// with d as its device root, d's own variables in its vars, as a top-level
+// task has them, and, for a rescue task, d's failure as its error root.
 func (r *run) rescueOn(ctx context.Context, nodeID string, task *Task, d inventory.InventoryItem, started time.Time, mask func(string) string, rescue bool) []NodeResult {
 	key := ""
 	var devices []inventory.InventoryItem
@@ -149,7 +149,7 @@ func (r *run) rescueOn(ctx context.Context, nodeID string, task *Task, d invento
 		key = string(d.ID())
 		devices = []inventory.InventoryItem{d}
 	}
-	roots := map[string]any{TemplateRootDevice: deviceRoot(d)}
+	roots := deviceRoots(d)
 	if rescue {
 		if e := r.handlers.errorContext(nodeID, key, r.dag, mask); e != nil {
 			roots[TemplateRootError] = e

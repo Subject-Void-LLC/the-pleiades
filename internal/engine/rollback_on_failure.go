@@ -132,9 +132,10 @@ func (r *run) runUndoStep(ctx context.Context, n NodeResult, step int, task *Tas
 	r.undoTasks[id] = task
 	undo := &UndoStep{Undo: Undo{Node: n.NodeID, Step: step}, Name: task.Name, Method: task.FQCN}
 	if authored {
-		roots := map[string]any{TemplateRootDevice: deviceRoot(device)}
-		// The step reads the variables its task ran with on this device, not
+		// The device's own variables are there as for any task; when the
+		// task kept what it ran with, the step reads exactly that instead, not
 		// what a set_fact since has left (undo_vars.go).
+		roots := deviceRoots(device)
 		if kept, ok := r.forward.of(n.NodeID, n.Device); ok {
 			roots[forwardVarsRoot] = kept
 		}
