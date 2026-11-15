@@ -492,12 +492,26 @@ func credentialSecrets(secrets map[string]string) []string { return CredentialSe
 // this, a Runner counted the login's username as a secret, so every fact
 // naming the login (its own account, a file it owns) was refused as holding
 // a secret of the run.
+//
+// An SNMP credential's USM user and protocol names are identifiers too:
+// masking "aes256-reeder" or a user named "snmp" by value would scrub those
+// words from every output and refuse every fact naming them. A community too
+// short to mask by value (credential.ShortCommunity, stored only when the
+// operator allowed it) is left out for redact.MinLiteralLength's reason and
+// masked by shape alone; every run that uses one says so
+// (credential.ShortCommunityWarning).
 func CredentialSecrets(secrets map[string]string) []string {
 	out := make([]string, 0, len(secrets))
+	short := credential.ShortCommunity(secrets)
 	for key, value := range secrets {
 		switch key {
-		case wire.SecretUsername, wire.SecretCertificatePEM, wire.SecretSeedUsername, wire.SecretSeedAuthorizedKey, wire.SecretSeedHost:
+		case wire.SecretUsername, wire.SecretCertificatePEM, wire.SecretSeedUsername, wire.SecretSeedAuthorizedKey, wire.SecretSeedHost,
+			wire.SecretSNMPUser, wire.SecretSNMPAuthProtocol, wire.SecretSNMPPrivProtocol:
 			continue
+		case wire.SecretSNMPCommunity:
+			if short {
+				continue
+			}
 		}
 		out = append(out, value)
 	}

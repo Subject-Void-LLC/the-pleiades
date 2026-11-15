@@ -14,6 +14,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory/inventorytest"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/serialline"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
 
 // sshStub wraps inventorytest.Stub (the repo's shared InventoryItem test
@@ -494,6 +495,48 @@ func TestTransportActionExecutor_MasksSecretsInStats(t *testing.T) {
 	}
 	if !strings.Contains(stdout, "********") {
 		t.Errorf("expected a mask placeholder in stdout, got: %q", stdout)
+	}
+}
+
+// TestTransportActionExecutor_MasksEveryCredentialSecret: a command echoing
+// any secret its device's credential holds (an enable secret, an SNMP
+// community, a v3 user's passphrases) is masked before it reaches the stats,
+// by the same rule a Collection method's task uses, while the login, the USM
+// user and the protocol names stay readable. The executor masked the
+// password, key and passphrase alone before, so a show running-config
+// printed the community in the clear.
+func TestTransportActionExecutor_MasksEveryCredentialSecret(t *testing.T) {
+	for name, cred := range map[string]credential.Credential{
+		"community": {Username: "admin", Password: "hunter2-super-secret", EnablePassword: "en4ble-s3cret-x", SNMPCommunity: "c0mmunity-s3cret"},
+		"v3 user": {Username: "admin", Password: "hunter2-super-secret", SNMPUser: "monitor",
+			SNMPAuthProtocol: wire.SNMPAuthSHA256, SNMPAuthPassphrase: "auth-pass-phrase",
+			SNMPPrivProtocol: wire.SNMPPrivAES256Reeder, SNMPPrivPassphrase: "priv-pass-phrase"},
+	} {
+		echoed := strings.Join([]string{cred.Password, cred.EnablePassword, cred.SNMPCommunity, cred.SNMPAuthPassphrase, cred.SNMPPrivPassphrase,
+			cred.Username, cred.SNMPUser, string(cred.SNMPAuthProtocol), string(cred.SNMPPrivProtocol)}, " | ")
+		actions := engine.NewTransportActionExecutor(
+			map[string]engine.TransportBinding{"ssh_exec": sshBinding(func(context.Context, transport.Target, credential.Credential, string) (transport.Result, error) {
+				return transport.Result{Stdout: echoed, ExitCode: 0}, nil
+			})},
+			fakeCredentialStore{cred: cred},
+			nil,
+			engine.NewBuiltinActionExecutor(),
+		)
+		result, err := actions.Execute(context.Background(), &engine.Task{FQCN: "ssh_exec", Params: map[string]interface{}{"command": "show running-config"}}, newSSHDevice("router1", "10.0.0.1", 22))
+		if err != nil {
+			t.Fatalf("%s: expected success, got: %v", name, err)
+		}
+		stdout, _ := result.Stats["stdout"].(string)
+		for _, secret := range []string{cred.Password, cred.EnablePassword, cred.SNMPCommunity, cred.SNMPAuthPassphrase, cred.SNMPPrivPassphrase} {
+			if secret != "" && strings.Contains(stdout, secret) {
+				t.Errorf("%s: a secret reached the stats unmasked: %q", name, stdout)
+			}
+		}
+		for _, shown := range []string{cred.Username, cred.SNMPUser, string(cred.SNMPAuthProtocol), string(cred.SNMPPrivProtocol)} {
+			if shown != "" && !strings.Contains(stdout, shown) {
+				t.Errorf("%s: an identifier %q was masked: %q", name, shown, stdout)
+			}
+		}
 	}
 }
 

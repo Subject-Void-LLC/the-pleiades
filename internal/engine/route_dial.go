@@ -61,11 +61,12 @@ func routeDial(route []transport.Hop) (sdk.RouteDial, error) {
 }
 
 // hopSecrets is every secret value route's hop credentials carry, for the
-// masking set: a bastion's password is as sensitive as the target's.
+// masking set: a bastion's password is as sensitive as the target's. Each
+// hop's set is CredentialSecrets', so a hop masks what a target does.
 func hopSecrets(route []transport.Hop) []string {
 	var out []string
 	for _, hop := range route {
-		out = append(out, hop.Credential.Password, string(hop.Credential.PrivateKeyPEM), hop.Credential.Passphrase)
+		out = append(out, CredentialSecrets(credential.Flatten(hop.Credential))...)
 	}
 	return out
 }
