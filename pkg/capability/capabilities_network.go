@@ -8,6 +8,7 @@ const (
 	NameNetworkAddressable Name = "NetworkAddressableCapable"
 	NameFileTransfer       Name = "FileTransferCapable"
 	NameCatalystAPI        Name = "CatalystAPICapable"
+	NameRestconf           Name = "RestconfCapable"
 )
 
 // NetworkCLICapable is satisfied by any network device exposing a
@@ -103,6 +104,33 @@ type CatalystAPICapable interface {
 	CatalystBaseURL() string
 }
 
+// RestconfCapable is satisfied by a device that serves RESTCONF (RFC 8040):
+// YANG data over HTTPS, at the root its /.well-known/host-meta names.
+//
+// It is a sibling of NetconfCapable, NetworkCLICapable and HTTPAPICapable,
+// not a child of any, for the reason CatalystAPICapable's doc gives: a
+// device serving RESTCONF need have no prompt and no NETCONF listener, and
+// nesting it would let capability.Resolves answer "yes" to a question only
+// true of a sibling. Nor is it a child of HTTPAPICapable: http.request may
+// call any path on an HTTP API, while RESTCONF's paths are YANG resources
+// built from module and key names (pkg/restconf), and a RESTCONF device is
+// onboarded by reading its YANG library, not its base URL alone. A device
+// that serves both protocols, as an IOS XE router with NETCONF and RESTCONF
+// configured does, declares both.
+type RestconfCapable interface {
+	// RestconfBaseURL returns the device's origin, https (or http with the
+	// device's explicit opt-in) and a host with no path, where its
+	// /.well-known/host-meta is read.
+	RestconfBaseURL() string
+	// RestconfAuth returns how the device's stored credential is sent:
+	// "basic" (username and password), "bearer" (the password as the
+	// token), or "none".
+	RestconfAuth() string
+	// RestconfAllowPlaintextCredentials reports whether the device's record
+	// accepts sending its credential to an http:// origin, unencrypted.
+	RestconfAllowPlaintextCredentials() bool
+}
+
 func init() {
 	Register(Descriptor{
 		Name:   NameNetworkCLI,
@@ -133,5 +161,9 @@ func init() {
 	Register(Descriptor{
 		Name:   NameCatalystAPI,
 		Assert: func(item any) bool { _, ok := item.(CatalystAPICapable); return ok },
+	})
+	Register(Descriptor{
+		Name:   NameRestconf,
+		Assert: func(item any) bool { _, ok := item.(RestconfCapable); return ok },
 	})
 }

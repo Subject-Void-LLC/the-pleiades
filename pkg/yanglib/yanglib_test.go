@@ -4,41 +4,28 @@
 package yanglib
 
 import (
-	"compress/gzip"
 	"encoding/json"
 	"errors"
-	"io"
-	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/restconf/restconftest"
 )
 
-// The fixtures in testdata are the yang-library and modules-state elements of
-// the rpc-replies pkg/netconf/testdata holds, captured on 2026-11-14 from a
-// Cisco Catalyst 8000V running IOS XE 17.15.1a: the same data a RESTCONF
-// server answers GET {+restconf}/data/ietf-yang-library:yang-library with in
-// its XML encoding (RFC 8040 section 3.5, RFC 7950 section 7), the root
-// element carrying its own namespace.
+// The library documents are restconftest's: the yang-library and
+// modules-state elements of the rpc-replies pkg/netconf/testdata holds,
+// captured on 2026-11-14 from a Cisco Catalyst 8000V running IOS XE 17.15.1a,
+// which are the documents a RESTCONF server answers its library resources
+// with in XML (RFC 8040 section 3.5, RFC 7950 section 7).
 
-// fixture reads one gzipped document from testdata.
+// fixture returns one of those documents.
 func fixture(t *testing.T, name string) []byte {
 	t.Helper()
-	f, err := os.Open(filepath.Join("testdata", name))
-	if err != nil {
-		t.Fatal(err)
+	if name == "c8k-17.15.1a-modules-state.xml.gz" {
+		return restconftest.ModulesStateXML(t)
 	}
-	defer f.Close()
-	zr, err := gzip.NewReader(f)
-	if err != nil {
-		t.Fatal(err)
-	}
-	raw, err := io.ReadAll(zr)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return raw
+	return restconftest.LibraryXML(t)
 }
 
 // findModule is the module named name in modules, nil when absent.

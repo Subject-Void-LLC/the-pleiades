@@ -1,0 +1,321 @@
+// Package restconftest is a RESTCONF server for tests: an httptest TLS
+// server answering what RFC 8040 and RFC 8525 define, in the shapes a Cisco
+// Catalyst 8000V (IOS XE 17.15.1a) answers with, so pkg/restconf, onboarding
+// and the net.restconf methods are tested through their real HTTP, TLS and
+// credential path rather than a stand-in for it.
+//
+// The YANG library it serves is that router's own, captured on 2026-11-14
+// over NETCONF (pkg/netconf/testdata holds the rpc-replies): the yang-library
+// and modules-state elements, which are what a RESTCONF server answers GET
+// {+restconf}/data/ietf-yang-library:yang-library with in XML. Its JSON
+// answer is the same library rendered in RFC 7951's encoding. Its host-meta
+// and error answers follow IOS XE's (a Tail-f ConfD server); its capability
+// list is IOS XE's shape, written here rather than captured.
+package restconftest
+
+import (
+	"bytes"
+	"compress/gzip"
+	_ "embed" // the captured library documents
+	"encoding/json"
+	"encoding/pem"
+	"encoding/xml"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync"
+	"testing"
+)
+
+//go:embed testdata/c8k-17.15.1a-yang-library.xml.gz
+var libraryGz []byte
+
+//go:embed testdata/c8k-17.15.1a-modules-state.xml.gz
+var modulesStateGz []byte
+
+// LibraryXML returns the captured router's yang-library document, the XML a
+// RESTCONF server answers its library resource with.
+func LibraryXML(t testing.TB) []byte {
+	t.Helper()
+	return gunzip(t, libraryGz)
+}
+
+// ModulesStateXML returns the captured router's modules-state document.
+func ModulesStateXML(t testing.TB) []byte {
+	t.Helper()
+	return gunzip(t, modulesStateGz)
+}
+
+// gunzip is raw decompressed.
+func gunzip(t testing.TB, raw []byte) []byte {
+	t.Helper()
+	zr, err := gzip.NewReader(bytes.NewReader(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := io.ReadAll(zr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+// Capabilities is the capability list the server answers with by default:
+// IOS XE's shape, RFC 8040's own and Tail-f's.
+var Capabilities = []string{
+	"urn:ietf:params:restconf:capability:defaults:1.0?basic-mode=explicit",
+	"urn:ietf:params:restconf:capability:depth:1.0",
+	"urn:ietf:params:restconf:capability:fields:1.0",
+	"urn:ietf:params:restconf:capability:filter:1.0",
+	"urn:ietf:params:restconf:capability:replay:1.0",
+	"urn:ietf:params:restconf:capability:with-defaults:1.0",
+	"urn:ietf:params:restconf:capability:yang-patch:1.0",
+	"http://tail-f.com/ns/restconf/collection/1.0",
+	"http://tail-f.com/ns/restconf/query-api/1.0",
+}
+
+// Options sets what a Server answers.
+type Options struct {
+	// Username and Password are the login basic authentication must carry;
+	// both empty asks for none.
+	Username, Password string
+	// Root is the root host-meta names; "/restconf" when empty.
+	Root string
+	// HostMeta replaces the host-meta document when set.
+	HostMeta string
+	// JSON answers data resources in RFC 7951's JSON encoding only, as a
+	// server supporting no XML would.
+	JSON bool
+	// NoYANGLibrary answers the yang-library resource 404, as an RFC 7895
+	// server does, so a client falls back to modules-state.
+	NoYANGLibrary bool
+	// Library replaces the yang-library document (XML) when set.
+	Library []byte
+	// Capabilities replaces the capability list when set.
+	Capabilities []string
+	// Override answers the escaped request path it names with its handler,
+	// before anything above.
+	Override map[string]http.HandlerFunc
+}
+
+// Server is a RESTCONF server over TLS.
+type Server struct {
+	*httptest.Server
+	opts Options
+	mu   sync.Mutex
+	// paths are the escaped paths requested, in order.
+	paths []string
+	// unauthenticated counts requests that carried no Authorization header.
+	unauthenticated int
+}
+
+// New starts a Server answering as opts says, closed when t ends.
+func New(t testing.TB, opts Options) *Server {
+	t.Helper()
+	if opts.Root == "" {
+		opts.Root = "/restconf"
+	}
+	if opts.Library == nil {
+		opts.Library = LibraryXML(t)
+	}
+	if opts.Capabilities == nil {
+		opts.Capabilities = Capabilities
+	}
+	s := &Server{opts: opts}
+	modulesState := ModulesStateXML(t)
+	s.Server = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		s.serve(w, r, modulesState)
+	}))
+	t.Cleanup(s.Close)
+	return s
+}
+
+// CAPEM returns the server's certificate as PEM, for a device's tls_ca_pem.
+func (s *Server) CAPEM() string {
+	return string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: s.Certificate().Raw}))
+}
+
+// Paths returns the escaped paths requested so far, in order.
+func (s *Server) Paths() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]string(nil), s.paths...)
+}
+
+// Unauthenticated returns how many requests carried no credential.
+func (s *Server) Unauthenticated() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.unauthenticated
+}
+
+// serve answers one request.
+func (s *Server) serve(w http.ResponseWriter, r *http.Request, modulesState []byte) {
+	path := r.URL.EscapedPath()
+	s.mu.Lock()
+	s.paths = append(s.paths, path)
+	if r.Header.Get("Authorization") == "" {
+		s.unauthenticated++
+	}
+	s.mu.Unlock()
+	if h, ok := s.opts.Override[path]; ok {
+		h(w, r)
+		return
+	}
+	if s.opts.Username != "" || s.opts.Password != "" {
+		user, pass, ok := r.BasicAuth()
+		if !ok || user != s.opts.Username || pass != s.opts.Password {
+			// IOS XE's answer to a missing or refused login.
+			w.Header().Set("WWW-Authenticate", `Basic realm="restconf"`)
+			s.errors(w, http.StatusUnauthorized, "protocol", "access-denied", "", "access denied")
+			return
+		}
+	}
+	root := s.opts.Root
+	switch path {
+	case "/.well-known/host-meta":
+		w.Header().Set("Content-Type", "application/xrd+xml")
+		if s.opts.HostMeta != "" {
+			_, _ = io.WriteString(w, s.opts.HostMeta)
+			return
+		}
+		fmt.Fprintf(w, "<XRD xmlns='http://docs.oasis-open.org/ns/xri/xrd-1.0'>\n    <Link rel='restconf' href='%s'/>\n</XRD>", root)
+	case root + "/data/ietf-yang-library:yang-library":
+		if s.opts.NoYANGLibrary {
+			s.errors(w, http.StatusNotFound, "application", "invalid-value", "", "uri keypath not found")
+			return
+		}
+		s.library(w, s.opts.Library)
+	case root + "/data/ietf-yang-library:modules-state":
+		s.library(w, modulesState)
+	case root + "/data/ietf-restconf-monitoring:restconf-state/capabilities":
+		s.capabilities(w)
+	default:
+		s.errors(w, http.StatusNotFound, "application", "invalid-value", "", "uri keypath not found")
+	}
+}
+
+// library answers a library document, as XML or as RFC 7951 JSON.
+func (s *Server) library(w http.ResponseWriter, doc []byte) {
+	if !s.opts.JSON {
+		w.Header().Set("Content-Type", "application/yang-data+xml")
+		_, _ = w.Write(doc)
+		return
+	}
+	raw, err := libraryJSON(doc)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/yang-data+json")
+	_, _ = w.Write(raw)
+}
+
+// capabilities answers ietf-restconf-monitoring's capability list.
+func (s *Server) capabilities(w http.ResponseWriter) {
+	if s.opts.JSON {
+		w.Header().Set("Content-Type", "application/yang-data+json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"ietf-restconf-monitoring:capabilities": map[string]any{"capability": s.opts.Capabilities}})
+		return
+	}
+	w.Header().Set("Content-Type", "application/yang-data+xml")
+	var b strings.Builder
+	b.WriteString(`<capabilities xmlns="urn:ietf:params:xml:ns:yang:ietf-restconf-monitoring">`)
+	for _, c := range s.opts.Capabilities {
+		b.WriteString("<capability>")
+		_ = xml.EscapeText(&b, []byte(c))
+		b.WriteString("</capability>")
+	}
+	b.WriteString(`</capabilities>`)
+	_, _ = io.WriteString(w, b.String())
+}
+
+// errors answers an ietf-restconf:errors container with one error, in the
+// encoding the server answers with.
+func (s *Server) errors(w http.ResponseWriter, status int, errType, tag, path, message string) {
+	if s.opts.JSON {
+		w.Header().Set("Content-Type", "application/yang-data+json")
+		w.WriteHeader(status)
+		entry := map[string]string{"error-type": errType, "error-tag": tag, "error-message": message}
+		if path != "" {
+			entry["error-path"] = path
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"ietf-restconf:errors": map[string]any{"error": []any{entry}}})
+		return
+	}
+	w.Header().Set("Content-Type", "application/yang-data+xml")
+	w.WriteHeader(status)
+	var b strings.Builder
+	b.WriteString(`<errors xmlns="urn:ietf:params:xml:ns:yang:ietf-restconf"><error><error-type>` + errType + `</error-type><error-tag>` + tag + `</error-tag>`)
+	if path != "" {
+		b.WriteString("<error-path>")
+		_ = xml.EscapeText(&b, []byte(path))
+		b.WriteString("</error-path>")
+	}
+	b.WriteString("<error-message>")
+	_ = xml.EscapeText(&b, []byte(message))
+	b.WriteString("</error-message></error></errors>")
+	_, _ = io.WriteString(w, b.String())
+}
+
+// libraryJSON renders a yang-library or modules-state XML document in RFC
+// 7951's JSON encoding.
+func libraryJSON(doc []byte) ([]byte, error) {
+	type module struct {
+		Name      string   `xml:"name" json:"name"`
+		Revision  string   `xml:"revision" json:"revision,omitempty"`
+		Namespace string   `xml:"namespace" json:"namespace"`
+		Feature   []string `xml:"feature" json:"feature,omitempty"`
+		Deviation []string `xml:"deviation" json:"deviation,omitempty"`
+	}
+	// stateModule is RFC 7895's entry, whose deviations are a list of name
+	// and revision.
+	type stateModule struct {
+		Name        string   `xml:"name" json:"name"`
+		Revision    string   `xml:"revision" json:"revision"`
+		Namespace   string   `xml:"namespace" json:"namespace"`
+		Feature     []string `xml:"feature" json:"feature,omitempty"`
+		Conformance string   `xml:"conformance-type" json:"conformance-type"`
+		Deviation   []struct {
+			Name     string `xml:"name" json:"name"`
+			Revision string `xml:"revision" json:"revision"`
+		} `xml:"deviation" json:"deviation,omitempty"`
+	}
+	var parsed struct {
+		XMLName    xml.Name
+		ModuleSets []struct {
+			Name    string   `xml:"name" json:"name"`
+			Modules []module `xml:"module" json:"module"`
+		} `xml:"module-set"`
+		Modules    []stateModule `xml:"module"`
+		Datastores []struct {
+			Name string `xml:"name"`
+		} `xml:"datastore"`
+		ContentID   string `xml:"content-id"`
+		ModuleSetID string `xml:"module-set-id"`
+	}
+	if err := xml.Unmarshal(doc, &parsed); err != nil {
+		return nil, err
+	}
+	if parsed.XMLName.Local == "modules-state" {
+		return json.Marshal(map[string]any{"ietf-yang-library:modules-state": map[string]any{
+			"module-set-id": parsed.ModuleSetID,
+			"module":        parsed.Modules,
+		}})
+	}
+	var datastores []map[string]string
+	for _, ds := range parsed.Datastores {
+		name := ds.Name
+		if i := strings.LastIndexByte(name, ':'); i >= 0 {
+			name = name[i+1:]
+		}
+		datastores = append(datastores, map[string]string{"name": "ietf-datastores:" + name, "schema": "common"})
+	}
+	return json.Marshal(map[string]any{"ietf-yang-library:yang-library": map[string]any{
+		"module-set": parsed.ModuleSets,
+		"datastore":  datastores,
+		"content-id": parsed.ContentID,
+	}})
+}

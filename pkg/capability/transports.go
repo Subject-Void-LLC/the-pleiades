@@ -17,6 +17,9 @@ const (
 	// TransportNetconf is an RFC 6241 NETCONF session.
 	TransportNetconf = "netconf"
 
+	// TransportRestconf is RFC 8040 RESTCONF, YANG data over HTTPS
+	// (RestconfCapable).
+	TransportRestconf = "restconf"
 	// TransportHTTPS is a device's own HTTP API.
 	TransportHTTPS = "https"
 
@@ -78,6 +81,7 @@ var reachedBy = map[string][]Name{
 	TransportSSH:          {NameSSHTransport},
 	TransportWinRM:        {NameWinRM},
 	TransportNetconf:      {NameNetconf},
+	TransportRestconf:     {NameRestconf},
 	TransportHTTPS:        {NameHTTPAPI, NameCatalystAPI, NameAIProvider, NameCloudflareAPI, NameBatfishAPI, NameCMLAPI, NameClabAPI},
 	TransportEngineLocal:  {NameEngineLocal},
 	TransportEngineSocket: {NameEngineSocket},
