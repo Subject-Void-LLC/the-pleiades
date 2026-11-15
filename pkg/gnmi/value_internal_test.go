@@ -106,10 +106,10 @@ func TestReadCapabilities_DropsWhatItCannotKeep(t *testing.T) {
 			{Name: ""}, {Name: "bad\x1bname"}, {Name: strings.Repeat("x", 2000)},
 		},
 	})
-	if got.Version != "0.7.0" || len(got.Encodings) != 2 || got.Encodings[0] != EncodingJSON {
-		t.Errorf("version and encodings = %+v", got)
+	if got.Version != "0.7.0" || len(got.Encodings) != 2 || got.Encodings[0] != EncodingJSON || len(got.VendorEncodings) != 1 || got.VendorEncodings[0] != 42 {
+		t.Errorf("version and encodings = %+v, want json and proto, and 42 kept apart", got)
 	}
-	if len(got.Models) != 2 || got.Models[0].Name != "a" || got.Dropped != 4 || len(got.DroppedSamples) != 4 {
+	if len(got.Models) != 2 || got.Models[0].Name != "a" || got.Dropped != 3 || len(got.DroppedSamples) != 3 {
 		t.Errorf("models = %+v, dropped %d %v", got.Models, got.Dropped, got.DroppedSamples)
 	}
 }

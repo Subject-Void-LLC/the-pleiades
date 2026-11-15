@@ -54,7 +54,9 @@ type FileInfo struct {
 	Path string
 	// LastModified is when it was last written.
 	LastModified time.Time
-	// Permissions are its POSIX permission bits, as the device sent them.
+	// Permissions are its POSIX permission bits as gNOI writes them: the
+	// octal digits read as a decimal number, 644 for rw-r--r-- (Nokia SR
+	// Linux 26.7.2, measured 2026-11-15).
 	Permissions uint32
 	// Size is its size in bytes.
 	Size uint64

@@ -11,6 +11,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -96,6 +97,12 @@ type Capabilities struct {
 	Version string
 	// Encodings are the encodings the server answers in, sorted by number.
 	Encodings []Encoding
+	// VendorEncodings are the numbers of encodings the server lists that
+	// gNMI does not name (a vendor's own: Nokia SR Linux 26.7.2 lists eight,
+	// measured 2026-11-15), sorted, once each, at most maxVendorEncodings.
+	// They are kept apart rather than counted as malformed: a vendor may
+	// extend the list, and nothing here sends one.
+	VendorEncodings []int32
 	// Models are the models it implements, sorted by name then version,
 	// once each.
 	Models []Model
@@ -115,10 +122,13 @@ func (c Capabilities) Supports(e Encoding) bool {
 	return false
 }
 
+// maxVendorEncodings bounds the vendor encodings Capabilities keeps.
+const maxVendorEncodings = 64
+
 // Capabilities asks the server what it supports. An entry that is not
-// printable text within yanglib.MaxNamespaceBytes, and an encoding this
-// client does not know, is left out and counted rather than kept; past
-// yanglib.MaxModules every further model is.
+// printable text within yanglib.MaxNamespaceBytes is left out and counted
+// rather than kept, and past yanglib.MaxModules every further model is; an
+// encoding gNMI does not name is kept apart, in VendorEncodings.
 func (c *Client) Capabilities(ctx context.Context) (Capabilities, error) {
 	if err := c.refused(); err != nil {
 		return Capabilities{}, err
@@ -150,7 +160,9 @@ func readCapabilities(resp *gpb.CapabilityResponse) Capabilities {
 	seenEncoding := map[Encoding]bool{}
 	for _, e := range resp.GetSupportedEncodings() {
 		if e < 0 || int(e) >= len(encodingNames) {
-			drop("encoding " + strconv.Itoa(int(e)))
+			if !slices.Contains(out.VendorEncodings, int32(e)) && len(out.VendorEncodings) < maxVendorEncodings {
+				out.VendorEncodings = append(out.VendorEncodings, int32(e))
+			}
 			continue
 		}
 		if !seenEncoding[Encoding(e)] {
@@ -159,6 +171,7 @@ func readCapabilities(resp *gpb.CapabilityResponse) Capabilities {
 		}
 	}
 	sort.Slice(out.Encodings, func(i, j int) bool { return out.Encodings[i] < out.Encodings[j] })
+	slices.Sort(out.VendorEncodings)
 	seen := map[Model]bool{}
 	for _, m := range resp.GetSupportedModels() {
 		model := Model{Name: m.GetName(), Organization: m.GetOrganization(), Version: m.GetVersion()}

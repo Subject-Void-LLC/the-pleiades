@@ -32,13 +32,15 @@ type gnoiFile struct {
 	s *Server
 }
 
-// Stat implements file.FileServer: the file Options.Files names at path.
+// Stat implements file.FileServer: the file Options.Files names at path,
+// its permissions written as gNOI writes them, the octal digits as a decimal
+// number (644), as Nokia SR Linux answers.
 func (f gnoiFile) Stat(_ context.Context, req *file.StatRequest) (*file.StatResponse, error) {
 	size, ok := f.s.opts.Files[req.GetPath()]
 	if !ok {
 		return nil, status.Errorf(codes.NotFound, "no file at %s", req.GetPath())
 	}
-	return &file.StatResponse{Stats: []*file.StatInfo{{Path: req.GetPath(), Size: size, Permissions: 0o644, LastModified: uint64(time.Now().UnixNano())}}}, nil // #nosec G115 -- a time after 1970
+	return &file.StatResponse{Stats: []*file.StatInfo{{Path: req.GetPath(), Size: size, Permissions: 644, LastModified: uint64(time.Now().UnixNano())}}}, nil // #nosec G115 -- a time after 1970
 }
 
 // gnoiCert answers CertificateManagement.GetCertificates.
