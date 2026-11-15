@@ -171,6 +171,11 @@ func maskLine(line string, inKeyChain bool, found *[]string) string {
 	if len(ws) >= 3 && ws[0].text == "snmp-server" && ws[1].text == "user" {
 		return maskSNMPUser(line, ws, found)
 	}
+	// A net-snmp agent's snmpd.conf: rocommunity, rwcommunity, com2sec and
+	// createUser lines (netsnmp.go).
+	if masked, ok := maskNetSNMP(line, ws, found); ok {
+		return masked
+	}
 	if spi := ipsecSPIAt(ws); spi >= 0 {
 		return maskIPsecSPI(line, ws, spi, found)
 	}
