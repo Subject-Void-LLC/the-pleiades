@@ -125,11 +125,14 @@ also real.
 capabilities from the device: `pleiades onboard` (or the Controller's onboarding route)
 probes it over its protocol and records what its answers prove, and nothing else can
 grant one. Four are proven against a real server: a Debian host, a Netopeer2 NETCONF
-server, an HTTPS API and the gRPC project's own example server. For `generic_restconf`, what is
-proven is narrower: the RESTCONF client itself against a real server (rousette over sysrepo,
-over plain HTTP only), and the device type, its onboarding probe and `net.restconf.facts` against
-an in-process TLS server answering in RFC 8040's shapes with a real Catalyst 8000V's captured
-YANG library. Nothing is yet proven over https against a real RESTCONF server. A Runner rebuilds each
+server, an HTTPS API and the gRPC project's own example server. `generic_restconf` is proven on
+the Crawl tier against a real Catalyst 8000V (IOS XE 17.15.1a, in Cisco Modeling Labs, 2026-11-15,
+`TestCLI_RESTCONFFromDayZeroToDayN`): onboarding over its pinned certificate, `wait.restconf`, the
+discovery, `net.restconf.config` creating, merging and replacing with re-runs that change nothing,
+a write to the `/ds` running datastore, refusals sent nowhere, an IKEv2 keyring from a named secret,
+a RESTCONF restart waited for, and a create undone by `pleiades rollback`. The client is also proven
+against rousette over sysrepo, over plain HTTP. RESTCONF on the Walk tier (a Runner running these
+methods) is not yet tested. A Runner rebuilds each
 dispatched device as its real type, from its type and only the properties its accessors
 read, so the same methods work on the Walk tier. A device's TLS is its own: a pinned
 authority, mutual TLS, and, for an old device, deprecated TLS versions, legacy ciphers or a
