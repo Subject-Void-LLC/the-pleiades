@@ -113,11 +113,12 @@ func ownRoots(cmd nodeExecution) map[string]any {
 		roots[k] = v
 	}
 	if cmd.Device != nil {
-		if _, ok := roots[TemplateRootDevice]; !ok {
-			roots[TemplateRootDevice] = deviceRoot(cmd.Device)
-		}
-		if _, ok := roots[hostVarsRoot]; !ok {
-			roots[hostVarsRoot] = deviceVars(cmd.Device)
+		// The device's roots (deviceRoots), each where the decision did not
+		// already carry one.
+		for k, v := range deviceRoots(cmd.Device) {
+			if _, ok := roots[k]; !ok {
+				roots[k] = v
+			}
 		}
 	}
 	return roots

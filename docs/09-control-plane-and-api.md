@@ -300,7 +300,10 @@ is picked up again by the leader.
 A launch's `limit` narrows the job to some of its inventory, before any device is admitted, with
 Ansible's `--limit` grammar: device names, tags and groups (a device in a child group is in its parent),
 globs such as `web-*`, comma separated, `!` to exclude and `&` to intersect, in any order. `pleiades run
---limit` reads a pattern the same way, so a limit means the same devices on the CLI and the Controller.
+--limit` reads a pattern the same way, so a limit admits the same hosts on the CLI and the Controller. A task
+that names its own `target:` differs: on the CLI it reaches the devices of that target inside the limit,
+and is skipped, naming them, when the limit leaves all of them out; on the Controller a Runner runs every
+task against the one device it was dispatched, whatever the task's target names.
 
 - A device the limit leaves out is not part of the job: it is not dispatched and has no row, as a device
   outside the inventory has none.
