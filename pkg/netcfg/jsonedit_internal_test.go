@@ -68,13 +68,3 @@ func TestKeepsForm(t *testing.T) {
 		}
 	}
 }
-
-// TestNumeric: digits, signed once at most, are a number; anything else is
-// not.
-func TestNumeric(t *testing.T) {
-	for s, want := range map[string]bool{"100": true, "-100": true, "+7": true, "": false, "-": false, "--1": false, "1.5": false, "10.255.100.1": false, "1e9": false} {
-		if got := numeric(s); got != want {
-			t.Errorf("numeric(%q) = %v, want %v", s, got, want)
-		}
-	}
-}

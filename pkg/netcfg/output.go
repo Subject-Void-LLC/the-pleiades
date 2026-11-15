@@ -124,11 +124,12 @@ func maskStructuredShapes(text string) (string, []string) {
 // string or a number under a secret-named field, jsonLeaves' rule) becomes
 // its placeholder, as a JSON string; any other string leaf is read by the
 // CLI text masker, which a leaf carrying configuration lines needs; and a
-// secret found either way that is long enough to mask by value (Learnable)
-// is masked inside every other string leaf that repeats it. A secret found
-// is never replaced across the document's text: a short one, or a number (a
-// GRE key of 100), would cut every name, address and number holding its
-// characters apart (CVD run 11).
+// secret found either way of at least MinLearnedLength bytes, whatever its
+// shape, is masked inside every other key and string leaf that repeats it (a
+// passphrase written into a URL). A shorter one is masked where it was found
+// and only there, and nothing is ever replaced inside a number or across the
+// document's text: a GRE key of 100 replaced that way cut every name,
+// address and number holding its digits apart (CVD run 11).
 func maskJSON(out string) (string, []string, error) {
 	leaves, err := jsonLeaves(out)
 	if err != nil {
@@ -162,7 +163,12 @@ func maskJSON(out string) (string, []string, error) {
 		}
 	}
 	// Longest first, so a secret holding another is replaced whole.
-	learned := Learnable(found)
+	var learned []string
+	for _, v := range found {
+		if len(v) >= MinLearnedLength {
+			learned = append(learned, v)
+		}
+	}
 	sort.Slice(learned, func(i, j int) bool { return len(learned[i]) > len(learned[j]) })
 	for i, l := range leaves {
 		if l.number || l.secret && edits[i] != "" {

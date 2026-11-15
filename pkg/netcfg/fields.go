@@ -73,16 +73,11 @@ const MinLearnedLength = 8
 // host-mode, login authentication VTY-AUTH), and masking such a word by
 // value would scrub it from every later line of the run, so a value of one
 // case of letters, hyphens and underscores alone is left to keyword masking;
-// a secret with a digit, both cases or another symbol is learned. A number
-// is never learned, however long: a secret-named leaf holding one (a GRE
-// tunnel key, which Cisco-IOS-XE-tunnel declares a uint64) is far more often
-// an identifier than a secret, and its digits replaced wherever they appear
-// cut addresses, interface names and JSON numbers apart (CVD run 11). It is
-// masked where it stands, and only there.
+// a secret with a digit, both cases or another symbol is learned.
 func Learnable(found []string) []string {
 	var out []string
 	for _, f := range found {
-		if len(f) >= MinLearnedLength && !wordShaped(f) && !numeric(f) {
+		if len(f) >= MinLearnedLength && !wordShaped(f) {
 			out = append(out, f)
 		}
 	}
@@ -105,18 +100,4 @@ func wordShaped(s string) bool {
 		}
 	}
 	return !(lower && upper)
-}
-
-// numeric reports whether s is a number's digits alone, signed or not.
-func numeric(s string) bool {
-	digits := strings.TrimLeft(s, "+-")
-	if digits == "" || len(s)-len(digits) > 1 {
-		return false
-	}
-	for _, r := range digits {
-		if r < '0' || r > '9' {
-			return false
-		}
-	}
-	return true
 }

@@ -102,13 +102,24 @@ func TestMaskOutput_ATunnelKeyIsMaskedInPlaceAndNowhereElse(t *testing.T) {
 	}
 }
 
-// TestLearnable_NeverANumber: a number found under a secret name (a GRE key
-// at its range's top, an SNMP engine boot count) is masked where it stands
-// and never by value, however long: replaced wherever it appears, its digits
-// would cut addresses, interface names and JSON numbers apart.
-func TestLearnable_NeverANumber(t *testing.T) {
-	if got := Learnable([]string{"4294967295", "12345678", "-12345678", "Key-12345678"}); len(got) != 1 || got[0] != "Key-12345678" {
-		t.Errorf("Learnable = %q, want the numbers left out", got)
+// TestMaskOutput_ALongFoundSecretIsMaskedInEveryStringLeaf: a secret of at
+// least MinLearnedLength bytes found under a secret name is masked in every
+// string leaf that repeats it, whatever its shape (all digits, or one case of
+// letters, which Learnable keeps out of the run's set), and never inside a
+// number: a GRE key at its range's top repeated in a description, and a
+// passphrase repeated in a URL.
+func TestMaskOutput_ALongFoundSecretIsMaskedInEveryStringLeaf(t *testing.T) {
+	out := `{"tunnel": {"key": "4294967295", "description": "hub 4294967295 spoke", "mtu": 4294967295},
+  "server": {"passphrase": "correcthorsebattery", "url": "https://ops:correcthorsebattery@backup.example/"}}`
+	masked, found, err := MaskOutput(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !json.Valid([]byte(masked)) || strings.Contains(masked, "correcthorsebattery") || strings.Contains(masked, `"hub 4294967295 spoke"`) || !strings.Contains(masked, `"mtu": 4294967295`) {
+		t.Errorf("masked = %s, want both secrets masked in every string leaf and the number kept", masked)
+	}
+	if learn := Learnable(found); len(learn) != 1 || learn[0] != "4294967295" {
+		t.Errorf("Learnable(%q) = %q, want the long number learned and the one-case word left out", found, learn)
 	}
 }
 
