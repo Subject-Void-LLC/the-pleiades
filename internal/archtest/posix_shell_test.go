@@ -29,6 +29,7 @@ var shellFreeServers = map[string]string{
 	"internal/catalog/wait/connection_test.go:startCLIDevice":                                                                  "a scripted network CLI; a try opens a terminal and no exec session",
 	"internal/catalog/wait/netconf_test.go:startNetconfServer":                                                                 "a scripted NETCONF subsystem; a try opens the subsystem and no exec session",
 	"internal/catalog/wait/netconf_test.go:TestNetconf_AnSSHServerWithNoNetconfIsNotReady":                                     "asks only for a netconf subsystem the server lacks; no exec session is opened",
+	"internal/catalog/wait/netconf_test.go:TestNetconf_AHelloItCannotReadIsNotReady":                                           "a scripted NETCONF subsystem whose hello does not parse; a try opens the subsystem and no exec session",
 	"internal/catalog/net/ios/ios_session_internal_test.go:TestOpenSession_FailsWhenNoPromptEverArrives":                       "a scripted CLI that never prompts; no exec session is opened",
 	"internal/catalog/net/netconf/netconf_session_internal_test.go:scriptedServer":                                             "a scripted NETCONF subsystem; no exec session is opened",
 	"internal/catalog/net/netconf/netconf_session_internal_test.go:TestOpenSession_FailsWhenTheDeviceOffersNoNetconfSubsystem": "asks only for a subsystem the server lacks",
