@@ -341,3 +341,17 @@ func TestIsIdentifier(t *testing.T) {
 		}
 	}
 }
+
+// TestWithLibrary_ACapabilityDropLeavesTheListComplete: a refused protocol
+// capability, counted on the base, is no module the list misses.
+func TestWithLibrary_ACapabilityDropLeavesTheListComplete(t *testing.T) {
+	base := Discovery{}
+	KeepCapabilities([]string{"urn:bad\x1b"}, &base)
+	k, err := Keep(Library{Modules: []Module{{Name: "a", Namespace: "urn:a"}}}, base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d := base.WithLibrary(k); d.Completeness != Complete || d.Dropped != 1 || d.ModulesDropped != 0 {
+		t.Errorf("Completeness = %s, Dropped = %d, ModulesDropped = %d; want complete with the capability counted", d.Completeness, d.Dropped, d.ModulesDropped)
+	}
+}

@@ -225,6 +225,9 @@ type Kept struct {
 	// Discovery Keep was given had already counted.
 	Dropped        int
 	DroppedSamples []string
+	// ModulesDropped counts the library's own refused module entries, the
+	// only refusals that make its list Partial.
+	ModulesDropped int
 }
 
 // Keep holds lib to the refusal rules. base carries refusals already counted
@@ -245,17 +248,20 @@ func Keep(lib Library, base Discovery) (Kept, error) {
 		ContentID:      ValidID(lib.ContentID),
 		Dropped:        counted.Dropped,
 		DroppedSamples: counted.DroppedSamples,
+		ModulesDropped: counted.ModulesDropped,
 	}, nil
 }
 
 // WithLibrary is d completed from a kept library read: its modules, source
-// and counted refusals, and Complete unless something was dropped. The
+// and counted refusals, and Complete unless one of the library's module
+// entries was dropped; a refused protocol capability, counted in Dropped
+// alone, leaves the list Complete. The
 // datastores and the content-id are left as they are, for the caller, which
 // knows what else names them (a NETCONF hello's capabilities).
 func (d Discovery) WithLibrary(k Kept) Discovery {
-	d.Modules, d.Source, d.Dropped, d.DroppedSamples = k.Modules, k.Source, k.Dropped, k.DroppedSamples
+	d.Modules, d.Source, d.Dropped, d.DroppedSamples, d.ModulesDropped = k.Modules, k.Source, k.Dropped, k.DroppedSamples, k.ModulesDropped
 	d.Completeness = Complete
-	if d.Dropped > 0 {
+	if d.ModulesDropped > 0 {
 		d.Completeness = Partial
 	}
 	return d

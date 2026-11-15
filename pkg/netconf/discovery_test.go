@@ -386,3 +386,13 @@ func TestDiscovery_ADroppedEntryMakesTheListPartial(t *testing.T) {
 		t.Error("Serves answered on a list known to miss an entry")
 	}
 }
+
+// TestDiscovery_ARefusedProtocolCapabilityLeavesTheListComplete: a hello
+// capability that names no module, refused as unprintable, says nothing about
+// the modules, so a hello listing them all with no library is still complete.
+func TestDiscovery_ARefusedProtocolCapabilityLeavesTheListComplete(t *testing.T) {
+	d := discoverFromHello([]string{CapabilityBase11, "urn:vendor:bad\x1b", "urn:x:v?module=v&revision=2024-01-01"})
+	if d.Completeness != Complete || d.Dropped != 1 || d.ModulesDropped != 0 {
+		t.Errorf("Completeness = %s, Dropped = %d, ModulesDropped = %d; want complete with the capability counted", d.Completeness, d.Dropped, d.ModulesDropped)
+	}
+}

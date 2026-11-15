@@ -91,8 +91,13 @@ type Discovery struct {
 	// (RFC 7895), a hint the server may regenerate; empty when the server
 	// gives none. The module set's own identity is ModulesDigest.
 	ContentID string
-	// Dropped counts the entries refused as malformed or too long.
+	// Dropped counts the entries refused as malformed or too long, module
+	// entries and protocol capabilities alike, for a warning.
 	Dropped int
+	// ModulesDropped counts the module entries alone that were refused from
+	// the list Modules came from, which is what makes the list Partial: a
+	// refused protocol capability says nothing about the modules.
+	ModulesDropped int
 	// DroppedSamples are up to five of those entries, each quoted (so no
 	// control character reaches a log) and cut to 120 bytes, for a warning to
 	// name.
@@ -114,6 +119,12 @@ func (d *Discovery) Drop(entry string) {
 		}
 		d.DroppedSamples = append(d.DroppedSamples, fmt.Sprintf("%q", entry))
 	}
+}
+
+// dropModule counts one refused module entry, which Completeness reads.
+func (d *Discovery) dropModule(entry string) {
+	d.ModulesDropped++
+	d.Drop(entry)
 }
 
 // ModulesDigest is the SHA-256 (hex) of the module set in its canonical form

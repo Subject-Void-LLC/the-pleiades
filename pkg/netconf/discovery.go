@@ -81,9 +81,10 @@ func discoverFromHello(capabilities []string) Discovery {
 	switch {
 	case len(d.Modules) == 0 && !library:
 		d.Completeness = Unknown
-	case library || d.Dropped > 0:
-		// A list known to miss an entry, one malformed or over a bound,
-		// is not every module the server implements.
+	case library || d.ModulesDropped > 0:
+		// A list known to miss a module entry, one malformed or over a
+		// bound, is not every module the server implements; a refused
+		// protocol capability says nothing about the modules.
 		d.Completeness = Partial
 	default:
 		d.Completeness = Complete

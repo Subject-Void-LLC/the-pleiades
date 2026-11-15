@@ -22,7 +22,8 @@ func IsIdentifier(s string) bool {
 	return yangIdentifier.MatchString(s)
 }
 
-// KeepModules is modules with every malformed entry refused (counted on d),
+// KeepModules is modules with every malformed entry refused (counted on d's
+// Dropped and ModulesDropped),
 // each feature and deviation list checked the same way, duplicates removed,
 // sorted by name then revision. An entry is refused whole: its name must be
 // a YANG identifier, its revision (when given) a date, its namespace present,
@@ -33,13 +34,13 @@ func KeepModules(modules []Module, d *Discovery) []Module {
 	out := make([]Module, 0, len(modules))
 	for _, m := range modules {
 		if len(out) == MaxModules {
-			d.Drop(m.Name)
+			d.dropModule(m.Name)
 			continue
 		}
 		if !yangIdentifier.MatchString(m.Name) || (m.Revision != "" && !yangRevision.MatchString(m.Revision)) ||
 			m.Namespace == "" || len(m.Namespace) > MaxNamespaceBytes || !Printable(m.Namespace) ||
 			len(m.Features) > MaxListEntries || len(m.Deviations) > MaxListEntries {
-			d.Drop(m.Name + "@" + m.Revision + " " + m.Namespace)
+			d.dropModule(m.Name + "@" + m.Revision + " " + m.Namespace)
 			continue
 		}
 		m.Features, m.Deviations = Identifiers(m.Features), Identifiers(m.Deviations)
