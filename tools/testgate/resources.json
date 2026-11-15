@@ -1005,6 +1005,25 @@
         "linux/amd64"
       ]
     },
+    "internal/catalog/net/restconf": {
+      "seconds": {
+        "min": 3,
+        "max": 3
+      },
+      "memory_mb": {
+        "min": 251,
+        "max": 251
+      },
+      "disk_mb": {
+        "min": 30,
+        "max": 30
+      },
+      "runs": 1,
+      "last": "2026-11-15",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
     "internal/catalog/net/ssh": {
       "seconds": {
         "min": 3,
@@ -1359,10 +1378,18 @@
     "internal/catalog/wait": {
       "seconds": {
         "min": 70,
-        "max": 70
+        "max": 141
       },
-      "runs": 1,
-      "last": "2026-10-29",
+      "memory_mb": {
+        "min": 448,
+        "max": 448
+      },
+      "disk_mb": {
+        "min": 57,
+        "max": 57
+      },
+      "runs": 2,
+      "last": "2026-11-15",
       "hosts": [
         "linux/amd64"
       ]
@@ -3573,8 +3600,8 @@
         "min": 0,
         "max": 1772
       },
-      "runs": 3,
-      "last": "2026-10-29",
+      "runs": 4,
+      "last": "2026-11-15",
       "hosts": [
         "freebsd/amd64",
         "linux/amd64"
@@ -3679,6 +3706,63 @@
       "last": "2026-10-29",
       "hosts": [
         "freebsd/amd64",
+        "linux/amd64"
+      ]
+    },
+    "pkg/restconf": {
+      "seconds": {
+        "min": 3,
+        "max": 3
+      },
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 1,
+      "last": "2026-11-15",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "pkg/restconf/restconflive": {
+      "seconds": {
+        "min": 18,
+        "max": 18
+      },
+      "memory_mb": {
+        "min": 452,
+        "max": 452
+      },
+      "disk_mb": {
+        "min": 68,
+        "max": 68
+      },
+      "runs": 1,
+      "last": "2026-11-15",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "pkg/restconf/restconftest": {
+      "seconds": {
+        "min": 0,
+        "max": 0
+      },
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 1,
+      "last": "2026-11-15",
+      "hosts": [
         "linux/amd64"
       ]
     },
@@ -3861,6 +3945,44 @@
       "last": "2026-10-29",
       "hosts": [
         "freebsd/amd64",
+        "linux/amd64"
+      ]
+    },
+    "pkg/yangfacts": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "memory_mb": {
+        "min": 413,
+        "max": 413
+      },
+      "disk_mb": {
+        "min": 56,
+        "max": 56
+      },
+      "runs": 1,
+      "last": "2026-11-15",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "pkg/yanglib": {
+      "seconds": {
+        "min": 1,
+        "max": 1
+      },
+      "memory_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 1,
+      "last": "2026-11-15",
+      "hosts": [
         "linux/amd64"
       ]
     },
