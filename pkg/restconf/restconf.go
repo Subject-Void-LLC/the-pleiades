@@ -263,6 +263,14 @@ func (e *RefusedError) Error() string {
 	return "the device refused the credential: " + e.Answer.Error()
 }
 
+// Refused reports that the device refused the login (or asked for one this
+// device sends none of): the answer is the same however often it is asked,
+// and each ask with a password is one more failed login toward the account's
+// lockout (IOS XE's aaa local authentication attempts max-fail), so the
+// engine's Refused stops a task's until, its loop's next item and a Runner's
+// redelivery from asking again.
+func (e *RefusedError) Refused() bool { return true }
+
 // mediaTypeOf is a Content-Type header's media type, lower case and without
 // parameters, or "" when it does not parse.
 func mediaTypeOf(header string) string {
