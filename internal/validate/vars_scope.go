@@ -106,9 +106,16 @@ func (s *varScopes) precedes(from, to string) bool {
 	return from != to && seen[to]
 }
 
-// deviceVarNames returns the variable names the devices task reaches bring in
+// deviceVarNames returns the variable names the devices task targets bring in
 // their vars property, secret-named ones left out as the engine leaves them.
 // A target rendered from data could be any device, so every device counts.
+//
+// The devices are those the target names in the whole inventory, as if the
+// run's narrowing (--limit, a serial: batch) hid nothing (taskDevices), so a
+// run under --limit decides as validate, which takes no limit, decided.
+// Before this, a template reading a host_vars name only the hub defines, inside an
+// {% if %} only the hub takes, passed validate and was refused by run
+// --limit on a spoke (run 10).
 func (s *varScopes) deviceVarNames(task *engine.Task) map[string]bool {
 	var items []inventory.InventoryItem
 	if target := engine.TaskTarget(s.world.DAG, task); engine.HasTemplate(target) {

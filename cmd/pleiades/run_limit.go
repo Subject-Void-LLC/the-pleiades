@@ -15,10 +15,16 @@ import (
 // CLI groups by). A device outside the hosts (a lab server or a Batfish
 // service a task names) is not limited, as Ansible's --limit does not limit
 // delegate_to, and as serial: does not batch it.
+//
+// It is an engine.Narrowing, so a task whose target names only hosts the
+// limit leaves out is skipped on this run, naming the limit, rather than
+// failed as a target that matches nothing.
 type limitResolver struct {
 	inner validate.WorldView
 	hosts map[inventory.DeviceID]bool
 	limit engine.Limit
+	// text is the limit as written, which a skip's reason quotes.
+	text string
 }
 
 // Resolve implements engine.TargetResolver.
@@ -30,6 +36,20 @@ func (l limitResolver) Resolve(target string) []inventory.InventoryItem {
 		}
 	}
 	return out
+}
+
+// Unnarrowed implements engine.Narrowing: target as the inventory answers it.
+func (l limitResolver) Unnarrowed(target string) []inventory.InventoryItem {
+	return l.inner.Resolve(target)
+}
+
+// HiddenBecause implements engine.Narrowing: a host the limit does not admit
+// is outside it.
+func (l limitResolver) HiddenBecause(d inventory.InventoryItem) string {
+	if l.hosts[d.ID()] && !l.limit.Admits(d.Name(), tagNames(d)) {
+		return fmt.Sprintf("outside --limit %q", l.text)
+	}
+	return ""
 }
 
 // tagNames returns item's tags as strings.
@@ -55,7 +75,7 @@ func applyLimit(world validate.WorldView, dag *engine.DAG, limit engine.Limit, t
 		hosts[item.ID()] = true
 	}
 	limited := world
-	limited.Resolver = limitResolver{inner: world, hosts: hosts, limit: limit}
+	limited.Resolver = limitResolver{inner: world, hosts: hosts, limit: limit, text: text}
 	if kept, _ := engine.ResolveTargets(limited, dag.Hosts); len(all) > 0 && len(kept) == 0 {
 		return world, fmt.Errorf("--limit %q matches none of the runbook's hosts (%s)", text, dag.Hosts)
 	}

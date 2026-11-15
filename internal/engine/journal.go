@@ -659,7 +659,7 @@ type FailureStage string
 // The stages a node execution can fail at, one per failure call site in
 // the executor, and the projection maps every one
 // explicitly and fails closed on any branch it does not recognize
-// (validFailureStage, journal_entry.go).
+// (validFailureStage, journal_kinds.go).
 //
 // Each constant below cites the executor.go line that tags a result with
 // it. Those line numbers rot whenever executor.go moves, and nothing in
@@ -778,6 +778,12 @@ const (
 	// SkipKindNotNotified is a handler on a device where no task that
 	// notifies it changed anything in the section it follows (notify.go).
 	SkipKindNotNotified SkipKind = "not_notified"
+
+	// SkipKindLimit is a task whose target names only devices this run does
+	// not reach: every one is outside the CLI's --limit, or in another
+	// serial: batch (narrowing.go). It has no DeviceID, since the devices
+	// are not in the run; the reason names them.
+	SkipKindLimit SkipKind = "limit"
 )
 
 // Journal is the durable record of what a run did. Executor.Run is its

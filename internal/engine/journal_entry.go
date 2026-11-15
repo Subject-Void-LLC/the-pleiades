@@ -343,67 +343,6 @@ func skipKindFor(cp *ConditionProgram) SkipKind {
 	}
 }
 
-// validFailureStage reports whether stage is one of the twelve stages a
-// failed node may record.
-//
-// Every one is listed rather than range-checked, because the point is
-// that adding a thirteenth constant is not enough: a stage this function has
-// never heard of is refused, and the entry that would have carried it is
-// not written. See projectLevel on what that costs whoever adds one.
-func validFailureStage(stage FailureStage) bool {
-	switch stage {
-	case FailureStageWorkflowRead,
-		FailureStageConditionEval,
-		FailureStageSecretMask,
-		FailureStageRender,
-		FailureStageResolveTarget,
-		FailureStageLockAll,
-		FailureStageLockDevice,
-		FailureStageAction,
-		FailureStageFailedWhen,
-		FailureStageChangedWhen,
-		FailureStageRegisterMask,
-		FailureStageRecord:
-		return true
-	case FailureStageNone:
-		// The zero value. A failed result carrying it is a failure site
-		// that never tagged itself, which is exactly the silent hole this
-		// check exists to refuse.
-		return false
-	default:
-		return false
-	}
-}
-
-// IsRecordedFailureStage reports whether stage is one a failed entry may
-// carry: the one list the engine writes from (validFailureStage) and the
-// journal reader holds a recorded entry to, so the two cannot drift apart.
-//
-// Because the reader holds old journals to it too, the list only grows: a
-// stage the engine no longer writes stays listed, or every journal that
-// recorded it stops reading (internal/journal's TestJournalFormatOneReadsEveryKind).
-func IsRecordedFailureStage(stage FailureStage) bool { return validFailureStage(stage) }
-
-// IsRecordedSkipKind reports whether kind is one a skipped entry may carry,
-// the one list the engine writes from (validSkipKind) and the journal reader
-// holds a recorded entry to.
-// Like IsRecordedFailureStage's list, it only grows.
-func IsRecordedSkipKind(kind SkipKind) bool { return validSkipKind(kind) }
-
-// validSkipKind reports whether kind is one of the seven reasons a node may
-// be recorded as skipped. It enumerates them for the same reason
-// validFailureStage does.
-func validSkipKind(kind SkipKind) bool {
-	switch kind {
-	case SkipKindWhen, SkipKindWhenOr, SkipKindWhenCEL, SkipKindLifecycle, SkipKindBlockFailed, SkipKindNotFailed, SkipKindNotNotified:
-		return true
-	case SkipKindNone:
-		return false
-	default:
-		return false
-	}
-}
-
 // projectResult turns one NodeResult into one JournalEntry, or reports
 // why it could not.
 //
@@ -527,7 +466,7 @@ func (r *run) projectResult(n NodeResult) (JournalEntry, error) {
 	case n.Err != nil:
 		if !validFailureStage(n.failureStage) {
 			return JournalEntry{}, fmt.Errorf(
-				"node %q (device %q) failed at stage %q, which is not one of the twelve this journal records",
+				"node %q (device %q) failed at stage %q, which is not one this journal records",
 				n.NodeID, n.Device, n.failureStage)
 		}
 		entry.Outcome = OutcomeFailed
@@ -841,7 +780,7 @@ func sortedParamKeys(m map[string]interface{}) []string {
 // queried and read as a fact about the run.
 //
 // The fix for whoever hits that is two lines: add the constant to
-// FailureStage (journal.go) and to validFailureStage above, then tag the
+// FailureStage (journal.go) and to validFailureStage (journal_kinds.go), then tag the
 // new site with it. The refusal is loud precisely so that cost lands on
 // the person adding the site rather than on the operator reading the
 // journal months later.

@@ -1042,6 +1042,13 @@ func (r *run) runNode(ctx context.Context, nodeID string) []NodeResult {
 	// the node did.
 	started := time.Now().UTC()
 
+	// A task whose every target device is outside this run (--limit, a
+	// serial: batch) is skipped before its condition or parameters are read,
+	// or fails when it is a rescue its block needs now (narrowing.go).
+	if narrowed := r.narrowedAway(task); narrowed != nil {
+		return []NodeResult{r.narrowedResult(nodeID, task, started, narrowed)}
+	}
+
 	// A task inside a block with a rescue: or an always: decides per device
 	// before anything else runs (handlers.go, handlers_run.go).
 	if r.dag.Guarded(r.dag.Scopes[nodeID]) {
@@ -1061,9 +1068,7 @@ func (r *run) runNode(ctx context.Context, nodeID string) []NodeResult {
 
 	devices, err := r.resolveDevices(task)
 	if err != nil {
-		wrapped := fmt.Errorf("failed to resolve target for %s: %w", taskLabel(nodeID, task), err)
-		r.publish(nodeID, task, "", "failed", wrapped.Error())
-		return []NodeResult{failedNode(nodeID, started, FailureStageResolveTarget, wrapped)}
+		return []NodeResult{r.unresolved(nodeID, task, started, err)}
 	}
 	return r.dispatch(ctx, nodeID, task, devices, started)
 }
@@ -1293,9 +1298,14 @@ func (r *run) resolveDevices(task *Task) ([]inventory.InventoryItem, error) {
 		return r.x.resolver.Resolve(""), nil
 	}
 
-	devices, missing := ResolveTargets(r.x.resolver, target)
+	res := ResolveTargetsIn(r.x.resolver, target)
+	devices, missing := res.Devices, res.Missing
 	switch {
-	case len(devices) == 0:
+	case res.NarrowedAway():
+		// Every device the target names is in the inventory and outside this
+		// run (--limit, a serial: batch): a skip, not a mistake (narrowing.go).
+		return nil, &narrowedTarget{target: target, hidden: res.Hidden}
+	case len(devices) == 0 && len(res.Hidden) == 0:
 		return nil, fmt.Errorf("target %q matches no inventory host or tag", target)
 	case len(missing) > 0:
 		// A hosts: list naming a device that is not there is refused whole,

@@ -64,6 +64,18 @@ func deviceRoot(d inventory.InventoryItem) map[string]any {
 	}
 }
 
+// deviceRoots is what an evaluation on the one device d starts from: its
+// device root and the variables it brings (deviceVars, the static
+// inventory's group_vars and host_vars), which mergedVars reads as their
+// own tier. Every path that decides and renders a task on one device builds
+// its roots here, so none renders without the device's variables: a block
+// with a rescue once built the device root alone, and a task there that
+// read a host_vars variable failed to render though the same task at the
+// top level did (run 10).
+func deviceRoots(d inventory.InventoryItem) map[string]any {
+	return map[string]any{TemplateRootDevice: deviceRoot(d), hostVarsRoot: deviceVars(d)}
+}
+
 // readsDevice reports whether task (node nodeID) reads the device root, in
 // its condition (its syntax tree, never its text, so a string holding the
 // word does not count) or in a parameter's template.
@@ -165,7 +177,7 @@ func (r *run) runPerDevice(ctx context.Context, nodeID string, task *Task, start
 	}
 	devices, err := r.resolveDevices(targeted)
 	if err != nil {
-		return fail(FailureStageResolveTarget, fmt.Errorf("failed to resolve target for %s: %w", taskLabel(nodeID, task), err))
+		return []NodeResult{r.unresolved(nodeID, task, started, err)}
 	}
 	on := func(d inventory.InventoryItem) []NodeResult {
 		key := ""
@@ -181,7 +193,7 @@ func (r *run) runPerDevice(ctx context.Context, nodeID string, task *Task, start
 				NodeID: nodeID, Device: key, StartedAt: started, Skipped: true, SkipReason: SkipReasonNotNotified, skipKind: SkipKindNotNotified,
 			})}
 		}
-		roots := map[string]any{TemplateRootDevice: deviceRoot(d), hostVarsRoot: deviceVars(d)}
+		roots := deviceRoots(d)
 		if errorRoot != nil {
 			roots[TemplateRootError] = errorRoot
 		}

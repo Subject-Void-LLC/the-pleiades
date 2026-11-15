@@ -1,0 +1,1 @@
+A rescue task whose target matches no device no longer marks the failure its block was handling as rescued: the run already failed, and now the report says the failure stands instead of "RESCUED by" a rescue that never ran.

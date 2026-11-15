@@ -64,7 +64,7 @@ func CalculateBlastRadius(world WorldView) BlastRadius {
 	var items []inventory.InventoryItem
 
 	for _, task := range world.DAG.Nodes {
-		_, reached := world.taskDevices(task)
+		_, reached := world.reachedDevices(task)
 		for _, item := range reached {
 			id := string(item.ID())
 			if _, seen := devices[id]; seen {

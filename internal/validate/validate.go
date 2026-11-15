@@ -118,11 +118,30 @@ func (w WorldView) resolveUncached(target string) []inventory.InventoryItem {
 }
 
 // taskDevices returns the target task names (TaskTarget: its own, or
-// the runbook's hosts:) and the devices it reaches. A task that names no
-// target reaches the Resolver's answer for the empty target when a
+// the runbook's hosts:) and the devices every rule holds it to. A task that
+// names no target reaches the Resolver's answer for the empty target when a
 // Resolver is set, and no device otherwise, which is how the executor
 // treats it (engine's resolveDevices).
+//
+// The devices are those the target names in the whole inventory, as if the
+// run's narrowing (engine.Narrowing: --limit, a serial: batch) hid nothing:
+// the narrowing chooses which of them run now, not what the task is written
+// for. So the checks a run makes under --limit are the ones validate, which
+// takes no limit, makes, and run --limit never accepts what validate refuses.
+// reachedDevices is the devices this run reaches, for what describes the run
+// itself (its blast radius, its engine routes).
 func (w WorldView) taskDevices(task *engine.Task) (string, []inventory.InventoryItem) {
+	target := engine.TaskTarget(w.DAG, task)
+	if target == "" && w.Resolver == nil {
+		return "", nil
+	}
+	devices, _ := engine.ResolveTargets(engine.TargetResolverFunc(w.Unnarrowed), target)
+	return target, devices
+}
+
+// reachedDevices returns the target task names and the devices this run
+// reaches of them, after the run's narrowing.
+func (w WorldView) reachedDevices(task *engine.Task) (string, []inventory.InventoryItem) {
 	target := engine.TaskTarget(w.DAG, task)
 	if target == "" && w.Resolver == nil {
 		return "", nil
@@ -133,9 +152,38 @@ func (w WorldView) taskDevices(task *engine.Task) (string, []inventory.Inventory
 
 // ResolveAll is Resolve for a target that may be a hosts: list (a
 // comma-separated string, engine.ResolveTargets): the devices it names, and
-// the names in it that match nothing.
+// the names in it that match nothing. A name whose devices the run's
+// narrowing hid (a CLI --limit, a serial: batch) is not missing, as the
+// engine does not count it (engine.Narrowing).
 func (w WorldView) ResolveAll(target string) (devices []inventory.InventoryItem, missing []string) {
-	return engine.ResolveTargets(engine.TargetResolverFunc(w.Resolve), target)
+	res := w.resolveIn(target)
+	return res.Devices, res.Missing
+}
+
+// resolveIn resolves target through w (its cached Resolve and the
+// narrowing of its Resolver), as the engine resolves it.
+func (w WorldView) resolveIn(target string) engine.Resolution {
+	return engine.ResolveTargetsIn(w, target)
+}
+
+// Unnarrowed implements engine.Narrowing: target as w's Resolver would
+// answer it if it hid nothing, which for a Resolver that narrows nothing (or
+// none) is Resolve. A WorldView is what the CLI hands the executor as its
+// TargetResolver, so it carries its Resolver's narrowing to the engine.
+func (w WorldView) Unnarrowed(target string) []inventory.InventoryItem {
+	if n, ok := w.Resolver.(engine.Narrowing); ok {
+		return n.Unnarrowed(target)
+	}
+	return w.Resolve(target)
+}
+
+// HiddenBecause implements engine.Narrowing: why w's Resolver hides d from
+// the run, or "" when it narrows nothing.
+func (w WorldView) HiddenBecause(d inventory.InventoryItem) string {
+	if n, ok := w.Resolver.(engine.Narrowing); ok {
+		return n.HiddenBecause(d)
+	}
+	return ""
 }
 
 // Rule inspects a WorldView and returns the Findings it detects. A Rule
