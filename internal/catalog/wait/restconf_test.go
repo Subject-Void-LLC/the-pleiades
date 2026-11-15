@@ -93,6 +93,24 @@ func TestRestconf_WaitsThrough502sUntilTheServerAnswers(t *testing.T) {
 	if diff[sdk.DiffBefore].(map[string]any)["root"] != "/restconf" {
 		t.Errorf("diff %v", rc.stats[sdk.StatDiff])
 	}
+	// The device pins its certificate, which the record's warning says once
+	// for the whole wait, as net.restconf.* say it, not once per try.
+	if warnings, _ := rc.stats[sdk.StatWarnings].([]string); len(warnings) != 1 || !strings.Contains(warnings[0], "pinned certificate") {
+		t.Errorf("warnings %v, want the pinned certificate's once", rc.stats[sdk.StatWarnings])
+	}
+}
+
+// TestRestconf_AWaitThatGivesUpStillSaysItsWarnings: the record's warnings
+// are recorded when the wait times out too.
+func TestRestconf_AWaitThatGivesUpStillSaysItsWarnings(t *testing.T) {
+	s := lateRESTCONF(t, 1<<30)
+	rc := restconfContext(s)
+	if _, err := wait.Restconf(context.Background(), rc, restconftest.NewDevice(t, s), map[string]any{"timeout": 2, "sleep": 1, "connect_timeout": 1}); err == nil {
+		t.Fatal("a server answering 502 to the end was waited for")
+	}
+	if warnings, _ := rc.stats[sdk.StatWarnings].([]string); len(warnings) != 1 {
+		t.Errorf("warnings %v, want the pinned certificate's once", rc.stats[sdk.StatWarnings])
+	}
 }
 
 // TestRestconf_GivesUpAtItsTimeoutQuotingTheLastTry: a server that answers
@@ -186,10 +204,10 @@ func TestRestconf_Refusals(t *testing.T) {
 	}
 }
 
-// TestRestconf_AStatItCannotRecordFailsTheTask: a ready server whose diff or
-// root stat cannot be recorded fails the task.
+// TestRestconf_AStatItCannotRecordFailsTheTask: a ready server whose diff,
+// root, tries or warnings stat cannot be recorded fails the task.
 func TestRestconf_AStatItCannotRecordFailsTheTask(t *testing.T) {
-	for _, key := range []string{sdk.StatDiff, "root", "tries"} {
+	for _, key := range []string{sdk.StatDiff, "root", "tries", sdk.StatWarnings} {
 		t.Run(key, func(t *testing.T) {
 			s := restconftest.New(t, restconfLogin)
 			rc := restconfContext(s)
@@ -249,5 +267,21 @@ func TestRestconf_NoRestconfAtTheDefaultRootIsAFailedTry(t *testing.T) {
 	_, err := wait.Restconf(context.Background(), restconfContext(s), restconftest.NewDevice(t, s), map[string]any{"timeout": 2, "sleep": 1, "connect_timeout": 1})
 	if err == nil || !strings.Contains(err.Error(), "timed out") || strings.Contains(err.Error(), "stopped") {
 		t.Errorf("no RESTCONF at /restconf: %v", err)
+	}
+}
+
+// TestRestconf_ARootAtTheOriginIsSaidAsSlash: host-meta naming the origin
+// itself as the root is waited for there, and the root stat says "/".
+func TestRestconf_ARootAtTheOriginIsSaidAsSlash(t *testing.T) {
+	opts := restconfLogin
+	opts.HostMeta = `<XRD xmlns='http://docs.oasis-open.org/ns/xri/xrd-1.0'><Link rel='restconf' href='/'/></XRD>`
+	opts.Override = map[string]http.HandlerFunc{"/data/ietf-restconf-monitoring:restconf-state/capabilities": func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/yang-data+xml")
+		_, _ = w.Write([]byte(`<capabilities xmlns="urn:ietf:params:xml:ns:yang:ietf-restconf-monitoring"><capability>urn:ietf:params:restconf:capability:depth:1.0</capability></capabilities>`))
+	}}
+	s := restconftest.New(t, opts)
+	rc := restconfContext(s)
+	if _, err := wait.Restconf(context.Background(), rc, restconftest.NewDevice(t, s), map[string]any{"timeout": 10, "sleep": 1, "connect_timeout": 2}); err != nil || rc.stats["root"] != "/" {
+		t.Errorf("a root at the origin: %v, stats %v", err, rc.stats)
 	}
 }

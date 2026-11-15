@@ -76,14 +76,24 @@ func Restconf(ctx context.Context, rc sdk.RunbookContext, device inventory.Inven
 		return collection.Result{}, fmt.Errorf("%s: device %q serves no RESTCONF (it does not implement %s)", restconfFQCN, device.Name(), capability.NameRestconf)
 	}
 	var root, source string
+	var warnings []string
+	tried := false
 	try := func(ctx context.Context) error {
-		answered, how, err := restconfTry(ctx, rc, device)
+		answered, how, warned, err := restconfTry(ctx, rc, device)
+		if !tried {
+			// The warnings are the device record's own (its TLS settings), the
+			// same on every try, so they are recorded once.
+			tried, warnings = true, warned
+		}
 		if err == nil {
 			root, source = answered, how
 		}
 		return err
 	}
 	waited, err := waitForConnection(ctx, req, try, connectionPace{jitter: connectionJitter, sleep: waitSleep})
+	if werr := sdk.RecordWarnings(rc, warnings); werr != nil && err == nil {
+		err = werr
+	}
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: the RESTCONF server of %s did not answer: %w", restconfFQCN, device.Name(), err)
 	}
@@ -117,17 +127,18 @@ func Restconf(ctx context.Context, rc sdk.RunbookContext, device inventory.Inven
 // /restconf, which the capability read then decides), then the capability
 // list under it, and the client's connections dropped after. It returns the
 // root that answered, "/" for one at the origin itself, and how it was
-// learned.
+// learned, and the warnings the device's record gives (a pinned certificate,
+// a weak TLS setting allowed), as net.restconf.* record them.
 //
 // The certificate is checked in the handshake, before any request is sent, so
 // one the device's settings do not trust ends the wait having sent nothing;
 // a refused login ends it too (pkg/restconf's RefusedError, after which the
 // client sends nothing more). Anything else is one more failed try.
-func restconfTry(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem) (string, string, error) {
-	client, _, err := restconf.ClientFor(device, device.Name(), rc.InjectSecrets())
+func restconfTry(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem) (string, string, []string, error) {
+	client, warnings, err := restconf.ClientFor(device, device.Name(), rc.InjectSecrets())
 	if err != nil {
 		// The record itself is unusable, which no try changes.
-		return "", "", &stopWaiting{err: err}
+		return "", "", nil, &stopWaiting{err: err}
 	}
 	defer client.Close()
 	root, err := client.DiscoverRoot(ctx)
@@ -135,12 +146,12 @@ func restconfTry(ctx context.Context, rc sdk.RunbookContext, device inventory.In
 		_, err = client.Capabilities(ctx)
 	}
 	if err != nil {
-		return "", "", restconfTryFailed(err)
+		return "", "", warnings, restconfTryFailed(err)
 	}
 	if root == "" {
 		root = "/"
 	}
-	return root, client.RootSource(), nil
+	return root, client.RootSource(), warnings, nil
 }
 
 // restconfTryFailed sorts a failed try: a certificate the device's settings
