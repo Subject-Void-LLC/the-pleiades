@@ -215,8 +215,12 @@ func TestLive_AKeyHoldingASlashAndACommaAddressesItsOwnEntry(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
+		// Bounded on its own context: a cleanup must not hang the run on
+		// a server that stopped answering.
+		cleanupCtx, stop := context.WithTimeout(context.Background(), 30*time.Second)
+		defer stop()
 		remove := `<nacm xmlns="urn:ietf:params:xml:ns:yang:ietf-netconf-acm" xmlns:nc="urn:ietf:params:xml:ns:netconf:base:1.0"><groups><group nc:operation="delete"><name>` + name + `</name></group></groups></nacm>`
-		_ = ns.EditConfig(context.Background(), netconf.EditConfigRequest{Config: remove})
+		_ = ns.EditConfig(cleanupCtx, netconf.EditConfigRequest{Config: remove})
 	})
 	c := client(t, s)
 	if _, err := c.DiscoverRoot(ctx); err != nil {

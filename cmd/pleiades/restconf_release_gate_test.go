@@ -6,6 +6,7 @@
 package main_test
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"slices"
 	"strings"
@@ -55,6 +56,26 @@ func TestGenericReleaseGate_RESTCONF(t *testing.T) {
 	}
 	if s.Unauthenticated() != 0 {
 		t.Errorf("%d requests reached the device with no credential", s.Unauthenticated())
+	}
+
+	// A second device holding a wrong password: the server's refusal echoes
+	// the Authorization header and the password, and neither may reach what
+	// onboarding prints.
+	for _, args := range [][]string{
+		{"add-host", "rc2", "--type", "generic_restconf", "--set", "base_url=" + s.URL, "--set", "tls_fingerprint=" + devicetls.Fingerprint(s.Certificate())},
+		{"add-credential", "rc2", "--username", "admin", "--password", "wrong-Restconf-8"},
+	} {
+		if out, err := runPleiadesWithEnv(t, dir, nil, args...); err != nil {
+			t.Fatalf("%v: %v\n%s", args, err, out)
+		}
+	}
+	refused, err := runPleiadesWithEnv(t, dir, nil, "onboard", "rc2", "--json", "--timeout", "90s")
+	token := base64.StdEncoding.EncodeToString([]byte("admin:wrong-Restconf-8"))
+	if err == nil || !strings.Contains(refused, "refused the credential") || !strings.Contains(refused, "request carried") {
+		t.Fatalf("onboarding with a wrong password: %v\n%s", err, refused)
+	}
+	if strings.Contains(refused, "wrong-Restconf-8") || strings.Contains(refused, token) {
+		t.Errorf("onboarding printed the credential:\n%s", refused)
 	}
 
 	shown, err := runPleiadesWithEnv(t, dir, nil, "facts", "rc1", "--json")

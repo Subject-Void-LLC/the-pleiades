@@ -5,13 +5,13 @@ package restconf_test
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync/atomic"
 	"testing"
-	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/httpapi"
@@ -125,8 +125,11 @@ func TestDiscover_AWrongPasswordIsARefusedCredential(t *testing.T) {
 	if paths := s.Paths(); len(paths) < 2 || paths[0] != "/.well-known/host-meta" {
 		t.Errorf("requests %v, want the root found first", paths)
 	}
-	if strings.Contains(err.Error(), "wrong-password") {
-		t.Errorf("the error %q carries the password", err)
+	// The server echoes the Authorization header and the password it was
+	// sent; neither form may reach the error.
+	token := base64.StdEncoding.EncodeToString([]byte("admin:wrong-password"))
+	if strings.Contains(err.Error(), "wrong-password") || strings.Contains(err.Error(), token) || !strings.Contains(err.Error(), "request carried") {
+		t.Errorf("the error %q carries the credential, or the echo was not exercised", err)
 	}
 }
 
@@ -421,8 +424,9 @@ func TestGetData_NeedsTheRoot(t *testing.T) {
 // TestDiscover_AnEndlessAnswerIsCutAtItsBound serves a host-meta that never
 // ends: the read stops one byte past the bound and refuses it at once. A
 // length check after an unbounded read would pass a fixed oversized answer
-// too (FAILURE_PATTERNS 1184), so the answer here has no end to reach, and a
-// client without the bound would wait for its request timeout instead.
+// too (FAILURE_PATTERNS 1184), so the answer here has no end to reach: a
+// client without the bound ends with its request timeout's error, not this
+// refusal.
 func TestDiscover_AnEndlessAnswerIsCutAtItsBound(t *testing.T) {
 	opts := login
 	opts.Override = map[string]http.HandlerFunc{"/.well-known/host-meta": func(w http.ResponseWriter, r *http.Request) {
@@ -435,13 +439,9 @@ func TestDiscover_AnEndlessAnswerIsCutAtItsBound(t *testing.T) {
 		}
 	}}
 	s := restconftest.New(t, opts)
-	start := time.Now()
 	_, _, err := discover(t, s, restconftest.NewDevice(t, s))
 	if err == nil || !strings.Contains(err.Error(), "larger than") {
 		t.Fatalf("Discover = %v, want the endless host-meta refused past its bound", err)
-	}
-	if elapsed := time.Since(start); elapsed > 20*time.Second {
-		t.Errorf("the refusal took %s, want it at the bound, not at a timeout", elapsed)
 	}
 }
 
@@ -513,5 +513,22 @@ func TestNew_NeedsAnHTTPClient(t *testing.T) {
 	c, err := restconf.New("https://192.0.2.1/", http.DefaultClient, httpapi.AuthNone, false, nil)
 	if err != nil || c.Base() != "https://192.0.2.1" {
 		t.Errorf("New = %v, %v; want the origin kept without its slash", c, err)
+	}
+}
+
+// TestDiscover_ARefusedCapabilityLeavesTheLibraryComplete: a capability URI
+// refused for an invisible formatting character (U+202E, which XML carries)
+// is counted, and the module list read whole from the
+// library stays complete, since it says nothing about the modules.
+func TestDiscover_ARefusedCapabilityLeavesTheLibraryComplete(t *testing.T) {
+	opts := login
+	opts.Capabilities = append(append([]string(nil), restconftest.Capabilities...), "urn:bad"+string(rune(0x202e)))
+	s := restconftest.New(t, opts)
+	d, _, err := discover(t, s, restconftest.NewDevice(t, s))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Dropped != 1 || d.ModulesDropped != 0 || d.Completeness != yanglib.Complete {
+		t.Errorf("Dropped = %d, ModulesDropped = %d, Completeness = %s; want the capability counted and the library complete", d.Dropped, d.ModulesDropped, d.Completeness)
 	}
 }

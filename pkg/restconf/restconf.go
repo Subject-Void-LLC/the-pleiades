@@ -19,6 +19,7 @@
 package restconf
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -62,6 +63,13 @@ type Client struct {
 	auth string
 	// secrets is the device's own credential, flattened.
 	secrets map[string]string
+	// dataAnswered is set once a read under the root was answered with a
+	// status that does not refuse the credential, after which a 403 is
+	// access control (do's rule).
+	dataAnswered bool
+	// refusal is the RefusedError that ended this client's use of the
+	// credential, which every later request returns unsent.
+	refusal error
 	// root is the API root's path as escaped, with no trailing slash, once
 	// DiscoverRoot has found it; "" before then, and "" for a root at the
 	// origin itself, which rootFound tells apart.
@@ -113,22 +121,47 @@ type answer struct {
 
 // get sends one authenticated GET of ref, a path on the device's origin as
 // escaped, asking for accept, and reads at most limit bytes of the answer.
-// A transport failure is an error, a certificate nothing trusts named by its
-// fingerprint (devicetls.Explain); so is a credential the server refused
-// (401, or 403 when this device sends none) and an answer past limit. Any
-// other status is returned for the caller to judge, a 403 to an
-// authenticated client among them: RFC 8040 section 7 answers access-denied,
-// access control refusing one resource, with 403, and the credential is good.
-func (c *Client) get(ctx context.Context, ref, accept string, limit int64) (answer, error) {
+// data says ref is a read under the root, which proves the credential where
+// host-meta (which a server may answer with no login) does not.
+func (c *Client) get(ctx context.Context, ref, accept string, limit int64, data bool) (answer, error) {
+	return c.do(ctx, http.MethodGet, ref, accept, "", nil, limit, data)
+}
+
+// do sends one authenticated request and reads at most limit bytes of the
+// answer. A transport failure is an error, a certificate nothing trusts named
+// by its fingerprint (devicetls.Explain). A refused credential is a
+// RefusedError, judged before the answer's size so a refusal with a long body
+// still ends the run: a 401 anywhere; a 403 when the device's record sends no
+// credential; and a 403 to the first read under the root, since a server may
+// answer a wrong password with 403, and a credential is never sent again once
+// refused (FAILURE_PATTERNS 1238). Once one read under the root has been
+// answered otherwise, a 403 is RFC 8040 section 7's access-denied, access
+// control refusing that one resource to a good credential, and is returned
+// for the caller to judge with every other status. An answer past limit is
+// unusable.
+func (c *Client) do(ctx context.Context, method, ref, accept, contentType string, body []byte, limit int64, data bool) (answer, error) {
+	if c.refusal != nil {
+		// The credential was refused once; it is not sent again.
+		return answer{}, c.refusal
+	}
 	u, err := httpapi.Join(c.base, ref)
 	if err != nil {
 		return answer{}, err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+	var reader io.Reader
+	if body != nil {
+		reader = bytes.NewReader(body)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, u.String(), reader)
 	if err != nil {
 		return answer{}, err
 	}
-	req.Header.Set("Accept", accept)
+	if accept != "" {
+		req.Header.Set("Accept", accept)
+	}
+	if contentType != "" {
+		req.Header.Set("Content-Type", contentType)
+	}
 	if err := httpapi.Authorize(req, c.auth, c.secrets); err != nil {
 		return answer{}, err
 	}
@@ -139,34 +172,55 @@ func (c *Client) get(ctx context.Context, ref, accept string, limit int64) (answ
 	defer func() { _ = resp.Body.Close() }()
 	// One byte past the bound is read, so an answer exactly at it is
 	// accepted and one over it is known to be over without reading the rest.
-	body, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
+	read, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
 	if err != nil {
-		return answer{}, fmt.Errorf("reading the answer to GET %s: %w", u.EscapedPath(), err)
+		return answer{}, fmt.Errorf("reading the answer to %s %s: %w", method, u.EscapedPath(), err)
 	}
-	if int64(len(body)) > limit {
-		return answer{}, fmt.Errorf("%w: the answer to GET %s is larger than %d bytes, which is not read", errUnusable, u.EscapedPath(), limit)
+	a := answer{status: resp.StatusCode, mediaType: mediaTypeOf(resp.Header.Get("Content-Type")), body: read}
+	if c.refuses(a.status, data) {
+		if int64(len(a.body)) > limit {
+			a.body = nil
+		}
+		c.refusal = c.refused(a)
+		return answer{}, c.refusal
 	}
-	a := answer{status: resp.StatusCode, mediaType: mediaTypeOf(resp.Header.Get("Content-Type")), body: body}
-	if a.status == http.StatusUnauthorized || (a.status == http.StatusForbidden && c.auth == httpapi.AuthNone) {
-		return answer{}, c.refused(a)
+	if data && a.status != http.StatusUnauthorized && a.status != http.StatusForbidden {
+		c.dataAnswered = true
+	}
+	if int64(len(a.body)) > limit {
+		return answer{}, fmt.Errorf("%w: the answer to %s %s is larger than %d bytes, which is not read", errUnusable, method, u.EscapedPath(), limit)
 	}
 	return a, nil
+}
+
+// refuses reports whether status refuses the credential (do's rule).
+func (c *Client) refuses(status int, data bool) bool {
+	switch {
+	case status == http.StatusUnauthorized:
+		return true
+	case status != http.StatusForbidden:
+		return false
+	case c.auth == httpapi.AuthNone:
+		return true
+	}
+	return data && !c.dataAnswered
 }
 
 // refused is the error for an answer refusing the client's credential, or
 // asking for one the device's record sends none of.
 func (c *Client) refused(a answer) error {
-	return &RefusedError{Answer: statusError(a), NoneSent: c.auth == httpapi.AuthNone}
+	return &RefusedError{Answer: c.statusError(a), NoneSent: c.auth == httpapi.AuthNone}
 }
 
-// RefusedError is a credential the device refused (401), or asked for when
-// this device sends none (401 or 403). It ends a discovery, where a
-// StatusError refuses one resource, so it does not unwrap to one: a caller
-// asking errors.As for a StatusError must not mistake a refused login for a
-// resource the server lacks (measured 2026-11-14 against rousette, which
-// answers host-meta with no login and every data read with 401).
+// RefusedError is a credential the device refused (401, or 403 to the first
+// read under the root), or asked for when this device sends none (401 or
+// 403). It ends a discovery, where a StatusError refuses one resource, so it
+// does not unwrap to one: a caller asking errors.As for a StatusError must
+// not mistake a refused login for a resource the server lacks (measured
+// 2026-11-14 against rousette, which answers host-meta with no login and
+// every data read with 401).
 type RefusedError struct {
-	// Answer is what the device said.
+	// Answer is what the device said, masked.
 	Answer *StatusError
 	// NoneSent is true when the device's record sends no credential.
 	NoneSent bool
@@ -212,12 +266,12 @@ func (c *Client) GetData(ctx context.Context, p Path) (body []byte, mediaType st
 	if err != nil {
 		return nil, "", err
 	}
-	a, err := c.get(ctx, ref, acceptYANG, MaxDataBytes)
+	a, err := c.get(ctx, ref, acceptYANG, MaxDataBytes, true)
 	if err != nil {
 		return nil, "", err
 	}
 	if a.status != http.StatusOK {
-		return nil, "", statusError(a)
+		return nil, "", c.statusError(a)
 	}
 	mediaType = MediaTypeXML
 	if a.isJSON() {

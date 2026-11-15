@@ -40,12 +40,12 @@ const maxRootBytes = 1024
 // document, one that is not XRD, one naming no restconf link or two
 // different ones, and a root off the device's origin are each an error.
 func (c *Client) DiscoverRoot(ctx context.Context) (string, error) {
-	a, err := c.get(ctx, hostMetaPath, "application/xrd+xml", MaxHostMetaBytes)
+	a, err := c.get(ctx, hostMetaPath, "application/xrd+xml", MaxHostMetaBytes, false)
 	if err != nil {
 		return "", fmt.Errorf("reading %s: %w", hostMetaPath, err)
 	}
 	if a.status != http.StatusOK {
-		return "", fmt.Errorf("reading %s: %w", hostMetaPath, statusError(a))
+		return "", fmt.Errorf("reading %s: %w", hostMetaPath, c.statusError(a))
 	}
 	href, err := restconfLink(a.body)
 	if err != nil {

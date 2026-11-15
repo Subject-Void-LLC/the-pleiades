@@ -4,13 +4,17 @@ package restconf
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/httpapi"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/yanglib"
@@ -146,7 +150,7 @@ func TestIsJSON_ByMediaTypeThenByFirstByte(t *testing.T) {
 }
 
 func TestStatusError_ReadsAndBoundsTheServersErrors(t *testing.T) {
-	if e := statusError(answer{status: 404}); len(e.Errors) != 0 || e.Said != "" || e.Error() != "the device answered 404 Not Found" {
+	if e := statusError(answer{status: 404}, func(s string) string { return s }); len(e.Errors) != 0 || e.Said != "" || e.Error() != "the device answered 404 Not Found" {
 		t.Errorf("an empty answer = %q, %+v", e.Error(), e)
 	}
 	var b strings.Builder
@@ -158,7 +162,7 @@ func TestStatusError_ReadsAndBoundsTheServersErrors(t *testing.T) {
 		b.WriteString(`{"error-type":"protocol","error-tag":"lock-denied"}`)
 	}
 	b.WriteString(`]}}`)
-	e := statusError(answer{status: 409, mediaType: MediaTypeJSON, body: []byte(b.String())})
+	e := statusError(answer{status: 409, mediaType: MediaTypeJSON, body: []byte(b.String())}, func(s string) string { return s })
 	if len(e.Errors) != maxErrors || !e.HasTag("lock-denied") {
 		t.Errorf("kept %d errors, want %d", len(e.Errors), maxErrors)
 	}
@@ -186,20 +190,79 @@ func refusingClient(t *testing.T, handler http.HandlerFunc, auth string) *Client
 	return c
 }
 
-func TestGet_AnAuthenticated403IsAccessControlNotARefusedCredential(t *testing.T) {
-	c := refusingClient(t, func(w http.ResponseWriter, _ *http.Request) {
+// TestGet_A403AfterAnAnsweredReadIsAccessControl: once a read under the root
+// was answered, a 403 is access control refusing one resource to a good
+// credential, said in the discovery and not fatal.
+func TestGet_A403AfterAnAnsweredReadIsAccessControl(t *testing.T) {
+	c := refusingClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "restconf-state") {
+			w.Header().Set("Content-Type", MediaTypeXML)
+			_, _ = w.Write([]byte(`<capabilities xmlns="urn:ietf:params:xml:ns:yang:ietf-restconf-monitoring"><capability>urn:a</capability></capabilities>`))
+			return
+		}
 		w.Header().Set("Content-Type", MediaTypeXML)
 		w.WriteHeader(http.StatusForbidden)
 		_, _ = w.Write([]byte(`<errors xmlns="urn:ietf:params:xml:ns:yang:ietf-restconf"><error><error-type>application</error-type><error-tag>access-denied</error-tag></error></errors>`))
 	}, httpapi.AuthBasic)
-	_, _, err := c.GetData(context.Background(), pathYANGLibrary)
-	var status *StatusError
-	if !errors.As(err, &status) || !status.HasTag("access-denied") {
-		t.Fatalf("GetData = %v, want the access-denied StatusError", err)
+	d, err := c.Discover(context.Background())
+	if err != nil {
+		t.Fatalf("Discover = %v, want the library's 403 said, not fatal", err)
 	}
-	d := yanglib.Discovery{}
-	if err := c.library(context.Background(), &d); err != nil || !strings.Contains(d.LibraryError, "access-denied") {
-		t.Errorf("library = %v, LibraryError %q; want the access refusal said, not fatal", err, d.LibraryError)
+	if !strings.Contains(d.LibraryError, "access-denied") || len(d.Protocol) != 1 {
+		t.Errorf("Discovery = %+v, want the capabilities read and the library refused", d)
+	}
+}
+
+// TestGet_A403ToTheFirstReadIsARefusedCredential: a server may answer a
+// wrong password with 403, so a 403 before any read under the root was
+// answered ends the discovery, and the credential is not sent again.
+func TestGet_A403ToTheFirstReadIsARefusedCredential(t *testing.T) {
+	var sent atomic.Int32
+	c := refusingClient(t, func(w http.ResponseWriter, _ *http.Request) {
+		sent.Add(1)
+		w.WriteHeader(http.StatusForbidden)
+	}, httpapi.AuthBasic)
+	_, err := c.Discover(context.Background())
+	var refused *RefusedError
+	if !errors.As(err, &refused) {
+		t.Fatalf("Discover = %v, want a *RefusedError", err)
+	}
+	if _, _, err := c.GetData(context.Background(), pathYANGLibrary); !errors.As(err, &refused) {
+		t.Errorf("a later read = %v, want the same refusal", err)
+	}
+	if sent.Load() != 1 {
+		t.Errorf("the refused credential was sent %d times, want once", sent.Load())
+	}
+}
+
+// TestGet_ARefusalPastTheBoundIsStillARefusal: a 401 whose body is past the
+// bound is judged by its status, not read as an unusable answer.
+func TestGet_ARefusalPastTheBoundIsStillARefusal(t *testing.T) {
+	c := refusingClient(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write(make([]byte, 64))
+	}, httpapi.AuthBasic)
+	_, err := c.get(context.Background(), "/restconf/data/a:b", acceptYANG, 16, true)
+	var refused *RefusedError
+	if !errors.As(err, &refused) || errors.Is(err, errUnusable) {
+		t.Errorf("get = %v, want a refusal, not an unusable answer", err)
+	}
+}
+
+// TestMaskSecrets_EveryFormOfTheCredential holds the value masking to the
+// forms a device could echo, a short password only as a whole word.
+func TestMaskSecrets_EveryFormOfTheCredential(t *testing.T) {
+	c := &Client{secrets: map[string]string{"username": "admin", "password": `pa"ss<word>1`, "enable_password": "abc"}}
+	token := base64.StdEncoding.EncodeToString([]byte(`admin:pa"ss<word>1`))
+	text := `raw pa"ss<word>1 json pa\"ss\u003cword\u003e1 xml pa"ss&lt;word&gt;1 basic Basic ` + token + ` bearer Bearer pa"ss<word>1 short abc and abcdef user admin`
+	got := c.maskSecrets(text)
+	for _, leaked := range []string{`pa"ss<word>1`, `pa\"ss\u003cword\u003e1`, "pa\"ss&lt;word&gt;1", token, " abc "} {
+		if strings.Contains(got, leaked) {
+			t.Errorf("%q survived masking: %s", leaked, got)
+		}
+	}
+	if !strings.Contains(got, "abcdef") || !strings.Contains(got, "user admin") {
+		t.Errorf("masking cut a word apart or masked the login name: %s", got)
 	}
 }
 
@@ -249,12 +312,12 @@ func TestCapabilities_RefusesWhatIsNotTheMonitoringList(t *testing.T) {
 
 func TestGet_RefusesARefThatLeavesTheOrigin(t *testing.T) {
 	c := refusingClient(t, func(http.ResponseWriter, *http.Request) { t.Error("a request was sent") }, httpapi.AuthNone)
-	if _, err := c.get(context.Background(), "//elsewhere/x", acceptYANG, 10); err == nil {
+	if _, err := c.get(context.Background(), "//elsewhere/x", acceptYANG, 10, true); err == nil {
 		t.Error("get sent a protocol-relative ref")
 	}
 	c.auth = httpapi.AuthBearer
 	c.secrets = nil
-	if _, err := c.get(context.Background(), "/x", acceptYANG, 10); err == nil {
+	if _, err := c.get(context.Background(), "/x", acceptYANG, 10, true); err == nil {
 		t.Error("get sent a bearer request with no token")
 	}
 	c.auth = httpapi.AuthNone
@@ -275,12 +338,13 @@ func TestClientFor_ARequestThatNeverAnswersTimesOut(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	start := time.Now()
-	if _, err := c.DiscoverRoot(context.Background()); err == nil {
-		t.Fatal("DiscoverRoot against a silent server succeeded")
-	}
-	if time.Since(start) > 5*time.Second {
-		t.Errorf("the request took %s, want the timeout to end it", time.Since(start))
+	// The context has no deadline, so only the client's own timeout can end
+	// the request: the error must be that timeout's (FAILURE_PATTERNS 914:
+	// no bound on the elapsed time).
+	_, err = c.DiscoverRoot(context.Background())
+	var timeout net.Error
+	if !errors.As(err, &timeout) || !timeout.Timeout() {
+		t.Fatalf("DiscoverRoot against a silent server = %v, want the request timeout's error", err)
 	}
 }
 
@@ -357,5 +421,24 @@ func TestRefusedError_IsNotAStatusError(t *testing.T) {
 	none := &RefusedError{Answer: &StatusError{Status: http.StatusForbidden}, NoneSent: true}
 	if !strings.Contains(none.Error(), "http_auth") || !strings.Contains(none.Error(), "403") {
 		t.Errorf("Error() = %q, want the property named", none)
+	}
+}
+
+// TestEntriesOf_BoundsEachField: a device's tag, path and message are cut
+// before they are kept, on a character boundary.
+func TestEntriesOf_BoundsEachField(t *testing.T) {
+	long := strings.Repeat("\u00e9", maxMessageBytes)
+	got := entriesOf([]errorEntry{{Type: long, Tag: long, Path: long, Message: long}})
+	e := got[0]
+	if len(e.Tag) > maxTagBytes || len(e.Type) > maxTagBytes || len(e.Path) > maxPathBytes || len(e.Message) > maxMessageBytes {
+		t.Errorf("fields of %d, %d, %d, %d bytes, want each within its bound", len(e.Type), len(e.Tag), len(e.Path), len(e.Message))
+	}
+	for _, f := range []string{e.Type, e.Tag, e.Path, e.Message} {
+		if !utf8.ValidString(f) || !strings.HasSuffix(f, "...") {
+			t.Errorf("field %q is not cut on a character boundary and marked", f[:16])
+		}
+	}
+	if got := bounded("  short  ", 10); got != "short" {
+		t.Errorf("bounded = %q", got)
 	}
 }

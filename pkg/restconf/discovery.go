@@ -41,6 +41,17 @@ type Discovery struct {
 	CapabilitiesError string
 }
 
+// Learned returns an error when the discovery learned nothing past its root:
+// neither the capabilities nor the YANG library could be read. Onboarding and
+// net.restconf.facts both refuse such a read rather than record it, since
+// recorded it would read as a device that lost every capability and module.
+func (d Discovery) Learned() error {
+	if d.CapabilitiesError != "" && d.LibraryError != "" {
+		return fmt.Errorf("the device names a RESTCONF root, %q, and answered neither its capabilities (%s) nor its YANG library (%s)", d.Root, d.CapabilitiesError, d.LibraryError)
+	}
+	return nil
+}
+
 // Discover finds the root (when DiscoverRoot has not), then reads the
 // server's capabilities and its YANG library: RFC 8525's yang-library, and
 // RFC 7895's modules-state from a server that does not serve it. A library or

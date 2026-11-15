@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/farside"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/netcfg"
@@ -81,15 +82,16 @@ func (e *StatusError) HasTag(tag string) bool {
 }
 
 // statusError reads a's body into a StatusError: its errors container in
-// either encoding, masked first; or, when it holds none, its text as
-// farside quotes it. A body masking refuses is named as withheld, and none
-// of it is kept.
-func statusError(a answer) *StatusError {
+// either encoding, masked first, by value (mask, the client's own credential
+// in every form it could be echoed in) and then by shape (pkg/netcfg); or,
+// when it holds none, its text as farside quotes it. A body masking refuses
+// is named as withheld, and none of it is kept.
+func statusError(a answer, mask func(string) string) *StatusError {
 	e := &StatusError{Status: a.status}
 	if len(a.body) == 0 {
 		return e
 	}
-	masked, _, err := netcfg.MaskOutput(string(a.body))
+	masked, _, err := netcfg.MaskOutput(mask(string(a.body)))
 	if err != nil {
 		e.Said = "(the answer is withheld: masking cannot vouch for it)"
 		return e
@@ -105,6 +107,11 @@ func statusError(a answer) *StatusError {
 	return e
 }
 
+// statusError is a's StatusError, masked of the client's credential.
+func (c *Client) statusError(a answer) *StatusError {
+	return statusError(a, c.maskSecrets)
+}
+
 // errorEntry is one error entry in either encoding.
 type errorEntry struct {
 	Type    string `xml:"error-type" json:"error-type"`
@@ -113,7 +120,18 @@ type errorEntry struct {
 	Message string `xml:"error-message" json:"error-message"`
 }
 
-// entriesOf is entries as Errors, trimmed, at most maxErrors.
+// The bounds on one error entry's fields, which are the device's text: a
+// tag is one word of RFC 8040's vocabulary, and a path or message past these
+// is cut, on a character boundary, before it is kept (FAILURE_PATTERNS 431,
+// 627), since a caller may print the fields without farside's bound.
+const (
+	maxTagBytes     = 64
+	maxPathBytes    = 1024
+	maxMessageBytes = 1024
+)
+
+// entriesOf is entries as Errors, each field trimmed and bounded, at most
+// maxErrors.
 func entriesOf(entries []errorEntry) []Error {
 	var out []Error
 	for _, x := range entries {
@@ -121,13 +139,27 @@ func entriesOf(entries []errorEntry) []Error {
 			break
 		}
 		out = append(out, Error{
-			Type:    strings.TrimSpace(x.Type),
-			Tag:     strings.TrimSpace(x.Tag),
-			Path:    strings.TrimSpace(x.Path),
-			Message: strings.TrimSpace(x.Message),
+			Type:    bounded(x.Type, maxTagBytes),
+			Tag:     bounded(x.Tag, maxTagBytes),
+			Path:    bounded(x.Path, maxPathBytes),
+			Message: bounded(x.Message, maxMessageBytes),
 		})
 	}
 	return out
+}
+
+// bounded is s trimmed and cut to at most n bytes on a character boundary,
+// marked with "..." when cut.
+func bounded(s string, n int) string {
+	s = strings.TrimSpace(s)
+	if len(s) <= n {
+		return s
+	}
+	cut := n - 3
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut] + "..."
 }
 
 // errorsFromXML reads an errors container (RFC 8040 section 7.1) whose root

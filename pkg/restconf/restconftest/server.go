@@ -172,7 +172,7 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, modulesState []by
 		if !ok || user != s.opts.Username || pass != s.opts.Password {
 			// IOS XE's answer to a missing or refused login.
 			w.Header().Set("WWW-Authenticate", `Basic realm="restconf"`)
-			s.errors(w, http.StatusUnauthorized, "protocol", "access-denied", "", "access denied")
+			s.errors(w, r, http.StatusUnauthorized, "protocol", "access-denied", "", "access denied")
 			return
 		}
 	}
@@ -187,7 +187,7 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, modulesState []by
 		fmt.Fprintf(w, "<XRD xmlns='http://docs.oasis-open.org/ns/xri/xrd-1.0'>\n    <Link rel='restconf' href='%s'/>\n</XRD>", root)
 	case root + "/data/ietf-yang-library:yang-library":
 		if s.opts.NoYANGLibrary {
-			s.errors(w, http.StatusNotFound, "application", "invalid-value", "", "uri keypath not found")
+			s.errors(w, r, http.StatusNotFound, "application", "invalid-value", "", "uri keypath not found")
 			return
 		}
 		s.library(w, s.opts.Library)
@@ -196,7 +196,7 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, modulesState []by
 	case root + "/data/ietf-restconf-monitoring:restconf-state/capabilities":
 		s.capabilities(w)
 	default:
-		s.errors(w, http.StatusNotFound, "application", "invalid-value", "", "uri keypath not found")
+		s.errors(w, r, http.StatusNotFound, "application", "invalid-value", "", "uri keypath not found")
 	}
 }
 
@@ -236,8 +236,18 @@ func (s *Server) capabilities(w http.ResponseWriter) {
 }
 
 // errors answers an ietf-restconf:errors container with one error, in the
-// encoding the server answers with.
-func (s *Server) errors(w http.ResponseWriter, status int, errType, tag, path, message string) {
+// encoding the server answers with. Its message echoes what the request
+// carried, the Authorization header and the password inside it, as a
+// careless server does (FAILURE_PATTERNS 626), so a test can hold the client
+// to masking both.
+func (s *Server) errors(w http.ResponseWriter, r *http.Request, status int, errType, tag, path, message string) {
+	if auth := r.Header.Get("Authorization"); auth != "" {
+		message += " (request carried " + auth
+		if _, pass, ok := r.BasicAuth(); ok {
+			message += ", password " + pass
+		}
+		message += ")"
+	}
 	if s.opts.JSON {
 		w.Header().Set("Content-Type", "application/yang-data+json")
 		w.WriteHeader(status)
