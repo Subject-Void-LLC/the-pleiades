@@ -50,8 +50,8 @@ func TestRestconfProbe_OnboardsFromTheDevicesOwnLibrary(t *testing.T) {
 	if res.State != "active" || res.Protocol != "restconf" || !res.Changed {
 		t.Fatalf("result %+v, want the device active through the restconf probe", res)
 	}
-	if res.Facts["restconf_root"] != "/restconf" || res.Facts["yang_module_count"] != "559" || res.Facts["yang_completeness"] != string(yanglib.Complete) {
-		t.Errorf("facts %v, want the root, 559 modules, complete", res.Facts)
+	if res.Facts["restconf_root"] != "/restconf" || res.Facts["yang_module_count"] != "556" || res.Facts["yang_completeness"] != string(yanglib.Complete) {
+		t.Errorf("facts %v, want the root, 556 data models, complete", res.Facts)
 	}
 	if ds, _ := res.Facts["restconf_datastores"].([]any); len(ds) != 3 {
 		t.Errorf("restconf_datastores = %v, want the library's three", res.Facts["restconf_datastores"])
@@ -123,7 +123,7 @@ func TestRestconfProbe_OverPlainHTTPSaysNothingIsVerified(t *testing.T) {
 	if !strings.Contains(joined, "nothing proves which server answered") || !strings.Contains(joined, "capabilities were not read") {
 		t.Errorf("warnings %q, want the unverified origin and the unread capabilities said", joined)
 	}
-	if probed.Facts["yang_module_count"] != "559" {
+	if probed.Facts["yang_module_count"] != "556" {
 		t.Errorf("facts %v, want the library read", probed.Facts)
 	}
 }

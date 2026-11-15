@@ -3,9 +3,9 @@
 // capabilities (ietf-restconf-monitoring, RFC 8040 section 9.1), and the YANG
 // modules and datastores its YANG library lists, read into pkg/yanglib's
 // model, which NETCONF shares. Each protocol's library lists that protocol's
-// own modules (on IOS XE 17.15.1a, NETCONF's ietf-netconf and its kin,
-// RESTCONF's tailf-rest-query), so one device's module set differs by
-// protocol.
+// own modules too (on IOS XE 17.15.1a, NETCONF's ietf-netconf and its kin,
+// RESTCONF's tailf-rest-query), which yanglib's DataModules leaves out, so one
+// device's data models and their digest read the same over either protocol.
 package restconf
 
 import (

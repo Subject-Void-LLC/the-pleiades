@@ -145,3 +145,28 @@ func TestReturns_DocumentsEveryKeyForTheProtocol(t *testing.T) {
 		t.Error("the modules or content-id source is not said")
 	}
 }
+
+// TestValues_LeaveTheProtocolsOwnModulesToTheirFamily: a protocol's own
+// module is in OwnModules, not in yang.modules or its count, and a list past
+// the bound is left out whole.
+func TestValues_LeaveTheProtocolsOwnModulesToTheirFamily(t *testing.T) {
+	d := discovery()
+	d.Modules = append(d.Modules, yanglib.Module{Name: "tailf-rest-query", Namespace: "http://tail-f.com/ns/tailf-rest-query", Revision: "2023-04-13"})
+	values, _, err := Values(d, RestconfSource)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if values[FactModuleCount] != 2 || strings.Contains(strings.Join(values[FactModules].([]string), ","), "tailf-rest-query") || values[FactModuleDigest] != discovery().ModulesDigest() {
+		t.Errorf("values %v, want the two data models alone", values)
+	}
+	own, ok, err := OwnModules(d)
+	if err != nil || !ok || strings.Join(own, ",") != "tailf-rest-query@2023-04-13" {
+		t.Errorf("OwnModules = %v, %v, %v", own, ok, err)
+	}
+	if own, ok, _ := OwnModules(discovery()); !ok || own == nil || len(own) != 0 {
+		t.Errorf("OwnModules with none = %#v, %v; want an empty list", own, ok)
+	}
+	if !strings.Contains(OwnModulesDescription("NETCONF"), "NETCONF's server") {
+		t.Error("the description does not name its protocol")
+	}
+}

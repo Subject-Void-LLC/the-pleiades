@@ -280,6 +280,14 @@ or `tls_ca_pem` property that would trust it, and a refused login ends it after 
       sleep: 10
 ```
 
+`net.netconf.facts` and `net.restconf.facts` record the device's data models in the same `yang.*` facts, and those facts
+are protocol-neutral: a device's library also lists the modules each protocol's server keeps for itself, and those are left
+out of `yang.modules`, `yang.module_count` and `yang.modules_digest` and recorded in `netconf.modules` or
+`restconf.modules` instead. Measured on one Catalyst 8000V (IOS XE 17.15.1a), NETCONF's library listed `ietf-netconf`,
+`ietf-netconf-with-defaults` and `tailf-netconf-extensions` that RESTCONF's did not, and RESTCONF's `tailf-rest-query`;
+with those left out both protocols record 556 data models and one digest, so reading the device over the other protocol
+is not drift.
+
 ### Reaching a node through the controller's console
 
 A node with no address reachable from here is reached through the controller's console server: an SSH

@@ -119,11 +119,16 @@ func TestFacts_RecordsTheDiscoveryOverVerifiedTLS(t *testing.T) {
 		if res.Changed {
 			t.Errorf("%s: changed, want a read that changes nothing", name)
 		}
-		if rc.facts["restconf.root"] != "/restconf" || rc.facts["yang.module_count"] != 559 || rc.facts["yang.completeness"] != "complete" || rc.facts["yang.content_id"] != "fab9bf47e062dcbaeb6739b215fc4b27" {
+		if rc.facts["restconf.root"] != "/restconf" || rc.facts["yang.module_count"] != 556 || rc.facts["yang.completeness"] != "complete" || rc.facts["yang.content_id"] != "fab9bf47e062dcbaeb6739b215fc4b27" {
 			t.Errorf("%s: facts %v", name, rc.facts)
 		}
-		if mods, _ := rc.facts["yang.modules"].([]string); !slices.Contains(mods, "Cisco-IOS-XE-native@2024-07-01") || len(mods) != 559 {
-			t.Errorf("%s: yang.modules has %d entries, want all 559 with Cisco-IOS-XE-native", name, len(mods))
+		if mods, _ := rc.facts["yang.modules"].([]string); !slices.Contains(mods, "Cisco-IOS-XE-native@2024-07-01") || len(mods) != 556 {
+			t.Errorf("%s: yang.modules has %d entries, want the 556 data models with Cisco-IOS-XE-native", name, len(mods))
+		}
+		// This library is the router's NETCONF one, so the protocol modules
+		// it lists are NETCONF's three, kept out of yang.* and named here.
+		if own, _ := rc.facts["restconf.modules"].([]string); len(own) != 3 || slices.Contains(rc.facts["yang.modules"].([]string), "ietf-netconf@2011-06-01") {
+			t.Errorf("%s: restconf.modules = %v, want the three protocol modules the library lists, none in yang.modules", name, own)
 		}
 		if ds, _ := rc.facts["restconf.datastores"].([]string); strings.Join(ds, ",") != "intended,operational,running" {
 			t.Errorf("%s: restconf.datastores = %v", name, ds)
@@ -184,7 +189,7 @@ func TestFacts_OverPlainHTTPRecordsStatsAndNoFact(t *testing.T) {
 	if len(rc.facts) != 0 {
 		t.Errorf("facts = %v, want none from a device whose identity nothing verified", rc.facts)
 	}
-	if rc.stats["yang.module_count"] != 559 || rc.stats["restconf.root"] != "/" {
+	if rc.stats["yang.module_count"] != 556 || rc.stats["restconf.root"] != "/" {
 		t.Errorf("stats = %v, want the read kept as stats, its root the origin", rc.stats)
 	}
 	joined := strings.Join(rc.warnings(), "\n")
@@ -221,7 +226,7 @@ func TestFacts_ACapabilityListPastTheBoundIsLeftOut(t *testing.T) {
 	if caps, ok := rc.facts["restconf.capabilities"]; ok {
 		t.Errorf("restconf.capabilities = %v, want it left out past 60 KiB, never recorded cut or empty", caps)
 	}
-	if rc.facts["yang.module_count"] != 559 {
+	if rc.facts["yang.module_count"] != 556 {
 		t.Errorf("the library's facts were lost beside the left-out list: %v", rc.facts)
 	}
 	joined := strings.Join(rc.warnings(), "\n")

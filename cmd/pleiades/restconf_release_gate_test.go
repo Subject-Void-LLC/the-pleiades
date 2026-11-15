@@ -42,7 +42,7 @@ func TestGenericReleaseGate_RESTCONF(t *testing.T) {
 		}
 	}
 	res := onboardJSON(t, dir, nil, "rc1")
-	if !slices.Equal(res.Capabilities, []string{"RestconfCapable"}) || res.Facts["restconf_root"] != "/restconf" || res.Facts["yang_module_count"] != "559" {
+	if !slices.Equal(res.Capabilities, []string{"RestconfCapable"}) || res.Facts["restconf_root"] != "/restconf" || res.Facts["yang_module_count"] != "556" {
 		t.Fatalf("probed %+v", res)
 	}
 
@@ -95,8 +95,8 @@ func TestGenericReleaseGate_RESTCONF(t *testing.T) {
 	for _, f := range stored.Facts {
 		got[f.Key] = f.Value
 	}
-	if got["restconf.root"] != "/restconf" || got["yang.completeness"] != "complete" || got["yang.module_count"] != float64(559) {
-		t.Errorf("stored facts %v, want the root, a complete library and its 559 modules", got)
+	if got["restconf.root"] != "/restconf" || got["yang.completeness"] != "complete" || got["yang.module_count"] != float64(556) {
+		t.Errorf("stored facts %v, want the root, a complete library and its 556 data models", got)
 	}
 	modules, _ := got["yang.modules"].([]any)
 	if !slices.Contains(modules, any("Cisco-IOS-XE-native@2024-07-01")) {

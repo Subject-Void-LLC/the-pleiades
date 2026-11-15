@@ -76,35 +76,39 @@ var RestconfSource = Source{
 // ones always recorded.
 func Returns(when string, src Source) []collection.ReturnField {
 	return []collection.ReturnField{
-		{Name: FactModules, Type: "list of string", Returned: "when the list fits in 60 KiB as JSON", Description: "Every YANG module the device implements, each as name@revision (the name alone for a module with no revision), sorted, read " + src.Modules + ". An entry that is not a YANG identifier, a revision date or a printable namespace is left out whole, never cut short. Left out when the list does not fit; yang.module_count and yang.modules_digest are always recorded."},
+		{Name: FactModules, Type: "list of string", Returned: "when the list fits in 60 KiB as JSON", Description: "Every YANG module the device implements, each as name@revision (the name alone for a module with no revision), sorted, read " + src.Modules + ". The protocols' own modules, which each server lists for itself, are left out (they are in netconf.modules or restconf.modules), so the list is the same whichever protocol read it. An entry that is not a YANG identifier, a revision date or a printable namespace is left out whole, never cut short. Left out when the list does not fit; yang.module_count and yang.modules_digest are always recorded."},
 		{Name: FactModuleCount, Type: "int", Returned: when, Description: "How many YANG modules the device implements, as yang.modules counts them."},
-		{Name: FactModuleDigest, Type: "string", Returned: when, Description: "The SHA-256 (hex) of the module set in its canonical form (every module's name, namespace, revision, features and deviations, sorted, as JSON), so two devices implementing the same modules read alike and any change to the set reads as a change of this one value."},
+		{Name: FactModuleDigest, Type: "string", Returned: when, Description: "The SHA-256 (hex) of the device's data models in their canonical form (every module's name, namespace, revision, features and deviations, sorted, as JSON), the protocols' own modules left out as yang.modules leaves them, so one device read over NETCONF and over RESTCONF gives one value, two devices implementing the same models read alike, and any change to the set reads as a change of this one value."},
 		{Name: FactCompleteness, Type: "string", Returned: when, Description: src.Completeness},
 		{Name: FactContentID, Type: "string", Returned: src.ContentID, Description: "The YANG library's content-id " + src.ContentIDFrom + ", a hint the device may regenerate on restart; yang.modules_digest is the module set's identity."},
 	}
 }
 
-// Values returns the yang.* facts d gives, and a warning for each thing left
-// out of them: a module list past its bound, a library that was not read, and
-// entries refused as malformed. src words the library's warning.
+// Values returns the yang.* facts d gives, from its data models alone
+// (yanglib's DataModules: the protocols' own modules are left out, so one
+// device's yang.* reads the same over either protocol), and a warning for
+// each thing left out of them: a module list past its bound, a library that
+// was not read, and entries refused as malformed. src words the library's
+// warning.
 func Values(d yanglib.Discovery, src Source) (map[string]any, []string, error) {
+	data := d.DataModules()
 	values := map[string]any{
-		FactModuleCount:  len(d.Modules),
+		FactModuleCount:  len(data),
 		FactModuleDigest: d.ModulesDigest(),
 		FactCompleteness: string(d.Completeness),
 	}
 	if d.ContentID != "" {
 		values[FactContentID] = d.ContentID
 	}
-	modules, err := ModulesValue(d.Modules)
+	modules, err := ModulesValue(data)
 	if err != nil {
 		return nil, nil, err
 	}
 	var warnings []string
 	if modules != nil {
 		values[FactModules] = modules
-	} else if len(d.Modules) > 0 {
-		warnings = append(warnings, fmt.Sprintf("the device implements %d YANG modules, more than %s holds in 60 KiB; recorded by count and digest only", len(d.Modules), FactModules))
+	} else if len(data) > 0 {
+		warnings = append(warnings, fmt.Sprintf("the device implements %d YANG modules, more than %s holds in 60 KiB; recorded by count and digest only", len(data), FactModules))
 	}
 	if d.LibraryError != "" {
 		warnings = append(warnings, "the device's YANG library was not read ("+d.LibraryError+"); the module list is "+src.Fallback+string(d.Completeness))
@@ -113,6 +117,23 @@ func Values(d yanglib.Discovery, src Source) (map[string]any, []string, error) {
 		warnings = append(warnings, fmt.Sprintf("%d malformed or oversized capability or module entries from the device were left out: %s", d.Dropped, strings.Join(d.DroppedSamples, ", ")))
 	}
 	return values, warnings, nil
+}
+
+// OwnModules is the value of a protocol's own modules fact (netconf.modules,
+// restconf.modules): d's modules that are a protocol's own, each
+// name@revision, sorted, and always a list; ok is false, and the fact is left
+// out whole, when they do not fit in MaxListFactBytes.
+func OwnModules(d yanglib.Discovery) (value []string, ok bool, err error) {
+	own, err := ModulesValue(d.OwnModules())
+	if err != nil || own == nil {
+		return nil, false, err
+	}
+	return own, true, nil
+}
+
+// OwnModulesDescription documents a protocol's own modules fact.
+func OwnModulesDescription(protocol string) string {
+	return "The modules " + protocol + "'s server lists for itself, which yang.modules leaves out (owner decision 2026-11-15: yang.* is protocol-neutral), each as name@revision, sorted, from the measured list of protocol modules: ietf-netconf, ietf-netconf-with-defaults and tailf-netconf-extensions over NETCONF, and tailf-rest-query over RESTCONF, each measured on a Catalyst 8000V running IOS XE 17.15.1a on 2026-11-15 as one protocol's library listed it and the other's did not. Empty when the library lists none of them; left out, with a warning, when the list does not fit in 60 KiB."
 }
 
 // ModulesValue is modules as yang.modules' value, each name@revision (name

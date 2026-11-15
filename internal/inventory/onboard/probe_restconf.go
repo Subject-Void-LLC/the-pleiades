@@ -75,7 +75,10 @@ func restconfProbed(d restconf.Discovery) Probed {
 		// Text, as every other probe's count is: an int read back from the
 		// Controller's JSON column is a float64, and the record would never
 		// compare equal on a re-onboard (FAILURE_PATTERNS 1250).
-		"yang_module_count":   strconv.Itoa(len(d.Modules)),
+		"yang_module_count": strconv.Itoa(len(d.DataModules())),
+		// The modules RESTCONF's server lists for itself, which the yang_
+		// summary leaves out (yang.* is protocol-neutral).
+		"restconf_modules":    factList(moduleNames(d.OwnModules())),
 		"yang_modules_digest": d.ModulesDigest(),
 		"yang_completeness":   string(d.Completeness),
 	}

@@ -127,11 +127,13 @@ func (d *Discovery) dropModule(entry string) {
 	d.Drop(entry)
 }
 
-// ModulesDigest is the SHA-256 (hex) of the module set in its canonical form
-// (Modules, sorted, as JSON). Two servers implementing the same modules give
-// the same digest whatever order, or protocol, they listed them in.
+// ModulesDigest is the SHA-256 (hex) of the device's data models in their
+// canonical form (DataModules, sorted, as JSON): the protocols' own modules
+// are left out, so one device read over NETCONF and over RESTCONF gives one
+// digest, and two servers implementing the same models give the same digest
+// whatever order they listed them in.
 func (d Discovery) ModulesDigest() string {
-	raw, err := json.Marshal(d.Modules)
+	raw, err := json.Marshal(d.DataModules())
 	if err != nil {
 		return ""
 	}

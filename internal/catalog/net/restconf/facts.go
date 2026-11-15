@@ -27,14 +27,15 @@ const (
 	factRootSource   = "restconf.root_source"
 	factCapabilities = "restconf.capabilities"
 	factDatastores   = "restconf.datastores"
+	factOwnModules   = "restconf.modules"
 )
 
 // factKeys are every fact a read may record, in the order they are recorded.
-var factKeys = append([]string{factRoot, factRootSource, factCapabilities, factDatastores}, yangfacts.FactKeys...)
+var factKeys = append([]string{factRoot, factRootSource, factCapabilities, factDatastores, factOwnModules}, yangfacts.FactKeys...)
 
 // description is the method's description, word for word its catalog
 // entry's.
-const description = "Finds the device's RESTCONF root from its /.well-known/host-meta (RFC 8040 section 3.1), read with no credential; a host-meta answered 404 or a redirect, which is never followed (IOS XE answers it to anything but a valid login with a 302 to its WebUI's login page, which answers 404, measured on 17.15.1a, 2026-11-15), leaves RFC 8040's conventional /restconf, which the first authenticated read under it confirms (and restconf.root_source says which way the root was learned), while a 404 there too refuses the device. Then it reads the capabilities ietf-restconf-monitoring lists and the device's YANG library (RFC 8525's yang-library, or RFC 7895's modules-state from a device that does not serve it), and records them, changing nothing: the same yang.* facts net.netconf.facts records over NETCONF, and RESTCONF's own root, capabilities and datastores. The two protocols' libraries list each one's own modules, so yang.modules and yang.modules_digest differ by protocol for one device: measured on a Catalyst 8000V (IOS XE 17.15.1a) at one moment, NETCONF's lists 559 modules and RESTCONF's 557, NETCONF's adding ietf-netconf@2011-06-01, ietf-netconf-with-defaults@2011-06-01 and tailf-netconf-extensions@2021-06-18, and RESTCONF's adding tailf-rest-query@2023-04-13. The device is reached at its own origin with its own TLS (always verified, a pinned certificate included) and its own stored credential, following no redirect, and a root its host-meta names on another scheme, host or port is refused. A read whose capabilities and library both failed fails the task rather than recording a device with nothing, as onboarding refuses it; a family whose own read failed is left out, with a warning. A device reached over http:// records its findings as stats only, never as facts, since nothing proves which server answered. Reports no change, and a check runs it for real."
+const description = "Finds the device's RESTCONF root from its /.well-known/host-meta (RFC 8040 section 3.1), read with no credential; a host-meta answered 404 or a redirect, which is never followed (IOS XE answers it to anything but a valid login with a 302 to its WebUI's login page, which answers 404, measured on 17.15.1a, 2026-11-15), leaves RFC 8040's conventional /restconf, which the first authenticated read under it confirms (and restconf.root_source says which way the root was learned), while a 404 there too refuses the device. Then it reads the capabilities ietf-restconf-monitoring lists and the device's YANG library (RFC 8525's yang-library, or RFC 7895's modules-state from a device that does not serve it), and records them, changing nothing: the same yang.* facts net.netconf.facts records over NETCONF, and RESTCONF's own root, capabilities and datastores. The yang.* facts are protocol-neutral: each protocol's library also lists its own modules (measured on a Catalyst 8000V running IOS XE 17.15.1a, NETCONF's ietf-netconf, ietf-netconf-with-defaults and tailf-netconf-extensions, RESTCONF's tailf-rest-query), which yang.* leaves out and restconf.modules (or netconf.modules over NETCONF) records, so one device read over either protocol gives the same yang.modules, yang.module_count and yang.modules_digest. The device is reached at its own origin with its own TLS (always verified, a pinned certificate included) and its own stored credential, following no redirect, and a root its host-meta names on another scheme, host or port is refused. A read whose capabilities and library both failed fails the task rather than recording a device with nothing, as onboarding refuses it; a family whose own read failed is left out, with a warning. A device reached over http:// records its findings as stats only, never as facts, since nothing proves which server answered. Reports no change, and a check runs it for real."
 
 func init() {
 	doc := factsDoc()
@@ -88,6 +89,7 @@ func factsReturns() []collection.ReturnField {
 		{Name: factRootSource, Type: "string", Returned: when, Description: "How restconf.root was learned: host-meta (its restconf link) or default (host-meta answered 404 or a redirect, as IOS XE answers it to anything but a valid login with a 302 to its WebUI's login page (404 there), and a read under the conventional /restconf answered)."},
 		{Name: factCapabilities, Type: "list of string", Returned: "when the capability list was read and fits, as a stat; as a fact only when the device was reached over https", Description: "Every capability URI the device's ietf-restconf-monitoring lists (RFC 8040 section 9.1), with its parameters, sorted. Left out, with a warning, when the list could not be read or does not fit in 60 KiB, so an unread list never reads as an empty one; an entry that is not printable is left out whole."},
 		{Name: factDatastores, Type: "list of string", Returned: whenLibrary, Description: "The datastores the device's YANG library lists, sorted: an NMDA device's running, intended and operational, which RFC 8527 addresses under the root's /ds/; empty for a library that lists none, as RFC 7895's modules-state does."},
+		{Name: factOwnModules, Type: "list of string", Returned: whenLibrary, Description: yangfacts.OwnModulesDescription("RESTCONF")},
 	}, yangfacts.Returns(whenLibrary, yangfacts.RestconfSource)...)
 }
 
@@ -168,6 +170,15 @@ func discoveryValues(d restconf.Discovery) (map[string]any, []string, error) {
 		values = schema
 		values[factDatastores] = yangfacts.NonNil(d.Datastores)
 		warnings = append(warnings, schemaWarnings...)
+		own, fits, err := yangfacts.OwnModules(d.Discovery)
+		if err != nil {
+			return nil, nil, err
+		}
+		if fits {
+			values[factOwnModules] = own
+		} else {
+			warnings = append(warnings, "the modules RESTCONF's server lists for itself do not fit in 60 KiB; "+factOwnModules+" is left out")
+		}
 	}
 	root := d.Root
 	if root == "" {

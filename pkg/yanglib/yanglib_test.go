@@ -426,43 +426,29 @@ func TestParse_TheRealIOSXERESTCONFLibrary(t *testing.T) {
 	}
 }
 
-// TestDiscovery_OneDeviceListsDifferentModulesByProtocol holds the measured
-// difference (a Catalyst 8000V, IOS XE 17.15.1a, both libraries read at one
-// moment): RESTCONF's library lists 557 modules, tailf-rest-query among them,
-// and NETCONF's 559, without it and with ietf-netconf, its with-defaults and
-// Tail-f's NETCONF extensions, so yang.modules_digest differs by protocol for
-// one device. NETCONF's list here is RESTCONF's capture changed by exactly
-// that difference.
-func TestDiscovery_OneDeviceListsDifferentModulesByProtocol(t *testing.T) {
-	lib, err := ParseJSON(restconftest.IOSXELibraryJSON(t))
-	if err != nil {
-		t.Fatal(err)
+// TestDiscovery_TheProtocolsOwnModulesAreLeftOutOfTheDataModels: a module
+// on the measured list for either protocol is left out of DataModules and of
+// the digest, on both protocols, and named by OwnModules; matching is by name,
+// whatever the revision; every entry says where it was measured.
+func TestDiscovery_TheProtocolsOwnModulesAreLeftOutOfTheDataModels(t *testing.T) {
+	data := Module{Name: "ietf-interfaces", Namespace: "urn:if", Revision: "2018-02-20"}
+	d := Discovery{Modules: []Module{
+		{Name: "ietf-netconf", Namespace: "urn:ietf:params:xml:ns:netconf:base:1.0", Revision: "2099-01-01"},
+		data,
+		{Name: "tailf-rest-query", Namespace: "http://tail-f.com/ns/tailf-rest-query", Revision: "2023-04-13"},
+	}}
+	if got := d.DataModules(); len(got) != 1 || got[0].Name != "ietf-interfaces" {
+		t.Errorf("DataModules = %+v, want the data model alone", got)
 	}
-	k, err := Keep(lib, Discovery{})
-	if err != nil {
-		t.Fatal(err)
+	if got := d.OwnModules(); len(got) != 2 || got[0].Name != "ietf-netconf" || got[1].Name != "tailf-rest-query" {
+		t.Errorf("OwnModules = %+v, want both protocols' own", got)
 	}
-	overRESTCONF := Discovery{}.WithLibrary(k)
-	if len(overRESTCONF.Modules) != 557 || findModule(overRESTCONF.Modules, "tailf-rest-query") == nil {
-		t.Fatalf("the RESTCONF capture lists %d modules (tailf-rest-query %v), want 557 with it", len(overRESTCONF.Modules), findModule(overRESTCONF.Modules, "tailf-rest-query") != nil)
+	if d.ModulesDigest() != (Discovery{Modules: []Module{data}}).ModulesDigest() {
+		t.Error("a protocol's own module moved the digest")
 	}
-	var netconf []Module
-	for _, m := range overRESTCONF.Modules {
-		if m.Name != "tailf-rest-query" {
-			netconf = append(netconf, m)
+	for _, m := range ProtocolModules() {
+		if m.Measured == "" || (m.Protocol != ProtocolNETCONF && m.Protocol != ProtocolRESTCONF) || !IsIdentifier(m.Name) {
+			t.Errorf("protocol module %+v does not say what it is or where it was measured", m)
 		}
-	}
-	netconf = append(netconf,
-		Module{Name: "ietf-netconf", Revision: "2011-06-01", Namespace: "urn:ietf:params:xml:ns:netconf:base:1.0"},
-		Module{Name: "ietf-netconf-with-defaults", Revision: "2011-06-01", Namespace: "urn:ietf:params:xml:ns:yang:ietf-netconf-with-defaults"},
-		Module{Name: "tailf-netconf-extensions", Revision: "2021-06-18", Namespace: "http://tail-f.com/ns/netconf/extensions"},
-	)
-	var d Discovery
-	overNETCONF := Discovery{Modules: KeepModules(netconf, &d), Completeness: Complete}
-	if len(overNETCONF.Modules) != 559 || d.Dropped != 0 {
-		t.Fatalf("the NETCONF list holds %d modules (%d dropped), want 559", len(overNETCONF.Modules), d.Dropped)
-	}
-	if overNETCONF.ModulesDigest() == overRESTCONF.ModulesDigest() {
-		t.Error("the two protocols' module sets share a digest")
 	}
 }

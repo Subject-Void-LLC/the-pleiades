@@ -308,3 +308,28 @@ func TestCapabilitiesValue_LeavesOutTheVolatileParameters(t *testing.T) {
 		t.Errorf("capabilities = %v, want all three with their other parameters", got)
 	}
 }
+
+// TestRecordDiscovery_TheProtocolsOwnModulesAreNetconfs: a library listing
+// ietf-netconf records it in netconf.modules and leaves it out of yang.*, so
+// the count and the digest are the data models'.
+func TestRecordDiscovery_TheProtocolsOwnModulesAreNetconfs(t *testing.T) {
+	d := nativeDiscovery()
+	d.Modules = append(d.Modules, netconf.Module{Name: "ietf-netconf", Namespace: "urn:ietf:params:xml:ns:netconf:base:1.0", Revision: "2011-06-01"})
+	rc := newStubContext()
+	if _, err := recordDiscovery(rc, map[string]any{}, d); err != nil {
+		t.Fatal(err)
+	}
+	if got := rc.facts[factOwnModules]; strings.Join(got.([]string), ",") != "ietf-netconf@2011-06-01" {
+		t.Errorf("netconf.modules = %v", got)
+	}
+	if rc.facts[factModuleCount] != 1 || strings.Join(rc.facts[factModules].([]string), ",") != "Cisco-IOS-XE-native@2024-07-01" || rc.facts[factModuleDigest] != nativeDiscovery().ModulesDigest() {
+		t.Errorf("yang.* = %v, %v, %v; want the data model alone", rc.facts[factModuleCount], rc.facts[factModules], rc.facts[factModuleDigest])
+	}
+	plain := newStubContext()
+	if _, err := recordDiscovery(plain, map[string]any{}, nativeDiscovery()); err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := plain.facts[factOwnModules].([]string); !ok || len(got) != 0 {
+		t.Errorf("netconf.modules with none listed = %#v, want an empty list", plain.facts[factOwnModules])
+	}
+}

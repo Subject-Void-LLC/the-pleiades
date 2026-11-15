@@ -17,14 +17,16 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/yangfacts"
 )
 
-// The facts every NETCONF session records about its device. The module set
-// belongs to the device's management plane rather than to NETCONF (RESTCONF
-// on the same device serves the same library), so it is the yang. family,
-// built by pkg/yangfacts for every protocol; the capabilities and
-// datastores are NETCONF's own.
+// The facts every NETCONF session records about its device. The data models
+// belong to the device's management plane rather than to NETCONF (RESTCONF
+// on the same device serves the same library), so they are the yang. family,
+// built by pkg/yangfacts for every protocol and protocol-neutral (owner
+// decision 2026-11-15); the capabilities, the datastores and the modules
+// NETCONF's server lists for itself are NETCONF's own.
 const (
 	factCapabilities = "netconf.capabilities"
 	factDatastores   = "netconf.datastores"
+	factOwnModules   = "netconf.modules"
 	factModules      = yangfacts.FactModules
 	factModuleCount  = yangfacts.FactModuleCount
 	factModuleDigest = yangfacts.FactModuleDigest
@@ -33,7 +35,7 @@ const (
 )
 
 // discoveryFactKeys are every fact a session may record, for the manifest.
-var discoveryFactKeys = append([]string{factCapabilities, factDatastores}, yangfacts.FactKeys...)
+var discoveryFactKeys = append([]string{factCapabilities, factDatastores, factOwnModules}, yangfacts.FactKeys...)
 
 // netconfSource is where a NETCONF session reads the yang.* facts from.
 var netconfSource = yangfacts.Source{
@@ -50,6 +52,7 @@ func discoveryReturns() []collection.ReturnField {
 	return append([]collection.ReturnField{
 		{Name: factCapabilities, Type: "list of string", Returned: when, Description: "Every capability the device's hello advertised that names no YANG module (RFC 6241's own and a vendor's), with its parameters but the volatile content-id and module-set-id, which yang.content_id holds, sorted; the YANG module capabilities are in yang.modules instead. Left out, with a warning, when it does not fit in 60 KiB. Read on every session, so a device that changes what it offers (IOS XE drops :writable-running when its candidate datastore is turned on) reads as a change."},
 		{Name: factDatastores, Type: "list of string", Returned: when, Description: "The datastores the session could use, sorted: running always, candidate and startup when the hello advertises them, and every datastore the device's YANG library lists (an NMDA device's operational and intended)."},
+		{Name: factOwnModules, Type: "list of string", Returned: when, Description: yangfacts.OwnModulesDescription("NETCONF")},
 	}, yangfacts.Returns(when, netconfSource)...)
 }
 
@@ -69,6 +72,15 @@ func recordDiscovery(rc sdk.RunbookContext, params map[string]any, d netconf.Dis
 	values[factCapabilities] = capabilities
 	values[factDatastores] = yangfacts.NonNil(d.Datastores)
 	var warnings []string
+	own, fits, err := yangfacts.OwnModules(d)
+	if err != nil {
+		return nil, err
+	}
+	if fits {
+		values[factOwnModules] = own
+	} else {
+		warnings = append(warnings, "the modules NETCONF's server lists for itself do not fit in 60 KiB; "+factOwnModules+" is left out")
+	}
 	if len(capabilities) == 0 && len(d.Protocol) > 0 {
 		warnings = append(warnings, fmt.Sprintf("the device advertises %d capabilities, more than %s holds in 60 KiB; left out", len(d.Protocol), factCapabilities))
 	}

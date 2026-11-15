@@ -13084,10 +13084,16 @@
         "description": "The datastores the session could use, sorted: running always, candidate and startup when the hello advertises them, and every datastore the device's YANG library lists (an NMDA device's operational and intended)."
       },
       {
+        "key": "netconf.modules",
+        "kind": "stable",
+        "type": "list",
+        "description": "The modules NETCONF's server lists for itself, which yang.modules leaves out (owner decision 2026-11-15: yang.* is protocol-neutral), each as name@revision, sorted, from the measured list of protocol modules: ietf-netconf, ietf-netconf-with-defaults and tailf-netconf-extensions over NETCONF, and tailf-rest-query over RESTCONF, each measured on a Catalyst 8000V running IOS XE 17.15.1a on 2026-11-15 as one protocol's library listed it and the other's did not. Empty when the library lists none of them; left out, with a warning, when the list does not fit in 60 KiB."
+      },
+      {
         "key": "yang.modules",
         "kind": "stable",
         "type": "list",
-        "description": "Every YANG module the device implements, each as name@revision (the name alone for a module with no revision), sorted, read from the device's YANG library (RFC 8525, or RFC 7895's modules-state) when it advertises one and from the hello otherwise. An entry that is not a YANG identifier, a revision date or a printable namespace is left out whole, never cut short. Left out when the list does not fit; yang.module_count and yang.modules_digest are always recorded."
+        "description": "Every YANG module the device implements, each as name@revision (the name alone for a module with no revision), sorted, read from the device's YANG library (RFC 8525, or RFC 7895's modules-state) when it advertises one and from the hello otherwise. The protocols' own modules, which each server lists for itself, are left out (they are in netconf.modules or restconf.modules), so the list is the same whichever protocol read it. An entry that is not a YANG identifier, a revision date or a printable namespace is left out whole, never cut short. Left out when the list does not fit; yang.module_count and yang.modules_digest are always recorded."
       },
       {
         "key": "yang.module_count",
@@ -13099,7 +13105,7 @@
         "key": "yang.modules_digest",
         "kind": "stable",
         "type": "string",
-        "description": "The SHA-256 (hex) of the module set in its canonical form (every module's name, namespace, revision, features and deviations, sorted, as JSON), so two devices implementing the same modules read alike and any change to the set reads as a change of this one value."
+        "description": "The SHA-256 (hex) of the device's data models in their canonical form (every module's name, namespace, revision, features and deviations, sorted, as JSON), the protocols' own modules left out as yang.modules leaves them, so one device read over NETCONF and over RESTCONF gives one value, two devices implementing the same models read alike, and any change to the set reads as a change of this one value."
       },
       {
         "key": "yang.completeness",
@@ -13220,10 +13226,16 @@
           "description": "The datastores the session could use, sorted: running always, candidate and startup when the hello advertises them, and every datastore the device's YANG library lists (an NMDA device's operational and intended)."
         },
         {
+          "name": "netconf.modules",
+          "type": "list of string",
+          "returned": "on every session, as a stat; as a fact only when its host key was verified",
+          "description": "The modules NETCONF's server lists for itself, which yang.modules leaves out (owner decision 2026-11-15: yang.* is protocol-neutral), each as name@revision, sorted, from the measured list of protocol modules: ietf-netconf, ietf-netconf-with-defaults and tailf-netconf-extensions over NETCONF, and tailf-rest-query over RESTCONF, each measured on a Catalyst 8000V running IOS XE 17.15.1a on 2026-11-15 as one protocol's library listed it and the other's did not. Empty when the library lists none of them; left out, with a warning, when the list does not fit in 60 KiB."
+        },
+        {
           "name": "yang.modules",
           "type": "list of string",
           "returned": "when the list fits in 60 KiB as JSON",
-          "description": "Every YANG module the device implements, each as name@revision (the name alone for a module with no revision), sorted, read from the device's YANG library (RFC 8525, or RFC 7895's modules-state) when it advertises one and from the hello otherwise. An entry that is not a YANG identifier, a revision date or a printable namespace is left out whole, never cut short. Left out when the list does not fit; yang.module_count and yang.modules_digest are always recorded."
+          "description": "Every YANG module the device implements, each as name@revision (the name alone for a module with no revision), sorted, read from the device's YANG library (RFC 8525, or RFC 7895's modules-state) when it advertises one and from the hello otherwise. The protocols' own modules, which each server lists for itself, are left out (they are in netconf.modules or restconf.modules), so the list is the same whichever protocol read it. An entry that is not a YANG identifier, a revision date or a printable namespace is left out whole, never cut short. Left out when the list does not fit; yang.module_count and yang.modules_digest are always recorded."
         },
         {
           "name": "yang.module_count",
@@ -13235,7 +13247,7 @@
           "name": "yang.modules_digest",
           "type": "string",
           "returned": "on every session, as a stat; as a fact only when its host key was verified",
-          "description": "The SHA-256 (hex) of the module set in its canonical form (every module's name, namespace, revision, features and deviations, sorted, as JSON), so two devices implementing the same modules read alike and any change to the set reads as a change of this one value."
+          "description": "The SHA-256 (hex) of the device's data models in their canonical form (every module's name, namespace, revision, features and deviations, sorted, as JSON), the protocols' own modules left out as yang.modules leaves them, so one device read over NETCONF and over RESTCONF gives one value, two devices implementing the same models read alike, and any change to the set reads as a change of this one value."
         },
         {
           "name": "yang.completeness",
@@ -13303,10 +13315,16 @@
         "description": "The datastores the session could use, sorted: running always, candidate and startup when the hello advertises them, and every datastore the device's YANG library lists (an NMDA device's operational and intended)."
       },
       {
+        "key": "netconf.modules",
+        "kind": "stable",
+        "type": "list",
+        "description": "The modules NETCONF's server lists for itself, which yang.modules leaves out (owner decision 2026-11-15: yang.* is protocol-neutral), each as name@revision, sorted, from the measured list of protocol modules: ietf-netconf, ietf-netconf-with-defaults and tailf-netconf-extensions over NETCONF, and tailf-rest-query over RESTCONF, each measured on a Catalyst 8000V running IOS XE 17.15.1a on 2026-11-15 as one protocol's library listed it and the other's did not. Empty when the library lists none of them; left out, with a warning, when the list does not fit in 60 KiB."
+      },
+      {
         "key": "yang.modules",
         "kind": "stable",
         "type": "list",
-        "description": "Every YANG module the device implements, each as name@revision (the name alone for a module with no revision), sorted, read from the device's YANG library (RFC 8525, or RFC 7895's modules-state) when it advertises one and from the hello otherwise. An entry that is not a YANG identifier, a revision date or a printable namespace is left out whole, never cut short. Left out when the list does not fit; yang.module_count and yang.modules_digest are always recorded."
+        "description": "Every YANG module the device implements, each as name@revision (the name alone for a module with no revision), sorted, read from the device's YANG library (RFC 8525, or RFC 7895's modules-state) when it advertises one and from the hello otherwise. The protocols' own modules, which each server lists for itself, are left out (they are in netconf.modules or restconf.modules), so the list is the same whichever protocol read it. An entry that is not a YANG identifier, a revision date or a printable namespace is left out whole, never cut short. Left out when the list does not fit; yang.module_count and yang.modules_digest are always recorded."
       },
       {
         "key": "yang.module_count",
@@ -13318,7 +13336,7 @@
         "key": "yang.modules_digest",
         "kind": "stable",
         "type": "string",
-        "description": "The SHA-256 (hex) of the module set in its canonical form (every module's name, namespace, revision, features and deviations, sorted, as JSON), so two devices implementing the same modules read alike and any change to the set reads as a change of this one value."
+        "description": "The SHA-256 (hex) of the device's data models in their canonical form (every module's name, namespace, revision, features and deviations, sorted, as JSON), the protocols' own modules left out as yang.modules leaves them, so one device read over NETCONF and over RESTCONF gives one value, two devices implementing the same models read alike, and any change to the set reads as a change of this one value."
       },
       {
         "key": "yang.completeness",
@@ -13358,10 +13376,16 @@
           "description": "The datastores the session could use, sorted: running always, candidate and startup when the hello advertises them, and every datastore the device's YANG library lists (an NMDA device's operational and intended)."
         },
         {
+          "name": "netconf.modules",
+          "type": "list of string",
+          "returned": "on every session, as a stat; as a fact only when its host key was verified",
+          "description": "The modules NETCONF's server lists for itself, which yang.modules leaves out (owner decision 2026-11-15: yang.* is protocol-neutral), each as name@revision, sorted, from the measured list of protocol modules: ietf-netconf, ietf-netconf-with-defaults and tailf-netconf-extensions over NETCONF, and tailf-rest-query over RESTCONF, each measured on a Catalyst 8000V running IOS XE 17.15.1a on 2026-11-15 as one protocol's library listed it and the other's did not. Empty when the library lists none of them; left out, with a warning, when the list does not fit in 60 KiB."
+        },
+        {
           "name": "yang.modules",
           "type": "list of string",
           "returned": "when the list fits in 60 KiB as JSON",
-          "description": "Every YANG module the device implements, each as name@revision (the name alone for a module with no revision), sorted, read from the device's YANG library (RFC 8525, or RFC 7895's modules-state) when it advertises one and from the hello otherwise. An entry that is not a YANG identifier, a revision date or a printable namespace is left out whole, never cut short. Left out when the list does not fit; yang.module_count and yang.modules_digest are always recorded."
+          "description": "Every YANG module the device implements, each as name@revision (the name alone for a module with no revision), sorted, read from the device's YANG library (RFC 8525, or RFC 7895's modules-state) when it advertises one and from the hello otherwise. The protocols' own modules, which each server lists for itself, are left out (they are in netconf.modules or restconf.modules), so the list is the same whichever protocol read it. An entry that is not a YANG identifier, a revision date or a printable namespace is left out whole, never cut short. Left out when the list does not fit; yang.module_count and yang.modules_digest are always recorded."
         },
         {
           "name": "yang.module_count",
@@ -13373,7 +13397,7 @@
           "name": "yang.modules_digest",
           "type": "string",
           "returned": "on every session, as a stat; as a fact only when its host key was verified",
-          "description": "The SHA-256 (hex) of the module set in its canonical form (every module's name, namespace, revision, features and deviations, sorted, as JSON), so two devices implementing the same modules read alike and any change to the set reads as a change of this one value."
+          "description": "The SHA-256 (hex) of the device's data models in their canonical form (every module's name, namespace, revision, features and deviations, sorted, as JSON), the protocols' own modules left out as yang.modules leaves them, so one device read over NETCONF and over RESTCONF gives one value, two devices implementing the same models read alike, and any change to the set reads as a change of this one value."
         },
         {
           "name": "yang.completeness",
@@ -13769,10 +13793,16 @@
         "description": "The datastores the device's YANG library lists, sorted: an NMDA device's running, intended and operational, which RFC 8527 addresses under the root's /ds/; empty for a library that lists none, as RFC 7895's modules-state does."
       },
       {
+        "key": "restconf.modules",
+        "kind": "stable",
+        "type": "list",
+        "description": "The modules RESTCONF's server lists for itself, which yang.modules leaves out (owner decision 2026-11-15: yang.* is protocol-neutral), each as name@revision, sorted, from the measured list of protocol modules: ietf-netconf, ietf-netconf-with-defaults and tailf-netconf-extensions over NETCONF, and tailf-rest-query over RESTCONF, each measured on a Catalyst 8000V running IOS XE 17.15.1a on 2026-11-15 as one protocol's library listed it and the other's did not. Empty when the library lists none of them; left out, with a warning, when the list does not fit in 60 KiB."
+      },
+      {
         "key": "yang.modules",
         "kind": "stable",
         "type": "list",
-        "description": "Every YANG module the device implements, each as name@revision (the name alone for a module with no revision), sorted, read from the device's YANG library over RESTCONF (RFC 8525's yang-library, or RFC 7895's modules-state from a device that does not serve it). An entry that is not a YANG identifier, a revision date or a printable namespace is left out whole, never cut short. Left out when the list does not fit; yang.module_count and yang.modules_digest are always recorded."
+        "description": "Every YANG module the device implements, each as name@revision (the name alone for a module with no revision), sorted, read from the device's YANG library over RESTCONF (RFC 8525's yang-library, or RFC 7895's modules-state from a device that does not serve it). The protocols' own modules, which each server lists for itself, are left out (they are in netconf.modules or restconf.modules), so the list is the same whichever protocol read it. An entry that is not a YANG identifier, a revision date or a printable namespace is left out whole, never cut short. Left out when the list does not fit; yang.module_count and yang.modules_digest are always recorded."
       },
       {
         "key": "yang.module_count",
@@ -13784,7 +13814,7 @@
         "key": "yang.modules_digest",
         "kind": "stable",
         "type": "string",
-        "description": "The SHA-256 (hex) of the module set in its canonical form (every module's name, namespace, revision, features and deviations, sorted, as JSON), so two devices implementing the same modules read alike and any change to the set reads as a change of this one value."
+        "description": "The SHA-256 (hex) of the device's data models in their canonical form (every module's name, namespace, revision, features and deviations, sorted, as JSON), the protocols' own modules left out as yang.modules leaves them, so one device read over NETCONF and over RESTCONF gives one value, two devices implementing the same models read alike, and any change to the set reads as a change of this one value."
       },
       {
         "key": "yang.completeness",
@@ -13888,10 +13918,16 @@
           "description": "The datastores the device's YANG library lists, sorted: an NMDA device's running, intended and operational, which RFC 8527 addresses under the root's /ds/; empty for a library that lists none, as RFC 7895's modules-state does."
         },
         {
+          "name": "restconf.modules",
+          "type": "list of string",
+          "returned": "when the YANG library was read, as a stat; as a fact only when the device was reached over https",
+          "description": "The modules RESTCONF's server lists for itself, which yang.modules leaves out (owner decision 2026-11-15: yang.* is protocol-neutral), each as name@revision, sorted, from the measured list of protocol modules: ietf-netconf, ietf-netconf-with-defaults and tailf-netconf-extensions over NETCONF, and tailf-rest-query over RESTCONF, each measured on a Catalyst 8000V running IOS XE 17.15.1a on 2026-11-15 as one protocol's library listed it and the other's did not. Empty when the library lists none of them; left out, with a warning, when the list does not fit in 60 KiB."
+        },
+        {
           "name": "yang.modules",
           "type": "list of string",
           "returned": "when the list fits in 60 KiB as JSON",
-          "description": "Every YANG module the device implements, each as name@revision (the name alone for a module with no revision), sorted, read from the device's YANG library over RESTCONF (RFC 8525's yang-library, or RFC 7895's modules-state from a device that does not serve it). An entry that is not a YANG identifier, a revision date or a printable namespace is left out whole, never cut short. Left out when the list does not fit; yang.module_count and yang.modules_digest are always recorded."
+          "description": "Every YANG module the device implements, each as name@revision (the name alone for a module with no revision), sorted, read from the device's YANG library over RESTCONF (RFC 8525's yang-library, or RFC 7895's modules-state from a device that does not serve it). The protocols' own modules, which each server lists for itself, are left out (they are in netconf.modules or restconf.modules), so the list is the same whichever protocol read it. An entry that is not a YANG identifier, a revision date or a printable namespace is left out whole, never cut short. Left out when the list does not fit; yang.module_count and yang.modules_digest are always recorded."
         },
         {
           "name": "yang.module_count",
@@ -13903,7 +13939,7 @@
           "name": "yang.modules_digest",
           "type": "string",
           "returned": "when the YANG library was read, as a stat; as a fact only when the device was reached over https",
-          "description": "The SHA-256 (hex) of the module set in its canonical form (every module's name, namespace, revision, features and deviations, sorted, as JSON), so two devices implementing the same modules read alike and any change to the set reads as a change of this one value."
+          "description": "The SHA-256 (hex) of the device's data models in their canonical form (every module's name, namespace, revision, features and deviations, sorted, as JSON), the protocols' own modules left out as yang.modules leaves them, so one device read over NETCONF and over RESTCONF gives one value, two devices implementing the same models read alike, and any change to the set reads as a change of this one value."
         },
         {
           "name": "yang.completeness",
@@ -13981,10 +14017,16 @@
         "description": "The datastores the device's YANG library lists, sorted: an NMDA device's running, intended and operational, which RFC 8527 addresses under the root's /ds/; empty for a library that lists none, as RFC 7895's modules-state does."
       },
       {
+        "key": "restconf.modules",
+        "kind": "stable",
+        "type": "list",
+        "description": "The modules RESTCONF's server lists for itself, which yang.modules leaves out (owner decision 2026-11-15: yang.* is protocol-neutral), each as name@revision, sorted, from the measured list of protocol modules: ietf-netconf, ietf-netconf-with-defaults and tailf-netconf-extensions over NETCONF, and tailf-rest-query over RESTCONF, each measured on a Catalyst 8000V running IOS XE 17.15.1a on 2026-11-15 as one protocol's library listed it and the other's did not. Empty when the library lists none of them; left out, with a warning, when the list does not fit in 60 KiB."
+      },
+      {
         "key": "yang.modules",
         "kind": "stable",
         "type": "list",
-        "description": "Every YANG module the device implements, each as name@revision (the name alone for a module with no revision), sorted, read from the device's YANG library over RESTCONF (RFC 8525's yang-library, or RFC 7895's modules-state from a device that does not serve it). An entry that is not a YANG identifier, a revision date or a printable namespace is left out whole, never cut short. Left out when the list does not fit; yang.module_count and yang.modules_digest are always recorded."
+        "description": "Every YANG module the device implements, each as name@revision (the name alone for a module with no revision), sorted, read from the device's YANG library over RESTCONF (RFC 8525's yang-library, or RFC 7895's modules-state from a device that does not serve it). The protocols' own modules, which each server lists for itself, are left out (they are in netconf.modules or restconf.modules), so the list is the same whichever protocol read it. An entry that is not a YANG identifier, a revision date or a printable namespace is left out whole, never cut short. Left out when the list does not fit; yang.module_count and yang.modules_digest are always recorded."
       },
       {
         "key": "yang.module_count",
@@ -13996,7 +14038,7 @@
         "key": "yang.modules_digest",
         "kind": "stable",
         "type": "string",
-        "description": "The SHA-256 (hex) of the module set in its canonical form (every module's name, namespace, revision, features and deviations, sorted, as JSON), so two devices implementing the same modules read alike and any change to the set reads as a change of this one value."
+        "description": "The SHA-256 (hex) of the device's data models in their canonical form (every module's name, namespace, revision, features and deviations, sorted, as JSON), the protocols' own modules left out as yang.modules leaves them, so one device read over NETCONF and over RESTCONF gives one value, two devices implementing the same models read alike, and any change to the set reads as a change of this one value."
       },
       {
         "key": "yang.completeness",
@@ -14013,7 +14055,7 @@
     ],
     "doc": {
       "summary": "Records what a device's RESTCONF server says about it: its root, capabilities, datastores and YANG modules.",
-      "description": "Finds the device's RESTCONF root from its /.well-known/host-meta (RFC 8040 section 3.1), read with no credential; a host-meta answered 404 or a redirect, which is never followed (IOS XE answers it to anything but a valid login with a 302 to its WebUI's login page, which answers 404, measured on 17.15.1a, 2026-11-15), leaves RFC 8040's conventional /restconf, which the first authenticated read under it confirms (and restconf.root_source says which way the root was learned), while a 404 there too refuses the device. Then it reads the capabilities ietf-restconf-monitoring lists and the device's YANG library (RFC 8525's yang-library, or RFC 7895's modules-state from a device that does not serve it), and records them, changing nothing: the same yang.* facts net.netconf.facts records over NETCONF, and RESTCONF's own root, capabilities and datastores. The two protocols' libraries list each one's own modules, so yang.modules and yang.modules_digest differ by protocol for one device: measured on a Catalyst 8000V (IOS XE 17.15.1a) at one moment, NETCONF's lists 559 modules and RESTCONF's 557, NETCONF's adding ietf-netconf@2011-06-01, ietf-netconf-with-defaults@2011-06-01 and tailf-netconf-extensions@2021-06-18, and RESTCONF's adding tailf-rest-query@2023-04-13. The device is reached at its own origin with its own TLS (always verified, a pinned certificate included) and its own stored credential, following no redirect, and a root its host-meta names on another scheme, host or port is refused. A read whose capabilities and library both failed fails the task rather than recording a device with nothing, as onboarding refuses it; a family whose own read failed is left out, with a warning. A device reached over http:// records its findings as stats only, never as facts, since nothing proves which server answered. Reports no change, and a check runs it for real.",
+      "description": "Finds the device's RESTCONF root from its /.well-known/host-meta (RFC 8040 section 3.1), read with no credential; a host-meta answered 404 or a redirect, which is never followed (IOS XE answers it to anything but a valid login with a 302 to its WebUI's login page, which answers 404, measured on 17.15.1a, 2026-11-15), leaves RFC 8040's conventional /restconf, which the first authenticated read under it confirms (and restconf.root_source says which way the root was learned), while a 404 there too refuses the device. Then it reads the capabilities ietf-restconf-monitoring lists and the device's YANG library (RFC 8525's yang-library, or RFC 7895's modules-state from a device that does not serve it), and records them, changing nothing: the same yang.* facts net.netconf.facts records over NETCONF, and RESTCONF's own root, capabilities and datastores. The yang.* facts are protocol-neutral: each protocol's library also lists its own modules (measured on a Catalyst 8000V running IOS XE 17.15.1a, NETCONF's ietf-netconf, ietf-netconf-with-defaults and tailf-netconf-extensions, RESTCONF's tailf-rest-query), which yang.* leaves out and restconf.modules (or netconf.modules over NETCONF) records, so one device read over either protocol gives the same yang.modules, yang.module_count and yang.modules_digest. The device is reached at its own origin with its own TLS (always verified, a pinned certificate included) and its own stored credential, following no redirect, and a root its host-meta names on another scheme, host or port is refused. A read whose capabilities and library both failed fails the task rather than recording a device with nothing, as onboarding refuses it; a family whose own read failed is left out, with a warning. A device reached over http:// records its findings as stats only, never as facts, since nothing proves which server answered. Reports no change, and a check runs it for real.",
       "returns": [
         {
           "name": "restconf.root",
@@ -14040,10 +14082,16 @@
           "description": "The datastores the device's YANG library lists, sorted: an NMDA device's running, intended and operational, which RFC 8527 addresses under the root's /ds/; empty for a library that lists none, as RFC 7895's modules-state does."
         },
         {
+          "name": "restconf.modules",
+          "type": "list of string",
+          "returned": "when the YANG library was read, as a stat; as a fact only when the device was reached over https",
+          "description": "The modules RESTCONF's server lists for itself, which yang.modules leaves out (owner decision 2026-11-15: yang.* is protocol-neutral), each as name@revision, sorted, from the measured list of protocol modules: ietf-netconf, ietf-netconf-with-defaults and tailf-netconf-extensions over NETCONF, and tailf-rest-query over RESTCONF, each measured on a Catalyst 8000V running IOS XE 17.15.1a on 2026-11-15 as one protocol's library listed it and the other's did not. Empty when the library lists none of them; left out, with a warning, when the list does not fit in 60 KiB."
+        },
+        {
           "name": "yang.modules",
           "type": "list of string",
           "returned": "when the list fits in 60 KiB as JSON",
-          "description": "Every YANG module the device implements, each as name@revision (the name alone for a module with no revision), sorted, read from the device's YANG library over RESTCONF (RFC 8525's yang-library, or RFC 7895's modules-state from a device that does not serve it). An entry that is not a YANG identifier, a revision date or a printable namespace is left out whole, never cut short. Left out when the list does not fit; yang.module_count and yang.modules_digest are always recorded."
+          "description": "Every YANG module the device implements, each as name@revision (the name alone for a module with no revision), sorted, read from the device's YANG library over RESTCONF (RFC 8525's yang-library, or RFC 7895's modules-state from a device that does not serve it). The protocols' own modules, which each server lists for itself, are left out (they are in netconf.modules or restconf.modules), so the list is the same whichever protocol read it. An entry that is not a YANG identifier, a revision date or a printable namespace is left out whole, never cut short. Left out when the list does not fit; yang.module_count and yang.modules_digest are always recorded."
         },
         {
           "name": "yang.module_count",
@@ -14055,7 +14103,7 @@
           "name": "yang.modules_digest",
           "type": "string",
           "returned": "when the YANG library was read, as a stat; as a fact only when the device was reached over https",
-          "description": "The SHA-256 (hex) of the module set in its canonical form (every module's name, namespace, revision, features and deviations, sorted, as JSON), so two devices implementing the same modules read alike and any change to the set reads as a change of this one value."
+          "description": "The SHA-256 (hex) of the device's data models in their canonical form (every module's name, namespace, revision, features and deviations, sorted, as JSON), the protocols' own modules left out as yang.modules leaves them, so one device read over NETCONF and over RESTCONF gives one value, two devices implementing the same models read alike, and any change to the set reads as a change of this one value."
         },
         {
           "name": "yang.completeness",

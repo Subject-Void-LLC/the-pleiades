@@ -13,6 +13,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/netconf"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/yanglib"
 	"golang.org/x/crypto/ssh/knownhosts"
 )
 
@@ -91,7 +92,10 @@ func netconfProbed(d netconf.Discovery, framing string) Probed {
 		// Text, as every other probe's count is: an int read back from
 		// the Controller's JSON column is a float64, and the record would
 		// never compare equal on a re-onboard (FAILURE_PATTERNS 706).
-		"yang_module_count":   strconv.Itoa(len(d.Modules)),
+		"yang_module_count": strconv.Itoa(len(d.DataModules())),
+		// The modules NETCONF's server lists for itself, which the yang_
+		// summary leaves out (yang.* is protocol-neutral).
+		"netconf_modules":     factList(moduleNames(d.OwnModules())),
 		"yang_modules_digest": d.ModulesDigest(),
 		"yang_completeness":   string(d.Completeness),
 	}
@@ -103,4 +107,18 @@ func netconfProbed(d netconf.Discovery, framing string) Probed {
 		warnings = append(warnings, "the device's YANG library was not read: "+d.LibraryError)
 	}
 	return Probed{Capabilities: []capability.Name{capability.NameNetconf}, Facts: facts, Warnings: warnings}
+}
+
+// moduleNames is modules as name@revision, the name alone for a module with
+// no revision, as the yang.modules fact writes them.
+func moduleNames(modules []yanglib.Module) []string {
+	out := make([]string, 0, len(modules))
+	for _, m := range modules {
+		if m.Revision == "" {
+			out = append(out, m.Name)
+		} else {
+			out = append(out, m.Name+"@"+m.Revision)
+		}
+	}
+	return out
 }
