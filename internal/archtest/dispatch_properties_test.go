@@ -216,6 +216,14 @@ var secretNamedButValidated = map[string]struct {
 		reason:   "a flag validated as a boolean",
 		baseline: map[string]any{"base_url": "http://api.example.com", "http_auth": "basic"},
 	},
+	"generic_restconf/http_auth": {
+		reason:   "the credential MODE, validated to one of none, basic or bearer; the credential itself is in the store",
+		baseline: map[string]any{"base_url": "https://router.example.com"},
+	},
+	"generic_restconf/http_allow_plaintext_credentials": {
+		reason:   "a flag validated as a boolean",
+		baseline: map[string]any{"base_url": "http://router.example.com"},
+	},
 	"ai_provider/http_allow_plaintext_credentials": {
 		reason:   "a flag validated as a boolean",
 		baseline: map[string]any{"ai_kind": "ollama", "residency": "local", "api_base": "http://10.0.0.5:11434"},

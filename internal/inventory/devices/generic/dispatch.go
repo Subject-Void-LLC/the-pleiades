@@ -17,5 +17,8 @@ func init() {
 	record.RegisterDispatchProperties(TypeHTTP, append([]string{
 		BaseURLProperty, HTTPAuthProperty, OpenAPIPathProperty, httpapi.AllowPlaintextCredentialsProperty,
 	}, devicetls.Properties()...)...)
+	record.RegisterDispatchProperties(TypeRestconf, append([]string{
+		BaseURLProperty, HTTPAuthProperty, httpapi.AllowPlaintextCredentialsProperty,
+	}, devicetls.Properties()...)...)
 	record.RegisterDispatchProperties(TypeGRPC, append([]string{GRPCTargetProperty, GRPCPlaintextProperty}, devicetls.Properties()...)...)
 }

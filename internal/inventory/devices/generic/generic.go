@@ -1,5 +1,5 @@
 // Package generic holds the protocol-shaped device types: generic_ssh,
-// generic_netconf, generic_http and generic_grpc. They exist so a device
+// generic_netconf, generic_restconf, generic_http and generic_grpc. They exist so a device
 // nobody has written a vendor type for can still be managed, over the
 // protocol it speaks.
 //
@@ -33,17 +33,18 @@ import (
 
 // The generic device types.
 const (
-	TypeSSH     = "generic_ssh"
-	TypeNetconf = "generic_netconf"
-	TypeHTTP    = "generic_http"
-	TypeGRPC    = "generic_grpc"
+	TypeSSH      = "generic_ssh"
+	TypeNetconf  = "generic_netconf"
+	TypeRestconf = "generic_restconf"
+	TypeHTTP     = "generic_http"
+	TypeGRPC     = "generic_grpc"
 )
 
 // rules is, per type, what onboarding may grant it and which properties a
 // discovery holds for (record.DiscoveryRules), registered in init.
 //
-// generic_http's discovery is bound because its stored credential goes to
-// its base URL, and TLS verification against a public authority would admit
+// generic_http's and generic_restconf's discoveries are bound because each
+// one's stored credential goes to its base URL, and TLS verification against a public authority would admit
 // any host with a valid certificate for its own name. generic_grpc sends no
 // credential, and is bound because a discovery made against one server says
 // nothing about another. The SSH-based types are not bound: a strict
@@ -74,6 +75,10 @@ var rules = map[string]record.DiscoveryRules{
 		capability.NameOpenVSwitch,
 	}},
 	TypeNetconf: {Grants: []capability.Name{capability.NameNetconf}},
+	TypeRestconf: {
+		Grants: []capability.Name{capability.NameRestconf},
+		Bound:  append([]string{BaseURLProperty, HTTPAuthProperty, httpapi.AllowPlaintextCredentialsProperty}, devicetls.Properties()...),
+	},
 	TypeHTTP: {
 		// A containerlab API server is an HTTP API that onboarding
 		// recognises by its /health (probe_http.go).
@@ -104,7 +109,7 @@ func Binding(deviceType string, props inventory.Properties) string {
 
 // Types returns the generic device types, sorted.
 func Types() []string {
-	return []string{TypeGRPC, TypeHTTP, TypeNetconf, TypeSSH}
+	return []string{TypeGRPC, TypeHTTP, TypeNetconf, TypeRestconf, TypeSSH}
 }
 
 func init() {
@@ -114,6 +119,7 @@ func init() {
 	}
 	record.RegisterType(TypeSSH, NewSSH)
 	record.RegisterType(TypeNetconf, NewNetconf)
+	record.RegisterType(TypeRestconf, NewRestconf)
 	record.RegisterType(TypeHTTP, NewHTTP)
 	record.RegisterType(TypeGRPC, NewGRPC)
 }
