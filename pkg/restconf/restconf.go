@@ -156,11 +156,28 @@ func (c *Client) get(ctx context.Context, ref, accept string, limit int64) (answ
 // refused is the error for an answer refusing the client's credential, or
 // asking for one the device's record sends none of.
 func (c *Client) refused(a answer) error {
-	said := statusError(a)
-	if c.auth == httpapi.AuthNone {
-		return fmt.Errorf("the device asked for a credential (%d), and this device sends none: set its http_auth property to basic or bearer to send its stored credential: %w", a.status, said)
+	return &RefusedError{Answer: statusError(a), NoneSent: c.auth == httpapi.AuthNone}
+}
+
+// RefusedError is a credential the device refused (401), or asked for when
+// this device sends none (401 or 403). It ends a discovery, where a
+// StatusError refuses one resource, so it does not unwrap to one: a caller
+// asking errors.As for a StatusError must not mistake a refused login for a
+// resource the server lacks (measured 2026-11-14 against rousette, which
+// answers host-meta with no login and every data read with 401).
+type RefusedError struct {
+	// Answer is what the device said.
+	Answer *StatusError
+	// NoneSent is true when the device's record sends no credential.
+	NoneSent bool
+}
+
+// Error says the credential was refused, or how to send one.
+func (e *RefusedError) Error() string {
+	if e.NoneSent {
+		return fmt.Sprintf("the device asked for a credential (%d), and this device sends none: set its http_auth property to basic or bearer to send its stored credential: %s", e.Answer.Status, e.Answer.Error())
 	}
-	return fmt.Errorf("the device refused the credential: %w", said)
+	return "the device refused the credential: " + e.Answer.Error()
 }
 
 // mediaTypeOf is a Content-Type header's media type, lower case and without

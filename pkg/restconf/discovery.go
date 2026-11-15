@@ -79,37 +79,77 @@ func isFatal(err error) bool {
 // errUnusable marks an answer that arrived but could not be read.
 var errUnusable = errors.New("the answer could not be read")
 
-// capabilities reads the capability URIs ietf-restconf-monitoring lists.
+// capabilities reads the capability URIs ietf-restconf-monitoring lists. A
+// server answers with the capabilities container itself, as RFC 8040 section
+// 3.5 has it (IOS XE, a Tail-f ConfD server, does), or wrapped in its
+// restconf-state parent, as rousette (over sysrepo and libyang) does:
+// measured 2026-11-14 against the notconf image the NETCONF gates run. Both
+// are read; anything else is not the list.
 func (c *Client) capabilities(ctx context.Context) ([]string, error) {
 	body, mediaType, err := c.GetData(ctx, pathCapabilities)
 	if err != nil {
 		return nil, err
 	}
 	var caps []string
+	var ok bool
 	if mediaType == MediaTypeJSON {
-		var doc struct {
-			Capabilities *struct {
-				Capability []string `json:"capability"`
-			} `json:"ietf-restconf-monitoring:capabilities"`
-		}
-		if err := json.Unmarshal(body, &doc); err != nil || doc.Capabilities == nil {
-			return nil, fmt.Errorf("%w: the capabilities answer is not ietf-restconf-monitoring's", errUnusable)
-		}
-		caps = doc.Capabilities.Capability
+		caps, ok = capabilitiesFromJSON(body)
 	} else {
-		var doc struct {
-			XMLName    xml.Name
-			Capability []string `xml:"capability"`
-		}
-		if err := xml.Unmarshal(body, &doc); err != nil || doc.XMLName.Space != monitoringNamespace || doc.XMLName.Local != "capabilities" {
-			return nil, fmt.Errorf("%w: the capabilities answer is not ietf-restconf-monitoring's", errUnusable)
-		}
-		caps = doc.Capability
+		caps, ok = capabilitiesFromXML(body)
+	}
+	if !ok {
+		return nil, fmt.Errorf("%w: the capabilities answer is not ietf-restconf-monitoring's", errUnusable)
 	}
 	if len(caps) > maxCapabilities {
 		return nil, fmt.Errorf("%w: the server lists %d capabilities, more than the %d read", errUnusable, len(caps), maxCapabilities)
 	}
 	return caps, nil
+}
+
+// capabilityList is the capabilities container in either encoding.
+type capabilityList struct {
+	Capability []string `xml:"capability" json:"capability"`
+}
+
+// capabilitiesFromXML reads the capabilities container, or its
+// restconf-state parent holding it, in ietf-restconf-monitoring's namespace.
+func capabilitiesFromXML(body []byte) ([]string, bool) {
+	var doc struct {
+		XMLName xml.Name
+		capabilityList
+		Capabilities *capabilityList `xml:"capabilities"`
+	}
+	if err := xml.Unmarshal(body, &doc); err != nil || doc.XMLName.Space != monitoringNamespace {
+		return nil, false
+	}
+	switch {
+	case doc.XMLName.Local == "capabilities":
+		return doc.Capability, true
+	case doc.XMLName.Local == "restconf-state" && doc.Capabilities != nil:
+		return doc.Capabilities.Capability, true
+	}
+	return nil, false
+}
+
+// capabilitiesFromJSON reads the JSON encoding of the capabilities container,
+// or of its restconf-state parent holding it.
+func capabilitiesFromJSON(body []byte) ([]string, bool) {
+	var doc struct {
+		Capabilities *capabilityList `json:"ietf-restconf-monitoring:capabilities"`
+		State        *struct {
+			Capabilities *capabilityList `json:"capabilities"`
+		} `json:"ietf-restconf-monitoring:restconf-state"`
+	}
+	if err := json.Unmarshal(body, &doc); err != nil {
+		return nil, false
+	}
+	switch {
+	case doc.Capabilities != nil:
+		return doc.Capabilities.Capability, true
+	case doc.State != nil && doc.State.Capabilities != nil:
+		return doc.State.Capabilities.Capability, true
+	}
+	return nil, false
 }
 
 // library completes d from the server's YANG library: yang-library first,

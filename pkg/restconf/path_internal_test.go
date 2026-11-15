@@ -295,3 +295,67 @@ func (plainDevice) RestconfAuth() string { return httpapi.AuthNone }
 
 // RestconfAllowPlaintextCredentials implements capability.RestconfCapable.
 func (plainDevice) RestconfAllowPlaintextCredentials() bool { return false }
+
+// TestCapabilities_ReadsTheContainerOrItsParent holds both shapes servers
+// answer with: the capabilities container itself (IOS XE) and wrapped in
+// restconf-state (rousette, measured 2026-11-14), in either encoding.
+func TestCapabilities_ReadsTheContainerOrItsParent(t *testing.T) {
+	const ns = `xmlns="urn:ietf:params:xml:ns:yang:ietf-restconf-monitoring"`
+	for _, body := range []string{
+		`<capabilities ` + ns + `><capability>urn:a</capability><capability>urn:b</capability></capabilities>`,
+		`<restconf-state ` + ns + `><capabilities><capability>urn:a</capability><capability>urn:b</capability></capabilities></restconf-state>`,
+	} {
+		if got, ok := capabilitiesFromXML([]byte(body)); !ok || strings.Join(got, ",") != "urn:a,urn:b" {
+			t.Errorf("capabilitiesFromXML(%s) = %v, %v", body, got, ok)
+		}
+	}
+	for _, body := range []string{
+		`{"ietf-restconf-monitoring:capabilities":{"capability":["urn:a","urn:b"]}}`,
+		`{"ietf-restconf-monitoring:restconf-state":{"capabilities":{"capability":["urn:a","urn:b"]}}}`,
+	} {
+		if got, ok := capabilitiesFromJSON([]byte(body)); !ok || strings.Join(got, ",") != "urn:a,urn:b" {
+			t.Errorf("capabilitiesFromJSON(%s) = %v, %v", body, got, ok)
+		}
+	}
+	for _, body := range []string{`<restconf-state ` + ns + `/>`, `<other ` + ns + `/>`, `<capabilities/>`} {
+		if _, ok := capabilitiesFromXML([]byte(body)); ok {
+			t.Errorf("capabilitiesFromXML read %s", body)
+		}
+	}
+	for _, body := range []string{`{"ietf-restconf-monitoring:restconf-state":{}}`, `{}`, `[`} {
+		if _, ok := capabilitiesFromJSON([]byte(body)); ok {
+			t.Errorf("capabilitiesFromJSON read %s", body)
+		}
+	}
+}
+
+// TestRestconfLink_ReadsAnUnclosedLink: rousette's host-meta leaves its Link
+// unclosed (measured 2026-11-14); it is read, and a self-closed one still is.
+func TestRestconfLink_ReadsAnUnclosedLink(t *testing.T) {
+	for _, doc := range []string{
+		`<XRD xmlns='http://docs.oasis-open.org/ns/xri/xrd-1.0'><Link rel='restconf' href='/restconf/'></XRD>`,
+		`<XRD xmlns='http://docs.oasis-open.org/ns/xri/xrd-1.0'><Link rel='restconf' href='/restconf/'/></XRD>`,
+		`<XRD><Link rel='restconf' href='/restconf/'></Link></XRD>`,
+	} {
+		if href, err := restconfLink([]byte(doc)); err != nil || href != "/restconf/" {
+			t.Errorf("restconfLink(%s) = %q, %v", doc, href, err)
+		}
+	}
+}
+
+// TestRefusedError_IsNotAStatusError: a refused login ends a discovery, so it
+// must not read as one resource the server lacks.
+func TestRefusedError_IsNotAStatusError(t *testing.T) {
+	var err error = &RefusedError{Answer: &StatusError{Status: http.StatusUnauthorized}}
+	var status *StatusError
+	if errors.As(err, &status) || !isFatal(err) {
+		t.Error("a refused credential reads as a StatusError, or not as fatal")
+	}
+	if !strings.Contains(err.Error(), "refused the credential") {
+		t.Errorf("Error() = %q", err)
+	}
+	none := &RefusedError{Answer: &StatusError{Status: http.StatusForbidden}, NoneSent: true}
+	if !strings.Contains(none.Error(), "http_auth") || !strings.Contains(none.Error(), "403") {
+		t.Errorf("Error() = %q, want the property named", none)
+	}
+}

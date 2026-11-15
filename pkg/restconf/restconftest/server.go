@@ -164,7 +164,10 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, modulesState []by
 		h(w, r)
 		return
 	}
-	if s.opts.Username != "" || s.opts.Password != "" {
+	// host-meta is answered with no login, as rousette answers it
+	// (measured 2026-11-14), so a refused credential is first met on a data
+	// read, after the root is found.
+	if path != "/.well-known/host-meta" && (s.opts.Username != "" || s.opts.Password != "") {
 		user, pass, ok := r.BasicAuth()
 		if !ok || user != s.opts.Username || pass != s.opts.Password {
 			// IOS XE's answer to a missing or refused login.

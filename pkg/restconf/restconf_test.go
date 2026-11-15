@@ -115,8 +115,14 @@ func TestDiscover_AWrongPasswordIsARefusedCredential(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = client.Discover(context.Background())
-	if err == nil || !strings.Contains(err.Error(), "refused the credential") {
+	var refused *restconf.RefusedError
+	if !errors.As(err, &refused) || !strings.Contains(err.Error(), "refused the credential") {
 		t.Fatalf("Discover = %v, want the credential refused", err)
+	}
+	// host-meta is answered with no login, so the refusal is a data read's,
+	// after the root was found, and still ends the discovery.
+	if paths := s.Paths(); len(paths) < 2 || paths[0] != "/.well-known/host-meta" {
+		t.Errorf("requests %v, want the root found first", paths)
 	}
 	if strings.Contains(err.Error(), "wrong-password") {
 		t.Errorf("the error %q carries the password", err)

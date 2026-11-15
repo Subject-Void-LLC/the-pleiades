@@ -8,6 +8,7 @@
 package restconf
 
 import (
+	"bytes"
 	"context"
 	"encoding/xml"
 	"errors"
@@ -66,6 +67,13 @@ func (c *Client) Root() (string, bool) {
 // restconfLink is the href of body's one restconf link. Two links naming the
 // same href are one; two naming different hrefs are refused, since the
 // client could not say which root the device means.
+//
+// A Link left unclosed is read as closed: rousette, in the notconf image the
+// NETCONF and RESTCONF tests run, answers
+// <XRD ...><Link rel='restconf' href='/restconf/'></XRD>, measured 2026-11-14,
+// which a strict parser refuses as malformed. Only that is relaxed: the
+// document must still be one XRD, and the href it names is then held to
+// every rule resolveRoot applies.
 func restconfLink(body []byte) (string, error) {
 	var doc struct {
 		XMLName xml.Name
@@ -74,7 +82,10 @@ func restconfLink(body []byte) (string, error) {
 			Href string `xml:"href,attr"`
 		} `xml:"Link"`
 	}
-	if err := xml.Unmarshal(body, &doc); err != nil {
+	dec := xml.NewDecoder(bytes.NewReader(body))
+	dec.Strict = false
+	dec.AutoClose = []string{"Link"}
+	if err := dec.Decode(&doc); err != nil {
 		return "", fmt.Errorf("the answer is not an XRD document: %w", err)
 	}
 	if doc.XMLName.Local != "XRD" || (doc.XMLName.Space != xrdNamespace && doc.XMLName.Space != "") {
