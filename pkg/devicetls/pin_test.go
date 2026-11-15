@@ -114,6 +114,13 @@ func TestPin_TrustsExactlyThePinnedCertificate(t *testing.T) {
 	if err := get(t, other, srv); !errors.As(err, &untrusted) || untrusted.Fingerprint != want || !strings.Contains(err.Error(), "not the pinned") {
 		t.Errorf("another pin: %v, want an UntrustedError naming %s", err, want)
 	}
+	// The engine stops retrying an error that reports itself refused, found
+	// through whatever wraps it; a refused certificate is one, since asking
+	// again presents the same certificate.
+	var refusal interface{ Refused() bool }
+	if err := get(t, other, srv); !errors.As(err, &refusal) || !refusal.Refused() {
+		t.Errorf("another pin: %v does not report itself refused", err)
+	}
 
 	defaults, err := parse(nil)
 	if err != nil {
