@@ -282,8 +282,11 @@ func TestDiscover_ARedirectIsNotFollowed(t *testing.T) {
 		http.Redirect(w, r, other.URL+"/.well-known/host-meta", http.StatusFound)
 	}}
 	s := restconftest.New(t, opts)
-	if _, _, err := discover(t, s, restconftest.NewDevice(t, s)); err == nil || !strings.Contains(err.Error(), "302") {
-		t.Fatalf("Discover = %v, want the redirect refused as an answer", err)
+	// The redirect is never followed: it says no more than a 404 (IOS XE's
+	// host-meta redirects to its login page), so the conventional root is
+	// tried on the device's own origin.
+	if d, _, err := discover(t, s, restconftest.NewDevice(t, s)); err != nil || d.RootSource != restconf.RootDefault {
+		t.Fatalf("Discover = %q, %v; want the conventional root, the redirect not followed", d.RootSource, err)
 	}
 	if elsewhere.Load() != 0 {
 		t.Error("the credential followed a redirect to another server")

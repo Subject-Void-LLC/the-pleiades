@@ -59,13 +59,13 @@ const conventionalRoot = "/restconf"
 
 // ErrNoRestconf is a server answering 404 both at host-meta and at the
 // first read under the conventional root it was then tried at.
-var ErrNoRestconf = errors.New("the device answered host-meta with 404 and, under the conventional root /restconf, 404 again: it serves no RESTCONF there")
+var ErrNoRestconf = errors.New("the device answered host-meta with 404 or a redirect and, under the conventional root /restconf, 404 again: it serves no RESTCONF there")
 
 // DiscoverRoot reads the origin's host-meta, with no credential unless the
 // server asks for one (401), and returns the RESTCONF root its restconf link
 // names, as an escaped path with no trailing slash ("" for a root at the
-// origin itself), which later reads are made under. A host-meta answered 404
-// leaves the conventional /restconf as the root, provisionally (RootSource
+// origin itself), which later reads are made under. A host-meta answered 404, or
+// with a redirect (never followed), leaves the conventional /restconf as the root, provisionally (RootSource
 // says RootDefault), for the first read under it to confirm. Another status,
 // a document that is not XRD, one naming no restconf link or two different
 // ones, and a root off the device's origin are each an error.
@@ -80,7 +80,11 @@ func (c *Client) DiscoverRoot(ctx context.Context) (string, error) {
 	}
 	switch a.status {
 	case http.StatusOK:
-	case http.StatusNotFound:
+	case http.StatusNotFound, http.StatusMovedPermanently, http.StatusFound, http.StatusSeeOther, http.StatusTemporaryRedirect, http.StatusPermanentRedirect:
+		// A redirect is never followed (the credential must not follow a
+		// URL): IOS XE 17.15.1a answers host-meta without a valid login with
+		// 302 to its WebUI's /login.html (measured 2026-11-15), which says
+		// no more than a 404 does.
 		c.root, c.rootFound, c.rootSource = conventionalRoot, true, RootDefault
 		return c.root, nil
 	default:

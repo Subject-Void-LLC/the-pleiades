@@ -1,8 +1,8 @@
 // Package restconftest: the IOS XE mode, a server answering exactly as a
 // Cisco Catalyst 8000V running IOS XE 17.15.1a answered on 2026-11-15
 // (testdata/iosxe holds its answers, masked by http.request and scanned for
-// credentials): host-meta only to a valid login and an openresty 404 page
-// otherwise, 401 with WWW-Authenticate under /restconf to a missing or wrong
+// credentials): host-meta only to a valid login and a 302 to its WebUI's /login.html
+// otherwise (which answers 404), 401 with WWW-Authenticate under /restconf to a missing or wrong
 // one, the bare capabilities container, its own YANG library in XML and
 // JSON, a list entry read back inside its list's array, a post answered 201
 // with an empty text/html body and an absolute Location, a second post 409
@@ -51,8 +51,9 @@ var iosxeGoingDown []byte
 // /restconf, with WWW-Authenticate: Basic realm="restconf".
 const iosxeUnauthorized = "{\n  \"ietf-restconf:errors\": {\n    \"error\": [\n      {\n        \"error-type\": \"protocol\",\n        \"error-tag\": \"access-denied\"\n      }\n    ]\n  }\n}\n"
 
-// openrestyNotFound is openresty's default 404 page, IOS XE's answer to
-// host-meta without a valid login (no WWW-Authenticate).
+// openrestyNotFound is openresty's default 404 page, IOS XE's answer at the
+// login page host-meta redirects to without a valid login (no
+// WWW-Authenticate).
 const openrestyNotFound = "<html>\r\n<head><title>404 Not Found</title></head>\r\n<body>\r\n<center><h1>404 Not Found</h1></center>\r\n<hr><center>openresty</center>\r\n</body>\r\n</html>\r\n"
 
 // IOSXEStartingPage is the page IOS XE answers with 502 while its RESTCONF
@@ -73,13 +74,21 @@ func IOSXEModulesStateJSON(t testing.TB) []byte { t.Helper(); return gunzip(t, i
 func (s *Server) serveIOSXE(w http.ResponseWriter, r *http.Request, path string) {
 	if path == "/.well-known/host-meta" {
 		if !s.validLogin(r) {
-			w.Header().Set("Content-Type", "text/html")
-			w.WriteHeader(http.StatusNotFound)
-			_, _ = w.Write([]byte(openrestyNotFound))
+			// Measured 2026-11-15 with pkg/restconf, which follows no
+			// redirect: 302 to the WebUI's login page, whose own answer is
+			// openresty's 404 (what a client following it sees).
+			w.Header().Set("Location", "/login.html")
+			w.WriteHeader(http.StatusFound)
 			return
 		}
 		w.Header().Set("Content-Type", "application/xrd+xml")
 		_, _ = w.Write(iosxeHostMeta)
+		return
+	}
+	if path == "/login.html" {
+		w.Header().Set("Content-Type", "text/html")
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(openrestyNotFound))
 		return
 	}
 	if !strings.HasPrefix(path, "/restconf/") {
