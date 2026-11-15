@@ -92,10 +92,11 @@ func TestCollections_MatchesDocumentedCount(t *testing.T) {
 	// the 262nd: wait.netconf. A device's RESTCONF discovery read added the
 	// 263rd: net.restconf.facts. A RESTCONF write added the 264th:
 	// net.restconf.config. Waiting for a RESTCONF server added the 265th:
-	// wait.restconf.
+	// wait.restconf. gNMI (Phase 74c) added the 266th through 268th:
+	// net.gnmi.facts, net.gnmi.config and wait.gnmi.
 	// This test pins the number down so a future accidental entry loss or
 	// duplication is a build failure, not a silent gap.
-	const wantCollections = 265
+	const wantCollections = 268
 	if got := len(catalogdata.Collections); got != wantCollections {
 		t.Errorf("len(Collections) = %d, want %d", got, wantCollections)
 	}

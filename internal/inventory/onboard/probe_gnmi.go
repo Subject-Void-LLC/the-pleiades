@@ -3,8 +3,6 @@ package onboard
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"strconv"
 
@@ -62,23 +60,11 @@ func gnmiProbed(caps gnmi.Capabilities) Probed {
 		// Text, as every other probe's count is, so a re-onboard of an
 		// unchanged device compares equal (FAILURE_PATTERNS 1250).
 		"gnmi_model_count":   strconv.Itoa(len(caps.Models)),
-		"gnmi_models_digest": modelsDigest(caps.Models),
+		"gnmi_models_digest": caps.ModelsDigest(),
 	}
 	var warnings []string
 	if caps.Dropped > 0 {
 		warnings = append(warnings, fmt.Sprintf("%d malformed or oversized entries in the device's gNMI Capabilities were left out", caps.Dropped))
 	}
 	return Probed{Capabilities: []capability.Name{capability.NameGNMI}, Facts: facts, Warnings: warnings}
-}
-
-// modelsDigest is the SHA-256 (hex) of the model list as Capabilities kept
-// it (sorted, once each), each entry name, organization and version on a
-// line of their own, so a change in what the device says it implements
-// changes the digest and an unchanged list never does.
-func modelsDigest(models []gnmi.Model) string {
-	h := sha256.New()
-	for _, m := range models {
-		_, _ = fmt.Fprintf(h, "%q %q %q\n", m.Name, m.Organization, m.Version)
-	}
-	return hex.EncodeToString(h.Sum(nil))
 }

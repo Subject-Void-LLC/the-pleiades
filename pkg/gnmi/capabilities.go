@@ -8,10 +8,13 @@ package gnmi
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	gpb "github.com/openconfig/gnmi/proto/gnmi"
 
@@ -176,6 +179,56 @@ func readCapabilities(resp *gpb.CapabilityResponse) Capabilities {
 		return out.Models[i].Version < out.Models[j].Version
 	})
 	return out
+}
+
+// YANGModules returns the models as YANG modules, for the protocol-neutral
+// yang.* facts: each model named by a YANG identifier (or a name ending in
+// ":" and one, as a URN-qualified name does) by that identifier, its revision
+// the model's version when the version is a date (YYYY-MM-DD) and none
+// otherwise, since an OpenConfig semantic version is no YANG revision. A
+// model whose name holds no identifier is returned in unread instead.
+// Modules are sorted by name then revision, once each, and carry no
+// namespace: gNMI names none.
+func (c Capabilities) YANGModules() (modules []yanglib.Module, unread []string) {
+	seen := map[string]bool{}
+	for _, m := range c.Models {
+		name := m.Name
+		if i := strings.LastIndexByte(name, ':'); i >= 0 {
+			name = name[i+1:]
+		}
+		if !yanglib.IsIdentifier(name) {
+			unread = append(unread, m.Name)
+			continue
+		}
+		module := yanglib.Module{Name: name}
+		if _, err := time.Parse(time.DateOnly, m.Version); err == nil {
+			module.Revision = m.Version
+		}
+		if key := module.Name + "@" + module.Revision; !seen[key] {
+			seen[key] = true
+			modules = append(modules, module)
+		}
+	}
+	sort.Slice(modules, func(i, j int) bool {
+		if modules[i].Name != modules[j].Name {
+			return modules[i].Name < modules[j].Name
+		}
+		return modules[i].Revision < modules[j].Revision
+	})
+	return modules, unread
+}
+
+// ModelsDigest is the SHA-256 (hex) of the model list as Capabilities kept
+// it (sorted, once each), each model's name, organization and version quoted
+// on a line of its own, so any change to what the server says it implements
+// changes the digest and an unchanged list never does. Onboarding and
+// net.gnmi.facts both record it, so the two agree.
+func (c Capabilities) ModelsDigest() string {
+	h := sha256.New()
+	for _, m := range c.Models {
+		_, _ = fmt.Fprintf(h, "%q %q %q\n", m.Name, m.Organization, m.Version)
+	}
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 // keepable reports whether s may be kept as it is: printable, and no longer

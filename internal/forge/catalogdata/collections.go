@@ -27,6 +27,7 @@ var Collections = concatCollections(
 	identityCollections,
 	filesCollections,
 	networkCollections,
+	gnmiCollections,
 	extendedCollections,
 	gatingCollections,
 	gateCollections,
