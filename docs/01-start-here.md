@@ -120,12 +120,14 @@ the payload, which still carries the resolved credential itself. Presenting a
 client certificate to a managed device, which is a different thing again, is
 also real.
 
-**A device with no type of its own can be managed.** Four generic device types,
-`generic_ssh`, `generic_netconf`, `generic_http` and `generic_grpc`, take their
+**A device with no type of its own can be managed.** Five generic device types,
+`generic_ssh`, `generic_netconf`, `generic_restconf`, `generic_http` and `generic_grpc`, take their
 capabilities from the device: `pleiades onboard` (or the Controller's onboarding route)
 probes it over its protocol and records what its answers prove, and nothing else can
-grant one. Each is proven against a real server: a Debian host, a Netopeer2 NETCONF
-server, an HTTPS API and the gRPC project's own example server. A Runner rebuilds each
+grant one. Four are proven against a real server: a Debian host, a Netopeer2 NETCONF
+server, an HTTPS API and the gRPC project's own example server. `generic_restconf` is
+proven so far against an in-process TLS server answering in RFC 8040's shapes with a real
+Catalyst 8000V's captured YANG library, not yet against a RESTCONF server of its own. A Runner rebuilds each
 dispatched device as its real type, from its type and only the properties its accessors
 read, so the same methods work on the Walk tier. A device's TLS is its own: a pinned
 authority, mutual TLS, and, for an old device, deprecated TLS versions, legacy ciphers or a
@@ -258,7 +260,7 @@ above is not built yet: no GitOps auto-discovery of playbooks in a synced reposi
 socket). And host key verification is disabled inside the container, since it has no
 source for a target's known host key yet.
 
-**The module catalog has 262 registered methods across 23 namespaces; 260 are
+**The module catalog has 263 registered methods across 23 namespaces; 261 are
 implemented and 2 are declared but not implemented.** Every FQCN is registered and
 reachable through the real dispatcher, and the short, decision-relevant list is the one
 that is NOT implemented, both of them: `net.junos.config` and
@@ -266,7 +268,7 @@ that is NOT implemented, both of them: `net.junos.config` and
 `"declared but not implemented"` refusal rather than a silent no-op or a fabricated
 success, whether the call comes from the CLI, the Controller, or a runner, and the
 dispatcher in fact refuses any method whose status is not `implemented` before its body
-is ever entered. By namespace, implemented: `container` 37, `virt` 83, `ai` 11, `svc` 16, `net` 29,
+is ever entered. By namespace, implemented: `container` 37, `virt` 83, `ai` 11, `svc` 16, `net` 30,
 `file` 14, `win` 12, `pkg` 9, `db` 6, `identity` 6, `cloud` 4, `build` 3, `edge` 3, `exec` 3, `fw` 3, `scan` 3, `wait` 5,
 `archive` 2, `fs` 2, `gate` 2, `http` 3, `pleiades` 3, `facts` 1. These counts come from the generated
 [module catalog schema](reference/schemas/module-catalog.json), which is authoritative

@@ -124,6 +124,7 @@
     "pkg",
     "pleiades",
     "port",
+    "restconf",
     "scan",
     "service",
     "service_state",
@@ -165,6 +166,7 @@
     "pkg.",
     "pleiades.",
     "port.",
+    "restconf.",
     "scan.",
     "service.",
     "service_state.",
@@ -228,6 +230,9 @@
     "pleiades.": [],
     "port.": [
       "facts"
+    ],
+    "restconf.": [
+      "net"
     ],
     "scan.": [],
     "service.": [
@@ -377,6 +382,7 @@
     "net.ovs.bridge": "net",
     "net.ovs.port": "net",
     "net.pcap.summary": "net",
+    "net.restconf.facts": "net",
     "net.ssh.ping": "net",
     "net.trace": "net",
     "pkg.apt.install": "pkg",
