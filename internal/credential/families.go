@@ -116,8 +116,17 @@ func (c Credential) SNMP() wire.SNMPCredential {
 	}
 }
 
-// hasLogin reports whether c sets any field of the login family.
-func (c Credential) hasLogin() bool {
+// WithSNMP is c with its SNMP family replaced by s, and its login as it was.
+func (c Credential) WithSNMP(s wire.SNMPCredential) Credential {
+	c.SNMPCommunity, c.SNMPUser = s.Community, s.User
+	c.SNMPAuthProtocol, c.SNMPAuthPassphrase = s.AuthProtocol, s.AuthPassphrase
+	c.SNMPPrivProtocol, c.SNMPPrivPassphrase = s.PrivProtocol, s.PrivPassphrase
+	return c
+}
+
+// HasLogin reports whether c sets any field of the login family: whether a
+// save replacing the login would discard something.
+func (c Credential) HasLogin() bool {
 	return c.Username != "" || c.Password != "" || len(c.PrivateKeyPEM) != 0 || c.Passphrase != "" ||
 		len(c.CertificatePEM) != 0 || c.PFXBase64 != "" || c.Token != "" || c.EnablePassword != ""
 }
@@ -127,7 +136,7 @@ func (c Credential) hasLogin() bool {
 // every save there was before the SNMP family existed.
 func familiesOf(c Credential) Families {
 	var f Families
-	if c.hasLogin() {
+	if c.HasLogin() {
 		f |= LoginFamily
 	}
 	if !c.SNMP().Empty() {
@@ -145,7 +154,7 @@ func familiesOf(c Credential) Families {
 // block that is not a certificate. allowShortCommunity is the operator's
 // acceptance of a short community.
 func checkStorable(c Credential, families Families, allowShortCommunity bool) error {
-	if families&LoginFamily == 0 && c.hasLogin() {
+	if families&LoginFamily == 0 && c.HasLogin() {
 		return fmt.Errorf("it carries login fields, and this save replaces only the %s fields", families)
 	}
 	if families&SNMPFamily == 0 && !c.SNMP().Empty() {

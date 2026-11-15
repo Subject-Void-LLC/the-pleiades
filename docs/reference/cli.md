@@ -138,16 +138,23 @@ store an encrypted credential for a device
 | --password-stdin | `bool` | `false` | read the password to authenticate with as one line on standard input |
 | --password-file | `string` | - | path to a file `pleiades seal` wrote holding the password, opened with this project's seal key or, sealed to a passphrase, with --passphrase or --passphrase-stdin |
 | --key | `string` | - | path to a PEM private key file to authenticate with |
-| --certificate | `string` | - | path to a PEM client certificate to present, which requires --key |
+| --certificate | `string` | - | path to a PEM client certificate to present, which requires --key; the file holds certificates only, its key going to --key |
 | --pfx | `string` | - | path to a PKCS#12 (.pfx/.p12) bundle holding a certificate and its key |
 | --passphrase | `bool` | `false` | prompt for the passphrase of the private key, the bundle or a passphrase-sealed --password-file |
 | --passphrase-stdin | `bool` | `false` | read the passphrase of the private key, the bundle or a passphrase-sealed --password-file as one line on standard input |
 | --enable-password | `bool` | `false` | prompt for the secret a network device asks for to enter privileged mode (Cisco's enable), when this account lands in user mode |
-| --enable-password-stdin | `bool` | `false` | read that enable secret as one line on standard input; with --password-stdin it is the second line |
+| --enable-password-stdin | `bool` | `false` | read that enable secret as one line on standard input, after the login's own secret when that is piped too |
 | --generate | `bool` | `false` | generate a new random ed25519 key and password, for a machine Pleiades will create; prints only the public key |
 | --replace | `bool` | `false` | with --generate, replace a credential already stored for the device |
 | --token-stdin | `bool` | `false` | read a bearer token as one line on standard input, for a device whose API takes one (a Kubernetes cluster, a language model provider's API key) |
 | --no-device | `bool` | `false` | store the credential for a name no inventory device has (a sync source's account, a device added later), marked unbound; without it such a name is stored with a warning, and from 0.4.0 refused |
+| --snmp-community | `bool` | `false` | prompt for an SNMPv1/v2c community, stored apart from the login |
+| --snmp-community-stdin | `bool` | `false` | read an SNMPv1/v2c community as one line on standard input |
+| --allow-short-community | `bool` | `false` | store a community shorter than 8 characters, which every run then masks by shape only (the configuration lines that hold it), never by value, and warns about |
+| --snmp-user | `string` | - | the SNMPv3 USM user name, which --snmp-auth and --snmp-priv belong to; alone it is a noAuthNoPriv user |
+| --snmp-auth | `string` | - | the SNMPv3 authentication protocol, its passphrase prompted for: md5, sha, sha224, sha256, sha384, sha512 |
+| --snmp-priv | `string` | - | the SNMPv3 privacy protocol, its passphrase prompted for after the authentication one: des, 3des, aes128, aes192, aes256, aes192-reeder, aes256-reeder |
+| --snmp-passphrase-stdin | `bool` | `false` | read the SNMPv3 passphrases from standard input instead, one line each, the authentication one first |
 
 `pleiades add-credential web01 --username admin`
 
@@ -160,6 +167,10 @@ store an encrypted credential for a device
 `pleiades add-credential web01 --username root --password-file web01.sealed`
 
 `pleiades add-credential netbox --token-stdin --no-device < token`
+
+`pleiades add-credential core1 --snmp-user monitor --snmp-auth sha256 --snmp-priv aes128`
+
+`pleiades add-credential old-switch --snmp-community-stdin < community`
 
 ## pleiades list-credentials
 

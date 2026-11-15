@@ -233,6 +233,29 @@ func TestLookup_HoldsWhatWasStoredToTheSameRules(t *testing.T) {
 	}
 }
 
+// TestCredential_WithSNMPReplacesOnlyTheSNMPFamily: WithSNMP sets all six
+// SNMP fields from its argument, clearing any it leaves empty, and the login
+// is untouched; HasLogin sees a login field and no SNMP one; and the family
+// names read as a message says them.
+func TestCredential_WithSNMPReplacesOnlyTheSNMPFamily(t *testing.T) {
+	login := credential.Credential{Username: "admin", Token: "a-token-value"}.WithSNMP(v3User().SNMP())
+	got := login.WithSNMP(wire.SNMPCredential{Community: "c0mmunity-s3cret"})
+	if got.Username != "admin" || got.Token != "a-token-value" || got.SNMP() != (wire.SNMPCredential{Community: "c0mmunity-s3cret"}) {
+		t.Errorf("WithSNMP = %v", got)
+	}
+	if !got.HasLogin() || v3User().HasLogin() || (credential.Credential{}).HasLogin() {
+		t.Error("HasLogin is wrong for a token, an SNMP user alone or nothing")
+	}
+	for families, want := range map[credential.Families]string{
+		credential.LoginFamily: "login", credential.SNMPFamily: "SNMP",
+		credential.LoginFamily | credential.SNMPFamily: "login and SNMP", 0: "no family",
+	} {
+		if families.String() != want {
+			t.Errorf("Families(%d).String() = %q, want %q", families, families.String(), want)
+		}
+	}
+}
+
 // TestListCredentials_NamesTheSNMPKinds: a community, a v3 user's
 // authentication and its privacy are listed as kinds, with the USM user and
 // a short community's mark, and never a value.
