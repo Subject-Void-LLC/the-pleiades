@@ -16,6 +16,7 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/farside"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/httpapi"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/yanglib"
 )
@@ -113,17 +114,17 @@ func resolveRoot(base *url.URL, href string) (string, error) {
 		return "", errors.New("the restconf root carries a query, a fragment or user information")
 	case u.Scheme != "" || u.Host != "":
 		if !u.IsAbs() || !httpapi.SameOrigin(base, u) {
-			return "", fmt.Errorf("the restconf root %q leaves the device's own origin %s, and is refused", href, base.String())
+			return "", fmt.Errorf("the restconf root %s leaves the device's own origin %s, and is refused", farside.Text(href), base.String())
 		}
 	case !strings.HasPrefix(u.Path, "/"):
-		return "", fmt.Errorf("the restconf root %q is not an absolute path", href)
+		return "", fmt.Errorf("the restconf root %s is not an absolute path", farside.Text(href))
 	}
 	root := strings.TrimRight(u.EscapedPath(), "/")
 	// The root is checked as every request under it is joined, so a dot
 	// segment or an escaped control character is refused here, once.
 	probe := root + "/data"
 	if _, err := httpapi.Join(base, probe); err != nil {
-		return "", fmt.Errorf("the restconf root %q: %w", href, err)
+		return "", fmt.Errorf("the restconf root %s: %w", farside.Text(href), err)
 	}
 	return root, nil
 }
