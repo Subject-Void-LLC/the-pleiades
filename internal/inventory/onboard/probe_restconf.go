@@ -21,15 +21,15 @@ func (restconfProber) Protocol() string { return "restconf" }
 
 // Probe reads the device's RESTCONF root from its /.well-known/host-meta,
 // exactly as net.restconf.facts does, then its capabilities and YANG library,
-// over the device's own TLS (pkg/devicetls: always verified) with its own
-// credential, following no redirect, and records a summary of what it
+// over the device's own TLS when its origin is https (pkg/devicetls: always
+// verified) with its own credential, following no redirect, and records a summary of what it
 // discovered: the root, the capabilities, the datastores, and the YANG
 // modules' count, digest and completeness. The module list itself is the
 // fact store's (net.restconf.facts' yang.modules), not the inventory
-// record's. A root that answers, and an authenticated read of the
-// capabilities or the library that succeeds, is what grants
-// RestconfCapable: a host-meta naming a root is not proof the credential
-// works.
+// record's. A root that answers, and a read of the capabilities or the
+// library under it that succeeds (carrying the credential unless the record's
+// http_auth is none), is what grants RestconfCapable: a host-meta naming a
+// root is not proof of a RESTCONF server, nor of the credential.
 func (restconfProber) Probe(ctx context.Context, device inventory.InventoryItem, secrets map[string]string) (Probed, error) {
 	client, warnings, err := restconf.ClientFor(device, device.Name(), secrets)
 	if err != nil {
@@ -39,8 +39,8 @@ func (restconfProber) Probe(ctx context.Context, device inventory.InventoryItem,
 	if err != nil {
 		return Probed{}, err
 	}
-	if d.CapabilitiesError != "" && d.LibraryError != "" {
-		return Probed{}, fmt.Errorf("the device names a RESTCONF root, %q, and answered neither its capabilities (%s) nor its YANG library (%s)", d.Root, d.CapabilitiesError, d.LibraryError)
+	if err := d.Learned(); err != nil {
+		return Probed{}, err
 	}
 	probed := restconfProbed(d)
 	probed.Warnings = append(warnings, probed.Warnings...)

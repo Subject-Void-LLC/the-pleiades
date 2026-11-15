@@ -5,6 +5,7 @@ package restconf_test
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -196,8 +197,11 @@ func TestFacts_ARefusedCredentialFailsAndRecordsNothing(t *testing.T) {
 	s := restconftest.New(t, login)
 	rc := newRecorder(map[string]string{wire.SecretUsername: "admin", wire.SecretPassword: "wrong-one"})
 	_, err := method(t).Invoke(context.Background(), rc, restconftest.NewDevice(t, s), nil)
-	if err == nil || !strings.Contains(err.Error(), "refused the credential") || strings.Contains(err.Error(), "wrong-one") {
-		t.Fatalf("err = %v, want the credential refused and not quoted", err)
+	// The server echoes the header and password it was sent.
+	token := base64.StdEncoding.EncodeToString([]byte("admin:wrong-one"))
+	if err == nil || !strings.Contains(err.Error(), "refused the credential") || !strings.Contains(err.Error(), "request carried") ||
+		strings.Contains(err.Error(), "wrong-one") || strings.Contains(err.Error(), token) {
+		t.Fatalf("err = %v, want the credential refused, the echo exercised and neither form quoted", err)
 	}
 	if len(rc.facts) != 0 {
 		t.Errorf("facts = %v, want none", rc.facts)
@@ -214,8 +218,11 @@ func TestFacts_ACapabilityListPastTheBoundIsLeftOut(t *testing.T) {
 	if _, err := method(t).Invoke(context.Background(), rc, restconftest.NewDevice(t, s), nil); err != nil {
 		t.Fatal(err)
 	}
-	if caps, ok := rc.facts["restconf.capabilities"].([]string); !ok || len(caps) != 0 {
-		t.Errorf("restconf.capabilities = %v, want an empty list past 60 KiB, never a cut one", rc.facts["restconf.capabilities"])
+	if caps, ok := rc.facts["restconf.capabilities"]; ok {
+		t.Errorf("restconf.capabilities = %v, want it left out past 60 KiB, never recorded cut or empty", caps)
+	}
+	if rc.facts["yang.module_count"] != 559 {
+		t.Errorf("the library's facts were lost beside the left-out list: %v", rc.facts)
 	}
 	joined := strings.Join(rc.warnings(), "\n")
 	if !strings.Contains(joined, "more than restconf.capabilities holds") || !strings.Contains(joined, "pinned certificate") {
@@ -248,5 +255,56 @@ func TestFacts_AStatThatCannotBeRecordedFailsTheTask(t *testing.T) {
 		if _, err := method(t).Invoke(context.Background(), rc, restconftest.NewDevice(t, s), nil); err == nil || !strings.Contains(err.Error(), "the stat store is full") {
 			t.Errorf("failing %v: err = %v, want the store's failure", failOn, err)
 		}
+	}
+}
+
+// TestFacts_AReadThatLearnedNothingFailsAndRecordsNothing: both the
+// capabilities and the library answered 404 or 403 (access control, after
+// one answered read), so the task fails as onboarding does, rather than
+// recording a device with no capability and no module over its last set.
+func TestFacts_AReadThatLearnedNothingFailsAndRecordsNothing(t *testing.T) {
+	notFound := func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNotFound) }
+	opts := login
+	opts.Override = map[string]http.HandlerFunc{
+		"/restconf/data/ietf-yang-library:yang-library":                       notFound,
+		"/restconf/data/ietf-yang-library:modules-state":                      notFound,
+		"/restconf/data/ietf-restconf-monitoring:restconf-state/capabilities": notFound,
+	}
+	s := restconftest.New(t, opts)
+	rc := newRecorder(restconftest.Secrets(s))
+	_, err := method(t).Invoke(context.Background(), rc, restconftest.NewDevice(t, s), nil)
+	if err == nil || !strings.Contains(err.Error(), "answered neither") {
+		t.Fatalf("err = %v, want a read that learned nothing refused", err)
+	}
+	if len(rc.facts) != 0 {
+		t.Errorf("facts = %v, want none", rc.facts)
+	}
+}
+
+// TestFacts_AnUnreadLibraryRecordsNoSchemaFact: the capabilities answered and
+// the library did not, so restconf.capabilities is recorded and no yang.* or
+// restconf.datastores fact is, rather than a module count of zero.
+func TestFacts_AnUnreadLibraryRecordsNoSchemaFact(t *testing.T) {
+	notFound := func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNotFound) }
+	opts := login
+	opts.Override = map[string]http.HandlerFunc{
+		"/restconf/data/ietf-yang-library:yang-library":  notFound,
+		"/restconf/data/ietf-yang-library:modules-state": notFound,
+	}
+	s := restconftest.New(t, opts)
+	rc := newRecorder(restconftest.Secrets(s))
+	if _, err := method(t).Invoke(context.Background(), rc, restconftest.NewDevice(t, s), nil); err != nil {
+		t.Fatal(err)
+	}
+	for key := range rc.stats {
+		if strings.HasPrefix(key, "yang.") || key == "restconf.datastores" {
+			t.Errorf("%s was recorded from a library that was not read", key)
+		}
+	}
+	if _, ok := rc.facts["restconf.capabilities"]; !ok || rc.facts["restconf.root"] != "/restconf" {
+		t.Errorf("facts = %v, want the root and the capabilities", rc.facts)
+	}
+	if !strings.Contains(strings.Join(rc.warnings(), "\n"), "no yang.* or restconf.datastores fact is recorded") {
+		t.Errorf("warnings %v, want the left-out families said", rc.warnings())
 	}
 }

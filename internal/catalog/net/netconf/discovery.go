@@ -41,6 +41,7 @@ var netconfSource = yangfacts.Source{
 	Completeness:  "How far yang.modules is every module the device implements: complete (read from the YANG library, or from the hello of a device with none), partial (a library that could not be read, or came back empty for an account the device's access control hides it from), or unknown (a device that named no modules). A document is refused for a namespace the device does not serve only when this is complete.",
 	ContentID:     "when the device advertises yang-library:1.1",
 	ContentIDFrom: "from the hello",
+	Fallback:      "the hello's, ",
 }
 
 // discoveryReturns documents the facts, one return each.
@@ -61,7 +62,7 @@ func recordDiscovery(rc sdk.RunbookContext, params map[string]any, d netconf.Dis
 	if err != nil {
 		return nil, err
 	}
-	values, schemaWarnings, err := yangfacts.Values(d)
+	values, schemaWarnings, err := yangfacts.Values(d, netconfSource)
 	if err != nil {
 		return nil, err
 	}
@@ -76,16 +77,11 @@ func recordDiscovery(rc sdk.RunbookContext, params map[string]any, d netconf.Dis
 	if err != nil {
 		return nil, err
 	}
-	unverified := ""
-	if skip {
-		unverified = "the host key was not verified"
-	}
-	withheld, err := yangfacts.Record(rc, discoveryFactKeys, values, unverified)
-	if err != nil {
+	if err := yangfacts.Record(rc, discoveryFactKeys, values, !skip); err != nil {
 		return nil, err
 	}
-	if withheld != "" {
-		warnings = append(warnings, withheld)
+	if skip {
+		warnings = append(warnings, "the host key was not verified, so nothing this session discovered is recorded as a fact")
 	}
 	return warnings, nil
 }

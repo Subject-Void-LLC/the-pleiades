@@ -33,7 +33,7 @@ var factKeys = append([]string{factRoot, factCapabilities, factDatastores}, yang
 
 // description is the method's description, word for word its catalog
 // entry's.
-const description = "Reads the device's RESTCONF root from its /.well-known/host-meta (RFC 8040 section 3.1), never assuming /restconf, then the capabilities ietf-restconf-monitoring lists and the device's YANG library (RFC 8525's yang-library, or RFC 7895's modules-state from a device that does not serve it), and records them, changing nothing: the same yang.* facts net.netconf.facts records over NETCONF, so a device reads alike over either protocol, and RESTCONF's own root, capabilities and datastores. The device is reached at its own origin with its own TLS (always verified, a pinned certificate included) and its own stored credential, following no redirect, and a root its host-meta names on another scheme, host or port is refused. A device reached over http:// records its findings as stats only, never as facts, since nothing proves which server answered. Reports no change, and a check runs it for real."
+const description = "Reads the device's RESTCONF root from its /.well-known/host-meta (RFC 8040 section 3.1), never assuming /restconf, then the capabilities ietf-restconf-monitoring lists and the device's YANG library (RFC 8525's yang-library, or RFC 7895's modules-state from a device that does not serve it), and records them, changing nothing: the same yang.* facts net.netconf.facts records over NETCONF, so a device reads alike over either protocol, and RESTCONF's own root, capabilities and datastores. The device is reached at its own origin with its own TLS (always verified, a pinned certificate included) and its own stored credential, following no redirect, and a root its host-meta names on another scheme, host or port is refused. A read whose capabilities and library both failed fails the task rather than recording a device with nothing, as onboarding refuses it; a family whose own read failed is left out, with a warning. A device reached over http:// records its findings as stats only, never as facts, since nothing proves which server answered. Reports no change, and a check runs it for real."
 
 func init() {
 	doc := factsDoc()
@@ -81,11 +81,12 @@ func factsDoc() collection.Doc {
 // factsReturns documents the facts, one return each.
 func factsReturns() []collection.ReturnField {
 	const when = "on every read, as a stat; as a fact only when the device was reached over https"
+	const whenLibrary = "when the YANG library was read, as a stat; as a fact only when the device was reached over https"
 	return append([]collection.ReturnField{
 		{Name: factRoot, Type: "string", Returned: when, Description: "The RESTCONF root the device's /.well-known/host-meta names, as an escaped path (such as /restconf), or / for a root at the device's origin itself."},
-		{Name: factCapabilities, Type: "list of string", Returned: when, Description: "Every capability URI the device's ietf-restconf-monitoring lists (RFC 8040 section 9.1), with its parameters, sorted. Empty, with a warning, when the list could not be read or does not fit in 60 KiB; an entry that is not printable is left out whole."},
-		{Name: factDatastores, Type: "list of string", Returned: when, Description: "The datastores the device's YANG library lists, sorted: an NMDA device's running, intended and operational, which RFC 8527 addresses under the root's /ds/; empty for a library that lists none, as RFC 7895's modules-state does."},
-	}, yangfacts.Returns(when, yangfacts.RestconfSource)...)
+		{Name: factCapabilities, Type: "list of string", Returned: "when the capability list was read and fits, as a stat; as a fact only when the device was reached over https", Description: "Every capability URI the device's ietf-restconf-monitoring lists (RFC 8040 section 9.1), with its parameters, sorted. Left out, with a warning, when the list could not be read or does not fit in 60 KiB, so an unread list never reads as an empty one; an entry that is not printable is left out whole."},
+		{Name: factDatastores, Type: "list of string", Returned: whenLibrary, Description: "The datastores the device's YANG library lists, sorted: an NMDA device's running, intended and operational, which RFC 8527 addresses under the root's /ds/; empty for a library that lists none, as RFC 7895's modules-state does."},
+	}, yangfacts.Returns(whenLibrary, yangfacts.RestconfSource)...)
 }
 
 // Facts implements the "net.restconf.facts" collection method: one
@@ -105,6 +106,12 @@ func Facts(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventor
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
 	d, err := client.Discover(ctx)
+	if err == nil {
+		// A read that learned nothing past the root is refused, as
+		// onboarding refuses it: recorded, it would read as a device that
+		// lost every capability and module.
+		err = d.Learned()
+	}
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: device %q: %w", fqcn, device.Name(), err)
 	}
@@ -112,16 +119,11 @@ func Facts(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventor
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
-	unverified := ""
-	if !client.Verified() {
-		unverified = "the device was reached over http://, where nothing proves which server answered"
-	}
-	withheld, err := yangfacts.Record(rc, factKeys, values, unverified)
-	if err != nil {
+	if err := yangfacts.Record(rc, factKeys, values, client.Verified()); err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
-	if withheld != "" {
-		found = append(found, withheld)
+	if !client.Verified() {
+		found = append(found, "the device was reached over http://, where nothing proves which server answered, so nothing this read found is recorded as a fact")
 	}
 	if len(found) > 0 {
 		// The stat holds one list, so the record's own warnings are kept
@@ -134,27 +136,43 @@ func Facts(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventor
 }
 
 // discoveryValues are the facts d gives and the warnings for what was left
-// out of them.
+// out of them. A family whose read failed records nothing, stat or fact, so
+// an unread library never reads as a device that implements no module: the
+// yang.* facts and restconf.datastores come from the library, and
+// restconf.capabilities from the capability list. A capability list past its
+// bound is left out the same way, never recorded empty.
 func discoveryValues(d restconf.Discovery) (map[string]any, []string, error) {
-	values, schemaWarnings, err := yangfacts.Values(d.Discovery)
-	if err != nil {
-		return nil, nil, err
+	values := map[string]any{}
+	var warnings []string
+	if d.LibraryError != "" {
+		warnings = append(warnings, "the device's YANG library was not read ("+d.LibraryError+"); no yang.* or "+factDatastores+" fact is recorded from this read")
+	} else {
+		schema, schemaWarnings, err := yangfacts.Values(d.Discovery, yangfacts.RestconfSource)
+		if err != nil {
+			return nil, nil, err
+		}
+		values = schema
+		values[factDatastores] = yangfacts.NonNil(d.Datastores)
+		warnings = append(warnings, schemaWarnings...)
 	}
 	root := d.Root
 	if root == "" {
 		root = "/"
 	}
 	values[factRoot] = root
-	values[factDatastores] = yangfacts.NonNil(d.Datastores)
-	var warnings []string
 	capabilities := yangfacts.NonNil(d.Protocol)
 	switch {
 	case d.CapabilitiesError != "":
-		warnings = append(warnings, "the device's RESTCONF capabilities were not read: "+d.CapabilitiesError)
+		warnings = append([]string{"the device's RESTCONF capabilities were not read: " + d.CapabilitiesError}, warnings...)
 	case !yangfacts.Fits(capabilities):
-		warnings = append(warnings, fmt.Sprintf("the device lists %d RESTCONF capabilities, more than %s holds in 60 KiB; left out", len(capabilities), factCapabilities))
-		capabilities = []string{}
+		warnings = append([]string{fmt.Sprintf("the device lists %d RESTCONF capabilities, more than %s holds in 60 KiB; left out", len(capabilities), factCapabilities)}, warnings...)
+	default:
+		values[factCapabilities] = capabilities
 	}
-	values[factCapabilities] = capabilities
-	return values, append(warnings, schemaWarnings...), nil
+	if d.Dropped > 0 && d.LibraryError != "" {
+		// yangfacts.Values names the refused entries when the library was
+		// read; a refused capability is named here otherwise.
+		warnings = append(warnings, fmt.Sprintf("%d malformed or oversized capability entries from the device were left out", d.Dropped))
+	}
+	return values, warnings, nil
 }

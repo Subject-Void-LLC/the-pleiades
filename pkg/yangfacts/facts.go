@@ -55,6 +55,10 @@ type Source struct {
 	ContentID string
 	// ContentIDFrom says where the content-id is read from.
 	ContentIDFrom string
+	// Fallback names, for a warning, the list a protocol keeps when its
+	// library is not read, with a trailing ", " ("the hello's, " for
+	// NETCONF), or is empty for a protocol that keeps none.
+	Fallback string
 }
 
 // RestconfSource is where a RESTCONF read finds what the yang.* facts hold:
@@ -63,7 +67,7 @@ type Source struct {
 // it word for word.
 var RestconfSource = Source{
 	Modules:       "from the device's YANG library over RESTCONF (RFC 8525's yang-library, or RFC 7895's modules-state from a device that does not serve it)",
-	Completeness:  "How far yang.modules is every module the device implements: complete (the YANG library read whole), partial (a library that dropped a malformed or oversized entry), or unknown (a library that could not be read, or came back empty, as it does for an account the device's access control hides it from).",
+	Completeness:  "How far yang.modules is every module the device implements: complete (the YANG library read whole) or partial (a library that dropped a malformed or oversized module entry; a refused capability does not count). A library that could not be read, or came back empty as it does for an account the device's access control hides it from, records no yang.* fact at all, so it never reads as a device that implements no module.",
 	ContentID:     "when the device's YANG library names one",
 	ContentIDFrom: "(RFC 8525's content-id, or RFC 7895's module-set-id) from the library itself",
 }
@@ -82,8 +86,8 @@ func Returns(when string, src Source) []collection.ReturnField {
 
 // Values returns the yang.* facts d gives, and a warning for each thing left
 // out of them: a module list past its bound, a library that was not read, and
-// entries refused as malformed.
-func Values(d yanglib.Discovery) (map[string]any, []string, error) {
+// entries refused as malformed. src words the library's warning.
+func Values(d yanglib.Discovery, src Source) (map[string]any, []string, error) {
 	values := map[string]any{
 		FactModuleCount:  len(d.Modules),
 		FactModuleDigest: d.ModulesDigest(),
@@ -103,7 +107,7 @@ func Values(d yanglib.Discovery) (map[string]any, []string, error) {
 		warnings = append(warnings, fmt.Sprintf("the device implements %d YANG modules, more than %s holds in 60 KiB; recorded by count and digest only", len(d.Modules), FactModules))
 	}
 	if d.LibraryError != "" {
-		warnings = append(warnings, "the device's YANG library was not read ("+d.LibraryError+"); the module list is "+string(d.Completeness))
+		warnings = append(warnings, "the device's YANG library was not read ("+d.LibraryError+"); the module list is "+src.Fallback+string(d.Completeness))
 	}
 	if d.Dropped > 0 {
 		warnings = append(warnings, fmt.Sprintf("%d malformed or oversized capability or module entries from the device were left out: %s", d.Dropped, strings.Join(d.DroppedSamples, ", ")))
@@ -142,28 +146,25 @@ func NonNil(list []string) []string {
 	return list
 }
 
-// Record sets each of keys that values holds as a stat and, unless
-// unverified names why the device's identity was not verified, as a fact:
-// a machine in the middle can strip a capability or invent a module, and what
-// it says is not kept. It returns the warning to add when facts were withheld.
-func Record(rc sdk.RunbookContext, keys []string, values map[string]any, unverified string) (string, error) {
+// Record sets each of keys that values holds as a stat and, only when
+// verified (the device's identity was proved: a host key, a certificate), as
+// a fact: a machine in the middle can strip a capability or invent a module,
+// and what it says is not kept. The caller says why in its own warning.
+func Record(rc sdk.RunbookContext, keys []string, values map[string]any, verified bool) error {
 	for _, key := range keys {
 		value, ok := values[key]
 		if !ok {
 			continue
 		}
 		if err := rc.SetStat(key, value); err != nil {
-			return "", err
+			return err
 		}
-		if unverified != "" {
+		if !verified {
 			continue
 		}
 		if err := rc.EmitFact(key, value); err != nil {
-			return "", err
+			return err
 		}
 	}
-	if unverified == "" {
-		return "", nil
-	}
-	return unverified + ", so nothing this discovery found is recorded as a fact", nil
+	return nil
 }

@@ -52,7 +52,7 @@ func discovery() yanglib.Discovery {
 }
 
 func TestValues_TheFamilyADiscoveryGives(t *testing.T) {
-	values, warnings, err := Values(discovery())
+	values, warnings, err := Values(discovery(), RestconfSource)
 	if err != nil || len(warnings) != 0 {
 		t.Fatalf("Values = %v, %v", warnings, err)
 	}
@@ -64,7 +64,7 @@ func TestValues_TheFamilyADiscoveryGives(t *testing.T) {
 	}
 	d := discovery()
 	d.ContentID = ""
-	if values, _, _ := Values(d); values[FactContentID] != nil {
+	if values, _, _ := Values(d, Source{Fallback: "the hello's, "}); values[FactContentID] != nil {
 		t.Error("an empty content-id was recorded")
 	}
 }
@@ -78,7 +78,7 @@ func TestValues_SaysWhatWasLeftOut(t *testing.T) {
 	d.LibraryError = "access denied"
 	d.Completeness = yanglib.Unknown
 	d.Drop("bad entry")
-	values, warnings, err := Values(d)
+	values, warnings, err := Values(d, Source{Fallback: "the hello's, "})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,7 +86,7 @@ func TestValues_SaysWhatWasLeftOut(t *testing.T) {
 		t.Errorf("yang.modules recorded past its bound, or the count lost: %v", values[FactModuleCount])
 	}
 	joined := strings.Join(warnings, "\n")
-	for _, want := range []string{"recorded by count and digest only", "access denied", "the module list is unknown", "1 malformed", `"bad entry"`} {
+	for _, want := range []string{"recorded by count and digest only", "access denied", "the module list is the hello's, unknown", "1 malformed", `"bad entry"`} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("warnings %q, want %q", joined, want)
 		}
@@ -106,25 +106,23 @@ func TestFitsAndNonNil(t *testing.T) {
 }
 
 func TestRecord_FactsOnlyFromAVerifiedDevice(t *testing.T) {
-	values, _, _ := Values(discovery())
+	values, _, _ := Values(discovery(), RestconfSource)
 	s := newStore()
-	withheld, err := Record(s, FactKeys, values, "")
-	if err != nil || withheld != "" {
-		t.Fatalf("Record = %q, %v", withheld, err)
+	if err := Record(s, FactKeys, values, true); err != nil {
+		t.Fatal(err)
 	}
 	if len(s.facts) != len(FactKeys) || len(s.stats) != len(FactKeys) {
 		t.Errorf("facts %d, stats %d; want every key as both", len(s.facts), len(s.stats))
 	}
 	s = newStore()
-	withheld, err = Record(s, append([]string{"not.in.values"}, FactKeys...), values, "the host key was not verified")
-	if err != nil {
+	if err := Record(s, append([]string{"not.in.values"}, FactKeys...), values, false); err != nil {
 		t.Fatal(err)
 	}
-	if len(s.facts) != 0 || len(s.stats) != len(FactKeys) || !strings.HasPrefix(withheld, "the host key was not verified, so nothing") {
-		t.Errorf("facts %v, stats %d, withheld %q; want stats alone and the reason", s.facts, len(s.stats), withheld)
+	if len(s.facts) != 0 || len(s.stats) != len(FactKeys) {
+		t.Errorf("facts %v, stats %d; want stats alone from an unverified device", s.facts, len(s.stats))
 	}
 	for _, failing := range []*store{{stats: map[string]any{}, facts: map[string]any{}, failStat: FactModuleCount}, {stats: map[string]any{}, facts: map[string]any{}, failFact: FactModuleCount}} {
-		if _, err := Record(failing, FactKeys, values, ""); err == nil {
+		if err := Record(failing, FactKeys, values, true); err == nil {
 			t.Error("a refused stat or fact was not the caller's error")
 		}
 	}
