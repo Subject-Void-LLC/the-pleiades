@@ -193,6 +193,7 @@ tasks:
       management_interface: GigabitEthernet1
       management_gateway: %[2]s
       configuration: |
+        license boot level network-advantage addon dna-advantage
         aaa new-model
         aaa authentication login default local
         aaa authorization exec default local
@@ -337,6 +338,29 @@ tasks:
 	if body := fmt.Sprint(stats(g.task("ok", "RAPI", "http.request", "url=/data/Cisco-IOS-XE-native:native", headers, "status_code=200"))["content"]); crypt.MatchString(body) || !strings.Contains(body, "pleiades-masked-") {
 		t.Error("RESTCONF's /data answer holds a crypt hash, or nothing was masked")
 	}
+
+	// A stored secret over NETCONF: an IKEv2 keyring's pre-shared key named
+	// by a secret reference, resolved by the method and never written out;
+	// the router holds it and reads it back only as a placeholder. (The
+	// licence in the day-0 configuration is what gives a C8000V crypto.)
+	psk := secret()
+	stdin(psk+"\n", "add-secret", "gatepsk", "--field", "key", "--value-stdin")
+	g.runbook("keyring", header("keyring", "a keyring whose key is a named secret, over NETCONF.", "R")+
+		netconfTask("the keyring", `<native xmlns="`+nativeNS+`"><crypto><ikev2 xmlns="http://cisco.com/ns/yang/Cisco-IOS-XE-crypto"><keyring><name>KR-GATE</name><peer><name>ALL</name><address><ipv4><ipv4-address>0.0.0.0</ipv4-address><ipv4-mask>0.0.0.0</ipv4-mask></ipv4></address><pre-shared-key><key>{{ secret.gatepsk.key }}</key></pre-shared-key></peer></keyring></ikev2></crypto></native>`), false)
+	if out := g.show("show running-config | section crypto ikev2 keyring KR-GATE"); !strings.Contains(out, "pre-shared-key pleiades-masked-") || strings.Contains(out, psk) {
+		t.Errorf("the keyring's key reads back as %q, want it present and masked", out)
+	}
+	if journal, err := os.ReadFile(filepath.Join(dir, ".pleiades", "journal")); err == nil && strings.Contains(string(journal), psk) {
+		t.Error("the key is in the journal")
+	}
+	filepath.WalkDir(filepath.Join(dir, ".pleiades"), func(path string, d os.DirEntry, err error) error {
+		if err == nil && !d.IsDir() && !strings.Contains(path, "credentials") && !strings.Contains(path, "secrets") {
+			if b, rerr := os.ReadFile(path); rerr == nil && strings.Contains(string(b), psk) {
+				t.Errorf("the key is written in %s", path)
+			}
+		}
+		return nil
+	})
 
 	// Day N: a NETCONF change undone by its rollback: list, after a CLI
 	// checkpoint the run's rollback returns the router to.

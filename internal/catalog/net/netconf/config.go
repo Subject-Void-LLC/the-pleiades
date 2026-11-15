@@ -13,6 +13,7 @@ package netconf
 
 import (
 	"context"
+	"encoding/xml"
 	"errors"
 	"fmt"
 	"strings"
@@ -26,6 +27,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/netconf"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/secretref"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 	"golang.org/x/crypto/ssh/knownhosts"
 )
@@ -106,7 +108,7 @@ func configDoc() collection.Doc {
 		Summary:     "Applies a configuration document to a device over NETCONF, with an optional pre-change backup.",
 		Description: "Opens an RFC 6241 NETCONF session over the SSH \"netconf\" subsystem and applies content to the chosen datastore with edit-config. Parameter names are ansible.netcommon.netconf_config's own, with its target parameter under its own alias, datastore, since target names the device a task runs on. The session negotiates RFC 6242 chunked framing whenever the device offers base:1.1, and requests rollback-on-error whenever the device advertises it, so a rejected document leaves the device unchanged rather than half configured; that matters most on a device offering only writable-running, which is what Cisco IOS XE offers until its candidate datastore is configured, because such a device has no staging area and every element lands on the live configuration as it is applied. A datastore the device never advertised support for is refused when the session opens rather than at the first write, naming the missing capability. Unlike the net.cli.* and net.ios.config methods, a rejected element comes back as a structured error carrying the device's own error-tag and the XPath of the element it objected to. Reports changed whenever the document reaches the device and the device answers ok, except a candidate edit with commit false, which is validated and discarded and reports no change.",
 		Params: []collection.Param{
-			{Name: paramContent, Type: "string", Required: true, Description: "The configuration document to apply, as the XML that goes inside edit-config's <config> element. Per-element operations are expressed the standard way, with an nc:operation attribute; pair that with default_operation: none so the device changes only what the document explicitly names."},
+			{Name: paramContent, Type: "string", Required: true, Description: "The configuration document to apply, as the XML that goes inside edit-config's <config> element. Per-element operations are expressed the standard way, with an nc:operation attribute; pair that with default_operation: none so the device changes only what the document explicitly names. A leaf may name a stored secret, such as an IKE pre-shared key, with a secret reference, {{ secret.<name>.<field> }} (pleiades add-secret): it is resolved just before the session opens, escaped as XML text, and masked in everything the run reports; the content is never recorded. A document holding one holds no other template expression, so a per-device value and a secret go in separate tasks, and a value with whitespace, a control character or ? is refused.", SecretRefs: true},
 			{Name: paramDatastore, Type: "string", Choices: []string{"running", "candidate", "startup"}, ChoicesIgnoreCase: true, Description: "The datastore to configure: running, candidate or startup. Left unset it is chosen when the session opens, from what the device's hello advertises that session: running when it offers :writable-running, otherwise candidate (locked, validated when the device offers :validate, then committed). That is chosen afresh on every task, since a device's offer changes with its configuration: Cisco IOS XE offers only running until netconf-yang feature candidate-datastore is configured, and then only candidate. A datastore the device does not advertise is refused before anything is applied."},
 			{Name: paramDefaultOperation, Type: "string", Default: "merge", Choices: []string{"merge", "replace", "none"}, Description: "What the device does with elements carrying no explicit operation attribute: merge, replace or none. RFC 6241 defines no \"delete\" here; express a delete with an nc:operation attribute in content."},
 			{Name: paramErrorOption, Type: "string", Choices: []string{"stop-on-error", "continue-on-error", "rollback-on-error"}, Description: "How the device handles a rejected element: stop-on-error, continue-on-error or rollback-on-error. Left unset this method asks for rollback-on-error whenever the device advertises the capability, and otherwise leaves the device its own default, stop-on-error, because stop-on-error leaves a rejected document half applied."},
@@ -148,6 +150,16 @@ func Config(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 	// Content built from a masked read would set each secret it carries to
 	// its placeholder; refused before the session opens.
 	if err := netcfg.RefuseMasked(paramContent, content); err != nil {
+		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+	}
+
+	// A secret reference names a stored secret (pleiades add-secret), such
+	// as an IKE pre-shared key, so no runbook holds one written out; it is
+	// resolved here, just before the session opens, and the content is never
+	// recorded (run 8 of the blind CVD lab put its key on the CLI for want of
+	// this).
+	content, err = resolveContent(rc, content)
+	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
 
@@ -343,6 +355,35 @@ func cleanupContext(ctx context.Context) (context.Context, context.CancelFunc) {
 func hasParam(params map[string]any, name string) bool {
 	_, ok := params[name]
 	return ok
+}
+
+// resolveContent is content with each secret reference resolved from the
+// run's named secrets, each value escaped as XML text, since it lands in an
+// element; the raw value joins the run's masking set as the named secret
+// hands it out, and the escaped form joins it here, so a device error echoing
+// either is masked. Content with no reference is returned as it is.
+func resolveContent(rc sdk.RunbookContext, content string) (string, error) {
+	if !secretref.Has(content) {
+		return content, nil
+	}
+	ns, ok := rc.(sdk.NamedSecrets)
+	if !ok {
+		return "", sdk.ErrNoNamedSecrets
+	}
+	out, values, err := secretref.Resolve(content, func(r secretref.Ref) (string, bool, error) {
+		v, found, err := ns.NamedSecret(r.Name, r.Field)
+		if err != nil || !found {
+			return "", found, err
+		}
+		var b strings.Builder
+		_ = xml.EscapeText(&b, []byte(v)) // #nosec G104 -- strings.Builder writes never fail
+		return b.String(), true, nil
+	})
+	if err != nil {
+		return "", fmt.Errorf("%s: %w", paramContent, err)
+	}
+	sdk.RegisterSecret(rc, values...)
+	return out, nil
 }
 
 // maskedBackup is a datastore's XML masked for the backup stat through

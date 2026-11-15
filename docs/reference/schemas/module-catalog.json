@@ -13122,7 +13122,8 @@
           "name": "content",
           "type": "string",
           "required": true,
-          "description": "The configuration document to apply, as the XML that goes inside edit-config's <config> element. Per-element operations are expressed the standard way, with an nc:operation attribute; pair that with default_operation: none so the device changes only what the document explicitly names."
+          "description": "The configuration document to apply, as the XML that goes inside edit-config's <config> element. Per-element operations are expressed the standard way, with an nc:operation attribute; pair that with default_operation: none so the device changes only what the document explicitly names. A leaf may name a stored secret, such as an IKE pre-shared key, with a secret reference, {{ secret.<name>.<field> }} (pleiades add-secret): it is resolved just before the session opens, escaped as XML text, and masked in everything the run reports; the content is never recorded. A document holding one holds no other template expression, so a per-device value and a secret go in separate tasks, and a value with whitespace, a control character or ? is refused.",
+          "secretRefs": true
         },
         {
           "name": "datastore",
