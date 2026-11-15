@@ -8,6 +8,7 @@ package wait_test
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -102,6 +103,23 @@ func TestGNMI_ARefusedLoginIsSentOnce(t *testing.T) {
 	_, err := wait.GNMI(context.Background(), rc, gnmitest.NewDevice(t, s), map[string]any{"timeout": 60, "sleep": 1, "connect_timeout": 5})
 	if err == nil || !strings.Contains(err.Error(), "refused this login") || s.Refusals() != 1 {
 		t.Fatalf("wait = %v after %d refusals, want one", err, s.Refusals())
+	}
+}
+
+// TestGNMI_AStatItCannotRecordFailsTheTask: a ready server whose diff,
+// version, tries or warnings stat cannot be recorded fails the task. The
+// device pins the server's certificate, so it has a warning to record.
+func TestGNMI_AStatItCannotRecordFailsTheTask(t *testing.T) {
+	for _, key := range []string{sdk.StatDiff, "version", "tries", sdk.StatWarnings} {
+		t.Run(key, func(t *testing.T) {
+			s := gnmitest.New(t, gnmiLogin)
+			rc := &waitContext{secrets: gnmitest.Secrets(s), stats: map[string]any{}, failOn: key}
+			device := gnmitest.NewDeviceWith(t, s, map[string]inventory.PropertyValue{devicetls.FingerprintProperty: devicetls.Fingerprint(s.Certificate())})
+			_, err := wait.GNMI(context.Background(), rc, device, map[string]any{"timeout": 10, "sleep": 1, "connect_timeout": 5})
+			if !errors.Is(err, errWaitStat) {
+				t.Errorf("failing the %s stat: %v", key, err)
+			}
+		})
 	}
 }
 

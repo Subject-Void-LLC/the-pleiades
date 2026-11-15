@@ -271,6 +271,16 @@ func TestGNMI_Accessors(t *testing.T) {
 	if _, ok := item.(capability.GRPCCapable); ok {
 		t.Error("generic_gnmi answers generic_grpc's accessors, which its discovery never proves")
 	}
+	if configured, ok := item.(devicetls.Configured); !ok || configured.TLSSettings().PinnedCA() {
+		t.Error("TLSSettings is missing, or pins an authority the record never named")
+	}
+	binder, ok := item.(inventory.DiscoveryBinder)
+	if !ok || binder.DiscoveryBinding() == "" || binder.DiscoveryBinding() != generic.Binding(generic.TypeGNMI, item.Properties()) {
+		t.Error("generic_gnmi's discovery is not bound to its record")
+	}
+	if _, err := buildWith(t, generic.TypeGNMI, map[string]inventory.PropertyValue{inventory.DiscoveredProperty: "yes"}, nil); err == nil {
+		t.Error("a discovery that is not one was accepted")
+	}
 }
 
 // boundDiscoveryWith is boundDiscovery against props rather than the
