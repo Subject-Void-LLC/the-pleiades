@@ -16,6 +16,7 @@ import (
 
 	"google.golang.org/grpc/codes"
 
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/datastore"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/gnmi"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
@@ -177,6 +178,32 @@ func TestSRLinux_SetIsOneTransaction(t *testing.T) {
 	// A delete of what is not there is accepted, as the specification says.
 	if _, err := c.Set(ctx, gnmi.SetRequest{Delete: []gnmi.Path{lo}}); err != nil {
 		t.Errorf("a delete of an absent path = %v", err)
+	}
+}
+
+// TestSRLinux_ThroughTheDatastorePort merges and deletes a loopback through
+// pkg/datastore's port, as a caller written against NETCONF would, and reads
+// each change back over sr_cli.
+func TestSRLinux_ThroughTheDatastorePort(t *testing.T) {
+	s := startSRLinux(t)
+	var store datastore.Store = client(t, s)
+	ctx := ctxOf(t)
+	p := datastore.Path{Elem: []datastore.PathElem{{Name: "interface", Keys: map[string]string{"name": "lo16"}}}}
+	if err := store.SetConfig(ctx, p, datastore.Payload{Encoding: datastore.EncodingJSONIETF, Bytes: []byte(`{"description":"through the port"}`)}, datastore.OperationMerge); err != nil {
+		t.Fatal(err)
+	}
+	got, err := store.GetConfig(ctx, p)
+	if err != nil || !strings.Contains(string(got.Bytes), "through the port") {
+		t.Fatalf("GetConfig = %s, %v", got.Bytes, err)
+	}
+	if out := srCLI(t, s, "info from running /interface lo16"); !strings.Contains(out, "through the port") {
+		t.Errorf("sr_cli after the merge: %s", out)
+	}
+	if err := store.SetConfig(ctx, p, datastore.Payload{}, datastore.OperationDelete); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := store.GetConfig(ctx, p); err != nil || string(got.Bytes) != "{}" {
+		t.Errorf("GetConfig after the delete = %s, %v", got.Bytes, err)
 	}
 }
 
