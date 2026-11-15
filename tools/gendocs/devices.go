@@ -204,6 +204,7 @@ var genericExampleProperties = map[string]map[string]inventory.PropertyValue{
 	generic.TypeHTTP:       {generic.BaseURLProperty: "https://api.example.com"},
 	generic.TypeRestconf:   {generic.BaseURLProperty: "https://router.example.com"},
 	generic.TypeGRPC:       {generic.GRPCTargetProperty: "grpc.example.com:443"},
+	generic.TypeGNMI:       {generic.GRPCTargetProperty: "router.example.com:57400"},
 	kubernetes.TypeCluster: {kubernetes.APIServerProperty: "https://k8s.example.com:6443"},
 	ai.TypeProvider:        {ai.KindProperty: "anthropic", ai.APIBaseProperty: "https://api.anthropic.com", ai.ResidencyProperty: ai.ResidencyHosted},
 	cloudflare.TypeAccount: {cloudflare.AccountIDProperty: "0123456789abcdef0123456789abcdef"},

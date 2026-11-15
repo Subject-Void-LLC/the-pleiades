@@ -729,7 +729,7 @@ var OnboardDevice = Endpoint{
 	Rel:        auth.RelOnboard,
 	Summary:    "Onboard a device",
 	Description: "Probes a device whose capabilities onboarding proves (generic_ssh, generic_netconf, generic_restconf, " +
-		"generic_http, generic_grpc, linux_server, container_host, kubernetes_cluster) over its protocol from the Controller, " +
+		"generic_gnmi, generic_http, generic_grpc, linux_server, container_host, kubernetes_cluster) over its protocol from the Controller, " +
 		"authenticating with the device's stored credential (for a kubernetes_cluster with none, the one stored " +
 		"Kubernetes credential of the cluster's own organization whose host names its API server, refused for a " +
 		"cluster in no organization, one reached through a route, or one pinning an authority the credential does " +

@@ -1,5 +1,6 @@
 // Package generic holds the protocol-shaped device types: generic_ssh,
-// generic_netconf, generic_restconf, generic_http and generic_grpc. They exist so a device
+// generic_netconf, generic_restconf, generic_gnmi, generic_http and
+// generic_grpc. They exist so a device
 // nobody has written a vendor type for can still be managed, over the
 // protocol it speaks.
 //
@@ -38,6 +39,7 @@ const (
 	TypeRestconf = "generic_restconf"
 	TypeHTTP     = "generic_http"
 	TypeGRPC     = "generic_grpc"
+	TypeGNMI     = "generic_gnmi"
 )
 
 // rules is, per type, what onboarding may grant it and which properties a
@@ -45,8 +47,9 @@ const (
 //
 // generic_http's and generic_restconf's discoveries are bound because each
 // one's stored credential goes to its base URL, and TLS verification against a public authority would admit
-// any host with a valid certificate for its own name. generic_grpc sends no
-// credential, and is bound because a discovery made against one server says
+// any host with a valid certificate for its own name. generic_gnmi's is bound
+// for the same reason, its credential going to its target. generic_grpc sends
+// no credential, and is bound because a discovery made against one server says
 // nothing about another. The SSH-based types are not bound: a strict
 // host-key check already refuses a repointed host before any credential is
 // sent.
@@ -89,6 +92,10 @@ var rules = map[string]record.DiscoveryRules{
 		Grants: []capability.Name{capability.NameGRPC},
 		Bound:  append([]string{GRPCTargetProperty, GRPCPlaintextProperty}, devicetls.Properties()...),
 	},
+	TypeGNMI: {
+		Grants: []capability.Name{capability.NameGNMI},
+		Bound:  append([]string{GRPCTargetProperty, GRPCPlaintextProperty, GNMIAuthProperty, GRPCAllowPlaintextCredentialsProperty}, devicetls.Properties()...),
+	},
 }
 
 // Discoverable returns the capabilities onboarding may grant a device of
@@ -109,7 +116,7 @@ func Binding(deviceType string, props inventory.Properties) string {
 
 // Types returns the generic device types, sorted.
 func Types() []string {
-	return []string{TypeGRPC, TypeHTTP, TypeNetconf, TypeRestconf, TypeSSH}
+	return []string{TypeGNMI, TypeGRPC, TypeHTTP, TypeNetconf, TypeRestconf, TypeSSH}
 }
 
 func init() {
@@ -122,6 +129,7 @@ func init() {
 	record.RegisterType(TypeRestconf, NewRestconf)
 	record.RegisterType(TypeHTTP, NewHTTP)
 	record.RegisterType(TypeGRPC, NewGRPC)
+	record.RegisterType(TypeGNMI, NewGNMI)
 }
 
 // deviceTLS reads rec's TLS settings. Where the connection has no TLS (an

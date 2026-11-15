@@ -23,6 +23,7 @@ var addressed = map[string]map[string]inventory.PropertyValue{
 	generic.TypeHTTP:     {generic.BaseURLProperty: "https://api.example.com"},
 	generic.TypeRestconf: {generic.BaseURLProperty: "https://router.example.com"},
 	generic.TypeGRPC:     {generic.GRPCTargetProperty: "grpc.example.com:443"},
+	generic.TypeGNMI:     {generic.GRPCTargetProperty: "router.example.com:57400"},
 }
 
 // buildWith builds deviceType from its address, the extra properties and
@@ -213,6 +214,73 @@ func TestGRPC_RefusesUnusableRecords(t *testing.T) {
 	}
 }
 
+// TestGNMI_RefusesUnusableRecords covers the credential mode, the two
+// plaintext opt-ins and the TLS settings gRPC cannot use.
+func TestGNMI_RefusesUnusableRecords(t *testing.T) {
+	const target = "router.example.com:57400"
+	for _, tc := range []struct {
+		name  string
+		props map[string]inventory.PropertyValue
+		ok    bool
+	}{
+		{"defaults", map[string]inventory.PropertyValue{generic.GRPCTargetProperty: target}, true},
+		{"bearer", map[string]inventory.PropertyValue{generic.GRPCTargetProperty: target, generic.GNMIAuthProperty: "bearer"}, true},
+		{"plaintext, no credential", map[string]inventory.PropertyValue{generic.GRPCTargetProperty: target, generic.GRPCPlaintextProperty: true, generic.GNMIAuthProperty: "none"}, true},
+		{"plaintext with a credential, accepted", map[string]inventory.PropertyValue{generic.GRPCTargetProperty: target, generic.GRPCPlaintextProperty: true, generic.GRPCAllowPlaintextCredentialsProperty: true}, true},
+		{"no target", map[string]inventory.PropertyValue{generic.GRPCTargetProperty: ""}, false},
+		{"a resolver scheme", map[string]inventory.PropertyValue{generic.GRPCTargetProperty: "dns:///router:57400"}, false},
+		{"unknown auth", map[string]inventory.PropertyValue{generic.GRPCTargetProperty: target, generic.GNMIAuthProperty: "basic"}, false},
+		{"auth not text", map[string]inventory.PropertyValue{generic.GRPCTargetProperty: target, generic.GNMIAuthProperty: true}, false},
+		{"plaintext not a boolean", map[string]inventory.PropertyValue{generic.GRPCTargetProperty: target, generic.GRPCPlaintextProperty: "yes"}, false},
+		{"allow not a boolean", map[string]inventory.PropertyValue{generic.GRPCTargetProperty: target, generic.GRPCAllowPlaintextCredentialsProperty: "yes"}, false},
+		{"allow without plaintext", map[string]inventory.PropertyValue{generic.GRPCTargetProperty: target, generic.GRPCAllowPlaintextCredentialsProperty: true}, false},
+		{"allow with no credential", map[string]inventory.PropertyValue{generic.GRPCTargetProperty: target, generic.GRPCPlaintextProperty: true, generic.GNMIAuthProperty: "none", generic.GRPCAllowPlaintextCredentialsProperty: true}, false},
+		{"TLS on plaintext", map[string]inventory.PropertyValue{generic.GRPCTargetProperty: target, generic.GRPCPlaintextProperty: true, devicetls.ServerNameProperty: "r"}, false},
+		{"deprecated TLS", map[string]inventory.PropertyValue{generic.GRPCTargetProperty: target, devicetls.MinVersionProperty: "1.0", devicetls.AllowDeprecatedProperty: true}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := buildWith(t, generic.TypeGNMI, tc.props, nil)
+			if (err == nil) != tc.ok {
+				t.Fatalf("err %v, want ok=%v", err, tc.ok)
+			}
+		})
+	}
+}
+
+// TestGNMI_Accessors reads each accessor a gNMI client is built from.
+func TestGNMI_Accessors(t *testing.T) {
+	item, err := buildWith(t, generic.TypeGNMI, map[string]inventory.PropertyValue{
+		generic.GRPCTargetProperty: "10.0.0.9:57400", generic.GRPCPlaintextProperty: true, generic.GRPCAllowPlaintextCredentialsProperty: true,
+		inventory.DiscoveredProperty: boundDiscoveryWith(generic.TypeGNMI, map[string]inventory.PropertyValue{
+			generic.GRPCTargetProperty: "10.0.0.9:57400", generic.GRPCPlaintextProperty: true, generic.GRPCAllowPlaintextCredentialsProperty: true,
+		}, capability.NameGNMI),
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	g, ok := item.(capability.GNMICapable)
+	if !ok || !item.HasCapability(capability.NameGNMI) {
+		t.Fatalf("%T is not GNMICapable after its discovery", item)
+	}
+	if g.GNMITarget() != "10.0.0.9:57400" || g.GNMIAuth() != "password" || !g.GNMIPlaintext() || !g.GNMIAllowPlaintextCredentials() {
+		t.Errorf("accessors = %s %s %v %v", g.GNMITarget(), g.GNMIAuth(), g.GNMIPlaintext(), g.GNMIAllowPlaintextCredentials())
+	}
+	if addr, ok := item.(capability.NetworkAddressableCapable); !ok || addr.IPAddress() != "10.0.0.9" {
+		t.Error("IPAddress is not the target's host")
+	}
+	if _, ok := item.(capability.GRPCCapable); ok {
+		t.Error("generic_gnmi answers generic_grpc's accessors, which its discovery never proves")
+	}
+}
+
+// boundDiscoveryWith is boundDiscovery against props rather than the
+// type's address alone.
+func boundDiscoveryWith(deviceType string, props map[string]inventory.PropertyValue, caps ...capability.Name) inventory.PropertyValue {
+	d := inventory.Discovery{Protocol: "test", Capabilities: caps}
+	d.Binding = generic.Binding(deviceType, inventory.NewProperties(props))
+	return d.Property()
+}
+
 // TestSSH_ReadsWhatOnboardingLearned: the kernel release and distribution
 // come from the discovery unless the record sets them.
 func TestSSH_ReadsWhatOnboardingLearned(t *testing.T) {
@@ -385,6 +453,7 @@ var repointed = map[string]map[string]inventory.PropertyValue{
 	generic.TypeHTTP:     {generic.BaseURLProperty: "https://attacker.example.net"},
 	generic.TypeRestconf: {generic.BaseURLProperty: "https://attacker.example.net"},
 	generic.TypeGRPC:     {generic.GRPCTargetProperty: "attacker.example.net:443"},
+	generic.TypeGNMI:     {generic.GRPCTargetProperty: "attacker.example.net:57400"},
 }
 
 // TestGeneric_ARepointedDeviceHoldsOnlyItsBaseline is Phase 117a's S2 at

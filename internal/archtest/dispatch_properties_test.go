@@ -224,6 +224,14 @@ var secretNamedButValidated = map[string]struct {
 		reason:   "a flag validated as a boolean",
 		baseline: map[string]any{"base_url": "http://router.example.com"},
 	},
+	"generic_gnmi/gnmi_auth": {
+		reason:   "the credential MODE, validated to one of password, bearer or none; the credential itself is in the store",
+		baseline: map[string]any{"target": "router.example.com:57400"},
+	},
+	"generic_gnmi/grpc_allow_plaintext_credentials": {
+		reason:   "a flag validated as a boolean",
+		baseline: map[string]any{"target": "router.example.com:57400", "grpc_plaintext": true},
+	},
 	"ai_provider/http_allow_plaintext_credentials": {
 		reason:   "a flag validated as a boolean",
 		baseline: map[string]any{"ai_kind": "ollama", "residency": "local", "api_base": "http://10.0.0.5:11434"},
