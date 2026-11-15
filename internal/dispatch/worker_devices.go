@@ -348,6 +348,11 @@ func (w *Worker) dispatchPayload(ctx context.Context, job *Job, prepared Prepare
 				slog.Any("error", err))
 		}
 	}
+	// The template's SNMP credential, if it binds one, replaces the SNMP
+	// family of whichever secrets the device ended up with, the login beside
+	// it kept. It comes last so it never stands in for a login the fallback
+	// above would otherwise have read (ApplySNMP).
+	ApplySNMP(&payload, injected, device)
 	return payload
 }
 

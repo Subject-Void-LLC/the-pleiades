@@ -1,0 +1,46 @@
+{
+  "name": "SNMP",
+  "namespace": "pleiades_snmp",
+  "kind": "snmp",
+  "managed": true,
+  "description": "An SNMPv1/v2c community, or an SNMPv3 USM user with its protocols and passphrases. AWX has no such type, so its namespace is this platform's own. On the native path it becomes the SNMP credential of each device of the job that can be logged into, in place of the SNMP fields of that device's own stored credential and beside its login; the Ansible path is given nothing from it. AES-192 and AES-256 are named twice, since two drafts extend a passphrase's key differently: aes192 and aes256 for the Blumenthal draft (net-snmp's), aes192-reeder and aes256-reeder for the Reeder draft (the Cisco variant). No SNMP client exists yet; Phase 97 builds one and proves each protocol.",
+  "inputs": {
+    "fields": [
+      {
+        "id": "community",
+        "label": "Community (SNMPv1/v2c)",
+        "type": "string",
+        "secret": true,
+        "help_text": "At least 8 characters, unless a short one is allowed below. Leave empty for an SNMPv3 user."
+      },
+      {
+        "id": "allow_short_community",
+        "label": "Allow a short community",
+        "type": "boolean",
+        "help_text": "Allows a community under 8 characters. It cannot be masked by value without scrubbing ordinary words from output, so every run masks it by shape only (the configuration lines that hold it) and warns."
+      },
+      {
+        "id": "username",
+        "label": "USM user (SNMPv3)",
+        "type": "string",
+        "help_text": "The SNMPv3 user the protocols below belong to. With no protocol it is a noAuthNoPriv user."
+      },
+      {
+        "id": "auth_protocol",
+        "label": "Authentication protocol",
+        "type": "string",
+        "choices": ["md5", "sha", "sha224", "sha256", "sha384", "sha512"]
+      },
+      {"id": "auth_passphrase", "label": "Authentication passphrase", "type": "string", "secret": true, "help_text": "At least 8 characters."},
+      {
+        "id": "priv_protocol",
+        "label": "Privacy protocol",
+        "type": "string",
+        "choices": ["des", "3des", "aes128", "aes192", "aes256", "aes192-reeder", "aes256-reeder"],
+        "help_text": "Needs an authentication protocol: SNMPv3 has no privacy without authentication."
+      },
+      {"id": "priv_passphrase", "label": "Privacy passphrase", "type": "string", "secret": true, "help_text": "At least 8 characters."}
+    ]
+  },
+  "injectors": {}
+}

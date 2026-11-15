@@ -118,6 +118,9 @@ func KubernetesCredentialOf(cred Credential) (KubernetesCredential, error) {
 	case k.Token == "" && !certificate:
 		return KubernetesCredential{}, fmt.Errorf("%w: credential %q: a Kubernetes credential needs a bearer token or a client certificate", ErrInjection, cred.Name)
 	}
+	if err := certificateInputProblem(cred.Name, cred.Inputs, KubernetesInputClientCert, KubernetesInputClientKey); err != nil {
+		return KubernetesCredential{}, fmt.Errorf("%w: %w", ErrInjection, err)
+	}
 	return k, nil
 }
 

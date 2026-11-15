@@ -437,8 +437,15 @@ func (a *Adapter) Execute(ctx context.Context, payload wire.DispatchPayload) (wi
 	secrets := append(append([]string{}, result.Secrets...), dispatchSecrets(payload)...)
 
 	// Each warning a task recorded (sdk.StatWarnings) reaches the job log
-	// once per dispatch, masked, before the completion that summarizes it.
-	for _, warning := range runWarnings(result, secrets) {
+	// once per dispatch, masked, before the completion that summarizes it,
+	// after the dispatch's own: a community too short to mask by value
+	// (engine.CredentialSecrets left it out of every set above) is said once
+	// for every run that carried it, as the CLI's run says it.
+	warnings := runWarnings(result, secrets)
+	if credential.ShortCommunity(payload.Secrets) {
+		warnings = append([]string{credential.ShortCommunityWarning(payload.DeviceName)}, warnings...)
+	}
+	for _, warning := range warnings {
 		event := wire.JobEvent{Status: "ok", Host: payload.DeviceHost, Task: "task.warning"}
 		event.Timestamp = time.Now().UTC().Format(time.RFC3339)
 		event.EventData.Message = "WARNING: " + warning

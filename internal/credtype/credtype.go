@@ -113,6 +113,13 @@ const (
 
 	// KindDatabase is a named database connection (pleiades_postgres).
 	KindDatabase Kind = "database"
+
+	// KindSNMP is an SNMP credential (pleiades_snmp): a community or an
+	// SNMPv3 user. Like KindDatabase it is this platform's own, since AWX has
+	// no SNMP credential, and it is a kind of its own rather than KindNet so
+	// the one-per-kind rule lets a template bind a network login and an SNMP
+	// credential together, which is the ordinary case for a switch.
+	KindSNMP Kind = "snmp"
 )
 
 // validKinds is the closed vocabulary, as a set.
@@ -120,7 +127,7 @@ var validKinds = map[Kind]bool{
 	KindSSH: true, KindVault: true, KindNet: true, KindSCM: true,
 	KindCloud: true, KindToken: true, KindInsights: true, KindExternal: true,
 	KindKubernetes: true, KindGalaxy: true, KindCryptography: true, KindRegistry: true,
-	KindDatabase: true,
+	KindDatabase: true, KindSNMP: true,
 }
 
 // Kinds returns the closed kind vocabulary, sorted. It exists so a form or

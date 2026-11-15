@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/generic"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
@@ -94,6 +95,43 @@ func TestExecute_PublishesEachWarningOnce(t *testing.T) {
 	}
 	if !reflect.DeepEqual(tasks[len(tasks)-2:], []string{"task.warning", "task.completed"}) {
 		t.Errorf("job log order %q, want the warning just before the completion", tasks)
+	}
+}
+
+// TestExecute_SaysAShortCommunityIsMaskedByShapeOnly: a dispatch whose
+// credential carries a community too short to mask by value puts that
+// warning in its job log once, before the tasks' own; one whose community is
+// long enough says nothing of it, and neither prints the community.
+func TestExecute_SaysAShortCommunityIsMaskedByShapeOnly(t *testing.T) {
+	warnFixture(t, "a task's own warning")
+	for community, wantShort := range map[string]bool{"public": true, "c0mmunity-s3cret": false} {
+		bus := &mockBus{}
+		adapter, err := NewAdapter(bus, writeRunbook(t, "s", "id: s\ntasks:\n  - name: one\n    fqcn: nativewarn.weak\n"), nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		payload := wire.DispatchPayload{JobID: "job-s", RunbookID: "s", DeviceName: "old-switch", DeviceHost: "10.0.0.2",
+			Secrets: map[string]string{wire.SecretSNMPCommunity: community}}
+		if _, err := adapter.Execute(context.Background(), payload); err != nil {
+			t.Fatal(err)
+		}
+		_, warnings := jobTasks(t, bus, "job-s", "task.warning")
+		var messages []string
+		for _, w := range warnings {
+			messages = append(messages, w.EventData.Message)
+		}
+		short := "WARNING: " + credential.ShortCommunityWarning("old-switch")
+		if wantShort && (len(messages) != 2 || messages[0] != short || messages[1] != "WARNING: a task's own warning") {
+			t.Errorf("a short community's job log warned %q", messages)
+		}
+		if !wantShort && (len(messages) != 1 || messages[0] != "WARNING: a task's own warning") {
+			t.Errorf("a long community's job log warned %q", messages)
+		}
+		for _, m := range messages {
+			if strings.Contains(m, community) {
+				t.Errorf("a warning printed the community: %q", m)
+			}
+		}
 	}
 }
 

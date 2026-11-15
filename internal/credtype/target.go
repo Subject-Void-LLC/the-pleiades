@@ -93,6 +93,7 @@ func init() {
 	targets.MustRegister("registry", registryTarget{})
 	targets.MustRegister("database", databaseTarget{})
 	targets.MustRegister("kubernetes", kubernetesTarget{})
+	targets.MustRegister("snmp", snmpTarget{})
 }
 
 // orderedTargets returns every registered Target in a deterministic
@@ -442,7 +443,15 @@ func checkCertificateMaterial(cred Credential, machine map[string]string) (claim
 		return false, fmt.Errorf("%w: credential %q has a %s but no %s, and a certificate alone cannot prove possession",
 			ErrInvalidCredential, cred.Name, CertificateInputCertificate, CertificateInputPrivateKey)
 
-	case hasCert || hasBundle:
+	case hasCert:
+		// A certificate input holding its key too is refused here, at every
+		// use, as the store refuses it at every write (CheckStoredValues).
+		if err := certificateInputProblem(cred.Name, cred.Inputs, CertificateInputCertificate, CertificateInputPrivateKey); err != nil {
+			return false, err
+		}
+		return true, nil
+
+	case hasBundle:
 		return true, nil
 
 	default:

@@ -288,6 +288,9 @@ type Artifact struct {
 	// kubernetes is the one cluster credential, set only by
 	// kubernetesTarget for the same reason.
 	kubernetes *KubernetesCredential
+	// snmp is the one SNMP credential, set only by snmpTarget for the same
+	// reason.
+	snmp *wire.SNMPCredential
 
 	// secrets are the values in this artifact that must be scrubbed from
 	// any captured output, filled in by the secret-tracking decorator as it
@@ -476,6 +479,15 @@ func Combine(arts ...Artifact) (Artifact, error) {
 					ErrInjectorConflict, a.CredentialName)
 			}
 			out.kubernetes = &k
+		}
+
+		if s, ok := a.SNMP(); ok {
+			if out.snmp != nil {
+				return Artifact{}, fmt.Errorf(
+					"%w: %q is a second SNMP credential, and a device's SNMP is one community or one user",
+					ErrInjectorConflict, a.CredentialName)
+			}
+			out.snmp = &s
 		}
 
 		for _, v := range a.vault {
