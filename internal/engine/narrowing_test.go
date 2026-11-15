@@ -60,8 +60,10 @@ func narrowInventory() narrowResolver {
 	return narrowResolver{
 		all: mapResolver{
 			"web": {w1, w2}, "wan": {edge}, "w1": {w1}, "w2": {w2}, "edge1": {edge},
-			// A tag whose own name holds the list separator.
-			"a,b": {edge},
+			// A tag whose own name holds the list separator, on hidden
+			// devices, beside devices named a and b inside the run; and one
+			// on a device inside the run and one outside it.
+			"a,b": {edge}, "a": {w1}, "b": {w1}, "c,d": {w1, w2},
 		},
 		hidden: map[string]bool{"w2": true, "edge1": true},
 	}
@@ -85,6 +87,7 @@ func TestResolveTargetsIn_TellsAHiddenNameFromAMissingOne(t *testing.T) {
 		{target: "wan,nosuch", missing: []string{"nosuch"}, hidden: []string{"wan"}},
 		{target: "nosuch", missing: []string{"nosuch"}},
 		{target: "a,b", hidden: []string{"a,b"}, narrowedAway: true},
+		{target: "c,d", devices: []string{"w1"}},
 		{target: "w2", hidden: []string{"w2"}, narrowedAway: true},
 	}
 	for _, c := range cases {

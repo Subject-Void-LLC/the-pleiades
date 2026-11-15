@@ -63,19 +63,24 @@ func (res Resolution) NarrowedAway() bool {
 // Narrowing, moves each missing name that matches devices in the whole
 // inventory from Missing to Hidden.
 func ResolveTargetsIn(r TargetResolver, target string) Resolution {
-	devices, missing := resolveTargetNames(r, target)
-	res := Resolution{Devices: devices, Missing: missing}
 	n, ok := r.(Narrowing)
-	if !ok || len(missing) == 0 {
-		return res
-	}
 	// A target holding a comma is asked whole first (ResolveTargets), so a
-	// device or tag whose own name holds one, all of it hidden, is hidden as
-	// that one name rather than missing as its pieces.
-	if len(devices) == 0 && len(splitHosts(target)) >= 2 {
+	// device or tag whose own name holds one stays that one name. Under a
+	// narrowing the whole name is asked of the whole inventory: asked only of
+	// the narrowed resolver, a tag "a,b" whose devices the limit hid would be
+	// split into the devices a and b inside the limit, and run there.
+	if ok && len(splitHosts(target)) >= 2 {
 		if whole := n.Unnarrowed(target); len(whole) > 0 {
+			if reached := r.Resolve(target); len(reached) > 0 {
+				return Resolution{Devices: reached}
+			}
 			return Resolution{Hidden: []HiddenName{hiddenName(n, target, whole)}}
 		}
+	}
+	devices, missing := resolveTargetNames(r, target)
+	res := Resolution{Devices: devices, Missing: missing}
+	if !ok || len(missing) == 0 {
+		return res
 	}
 	res.Missing = nil
 	for _, name := range missing {
