@@ -26,8 +26,11 @@ import (
 // restconfFQCN is this method's name, which prefixes its errors.
 const restconfFQCN = "wait.restconf"
 
-// restconfStatRoot is the stat naming the root that answered.
-const restconfStatRoot = "root"
+// The stats naming the root that answered, and how it was learned.
+const (
+	restconfStatRoot       = "root"
+	restconfStatRootSource = "root_source"
+)
 
 func init() {
 	collection.MustRegister(collection.Descriptor{
@@ -72,11 +75,11 @@ func Restconf(ctx context.Context, rc sdk.RunbookContext, device inventory.Inven
 	if _, ok := device.(capability.RestconfCapable); !ok {
 		return collection.Result{}, fmt.Errorf("%s: device %q serves no RESTCONF (it does not implement %s)", restconfFQCN, device.Name(), capability.NameRestconf)
 	}
-	var root string
+	var root, source string
 	try := func(ctx context.Context) error {
-		answered, err := restconfTry(ctx, rc, device)
+		answered, how, err := restconfTry(ctx, rc, device)
 		if err == nil {
-			root = answered
+			root, source = answered, how
 		}
 		return err
 	}
@@ -87,8 +90,10 @@ func Restconf(ctx context.Context, rc sdk.RunbookContext, device inventory.Inven
 	if err := sdk.RecordDiff(rc, sdk.Unchanged(map[string]any{restconfStatRoot: root})); err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", restconfFQCN, err)
 	}
-	if err := rc.SetStat(restconfStatRoot, root); err != nil {
-		return collection.Result{}, fmt.Errorf("%s: %w", restconfFQCN, err)
+	for key, value := range map[string]string{restconfStatRoot: root, restconfStatRootSource: source} {
+		if err := rc.SetStat(key, value); err != nil {
+			return collection.Result{}, fmt.Errorf("%s: %w", restconfFQCN, err)
+		}
 	}
 	for _, stat := range []struct {
 		key   string
@@ -107,19 +112,21 @@ func Restconf(ctx context.Context, rc sdk.RunbookContext, device inventory.Inven
 
 // restconfTry is one try at the server: a new client (pkg/restconf.ClientFor,
 // so the device's own TLS settings and credential, no proxy, no redirect),
-// host-meta for the root, then the capability list under it, and the client's
-// connections dropped after. It returns the root that answered, "/" for one
-// at the origin itself.
+// host-meta for the root (read with no credential; on a 404 the conventional
+// /restconf, which the capability read then decides), then the capability
+// list under it, and the client's connections dropped after. It returns the
+// root that answered, "/" for one at the origin itself, and how it was
+// learned.
 //
 // The certificate is checked in the handshake, before any request is sent, so
 // one the device's settings do not trust ends the wait having sent nothing;
 // a refused login ends it too (pkg/restconf's RefusedError, after which the
 // client sends nothing more). Anything else is one more failed try.
-func restconfTry(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem) (string, error) {
+func restconfTry(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem) (string, string, error) {
 	client, _, err := restconf.ClientFor(device, device.Name(), rc.InjectSecrets())
 	if err != nil {
 		// The record itself is unusable, which no try changes.
-		return "", &stopWaiting{err: err}
+		return "", "", &stopWaiting{err: err}
 	}
 	defer client.Close()
 	root, err := client.DiscoverRoot(ctx)
@@ -127,12 +134,12 @@ func restconfTry(ctx context.Context, rc sdk.RunbookContext, device inventory.In
 		_, err = client.Capabilities(ctx)
 	}
 	if err != nil {
-		return "", restconfTryFailed(err)
+		return "", "", restconfTryFailed(err)
 	}
 	if root == "" {
 		root = "/"
 	}
-	return root, nil
+	return root, client.RootSource(), nil
 }
 
 // restconfTryFailed sorts a failed try: a certificate the device's settings

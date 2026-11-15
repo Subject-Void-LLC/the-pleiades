@@ -19,8 +19,10 @@ func init() { Register(generic.TypeRestconf, restconfProber{}) }
 
 func (restconfProber) Protocol() string { return "restconf" }
 
-// Probe reads the device's RESTCONF root from its /.well-known/host-meta,
-// exactly as net.restconf.facts does, then its capabilities and YANG library,
+// Probe finds the device's RESTCONF root from its /.well-known/host-meta,
+// read with no credential, or, when host-meta answers 404 as IOS XE answers
+// it to anything but a valid login (measured on 17.15.1a, 2026-11-15), the
+// conventional /restconf, exactly as net.restconf.facts does, then its capabilities and YANG library,
 // over the device's own TLS when its origin is https (pkg/devicetls: always
 // verified) with its own credential, following no redirect, and records a summary of what it
 // discovered: the root, the capabilities, the datastores, and the YANG
@@ -66,6 +68,7 @@ func restconfProbed(d restconf.Discovery) Probed {
 	}
 	facts := map[string]any{
 		"restconf_root":         factText(rootText(d.Root)),
+		"restconf_root_source":  factText(d.RootSource),
 		"restconf_capabilities": factList(capabilities),
 		"restconf_datastores":   factList(d.Datastores),
 		// Text, as every other probe's count is: an int read back from the

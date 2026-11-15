@@ -152,3 +152,29 @@ func TestRestconfProbed_LeavesALongCapabilityOutWhole(t *testing.T) {
 		t.Error("the probe does not name its protocol")
 	}
 }
+
+// TestRestconfProbe_OnboardsIOSXEWithNoCredentialAtHostMeta: against
+// restconftest's IOS XE mode (IOS XE 17.15.1a's answers, 2026-11-15), the
+// probe sends host-meta no credential, takes /restconf from its 404, and
+// records that the root came from the default; a wrong password is sent once
+// and grants nothing.
+func TestRestconfProbe_OnboardsIOSXEWithNoCredentialAtHostMeta(t *testing.T) {
+	opts := restconftest.Options{IOSXE: true, Username: "admin", Password: "iosxe-Onboard-2"}
+	s := restconftest.New(t, opts)
+	_, _, run := restconfRepo(t, s)
+	res, err := run()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.State != "active" || res.Facts["restconf_root"] != "/restconf" || res.Facts["restconf_root_source"] != "default" || s.HostMetaLogins() != 0 {
+		t.Errorf("result %+v with %d credentials to host-meta", res, s.HostMetaLogins())
+	}
+
+	wrong := restconftest.New(t, opts)
+	repo, _ := newRepo(t, "rc2", generic.TypeRestconf, map[string]inventory.PropertyValue{
+		devicetls.CAPEMProperty: wrong.CAPEM(), generic.BaseURLProperty: wrong.URL,
+	})
+	if _, err := onboardWith(context.Background(), repo, "rc2", staticSecrets(map[string]string{"username": "admin", "password": "wrong"}), fixedNow, Lookup, options{}); err == nil || wrong.Logins() != 1 || wrong.HostMetaLogins() != 0 {
+		t.Errorf("a wrong password: %v after %d logins (%d to host-meta)", err, wrong.Logins(), wrong.HostMetaLogins())
+	}
+}

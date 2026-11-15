@@ -105,15 +105,16 @@ func TestRestconf_GivesUpAtItsTimeoutQuotingTheLastTry(t *testing.T) {
 	}
 }
 
-// TestRestconf_AHostMeta404IsNotReadyYet: a host-meta answered 404 is one
-// more failed try, never final.
-func TestRestconf_AHostMeta404IsNotReadyYet(t *testing.T) {
+// TestRestconf_AHostMeta404FallsBackToTheConventionalRoot: a host-meta
+// answered 404 is not a failed try in itself; the read under /restconf
+// decides, and here it answers.
+func TestRestconf_AHostMeta404FallsBackToTheConventionalRoot(t *testing.T) {
 	opts := restconfLogin
 	opts.Override = map[string]http.HandlerFunc{"/.well-known/host-meta": func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNotFound) }}
 	s := restconftest.New(t, opts)
-	_, err := wait.Restconf(context.Background(), restconfContext(s), restconftest.NewDevice(t, s), map[string]any{"timeout": 2, "sleep": 1, "connect_timeout": 1})
-	if err == nil || !strings.Contains(err.Error(), "timed out") || strings.Contains(err.Error(), "stopped") || len(s.Paths()) < 2 {
-		t.Errorf("a host-meta 404: %v after %d requests", err, len(s.Paths()))
+	rc := restconfContext(s)
+	if _, err := wait.Restconf(context.Background(), rc, restconftest.NewDevice(t, s), map[string]any{"timeout": 10, "sleep": 1, "connect_timeout": 2}); err != nil || rc.stats["root_source"] != "default" || rc.stats["tries"] != 1 {
+		t.Errorf("a host-meta 404 over a served /restconf: %v, stats %v", err, rc.stats)
 	}
 }
 
@@ -198,5 +199,55 @@ func TestRestconf_AStatItCannotRecordFailsTheTask(t *testing.T) {
 				t.Errorf("failing the %s stat: %v", key, err)
 			}
 		})
+	}
+}
+
+// iosxeLogin is restconftest's IOS XE mode, answering as a Catalyst 8000V
+// (IOS XE 17.15.1a) did on 2026-11-15.
+var iosxeLogin = restconftest.Options{IOSXE: true, Username: "admin", Password: "iosxe-Wait-4"}
+
+// TestRestconf_IOSXEStartingIsWaitedThrough: IOS XE answers host-meta 404 to
+// no login, so each try takes /restconf; its reads answer Cisco's 502 page
+// while RESTCONF starts, then the capability list, and host-meta never sees
+// the credential.
+func TestRestconf_IOSXEStartingIsWaitedThrough(t *testing.T) {
+	opts := iosxeLogin
+	opts.Starting = 3
+	s := restconftest.New(t, opts)
+	rc := restconfContext(s)
+	if _, err := wait.Restconf(context.Background(), rc, restconftest.NewDevice(t, s), map[string]any{"timeout": 60, "sleep": 1, "connect_timeout": 5}); err != nil {
+		t.Fatal(err)
+	}
+	if rc.stats["root"] != "/restconf" || rc.stats["root_source"] != "default" || rc.stats["tries"] != 4 || rc.stats["failures"] != 3 {
+		t.Errorf("stats %v, want /restconf from the default after three 502s", rc.stats)
+	}
+	if s.HostMetaLogins() != 0 || s.Logins() != 4 {
+		t.Errorf("%d credentials sent, %d to host-meta; want one per try, none to host-meta", s.Logins(), s.HostMetaLogins())
+	}
+}
+
+// TestRestconf_IOSXEAWrongPasswordEndsTheWaitAfterOneLogin: IOS XE answers
+// host-meta 404 to a wrong login as to none; the wait sends it none, and the
+// read under /restconf answers 401, which ends the wait after one attempt.
+func TestRestconf_IOSXEAWrongPasswordEndsTheWaitAfterOneLogin(t *testing.T) {
+	s := restconftest.New(t, iosxeLogin)
+	rc := &waitContext{secrets: map[string]string{"username": "admin", "password": "wrong"}, stats: map[string]any{}}
+	_, err := wait.Restconf(context.Background(), rc, restconftest.NewDevice(t, s), map[string]any{"timeout": 60, "sleep": 1})
+	if err == nil || !strings.Contains(err.Error(), "stopped at try 1") || s.Logins() != 1 || s.HostMetaLogins() != 0 {
+		t.Errorf("a wrong password: %v after %d logins (%d to host-meta)", err, s.Logins(), s.HostMetaLogins())
+	}
+}
+
+// TestRestconf_NoRestconfAtTheDefaultRootIsAFailedTry: host-meta 404 and a
+// 404 under /restconf may be a server not serving yet, so the wait goes on
+// to its timeout.
+func TestRestconf_NoRestconfAtTheDefaultRootIsAFailedTry(t *testing.T) {
+	opts := restconfLogin
+	opts.Root = "/api/rc"
+	opts.Override = map[string]http.HandlerFunc{"/.well-known/host-meta": func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNotFound) }}
+	s := restconftest.New(t, opts)
+	_, err := wait.Restconf(context.Background(), restconfContext(s), restconftest.NewDevice(t, s), map[string]any{"timeout": 2, "sleep": 1, "connect_timeout": 1})
+	if err == nil || !strings.Contains(err.Error(), "timed out") || strings.Contains(err.Error(), "stopped") {
+		t.Errorf("no RESTCONF at /restconf: %v", err)
 	}
 }

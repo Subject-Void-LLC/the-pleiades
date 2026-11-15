@@ -379,3 +379,65 @@ func TestConfig_ARefusedCredentialIsSentOnce(t *testing.T) {
 		t.Errorf("%d reads past the root and %d writes, want one refused read and no write", refused, writes(s))
 	}
 }
+
+// iosxeMode is restconftest's IOS XE mode, answering as a Catalyst 8000V
+// (IOS XE 17.15.1a) did on 2026-11-15.
+var iosxeMode = restconftest.Options{IOSXE: true, Username: "admin", Password: "iosxe-Config-6"}
+
+// TestConfig_IOSXELoopbackLifecycle: the router's own answers, end to end: a
+// post creates Loopback 7701 and its absolute Location gives the exact undo;
+// the same post is 409 data-exists and changes nothing; a patch of the entry
+// changes it; a delete removes it; a delete of what is gone sends nothing;
+// and a write while the YANG stack goes down fails with its own error.
+func TestConfig_IOSXELoopbackLifecycle(t *testing.T) {
+	s := restconftest.New(t, iosxeMode)
+	post := map[string]any{"path": "Cisco-IOS-XE-native:native/interface", "content": `{"Cisco-IOS-XE-native:Loopback": [{"name": 7701, "description": "rc-capture"}]}`}
+	rc := newRecorder(restconftest.Secrets(s))
+	res, err := runConfig(t, s, rc, post)
+	if err != nil || !res.Changed {
+		t.Fatalf("post = %v, %v", res.Changed, err)
+	}
+	p, _ := inverse(rc)["params"].(map[string]any)
+	if p["path"] != "Cisco-IOS-XE-native:native/interface/Loopback=7701" || p["method"] != "delete" {
+		t.Errorf("undo %v, want a delete of Loopback=7701", inverse(rc))
+	}
+	if rc.facts["restconf.root_source"] != "default" || s.HostMetaLogins() != 0 {
+		t.Errorf("root source %v with %d credentials to host-meta, want the default and none", rc.facts["restconf.root_source"], s.HostMetaLogins())
+	}
+	again := newRecorder(restconftest.Secrets(s))
+	if res, err := runConfig(t, s, again, post); err != nil || res.Changed || !strings.Contains(strings.Join(again.warnings(), "\n"), "post never replaces") {
+		t.Errorf("the same post = %v, %v, warnings %v", res.Changed, err, again.warnings())
+	}
+	entry := "Cisco-IOS-XE-native:native/interface/Loopback=7701"
+	if res, err := runConfig(t, s, newRecorder(restconftest.Secrets(s)), map[string]any{"method": "patch", "path": entry, "content": `{"Cisco-IOS-XE-native:Loopback": [{"name": 7701, "description": "changed"}]}`}); err != nil || !res.Changed {
+		t.Errorf("patch = %v, %v", res.Changed, err)
+	}
+	if res, err := runConfig(t, s, newRecorder(restconftest.Secrets(s)), map[string]any{"method": "delete", "path": entry}); err != nil || !res.Changed {
+		t.Errorf("delete = %v, %v", res.Changed, err)
+	}
+	sent := writes(s)
+	if res, err := runConfig(t, s, newRecorder(restconftest.Secrets(s)), map[string]any{"method": "delete", "path": entry}); err != nil || res.Changed || writes(s) != sent {
+		t.Errorf("a delete of what is gone = %v, %v, %d writes", res.Changed, err, writes(s)-sent)
+	}
+
+	down := iosxeMode
+	down.GoingDown = true
+	s2 := restconftest.New(t, down)
+	_, err = runConfig(t, s2, newRecorder(restconftest.Secrets(s2)), post)
+	if err == nil || !strings.Contains(err.Error(), "operation-failed") || !strings.Contains(err.Error(), "500") {
+		t.Errorf("a write while the stack goes down = %v, want its 500 operation-failed", err)
+	}
+}
+
+// TestConfig_IOSXEAWrongPasswordIsSentOnce: the wrong password reaches the
+// router once, never host-meta, and nothing is written.
+func TestConfig_IOSXEAWrongPasswordIsSentOnce(t *testing.T) {
+	s := restconftest.New(t, iosxeMode)
+	rc := newRecorder(map[string]string{"username": "admin", "password": "wrong"})
+	if _, err := runConfig(t, s, rc, map[string]any{"method": "delete", "path": "Cisco-IOS-XE-native:native/interface/Loopback=7701"}); err == nil || !strings.Contains(err.Error(), "refused the credential") {
+		t.Fatalf("err = %v", err)
+	}
+	if s.Logins() != 1 || s.HostMetaLogins() != 0 || writes(s) != 0 {
+		t.Errorf("%d logins (%d to host-meta), %d writes; want one, none, none", s.Logins(), s.HostMetaLogins(), writes(s))
+	}
+}
