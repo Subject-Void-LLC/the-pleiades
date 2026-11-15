@@ -67,7 +67,7 @@ func TestParsePath_RefusesWhatCouldMoveAKey(t *testing.T) {
 		"/1a",
 		"/a[1k=v]",
 		"/a[k=v\x01]",
-		"/a[k=v​]",
+		"/a[k=v\u200b]",
 		"bad origin:/a",
 		"/a:b:c",
 		":/a",
