@@ -23,6 +23,15 @@ const statBackup = "backup"
 // backup and the diff, returning the warnings the task should carry. For a
 // post, path is the parent: the resource read after is the one its answer's
 // Location names.
+//
+// Whether a write created the resource is the device's own answer, RFC 8040
+// section 4.5's for a put (201 Created for a create, 204 No Content for a
+// replace) and section 4.4.1's for a post (201 Created, its Location naming
+// the new resource), never a read before it that found nothing: a 404 can be
+// access control hiding a resource that is there, and an undo deleting it
+// would delete what the run did not make. The undo of a create is recorded
+// as the 201's status line arrives, before its body is read, so it stands
+// whatever happens to the rest of the answer.
 func write(ctx context.Context, rc sdk.RunbookContext, client *restconf.Client, req writeRequest) (collection.Result, []string, error) {
 	var notes []string
 	var before []byte
@@ -57,7 +66,19 @@ func write(ctx context.Context, rc sdk.RunbookContext, client *restconf.Client, 
 	if req.method != restconf.MethodDelete {
 		body = []byte(content)
 	}
-	written, err := client.Write(ctx, req.method, req.datastore, req.path, req.mediaType, body)
+	var readAt restconf.Path
+	created := false
+	written, err := client.WriteThen(ctx, req.method, req.datastore, req.path, req.mediaType, body, func(w restconf.Written) error {
+		var why string
+		readAt, created, why = createdBy(req, had, w)
+		if why != "" {
+			notes = append(notes, why)
+		}
+		if !created {
+			return nil
+		}
+		return recordUndo(rc, readAt, req)
+	})
 	if err != nil {
 		var status *restconf.StatusError
 		// RFC 8040 section 4.4.1 answers a post of a resource that is there
@@ -68,35 +89,54 @@ func write(ctx context.Context, rc sdk.RunbookContext, client *restconf.Client, 
 			notes = append(notes, "the resource post would create is already there, and post never replaces one, so nothing changed: use put to make it match content")
 			return collection.Result{Changed: false}, notes, nil
 		}
-		return collection.Result{}, nil, err
+		return collection.Result{}, notes, err
 	}
-	readAt, created := req.path, req.method == restconf.MethodPut && !had
-	if req.method == restconf.MethodPost {
-		readAt, created = written.Location, written.Location != nil
-		if !created {
-			notes = append(notes, "the device named no Location this client could read for the resource post created, so no undo is recorded and nothing was read back")
-		}
-	}
-	if created {
-		// Recorded before the read after, so it stands if that read fails:
-		// the resource is on the device either way.
-		if err := recordUndo(rc, readAt, req); err != nil {
-			return collection.Result{}, notes, err
-		}
+	if req.method != restconf.MethodPost {
+		readAt = req.path
 	}
 	if readAt == nil {
 		return collection.Result{Changed: true}, notes, recordDiff(rc, false, "", nil, true, "", nil)
 	}
 	after, present, err := client.Read(ctx, req.datastore, readAt, req.mediaType)
 	if err != nil {
-		return collection.Result{Changed: true}, notes, fmt.Errorf("the write was answered, and reading the resource after it failed: %w", err)
+		return collection.Result{Changed: true}, notes, fmt.Errorf("the write was answered %d, and reading the resource after it failed: %w", written.Status, err)
 	}
 	maskedAfter, afterErr := recorded(rc, client, after)
-	changed := req.method == restconf.MethodPost || had != present || differ(before, after, req.asJSON, &notes)
+	changed := req.method == restconf.MethodPost || created || had != present || differ(before, after, req.asJSON, &notes)
 	if created && !present {
 		notes = append(notes, "the device answered the write, and the resource it created is not there to read")
 	}
 	return collection.Result{Changed: changed}, notes, recordDiff(rc, had, maskedBefore, maskErr, present, maskedAfter, afterErr)
+}
+
+// createdBy reads a write's answer: the resource the write created (a put's
+// path, or the child of a post's path its Location names) when the device
+// answered that it created one, and otherwise why no undo is recorded, when a
+// person would expect one. had is whether the read before found the
+// resource.
+func createdBy(req writeRequest, had bool, w restconf.Written) (restconf.Path, bool, string) {
+	switch req.method {
+	case restconf.MethodPut:
+		switch {
+		case w.Status == http.StatusCreated && !had:
+			return req.path, true, ""
+		case w.Status == http.StatusCreated:
+			return nil, false, "the device answered 201 Created to a put of a resource the read before found there, so no undo is recorded: deleting it could remove what this run did not make"
+		case !had:
+			return nil, false, fmt.Sprintf("the device answered %d, not 201 Created, to a put of a resource the read before did not find, so it is read as a replace (RFC 8040 section 4.5 answers a create with 201) and no undo is recorded", w.Status)
+		}
+	case restconf.MethodPost:
+		switch {
+		case w.Location == nil:
+			return nil, false, "the device named no Location this client could read for the resource post created, so no undo is recorded and nothing was read back"
+		case !w.Location.Child(req.path):
+			return nil, false, "the device's Location for the resource post created does not name one node directly under path, so no undo is recorded and nothing was read back: deleting what it names could remove what this run did not make"
+		case w.Status != http.StatusCreated:
+			return nil, false, fmt.Sprintf("the device answered the post %d, not 201 Created, so no undo is recorded and nothing was read back", w.Status)
+		}
+		return w.Location, true, ""
+	}
+	return nil, false, ""
 }
 
 // differ reports whether two reads of a resource differ in their canonical

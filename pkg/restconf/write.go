@@ -90,8 +90,18 @@ type Written struct {
 
 // Write sends method to the resource p in datastore with body in mediaType
 // (none for DELETE). A status outside 2xx is a *StatusError, the server's
-// errors masked; a refused credential a RefusedError.
+// errors masked; a refused credential a RefusedError; a write whose answer
+// never came whole an *AnswerLostError.
 func (c *Client) Write(ctx context.Context, method, datastore string, p Path, mediaType string, body []byte) (Written, error) {
+	return c.WriteThen(ctx, method, datastore, p, mediaType, body, nil)
+}
+
+// WriteThen is Write, calling answered (when not nil) with the answer's
+// status and a post's Location as soon as a 2xx status line arrives, before
+// its body is read: a caller recording the undo of a create records it there,
+// so it stands whatever happens to the rest of the answer. An error answered
+// returns is the call's.
+func (c *Client) WriteThen(ctx context.Context, method, datastore string, p Path, mediaType string, body []byte, answered func(Written) error) (Written, error) {
 	switch method {
 	case MethodPost, MethodPut, MethodPatch, MethodDelete:
 	default:
@@ -108,18 +118,32 @@ func (c *Client) Write(ctx context.Context, method, datastore string, p Path, me
 	if method == MethodDelete {
 		contentType, body = "", nil
 	}
-	a, err := c.do(ctx, method, ref, mediaType, contentType, body, MaxDataBytes, true)
+	var headers func(int, string) error
+	if answered != nil {
+		headers = func(status int, location string) error {
+			if status < 200 || status > 299 {
+				return nil
+			}
+			return answered(c.written(method, datastore, status, location))
+		}
+	}
+	a, err := c.do(ctx, method, ref, mediaType, contentType, body, MaxDataBytes, true, headers)
 	if err != nil {
 		return Written{}, err
 	}
 	if a.status < 200 || a.status > 299 {
 		return Written{}, c.statusError(a)
 	}
-	w := Written{Status: a.status}
-	if method == MethodPost && a.location != "" {
-		w.Location = c.locationPath(a.location, datastore)
+	return c.written(method, datastore, a.status, a.location), nil
+}
+
+// written is a write's answer as Written.
+func (c *Client) written(method, datastore string, status int, location string) Written {
+	w := Written{Status: status}
+	if method == MethodPost && location != "" {
+		w.Location = c.locationPath(location, datastore)
 	}
-	return w, nil
+	return w
 }
 
 // locationPath is a created resource's Location as a path under datastore's

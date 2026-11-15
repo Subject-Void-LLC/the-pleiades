@@ -56,6 +56,9 @@ func Config(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: device %q: %w", configFQCN, device.Name(), err)
 	}
+	if err := confirmedRoot(d); err != nil {
+		return collection.Result{}, fmt.Errorf("%s: device %q: %w; nothing was written", configFQCN, device.Name(), err)
+	}
 	found, err := discoveryWarnings(rc, client.Verified(), d)
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", configFQCN, err)
@@ -74,6 +77,19 @@ func Config(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 		return collection.Result{}, fmt.Errorf("%s: device %q: %w", configFQCN, device.Name(), err)
 	}
 	return res, nil
+}
+
+// confirmedRoot refuses a write to a root nothing confirmed: host-meta named
+// none, so the conventional /restconf was taken, and neither its
+// capabilities nor its YANG library answered as RESTCONF there. The reads
+// that found that out sent the credential; the document is not sent after
+// them to whatever serves that path.
+func confirmedRoot(d restconf.Discovery) error {
+	learned := d.Learned()
+	if d.RootSource != restconf.RootDefault || learned == nil {
+		return nil
+	}
+	return fmt.Errorf("host-meta named no RESTCONF root, so the conventional /restconf was taken, and nothing under it answered as RESTCONF (%w), so the write is refused rather than sent there", learned)
 }
 
 // discoveryWarnings records what the discovery learned, as every session of

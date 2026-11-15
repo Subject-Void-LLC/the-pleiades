@@ -25,6 +25,7 @@ import (
 	"fmt"
 	"io"
 	"mime"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -137,7 +138,7 @@ type answer struct {
 // data says ref is a read under the root, which proves the credential where
 // host-meta (which a server may answer with no login) does not.
 func (c *Client) get(ctx context.Context, ref, accept string, limit int64, data bool) (answer, error) {
-	return c.do(ctx, http.MethodGet, ref, accept, "", nil, limit, data)
+	return c.do(ctx, http.MethodGet, ref, accept, "", nil, limit, data, nil)
 }
 
 // getAnonymous is get sending no credential, and judging no refusal: the
@@ -146,7 +147,7 @@ func (c *Client) get(ctx context.Context, ref, accept string, limit int64, data 
 // credential sent where none is asked for is one more place it could be
 // echoed or logged.
 func (c *Client) getAnonymous(ctx context.Context, ref, accept string, limit int64) (answer, error) {
-	return c.send(ctx, http.MethodGet, ref, accept, "", nil, limit, false, true)
+	return c.send(ctx, http.MethodGet, ref, accept, "", nil, limit, false, true, nil)
 }
 
 // do sends one authenticated request and reads at most limit bytes of the
@@ -160,13 +161,15 @@ func (c *Client) getAnonymous(ctx context.Context, ref, accept string, limit int
 // answered otherwise, a 403 is RFC 8040 section 7's access-denied, access
 // control refusing that one resource to a good credential, and is returned
 // for the caller to judge with every other status. An answer past limit is
-// unusable.
-func (c *Client) do(ctx context.Context, method, ref, accept, contentType string, body []byte, limit int64, data bool) (answer, error) {
-	return c.send(ctx, method, ref, accept, contentType, body, limit, data, false)
+// unusable. headers, when not nil, is called with the answer's status and
+// Location as soon as they arrive, before its body is read, and an error it
+// returns is the call's.
+func (c *Client) do(ctx context.Context, method, ref, accept, contentType string, body []byte, limit int64, data bool, headers func(status int, location string) error) (answer, error) {
+	return c.send(ctx, method, ref, accept, contentType, body, limit, data, false, headers)
 }
 
 // send is do, sending no credential and judging no refusal when anonymous.
-func (c *Client) send(ctx context.Context, method, ref, accept, contentType string, body []byte, limit int64, data, anonymous bool) (answer, error) {
+func (c *Client) send(ctx context.Context, method, ref, accept, contentType string, body []byte, limit int64, data, anonymous bool, headers func(status int, location string) error) (answer, error) {
 	if c.refusal != nil {
 		// The credential was refused once; it is not sent again.
 		return answer{}, c.refusal
@@ -196,14 +199,25 @@ func (c *Client) send(ctx context.Context, method, ref, accept, contentType stri
 	}
 	resp, err := c.hc.Do(req)
 	if err != nil {
-		return answer{}, devicetls.Explain(err)
+		err = devicetls.Explain(err)
+		var timeout net.Error
+		if method != http.MethodGet && errors.As(err, &timeout) && timeout.Timeout() {
+			// The request may have reached the device before the deadline.
+			return answer{}, &AnswerLostError{Err: err}
+		}
+		return answer{}, err
 	}
 	defer func() { _ = resp.Body.Close() }()
+	if headers != nil {
+		if err := headers(resp.StatusCode, resp.Header.Get("Location")); err != nil {
+			return answer{}, err
+		}
+	}
 	// One byte past the bound is read, so an answer exactly at it is
 	// accepted and one over it is known to be over without reading the rest.
 	read, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
 	if err != nil {
-		return answer{}, fmt.Errorf("reading the answer to %s %s: %w", method, u.EscapedPath(), err)
+		return answer{}, &AnswerLostError{Err: fmt.Errorf("reading the answer to %s %s: %w", method, u.EscapedPath(), err)}
 	}
 	a := answer{status: resp.StatusCode, mediaType: mediaTypeOf(resp.Header.Get("Content-Type")), body: read, location: resp.Header.Get("Location")}
 	if !anonymous && c.refuses(a.status, data) {
@@ -262,6 +276,22 @@ func (e *RefusedError) Error() string {
 	}
 	return "the device refused the credential: " + e.Answer.Error()
 }
+
+// AnswerLostError is a write (any request but a read) whose answer never
+// came whole: the deadline passed while waiting, or the answer's body could not be
+// read. The device may have applied the write or not; only reading the
+// resource again says which.
+type AnswerLostError struct {
+	Err error
+}
+
+// Error says the answer was lost and what is not known.
+func (e *AnswerLostError) Error() string {
+	return e.Err.Error() + ": whether the device applied it is not known, so read the resource before writing again"
+}
+
+// Unwrap returns why the answer was lost.
+func (e *AnswerLostError) Unwrap() error { return e.Err }
 
 // Refused reports that the device refused the login (or asked for one this
 // device sends none of): the answer is the same however often it is asked,

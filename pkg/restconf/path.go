@@ -11,6 +11,7 @@ package restconf
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -72,6 +73,34 @@ func (p Path) Escaped() (string, error) {
 		parts = append(parts, part)
 	}
 	return strings.Join(parts, "/"), nil
+}
+
+// Child reports whether p names one data node directly under parent: every
+// node of parent, the same node by module (an empty module inheriting the
+// one before), name and keys, and exactly one more. A post's Location is
+// read as the resource the post created only when it is: a Location naming
+// the parent itself, a sibling or anything deeper is not one.
+func (p Path) Child(parent Path) bool {
+	if len(p) != len(parent)+1 {
+		return false
+	}
+	var mp, mq string
+	for i, s := range parent {
+		mp, mq = inherit(mp, s.Module), inherit(mq, p[i].Module)
+		if mp != mq || s.Name != p[i].Name || !slices.Equal(s.Keys, p[i].Keys) {
+			return false
+		}
+	}
+	return true
+}
+
+// inherit is a node's module: its own, or the one before it when it names
+// none.
+func inherit(before, own string) string {
+	if own == "" {
+		return before
+	}
+	return own
 }
 
 // escaped is one node as an api-identifier or a list-instance.

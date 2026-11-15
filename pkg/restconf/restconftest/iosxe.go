@@ -170,6 +170,9 @@ func (s *Server) iosxeWrite(w http.ResponseWriter, r *http.Request, path string)
 		w.Header().Set("Content-Type", res.mediaType)
 		_, _ = w.Write(res.body)
 	case http.MethodPut:
+		// 201 for a create and 204 for a replace are RFC 8040 section 4.5's;
+		// the router's own answers to a put were not captured (its post
+		// answered 201).
 		s.Store(path, r.Header.Get("Content-Type"), readBody(r))
 		if exists {
 			w.WriteHeader(http.StatusNoContent)
