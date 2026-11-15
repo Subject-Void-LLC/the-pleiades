@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/httpapi"
@@ -417,12 +418,30 @@ func TestGetData_NeedsTheRoot(t *testing.T) {
 	}
 }
 
-func TestDiscover_PastTheHostMetaBoundIsRefused(t *testing.T) {
+// TestDiscover_AnEndlessAnswerIsCutAtItsBound serves a host-meta that never
+// ends: the read stops one byte past the bound and refuses it at once. A
+// length check after an unbounded read would pass a fixed oversized answer
+// too (FAILURE_PATTERNS 1184), so the answer here has no end to reach, and a
+// client without the bound would wait for its request timeout instead.
+func TestDiscover_AnEndlessAnswerIsCutAtItsBound(t *testing.T) {
 	opts := login
-	opts.HostMeta = `<XRD xmlns="http://docs.oasis-open.org/ns/xri/xrd-1.0"><Link rel="restconf" href="/restconf"/>` + strings.Repeat(" ", restconf.MaxHostMetaBytes) + `</XRD>`
+	opts.Override = map[string]http.HandlerFunc{"/.well-known/host-meta": func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/xrd+xml")
+		chunk := []byte(strings.Repeat(" ", 4096))
+		for r.Context().Err() == nil {
+			if _, err := w.Write(chunk); err != nil {
+				return
+			}
+		}
+	}}
 	s := restconftest.New(t, opts)
-	if _, _, err := discover(t, s, restconftest.NewDevice(t, s)); err == nil || !strings.Contains(err.Error(), "larger than") {
-		t.Fatalf("Discover = %v, want the oversized host-meta refused", err)
+	start := time.Now()
+	_, _, err := discover(t, s, restconftest.NewDevice(t, s))
+	if err == nil || !strings.Contains(err.Error(), "larger than") {
+		t.Fatalf("Discover = %v, want the endless host-meta refused past its bound", err)
+	}
+	if elapsed := time.Since(start); elapsed > 20*time.Second {
+		t.Errorf("the refusal took %s, want it at the bound, not at a timeout", elapsed)
 	}
 }
 
