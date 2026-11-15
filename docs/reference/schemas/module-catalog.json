@@ -13108,6 +13108,12 @@
         "description": "The SHA-256 (hex) of the device's data models in their canonical form (every module's name, namespace, revision, features and deviations, sorted, as JSON), the protocols' own modules left out as yang.modules leaves them, so one device read over NETCONF and over RESTCONF gives one value, two devices implementing the same models read alike, and any change to the set reads as a change of this one value."
       },
       {
+        "key": "yang.digest_rule",
+        "kind": "stable",
+        "type": "string",
+        "description": "The rule yang.modules_digest was computed under: which modules it leaves out as the protocols' own, as protocol-modules- and 12 hex digits that change whenever that list changes. Compare two digests only when their rules are equal: a release that adds a module to the protocols' list changes every device's digest once, the devices unchanged."
+      },
+      {
         "key": "yang.completeness",
         "kind": "stable",
         "type": "string",
@@ -13250,6 +13256,12 @@
           "description": "The SHA-256 (hex) of the device's data models in their canonical form (every module's name, namespace, revision, features and deviations, sorted, as JSON), the protocols' own modules left out as yang.modules leaves them, so one device read over NETCONF and over RESTCONF gives one value, two devices implementing the same models read alike, and any change to the set reads as a change of this one value."
         },
         {
+          "name": "yang.digest_rule",
+          "type": "string",
+          "returned": "on every session, as a stat; as a fact only when its host key was verified",
+          "description": "The rule yang.modules_digest was computed under: which modules it leaves out as the protocols' own, as protocol-modules- and 12 hex digits that change whenever that list changes. Compare two digests only when their rules are equal: a release that adds a module to the protocols' list changes every device's digest once, the devices unchanged."
+        },
+        {
           "name": "yang.completeness",
           "type": "string",
           "returned": "on every session, as a stat; as a fact only when its host key was verified",
@@ -13339,6 +13351,12 @@
         "description": "The SHA-256 (hex) of the device's data models in their canonical form (every module's name, namespace, revision, features and deviations, sorted, as JSON), the protocols' own modules left out as yang.modules leaves them, so one device read over NETCONF and over RESTCONF gives one value, two devices implementing the same models read alike, and any change to the set reads as a change of this one value."
       },
       {
+        "key": "yang.digest_rule",
+        "kind": "stable",
+        "type": "string",
+        "description": "The rule yang.modules_digest was computed under: which modules it leaves out as the protocols' own, as protocol-modules- and 12 hex digits that change whenever that list changes. Compare two digests only when their rules are equal: a release that adds a module to the protocols' list changes every device's digest once, the devices unchanged."
+      },
+      {
         "key": "yang.completeness",
         "kind": "stable",
         "type": "string",
@@ -13398,6 +13416,12 @@
           "type": "string",
           "returned": "on every session, as a stat; as a fact only when its host key was verified",
           "description": "The SHA-256 (hex) of the device's data models in their canonical form (every module's name, namespace, revision, features and deviations, sorted, as JSON), the protocols' own modules left out as yang.modules leaves them, so one device read over NETCONF and over RESTCONF gives one value, two devices implementing the same models read alike, and any change to the set reads as a change of this one value."
+        },
+        {
+          "name": "yang.digest_rule",
+          "type": "string",
+          "returned": "on every session, as a stat; as a fact only when its host key was verified",
+          "description": "The rule yang.modules_digest was computed under: which modules it leaves out as the protocols' own, as protocol-modules- and 12 hex digits that change whenever that list changes. Compare two digests only when their rules are equal: a release that adds a module to the protocols' list changes every device's digest once, the devices unchanged."
         },
         {
           "name": "yang.completeness",
@@ -13750,7 +13774,7 @@
     "status": "implemented",
     "reversibility": {
       "reversible": true,
-      "notes": "A run that created the resource (a put to a path that was not there, or a post whose answer named the created resource in Location) records net.restconf.config with method delete of that path, which is exact, and stands even if the read after the write fails. A replace, a merge or a delete of a resource that was there records no undo: putting the earlier document back would keep it in the run's journal, which may hold secrets, so a rollback refuses such a task unless it is left (--leave) or the task's rollback: list says what to do; backup: true keeps the masked earlier document beside the run. A run that changed nothing records nothing.",
+      "notes": "A run whose write the device answered as a create records net.restconf.config with method delete of the resource created, which is exact: a put answered 201 Created (RFC 8040 section 4.5), or a post answered 201 Created whose Location names one node directly under path (section 4.4.1). It is recorded as the 201 arrives, so it stands whatever happens after, the read after the write included. A put answered 204 No Content or 200 is a replace, whatever the read before found (a 404 can be access control hiding a resource that is there), and a post whose Location names anything else, or nothing, records no undo either; the run says why. A replace, a merge or a delete of a resource that was there records no undo: putting the earlier document back would keep it in the run's journal, which may hold secrets, so a rollback refuses such a task unless it is left (--leave) or the task's rollback: list says what to do; backup: true keeps the masked earlier document beside the run. A run that changed nothing records nothing.",
       "inverses": [
         {
           "fqcn": "net.restconf.config",
@@ -13817,6 +13841,12 @@
         "description": "The SHA-256 (hex) of the device's data models in their canonical form (every module's name, namespace, revision, features and deviations, sorted, as JSON), the protocols' own modules left out as yang.modules leaves them, so one device read over NETCONF and over RESTCONF gives one value, two devices implementing the same models read alike, and any change to the set reads as a change of this one value."
       },
       {
+        "key": "yang.digest_rule",
+        "kind": "stable",
+        "type": "string",
+        "description": "The rule yang.modules_digest was computed under: which modules it leaves out as the protocols' own, as protocol-modules- and 12 hex digits that change whenever that list changes. Compare two digests only when their rules are equal: a release that adds a module to the protocols' list changes every device's digest once, the devices unchanged."
+      },
+      {
         "key": "yang.completeness",
         "kind": "stable",
         "type": "string",
@@ -13831,7 +13861,7 @@
     ],
     "doc": {
       "summary": "Writes one YANG data resource over RESTCONF (post, put, patch or delete), reporting whether it changed, with an optional pre-change backup.",
-      "description": "Finds the device's RESTCONF root from its /.well-known/host-meta, read with no credential, or, when host-meta answers 404 or a redirect (never followed), as IOS XE answers it to anything but a valid login with a 302 to its WebUI's login page (404 there), takes the conventional /restconf for the first authenticated read to confirm; it reads its capabilities and YANG library as net.restconf.facts does (recording the same facts), and writes the resource path names with method: post creates content under path, put creates or replaces the resource at path, patch merges content into it, and delete removes it. Parameter names are ansible.netcommon.restconf_config's own. The device is reached at its own origin with its own TLS (always verified, a pinned certificate included) and its own stored credential, following no redirect, and a refused credential is sent once and never again. path is parsed, never passed on: each node is held to the YANG identifier grammar and each key decoded once and encoded again, so a key holding / or , stays inside its key and never addresses another resource. A module the device does not implement is refused before anything is sent, when its YANG library was read whole, and so is a datastore its library does not list. The resource is read before and after the write, in format, and the two compared with key order and white space set aside, so a run that leaves the resource as it found it reports no change: a put or patch of what is already there changes nothing, a delete of a resource that is not there sends nothing, and a post answered 409 Conflict (RFC 8040's resource-denied, or data-exists: the resource is there already, and post never replaces one) changes nothing and says so. A patch of a resource that is not there is refused before anything is sent. A rejected write comes back as the device's own ietf-restconf:errors, structured and masked. Every answer recorded (the backup, the diff and every error) is masked by value, the device's credential and every named secret the content resolved in each form it could be echoed in, and then by shape, every secret-named leaf and crypt-shaped value; the content itself is never recorded.",
+      "description": "Finds the device's RESTCONF root from its /.well-known/host-meta, read with no credential, or, when host-meta answers 404 or a redirect (never followed), as IOS XE answers it to anything but a valid login with a 302 to its WebUI's login page (404 there), takes the conventional /restconf for the first authenticated read to confirm; it reads its capabilities and YANG library as net.restconf.facts does (recording the same facts), and writes the resource path names with method: post creates content under path, put creates or replaces the resource at path, patch merges content into it, and delete removes it. A write to the conventional /restconf that nothing under it confirmed (neither the capabilities nor the YANG library answered) is refused before the document is sent. Parameter names are ansible.netcommon.restconf_config's own. The device is reached at its own origin with its own TLS (always verified, a pinned certificate included) and its own stored credential, following no redirect, and a refused credential is sent once and never again. path is parsed, never passed on: each node is held to the YANG identifier grammar and each key decoded once and encoded again, so a key holding / or , stays inside its key and never addresses another resource. A module the device does not implement is refused before anything is sent, when its YANG library was read whole, and so is a datastore its library does not list. The resource is read before and after the write, in format, and the two compared with key order and white space set aside, so a run that leaves the resource as it found it reports no change: a put or patch of what is already there changes nothing, a delete of a resource that is not there sends nothing, and a post answered 409 Conflict (RFC 8040's resource-denied, or data-exists: the resource is there already, and post never replaces one) changes nothing and says so. A patch of a resource that is not there is refused before anything is sent. A rejected write comes back as the device's own ietf-restconf:errors, structured and masked. Every answer recorded (the backup, the diff and every error) is masked by value, the device's credential and every named secret the content resolved in each form it could be echoed in, and then by shape, every secret-named leaf and crypt-shaped value; the content itself is never recorded.",
       "params": [
         {
           "name": "path",
@@ -13883,7 +13913,7 @@
           "name": "backup",
           "type": "bool",
           "default": "false",
-          "description": "Record the resource as it was before the write under the backup stat, masked as every recorded answer is (empty when the resource was not there). A document masking cannot vouch for fails the task before anything is written."
+          "description": "Record the resource as it was before the write under the backup stat, masked as every recorded answer is: empty when the resource was not there, and always for a post, which reads nothing before it writes (path is the parent, and the resource a post creates is not there yet). A document masking cannot vouch for fails the task before anything is written."
         }
       ],
       "returns": [
@@ -13891,7 +13921,7 @@
           "name": "backup",
           "type": "string",
           "returned": "when backup is true",
-          "description": "The resource as the device answered it before the write, in format, masked by value (the device's credential and every named secret the content resolved) and by shape (every secret-named leaf and crypt-shaped value); empty when the resource was not there. net.restconf.config refuses content holding a placeholder, so this text cannot be written back as it is."
+          "description": "The resource as the device answered it before the write, in format, masked by value (the device's credential and every named secret the content resolved) and by shape (every secret-named leaf and crypt-shaped value); empty when the resource was not there, and always for a post. net.restconf.config refuses content holding a placeholder, so this text cannot be written back as it is."
         },
         {
           "name": "restconf.root",
@@ -13940,6 +13970,12 @@
           "type": "string",
           "returned": "when the YANG library was read, as a stat; as a fact only when the device was reached over https",
           "description": "The SHA-256 (hex) of the device's data models in their canonical form (every module's name, namespace, revision, features and deviations, sorted, as JSON), the protocols' own modules left out as yang.modules leaves them, so one device read over NETCONF and over RESTCONF gives one value, two devices implementing the same models read alike, and any change to the set reads as a change of this one value."
+        },
+        {
+          "name": "yang.digest_rule",
+          "type": "string",
+          "returned": "when the YANG library was read, as a stat; as a fact only when the device was reached over https",
+          "description": "The rule yang.modules_digest was computed under: which modules it leaves out as the protocols' own, as protocol-modules- and 12 hex digits that change whenever that list changes. Compare two digests only when their rules are equal: a release that adds a module to the protocols' list changes every device's digest once, the devices unchanged."
         },
         {
           "name": "yang.completeness",
@@ -14041,6 +14077,12 @@
         "description": "The SHA-256 (hex) of the device's data models in their canonical form (every module's name, namespace, revision, features and deviations, sorted, as JSON), the protocols' own modules left out as yang.modules leaves them, so one device read over NETCONF and over RESTCONF gives one value, two devices implementing the same models read alike, and any change to the set reads as a change of this one value."
       },
       {
+        "key": "yang.digest_rule",
+        "kind": "stable",
+        "type": "string",
+        "description": "The rule yang.modules_digest was computed under: which modules it leaves out as the protocols' own, as protocol-modules- and 12 hex digits that change whenever that list changes. Compare two digests only when their rules are equal: a release that adds a module to the protocols' list changes every device's digest once, the devices unchanged."
+      },
+      {
         "key": "yang.completeness",
         "kind": "stable",
         "type": "string",
@@ -14104,6 +14146,12 @@
           "type": "string",
           "returned": "when the YANG library was read, as a stat; as a fact only when the device was reached over https",
           "description": "The SHA-256 (hex) of the device's data models in their canonical form (every module's name, namespace, revision, features and deviations, sorted, as JSON), the protocols' own modules left out as yang.modules leaves them, so one device read over NETCONF and over RESTCONF gives one value, two devices implementing the same models read alike, and any change to the set reads as a change of this one value."
+        },
+        {
+          "name": "yang.digest_rule",
+          "type": "string",
+          "returned": "when the YANG library was read, as a stat; as a fact only when the device was reached over https",
+          "description": "The rule yang.modules_digest was computed under: which modules it leaves out as the protocols' own, as protocol-modules- and 12 hex digits that change whenever that list changes. Compare two digests only when their rules are equal: a release that adds a module to the protocols' list changes every device's digest once, the devices unchanged."
         },
         {
           "name": "yang.completeness",

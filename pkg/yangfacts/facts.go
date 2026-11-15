@@ -27,10 +27,15 @@ const (
 	FactModuleDigest = "yang.modules_digest"
 	FactCompleteness = "yang.completeness"
 	FactContentID    = "yang.content_id"
+	FactDigestRule   = "yang.digest_rule"
 )
 
 // FactKeys are the yang.* facts in the order a discovery records them.
-var FactKeys = []string{FactModules, FactModuleCount, FactModuleDigest, FactCompleteness, FactContentID}
+var FactKeys = []string{FactModules, FactModuleCount, FactModuleDigest, FactDigestRule, FactCompleteness, FactContentID}
+
+// DigestRuleDescription documents yang.digest_rule, for every method
+// recording it and its catalog entry alike.
+const DigestRuleDescription = "The rule yang.modules_digest was computed under: which modules it leaves out as the protocols' own, as protocol-modules- and 12 hex digits that change whenever that list changes. Compare two digests only when their rules are equal: a release that adds a module to the protocols' list changes every device's digest once, the devices unchanged."
 
 // MaxListFactBytes is the most a list fact may take as JSON and still be
 // recorded, under the fact store's 64 KiB value bound with room for its own
@@ -79,6 +84,7 @@ func Returns(when string, src Source) []collection.ReturnField {
 		{Name: FactModules, Type: "list of string", Returned: "when the list fits in 60 KiB as JSON", Description: "Every YANG module the device implements, each as name@revision (the name alone for a module with no revision), sorted, read " + src.Modules + ". The protocols' own modules, which each server lists for itself, are left out (they are in netconf.modules or restconf.modules), so the list is the same whichever protocol read it. An entry that is not a YANG identifier, a revision date or a printable namespace is left out whole, never cut short. Left out when the list does not fit; yang.module_count and yang.modules_digest are always recorded."},
 		{Name: FactModuleCount, Type: "int", Returned: when, Description: "How many YANG modules the device implements, as yang.modules counts them."},
 		{Name: FactModuleDigest, Type: "string", Returned: when, Description: "The SHA-256 (hex) of the device's data models in their canonical form (every module's name, namespace, revision, features and deviations, sorted, as JSON), the protocols' own modules left out as yang.modules leaves them, so one device read over NETCONF and over RESTCONF gives one value, two devices implementing the same models read alike, and any change to the set reads as a change of this one value."},
+		{Name: FactDigestRule, Type: "string", Returned: when, Description: DigestRuleDescription},
 		{Name: FactCompleteness, Type: "string", Returned: when, Description: src.Completeness},
 		{Name: FactContentID, Type: "string", Returned: src.ContentID, Description: "The YANG library's content-id " + src.ContentIDFrom + ", a hint the device may regenerate on restart; yang.modules_digest is the module set's identity."},
 	}
@@ -95,6 +101,7 @@ func Values(d yanglib.Discovery, src Source) (map[string]any, []string, error) {
 	values := map[string]any{
 		FactModuleCount:  len(data),
 		FactModuleDigest: d.ModulesDigest(),
+		FactDigestRule:   yanglib.DigestRule(),
 		FactCompleteness: string(d.Completeness),
 	}
 	if d.ContentID != "" {

@@ -59,7 +59,7 @@ func TestValues_TheFamilyADiscoveryGives(t *testing.T) {
 	if got := strings.Join(values[FactModules].([]string), ","); got != "ietf-interfaces@2018-02-20,vendor-x" {
 		t.Errorf("yang.modules = %q, want name@revision, the name alone with no revision", got)
 	}
-	if values[FactModuleCount] != 2 || values[FactCompleteness] != "complete" || values[FactContentID] != "c1" || values[FactModuleDigest] != discovery().ModulesDigest() {
+	if values[FactModuleCount] != 2 || values[FactCompleteness] != "complete" || values[FactContentID] != "c1" || values[FactModuleDigest] != discovery().ModulesDigest() || values[FactDigestRule] != yanglib.DigestRule() {
 		t.Errorf("values = %v", values)
 	}
 	d := discovery()
@@ -138,10 +138,10 @@ func TestReturns_DocumentsEveryKeyForTheProtocol(t *testing.T) {
 			t.Errorf("return %d = %+v, want %s documented", i, r, FactKeys[i])
 		}
 	}
-	if returns[1].Returned != "always here" || returns[4].Returned != RestconfSource.ContentID || returns[3].Description != RestconfSource.Completeness {
+	if returns[1].Returned != "always here" || returns[5].Returned != RestconfSource.ContentID || returns[4].Description != RestconfSource.Completeness || returns[3].Description != DigestRuleDescription {
 		t.Error("the protocol's own wording did not reach the returns")
 	}
-	if !strings.Contains(returns[0].Description, RestconfSource.Modules) || !strings.Contains(returns[4].Description, RestconfSource.ContentIDFrom) {
+	if !strings.Contains(returns[0].Description, RestconfSource.Modules) || !strings.Contains(returns[5].Description, RestconfSource.ContentIDFrom) {
 		t.Error("the modules or content-id source is not said")
 	}
 }

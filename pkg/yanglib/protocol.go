@@ -8,6 +8,13 @@
 // library and not the other's on a real device, named with where and when.
 package yanglib
 
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"sort"
+	"strings"
+)
+
 // The protocols a library is read over.
 const (
 	ProtocolNETCONF  = "netconf"
@@ -39,6 +46,24 @@ var protocolModules = []ProtocolModule{
 	{Name: "ietf-netconf-with-defaults", Protocol: ProtocolNETCONF, Measured: measuredCatalyst8000V},
 	{Name: "tailf-netconf-extensions", Protocol: ProtocolNETCONF, Measured: measuredCatalyst8000V},
 	{Name: "tailf-rest-query", Protocol: ProtocolRESTCONF, Measured: measuredCatalyst8000V},
+}
+
+// DigestRule names the rule ModulesDigest is computed under: which modules
+// it leaves out as the protocols' own. It is "protocol-modules-" and the first
+// 12 hex digits of the SHA-256 of the list, each entry "protocol:name" on a
+// line of its own, sorted, so it is short, the same on every build holding
+// the same list, and different on any build whose list differs. A reader
+// compares two yang.modules_digest values only when their rules are equal:
+// a digest changes with the list as surely as with the device, and a fleet
+// on two releases otherwise reads every device as drifted.
+func DigestRule() string {
+	lines := make([]string, 0, len(protocolModules))
+	for _, m := range protocolModules {
+		lines = append(lines, m.Protocol+":"+m.Name)
+	}
+	sort.Strings(lines)
+	sum := sha256.Sum256([]byte(strings.Join(lines, "\n") + "\n"))
+	return "protocol-modules-" + hex.EncodeToString(sum[:])[:12]
 }
 
 // ProtocolModules returns every module known to be a protocol's own, a copy.

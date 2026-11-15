@@ -11,6 +11,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/restconf"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/yanglib"
 )
 
 type restconfProber struct{}
@@ -80,6 +81,7 @@ func restconfProbed(d restconf.Discovery) Probed {
 		// summary leaves out (yang.* is protocol-neutral).
 		"restconf_modules":    factList(moduleNames(d.OwnModules())),
 		"yang_modules_digest": d.ModulesDigest(),
+		"yang_digest_rule":    yanglib.DigestRule(),
 		"yang_completeness":   string(d.Completeness),
 	}
 	var warnings []string

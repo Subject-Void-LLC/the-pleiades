@@ -452,3 +452,23 @@ func TestDiscovery_TheProtocolsOwnModulesAreLeftOutOfTheDataModels(t *testing.T)
 		}
 	}
 }
+
+// TestDigestRule_IsHeldToTheList pins the rule to the list it names: a change
+// to the protocols' modules changes every device's yang.modules_digest once,
+// and must change yang.digest_rule with it, so a reader never compares
+// digests computed under two lists. Changing the list fails this test until
+// both pins move, and that change is a fleet-wide digest change to note in
+// the changelog.
+func TestDigestRule_IsHeldToTheList(t *testing.T) {
+	var got []string
+	for _, m := range ProtocolModules() {
+		got = append(got, m.Protocol+":"+m.Name)
+	}
+	want := "netconf:ietf-netconf,netconf:ietf-netconf-with-defaults,netconf:tailf-netconf-extensions,restconf:tailf-rest-query"
+	if strings.Join(got, ",") != want {
+		t.Fatalf("the protocols' modules are %v; move the pinned list and DigestRule's pin together", got)
+	}
+	if rule := DigestRule(); rule != "protocol-modules-9e973b536c75" {
+		t.Errorf("DigestRule = %s, want the rule pinned for this list", rule)
+	}
+}

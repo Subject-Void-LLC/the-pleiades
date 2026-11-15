@@ -97,6 +97,7 @@ func netconfProbed(d netconf.Discovery, framing string) Probed {
 		// summary leaves out (yang.* is protocol-neutral).
 		"netconf_modules":     factList(moduleNames(d.OwnModules())),
 		"yang_modules_digest": d.ModulesDigest(),
+		"yang_digest_rule":    yanglib.DigestRule(),
 		"yang_completeness":   string(d.Completeness),
 	}
 	var warnings []string
