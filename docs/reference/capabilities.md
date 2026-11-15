@@ -33,6 +33,7 @@ What a device *can do*, not what it *is*. A Collection method declares which cap
 | `FactGathererCapable` | - | - |
 | `FileTransferCapable` | - | - |
 | `FirewalldCapable` | `SystemdCapable` | - |
+| `GNMICapable` | - | - |
 | `GRPCCapable` | - | - |
 | `HTTPAPICapable` | - | - |
 | `JunosCapable` | `NetworkCLICapable` | - |
@@ -63,7 +64,7 @@ What a device *can do*, not what it *is*. A Collection method declares which cap
 | `WindowsServiceCapable` | `ServiceManagerCapable` | - |
 | `WindowsShellCapable` | `CommandExecCapable` | - |
 
-52 capabilities registered.
+53 capabilities registered.
 
 ## Transports
 
@@ -76,6 +77,7 @@ How a method's work reaches its device. A method lists the transports it uses; a
 | `engine_socket` | `EngineSocketCapable` |
 | `engine_stdio` | `EngineStdioCapable` |
 | `engine_tls` | `EngineTLSCapable` |
+| `gnmi` | `GNMICapable` |
 | `https` | `HTTPAPICapable`, `CatalystAPICapable`, `AIProviderCapable`, `CloudflareAPICapable`, `BatfishAPICapable`, `CMLAPICapable`, `ContainerlabAPICapable` |
 | `kubernetes` | `KubernetesCapable` |
 | `netconf` | `NetconfCapable` |
