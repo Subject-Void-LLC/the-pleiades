@@ -1043,10 +1043,10 @@ func (r *run) runNode(ctx context.Context, nodeID string) []NodeResult {
 	started := time.Now().UTC()
 
 	// A task whose every target device is outside this run (--limit, a
-	// serial: batch) is skipped before its condition or parameters are read
-	// (narrowing.go).
+	// serial: batch) is skipped before its condition or parameters are read,
+	// or fails when it is a rescue its block needs now (narrowing.go).
 	if narrowed := r.narrowedAway(task); narrowed != nil {
-		return []NodeResult{r.narrowedSkip(nodeID, task, started, narrowed)}
+		return []NodeResult{r.narrowedResult(nodeID, task, started, narrowed)}
 	}
 
 	// A task inside a block with a rescue: or an always: decides per device

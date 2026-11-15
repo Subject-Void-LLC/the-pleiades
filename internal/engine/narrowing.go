@@ -156,23 +156,58 @@ func (r *run) narrowedAway(task *Task) *narrowedTarget {
 	return nil
 }
 
-// unresolved is nodeID's result when its devices did not resolve: a skip
-// naming why when the run's narrowing hid every device its target names, and
-// a failure to resolve its target otherwise.
+// unresolved is nodeID's result when its devices did not resolve: the
+// narrowed result (narrowedResult) when the run's narrowing hid every device
+// its target names, and a failure to resolve its target otherwise.
 func (r *run) unresolved(nodeID string, task *Task, started time.Time, err error) NodeResult {
 	var narrowed *narrowedTarget
 	if errors.As(err, &narrowed) {
-		return r.narrowedSkip(nodeID, task, started, narrowed)
+		return r.narrowedResult(nodeID, task, started, narrowed)
 	}
 	wrapped := fmt.Errorf("failed to resolve target for %s: %w", taskLabel(nodeID, task), err)
 	r.publish(nodeID, task, "", "failed", wrapped.Error())
 	return failedNode(nodeID, started, FailureStageResolveTarget, wrapped)
 }
 
-// narrowedSkip is nodeID's skip on a run that does not reach any device its
-// target names.
-func (r *run) narrowedSkip(nodeID string, task *Task, started time.Time, n *narrowedTarget) NodeResult {
+// narrowedResult is nodeID's result on a run that does not reach any device
+// its target names. It is a skip naming the devices and why, except for a
+// rescue task while its block is handling a failure: a rescue that cannot run
+// answers nothing, so it fails, and the failure it was to answer stands
+// (fail closed). Skipping it would leave the rescue "finished without
+// failing", which reads as rescued, and a run that did nothing would exit 0.
+// An always: task is a skip whatever its block is doing, since it answers no
+// failure; its skip line names the devices and the limit or batch.
+func (r *run) narrowedResult(nodeID string, task *Task, started time.Time, n *narrowedTarget) NodeResult {
+	if r.rescueWanted(nodeID) {
+		err := fmt.Errorf("rescue task %s cannot run, so it does not answer the failure its block is handling: %w", taskLabel(nodeID, task), n)
+		r.publish(nodeID, task, "", "failed", err.Error())
+		// A resolve_target failure fails every device of the block alike and
+		// ends the run, the always: of its blocks still running (handlers.go
+		// failed), as a rescue whose target matched nothing always did.
+		return failedNode(nodeID, started, FailureStageResolveTarget, err)
+	}
 	reason := n.Error()
 	r.publish(nodeID, task, "", "skipped", reason)
 	return finish(NodeResult{NodeID: nodeID, StartedAt: started, Skipped: true, SkipReason: reason, skipKind: SkipKindLimit})
+}
+
+// rescueWanted reports whether nodeID is a rescue task that would run now for
+// some handling: its block, or a block it is inside, is answering a failure
+// there (handlers.decide). The handlers are read only at the level barrier's
+// side, never written while a level runs, so reading them here is safe.
+func (r *run) rescueWanted(nodeID string) bool {
+	if !InPart(r.dag.Scopes[nodeID], PartRescue) {
+		return false
+	}
+	if key := r.handlers.key(nodeID, ""); key != "" {
+		// A unit block keys every device together.
+		ok, _ := r.handlers.decide(nodeID, "")
+		return ok
+	}
+	for key := range r.handlers.frames {
+		if ok, _ := r.handlers.decide(nodeID, key); ok {
+			return true
+		}
+	}
+	return false
 }

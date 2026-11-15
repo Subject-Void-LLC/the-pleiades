@@ -7,6 +7,7 @@ package engine_test
 
 import (
 	"context"
+	"errors"
 	"slices"
 	"strings"
 	"sync"
@@ -138,6 +139,9 @@ func (c *callLog) Execute(_ context.Context, task *engine.Task, d inventory.Inve
 		device = d.Name()
 	}
 	c.calls = append(c.calls, task.Name+"@"+device)
+	if task.FQCN == engine.FailName {
+		return engine.ActionResult{}, errors.New("failed on purpose")
+	}
 	return engine.ActionResult{Stats: map[string]any{"x": "y"}}, nil
 }
 
@@ -249,5 +253,68 @@ func TestNarrowing_ANameThatMatchesNothingStillFails(t *testing.T) {
 		if len(result.Nodes) == 0 || result.Nodes[0].Err == nil || !strings.Contains(result.Nodes[0].Err.Error(), want) {
 			t.Errorf("%s: got %+v, want an error holding %q", runbook, result.Nodes, want)
 		}
+	}
+}
+
+// TestNarrowing_ARescueTheRunCannotReachDoesNotRescue: a rescue task whose
+// every device is outside the run cannot answer the failure its block is
+// handling, so it fails naming the limit and the failure stands: the run
+// fails, nothing reads it as rescued, and the always task is skipped naming
+// the limit. Skipped, it read as a rescue that finished without failing, and a
+// run that did nothing exited 0. A rescue with no failure to answer is still
+// a skip.
+func TestNarrowing_ARescueTheRunCannotReachDoesNotRescue(t *testing.T) {
+	const runbook = `id: r
+hosts: web,wan
+tasks:
+  - name: guarded
+    block:
+      - name: breaks
+        BREAK
+    rescue:
+      - name: fix-on-wan
+        noop:
+          target: wan
+    always:
+      - name: cleanup-on-wan
+        noop:
+          target: wan
+`
+	calls, entries, result := runNarrowed(t, strings.Replace(runbook, "BREAK", "fail: {msg: on purpose}", 1), nil)
+	if !result.HasErrors() || result.Rescued() {
+		t.Fatalf("HasErrors %v, Rescued %v: %+v", result.HasErrors(), result.Rescued(), result.Nodes)
+	}
+	if want := []string{"breaks@w1"}; !slices.Equal(calls, want) {
+		t.Errorf("ran %v, want %v", calls, want)
+	}
+	byNode := map[string]engine.NodeResult{}
+	for _, n := range result.Nodes {
+		byNode[n.NodeID] = n
+	}
+	rescue := byNode["tasks[0].rescue[0]"]
+	if rescue.Err == nil || !strings.Contains(rescue.Err.Error(), "cannot run, so it does not answer the failure its block is handling") ||
+		!strings.Contains(rescue.Err.Error(), `edge1 is outside --limit "w1"`) {
+		t.Errorf("the narrowed rescue: %+v", rescue)
+	}
+	if always := byNode["tasks[0].always[0]"]; !always.Skipped || !strings.Contains(always.SkipReason, `edge1 is outside --limit "w1"`) {
+		t.Errorf("the narrowed always: %+v", always)
+	}
+	for _, e := range entries {
+		if e.NodeID == "tasks[0].rescue[0]" && (e.Outcome != engine.OutcomeFailed || e.FailureStage != engine.FailureStageResolveTarget) {
+			t.Errorf("the rescue was journaled %s at %s", e.Outcome, e.FailureStage)
+		}
+	}
+
+	// A rescue whose target matches nothing at all answers nothing either: it
+	// failed, and the block's failure was still marked rescued by it.
+	_, _, result = runNarrowed(t, strings.Replace(strings.Replace(runbook, "BREAK", "fail: {msg: on purpose}", 1), "target: wan\n    always", "target: nosuch\n    always", 1), nil)
+	if !result.HasErrors() || result.Rescued() {
+		t.Errorf("a rescue matching nothing: HasErrors %v, Rescued %v", result.HasErrors(), result.Rescued())
+	}
+
+	// With nothing failed there is nothing to answer: the rescue is skipped.
+	_, _, result = runNarrowed(t, strings.Replace(runbook, "BREAK", "noop: {}", 1), nil)
+	if result.HasErrors() {
+		t.Errorf("a block that did not fail: %+v", result.Nodes)
 	}
 }

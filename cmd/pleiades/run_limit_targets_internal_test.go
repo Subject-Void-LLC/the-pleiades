@@ -180,3 +180,67 @@ func TestSerial_ATargetInAnotherBatchRunsInItsOwn(t *testing.T) {
 		}
 	}
 }
+
+// guardedWAN is a block whose task fails where batchLog is told to fail it,
+// with a rescue and an always on the wan router.
+const guardedWAN = `id: g
+hosts: c8kv,wan
+SERIAL
+tasks:
+  - name: guarded
+    block:
+      - name: breaks
+        noop: {}
+    rescue:
+      - name: fix on wan
+        noop:
+          target: wan
+    always:
+      - name: cleanup on wan
+        noop:
+          target: wan
+`
+
+// checkNotRescued fails t unless result failed, nothing in it reads as
+// rescued, and its rescue task failed naming why.
+func checkNotRescued(t *testing.T, result engine.RunResult, why string) {
+	t.Helper()
+	if !result.HasErrors() || result.Rescued() {
+		t.Fatalf("HasErrors %v, Rescued %v: %+v", result.HasErrors(), result.Rescued(), result.Nodes)
+	}
+	for _, n := range result.Nodes {
+		if n.NodeID == "tasks[0].rescue[0]" && (n.Err == nil || !strings.Contains(n.Err.Error(), "does not answer the failure its block is handling") || !strings.Contains(n.Err.Error(), why)) {
+			t.Errorf("the rescue: %+v", n)
+		}
+		if n.NodeID == "tasks[0].always[0]" && (!n.Skipped || !strings.Contains(n.SkipReason, why)) {
+			t.Errorf("the always: %+v", n)
+		}
+	}
+}
+
+// TestLimit_ARescueOutsideTheLimitDoesNotRescue: under --limit core1 a block
+// failing on core1 whose rescue names only the wan router is not rescued;
+// the run fails, naming the limit.
+func TestLimit_ARescueOutsideTheLimitDoesNotRescue(t *testing.T) {
+	dag := buildRunbook(t, strings.Replace(guardedWAN, "SERIAL\n", "", 1))
+	world := limitWorld(t, dag, "core1")
+	result, err := engine.NewExecutor(world, &batchLog{fail: map[string]bool{"core1": true}}, lock.NewInProcessManager(), event.NewInProcessBus(), engine.NewInProcessWorkflowContext(), 0).Run(context.Background(), dag)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkNotRescued(t, result, `wan1 is outside --limit "core1"`)
+}
+
+// TestSerial_ARescueInAnotherBatchDoesNotRescue: a block failing on br1 in
+// the first batch, whose rescue names only the wan router of the second, is
+// not rescued; the batch fails and the rollout stops.
+func TestSerial_ARescueInAnotherBatchDoesNotRescue(t *testing.T) {
+	dag := buildRunbook(t, strings.Replace(guardedWAN, "SERIAL\n", "serial: 2\n", 1))
+	runWorld, plan := planSerial(wanWorld(), dag, collection.ModeExecute)
+	x := engine.NewExecutor(runWorld, &batchLog{fail: map[string]bool{"br1": true}}, lock.NewInProcessManager(), event.NewInProcessBus(), engine.NewInProcessWorkflowContext(), 0)
+	result, err, stopped := runBatches(context.Background(), x, dag, plan, false)
+	if err != nil || stopped == nil {
+		t.Fatalf("err %v, stopped %v", err, stopped)
+	}
+	checkNotRescued(t, result, "wan1 is in another serial: batch")
+}

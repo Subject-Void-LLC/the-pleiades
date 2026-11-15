@@ -220,6 +220,19 @@ func (h *handlers) failed(n NodeResult) bool {
 	}
 	switch n.failureStage {
 	case FailureStageResolveTarget, FailureStageLockAll:
+		// A rescue task that failed so, while its block handled a failure,
+		// answered nothing on any device: every frame it was to answer keeps
+		// its failure, rather than reading as rescued once the walk passes
+		// the rescue (a rescue whose target matched nothing, or that the
+		// run's --limit or serial: batch does not reach, narrowing.go).
+		if innermost := scopes[len(scopes)-1]; innermost.Part == PartRescue {
+			for _, frames := range h.frames {
+				if top := frames[len(frames)-1]; top.block == innermost.Block && top.part == PartBlock {
+					top.rescueFailed = true
+					top.causes = append(top.causes, n)
+				}
+			}
+		}
 		// No frame, but the block failed: on every device, so each block
 		// with rollback_on_failure around it still undoes, everywhere.
 		for i := len(scopes) - 1; i >= 0; i-- {
