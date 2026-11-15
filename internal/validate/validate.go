@@ -131,6 +131,18 @@ func (w WorldView) taskDevices(task *engine.Task) (string, []inventory.Inventory
 	return target, devices
 }
 
+// unnarrowedDevices returns the devices task's target names (TaskTarget) in
+// the whole inventory, as taskDevices does but as if the run's narrowing
+// (engine.Narrowing: --limit, a serial: batch) hid nothing.
+func (w WorldView) unnarrowedDevices(task *engine.Task) []inventory.InventoryItem {
+	target := engine.TaskTarget(w.DAG, task)
+	if target == "" && w.Resolver == nil {
+		return nil
+	}
+	devices, _ := engine.ResolveTargets(engine.TargetResolverFunc(w.Unnarrowed), target)
+	return devices
+}
+
 // ResolveAll is Resolve for a target that may be a hosts: list (a
 // comma-separated string, engine.ResolveTargets): the devices it names, and
 // the names in it that match nothing. A name whose devices the run's

@@ -1,0 +1,1 @@
+`pleiades run --limit` no longer refuses a template reading a variable that only a device outside the limit brings, such as a hub's `host_vars` value inside an `{% if %}` only the hub takes, which `pleiades validate` accepted: a device's variables count for every device the task's target names, limited or not.
