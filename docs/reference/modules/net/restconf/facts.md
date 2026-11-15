@@ -59,7 +59,6 @@ A real run stores each of these as the device's fact. A **stable** fact keeps ev
 ## See also
 
 - `net.netconf.facts`
-- `http.request`
 
 ## Examples
 

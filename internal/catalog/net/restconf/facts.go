@@ -74,7 +74,7 @@ func factsDoc() collection.Doc {
 		Examples: []collection.Example{
 			{Name: "Read what a device offers over RESTCONF", RunbookYAML: "- name: Discover the device's YANG modules over RESTCONF\n  net.restconf.facts:\n  register: discovered\n"},
 		},
-		SeeAlso: []string{"net.netconf.facts", "http.request"},
+		SeeAlso: []string{"net.netconf.facts"},
 	}
 }
 

@@ -136,7 +136,7 @@ var networkCollections = []collectionscaffold.Config{
 					RunbookYAML: "- name: Discover the device's YANG modules over RESTCONF\n  net.restconf.facts:\n  register: discovered\n",
 				},
 			},
-			SeeAlso: []string{"net.netconf.facts", "http.request"},
+			SeeAlso: []string{"net.netconf.facts"},
 		},
 	},
 	{
