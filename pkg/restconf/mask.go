@@ -133,21 +133,23 @@ func (c *Client) MaskAlso(values ...string) {
 // Mask is text with every value the client masks replaced by its
 // placeholder: its credential in each form it could be echoed in, and what
 // MaskAlso added. A caller recording a device's answer masks it here first,
-// then by shape (pkg/netcfg). An answer that is one whole JSON value is
-// masked value by value (netcfg.EditJSON), so a short credential equal to a
-// number is replaced as the whole value and the answer still parses; CVD run 11 (2026-11-15) showed
-// what a replacement across the text does to a document, with a GRE key in
-// the credential's place. Any other answer is masked as text, and one that
-// was well-formed XML and no longer is returns an error and none of it.
+// then by shape (pkg/netcfg). A structured answer is masked by its decoded
+// values, never across its text: one whole JSON value value by value
+// (netcfg.EditJSON), so a short credential equal to a number is replaced as
+// the whole value and the answer still parses (CVD run 11, 2026-11-15, showed
+// what a replacement across the text does to a document); a well-formed XML
+// document by the decoded text of each element (netcfg.EditXML), so a
+// credential the device escaped as &apos;, &quot; or a numeric reference is
+// found, and one in an attribute returns an error and none of the answer.
+// Any other answer is masked as text.
 func (c *Client) Mask(text string) (string, error) {
-	if netcfg.WholeJSON(text) {
+	switch {
+	case netcfg.WholeJSON(text):
 		return netcfg.EditJSON(text, c.wholeValue)
+	case netcfg.WellFormedXML(text) && strings.HasPrefix(strings.TrimLeft(text, " \t\r\n"), "<"):
+		return netcfg.EditXML(text, c.maskSecrets)
 	}
-	masked := c.maskSecrets(text)
-	if err := netcfg.KeepsForm(text, masked); err != nil {
-		return "", err
-	}
-	return masked, nil
+	return c.maskSecrets(text), nil
 }
 
 // wholeValue is one value of a JSON answer, masked: a string as text is

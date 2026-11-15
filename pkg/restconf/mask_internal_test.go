@@ -37,17 +37,34 @@ func TestMask_AShortCredentialInAJSONAnswerLeavesItJSON(t *testing.T) {
 	}
 }
 
-// TestMask_AnXMLAnswerStaysWellFormedOrIsRefused: masking an XML answer that
-// would leave it broken is refused rather than returned.
-func TestMask_AnXMLAnswerStaysWellFormedOrIsRefused(t *testing.T) {
-	c := &Client{secrets: map[string]string{"password": "mtu"}}
-	if got, err := c.Mask(`<tunnel><mtu>1400</mtu><description>mtu set</description></tunnel>`); err != nil {
-		t.Errorf("Mask = %q, %v; renaming both tags keeps the document whole", got, err)
+// TestMask_AnXMLAnswerIsMaskedByItsDecodedText: a credential the device
+// escaped as &apos; and &quot;, or as numeric references, is found in the
+// text it decodes to and written back escaped; element names and markup are
+// never replaced, so a credential that only matches markup leaves the answer
+// as it was; and one in an attribute is refused with none of the answer.
+func TestMask_AnXMLAnswerIsMaskedByItsDecodedText(t *testing.T) {
+	const password = `pa'ss"word1`
+	c := &Client{secrets: map[string]string{"username": "admin", "password": password}}
+	answer := `<errors xmlns="urn:ietf:params:xml:ns:yang:ietf-restconf"><error><error-message>bad pa&apos;ss&quot;word1</error-message>` +
+		`<error-info>bad pa&#39;ss&#x22;word1</error-info></error></errors>`
+	got, err := c.Mask(answer)
+	if err != nil {
+		t.Fatal(err)
 	}
-	// A credential that spans markup, replaced whole, would cut the elements
-	// apart.
+	if !netcfg.WellFormedXML(got) || strings.Contains(got, "word1") || strings.Count(got, netcfg.Placeholder(password)) != 2 {
+		t.Errorf("Mask = %s, want both escapings masked and the answer well-formed", got)
+	}
+	c = &Client{secrets: map[string]string{"password": "mtu"}}
+	if got, err := c.Mask(`<tunnel><mtu>1400</mtu><description>mtu set</description></tunnel>`); err != nil || !strings.Contains(got, "<mtu>1400</mtu>") || !strings.Contains(got, netcfg.Placeholder("mtu")+" set") {
+		t.Errorf("Mask = %q, %v; want the element kept and the word in the text masked", got, err)
+	}
 	c = &Client{secrets: map[string]string{"password": "</mtu><desc>"}}
-	if got, err := c.Mask(`<tunnel><mtu>1400</mtu><desc>x</desc></tunnel>`); err == nil || got != "" {
-		t.Errorf("Mask = %q, %v; want it refused and none of the answer", got, err)
+	const markup = `<tunnel><mtu>1400</mtu><desc>x</desc></tunnel>`
+	if got, err := c.Mask(markup); err != nil || got != markup {
+		t.Errorf("Mask = %q, %v; want markup that only looks like the credential left as it was", got, err)
+	}
+	c = &Client{secrets: map[string]string{"password": password}}
+	if got, err := c.Mask(`<error name="pa&apos;ss&quot;word1"/>`); err == nil || got != "" {
+		t.Errorf("Mask = %q, %v; want a credential in an attribute refused", got, err)
 	}
 }

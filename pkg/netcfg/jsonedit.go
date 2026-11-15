@@ -224,11 +224,10 @@ func EditJSON(doc string, edit func(value string, number bool) string) (string, 
 // withheld rather than recorded: a backup nobody can restore from, or a diff
 // an agent reads wrongly, is worse than none.
 func KeepsForm(out, masked string) error {
-	trimmed := strings.TrimLeft(out, " \t\r\n")
 	switch {
 	case WholeJSON(out) && !WholeJSON(masked):
 		return errors.New("masking would leave the JSON output unreadable, so the output is not returned")
-	case strings.HasPrefix(trimmed, "<") && wellFormed(out) == nil && wellFormed(masked) != nil:
+	case looksXML(out) && wellFormed(out) == nil && wellFormed(masked) != nil:
 		return errors.New("masking would leave the XML output unreadable, so the output is not returned")
 	}
 	return nil
