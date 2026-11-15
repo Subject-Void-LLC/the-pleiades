@@ -20210,7 +20210,7 @@
     "seedsLoginIOSSecret": true,
     "doc": {
       "summary": "Creates a node in a CML lab, optionally seeded with an inventory device's login and address.",
-      "description": "Makes a node from a node definition, with the definition's interfaces, stopped. With device, the node stands for that inventory device (a cisco_router or cisco_switch; only an IOS or IOS XE definition): its day-0 configuration sets the hostname to the label, puts the device's host on management_interface in the Mgmt-intf VRF with a default route to management_gateway, enables SSH, and creates the device's login as \"username <user> privilege 15 secret 9 <hash>\" (and \"enable secret 9\" when the credential has an enable password), from the device's stored credential. The passwords never reach the runbook or the task's output: the method is handed type 9 hashes only. The hashes are in the node's configuration, which the controller keeps and anyone who can read the lab can read, so seed a node only from a device whose credential exists only in the lab. The console line logs an idle session out after five minutes. The vty lines (line vty 0 4) take SSH only (transport input ssh), so a seeded node refuses Telnet. configuration adds lines after those, so \"line vty 0 4\" then \" transport input ssh telnet\" there lets Telnet in as well. A node's interfaces are named as its definition names them, as CML 2.7.2 makes them: iol-xe has Loopback0 and Ethernet0/0 to Ethernet0/3 (and Ethernet1/0 on with interfaces), an unmanaged_switch has port0 to port7, and an external_connector has one interface, port, so it takes one link: join several nodes to it through an unmanaged switch. interfaces in the result lists them. A label the lab already uses is refused, so a second run is a refusal rather than a second node. Its undo is virt.cml.node.delete of the node's id. The task's target is a cml_controller device (its api_base, TLS settings and its own credential, stored with add-credential --password-stdin); the method runs on this machine and talks to the controller's REST API. A check reads the lab, the definition and the label and changes nothing.",
+      "description": "Makes a node from a node definition, with the definition's interfaces, stopped. With device, the node stands for that inventory device (a cisco_router or cisco_switch; only an IOS or IOS XE definition): its day-0 configuration sets the hostname to the label, puts the device's host on management_interface in the Mgmt-intf VRF with a default route to management_gateway, enables SSH, and creates the device's login as \"username <user> privilege 15 secret 9 <hash>\" (and \"enable secret 9\" when the credential has an enable password), from the device's stored credential. The passwords never reach the runbook or the task's output: the method is handed type 9 hashes only. The hashes are in the node's configuration, which the controller keeps and anyone who can read the lab can read, so seed a node only from a device whose credential exists only in the lab. The console line logs an idle session out after five minutes. The vty lines (line vty 0 4) take SSH only (transport input ssh), so a seeded node refuses Telnet. configuration adds lines after those, so \"line vty 0 4\" then \" transport input ssh telnet\" there lets Telnet in as well. On a cat8000v (Catalyst 8000V) node, configuration is also where two things later tasks need are set at day 0: the node has no crypto commands unless it sets \"license boot level network-advantage\", and with it the node reloads once after CML reports it BOOTED; and IOS XE serves NETCONF and RESTCONF only with \"aaa new-model\", \"aaa authentication login default local\" and \"aaa authorization exec default local\", while \"netconf-yang feature candidate-datastore\" gives it the candidate datastore. wait.netconf waits for its NETCONF listener. A node's interfaces are named as its definition names them, as CML 2.7.2 makes them: iol-xe has Loopback0 and Ethernet0/0 to Ethernet0/3 (and Ethernet1/0 on with interfaces), an unmanaged_switch has port0 to port7, and an external_connector has one interface, port, so it takes one link: join several nodes to it through an unmanaged switch. interfaces in the result lists them. A label the lab already uses is refused, so a second run is a refusal rather than a second node. Its undo is virt.cml.node.delete of the node's id. The task's target is a cml_controller device (its api_base, TLS settings and its own credential, stored with add-credential --password-stdin); the method runs on this machine and talks to the controller's REST API. A check reads the lab, the definition and the label and changes nothing.",
       "params": [
         {
           "name": "lab",
@@ -20308,7 +20308,8 @@
       "seeAlso": [
         "virt.cml.link.create",
         "virt.cml.node.delete",
-        "virt.cml.lab.start"
+        "virt.cml.lab.start",
+        "wait.netconf"
       ]
     }
   },
@@ -22604,6 +22605,131 @@
         "wait.path",
         "virt.vbox.vm.start",
         "pleiades.builtin.wait.port"
+      ]
+    }
+  },
+  "wait.netconf": {
+    "supportedTransports": [
+      "netconf"
+    ],
+    "requiredCapabilities": [
+      "NetconfCapable",
+      "SSHTransportCapable"
+    ],
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
+    "engineVersion": ">=0.2.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "This method waits for a device's NETCONF listener to answer and changes nothing on it, so there is nothing to undo.",
+      "readOnly": true
+    },
+    "supportsCheck": false,
+    "noCheckReason": "what it waits for is usually a device an earlier task starts or restarts, which a check never does, so a check would wait out its timeout and fail where the real run succeeds",
+    "noExistsReason": "it is a wait: failing at its timeout is its purpose",
+    "noBecomeReason": "it speaks NETCONF over an SSH subsystem, which no sudo prefix reaches, and its question is whether this login gets in",
+    "doc": {
+      "summary": "Waits until the target's NETCONF listener lets its account in and sends its hello.",
+      "description": "Tries the device's NETCONF listener, on its netconf_port (830 unless set), until a NETCONF session opens there, and fails when the timeout runs out first. It is the task to put between one that starts a network device and the first net.netconf.* task: a device can report booted, and answer SSH on its own port, while its NETCONF listener still refuses connections (a Catalyst 8000V's does for minutes after its lab reports it booted). Each try connects to the listener, completes the SSH handshake, logs in afresh with the device's credential, opens the netconf subsystem and reads the server's hello, then closes the session, so a session kept open from an earlier task is never taken for a login. The listener's host key is checked against known_hosts before any credential is sent, and that check cannot be skipped: a key known_hosts does not hold ends the wait at once, naming the trust-host command that trusts the listener (the key is seen only once the listener answers, so on a node made new the first wait ends there, with the listener up), and so does a key that differs from the one known_hosts holds, or a login the device refuses, since none of these changes by being asked again and a password sent at every try can lock the account. A listener that does not answer, refuses the connection, declines the netconf subsystem, or sends no hello within connect_timeout is tried again until the timeout. A failed try is not an error, since it is what the task waits to see stop; the last one is quoted when the timeout ends the wait. The delay, backoff and steady parameters work as wait.connection's do. It changes nothing.",
+      "params": [
+        {
+          "name": "timeout",
+          "type": "int",
+          "default": "600",
+          "description": "How many seconds to wait in total before giving up, counted from the start of the task, so the delay comes out of it. Must be more than 0."
+        },
+        {
+          "name": "delay",
+          "type": "int",
+          "default": "0",
+          "description": "How many seconds to wait before the first try. Must be shorter than the timeout, which it is spent out of."
+        },
+        {
+          "name": "sleep",
+          "type": "int",
+          "default": "5",
+          "description": "How many seconds to wait between tries, or with backoff: exponential before the second try, the gap doubling after each failed one. Must be more than 0."
+        },
+        {
+          "name": "backoff",
+          "type": "string",
+          "default": "fixed",
+          "choices": [
+            "fixed",
+            "exponential"
+          ],
+          "description": "How the gap between failed tries grows: fixed keeps it at sleep; exponential doubles it after each failed try, up to max_sleep, each gap a random point in its upper half."
+        },
+        {
+          "name": "max_sleep",
+          "type": "int",
+          "default": "60",
+          "description": "With backoff: exponential, the longest gap between tries, in seconds. Not less than sleep; refused with backoff: fixed, where it would do nothing."
+        },
+        {
+          "name": "steady",
+          "type": "int",
+          "default": "1",
+          "description": "How many tries in a row must open a session before the listener counts as ready. Each is its own login. Must be at least 1, and the streak must fit in the timeout after the delay."
+        },
+        {
+          "name": "steady_interval",
+          "type": "int",
+          "default": "10",
+          "description": "With steady above 1, the seconds between the answering tries. Must be more than 0; refused with steady 1, where it would do nothing."
+        },
+        {
+          "name": "connect_timeout",
+          "type": "int",
+          "default": "20",
+          "description": "How many seconds one try may take, from the connection to the hello, before it counts as failed. Must be more than 0."
+        }
+      ],
+      "returns": [
+        {
+          "name": "elapsed",
+          "type": "int",
+          "returned": "always",
+          "description": "How many whole seconds the task waited, including the delay."
+        },
+        {
+          "name": "port",
+          "type": "int",
+          "returned": "always",
+          "description": "The port of the NETCONF listener that answered."
+        },
+        {
+          "name": "tries",
+          "type": "int",
+          "returned": "always",
+          "description": "How many tries the task made, answered or not."
+        },
+        {
+          "name": "failures",
+          "type": "int",
+          "returned": "always",
+          "description": "How many of those tries did not answer."
+        },
+        {
+          "name": "diff",
+          "type": "dict",
+          "returned": "always",
+          "description": "The port that answered. Both halves are identical, since a wait changes nothing."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Wait for a router's NETCONF server after it boots",
+          "runbookYaml": "- name: Wait for the router's NETCONF listener to let its account in\n  wait.netconf:\n    timeout: 600\n    sleep: 10\n"
+        }
+      ],
+      "seeAlso": [
+        "wait.connection",
+        "net.netconf.config",
+        "virt.cml.lab.start"
       ]
     }
   },

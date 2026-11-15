@@ -29,9 +29,9 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | `scan` | 3 | 3 |
 | `svc` | 16 | 16 |
 | `virt` | 83 | 83 |
-| `wait` | 4 | 4 |
+| `wait` | 5 | 5 |
 | `win` | 12 | 12 |
-| **total** | **261** | **259** |
+| **total** | **262** | **260** |
 
 ## All methods
 
@@ -283,6 +283,7 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | [virt.vbox.vm.start](virt/vbox/vm/start.md) | implemented | Starts a VirtualBox VM with no window. |
 | [virt.vbox.vm.stop](virt/vbox/vm/stop.md) | implemented | Stops a VirtualBox VM, by its power button or by cutting its power. |
 | [wait.connection](wait/connection.md) | implemented | Waits until the target answers a command over its own connection, SSH or WinRM. |
+| [wait.netconf](wait/netconf.md) | implemented | Waits until the target's NETCONF listener lets its account in and sends its hello. |
 | [wait.path](wait/path.md) | implemented | Waits for a file path on the target to exist (or stop existing). |
 | [wait.routes](wait/routes.md) | implemented | Waits until a router has a route to every prefix given, or with state absent has none left, and its routing table has stopped changing. |
 | [wait.search](wait/search.md) | implemented | Waits for a pattern to appear in a file's contents on the target. |

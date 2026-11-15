@@ -214,6 +214,52 @@ tasks:
       lab: cvd
 ```
 
+#### A Catalyst 8000V node: what to set at day 0
+
+Two things later tasks need on a `cat8000v` node are set in its day-0 configuration, through
+`virt.cml.node.create`'s `configuration:`:
+
+- **Crypto commands.** The node has none unless its day-0 configuration sets
+  `license boot level network-advantage`. With that line the node reloads once after CML reports it
+  `BOOTED`.
+- **NETCONF and RESTCONF.** IOS XE serves them only with `aaa new-model`,
+  `aaa authentication login default local` and `aaa authorization exec default local`. Add
+  `netconf-yang feature candidate-datastore` at day 0 for the candidate datastore.
+
+```yaml
+  - name: P1, a Catalyst 8000V with crypto and NETCONF from day 0
+    virt.cml.node.create:
+      lab: cvd
+      label: P1
+      definition: cat8000v
+      # device:, management_interface: and management_gateway: as for any seeded node
+      configuration: |
+        license boot level network-advantage
+        aaa new-model
+        aaa authentication login default local
+        aaa authorization exec default local
+        netconf-yang feature candidate-datastore
+```
+
+A booted node's NETCONF listener can still refuse connections for minutes: a Catalyst 8000V's port 830
+does until its NETCONF server has started. `wait.netconf` waits for it on a device with a NETCONF
+listener (a `cisco_router` with `netconf_enabled: true`, or a `generic_netconf` once onboarding has granted it `NetconfCapable`), logging in to the
+listener and reading its hello. It checks the listener's host key first and never sends a credential to a key
+`known_hosts` does not hold. On a node made new, whose key is not trusted yet, the first wait ends as
+soon as the listener answers, naming the command that trusts that key
+(`pleiades trust-host P1 --first-connect --netconf`); run it, then run the wait again.
+
+```yaml
+  - name: wait for P1's NETCONF listener
+    wait.netconf:
+      target: P1
+      timeout: 600
+      sleep: 10
+```
+
+`pleiades remove-host P1 --forget-host-keys` removes the known_hosts lines for P1's NETCONF listener
+(`[host]:830`, or its `netconf_port`) as well as its SSH address.
+
 ### Reaching a node through the controller's console
 
 A node with no address reachable from here is reached through the controller's console server: an SSH

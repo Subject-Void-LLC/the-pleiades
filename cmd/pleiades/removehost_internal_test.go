@@ -79,3 +79,55 @@ func TestRemoveHost_TakesAHostAndWhatItWasGivenApart(t *testing.T) {
 		t.Errorf("a second removal: %v", err)
 	}
 }
+
+// TestRemoveHost_ForgetsTheNetconfListenersKeysToo proves --forget-host-keys
+// drops the "[host]:port" lines trust-host --netconf writes for a device's
+// NETCONF listener as well as its SSH lines: a cisco_router's on 830 by
+// default, a generic_netconf's on its own netconf_port, while a listener
+// another device is also reached at keeps its keys.
+func TestRemoveHost_ForgetsTheNetconfListenersKeysToo(t *testing.T) {
+	dir := t.TempDir()
+	knownHosts := filepath.Join(dir, "known_hosts")
+	t.Setenv(remoteexec.KnownHostsEnv, knownHosts)
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	must(runInit([]string{"--dir", dir}))
+	must(runAddHost([]string{"r1", "--dir", dir, "--type", "cisco_router", "--set", "host=192.0.2.10", "--set", "netconf_enabled=true"}))
+	must(runAddHost([]string{"nc1", "--dir", dir, "--type", "generic_netconf", "--set", "host=192.0.2.30", "--set", "netconf_port=2830"}))
+	must(runAddHost([]string{"nc2", "--dir", dir, "--type", "generic_netconf", "--set", "host=192.0.2.40"}))
+	must(runAddHost([]string{"nc2-twin", "--dir", dir, "--type", "generic_netconf", "--set", "host=192.0.2.40"}))
+	keyLine := " ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl\n"
+	rsaLine := " ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC7\n"
+	must(os.WriteFile(knownHosts, []byte(
+		"192.0.2.10"+keyLine+
+			"[192.0.2.10]:830"+keyLine+
+			"[192.0.2.10]:830"+rsaLine+
+			"[192.0.2.30]:2830"+keyLine+
+			"[192.0.2.30]:830"+keyLine+
+			"[192.0.2.40]:830"+keyLine), 0o600))
+
+	var out removedHost
+	text := captureStdout(t, func() { must(runRemoveHost([]string{"r1", "--dir", dir, "--forget-host-keys", "--json"})) })
+	must(json.Unmarshal([]byte(text), &out))
+	if out.HostKeysRemoved != 3 || out.HostKeysKept != "" {
+		t.Errorf("a cisco_router: %+v", out)
+	}
+	text = captureStdout(t, func() { must(runRemoveHost([]string{"nc1", "--dir", dir, "--forget-host-keys"})) })
+	if !strings.Contains(text, "removed 1 known_hosts line(s) for 192.0.2.30:2830") {
+		t.Errorf("a generic_netconf on its own port: %s", text)
+	}
+	text = captureStdout(t, func() { must(runRemoveHost([]string{"nc2", "--dir", dir, "--forget-host-keys"})) })
+	if !strings.Contains(text, "nc2-twin is also reached at 192.0.2.40:830") {
+		t.Errorf("a shared listener: %s", text)
+	}
+	lines, err := os.ReadFile(knownHosts)
+	must(err)
+	// Only the line no removed device listens at, and the shared one, stay.
+	if want := "[192.0.2.30]:830" + keyLine + "[192.0.2.40]:830" + keyLine; string(lines) != want {
+		t.Errorf("known_hosts now:\n%s\nwant:\n%s", lines, want)
+	}
+}

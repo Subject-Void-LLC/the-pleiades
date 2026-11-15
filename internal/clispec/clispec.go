@@ -355,7 +355,7 @@ var Root = Command{
 				{Name: "inventory", Type: "string", Default: "", Doc: "inventory file to read and write, in place of --dir's inventory.yaml; group_vars/ and host_vars/ are read beside it"},
 				{Name: "vault", Type: "string", Default: "", Doc: "directory whose .pleiades/ holds the credential vault (master.key, credentials.yaml, seal.key), in place of --dir's; the journal and facts stay under --dir"},
 				{Name: "credential", Type: "bool", Default: "false", Doc: "also remove the host's stored credential"},
-				{Name: "forget-host-keys", Type: "bool", Default: "false", Doc: "also remove the known_hosts lines trusting the host's SSH address, unless another device is reached there"},
+				{Name: "forget-host-keys", Type: "bool", Default: "false", Doc: "also remove the known_hosts lines trusting the host's SSH address and its NETCONF listener's, each unless another device is reached there"},
 				{Name: "leave-references", Type: "bool", Default: "false", Doc: "remove the host even when another host names it in a property (a console node's console_server)"},
 				{Name: "json", Type: "bool", Default: "false", Doc: "print one JSON document instead of text"},
 			},

@@ -55,7 +55,12 @@ func runAdhoc(args []string) error {
 	fs.Var(&timeout, "timeout", "how long the call may run on each device before it is stopped and fails, as a task's timeout key: whole seconds (40) or a duration (40s, 5m), up to 86400 seconds (0: no bound)")
 	positionals, err := parseCheckedArgs(fs, args, func(p []string) error {
 		if len(withNoHosts(p)) < 2 {
-			return fmt.Errorf("%s: %w", usageLine(adhocCommand, fs), errMissingPositional)
+			// A help request is answered with the usage line alone (the
+			// owner's decision of 2026-10-22), so the hint is left off it.
+			if asksHelp(args) {
+				return fmt.Errorf("%s: %w", usageLine(adhocCommand, fs), errMissingPositional)
+			}
+			return fmt.Errorf("%s: %w\n%s", usageLine(adhocCommand, fs), errMissingPositional, hostsFirstHint(p))
 		}
 		return nil
 	})
@@ -69,6 +74,11 @@ func runAdhoc(args []string) error {
 	}
 	hosts, method := positionals[0], positionals[1]
 	label := adhocLabel(hosts, method)
+	// A parameter in the method's place means the hosts or the method was
+	// left out, which is said here rather than as an unknown method.
+	if err := parameterAsMethod(hosts, method, positionals[2:]); err != nil {
+		return refuseAdhoc(opts, label, err, fmt.Errorf("%w\n%s", err, usageLine(adhocCommand, fs)))
+	}
 	params, err := parseAdhocParams(positionals[2:], declaredTypes(method))
 	if err != nil {
 		return refuseAdhoc(opts, label, err, fmt.Errorf("%w\n%s", err, usageLine(adhocCommand, fs)))

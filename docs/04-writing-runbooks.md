@@ -423,6 +423,21 @@ naming the device or tag it must stay inside, written out in the runbook. A loop
 choose the target, since the target is resolved once, before any item exists: to do one thing on
 each device, put the devices in `hosts:`.
 
+**A `when:` on a task with `target:` is decided for the target, not for the runbook's `hosts:`.**
+Such a task runs on the devices its `target:` names, and its condition goes with it. A condition
+that reads `device`, or a variable that can differ by device (a `set_fact`, a device's own
+variables), is decided on each target device with that device's values. A condition that reads
+only the run's data is decided once for the task.
+
+```text
+- name: save the core router's configuration when it is a Cisco IOS device
+  net.ios.save:
+    target: core1
+  when: ["'CiscoIOSCapable' in device.capabilities"]
+```
+
+Here `device` is `core1`, whatever `hosts:` names.
+
 ## Retries with until
 
 In `until`, `changed_when` and `failed_when`, `result.<register>` is always the result of this run, for this device and
@@ -755,8 +770,8 @@ What it is, and is not:
   action, on a method that reaches its device another way (an API, a container engine), on
   a method that types into the device's CLI (`net.ios.*`, `net.cli.*`), on a method that
   reaches its service through a forward or subsystem the login opens (`db.pg.*`,
-  `net.netconf.config`), and on `net.ssh.ping` and `wait.connection`, whose question is the
-  login itself. A method that picks its carrier per device is refused when the task runs,
+  `net.netconf.config`), and on `net.ssh.ping`, `wait.connection` and `wait.netconf`, whose
+  question is the login itself. A method that picks its carrier per device is refused when the task runs,
   on a carrier sudo cannot reach: a CLI session (`wait.routes` on Cisco IOS), WinRM (`svc.*`
   on Windows), a `gate.run` check's TCP precondition, or a container engine's socket reached
   through the login (`container.*`, after sudo has been checked). A method that reaches its
