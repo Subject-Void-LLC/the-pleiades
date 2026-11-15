@@ -109,11 +109,14 @@ func TestGenericReleaseGate_RESTCONFRollback(t *testing.T) {
 	for _, args := range [][]string{
 		{"init"},
 		{"add-host", "rc1", "--type", "generic_restconf", "--set", "base_url=" + origin, "--set", "http_allow_plaintext_credentials=true"},
-		{"add-credential", "rc1", "--username", "admin", "--password", gateNotconfPassword},
 	} {
 		if out, err := runPleiadesWithEnv(t, dir, nil, args...); err != nil {
 			t.Fatalf("%v: %v\n%s", args, err, out)
 		}
+	}
+	// The password on standard input, never argv, as every gate sends one.
+	if out, err := runPleiadesWithStdin(t, dir, gateNotconfPassword+"\n", "add-credential", "rc1", "--username", "admin", "--password-stdin"); err != nil {
+		t.Fatalf("add-credential: %v\n%s", err, out)
 	}
 	if res := onboardJSON(t, dir, nil, "rc1"); res.Facts["restconf_root"] != "/restconf" {
 		t.Fatalf("onboarded %+v", res)

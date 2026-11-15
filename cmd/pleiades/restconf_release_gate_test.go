@@ -14,6 +14,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/restconf/restconftest"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/yanglib"
 )
 
 // restconfGateRunbook reads one device's RESTCONF discovery.
@@ -35,14 +36,17 @@ func TestGenericReleaseGate_RESTCONF(t *testing.T) {
 	for _, args := range [][]string{
 		{"init"},
 		{"add-host", "rc1", "--type", "generic_restconf", "--set", "base_url=" + s.URL, "--set", "tls_fingerprint=" + devicetls.Fingerprint(s.Certificate())},
-		{"add-credential", "rc1", "--username", "admin", "--password", "gate-Restconf-7"},
 	} {
 		if out, err := runPleiadesWithEnv(t, dir, nil, args...); err != nil {
 			t.Fatalf("%v: %v\n%s", args, err, out)
 		}
 	}
+	// The password on standard input, never argv.
+	if out, err := runPleiadesWithStdin(t, dir, "gate-Restconf-7\n", "add-credential", "rc1", "--username", "admin", "--password-stdin"); err != nil {
+		t.Fatalf("add-credential rc1: %v\n%s", err, out)
+	}
 	res := onboardJSON(t, dir, nil, "rc1")
-	if !slices.Equal(res.Capabilities, []string{"RestconfCapable"}) || res.Facts["restconf_root"] != "/restconf" || res.Facts["yang_module_count"] != "556" {
+	if !slices.Equal(res.Capabilities, []string{"RestconfCapable"}) || res.Facts["restconf_root"] != "/restconf" || res.Facts["yang_module_count"] != "556" || res.Facts["yang_digest_rule"] != yanglib.DigestRule() {
 		t.Fatalf("probed %+v", res)
 	}
 
@@ -63,11 +67,14 @@ func TestGenericReleaseGate_RESTCONF(t *testing.T) {
 	// onboarding prints.
 	for _, args := range [][]string{
 		{"add-host", "rc2", "--type", "generic_restconf", "--set", "base_url=" + s.URL, "--set", "tls_fingerprint=" + devicetls.Fingerprint(s.Certificate())},
-		{"add-credential", "rc2", "--username", "admin", "--password", "wrong-Restconf-8"},
 	} {
 		if out, err := runPleiadesWithEnv(t, dir, nil, args...); err != nil {
 			t.Fatalf("%v: %v\n%s", args, err, out)
 		}
+	}
+	// The password on standard input, never argv.
+	if out, err := runPleiadesWithStdin(t, dir, "wrong-Restconf-8\n", "add-credential", "rc2", "--username", "admin", "--password-stdin"); err != nil {
+		t.Fatalf("add-credential rc2: %v\n%s", err, out)
 	}
 	refused, err := runPleiadesWithEnv(t, dir, nil, "onboard", "rc2", "--json", "--timeout", "90s")
 	token := base64.StdEncoding.EncodeToString([]byte("admin:wrong-Restconf-8"))

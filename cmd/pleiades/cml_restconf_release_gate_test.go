@@ -214,7 +214,10 @@ tasks:
 	if !strings.Contains(fmt.Sprint(bad["error"]), "malformed-message") {
 		t.Errorf("a bad value: %v", bad["error"])
 	}
-	g.task("failed", "RC", "net.restconf.config", "path=no-such-module:thing", "method=patch", `content={"no-such-module:thing": {}}`)
+	unknown := g.task("failed", "RC", "net.restconf.config", "path=no-such-module:thing", "method=patch", `content={"no-such-module:thing": {}}`)
+	if e := fmt.Sprint(unknown["error"]); !strings.Contains(e, "does not implement module no-such-module") || !strings.Contains(e, "nothing was sent") {
+		t.Errorf("a module the router does not implement: %v, want it named and nothing sent", unknown["error"])
+	}
 	g.task("failed", "RC", "net.restconf.config", "path=Cisco-IOS-XE-native:native/interface/Loopback=399", "method=patch",
 		`content={"Cisco-IOS-XE-native:Loopback": {"name": 399}}`)
 	if got := g.loopbacks(); strings.Contains(strings.Join(got, " "), "Loopback399") {
@@ -261,8 +264,10 @@ tasks:
 	g.run("adhoc", "R", "net.ios.config", "lines:=[no restconf]")
 	g.run("adhoc", "R", "net.ios.config", "lines:=[restconf]")
 	waited := stats(g.task("ok", "RC", "wait.restconf", "timeout=900", "sleep=10"))
-	if toInt(waited["tries"]) < 1 {
-		t.Errorf("wait.restconf after a restart: %v", waited)
+	// Measured 2026-11-15: 9 tries, 8 of them failed, while RESTCONF came
+	// back. One try would mean the restart was never seen.
+	if toInt(waited["tries"]) < 2 || toInt(waited["failures"]) < 1 {
+		t.Errorf("wait.restconf after a restart: %v, want the restart's failed tries before one answered", waited)
 	}
 
 	// Day N: a create undone by pleiades rollback through its recorded undo.
