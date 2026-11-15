@@ -382,6 +382,7 @@
     "net.ovs.bridge": "net",
     "net.ovs.port": "net",
     "net.pcap.summary": "net",
+    "net.restconf.config": "net",
     "net.restconf.facts": "net",
     "net.ssh.ping": "net",
     "net.trace": "net",

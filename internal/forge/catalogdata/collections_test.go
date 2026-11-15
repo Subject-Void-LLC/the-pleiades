@@ -90,10 +90,11 @@ func TestCollections_MatchesDocumentedCount(t *testing.T) {
 	// virt.vbox.media.prune. A device's NETCONF discovery read with no edit
 	// added the 261st: net.netconf.facts. Waiting for a NETCONF listener added
 	// the 262nd: wait.netconf. A device's RESTCONF discovery read added the
-	// 263rd: net.restconf.facts.
+	// 263rd: net.restconf.facts. A RESTCONF write added the 264th:
+	// net.restconf.config.
 	// This test pins the number down so a future accidental entry loss or
 	// duplication is a build failure, not a silent gap.
-	const wantCollections = 263
+	const wantCollections = 264
 	if got := len(catalogdata.Collections); got != wantCollections {
 		t.Errorf("len(Collections) = %d, want %d", got, wantCollections)
 	}

@@ -115,15 +115,9 @@ func Facts(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventor
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: device %q: %w", fqcn, device.Name(), err)
 	}
-	values, found, err := discoveryValues(d)
+	found, err := recordDiscovery(rc, client.Verified(), d)
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
-	}
-	if err := yangfacts.Record(rc, factKeys, values, client.Verified()); err != nil {
-		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
-	}
-	if !client.Verified() {
-		found = append(found, "the device was reached over http://, where nothing proves which server answered, so nothing this read found is recorded as a fact")
 	}
 	if len(found) > 0 {
 		// The stat holds one list, so the record's own warnings are kept
@@ -133,6 +127,24 @@ func Facts(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventor
 		}
 	}
 	return collection.Result{Changed: false}, nil
+}
+
+// recordDiscovery records what d learned as stats, and as facts only when
+// verified (the device was reached over https), returning the warnings the
+// task should carry. net.restconf.facts and net.restconf.config both record
+// through it, as every NETCONF session does.
+func recordDiscovery(rc sdk.RunbookContext, verified bool, d restconf.Discovery) ([]string, error) {
+	values, found, err := discoveryValues(d)
+	if err != nil {
+		return nil, err
+	}
+	if err := yangfacts.Record(rc, factKeys, values, verified); err != nil {
+		return nil, err
+	}
+	if !verified {
+		found = append(found, "the device was reached over http://, where nothing proves which server answered, so nothing this read found is recorded as a fact")
+	}
+	return found, nil
 }
 
 // discoveryValues are the facts d gives and the warnings for what was left
