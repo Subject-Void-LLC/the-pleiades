@@ -1,0 +1,12 @@
+{
+  "ietf-restconf:errors": {
+    "error": [
+      {
+        "error-type": "application",
+        "error-tag": "malformed-message",
+        "error-path": "/Cisco-IOS-XE-native:native/interface/Loopback[name='7701']",
+        "error-message": "invalid value for: address in /ios:native/ios:interface/ios:Loopback[ios:name='7701']/ios:ip/ios:address/ios:primary/ios:address: \"999.1.1.1\" is not a valid value."
+      }
+    ]
+  }
+}

@@ -1,0 +1,5 @@
+
+<Loopback xmlns="http://cisco.com/ns/yang/Cisco-IOS-XE-native"  xmlns:ios="http://cisco.com/ns/yang/Cisco-IOS-XE-native">
+  <name>7701</name>
+  <description>rc-capture</description>
+</Loopback>

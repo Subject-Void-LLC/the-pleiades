@@ -289,7 +289,7 @@ func TestDiscover_ATransportFailureAfterTheRootIsAnError(t *testing.T) {
 		t.Error("Discover over a cut connection succeeded")
 	}
 	d := yanglib.Discovery{}
-	if err := c.library(context.Background(), &d); err == nil {
+	if _, err := c.library(context.Background(), &d); err == nil {
 		t.Error("library over a cut connection was not an error")
 	}
 }

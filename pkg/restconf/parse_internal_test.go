@@ -132,10 +132,18 @@ func TestRead_AStatusOtherThan200Or404IsAStatusError(t *testing.T) {
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
+		if strings.Contains(r.URL.Path, "empty") {
+			// IOS XE's NMDA operational read with nothing in it.
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
 		w.WriteHeader(http.StatusInternalServerError)
 	}, httpapi.AuthNone)
 	if _, found, err := c.Read(context.Background(), "", Path{Node("m", "missing")}, MediaTypeJSON); err != nil || found {
 		t.Errorf("a 404 = %v, %v; want not found and no error", found, err)
+	}
+	if _, found, err := c.Read(context.Background(), "operational", Path{Node("m", "empty")}, MediaTypeJSON); err != nil || found {
+		t.Errorf("a 204 = %v, %v; want not found and no error", found, err)
 	}
 	if _, _, err := c.Read(context.Background(), "", Path{Node("m", "broken")}, MediaTypeJSON); err == nil {
 		t.Error("a 500 read as a resource")

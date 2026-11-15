@@ -52,15 +52,20 @@ func ModulesStateXML(t testing.TB) []byte {
 // gunzip is raw decompressed.
 func gunzip(t testing.TB, raw []byte) []byte {
 	t.Helper()
-	zr, err := gzip.NewReader(bytes.NewReader(raw))
-	if err != nil {
-		t.Fatal(err)
-	}
-	out, err := io.ReadAll(zr)
+	out, err := gunzipBytes(raw)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return out
+}
+
+// gunzipBytes is raw decompressed.
+func gunzipBytes(raw []byte) ([]byte, error) {
+	zr, err := gzip.NewReader(bytes.NewReader(raw))
+	if err != nil {
+		return nil, err
+	}
+	return io.ReadAll(zr)
 }
 
 // Capabilities is the capability list the server answers with by default:
@@ -102,6 +107,14 @@ type Options struct {
 	// PostChild is the node a POST creates under the path it is sent to,
 	// named in its answer's Location, as "group=ops"; empty refuses POST.
 	PostChild string
+	// IOSXE answers as IOS XE 17.15.1a did (iosxe.go).
+	IOSXE bool
+	// Starting is, in IOSXE mode, how many requests under /restconf answer
+	// 502 with Cisco's error page, as while RESTCONF starts.
+	Starting int
+	// GoingDown, in IOSXE mode, answers every write 500 "Server is going
+	// down", as while the YANG stack goes down.
+	GoingDown bool
 }
 
 // Server is a RESTCONF server over TLS.
@@ -118,6 +131,8 @@ type Server struct {
 	logins int
 	// connections counts the connections clients opened.
 	connections int
+	// hostMetaLogins counts host-meta requests that carried a credential.
+	hostMetaLogins int
 	// stored are the resources writes made, by escaped path.
 	stored map[string]resource
 	// methods are the methods requested, in order, beside paths.
@@ -178,6 +193,13 @@ func (s *Server) Logins() int {
 	return s.logins
 }
 
+// HostMetaLogins returns how many host-meta requests carried a credential.
+func (s *Server) HostMetaLogins() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.hostMetaLogins
+}
+
 // Connections returns how many connections clients opened.
 func (s *Server) Connections() int {
 	s.mu.Lock()
@@ -206,8 +228,17 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, modulesState []by
 		s.unauthenticated++
 	}
 	s.mu.Unlock()
+	if path == "/.well-known/host-meta" && r.Header.Get("Authorization") != "" {
+		s.mu.Lock()
+		s.hostMetaLogins++
+		s.mu.Unlock()
+	}
 	if h, ok := s.opts.Override[path]; ok {
 		h(w, r)
+		return
+	}
+	if s.opts.IOSXE {
+		s.serveIOSXE(w, r, path)
 		return
 	}
 	// host-meta is answered with no login, as rousette answers it

@@ -77,6 +77,8 @@ type Client struct {
 	// origin itself, which rootFound tells apart.
 	root      string
 	rootFound bool
+	// rootSource is how root was learned (RootHostMeta or RootDefault).
+	rootSource string
 }
 
 // New returns a client for the RESTCONF server at base, an http or https

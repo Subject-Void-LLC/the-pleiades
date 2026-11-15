@@ -34,8 +34,11 @@ var (
 // Discovery is what one client learned about its server.
 type Discovery struct {
 	yanglib.Discovery
-	// Root is the API root host-meta named, as an escaped path.
+	// Root is the API root, as an escaped path.
 	Root string
+	// RootSource is how Root was learned: RootHostMeta, or RootDefault
+	// (host-meta answered 404, and a read under /restconf answered).
+	RootSource string
 	// CapabilitiesError says why the capability list could not be read,
 	// when it could not.
 	CapabilitiesError string
@@ -64,19 +67,34 @@ func (c *Client) Discover(ctx context.Context) (Discovery, error) {
 			return Discovery{}, err
 		}
 	}
-	d := Discovery{Root: c.root}
-	caps, err := c.capabilities(ctx)
+	d := Discovery{Root: c.root, RootSource: c.rootSource}
+	caps, capsErr := c.capabilities(ctx)
 	switch {
-	case isFatal(err):
-		return Discovery{}, err
-	case err != nil:
-		d.CapabilitiesError = err.Error()
+	case isFatal(capsErr):
+		return Discovery{}, capsErr
+	case capsErr != nil:
+		d.CapabilitiesError = capsErr.Error()
 	}
 	d.Protocol = yanglib.KeepCapabilities(caps, &d.Discovery)
-	if err := c.library(ctx, &d.Discovery); err != nil {
+	libraryStatus, err := c.library(ctx, &d.Discovery)
+	if err != nil {
 		return Discovery{}, err
 	}
+	if c.rootSource == RootDefault && statusOf(capsErr) == http.StatusNotFound && libraryStatus == http.StatusNotFound {
+		// The conventional root was only a guess, and nothing under it
+		// answered: no RESTCONF is served there.
+		return Discovery{}, fmt.Errorf("%w (capabilities: %s; YANG library: %s)", ErrNoRestconf, d.CapabilitiesError, d.LibraryError)
+	}
 	return d, nil
+}
+
+// statusOf is the status of the server's refusal err carries, 0 for none.
+func statusOf(err error) int {
+	var status *StatusError
+	if errors.As(err, &status) {
+		return status.Status
+	}
+	return 0
 }
 
 // isFatal reports whether err ended discovery rather than one read: anything
@@ -173,34 +191,34 @@ func capabilitiesFromJSON(body []byte) ([]string, bool) {
 	return nil, false
 }
 
-// library completes d from the server's YANG library: yang-library first,
+// library completes d from the server's YANG library, returning the status
+// of the refusal that left it unread (0 when it was read or not refused): yang-library first,
 // then modules-state from a server that answers the first with 404 or 400
 // (RFC 8040 section 7: a resource the server does not have). Either answer
 // that cannot be used leaves d with no modules, Unknown, and LibraryError
 // saying why; an empty library the same, as access control would answer.
-func (c *Client) library(ctx context.Context, d *yanglib.Discovery) error {
+func (c *Client) library(ctx context.Context, d *yanglib.Discovery) (int, error) {
 	lib, err := c.readLibrary(ctx, pathYANGLibrary)
-	var status *StatusError
-	if errors.As(err, &status) && (status.Status == http.StatusNotFound || status.Status == http.StatusBadRequest) {
+	if s := statusOf(err); s == http.StatusNotFound || s == http.StatusBadRequest {
 		lib, err = c.readLibrary(ctx, pathModulesState)
 	}
 	if isFatal(err) {
-		return err
+		return 0, err
 	}
 	d.Completeness = yanglib.Unknown
 	if err != nil {
 		d.LibraryError = "the YANG library was not read: " + err.Error()
-		return nil
+		return statusOf(err), nil
 	}
 	kept, err := yanglib.Keep(lib, *d)
 	if err != nil {
 		d.LibraryError = err.Error()
-		return nil
+		return 0, nil
 	}
 	*d = d.WithLibrary(kept)
 	d.Datastores = kept.Datastores
 	d.ContentID = kept.ContentID
-	return nil
+	return 0, nil
 }
 
 // readLibrary reads one library resource in whichever encoding the server

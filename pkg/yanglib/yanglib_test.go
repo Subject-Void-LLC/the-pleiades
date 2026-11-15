@@ -369,3 +369,59 @@ func TestDiscovery_ServesModuleByName(t *testing.T) {
 		t.Error("ServesModule answered on a partial list")
 	}
 }
+
+// TestParse_TheRealIOSXERESTCONFLibrary reads the library a Catalyst 8000V
+// (IOS XE 17.15.1a) answered over RESTCONF on 2026-11-15, in XML and in JSON:
+// one module set, complete, the same digest, and modules-state's implemented
+// modules within it.
+func TestParse_TheRealIOSXERESTCONFLibrary(t *testing.T) {
+	fromXML, err := ParseXML(restconftest.IOSXELibraryXML(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fromJSON, err := ParseJSON(restconftest.IOSXELibraryJSON(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, err := Keep(fromXML, Discovery{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := Keep(fromJSON, Discovery{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	da, db := Discovery{}.WithLibrary(a), Discovery{}.WithLibrary(b)
+	if len(da.Modules) < 500 || len(da.Modules) != len(db.Modules) || da.ModulesDigest() != db.ModulesDigest() {
+		t.Errorf("XML %d modules (%s), JSON %d (%s); want one set of the router's hundreds", len(da.Modules), da.ModulesDigest(), len(db.Modules), db.ModulesDigest())
+	}
+	if da.Completeness != Complete || db.Completeness != Complete || a.Dropped != 0 || b.Dropped != 0 {
+		t.Errorf("completeness %s and %s with %d and %d dropped, want complete with none", da.Completeness, db.Completeness, a.Dropped, b.Dropped)
+	}
+	if strings.Join(a.Datastores, ",") != "intended,operational,running" || a.ContentID != b.ContentID || a.ContentID == "" {
+		t.Errorf("datastores %v, content-ids %q and %q", a.Datastores, a.ContentID, b.ContentID)
+	}
+	if findModule(da.Modules, "Cisco-IOS-XE-native") == nil {
+		t.Error("Cisco-IOS-XE-native is not in the router's library")
+	}
+	state, err := ParseJSON(restconftest.IOSXEModulesStateJSON(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := Keep(state, Discovery{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	library := map[string]bool{}
+	for _, m := range da.Modules {
+		library[m.Name+"@"+m.Revision] = true
+	}
+	for _, m := range s.Modules {
+		if !library[m.Name+"@"+m.Revision] {
+			t.Errorf("modules-state implements %s@%s, which the yang-library does not list", m.Name, m.Revision)
+		}
+	}
+	if state.Source != SourceLibrary10 || len(s.Modules) == 0 || s.Dropped != 0 {
+		t.Errorf("modules-state: %s, %d modules, %d dropped", state.Source, len(s.Modules), s.Dropped)
+	}
+}

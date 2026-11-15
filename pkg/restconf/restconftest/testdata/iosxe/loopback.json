@@ -1,0 +1,8 @@
+{
+  "Cisco-IOS-XE-native:Loopback": [
+    {
+      "name": 7701,
+      "description": "rc-capture"
+    }
+  ]
+}

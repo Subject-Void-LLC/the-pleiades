@@ -55,8 +55,8 @@ func (c *Client) resourceRef(datastore string, p Path) (string, error) {
 
 // Read reads the resource p in datastore (empty for /data) as mediaType
 // (MediaTypeJSON or MediaTypeXML) and nothing else, so two reads compare. A
-// resource the server says it does not have (404) is found false with no
-// error; any other status but 200 is a *StatusError.
+// resource the server says it does not have (404), or holds nothing of
+// (204), is found false with no error; any other status but 200 is a *StatusError.
 func (c *Client) Read(ctx context.Context, datastore string, p Path, mediaType string) (body []byte, found bool, err error) {
 	ref, err := c.resourceRef(datastore, p)
 	if err != nil {
@@ -69,7 +69,10 @@ func (c *Client) Read(ctx context.Context, datastore string, p Path, mediaType s
 	switch a.status {
 	case http.StatusOK:
 		return a.body, true, nil
-	case http.StatusNotFound:
+	case http.StatusNotFound, http.StatusNoContent:
+		// 204 is a resource the schema has and no instance of: IOS XE
+		// answers an NMDA operational read with nothing in it so
+		// (measured 2026-11-15).
 		return nil, false, nil
 	}
 	return nil, false, c.statusError(a)

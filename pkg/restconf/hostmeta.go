@@ -1,10 +1,21 @@
 // Package restconf: finding the API root (RFC 8040 section 3.1). The client
-// reads the origin's /.well-known/host-meta (RFC 6415's XRD document) and
-// takes the href of its one link whose rel is "restconf", rather than
-// assuming /restconf, since a server may put its root anywhere. A root that
-// names another scheme, host or port is refused: the credential belongs to
-// the device's own origin, and a host-meta document is the device's answer,
-// not a trusted setting.
+// reads the origin's /.well-known/host-meta (RFC 6415's XRD document) with no
+// credential and takes the href of its one link whose rel is "restconf",
+// since a server may put its root anywhere. A root that names another
+// scheme, host or port is refused: the credential belongs to the device's own
+// origin, and a host-meta document is the device's answer, not a trusted
+// setting.
+//
+// A server that answers host-meta 404 does not end the search there. IOS XE
+// 17.15.1a, measured on a Catalyst 8000V on 2026-11-15, serves host-meta only
+// to a valid login and answers 404 otherwise (no credential and a wrong one
+// alike, with no WWW-Authenticate), while its reads under /restconf answer a
+// missing or wrong credential with 401. Sending the credential to host-meta
+// to learn the root would send a wrong password twice per try, so on a 404
+// the client takes RFC 8040's conventional root, /restconf, provisionally,
+// and the first authenticated read under it decides: an answer confirms it,
+// a 401 is a refused credential (sent once), and a 404 says no RESTCONF is
+// served there (RootDefault).
 package restconf
 
 import (
@@ -34,23 +45,45 @@ const relRestconf = "restconf"
 // maxRootBytes bounds a root's href.
 const maxRootBytes = 1024
 
+// The ways a root is learned (RootSource).
+const (
+	// RootHostMeta is a root host-meta's restconf link named.
+	RootHostMeta = "host-meta"
+	// RootDefault is RFC 8040's conventional root, /restconf, taken when
+	// host-meta answered 404, which the first read under it confirms.
+	RootDefault = "default"
+)
+
+// conventionalRoot is the root RFC 8040's examples and IOS XE use.
+const conventionalRoot = "/restconf"
+
+// ErrNoRestconf is a server answering 404 both at host-meta and at the
+// first read under the conventional root it was then tried at.
+var ErrNoRestconf = errors.New("the device answered host-meta with 404 and, under the conventional root /restconf, 404 again: it serves no RESTCONF there")
+
 // DiscoverRoot reads the origin's host-meta, with no credential unless the
-// server asks for one, and returns the RESTCONF root
-// its restconf link names, as an escaped path with no trailing slash ("" for
-// a root at the origin itself), which later reads are made under. A missing
-// document, one that is not XRD, one naming no restconf link or two
-// different ones, and a root off the device's origin are each an error.
+// server asks for one (401), and returns the RESTCONF root its restconf link
+// names, as an escaped path with no trailing slash ("" for a root at the
+// origin itself), which later reads are made under. A host-meta answered 404
+// leaves the conventional /restconf as the root, provisionally (RootSource
+// says RootDefault), for the first read under it to confirm. Another status,
+// a document that is not XRD, one naming no restconf link or two different
+// ones, and a root off the device's origin are each an error.
 func (c *Client) DiscoverRoot(ctx context.Context) (string, error) {
-	// Read with no credential first; only a server that asks for one (401)
-	// is sent it, and a refusal of that is a RefusedError.
 	a, err := c.getAnonymous(ctx, hostMetaPath, "application/xrd+xml", MaxHostMetaBytes)
 	if err == nil && a.status == http.StatusUnauthorized {
+		// Asked for, so sent; a refusal of it is a RefusedError.
 		a, err = c.get(ctx, hostMetaPath, "application/xrd+xml", MaxHostMetaBytes, false)
 	}
 	if err != nil {
 		return "", fmt.Errorf("reading %s: %w", hostMetaPath, err)
 	}
-	if a.status != http.StatusOK {
+	switch a.status {
+	case http.StatusOK:
+	case http.StatusNotFound:
+		c.root, c.rootFound, c.rootSource = conventionalRoot, true, RootDefault
+		return c.root, nil
+	default:
 		return "", fmt.Errorf("reading %s: %w", hostMetaPath, c.statusError(a))
 	}
 	href, err := restconfLink(a.body)
@@ -61,13 +94,19 @@ func (c *Client) DiscoverRoot(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("reading %s: %w", hostMetaPath, err)
 	}
-	c.root, c.rootFound = root, true
+	c.root, c.rootFound, c.rootSource = root, true, RootHostMeta
 	return root, nil
 }
 
 // Root returns the root DiscoverRoot found, and whether it has.
 func (c *Client) Root() (string, bool) {
 	return c.root, c.rootFound
+}
+
+// RootSource says how the root was learned: RootHostMeta or RootDefault,
+// empty before DiscoverRoot.
+func (c *Client) RootSource() string {
+	return c.rootSource
 }
 
 // restconfLink is the href of body's one restconf link. Two links naming the

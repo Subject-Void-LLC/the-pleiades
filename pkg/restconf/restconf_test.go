@@ -244,13 +244,32 @@ func TestDiscoverRoot_TakesARootTheDeviceNamesOnItsOwnOrigin(t *testing.T) {
 	}
 }
 
-func TestDiscoverRoot_AMissingHostMetaIsAnError(t *testing.T) {
+// TestDiscoverRoot_AMissingHostMetaFallsBackToTheConventionalRoot: a
+// host-meta answered 404 (IOS XE's answer to no login, measured 2026-11-15)
+// leaves /restconf as the root, which the first read under it confirms; a
+// server serving nothing there either is refused, naming both.
+func TestDiscoverRoot_AMissingHostMetaFallsBackToTheConventionalRoot(t *testing.T) {
+	notFound := map[string]http.HandlerFunc{"/.well-known/host-meta": func(w http.ResponseWriter, _ *http.Request) { http.NotFound(w, nil) }}
 	opts := login
-	opts.Override = map[string]http.HandlerFunc{"/.well-known/host-meta": func(w http.ResponseWriter, _ *http.Request) { http.NotFound(w, nil) }}
+	opts.Override = notFound
 	s := restconftest.New(t, opts)
-	_, _, err := discover(t, s, restconftest.NewDevice(t, s))
-	if err == nil || !strings.Contains(err.Error(), "404") {
-		t.Fatalf("Discover = %v, want the host-meta's 404 named", err)
+	d, _, err := discover(t, s, restconftest.NewDevice(t, s))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Root != "/restconf" || d.RootSource != restconf.RootDefault || len(d.Modules) != 559 {
+		t.Errorf("Root = %q from %q with %d modules, want /restconf from the default, confirmed by the library", d.Root, d.RootSource, len(d.Modules))
+	}
+	elsewhere := login
+	elsewhere.Root = "/api/rc"
+	elsewhere.Override = notFound
+	s2 := restconftest.New(t, elsewhere)
+	if _, _, err := discover(t, s2, restconftest.NewDevice(t, s2)); !errors.Is(err, restconf.ErrNoRestconf) {
+		t.Errorf("Discover = %v, want ErrNoRestconf", err)
+	}
+	hostMeta := restconftest.New(t, login)
+	if d, _, err := discover(t, hostMeta, restconftest.NewDevice(t, hostMeta)); err != nil || d.RootSource != restconf.RootHostMeta {
+		t.Errorf("a host-meta that answers: %q, %v; want the root from host-meta", d.RootSource, err)
 	}
 }
 
