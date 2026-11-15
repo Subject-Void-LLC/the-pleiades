@@ -8,6 +8,7 @@ package wait_test
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net"
 	"os"
@@ -240,5 +241,49 @@ func TestNetconf_Refusals(t *testing.T) {
 	plain := &waitTarget{Stub: newWaitStub(), host: "127.0.0.1", port: srv.Port}
 	if _, err := wait.Netconf(context.Background(), netconfContext(srv), plain, nil); err == nil || !strings.Contains(err.Error(), "has no NETCONF listener") {
 		t.Errorf("a device with no listener: %v", err)
+	}
+}
+
+// TestNetconf_ADeviceNamingNoPortIsTriedOn830: a device whose NetconfPort
+// is zero is tried on RFC 6242's port, which the error names.
+func TestNetconf_ADeviceNamingNoPortIsTriedOn830(t *testing.T) {
+	srv := startNetconfServer(t)
+	trustOnly(t, srv, srv.Port, true)
+	_, err := wait.Netconf(context.Background(), netconfContext(srv), newNetconfTarget(0), map[string]any{"timeout": 1, "sleep": 1, "connect_timeout": 1})
+	if err == nil || !strings.Contains(err.Error(), "on port 830 did not answer") {
+		t.Errorf("a device naming no port: %v", err)
+	}
+}
+
+// TestNetconf_AHelloItCannotReadIsNotReady: a listener whose hello does not
+// parse is a failed try at every attempt, never taken as ready.
+func TestNetconf_AHelloItCannotReadIsNotReady(t *testing.T) {
+	srv, err := remoteexectest.Start(remoteexectest.Options{Netconf: &remoteexectest.NetconfDevice{SessionID: "</broken"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(srv.Close)
+	trustOnly(t, srv, srv.Port, true)
+	_, err = wait.Netconf(context.Background(), netconfContext(srv), newNetconfTarget(srv.Port), map[string]any{"timeout": 2, "sleep": 1, "connect_timeout": 1})
+	if err == nil || !strings.Contains(err.Error(), "timed out") || srv.Logins() == 0 {
+		t.Errorf("an unreadable hello: %v after %d logins", err, srv.Logins())
+	}
+}
+
+// TestNetconf_AStatItCannotRecordFailsTheTask: a ready listener whose diff
+// or port stat cannot be recorded fails the task rather than reporting a
+// wait whose outcome nobody can read.
+func TestNetconf_AStatItCannotRecordFailsTheTask(t *testing.T) {
+	for _, key := range []string{sdk.StatDiff, "port"} {
+		t.Run(key, func(t *testing.T) {
+			srv := startNetconfServer(t)
+			trustOnly(t, srv, srv.Port, true)
+			rc := netconfContext(srv)
+			rc.failOn = key
+			_, err := wait.Netconf(context.Background(), rc, newNetconfTarget(srv.Port), map[string]any{"timeout": 10, "sleep": 1, "connect_timeout": 5})
+			if !errors.Is(err, errWaitStat) {
+				t.Errorf("failing the %s stat: %v", key, err)
+			}
+		})
 	}
 }
