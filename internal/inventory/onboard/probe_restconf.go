@@ -20,8 +20,9 @@ func init() { Register(generic.TypeRestconf, restconfProber{}) }
 func (restconfProber) Protocol() string { return "restconf" }
 
 // Probe finds the device's RESTCONF root from its /.well-known/host-meta,
-// read with no credential, or, when host-meta answers 404 as IOS XE answers
-// it to anything but a valid login (measured on 17.15.1a, 2026-11-15), the
+// read with no credential, or, when host-meta answers 404 or a redirect (never
+// followed) as IOS XE answers it to anything but a valid login, with a 302 to
+// its WebUI's login page (measured on 17.15.1a, 2026-11-15), the
 // conventional /restconf, exactly as net.restconf.facts does, then its capabilities and YANG library,
 // over the device's own TLS when its origin is https (pkg/devicetls: always
 // verified) with its own credential, following no redirect, and records a summary of what it

@@ -245,7 +245,8 @@ func TestDiscoverRoot_TakesARootTheDeviceNamesOnItsOwnOrigin(t *testing.T) {
 }
 
 // TestDiscoverRoot_AMissingHostMetaFallsBackToTheConventionalRoot: a
-// host-meta answered 404 (IOS XE's answer to no login, measured 2026-11-15)
+// host-meta answered 404 (IOS XE's login page answers so after its 302 to
+// it, measured 2026-11-15)
 // leaves /restconf as the root, which the first read under it confirms; a
 // server serving nothing there either is refused, naming both.
 func TestDiscoverRoot_AMissingHostMetaFallsBackToTheConventionalRoot(t *testing.T) {

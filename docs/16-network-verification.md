@@ -266,8 +266,8 @@ TLS 1.3 while every read under `/restconf` answered 502 for more than seven minu
 waits for it on a device serving RESTCONF (a `generic_restconf` once onboarding has granted it
 `RestconfCapable`), reading the root from `/.well-known/host-meta` with no credential and then the
 capability list under it with the device's credential, each try on a new connection. IOS XE (measured on
-17.15.1a) answers host-meta only to a valid login and 404 otherwise, a wrong password included, so on a
-404 the wait takes the conventional root `/restconf` and lets that authenticated read decide; the
+17.15.1a) answers host-meta only to a valid login, and otherwise, a wrong password included, with a 302 to
+its WebUI's login page, which answers 404; so on a 404 or a redirect, never followed, the wait takes the conventional root `/restconf` and lets that authenticated read decide; the
 credential never goes to host-meta. A certificate the device's own TLS settings
 do not trust ends the wait before any request is sent, naming its fingerprint and the `tls_fingerprint`
 or `tls_ca_pem` property that would trust it, and a refused login ends it after one attempt.

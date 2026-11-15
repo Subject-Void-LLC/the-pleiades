@@ -425,3 +425,44 @@ func TestParse_TheRealIOSXERESTCONFLibrary(t *testing.T) {
 		t.Errorf("modules-state: %s, %d modules, %d dropped", state.Source, len(s.Modules), s.Dropped)
 	}
 }
+
+// TestDiscovery_OneDeviceListsDifferentModulesByProtocol holds the measured
+// difference (a Catalyst 8000V, IOS XE 17.15.1a, both libraries read at one
+// moment): RESTCONF's library lists 557 modules, tailf-rest-query among them,
+// and NETCONF's 559, without it and with ietf-netconf, its with-defaults and
+// Tail-f's NETCONF extensions, so yang.modules_digest differs by protocol for
+// one device. NETCONF's list here is RESTCONF's capture changed by exactly
+// that difference.
+func TestDiscovery_OneDeviceListsDifferentModulesByProtocol(t *testing.T) {
+	lib, err := ParseJSON(restconftest.IOSXELibraryJSON(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	k, err := Keep(lib, Discovery{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	overRESTCONF := Discovery{}.WithLibrary(k)
+	if len(overRESTCONF.Modules) != 557 || findModule(overRESTCONF.Modules, "tailf-rest-query") == nil {
+		t.Fatalf("the RESTCONF capture lists %d modules (tailf-rest-query %v), want 557 with it", len(overRESTCONF.Modules), findModule(overRESTCONF.Modules, "tailf-rest-query") != nil)
+	}
+	var netconf []Module
+	for _, m := range overRESTCONF.Modules {
+		if m.Name != "tailf-rest-query" {
+			netconf = append(netconf, m)
+		}
+	}
+	netconf = append(netconf,
+		Module{Name: "ietf-netconf", Revision: "2011-06-01", Namespace: "urn:ietf:params:xml:ns:netconf:base:1.0"},
+		Module{Name: "ietf-netconf-with-defaults", Revision: "2011-06-01", Namespace: "urn:ietf:params:xml:ns:yang:ietf-netconf-with-defaults"},
+		Module{Name: "tailf-netconf-extensions", Revision: "2021-06-18", Namespace: "http://tail-f.com/ns/netconf/extensions"},
+	)
+	var d Discovery
+	overNETCONF := Discovery{Modules: KeepModules(netconf, &d), Completeness: Complete}
+	if len(overNETCONF.Modules) != 559 || d.Dropped != 0 {
+		t.Fatalf("the NETCONF list holds %d modules (%d dropped), want 559", len(overNETCONF.Modules), d.Dropped)
+	}
+	if overNETCONF.ModulesDigest() == overRESTCONF.ModulesDigest() {
+		t.Error("the two protocols' module sets share a digest")
+	}
+}

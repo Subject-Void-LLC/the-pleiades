@@ -21,8 +21,9 @@ import (
 // 8040 section 2.5 requires a RESTCONF server to authenticate every client.
 //
 // RestconfCapable itself is discovered: onboarding reads the origin's
-// host-meta (with no credential; on a 404, as IOS XE answers it to anything
-// but a valid login, the conventional /restconf is tried), then the server's
+// host-meta (with no credential; on a 404 or a redirect, as IOS XE answers it
+// to anything but a valid login with a 302 to its WebUI's login page, the
+// conventional /restconf is tried), then the server's
 // capabilities and its YANG library, and grants it only when one of those
 // reads under the root answers. Over
 // https the server's certificate is always verified; over http:// (allowed

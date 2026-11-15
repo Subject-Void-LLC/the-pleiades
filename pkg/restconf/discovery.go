@@ -2,7 +2,10 @@
 // analogue of a NETCONF session's discovery): its root, its protocol
 // capabilities (ietf-restconf-monitoring, RFC 8040 section 9.1), and the YANG
 // modules and datastores its YANG library lists, read into pkg/yanglib's
-// model, which NETCONF shares, so a device reads alike over either protocol.
+// model, which NETCONF shares. Each protocol's library lists that protocol's
+// own modules (on IOS XE 17.15.1a, NETCONF's ietf-netconf and its kin,
+// RESTCONF's tailf-rest-query), so one device's module set differs by
+// protocol.
 package restconf
 
 import (
@@ -37,7 +40,8 @@ type Discovery struct {
 	// Root is the API root, as an escaped path.
 	Root string
 	// RootSource is how Root was learned: RootHostMeta, or RootDefault
-	// (host-meta answered 404, and a read under /restconf answered).
+	// (host-meta answered 404 or a redirect, and a read under /restconf
+	// answered).
 	RootSource string
 	// CapabilitiesError says why the capability list could not be read,
 	// when it could not.

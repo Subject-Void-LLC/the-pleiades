@@ -6,13 +6,14 @@
 // origin, and a host-meta document is the device's answer, not a trusted
 // setting.
 //
-// A server that answers host-meta 404 does not end the search there. IOS XE
-// 17.15.1a, measured on a Catalyst 8000V on 2026-11-15, serves host-meta only
-// to a valid login and answers 404 otherwise (no credential and a wrong one
-// alike, with no WWW-Authenticate), while its reads under /restconf answer a
-// missing or wrong credential with 401. Sending the credential to host-meta
-// to learn the root would send a wrong password twice per try, so on a 404
-// the client takes RFC 8040's conventional root, /restconf, provisionally,
+// A server that answers host-meta 404, or with a redirect (never followed),
+// does not end the search there. IOS XE 17.15.1a, measured on a Catalyst
+// 8000V on 2026-11-15, serves host-meta only to a valid login and otherwise,
+// no credential and a wrong one alike, answers a 302 to its WebUI's
+// /login.html, which answers 404, with no WWW-Authenticate; its reads under
+// /restconf answer a missing or wrong credential with 401. Sending the
+// credential to host-meta to learn the root would send a wrong password twice
+// per try, so on a 404 or a redirect the client takes RFC 8040's conventional root, /restconf, provisionally,
 // and the first authenticated read under it decides: an answer confirms it,
 // a 401 is a refused credential (sent once), and a 404 says no RESTCONF is
 // served there (RootDefault).
@@ -50,14 +51,15 @@ const (
 	// RootHostMeta is a root host-meta's restconf link named.
 	RootHostMeta = "host-meta"
 	// RootDefault is RFC 8040's conventional root, /restconf, taken when
-	// host-meta answered 404, which the first read under it confirms.
+	// host-meta answered 404 or a redirect, which the first read under it
+	// confirms.
 	RootDefault = "default"
 )
 
 // conventionalRoot is the root RFC 8040's examples and IOS XE use.
 const conventionalRoot = "/restconf"
 
-// ErrNoRestconf is a server answering 404 both at host-meta and at the
+// ErrNoRestconf is a server answering 404 or a redirect at host-meta and 404 at the
 // first read under the conventional root it was then tried at.
 var ErrNoRestconf = errors.New("the device answered host-meta with 404 or a redirect and, under the conventional root /restconf, 404 again: it serves no RESTCONF there")
 

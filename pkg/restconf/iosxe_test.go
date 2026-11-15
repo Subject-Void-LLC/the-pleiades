@@ -1,6 +1,7 @@
 // Package restconf_test: the client against restconftest's IOS XE mode, which
 // answers exactly as a Catalyst 8000V running IOS XE 17.15.1a did on
-// 2026-11-15: host-meta only to a valid login (404 otherwise), so the client
+// 2026-11-15: host-meta only to a valid login (otherwise a 302 to its WebUI's
+// login page, which answers 404), so the client
 // sends it none and takes /restconf, which the authenticated read confirms.
 package restconf_test
 

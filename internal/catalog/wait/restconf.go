@@ -112,7 +112,8 @@ func Restconf(ctx context.Context, rc sdk.RunbookContext, device inventory.Inven
 
 // restconfTry is one try at the server: a new client (pkg/restconf.ClientFor,
 // so the device's own TLS settings and credential, no proxy, no redirect),
-// host-meta for the root (read with no credential; on a 404 the conventional
+// host-meta for the root (read with no credential; on a 404 or a redirect,
+// never followed, the conventional
 // /restconf, which the capability read then decides), then the capability
 // list under it, and the client's connections dropped after. It returns the
 // root that answered, "/" for one at the origin itself, and how it was
