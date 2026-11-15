@@ -20,7 +20,7 @@ const (
 	GNMIAuthProperty = "gnmi_auth"
 	// GRPCAllowPlaintextCredentialsProperty accepts sending the credential
 	// over a plaintext connection, a further opt-in beside grpc_plaintext.
-	GRPCAllowPlaintextCredentialsProperty = "grpc_allow_plaintext_credentials"
+	GRPCAllowPlaintextCredentialsProperty = "grpc_allow_plaintext_credentials" // #nosec G101 -- a property's name, not a credential
 )
 
 // GNMI is generic_gnmi: a device that serves gNMI at one host:port.

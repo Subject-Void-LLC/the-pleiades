@@ -165,9 +165,10 @@ func readCapabilities(resp *gpb.CapabilityResponse) Capabilities {
 			}
 			continue
 		}
-		if !seenEncoding[Encoding(e)] {
-			seenEncoding[Encoding(e)] = true
-			out.Encodings = append(out.Encodings, Encoding(e))
+		known := Encoding(e) // #nosec G115 -- e is checked above to be one of encodingNames' few indexes
+		if !seenEncoding[known] {
+			seenEncoding[known] = true
+			out.Encodings = append(out.Encodings, known)
 		}
 	}
 	sort.Slice(out.Encodings, func(i, j int) bool { return out.Encodings[i] < out.Encodings[j] })
