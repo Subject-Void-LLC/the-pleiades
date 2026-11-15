@@ -136,6 +136,15 @@ type Rule struct {
 	// Python half can assert the same thing against the same examples.
 	Samples []string `json:"samples,omitempty"`
 
+	// SecretGroups, on a pattern rule, masks only the pattern's capturing
+	// groups, each replaced by the placeholder, and keeps the rest of the
+	// match: the keyword a secret follows (snmp-server community) still
+	// says what was there, where a whole-match rule would leave a bare
+	// placeholder. A group that already holds a placeholder, this package's
+	// or pkg/netcfg's comparable one, is kept as it is, so a configuration a
+	// method masked already reads the same. The pattern must have a group.
+	SecretGroups bool `json:"secret_groups,omitempty"`
+
 	// Description says why the rule exists. It is required, for the same
 	// reason gosec-waivers.json requires an individually written reason
 	// per finding: a rule nobody can justify is a rule nobody can safely
@@ -242,8 +251,8 @@ func (rs Ruleset) Validate() error {
 			if r.Pattern != "" {
 				return fmt.Errorf("redact: key rule %q also carries a pattern, and only one of the two can apply", r.Name)
 			}
-			if len(r.Prefilter) > 0 || len(r.Samples) > 0 {
-				return fmt.Errorf("redact: key rule %q carries a prefilter or samples, which only apply to a pattern rule", r.Name)
+			if len(r.Prefilter) > 0 || len(r.Samples) > 0 || r.SecretGroups {
+				return fmt.Errorf("redact: key rule %q carries a prefilter, samples or secret_groups, which only apply to a pattern rule", r.Name)
 			}
 			for _, k := range r.Keys {
 				if k == "" {

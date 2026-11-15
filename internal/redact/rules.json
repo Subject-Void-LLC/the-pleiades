@@ -27,7 +27,13 @@
     "silently disable its own rule, and a silently disabled masking rule is the",
     "worst failure this file has available: the tests assert every sample both",
     "passes its prefilter and is actually masked, so the prefilter cannot drift",
-    "away from the pattern it guards."
+    "away from the pattern it guards.",
+    "",
+    "A pattern rule with secret_groups masks only its capturing groups and keeps",
+    "the rest of the match, and keeps a group that already holds a placeholder",
+    "(this file's ******** or pkg/netcfg's pleiades-masked-). The SNMP rules use",
+    "it so a configuration line still says which keyword its secret followed.",
+    "The Python half must honor it as well."
   ],
   "rules": [
     {
@@ -137,6 +143,65 @@
       "samples": [
         "postgres://admin:hunter2@db.internal:5432/x",
         "https://u:p@example.com/"
+      ]
+    },
+    {
+      "name": "snmp_community",
+      "kind": "pattern",
+      "pattern": "(?i)\\b(?:snmp-server[ \\t]+community|rocommunity6?|rwcommunity6?)[ \\t]+([^ \\t\\r\\n]+)",
+      "secret_groups": true,
+      "description": "An SNMPv1/v2c community in a device's configuration: an IOS snmp-server community line, or a net-snmp rocommunity or rwcommunity line and their IPv6 forms. A community is a password sent in the clear, and one shorter than eight characters is masked by this shape alone, since masking it by value would scrub ordinary words from every output.",
+      "prefilter": [
+        "community"
+      ],
+      "samples": [
+        "snmp-server community public RO",
+        "rocommunity public 10.0.0.0/24",
+        "rwcommunity6 c0mmunity-s3cret fd00::/8"
+      ]
+    },
+    {
+      "name": "snmp_com2sec_community",
+      "kind": "pattern",
+      "pattern": "(?i)\\bcom2sec6?[ \\t]+(?:-Cn[ \\t]+[^ \\t\\r\\n]+[ \\t]+)?[^ \\t\\r\\n]+[ \\t]+[^ \\t\\r\\n]+[ \\t]+([^ \\t\\r\\n]+)",
+      "secret_groups": true,
+      "description": "The community a net-snmp com2sec line maps to a security name, its third argument after any -Cn context.",
+      "prefilter": [
+        "com2sec"
+      ],
+      "samples": [
+        "com2sec local localhost public",
+        "com2sec -Cn ctx mynet 10.0.0.0/8 c0mmunity-s3cret"
+      ]
+    },
+    {
+      "name": "snmp_v3_user_passphrases",
+      "kind": "pattern",
+      "pattern": "(?i)\\bsnmp-server[ \\t]+user[ \\t][^\\r\\n]*?\\bauth[ \\t]+(?:md5|sha-2[ \\t]+(?:256|384|512)|sha)[ \\t]+([^ \\t\\r\\n]+)(?:[ \\t]+priv[ \\t]+(?:des|3des|aes[ \\t]+(?:128|192|256))[ \\t]+([^ \\t\\r\\n]+))?",
+      "secret_groups": true,
+      "description": "An IOS SNMPv3 user's authentication and privacy passphrases, or its localized keys on an encrypted line, each after its algorithm. IOS does not print these in its running configuration, so this is for a line an operator or a runbook wrote, echoed back.",
+      "prefilter": [
+        "snmp-server"
+      ],
+      "samples": [
+        "snmp-server user monitor grp v3 auth sha auth-pass-1 priv aes 256 priv-pass-1",
+        "snmp-server user monitor grp v3 auth sha-2 512 auth-pass-2 priv 3des priv-pass-2 access 10",
+        "snmp-server user monitor grp v3 encrypted auth md5 0a1b2c3d4e5f"
+      ]
+    },
+    {
+      "name": "snmp_net_snmp_create_user",
+      "kind": "pattern",
+      "pattern": "(?i)\\bcreateUser[ \\t]+(?:-e[ \\t]+[^ \\t\\r\\n]+[ \\t]+)?[^ \\t\\r\\n]+[ \\t]+(?:md5|sha(?:-?(?:1|224|256|384|512))?)[ \\t]+(\"[^\"\\r\\n]*\"|[^ \\t\\r\\n]+)(?:[ \\t]+(?:des|aes(?:-?(?:128|192|256))?)[ \\t]+(\"[^\"\\r\\n]*\"|[^ \\t\\r\\n]+))?",
+      "secret_groups": true,
+      "description": "A net-snmp createUser line's authentication passphrase and, when it has one of its own, its privacy passphrase, each after its algorithm and either a word or a double-quoted phrase.",
+      "prefilter": [
+        "createuser"
+      ],
+      "samples": [
+        "createUser monitor SHA auth-pass-4 AES priv-pass-4",
+        "createUser -e 0x8000000001020304 monitor SHA-256 \"auth pass five\" AES-256 \"priv pass five\"",
+        "createUser monitor MD5 auth-pass-6"
       ]
     }
   ]

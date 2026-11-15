@@ -56,10 +56,16 @@ func NewMasker(rs Ruleset) (*Masker, error) {
 			if err != nil {
 				return nil, fmt.Errorf("redact: rule %q has an invalid pattern: %w", r.Name, err)
 			}
+			// A rule masking its groups with none would mask nothing at all,
+			// the silently disabled rule this package fears most.
+			if r.SecretGroups && re.NumSubexp() == 0 {
+				return nil, fmt.Errorf("redact: rule %q masks its secret_groups and its pattern has no group", r.Name)
+			}
 			m.patterns = append(m.patterns, compiledPattern{
 				name:      r.Name,
 				re:        re,
 				prefilter: r.Prefilter,
+				groups:    r.SecretGroups,
 			})
 		}
 	}
@@ -139,7 +145,11 @@ func (m *Masker) Text(extra []string, text string) string {
 			}
 		}
 		before := out
-		out = p.re.ReplaceAllString(out, maskPlaceholder)
+		if p.groups {
+			out = maskGroups(p.re, out)
+		} else {
+			out = p.re.ReplaceAllString(out, maskPlaceholder)
+		}
 		if out != before {
 			// A replacement changed the text, so the lowercase copy is
 			// stale for every rule after this one. Rebuilding is correct
@@ -162,6 +172,9 @@ type compiledPattern struct {
 	// prefilter is the rule's cheap substring test, lowercase. Empty means
 	// the pattern always runs.
 	prefilter []string
+
+	// groups masks only the pattern's capturing groups (Rule.SecretGroups).
+	groups bool
 }
 
 // containsAny reports whether lowered contains at least one of subs.
