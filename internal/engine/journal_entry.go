@@ -390,12 +390,12 @@ func IsRecordedFailureStage(stage FailureStage) bool { return validFailureStage(
 // Like IsRecordedFailureStage's list, it only grows.
 func IsRecordedSkipKind(kind SkipKind) bool { return validSkipKind(kind) }
 
-// validSkipKind reports whether kind is one of the seven reasons a node may
+// validSkipKind reports whether kind is one of the eight reasons a node may
 // be recorded as skipped. It enumerates them for the same reason
 // validFailureStage does.
 func validSkipKind(kind SkipKind) bool {
 	switch kind {
-	case SkipKindWhen, SkipKindWhenOr, SkipKindWhenCEL, SkipKindLifecycle, SkipKindBlockFailed, SkipKindNotFailed, SkipKindNotNotified:
+	case SkipKindWhen, SkipKindWhenOr, SkipKindWhenCEL, SkipKindLifecycle, SkipKindBlockFailed, SkipKindNotFailed, SkipKindNotNotified, SkipKindLimit:
 		return true
 	case SkipKindNone:
 		return false

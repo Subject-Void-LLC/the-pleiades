@@ -133,9 +133,45 @@ func (w WorldView) taskDevices(task *engine.Task) (string, []inventory.Inventory
 
 // ResolveAll is Resolve for a target that may be a hosts: list (a
 // comma-separated string, engine.ResolveTargets): the devices it names, and
-// the names in it that match nothing.
+// the names in it that match nothing. A name whose devices the run's
+// narrowing hid (a CLI --limit, a serial: batch) is not missing, as the
+// engine does not count it (engine.Narrowing).
 func (w WorldView) ResolveAll(target string) (devices []inventory.InventoryItem, missing []string) {
-	return engine.ResolveTargets(engine.TargetResolverFunc(w.Resolve), target)
+	res := w.resolveIn(target)
+	return res.Devices, res.Missing
+}
+
+// resolveIn resolves target through w (its cached Resolve and the
+// narrowing of its Resolver), as the engine resolves it.
+func (w WorldView) resolveIn(target string) engine.Resolution {
+	return engine.ResolveTargetsIn(w, target)
+}
+
+// Unnarrowed implements engine.Narrowing: target as w's Resolver would
+// answer it if it hid nothing, which for a Resolver that narrows nothing (or
+// none) is Resolve. A WorldView is what the CLI hands the executor as its
+// TargetResolver, so it carries its Resolver's narrowing to the engine.
+func (w WorldView) Unnarrowed(target string) []inventory.InventoryItem {
+	if n, ok := w.Resolver.(engine.Narrowing); ok {
+		return n.Unnarrowed(target)
+	}
+	return w.Resolve(target)
+}
+
+// HiddenBecause implements engine.Narrowing: why w's Resolver hides d from
+// the run, or "" when it narrows nothing.
+func (w WorldView) HiddenBecause(d inventory.InventoryItem) string {
+	if n, ok := w.Resolver.(engine.Narrowing); ok {
+		return n.HiddenBecause(d)
+	}
+	return ""
+}
+
+// NarrowedAway reports whether target reaches no device in w only because
+// the run's narrowing hid every one it names, which the engine skips rather
+// than fails (engine.Resolution.NarrowedAway).
+func (w WorldView) NarrowedAway(target string) bool {
+	return target != "" && w.resolveIn(target).NarrowedAway()
 }
 
 // Rule inspects a WorldView and returns the Findings it detects. A Rule

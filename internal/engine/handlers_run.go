@@ -63,18 +63,14 @@ func (r *run) runGuarded(ctx context.Context, nodeID string, task *Task, started
 		}
 		devices, err := r.resolveDevices(prepared)
 		if err != nil {
-			wrapped := fmt.Errorf("failed to resolve target for %s: %w", taskLabel(nodeID, prepared), err)
-			r.publish(nodeID, prepared, "", "failed", wrapped.Error())
-			return []NodeResult{failedNode(nodeID, started, FailureStageResolveTarget, wrapped)}
+			return []NodeResult{r.unresolved(nodeID, prepared, started, err)}
 		}
 		return r.dispatch(ctx, nodeID, prepared, devices, started)
 	}
 
 	devices, err := r.resolveDevices(task)
 	if err != nil {
-		wrapped := fmt.Errorf("failed to resolve target for %s: %w", taskLabel(nodeID, task), err)
-		r.publish(nodeID, task, "", "failed", wrapped.Error())
-		return []NodeResult{failedNode(nodeID, started, FailureStageResolveTarget, wrapped)}
+		return []NodeResult{r.unresolved(nodeID, task, started, err)}
 	}
 
 	var results []NodeResult

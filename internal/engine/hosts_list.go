@@ -40,7 +40,18 @@ func (f TargetResolverFunc) Resolve(target string) []inventory.InventoryItem { r
 //
 // An empty target resolves through r as it always has (a resolver may carry an
 // ambient default device) and reports nothing missing.
+//
+// When r narrows the run (Narrowing: --limit, a serial: batch), a name whose
+// every device it hid is not missing: the inventory has it and this run does
+// not reach it (ResolveTargetsIn says which and why).
 func ResolveTargets(r TargetResolver, target string) (devices []inventory.InventoryItem, missing []string) {
+	res := ResolveTargetsIn(r, target)
+	return res.Devices, res.Missing
+}
+
+// resolveTargetNames is ResolveTargets before any narrowing is read: every
+// name the resolver answers nothing for is missing.
+func resolveTargetNames(r TargetResolver, target string) (devices []inventory.InventoryItem, missing []string) {
 	whole := r.Resolve(target)
 	if len(whole) > 0 || target == "" {
 		return whole, nil

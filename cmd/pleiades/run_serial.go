@@ -19,6 +19,9 @@ import (
 // own hosts, to the batch running now. A device outside the hosts (a lab
 // server, a Batfish service a task names) is not batched and resolves as
 // always, since serial: says how many of the hosts change at a time.
+//
+// It is an engine.Narrowing, as --limit's resolver is, so a task whose target
+// names only hosts of other batches is skipped in this one and runs in theirs.
 type batchResolver struct {
 	inner   validate.WorldView
 	hosts   map[inventory.DeviceID]bool
@@ -34,6 +37,25 @@ func (b *batchResolver) Resolve(target string) []inventory.InventoryItem {
 		}
 	}
 	return out
+}
+
+// Unnarrowed implements engine.Narrowing: target as the run's world answers
+// it with nothing hidden, under the limit's own narrowing too when there is
+// one.
+func (b *batchResolver) Unnarrowed(target string) []inventory.InventoryItem {
+	return b.inner.Unnarrowed(target)
+}
+
+// HiddenBecause implements engine.Narrowing: a device the limit leaves out
+// says so first, and a host of another batch is in another batch.
+func (b *batchResolver) HiddenBecause(d inventory.InventoryItem) string {
+	if why := b.inner.HiddenBecause(d); why != "" {
+		return why
+	}
+	if b.hosts[d.ID()] && !b.current[d.ID()] {
+		return "in another serial: batch"
+	}
+	return ""
 }
 
 // serialPlan is a run's batches and the resolver that runs one at a time, or

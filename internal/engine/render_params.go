@@ -662,24 +662,45 @@ func (r *run) resolveBounded(task *Task) ([]inventory.InventoryItem, error) {
 		return nil, err
 	}
 	bound := r.x.resolver.Resolve(task.Within)
-	if len(bound) == 0 {
+	// The bound a name is held to is the whole inventory's: a run narrowed by
+	// --limit or a serial: batch reaches fewer of its devices, and a name the
+	// narrowing hid is outside this run, not outside the bound (narrowing.go).
+	whole := bound
+	narrowing, narrowed := r.x.resolver.(Narrowing)
+	if narrowed {
+		whole = narrowing.Unnarrowed(task.Within)
+	}
+	if len(whole) == 0 {
 		return nil, fmt.Errorf("within: %q matches no inventory host or tag", task.Within)
 	}
-	byName := make(map[string]inventory.InventoryItem, len(bound))
+	reached := make(map[string]inventory.InventoryItem, len(bound))
 	for _, d := range bound {
-		byName[d.Name()] = d
+		reached[d.Name()] = d
+	}
+	within := make(map[string]inventory.InventoryItem, len(whole))
+	for _, d := range whole {
+		within[d.Name()] = d
 	}
 	var out []inventory.InventoryItem
+	var hidden []HiddenName
 	seen := map[string]bool{}
 	for _, name := range names {
-		d, ok := byName[name]
+		d, ok := within[name]
 		if !ok {
 			return nil, fmt.Errorf("the rendered target names %q, which is not a device within %q", name, task.Within)
 		}
-		if !seen[name] {
-			seen[name] = true
-			out = append(out, d)
+		if seen[name] {
+			continue
 		}
+		seen[name] = true
+		if _, ok := reached[name]; !ok && narrowed {
+			hidden = append(hidden, hiddenName(narrowing, name, []inventory.InventoryItem{d}))
+			continue
+		}
+		out = append(out, d)
+	}
+	if len(out) == 0 && len(hidden) > 0 {
+		return nil, &narrowedTarget{target: strings.Join(names, ","), hidden: hidden}
 	}
 	return out, nil
 }

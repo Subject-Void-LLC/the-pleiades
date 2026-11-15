@@ -1,0 +1,1 @@
+Under `pleiades run --limit`, and in a `serial:` batch, a task whose `target:` (or a name in the runbook's `hosts:` list) names only devices the limit or the batch leaves out is now skipped, naming those devices and why, instead of failing with "matches no inventory host or tag". A name the inventory has no device or tag for still fails, limited or not.

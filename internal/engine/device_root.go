@@ -177,7 +177,7 @@ func (r *run) runPerDevice(ctx context.Context, nodeID string, task *Task, start
 	}
 	devices, err := r.resolveDevices(targeted)
 	if err != nil {
-		return fail(FailureStageResolveTarget, fmt.Errorf("failed to resolve target for %s: %w", taskLabel(nodeID, task), err))
+		return []NodeResult{r.unresolved(nodeID, task, started, err)}
 	}
 	on := func(d inventory.InventoryItem) []NodeResult {
 		key := ""

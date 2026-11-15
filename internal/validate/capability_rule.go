@@ -58,6 +58,12 @@ func CapabilityRule(world WorldView) []Finding {
 		label := taskLabel(id, task)
 
 		if len(devices) == 0 {
+			// Every device it names is outside this run (--limit, a serial:
+			// batch), which the engine skips: nothing here to hold to a
+			// capability, and nothing missing.
+			if world.NarrowedAway(target) {
+				continue
+			}
 			findings = append(findings, Finding{
 				RuleName: "capability",
 				Node:     id,
