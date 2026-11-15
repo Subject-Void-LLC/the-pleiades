@@ -11,18 +11,19 @@ import (
 )
 
 // SaveFileStore adds or updates exactly one device's credential in the
-// credentials file under dir, encrypting whichever of cred's
-// Password, PrivateKeyPEM, and Passphrase are non-empty with the master
-// key key. Every other device already stored in the file is preserved
-// unchanged.
+// credentials file under dir, encrypting each of cred's secret fields that
+// is non-empty with the master key key. Every other device already stored
+// in the file is preserved unchanged.
 //
-// A call to SaveFileStore replaces deviceName's entire stored entry with
-// a fresh encoding of cred; it does not merge cred's fields onto
+// It replaces each family cred sets a field of (a login, its SNMP fields,
+// or both; families.go) with a fresh encoding of cred, and keeps the other
+// family as stored. Within a family it does not merge cred's fields onto
 // whatever was stored before. This matters when switching a device from
-// password to key authentication (or back): calling SaveFileStore with
-// only PrivateKeyPEM set clears any previously stored password for that
-// device, rather than leaving stale, no-longer-intended credential
-// material on disk next to the new key.
+// password to key authentication (or back): calling SaveFileStore with only
+// PrivateKeyPEM set clears any previously stored password for that device,
+// rather than leaving stale, no-longer-intended credential material on disk
+// next to the new key, while the device's SNMP fields stay. SaveFileStoreWith
+// names the families outright.
 //
 // The file is written atomically (temp file in the same directory, then
 // os.Rename over the target) with mode 0o600, mirroring atomicWriteFile
@@ -75,63 +76,82 @@ func updateCredentialsDocument(dir string, change func(doc *credentialsDocument)
 	return atomicWriteCredentialsFile(path, data)
 }
 
-// buildCredentialEntry encrypts whichever of cred's secret fields are
-// non-empty, leaving the corresponding _encrypted field as its zero
-// value (empty string, omitted from the written YAML via omitempty) for
-// any field cred does not carry.
+// buildCredentialEntry encrypts both families of cred into one whole entry,
+// with no mark: what a registry account, which has no families of its own,
+// is stored as.
 func buildCredentialEntry(svc crypto.Service, cred Credential) (credentialEntry, error) {
-	entry := credentialEntry{Username: cred.Username}
+	login, err := buildLoginEntry(svc, cred)
+	if err != nil {
+		return credentialEntry{}, err
+	}
+	snmp, err := buildSNMPEntry(svc, cred, false)
+	if err != nil {
+		return credentialEntry{}, err
+	}
+	return credentialEntry{loginEntry: login, snmpEntry: snmp}, nil
+}
 
-	if cred.Password != "" {
-		encrypted, err := encryptField(svc, []byte(cred.Password))
-		if err != nil {
-			return credentialEntry{}, fmt.Errorf("password: %w", err)
-		}
-		entry.PasswordEncrypted = encrypted
-	}
-	if len(cred.PrivateKeyPEM) != 0 {
-		encrypted, err := encryptField(svc, cred.PrivateKeyPEM)
-		if err != nil {
-			return credentialEntry{}, fmt.Errorf("private key: %w", err)
-		}
-		entry.PrivateKeyEncrypted = encrypted
-	}
-	if cred.Passphrase != "" {
-		encrypted, err := encryptField(svc, []byte(cred.Passphrase))
-		if err != nil {
-			return credentialEntry{}, fmt.Errorf("passphrase: %w", err)
-		}
-		entry.PassphraseEncrypted = encrypted
-	}
-	if len(cred.CertificatePEM) != 0 {
-		encrypted, err := encryptField(svc, cred.CertificatePEM)
-		if err != nil {
-			return credentialEntry{}, fmt.Errorf("certificate: %w", err)
-		}
-		entry.CertificateEncrypted = encrypted
-	}
-	if cred.PFXBase64 != "" {
-		encrypted, err := encryptField(svc, []byte(cred.PFXBase64))
-		if err != nil {
-			return credentialEntry{}, fmt.Errorf("bundle: %w", err)
-		}
-		entry.PFXEncrypted = encrypted
-	}
-	if cred.Token != "" {
-		encrypted, err := encryptField(svc, []byte(cred.Token))
-		if err != nil {
-			return credentialEntry{}, fmt.Errorf("token: %w", err)
-		}
-		entry.TokenEncrypted = encrypted
-	}
-	if cred.EnablePassword != "" {
-		encrypted, err := encryptField(svc, []byte(cred.EnablePassword))
-		if err != nil {
-			return credentialEntry{}, fmt.Errorf("enable secret: %w", err)
-		}
-		entry.EnablePasswordEncrypted = encrypted
-	}
+// sealedField is one secret field of a family on its way to the file: what
+// to call it in an error, its plaintext, and where its ciphertext goes.
+type sealedField struct {
+	what      string
+	plaintext []byte
+	into      *string
+}
 
+// sealFields encrypts each field whose plaintext is non-empty into its
+// place, leaving an empty one's _encrypted field at its zero value (omitted
+// from the written YAML via omitempty).
+func sealFields(svc crypto.Service, fields []sealedField) error {
+	for _, f := range fields {
+		if len(f.plaintext) == 0 {
+			continue
+		}
+		encrypted, err := encryptField(svc, f.plaintext)
+		if err != nil {
+			return fmt.Errorf("%s: %w", f.what, err)
+		}
+		*f.into = encrypted
+	}
+	return nil
+}
+
+// buildLoginEntry encrypts the login family of cred.
+func buildLoginEntry(svc crypto.Service, cred Credential) (loginEntry, error) {
+	entry := loginEntry{Username: cred.Username}
+	err := sealFields(svc, []sealedField{
+		{"password", []byte(cred.Password), &entry.PasswordEncrypted},
+		{"private key", cred.PrivateKeyPEM, &entry.PrivateKeyEncrypted},
+		{"passphrase", []byte(cred.Passphrase), &entry.PassphraseEncrypted},
+		{"certificate", cred.CertificatePEM, &entry.CertificateEncrypted},
+		{"bundle", []byte(cred.PFXBase64), &entry.PFXEncrypted},
+		{"token", []byte(cred.Token), &entry.TokenEncrypted},
+		{"enable secret", []byte(cred.EnablePassword), &entry.EnablePasswordEncrypted},
+	})
+	if err != nil {
+		return loginEntry{}, err
+	}
+	return entry, nil
+}
+
+// buildSNMPEntry encrypts the SNMP family of cred, marking a short community
+// as stored deliberately (shortCommunity, which checkStorable has already
+// held to the community it allows).
+func buildSNMPEntry(svc crypto.Service, cred Credential, shortCommunity bool) (snmpEntry, error) {
+	entry := snmpEntry{
+		SNMPUser:         cred.SNMPUser,
+		SNMPAuthProtocol: cred.SNMPAuthProtocol,
+		SNMPPrivProtocol: cred.SNMPPrivProtocol,
+		ShortCommunity:   shortCommunity,
+	}
+	err := sealFields(svc, []sealedField{
+		{"SNMP community", []byte(cred.SNMPCommunity), &entry.SNMPCommunityEncrypted},
+		{"SNMP authentication passphrase", []byte(cred.SNMPAuthPassphrase), &entry.SNMPAuthPassphraseEncrypted},
+		{"SNMP privacy passphrase", []byte(cred.SNMPPrivPassphrase), &entry.SNMPPrivPassphraseEncrypted},
+	})
+	if err != nil {
+		return snmpEntry{}, err
+	}
 	return entry, nil
 }
 

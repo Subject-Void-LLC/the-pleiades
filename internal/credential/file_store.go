@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/crypto"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -62,7 +63,24 @@ type credentialsDocument struct {
 // password- or key-authenticated, but a Lookup that finds both populates
 // both fields on the returned Credential rather than picking one,
 // leaving that choice to the transport layer that actually authenticates.
+//
+// Its fields are two families (families.go), each its own embedded struct
+// inlined into the same YAML mapping, so the file's shape is what it always
+// was and a save that leaves a family alone copies that struct whole: a
+// field added to a family later is carried with it without anyone
+// remembering to copy it.
 type credentialEntry struct {
+	loginEntry `yaml:",inline"`
+	snmpEntry  `yaml:",inline"`
+	// Unbound marks an entry stored for a name no inventory device had at
+	// the time (add-credential without --no-device, or with it). Not a
+	// secret; see unbound.go. It is about the name, not a family, so every
+	// save sets it.
+	Unbound bool `yaml:"unbound,omitempty"`
+}
+
+// loginEntry is the login family of a stored credential.
+type loginEntry struct {
 	Username            string `yaml:"username"`
 	PasswordEncrypted   string `yaml:"password_encrypted,omitempty"`
 	PrivateKeyEncrypted string `yaml:"private_key_encrypted,omitempty"`
@@ -81,10 +99,24 @@ type credentialEntry struct {
 	// EnablePasswordEncrypted holds a network device's enable secret.
 	// Phase 127c.
 	EnablePasswordEncrypted string `yaml:"enable_password_encrypted,omitempty"`
-	// Unbound marks an entry stored for a name no inventory device had at
-	// the time (add-credential without --no-device, or with it). Not a
-	// secret; see unbound.go.
-	Unbound bool `yaml:"unbound,omitempty"`
+}
+
+// snmpEntry is the SNMP family of a stored credential (Phase 97). The user
+// and the two protocol names are plaintext, as Username is, since none is a
+// secret and a listing reads them with no master key; the community and the
+// passphrases are ciphertext.
+type snmpEntry struct {
+	SNMPCommunityEncrypted      string                `yaml:"snmp_community_encrypted,omitempty"`
+	SNMPUser                    string                `yaml:"snmp_user,omitempty"`
+	SNMPAuthProtocol            wire.SNMPAuthProtocol `yaml:"snmp_auth_protocol,omitempty"`
+	SNMPAuthPassphraseEncrypted string                `yaml:"snmp_auth_passphrase_encrypted,omitempty"`
+	SNMPPrivProtocol            wire.SNMPPrivProtocol `yaml:"snmp_priv_protocol,omitempty"`
+	SNMPPrivPassphraseEncrypted string                `yaml:"snmp_priv_passphrase_encrypted,omitempty"`
+	// ShortCommunity marks a community under wire.MinSNMPCommunityLength the
+	// operator stored deliberately (add-credential --allow-short-community).
+	// Not a secret, like Unbound, and part of this family, so it goes when
+	// the community does. Lookup refuses a short community without it.
+	ShortCommunity bool `yaml:"short_community,omitempty"`
 }
 
 // fileStore is the Store implementation backed by credentialsFileName
@@ -149,58 +181,46 @@ func (s *fileStore) Lookup(ctx context.Context, deviceName string) (Credential, 
 		)
 	}
 
-	cred := Credential{Username: entry.Username}
-
-	if entry.PasswordEncrypted != "" {
-		password, err := s.decryptField(entry.PasswordEncrypted)
-		if err != nil {
-			return Credential{}, fmt.Errorf("failed to decrypt password for device %s: %w", deviceName, err)
-		}
-		cred.Password = string(password)
+	// The identifiers are plaintext in the file; every other field is
+	// decrypted, each failure naming its field, never its value.
+	cred := Credential{
+		Username:         entry.Username,
+		SNMPUser:         entry.SNMPUser,
+		SNMPAuthProtocol: entry.SNMPAuthProtocol,
+		SNMPPrivProtocol: entry.SNMPPrivProtocol,
 	}
-	if entry.PrivateKeyEncrypted != "" {
-		key, err := s.decryptField(entry.PrivateKeyEncrypted)
-		if err != nil {
-			return Credential{}, fmt.Errorf("failed to decrypt private key for device %s: %w", deviceName, err)
+	for _, f := range []struct {
+		what, encrypted string
+		into            func([]byte)
+	}{
+		{"password", entry.PasswordEncrypted, func(b []byte) { cred.Password = string(b) }},
+		{"private key", entry.PrivateKeyEncrypted, func(b []byte) { cred.PrivateKeyPEM = b }},
+		{"passphrase", entry.PassphraseEncrypted, func(b []byte) { cred.Passphrase = string(b) }},
+		{"certificate", entry.CertificateEncrypted, func(b []byte) { cred.CertificatePEM = b }},
+		{"bundle", entry.PFXEncrypted, func(b []byte) { cred.PFXBase64 = string(b) }},
+		{"token", entry.TokenEncrypted, func(b []byte) { cred.Token = string(b) }},
+		{"enable secret", entry.EnablePasswordEncrypted, func(b []byte) { cred.EnablePassword = string(b) }},
+		{"SNMP community", entry.SNMPCommunityEncrypted, func(b []byte) { cred.SNMPCommunity = string(b) }},
+		{"SNMP authentication passphrase", entry.SNMPAuthPassphraseEncrypted, func(b []byte) { cred.SNMPAuthPassphrase = string(b) }},
+		{"SNMP privacy passphrase", entry.SNMPPrivPassphraseEncrypted, func(b []byte) { cred.SNMPPrivPassphrase = string(b) }},
+	} {
+		if f.encrypted == "" {
+			continue
 		}
-		cred.PrivateKeyPEM = key
-	}
-	if entry.PassphraseEncrypted != "" {
-		passphrase, err := s.decryptField(entry.PassphraseEncrypted)
+		plaintext, err := s.decryptField(f.encrypted)
 		if err != nil {
-			return Credential{}, fmt.Errorf("failed to decrypt passphrase for device %s: %w", deviceName, err)
+			return Credential{}, fmt.Errorf("failed to decrypt %s for device %s: %w", f.what, deviceName, err)
 		}
-		cred.Passphrase = string(passphrase)
-	}
-	if entry.CertificateEncrypted != "" {
-		certificate, err := s.decryptField(entry.CertificateEncrypted)
-		if err != nil {
-			return Credential{}, fmt.Errorf("failed to decrypt certificate for device %s: %w", deviceName, err)
-		}
-		cred.CertificatePEM = certificate
-	}
-	if entry.PFXEncrypted != "" {
-		bundle, err := s.decryptField(entry.PFXEncrypted)
-		if err != nil {
-			return Credential{}, fmt.Errorf("failed to decrypt bundle for device %s: %w", deviceName, err)
-		}
-		cred.PFXBase64 = string(bundle)
-	}
-	if entry.TokenEncrypted != "" {
-		token, err := s.decryptField(entry.TokenEncrypted)
-		if err != nil {
-			return Credential{}, fmt.Errorf("failed to decrypt token for device %s: %w", deviceName, err)
-		}
-		cred.Token = string(token)
-	}
-	if entry.EnablePasswordEncrypted != "" {
-		enable, err := s.decryptField(entry.EnablePasswordEncrypted)
-		if err != nil {
-			return Credential{}, fmt.Errorf("failed to decrypt enable secret for device %s: %w", deviceName, err)
-		}
-		cred.EnablePassword = string(enable)
+		f.into(plaintext)
 	}
 
+	// What was read is held to the rules it was saved under, so a plaintext
+	// protocol name edited in the file, a short community stored without its
+	// mark, or a key a save before this check put beside a certificate never
+	// reaches a run.
+	if err := checkStorable(cred, LoginFamily|SNMPFamily, entry.ShortCommunity); err != nil {
+		return Credential{}, fmt.Errorf("the credential stored for device %s cannot be used: %w (replace it with pleiades add-credential %s)", deviceName, err, deviceName)
+	}
 	return cred, nil
 }
 

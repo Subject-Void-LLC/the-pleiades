@@ -27,6 +27,13 @@ const (
 	SecretPFXBase64      = wire.SecretPFXBase64
 	SecretBearerToken    = wire.SecretBearerToken
 	SecretEnablePassword = wire.SecretEnablePassword
+
+	SecretSNMPCommunity      = wire.SecretSNMPCommunity
+	SecretSNMPUser           = wire.SecretSNMPUser
+	SecretSNMPAuthProtocol   = wire.SecretSNMPAuthProtocol
+	SecretSNMPAuthPassphrase = wire.SecretSNMPAuthPassphrase
+	SecretSNMPPrivProtocol   = wire.SecretSNMPPrivProtocol
+	SecretSNMPPrivPassphrase = wire.SecretSNMPPrivPassphrase
 )
 
 // Unflatten is Flatten's inverse: it rebuilds a Credential from the
@@ -36,15 +43,22 @@ const (
 // A missing key produces that field's Go zero value, the same as a
 // Credential that never had it set.
 func Unflatten(secrets map[string]string) Credential {
+	snmp := wire.SNMPOf(secrets)
 	return Credential{
-		Username:       secrets[SecretUsername],
-		Password:       secrets[SecretPassword],
-		PrivateKeyPEM:  bytesOrNil(secrets[SecretPrivateKeyPEM]),
-		Passphrase:     secrets[SecretPassphrase],
-		CertificatePEM: bytesOrNil(secrets[SecretCertificatePEM]),
-		PFXBase64:      secrets[SecretPFXBase64],
-		Token:          secrets[SecretBearerToken],
-		EnablePassword: secrets[SecretEnablePassword],
+		Username:           secrets[SecretUsername],
+		Password:           secrets[SecretPassword],
+		PrivateKeyPEM:      bytesOrNil(secrets[SecretPrivateKeyPEM]),
+		Passphrase:         secrets[SecretPassphrase],
+		CertificatePEM:     bytesOrNil(secrets[SecretCertificatePEM]),
+		PFXBase64:          secrets[SecretPFXBase64],
+		Token:              secrets[SecretBearerToken],
+		EnablePassword:     secrets[SecretEnablePassword],
+		SNMPCommunity:      snmp.Community,
+		SNMPUser:           snmp.User,
+		SNMPAuthProtocol:   snmp.AuthProtocol,
+		SNMPAuthPassphrase: snmp.AuthPassphrase,
+		SNMPPrivProtocol:   snmp.PrivProtocol,
+		SNMPPrivPassphrase: snmp.PrivPassphrase,
 	}
 }
 
@@ -77,7 +91,9 @@ func bytesOrNil(s string) []byte {
 // "this device has no key" instead of "this device has a key that happens
 // to be empty."
 func Flatten(cred Credential) map[string]string {
-	secrets := make(map[string]string, 8)
+	// The SNMP family is written by the one conversion pkg/wire owns, so its
+	// keys and an empty field's absence cannot drift from what SNMPOf reads.
+	secrets := cred.SNMP().Secrets()
 	if cred.Username != "" {
 		secrets[SecretUsername] = cred.Username
 	}

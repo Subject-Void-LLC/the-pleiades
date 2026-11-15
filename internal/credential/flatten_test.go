@@ -4,6 +4,8 @@ import (
 	"context"
 	"reflect"
 	"testing"
+
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
 
 func TestUnflatten(t *testing.T) {
@@ -70,15 +72,23 @@ func TestUnflatten(t *testing.T) {
 // inverses for every field a Credential can carry, since NewStaticStore's
 // whole correctness depends on that round trip being lossless.
 func TestFlattenUnflattenRoundTrip(t *testing.T) {
+	// Flatten checks nothing, so one value can carry every field at once,
+	// a community and a v3 user together included, which no save accepts.
 	original := Credential{
-		Username:       "admin",
-		Password:       "hunter2",
-		PrivateKeyPEM:  []byte("-----BEGIN OPENSSH PRIVATE KEY-----"),
-		Passphrase:     "keypass",
-		CertificatePEM: []byte("-----BEGIN CERTIFICATE-----"),
-		PFXBase64:      "MIIKzQIBAzCCCoc=",
-		Token:          "eyJhbGciOiJSUzI1NiJ9.e30.sig",
-		EnablePassword: "en4ble-s3cret",
+		Username:           "admin",
+		Password:           "hunter2",
+		PrivateKeyPEM:      []byte("-----BEGIN OPENSSH PRIVATE KEY-----"),
+		Passphrase:         "keypass",
+		CertificatePEM:     []byte("-----BEGIN CERTIFICATE-----"),
+		PFXBase64:          "MIIKzQIBAzCCCoc=",
+		Token:              "eyJhbGciOiJSUzI1NiJ9.e30.sig",
+		EnablePassword:     "en4ble-s3cret",
+		SNMPCommunity:      "c0mmunity-s3cret",
+		SNMPUser:           "monitor",
+		SNMPAuthProtocol:   wire.SNMPAuthSHA256,
+		SNMPAuthPassphrase: "auth-pass-phrase",
+		SNMPPrivProtocol:   wire.SNMPPrivAES256Reeder,
+		SNMPPrivPassphrase: "priv-pass-phrase",
 	}
 	everyFieldSet(t, original)
 
@@ -174,7 +184,7 @@ func TestEveryCredentialFieldSurvivesTheFileStore(t *testing.T) {
 		t.Fatalf("ResolveMasterKey() error = %v", err)
 	}
 
-	want := Credential{
+	login := Credential{
 		Username:       "operator",
 		Password:       "a-real-password",
 		PrivateKeyPEM:  []byte("-----BEGIN PRIVATE KEY-----\nkey\n-----END PRIVATE KEY-----\n"),
@@ -184,42 +194,58 @@ func TestEveryCredentialFieldSurvivesTheFileStore(t *testing.T) {
 		Token:          "eyJhbGciOiJSUzI1NiJ9.e30.sig",
 		EnablePassword: "en4ble-s3cret",
 	}
-	everyFieldSet(t, want)
-	if err := SaveFileStore(dir, key, "win01", want); err != nil {
-		t.Fatalf("SaveFileStore() error = %v", err)
-	}
+	// A stored credential holds a community or a v3 user, never both, so the
+	// SNMP family is carried by two fixtures, each beside the whole login,
+	// and the two together must set every field.
+	community, user := login, login
+	community.SNMPCommunity = "c0mmunity-s3cret"
+	user.SNMPUser = "monitor"
+	user.SNMPAuthProtocol, user.SNMPAuthPassphrase = wire.SNMPAuthSHA512, "auth-pass-phrase"
+	user.SNMPPrivProtocol, user.SNMPPrivPassphrase = wire.SNMPPrivAES192, "priv-pass-phrase"
+	everyFieldSetIn(t, community, user)
 
-	store, err := NewFileStore(dir, key)
-	if err != nil {
-		t.Fatalf("NewFileStore() error = %v", err)
-	}
-	got, err := store.Lookup(context.Background(), "win01")
-	if err != nil {
-		t.Fatalf("Lookup() error = %v", err)
-	}
+	for name, want := range map[string]Credential{"win01": community, "win02": user} {
+		if err := SaveFileStore(dir, key, name, want); err != nil {
+			t.Fatalf("SaveFileStore(%s) error = %v", name, err)
+		}
+		store, err := NewFileStore(dir, key)
+		if err != nil {
+			t.Fatalf("NewFileStore() error = %v", err)
+		}
+		got, err := store.Lookup(context.Background(), name)
+		if err != nil {
+			t.Fatalf("Lookup(%s) error = %v", name, err)
+		}
 
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("the credential did not survive the store:\n got %+v\nwant %+v", got, want)
-	}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("the credential did not survive the store:\n got %+v\nwant %+v", got, want)
+		}
 
-	// Named per field, because a DeepEqual failure on a redacted type prints
-	// two identical-looking values and says nothing about which field went
-	// missing. That is precisely how the original defect read.
-	for _, f := range []struct {
-		name      string
-		got, want string
-	}{
-		{"username", got.Username, want.Username},
-		{"password", got.Password, want.Password},
-		{"private key", string(got.PrivateKeyPEM), string(want.PrivateKeyPEM)},
-		{"passphrase", got.Passphrase, want.Passphrase},
-		{"certificate", string(got.CertificatePEM), string(want.CertificatePEM)},
-		{"bundle", got.PFXBase64, want.PFXBase64},
-		{"token", got.Token, want.Token},
-		{"enable", got.EnablePassword, want.EnablePassword},
-	} {
-		if f.got != f.want {
-			t.Errorf("the %s did not survive the store: got %d bytes, want %d", f.name, len(f.got), len(f.want))
+		// Named per field, because a DeepEqual failure on a redacted type
+		// prints two identical-looking values and says nothing about which
+		// field went missing. That is precisely how the original defect read.
+		for _, f := range []struct {
+			name      string
+			got, want string
+		}{
+			{"username", got.Username, want.Username},
+			{"password", got.Password, want.Password},
+			{"private key", string(got.PrivateKeyPEM), string(want.PrivateKeyPEM)},
+			{"passphrase", got.Passphrase, want.Passphrase},
+			{"certificate", string(got.CertificatePEM), string(want.CertificatePEM)},
+			{"bundle", got.PFXBase64, want.PFXBase64},
+			{"token", got.Token, want.Token},
+			{"enable", got.EnablePassword, want.EnablePassword},
+			{"community", got.SNMPCommunity, want.SNMPCommunity},
+			{"SNMP user", got.SNMPUser, want.SNMPUser},
+			{"SNMP auth protocol", string(got.SNMPAuthProtocol), string(want.SNMPAuthProtocol)},
+			{"SNMP auth passphrase", got.SNMPAuthPassphrase, want.SNMPAuthPassphrase},
+			{"SNMP priv protocol", string(got.SNMPPrivProtocol), string(want.SNMPPrivProtocol)},
+			{"SNMP priv passphrase", got.SNMPPrivPassphrase, want.SNMPPrivPassphrase},
+		} {
+			if f.got != f.want {
+				t.Errorf("%s: the %s did not survive the store: got %d bytes, want %d", name, f.name, len(f.got), len(f.want))
+			}
 		}
 	}
 }
@@ -230,10 +256,22 @@ func TestEveryCredentialFieldSurvivesTheFileStore(t *testing.T) {
 // ever being carried, which is how the bundle went missing once.
 func everyFieldSet(t *testing.T, c Credential) {
 	t.Helper()
-	v := reflect.ValueOf(c)
-	for i := range v.NumField() {
-		if v.Field(i).IsZero() {
-			t.Fatalf("the fixture leaves Credential.%s unset, so this round trip does not cover it", v.Type().Field(i).Name)
+	everyFieldSetIn(t, c)
+}
+
+// everyFieldSetIn is everyFieldSet across several fixtures: each field must
+// be set in at least one of them, for a round trip whose rules forbid one
+// value setting them all.
+func everyFieldSetIn(t *testing.T, fixtures ...Credential) {
+	t.Helper()
+	typ := reflect.TypeOf(Credential{})
+	for i := range typ.NumField() {
+		set := false
+		for _, c := range fixtures {
+			set = set || !reflect.ValueOf(c).Field(i).IsZero()
+		}
+		if !set {
+			t.Fatalf("the fixture leaves Credential.%s unset, so this round trip does not cover it", typ.Field(i).Name)
 		}
 	}
 }

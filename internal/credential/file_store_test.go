@@ -5,11 +5,13 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
 
 // testKey builds a deterministic 32-byte AES-256 key filled with fill,
@@ -361,15 +363,18 @@ func TestFileStore_ErrNotFoundMessageMentionsAddCredential(t *testing.T) {
 // round-trip under their own.
 func TestFileStore_EachSecretFailsToDecryptByName(t *testing.T) {
 	for field, cred := range map[string]credential.Credential{
-		"token":         {Token: "eyJhbGciOiJSUzI1NiJ9.e30.sig"},
-		"enable secret": {Username: "cisco", EnablePassword: "en4ble-s3cret"},
+		"token":          {Token: "eyJhbGciOiJSUzI1NiJ9.e30.sig"},
+		"enable secret":  {Username: "cisco", EnablePassword: "en4ble-s3cret"},
+		"SNMP community": {SNMPCommunity: "c0mmunity-s3cret"},
+		"SNMP authentication passphrase": {SNMPUser: "monitor", SNMPAuthProtocol: wire.SNMPAuthSHA, SNMPAuthPassphrase: "auth-pass-phrase",
+			SNMPPrivProtocol: wire.SNMPPrivAES128, SNMPPrivPassphrase: "priv-pass-phrase"},
 	} {
 		dir := t.TempDir()
 		if err := credential.SaveFileStore(dir, testKey('a'), "r1", cred); err != nil {
 			t.Fatalf("%s: SaveFileStore: %v", field, err)
 		}
 		own, _ := credential.NewFileStore(dir, testKey('a'))
-		if got, err := own.Lookup(context.Background(), "r1"); err != nil || got.Token != cred.Token || got.EnablePassword != cred.EnablePassword {
+		if got, err := own.Lookup(context.Background(), "r1"); err != nil || !reflect.DeepEqual(got, cred) {
 			t.Errorf("%s: round trip = %v, %v", field, got, err)
 		}
 		other, _ := credential.NewFileStore(dir, testKey('b'))

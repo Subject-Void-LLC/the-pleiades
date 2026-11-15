@@ -76,6 +76,24 @@ func TestBuildCredentialEntry_CertificateEncryptError(t *testing.T) {
 	}
 }
 
+// TestBuildCredentialEntry_EachLaterSecretNamesItself covers the
+// error-wrapping of every secret added after the five above, the SNMP
+// family's included: each names its own field and none its value.
+func TestBuildCredentialEntry_EachLaterSecretNamesItself(t *testing.T) {
+	for what, cred := range map[string]Credential{
+		"token":                          {Token: "x-value"},
+		"enable secret":                  {EnablePassword: "x-value"},
+		"SNMP community":                 {SNMPCommunity: "x-value"},
+		"SNMP authentication passphrase": {SNMPAuthPassphrase: "x-value"},
+		"SNMP privacy passphrase":        {SNMPPrivPassphrase: "x-value"},
+	} {
+		_, err := buildCredentialEntry(failingEncryptService{}, cred)
+		if err == nil || !strings.HasPrefix(err.Error(), what+":") || strings.Contains(err.Error(), "x-value") {
+			t.Errorf("buildCredentialEntry() error = %v, want it wrapped as %s", err, what)
+		}
+	}
+}
+
 // TestBuildCredentialEntry_BundleEncryptError covers buildCredentialEntry's
 // PKCS#12 bundle error-wrapping branch.
 func TestBuildCredentialEntry_BundleEncryptError(t *testing.T) {
