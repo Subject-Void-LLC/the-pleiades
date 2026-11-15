@@ -1,0 +1,169 @@
+// Package yangfacts holds the yang.* fact family: what every YANG discovery
+// records about a device's schema, whichever protocol read it (owner decision
+// 2026-11-14: yang.* is the schema's family, shared by every protocol). The
+// module set belongs to the device's management plane rather than to NETCONF
+// or RESTCONF, which on one device serve the same YANG library, so
+// net.netconf.* and net.restconf.* record the same keys, built here once; each
+// protocol's own findings go under its own family (netconf., restconf.). A
+// method dispatching across protocols (net.yang.facts) would record these
+// same keys too. It is in pkg/ because a Collection package imports only
+// pkg/.
+package yangfacts
+
+import (
+	"encoding/json"
+	"fmt"
+	"strings"
+
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/yanglib"
+)
+
+// The yang.* facts.
+const (
+	FactModules      = "yang.modules"
+	FactModuleCount  = "yang.module_count"
+	FactModuleDigest = "yang.modules_digest"
+	FactCompleteness = "yang.completeness"
+	FactContentID    = "yang.content_id"
+)
+
+// FactKeys are the yang.* facts in the order a discovery records them.
+var FactKeys = []string{FactModules, FactModuleCount, FactModuleDigest, FactCompleteness, FactContentID}
+
+// MaxListFactBytes is the most a list fact may take as JSON and still be
+// recorded, under the fact store's 64 KiB value bound with room for its own
+// encoding. The module list is each module's name@revision, which is what a
+// fleet query asks of it (devices implementing Cisco-IOS-XE-native); the full
+// entries, with namespaces, features and deviations, are what
+// yang.modules_digest covers. A list past the bound is left out and the count
+// and digest, always present, still are, so the fact never changes type.
+// Measured on a Catalyst 8000V (IOS XE 17.15.1a): 559 modules as full entries
+// passed 60 KiB, as name@revision they are about 20 KiB.
+const MaxListFactBytes = 60 << 10
+
+// Source says, for a protocol, where its discovery reads what the yang.*
+// facts hold, for their documentation.
+type Source struct {
+	// Modules completes "read ..." in yang.modules' description.
+	Modules string
+	// Completeness is yang.completeness' description: what makes the list
+	// complete, partial or unknown over this protocol.
+	Completeness string
+	// ContentID is yang.content_id's Returned condition.
+	ContentID string
+	// ContentIDFrom says where the content-id is read from.
+	ContentIDFrom string
+}
+
+// RestconfSource is where a RESTCONF read finds what the yang.* facts hold:
+// the library itself, there being no hello. It lives here beside the
+// family's documentation so net.restconf.facts and its catalog entry share
+// it word for word.
+var RestconfSource = Source{
+	Modules:       "from the device's YANG library over RESTCONF (RFC 8525's yang-library, or RFC 7895's modules-state from a device that does not serve it)",
+	Completeness:  "How far yang.modules is every module the device implements: complete (the YANG library read whole), partial (a library that dropped a malformed or oversized entry), or unknown (a library that could not be read, or came back empty, as it does for an account the device's access control hides it from).",
+	ContentID:     "when the device's YANG library names one",
+	ContentIDFrom: "(RFC 8525's content-id, or RFC 7895's module-set-id) from the library itself",
+}
+
+// Returns documents the yang.* facts; when is the Returned condition of the
+// ones always recorded.
+func Returns(when string, src Source) []collection.ReturnField {
+	return []collection.ReturnField{
+		{Name: FactModules, Type: "list of string", Returned: "when the list fits in 60 KiB as JSON", Description: "Every YANG module the device implements, each as name@revision (the name alone for a module with no revision), sorted, read " + src.Modules + ". An entry that is not a YANG identifier, a revision date or a printable namespace is left out whole, never cut short. Left out when the list does not fit; yang.module_count and yang.modules_digest are always recorded."},
+		{Name: FactModuleCount, Type: "int", Returned: when, Description: "How many YANG modules the device implements, as yang.modules counts them."},
+		{Name: FactModuleDigest, Type: "string", Returned: when, Description: "The SHA-256 (hex) of the module set in its canonical form (every module's name, namespace, revision, features and deviations, sorted, as JSON), so two devices implementing the same modules read alike and any change to the set reads as a change of this one value."},
+		{Name: FactCompleteness, Type: "string", Returned: when, Description: src.Completeness},
+		{Name: FactContentID, Type: "string", Returned: src.ContentID, Description: "The YANG library's content-id " + src.ContentIDFrom + ", a hint the device may regenerate on restart; yang.modules_digest is the module set's identity."},
+	}
+}
+
+// Values returns the yang.* facts d gives, and a warning for each thing left
+// out of them: a module list past its bound, a library that was not read, and
+// entries refused as malformed.
+func Values(d yanglib.Discovery) (map[string]any, []string, error) {
+	values := map[string]any{
+		FactModuleCount:  len(d.Modules),
+		FactModuleDigest: d.ModulesDigest(),
+		FactCompleteness: string(d.Completeness),
+	}
+	if d.ContentID != "" {
+		values[FactContentID] = d.ContentID
+	}
+	modules, err := ModulesValue(d.Modules)
+	if err != nil {
+		return nil, nil, err
+	}
+	var warnings []string
+	if modules != nil {
+		values[FactModules] = modules
+	} else if len(d.Modules) > 0 {
+		warnings = append(warnings, fmt.Sprintf("the device implements %d YANG modules, more than %s holds in 60 KiB; recorded by count and digest only", len(d.Modules), FactModules))
+	}
+	if d.LibraryError != "" {
+		warnings = append(warnings, "the device's YANG library was not read ("+d.LibraryError+"); the module list is "+string(d.Completeness))
+	}
+	if d.Dropped > 0 {
+		warnings = append(warnings, fmt.Sprintf("%d malformed or oversized capability or module entries from the device were left out: %s", d.Dropped, strings.Join(d.DroppedSamples, ", ")))
+	}
+	return values, warnings, nil
+}
+
+// ModulesValue is modules as yang.modules' value, each name@revision (name
+// alone for a module with no revision), nil when the list does not fit.
+func ModulesValue(modules []yanglib.Module) ([]string, error) {
+	out := make([]string, 0, len(modules))
+	for _, m := range modules {
+		if m.Revision == "" {
+			out = append(out, m.Name)
+		} else {
+			out = append(out, m.Name+"@"+m.Revision)
+		}
+	}
+	if !Fits(out) {
+		return nil, nil
+	}
+	return out, nil
+}
+
+// Fits reports whether list takes at most MaxListFactBytes as JSON.
+func Fits(list []string) bool {
+	raw, err := json.Marshal(list)
+	return err == nil && len(raw) <= MaxListFactBytes
+}
+
+// NonNil is list, or an empty list for nil, so a list fact is always a list.
+func NonNil(list []string) []string {
+	if list == nil {
+		return []string{}
+	}
+	return list
+}
+
+// Record sets each of keys that values holds as a stat and, unless
+// unverified names why the device's identity was not verified, as a fact:
+// a machine in the middle can strip a capability or invent a module, and what
+// it says is not kept. It returns the warning to add when facts were withheld.
+func Record(rc sdk.RunbookContext, keys []string, values map[string]any, unverified string) (string, error) {
+	for _, key := range keys {
+		value, ok := values[key]
+		if !ok {
+			continue
+		}
+		if err := rc.SetStat(key, value); err != nil {
+			return "", err
+		}
+		if unverified != "" {
+			continue
+		}
+		if err := rc.EmitFact(key, value); err != nil {
+			return "", err
+		}
+	}
+	if unverified == "" {
+		return "", nil
+	}
+	return unverified + ", so nothing this discovery found is recorded as a fact", nil
+}
