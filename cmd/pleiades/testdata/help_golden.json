@@ -124,6 +124,16 @@
     "stdout": "",
     "stderr": "usage: pleiades collection revoke \u003cprogram\u003e [--digest sha256:\u003chex\u003e]\n"
   },
+  "confirm-tls-pin --help": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "usage: pleiades confirm-tls-pin \u003cdevice\u003e \u003cpin\u003e\n"
+  },
+  "confirm-tls-pin -h": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "usage: pleiades confirm-tls-pin \u003cdevice\u003e \u003cpin\u003e\n"
+  },
   "doc --help": {
     "code": 0,
     "stdout": "",
@@ -332,12 +342,12 @@
   "onboard --help": {
     "code": 0,
     "stdout": "",
-    "stderr": "usage: pleiades onboard \u003cname\u003e [--json] [--timeout 30s]\n"
+    "stderr": "usage: pleiades onboard \u003cname\u003e [--json] [--timeout 30s] [--tls-first-use]\n"
   },
   "onboard -h": {
     "code": 0,
     "stdout": "",
-    "stderr": "usage: pleiades onboard \u003cname\u003e [--json] [--timeout 30s]\n"
+    "stderr": "usage: pleiades onboard \u003cname\u003e [--json] [--timeout 30s] [--tls-first-use]\n"
   },
   "remove-credential --help": {
     "code": 0,

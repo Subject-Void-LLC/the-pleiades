@@ -488,10 +488,24 @@ var Root = Command{
 				{Name: "vault", Type: "string", Default: "", Doc: "directory whose .pleiades/ holds the credential vault (master.key, credentials.yaml, seal.key), in place of --dir's; the journal and facts stay under --dir"},
 				{Name: "json", Type: "bool", Default: "false", Doc: "print the result as JSON, in the same model the text shows"},
 				{Name: "timeout", Type: "duration", Default: "30s", Doc: "how long the probe may take"},
+				{Name: "tls-first-use", Type: "bool", Default: "false", Doc: "record the certificate the device presents as its pin (tls_first_use_fingerprint) when nothing in its record trusts it, the way SSH's accept-new records a host key: listed for review, warned about on every use until confirmed with confirm-tls-pin, and never in place of a pin or an authority, so a changed certificate is still refused"},
 			},
 			Examples: []string{
 				"pleiades onboard edge01",
 				"pleiades onboard api01 --json",
+				"pleiades onboard switch01 --tls-first-use",
+			},
+		},
+		{
+			Name:       "confirm-tls-pin",
+			Positional: "<device> <pin>",
+			Synopsis:   "confirm a pin onboarding recorded on first use, once checked with the device's owner, making it the device's tls_fingerprint",
+			Flags: []Flag{
+				{Name: "dir", Type: "string", Default: ".", Doc: "project directory"},
+				{Name: "inventory", Type: "string", Default: "", Doc: "inventory file to read and write, in place of --dir's inventory.yaml; group_vars/ and host_vars/ are read beside it"},
+			},
+			Examples: []string{
+				"pleiades confirm-tls-pin switch01 sha256:3a7b...",
 			},
 		},
 		{

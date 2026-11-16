@@ -99,6 +99,16 @@ func parsePin(text string) (pin, error) {
 	return p, nil
 }
 
+// NormalizePin returns text, one pin in either form and either case, in the
+// form tls_fingerprint holds it, or why it is not a pin.
+func NormalizePin(text string) (string, error) {
+	p, err := parsePin(text)
+	if err != nil {
+		return "", err
+	}
+	return p.String(), nil
+}
+
 // parsePins reads tls_fingerprint: one pin, a list of them, or one text
 // holding several separated by commas (the form a command line's
 // key=value carries). Any one of them matching is trusted, so a rotation

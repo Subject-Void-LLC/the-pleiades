@@ -153,6 +153,7 @@ var splitCommands = []splitCommand{
 	{name: "remove-credential", call: runRemoveCredential, positionals: []string{"web1"}},
 	{name: "import-kubeconfig", call: runImportKubeconfig, positionals: []string{"k1"}},
 	{name: "onboard", call: runOnboard, positionals: []string{"web1"}},
+	{name: "confirm-tls-pin", call: runConfirmTLSPin, positionals: []string{"web1", "sha256:0000000000000000000000000000000000000000000000000000000000000000"}},
 	{name: "trust-host", call: runTrustHost, positionals: []string{"web1"}},
 	{name: "validate", call: runValidate, positionals: []string{"a.yaml", "b.yaml"}},
 	{name: "run", call: runRunbook, positionals: []string{"site.yaml"}},
