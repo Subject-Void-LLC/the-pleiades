@@ -5,9 +5,14 @@
 package devicetls
 
 import (
+	"crypto/x509"
 	"testing"
 	"time"
 )
+
+// Observe records cert on p as a verified handshake would, for a test of
+// the record's bound without a server per certificate.
+func Observe(p *Presented, cert *x509.Certificate) { p.observe(cert) }
 
 // UnsupportedOn is unsupportedOn, for a test of the platform rule on any
 // platform.
