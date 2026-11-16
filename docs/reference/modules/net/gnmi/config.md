@@ -29,6 +29,7 @@ Asks the device's gNMI server its Capabilities, as net.gnmi.facts does (recordin
 | `delete` | `list` | no | - | Paths to remove, each a string as gNMI writes one. A path that is not there is accepted by the device, as the gNMI specification requires, and reported as no change. |
 | `encoding` | `string` | no | `json_ietf` | How values are sent and the reads before and after are made: json_ietf (RFC 7951, member names qualified by their module) or json. **Choices:** `json_ietf`, `json` (case ignored). |
 | `backup` | `bool` | no | `false` | Record every path as it was before the Set under the backup stat, masked as every recorded value is: null for a path that was not there. A value masking cannot vouch for fails the task before anything is written. |
+| `gnmi_target` | `string` | no | - | The target every read and the Set name in their request prefix (gNMI's Path.target), for a server that serves more than one data tree and refuses a request naming none: SONiC answers UNIMPLEMENTED "Empty target data not supported", and names its OpenConfig tree OC-YANG. It overrides the device's own gnmi_target property for this task; without either, no target is sent. A plain identifier (letters, digits, _, . and -), never a path. A recorded undo names the target the write used. |
 
 ## Returns
 
