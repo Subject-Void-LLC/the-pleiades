@@ -118,6 +118,19 @@ func (a *Adapter) Execute(ctx context.Context, payload wire.DispatchPayload) (wi
 	if err := a.publish(ctx, payload.JobID, started); err != nil {
 		return wire.Outcome{}, fmt.Errorf("failed to publish started event: %w", err)
 	}
+	// A Controller gives a playbook job no SNMP field, the device's own or a
+	// template's (internal/dispatch), so this holds only for a payload built
+	// some other way. Such a community is too short to mask by value
+	// (wire.MaskedValues leaves it out below), so it is said before anything
+	// runs, as a native run says it.
+	if credential.ShortCommunity(payload.Secrets) {
+		warning := wire.JobEvent{Status: "ok", Host: payload.DeviceHost, Task: "task.warning"}
+		warning.Timestamp = time.Now().UTC().Format(time.RFC3339)
+		warning.EventData.Message = "WARNING: " + credential.ShortCommunityWarning(payload.DeviceName)
+		if err := a.publish(ctx, payload.JobID, warning); err != nil {
+			return wire.Outcome{}, fmt.Errorf("failed to publish a warning: %w", err)
+		}
+	}
 
 	playbook, err := a.playbooks.Get(ctx, payload.RunbookID)
 	if err != nil {

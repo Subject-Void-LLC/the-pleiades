@@ -100,36 +100,47 @@ func TestExecute_PublishesEachWarningOnce(t *testing.T) {
 
 // TestExecute_SaysAShortCommunityIsMaskedByShapeOnly: a dispatch whose
 // credential carries a community too short to mask by value puts that
-// warning in its job log once, before the tasks' own; one whose community is
-// long enough says nothing of it, and neither prints the community.
+// warning in its job log once, just after it starts and before any task
+// runs, and a dispatch refused before any task runs says it too; one whose
+// community is long enough says nothing of it, and none prints the
+// community. The warning was published after the run before, so a refused
+// or aborted run never gave it.
 func TestExecute_SaysAShortCommunityIsMaskedByShapeOnly(t *testing.T) {
 	warnFixture(t, "a task's own warning")
-	for community, wantShort := range map[string]bool{"public": true, "c0mmunity-s3cret": false} {
+	short := "WARNING: " + credential.ShortCommunityWarning("old-switch")
+	for _, tc := range []struct {
+		name, community, runbook string
+		refused                  bool
+		want                     []string
+	}{
+		{"short", "public", "id: s\ntasks:\n  - name: one\n    fqcn: nativewarn.weak\n", false, []string{short, "WARNING: a task's own warning"}},
+		{"short, refused", "public", "id: s\ntasks:\n  - name: one\n    fqcn: nativewarn.unregistered\n", true, []string{short}},
+		{"long", "c0mmunity-s3cret", "id: s\ntasks:\n  - name: one\n    fqcn: nativewarn.weak\n", false, []string{"WARNING: a task's own warning"}},
+	} {
 		bus := &mockBus{}
-		adapter, err := NewAdapter(bus, writeRunbook(t, "s", "id: s\ntasks:\n  - name: one\n    fqcn: nativewarn.weak\n"), nil)
+		adapter, err := NewAdapter(bus, writeRunbook(t, "s", tc.runbook), nil)
 		if err != nil {
 			t.Fatal(err)
 		}
 		payload := wire.DispatchPayload{JobID: "job-s", RunbookID: "s", DeviceName: "old-switch", DeviceHost: "10.0.0.2",
-			Secrets: map[string]string{wire.SecretSNMPCommunity: community}}
-		if _, err := adapter.Execute(context.Background(), payload); err != nil {
-			t.Fatal(err)
+			Secrets: map[string]string{wire.SecretSNMPCommunity: tc.community}}
+		if _, err := adapter.Execute(context.Background(), payload); (err != nil) != tc.refused {
+			t.Fatalf("%s: Execute error %v, want refused %v", tc.name, err, tc.refused)
 		}
-		_, warnings := jobTasks(t, bus, "job-s", "task.warning")
+		tasks, warnings := jobTasks(t, bus, "job-s", "task.warning")
 		var messages []string
 		for _, w := range warnings {
 			messages = append(messages, w.EventData.Message)
 		}
-		short := "WARNING: " + credential.ShortCommunityWarning("old-switch")
-		if wantShort && (len(messages) != 2 || messages[0] != short || messages[1] != "WARNING: a task's own warning") {
-			t.Errorf("a short community's job log warned %q", messages)
+		if !reflect.DeepEqual(messages, tc.want) {
+			t.Errorf("%s: the job log warned %q, want %q", tc.name, messages, tc.want)
 		}
-		if !wantShort && (len(messages) != 1 || messages[0] != "WARNING: a task's own warning") {
-			t.Errorf("a long community's job log warned %q", messages)
+		if tc.want[0] == short && (len(tasks) < 2 || tasks[1] != "task.warning") {
+			t.Errorf("%s: job log order %q, want the warning just after the start, before any task", tc.name, tasks)
 		}
 		for _, m := range messages {
-			if strings.Contains(m, community) {
-				t.Errorf("a warning printed the community: %q", m)
+			if strings.Contains(m, tc.community) {
+				t.Errorf("%s: a warning printed the community: %q", tc.name, m)
 			}
 		}
 	}

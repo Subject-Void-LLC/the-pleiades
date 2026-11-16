@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -297,6 +298,38 @@ sw1                        : ok=1    changed=0    unreachable=0    failed=0    s
 	for _, shown := range []string{"svc-ansible in /home/svc-ansible", "the republic"} {
 		if !strings.Contains(said, shown) {
 			t.Errorf("an identifier or an ordinary word was masked, %q missing from %q", shown, said)
+		}
+	}
+}
+
+// TestAdapter_Execute_SaysAShortCommunityBeforeTheRun: a payload carrying a
+// community too short to mask by value says so in the job log just after it
+// starts, before the playbook is even resolved, so a run that never starts
+// says it too; a payload with no community says nothing of it.
+func TestAdapter_Execute_SaysAShortCommunityBeforeTheRun(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		secrets map[string]string
+		want    []string
+	}{
+		{"short community", map[string]string{wire.SecretSNMPCommunity: "public"}, []string{"playbook:gone.yml", "task.warning"}},
+		{"no community", map[string]string{wire.SecretUsername: "svc"}, []string{"playbook:gone.yml"}},
+	} {
+		bus := &mockBus{}
+		adapter := legacy.NewAdapter(bus, writePlaybook(t, "upgrade.yml", "---\n- hosts: all\n"), &fakeOrchestrator{}, "irrelevant", nil)
+		payload := wire.DispatchPayload{JobID: "job-1", RunbookID: "gone.yml", DeviceName: "old-switch", DeviceHost: "10.0.0.2", Secrets: tc.secrets}
+		if _, err := adapter.Execute(context.Background(), payload); err == nil {
+			t.Fatalf("%s: a playbook that does not exist ran", tc.name)
+		}
+		var tasks []string
+		for _, evt := range bus.jobEvents(t) {
+			tasks = append(tasks, evt.Task)
+			if evt.Task == "task.warning" && evt.EventData.Message != "WARNING: "+credential.ShortCommunityWarning("old-switch") {
+				t.Errorf("%s: warned %q", tc.name, evt.EventData.Message)
+			}
+		}
+		if !slices.Equal(tasks, tc.want) {
+			t.Errorf("%s: job log %q, want %q", tc.name, tasks, tc.want)
 		}
 	}
 }
