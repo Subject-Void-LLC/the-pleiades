@@ -321,6 +321,11 @@ func TestGenericReleaseGate_HTTP(t *testing.T) {
 	}
 }
 
+// gateLifetime is how long a gate's certificates are valid: past
+// devicetls.ExpiryWindow, so no gate here meets the warning a certificate
+// near its last day draws unless it means to.
+const gateLifetime = 90 * 24 * time.Hour
+
 // gateIssue writes a CA to a file and returns it with a leaf for
 // 127.0.0.1 that CA signed.
 func gateIssue(t *testing.T) (string, tls.Certificate) {
@@ -331,7 +336,7 @@ func gateIssue(t *testing.T) (string, tls.Certificate) {
 	}
 	ca := &x509.Certificate{
 		SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "generic gate CA"},
-		NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour),
+		NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(gateLifetime),
 		IsCA: true, BasicConstraintsValid: true, KeyUsage: x509.KeyUsageCertSign,
 	}
 	caDER, err := x509.CreateCertificate(rand.Reader, ca, ca, &caKey.PublicKey, caKey)
@@ -345,7 +350,7 @@ func gateIssue(t *testing.T) (string, tls.Certificate) {
 	leaf := &x509.Certificate{
 		SerialNumber: big.NewInt(2), Subject: pkix.Name{CommonName: "127.0.0.1"},
 		IPAddresses: []net.IP{net.ParseIP("127.0.0.1")},
-		NotBefore:   time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour),
+		NotBefore:   time.Now().Add(-time.Hour), NotAfter: time.Now().Add(gateLifetime),
 		KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 	}
 	leafDER, err := x509.CreateCertificate(rand.Reader, leaf, ca, &key.PublicKey, caKey)
