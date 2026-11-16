@@ -57,6 +57,7 @@
  "pkg/restconf/restconflive": 15,
  "pkg/scpxfer": 10,
  "pkg/sftpxfer": 12,
+ "pkg/snmp/snmplive": 20,
  "tests/e2e TestBackupReleaseGate_ComposeFromBackupToACleanMachine": 245,
  "tests/e2e TestCatalystCenter_LiveRejectsBadCredential": 1,
  "tests/e2e TestCatalystCenter_LiveResyncIsIdempotent": 1,
