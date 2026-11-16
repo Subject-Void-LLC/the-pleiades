@@ -36,9 +36,9 @@ func ProjectFileRule(world WorldView) []Finding {
 		for _, p := range desc.Manifest.Doc.Params {
 			value, given := task.Params[p.Name]
 			if !given || value == nil {
-				// A project path the task leaves to its default still names
-				// a file in the project (net.yang.schema's dest), which this
-				// run has no more than one it gives.
+				// A project path the task leaves to its default names a file
+				// in the project as surely as one the task gives
+				// (net.yang.schema's dest), and this run has no project.
 				if slices.Contains(projectFileFormats, p.Format) && p.Default != "" {
 					findings = append(findings, Finding{
 						RuleName: "project-file",
