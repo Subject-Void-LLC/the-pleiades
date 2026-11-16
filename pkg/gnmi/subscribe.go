@@ -2,7 +2,8 @@
 // the paths up to the server's sync_response and ends; POLL does the same on
 // each Poll the caller sends; STREAM delivers updates until the caller's
 // context ends or its handler stops it. Every subscription is bounded: by
-// the caller's context always, by MaxUpdates for a round up to a sync, and by
+// the caller's context always, a ONCE subscription and each POLL round by the
+// client's call timeout too, by MaxUpdates for a round up to a sync, and by
 // MaxSubscriptionPaths for what one request may name.
 package gnmi
 
@@ -110,7 +111,8 @@ func (c *Client) SubscribeOnce(ctx context.Context, req SubscribeRequest) ([]Not
 	if err != nil {
 		return nil, err
 	}
-	ctx, cancel := context.WithCancel(ctx)
+	// The whole subscription, up to its sync, is one call's bound.
+	ctx, cancel := c.call(ctx)
 	defer cancel()
 	stream, err := c.api.Subscribe(ctx)
 	if err != nil {
@@ -160,13 +162,14 @@ func (c *Client) untilSync(ctx context.Context, stream gpb.GNMI_SubscribeClient)
 type Poll struct {
 	c      *Client
 	ctx    context.Context
-	cancel context.CancelFunc
+	cancel context.CancelCauseFunc
 	stream gpb.GNMI_SubscribeClient
 }
 
 // SubscribePoll subscribes in POLL mode and returns the subscription and
 // its first round, the values up to the server's first sync_response. The
-// subscription lives until Close or ctx ends.
+// subscription lives until Close or ctx ends; a round that takes longer than
+// the client's call timeout ends it.
 func (c *Client) SubscribePoll(ctx context.Context, req SubscribeRequest) (*Poll, []Notification, error) {
 	if err := c.refused(); err != nil {
 		return nil, nil, err
@@ -175,28 +178,41 @@ func (c *Client) SubscribePoll(ctx context.Context, req SubscribeRequest) (*Poll
 	if err != nil {
 		return nil, nil, err
 	}
-	ctx, cancel := context.WithCancel(ctx)
-	stream, err := c.api.Subscribe(ctx)
+	ctx, cancel := context.WithCancelCause(ctx)
+	p := &Poll{c: c, ctx: ctx, cancel: cancel}
+	first, err := p.round(func() error {
+		stream, err := c.api.Subscribe(ctx)
+		if err != nil {
+			return err
+		}
+		p.stream = stream
+		return stream.Send(wire)
+	})
 	if err != nil {
-		cancel()
-		return nil, nil, c.fail(ctx, "Subscribe", err)
-	}
-	if err := stream.Send(wire); err != nil && !errors.Is(err, io.EOF) {
-		cancel()
-		return nil, nil, c.fail(ctx, "Subscribe", err)
-	}
-	first, err := c.untilSync(ctx, stream)
-	if err != nil {
-		cancel()
+		cancel(nil)
 		return nil, nil, err
 	}
-	return &Poll{c: c, ctx: ctx, cancel: cancel, stream: stream}, first, nil
+	return p, first, nil
 }
 
 // Poll asks the server for every value again and returns them, up to its
 // sync_response. One Poll at a time: a Poll is not safe for concurrent use.
 func (p *Poll) Poll() ([]Notification, error) {
-	if err := p.stream.Send(&gpb.SubscribeRequest{Request: &gpb.SubscribeRequest_Poll{Poll: &gpb.Poll{}}}); err != nil && !errors.Is(err, io.EOF) {
+	return p.round(func() error {
+		return p.stream.Send(&gpb.SubscribeRequest{Request: &gpb.SubscribeRequest_Poll{Poll: &gpb.Poll{}}})
+	})
+}
+
+// round asks with ask and reads the round it starts up to the server's
+// sync_response, within the client's call timeout. A round past it ends the
+// subscription, whose stream cannot be read again with a round left half
+// read, and fails saying the server did not answer in time.
+func (p *Poll) round(ask func() error) ([]Notification, error) {
+	timer := time.AfterFunc(p.c.callTimeout, func() { p.cancel(p.c.timedOut()) })
+	defer timer.Stop()
+	// A send that meets the stream's end (io.EOF) leaves the server's reason
+	// to the read; a stream that never opened has nothing to read.
+	if err := ask(); err != nil && (p.stream == nil || !errors.Is(err, io.EOF)) {
 		return nil, p.c.fail(p.ctx, "Subscribe", err)
 	}
 	return p.c.untilSync(p.ctx, p.stream)
@@ -204,7 +220,7 @@ func (p *Poll) Poll() ([]Notification, error) {
 
 // Close ends the subscription.
 func (p *Poll) Close() {
-	p.cancel()
+	p.cancel(nil)
 }
 
 // SubscribeStream subscribes in STREAM mode and calls handle with each

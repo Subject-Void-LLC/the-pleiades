@@ -134,9 +134,11 @@ func (c *Client) Capabilities(ctx context.Context) (Capabilities, error) {
 	if err := c.refused(); err != nil {
 		return Capabilities{}, err
 	}
-	resp, err := c.api.Capabilities(ctx, &gpb.CapabilityRequest{})
+	call, cancel := c.call(ctx)
+	defer cancel()
+	resp, err := c.api.Capabilities(call, &gpb.CapabilityRequest{})
 	if err != nil {
-		return Capabilities{}, c.fail(ctx, "Capabilities", err)
+		return Capabilities{}, c.fail(call, "Capabilities", err)
 	}
 	return readCapabilities(resp), nil
 }

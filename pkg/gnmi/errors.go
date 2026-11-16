@@ -131,10 +131,11 @@ func (c *Client) fail(ctx context.Context, rpc string, err error) error {
 		c.mu.Unlock()
 		return refusal
 	case codes.DeadlineExceeded, codes.Canceled:
-		// The caller's own context ending is said as itself, so a wait can
-		// tell its timeout from the server's refusal.
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			return fmt.Errorf("gnmi %s: %w", rpc, ctxErr)
+		// The call's own context ending is said as itself, by its cause: the
+		// caller's deadline or cancellation, or the client's call timeout, so
+		// a wait can tell its timeout from the server's refusal.
+		if ctx.Err() != nil {
+			return fmt.Errorf("gnmi %s: %w", rpc, context.Cause(ctx))
 		}
 	}
 	return &Error{RPC: rpc, Code: st.Code(), Message: message}

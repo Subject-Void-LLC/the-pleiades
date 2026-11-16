@@ -38,9 +38,11 @@ func (c *Client) Time(ctx context.Context) (time.Time, error) {
 	if err := c.refused(); err != nil {
 		return time.Time{}, err
 	}
-	resp, err := system.NewSystemClient(c.conn).Time(ctx, &system.TimeRequest{})
+	call, cancel := c.call(ctx)
+	defer cancel()
+	resp, err := system.NewSystemClient(c.conn).Time(call, &system.TimeRequest{})
 	if err != nil {
-		return time.Time{}, c.fail(ctx, "System.Time", err)
+		return time.Time{}, c.fail(call, "System.Time", err)
 	}
 	if resp.GetTime() > math.MaxInt64 {
 		return time.Time{}, fmt.Errorf("gnmi System.Time: the device sent %d, past any time this client can read", resp.GetTime())
@@ -75,9 +77,11 @@ func (c *Client) FileStat(ctx context.Context, path string) ([]FileInfo, error) 
 	if path == "" || len(path) > maxFilePathBytes || !yanglib.Printable(path) {
 		return nil, fmt.Errorf("gnmi File.Stat: the path %q is empty, longer than %d bytes, or not printable", path, maxFilePathBytes)
 	}
-	resp, err := file.NewFileClient(c.conn).Stat(ctx, &file.StatRequest{Path: path})
+	call, cancel := c.call(ctx)
+	defer cancel()
+	resp, err := file.NewFileClient(c.conn).Stat(call, &file.StatRequest{Path: path})
 	if err != nil {
-		return nil, c.fail(ctx, "File.Stat", err)
+		return nil, c.fail(call, "File.Stat", err)
 	}
 	if len(resp.GetStats()) > MaxStatEntries {
 		return nil, fmt.Errorf("gnmi File.Stat: the device reported %d files, more than %d", len(resp.GetStats()), MaxStatEntries)
@@ -125,9 +129,11 @@ func (c *Client) Certificates(ctx context.Context) ([]CertificateInfo, error) {
 	if err := c.refused(); err != nil {
 		return nil, err
 	}
-	resp, err := cert.NewCertificateManagementClient(c.conn).GetCertificates(ctx, &cert.GetCertificatesRequest{})
+	call, cancel := c.call(ctx)
+	defer cancel()
+	resp, err := cert.NewCertificateManagementClient(c.conn).GetCertificates(call, &cert.GetCertificatesRequest{})
 	if err != nil {
-		return nil, c.fail(ctx, "CertificateManagement.GetCertificates", err)
+		return nil, c.fail(call, "CertificateManagement.GetCertificates", err)
 	}
 	if len(resp.GetCertificateInfo()) > MaxCertificates {
 		return nil, fmt.Errorf("gnmi CertificateManagement.GetCertificates: the device reported %d certificates, more than %d", len(resp.GetCertificateInfo()), MaxCertificates)

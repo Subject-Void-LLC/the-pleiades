@@ -73,15 +73,19 @@ func (c *Client) Set(ctx context.Context, req SetRequest) (SetResult, error) {
 	if err != nil {
 		return SetResult{}, err
 	}
-	if err := c.ready(ctx); err != nil {
+	// One bound covers the connection coming up and the answer, so a server
+	// that never answers ends the Set as a lost answer at the call timeout.
+	call, cancel := c.call(ctx)
+	defer cancel()
+	if err := c.ready(call); err != nil {
 		return SetResult{}, err
 	}
-	resp, err := c.api.Set(ctx, wire)
+	resp, err := c.api.Set(call, wire)
 	if err != nil {
 		if lost(err) {
-			return SetResult{}, &AnswerLostError{Err: c.fail(ctx, "Set", err)}
+			return SetResult{}, &AnswerLostError{Err: c.fail(call, "Set", err)}
 		}
-		return SetResult{}, c.fail(ctx, "Set", err)
+		return SetResult{}, c.fail(call, "Set", err)
 	}
 	result, err := readSetResponse(resp)
 	if err != nil {

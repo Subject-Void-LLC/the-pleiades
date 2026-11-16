@@ -64,9 +64,11 @@ func (c *Client) Get(ctx context.Context, req GetRequest) ([]Notification, error
 	if err != nil {
 		return nil, err
 	}
-	resp, err := c.api.Get(ctx, wire)
+	call, cancel := c.call(ctx)
+	defer cancel()
+	resp, err := c.api.Get(call, wire)
 	if err != nil {
-		return nil, c.fail(ctx, "Get", err)
+		return nil, c.fail(call, "Get", err)
 	}
 	return decodeNotifications(resp.GetNotification())
 }

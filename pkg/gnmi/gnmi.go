@@ -14,6 +14,14 @@
 // can be read on the network, the credential included. It travels
 // HPACK-coded, which hides it from a byte search and from nobody else.
 //
+// Every call is bounded in time as well as size: Capabilities, Get, Set, each
+// gNOI call, a ONCE subscription and each round of a POLL one end at the
+// client's call timeout (Options.CallTimeout, DefaultCallTimeout unless set)
+// or the caller's deadline, whichever comes first, so a server that accepts a
+// call and never answers cannot hold a run open. A STREAM subscription is
+// meant to last and is bounded by its caller alone; under it, and under every
+// call, keepalive pings close a connection whose server stopped answering.
+//
 // Every message is bounded (MaxMessageBytes), every path is built from parts
 // (Path, Elem) and checked before it is sent, and every value a device
 // answers is decoded with a bound on its size and its depth, an answer that
@@ -34,12 +42,14 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	gpb "github.com/openconfig/gnmi/proto/gnmi"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/keepalive"
 )
 
 // The ways a device's stored credential is sent (GNMIAuth).
@@ -65,6 +75,27 @@ const (
 	MaxSendBytes = 16 << 20
 )
 
+// DefaultCallTimeout bounds one call when Options.CallTimeout is zero, as
+// pkg/restconf bounds each request: a minute is long for a device to answer
+// a read or apply a Set, and short enough that a server which never answers
+// does not hold a run open.
+const DefaultCallTimeout = time.Minute
+
+// keepaliveTime and keepaliveTimeout are how the client finds a connection
+// whose server stopped answering, under a call or a stream that is still
+// open: after keepaliveTime with nothing read it pings the server, and closes
+// the connection when no answer comes within keepaliveTimeout, which ends
+// every call on it. The time is past five minutes because a gRPC server by
+// default refuses a client pinging more often than that (GOAWAY,
+// ENHANCE_YOUR_CALM, "too_many_pings"), which would end the very stream the
+// ping protects. They are variables only so a test can prove the bound
+// quickly (gRPC holds the time to at least ten seconds); nothing else sets
+// them.
+var (
+	keepaliveTime    = 5*time.Minute + 30*time.Second
+	keepaliveTimeout = 20 * time.Second
+)
+
 // Options says how a client reaches one gNMI server.
 type Options struct {
 	// Target is the server's address, host:port (ValidateTarget).
@@ -84,6 +115,10 @@ type Options struct {
 	// Secrets is the device's own credential, flattened under the
 	// wire.Secret* keys.
 	Secrets map[string]string
+	// CallTimeout bounds each call from its start to its answer (a POLL
+	// subscription's each round); zero is DefaultCallTimeout, and a negative
+	// one is refused.
+	CallTimeout time.Duration
 }
 
 // Client is a gNMI client for one device. It is safe for concurrent use.
@@ -104,6 +139,8 @@ type Client struct {
 	secrets map[string]string
 	// noneSent is true when the client sends no credential metadata.
 	noneSent bool
+	// callTimeout bounds each call (Options.CallTimeout).
+	callTimeout time.Duration
 
 	mu sync.Mutex
 	// extraSecrets are further values masked in every answer (MaskAlso).
@@ -135,7 +172,13 @@ func New(opts Options) (*Client, error) {
 	if opts.Plaintext && perRPC != nil && !opts.AllowPlaintextCredentials {
 		return nil, errors.New("the device's credential would cross a plaintext connection unencrypted, and its record does not accept that: refusing to send it")
 	}
-	c := &Client{target: opts.Target, verified: !opts.Plaintext, secrets: opts.Secrets, noneSent: perRPC == nil}
+	if opts.CallTimeout < 0 {
+		return nil, errors.New("a call timeout is not negative")
+	}
+	c := &Client{target: opts.Target, verified: !opts.Plaintext, secrets: opts.Secrets, noneSent: perRPC == nil, callTimeout: opts.CallTimeout}
+	if c.callTimeout == 0 {
+		c.callTimeout = DefaultCallTimeout
+	}
 	var transport credentials.TransportCredentials
 	if opts.Plaintext {
 		transport = insecure.NewCredentials()
@@ -152,6 +195,9 @@ func New(opts Options) (*Client, error) {
 		// and a refused login retried is one more failed attempt.
 		grpc.WithDisableRetry(),
 		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(MaxMessageBytes), grpc.MaxCallSendMsgSize(MaxSendBytes)),
+		// Pings only while a call or a stream is open, so an idle client
+		// sends none.
+		grpc.WithKeepaliveParams(keepalive.ClientParameters{Time: keepaliveTime, Timeout: keepaliveTimeout}),
 	}
 	if perRPC != nil {
 		dial = append(dial, grpc.WithPerRPCCredentials(perRPC))
@@ -202,7 +248,21 @@ func (c *Client) ready(ctx context.Context) error {
 		}
 		// WaitForStateChange returns false only when ctx ends.
 		if !c.conn.WaitForStateChange(ctx, state) {
-			return fmt.Errorf("the connection to %s did not come up: %w", c.target, ctx.Err())
+			return fmt.Errorf("the connection to %s did not come up: %w", c.target, context.Cause(ctx))
 		}
 	}
+}
+
+// call is ctx bounded by the client's call timeout, for one call: the
+// earlier of the two ends it. When the client's bound is what ends it, the
+// context's cause (and so the call's error) says the server did not answer in
+// time, never that the caller gave up.
+func (c *Client) call(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeoutCause(ctx, c.callTimeout, c.timedOut())
+}
+
+// timedOut is the cause a call ends with when the client's own bound passes:
+// still a context.DeadlineExceeded under errors.Is.
+func (c *Client) timedOut() error {
+	return fmt.Errorf("the server did not answer within %s: %w", c.callTimeout, context.DeadlineExceeded)
 }
