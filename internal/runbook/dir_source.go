@@ -13,6 +13,7 @@ import (
 	"cmp"
 	"context"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -321,6 +322,7 @@ func (d *dirSource) resolve(ctx context.Context, id string) (cacheEntry, error) 
 		Required:      requiredCapabilities(dag),
 		Methods:       methods(dag, false),
 		AllMethods:    methods(dag, true),
+		Calls:         calls(dag),
 		Interruptible: dag.Metadata.IsInterruptible(),
 		Serial:        dag.Serial,
 		Version:       dag.Version,
@@ -402,4 +404,24 @@ func methods(dag *engine.DAG, conditional bool) []string {
 	}
 	sort.Strings(names)
 	return names
+}
+
+// calls computes Runbook.Calls from a compiled DAG: the parameters of every
+// node Runbook.Methods counts (a method, no condition of its own), copied, by
+// FQCN, in sorted node-ID order so two compilations of one runbook agree.
+func calls(dag *engine.DAG) map[string][]map[string]any {
+	ids := make([]string, 0, len(dag.Nodes))
+	for id := range dag.Nodes {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	out := map[string][]map[string]any{}
+	for _, id := range ids {
+		task := dag.Nodes[id]
+		if task.FQCN == "" || dag.Conditional(id) {
+			continue
+		}
+		out[task.FQCN] = append(out[task.FQCN], maps.Clone(task.Params))
+	}
+	return out
 }

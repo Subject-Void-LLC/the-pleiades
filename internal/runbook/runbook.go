@@ -81,6 +81,14 @@ type Runbook struct {
 	// that holds on the Runner runs it.
 	AllMethods []string
 
+	// Calls are the parameters each task in Methods gives its method, as the
+	// runbook writes them (never rendered), by FQCN, in node-ID order. The
+	// Controller's admission holds a task to the alternative it names
+	// (collection.Manifest.AlternativeParam, net.yang.schema's via) through
+	// collection.Manifest.For, as validate does; a value only rendering
+	// decides is the Runner's to hold.
+	Calls map[string][]map[string]any
+
 	// Interruptible is engine.Metadata.IsInterruptible()'s own resolved
 	// answer for this runbook (dir_source.go's Get applies the default
 	// there, once, so every caller of this package gets a concrete bool

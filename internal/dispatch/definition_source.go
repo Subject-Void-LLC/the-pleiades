@@ -29,6 +29,12 @@ type PreparedDefinition struct {
 	// playbook, which the platform never parses.
 	Methods []string
 
+	// Calls are the literal parameters each of those tasks gives its method
+	// (runbook.Runbook.Calls), by FQCN, so admission holds a task naming one
+	// of its method's alternatives (collection.Manifest.AlternativeParam) to
+	// that one. Nil for a playbook.
+	Calls map[string][]map[string]any
+
 	// Interruptible is whether the run tolerates being stopped mid-flight,
 	// carried onto every device's dispatch payload.
 	Interruptible bool
@@ -103,7 +109,7 @@ func (s runbookDefinitionSource) Prepare(ctx context.Context, definition string)
 	if err := RefuseSeededLogins(rb); err != nil {
 		return PreparedDefinition{}, err.Error(), err
 	}
-	return PreparedDefinition{Required: rb.Required, Methods: rb.Methods, Interruptible: rb.Interruptible, Serial: rb.Serial,
+	return PreparedDefinition{Required: rb.Required, Methods: rb.Methods, Calls: rb.Calls, Interruptible: rb.Interruptible, Serial: rb.Serial,
 		Collections: collectionIdentities(rb.AllMethods), ReadsSNMP: readsSNMP(rb.AllMethods), Graph: &NodeGraph{Version: rb.Version, Scheme: runbook.GraphScheme, Digest: rb.GraphDigest, Nodes: rb.Nodes}}, "", nil
 }
 
