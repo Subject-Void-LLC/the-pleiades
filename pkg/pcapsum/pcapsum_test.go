@@ -203,6 +203,11 @@ func FuzzRead(f *testing.F) {
 	f.Add(pcapFile(binary.LittleEndian, frames()))
 	f.Add(pcapFile(binary.BigEndian, frames()[:3]))
 	f.Add(pcapngFile(frames()))
+	// TCP flows: an SSH banner and a packet, TLS records, HTTP/2's preface
+	// and a HEADERS frame.
+	f.Add(sessionCapture([]chunk{{up: false, data: append([]byte("SSH-2.0-x\r\n"), 0, 0, 0, 12, 10, 21, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3)}}, 40000, 22))
+	f.Add(sessionCapture([]chunk{{up: true, data: []byte{0x16, 3, 1, 0, 4, 1, 0, 0, 0, 0x17, 3, 3, 0, 2, 9, 9}}, {up: false, data: []byte{0x16, 3, 3, 0, 4, 2, 0, 0, 0}}}, 40000, 443))
+	f.Add(sessionCapture([]chunk{{up: true, data: []byte("PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n\x00\x00\x03\x01\x05\x00\x00\x00\x01\x82\x86\x84")}}, 40000, 80))
 	f.Fuzz(func(t *testing.T, data []byte) {
 		s, _ := pcapsum.Read(data)
 		total := 0
