@@ -239,8 +239,12 @@ pre-1.0 project and the honest state is not what the docs' introductions might i
   `virt.cml.capture.start`/`stop` (the pcap written into the project through `sdk.ProjectFileWriter`), and
   `net.pcap.summary` (deviceless, on `pkg/pcapsum`, stdlib plus `x/net/http2/hpack`) counts it as encrypted, key exchange
   or cleartext per address pair, reading each TCP connection by its bytes (SSH after NEWKEYS and TLS application data
-  encrypted; HTTP/2 and gRPC in the clear named, with credential headers flagged by name through a bounded HPACK decode,
-  never by value). Proven live by the CML secrets gate; SSH, TLS and gRPC by real sessions in `pkg/pcapsum`'s tests. The GNS3 equivalents are not built (work set aside in a stash).
+  encrypted unless they read as text, which catches TLS NULL suites and the SSH none cipher; HTTP/1.x, HTTP/2 and gRPC
+  in the clear named, with credential headers flagged by name, never value, HTTP/2's through a bounded HPACK decode).
+  Credentials are searched in HTTP/1.x and HTTP/2 headers only: Telnet, FTP, SNMP communities and URL query strings
+  are not, so `cleartext_credentials` 0 is not proof none crossed; `headers_unread` counts what could not be
+  searched. IPsec is `protocols.esp`, not `encrypted`. Proven live by the CML secrets gate; SSH, TLS, HTTP/1.1 and
+  gRPC by real sessions in `pkg/pcapsum`'s tests. The GNS3 equivalents are not built (work set aside in a stash).
 - **An external Collection defines capabilities as data (Phase 127a).** `pkg/capability.DataDefinition`,
   registered by the loader, granted by the program's read-only probe at onboarding (Crawl tier only) or by an
   admin's assertion (`pleiades grant-capability`, `POST /inventory/devices/{name}/capabilities`, scope
