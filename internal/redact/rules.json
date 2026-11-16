@@ -56,9 +56,14 @@
         "authorization",
         "auth",
         "credential",
-        "credentials"
+        "credentials",
+        "snmp_community",
+        "snmp_auth_passphrase",
+        "snmp_priv_passphrase",
+        "auth_passphrase",
+        "priv_passphrase"
       ],
-      "description": "Structured-log attribute names whose value is a secret by construction. A key rule is only applicable where the attribute name is still visible, which is inside slog.HandlerOptions.ReplaceAttr and nowhere else. This is the concrete reason the ordering constraint on the logging seam exists."
+      "description": "Structured-log attribute names whose value is a secret by construction, an SNMP credential's community and passphrases among them, by their flattened key (snmp_community) and the passphrases by their pleiades_snmp input id (auth_passphrase). A bare community is deliberately not one: a name matches by any run of its words, and BGP communities are not secrets, so community_entries in a parsed show bgp summary, or a bgp_community variable, would be refused as facts and never copied from a playbook. A key rule is only applicable where the attribute name is still visible, which is inside slog.HandlerOptions.ReplaceAttr and nowhere else. This is the concrete reason the ordering constraint on the logging seam exists."
     },
     {
       "name": "ansible_credential_field_names",

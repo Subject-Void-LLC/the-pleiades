@@ -64,3 +64,41 @@ func TestSecretGroups_RefusedWhereTheyCouldMaskNothing(t *testing.T) {
 		t.Errorf("a nested group was masked twice or not at all: %q", got)
 	}
 }
+
+// TestSNMPKeyNames_MaskTheirValuesInALog: a structured log attribute named
+// for an SNMP secret, by its flattened key or a passphrase's pleiades_snmp
+// input id, is masked whatever its value, a short community included, and
+// the USM user and protocol names, which are not secrets, are not. A bare
+// "community" names no secret: BGP communities are not secrets, and a name
+// matches by any run of its words, so a parsed BGP summary's
+// community_entries would be refused as a fact.
+func TestSNMPKeyNames_MaskTheirValuesInALog(t *testing.T) {
+	logger, buf, m := newTestLogger(t)
+	for _, name := range []string{"community", "community_entries", "bgp_community"} {
+		if m.SecretName(name) {
+			t.Errorf("SecretName(%q) = true, and BGP communities are not secrets", name)
+		}
+	}
+	secrets := map[string]string{
+		"snmp_community": "pub2", "snmp_auth_passphrase": "auth-pass-phrase-3",
+		"snmp_priv_passphrase": "priv-pass-phrase-4", "auth_passphrase": "auth-pass-phrase-5", "priv_passphrase": "priv-pass-phrase-6",
+	}
+	var args []any
+	for key, value := range secrets {
+		args = append(args, key, value)
+		if !m.SecretName(key) {
+			t.Errorf("SecretName(%q) = false", key)
+		}
+	}
+	logger.Info("storing an SNMP credential", append(args, "snmp_user", "monitor", "snmp_auth_protocol", "sha256")...)
+	for key, value := range secrets {
+		if strings.Contains(buf.String(), value) {
+			t.Errorf("the %s attribute's value reached the log: %s", key, buf.String())
+		}
+	}
+	for _, shown := range []string{`"snmp_user":"monitor"`, `"snmp_auth_protocol":"sha256"`} {
+		if !strings.Contains(buf.String(), shown) {
+			t.Errorf("an identifier was masked, %s missing from %s", shown, buf.String())
+		}
+	}
+}
