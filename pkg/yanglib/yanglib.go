@@ -105,6 +105,13 @@ type Discovery struct {
 	// LibraryError says why the YANG library could not be read, when it
 	// could not.
 	LibraryError string
+	// Schemas are every module the YANG library listed, implemented and
+	// import-only, with its submodules and where its source can be fetched
+	// (KeepSchemas' rules), for a client reading the sources themselves.
+	// Empty when no library was read (a NETCONF hello names modules only).
+	// It is not part of ModulesDigest: where a server serves a module from is
+	// no part of what the module is.
+	Schemas []Schema
 }
 
 // Drop counts one refused entry and keeps a quoted sample of it.

@@ -44,6 +44,11 @@ type Library struct {
 	// ContentID is RFC 8525's content-id or RFC 7895's module-set-id, as
 	// written.
 	ContentID string
+	// Schemas are every module the library listed, implemented and
+	// import-only alike, each with its submodules and the locations of its
+	// source, as listed (not yet held to KeepSchemas' rules). They are kept
+	// apart from Modules, whose JSON is the module set's digest.
+	Schemas []Schema
 }
 
 // moduleFields are the fields RFC 8525's and RFC 7895's module entries
@@ -55,28 +60,51 @@ type moduleFields struct {
 	Features  []string `xml:"feature" json:"feature"`
 }
 
-// libraryModule is one implemented module of an RFC 8525 module set; its
-// deviation entries name the deviating modules.
+// librarySubmodule is one submodule of an RFC 8525 module entry, with the
+// locations of its source.
+type librarySubmodule struct {
+	Name      string   `xml:"name" json:"name"`
+	Revision  string   `xml:"revision" json:"revision"`
+	Locations []string `xml:"location" json:"location"`
+}
+
+// libraryModule is one module of an RFC 8525 module set, implemented or
+// import-only; its deviation entries name the deviating modules, and its
+// location leaf-list where its source can be fetched.
 type libraryModule struct {
 	moduleFields
-	Deviations []string `xml:"deviation" json:"deviation"`
+	Deviations []string           `xml:"deviation" json:"deviation"`
+	Locations  []string           `xml:"location" json:"location"`
+	Submodules []librarySubmodule `xml:"submodule" json:"submodule"`
+}
+
+// stateSubmodule is one submodule of an RFC 7895 module entry, with the URL
+// of its source.
+type stateSubmodule struct {
+	Name     string `xml:"name" json:"name"`
+	Revision string `xml:"revision" json:"revision"`
+	Schema   string `xml:"schema" json:"schema"`
 }
 
 // stateModule is one module of RFC 7895's modules-state, whose deviations are
-// a list of name and revision.
+// a list of name and revision, and whose schema leaf is the URL of its source
+// (RFC 8040 section 3.7 reads it).
 type stateModule struct {
 	moduleFields
 	Conformance string `xml:"conformance-type" json:"conformance-type"`
 	Deviations  []struct {
 		Name string `xml:"name" json:"name"`
 	} `xml:"deviation" json:"deviation"`
+	Schema     string           `xml:"schema" json:"schema"`
+	Submodules []stateSubmodule `xml:"submodule" json:"submodule"`
 }
 
 // YANGLibrary is RFC 8525's yang-library container as either encoding decodes
 // it. A NETCONF reply embeds it in its data element; a RESTCONF answer is it.
 type YANGLibrary struct {
 	ModuleSets []struct {
-		Modules []libraryModule `xml:"module" json:"module"`
+		Modules    []libraryModule `xml:"module" json:"module"`
+		ImportOnly []libraryModule `xml:"import-only-module" json:"import-only-module"`
 	} `xml:"module-set" json:"module-set"`
 	Datastores []struct {
 		Name string `xml:"name" json:"name"`
@@ -97,6 +125,13 @@ func (l *YANGLibrary) Library() Library {
 	for _, set := range l.ModuleSets {
 		for _, m := range set.Modules {
 			lib.Modules = append(lib.Modules, moduleOf(m.moduleFields, m.Deviations))
+			lib.Schemas = append(lib.Schemas, m.schema(false))
+		}
+		// An import-only module is no module the server implements, so it
+		// is no entry of Modules; its source is still the schema's, which
+		// a reader of the implemented modules needs for their types.
+		for _, m := range set.ImportOnly {
+			lib.Schemas = append(lib.Schemas, m.schema(true))
 		}
 	}
 	for _, ds := range l.Datastores {
@@ -116,7 +151,9 @@ func (l *YANGLibrary) Library() Library {
 func (s *ModulesState) Library() Library {
 	lib := Library{Source: SourceLibrary10, ContentID: strings.TrimSpace(s.ModuleSetID)}
 	for _, m := range s.Modules {
-		if strings.TrimSpace(m.Conformance) == "import" {
+		importOnly := strings.TrimSpace(m.Conformance) == "import"
+		lib.Schemas = append(lib.Schemas, m.schema(importOnly))
+		if importOnly {
 			continue
 		}
 		var deviations []string
@@ -228,6 +265,8 @@ type Kept struct {
 	// ModulesDropped counts the library's own refused module entries, the
 	// only refusals that make its list Partial.
 	ModulesDropped int
+	// Schemas are the library's schema entries KeepSchemas kept.
+	Schemas []Schema
 }
 
 // Keep holds lib to the refusal rules. base carries refusals already counted
@@ -249,17 +288,19 @@ func Keep(lib Library, base Discovery) (Kept, error) {
 		Dropped:        counted.Dropped,
 		DroppedSamples: counted.DroppedSamples,
 		ModulesDropped: counted.ModulesDropped,
+		Schemas:        KeepSchemas(lib.Schemas),
 	}, nil
 }
 
-// WithLibrary is d completed from a kept library read: its modules, source
-// and counted refusals, and Complete unless one of the library's module
-// entries was dropped; a refused protocol capability, counted in Dropped
-// alone, leaves the list Complete. The
+// WithLibrary is d completed from a kept library read: its modules, schema
+// entries, source and counted refusals, and Complete unless one of the
+// library's module entries was dropped; a refused protocol capability,
+// counted in Dropped alone, leaves the list Complete. The
 // datastores and the content-id are left as they are, for the caller, which
 // knows what else names them (a NETCONF hello's capabilities).
 func (d Discovery) WithLibrary(k Kept) Discovery {
 	d.Modules, d.Source, d.Dropped, d.DroppedSamples, d.ModulesDropped = k.Modules, k.Source, k.Dropped, k.DroppedSamples, k.ModulesDropped
+	d.Schemas = k.Schemas
 	d.Completeness = Complete
 	if d.ModulesDropped > 0 {
 		d.Completeness = Partial
