@@ -13,3 +13,15 @@ func TestSecretWordBefore(t *testing.T) {
 		t.Errorf("secretWordBefore with nothing masked = %q", got)
 	}
 }
+
+// TestMasksSomething_FindsNoneInWhatJSONCannotHold: a value JSON cannot
+// hold is no document the run masks, so it draws no warning here, and the
+// method refuses it itself.
+func TestMasksSomething_FindsNoneInWhatJSONCannotHold(t *testing.T) {
+	if masksSomething(map[string]any{"password": make(chan int)}) {
+		t.Error("masksSomething found a secret in a value JSON cannot hold")
+	}
+	if !masksSomething(map[string]any{"password": "Hunter2Secret"}) {
+		t.Error("masksSomething found no secret under a password field")
+	}
+}

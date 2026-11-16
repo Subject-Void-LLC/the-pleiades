@@ -171,7 +171,9 @@ func secretWordBefore(text string) string {
 	return "a secret word"
 }
 
-// paramStrings is every string in v, at any depth.
+// paramStrings is every string in v, a string or a list of them at any
+// depth: a value holding a mapping is never read here, but whole, as the
+// JSON document masksSomething reads.
 func paramStrings(v any) []string {
 	switch t := v.(type) {
 	case string:
@@ -180,17 +182,6 @@ func paramStrings(v any) []string {
 		var out []string
 		for _, e := range t {
 			out = append(out, paramStrings(e)...)
-		}
-		return out
-	case map[string]any:
-		keys := make([]string, 0, len(t))
-		for k := range t {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		var out []string
-		for _, k := range keys {
-			out = append(out, paramStrings(t[k])...)
 		}
 		return out
 	}
