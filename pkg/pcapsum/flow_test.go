@@ -80,7 +80,13 @@ func TestRead_TLSIsHandshakeThenEncrypted(t *testing.T) {
 			if bytes.Contains(data, []byte("ietf-interfaces")) {
 				t.Fatal("the request is in the capture in the clear")
 			}
-			assertSealed(t, read(t, data), pcapsum.TLS, 443)
+			s := read(t, data)
+			assertSealed(t, s, pcapsum.TLS, 443)
+			// The request and its answer, many segments each way, are
+			// application data: more of it than of the handshake.
+			if s.Encrypted <= 2*s.KeyExchange {
+				t.Errorf("encrypted %d, key exchange %d", s.Encrypted, s.KeyExchange)
+			}
 		})
 	}
 }
@@ -202,8 +208,20 @@ func recordInside(segs []pkt) (within, crossing []int) {
 func TestRead_SegmentsAreReadInSequenceOrder(t *testing.T) {
 	// A long answer: records of 16 KiB, each across many segments.
 	segs := flowPackets(tlsSession(t, 0x0304, bytes.Repeat([]byte("x"), 64<<10)))
-	within, _ := recordInside(segs)
+	within, crossing := recordInside(segs)
 	mid := within[len(within)/2]
+	// A segment holding a record header past its start, far from mid: read
+	// in arrival order, the one after it would begin mid-record, past a
+	// header never read.
+	late := -1
+	for _, i := range crossing {
+		if (i > mid+10 || i < mid-10) && i+2 < len(segs) && !segs[i+2].up && len(segs[i+2].data) > 0 {
+			late = i
+		}
+	}
+	if late < 0 {
+		t.Fatalf("no record header to reorder around: %v", crossing)
+	}
 	var changed []pkt
 	for i, s := range segs {
 		switch {
@@ -213,10 +231,10 @@ func TestRead_SegmentsAreReadInSequenceOrder(t *testing.T) {
 		case i == mid+2:
 			// Retransmitted, twice.
 			changed = append(changed, s, s, s)
-		case i == mid+4:
+		case i == late:
 			// Arrives after the segment that follows it.
 			changed = append(changed, segs[i+2], s)
-		case i == mid+6:
+		case i == late+2:
 			// Already sent above.
 		default:
 			changed = append(changed, s)
