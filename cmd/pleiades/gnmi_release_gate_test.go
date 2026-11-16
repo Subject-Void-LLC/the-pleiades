@@ -21,7 +21,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport/srlinux"
 )
 
 // gnmiGateRunbook is the day-one runbook.
@@ -51,7 +51,7 @@ tasks:
 var fingerprintInRefusal = regexp.MustCompile(`fingerprint (sha256:[0-9a-f]{64})`)
 
 // srlLoopback reads lo21 from SR Linux's own command line.
-func srlLoopback(t *testing.T, srl *testsupport.SRLinux) string {
+func srlLoopback(t *testing.T, srl *srlinux.SRLinux) string {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
@@ -78,7 +78,7 @@ func onboardUntil(t *testing.T, dir, name, want string) (string, error) {
 }
 
 func TestCLI_GNMIFromDayZeroToDayN(t *testing.T) {
-	srl := testsupport.StartSRLinux(t)
+	srl := srlinux.Start(t)
 	dir := t.TempDir()
 	for _, args := range [][]string{
 		{"init"},
@@ -89,7 +89,7 @@ func TestCLI_GNMIFromDayZeroToDayN(t *testing.T) {
 		}
 	}
 	// The password on standard input, never argv.
-	if out, err := runPleiadesWithStdin(t, dir, testsupport.SRLinuxPassword+"\n", "add-credential", "srl1", "--username", testsupport.SRLinuxUser, "--password-stdin"); err != nil {
+	if out, err := runPleiadesWithStdin(t, dir, srlinux.Password+"\n", "add-credential", "srl1", "--username", srlinux.User, "--password-stdin"); err != nil {
 		t.Fatalf("add-credential: %v\n%s", err, out)
 	}
 
@@ -124,7 +124,7 @@ func TestCLI_GNMIFromDayZeroToDayN(t *testing.T) {
 
 	// Day N: the same runbook changes nothing, and prints no password.
 	again, printed := gnmiReport(t, dir, "run", "runbooks/gnmi.yaml")
-	if again.Outcome.ExitCode != 0 || len(again.Tasks) != 3 || strings.Contains(printed, testsupport.SRLinuxPassword) {
+	if again.Outcome.ExitCode != 0 || len(again.Tasks) != 3 || strings.Contains(printed, srlinux.Password) {
 		t.Fatalf("the second run: %+v\n%s", again, printed)
 	}
 	for _, task := range again.Tasks {
@@ -175,7 +175,7 @@ func TestCLI_GNMIFromDayZeroToDayN(t *testing.T) {
 			t.Fatalf("%v: %v\n%s", args, err, out)
 		}
 	}
-	if out, err := runPleiadesWithStdin(t, dir, "wrong-Gnmi-Gate-5\n", "add-credential", "srl2", "--username", testsupport.SRLinuxUser, "--password-stdin"); err != nil {
+	if out, err := runPleiadesWithStdin(t, dir, "wrong-Gnmi-Gate-5\n", "add-credential", "srl2", "--username", srlinux.User, "--password-stdin"); err != nil {
 		t.Fatalf("add-credential srl2: %v\n%s", err, out)
 	}
 	before := srlRejects(t, srl)
@@ -207,7 +207,7 @@ func gnmiReport(t *testing.T, dir string, args ...string) (gateReport, string) {
 
 // srlRejects is how many logins SR Linux's gRPC server has refused, from its
 // own state.
-func srlRejects(t *testing.T, srl *testsupport.SRLinux) int {
+func srlRejects(t *testing.T, srl *srlinux.SRLinux) int {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()

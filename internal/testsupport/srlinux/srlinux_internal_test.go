@@ -1,6 +1,6 @@
-// Package testsupport: reading SR Linux's count of refused logins from the
+// Package srlinux: reading SR Linux's count of refused logins from the
 // statistics sr_cli writes, which the gNMI gates hold a wrong password to.
-package testsupport
+package srlinux
 
 import "testing"
 

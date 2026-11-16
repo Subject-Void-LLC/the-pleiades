@@ -19,7 +19,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/generic"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
-	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport/srlinux"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/gnmi"
@@ -33,8 +33,8 @@ const stratumImage = "opennetworking/mn-stratum@sha256:352323780adf642664895689b
 
 // SR Linux's factory login, a throwaway container's, never a device's.
 const (
-	srlUser     = testsupport.SRLinuxUser
-	srlPassword = testsupport.SRLinuxPassword
+	srlUser     = srlinux.User
+	srlPassword = srlinux.Password
 )
 
 // server is one started container's gNMI address, and SR Linux's own
@@ -42,7 +42,7 @@ const (
 type server struct {
 	target string
 	c      testcontainers.Container
-	srl    *testsupport.SRLinux
+	srl    *srlinux.SRLinux
 }
 
 // One container of each serves every test here: SR Linux takes a minute or
@@ -85,7 +85,7 @@ func startSRLinux(t *testing.T) server {
 func runSRLinux() (server, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
 	defer cancel()
-	srlinux, err := testsupport.RunSRLinux(ctx)
+	srlinux, err := srlinux.Run(ctx)
 	s := server{target: srlinux.Target, c: srlinux.Container, srl: srlinux}
 	if err != nil {
 		return s, err
