@@ -51,6 +51,7 @@ func runAdhoc(args []string) error {
 	fs := flag.NewFlagSet("adhoc", flag.ContinueOnError)
 	addProjectFlags(fs)
 	flags := addRunFlags(fs)
+	keyLog := addTLSKeyLogFlag(fs)
 	var timeout secondsFlag
 	fs.Var(&timeout, "timeout", "how long the call may run on each device before it is stopped and fails, as a task's timeout key: whole seconds (40) or a duration (40s, 5m), up to 86400 seconds (0: no bound)")
 	positionals, err := parseCheckedArgs(fs, args, func(p []string) error {
@@ -70,6 +71,9 @@ func runAdhoc(args []string) error {
 	positionals = withNoHosts(positionals)
 	opts, err := flags.options()
 	if err != nil {
+		return err
+	}
+	if opts.tlsKeyLog, err = keyLog.option(); err != nil {
 		return err
 	}
 	hosts, method := positionals[0], positionals[1]

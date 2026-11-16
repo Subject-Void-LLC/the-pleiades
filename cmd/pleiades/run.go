@@ -40,6 +40,7 @@ func runRunbook(args []string) error {
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
 	addProjectFlags(fs)
 	flags := addRunFlags(fs)
+	keyLog := addTLSKeyLogFlag(fs)
 	selection := tagFlags(fs)
 	extraVars := addExtraVarsFlag(fs)
 	runbook, err := parseOneArg(fs, args)
@@ -48,6 +49,9 @@ func runRunbook(args []string) error {
 	}
 	opts, err := flags.options()
 	if err != nil {
+		return err
+	}
+	if opts.tlsKeyLog, err = keyLog.option(); err != nil {
 		return err
 	}
 	if opts.variables, err = extraVars.variables(); err != nil {

@@ -77,10 +77,14 @@ const (
 	// a device the run reaches, that grants nothing or counts only with a
 	// warning (validation's grant warnings): Devices names the device.
 	WarnGrant = "grant"
+	// WarnTLSKeyLog is a run writing its TLS session secrets to the key log
+	// --tls-keylog named: the message names the file, which decrypts the
+	// run's device sessions, never what it holds.
+	WarnTLSKeyLog = "tls_keylog"
 )
 
 // KnownWarningKinds are every RunWarning.Kind this producer writes.
-var KnownWarningKinds = []string{WarnConcurrentRun, WarnConcurrentChange, WarnConcurrentUnknown, WarnSerialStopped, WarnGrant}
+var KnownWarningKinds = []string{WarnConcurrentRun, WarnConcurrentChange, WarnConcurrentUnknown, WarnSerialStopped, WarnGrant, WarnTLSKeyLog}
 
 // RunReport is one run, as both views print it.
 type RunReport struct {
@@ -277,7 +281,7 @@ type RunOutcome struct {
 // it has to know, shown in the text view and kept in --json.
 type RunWarning struct {
 	// Kind is concurrent_run, concurrent_change, concurrent_unknown,
-	// serial_stopped or grant.
+	// serial_stopped, grant or tls_keylog.
 	Kind string `json:"kind"`
 	// When is "start" for what the run found as it began, "end" for what
 	// it found as it ended.

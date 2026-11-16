@@ -30,6 +30,7 @@ import (
 	winrmtransport "github.com/Subject-Void-LLC/the-pleiades/internal/transport/winrm"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/validate"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
 	pkginventory "github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/serialexec"
@@ -76,6 +77,10 @@ type runOptions struct {
 	// settings are --setting's run settings, filling the parameters a task
 	// leaves out (engine.WithRunSettings); empty for none.
 	settings collection.RunSettings
+	// tlsKeyLog is --tls-keylog's file, which the run creates and writes its
+	// TLS session secrets to (run_keylog.go); "" for none, as every command
+	// but run and adhoc leaves it.
+	tlsKeyLog string
 
 	// rollbackOf, set only by `pleiades rollback`, names the run this run
 	// undoes; undoes says which node and step of it each of this run's
@@ -270,6 +275,16 @@ func carryOut(opts runOptions, src runSource) (*runReport, error) {
 	}
 	rep.Warnings = append(rep.Warnings, grantWarnings...)
 
+	// --tls-keylog's file is created as the run starts, after everything
+	// that can refuse it short of creating it, so a refused run leaves no
+	// empty key log behind to refuse the next attempt. Creating it refuses a
+	// name that appeared since the flag was read.
+	keyLog, err := startTLSKeyLog(opts.tlsKeyLog, rep)
+	if err != nil {
+		return rep, err
+	}
+	defer closeTLSKeyLog(keyLog)
+
 	if !opts.asJSON {
 		printRunWarnings(rep, "start")
 		printPlan(rep)
@@ -293,6 +308,10 @@ func carryOut(opts runOptions, src runSource) (*runReport, error) {
 	if runCtx == nil {
 		runCtx = context.Background()
 	}
+	// The key log rides the run's context to every method, and only the
+	// device clients built under it (devicetls.Settings.ConfigContext) write
+	// to it. A nil one leaves the context as it is.
+	runCtx = devicetls.WithKeyLog(runCtx, keyLog)
 	var result engine.RunResult
 	if serial == nil {
 		result, err = executor.Run(runCtx, dag)
