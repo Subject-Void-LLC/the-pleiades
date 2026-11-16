@@ -295,7 +295,9 @@ func Request(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 		if deviceTLS, err = spec.device.tlsConfig(ctx, secrets); err != nil {
 			return collection.Result{}, fmt.Errorf("%s: device %q: %w", fqcn, spec.device.name, err)
 		}
-		deviceTLS, certWatch = devicetls.Watched(deviceTLS)
+		if deviceTLS != nil {
+			deviceTLS, certWatch = devicetls.Watched(deviceTLS, devicetls.HTTPSAddress(req.URL), devicetls.HTTPNextProtos...)
+		}
 		// Recorded before the call, so a request that fails still says
 		// what the device's record let it do.
 		if err := sdk.RecordWarnings(rc, spec.device.warnings); err != nil {
@@ -314,7 +316,7 @@ func Request(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 		// device, so it has none to name.
 		explained := devicetls.Explain(err)
 		if certWatch != nil {
-			explained = certWatch.Explain(err)
+			explained = certWatch.Explain(ctx, err)
 		}
 		return collection.Result{}, fmt.Errorf("%s: %s %s: %w", fqcn, spec.method, spec.url, explained)
 	}

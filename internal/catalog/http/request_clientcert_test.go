@@ -1,7 +1,8 @@
 // Tests that a device API requiring a client certificate, presented none,
 // refuses the call as a refusal naming tls_client_certificate, in TLS 1.3
 // (the alert after the client's side of the handshake, so it meets the
-// request) and in TLS 1.2 (inside the handshake).
+// request), in TLS 1.2 (inside the handshake), and when the request's own
+// connection loses the alert to a reset.
 package http_test
 
 import (
@@ -15,6 +16,8 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/catalog/http"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls/devicetlstest"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 )
 
 // TestRequestDevice_ARequiredClientCertificateIsARefusal calls a device API
@@ -48,5 +51,24 @@ func TestRequestDevice_ARequiredClientCertificateIsARefusal(t *testing.T) {
 				t.Errorf("the device read %d requests through a refused handshake", n)
 			}
 		})
+	}
+}
+
+// TestRequestDevice_AnAlertLostToAResetIsDiagnosed calls through a server
+// that resets the request's connection with no alert: the refusal is read on
+// a connection of its own, which carries no request.
+func TestRequestDevice_AnAlertLostToAResetIsDiagnosed(t *testing.T) {
+	s := devicetlstest.New(t, devicetlstest.Options{Mode: devicetlstest.LoseFirst})
+	dev, err := requestDeviceWith(t, s.URL(), map[string]inventory.PropertyValue{devicetls.CAPEMProperty: s.CAPEM()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = http.Request(context.Background(), newRequestContext(), dev, map[string]any{"url": "/items"})
+	var refused *devicetls.ClientCertificateRefusedError
+	if !errors.As(err, &refused) {
+		t.Fatalf("Request = %v, want the refusal a diagnosis reads", err)
+	}
+	if n := s.Handshakes(); n != 2 {
+		t.Errorf("%d handshakes, want the request's and the diagnosis's", n)
 	}
 }

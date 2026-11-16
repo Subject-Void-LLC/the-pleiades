@@ -18,6 +18,7 @@ import (
 	"crypto/x509"
 	"net"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	gpb "github.com/openconfig/gnmi/proto/gnmi"
@@ -104,6 +105,8 @@ type Server struct {
 	client map[string]string
 	// stranger is a client certificate another authority signed.
 	stranger map[string]string
+	// handshakes counts the TLS handshakes clients began.
+	handshakes atomic.Int32
 
 	mu sync.Mutex
 	// data is what the server holds.
@@ -140,7 +143,10 @@ func New(t testing.TB, opts Options) *Server {
 	if !opts.Plaintext {
 		pair, _, _, leaf := s.ca.issue(t, "gnmitest", false)
 		s.leaf = leaf
-		cfg := &tls.Config{Certificates: []tls.Certificate{pair}, MinVersion: tls.VersionTLS12}
+		cfg := &tls.Config{Certificates: []tls.Certificate{pair}, MinVersion: tls.VersionTLS12,
+			// Every ClientHello is a handshake begun, counted so a test can
+			// tell one try from many without timing them.
+			GetConfigForClient: func(*tls.ClientHelloInfo) (*tls.Config, error) { s.handshakes.Add(1); return nil, nil }}
 		if opts.TLS12 {
 			cfg.MaxVersion = tls.VersionTLS12
 		}
@@ -197,6 +203,11 @@ func (s *Server) Certificate() *x509.Certificate {
 // credential's flattened secrets; nil unless ClientCertificate is set.
 func (s *Server) ClientSecrets() map[string]string {
 	return s.client
+}
+
+// Handshakes returns how many TLS handshakes clients began.
+func (s *Server) Handshakes() int {
+	return int(s.handshakes.Load())
 }
 
 // UntrustedClientSecrets are a client certificate and key another authority

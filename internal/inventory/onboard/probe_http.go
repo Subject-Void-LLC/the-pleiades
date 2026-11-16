@@ -66,7 +66,7 @@ func (p httpProber) Probe(ctx context.Context, device inventory.InventoryItem, s
 	if httpapi.SendsPlaintextCredential(base, dev.HTTPAuth()) {
 		warnings = append(warnings, httpapi.PlaintextWarning(device.Name()))
 	}
-	client := p.httpClient(cfg)
+	client := p.httpClient(cfg, devicetls.HTTPSAddress(base))
 
 	resp, _, err := p.get(ctx, client, base, dev.HTTPAuth(), secrets, 64<<10)
 	if err != nil {
@@ -113,7 +113,7 @@ func (p httpProber) Probe(ctx context.Context, device inventory.InventoryItem, s
 // clabHealth asks the base URL's /health, unauthenticated, and returns the
 // server's version when the answer is containerlab API server's own: JSON
 // with a status, an uptime, a start time and a version, all text.
-func (p httpProber) clabHealth(ctx context.Context, client *http.Client, base *url.URL) (string, bool) {
+func (p httpProber) clabHealth(ctx context.Context, client probeClient, base *url.URL) (string, bool) {
 	u, err := httpapi.Join(base, "/health")
 	if err != nil {
 		return "", false
@@ -134,21 +134,30 @@ func (p httpProber) clabHealth(ctx context.Context, client *http.Client, base *u
 	return h.Version, true
 }
 
+// probeClient is the probe's HTTP client and the watch on its TLS
+// configuration, which says a refused client certificate as one.
+type probeClient struct {
+	*http.Client
+	watch *devicetls.Watch
+}
+
 // httpClient returns the probe's client: the device's TLS configuration
-// (nil for an http:// base URL) on a transport of its own, and no
-// redirects followed.
-func (httpProber) httpClient(cfg *tls.Config) *http.Client {
+// (nil for an http:// base URL), watched for its server's request for a
+// client certificate (addr is the base URL's host:port), on a transport of
+// its own, and no redirects followed.
+func (httpProber) httpClient(cfg *tls.Config, addr string) probeClient {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
-	transport.TLSClientConfig = cfg
-	return &http.Client{
+	watched, watch := devicetls.Watched(cfg, addr, devicetls.HTTPNextProtos...)
+	transport.TLSClientConfig = watched
+	return probeClient{Client: &http.Client{
 		Transport:     transport,
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
-	}
+	}, watch: watch}
 }
 
 // get sends one authenticated GET and reads at most limit bytes of the
 // answer, refusing a credential the server rejected and a server error.
-func (httpProber) get(ctx context.Context, client *http.Client, u *url.URL, mode string, secrets map[string]string, limit int64) (*http.Response, []byte, error) {
+func (httpProber) get(ctx context.Context, client probeClient, u *url.URL, mode string, secrets map[string]string, limit int64) (*http.Response, []byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	if err != nil {
 		return nil, nil, err
@@ -159,8 +168,9 @@ func (httpProber) get(ctx context.Context, client *http.Client, u *url.URL, mode
 	resp, err := client.Do(req)
 	if err != nil {
 		// A certificate nothing trusts is named by its fingerprint, so a
-		// person can check it with the device's owner and pin it.
-		return nil, nil, devicetls.Explain(err)
+		// person can check it with the device's owner and pin it, and a
+		// client certificate the device refuses names the setting to change.
+		return nil, nil, client.watch.Explain(ctx, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))

@@ -204,9 +204,10 @@ func New(opts Options) (*Client, error) {
 	if opts.Plaintext {
 		transport = insecure.NewCredentials()
 	} else {
-		cfg, watch := devicetls.Watched(opts.TLS)
+		// gRPC offers h2 alone, so a diagnosis offers the same.
+		cfg, watch := devicetls.Watched(opts.TLS, opts.Target, "h2")
 		c.handshake, c.certWatch = &handshakeSeen{}, watch
-		transport = &capturingCredentials{TransportCredentials: credentials.NewTLS(cfg), seen: c.handshake, watch: watch}
+		transport = &capturingCredentials{TransportCredentials: credentials.NewTLS(cfg), seen: c.handshake}
 	}
 	dial := []grpc.DialOption{
 		grpc.WithTransportCredentials(transport),
@@ -278,7 +279,7 @@ func (c *Client) ready(ctx context.Context) error {
 		case connectivity.Ready:
 			return nil
 		case connectivity.TransientFailure, connectivity.Shutdown:
-			if err := c.handshakeFailure(); err != nil {
+			if err := c.connectionFailure(ctx); err != nil {
 				return err
 			}
 			return fmt.Errorf("the connection to %s did not come up (%s)", c.target, state)

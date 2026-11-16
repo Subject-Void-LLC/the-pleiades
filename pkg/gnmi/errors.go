@@ -120,7 +120,7 @@ func (c *Client) fail(ctx context.Context, rpc string, err error) error {
 	message := farside.Masked(st.Message(), c.maskSecrets)
 	switch st.Code() {
 	case codes.Unavailable:
-		if hs := c.handshakeFailure(); hs != nil {
+		if hs := c.connectionFailure(ctx); hs != nil {
 			return hs
 		}
 	case codes.Unauthenticated:

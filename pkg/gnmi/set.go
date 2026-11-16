@@ -11,8 +11,6 @@ import (
 	gpb "github.com/openconfig/gnmi/proto/gnmi"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-
-	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
 )
 
 // SetValue is one replace or update: a node and the JSON value to give it.
@@ -82,21 +80,20 @@ func (c *Client) Set(ctx context.Context, req SetRequest) (SetResult, error) {
 	// that never answers ends the Set as a lost answer at the call timeout.
 	call, cancel := c.call(ctx)
 	defer cancel()
+	// A server refusing the client certificate is met here, never below: a
+	// connection is ready only once the server's HTTP/2 preface has been read
+	// (grpc-go's transport waits for it), and a TLS 1.3 server sends its
+	// refusal before any data, so a Set sent over a ready connection went to a
+	// server that accepted the certificate.
 	if err := c.ready(call); err != nil {
 		return SetResult{}, err
 	}
 	resp, err := c.api.Set(call, wire)
 	if err != nil {
-		failed := c.fail(call, "Set", err)
-		// A TLS 1.3 server refuses a client certificate (or its absence)
-		// after the client's side of the handshake, so a Set can be sent over
-		// a connection that came up and then meet the alert. The server read
-		// nothing past the certificate it refused, so the Set was not applied.
-		var refusedCert *devicetls.ClientCertificateRefusedError
-		if lost(err) && !errors.As(failed, &refusedCert) {
-			return SetResult{}, &AnswerLostError{Err: failed}
+		if lost(err) {
+			return SetResult{}, &AnswerLostError{Err: c.fail(call, "Set", err)}
 		}
-		return SetResult{}, failed
+		return SetResult{}, c.fail(call, "Set", err)
 	}
 	result, err := readSetResponse(resp)
 	if err != nil {

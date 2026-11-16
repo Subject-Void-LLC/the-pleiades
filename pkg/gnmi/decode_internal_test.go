@@ -3,6 +3,7 @@
 package gnmi
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"testing"
@@ -11,6 +12,8 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/status"
+
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
 )
 
 // badPath is a path no rule accepts.
@@ -87,11 +90,11 @@ func TestCapturingCredentials_ACloneSharesTheRecord(t *testing.T) {
 		t.Fatal("the clone records somewhere else")
 	}
 	seen.set(errors.New("refused"))
-	client := &Client{handshake: seen, target: "r:1"}
-	if err := client.handshakeFailure(); err == nil || !strings.Contains(err.Error(), "nothing was sent") {
-		t.Errorf("handshakeFailure = %v", err)
+	client := &Client{handshake: seen, target: "r:1", certWatch: &devicetls.Watch{}}
+	if err := client.connectionFailure(context.Background()); err == nil || !strings.Contains(err.Error(), "nothing was sent") {
+		t.Errorf("connectionFailure = %v", err)
 	}
-	if (&Client{}).handshakeFailure() != nil {
+	if (&Client{}).connectionFailure(context.Background()) != nil {
 		t.Error("a plaintext client reports a handshake failure")
 	}
 	if got := truncate(strings.Repeat("é", 100), 7); len(got) > 7 || !strings.HasPrefix(got, "é") {

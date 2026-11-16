@@ -28,7 +28,7 @@ type refusal interface {
 // handshake, as SONiC's) and in TLS 1.2 (inside the handshake), with none
 // stored and with one another authority signed stored, and holds every call
 // to a ClientCertificateRefusedError that names tls_client_certificate, says
-// no password reached the server, and is never a lost Set.
+// the server processed no request, and is never a lost Set.
 func TestClientCertificate_ARefusalIsSaidAsOne(t *testing.T) {
 	for _, version := range []struct {
 		name  string
@@ -92,8 +92,8 @@ func TestClientCertificate_ARefusalIsSaidAsOne(t *testing.T) {
 					if errors.As(err, &lost) {
 						t.Errorf("%s = %v, a lost answer for a call the server never read", name, err)
 					}
-					if text := err.Error(); !strings.Contains(text, devicetls.ClientCertificateProperty) || !strings.Contains(text, "no password or token") {
-						t.Errorf("%s = %q, want it to name %s and say no password reached the server", name, text, devicetls.ClientCertificateProperty)
+					if text := err.Error(); !strings.Contains(text, devicetls.ClientCertificateProperty) || !strings.Contains(text, "processed no request") {
+						t.Errorf("%s = %q, want it to name %s and say the server processed no request", name, text, devicetls.ClientCertificateProperty)
 					}
 				}
 				if rpcs := s.RPCs(); len(rpcs) != 0 || s.Sets() != 0 {

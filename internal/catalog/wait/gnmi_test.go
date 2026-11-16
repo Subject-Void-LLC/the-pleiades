@@ -12,7 +12,6 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
-	"time"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -106,14 +105,17 @@ func TestGNMI_ARefusedClientCertificateStopsAtOnce(t *testing.T) {
 	s := gnmitest.New(t, opts)
 	rc := &waitContext{secrets: map[string]string{wire.SecretUsername: opts.Username, wire.SecretPassword: opts.Password}, stats: map[string]any{}}
 	device := gnmitest.NewDeviceWith(t, s, map[string]inventory.PropertyValue{devicetls.CAPEMProperty: s.AuthorityPEM()})
-	started := time.Now()
 	_, err := wait.GNMI(context.Background(), rc, device, map[string]any{"timeout": 60, "sleep": 1, "connect_timeout": 5})
 	var refused *devicetls.ClientCertificateRefusedError
 	if !errors.As(err, &refused) || !strings.Contains(err.Error(), devicetls.ClientCertificateProperty) {
 		t.Fatalf("wait = %v, want it stopped on the refused client certificate", err)
 	}
-	if elapsed := time.Since(started); elapsed > 20*time.Second || len(s.RPCs()) != 0 {
-		t.Errorf("the wait took %s and the server answered %v, want one try and nothing read", elapsed, s.RPCs())
+	// One try is the call's handshake and its diagnosis's, and gRPC may
+	// begin a reconnect or two on its one-second backoff before the try's
+	// client closes on a loaded machine; a wait that tried again would add
+	// one a second until its 60-second timeout.
+	if n := s.Handshakes(); n > 6 || len(s.RPCs()) != 0 {
+		t.Errorf("%d handshakes and the server answered %v, want one try and nothing read", n, s.RPCs())
 	}
 }
 

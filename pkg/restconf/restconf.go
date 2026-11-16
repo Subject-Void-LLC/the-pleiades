@@ -203,11 +203,12 @@ func (c *Client) send(ctx context.Context, method, ref, accept, contentType stri
 	}
 	resp, err := c.hc.Do(req)
 	if err != nil {
-		// A certificate this side refused, or the device's TLS alert about
-		// this side's client certificate (or its absence), which a TLS 1.3
-		// server sends after the handshake, so it meets the request.
+		// A certificate this side refused, or the device refusing this side's
+		// client certificate (or its absence), which a TLS 1.3 server does
+		// after the handshake, so it meets the request, and is diagnosed on a
+		// connection of its own when the request's connection lost the alert.
 		if c.certWatch != nil {
-			err = c.certWatch.Explain(err)
+			err = c.certWatch.Explain(ctx, err)
 		} else {
 			err = devicetls.Explain(err)
 		}

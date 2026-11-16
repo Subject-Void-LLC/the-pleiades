@@ -56,7 +56,7 @@ func ClientForContext(ctx context.Context, device any, name string, secrets map[
 		}
 		// Watched, so a server refusing the client certificate (or its
 		// absence) is said as a refusal naming tls_client_certificate.
-		transport.TLSClientConfig, watch = devicetls.Watched(cfg)
+		transport.TLSClientConfig, watch = devicetls.Watched(cfg, devicetls.HTTPSAddress(base), devicetls.HTTPNextProtos...)
 	}
 	hc := &http.Client{
 		Transport:     transport,
