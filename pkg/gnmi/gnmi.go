@@ -54,6 +54,8 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
+
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
 )
 
 // The ways a device's stored credential is sent (GNMIAuth).
@@ -139,6 +141,10 @@ type Client struct {
 	// handshake keeps the last TLS handshake failure, so a refused
 	// certificate is reported as one rather than as gRPC's Unavailable.
 	handshake *handshakeSeen
+	// certWatch records whether the server asked for a client certificate
+	// and whether one was presented, so a refusal says which; nil over
+	// plaintext.
+	certWatch *devicetls.Watch
 	// secrets is the device's own credential, masked in every answer.
 	secrets map[string]string
 	// noneSent is true when the client sends no credential metadata.
@@ -187,8 +193,9 @@ func New(opts Options) (*Client, error) {
 	if opts.Plaintext {
 		transport = insecure.NewCredentials()
 	} else {
-		c.handshake = &handshakeSeen{}
-		transport = &capturingCredentials{TransportCredentials: credentials.NewTLS(opts.TLS), seen: c.handshake}
+		cfg, watch := devicetls.Watched(opts.TLS)
+		c.handshake, c.certWatch = &handshakeSeen{}, watch
+		transport = &capturingCredentials{TransportCredentials: credentials.NewTLS(cfg), seen: c.handshake, watch: watch}
 	}
 	dial := []grpc.DialOption{
 		grpc.WithTransportCredentials(transport),

@@ -11,6 +11,8 @@ import (
 	gpb "github.com/openconfig/gnmi/proto/gnmi"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
 )
 
 // SetValue is one replace or update: a node and the JSON value to give it.
@@ -82,10 +84,16 @@ func (c *Client) Set(ctx context.Context, req SetRequest) (SetResult, error) {
 	}
 	resp, err := c.api.Set(call, wire)
 	if err != nil {
-		if lost(err) {
-			return SetResult{}, &AnswerLostError{Err: c.fail(call, "Set", err)}
+		failed := c.fail(call, "Set", err)
+		// A TLS 1.3 server refuses a client certificate (or its absence)
+		// after the client's side of the handshake, so a Set can be sent over
+		// a connection that came up and then meet the alert. The server read
+		// nothing past the certificate it refused, so the Set was not applied.
+		var refusedCert *devicetls.ClientCertificateRefusedError
+		if lost(err) && !errors.As(failed, &refusedCert) {
+			return SetResult{}, &AnswerLostError{Err: failed}
 		}
-		return SetResult{}, c.fail(call, "Set", err)
+		return SetResult{}, failed
 	}
 	result, err := readSetResponse(resp)
 	if err != nil {

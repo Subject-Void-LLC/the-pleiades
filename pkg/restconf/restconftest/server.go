@@ -119,6 +119,9 @@ type Options struct {
 	// MaxTLSVersion caps the TLS version the server negotiates, as an older
 	// device's does (tls.VersionTLS12); zero is Go's default, TLS 1.3.
 	MaxTLSVersion uint16
+	// RequireClientCertificate refuses a client that presents no
+	// certificate, in the handshake (TLS 1.2) or just after it (TLS 1.3).
+	RequireClientCertificate bool
 }
 
 // Server is a RESTCONF server over TLS.
@@ -173,10 +176,13 @@ func New(t testing.TB, opts Options) *Server {
 			s.mu.Unlock()
 		}
 	}
-	if opts.MaxTLSVersion != 0 {
+	if opts.MaxTLSVersion != 0 || opts.RequireClientCertificate {
 		// StartTLS keeps a configuration set before it, adding its own
 		// certificate.
 		s.TLS = &tls.Config{MinVersion: tls.VersionTLS12, MaxVersion: opts.MaxTLSVersion}
+		if opts.RequireClientCertificate {
+			s.TLS.ClientAuth = tls.RequireAnyClientCert
+		}
 	}
 	s.StartTLS()
 	t.Cleanup(s.Close)

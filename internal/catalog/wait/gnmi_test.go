@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -91,6 +92,28 @@ func TestGNMI_AnUntrustedCertificateStopsAtOnce(t *testing.T) {
 	_, err := wait.GNMI(context.Background(), rc, device, map[string]any{"timeout": 60, "sleep": 1, "connect_timeout": 5})
 	if err == nil || !strings.Contains(err.Error(), "do not trust") || len(s.RPCs()) != 0 {
 		t.Fatalf("wait = %v after %v answered, want it stopped before any call", err, s.RPCs())
+	}
+}
+
+// TestGNMI_ARefusedClientCertificateStopsAtOnce points a device presenting
+// no client certificate at a server that requires one, as SONiC's does with
+// client_auth on: the TLS 1.3 alert comes after the client's side of the
+// handshake, as UNAVAILABLE to the call, and the wait ends on its first try
+// rather than at its timeout, naming the setting to change.
+func TestGNMI_ARefusedClientCertificateStopsAtOnce(t *testing.T) {
+	opts := gnmiLogin
+	opts.ClientCertificate = true
+	s := gnmitest.New(t, opts)
+	rc := &waitContext{secrets: map[string]string{wire.SecretUsername: opts.Username, wire.SecretPassword: opts.Password}, stats: map[string]any{}}
+	device := gnmitest.NewDeviceWith(t, s, map[string]inventory.PropertyValue{devicetls.CAPEMProperty: s.AuthorityPEM()})
+	started := time.Now()
+	_, err := wait.GNMI(context.Background(), rc, device, map[string]any{"timeout": 60, "sleep": 1, "connect_timeout": 5})
+	var refused *devicetls.ClientCertificateRefusedError
+	if !errors.As(err, &refused) || !strings.Contains(err.Error(), devicetls.ClientCertificateProperty) {
+		t.Fatalf("wait = %v, want it stopped on the refused client certificate", err)
+	}
+	if elapsed := time.Since(started); elapsed > 20*time.Second || len(s.RPCs()) != 0 {
+		t.Errorf("the wait took %s and the server answered %v, want one try and nothing read", elapsed, s.RPCs())
 	}
 }
 

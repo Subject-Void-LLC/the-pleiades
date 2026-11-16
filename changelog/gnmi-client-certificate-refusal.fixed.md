@@ -1,0 +1,1 @@
+A gNMI, RESTCONF or `http.request` device whose server requires a client certificate, and is presented none or one it does not accept, now fails as a refusal naming `tls_client_certificate` and saying no password reached it, rather than as a server that is down; `wait.gnmi` and `wait.restconf` stop at once instead of trying until their timeout.

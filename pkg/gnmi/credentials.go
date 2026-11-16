@@ -1,6 +1,5 @@
-// Package gnmi: the credential a call carries, the address a client dials,
-// and the TLS handshake's own failure kept so a refused certificate is said
-// as one.
+// Package gnmi: the credential a call carries and the address a client
+// dials.
 package gnmi
 
 import (
@@ -9,11 +8,9 @@ import (
 	"fmt"
 	"net"
 	"strconv"
-	"sync"
 
 	"google.golang.org/grpc/credentials"
 
-	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
 
@@ -89,65 +86,4 @@ func (p passwordCredential) GetRequestMetadata(context.Context, ...string) (map[
 // the record accepted that, a second check behind New's own.
 func (p passwordCredential) RequireTransportSecurity() bool {
 	return !p.plaintext
-}
-
-// handshakeSeen holds the last TLS handshake failure on a client's
-// connections, which gRPC reports only as Unavailable with the error flattened
-// into text.
-type handshakeSeen struct {
-	mu   sync.Mutex
-	last error
-}
-
-// set records err, the outcome of one handshake: nil clears an earlier
-// failure once a handshake succeeds.
-func (h *handshakeSeen) set(err error) {
-	h.mu.Lock()
-	h.last = err
-	h.mu.Unlock()
-}
-
-// get returns the last handshake failure, or nil.
-func (h *handshakeSeen) get() error {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	return h.last
-}
-
-// capturingCredentials is TLS transport credentials that keep each client
-// handshake's failure: pkg/devicetls.Explain turns Go's certificate refusal
-// into an *UntrustedError naming the certificate, which a person can check
-// and pin, and which stops a retry, since the same certificate is refused the
-// same way however often it is asked.
-type capturingCredentials struct {
-	credentials.TransportCredentials
-	seen *handshakeSeen
-}
-
-// ClientHandshake implements credentials.TransportCredentials, recording the
-// handshake's outcome.
-func (c *capturingCredentials) ClientHandshake(ctx context.Context, authority string, raw net.Conn) (net.Conn, credentials.AuthInfo, error) {
-	conn, info, err := c.TransportCredentials.ClientHandshake(ctx, authority, raw)
-	c.seen.set(err)
-	return conn, info, err
-}
-
-// Clone implements credentials.TransportCredentials. The clone shares the
-// record, so a failure on any of the client's connections is seen.
-func (c *capturingCredentials) Clone() credentials.TransportCredentials {
-	return &capturingCredentials{TransportCredentials: c.TransportCredentials.Clone(), seen: c.seen}
-}
-
-// handshakeFailure returns the client's last TLS handshake failure as
-// pkg/devicetls explains it, or nil when there is none (or the client is
-// plaintext).
-func (c *Client) handshakeFailure() error {
-	if c.handshake == nil {
-		return nil
-	}
-	err := c.handshake.get()
-	if err == nil {
-		return nil
-	}
-	return fmt.Errorf("the TLS handshake with %s failed, so nothing was sent: %w", c.target, devicetls.Explain(err))
 }

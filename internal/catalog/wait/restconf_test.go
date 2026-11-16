@@ -73,6 +73,21 @@ func TestRestconf_Registered(t *testing.T) {
 	}
 }
 
+// TestRestconf_ARefusedClientCertificateStopsAtOnce points a device
+// presenting no client certificate at a server that requires one: the wait
+// ends on its first try, naming the setting to change, rather than at its
+// timeout.
+func TestRestconf_ARefusedClientCertificateStopsAtOnce(t *testing.T) {
+	opts := restconfLogin
+	opts.RequireClientCertificate = true
+	s := restconftest.New(t, opts)
+	_, err := wait.Restconf(context.Background(), restconfContext(s), restconftest.NewDevice(t, s), map[string]any{"timeout": 60, "sleep": 1, "connect_timeout": 5})
+	var refused *devicetls.ClientCertificateRefusedError
+	if !errors.As(err, &refused) || !strings.Contains(err.Error(), "wait stops here") || len(s.Paths()) != 0 {
+		t.Fatalf("wait = %v after %v, want it stopped on the refused client certificate with nothing read", err, s.Paths())
+	}
+}
+
 // TestRestconf_WaitsThrough502sUntilTheServerAnswers: HTTPS answering is not
 // readiness; the wait goes on through the 502s, each try on a connection of
 // its own, and the stats say how it went.

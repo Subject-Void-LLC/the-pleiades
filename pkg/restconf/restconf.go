@@ -80,6 +80,10 @@ type Client struct {
 	rootFound bool
 	// rootSource is how root was learned (RootHostMeta or RootDefault).
 	rootSource string
+	// certWatch, set by ClientFor over https, records whether the server
+	// asked for a client certificate and whether one was presented, so a
+	// refusal of it says which; nil for a client New built alone.
+	certWatch *devicetls.Watch
 }
 
 // New returns a client for the RESTCONF server at base, an http or https
@@ -199,7 +203,14 @@ func (c *Client) send(ctx context.Context, method, ref, accept, contentType stri
 	}
 	resp, err := c.hc.Do(req)
 	if err != nil {
-		err = devicetls.Explain(err)
+		// A certificate this side refused, or the device's TLS alert about
+		// this side's client certificate (or its absence), which a TLS 1.3
+		// server sends after the handshake, so it meets the request.
+		if c.certWatch != nil {
+			err = c.certWatch.Explain(err)
+		} else {
+			err = devicetls.Explain(err)
+		}
 		var timeout net.Error
 		if method != http.MethodGet && errors.As(err, &timeout) && timeout.Timeout() {
 			// The request may have reached the device before the deadline.
