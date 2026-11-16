@@ -283,6 +283,19 @@ pre-1.0 project and the honest state is not what the docs' introductions might i
   the keys that type declares its accessors read (`record.RegisterDispatchProperties`, held equal to the
   code by `internal/archtest` and refused if a key names a secret) plus its discovery; an older
   Controller's payload falls back to `pkg/external.Device`.
+- **SNMP is real on the Crawl tier (Phase 97).** `pkg/snmp` (on `github.com/gosnmp/gosnmp`, not a
+  `transport.Transport`) is the one client: GET, GETNEXT, GETBULK, a bounded walk and SET over SNMPv1, v2c and v3
+  USM, built per device by `snmp.ClientFor` from `generic_snmp`'s record (`snmp.Parse`) and the SNMP family of its
+  credential. SNMPv3 is the default; `snmp_version` 1 or 2c needs `snmp_allow_cleartext_community: true` and
+  MD5 or DES `snmp_allow_legacy_algorithms: true`, each refused when it allows nothing and warned about on every
+  onboarding and run (`snmp.Settings.Warnings`). Every USM auth protocol and every privacy protocol but 3DES (both
+  AES-192/256 key extensions) is proven against net-snmp 5.9.4 (`pkg/snmp/snmplive`, `testsupport.StartSNMPD`);
+  3DES is refused before anything is sent (`snmp.ErrUnsupportedPrivacy`): gosnmp and net-snmp lack it. Methods:
+  `net.snmp.facts` (facts only over authenticated SNMPv3), `net.snmp.get`, `net.snmp.set` (read before, read back,
+  exact undo; `snmpModules` refused) and `wait.snmp`. Each declares `collection.Manifest.UsesSNMPCredential`, the
+  one thing that puts a device's own SNMP family on a Controller's dispatch (`internal/dispatch/inject_snmp.go`).
+  OIDs are numeric or from a small curated name table (`snmp.ParseOID`), not a MIB compiler. Proven end to end by
+  `TestCLI_SNMPFromDayZeroToDayN`; not on the Walk tier, and no real legacy device yet.
 - **Kubernetes clusters are devices; no Kubernetes method exists yet (Phase 119c).** `kubernetes_cluster`
   (`internal/inventory/devices/kubernetes`) is reached through `pkg/kubeapi`, the one package allowed to import
   client-go (`internal/archtest`), built from the record and its credential alone: no kubeconfig loading, no
