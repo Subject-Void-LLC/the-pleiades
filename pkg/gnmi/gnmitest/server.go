@@ -78,6 +78,12 @@ type Options struct {
 	SetAnswer func(resp *gpb.SetResponse)
 	// Files are the files File.Stat reports, by path.
 	Files map[string]uint64
+	// RequireTarget, when set, is the prefix target every Get, Set and
+	// Subscribe must name, as SONiC's server requires one: a request naming
+	// none is refused Unimplemented with EmptyTargetRefusal, and one naming
+	// another InvalidArgument. Get and Subscribe answers echo the target in
+	// their prefix, as SONiC's do.
+	RequireTarget string
 }
 
 // Models is the model list a Server's Capabilities names by default.
@@ -110,6 +116,9 @@ type Server struct {
 	refusals int
 	// sets counts the Set calls that reached the data.
 	sets int
+	// targets are the prefix targets of each Get, Set and Subscribe, in
+	// order, empty for a request naming none.
+	targets []string
 	// changed is closed and replaced on every change, for ON_CHANGE.
 	changed chan struct{}
 }

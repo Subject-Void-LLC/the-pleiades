@@ -28,6 +28,9 @@ func (s *Server) Subscribe(stream gpb.GNMI_SubscribeServer) error {
 	if list == nil {
 		return status.Error(codes.InvalidArgument, "the first message of a subscription is its subscription list")
 	}
+	if err := s.checkTarget(list.GetPrefix()); err != nil {
+		return err
+	}
 	prefix, err := pathOf(list.GetPrefix())
 	if err != nil {
 		return err
@@ -42,7 +45,7 @@ func (s *Server) Subscribe(stream gpb.GNMI_SubscribeServer) error {
 	}
 	round := func() error {
 		if !list.GetUpdatesOnly() {
-			if err := s.sendRound(stream, paths, list.GetEncoding()); err != nil {
+			if err := s.sendRound(stream, paths, list); err != nil {
 				return err
 			}
 		}
@@ -68,7 +71,7 @@ func (s *Server) Subscribe(stream gpb.GNMI_SubscribeServer) error {
 			}
 			// A poll's answer ends with a sync_response, and sends values
 			// even to a subscription that asked for updates only.
-			if err := s.sendRound(stream, paths, list.GetEncoding()); err != nil {
+			if err := s.sendRound(stream, paths, list); err != nil {
 				return err
 			}
 			if err := stream.Send(&gpb.SubscribeResponse{Response: &gpb.SubscribeResponse_SyncResponse{SyncResponse: true}}); err != nil {
@@ -111,14 +114,16 @@ func (s *Server) streamMode(stream gpb.GNMI_SubscribeServer, list *gpb.Subscript
 				continue
 			}
 		}
-		if err := s.sendRound(stream, paths, list.GetEncoding()); err != nil {
+		if err := s.sendRound(stream, paths, list); err != nil {
 			return err
 		}
 	}
 }
 
-// sendRound sends one notification per stored value under paths.
-func (s *Server) sendRound(stream gpb.GNMI_SubscribeServer, paths []gnmi.Path, enc gpb.Encoding) error {
+// sendRound sends one notification per stored value under paths, in the
+// list's encoding, each prefix echoing the list's target.
+func (s *Server) sendRound(stream gpb.GNMI_SubscribeServer, paths []gnmi.Path, list *gpb.SubscriptionList) error {
+	enc := list.GetEncoding()
 	s.mu.Lock()
 	var found []entry
 	for _, p := range paths {
@@ -133,7 +138,7 @@ func (s *Server) sendRound(stream gpb.GNMI_SubscribeServer, paths []gnmi.Path, e
 				return err
 			}
 		}
-		n := &gpb.Notification{Timestamp: time.Now().UnixNano(), Update: []*gpb.Update{{Path: wirePath(e.path), Val: val}}}
+		n := &gpb.Notification{Timestamp: time.Now().UnixNano(), Prefix: echoed(list.GetPrefix().GetTarget()), Update: []*gpb.Update{{Path: wirePath(e.path), Val: val}}}
 		if err := stream.Send(&gpb.SubscribeResponse{Response: &gpb.SubscribeResponse_Update{Update: n}}); err != nil {
 			return err
 		}

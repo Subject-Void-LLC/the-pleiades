@@ -13,6 +13,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/gnmi"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 )
 
@@ -216,7 +217,7 @@ func TestGRPC_RefusesUnusableRecords(t *testing.T) {
 }
 
 // TestGNMI_RefusesUnusableRecords covers the credential mode, the two
-// plaintext opt-ins and the TLS settings gRPC cannot use.
+// plaintext opt-ins, the TLS settings gRPC cannot use, and gnmi_target.
 func TestGNMI_RefusesUnusableRecords(t *testing.T) {
 	const target = "router.example.com:57400"
 	for _, tc := range []struct {
@@ -238,6 +239,10 @@ func TestGNMI_RefusesUnusableRecords(t *testing.T) {
 		{"allow with no credential", map[string]inventory.PropertyValue{generic.GRPCTargetProperty: target, generic.GRPCPlaintextProperty: true, generic.GNMIAuthProperty: "none", generic.GRPCAllowPlaintextCredentialsProperty: true}, false},
 		{"TLS on plaintext", map[string]inventory.PropertyValue{generic.GRPCTargetProperty: target, generic.GRPCPlaintextProperty: true, devicetls.ServerNameProperty: "r"}, false},
 		{"deprecated TLS", map[string]inventory.PropertyValue{generic.GRPCTargetProperty: target, devicetls.MinVersionProperty: "1.0", devicetls.AllowDeprecatedProperty: true}, false},
+		{"a prefix target", map[string]inventory.PropertyValue{generic.GRPCTargetProperty: target, generic.GNMITargetProperty: "OC-YANG"}, true},
+		{"a prefix target that is a path", map[string]inventory.PropertyValue{generic.GRPCTargetProperty: target, generic.GNMITargetProperty: "OC-YANG/interfaces"}, false},
+		{"an empty prefix target", map[string]inventory.PropertyValue{generic.GRPCTargetProperty: target, generic.GNMITargetProperty: ""}, false},
+		{"a prefix target not text", map[string]inventory.PropertyValue{generic.GRPCTargetProperty: target, generic.GNMITargetProperty: 7}, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := buildWith(t, generic.TypeGNMI, tc.props, nil)
@@ -268,6 +273,16 @@ func TestGNMI_Accessors(t *testing.T) {
 	}
 	if addr, ok := item.(capability.NetworkAddressableCapable); !ok || addr.IPAddress() != "10.0.0.9" {
 		t.Error("IPAddress is not the target's host")
+	}
+	if targeted, ok := item.(gnmi.PrefixTargeted); !ok || targeted.GNMIPrefixTarget() != "" {
+		t.Error("a record naming no gnmi_target answers with one")
+	}
+	named, err := buildWith(t, generic.TypeGNMI, map[string]inventory.PropertyValue{generic.GRPCTargetProperty: "10.0.0.9:57400", generic.GNMITargetProperty: "OC-YANG"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if targeted, ok := named.(gnmi.PrefixTargeted); !ok || targeted.GNMIPrefixTarget() != "OC-YANG" {
+		t.Error("gnmi_target is not the device's prefix target")
 	}
 	if _, ok := item.(capability.GRPCCapable); ok {
 		t.Error("generic_gnmi answers generic_grpc's accessors, which its discovery never proves")

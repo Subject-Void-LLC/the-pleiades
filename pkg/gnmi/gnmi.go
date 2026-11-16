@@ -125,6 +125,11 @@ type Options struct {
 	// subscription's each round); zero is DefaultCallTimeout, and a negative
 	// one is refused.
 	CallTimeout time.Duration
+	// PrefixTarget is the target every Get, Set and Subscribe prefix names
+	// unless the request names its own (ValidatePrefixTarget), empty for
+	// none. A server serving more than one data tree (SONiC: OC-YANG,
+	// CONFIG_DB and others) may refuse a request that names none.
+	PrefixTarget string
 }
 
 // Client is a gNMI client for one device. It is safe for concurrent use.
@@ -151,6 +156,9 @@ type Client struct {
 	noneSent bool
 	// callTimeout bounds each call (Options.CallTimeout).
 	callTimeout time.Duration
+	// prefixTarget is the target a request naming none takes
+	// (Options.PrefixTarget).
+	prefixTarget string
 
 	mu sync.Mutex
 	// extraSecrets are further values masked in every answer (MaskAlso).
@@ -185,7 +193,10 @@ func New(opts Options) (*Client, error) {
 	if opts.CallTimeout < 0 {
 		return nil, errors.New("a call timeout is not negative")
 	}
-	c := &Client{target: opts.Target, verified: !opts.Plaintext, secrets: opts.Secrets, noneSent: perRPC == nil, callTimeout: opts.CallTimeout}
+	if err := ValidatePrefixTarget(opts.PrefixTarget); err != nil {
+		return nil, err
+	}
+	c := &Client{target: opts.Target, verified: !opts.Plaintext, secrets: opts.Secrets, noneSent: perRPC == nil, callTimeout: opts.CallTimeout, prefixTarget: opts.PrefixTarget}
 	if c.callTimeout == 0 {
 		c.callTimeout = DefaultCallTimeout
 	}
@@ -238,6 +249,21 @@ func (c *Client) Verified() bool {
 // Target returns the server's host:port.
 func (c *Client) Target() string {
 	return c.target
+}
+
+// PrefixTarget returns the target a request naming none takes, empty for
+// none.
+func (c *Client) PrefixTarget() string {
+	return c.prefixTarget
+}
+
+// targetOf is the target a request's prefix names: the request's own, or
+// the client's when it names none.
+func (c *Client) targetOf(requested string) string {
+	if requested != "" {
+		return requested
+	}
+	return c.prefixTarget
 }
 
 // ready connects the channel and waits until it is ready, so a call that

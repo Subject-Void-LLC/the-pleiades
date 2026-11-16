@@ -52,6 +52,9 @@ type GetRequest struct {
 	Encoding Encoding
 	// Type is which data is read.
 	Type DataType
+	// PrefixTarget is the prefix's target (ValidatePrefixTarget); empty
+	// takes the client's (Options.PrefixTarget).
+	PrefixTarget string
 }
 
 // Get reads the paths req names. A path that does not exist is the server's
@@ -60,7 +63,7 @@ func (c *Client) Get(ctx context.Context, req GetRequest) ([]Notification, error
 	if err := c.refused(); err != nil {
 		return nil, err
 	}
-	wire, err := req.proto()
+	wire, err := req.proto(c.targetOf(req.PrefixTarget))
 	if err != nil {
 		return nil, err
 	}
@@ -73,8 +76,8 @@ func (c *Client) Get(ctx context.Context, req GetRequest) ([]Notification, error
 	return decodeNotifications(resp.GetNotification())
 }
 
-// proto checks req and returns it on the wire.
-func (req GetRequest) proto() (*gpb.GetRequest, error) {
+// proto checks req and returns it on the wire, its prefix naming target.
+func (req GetRequest) proto(target string) (*gpb.GetRequest, error) {
 	if req.Type > DataOperational {
 		return nil, fmt.Errorf("data type %d is not one gNMI names", req.Type)
 	}
@@ -85,9 +88,10 @@ func (req GetRequest) proto() (*gpb.GetRequest, error) {
 	if err := req.Prefix.Validate(false); err != nil {
 		return nil, fmt.Errorf("prefix: %w", err)
 	}
-	if req.Prefix.Origin != "" || len(req.Prefix.Elems) > 0 {
-		out.Prefix = req.Prefix.proto()
+	if err := ValidatePrefixTarget(target); err != nil {
+		return nil, err
 	}
+	out.Prefix = prefixProto(req.Prefix, target)
 	for _, p := range req.Paths {
 		if err := p.Validate(true); err != nil {
 			return nil, fmt.Errorf("path %s: %w", quoted(p.String()), err)

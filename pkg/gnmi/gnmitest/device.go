@@ -26,7 +26,10 @@ type Device struct {
 	Plaintext bool
 	// AllowPlaintext is what GNMIAllowPlaintextCredentials returns.
 	AllowPlaintext bool
-	tls            devicetls.Settings
+	// PrefixTarget is what GNMIPrefixTarget returns, as generic_gnmi's
+	// gnmi_target property sets it.
+	PrefixTarget string
+	tls          devicetls.Settings
 }
 
 // NewDevice returns a device for s: password authentication when s asks for
@@ -75,6 +78,9 @@ func (d *Device) GNMIPlaintext() bool { return d.Plaintext }
 
 // GNMIAllowPlaintextCredentials implements capability.GNMICapable.
 func (d *Device) GNMIAllowPlaintextCredentials() bool { return d.AllowPlaintext }
+
+// GNMIPrefixTarget implements gnmi.PrefixTargeted.
+func (d *Device) GNMIPrefixTarget() string { return d.PrefixTarget }
 
 // TLSSettings implements devicetls.Configured.
 func (d *Device) TLSSettings() devicetls.Settings { return d.tls }

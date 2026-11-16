@@ -25,7 +25,7 @@ func createdRoots(ctx context.Context, client *gnmi.Client, req writeRequest, ta
 		if before[indexOf(targets, v.path)].present {
 			continue
 		}
-		root, err := createdRoot(ctx, client, v.path, req.encoding)
+		root, err := createdRoot(ctx, client, v.path, req)
 		if err != nil {
 			return nil, fmt.Errorf("reading what is above %s, to know what an undo deletes, failed: %w", v.path, err)
 		}
@@ -41,12 +41,13 @@ func (req writeRequest) writes() []value {
 
 // createdRoot is the node a write at p would create: p itself, or the
 // highest of its ancestors the device holds nothing at, read upward until one
-// is present, so an undo deleting it removes only what the write made.
-func createdRoot(ctx context.Context, client *gnmi.Client, p gnmi.Path, enc gnmi.Encoding) (gnmi.Path, error) {
+// is present, so an undo deleting it removes only what the write made. Each
+// read is made as req's reads are, in its encoding and against its target.
+func createdRoot(ctx context.Context, client *gnmi.Client, p gnmi.Path, req writeRequest) (gnmi.Path, error) {
 	root := p
 	for n := len(p.Elems) - 1; n >= 1; n-- {
 		above := gnmi.Path{Origin: p.Origin, Elems: p.Elems[:n]}
-		r, err := read(ctx, client, above, enc)
+		r, err := read(ctx, client, above, req)
 		if err != nil {
 			return gnmi.Path{}, err
 		}
@@ -74,9 +75,15 @@ func recordUndo(rc sdk.RunbookContext, req writeRequest, roots map[string]gnmi.P
 	for i, n := range names {
 		deletes[i] = n
 	}
+	params := map[string]any{paramDelete: deletes, paramEncoding: req.encoding.String()}
+	if req.target != "" {
+		// The undo names the tree the write did: a device's gnmi_target may
+		// have changed, or the task named its own, by the time it runs.
+		params[paramTarget] = req.target
+	}
 	return sdk.RecordInverse(rc, sdk.Inverse{
 		FQCN:          configFQCN,
-		Params:        map[string]any{paramDelete: deletes, paramEncoding: req.encoding.String()},
+		Params:        params,
 		Description:   "deletes " + strings.Join(names, ", ") + ", which this run created",
 		KeepOnFailure: true,
 	})

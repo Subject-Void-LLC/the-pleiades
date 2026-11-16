@@ -47,7 +47,7 @@ func write(ctx context.Context, rc sdk.RunbookContext, client *gnmi.Client, req 
 	targets := req.targets()
 	before := make([]reading, len(targets))
 	for i, p := range targets {
-		r, err := read(ctx, client, p, req.encoding)
+		r, err := read(ctx, client, p, req)
 		if err != nil {
 			return collection.Result{}, nil, fmt.Errorf("reading %s before writing: %w; nothing was written", p, err)
 		}
@@ -99,7 +99,7 @@ func write(ctx context.Context, rc sdk.RunbookContext, client *gnmi.Client, req 
 	}
 	after := make([]reading, len(targets))
 	for i, p := range targets {
-		r, err := read(readCtx, client, p, req.encoding)
+		r, err := read(readCtx, client, p, req)
 		if err != nil {
 			why := fmt.Errorf("reading %s after the Set failed: %w", p, err)
 			if setErr != nil {
@@ -174,7 +174,7 @@ func (req writeRequest) targets() []gnmi.Path {
 
 // set is the request on the wire, each value's secret references resolved.
 func (req writeRequest) set(rc sdk.RunbookContext, client *gnmi.Client) (gnmi.SetRequest, error) {
-	out := gnmi.SetRequest{Delete: req.deletes}
+	out := gnmi.SetRequest{Delete: req.deletes, PrefixTarget: req.target}
 	for _, list := range []struct {
 		in  []value
 		out *[]gnmi.SetValue
@@ -210,11 +210,12 @@ func anyPresent(rs []reading) bool {
 	return false
 }
 
-// read reads p's configuration in enc: absent for the device's NOT_FOUND and
+// read reads p's configuration in req's encoding, against req's target
+// (the client's when it names none): absent for the device's NOT_FOUND and
 // for an answer holding no value, else every node it answered by its full
 // path, as one canonical JSON object.
-func read(ctx context.Context, client *gnmi.Client, p gnmi.Path, enc gnmi.Encoding) (reading, error) {
-	ns, err := client.Get(ctx, gnmi.GetRequest{Paths: []gnmi.Path{p}, Encoding: enc, Type: gnmi.DataConfig})
+func read(ctx context.Context, client *gnmi.Client, p gnmi.Path, req writeRequest) (reading, error) {
+	ns, err := client.Get(ctx, gnmi.GetRequest{Paths: []gnmi.Path{p}, Encoding: req.encoding, Type: gnmi.DataConfig, PrefixTarget: req.target})
 	if gnmi.Code(err) == codes.NotFound {
 		return reading{}, nil
 	}

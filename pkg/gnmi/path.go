@@ -305,6 +305,9 @@ func (p Path) proto() *gpb.Path {
 // this client sends (wildcards allowed, as a target may echo a subscription's
 // own). A path in the element field gNMI 0.4 deprecated is refused rather
 // than guessed at: its strings carry keys in a form no two targets agreed on.
+// A target the device echoes in an answer's prefix (SONiC does) is not read:
+// it names the tree the request asked, never an element or an origin of the
+// path.
 func pathFromProto(pp *gpb.Path) (Path, error) {
 	if pp == nil {
 		return Path{}, nil

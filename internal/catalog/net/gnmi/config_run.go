@@ -39,6 +39,9 @@ type writeRequest struct {
 	updates  []value
 	encoding gnmi.Encoding
 	backup   bool
+	// target is the prefix target every read and the Set name: the task's
+	// gnmi_target, else the device's, else empty.
+	target string
 }
 
 // Config implements the "net.gnmi.config" collection method.
@@ -55,6 +58,11 @@ func Config(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 		return collection.Result{}, fmt.Errorf("%s: device %q: %w", configFQCN, device.Name(), err)
 	}
 	defer func() { _ = client.Close() }()
+	if req.target == "" {
+		// The device's own target, named in every request and in the undo,
+		// so a rollback addresses the tree this write did.
+		req.target = client.PrefixTarget()
+	}
 	if err := sdk.RecordWarnings(rc, warnings); err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", configFQCN, err)
 	}
@@ -132,6 +140,12 @@ func configRequest(params map[string]any) (writeRequest, error) {
 	}
 	if req.backup, err = sdk.BoolParamOr(params, paramBackup, false); err != nil {
 		return req, err
+	}
+	if req.target, err = sdk.OptionalStringParam(params, paramTarget); err != nil {
+		return req, err
+	}
+	if err := gnmi.ValidatePrefixTarget(req.target); err != nil {
+		return req, fmt.Errorf("%s: %w", paramTarget, err)
 	}
 	return req, nil
 }

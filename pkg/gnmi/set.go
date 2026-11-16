@@ -38,6 +38,9 @@ type SetRequest struct {
 	Replace []SetValue
 	// Update are nodes to merge a value into.
 	Update []SetValue
+	// PrefixTarget is the prefix's target (ValidatePrefixTarget); empty
+	// takes the client's (Options.PrefixTarget).
+	PrefixTarget string
 }
 
 // SetOperation is one operation a Set's answer reports.
@@ -71,7 +74,7 @@ func (c *Client) Set(ctx context.Context, req SetRequest) (SetResult, error) {
 	if err := c.refused(); err != nil {
 		return SetResult{}, err
 	}
-	wire, err := req.proto()
+	wire, err := req.proto(c.targetOf(req.PrefixTarget))
 	if err != nil {
 		return SetResult{}, err
 	}
@@ -117,18 +120,18 @@ func lost(err error) bool {
 	return false
 }
 
-// proto checks req and returns it on the wire.
-func (req SetRequest) proto() (*gpb.SetRequest, error) {
+// proto checks req and returns it on the wire, its prefix naming target.
+func (req SetRequest) proto(target string) (*gpb.SetRequest, error) {
 	if len(req.Delete)+len(req.Replace)+len(req.Update) == 0 {
 		return nil, errors.New("the Set names nothing to delete, replace or update")
 	}
 	if err := req.Prefix.Validate(false); err != nil {
 		return nil, fmt.Errorf("prefix: %w", err)
 	}
-	out := &gpb.SetRequest{}
-	if req.Prefix.Origin != "" || len(req.Prefix.Elems) > 0 {
-		out.Prefix = req.Prefix.proto()
+	if err := ValidatePrefixTarget(target); err != nil {
+		return nil, err
 	}
+	out := &gpb.SetRequest{Prefix: prefixProto(req.Prefix, target)}
 	size := 0
 	for _, p := range req.Delete {
 		if err := p.Validate(false); err != nil {
