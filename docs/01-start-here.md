@@ -120,8 +120,8 @@ the payload, which still carries the resolved credential itself. Presenting a
 client certificate to a managed device, which is a different thing again, is
 also real.
 
-**A device with no type of its own can be managed.** Six generic device types,
-`generic_ssh`, `generic_netconf`, `generic_restconf`, `generic_gnmi`, `generic_http` and `generic_grpc`, take their
+**A device with no type of its own can be managed.** Seven generic device types,
+`generic_ssh`, `generic_netconf`, `generic_restconf`, `generic_gnmi`, `generic_snmp`, `generic_http` and `generic_grpc`, take their
 capabilities from the device: `pleiades onboard` (or the Controller's onboarding route)
 probes it over its protocol and records what its answers prove, and nothing else can
 grant one. Four are proven against a real server: a Debian host, a Netopeer2 NETCONF
@@ -139,7 +139,13 @@ Capabilities, `wait.gnmi`, `net.gnmi.facts`, `net.gnmi.config` creating a loopba
 changes nothing, and the create undone by `pleiades rollback`, each change read back over SR Linux's
 own command line. The client is also proven against Stratum's stratum_bmv2, which authenticates
 nobody and answers in PROTO alone. gNMI's model list is never reported complete, since its
-Capabilities is not a YANG library; gNMI on the Walk tier is not yet tested. A Runner rebuilds each
+Capabilities is not a YANG library; gNMI on the Walk tier is not yet tested. `generic_snmp` is proven
+on the Crawl tier against a real net-snmp agent (`TestCLI_SNMPFromDayZeroToDayN`): onboarding over
+SNMPv3 authPriv, `wait.snmp`, `net.snmp.facts`, `net.snmp.get`, a `net.snmp.set` whose re-run changes
+nothing and whose undo `pleiades rollback` replays, and an SNMPv2c device refused until its record opts
+in. Every SNMPv3 authentication protocol and every privacy protocol but 3DES is proven against that
+agent; 3DES is refused, no real legacy device has been tested, and SNMP on the Walk tier is not yet
+tested. See [SNMP](17-snmp.md). A Runner rebuilds each
 dispatched device as its real type, from its type and only the properties its accessors
 read, so the same methods work on the Walk tier. A device's TLS is its own: a pinned
 authority, mutual TLS, and, for an old device, deprecated TLS versions, legacy ciphers or a
@@ -272,7 +278,7 @@ above is not built yet: no GitOps auto-discovery of playbooks in a synced reposi
 socket). And host key verification is disabled inside the container, since it has no
 source for a target's known host key yet.
 
-**The module catalog has 268 registered methods across 23 namespaces; 266 are
+**The module catalog has 272 registered methods across 23 namespaces; 270 are
 implemented and 2 are declared but not implemented.** Every FQCN is registered and
 reachable through the real dispatcher, and the short, decision-relevant list is the one
 that is NOT implemented, both of them: `net.junos.config` and
@@ -280,8 +286,8 @@ that is NOT implemented, both of them: `net.junos.config` and
 `"declared but not implemented"` refusal rather than a silent no-op or a fabricated
 success, whether the call comes from the CLI, the Controller, or a runner, and the
 dispatcher in fact refuses any method whose status is not `implemented` before its body
-is ever entered. By namespace, implemented: `container` 37, `virt` 83, `ai` 11, `svc` 16, `net` 33,
-`file` 14, `win` 12, `pkg` 9, `db` 6, `identity` 6, `cloud` 4, `build` 3, `edge` 3, `exec` 3, `fw` 3, `scan` 3, `wait` 7,
+is ever entered. By namespace, implemented: `container` 37, `virt` 83, `ai` 11, `svc` 16, `net` 36,
+`file` 14, `win` 12, `pkg` 9, `db` 6, `identity` 6, `cloud` 4, `build` 3, `edge` 3, `exec` 3, `fw` 3, `scan` 3, `wait` 8,
 `archive` 2, `fs` 2, `gate` 2, `http` 3, `pleiades` 3, `facts` 1. These counts come from the generated
 [module catalog schema](reference/schemas/module-catalog.json), which is authoritative
 over any hand-written tally including this one. `exec.command` is the first method

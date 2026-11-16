@@ -34,11 +34,11 @@ These methods belong to no collection with a ledger, so their coverage of their 
 | `gate` | 2 |
 | `http` | 3 |
 | `identity` | 6 |
-| `net` | 35 |
+| `net` | 38 |
 | `pkg` | 6 |
 | `pleiades` | 3 |
 | `scan` | 3 |
 | `svc` | 16 |
 | `virt` | 39 |
-| `wait` | 7 |
+| `wait` | 8 |
 | `win` | 12 |

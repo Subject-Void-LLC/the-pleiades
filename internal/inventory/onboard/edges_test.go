@@ -30,7 +30,7 @@ import (
 // TestProbers_OneForEveryGenericType: onboarding reaches every generic
 // type, each through a prober naming its protocol.
 func TestProbers_OneForEveryGenericType(t *testing.T) {
-	want := map[string]string{generic.TypeSSH: "ssh", generic.TypeNetconf: "netconf", generic.TypeRestconf: "restconf", generic.TypeHTTP: "http", generic.TypeGRPC: "grpc", generic.TypeGNMI: "gnmi"}
+	want := map[string]string{generic.TypeSSH: "ssh", generic.TypeNetconf: "netconf", generic.TypeRestconf: "restconf", generic.TypeSNMP: "snmp", generic.TypeHTTP: "http", generic.TypeGRPC: "grpc", generic.TypeGNMI: "gnmi"}
 	for _, typ := range generic.Types() {
 		p, ok := Lookup(typ)
 		if !ok || p.Protocol() != want[typ] {

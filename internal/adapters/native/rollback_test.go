@@ -61,6 +61,11 @@ func TestRollbackDAG_RunsOnlyStepsThatHoldAgainstTheRunbook(t *testing.T) {
 	if _, hasTarget := dag.Nodes["tasks[0]"].Params["target"]; hasTarget {
 		t.Error("a Runner's rollback task names a device; its resolver runs every task on the one dispatched")
 	}
+	// A recorded undo's values are data the Runner never renders or reads
+	// as templates (engine.MarkLiteral), as the CLI's rollback does.
+	if got := dag.Nodes["tasks[0]"].Literal; len(got) != 1 || got[0] != "path" {
+		t.Errorf("the recorded step's literal params = %v, want [path]", got)
+	}
 
 	for name, tc := range map[string]struct {
 		edit func(*wire.DispatchPayload)

@@ -58,6 +58,10 @@ const (
 	// credential and verified host key, then the device's console line,
 	// where the device's own login is answered.
 	TransportConsole = "console"
+
+	// TransportSNMP is SNMP over UDP to the device's agent (SNMPCapable),
+	// SNMPv3 unless the device opts into a cleartext community.
+	TransportSNMP = "snmp"
 )
 
 // EngineTransports lists the container engine transports, in the order a
@@ -95,6 +99,7 @@ var reachedBy = map[string][]Name{
 	TransportKubernetes:   {NameKubernetes},
 	TransportTelnet:       {NameTelnet},
 	TransportConsole:      {NameConsoleServed},
+	TransportSNMP:         {NameSNMP},
 }
 
 // ReachedBy returns the capabilities that reach transport, any one of

@@ -157,6 +157,9 @@ func carryOut(opts runOptions, src runSource) (*runReport, error) {
 	if err != nil {
 		return nil, err
 	}
+	// A rollback writes back what the undone run recorded: those values are
+	// data, never templates, for validation and the executor alike.
+	engine.MarkLiteral(dag, opts.undoes)
 	// A runbook carrying check_mode makes the whole run a check, whatever
 	// --mode said: the key can only narrow (engine.TaskMode). Settled
 	// here, before the journal is opened and the plan printed, so the

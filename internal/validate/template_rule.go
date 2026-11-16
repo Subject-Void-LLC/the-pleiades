@@ -73,18 +73,22 @@ func TemplateRule(world WorldView) []Finding {
 				}
 			}
 		}
-		if !engine.HasTemplate(task.Params) {
+		// A rollback's recorded values are data the device held, written back
+		// as they are and never rendered (engine.MarkLiteral), whatever
+		// braces they hold.
+		params := engine.LiteralFree(task.Params, task.Literal)
+		if !engine.HasTemplate(params) {
 			continue
 		}
 		formats := engine.ParamFormats(task.FQCN)
 		secretRefs := engine.ParamSecretRefs(task.FQCN)
-		keys := make([]string, 0, len(task.Params))
-		for k := range task.Params {
+		keys := make([]string, 0, len(params))
+		for k := range params {
 			keys = append(keys, k)
 		}
 		sort.Strings(keys)
 		for _, key := range keys {
-			for _, source := range engine.TemplateStrings(task.Params[key]) {
+			for _, source := range engine.TemplateStrings(params[key]) {
 				problems := checkTemplate(eng, source, formats[key], registered, task)
 				if key == collection.TargetParam {
 					if tmpl, err := eng.Compile(source); err == nil {

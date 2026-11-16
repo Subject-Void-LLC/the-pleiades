@@ -404,6 +404,12 @@ type Task struct {
 	// holds them to a plain method call each (validateRollback).
 	Rollback []Task `json:"rollback,omitempty" yaml:"rollback,omitempty"`
 
+	// Literal names this task's parameters whose values are data, never
+	// rendered and never read as templates: a rollback's recorded values
+	// (MarkLiteral, from Undo.Literal). It is set on a built DAG, never by a
+	// runbook, so it is no runbook key and no part of DAG.Version.
+	Literal []string `json:"-" yaml:"-"`
+
 	// RollbackOnFailure, on a block, undoes what the block's own tasks
 	// completed on a device when one of them fails there, newest first,
 	// before the block's rescue starts, and journals those undos as a

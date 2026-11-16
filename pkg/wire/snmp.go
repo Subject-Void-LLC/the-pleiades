@@ -2,10 +2,10 @@
 // flattens into, the closed vocabulary of SNMPv3 (USM) protocols, and the one
 // check every write path holds it to.
 //
-// No SNMP client exists yet. Phase 97 builds it (pkg/snmp, on gosnmp), and
-// proves each protocol named here against a real agent before any of them is
-// called supported; until then these values are stored, carried and masked,
-// and nothing sends them anywhere.
+// pkg/snmp (on gosnmp) is the client that sends them. Every protocol named
+// here but 3des is proven against a real net-snmp agent there; 3des is
+// stored and refused by the client before anything is sent, since neither
+// gosnmp nor net-snmp implements it.
 package wire
 
 import (
@@ -89,8 +89,9 @@ type SNMPPrivProtocol string
 // and aes256-reeder are the Reeder draft (draft-reeder-snmpv3-usm-aes),
 // often called the Cisco variant (gosnmp's AES192C and AES256C). A device
 // configured for one answers a client using the other with a decryption
-// error, so the name has to say which. Phase 97 proves each against a real
-// agent; until then no client exists to use any of them.
+// error, so the name has to say which. pkg/snmp's container tests prove
+// each against net-snmp, and that a client using one scheme gets no answer
+// from a user keyed with the other.
 const (
 	SNMPPrivDES          SNMPPrivProtocol = "des"
 	SNMPPriv3DES         SNMPPrivProtocol = "3des"

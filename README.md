@@ -22,7 +22,7 @@ lands unchanged, then converts to native typed collections at its own pace.
 
 The offline tier is a single static binary with no server, no database and no message
 broker, and it reaches real devices over real SSH. Every implemented method declares
-whether it can be reversed, and 248 of the 266 can predict what they would change before
+whether it can be reversed, and 251 of the 270 can predict what they would change before
 changing anything (`pleiades run --mode check`), naming every task they could not check
 rather than reporting a clean run.
 
@@ -46,7 +46,7 @@ tested today; nothing here is aspirational. Read this section before the rest.
   the dispatch message, so it sits in the broker's storage until that message ages out,
   and credential storage is still an encrypted local file with no rotation or Vault
   support.
-- **The module catalog has 268 registered methods; 266 are implemented.** Every
+- **The module catalog has 272 registered methods; 270 are implemented.** Every
   `<namespace>.<method>` collection name is registered and
   reachable through the real dispatcher, but a `declared` method refuses to run with
   an explicit "not implemented" error rather than pretending to succeed. Only two are
@@ -160,6 +160,8 @@ mkdir my-project && cd my-project
 - [`docs/16-network-verification.md`](docs/16-network-verification.md): checking a routing
   change against Batfish's model before it is made, applying it to FRRouting routers so it
   undoes itself on failure, and verifying it live; what the model does and does not see.
+- [`docs/17-snmp.md`](docs/17-snmp.md): SNMP devices: SNMPv3 by default, SNMPv1 and SNMPv2c
+  only behind a per-device opt-in, which algorithms are proven, and the four SNMP methods.
 - [`docs/reference/`](docs/reference/index.md): the generated reference: module catalog,
   capability vocabulary, device types, sync plugins, runbook and task keys, the CLI
   ([`docs/reference/cli.md`](docs/reference/cli.md)), JSON Schemas, the OpenAPI document

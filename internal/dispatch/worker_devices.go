@@ -296,13 +296,23 @@ func (w *Worker) dispatchPayload(ctx context.Context, job *Job, prepared Prepare
 	if job.Graph != nil {
 		payload.GraphScheme, payload.GraphDigest = job.Graph.Scheme, job.Graph.Digest
 	}
+	// Whether the device's own SNMP family travels: only for a job naming a
+	// method that reads it, the runbook's or, for a rollback, its steps'.
+	withSNMP := prepared.ReadsSNMP
 	if job.RollbackOf != "" {
 		steps, _ := job.Rollback.StepsFor(string(device.ID()))
 		payload.Rollback = &wire.Rollback{Of: job.RollbackOf, DAGVersion: job.Rollback.DAGVersion, Steps: steps}
 		payload.Collections = rollbackCollections(steps)
+		withSNMP = rollbackReadsSNMP(steps)
 		// A rollback runs its plan's steps, held to the undone job's version
 		// (Rollback.DAGVersion), not the graph this job prepared.
 		payload.GraphScheme, payload.GraphDigest = "", ""
+	}
+	// And only to a device reached by SNMP: every SNMP method requires
+	// SNMPCapable, so a router in the same job, admitted for its other
+	// tasks, has no task that reads its SNMP family.
+	if withSNMP && !device.HasCapability(capability.NameSNMP) {
+		withSNMP = false
 	}
 
 	// The template's own bound credentials, already rendered for the whole
@@ -335,14 +345,17 @@ func (w *Worker) dispatchPayload(ctx context.Context, job *Job, prepared Prepare
 	// capability-free tasks should not fail merely because credential
 	// storage itself is unhealthy.
 	//
-	// The device's login travels and its SNMP family does not, on every
-	// dispatch, until Phase 97 adds it back for the methods that declare
-	// they need it (deviceSecrets).
-	if payload.Secrets == nil && w.credentials != nil {
+	// The device's login travels; its SNMP family travels only when a method
+	// the job runs declares it reads it (deviceSecrets), and then beside a
+	// template's login too, since a machine credential is a login and stands
+	// in for none of the device's SNMP family (withDeviceSNMP).
+	if w.credentials != nil && (payload.Secrets == nil || withSNMP) {
 		cred, err := w.credentials.Lookup(ctx, device.Name())
 		switch {
+		case err == nil && payload.Secrets == nil:
+			payload.Secrets = deviceSecrets(cred, withSNMP)
 		case err == nil:
-			payload.Secrets = deviceSecrets(cred)
+			payload.Secrets = withDeviceSNMP(payload.Secrets, cred)
 		case errors.Is(err, credential.ErrNotFound):
 			// No credential stored for this device; Secrets stays empty.
 		default:

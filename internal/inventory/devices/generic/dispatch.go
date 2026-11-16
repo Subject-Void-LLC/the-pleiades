@@ -8,6 +8,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/httpapi"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/snmp"
 )
 
 func init() {
@@ -20,6 +21,7 @@ func init() {
 	record.RegisterDispatchProperties(TypeRestconf, append([]string{
 		BaseURLProperty, HTTPAuthProperty, httpapi.AllowPlaintextCredentialsProperty,
 	}, devicetls.Properties()...)...)
+	record.RegisterDispatchProperties(TypeSNMP, append([]string{HostProperty}, snmp.Properties()...)...)
 	record.RegisterDispatchProperties(TypeGRPC, append([]string{GRPCTargetProperty, GRPCPlaintextProperty}, devicetls.Properties()...)...)
 	record.RegisterDispatchProperties(TypeGNMI, append([]string{
 		GRPCTargetProperty, GRPCPlaintextProperty, GNMIAuthProperty, GRPCAllowPlaintextCredentialsProperty,

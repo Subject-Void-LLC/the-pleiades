@@ -133,7 +133,7 @@ func TestRunbook_WritesEachLevelAsATaskAndSaysWhatItUndoes(t *testing.T) {
 		if hasTarget != targets {
 			t.Errorf("targets %v: the second device's task has a target: %v", targets, hasTarget)
 		}
-		if undoes["tasks[0]"] != (engine.Undo{Node: "tasks[1]"}) || undoes["tasks[1].parallel[1]"] != (engine.Undo{Node: "tasks[0]"}) || len(undoes) != 3 {
+		if u0, u1 := undoes["tasks[0]"], undoes["tasks[1].parallel[1]"]; u0.Node != "tasks[1]" || u0.Step != 0 || u1.Node != "tasks[0]" || u1.Step != 0 || len(undoes) != 3 {
 			t.Errorf("undoes %+v", undoes)
 		}
 	}

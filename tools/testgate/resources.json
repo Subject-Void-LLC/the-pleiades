@@ -1039,6 +1039,25 @@
         "linux/amd64"
       ]
     },
+    "internal/catalog/net/snmp": {
+      "seconds": {
+        "min": 2,
+        "max": 2
+      },
+      "memory_mb": {
+        "min": 269,
+        "max": 269
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 1,
+      "last": "2026-11-16",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
     "internal/catalog/net/ssh": {
       "seconds": {
         "min": 3,
@@ -3860,6 +3879,55 @@
       },
       "runs": 1,
       "last": "2026-10-29",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "pkg/snmp": {
+      "seconds": {
+        "min": 3,
+        "max": 3
+      },
+      "memory_mb": {
+        "min": 139,
+        "max": 139
+      },
+      "disk_mb": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 1,
+      "last": "2026-11-16",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "pkg/snmp/snmplive": {
+      "seconds": {
+        "min": 20,
+        "max": 20
+      },
+      "memory_mb": {
+        "min": 1013,
+        "max": 1013
+      },
+      "disk_mb": {
+        "min": 19,
+        "max": 19
+      },
+      "runs": 1,
+      "last": "2026-11-16",
+      "hosts": [
+        "linux/amd64"
+      ]
+    },
+    "pkg/snmp/snmptest": {
+      "seconds": {
+        "min": 0,
+        "max": 0
+      },
+      "runs": 1,
+      "last": "2026-11-16",
       "hosts": [
         "linux/amd64"
       ]

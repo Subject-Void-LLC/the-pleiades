@@ -733,3 +733,50 @@ func renderedNames(raw any) ([]string, error) {
 	}
 	return names, nil
 }
+
+// literalParams are the parameters of task, node nodeID, whose values are
+// data never rendered: the ones MarkLiteral set on it, or, in a rollback run
+// whose DAG was not marked, the ones its Undo names (Undo.Literal).
+func (r *run) literalParams(nodeID string, task *Task) []string {
+	if len(task.Literal) > 0 {
+		return task.Literal
+	}
+	if r.x == nil || r.x.rollback.of == "" {
+		return nil
+	}
+	return r.x.rollback.undoes[nodeID].Literal
+}
+
+// renderTaskKeeping is renderTask with the parameters literal names kept
+// exactly as written: rendered with them left out, then put back. A recorded
+// value holding {{, {% or {# is data the device held, and is written back
+// as it was read.
+func (r *run) renderTaskKeeping(task *Task, roots map[string]any, literal []string) (*Task, error) {
+	kept := map[string]any{}
+	rest := make(map[string]any, len(task.Params))
+	for key, value := range task.Params {
+		if slices.Contains(literal, key) {
+			kept[key] = value
+			continue
+		}
+		rest[key] = value
+	}
+	if len(kept) == 0 {
+		return r.renderTask(task, roots)
+	}
+	stripped := *task
+	stripped.Params = rest
+	rendered, err := r.renderTask(&stripped, roots)
+	if err != nil {
+		return nil, err
+	}
+	out := *rendered
+	out.Params = make(map[string]any, len(rendered.Params)+len(kept))
+	for key, value := range rendered.Params {
+		out.Params[key] = value
+	}
+	for key, value := range kept {
+		out.Params[key] = value
+	}
+	return &out, nil
+}

@@ -3,6 +3,7 @@ package rollback
 
 import (
 	"fmt"
+	"sort"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
@@ -15,12 +16,31 @@ import (
 // on (the Crawl tier, one run over many devices); without, the tasks name
 // no device, for a Runner that runs every task on the one device it was
 // dispatched. It returns which of the runbook's nodes undoes what, for
-// engine.WithRollback.
+// engine.WithRollback, with the parameters each node keeps as recorded
+// (engine.Undo.Literal).
 //
 // The runbook is encoded, never joined as text, so no recorded value can
 // change its shape.
 func Runbook(id string, levels [][]Step, targets bool) ([]byte, map[string]engine.Undo, error) {
 	undoes := map[string]engine.Undo{}
+	// literal names the parameters of s the rollback never renders: every
+	// one of a recorded undo's, read off the device or derived from what was,
+	// and an authored step's values the undone run rendered. The rest of an
+	// authored step is its runbook's text, rendered as the runbook wrote it.
+	literal := func(s Step) []string {
+		if s.Source == SourceAuthored {
+			return append([]string(nil), s.Rendered...)
+		}
+		keys := make([]string, 0, len(s.Params)+1)
+		for k := range s.Params {
+			keys = append(keys, k)
+		}
+		if targets && s.DeviceName != "" {
+			keys = append(keys, collection.TargetParam)
+		}
+		sort.Strings(keys)
+		return keys
+	}
 	stepTask := func(s Step) map[string]any {
 		params := map[string]any{}
 		for k, v := range s.Params {
@@ -43,13 +63,13 @@ func Runbook(id string, levels [][]Step, targets bool) ([]byte, map[string]engin
 	for i, level := range levels {
 		if len(level) == 1 {
 			tasks = append(tasks, stepTask(level[0]))
-			undoes[NodeID(levels, i, 0)] = engine.Undo{Node: level[0].Node, Step: level[0].Index}
+			undoes[NodeID(levels, i, 0)] = engine.Undo{Node: level[0].Node, Step: level[0].Index, Literal: literal(level[0])}
 			continue
 		}
 		children := make([]map[string]any, 0, len(level))
 		for j, s := range level {
 			children = append(children, stepTask(s))
-			undoes[NodeID(levels, i, j)] = engine.Undo{Node: s.Node, Step: s.Index}
+			undoes[NodeID(levels, i, j)] = engine.Undo{Node: s.Node, Step: s.Index, Literal: literal(s)}
 		}
 		tasks = append(tasks, map[string]any{"name": fmt.Sprintf("undo %s on %d devices", Printable(level[0].Node), len(level)), "parallel": children})
 	}

@@ -1,0 +1,1 @@
+A device's own SNMP credential travels on a Controller's dispatch only for a job that runs a method declaring it reads it (the `net.snmp.*` methods and `wait.snmp`); every other job, a playbook's included, still carries none of it.

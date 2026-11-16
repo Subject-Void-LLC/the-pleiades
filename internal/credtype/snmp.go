@@ -2,9 +2,9 @@
 // read directly by the native path into the same keys a stored device
 // credential flattens into, and given to the Ansible path not at all.
 //
-// No SNMP client exists yet; Phase 97 builds it and proves each protocol
-// against a real agent. Until then this kind is stored, carried to a native
-// Runner and masked there, and nothing sends it anywhere.
+// On a native Runner the net.snmp.* methods and wait.snmp send it, through
+// pkg/snmp, to the agent of the device it was given to (dispatch.ApplySNMP);
+// everywhere else it is carried and masked.
 package credtype
 
 import (
