@@ -125,7 +125,14 @@ also real.
 capabilities from the device: `pleiades onboard` (or the Controller's onboarding route)
 probes it over its protocol and records what its answers prove, and nothing else can
 grant one. Four are proven against a real server: a Debian host, a Netopeer2 NETCONF
-server, an HTTPS API and the gRPC project's own example server. `generic_restconf` is proven on
+server, an HTTPS API and the gRPC project's own example server. On that Netopeer2 server,
+`net.netconf.config` reads what an edit changed rather than assuming it, so a re-run reports no change;
+records the undo of a create, and of a change the reads name for certain, before the edit is sent, so a
+lost answer still leaves it; and checks an edit through the device's locked candidate datastore when the
+task asks with `candidate_check: true` (`TestLive_*` in its package, and pkg/netconf's `TestAssurance_*`).
+None of that is proven on a real Cisco device: the Catalyst 8000V the earlier NETCONF gate ran on is
+no longer available, and the check runs only on a server measured to qualify, which IOS XE is not yet.
+`generic_restconf` is proven on
 the Crawl tier against a real Catalyst 8000V (IOS XE 17.15.1a, in Cisco Modeling Labs, 2026-11-15,
 `TestCLI_RESTCONFFromDayZeroToDayN`): onboarding over its pinned certificate, `wait.restconf`, the
 discovery, `net.restconf.config` creating, merging and replacing with re-runs that change nothing,
@@ -328,12 +335,17 @@ their having run looks like, and `http.request` for a GET, HEAD, OPTIONS or TRAC
 sends. A call a method cannot check is named as "could not check" with the method's
 reason, and so is a call whose inputs are missing when the check runs (an archive's
 source, a bucket that is not yet empty), since an earlier task in the same run may be
-what provides them. The nine methods that cannot be checked at all say why on their
+what provides them. The methods that cannot be checked at all say why on their
 reference pages: an arbitrary command or script (`exec.winrm.shell`,
 `container.exec`, `net.cli.command`), a configuration change only the device's own
-parser decides (`net.cli.config`, `net.ios.config`, `net.netconf.config`), and the three
+parser decides (`net.cli.config`, `net.ios.config`), and the
 waits, since what they wait for is usually an earlier task's change, which a check never
-makes. A check with any task it could not check ends non-zero rather than reporting a clean result it did not earn. A check writes
+makes. `net.netconf.config` checks a task only when it asks with `candidate_check: true`:
+the edit is staged in the device's locked candidate datastore, validated and discarded, and
+the candidate proven as it was, from the command line only, on a server measured to
+qualify. That check is not footprint-free (a session, a lock other clients see for up to 30
+seconds, a staged edit), and it says `validated; commit not exercised`, since a device may
+refuse at commit what it validated. A check with any task it could not check ends non-zero rather than reporting a clean result it did not earn. A check writes
 no run journal, never records an undo instruction, and is the one kind of run a
 simulate-locked device (the state a read-only sync source gives every device it adds)
 accepts, and only from a built-in method: a check from an external Collection program is
