@@ -751,14 +751,17 @@ var OnboardDevice = Endpoint{
 		"whose certificate nothing trusts, has the certificate it presents recorded as its pin " +
 		"(tls_first_use_fingerprint), the way SSH's accept-new records a host key: listed in the result for review, " +
 		"said to be unconfirmed on every use until confirmed (POST /inventory/devices/{name}/tls-pin/confirm), never " +
-		"in place of a pin or an authority, and recorded only with an onboarding that proved the device through it.",
+		"in place of a pin or an authority, and recorded only with an onboarding that proved the device through it. " +
+		"tls_first_use=true also needs inventory:assert, which only an admin holds, as confirming does: it sends the " +
+		"device's stored credential once to a certificate nothing has checked, which inventory:onboard alone may never do.",
 	Params: []Param{
 		{Name: "name", In: "path", Required: true, Type: "string", Description: "The device's name."},
-		{Name: "tls_first_use", In: "query", Required: false, Type: "boolean", Description: "true records the certificate a TLS device presents as its pin on first use, when nothing in its record trusts it; false or absent refuses an untrusted certificate."},
+		{Name: "tls_first_use", In: "query", Required: false, Type: "boolean", Description: "true records the certificate a TLS device presents as its pin on first use, when nothing in its record trusts it, and needs inventory:assert besides the route's own scopes; false or absent refuses an untrusted certificate."},
 	},
 	Responses: []Response{
 		{Status: http.StatusOK, Description: "The probe succeeded; the result says what was recorded.", Schema: onboardResultSchema},
 		{Status: http.StatusBadRequest, Description: "name is empty, too long, does not decode, or holds a NUL, a carriage return or a line feed, or tls_first_use is given more than once or as other than true or false.", Schema: errorSchema("")},
+		{Status: http.StatusForbidden, Description: "tls_first_use=true from a caller without inventory:assert; nothing was probed.", Schema: errorSchema("")},
 		{Status: http.StatusNotFound, Description: "No device with that name exists.", Schema: errorSchema("")},
 		{Status: http.StatusConflict, Description: "The device is in a state an administrator set (quarantined, simulate-locked, decommissioning, archived), was modified concurrently, or the inventory is read-only.", Schema: errorSchema("")},
 		{Status: http.StatusUnprocessableEntity, Description: "The device's type has no prober, so its capabilities come from its Go type; the message lists the types that have one.", Schema: errorSchema("")},

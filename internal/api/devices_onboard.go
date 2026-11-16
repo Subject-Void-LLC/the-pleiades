@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/auth"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/onboard"
 )
 
@@ -70,6 +71,16 @@ func (h *DeviceHandler) Onboard(w http.ResponseWriter, r *http.Request) {
 	firstUse, ok := firstUseParam(r)
 	if !ok {
 		RespondError(w, r, http.StatusBadRequest, "tls_first_use must be given once, as true or false")
+		return
+	}
+	// Recording on first use sends the device's stored credential, once, to
+	// whatever answers at its address with a certificate nothing checked, so
+	// it needs inventory:assert (an admin's), as confirming the pin does:
+	// inventory:onboard alone must never make the Controller trust an
+	// unchecked certificate. Ordinary onboarding needs no more than the route
+	// declares.
+	if identity, has := IdentityFromContext(r.Context()); firstUse && (!has || !identity.HasScope(auth.ScopeInventoryAssert)) {
+		RespondError(w, r, http.StatusForbidden, "tls_first_use=true needs inventory:assert: it sends the device's credential to a certificate nothing has checked")
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), onboardTimeout)

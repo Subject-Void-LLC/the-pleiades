@@ -2179,9 +2179,12 @@ record that holds both is refused. A `kubernetes_cluster` takes no pin of any ki
 verified against its authority.
 
 **Recording a fleet's certificates on first use.** `pleiades onboard <name> --tls-first-use`, or the
-Controller's `POST /inventory/devices/{name}/onboard?tls_first_use=true` (scope `inventory:onboard`),
-records the certificate a device presents as its pin instead of refusing it, the way SSH's
-`accept-new` records a host key. It is off unless asked for, and it applies to that one onboarding
+Controller's `POST /inventory/devices/{name}/onboard?tls_first_use=true`, records the certificate a
+device presents as its pin instead of refusing it, the way SSH's `accept-new` records a host key. On
+the Controller, asking for it needs `inventory:assert` (which only an admin holds) besides the route's
+`inventory:onboard`, while ordinary onboarding still needs `inventory:onboard` alone. The reason is
+what first use does: it sends the device's stored credential, once, to a certificate nobody has
+checked, so an operator who may only onboard must never be able to make the Controller do that. It is off unless asked for, and it applies to that one onboarding
 and never to a run. It records only for a device whose record names nothing it trusts, so it never
 replaces a pin, an authority or an earlier first-use pin, and a changed certificate is still refused.
 The pin is taken from the refusal (no credential is sent on that connection), the probe runs again
