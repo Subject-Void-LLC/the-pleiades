@@ -207,9 +207,8 @@ func TestLive_NETCONFSavesEverySourceAsTheServerSendsIt(t *testing.T) {
 		}
 	}
 	warnings, _ := rc.stats["warnings"].([]string)
-	joined := strings.Join(warnings, "\n")
-	if !strings.Contains(joined, "host key was not verified") || !strings.Contains(joined, "shorter than 8 bytes") {
-		t.Errorf("warnings = %v, want the unverified host key and the short password said", warnings)
+	if len(warnings) != 1 || !strings.Contains(warnings[0], "host key was not verified") {
+		t.Errorf("warnings = %v, want the unverified host key said, and nothing of the short password no source holds", warnings)
 	}
 }
 

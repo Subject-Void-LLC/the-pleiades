@@ -9,6 +9,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -71,7 +72,7 @@ func TestSchema_SavesEachSourceByteForByte(t *testing.T) {
 
 // TestSchema_MasksTheRunsSecretsByValueOnly replaces the device's password
 // and a named secret wherever they stand, leaves every other word as it was,
-// and says a short secret was not masked.
+// and says nothing of a short secret no source holds.
 func TestSchema_MasksTheRunsSecretsByValueOnly(t *testing.T) {
 	const password, named = "a-long-device-password", "the-named-psk-value"
 	src := probeLibrary()
@@ -94,9 +95,65 @@ func TestSchema_MasksTheRunsSecretsByValueOnly(t *testing.T) {
 	if records := rc.records(t); records[0]["masked"] != true {
 		t.Errorf("records = %v, want it marked masked", records)
 	}
-	warnings, _ := rc.stats[sdk.StatWarnings].([]string)
-	if len(warnings) != 1 || !strings.Contains(warnings[0], "shorter than 8 bytes") || strings.Contains(warnings[0], "short") && strings.Contains(warnings[0], `"short"`) {
-		t.Errorf("warnings = %v, want one saying a short secret is not masked, never naming it", warnings)
+	if warnings, said := rc.stats[sdk.StatWarnings]; said {
+		t.Errorf("warnings = %v, want none: no source holds the short secret", warnings)
+	}
+	if rc.perms[0] != 0o600 {
+		t.Errorf("the source was written %o, want 0600, the owner's alone", rc.perms[0])
+	}
+}
+
+// TestSchema_RefusesASourceHoldingAShortSecret: a secret under 8 bytes
+// cannot be masked without cutting words apart, so a source holding one as a
+// word of its own is refused whole, naming the module, and the value is in no
+// file, stat or error; the same value inside a longer word is the schema's,
+// and saves as served with nothing said. A named secret and a value in its
+// YANG-quoted form are found alike.
+func TestSchema_RefusesASourceHoldingAShortSecret(t *testing.T) {
+	const short = "zq7Kp"
+	for name, tc := range map[string]struct {
+		text   string
+		quoted bool
+		named  bool
+	}{
+		"a password as a word":  {text: `description "the key is ` + short + `, kept here";`},
+		"a named secret":        {text: `description "` + short + ` is the key";`, named: true},
+		"at the end of a line":  {text: "// " + short},
+		"quoted as YANG writes": {text: `description "zq\"7K";`, quoted: true},
+	} {
+		value := short
+		if tc.quoted {
+			value = `zq"7K`
+		}
+		src := probeLibrary()
+		src.sources["pleiades-probe@2026-11-16"] = []byte(strings.Replace(probeSource, "  prefix pp;\n", "  prefix pp;\n  "+tc.text+"\n", 1))
+		withSource(t, src)
+		rc := newContext(t)
+		if tc.named {
+			rc.known = []string{value}
+		} else {
+			rc.secrets = map[string]string{wire.SecretUsername: "admin", wire.SecretPassword: value}
+		}
+		_, err := Schema(context.Background(), rc, device("r1", netconfOnly...), map[string]any{})
+		if err == nil || !strings.Contains(err.Error(), "the source of pleiades-probe@2026-11-16 holds, as a word of its own, a secret value") {
+			t.Fatalf("%s: %v, want the probe refused naming the module", name, err)
+		}
+		if strings.Contains(err.Error(), value) || strings.Contains(fmt.Sprint(rc.stats), value) || rc.writes != 0 {
+			t.Errorf("%s: the value reached the error, the stats or a file (%d writes): %v %v", name, rc.writes, err, rc.stats)
+		}
+	}
+	for _, inside := range []string{"x" + short, short + "-status", short + ".sub", "_" + short} {
+		src := probeLibrary()
+		src.sources["pleiades-probe@2026-11-16"] = []byte(strings.Replace(probeSource, "  prefix pp;\n", "  prefix pp;\n  description \""+inside+"\";\n", 1))
+		withSource(t, src)
+		rc := newContext(t)
+		rc.secrets = map[string]string{wire.SecretUsername: "admin", wire.SecretPassword: short}
+		if _, err := Schema(context.Background(), rc, device("r1", netconfOnly...), map[string]any{paramModules: []any{"pleiades-probe"}}); err != nil {
+			t.Errorf("%q: %v, want it saved: the value inside a longer word is the schema's", inside, err)
+		}
+		if _, said := rc.stats[sdk.StatWarnings]; said {
+			t.Errorf("%q: a warning was recorded, want none", inside)
+		}
 	}
 }
 
@@ -111,7 +168,7 @@ func TestMaskKnown_FindsASecretAsAQuotedStringWritesIt(t *testing.T) {
 	src := "module m { description \"" + `pa\"ss\\word-123` + "\"; reference '" + secret + "'; }"
 	got, masked := maskKnown([]byte(src), forms)
 	want := "module m { description \"" + placeholder + "\"; reference '" + placeholder + "'; }"
-	if short || !masked || string(got) != want {
+	if len(short) > 0 || !masked || string(got) != want {
 		t.Errorf("maskKnown = %q (masked %v, short %v), want both forms masked by one placeholder: %q", got, masked, short, want)
 	}
 	if same, masked := maskKnown([]byte(probeSource), forms); masked || string(same) != probeSource {

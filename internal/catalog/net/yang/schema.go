@@ -25,19 +25,22 @@
 // report (whose boundary masks by shape too): the method's stats name modules,
 // files, sizes and digests only. What a source is masked by is the run's
 // known secret values (the device's credential and the project's named
-// secrets), each replaced wherever it stands, as a value; a value shorter
-// than netcfg.MinLearnedLength cannot be told from a word of the schema and is
-// not masked, which the task says.
+// secrets), each replaced wherever it stands, as a value. A value shorter
+// than netcfg.MinLearnedLength cannot be masked without cutting the schema's
+// words apart, so a source holding one as a word of its own is refused,
+// naming the module and never the value, and nothing is written.
 //
 // # Written into the project
 //
 // Each source is written through sdk.ProjectFileWriter under dest, as
 // name@revision.yang built from the library's identifier and date, never from
-// device text; only the command line holds the project, so a Walk-tier Runner
-// refuses the task at validation (internal/validate's project file rule,
-// which counts a dest left to its default). Every source is fetched and held
-// to being the module asked for before any file is written, so a task fails
-// whole rather than halfway.
+// device text, for its owner alone (0600); only the command line holds the
+// project, so a Walk-tier Runner refuses the task at validation
+// (internal/validate's project file rule, which counts a dest left to its
+// default). Every source is fetched, checked, masked and held to the bounds,
+// and every file to the project writer's rules in a dry run, before any file
+// is written, so a refusal writes nothing; a write failing after that leaves
+// the files before it, which the error says and the stats name.
 package yang
 
 import (

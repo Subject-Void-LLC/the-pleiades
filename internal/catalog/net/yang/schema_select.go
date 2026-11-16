@@ -151,9 +151,11 @@ func partial(l listing) string {
 // gather lists src's library, chooses the files r asks for, refuses a task
 // past its bounds or naming two files one case-insensitive file system would
 // take for one, and fetches each, holding each answer to being the source
-// asked for. Nothing is written here, so a refusal leaves the project as it
-// was.
-func gather(ctx context.Context, src source, r request) ([]file, error) {
+// asked for, masking it by forms, and refusing one that holds a short secret
+// (shorts) as a whole token. The bounds hold each source as masked, the bytes
+// written, since a placeholder can be longer than the secret it replaces.
+// Nothing is written here, so a refusal leaves the project as it was.
+func gather(ctx context.Context, src source, r request, forms, shorts []string) ([]file, error) {
 	l, err := src.list(ctx)
 	if err != nil {
 		return nil, err
@@ -181,17 +183,25 @@ func gather(ctx context.Context, src source, r request) ([]file, error) {
 		if err != nil {
 			return nil, fmt.Errorf("fetching %s: %w", f.entry.Key(), err)
 		}
-		if len(data) > r.maxModuleBytes {
-			return nil, fmt.Errorf("the source of %s is larger than %s (%d bytes), and is not cut short", f.entry.Key(), paramMaxModuleBytes, r.maxModuleBytes)
-		}
-		if total += len(data); total > r.maxTotalBytes {
-			return nil, fmt.Errorf("the sources come to more than %s (%d bytes) by %s, so none is written: name fewer modules, or raise %s (at most %d)",
-				paramMaxTotalBytes, r.maxTotalBytes, f.entry.Key(), paramMaxTotalBytes, ceilingMaxTotalBytes)
-		}
 		if err := yanglib.CheckSource(data, f.entry, f.submodule); err != nil {
 			return nil, err
 		}
-		f.data = data
+		f.data, f.masked = maskKnown(data, forms)
+		for _, s := range shorts {
+			// Never the value: only the module, and why.
+			if holdsToken(string(f.data), s) {
+				return nil, fmt.Errorf("the source of %s holds, as a word of its own, a secret value of this run shorter than %d bytes, which cannot be masked "+
+					"without cutting the schema's own words apart, so nothing is written: give the account or the named secret a value of at least %d bytes, or leave %s out",
+					f.entry.Key(), minMaskLength, minMaskLength, f.entry.Name)
+			}
+		}
+		if len(f.data) > r.maxModuleBytes {
+			return nil, fmt.Errorf("the source of %s, as masked, is larger than %s (%d bytes), and is not cut short", f.entry.Key(), paramMaxModuleBytes, r.maxModuleBytes)
+		}
+		if total += len(f.data); total > r.maxTotalBytes {
+			return nil, fmt.Errorf("the sources come to more than %s (%d bytes) by %s, so none is written: name fewer modules, or raise %s (at most %d)",
+				paramMaxTotalBytes, r.maxTotalBytes, f.entry.Key(), paramMaxTotalBytes, ceilingMaxTotalBytes)
+		}
 	}
 	return files, nil
 }

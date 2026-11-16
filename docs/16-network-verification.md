@@ -353,9 +353,17 @@ refused naming that. gNMI has no way to fetch a module's source.
 A source is schema, so it is saved as the device sent it: a leaf named `password`, a list's `key` statement and the word
 `secret` are its grammar, and the configuration masker that reads values by their shape is never run over it. Only the
 run's known secret values (the device's credential and the project's named secrets) of at least 8 bytes are replaced,
-wherever they stand. Each file is `name@revision.yang`, built from the library's identifiers alone, and every source is
-fetched and checked to be the module asked for before any file is written. It runs from the command line, which holds
-the project.
+wherever they stand, by `pleiades-masked-secret`. A shorter one cannot be masked without cutting the schema's own words
+apart, so a source holding one as a word of its own is refused, naming the module and never the value, and nothing is
+written: give the account a longer password. A secret split across a YANG `+` concatenation or folded across lines is not
+found by its value, and a named secret that equals a word of the schema replaces that word too (the module's `masked`
+entry says so). Each file is `name@revision.yang`, built from the library's identifiers alone, written for its owner
+alone (mode 0600). Every source is fetched, checked to be the module asked for, masked and held to the bounds, and
+every file to the project's rules, before any file is written, so a refusal writes nothing; a write that fails after that
+(a full disk) leaves the files before it, which the task's error says. It runs from the command line, which holds the
+project. On the Walk tier a task calling it, like any method writing a project file, is refused by the Runner's own
+validation once the job has been dispatched to it: the Controller runs no validation when a job is launched, so it does
+not yet refuse such a template itself.
 
 ### Reaching a node through the controller's console
 

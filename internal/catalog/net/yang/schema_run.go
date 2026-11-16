@@ -16,10 +16,10 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
 
-// fileMode is a saved source's mode: YANG source is schema text the device
-// serves to any account that may read its library, and an author's tools
-// (pyang, an editor) read it.
-const fileMode fs.FileMode = 0o644
+// fileMode is a saved source's mode: the owner's alone, as a capture's file
+// is (virt.cml.capture.stop), since a source a vendor serves only to accounts
+// that may read its library is the vendor's to share, not the project's.
+const fileMode fs.FileMode = 0o600
 
 // openers are each alternative's source, by name: the alternative
 // collection.ChooseAlternative answers selects which one runs, so what was
@@ -61,48 +61,86 @@ func run(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryI
 		return fail(fmt.Errorf("over %s: %w", alt.Name, err))
 	}
 	defer src.close()
-	files, err := gather(ctx, src, req)
+	forms, shorts := maskForms(rc)
+	files, err := gather(ctx, src, req, forms, shorts)
 	if err != nil {
 		return fail(fmt.Errorf("over %s: %w", alt.Name, err))
 	}
 
-	forms, short := maskForms(rc)
-	warnings := src.warnings()
-	if short {
-		warnings = append(warnings, fmt.Sprintf("a secret value of this run is shorter than %d bytes, which YANG source is not masked for, since such a value cannot be told from a word of the schema: a source holding one is saved as the device sent it", minMaskLength))
+	// Every file is held to the project writer's rules (no link, no guarded
+	// path, a regular file or none) before any is written, so a refusal
+	// leaves the project as it was. The same answer is a check's prediction.
+	predicted := make([]bool, len(files))
+	for i, f := range files {
+		if predicted[i], err = writer.WriteProjectFile(f.path, f.data, fileMode, false); err != nil {
+			return fail(fmt.Errorf("writing %s: %w, so none of the %d files is written", f.path, err, len(files)))
+		}
 	}
-	records := make([]any, 0, len(files))
-	changed, total := 0, 0
-	for i := range files {
-		f := &files[i]
-		f.data, f.masked = maskKnown(f.data, forms)
-		wrote, err := writer.WriteProjectFile(f.path, f.data, fileMode, mode != collection.ModeCheck)
+	written, err := write(writer, files, predicted, mode)
+	if statErr := record(rc, alt.Name, req.dest, files[:len(written)], written); statErr != nil {
+		return collection.Result{}, statErr
+	}
+	if err != nil {
+		return fail(err)
+	}
+	if warnings := src.warnings(); len(warnings) > 0 {
+		if err := sdk.RecordWarnings(rc, warnings); err != nil {
+			return fail(err)
+		}
+	}
+	return collection.Result{Changed: countTrue(written) > 0}, nil
+}
+
+// write writes each file in a real run and returns whether each changed, a
+// check's being its prediction. A write that fails after the dry run passed
+// (the disk filled, a file appeared) ends the task with the files before it
+// written, which the error says and the stats name.
+func write(writer sdk.ProjectFileWriter, files []file, predicted []bool, mode collection.Mode) ([]bool, error) {
+	if mode == collection.ModeCheck {
+		return predicted, nil
+	}
+	written := make([]bool, 0, len(files))
+	for _, f := range files {
+		changed, err := writer.WriteProjectFile(f.path, f.data, fileMode, true)
 		if err != nil {
-			return fail(fmt.Errorf("writing %s: %w", f.path, err))
+			return written, fmt.Errorf("writing %s: %w, after %d of the %d files were written (the modules stat names them)", f.path, err, len(written), len(files))
 		}
-		if wrote {
-			changed++
-		}
+		written = append(written, changed)
+	}
+	return written, nil
+}
+
+// record sets the task's stats for files, each with whether it changed.
+func record(rc sdk.RunbookContext, via, dest string, files []file, changed []bool) error {
+	records := make([]any, 0, len(files))
+	total := 0
+	for i, f := range files {
 		total += len(f.data)
 		sum := sha256.Sum256(f.data)
 		records = append(records, map[string]any{
 			"name": f.entry.Name, "revision": f.entry.Revision, "file": f.path, "bytes": len(f.data),
 			"sha256": hex.EncodeToString(sum[:]), "submodule": f.submodule, "import_only": f.importOnly,
-			"masked": f.masked, "changed": wrote,
+			"masked": f.masked, "changed": changed[i],
 		})
 	}
 	for _, stat := range []struct {
 		key   string
 		value any
-	}{{"via", alt.Name}, {"dest", req.dest}, {"modules", records}, {"files_changed", changed}, {"bytes", total}} {
+	}{{"via", via}, {"dest", dest}, {"modules", records}, {"files_changed", countTrue(changed)}, {"bytes", total}} {
 		if err := rc.SetStat(stat.key, stat.value); err != nil {
-			return collection.Result{}, err
+			return err
 		}
 	}
-	if len(warnings) > 0 {
-		if err := sdk.RecordWarnings(rc, warnings); err != nil {
-			return fail(err)
+	return nil
+}
+
+// countTrue counts the true values in flags.
+func countTrue(flags []bool) int {
+	n := 0
+	for _, f := range flags {
+		if f {
+			n++
 		}
 	}
-	return collection.Result{Changed: changed > 0}, nil
+	return n
 }

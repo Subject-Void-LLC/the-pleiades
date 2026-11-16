@@ -52,8 +52,13 @@ type testContext struct {
 	stats   map[string]any
 	// failStat names a stat whose recording fails.
 	failStat string
-	// writes counts real writes.
+	// refuse names a path the writer refuses, dry run or real, as it refuses
+	// a guarded path or a link; failWrite one whose real write alone fails,
+	// as a full disk does after the dry run passed.
+	refuse, failWrite string
+	// writes counts real writes, and perms is the mode each was asked for.
 	writes int
+	perms  []fs.FileMode
 }
 
 // newContext is a context for a project at a fresh directory.
@@ -81,7 +86,8 @@ func (c *testContext) KnownSecretValues() []string { return c.known }
 // command line's writer holds a path to that matter here.
 func (c *testContext) WriteProjectFile(name string, data []byte, perm fs.FileMode, write bool) (bool, error) {
 	clean := path.Clean(name)
-	if path.IsAbs(clean) || clean == ".." || strings.HasPrefix(clean, "../") || strings.HasPrefix(clean, ".pleiades") {
+	if path.IsAbs(clean) || clean == ".." || strings.HasPrefix(clean, "../") || strings.HasPrefix(clean, ".pleiades") ||
+		c.refuse != "" && strings.Contains(clean, c.refuse) {
 		return false, errors.New("the path leaves the project")
 	}
 	full := filepath.Join(c.dir, filepath.FromSlash(clean))
@@ -91,10 +97,14 @@ func (c *testContext) WriteProjectFile(name string, data []byte, perm fs.FileMod
 	if !write {
 		return true, nil
 	}
+	if c.failWrite != "" && strings.Contains(clean, c.failWrite) {
+		return false, errors.New("no space left on device")
+	}
 	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
 		return false, err
 	}
 	c.writes++
+	c.perms = append(c.perms, perm)
 	return true, os.WriteFile(full, data, perm)
 }
 

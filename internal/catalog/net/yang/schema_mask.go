@@ -22,7 +22,10 @@ import (
 // (netcfg.MinLearnedLength, which is redact.MinLiteralLength). A shorter one
 // (a password "admin") replaced everywhere would cut words of the schema
 // apart ("administrative", admin-status), which is the corruption this
-// method exists to avoid.
+// method exists to avoid. So a short value is never masked: a source holding
+// one as a whole token (holdsToken) is refused, naming the module and never
+// the value, and nothing is written, since a file of the project is no place
+// to leave a secret in the clear.
 const minMaskLength = netcfg.MinLearnedLength
 
 // placeholder stands in for every known secret a saved source held: one
@@ -37,23 +40,24 @@ const placeholder = netcfg.MaskPrefix + "secret"
 // credential output must never show (wire.MaskedValues, the rule every path
 // masks a credential by) and the values the run masks from its start (the
 // project's named secrets, sdk.KnownSecrets), each once, as it is and as a
-// YANG double-quoted string writes it (yangQuoted), longest first, those
-// shorter than minMaskLength left out. short says one was left out.
-func maskForms(rc sdk.RunbookContext) (forms []string, short bool) {
+// YANG double-quoted string writes it (yangQuoted), longest first. A value
+// shorter than minMaskLength is never masked; it is returned in shorts, with
+// its quoted form, for refusesShort to look for.
+func maskForms(rc sdk.RunbookContext) (forms, shorts []string) {
 	seen := map[string]bool{}
 	for _, v := range append(wire.MaskedValues(rc.InjectSecrets()), sdk.KnownSecretValues(rc)...) {
 		if v == "" || seen[v] {
 			continue
 		}
 		seen[v] = true
+		into := &forms
 		if len(v) < minMaskLength {
-			short = true
-			continue
+			into = &shorts
 		}
-		forms = append(forms, v)
+		*into = append(*into, v)
 		if q := yangQuoted(v); !seen[q] {
 			seen[q] = true
-			forms = append(forms, q)
+			*into = append(*into, q)
 		}
 	}
 	// Longest first, so where one form holds another the longer is
@@ -64,7 +68,30 @@ func maskForms(rc sdk.RunbookContext) (forms []string, short bool) {
 		}
 		return forms[i] < forms[j]
 	})
-	return forms, short
+	return forms, shorts
+}
+
+// holdsToken reports whether text holds v as a whole token: an occurrence
+// with no character of a YANG identifier ([A-Za-z0-9_.-]) directly before or
+// after it. A short secret inside a longer word ("admin" in admin-status or
+// administrative) is the schema's word, not the secret.
+func holdsToken(text, v string) bool {
+	for from := 0; ; {
+		i := strings.Index(text[from:], v)
+		if i < 0 {
+			return false
+		}
+		start, end := from+i, from+i+len(v)
+		if (start == 0 || !tokenByte(text[start-1])) && (end == len(text) || !tokenByte(text[end])) {
+			return true
+		}
+		from = start + 1
+	}
+}
+
+// tokenByte reports whether b is a character of a YANG identifier.
+func tokenByte(b byte) bool {
+	return b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z' || b >= '0' && b <= '9' || b == '_' || b == '.' || b == '-'
 }
 
 // yangQuoted is v as the inside of a YANG double-quoted string writes it

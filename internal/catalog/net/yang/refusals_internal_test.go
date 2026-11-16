@@ -42,6 +42,8 @@ func TestSchema_RefusesBeforeContactingTheDevice(t *testing.T) {
 		"a device name for a path":          {dev: device("../r1", netconfOnly...), want: "cannot name a directory"},
 		"a device name with a slash":        {dev: device("lab/r1", netconfOnly...), want: "cannot name a directory"},
 		"a device name with a NUL":          {dev: device("r1\x00", netconfOnly...), want: "cannot name a directory"},
+		"a device named for Windows":        {dev: device("aux", netconfOnly...), want: "aux, which Windows takes for a device"},
+		"a dest Windows reads as COM1":      {params: map[string]any{paramDest: "yang/COM1.cfg/x"}, want: "COM1.cfg, which Windows takes for a device"},
 		"no device":                         {noDev: true, want: "no target device"},
 		"too few modules":                   {params: map[string]any{paramMaxModules: 0}, want: "from 1 to 5000"},
 		"too many modules":                  {params: map[string]any{paramMaxModules: ceilingMaxModules + 1}, want: "from 1 to 5000"},
@@ -102,6 +104,17 @@ func TestSchema_RefusesWholeOnceTheLibraryIsRead(t *testing.T) {
 	broken.fetchErr = errors.New("the session ended")
 	unlisted := probeLibrary()
 	unlisted.listErr = errors.New("discovery failed")
+	long := probeLibrary()
+	long.listing.entries = append(long.listing.entries, yanglib.Schema{Name: strings.Repeat("a", 250), Revision: "2024-01-01"})
+	nul := probeLibrary()
+	nul.listing.entries = append(nul.listing.entries, yanglib.Schema{Name: "nul"})
+	con := probeLibrary()
+	con.listing.entries = append(con.listing.entries, yanglib.Schema{Name: "CON.x", Revision: "2024-01-01"})
+	// An 8-byte secret masked by the 22-byte placeholder makes the probe 14
+	// bytes longer than it was fetched, past a bound it was fetched within.
+	grown := probeLibrary()
+	grownSource := strings.Replace(probeSource, "the secret key 100", "the secret key k8sec-01", 1)
+	grown.sources["pleiades-probe@2026-11-16"] = []byte(grownSource)
 	for name, tc := range map[string]struct {
 		src    *fakeSource
 		params map[string]any
@@ -122,9 +135,14 @@ func TestSchema_RefusesWholeOnceTheLibraryIsRead(t *testing.T) {
 		"another module":              {other, map[string]any{paramModules: []any{"pleiades-probe"}}, "not the YANG source of module pleiades-probe@2026-11-16"},
 		"a failed fetch":              {broken, map[string]any{}, "over netconf: fetching ietf-inet-types@2013-07-15: the session ended"},
 		"a failed listing":            {unlisted, map[string]any{}, "over netconf: discovery failed"},
+		"a name too long for a file":  {long, map[string]any{}, "a file name of 266 bytes, more than the 255"},
+		"a Windows device":            {nul, map[string]any{}, "nul.yang, which Windows takes for a device"},
+		"a Windows device, dotted":    {con, map[string]any{}, "CON.x@2024-01-01.yang, which Windows takes for a device"},
+		"a bound the mask passes":     {grown, map[string]any{paramModules: []any{"pleiades-probe"}, paramMaxModuleBytes: len(grownSource)}, "as masked, is larger than max_module_bytes"},
 	} {
 		withSource(t, tc.src)
 		rc := newContext(t)
+		rc.known = []string{"k8sec-01"}
 		_, err := Schema(context.Background(), rc, device("r1", netconfOnly...), tc.params)
 		if err == nil || !strings.Contains(err.Error(), tc.want) {
 			t.Errorf("%s: %v, want a refusal naming %q", name, err, tc.want)
@@ -135,6 +153,30 @@ func TestSchema_RefusesWholeOnceTheLibraryIsRead(t *testing.T) {
 		if strings.Contains(name, "too many sources") && len(tc.src.fetched) != 0 {
 			t.Errorf("%s: %v fetched before the count was refused", name, tc.src.fetched)
 		}
+	}
+}
+
+// TestSchema_WritesNothingUntilEveryFileWould: the project writer refusing
+// the last file (a link, a guarded path) refuses the task before the first
+// is written; a write failing after that dry run passed (a full disk) leaves
+// the files before it written, says how many, and names them in the stats.
+func TestSchema_WritesNothingUntilEveryFileWould(t *testing.T) {
+	withSource(t, probeLibrary())
+	rc := newContext(t)
+	rc.refuse = "pleiades-probe"
+	_, err := Schema(context.Background(), rc, device("r1", netconfOnly...), map[string]any{})
+	if err == nil || !strings.Contains(err.Error(), "writing yang/r1/pleiades-probe@2026-11-16.yang") || !strings.Contains(err.Error(), "none of the 4 files is written") || rc.writes != 0 {
+		t.Errorf("a refused last file: %v after %d writes, want the task refused before any write", err, rc.writes)
+	}
+	withSource(t, probeLibrary())
+	rc = newContext(t)
+	rc.failWrite = "pleiades-parent"
+	_, err = Schema(context.Background(), rc, device("r1", netconfOnly...), map[string]any{})
+	if err == nil || !strings.Contains(err.Error(), "no space left on device, after 1 of the 4 files were written") || rc.writes != 1 {
+		t.Fatalf("a failed second write: %v after %d writes, want the count of what was written said", err, rc.writes)
+	}
+	if records := rc.records(t); len(records) != 1 || records[0]["name"] != "ietf-inet-types" || rc.stats["files_changed"] != 1 {
+		t.Errorf("stats after the failed write: %v, want the one file written named", rc.stats)
 	}
 }
 

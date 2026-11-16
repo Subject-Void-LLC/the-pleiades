@@ -133,6 +133,11 @@ func readDest(params map[string]any, device inventory.InventoryItem) (string, er
 	if path.IsAbs(clean) || clean == ".." || strings.HasPrefix(clean, "../") || strings.Contains(dest, `\`) || strings.Contains(clean, ":") {
 		return "", fmt.Errorf("%s %q must be a slash-separated path inside the project, such as yang/core1", paramDest, dest)
 	}
+	for _, segment := range strings.Split(clean, "/") {
+		if yanglib.IsWindowsDevice(segment) {
+			return "", fmt.Errorf("%s %q names %s, which Windows takes for a device, not a directory", paramDest, dest, segment)
+		}
+	}
 	return clean, nil
 }
 
