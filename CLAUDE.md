@@ -237,8 +237,10 @@ pre-1.0 project and the honest state is not what the docs' introductions might i
   forwards a published port through the first-named network). Arista EOS and Junos formats wait for Phase 74d.
   Since Phase 129b a CML lab's link can be failed and captured: `virt.cml.link.stop`/`start` (each the other's undo) and
   `virt.cml.capture.start`/`stop` (the pcap written into the project through `sdk.ProjectFileWriter`), and
-  `net.pcap.summary` (deviceless, on `pkg/pcapsum`, stdlib only) counts it as encrypted, key exchange or cleartext per
-  address pair. Proven live by the CML secrets gate. The GNS3 equivalents are not built (work set aside in a stash).
+  `net.pcap.summary` (deviceless, on `pkg/pcapsum`, stdlib plus `x/net/http2/hpack`) counts it as encrypted, key exchange
+  or cleartext per address pair, reading each TCP connection by its bytes (SSH after NEWKEYS and TLS application data
+  encrypted; HTTP/2 and gRPC in the clear named, with credential headers flagged by name through a bounded HPACK decode,
+  never by value). Proven live by the CML secrets gate; SSH, TLS and gRPC by real sessions in `pkg/pcapsum`'s tests. The GNS3 equivalents are not built (work set aside in a stash).
 - **An external Collection defines capabilities as data (Phase 127a).** `pkg/capability.DataDefinition`,
   registered by the loader, granted by the program's read-only probe at onboarding (Crawl tier only) or by an
   admin's assertion (`pleiades grant-capability`, `POST /inventory/devices/{name}/capabilities`, scope

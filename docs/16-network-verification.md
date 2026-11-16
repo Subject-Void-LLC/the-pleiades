@@ -364,10 +364,17 @@ crossed. Four `virt.cml` methods give both, each naming a link by `link:` (its i
   The file holds whatever crossed in the clear, so keep it with the project's other private files.
 
 `net.pcap.summary` then counts the file on this machine, with no device: every frame by protocol, and each
-IP packet as encrypted (ESP, ESP in UDP 4500), key exchange (IKE) or cleartext (everything else carried
-over IP), in all and per address pair. "The sites' traffic crosses encrypted" is then a pair whose
-`cleartext` is 0 and whose `encrypted` count grew while traffic was sent. The file is an ordinary pcap, so
-any other analyzer reads it too.
+IP packet as encrypted, key exchange or cleartext, in all and per address pair. ESP and ESP in UDP 4500
+are encrypted and IKE is key exchange. Each TCP connection is read from its own bytes, never its port: SSH
+is key exchange up to NEWKEYS and encrypted after it, and TLS is key exchange in its handshake records and
+encrypted in its application data, so NETCONF over SSH and RESTCONF over TLS count as encrypted. HTTP/2 in
+the clear (plaintext gRPC, such as gNMI without TLS) is cleartext management: it is listed first in `flows`,
+and a header carrying a credential (`authorization`, `username`, `password` and the like) is named in
+`cleartext_credentials` and a warning, by its name and never its value. Everything else carried over IP is
+cleartext, and so is anything the method could not prove encrypted, such as a connection whose start the
+capture lacks. "The sites' traffic crosses encrypted" is then a pair whose `cleartext` is 0 and whose
+`encrypted` count grew while traffic was sent. The file is an ordinary pcap, so any other analyzer reads it
+too.
 
 ```yaml
 # What this does: fails CORE1's WAN link and restores it, then proves a branch's traffic crosses it encrypted.
