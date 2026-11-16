@@ -23,6 +23,7 @@
  "internal/catalog/net/linux": 10,
  "internal/catalog/net/netconf": 14,
  "internal/catalog/net/ovs": 6,
+ "internal/catalog/net/yang": 13,
  "internal/catalog/scan": 15,
  "internal/catalog/virt/clab": 23,
  "internal/catalog/wait": 84,
