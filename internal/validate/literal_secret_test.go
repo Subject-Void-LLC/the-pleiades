@@ -8,6 +8,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/validate"
 
+	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/net/gnmi"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/net/ios"
 )
 
@@ -83,5 +84,70 @@ tasks:
 	warnings := validate.LiteralSecretWarnings(dag)
 	if len(warnings) != 1 || !strings.Contains(warnings[0].Message, "parameter prompts") || strings.Contains(warnings[0].Message, "Typed-Out-555") {
 		t.Fatalf("warnings = %+v", warnings)
+	}
+}
+
+// TestLiteralSecretWarnings_InAMappingsField: a secret written as the value
+// of a secret-named field of a mapping (net.gnmi.config's val), where no
+// word comes before it, is warned about, naming the field and never the
+// value, at any depth; the same field naming its secret by reference, and a
+// mapping holding none, are not.
+func TestLiteralSecretWarnings_InAMappingsField(t *testing.T) {
+	eval, err := engine.NewCELEvaluator()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dag, err := engine.NewBuilder(eval).BuildFromYAML([]byte(`id: fields
+hosts: r1
+tasks:
+  - name: written out
+    net.gnmi.config:
+      update:
+        - path: /ipsec/peer[name=hq]
+          val:
+            address: 192.0.2.1
+            pre-shared-key: Hunter2Secret
+  - name: written out deeper
+    net.gnmi.config:
+      replace:
+        - path: /system
+          val:
+            ntp:
+              keys:
+                - id: 1
+                  password: 4242
+  - name: by reference
+    net.gnmi.config:
+      update:
+        - path: /ipsec/peer[name=hq]
+          val:
+            pre-shared-key: "{{ secret.ike.psk }}"
+  - name: no secret
+    net.gnmi.config:
+      update:
+        - path: /interface[name=lo0]
+          val:
+            description: managed loopback
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	warnings := validate.LiteralSecretWarnings(dag)
+	if len(warnings) != 2 {
+		t.Fatalf("warnings = %+v, want two, one for each written-out value", warnings)
+	}
+	fields := map[string]bool{}
+	for _, w := range warnings {
+		for _, field := range []string{"pre-shared-key", "password"} {
+			if strings.Contains(w.Message, "in field \""+field+"\"") {
+				fields[field] = true
+			}
+		}
+		if strings.Contains(w.Message, "Hunter2Secret") || strings.Contains(w.Message, "4242") || !strings.Contains(w.Message, "pleiades add-secret") {
+			t.Errorf("message %q quotes the secret or names no fix", w.Message)
+		}
+	}
+	if !fields["pre-shared-key"] || !fields["password"] {
+		t.Errorf("warnings %+v, want the pre-shared-key and password fields named", warnings)
 	}
 }

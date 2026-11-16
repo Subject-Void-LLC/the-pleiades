@@ -22,7 +22,7 @@ lands unchanged, then converts to native typed collections at its own pace.
 
 The offline tier is a single static binary with no server, no database and no message
 broker, and it reaches real devices over real SSH. Every implemented method declares
-whether it can be reversed, and 247 of the 263 can predict what they would change before
+whether it can be reversed, and 248 of the 266 can predict what they would change before
 changing anything (`pleiades run --mode check`), naming every task they could not check
 rather than reporting a clean run.
 
@@ -46,14 +46,15 @@ tested today; nothing here is aspirational. Read this section before the rest.
   the dispatch message, so it sits in the broker's storage until that message ages out,
   and credential storage is still an encrypted local file with no rotation or Vault
   support.
-- **The module catalog has 265 registered methods; 263 are implemented.** Every
+- **The module catalog has 268 registered methods; 266 are implemented.** Every
   `<namespace>.<method>` collection name is registered and
   reachable through the real dispatcher, but a `declared` method refuses to run with
-  an explicit "not implemented" error rather than pretending to succeed. Only three are
-  in that state: `file.template`, `net.junos.config` and `net.eos.config`. Everything
+  an explicit "not implemented" error rather than pretending to succeed. Only two are
+  in that state: `net.junos.config` and `net.eos.config`. Everything
   else is real today, across 23 namespaces, including
   `exec.command` and `exec.shell` on any SSH-reachable device, `net.cli.command` and
   `net.ios.config` on a real network CLI, `net.netconf.config` over RFC 6241 NETCONF,
+  `net.gnmi.config` over OpenConfig gNMI,
   the four `net.catalyst.*` methods against
   Cisco Catalyst Center, the `svc.*` service managers, and the `pkg.*`, `file.*`,
   `identity.*`, `container.*` and `cloud.aws.*` families, the `ai.*` methods that call

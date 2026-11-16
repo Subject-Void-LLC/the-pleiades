@@ -44,6 +44,7 @@ import (
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/net/cli"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/net/eos"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/net/frr"
+	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/net/gnmi"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/net/ios"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/net/junos"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/net/linux"

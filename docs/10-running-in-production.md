@@ -1246,7 +1246,7 @@ an operator.
 - **Added through the API or the web UI.** A device created there is `active`, unless its
   type is a generic one (below).
 - **A generic device is onboarded.** A `generic_ssh`, `generic_netconf`, `generic_restconf`,
-  `generic_http` or `generic_grpc` device, however it was added, starts `discovered`, which runs nothing.
+  `generic_gnmi`, `generic_http` or `generic_grpc` device, however it was added, starts `discovered`, which runs nothing.
   Onboarding (`pleiades onboard <name>`, or `POST /api/v1/inventory/devices/{name}/onboard`)
   moves it to `onboarding`, probes it over its protocol, and moves it to `active` when the
   probe proves the device; a failed first probe leaves it `onboarding` with the reason in the
@@ -2035,7 +2035,7 @@ Controller connects to the device, not a Runner. So the Controller needs what a 
 needs: the device's credential in the same per-device store a dispatch reads
 (`CONTROLLER_CREDENTIALS_DIR`), the device's host key in its known_hosts
 (`PLEIADES_KNOWN_HOSTS`, or its own `~/.ssh/known_hosts`) for `generic_ssh` and
-`generic_netconf`, and, for a `generic_restconf`, `generic_http` or `generic_grpc` device, a way to trust its
+`generic_netconf`, and, for a `generic_restconf`, `generic_gnmi`, `generic_http` or `generic_grpc` device, a way to trust its
 certificate: the system's roots, `SSL_CERT_FILE`, or the device's own `tls_ca_pem` (below). No
 probe skips a host key or a certificate check, and there is no setting that makes one.
 
@@ -2068,8 +2068,9 @@ that needs more refuses by name.
 
 ### Device TLS: pinning, mutual TLS, and old devices
 
-A `generic_http` or `generic_grpc` device's TLS is set on the device's own record, and the
-onboarding probe and `http.request`'s device mode both use it. A `windows_server` takes
+A `generic_http`, `generic_restconf`, `generic_gnmi` or `generic_grpc` device's TLS is set on the
+device's own record, and the onboarding probe and the methods reaching the device (`http.request`'s
+device mode, `net.restconf.*`, `net.gnmi.*`) all use it. A `windows_server` takes
 `tls_ca_pem` and `tls_server_name` for its WinRM HTTPS listener, and refuses the rest (see
 the WinRM section below):
 
@@ -2099,6 +2100,23 @@ A flag that allows nothing (deprecated versions with a 1.2 floor, plaintext cred
 has no TLS. SSL 3.0 cannot be allowed at all. `generic_grpc` refuses both TLS weakenings, since
 gRPC runs over HTTP/2, which requires TLS 1.2 and forbids those suites, and it refuses to send a
 stored credential over `grpc_plaintext` with no flag to change that.
+
+`generic_gnmi` refuses the same two weakenings, and takes a plaintext connection only as two
+explicit choices, each warned about on every onboarding and every run:
+
+- **`grpc_plaintext: true`** connects without TLS, as a lab target such as Stratum's stratum_bmv2
+  serves gNMI. Nothing proves which server answered, so what a read finds is recorded as stats
+  only, never as facts.
+- **`grpc_allow_plaintext_credentials: true`**, a further flag, sends the stored credential over
+  that connection. gNMI's credential is request metadata, which HPACK sends as written or
+  Huffman-coded, whichever is shorter: a plain byte search of the traffic may find it, and anyone
+  decoding the frames reads it either way. It is refused with `gnmi_auth: none` or without
+  `grpc_plaintext`, where it would allow nothing.
+
+A device with a self-signed certificate (Nokia SR Linux's default profile, whose certificate names
+no IP address) is refused until pinned: the refusal names the certificate's subject and SHA-256
+fingerprint, and once that is checked with the device's owner, `pleiades set-host <name> --set
+tls_fingerprint=sha256:...` pins it.
 
 ### Connection persistence
 

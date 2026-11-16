@@ -23,15 +23,15 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | `gate` | 2 | 2 |
 | `http` | 3 | 3 |
 | `identity` | 6 | 6 |
-| `net` | 33 | 31 |
+| `net` | 35 | 33 |
 | `pkg` | 9 | 9 |
 | `pleiades` | 3 | 3 |
 | `scan` | 3 | 3 |
 | `svc` | 16 | 16 |
 | `virt` | 83 | 83 |
-| `wait` | 6 | 6 |
+| `wait` | 7 | 7 |
 | `win` | 12 | 12 |
-| **total** | **265** | **263** |
+| **total** | **268** | **266** |
 
 ## All methods
 
@@ -149,6 +149,8 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | [net.frr.config](net/frr/config.md) | implemented | Makes an FRRouting router run exactly the configuration given, and saves what it ran before so the change can be undone. |
 | [net.frr.facts](net/frr/facts.md) | implemented | Reads an FRRouting router's version, interfaces, OSPF neighbours, routes and BGP peers as data. |
 | [net.frr.interface](net/frr/interface.md) | implemented | Sets an FRRouting interface administratively up or down, recording the state it found. |
+| [net.gnmi.config](net/gnmi/config.md) | implemented | Writes YANG-modeled paths over gNMI (delete, replace, update) as one Set, reporting whether they changed, with an optional pre-change backup. |
+| [net.gnmi.facts](net/gnmi/facts.md) | implemented | Records what a device's gNMI server says about itself: its gNMI version, encodings and models. |
 | [net.ios.checkpoints](net/ios/checkpoints.md) | implemented | Lists the checkpoints net.ios.config left on a Cisco IOS device, and with prune deletes the older ones. |
 | [net.ios.command](net/ios/command.md) | implemented | Runs one exec-mode command on a Cisco IOS device, answering the questions it asks as the task says. |
 | [net.ios.config](net/ios/config.md) | implemented | Applies configuration lines to a Cisco IOS device, keeping a checkpoint of the configuration before them so the change can be undone exactly. |
@@ -285,6 +287,7 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | [virt.vbox.vm.start](virt/vbox/vm/start.md) | implemented | Starts a VirtualBox VM with no window. |
 | [virt.vbox.vm.stop](virt/vbox/vm/stop.md) | implemented | Stops a VirtualBox VM, by its power button or by cutting its power. |
 | [wait.connection](wait/connection.md) | implemented | Waits until the target answers a command over its own connection, SSH or WinRM. |
+| [wait.gnmi](wait/gnmi.md) | implemented | Waits until the target's gNMI server answers its account with its Capabilities. |
 | [wait.netconf](wait/netconf.md) | implemented | Waits until the target's NETCONF listener lets its account in and sends its hello. |
 | [wait.path](wait/path.md) | implemented | Waits for a file path on the target to exist (or stop existing). |
 | [wait.restconf](wait/restconf.md) | implemented | Waits until the target's RESTCONF server answers its account with the capability list under its root. |

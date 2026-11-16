@@ -1,6 +1,6 @@
 {
  "cmd/controller": 134,
- "cmd/pleiades": 948,
+ "cmd/pleiades": 978,
  "cmd/runner": 267,
  "internal/adapters/legacy": 12,
  "internal/adapters/native": 52,
@@ -48,6 +48,7 @@
  "pkg/awscloud": 41,
  "pkg/batfish": 5,
  "pkg/containerengine": 23,
+ "pkg/gnmi/gnmilive": 45,
  "pkg/gns3": 13,
  "pkg/iso9660": 5,
  "pkg/kubeapi": 37,

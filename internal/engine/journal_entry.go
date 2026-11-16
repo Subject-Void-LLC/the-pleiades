@@ -644,9 +644,13 @@ func RecordableTexts(items any) ([]string, bool) {
 	return out, true
 }
 
-// ListParam reports whether method fqcn declares parameter key a list
-// (Type "list"). Only there may the journal hold a list, so a list never
-// stands in for a value a method takes as one piece of text.
+// ListParam reports whether method fqcn declares parameter key a list of
+// text (Type "list" or "list of string"). Only there may the journal hold
+// a list, so a list never stands in for a value a method takes as one
+// piece of text. A "list of dict" is not one: the journal holds lists of
+// text only. Reading "list" alone once withheld every undo whose list
+// parameter was declared "list of string" (net.linux.bridge's ports), so
+// rollback refused it as not recorded in full.
 func ListParam(fqcn, key string) bool {
 	manifest, ok := collection.ManifestOf(fqcn)
 	if !ok {
@@ -654,7 +658,7 @@ func ListParam(fqcn, key string) bool {
 	}
 	for _, p := range manifest.Doc.Params {
 		if p.Name == key {
-			return p.Type == "list"
+			return p.Type == collection.ParamTypeList || p.Type == collection.ParamTypeListOfString
 		}
 	}
 	return false

@@ -40,7 +40,7 @@ by contributing to this repository. That means:
 ## Before writing a device type: the generic types
 
 A device type is Go code compiled into a release, which is cheap here and a wait for anyone
-else. Four generic types cover a device nobody has written a type for, by the protocol it
+else. Six generic types cover a device nobody has written a type for, by the protocol it
 speaks rather than by what it is:
 
 | Type | Reached by | Baseline | Onboarding may add |
@@ -48,6 +48,7 @@ speaks rather than by what it is:
 | `generic_ssh` | `host`, `port` | SSH transport, running a command | a POSIX shell, Linux, POSIX files, facts, systemd, firewalld, apt, dnf, POSIX accounts |
 | `generic_netconf` | `host`, `netconf_port` (830) | SSH transport | `NetconfCapable` |
 | `generic_restconf` | `base_url` (an origin with no path: the root comes from its `/.well-known/host-meta`), `http_auth` (`basic` unless set), the TLS settings | an address | `RestconfCapable` |
+| `generic_gnmi` | `target` (`host:port`), `gnmi_auth` (`password` unless set: gNMI's username and password metadata; `bearer`; `none`), `grpc_plaintext`, `grpc_allow_plaintext_credentials`, the TLS settings | an address | `GNMICapable` |
 | `generic_http` | `base_url`, `http_auth` (`none`, `basic`, `bearer`), the TLS settings | an address | `HTTPAPICapable` |
 | `generic_grpc` | `target` (`host:port`), `grpc_plaintext`, the TLS settings | an address | `GRPCCapable` |
 

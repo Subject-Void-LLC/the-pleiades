@@ -268,12 +268,25 @@ var nonShippingPackages = map[string]bool{
 	testsupportImportPath: true,
 }
 
+// inNonShippingTree reports whether path is a nonShippingPackages entry or a
+// package beneath one (internal/testsupport/srlinux): the same tree
+// assertNotImportedByProductionCode proves no production build reaches, so
+// the exemption covers exactly what the proof covers and no more.
+func inNonShippingTree(path string) bool {
+	for root := range nonShippingPackages {
+		if path == root || strings.HasPrefix(path, root+"/") {
+			return true
+		}
+	}
+	return false
+}
+
 // TestOnlyDesignatedAdaptersImportConcreteDrivers asserts every internal/
 // package directly importing a concrete driver (NATS, the SQL driver
 // ent's embedded store opens) is on the allowlist above.
 func TestOnlyDesignatedAdaptersImportConcreteDrivers(t *testing.T) {
 	for _, pkg := range goList(t, false, modulePath+"/internal/...") {
-		if nonShippingPackages[pkg.ImportPath] {
+		if inNonShippingTree(pkg.ImportPath) {
 			continue
 		}
 		for _, imp := range pkg.Imports {

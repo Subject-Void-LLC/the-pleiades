@@ -110,6 +110,7 @@
     "fs",
     "fw",
     "gate",
+    "gnmi",
     "group",
     "hardware",
     "host",
@@ -152,6 +153,7 @@
     "fs.",
     "fw.",
     "gate.",
+    "gnmi.",
     "group.",
     "hardware.",
     "host.",
@@ -198,6 +200,9 @@
     "fs.": [],
     "fw.": [],
     "gate.": [],
+    "gnmi.": [
+      "net"
+    ],
     "group.": [
       "facts"
     ],
@@ -365,6 +370,8 @@
     "net.frr.config": "net",
     "net.frr.facts": "net",
     "net.frr.interface": "net",
+    "net.gnmi.config": "net",
+    "net.gnmi.facts": "net",
     "net.ios.checkpoints": "net",
     "net.ios.command": "net",
     "net.ios.config": "net",
@@ -501,6 +508,7 @@
     "virt.vbox.vm.start": "virt.vbox",
     "virt.vbox.vm.stop": "virt.vbox",
     "wait.connection": "wait",
+    "wait.gnmi": "wait",
     "wait.netconf": "wait",
     "wait.path": "wait",
     "wait.restconf": "wait",
