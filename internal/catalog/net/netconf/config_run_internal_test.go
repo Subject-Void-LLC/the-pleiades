@@ -5,6 +5,7 @@ package netconf
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -99,10 +100,10 @@ func TestConfig_AReRunThatChangesNothingReportsUnchanged(t *testing.T) {
 }
 
 // TestConfig_AnUndoRecordedBeforeAnEditThatChangedNothingIsTakenBack: the
-// read before planned a put-back (the content's value differs), and the
-// device kept what it had.
+// read before planned the removal of a leaf the content adds, and the device
+// kept what it had.
 func TestConfig_AnUndoRecordedBeforeAnEditThatChangedNothingIsTakenBack(t *testing.T) {
-	const sys = `<sys xmlns="urn:s"><location>here</location><contact>old</contact></sys>`
+	const sys = `<sys xmlns="urn:s"><location>here</location></sys>`
 	f := &fakeSession{running: sys, afterEdit: ptr(sys)}
 	useSession(t, f)
 	rc := newStubContext()
@@ -164,8 +165,10 @@ func TestConfig_SaysWhyAChangeRecordsNoUndo(t *testing.T) {
 	}{
 		"too long for the journal":  {&fakeSession{}, map[string]any{paramContent: long}, newStubContext, "bytes"},
 		"default_operation replace": {&fakeSession{}, map[string]any{paramContent: `<sys xmlns="urn:s"><contact>x</contact></sys>`, paramDefaultOperation: "replace"}, newStubContext, "whole datastore"},
-		"a put-back read in report-all": {&fakeSession{running: `<sys xmlns="urn:s"><contact>old</contact></sys>`, withDefaults: "report-all"},
+		"a removal read in report-all": {&fakeSession{withDefaults: "report-all"},
 			map[string]any{paramContent: `<sys xmlns="urn:s"><contact>new</contact></sys>`}, newStubContext, "with-defaults explicit"},
+		"a put-back": {&fakeSession{running: `<sys xmlns="urn:s"><location>here</location><contact>old</contact></sys>`},
+			map[string]any{paramContent: `<sys xmlns="urn:s"><contact>new</contact></sys>`}, newStubContext, "put back what was read from the device"},
 		"a value the device stores in another form": {&fakeSession{running: `<sys xmlns="urn:s"><on>true</on></sys>`, afterEdit: ptr(`<sys xmlns="urn:s"><on>1</on></sys>`)},
 			map[string]any{paramContent: `<sys xmlns="urn:s"><on>true</on></sys>`}, newStubContext, "another form"},
 	} {
@@ -262,3 +265,44 @@ func TestConfig_ANewParameterIsReadStrictly(t *testing.T) {
 
 // ptr is a pointer to s.
 func ptr(s string) *string { return &s }
+
+// TestConfig_AFailedDiscardKeepsTheCandidatesLock: when the discard of a
+// failed candidate edit fails, the lock is not released (an unlock could
+// leave the edit staged for the next commit by any client); the session's
+// close ends it instead.
+func TestConfig_AFailedDiscardKeepsTheCandidatesLock(t *testing.T) {
+	for name, params := range map[string]map[string]any{
+		"a refused edit":           {paramContent: `<sys xmlns="urn:s"/>`, paramDatastore: "candidate"},
+		"a validated edit, commit": {paramContent: `<sys xmlns="urn:s"/>`, paramDatastore: "candidate", paramCommit: false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := candidateSession(true)
+			f.discovery = netconf.Discovery{}
+			f.discardErr = errors.New("broken pipe")
+			if name == "a refused edit" {
+				f.editErr = netconf.RPCErrors{{Tag: "invalid-value"}}
+			}
+			useSession(t, f)
+			_, err := Config(context.Background(), newStubContext(), nil, params)
+			if err == nil || !strings.Contains(err.Error(), "lock is kept") || f.unlocked != 0 || !f.closed {
+				t.Fatalf("Config() = %v; %d unlocks, closed %v", err, f.unlocked, f.closed)
+			}
+		})
+	}
+}
+
+// TestConfig_CommitFalseDiscardsOnAContextOfItsOwn: a task canceled while its
+// validated edit is staged still discards it on a live context, then unlocks.
+func TestConfig_CommitFalseDiscardsOnAContextOfItsOwn(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	f := candidateSession(true)
+	f.discovery = netconf.Discovery{}
+	f.onValidate = cancel
+	useSession(t, f)
+	if _, err := Config(ctx, newStubContext(), nil, map[string]any{paramContent: `<sys xmlns="urn:s"/>`, paramDatastore: "candidate", paramCommit: false}); err != nil {
+		t.Fatal(err)
+	}
+	if f.discarded != 1 || f.discardCtxErr != nil || f.unlocked != 1 {
+		t.Fatalf("%d discards (on a context ending %v), %d unlocks", f.discarded, f.discardCtxErr, f.unlocked)
+	}
+}

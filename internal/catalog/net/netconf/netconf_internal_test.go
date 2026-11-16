@@ -3,6 +3,7 @@ package netconf
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -221,6 +222,12 @@ func useSession(t *testing.T, f *fakeSession) *netconf.Datastore {
 	var seen netconf.Datastore
 	swapOpenSession(t, func(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any, fqcn string, target netconf.Datastore) (netconfSession, error) {
 		seen = target
+		// As netconf.Open does: a target the hello does not advertise is
+		// refused before the session exists.
+		if (target == netconf.Candidate && !f.capabilities[netconf.CapabilityCandidate]) ||
+			(target == netconf.Startup && !f.capabilities[netconf.CapabilityStartup]) {
+			return nil, fmt.Errorf("netconf: this device does not support the %s datastore: %w", target, netconf.ErrDatastoreNotAdvertised)
+		}
 		if f.target == "" {
 			f.target = target
 		}
@@ -516,7 +523,7 @@ func TestConfig_CommitsOnlyForTheCandidateDatastore(t *testing.T) {
 		{"candidate honors commit: false", "candidate", false, 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			f := &fakeSession{}
+			f := &fakeSession{capabilities: map[string]bool{netconf.CapabilityCandidate: true}}
 			useSession(t, f)
 
 			params := map[string]any{paramContent: "<native/>", paramDatastore: tc.target}

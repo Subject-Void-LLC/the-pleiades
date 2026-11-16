@@ -22,13 +22,13 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/netconf"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/secretref"
-	"github.com/Subject-Void-LLC/the-pleiades/pkg/yangdoc"
 )
 
 // checkLockBound is the longest a check holds the candidate's lock: past it
 // the session is closed, which releases the lock and, on a qualified server,
-// the staged edit with it. A variable only so a test can shorten it.
-var checkLockBound = 30 * time.Second
+// the staged edit with it. checkThroughCandidate takes it as a parameter, so
+// a test shortens its own call's bound and no test changes a package value.
+const checkLockBound = 30 * time.Second
 
 // statCandidateCheck is the stat a check records what it proved under.
 const statCandidateCheck = "candidate_check"
@@ -119,6 +119,11 @@ func ConfigCheck(ctx context.Context, rc sdk.RunbookContext, device inventory.In
 	defer release()
 
 	session, err := openSession(ctx, rc, device, params, configFQCN, netconf.Candidate)
+	if errors.Is(err, netconf.ErrDatastoreNotAdvertised) {
+		// The session's own hello decides, and a device with no candidate is
+		// reported unchecked, never failed.
+		return collection.Result{}, collection.CannotCheck("this session's hello does not advertise :candidate, which a check through the candidate datastore needs")
+	}
 	if err != nil {
 		return collection.Result{}, err
 	}
@@ -137,7 +142,7 @@ func ConfigCheck(ctx context.Context, rc sdk.RunbookContext, device inventory.In
 			return collection.Result{}, fmt.Errorf("%s: %w", configFQCN, err)
 		}
 	}
-	changed, err := checkThroughCandidate(ctx, session, req)
+	changed, err := checkThroughCandidate(ctx, session, req, checkLockBound)
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", configFQCN, err)
 	}
@@ -147,13 +152,16 @@ func ConfigCheck(ctx context.Context, rc sdk.RunbookContext, device inventory.In
 	return collection.Result{Changed: changed && req.commit}, nil
 }
 
-// checkableHere refuses a check anywhere but the command line, on a
-// simulate-locked device, and on a device type no server of which passed the
-// conformance test.
+// checkableHere refuses a check anywhere but the command line, after an
+// earlier checked task on the device predicted a change (or could not be
+// checked, or failed), on a simulate-locked device, and on a device type no
+// server of which passed the conformance test.
 func checkableHere(rc sdk.RunbookContext, device inventory.InventoryItem) error {
 	switch {
 	case !sdk.StagedChecksAllowed(rc):
 		return collection.CannotCheck("a check through the candidate datastore runs only from the command line (pleiades run or adhoc): on the Walk tier a check job must send no write, and the Runner does not yet hold a check to the candidate's RPCs")
+	case sdk.EarlierChangePredicted(rc):
+		return collection.CannotCheck("an earlier task of this check, on this device, predicted a change (or could not be checked, or failed), which a real run makes before this task, so the device as it is now is not what this task would meet")
 	case device == nil:
 		return collection.CannotCheck("the task has no target device")
 	case device.State() == inventory.StateSimulateLocked:
@@ -166,12 +174,12 @@ func checkableHere(rc sdk.RunbookContext, device inventory.InventoryItem) error 
 	return nil
 }
 
-// checkableSession refuses a session whose own hello does not advertise both
-// :candidate and :validate, or whose server is not one that passed the
-// conformance test.
+// checkableSession refuses a session whose own hello does not advertise
+// :validate (one without :candidate never opened: openSession refused its
+// target), or whose server is not one that passed the conformance test.
 func checkableSession(session netconfSession) error {
-	if !session.HasCapability(netconf.CapabilityCandidate) || !session.CanValidate() {
-		return collection.CannotCheck("this session's hello does not advertise both :candidate and :validate, which a check through the candidate datastore needs")
+	if !session.CanValidate() {
+		return collection.CannotCheck("this session's hello does not advertise :validate, which a check through the candidate datastore needs")
 	}
 	if _, ok := qualifiedServer(session.Discovery()); !ok {
 		names := make([]string, 0, len(checkedServers))
@@ -197,109 +205,4 @@ func qualifiedServer(d netconf.Discovery) (string, bool) {
 		}
 	}
 	return "", false
-}
-
-// oneCheckPerDevice waits for any check of device running in this process to
-// end, as long as ctx allows, and returns the release of its own turn.
-func oneCheckPerDevice(ctx context.Context, device inventory.InventoryItem) (func(), error) {
-	turn := make(chan struct{})
-	for {
-		held, busy := checkingDevices.LoadOrStore(device.ID(), turn)
-		if !busy {
-			return func() { checkingDevices.Delete(device.ID()); close(turn) }, nil
-		}
-		select {
-		case <-held.(chan struct{}):
-		case <-ctx.Done():
-			return nil, fmt.Errorf("%s: waiting for another check of %s to end: %w", configFQCN, device.Name(), ctx.Err())
-		}
-	}
-}
-
-// checkThroughCandidate takes the candidate's lock first, proves it clean in
-// what the edit touches, stages the edit, has the device validate it, reads
-// the candidate, discards the edit and proves the candidate as it was, all
-// within checkLockBound. It reports whether the edit changed the candidate.
-// A refused lock is not checked, with nothing sent; any failure once the edit
-// is sent fails the check, as unverified unless the discard is proven.
-func checkThroughCandidate(ctx context.Context, session netconfSession, req configRequest) (bool, error) {
-	lctx, cancel := context.WithTimeout(ctx, checkLockBound)
-	defer cancel()
-	if err := session.Lock(lctx); err != nil {
-		var refused netconf.RPCErrors
-		if !errors.As(err, &refused) {
-			return false, fmt.Errorf("locking the candidate: %w", err)
-		}
-		if holder, denied := netconf.LockHolder(err); denied && holder != "" {
-			return false, collection.CannotCheck("the candidate datastore is locked by session " + holder + "; nothing was sent")
-		}
-		return false, collection.CannotCheck("the device refused the candidate's lock (" + err.Error() + "), as it does while the candidate holds changes not committed; nothing was sent")
-	}
-	defer func() {
-		cctx, cancel := cleanupContext(ctx)
-		defer cancel()
-		_ = session.Unlock(cctx)
-	}()
-
-	filter, err := netconf.EditFilter(req.content, req.defaultOperation == netconf.DefaultOperationReplace)
-	if err != nil {
-		return false, err
-	}
-	candidate, err := session.ReadConfig(lctx, netconf.Candidate, filter)
-	if err != nil {
-		return false, fmt.Errorf("reading the candidate before the check: %w; nothing was sent", err)
-	}
-	running, err := session.ReadConfig(lctx, netconf.Running, filter)
-	if err != nil {
-		return false, fmt.Errorf("reading running before the check: %w; nothing was sent", err)
-	}
-	before := yangdoc.CanonicalElements(candidate)
-	if before != yangdoc.CanonicalElements(running) {
-		return false, collection.CannotCheck("the candidate datastore holds changes not committed in what this task touches, which a check would discard; nothing was sent")
-	}
-
-	edited, sendErr := stageAndValidate(lctx, session, req, filter)
-	// The discard is sent whatever happened, and proven: a check never
-	// leaves its edit staged for the next commit by anyone.
-	if err := session.DiscardChanges(lctx); err != nil {
-		return false, unverified(errors.Join(sendErr, fmt.Errorf("discard-changes: %w", err)))
-	}
-	after, err := session.ReadConfig(lctx, netconf.Candidate, filter)
-	if err != nil {
-		return false, unverified(errors.Join(sendErr, fmt.Errorf("reading the candidate after the discard: %w", err)))
-	}
-	if yangdoc.CanonicalElements(after) != before {
-		return false, unverified(errors.Join(sendErr, errors.New("after the discard, the candidate does not read as it did before the check")))
-	}
-	var refused netconf.RPCErrors
-	switch {
-	case errors.As(sendErr, &refused):
-		return false, fmt.Errorf("the device refused the document, so a real run would fail: %w", sendErr)
-	case sendErr != nil:
-		return false, fmt.Errorf("%w; the candidate was discarded and proven to read as it did before", sendErr)
-	}
-	return edited != before, nil
-}
-
-// stageAndValidate sends the edit to the candidate, has the device validate
-// it and reads the candidate through filter, returning what it read, or the
-// first failure, named by its stage.
-func stageAndValidate(ctx context.Context, session netconfSession, req configRequest, filter string) (string, error) {
-	if err := session.EditConfig(ctx, netconf.EditConfigRequest{Config: req.content, DefaultOperation: req.defaultOperation, ErrorOption: req.errorOption}); err != nil {
-		return "", fmt.Errorf("staging the edit in the candidate: %w", err)
-	}
-	if err := session.Validate(ctx); err != nil {
-		return "", fmt.Errorf("validating the candidate: %w", err)
-	}
-	read, err := session.ReadConfig(ctx, netconf.Candidate, filter)
-	if err != nil {
-		return "", fmt.Errorf("reading the candidate after the edit: %w", err)
-	}
-	return yangdoc.CanonicalElements(read), nil
-}
-
-// unverified is a check that failed between sending the edit and proving the
-// discard: the candidate may still hold the edit.
-func unverified(cause error) error {
-	return fmt.Errorf("failed: candidate state unverified (%w); the candidate datastore may still hold this check's edit: read it, and discard-changes from a session of your own if it does", cause)
 }

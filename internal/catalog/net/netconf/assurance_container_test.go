@@ -1,16 +1,14 @@
-// Package netconf: net.netconf.config against a real NETCONF server,
-// Netopeer2 over sysrepo in the notconf image pkg/netconf's conformance suite
-// pins, through the method's own session (the real SSH subsystem, the real
-// pkg/netconf client): the reads before and after an edit, each kind of undo
-// recorded and then replayed exactly as a rollback replays it (this method
-// again, with the recorded parameters), a re-run reporting no change, an
-// edit whose answer is lost still leaving its undo, and the check through
-// the candidate datastore with its refusals.
+// Package netconf: the harness for net.netconf.config's tests against a real
+// NETCONF server, Netopeer2 over sysrepo in the notconf image pkg/netconf's
+// conformance suite pins, reached through the method's own session (the real
+// SSH subsystem, the real pkg/netconf client). notconf installs every YANG
+// module under /yang-modules when it starts, so the server also carries
+// assuranceModule, whose lists have two keys. The tests are in
+// live_undo_container_test.go and live_check_container_test.go.
 package netconf
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -27,7 +25,6 @@ import (
 	inventorytest "github.com/Subject-Void-LLC/the-pleiades/pkg/inventory/inventorytest"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/netconf"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
-	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/yangdoc"
 )
@@ -43,7 +40,35 @@ const (
 	assurancePassword = "admin"
 )
 
-// One server for every test here, each test editing groups of its own name.
+// assuranceModule is a YANG module with two lists keyed by two leaves each,
+// pairs and others, one per test that needs one, so no two tests share a list.
+const assuranceModule = `module pleiades-assurance {
+  yang-version 1.1;
+  namespace "urn:pleiades:assurance";
+  prefix pa;
+  container pairs {
+    list pair {
+      key "a b";
+      leaf a { type string; }
+      leaf b { type string; }
+      leaf note { type string; }
+    }
+  }
+  container others {
+    list pair {
+      key "a b";
+      leaf a { type string; }
+      leaf b { type string; }
+    }
+  }
+}
+`
+
+// assuranceNS is assuranceModule's namespace.
+const assuranceNS = "urn:pleiades:assurance"
+
+// One server for every test here, each test editing groups or lists of its
+// own.
 var (
 	assuranceOnce      sync.Once
 	assuranceErr       error
@@ -74,6 +99,11 @@ func startAssurance(t *testing.T) (string, int) {
 			ContainerRequest: testcontainers.ContainerRequest{
 				Image:        assuranceImage,
 				ExposedPorts: []string{"830/tcp"},
+				Files: []testcontainers.ContainerFile{{
+					Reader:            strings.NewReader(assuranceModule),
+					ContainerFilePath: "/yang-modules/pleiades-assurance.yang",
+					FileMode:          0o644,
+				}},
 				WaitingFor: wait.ForAll(
 					wait.ForLog("Listening on :::830 for SSH connections").WithStartupTimeout(2*time.Minute),
 					testsupport.SSHGreeting("830/tcp"),
@@ -210,188 +240,4 @@ func replay(t *testing.T, rc *liveRC) bool {
 		t.Fatalf("replaying the undo %v: %v", params, err)
 	}
 	return changed
-}
-
-// TestLive_ACreateIsUndoneByItsRecordedUndo: the undo removes the group the
-// run created and nothing else, the two groups beside it surviving (measured
-// 2026-11-16: Netopeer2 takes a remove naming no key as every entry of the
-// list, so a removal that lost its key would take them too).
-func TestLive_ACreateIsUndoneByItsRecordedUndo(t *testing.T) {
-	const name = "ac-create"
-	dropGroup(t, name)
-	setGroup(t, "ac-keep1", "x")
-	setGroup(t, "ac-keep2", "y")
-	t.Cleanup(func() { dropGroup(t, name); dropGroup(t, "ac-keep1"); dropGroup(t, "ac-keep2") })
-	content := groups(`<group><name>` + name + `</name><user-name>alice</user-name></group>`)
-
-	changed, rc, err := call(t, false, map[string]any{paramContent: content})
-	if err != nil || !changed || readGroup(t, netconf.Running, name) == "" {
-		t.Fatalf("the create: changed %v, %v", changed, err)
-	}
-	again, rerun, err := call(t, false, map[string]any{paramContent: content})
-	if err != nil || again {
-		t.Fatalf("a re-run of the create: changed %v, %v", again, err)
-	}
-	if _, recorded := rerun.stats[sdk.StatInverse]; recorded {
-		t.Errorf("a re-run that changed nothing recorded an undo: %v", rerun.stats[sdk.StatInverse])
-	}
-	if !strings.Contains(undoParams(t, rc.stubContext)[paramContent].(string), `nc:operation="remove"><name>`+name+`</name>`) {
-		t.Fatalf("the undo was not decided before the edit: %v", undoParams(t, rc.stubContext))
-	}
-	if !replay(t, rc) || readGroup(t, netconf.Running, name) != "" {
-		t.Fatalf("the undo left the group there: %s", readGroup(t, netconf.Running, name))
-	}
-	if readGroup(t, netconf.Running, "ac-keep1") == "" || readGroup(t, netconf.Running, "ac-keep2") == "" {
-		t.Fatal("the undo removed groups the run did not create")
-	}
-}
-
-func TestLive_AReplaceIsUndoneByPuttingTheEntryBack(t *testing.T) {
-	const name = "ac-rep"
-	setGroup(t, name, "alice", "carol")
-	t.Cleanup(func() { dropGroup(t, name) })
-	was := readGroup(t, netconf.Running, name)
-
-	changed, rc, err := call(t, false, map[string]any{paramContent: groups(`<group xmlns:nc="urn:ietf:params:xml:ns:netconf:base:1.0" nc:operation="replace"><name>` + name + `</name><user-name>bob</user-name></group>`)})
-	if err != nil || !changed || readGroup(t, netconf.Running, name) == was {
-		t.Fatalf("the replace: changed %v, %v", changed, err)
-	}
-	if !strings.Contains(undoParams(t, rc.stubContext)[paramContent].(string), `nc:operation="replace"`) {
-		t.Fatalf("the undo %v does not put the entry back", undoParams(t, rc.stubContext))
-	}
-	if !replay(t, rc) || readGroup(t, netconf.Running, name) != was {
-		t.Fatalf("after the undo the group reads\n%s\nwant\n%s", readGroup(t, netconf.Running, name), was)
-	}
-}
-
-// TestLive_AUserAddedToTwoIsRemovedAlone: a user merged into a group of two
-// users is a new leaf-list entry, decided before the edit, and its undo
-// removes it inside the group, named by its key alone.
-func TestLive_AUserAddedToTwoIsRemovedAlone(t *testing.T) {
-	const name = "ac-users"
-	setGroup(t, name, "alice", "bob")
-	t.Cleanup(func() { dropGroup(t, name) })
-	was := readGroup(t, netconf.Running, name)
-	changed, rc, err := call(t, false, map[string]any{paramContent: groups(`<group><name>` + name + `</name><user-name>carol</user-name></group>`)})
-	if err != nil || !changed {
-		t.Fatalf("the merge: changed %v, %v", changed, err)
-	}
-	want := groups(`<group><name>` + name + `</name><user-name xmlns:nc="urn:ietf:params:xml:ns:netconf:base:1.0" nc:operation="remove">carol</user-name></group>`)
-	if got := undoParams(t, rc.stubContext)[paramContent]; got != want {
-		t.Fatalf("undo %v, want %s", got, want)
-	}
-	if !replay(t, rc) || readGroup(t, netconf.Running, name) != was {
-		t.Fatalf("after the undo the group reads\n%s\nwant\n%s", readGroup(t, netconf.Running, name), was)
-	}
-}
-
-// TestLive_AChangeOnlyTheReadAfterCanNameIsUndone: a user merged into a group
-// of one user is a changed leaf or an added leaf-list entry, which the read
-// before cannot tell; the reads before and after can.
-func TestLive_AChangeOnlyTheReadAfterCanNameIsUndone(t *testing.T) {
-	const name = "ac-merge"
-	setGroup(t, name, "alice")
-	t.Cleanup(func() { dropGroup(t, name) })
-	was := readGroup(t, netconf.Running, name)
-	changed, rc, err := call(t, false, map[string]any{paramContent: groups(`<group><name>` + name + `</name><user-name>dave</user-name></group>`)})
-	if err != nil || !changed {
-		t.Fatalf("the merge: changed %v, %v", changed, err)
-	}
-	if !replay(t, rc) || readGroup(t, netconf.Running, name) != was {
-		t.Fatalf("after the undo the group reads\n%s\nwant\n%s", readGroup(t, netconf.Running, name), was)
-	}
-}
-
-// lostAnswer is a real session whose edit is applied and whose answer is
-// then lost, as a dropped connection after the device applied it leaves it.
-type lostAnswer struct{ netconfSession }
-
-func (l lostAnswer) EditConfig(ctx context.Context, req netconf.EditConfigRequest) error {
-	if err := l.netconfSession.EditConfig(ctx, req); err != nil {
-		return err
-	}
-	return errors.New("netconf: reading the reply to message-id 4: the connection was lost")
-}
-
-func TestLive_ALostAnswerStillLeavesTheUndo(t *testing.T) {
-	const name = "ac-lost"
-	dropGroup(t, name)
-	t.Cleanup(func() { dropGroup(t, name) })
-	swapOpenSession(t, func(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any, fqcn string, target netconf.Datastore) (netconfSession, error) {
-		s, err := realOpenSession(ctx, rc, device, params, fqcn, target)
-		if err != nil {
-			return nil, err
-		}
-		return lostAnswer{s}, nil
-	})
-	_, rc, err := call(t, false, map[string]any{paramContent: groups(`<group><name>` + name + `</name></group>`)})
-	if err == nil || readGroup(t, netconf.Running, name) == "" {
-		t.Fatalf("the edit: %v, the group there %v", err, readGroup(t, netconf.Running, name) != "")
-	}
-	if kept, _ := recordedUndo(t, rc.stubContext)[sdk.InverseKeepOnFailureKey].(bool); !kept {
-		t.Fatalf("no undo stands for the failed task: %v", rc.stats)
-	}
-	openSession = realOpenSession
-	if !replay(t, rc) || readGroup(t, netconf.Running, name) != "" {
-		t.Fatal("the undo left the group there")
-	}
-}
-
-func TestLive_TheCheckValidatesThroughTheCandidateAndChangesNothing(t *testing.T) {
-	const name = "ac-check"
-	dropGroup(t, name)
-	t.Cleanup(func() { dropGroup(t, name) })
-	content := groups(`<group><name>` + name + `</name><user-name>erin</user-name></group>`)
-	changed, rc, err := call(t, true, map[string]any{paramContent: content, paramCandidateCheck: true})
-	if err != nil || !changed || rc.stats[statCandidateCheck] != checkProved {
-		t.Fatalf("the check: changed %v, %v, stats %v", changed, err, rc.stats)
-	}
-	if readGroup(t, netconf.Running, name) != "" || readGroup(t, netconf.Candidate, name) != "" {
-		t.Fatal("the check left its edit in running or the candidate")
-	}
-	setGroup(t, name, "erin")
-	if changed, _, err := call(t, true, map[string]any{paramContent: content, paramCandidateCheck: true}); err != nil || changed {
-		t.Fatalf("a check of what is there: changed %v, %v", changed, err)
-	}
-	// The device's refusal is the check's answer: a real run would fail.
-	if _, _, err := call(t, true, map[string]any{paramContent: groups(`<group><name>` + name + `</name><user-name>` + strings.Repeat("x", 3) + `</user-name><nonesuch/></group>`), paramCandidateCheck: true}); err == nil || !strings.Contains(err.Error(), "a real run would fail") {
-		t.Fatalf("a document the device refuses: %v", err)
-	}
-	if readGroup(t, netconf.Candidate, name) != readGroup(t, netconf.Running, name) {
-		t.Fatal("a refused check left the candidate different from running")
-	}
-}
-
-func TestLive_TheCheckRefusesACandidateItCannotHoldAlone(t *testing.T) {
-	const name = "ac-dirty"
-	dropGroup(t, name)
-	t.Cleanup(func() { dropGroup(t, name) })
-	params := func() map[string]any {
-		return map[string]any{paramContent: groups(`<group><name>` + name + `</name></group>`), paramCandidateCheck: true}
-	}
-
-	other := session(t, netconf.Candidate)
-	staged := groups(`<group><name>` + name + `</name><user-name>someone-else</user-name></group>`)
-	if err := other.EditConfig(context.Background(), netconf.EditConfigRequest{Config: staged}); err != nil {
-		t.Fatal(err)
-	}
-	_, _, err := call(t, true, params())
-	if !cannotCheck(err, "refused the candidate's lock") {
-		t.Fatalf("a check of a dirty candidate = %v, want it unchecked", err)
-	}
-	if !strings.Contains(readGroup(t, netconf.Candidate, name), "someone-else") {
-		t.Fatal("the check discarded another session's staged change")
-	}
-	if err := other.DiscardChanges(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-
-	if err := other.Lock(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	_, _, err = call(t, true, params())
-	if !cannotCheck(err, "locked by session "+other.SessionID()) {
-		t.Fatalf("a check of a locked candidate = %v", err)
-	}
-	_ = other.Unlock(context.Background())
 }

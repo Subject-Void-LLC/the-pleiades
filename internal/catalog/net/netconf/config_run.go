@@ -18,7 +18,6 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/netconf"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
-	"github.com/Subject-Void-LLC/the-pleiades/pkg/secretref"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/yangdoc"
 )
 
@@ -103,31 +102,20 @@ func apply(ctx context.Context, rc sdk.RunbookContext, session netconfSession, d
 	// The candidate is always locked, so this task commits only its own
 	// edit and discards only what it staged itself: a lock is refused while
 	// another client's changes sit in the candidate.
-	locked := false
+	lock := &heldLock{ctx: ctx, session: session}
 	if candidate || req.lock == lockAlways || (req.lock == lockIfSupported && session.HasCapability(netconf.CapabilityCandidate)) {
-		if err := session.Lock(ctx); err != nil {
-			if candidate || req.lock == lockAlways {
-				return collection.Result{}, nil, fmt.Errorf("locking the %s datastore: %w", target, err)
-			}
-		} else {
-			locked = true
-			defer func() {
-				cctx, cancel := cleanupContext(ctx)
-				defer cancel()
-				_ = session.Unlock(cctx)
-			}()
+		if err := lock.take(ctx); err != nil && (candidate || req.lock == lockAlways) {
+			return collection.Result{}, nil, fmt.Errorf("locking the %s datastore: %w", target, err)
 		}
+		defer lock.release()
 	}
-	// The cleanup runs on a context of its own, bounded: a task canceled or
-	// timed out mid-edit still discards what it staged and releases the
-	// lock, rather than leaving both to how the server treats a dropped
-	// session (a lock can outlive a client for up to an hour on some).
+	// The discard runs on a context of its own, bounded: a task canceled or
+	// timed out mid-edit still discards what it staged. One that fails keeps
+	// the lock, and the session's close ends it (config_lock.go).
 	discard := func(cause error) error {
-		if candidate && locked {
-			cctx, cancel := cleanupContext(ctx)
-			defer cancel()
-			if err := session.DiscardChanges(cctx); err != nil {
-				return fmt.Errorf("%w; discarding the staged edit failed too: %v", cause, err)
+		if candidate && lock.held {
+			if err := lock.discard(); err != nil {
+				return fmt.Errorf("%w; discarding the staged edit failed too, so the candidate's lock is kept and the session closed rather than unlocked, which leaves the edit to no other client: %v", cause, err)
 			}
 		}
 		return cause
@@ -139,7 +127,7 @@ func apply(ctx context.Context, rc sdk.RunbookContext, session netconfSession, d
 		}
 	}
 	if !req.commit {
-		return validateOnly(ctx, rc, session, req, resolved, discard)
+		return validateOnly(ctx, rc, session, req, resolved, lock, discard)
 	}
 
 	// What the edit can touch, read where it lands: running, through the
@@ -202,8 +190,9 @@ func commitCandidate(ctx context.Context, session netconfSession, discard func(e
 }
 
 // validateOnly is commit: false on the candidate: the edit validated and
-// discarded, so it is checked by the device and applied nowhere.
-func validateOnly(ctx context.Context, rc sdk.RunbookContext, session netconfSession, req configRequest, resolved string, discard func(error) error) (collection.Result, []string, error) {
+// discarded, so it is checked by the device and applied nowhere. The discard
+// of the validated edit runs on a context of its own, as every discard does.
+func validateOnly(ctx context.Context, rc sdk.RunbookContext, session netconfSession, req configRequest, resolved string, lock *heldLock, discard func(error) error) (collection.Result, []string, error) {
 	if err := session.EditConfig(ctx, netconf.EditConfigRequest{Config: resolved, DefaultOperation: req.defaultOperation, ErrorOption: req.errorOption}); err != nil {
 		return collection.Result{}, nil, discard(err)
 	}
@@ -214,8 +203,8 @@ func validateOnly(ctx context.Context, rc sdk.RunbookContext, session netconfSes
 		}
 		validated = true
 	}
-	if err := session.DiscardChanges(ctx); err != nil {
-		return collection.Result{}, nil, fmt.Errorf("discarding the validated edit: %w", err)
+	if err := lock.discard(); err != nil {
+		return collection.Result{}, nil, fmt.Errorf("discarding the validated edit failed, so the candidate's lock is kept and the session closed rather than unlocked: %w", err)
 	}
 	if err := rc.SetStat(statValidated, validated); err != nil {
 		return collection.Result{}, nil, err
@@ -247,92 +236,4 @@ const cleanupBudget = 10 * time.Second
 // canceled with it, bounded by cleanupBudget.
 func cleanupContext(ctx context.Context) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.WithoutCancel(ctx), cleanupBudget)
-}
-
-// undoRun is one run's undo: planned from the read before, recorded before
-// the edit when that read decides it, and otherwise after the read after.
-type undoRun struct {
-	rc       sdk.RunbookContext
-	req      configRequest
-	plan     *plan
-	before   []*yangdoc.Element
-	explicit bool
-	// recorded says the undo was recorded before the edit.
-	recorded bool
-	// why is why no undo can be recorded, "" while one can.
-	why string
-}
-
-// newUndo plans the undo of req against before and records it at once when
-// the read before decides it. Content naming a secret plans none, so no
-// secret can reach the run's journal.
-func newUndo(rc sdk.RunbookContext, session netconfSession, req configRequest, before []*yangdoc.Element) (*undoRun, error) {
-	u := &undoRun{rc: rc, req: req, before: before, explicit: session.WithDefaults() == netconf.WithDefaultsExplicit}
-	if secretref.Has(req.content) {
-		u.why = "content names a secret, and an undo is never recorded for such a call, so no secret can reach the run's journal"
-		return u, nil
-	}
-	content, err := undoParse(req.content)
-	if err != nil {
-		return nil, err
-	}
-	u.plan = planUndo(content, before, req.defaultOperation)
-	switch {
-	case u.plan.why != "":
-		u.why = u.plan.why
-	case len(u.plan.deferred) == 0:
-		return u, u.record()
-	}
-	return u, nil
-}
-
-// record records the plan's undo, or keeps why it cannot be.
-func (u *undoRun) record() error {
-	doc, why := undoContent(u.plan, credentialValues(u.rc.InjectSecrets()), u.explicit)
-	switch {
-	case why != "":
-		u.why = why
-	case doc != "":
-		if err := recordUndo(u.rc, u.req, doc); err != nil {
-			return err
-		}
-		u.recorded = true
-	}
-	return nil
-}
-
-// lost is what the task says when the edit or the read after failed: an undo
-// left to the read after was never recorded.
-func (u *undoRun) lost() []string {
-	if u.recorded || u.why != "" || u.plan == nil || len(u.plan.deferred) == 0 {
-		return nil
-	}
-	return []string{"no undo is recorded: the edit's undo could be decided only by reading the configuration after it, which did not happen"}
-}
-
-// finish completes the undo once the read after has answered: an undo
-// recorded before an edit that changed nothing is taken back, one left to the
-// read after is decided and recorded, and a change with no undo says why.
-func (u *undoRun) finish(changed bool, after []*yangdoc.Element) ([]string, error) {
-	if !changed {
-		if u.recorded {
-			return nil, withdrawUndo(u.rc)
-		}
-		return nil, nil
-	}
-	if !u.recorded && u.why == "" {
-		u.plan.resolve(u.before, after)
-		if u.plan.why != "" {
-			u.why = u.plan.why
-		} else if err := u.record(); err != nil {
-			return nil, err
-		}
-	}
-	switch {
-	case u.recorded:
-		return nil, nil
-	case u.why == "":
-		u.why = "the content matched what the device held, yet its configuration changed (a value the device stores in another form), so no step of an undo could be named"
-	}
-	return []string{"the edit changed the configuration and no undo is recorded: " + u.why}, nil
 }

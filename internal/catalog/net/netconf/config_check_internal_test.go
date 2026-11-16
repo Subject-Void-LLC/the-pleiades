@@ -24,6 +24,12 @@ type stagedContext struct{ *stubContext }
 
 func (stagedContext) StagedChecksAllowed() bool { return true }
 
+// earlierContext is a context on the command line after an earlier checked
+// task on the device predicted a change.
+type earlierContext struct{ stagedContext }
+
+func (earlierContext) EarlierChangePredicted() bool { return true }
+
 // typedDevice is a device of a named type.
 type typedDevice struct {
 	*inventorytest.Stub
@@ -122,13 +128,14 @@ func TestConfigCheck_RefusesEachCallItCannotCheck(t *testing.T) {
 		params map[string]any
 		why    string
 	}{
-		"not asked for":          {stagedContext{newStubContext()}, checkDevice("c1"), map[string]any{paramContent: twoGroups}, "candidate_check: true"},
-		"a write to startup":     {stagedContext{newStubContext()}, checkDevice("c1"), checkParams(map[string]any{paramDatastore: "startup"}), "startup"},
-		"content naming secrets": {stagedContext{newStubContext()}, checkDevice("c1"), checkParams(map[string]any{paramContent: keyringDoc}), "names a secret"},
-		"off the command line":   {newStubContext(), checkDevice("c1"), checkParams(nil), "only from the command line"},
-		"no device":              {stagedContext{newStubContext()}, nil, checkParams(nil), "no target device"},
-		"a simulate-locked one":  {stagedContext{newStubContext()}, locked, checkParams(nil), "simulate-locked"},
-		"a type not measured":    {stagedContext{newStubContext()}, cisco, checkParams(nil), "generic_netconf"},
+		"not asked for":                     {stagedContext{newStubContext()}, checkDevice("c1"), map[string]any{paramContent: twoGroups}, "candidate_check: true"},
+		"a write to startup":                {stagedContext{newStubContext()}, checkDevice("c1"), checkParams(map[string]any{paramDatastore: "startup"}), "startup"},
+		"content naming secrets":            {stagedContext{newStubContext()}, checkDevice("c1"), checkParams(map[string]any{paramContent: keyringDoc}), "names a secret"},
+		"off the command line":              {newStubContext(), checkDevice("c1"), checkParams(nil), "only from the command line"},
+		"no device":                         {stagedContext{newStubContext()}, nil, checkParams(nil), "no target device"},
+		"a simulate-locked one":             {stagedContext{newStubContext()}, locked, checkParams(nil), "simulate-locked"},
+		"a type not measured":               {stagedContext{newStubContext()}, cisco, checkParams(nil), "generic_netconf"},
+		"after an earlier predicted change": {earlierContext{stagedContext{newStubContext()}}, checkDevice("c1"), checkParams(nil), "an earlier task of this check"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			swapOpenSession(t, func(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any, fqcn string, target netconf.Datastore) (netconfSession, error) {
@@ -151,8 +158,10 @@ func TestConfigCheck_RefusesASessionThatDoesNotQualify(t *testing.T) {
 		edit func(*fakeSession)
 		why  string
 	}{
-		"no :validate":  {func(f *fakeSession) { delete(f.capabilities, netconf.CapabilityValidate11) }, ":candidate and :validate"},
-		"no :candidate": {func(f *fakeSession) { delete(f.capabilities, netconf.CapabilityCandidate) }, ":candidate and :validate"},
+		"no :validate": {func(f *fakeSession) { delete(f.capabilities, netconf.CapabilityValidate11) }, "does not advertise :validate"},
+		// The double refuses the target as netconf.Open does, so this is the
+		// refusal a real session gives, reported unchecked.
+		"no :candidate": {func(f *fakeSession) { delete(f.capabilities, netconf.CapabilityCandidate) }, "does not advertise :candidate"},
 		"another server": {func(f *fakeSession) {
 			f.discovery = netconf.Discovery{Modules: []netconf.Module{{Name: "sysrepo", Namespace: "urn:elsewhere"}, {Name: "netopeer-notifications"}}}
 		}, "Netopeer2 over sysrepo"},
@@ -206,6 +215,10 @@ func TestConfigCheck_ADirtyCandidateIsNeitherEditedNorDiscarded(t *testing.T) {
 	}
 }
 
+// TestConfigCheck_FailsOnAnythingItCannotProve: every failure after the lock
+// fails the check; one that leaves the discard unproven is unverified and
+// keeps the lock, so the session's close ends it rather than an unlock that
+// could leave the edit staged (config_lock.go).
 func TestConfigCheck_FailsOnAnythingItCannotProve(t *testing.T) {
 	for name, tc := range map[string]struct {
 		edit       func(*fakeSession)
@@ -230,24 +243,44 @@ func TestConfigCheck_FailsOnAnythingItCannotProve(t *testing.T) {
 			if err == nil || !strings.Contains(err.Error(), tc.want) || strings.Contains(err.Error(), "unverified") != tc.unverified {
 				t.Fatalf("ConfigCheck() = %v, want %q (unverified %v)", err, tc.want, tc.unverified)
 			}
-			if f.unlocked != 1 {
-				t.Errorf("the lock was released %d times", f.unlocked)
+			wantUnlocks := 1
+			if tc.unverified {
+				wantUnlocks = 0
+			}
+			if f.unlocked != wantUnlocks || !f.closed {
+				t.Errorf("the lock was released %d times (want %d), session closed %v", f.unlocked, wantUnlocks, f.closed)
 			}
 		})
 	}
 }
 
-func TestConfigCheck_HoldsTheLockNoLongerThanItsBound(t *testing.T) {
-	saved := checkLockBound
-	checkLockBound = 50 * time.Millisecond
-	t.Cleanup(func() { checkLockBound = saved })
+// TestConfigCheck_DiscardsOnAContextOfItsOwn: a check canceled once the edit
+// is sent still discards on a live context, proves it, and only then unlocks.
+func TestConfigCheck_DiscardsOnAContextOfItsOwn(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	f := checkSession()
+	f.onValidate = cancel
+	f.validateErr = context.Canceled
+	useSession(t, f)
+	_, err := ConfigCheck(ctx, stagedContext{newStubContext()}, checkDevice("c1"), checkParams(nil))
+	if err == nil || f.discarded != 1 || f.discardCtxErr != nil || f.unlocked != 1 || f.unlockCtxErr != nil {
+		t.Fatalf("ConfigCheck() = %v: %d discards (on a context ending %v), %d unlocks (%v)", err, f.discarded, f.discardCtxErr, f.unlocked, f.unlockCtxErr)
+	}
+}
+
+// TestCheckThroughCandidate_HoldsTheLockNoLongerThanItsBound: the bound is a
+// deadline on the lock-held work, which a device that never answers the edit
+// meets; nothing here measures time.
+func TestCheckThroughCandidate_HoldsTheLockNoLongerThanItsBound(t *testing.T) {
 	f := checkSession()
 	f.blockEdit = true
-	useSession(t, f)
-	start := time.Now()
-	_, err := ConfigCheck(context.Background(), stagedContext{newStubContext()}, checkDevice("c1"), checkParams(nil))
-	if err == nil || !strings.Contains(err.Error(), "unverified") || time.Since(start) > 5*time.Second {
-		t.Fatalf("ConfigCheck() = %v after %v", err, time.Since(start))
+	req, err := readRequest(checkParams(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = checkThroughCandidate(context.Background(), f, req, 50*time.Millisecond)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("checkThroughCandidate() = %v, want the bound's deadline", err)
 	}
 }
 

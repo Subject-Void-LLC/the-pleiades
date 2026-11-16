@@ -81,20 +81,20 @@ func TestPlanUndo_WhatEachEditPlans(t *testing.T) {
 			before:   groups(`<group><name>a</name></group><group><name>ops</name><user-name>alice</user-name></group>`),
 			deferred: true,
 		},
-		"a container's changed value puts it back": {
+		"a container's changed value would be a put-back": {
 			content: `<sys xmlns="urn:s"><contact>new</contact></sys>`,
 			before:  `<sys xmlns="urn:s"><location>here</location><contact>old</contact></sys>`,
-			want:    `<sys xmlns="urn:s" ` + nc + ` nc:operation="replace"><location>here</location><contact>old</contact></sys>`,
+			why:     "put back what was read from the device",
 		},
 		"a leaf new to a container is removed inside it": {
 			content: `<sys xmlns="urn:s"><contact>new</contact></sys>`,
 			before:  `<sys xmlns="urn:s"><location>here</location></sys>`,
 			want:    `<sys xmlns="urn:s"><contact ` + nc + ` nc:operation="remove">new</contact></sys>`,
 		},
-		"a replace of what is there puts it back": {
+		"a replace of what is there would be a put-back": {
 			content: groups(`<group ` + nc + ` nc:operation="replace"><name>ops</name></group>`),
 			before:  groups(`<group><name>a</name></group><group><name>ops</name><user-name>alice</user-name></group>`),
-			want:    groups(`<group ` + nc + ` nc:operation="replace"><name>ops</name><user-name>alice</user-name></group>`),
+			why:     "put back what was read from the device",
 		},
 		"a delete of what is not there plans nothing": {
 			content: groups(`<group ` + nc + ` nc:operation="delete"><name>x</name></group>`),
@@ -112,11 +112,20 @@ func TestPlanUndo_WhatEachEditPlans(t *testing.T) {
 			defaultOp: netconf.DefaultOperationNone,
 			want:      ``,
 		},
-		"a nested entry created under a named one": {
-			content:  `<top xmlns="urn:t"><item><id>1</id><sub><k>x</k></sub></item></top>`,
-			before:   `<top xmlns="urn:t"><item><id>1</id><sub><k>y</k></sub></item><item><id>2</id></item></top>`,
-			deferred: false,
-			want:     `<top xmlns="urn:t"><item ` + nc + ` nc:operation="replace"><id>1</id><sub><k>y</k></sub></item></top>`,
+		"a nested change under a named entry would be a put-back": {
+			content: `<top xmlns="urn:t"><item><id>1</id><sub><k>x</k></sub></item></top>`,
+			before:  `<top xmlns="urn:t"><item><id>1</id><sub><k>y</k></sub></item><item><id>2</id></item></top>`,
+			why:     "put back what was read from the device",
+		},
+		"an entry created under a named one is named by the author's own key": {
+			content: `<top xmlns="urn:t"><item><id>1</id><new><k>x</k></new></item></top>`,
+			before:  `<top xmlns="urn:t"><item><id>1</id><descr>device-text</descr></item><item><id>2</id></item></top>`,
+			want:    `<top xmlns="urn:t"><item><id>1</id><new ` + nc + ` nc:operation="remove"><k>x</k></new></item></top>`,
+		},
+		"a composite-key group with one entry it cannot name is left whole to the read after": {
+			content:  `<p xmlns="urn:p"><pair><a>b</a><b>x</b></pair><pair><a>a</a><b>z</b></pair></p>`,
+			before:   `<p xmlns="urn:p"><pair><a>a</a><b>x</b></pair><pair><a>a</a><b>y</b></pair></p>`,
+			deferred: true,
 		},
 		"default_operation replace": {
 			content: `<sys xmlns="urn:s"><contact>new</contact></sys>`, before: ``, defaultOp: netconf.DefaultOperationReplace,
@@ -164,17 +173,24 @@ func TestPlanUndo_WhatEachEditPlans(t *testing.T) {
 }
 
 func TestDecideGroup_FromTheInstancesBeforeAndAfter(t *testing.T) {
-	g := group{path: []*yangdoc.Element{parse(t, `<nacm xmlns="`+nacmNS+`"/>`)[0], parse(t, `<groups xmlns="`+nacmNS+`"/>`)[0]}, name: parse(t, `<group xmlns="`+nacmNS+`"/>`)[0].Name}
 	const nc = `xmlns:nc="urn:ietf:params:xml:ns:netconf:base:1.0"`
-	for name, tc := range map[string]struct{ before, after, want, why string }{
-		"unchanged":     {groups(`<group><name>a</name></group>`), groups(`<group><name>a</name></group>`), ``, ``},
-		"one created":   {groups(`<group><name>a</name></group>`), groups(`<group><name>a</name></group><group><name>b</name><user-name>u</user-name></group>`), groups(`<group ` + nc + ` nc:operation="remove"><name>b</name><user-name>u</user-name></group>`), ``},
-		"one changed":   {groups(`<group><name>a</name><user-name>u</user-name></group>`), groups(`<group><name>a</name><user-name>v</user-name></group>`), groups(`<group ` + nc + ` nc:operation="replace"><name>a</name><user-name>u</user-name></group>`), ``},
-		"one gone":      {groups(`<group><name>a</name></group><group><name>b</name></group>`), groups(`<group><name>a</name></group>`), ``, "2 instances were there before and 1 after"},
-		"changed twice": {groups(`<group><name>a</name></group><group><name>b</name></group>`), groups(`<group><name>a</name><user-name>x</user-name></group><group><name>b</name><user-name>y</user-name></group>`), ``, "2 of them gone"},
+	path := []*yangdoc.Element{parse(t, `<nacm xmlns="`+nacmNS+`"/>`)[0], parse(t, `<groups xmlns="`+nacmNS+`"/>`)[0]}
+	name := parse(t, `<group xmlns="`+nacmNS+`"/>`)[0].Name
+	content := func(inner string) []*yangdoc.Element {
+		return parse(t, groups(inner))[0].Children[0].Children
+	}
+	for name2, tc := range map[string]struct {
+		before, after, content, want, why string
+	}{
+		"unchanged":   {groups(`<group><name>a</name></group>`), groups(`<group><name>a</name></group>`), `<group><name>a</name></group>`, ``, ``},
+		"one created": {groups(`<group><name>a</name></group>`), groups(`<group><name>a</name></group><group><name>b</name><user-name>u</user-name></group>`), `<group><name>b</name><user-name>u</user-name></group>`, groups(`<group ` + nc + ` nc:operation="remove"><name>b</name><user-name>u</user-name></group>`), ``},
+		"one changed": {groups(`<group><name>a</name><user-name>u</user-name></group>`), groups(`<group><name>a</name><user-name>v</user-name></group>`), `<group><name>a</name><user-name>v</user-name></group>`, ``, "put back what was read"},
+		"one gone":    {groups(`<group><name>a</name></group><group><name>b</name></group>`), groups(`<group><name>a</name></group>`), `<group><name>b</name></group>`, ``, "put back what was read"},
+		"another client's entry beside this task's": {groups(`<group><name>a</name></group>`), groups(`<group><name>a</name></group><group><name>b</name></group><group><name>c</name></group>`), `<group><name>b</name></group>`, ``, "2 instances are new and the content names 1"},
+		"a new entry the content does not name":     {groups(`<group><name>a</name></group>`), groups(`<group><name>a</name></group><group><name>c</name></group>`), `<group><name>b</name></group>`, ``, "matches no element of the content"},
 	} {
-		t.Run(name, func(t *testing.T) {
-			p := &plan{deferred: []group{g, g}}
+		t.Run(name2, func(t *testing.T) {
+			p := &plan{deferred: []group{{path: path, name: name, content: content(tc.content)}}}
 			p.resolve(parse(t, tc.before), parse(t, tc.after))
 			if tc.why != "" {
 				if !strings.Contains(p.why, tc.why) {
@@ -191,7 +207,7 @@ func TestDecideGroup_FromTheInstancesBeforeAndAfter(t *testing.T) {
 			}
 		})
 	}
-	if got := instancesAt(parse(t, `<nacm xmlns="`+nacmNS+`"/><nacm xmlns="`+nacmNS+`"/>`), g); got != nil {
+	if got := instancesAt(parse(t, `<nacm xmlns="`+nacmNS+`"/><nacm xmlns="`+nacmNS+`"/>`), group{path: path, name: name}); got != nil {
 		t.Errorf("instances under a doubled container = %v", got)
 	}
 }
@@ -211,14 +227,14 @@ func TestUndoContent_HoldsAnUndoToWhatTheJournalKeeps(t *testing.T) {
 		explicit bool
 		why      string
 	}{
-		"too long":                      {`<sys xmlns="urn:s"><contact>` + strings.Repeat("x", 300) + `</contact></sys>`, nil, true, "bytes"},
-		"a secret leaf":                 {`<sys xmlns="urn:s"><password>hunter2hunter2</password></sys>`, nil, true, "masking hides"},
-		"the credential":                {`<sys xmlns="urn:s"><contact>s3cret-value</contact></sys>`, []string{"s3cret-value"}, true, "masking hides"},
-		"a template":                    {`<sys xmlns="urn:s"><contact>{{ x }}</contact></sys>`, nil, true, "secret reference"},
-		"a placeholder":                 {`<sys xmlns="urn:s"><contact>pleiades-masked-0123456789abcdef</contact></sys>`, nil, true, "placeholder"},
-		"a formatting char":             {"<sys xmlns=\"urn:s\"><contact>a\u202eb</contact></sys>", nil, true, "control or formatting"},
-		"a put-back read in report-all": {`<sys xmlns="urn:s" xmlns:nc="urn:ietf:params:xml:ns:netconf:base:1.0" nc:operation="replace"><contact>x</contact></sys>`, nil, false, "with-defaults explicit"},
-		"an attribute it cannot write":  {`<sys xmlns="urn:s" xmlns:o="urn:o" o:a="1"><contact>x</contact></sys>`, nil, true, "cannot be written"},
+		"too long":                     {`<sys xmlns="urn:s"><contact>` + strings.Repeat("x", 300) + `</contact></sys>`, nil, true, "bytes"},
+		"a secret leaf":                {`<sys xmlns="urn:s"><password>hunter2hunter2</password></sys>`, nil, true, "masking hides"},
+		"the credential":               {`<sys xmlns="urn:s"><contact>s3cret-value</contact></sys>`, []string{"s3cret-value"}, true, "masking hides"},
+		"a template":                   {`<sys xmlns="urn:s"><contact>{{ x }}</contact></sys>`, nil, true, "secret reference"},
+		"a placeholder":                {`<sys xmlns="urn:s"><contact>pleiades-masked-0123456789abcdef</contact></sys>`, nil, true, "placeholder"},
+		"a formatting char":            {"<sys xmlns=\"urn:s\"><contact>a\u202eb</contact></sys>", nil, true, "control or formatting"},
+		"reads not in explicit mode":   {`<sys xmlns="urn:s"><contact>x</contact></sys>`, nil, false, "with-defaults explicit"},
+		"an attribute it cannot write": {`<sys xmlns="urn:s" xmlns:o="urn:o" o:a="1"><contact>x</contact></sys>`, nil, true, "cannot be written"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if doc, why := undoContent(undo(tc.doc), tc.creds, tc.explicit); doc != "" || !strings.Contains(why, tc.why) {

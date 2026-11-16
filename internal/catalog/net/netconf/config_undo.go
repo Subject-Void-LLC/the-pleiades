@@ -7,18 +7,20 @@
 // created, and its undo removes it. An element the read names for certain (a
 // container, which a list entry cannot be, since it carries no leaf; or the
 // one instance agreeing with the content on every leading leaf it holds,
-// where a list entry's keys are, RFC 7950 section 7.8.5) is recurred into,
-// and where a leaf of it changes, or a part of it cannot be named, it is put
-// back whole as it was read. What is decided this way is recorded before the
-// edit is sent, so an edit whose answer is lost still leaves its undo.
+// where a list entry's keys are, RFC 7950 section 7.8.5) is recurred into.
 //
-// A content element the read cannot tell apart from what is there, a list
-// entry whose leading leaves the edit changes, sitting directly under the
-// containers a filter follows, is left to the read after the edit: the
-// instances of its name before and after are compared, and one created or
-// one changed is undone as such. Such an undo can be recorded only once the
-// read after has answered, so a lost answer leaves none, and the run says
-// so.
+// Only removals are journaled, each built from the author's own content (its
+// element names, the keys it wrote, its own values), never from text read off
+// the device (pkg/sdk's InverseSpec). A change to something that was there
+// would be undone only by putting back what the device held, so it records no
+// journaled undo, and the run says so.
+//
+// The groups under the containers a filter follows are planned whole: when
+// one content element of a group cannot be told apart from what is there (a
+// list entry whose leading leaves the edit changes), the whole group is left
+// to the read after the edit, which attributes each new instance to a content
+// element of its own. That undo is recorded only once the read after has
+// answered, so a lost answer leaves none, and the run says so.
 package netconf
 
 import (
@@ -40,6 +42,10 @@ const (
 	opNone    = "none"
 )
 
+// whyPutBack is why a change to something that was there records no
+// journaled undo.
+const whyPutBack = "it changes configuration that was there, whose undo would put back what was read from the device, and the run's journal keeps no configuration read from a device (only removals of what this task's own content created are recorded); a rollback refuses this task unless it is left (--leave) or the task's rollback: list says what to do"
+
 // operationAttr is an undo element's operation attribute, nc:operation.
 func operationAttr(op string) []xml.Attr {
 	return []xml.Attr{{Name: xml.Name{Space: yangdoc.NetconfBase, Local: "operation"}, Value: op}}
@@ -53,6 +59,8 @@ type group struct {
 	path []*yangdoc.Element
 	// name is the group's element name.
 	name xml.Name
+	// content are the content's elements of that name there.
+	content []*yangdoc.Element
 }
 
 // plan is an undo being planned.
@@ -61,7 +69,7 @@ type plan struct {
 	top []*yangdoc.Element
 	// deferred are the groups left to the read after the edit.
 	deferred []group
-	// why is the first reason no undo can be planned; "" while one can.
+	// why is the first reason no undo can be recorded; "" while one can.
 	why string
 }
 
@@ -77,267 +85,87 @@ func planUndo(content, before []*yangdoc.Element, defaultOp string) *plan {
 	if defaultOp == "" {
 		defaultOp = opMerge
 	}
-	for _, e := range content {
-		p.container(e, before, nil, defaultOp)
-		if p.why != "" {
-			return p
-		}
-	}
+	p.level(content, before, nil, defaultOp)
 	return p
 }
 
-// container plans e, at a level the filter followed by name, against
-// device, the instances the read holds at this level. A container is
-// followed into; the first element that may be anything else is planned as
-// a group, every instance of its name read whole.
-func (p *plan) container(e *yangdoc.Element, device []*yangdoc.Element, path []*yangdoc.Element, op string) {
-	if !netconf.Descendable(e) {
-		p.group(e, yangdoc.FindIn(device, e.Name), path, op)
-		return
-	}
-	found := yangdoc.FindIn(device, e.Name)
-	if len(found) > 1 {
-		p.why = fmt.Sprintf("the read holds %d instances of %s, which the content names as a container", len(found), e.Name.Local)
-		return
-	}
-	var below []*yangdoc.Element
-	if len(found) == 1 {
-		below = found[0].Children
-	}
-	inner := extend(path, e.Copy(nil))
-	for _, c := range e.Children {
-		p.container(c, below, inner, op)
+// level plans els, the content's elements at a level the filter followed by
+// name, against device, what the read holds there. Elements of one name are
+// planned together: containers are followed into, and any other name is a
+// group, every instance of it read whole.
+func (p *plan) level(els, device []*yangdoc.Element, path []*yangdoc.Element, op string) {
+	for _, name := range names(els) {
+		same := yangdoc.FindIn(els, name)
+		found := yangdoc.FindIn(device, name)
+		if !allDescendable(same) {
+			p.group(group{path: extend(nil, path...), name: name, content: same}, found, op)
+		} else if len(found) > 1 {
+			p.why = fmt.Sprintf("the read holds %d instances of %s, which the content names as a container", len(found), name.Local)
+		} else {
+			var below []*yangdoc.Element
+			if len(found) == 1 {
+				below = found[0].Children
+			}
+			var kids []*yangdoc.Element
+			for _, e := range same {
+				kids = append(kids, e.Children...)
+			}
+			p.level(kids, below, extend(path, same[0].Copy(nil)), op)
+		}
 		if p.why != "" {
 			return
 		}
 	}
 }
 
-// group plans e against instances, every instance of its name under path,
-// each read whole. An element no instance can be named for is deferred to the
-// read after the edit.
-func (p *plan) group(e *yangdoc.Element, instances []*yangdoc.Element, path []*yangdoc.Element, op string) {
-	steps := extend(nil, path...)
-	ops, ok := planEntry(e, instances, op)
-	switch {
-	case !ok && e.IsLeaf():
-		p.why = "the edit changes " + e.Name.Local + ", a value directly under containers, which no read can tell a leaf from a list of leaves for"
-	case !ok:
-		p.deferred = append(p.deferred, group{path: steps, name: e.Name})
-	case ops != nil:
-		p.top = place(p.top, steps, ops...)
+// group plans every content element of g against instances. One that cannot
+// be named for certain leaves the whole group to the read after the edit, so
+// nothing is planned twice for it; one whose undo is a put-back stops the
+// plan.
+func (p *plan) group(g group, instances []*yangdoc.Element, op string) {
+	var ops []*yangdoc.Element
+	for _, e := range g.content {
+		got, v := planEntry(e, instances, op)
+		switch {
+		case v == ambiguous && e.IsLeaf():
+			p.why = "the edit changes " + e.Name.Local + ", a value directly under containers, which no read can tell a leaf from a list of leaves for"
+			return
+		case v == ambiguous:
+			p.deferred = append(p.deferred, g)
+			return
+		case v == putBack:
+			p.why = whyPutBack
+			return
+		}
+		ops = append(ops, got...)
+	}
+	if len(ops) > 0 {
+		p.top = place(p.top, g.path, ops...)
 	}
 }
 
-// planEntry is the undo of content element e against instances, the
-// device's instances of its name, each read whole: the elements of the undo
-// at e's level, none when e changes nothing, and false when e cannot be named
-// for certain. op is the operation e inherits.
-func planEntry(e *yangdoc.Element, instances []*yangdoc.Element, op string) ([]*yangdoc.Element, bool) {
-	if len(e.Attrs) > 0 {
-		own := netconf.Operation(e)
-		if own == "" || len(e.Attrs) > 1 {
-			// An attribute other than the operation (yang:insert's position)
-			// is something these reads cannot account for.
-			return nil, false
-		}
-		op = own
-	}
-	if op == opNone && !holdsOperation(e) {
-		// RFC 6241 section 7.2: under none the datastore is unaffected
-		// until an operation attribute says otherwise, and none does here.
-		return nil, true
-	}
-	if e.IsLeaf() {
-		return planLeaf(e, instances, op)
-	}
-	x, absent, container, ok := match(e, instances)
-	switch {
-	case !ok:
-		return nil, false
-	case absent && (op == opDelete || op == opRemove):
-		// Nothing there to take away: a delete of it fails the edit, and a
-		// remove of it changes nothing.
-		return nil, true
-	case absent:
-		return []*yangdoc.Element{removal(e, allLeaves(e))}, true
-	case op == opDelete || op == opRemove || op == opReplace:
-		return []*yangdoc.Element{restore(x)}, true
-	case op == opCreate:
-		// A create of what is there fails the edit and changes nothing.
-		return nil, true
-	}
-	// A merge, or none: each part of e against x, x put back whole when a
-	// part cannot be planned. A container is named by its name alone; an
-	// entry that may be a list's, by its leading leaves, its keys among them.
-	var ident []*yangdoc.Element
-	if !container {
-		ident = keyLeaves(x)
-	}
-	inner := x.Copy(nil, ident...)
-	for _, c := range e.Children {
-		ops, ok := planEntry(c, x.Find(c.Name), op)
-		if !ok {
-			return []*yangdoc.Element{restore(x)}, true
-		}
-		inner.Children = append(inner.Children, ops...)
-	}
-	if len(inner.Children) == len(ident) {
-		return nil, true
-	}
-	return []*yangdoc.Element{inner}, true
-}
-
-// holdsOperation reports whether e or anything inside it carries an
-// operation attribute.
-func holdsOperation(e *yangdoc.Element) bool {
-	if netconf.Operation(e) != "" {
-		return true
-	}
-	for _, c := range e.Children {
-		if holdsOperation(c) {
-			return true
-		}
-	}
-	return false
-}
-
-// planLeaf is the undo of a leaf (or a leaf-list entry) e against instances:
-// nothing when its value is there or the operation changes nothing, its
-// removal when no instance holds it and either none is there or two or more
-// are (a leaf is never there twice, so those are a leaf-list's), and false
-// when one instance of another value is there, which is a changed leaf or a
-// leaf-list entry added beside it.
-func planLeaf(e *yangdoc.Element, instances []*yangdoc.Element, op string) ([]*yangdoc.Element, bool) {
-	if op == opDelete || op == opRemove || op == opReplace {
-		return nil, false
-	}
-	for _, x := range instances {
-		if yangdoc.CanonicalValue(x) == yangdoc.CanonicalValue(e) {
-			return nil, true
-		}
-	}
-	if len(instances) == 1 {
-		return nil, false
-	}
-	return []*yangdoc.Element{removal(e, nil)}, true
-}
-
-// match finds e's instance among instances: absent when there is certainly
-// none, container when the reads prove it one (so its name alone names it),
-// and false when it cannot be told. e holds children.
-func match(e *yangdoc.Element, instances []*yangdoc.Element) (x *yangdoc.Element, absent, container, ok bool) {
-	if len(instances) == 0 {
-		return nil, true, false, true
-	}
-	if len(allLeaves(e)) == 0 {
-		// e carries no leaf, so no key: it can only be a container.
-		if len(instances) == 1 {
-			return instances[0], false, true, true
-		}
-		return nil, false, false, false
-	}
-	if len(instances) == 1 {
-		lead := instances[0].LeadingLeaves()
-		if len(lead) == 0 || len(yangdoc.FindIn(e.Children, lead[0].Name)) == 0 {
-			// The instance starts with no leaf, so it is no list entry; or e
-			// lacks the leaf it starts with, which as a list entry's first key
-			// e would have to carry: either way a container.
-			return instances[0], false, true, true
-		}
-	}
-	var agree []*yangdoc.Element
-	for _, x := range instances {
-		if agrees(e, x) {
-			agree = append(agree, x)
-		}
-	}
-	switch {
-	case len(agree) == 1:
-		return agree[0], false, false, true
-	case len(agree) > 1:
-		return nil, false, false, false
-	case len(instances) >= 2 && firstKeyNew(e, instances):
-		return nil, true, false, true
-	}
-	return nil, false, false, false
-}
-
-// agrees reports whether e holds, for every leading leaf of x it names, the
-// value x has, x's keys among them. A name x or e holds more than once is a
-// leaf-list's, never a key, and is passed over.
-func agrees(e, x *yangdoc.Element) bool {
-	lead := x.LeadingLeaves()
-	for _, l := range lead {
-		mine := yangdoc.FindIn(e.Children, l.Name)
-		if len(mine) == 0 || len(mine) > 1 && mine[0].IsLeaf() || len(yangdoc.FindIn(lead, l.Name)) > 1 {
-			continue
-		}
-		if len(mine) > 1 || !mine[0].IsLeaf() || yangdoc.CanonicalValue(mine[0]) != yangdoc.CanonicalValue(l) {
-			return false
-		}
-	}
-	return true
-}
-
-// firstKeyNew reports, for a list (two or more instances, so not a
-// container), whether every instance starts with a leaf of one name, e holds
-// it, and no instance holds e's value there: the first key is new, so the
-// entry is.
-func firstKeyNew(e *yangdoc.Element, instances []*yangdoc.Element) bool {
-	var first xml.Name
-	for i, x := range instances {
-		lead := x.LeadingLeaves()
-		if len(lead) == 0 || (i > 0 && lead[0].Name != first) {
-			return false
-		}
-		first = lead[0].Name
-	}
-	mine := yangdoc.FindIn(e.Children, first)
-	if len(mine) != 1 || !mine[0].IsLeaf() {
-		return false
-	}
-	for _, x := range instances {
-		if yangdoc.CanonicalValue(x.LeadingLeaves()[0]) == yangdoc.CanonicalValue(mine[0]) {
-			return false
-		}
-	}
-	return true
-}
-
-// keyLeaves are x's leading leaves but those of a name x holds more than
-// once (a leaf-list's entries, never a key): what names x as a list entry.
-func keyLeaves(x *yangdoc.Element) []*yangdoc.Element {
-	lead := x.LeadingLeaves()
-	var out []*yangdoc.Element
-	for _, l := range lead {
-		if len(yangdoc.FindIn(lead, l.Name)) == 1 {
-			out = append(out, l)
+// names are the distinct names of els, in the order they first appear.
+func names(els []*yangdoc.Element) []xml.Name {
+	seen := map[xml.Name]bool{}
+	var out []xml.Name
+	for _, e := range els {
+		if !seen[e.Name] {
+			seen[e.Name] = true
+			out = append(out, e.Name)
 		}
 	}
 	return out
 }
 
-// allLeaves are e's children with no children of their own, in order.
-func allLeaves(e *yangdoc.Element) []*yangdoc.Element {
-	var out []*yangdoc.Element
-	for _, c := range e.Children {
-		if c.IsLeaf() {
-			out = append(out, c)
+// allDescendable reports whether every element of els can only be a
+// container (netconf.Descendable).
+func allDescendable(els []*yangdoc.Element) bool {
+	for _, e := range els {
+		if !netconf.Descendable(e) {
+			return false
 		}
 	}
-	return out
-}
-
-// removal is the undo element removing e, named by ident (its leaves, a
-// list entry's keys among them), or by its value for a leaf.
-func removal(e *yangdoc.Element, ident []*yangdoc.Element) *yangdoc.Element {
-	return e.Copy(operationAttr(opRemove), ident...)
-}
-
-// restore is the undo element putting x back whole as it was read.
-func restore(x *yangdoc.Element) *yangdoc.Element {
-	return x.Copy(operationAttr(opReplace), x.Children...)
+	return true
 }
 
 // extend is path with more appended, in a new slice.
