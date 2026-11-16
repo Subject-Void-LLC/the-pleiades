@@ -37,8 +37,8 @@ func TestNewController_ReadsTheControllerAndItsConsole(t *testing.T) {
 		ctl.CMLBaseURL() != "https://10.10.20.161" || ctl.CMLPlaintextWarning() != "" || host != "10.10.20.161" || port != 22 {
 		t.Errorf("controller: base %q, warning %q, console %s:%d", ctl.CMLBaseURL(), ctl.CMLPlaintextWarning(), host, port)
 	}
-	if got := devicetls.For(item).PinnedFingerprint(); got != pin {
-		t.Errorf("the pin reads as %q", got)
+	if got := devicetls.For(item).Pins(); len(got) != 1 || got[0] != pin {
+		t.Errorf("the pins read as %q", got)
 	}
 	if w := devicetls.For(item).Warnings("cml"); len(w) != 1 {
 		t.Errorf("warnings %q", w)

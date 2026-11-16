@@ -131,4 +131,10 @@ func TestReservedPropertyWriter(t *testing.T) {
 	if got := inventory.ReservedPropertyWriter(inventory.DiscoveredProperty); got != "onboarding" {
 		t.Errorf("discovered: %q", got)
 	}
+	if got := inventory.ReservedPropertyWriter(inventory.TLSFirstUseProperty); !strings.Contains(got, "--tls-first-use") || !strings.Contains(got, "confirm-tls-pin") {
+		t.Errorf("first-use pin: %q", got)
+	}
+	if !inventory.IsReservedProperty(inventory.TLSFirstUseProperty) {
+		t.Error("the first-use pin is not reserved, so a person or a sync could write one a run would trust")
+	}
 }

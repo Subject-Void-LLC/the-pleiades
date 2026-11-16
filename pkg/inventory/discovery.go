@@ -25,19 +25,34 @@ import (
 // method, with a revision like any other change.
 const DiscoveredProperty = "discovered"
 
+// TLSFirstUseProperty is the property onboarding writes when, on an
+// explicit opt-in, it records the certificate a device first presented as
+// the pin it trusts (pkg/devicetls reads it, under the same key). It is
+// reserved for the same reason DiscoveredProperty is: its value is worth
+// something only because onboarding saw it, and a person's check is what
+// moves it into tls_fingerprint (record.Base.ConfirmFirstUsePin). Kept apart
+// from tls_fingerprint, it can be neither forged by another write path nor
+// mistaken for a pin a person checked, and a record that loses it loses the
+// trust with it.
+const TLSFirstUseProperty = "tls_first_use_fingerprint"
+
 // IsReservedProperty reports whether key is written only by the platform,
-// never by a person or a sync plugin as a property: DiscoveredProperty,
-// written by onboarding, and GrantedProperty, written by a program's probe
-// or an operator's scoped assertion through their own commands.
+// never by a person or a sync plugin as a property: DiscoveredProperty and
+// TLSFirstUseProperty, written by onboarding, and GrantedProperty, written
+// by a program's probe or an operator's scoped assertion through their own
+// commands.
 func IsReservedProperty(key string) bool {
-	return key == DiscoveredProperty || key == GrantedProperty
+	return key == DiscoveredProperty || key == GrantedProperty || key == TLSFirstUseProperty
 }
 
 // ReservedPropertyWriter names, for an error message, what writes the
 // reserved property key.
 func ReservedPropertyWriter(key string) string {
-	if key == GrantedProperty {
+	switch key {
+	case GrantedProperty:
 		return "pleiades onboard (a program's probe) and pleiades grant-capability"
+	case TLSFirstUseProperty:
+		return "onboarding with --tls-first-use, and confirming its pin (pleiades confirm-tls-pin) moves it to tls_fingerprint"
 	}
 	return "onboarding"
 }
