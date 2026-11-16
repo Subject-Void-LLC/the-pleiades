@@ -436,6 +436,7 @@ DOCKER_DEPENDENT_PACKAGES := \
 	github.com/Subject-Void-LLC/the-pleiades/internal/catalog/net/batfish \
 	github.com/Subject-Void-LLC/the-pleiades/internal/catalog/net/frr \
 	github.com/Subject-Void-LLC/the-pleiades/internal/catalog/net/linux \
+	github.com/Subject-Void-LLC/the-pleiades/internal/catalog/net/netconf \
 	github.com/Subject-Void-LLC/the-pleiades/internal/catalog/net/ovs \
 	github.com/Subject-Void-LLC/the-pleiades/internal/catalog/scan \
 	github.com/Subject-Void-LLC/the-pleiades/internal/catalog/virt/clab \
