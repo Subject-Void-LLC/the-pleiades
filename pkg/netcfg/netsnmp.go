@@ -137,18 +137,25 @@ func replaceArgument(line string, ws []word, at int, found *[]string) string {
 // maskTrapsess masks a trapsess line's community and passphrases: the word
 // after -c, -A or -X, or the rest of the word an option is attached to
 // (-cpublic). It works from the last word back, so every earlier word's
-// offset holds.
+// offset holds, and a word already replaced (a value that itself began like
+// an option) is not replaced a second time at its old offset.
 func maskTrapsess(line string, ws []word, found *[]string) string {
+	replaced := -1
 	for k := len(ws) - 1; k >= 1; k-- {
 		text := ws[k].text
 		if len(text) < 2 || !slices.Contains(trapsessSecretOptions, text[:2]) {
 			continue
 		}
 		switch {
-		case len(text) > 2 && !strings.HasPrefix(text[2:], MaskPrefix):
-			line = replaceWord(line, word{text: text[2:], start: ws[k].start + 2}, found)
-		case len(text) == 2 && k+1 < len(ws) && !strings.HasPrefix(ws[k+1].text, MaskPrefix):
+		case len(text) > 2:
+			// An option with its value attached, masked now or masked already.
+			if !strings.HasPrefix(text[2:], MaskPrefix) {
+				line = replaceWord(line, word{text: text[2:], start: ws[k].start + 2}, found)
+			}
+			replaced = k
+		case k+1 < len(ws) && k+1 != replaced && !strings.HasPrefix(ws[k+1].text, MaskPrefix):
 			line = replaceWord(line, ws[k+1], found)
+			replaced = k + 1
 		}
 	}
 	return line

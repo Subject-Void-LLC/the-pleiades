@@ -64,6 +64,9 @@ func TestMask_SNMPSecretsOfEveryVersion(t *testing.T) {
 		{"trapsess -v2c -ctrap-community-4 nms.example.com", []string{"trap-community-4"}, "trapsess -v2c -c"},
 		{"trapsess -v 3 -u monitor -l authPriv -a SHA -A auth-pass-11 -x AES -X priv-pass-11 10.0.0.1", []string{"auth-pass-11", "priv-pass-11"}, " -a SHA -A "},
 		{"trapsess -v 3 -u monitor -l authPriv -Xpriv-pass-12 -a SHA -A auth-pass-12 10.0.0.1", []string{"auth-pass-12", "priv-pass-12"}, " 10.0.0.1"},
+		// A community that itself begins like an option is replaced once,
+		// never again at its old offset.
+		{"trapsess -v 2c -c -Atrap-community-5 10.0.0.1", []string{"trap-community-5"}, "trapsess -v 2c -c -A"},
 	} {
 		masked, found := netcfg.MaskFound(tc.config)
 		for _, s := range tc.secret {
