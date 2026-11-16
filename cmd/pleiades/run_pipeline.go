@@ -564,6 +564,15 @@ func newRunExecutor(opts runOptions, world validate.WorldView, sink engine.Journ
 		_ = locks.Close() // an in-process manager has nothing to flush, and its Close never fails
 	}
 
+	// Every named secret of the project is masked from the run's start, not
+	// only those a task resolves: a task that reads a device's configuration
+	// prints a pre-shared key no task of this run asked for.
+	known, err := credential.SecretValues(vaultDir(opts.dir))
+	if err != nil {
+		closeAll()
+		return nil, nil, fmt.Errorf("reading the project's named secrets to mask them: %w", err)
+	}
+
 	// The executor chain, innermost fallback last: a registered Collection
 	// method wins, then a transport-backed legacy fqcn, then the two engine
 	// keywords. The Collection registry is consulted first, which is what
@@ -578,8 +587,10 @@ func newRunExecutor(opts runOptions, world validate.WorldView, sink engine.Journ
 		// inventory or reaches the external Collections directory. Only the
 		// command line lets a check stage a change in a device's staging area
 		// (net.netconf.config through the candidate), where its RPCs are held
-		// to the check's.
-		engine.WithStagedChecks(engine.WithProjectFiles(engine.NewCredentialRunbookContext(credentials), opts.dir, projectWriteGuards(opts.dir)...)),
+		// to the check's. A method writing a device's text into the project
+		// (net.yang.schema) masks it by the same named secrets the run masks
+		// its own output by, since no output boundary reaches that file.
+		engine.WithKnownSecretValues(engine.WithStagedChecks(engine.WithProjectFiles(engine.NewCredentialRunbookContext(credentials), opts.dir, projectWriteGuards(opts.dir)...)), known),
 		engine.WithConnectionPool(pool, engine.PersistFor(inventoryRepo)),
 		// A method creating a machine (virt.vbox.vm.clone) seeds it with a
 		// device's login from the same vault: the public key and a hash of
@@ -605,15 +616,6 @@ func newRunExecutor(opts runOptions, world validate.WorldView, sink engine.Journ
 		// --setting's values, for every task leaving the parameter out.
 		engine.WithRunSettings(opts.settings),
 	)
-
-	// Every named secret of the project is masked from the run's start, not
-	// only those a task resolves: a task that reads a device's configuration
-	// prints a pre-shared key no task of this run asked for.
-	known, err := credential.SecretValues(vaultDir(opts.dir))
-	if err != nil {
-		closeAll()
-		return nil, nil, fmt.Errorf("reading the project's named secrets to mask them: %w", err)
-	}
 
 	// A real run keeps what its tasks observed as the devices' facts, under
 	// .pleiades/facts (internal/facts); a check keeps none, and so opens no
