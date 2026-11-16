@@ -1,5 +1,5 @@
-// SNMPCapable: a device reached by SNMP, the agentless row of PLAN.md's
-// transport table.
+// SNMPCapable: a device reached by SNMP alone, with no agent of this
+// platform's installed on it.
 package capability
 
 // NameSNMP is SNMPCapable's name.
