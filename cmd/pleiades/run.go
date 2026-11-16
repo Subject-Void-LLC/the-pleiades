@@ -51,7 +51,7 @@ func runRunbook(args []string) error {
 	if err != nil {
 		return err
 	}
-	if opts.tlsKeyLog, err = keyLog.option(); err != nil {
+	if opts.tlsKeyLog, err = keyLog.option(opts.dir); err != nil {
 		return err
 	}
 	if opts.variables, err = extraVars.variables(); err != nil {

@@ -73,7 +73,7 @@ func runAdhoc(args []string) error {
 	if err != nil {
 		return err
 	}
-	if opts.tlsKeyLog, err = keyLog.option(); err != nil {
+	if opts.tlsKeyLog, err = keyLog.option(opts.dir); err != nil {
 		return err
 	}
 	hosts, method := positionals[0], positionals[1]

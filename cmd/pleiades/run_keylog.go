@@ -11,6 +11,8 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/clireport"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
@@ -44,13 +46,26 @@ func addTLSKeyLogFlag(fs *flag.FlagSet) *tlsKeyLogFlag {
 	return f
 }
 
-// option returns the file named, refusing one that already exists before
-// anything is loaded, so a run that could only be refused later is refused
-// first. The file is created only as the run starts (startTLSKeyLog), where
-// creating it refuses an existing name again, atomically.
-func (f *tlsKeyLogFlag) option() (string, error) {
+// option returns the file named, refusing one that already exists, or one
+// inside projectDir, before anything is loaded, so a run that could only be
+// refused later is refused first. The file is created only as the run
+// starts (startTLSKeyLog), where creating it refuses an existing name again,
+// atomically.
+//
+// A key log inside the project is refused because methods read project
+// files (file.copy's src, a template) and send them to devices: a runbook in
+// the same project could then carry the run's own session secrets off the
+// machine.
+func (f *tlsKeyLogFlag) option(projectDir string) (string, error) {
 	if f.path == "" {
 		return "", nil
+	}
+	inside, err := insideDirResolved(f.path, projectDir)
+	if err != nil {
+		return "", fmt.Errorf("--%s: %w", tlsKeyLogFlagName, err)
+	}
+	if inside {
+		return "", fmt.Errorf("--%s: %s is inside the project %s, whose files a run's methods can read and send to devices: write the key log outside the project", tlsKeyLogFlagName, f.path, projectDir)
 	}
 	if _, err := os.Lstat(f.path); err == nil {
 		return "", fmt.Errorf("--%s: %s already exists: a key log is never written over or added to, so name a file that does not exist yet", tlsKeyLogFlagName, f.path)
@@ -58,6 +73,40 @@ func (f *tlsKeyLogFlag) option() (string, error) {
 		return "", fmt.Errorf("--%s: %w", tlsKeyLogFlagName, err)
 	}
 	return f.path, nil
+}
+
+// insideDirResolved reports whether path, which need not exist, lies in dir or
+// below it, comparing both with symbolic links resolved where they exist
+// (the file's directory, and dir), so a link cannot carry the key log into
+// the project unnoticed. (ai.go's insideDir compares without resolving
+// links, which is enough where it is used and not here.)
+func insideDirResolved(path, dir string) (bool, error) {
+	absDir, err := resolvedAbs(dir)
+	if err != nil {
+		return false, err
+	}
+	absParent, err := resolvedAbs(filepath.Dir(path))
+	if err != nil {
+		return false, err
+	}
+	rel, err := filepath.Rel(absDir, filepath.Join(absParent, filepath.Base(path)))
+	if err != nil {
+		return false, nil
+	}
+	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)), nil
+}
+
+// resolvedAbs is p made absolute, with its symbolic links resolved when p
+// exists; a p that does not exist is only made absolute.
+func resolvedAbs(p string) (string, error) {
+	abs, err := filepath.Abs(p)
+	if err != nil {
+		return "", err
+	}
+	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
+		return resolved, nil
+	}
+	return abs, nil
 }
 
 // startTLSKeyLog creates the run's key log when path names one, recording

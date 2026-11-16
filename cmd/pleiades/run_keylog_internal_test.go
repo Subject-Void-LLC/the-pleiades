@@ -19,16 +19,17 @@ import (
 // second name are refused as the flag is read.
 func TestTLSKeyLogFlag_ReadsOneNewFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "run.keylog")
+	project := t.TempDir()
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
 	f := addTLSKeyLogFlag(fs)
 	if err := fs.Parse([]string{"--tls-keylog", path}); err != nil {
 		t.Fatal(err)
 	}
-	if got, err := f.option(); err != nil || got != path {
+	if got, err := f.option(project); err != nil || got != path {
 		t.Errorf("option() = %q, %v, want %q", got, err, path)
 	}
 	none := &tlsKeyLogFlag{}
-	if got, err := none.option(); err != nil || got != "" {
+	if got, err := none.option(project); err != nil || got != "" {
 		t.Errorf("no flag: option() = %q, %v", got, err)
 	}
 	for _, tc := range []struct {
@@ -53,19 +54,20 @@ func TestTLSKeyLogFlag_ReadsOneNewFile(t *testing.T) {
 // anything, as run and adhoc both end.
 func TestTLSKeyLogFlag_RefusesBeforeLoading(t *testing.T) {
 	dir := t.TempDir()
-	existing := filepath.Join(dir, "existing.keylog")
+	keys := t.TempDir()
+	existing := filepath.Join(keys, "existing.keylog")
 	if err := os.WriteFile(existing, []byte("keep\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	f := &tlsKeyLogFlag{path: existing}
-	if _, err := f.option(); err == nil || !strings.Contains(err.Error(), existing) || !strings.Contains(err.Error(), "already exists") {
+	if _, err := f.option(dir); err == nil || !strings.Contains(err.Error(), existing) || !strings.Contains(err.Error(), "already exists") {
 		t.Errorf("an existing file: %v", err)
 	}
 	if runtime.GOOS != "windows" {
 		// A name beneath a regular file is not a missing name: the lookup
 		// itself fails, and the run does not start on a guess.
 		under := &tlsKeyLogFlag{path: filepath.Join(existing, "run.keylog")}
-		if _, err := under.option(); err == nil || strings.Contains(err.Error(), "already exists") {
+		if _, err := under.option(dir); err == nil || strings.Contains(err.Error(), "already exists") {
 			t.Errorf("a name beneath a file: %v", err)
 		}
 	}
@@ -144,4 +146,40 @@ func TestTLSKeyLog_ARunCreatesItAndWarns(t *testing.T) {
 		t.Errorf("the run refused its key log and reported %+v with tasks %+v, want its one task not run", refused.Outcome, refused.Tasks)
 	}
 	closeTLSKeyLog(nil)
+}
+
+// TestTLSKeyLogFlag_RefusesAFileInsideTheProject refuses a key log the run's
+// methods could read back out of the project (file.copy's src) and send to a
+// device: a name inside the project, below it, and a name outside reached
+// through a link into it; a name outside the project is taken.
+func TestTLSKeyLogFlag_RefusesAFileInsideTheProject(t *testing.T) {
+	project := t.TempDir()
+	outside := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(project, "captures"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	refused := []string{
+		filepath.Join(project, "run.keylog"),
+		filepath.Join(project, "captures", "run.keylog"),
+	}
+	if runtime.GOOS != "windows" {
+		link := filepath.Join(outside, "into-project")
+		if err := os.Symlink(project, link); err != nil {
+			t.Fatal(err)
+		}
+		refused = append(refused, filepath.Join(link, "run.keylog"))
+	}
+	for _, p := range refused {
+		f := &tlsKeyLogFlag{path: p}
+		if _, err := f.option(project); err == nil || !strings.Contains(err.Error(), "inside the project") {
+			t.Errorf("%s: %v, want it refused as inside the project", p, err)
+		}
+	}
+	ok := filepath.Join(outside, "run.keylog")
+	if got, err := (&tlsKeyLogFlag{path: ok}).option(project); err != nil || got != ok {
+		t.Errorf("a key log outside the project: %q, %v", got, err)
+	}
+	if err := runAdhoc([]string{"-", "net.pcap.summary", "--dir", project, "--tls-keylog", refused[0]}); err == nil || !strings.Contains(err.Error(), "inside the project") {
+		t.Errorf("adhoc with a key log inside the project: %v", err)
+	}
 }
