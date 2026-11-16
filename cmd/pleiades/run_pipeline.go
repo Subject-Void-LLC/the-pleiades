@@ -511,7 +511,7 @@ func newRunExecutor(opts runOptions, world validate.WorldView, sink engine.Journ
 	// The first lookup of a credential whose SNMP community is too short to
 	// mask by value (stored with --allow-short-community) says so, once in
 	// every run, since the run masks it by shape alone
-	// (engine.CredentialSecrets leaves it out of the value-masking set).
+	// (wire.MaskedValues leaves it out of the value-masking set).
 	credentials = credential.NoticeShortCommunity(credentials, func(name string) {
 		fmt.Fprintln(os.Stderr, "warning: "+credential.ShortCommunityWarning(termsafe.EscapeLine(name)))
 	})

@@ -221,10 +221,12 @@ func (a *Adapter) Execute(ctx context.Context, payload wire.DispatchPayload) (wi
 	}
 
 	// Every value worth masking out of the captured Ansible output: what
-	// the Controller attached as this device's identity, plus exactly what
-	// the injection said was secret. A module's own JSON result can echo
-	// either one straight back.
-	secrets := redact.MapValues(payload.Secrets)
+	// the Controller attached as this device's identity, by the one rule a
+	// native run masks it with (wire.MaskedValues, which keeps the username
+	// readable, as a native run does), plus exactly what the injection said
+	// was secret. A module's own JSON result can echo either one straight
+	// back.
+	secrets := wire.MaskedValues(payload.Secrets)
 	if injected != nil {
 		secrets = append(secrets, injected.Mask...)
 	}

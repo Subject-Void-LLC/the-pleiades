@@ -16,8 +16,7 @@ var (
 // each caller's message, and it says nothing of the text itself.
 //
 // A certificate is the one credential field that is not masked by value
-// (it is public by construction, and internal/engine.CredentialSecrets
-// leaves it readable), so a private key pasted into it beside the
+// (it is public by construction, and MaskedValues leaves it readable), so a private key pasted into it beside the
 // certificate, the shape an operator's "cert and key" bundle takes, would
 // travel and print as public. Refusing it where it is stored is what keeps
 // that field's public marker true.

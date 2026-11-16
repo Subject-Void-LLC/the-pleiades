@@ -477,14 +477,10 @@ func methodError(fqcn string, mode collection.Mode, err error) error {
 }
 
 // credentialSecrets returns the values of a method's credential that output
-// must never show: every value except the ones a credential names as
-// identifiers (its username, a certificate's public half, a seeded login's
-// username and public key). The SSH transport's own masking leaves the same
-// identifiers readable (action_ssh.go), and for the same reason: masking is
-// a substring scrub, so a short username such as root would scrub every
-// path under /root out of a run's report. Everything else is masked,
-// including a key this list has never heard of, so a secret field added to
-// a credential later is masked by default.
+// must never show, by the one rule every path masks a credential with
+// (wire.MaskedValues): every value except the identifiers, a username, a
+// certificate's public half, a seeded login's, an SNMPv3 user and its
+// protocol names, and a community too short to mask by value.
 func credentialSecrets(secrets map[string]string) []string { return CredentialSecrets(secrets) }
 
 // CredentialSecrets is credentialSecrets for a Runner, which masks and guards
@@ -493,30 +489,12 @@ func credentialSecrets(secrets map[string]string) []string { return CredentialSe
 // naming the login (its own account, a file it owns) was refused as holding
 // a secret of the run.
 //
-// An SNMP credential's USM user and protocol names are identifiers too:
-// masking "aes256-reeder" or a user named "snmp" by value would scrub those
-// words from every output and refuse every fact naming them. A community too
-// short to mask by value (credential.ShortCommunity, stored only when the
-// operator allowed it) is left out for redact.MinLiteralLength's reason and
-// masked by shape alone; every run that uses one says so
-// (credential.ShortCommunityWarning).
-func CredentialSecrets(secrets map[string]string) []string {
-	out := make([]string, 0, len(secrets))
-	short := credential.ShortCommunity(secrets)
-	for key, value := range secrets {
-		switch key {
-		case wire.SecretUsername, wire.SecretCertificatePEM, wire.SecretSeedUsername, wire.SecretSeedAuthorizedKey, wire.SecretSeedHost,
-			wire.SecretSNMPUser, wire.SecretSNMPAuthProtocol, wire.SecretSNMPPrivProtocol:
-			continue
-		case wire.SecretSNMPCommunity:
-			if short {
-				continue
-			}
-		}
-		out = append(out, value)
-	}
-	return out
-}
+// It is wire.MaskedValues, the rule itself, which lives in pkg/wire so a
+// path that may not import this package (an Ansible job's output, an
+// external Collection's program, onboarding) masks by it too. A short
+// community it leaves out is masked by shape alone, and every run that
+// carries one says so (credential.ShortCommunityWarning).
+func CredentialSecrets(secrets map[string]string) []string { return wire.MaskedValues(secrets) }
 
 // WithDeviceRoutes lets a Collection method reach a device through its
 // route of SSH hops (Phase 72's "route"), resolved from repo with each

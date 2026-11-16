@@ -48,29 +48,3 @@ func TestHopSecrets_MaskWhatATargetMasks(t *testing.T) {
 		t.Errorf("hopSecrets() = %q, want %q", got, want)
 	}
 }
-
-// TestCredentialSecrets_MasksSNMPSecretsAndNotItsNames: a community and both
-// USM passphrases are masked; the USM user and the protocol names are not,
-// since masking "aes256-reeder" by value would scrub that word from every
-// output; and a community too short to mask by value is left out, to be
-// masked by shape alone.
-func TestCredentialSecrets_MasksSNMPSecretsAndNotItsNames(t *testing.T) {
-	got := CredentialSecrets(map[string]string{
-		wire.SecretUsername:           "admin",
-		wire.SecretSNMPUser:           "snmp",
-		wire.SecretSNMPAuthProtocol:   string(wire.SNMPAuthSHA512),
-		wire.SecretSNMPAuthPassphrase: "auth-pass-phrase",
-		wire.SecretSNMPPrivProtocol:   string(wire.SNMPPrivAES256Reeder),
-		wire.SecretSNMPPrivPassphrase: "priv-pass-phrase",
-	})
-	slices.Sort(got)
-	if want := []string{"auth-pass-phrase", "priv-pass-phrase"}; !slices.Equal(got, want) {
-		t.Errorf("CredentialSecrets(v3 user) = %q, want only the passphrases %q", got, want)
-	}
-	if got := CredentialSecrets(map[string]string{wire.SecretSNMPCommunity: "c0mmunity-s3cret"}); !slices.Equal(got, []string{"c0mmunity-s3cret"}) {
-		t.Errorf("CredentialSecrets(long community) = %q, want it masked", got)
-	}
-	if got := CredentialSecrets(map[string]string{wire.SecretSNMPCommunity: "public", wire.SecretPassword: "hunter2-long-enough"}); !slices.Equal(got, []string{"hunter2-long-enough"}) {
-		t.Errorf("CredentialSecrets(short community) = %q, want the community left out and the password kept", got)
-	}
-}

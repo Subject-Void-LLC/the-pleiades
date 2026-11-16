@@ -12,6 +12,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/external"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
 
 // Phase 45's Schema/Injection Hardening, as tests: every boundary an
@@ -165,6 +166,38 @@ func TestHardening_EverySecretIsMasked(t *testing.T) {
 	for _, leaked := range []string{"hunter2", "extended-tail", "-extended"} {
 		if strings.Contains(err.Error(), leaked) {
 			t.Errorf("the error still shows %q: %q", leaked, err.Error())
+		}
+	}
+}
+
+// TestHardening_MasksTheCredentialByTheOneRule: a program's error is masked
+// by the rule every path masks a credential with (wire.MaskedValues), not by
+// every value it was handed: an SNMPv3 passphrase goes, and the USM user,
+// the protocol names and a word holding a short community stay readable.
+// Every value was masked before, so "sha256" and the user read as ********.
+func TestHardening_MasksTheCredentialByTheOneRule(t *testing.T) {
+	dir := programDir(t)
+	oneMethodProgram(t, dir, "loadertest.mask.run", false,
+		`printf '{"error":"user monitor-user sha256 aes256-reeder refused auth-pass-phrase-1 in the republic"}' >&3`)
+	d := loadOne(t, dir, "loadertest.mask.run", testOptions())
+	for name, secrets := range map[string]map[string]string{
+		"v3 user": {
+			wire.SecretSNMPUser: "monitor-user", wire.SecretSNMPAuthProtocol: "sha256", wire.SecretSNMPAuthPassphrase: "auth-pass-phrase-1",
+			wire.SecretSNMPPrivProtocol: "aes256-reeder", wire.SecretSNMPPrivPassphrase: "priv-pass-phrase-1",
+		},
+		"short community": {wire.SecretSNMPCommunity: "public", wire.SecretSNMPAuthPassphrase: "auth-pass-phrase-1"},
+	} {
+		rc := newRecordingContext()
+		rc.secrets = secrets
+		_, err := d.Invoke(t.Context(), rc, newSSHDevice(), nil)
+		if err == nil {
+			t.Fatalf("%s: expected the program's failure", name)
+		}
+		if strings.Contains(err.Error(), "auth-pass-phrase-1") {
+			t.Errorf("%s: the passphrase reached the error: %q", name, err.Error())
+		}
+		if !strings.Contains(err.Error(), "user monitor-user sha256 aes256-reeder refused") || !strings.Contains(err.Error(), "in the republic") {
+			t.Errorf("%s: an identifier or an ordinary word was masked: %q", name, err.Error())
 		}
 	}
 }

@@ -19,8 +19,8 @@ import (
 )
 
 // ShortCommunity reports whether a flattened credential carries an SNMP
-// community too short to mask by value. internal/engine.CredentialSecrets
-// leaves such a community out of the masking set, and the warning below is
+// community too short to mask by value. wire.MaskedValues, the one masking
+// rule, leaves such a community out of the masking set, and the warning below is
 // what a run says about it.
 func ShortCommunity(secrets map[string]string) bool {
 	return wire.SNMPOf(secrets).ShortCommunity()
