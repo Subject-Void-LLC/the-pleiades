@@ -212,10 +212,16 @@ func replay(t *testing.T, rc *liveRC) bool {
 	return changed
 }
 
+// TestLive_ACreateIsUndoneByItsRecordedUndo: the undo removes the group the
+// run created and nothing else, the two groups beside it surviving (measured
+// 2026-11-16: Netopeer2 takes a remove naming no key as every entry of the
+// list, so a removal that lost its key would take them too).
 func TestLive_ACreateIsUndoneByItsRecordedUndo(t *testing.T) {
 	const name = "ac-create"
 	dropGroup(t, name)
-	t.Cleanup(func() { dropGroup(t, name) })
+	setGroup(t, "ac-keep1", "x")
+	setGroup(t, "ac-keep2", "y")
+	t.Cleanup(func() { dropGroup(t, name); dropGroup(t, "ac-keep1"); dropGroup(t, "ac-keep2") })
 	content := groups(`<group><name>` + name + `</name><user-name>alice</user-name></group>`)
 
 	changed, rc, err := call(t, false, map[string]any{paramContent: content})
@@ -229,8 +235,14 @@ func TestLive_ACreateIsUndoneByItsRecordedUndo(t *testing.T) {
 	if _, recorded := rerun.stats[sdk.StatInverse]; recorded {
 		t.Errorf("a re-run that changed nothing recorded an undo: %v", rerun.stats[sdk.StatInverse])
 	}
+	if !strings.Contains(undoParams(t, rc.stubContext)[paramContent].(string), `nc:operation="remove"><name>`+name+`</name>`) {
+		t.Fatalf("the undo was not decided before the edit: %v", undoParams(t, rc.stubContext))
+	}
 	if !replay(t, rc) || readGroup(t, netconf.Running, name) != "" {
 		t.Fatalf("the undo left the group there: %s", readGroup(t, netconf.Running, name))
+	}
+	if readGroup(t, netconf.Running, "ac-keep1") == "" || readGroup(t, netconf.Running, "ac-keep2") == "" {
+		t.Fatal("the undo removed groups the run did not create")
 	}
 }
 
