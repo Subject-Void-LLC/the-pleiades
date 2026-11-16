@@ -135,7 +135,7 @@ func Restconf(ctx context.Context, rc sdk.RunbookContext, device inventory.Inven
 // a refused login ends it too (pkg/restconf's RefusedError, after which the
 // client sends nothing more). Anything else is one more failed try.
 func restconfTry(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem) (string, string, []string, error) {
-	client, warnings, err := restconf.ClientFor(device, device.Name(), rc.InjectSecrets())
+	client, warnings, err := restconf.ClientForContext(ctx, device, device.Name(), rc.InjectSecrets())
 	if err != nil {
 		// The record itself is unusable, which no try changes.
 		return "", "", nil, &stopWaiting{err: err}

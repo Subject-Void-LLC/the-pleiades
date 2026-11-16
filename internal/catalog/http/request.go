@@ -289,7 +289,7 @@ func Request(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 		if err := httpapi.Authorize(req, spec.device.auth, secrets); err != nil {
 			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 		}
-		if deviceTLS, err = spec.device.tlsConfig(secrets); err != nil {
+		if deviceTLS, err = spec.device.tlsConfig(ctx, secrets); err != nil {
 			return collection.Result{}, fmt.Errorf("%s: device %q: %w", fqcn, spec.device.name, err)
 		}
 		// Recorded before the call, so a request that fails still says

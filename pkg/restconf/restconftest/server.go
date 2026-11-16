@@ -16,6 +16,7 @@ package restconftest
 import (
 	"bytes"
 	"compress/gzip"
+	"crypto/tls"
 	_ "embed" // the captured library documents
 	"encoding/json"
 	"encoding/pem"
@@ -115,6 +116,9 @@ type Options struct {
 	// GoingDown, in IOSXE mode, answers every write 500 "Server is going
 	// down", as while the YANG stack goes down.
 	GoingDown bool
+	// MaxTLSVersion caps the TLS version the server negotiates, as an older
+	// device's does (tls.VersionTLS12); zero is Go's default, TLS 1.3.
+	MaxTLSVersion uint16
 }
 
 // Server is a RESTCONF server over TLS.
@@ -168,6 +172,11 @@ func New(t testing.TB, opts Options) *Server {
 			s.connections++
 			s.mu.Unlock()
 		}
+	}
+	if opts.MaxTLSVersion != 0 {
+		// StartTLS keeps a configuration set before it, adding its own
+		// certificate.
+		s.TLS = &tls.Config{MinVersion: tls.VersionTLS12, MaxVersion: opts.MaxTLSVersion}
 	}
 	s.StartTLS()
 	t.Cleanup(s.Close)

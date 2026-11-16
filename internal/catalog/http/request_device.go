@@ -3,6 +3,7 @@
 package http
 
 import (
+	"context"
 	"crypto/tls"
 	"errors"
 	"fmt"
@@ -112,13 +113,14 @@ func (d *requestDevice) check(headers map[string]string, validateCerts bool) err
 }
 
 // tlsConfig is the device's TLS configuration for this request, with the
-// client certificate from secrets when the record presents one; nil for
-// an http:// base URL.
-func (d *requestDevice) tlsConfig(secrets map[string]string) (*tls.Config, error) {
+// client certificate from secrets when the record presents one, writing the
+// session's secrets to the run's key log when ctx carries one
+// (devicetls.WithKeyLog); nil for an http:// base URL.
+func (d *requestDevice) tlsConfig(ctx context.Context, secrets map[string]string) (*tls.Config, error) {
 	if d.base.Scheme != "https" {
 		return nil, nil
 	}
-	return d.tls.Config(secrets)
+	return d.tls.ConfigContext(ctx, secrets)
 }
 
 // checkRedirect follows a redirect only within the device's origin, and

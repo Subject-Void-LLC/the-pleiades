@@ -100,7 +100,7 @@ func Facts(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventor
 	if device == nil {
 		return collection.Result{}, errors.New(fqcn + ": the task has no target device")
 	}
-	client, warnings, err := restconf.ClientFor(device, device.Name(), rc.InjectSecrets())
+	client, warnings, err := restconf.ClientForContext(ctx, device, device.Name(), rc.InjectSecrets())
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: device %q: %w", fqcn, device.Name(), err)
 	}

@@ -114,7 +114,7 @@ func GNMI(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventory
 	return collection.Result{Changed: false}, nil
 }
 
-// gnmiTry is one try at the server: a new client (pkg/gnmi.ClientFor, so the
+// gnmiTry is one try at the server: a new client (pkg/gnmi.ClientForContext, so the
 // device's own TLS settings and credential, no proxy), its Capabilities, and
 // the client closed after, so a connection from an earlier try is never taken
 // for an answer. It returns the gNMI version that answered and the warnings
@@ -125,7 +125,7 @@ func GNMI(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventory
 // a refused login ends it too (pkg/gnmi's RefusedError, after which the client
 // sends nothing more). Anything else is one more failed try.
 func gnmiTry(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem) (string, []string, error) {
-	client, warnings, err := gnmi.ClientFor(device, device.Name(), rc.InjectSecrets())
+	client, warnings, err := gnmi.ClientForContext(ctx, device, device.Name(), rc.InjectSecrets())
 	if err != nil {
 		// The record itself is unusable, which no try changes.
 		return "", nil, &stopWaiting{err: err}
