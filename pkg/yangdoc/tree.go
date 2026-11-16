@@ -88,6 +88,14 @@ func (e *Element) LeadingLeaves() []*Element {
 	return e.Children
 }
 
+// Copy is e with attrs in place of its attributes and children in place of
+// its children (the slice copied, so appending to one never writes into the
+// other), keeping its name, its value and where it sits, so a prefix its
+// value names still resolves through its own document.
+func (e *Element) Copy(attrs []xml.Attr, children ...*Element) *Element {
+	return &Element{Name: e.Name, Attrs: attrs, text: e.text, Children: append([]*Element(nil), children...), parent: e.parent, decls: e.decls}
+}
+
 // Resolve returns the namespace prefix names where e sits, through the
 // declarations of e and the elements around it in its own document.
 func (e *Element) Resolve(prefix string) (string, bool) {

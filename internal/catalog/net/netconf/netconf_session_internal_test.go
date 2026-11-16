@@ -79,21 +79,24 @@ func sessionParams(extra map[string]any) map[string]any {
 
 // TestOpenSession_ConfiguresADeviceOverARealSubsystem covers the whole
 // path a real run takes: the connection on the device's NETCONF port, the
-// subsystem channel, the hellos, and the edit-config the task asked for,
-// followed by the commit the candidate datastore needs.
+// subsystem channel, the hellos, the read before, the edit-config the task
+// asked for, the commit the candidate datastore needs, and the read after.
+// This scripted server answers every get-config alike, so the two reads
+// agree and the run reports no change: changed is what the reads say, not
+// that the device answered ok.
 func TestOpenSession_ConfiguresADeviceOverARealSubsystem(t *testing.T) {
-	srv, device, rc := scriptedServer(t, []string{netconf.CapabilityCandidate}, nil)
+	srv, device, rc := scriptedServer(t, []string{netconf.CapabilityCandidate}, map[string]string{"get-config": "<data/>"})
 
 	result, err := Config(context.Background(), rc, device, sessionParams(map[string]any{paramDatastore: "candidate", "lock": "if_supported"}))
 	if err != nil {
 		t.Fatalf("config over a real session: %v", err)
 	}
-	if !result.Changed {
-		t.Error("a configuration the device accepted reported no change")
+	if result.Changed {
+		t.Error("an edit whose reads before and after agree reported a change")
 	}
 	got := strings.Join(srv.Commands(), ",")
-	if !strings.Contains(got, "edit-config") || !strings.Contains(got, "commit") {
-		t.Errorf("the device received %v, want the edit and the commit", srv.Commands())
+	if !strings.Contains(got, "edit-config") || !strings.Contains(got, "commit") || strings.Count(got, "get-config") != 2 {
+		t.Errorf("the device received %v, want a read, the edit, the commit and a read", srv.Commands())
 	}
 	// With lock: if_supported against a device advertising the candidate
 	// datastore, a real run takes the lock and releases it on the way out.
