@@ -57,11 +57,33 @@ func (s Schema) Key() string {
 	return s.Name + "@" + s.Revision
 }
 
+// MaxFileNameBytes is the longest file name a saved source may have: the
+// most one name may be on Linux, macOS and Windows alike. An identifier may
+// be 255 bytes, so its name@revision.yang may not fit.
+const MaxFileNameBytes = 255
+
+// windowsDevices are the names Windows takes for a device rather than a
+// file, whatever follows them after a dot and in any case.
+var windowsDevices = map[string]bool{
+	"con": true, "prn": true, "aux": true, "nul": true,
+	"com1": true, "com2": true, "com3": true, "com4": true, "com5": true, "com6": true, "com7": true, "com8": true, "com9": true,
+	"lpt1": true, "lpt2": true, "lpt3": true, "lpt4": true, "lpt5": true, "lpt6": true, "lpt7": true, "lpt8": true, "lpt9": true,
+}
+
+// IsWindowsDevice reports whether a file named name would be one of
+// Windows' device names (nul, con, com1, ...), which it takes for that
+// device whatever follows a dot and in any case.
+func IsWindowsDevice(name string) bool {
+	base, _, _ := strings.Cut(name, ".")
+	return windowsDevices[strings.ToLower(base)]
+}
+
 // FileName is the file the entry's source is saved as: RFC 6020 section
 // 5.2's name@revision.yang, or name.yang for an entry with no revision. It is
 // built only from a YANG identifier and a revision date, so it holds no path
 // separator, no "..", and nothing a device chose but those two words; anything
-// else is an error rather than a name.
+// else is an error rather than a name, and so is a name longer than
+// MaxFileNameBytes or one Windows reads as a device (nul.yang).
 func (s Schema) FileName() (string, error) {
 	if !IsIdentifier(s.Name) {
 		return "", fmt.Errorf("%q is not a YANG identifier, so it names no file", s.Name)
@@ -69,7 +91,14 @@ func (s Schema) FileName() (string, error) {
 	if s.Revision != "" && !yangRevision.MatchString(s.Revision) {
 		return "", fmt.Errorf("%q is not a revision date, so it names no file", s.Revision)
 	}
-	return s.Key() + ".yang", nil
+	name := s.Key() + ".yang"
+	switch {
+	case len(name) > MaxFileNameBytes:
+		return "", fmt.Errorf("%s would be saved as a file name of %d bytes, more than the %d a file system takes", s.Key(), len(name), MaxFileNameBytes)
+	case IsWindowsDevice(name):
+		return "", fmt.Errorf("%s would be saved as %s, which Windows takes for a device, not a file", s.Key(), name)
+	}
+	return name, nil
 }
 
 // ParseKey reads name or name@revision, as a task names a module, holding

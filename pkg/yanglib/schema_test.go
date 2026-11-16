@@ -199,6 +199,8 @@ func TestSchemaFileName_BuildsOnlyFromAnIdentifierAndADate(t *testing.T) {
 		{Schema{Name: "ietf-interfaces", Revision: "2018-02-20"}, "ietf-interfaces@2018-02-20.yang"},
 		{Schema{Name: "ATM-FORUM-TC-MIB"}, "ATM-FORUM-TC-MIB.yang"},
 		{Schema{Name: "a.b_c-d", Revision: "2024-01-01"}, "a.b_c-d@2024-01-01.yang"},
+		{Schema{Name: strings.Repeat("a", 239), Revision: "2024-01-01"}, strings.Repeat("a", 239) + "@2024-01-01.yang"},
+		{Schema{Name: "Con", Revision: "2024-01-01"}, "Con@2024-01-01.yang"},
 	} {
 		if got, err := c.s.FileName(); err != nil || got != c.want {
 			t.Errorf("FileName(%+v) = %q, %v; want %q", c.s, got, err, c.want)
@@ -207,9 +209,24 @@ func TestSchemaFileName_BuildsOnlyFromAnIdentifierAndADate(t *testing.T) {
 	for _, s := range []Schema{
 		{Name: "../x"}, {Name: "a/b"}, {Name: ".."}, {Name: ".hidden"}, {Name: ""}, {Name: "a\\b"},
 		{Name: "a", Revision: "../../x"}, {Name: "a", Revision: "2024-01-01/.."}, {Name: "a b"},
+		{Name: strings.Repeat("a", 240), Revision: "2024-01-01"}, {Name: strings.Repeat("a", 251)},
+		{Name: "nul"}, {Name: "CON"}, {Name: "lpt3.x"}, {Name: "Com9.cfg", Revision: "2024-01-01"},
 	} {
 		if got, err := s.FileName(); err == nil {
 			t.Errorf("FileName(%+v) = %q, want a refusal", s, got)
+		}
+	}
+}
+
+// TestIsWindowsDevice reads a name as Windows does: its part before the
+// first dot, in any case.
+func TestIsWindowsDevice(t *testing.T) {
+	for name, want := range map[string]bool{
+		"nul": true, "NUL.yang": true, "con.x.yang": true, "Aux": true, "com1": true, "LPT9.txt": true, "prn": true,
+		"nul@2024-01-01.yang": false, "com10": false, "console": false, "lpt": false, "": false, "a.nul": false,
+	} {
+		if got := IsWindowsDevice(name); got != want {
+			t.Errorf("IsWindowsDevice(%q) = %v, want %v", name, got, want)
 		}
 	}
 }
