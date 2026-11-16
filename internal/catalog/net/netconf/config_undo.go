@@ -151,7 +151,7 @@ func planEntry(e *yangdoc.Element, instances []*yangdoc.Element, op string) ([]*
 	if e.IsLeaf() {
 		return planLeaf(e, instances, op)
 	}
-	x, absent, ok := match(e, instances)
+	x, absent, container, ok := match(e, instances)
 	switch {
 	case !ok:
 		return nil, false
@@ -168,8 +168,13 @@ func planEntry(e *yangdoc.Element, instances []*yangdoc.Element, op string) ([]*
 		return nil, true
 	}
 	// A merge, or none: each part of e against x, x put back whole when a
-	// part cannot be planned.
-	inner := x.Copy(nil, x.LeadingLeaves()...)
+	// part cannot be planned. A container is named by its name alone; an
+	// entry that may be a list's, by its leading leaves, its keys among them.
+	var ident []*yangdoc.Element
+	if !container {
+		ident = keyLeaves(x)
+	}
+	inner := x.Copy(nil, ident...)
 	for _, c := range e.Children {
 		ops, ok := planEntry(c, x.Find(c.Name), op)
 		if !ok {
@@ -177,7 +182,7 @@ func planEntry(e *yangdoc.Element, instances []*yangdoc.Element, op string) ([]*
 		}
 		inner.Children = append(inner.Children, ops...)
 	}
-	if len(inner.Children) == len(x.LeadingLeaves()) {
+	if len(inner.Children) == len(ident) {
 		return nil, true
 	}
 	return []*yangdoc.Element{inner}, true
@@ -219,17 +224,18 @@ func planLeaf(e *yangdoc.Element, instances []*yangdoc.Element, op string) ([]*y
 }
 
 // match finds e's instance among instances: absent when there is certainly
-// none, and false when it cannot be told. e holds children.
-func match(e *yangdoc.Element, instances []*yangdoc.Element) (x *yangdoc.Element, absent, ok bool) {
+// none, container when the reads prove it one (so its name alone names it),
+// and false when it cannot be told. e holds children.
+func match(e *yangdoc.Element, instances []*yangdoc.Element) (x *yangdoc.Element, absent, container, ok bool) {
 	if len(instances) == 0 {
-		return nil, true, true
+		return nil, true, false, true
 	}
 	if len(allLeaves(e)) == 0 {
 		// e carries no leaf, so no key: it can only be a container.
 		if len(instances) == 1 {
-			return instances[0], false, true
+			return instances[0], false, true, true
 		}
-		return nil, false, false
+		return nil, false, false, false
 	}
 	if len(instances) == 1 {
 		lead := instances[0].LeadingLeaves()
@@ -237,7 +243,7 @@ func match(e *yangdoc.Element, instances []*yangdoc.Element) (x *yangdoc.Element
 			// The instance starts with no leaf, so it is no list entry; or e
 			// lacks the leaf it starts with, which as a list entry's first key
 			// e would have to carry: either way a container.
-			return instances[0], false, true
+			return instances[0], false, true, true
 		}
 	}
 	var agree []*yangdoc.Element
@@ -248,13 +254,13 @@ func match(e *yangdoc.Element, instances []*yangdoc.Element) (x *yangdoc.Element
 	}
 	switch {
 	case len(agree) == 1:
-		return agree[0], false, true
+		return agree[0], false, false, true
 	case len(agree) > 1:
-		return nil, false, false
+		return nil, false, false, false
 	case len(instances) >= 2 && firstKeyNew(e, instances):
-		return nil, true, true
+		return nil, true, false, true
 	}
-	return nil, false, false
+	return nil, false, false, false
 }
 
 // agrees reports whether e holds, for every leading leaf of x it names, the
@@ -297,6 +303,19 @@ func firstKeyNew(e *yangdoc.Element, instances []*yangdoc.Element) bool {
 		}
 	}
 	return true
+}
+
+// keyLeaves are x's leading leaves but those of a name x holds more than
+// once (a leaf-list's entries, never a key): what names x as a list entry.
+func keyLeaves(x *yangdoc.Element) []*yangdoc.Element {
+	lead := x.LeadingLeaves()
+	var out []*yangdoc.Element
+	for _, l := range lead {
+		if len(yangdoc.FindIn(lead, l.Name)) == 1 {
+			out = append(out, l)
+		}
+	}
+	return out
 }
 
 // allLeaves are e's children with no children of their own, in order.

@@ -101,7 +101,7 @@ func decideGroup(before, after []*yangdoc.Element) ([]*yangdoc.Element, string) 
 	case len(gone) == 0 && len(after) == len(before)+len(added):
 		out := make([]*yangdoc.Element, 0, len(added))
 		for _, y := range added {
-			out = append(out, removal(y, y.LeadingLeaves()))
+			out = append(out, removal(y, keyLeaves(y)))
 		}
 		return out, ""
 	case len(gone) == 1 && len(added) == 1 && len(after) == len(before):

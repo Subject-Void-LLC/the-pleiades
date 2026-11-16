@@ -264,6 +264,27 @@ func TestLive_AReplaceIsUndoneByPuttingTheEntryBack(t *testing.T) {
 	}
 }
 
+// TestLive_AUserAddedToTwoIsRemovedAlone: a user merged into a group of two
+// users is a new leaf-list entry, decided before the edit, and its undo
+// removes it inside the group, named by its key alone.
+func TestLive_AUserAddedToTwoIsRemovedAlone(t *testing.T) {
+	const name = "ac-users"
+	setGroup(t, name, "alice", "bob")
+	t.Cleanup(func() { dropGroup(t, name) })
+	was := readGroup(t, netconf.Running, name)
+	changed, rc, err := call(t, false, map[string]any{paramContent: groups(`<group><name>` + name + `</name><user-name>carol</user-name></group>`)})
+	if err != nil || !changed {
+		t.Fatalf("the merge: changed %v, %v", changed, err)
+	}
+	want := groups(`<group><name>` + name + `</name><user-name xmlns:nc="urn:ietf:params:xml:ns:netconf:base:1.0" nc:operation="remove">carol</user-name></group>`)
+	if got := undoParams(t, rc.stubContext)[paramContent]; got != want {
+		t.Fatalf("undo %v, want %s", got, want)
+	}
+	if !replay(t, rc) || readGroup(t, netconf.Running, name) != was {
+		t.Fatalf("after the undo the group reads\n%s\nwant\n%s", readGroup(t, netconf.Running, name), was)
+	}
+}
+
 // TestLive_AChangeOnlyTheReadAfterCanNameIsUndone: a user merged into a group
 // of one user is a changed leaf or an added leaf-list entry, which the read
 // before cannot tell; the reads before and after can.

@@ -74,7 +74,7 @@ func TestPlanUndo_WhatEachEditPlans(t *testing.T) {
 		"a user added to a group of two users is removed": {
 			content: groups(`<group><name>ops</name><user-name>carol</user-name></group>`),
 			before:  groups(`<group><name>a</name></group><group><name>ops</name><user-name>alice</user-name><user-name>bob</user-name></group>`),
-			want:    groups(`<group><name>ops</name><user-name>alice</user-name><user-name>bob</user-name><user-name ` + nc + ` nc:operation="remove">carol</user-name></group>`),
+			want:    groups(`<group><name>ops</name><user-name ` + nc + ` nc:operation="remove">carol</user-name></group>`),
 		},
 		"a user added to a group of one user is left to the read after": {
 			content:  groups(`<group><name>ops</name><user-name>carol</user-name></group>`),
@@ -89,7 +89,7 @@ func TestPlanUndo_WhatEachEditPlans(t *testing.T) {
 		"a leaf new to a container is removed inside it": {
 			content: `<sys xmlns="urn:s"><contact>new</contact></sys>`,
 			before:  `<sys xmlns="urn:s"><location>here</location></sys>`,
-			want:    `<sys xmlns="urn:s"><location>here</location><contact ` + nc + ` nc:operation="remove">new</contact></sys>`,
+			want:    `<sys xmlns="urn:s"><contact ` + nc + ` nc:operation="remove">new</contact></sys>`,
 		},
 		"a replace of what is there puts it back": {
 			content: groups(`<group ` + nc + ` nc:operation="replace"><name>ops</name></group>`),
