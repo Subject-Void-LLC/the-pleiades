@@ -258,8 +258,15 @@ tasks:
 		}
 	}
 	// Every echo and its reply crossed as ESP, and nothing between the two
-	// routers was readable on the wire.
-	if encrypted, _ := routers["encrypted"].(float64); routers == nil || fmt.Sprint(routers["cleartext"]) != "0" || encrypted < 40 {
+	// routers was readable on the wire. The IPsec question is the pair's
+	// ESP count: encrypted also counts SSH and TLS, which are not the tunnel.
+	esp := 0.0
+	if protos, _ := routers["protocols"].(map[string]any); protos != nil {
+		if c, _ := protos["esp"].(map[string]any); c != nil {
+			esp, _ = c["packets"].(float64)
+		}
+	}
+	if routers == nil || fmt.Sprint(routers["cleartext"]) != "0" || esp < 40 {
 		t.Fatalf("the capture between P1 and P2: %v (all %v)", routers, summary)
 	}
 	t.Logf("the capture: %v packets, %v encrypted, %v key exchange, %v cleartext in all; P1-P2 %v", summary["packets"], summary["encrypted"], summary["key_exchange"], summary["cleartext"], routers)

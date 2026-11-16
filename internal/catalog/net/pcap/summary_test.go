@@ -5,12 +5,17 @@
 package pcap_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"golang.org/x/net/http2"
+	"golang.org/x/net/http2/hpack"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
@@ -60,6 +65,154 @@ func run(t *testing.T, dir string, params map[string]any) (collection.Result, sd
 	}
 	res, err := d.Invoke(context.Background(), rc, nil, params)
 	return res, rc, err
+}
+
+// tcpFrame is an Ethernet frame of a TCP segment from a:ap to b:bp.
+func tcpFrame(a, b [4]byte, ap, bp uint16, flags byte, seq uint32, data []byte) []byte {
+	h := make([]byte, 20)
+	binary.BigEndian.PutUint16(h, ap)
+	binary.BigEndian.PutUint16(h[2:], bp)
+	binary.BigEndian.PutUint32(h[4:], seq)
+	h[12], h[13] = 5<<4, flags
+	return frame(a, b, 6, append(h, data...))
+}
+
+// gnmiRequest is a plaintext gRPC request as the real HTTP/2 framer and
+// HPACK encoder write it: the client preface, then a HEADERS frame with
+// gNMI's username and password metadata.
+func gnmiRequest(t *testing.T, user, pass string) []byte {
+	t.Helper()
+	var hb, out bytes.Buffer
+	enc := hpack.NewEncoder(&hb)
+	for _, f := range []hpack.HeaderField{
+		{Name: ":method", Value: "POST"}, {Name: ":path", Value: "/gnmi.gNMI/Capabilities"},
+		{Name: "content-type", Value: "application/grpc"}, {Name: "username", Value: user}, {Name: "password", Value: pass},
+	} {
+		if err := enc.WriteField(f); err != nil {
+			t.Fatal(err)
+		}
+	}
+	out.WriteString(http2.ClientPreface)
+	if err := http2.NewFramer(&out, nil).WriteHeaders(http2.HeadersFrameParam{StreamID: 1, BlockFragment: hb.Bytes(), EndHeaders: true}); err != nil {
+		t.Fatal(err)
+	}
+	return out.Bytes()
+}
+
+// TestSummary_NamesCleartextGRPCAndWarnsOfItsCredential: plaintext gNMI is
+// listed as a grpc flow in the clear, its credential headers named in the
+// stats and in a warning, and neither value is anywhere in what the method
+// recorded or returned.
+func TestSummary_NamesCleartextGRPCAndWarnsOfItsCredential(t *testing.T) {
+	dir := t.TempDir()
+	user, pass := "u"+strings.Repeat("7", 11), strings.Repeat("9", 10)+"q"
+	cl, sv := [4]byte{10, 0, 0, 1}, [4]byte{10, 0, 0, 2}
+	data := capture(
+		tcpFrame(cl, sv, 47814, 50001, 0x02, 99, nil),
+		tcpFrame(sv, cl, 50001, 47814, 0x12, 499, nil),
+		tcpFrame(cl, sv, 47814, 50001, 0x18, 100, gnmiRequest(t, user, pass)),
+	)
+	if err := os.MkdirAll(filepath.Join(dir, "captures"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "captures", "gnmi.pcap"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	res, rc, err := run(t, dir, map[string]any{"src": "captures/gnmi.pcap"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stats := rc.(interface{ Facts() map[string]any }).Facts()
+	if stats["cleartext_credentials"] != 2 || stats["cleartext_management"] != 1 || stats["cleartext"] != 3 || stats["encrypted"] != 0 {
+		t.Fatalf("stats = %v", stats)
+	}
+	fl := stats["flows"].([]any)
+	f := fl[0].(map[string]any)
+	if len(fl) != 1 || f["protocol"] != "grpc" || f["client"] != "10.0.0.1:47814" || f["server"] != "10.0.0.2:50001" || f["cleartext_management"] != true {
+		t.Fatalf("flows = %v", fl)
+	}
+	if creds := f["cleartext_credentials"].([]any); len(creds) != 2 || creds[0] != "password" || creds[1] != "username" {
+		t.Fatalf("credentials = %v", creds)
+	}
+	warns, _ := stats[sdk.StatWarnings].([]string)
+	if len(warns) != 1 || !strings.Contains(warns[0], "password, username") || !strings.Contains(warns[0], "10.0.0.2:50001") {
+		t.Fatalf("warnings = %q", warns)
+	}
+	if out := fmt.Sprintf("%v %v", stats, res); strings.Contains(out, user) || strings.Contains(out, pass) {
+		t.Fatal("a credential's value is in the method's output")
+	}
+	if _, rc, err := run(t, dir, map[string]any{"src": "captures/gnmi.pcap", "flows": 0}); err != nil || len(rc.(interface{ Facts() map[string]any }).Facts()["flows"].([]any)) != 0 {
+		t.Fatalf("flows 0: %v", err)
+	}
+	if _, _, err := run(t, dir, map[string]any{"src": "captures/gnmi.pcap", "flows": -1}); err == nil {
+		t.Fatal("a negative flows was taken")
+	}
+}
+
+// TestSummary_WarnsOfTextInEncryptedAndUnsearchedHeaders: a TLS record
+// forged around text is a warning and cleartext_in_encrypted, and an
+// HTTP/2 block that will not decode is counted in headers_unread and named
+// in its flow's warning.
+func TestSummary_WarnsOfTextInEncryptedAndUnsearchedHeaders(t *testing.T) {
+	dir := t.TempDir()
+	cl, sv := [4]byte{10, 0, 0, 1}, [4]byte{10, 0, 0, 2}
+	forged := append([]byte{0x16, 3, 1, 0, 4, 1, 0, 0, 0, 0x17, 3, 3, 0x01, 0x00}, []byte(strings.Repeat("show version\r\n", 20)[:256])...)
+	var h2 bytes.Buffer
+	h2.WriteString(http2.ClientPreface)
+	if err := http2.NewFramer(&h2, nil).WriteHeaders(http2.HeadersFrameParam{StreamID: 1, EndHeaders: true, BlockFragment: []byte{0x80 | 70}}); err != nil {
+		t.Fatal(err)
+	}
+	data := capture(tcpFrame(cl, sv, 40000, 443, 0x18, 1, forged), tcpFrame(cl, sv, 40001, 8080, 0x18, 1, h2.Bytes()))
+	if err := os.WriteFile(filepath.Join(dir, "w.pcap"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, rc, err := run(t, dir, map[string]any{"src": "w.pcap"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stats := rc.(interface{ Facts() map[string]any }).Facts()
+	warns, _ := stats[sdk.StatWarnings].([]string)
+	if stats["cleartext_in_encrypted"] != 1 || stats["headers_unread"] != 1 || stats["encrypted"] != 0 || len(warns) != 2 {
+		t.Fatalf("stats = %v", stats)
+	}
+	if !strings.Contains(warns[0], "read as text") || !strings.Contains(warns[1], "1 of its headers or header blocks could not be searched") {
+		t.Fatalf("warnings = %q", warns)
+	}
+	f := stats["flows"].([]any)[1].(map[string]any)
+	if f["headers_unread"] != 1 || f["protocol"] != "http2" {
+		t.Fatalf("flows = %v", stats["flows"])
+	}
+}
+
+// TestSummary_WarningsNameTenFlowsAndCountTheRest: eleven cleartext flows
+// make ten warning lines and one counting the eleventh.
+func TestSummary_WarningsNameTenFlowsAndCountTheRest(t *testing.T) {
+	dir := t.TempDir()
+	cl, sv := [4]byte{10, 0, 0, 1}, [4]byte{10, 0, 0, 2}
+	var frames [][]byte
+	for i := range 11 {
+		var hb, out bytes.Buffer
+		if err := hpack.NewEncoder(&hb).WriteField(hpack.HeaderField{Name: ":path", Value: "/"}); err != nil {
+			t.Fatal(err)
+		}
+		out.WriteString(http2.ClientPreface)
+		if err := http2.NewFramer(&out, nil).WriteHeaders(http2.HeadersFrameParam{StreamID: 1, BlockFragment: hb.Bytes(), EndHeaders: true}); err != nil {
+			t.Fatal(err)
+		}
+		frames = append(frames, tcpFrame(cl, sv, uint16(40000+i), 8080, 0x18, 1, out.Bytes()))
+	}
+	if err := os.WriteFile(filepath.Join(dir, "h2.pcap"), capture(frames...), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, rc, err := run(t, dir, map[string]any{"src": "h2.pcap", "flows": 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stats := rc.(interface{ Facts() map[string]any }).Facts()
+	warns, _ := stats[sdk.StatWarnings].([]string)
+	if len(warns) != 11 || !strings.Contains(warns[10], "and 1 more") || !strings.Contains(warns[0], "http2 from 10.0.0.1:") || len(stats["flows"].([]any)) != 3 {
+		t.Fatalf("warnings = %q, flows %v", warns, stats["flows"])
+	}
 }
 
 // TestSummary_CountsAWANCapture is the method on a capture of two sites'

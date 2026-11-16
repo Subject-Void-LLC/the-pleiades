@@ -1,6 +1,8 @@
 // Package pcapsum: the layers under a frame, read only as far as naming its
 // protocol: Ethernet with its VLAN tags, IPv4 and IPv6 with IPv6's extension
-// headers, and the UDP and TCP ports that say IKE, BGP or HSRP.
+// headers, and the UDP and TCP ports that say IKE, BGP or HSRP. What a TCP
+// flow carries (SSH, TLS, HTTP/2) is read from its bytes, never its ports,
+// in flow.go.
 package pcapsum
 
 import (
@@ -43,58 +45,114 @@ const (
 	ipVRRP   = 112
 )
 
+// ipPacket is what ip reads from an IP header: the two addresses, the
+// protocol it names, and for a TCP segment the bytes a flow is read from.
+type ipPacket struct {
+	src, dst netip.Addr
+	// proto is the protocol's name, from the IP header and the transport
+	// ports, exactly as this package has always named it.
+	proto string
+	// next is the IP protocol number of the payload.
+	next int
+	// payload is the transport header and data as captured, cut to the
+	// length the IP header gives, so the zeros that pad a short Ethernet
+	// frame are never read as transport bytes.
+	payload []byte
+	// wire is the payload's length on the wire by the IP header, which a
+	// capture cut at its snapshot length holds fewer bytes of; -1 when the
+	// header gives none (an IPv6 jumbogram).
+	wire int
+	// fragment is set for any fragment, first or later, whose transport
+	// bytes are not all here, and for an extension chain not followed to
+	// its end.
+	fragment bool
+}
+
 // ip reads an IP packet's addresses and names its protocol; ok is false for
 // a header too short or malformed to read.
-func ip(pkt []byte, v6 bool) (src, dst netip.Addr, proto string, ok bool) {
-	var next int
-	var payload []byte
+func ip(pkt []byte, v6 bool) (p ipPacket, ok bool) {
 	if v6 {
 		if len(pkt) < 40 || pkt[0]>>4 != 6 {
-			return src, dst, "", false
+			return p, false
 		}
-		src, _ = netip.AddrFromSlice(pkt[8:24])
-		dst, _ = netip.AddrFromSlice(pkt[24:40])
-		next, payload = int(pkt[6]), pkt[40:]
+		p.src, _ = netip.AddrFromSlice(pkt[8:24])
+		p.dst, _ = netip.AddrFromSlice(pkt[24:40])
+		p.wire = int(binary.BigEndian.Uint16(pkt[4:]))
+		if p.wire == 0 {
+			// A jumbogram gives its length in an option, not read here.
+			p.wire = -1
+		}
+		p.next, p.payload = int(pkt[6]), pkt[40:]
 		// Hop-by-hop (0), routing (43), destination options (60): length
 		// in 8-byte units after the first 8. Fragment (44): 8 bytes.
 		for range 8 {
-			switch next {
+			n := 0
+			switch p.next {
 			case 0, 43, 60:
-				if len(payload) < 8 {
-					return src, dst, OtherIP, true
+				if len(p.payload) < 8 {
+					return chainCut(p), true
 				}
-				n := 8 + int(payload[1])*8
-				if n > len(payload) {
-					return src, dst, OtherIP, true
+				n = 8 + int(p.payload[1])*8
+				if n > len(p.payload) {
+					return chainCut(p), true
 				}
-				next, payload = int(payload[0]), payload[n:]
-				continue
 			case 44:
-				if len(payload) < 8 {
-					return src, dst, OtherIP, true
+				if len(p.payload) < 8 {
+					return chainCut(p), true
 				}
-				next, payload = int(payload[0]), payload[8:]
-				continue
+				n = 8
+				p.fragment = true
+			default:
+				return named(p, p.payload), true
 			}
-			break
+			p.next, p.payload = int(p.payload[0]), p.payload[n:]
+			if p.wire >= 0 {
+				p.wire -= n
+			}
 		}
-	} else {
-		if len(pkt) < 20 || pkt[0]>>4 != 4 {
-			return src, dst, "", false
-		}
-		ihl := int(pkt[0]&0x0f) * 4
-		if ihl < 20 || ihl > len(pkt) {
-			return src, dst, "", false
-		}
-		src = netip.AddrFrom4([4]byte(pkt[12:16]))
-		dst = netip.AddrFrom4([4]byte(pkt[16:20]))
-		next, payload = int(pkt[9]), pkt[ihl:]
-		// A later fragment carries no transport header to read.
-		if binary.BigEndian.Uint16(pkt[6:])&0x1fff != 0 {
-			return src, dst, protoName(next, nil), true
-		}
+		return named(p, p.payload), true
 	}
-	return src, dst, protoName(next, payload), true
+	if len(pkt) < 20 || pkt[0]>>4 != 4 {
+		return p, false
+	}
+	ihl := int(pkt[0]&0x0f) * 4
+	if ihl < 20 || ihl > len(pkt) {
+		return p, false
+	}
+	p.src = netip.AddrFrom4([4]byte(pkt[12:16]))
+	p.dst = netip.AddrFrom4([4]byte(pkt[16:20]))
+	p.next, p.payload = int(pkt[9]), pkt[ihl:]
+	p.wire = int(binary.BigEndian.Uint16(pkt[2:])) - ihl
+	flags := binary.BigEndian.Uint16(pkt[6:])
+	// More fragments (0x2000) or an offset: not every transport byte is here.
+	p.fragment = flags&0x3fff != 0
+	if flags&0x1fff != 0 {
+		// A later fragment carries no transport header to read.
+		return named(p, nil), true
+	}
+	return named(p, p.payload), true
+}
+
+// chainCut is p when its IPv6 extension headers could not be followed to
+// their end: named other-ip, as this package always has, and never read as a
+// flow.
+func chainCut(p ipPacket) ipPacket {
+	p.proto, p.fragment = OtherIP, true
+	return p
+}
+
+// named sets p's protocol name from ports, the transport bytes as captured
+// (read exactly as before flows were read, Ethernet padding included), and
+// then cuts p's payload to the length its IP header gives.
+func named(p ipPacket, ports []byte) ipPacket {
+	p.proto = protoName(p.next, ports)
+	if p.wire < 0 {
+		return p
+	}
+	if p.wire < len(p.payload) {
+		p.payload = p.payload[:p.wire]
+	}
+	return p
 }
 
 // protoName names IP protocol next, reading the transport ports in payload

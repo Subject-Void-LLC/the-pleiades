@@ -4,10 +4,36 @@
 // proves from packets what a configuration claims, that traffic between two
 // sites is encrypted, without trusting either router's counters.
 //
-// It is the standard library only, bounded by the bytes it is given, and
-// reads every record defensively: a record that claims more bytes than
-// remain, or a block that does not fit, ends the read with an error naming
-// where, and what was counted before it is still returned.
+// Each TCP flow is also read from its bytes, both directions in sequence
+// order, never judged by its port: SSH (its banner, the key exchange, then
+// everything after NEWKEYS), TLS (each record by its content type), HTTP/1.x
+// in the clear (its request or status line, then its header lines), and
+// HTTP/2 in the clear (its client preface), named grpc when a request says
+// application/grpc, with each header block decoded (HPACK) so that a
+// credential in a header is found though its value is Huffman-coded. A
+// credential is reported by its header's name and its flow, never its value.
+// Only HTTP/1.x and HTTP/2 headers are searched for one: Telnet, FTP, SNMP
+// communities, URL query strings and bodies are not.
+//
+// Bytes framed as encrypted (a TLS application data record, SSH after
+// NEWKEYS) that read as text are counted cleartext and the flow flagged, so
+// a NULL cipher suite, SSH's none cipher or records forged around cleartext
+// are not called encrypted. ESP is still counted encrypted whatever its
+// cipher, ESP-NULL included: its payload is not read.
+//
+// It is the standard library and golang.org/x/net/http2/hpack only. A
+// flow's bytes are read in place; what is copied is bounded: each
+// direction's first openingLen bytes, a frame or record header, an HTTP/1.x
+// line of at most maxH1Line bytes, one HTTP/2 header block of at most
+// maxHeaderBlock bytes and the HPACK dynamic table of at most maxHeaderTable
+// bytes for each direction of the one flow being read. Its memory is linear
+// in the capture's packets: measured at about 1000 bytes a packet at its
+// peak when every packet is a TCP segment of its own flow between its own
+// pair (about half of it the pairs the result lists, which every capture of
+// UDP alone costs too), far less when packets share flows. It reads every record
+// defensively: a record that claims more bytes than remain, or a block that
+// does not fit, ends the read with an error naming where, and what was
+// counted before it is still returned.
 package pcapsum
 
 import (
@@ -38,6 +64,11 @@ const (
 	ARP      = "arp"      // EtherType 0x0806
 	OtherIP  = "other-ip" // any other IP protocol
 	NonIP    = "non-ip"   // a frame that carries no IP or ARP (CDP, LOOP keepalives, STP)
+	SSH      = "ssh"      // a TCP flow that opened with an SSH-2.0 banner
+	TLS      = "tls"      // a TCP flow that opened with a TLS ClientHello or ServerHello
+	HTTP     = "http"     // a TCP flow that opened with an HTTP/1.x request or status line, in the clear
+	HTTP2    = "http2"    // a TCP flow that opened with HTTP/2's client preface, in the clear
+	GRPC     = "grpc"     // an http2 flow whose headers say application/grpc
 )
 
 // encrypted are the protocols whose payload a reader of the wire cannot see.
@@ -84,16 +115,76 @@ type Summary struct {
 	// Protocols counts every packet by protocol name.
 	Protocols map[string]Counter `json:"protocols"`
 	// Encrypted, KeyExchange and Cleartext sum the IP packets by kind:
-	// encrypted (ESP, ESP in UDP), the key exchange that set it up (IKE),
-	// and everything else carried over IP, which a reader of the wire sees.
+	// encrypted (ESP, ESP in UDP, SSH after NEWKEYS, TLS application data),
+	// the key exchange that set it up (IKE, SSH's banner and key exchange,
+	// TLS handshake records), and everything else carried over IP, which a
+	// reader of the wire sees.
 	Encrypted   int `json:"encrypted"`
 	KeyExchange int `json:"key_exchange"`
 	Cleartext   int `json:"cleartext"`
 	// Pairs are the address pairs, most packets first.
 	Pairs []Pair `json:"pairs"`
+	// Flows are the TCP flows named from their bytes (ssh, tls, http,
+	// http2, grpc): those carrying a credential in the clear first, then
+	// those whose encrypted-looking bytes read as text, then the other
+	// cleartext management flows, then most packets first.
+	Flows []Flow `json:"flows"`
+	// CleartextCredentials is the number of credential headers seen in the
+	// clear, one for each header name on each flow, up to 32 names a flow.
+	// Only HTTP/1.x and HTTP/2 headers are searched: Telnet, FTP, SNMP
+	// communities, URL query strings and bodies are not, so 0 means no
+	// credential header was found, not that no credential crossed.
+	CleartextCredentials int `json:"cleartext_credentials"`
+	// CleartextManagement is the number of flows of a management protocol
+	// (http, http2, grpc) that crossed in the clear. Telnet, FTP and SNMP
+	// are not named, and are not counted here.
+	CleartextManagement int `json:"cleartext_management"`
+	// CleartextInEncrypted is the number of flows where bytes framed as
+	// encrypted (TLS application data, SSH after NEWKEYS) read as text.
+	CleartextInEncrypted int `json:"cleartext_in_encrypted"`
+	// HeadersUnread is the number of headers or header blocks, over every
+	// flow, that could not be searched for a credential.
+	HeadersUnread int `json:"headers_unread"`
 	// Unread is the number of frames whose link type this package does not
 	// read, counted under no protocol.
 	Unread int `json:"unread"`
+}
+
+// Flow is one TCP connection named from what it carried.
+type Flow struct {
+	// Client and Server are address:port; the client is the side that sent
+	// the first SYN, or else the side that opened the protocol (the TLS
+	// ClientHello, the HTTP/2 preface), or else the higher port.
+	Client string `json:"client"`
+	Server string `json:"server"`
+	// Protocol is ssh, tls, http (HTTP/1.x), http2 or grpc.
+	Protocol string `json:"protocol"`
+	// Packets, Encrypted, KeyExchange and Cleartext count the flow's
+	// packets, both directions, by kind, as the pair's are counted.
+	Packets     int `json:"packets"`
+	Encrypted   int `json:"encrypted"`
+	KeyExchange int `json:"key_exchange"`
+	Cleartext   int `json:"cleartext"`
+	// CleartextManagement is set for a management protocol (http, http2,
+	// grpc) that crossed in the clear.
+	CleartextManagement bool `json:"cleartext_management"`
+	// CleartextInEncrypted is set when bytes framed as encrypted (a TLS
+	// application data record, SSH after NEWKEYS) read as text: a NULL
+	// cipher suite, SSH's none cipher, or records forged around cleartext.
+	// Those packets are counted cleartext.
+	CleartextInEncrypted bool `json:"cleartext_in_encrypted"`
+	// CleartextCredentials are the names of the HTTP/1.x and HTTP/2 headers
+	// that carried a credential in the clear (authorization, username,
+	// password and their kind), sorted, at most 32. A value is never kept,
+	// only its header's name.
+	CleartextCredentials []string `json:"cleartext_credentials,omitempty"`
+	// HeadersUnread counts the headers or header blocks of this flow that
+	// could not be searched: a block over 64 KiB or that would not decode
+	// (and every block after it, the table being lost), a header name over
+	// 256 bytes, headers after the framing was lost to a gap or a protocol
+	// switch, and a credential name past the 32 kept. When it is not 0,
+	// CleartextCredentials may be short.
+	HeadersUnread int `json:"headers_unread"`
 }
 
 // ErrNotACapture is returned for data that begins as neither pcap nor
@@ -105,26 +196,38 @@ var ErrNotACapture = errors.New("pcapsum: not a pcap or pcapng file")
 // record was.
 func Read(data []byte) (Summary, error) {
 	s := Summary{Protocols: map[string]Counter{}}
-	pairs := map[[2]string]*Pair{}
+	r := &reader{s: &s, pairs: map[[2]string]*Pair{}, flows: newTracker()}
 	var err error
 	switch {
 	case len(data) >= 4 && binary.BigEndian.Uint32(data) == 0x0a0d0d0a:
 		s.Format = "pcapng"
-		err = readPcapng(data, &s, pairs)
+		err = readPcapng(data, r)
 	case len(data) >= 24:
 		s.Format = "pcap"
-		err = readPcap(data, &s, pairs)
+		err = readPcap(data, r)
 	default:
 		err = ErrNotACapture
 	}
-	s.Pairs = sortedPairs(pairs)
+	// Every TCP segment waits for its flow to be read whole, in sequence
+	// order, before it is counted, even when the read stopped early.
+	r.flows.resolve(r.s)
+	s.Pairs = sortedPairs(r.pairs)
 	return s, err
+}
+
+// reader is one read's state: the summary it fills, its pairs, and the TCP
+// flows whose segments are counted once each flow has been read.
+type reader struct {
+	s     *Summary
+	pairs map[[2]string]*Pair
+	flows *tracker
 }
 
 // readPcap reads a classic pcap file: a 24-byte header naming the byte order
 // (the magic), the time precision and the link type, then records of a
 // 16-byte header and the frame.
-func readPcap(data []byte, s *Summary, pairs map[[2]string]*Pair) error {
+func readPcap(data []byte, r *reader) error {
+	s := r.s
 	var order binary.ByteOrder
 	switch binary.LittleEndian.Uint32(data) {
 	case 0xa1b2c3d4, 0xa1b23c4d:
@@ -150,7 +253,7 @@ func readPcap(data []byte, s *Summary, pairs map[[2]string]*Pair) error {
 		if captured < 0 || captured > len(data)-off {
 			return fmt.Errorf("pcapsum: the record at byte %d claims %d bytes, more than remain", off-16, captured)
 		}
-		count(s, pairs, link, data[off:off+captured], original)
+		r.count(link, data[off:off+captured], original)
 		off += captured
 	}
 	return nil
@@ -159,7 +262,8 @@ func readPcap(data []byte, s *Summary, pairs map[[2]string]*Pair) error {
 // readPcapng reads a pcapng file's blocks: each section header names the
 // byte order; each interface description its link type; each enhanced or
 // simple packet block a frame on an interface.
-func readPcapng(data []byte, s *Summary, pairs map[[2]string]*Pair) error {
+func readPcapng(data []byte, r *reader) error {
+	s := r.s
 	var order binary.ByteOrder = binary.LittleEndian
 	var links []uint32
 	off := 0
@@ -207,7 +311,7 @@ func readPcapng(data []byte, s *Summary, pairs map[[2]string]*Pair) error {
 			if iface < 0 || iface >= len(links) {
 				return fmt.Errorf("pcapsum: the packet block at byte %d names interface %d, which no interface block declared", off, iface)
 			}
-			count(s, pairs, links[iface], body[20:20+captured], original)
+			r.count(links[iface], body[20:20+captured], original)
 		case 3: // simple packet: original length, then the frame, on interface 0
 			if len(body) < 4 || len(links) == 0 {
 				return fmt.Errorf("pcapsum: the simple packet block at byte %d is cut short or has no interface", off)
@@ -217,7 +321,7 @@ func readPcapng(data []byte, s *Summary, pairs map[[2]string]*Pair) error {
 			if original < len(frame) {
 				frame = frame[:original]
 			}
-			count(s, pairs, links[0], frame, original)
+			r.count(links[0], frame, original)
 		}
 		off += length
 	}
@@ -261,7 +365,8 @@ func linkName(link uint32) string {
 }
 
 // count counts one frame of link type link, whose wire length was original.
-func count(s *Summary, pairs map[[2]string]*Pair, link uint32, frame []byte, original int) {
+func (r *reader) count(link uint32, frame []byte, original int) {
+	s := r.s
 	s.Packets++
 	s.Bytes += int64(original)
 	var etherType int
@@ -293,12 +398,18 @@ func count(s *Summary, pairs map[[2]string]*Pair, link uint32, frame []byte, ori
 	}
 	switch etherType {
 	case 0x0800, 0x86dd:
-		src, dst, proto, ok := ip(payload, etherType == 0x86dd)
+		pkt, ok := ip(payload, etherType == 0x86dd)
 		if !ok {
 			add(s, nil, NonIP, original)
 			return
 		}
-		add(s, pair(pairs, src, dst), proto, original)
+		pr := pair(r.pairs, pkt.src, pkt.dst)
+		// A whole TCP segment waits for its flow to be read; anything else,
+		// a fragment included, is counted now by its protocol's name.
+		if pkt.next == ipTCP && !pkt.fragment && r.flows.segment(pr, pkt, original) {
+			return
+		}
+		add(s, pr, pkt.proto, original)
 	case 0x0806:
 		add(s, nil, ARP, original)
 	default:
@@ -306,32 +417,42 @@ func count(s *Summary, pairs map[[2]string]*Pair, link uint32, frame []byte, ori
 	}
 }
 
-// add counts a packet of proto, and in its pair when it has one.
+// add counts a packet of proto, and in its pair when it has one, as the
+// kind its protocol's name says.
 func add(s *Summary, p *Pair, proto string, n int) {
+	k := kindNone
+	switch {
+	case encrypted[proto]:
+		k = kindEncrypted
+	case keyExchange[proto]:
+		k = kindKeyExchange
+	case p != nil:
+		k = kindCleartext
+	}
+	addKind(s, p, proto, n, k)
+}
+
+// addKind counts a packet of proto as kind k, and in its pair when it has
+// one. A packet with no pair carried no IP and is of no kind.
+func addKind(s *Summary, p *Pair, proto string, n int, k kind) {
 	c := s.Protocols[proto]
 	c.add(n)
 	s.Protocols[proto] = c
-	isIP := p != nil
-	switch {
-	case encrypted[proto]:
-		s.Encrypted++
-	case keyExchange[proto]:
-		s.KeyExchange++
-	case isIP:
-		s.Cleartext++
-	}
 	if p == nil {
 		return
 	}
 	pc := p.Protocols[proto]
 	pc.add(n)
 	p.Protocols[proto] = pc
-	switch {
-	case encrypted[proto]:
+	switch k {
+	case kindEncrypted:
+		s.Encrypted++
 		p.Encrypted++
-	case keyExchange[proto]:
+	case kindKeyExchange:
+		s.KeyExchange++
 		p.KeyExchange++
 	default:
+		s.Cleartext++
 		p.Cleartext++
 	}
 }
