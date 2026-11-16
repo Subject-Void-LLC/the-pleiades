@@ -334,6 +334,9 @@ func (e *collectionActionExecutor) run(ctx context.Context, task *Task, device i
 	// engine put it on ctx (executor.go, predicted.go).
 	if lent, ok := rc.(*runbookContext); ok {
 		lent.predicted = sdk.PredictionsFrom(ctx)
+		// Lent to a built-in method only: an external program's context is
+		// its own process's and never hears of it (earlier_change.go).
+		lent.earlierChange = desc.Provider == nil && sdk.EarlierChangeFrom(ctx)
 	}
 	e.lendAIProject(rc)
 	result, err := method(ctx, rc, device, task.Params)

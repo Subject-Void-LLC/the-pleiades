@@ -70,6 +70,10 @@ type runbookContext struct {
 	// stagedChecks says a check may stage a change in a device's own staging
 	// area and discard it (sdk.StagedChecks); see WithStagedChecks.
 	stagedChecks bool
+	// earlierChange says a task checked earlier in this run on this device
+	// predicted a change, could not be checked, or failed
+	// (sdk.EarlierChanges); the collection executor sets it per task.
+	earlierChange bool
 	// ai, when set, is the run's project for the ai methods
 	// (sdk.AIProject); nil answers sdk.ErrNoAIProject.
 	ai *aiProject
