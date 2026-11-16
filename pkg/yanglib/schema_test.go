@@ -214,6 +214,15 @@ func TestSchemaFileName_BuildsOnlyFromAnIdentifierAndADate(t *testing.T) {
 	}
 }
 
+// TestIsRevision holds a revision to RFC 7950's date form.
+func TestIsRevision(t *testing.T) {
+	for in, want := range map[string]bool{"2024-07-01": true, "2024-7-1": false, "": false, "2024-07-01\n": false, "latest": false} {
+		if got := IsRevision(in); got != want {
+			t.Errorf("IsRevision(%q) = %v, want %v", in, got, want)
+		}
+	}
+}
+
 // TestParseKey reads how a task names a module.
 func TestParseKey(t *testing.T) {
 	for in, want := range map[string][2]string{
