@@ -53,6 +53,7 @@ var requiredReads = map[string][]auth.Scope{
 	"launch_template":   {auth.ScopeTemplateRead},
 	"check_template":    {auth.ScopeTemplateRead},
 	"onboard_device":    {auth.ScopeInventoryRead},
+	"confirm_tls_pin":   {auth.ScopeInventoryRead},
 	"grant_capability":  {auth.ScopeInventoryRead},
 	"revoke_capability": {auth.ScopeInventoryRead},
 	"import_kubeconfig": {auth.ScopeInventoryWrite, auth.ScopeInventoryRead},

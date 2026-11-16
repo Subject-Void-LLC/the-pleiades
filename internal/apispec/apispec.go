@@ -713,8 +713,17 @@ var onboardResultSchema = map[string]any{
 		"removed":        map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
 		"facts":          map[string]any{"type": "object", "description": "Bounded text the device reported, such as a NETCONF server's capability URNs or a gRPC server's services."},
 		"changed":        map[string]any{"type": "boolean", "description": "Whether anything was written."},
-		"warnings":       map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "What each weakening the device's record allows means: a deprecated TLS version, legacy cipher suites, or a credential sent over plain HTTP (with the advice to rotate it)."},
-		"error":          map[string]any{"type": "string", "description": "Why the probe proved nothing, when it did not."},
+		"warnings":       map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "What each weakening the device's record allows means: a deprecated TLS version, legacy cipher suites, a credential sent over plain HTTP (with the advice to rotate it), every pin it trusts, a pin recorded on first use that nobody confirmed, and a certificate near its last day."},
+		"tls_first_use": map[string]any{"type": "object", "description": "The pin this onboarding recorded on first use (tls_first_use=true), for a person to review before confirming it; absent when it recorded none.",
+			"properties": map[string]any{
+				"fingerprint":     map[string]any{"type": "string", "description": "The certificate pin recorded, sha256:<hex>."},
+				"key_fingerprint": map[string]any{"type": "string", "description": "The certificate's public key, spki-sha256:<hex>, as a key pin would hold it."},
+				"subject":         map[string]any{"type": "string"},
+				"issuer":          map[string]any{"type": "string"},
+				"not_after":       map[string]any{"type": "string", "description": "The certificate's last day, YYYY-MM-DD in UTC."},
+				"untrusted":       map[string]any{"type": "string", "description": "Why nothing trusted the certificate before it was pinned."},
+			}},
+		"error": map[string]any{"type": "string", "description": "Why the probe proved nothing, when it did not."},
 	},
 }
 
@@ -738,17 +747,68 @@ var OnboardDevice = Endpoint{
 		"then to active when the probe succeeds; a failed first probe leaves it onboarding. Onboarding an " +
 		"active device re-probes it and writes only what changed. It needs inventory:onboard, which " +
 		"inventory:write does not imply: this is the only way a device is granted a capability its Go type " +
-		"does not declare.",
+		"does not declare. With tls_first_use=true, a TLS device whose record names nothing it trusts, and " +
+		"whose certificate nothing trusts, has the certificate it presents recorded as its pin " +
+		"(tls_first_use_fingerprint), the way SSH's accept-new records a host key: listed in the result for review, " +
+		"said to be unconfirmed on every use until confirmed (POST /inventory/devices/{name}/tls-pin/confirm), never " +
+		"in place of a pin or an authority, and recorded only with an onboarding that proved the device through it.",
 	Params: []Param{
 		{Name: "name", In: "path", Required: true, Type: "string", Description: "The device's name."},
+		{Name: "tls_first_use", In: "query", Required: false, Type: "boolean", Description: "true records the certificate a TLS device presents as its pin on first use, when nothing in its record trusts it; false or absent refuses an untrusted certificate."},
 	},
 	Responses: []Response{
 		{Status: http.StatusOK, Description: "The probe succeeded; the result says what was recorded.", Schema: onboardResultSchema},
-		{Status: http.StatusBadRequest, Description: "name is empty, too long, does not decode, or holds a NUL, a carriage return or a line feed.", Schema: errorSchema("")},
+		{Status: http.StatusBadRequest, Description: "name is empty, too long, does not decode, or holds a NUL, a carriage return or a line feed, or tls_first_use is given more than once or as other than true or false.", Schema: errorSchema("")},
 		{Status: http.StatusNotFound, Description: "No device with that name exists.", Schema: errorSchema("")},
 		{Status: http.StatusConflict, Description: "The device is in a state an administrator set (quarantined, simulate-locked, decommissioning, archived), was modified concurrently, or the inventory is read-only.", Schema: errorSchema("")},
 		{Status: http.StatusUnprocessableEntity, Description: "The device's type has no prober, so its capabilities come from its Go type; the message lists the types that have one.", Schema: errorSchema("")},
 		{Status: http.StatusBadGateway, Description: "The probe proved nothing: the device could not be reached, refused the credential, or did not speak its protocol. The result carries the reason.", Schema: onboardResultSchema},
+	},
+}
+
+// ConfirmTLSPin is POST /inventory/devices/{name}/tls-pin/confirm: a
+// person's confirmation of the pin onboarding recorded on first use.
+var ConfirmTLSPin = Endpoint{
+	Name:       "confirm_tls_pin",
+	Method:     http.MethodPost,
+	Pattern:    "/inventory/devices/{name}/tls-pin/confirm",
+	Scope:      auth.ScopeInventoryAssert,
+	AlsoScopes: []auth.Scope{auth.ScopeInventoryRead},
+	Rel:        auth.RelConfirmPin,
+	Summary:    "Confirm a device's pin recorded on first use",
+	Description: "Records a person's confirmation that the pin onboarding recorded on first use " +
+		"(tls_first_use_fingerprint) is the device's own certificate, checked with its owner: the pin moves into " +
+		"tls_fingerprint, as a revision, and runs stop saying it is unconfirmed. The body names the pin the person " +
+		"checked, which must be the one recorded, so a confirmation is a comparison someone made. The device trusts " +
+		"the same certificate before and after, so its discovery and grants hold. It needs inventory:assert, which " +
+		"no role but admin holds, so the operator who onboarded a device does not also vouch for it.",
+	Params: []Param{
+		{Name: "name", In: "path", Required: true, Type: "string", Description: "The device's name."},
+	},
+	RequestContentType: "application/json",
+	RequestSchema: map[string]any{
+		"type":     "object",
+		"required": []string{"fingerprint"},
+		"properties": map[string]any{
+			"fingerprint": map[string]any{"type": "string", "description": "The pin the person checked, sha256:<64 hex>, as onboarding listed it."},
+		},
+	},
+	Responses: []Response{
+		{Status: http.StatusOK, Description: "The pin was confirmed.", Schema: tlsPinSchema},
+		{Status: http.StatusBadRequest, Description: "name is unusable, or the body is malformed.", Schema: errorSchema("")},
+		{Status: http.StatusNotFound, Description: "No device with that name exists, or it holds no pin recorded on first use.", Schema: errorSchema("")},
+		{Status: http.StatusConflict, Description: "The device's own tls_fingerprint or tls_ca_pem overrides its first-use pin, which onboarding it again removes; or it was modified concurrently, or the inventory is read-only.", Schema: errorSchema("")},
+		{Status: http.StatusUnprocessableEntity, Description: "fingerprint is not a pin, or not the one recorded.", Schema: errorSchema("")},
+	},
+}
+
+// tlsPinSchema is what a confirmation answers with: the device's pins after
+// it.
+var tlsPinSchema = map[string]any{
+	"type": "object",
+	"properties": map[string]any{
+		"device": map[string]any{"type": "string"},
+		"pins":   map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "The device's tls_fingerprint after the confirmation."},
 	},
 }
 
@@ -1204,6 +1264,7 @@ var Endpoints = []Endpoint{
 	UpdateDevice,
 	DeleteDevice,
 	OnboardDevice,
+	ConfirmTLSPin,
 	GrantCapability,
 	RevokeCapability,
 	ImportKubeconfig,

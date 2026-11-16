@@ -57,20 +57,20 @@ func TestDeviceOnboard_AnswersEachOutcome(t *testing.T) {
 		status int
 		body   string
 	}{
-		{"onboarded", func(context.Context, string) (onboard.Result, error) { return done, nil }, http.StatusOK, `"state":"active"`},
-		{"probe failed", func(context.Context, string) (onboard.Result, error) {
+		{"onboarded", func(context.Context, string, bool) (onboard.Result, error) { return done, nil }, http.StatusOK, `"state":"active"`},
+		{"probe failed", func(context.Context, string, bool) (onboard.Result, error) {
 			return failed, fmt.Errorf("%w: refused", onboard.ErrProbe)
 		}, http.StatusBadGateway, `"error":"the probe proved nothing: refused"`},
-		{"vendor type", func(context.Context, string) (onboard.Result, error) {
+		{"vendor type", func(context.Context, string, bool) (onboard.Result, error) {
 			return onboard.Result{}, fmt.Errorf("x: %w", onboard.ErrNotOnboarded)
 		}, http.StatusUnprocessableEntity, "generic"},
-		{"administrator state", func(context.Context, string) (onboard.Result, error) {
+		{"administrator state", func(context.Context, string, bool) (onboard.Result, error) {
 			return onboard.Result{}, fmt.Errorf("x: %w", onboard.ErrAdministratorState)
 		}, http.StatusConflict, "administrator"},
-		{"no such device", func(context.Context, string) (onboard.Result, error) {
+		{"no such device", func(context.Context, string, bool) (onboard.Result, error) {
 			return onboard.Result{}, inventory.ErrItemNotFound
 		}, http.StatusNotFound, "not found"},
-		{"a broken store", func(context.Context, string) (onboard.Result, error) {
+		{"a broken store", func(context.Context, string, bool) (onboard.Result, error) {
 			return onboard.Result{}, fmt.Errorf("pq: relation devices at db.internal:5432")
 		}, http.StatusInternalServerError, "internal error"},
 		{"not enabled", nil, http.StatusNotImplemented, "not enabled"},
@@ -95,6 +95,43 @@ func TestDeviceOnboard_AnswersEachOutcome(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestDeviceOnboard_FirstUseIsAskedForOnce: tls_first_use reaches the
+// onboarder as given, absent is no, and anything but one true or false is
+// refused before anything is probed; the pin recorded comes back for review.
+func TestDeviceOnboard_FirstUseIsAskedForOnce(t *testing.T) {
+	pin := &onboard.FirstUsePin{Fingerprint: "sha256:" + strings.Repeat("ab", 32), KeyFingerprint: "spki-sha256:" + strings.Repeat("cd", 32), NotAfter: "2030-01-01"}
+	for _, tc := range []struct {
+		query  string
+		status int
+		asked  bool
+		probed bool
+	}{
+		{"", http.StatusOK, false, true},
+		{"?tls_first_use=false", http.StatusOK, false, true},
+		{"?tls_first_use=true", http.StatusOK, true, true},
+		{"?tls_first_use=yes", http.StatusBadRequest, false, false},
+		{"?tls_first_use=true&tls_first_use=true", http.StatusBadRequest, false, false},
+	} {
+		var asked, probed bool
+		router := onboardRouter(t, func(_ context.Context, _ string, firstUse bool) (onboard.Result, error) {
+			asked, probed = firstUse, true
+			res := onboard.Result{Device: "api1", State: "active"}
+			if firstUse {
+				res.FirstUse = pin
+			}
+			return res, nil
+		})
+		rr := httptest.NewRecorder()
+		router.ServeHTTP(rr, httptest.NewRequest(http.MethodPost, api.APIVersionPrefix+"/inventory/devices/api1/onboard"+tc.query, nil))
+		if rr.Code != tc.status || asked != tc.asked || probed != tc.probed {
+			t.Errorf("%q: %d (asked %v, probed %v), want %d (asked %v, probed %v)", tc.query, rr.Code, asked, probed, tc.status, tc.asked, tc.probed)
+		}
+		if tc.asked && (!strings.Contains(rr.Body.String(), `"tls_first_use":{`) || !strings.Contains(rr.Body.String(), pin.Fingerprint)) {
+			t.Errorf("%q: body %s does not list the pin recorded", tc.query, rr.Body.String())
+		}
 	}
 }
 
