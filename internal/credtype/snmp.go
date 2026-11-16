@@ -41,8 +41,10 @@ var snmpInputKeys = map[string]string{
 
 // SNMPCredentialOf reads an SNMP kind credential's inputs into the wire's
 // SNMP credential, held to wire.SNMPCredential.Check: the one reading of
-// those inputs, which the injector and the store's write share. The
-// identifiers are trimmed; a community or passphrase is taken as written.
+// those inputs, which the injector and the store's write share. Every input
+// is taken as written, as add-credential takes its flags: a user or
+// protocol name with a space at either end is refused by Check, never
+// trimmed, so the two paths read one alike.
 func SNMPCredentialOf(cred Credential) (wire.SNMPCredential, error) {
 	if cred.Type.Kind != KindSNMP {
 		return wire.SNMPCredential{}, fmt.Errorf("%w: credential %q is a %s credential, not an SNMP one", ErrInjection, cred.Name, cred.Type.Kind)
@@ -50,10 +52,10 @@ func SNMPCredentialOf(cred Credential) (wire.SNMPCredential, error) {
 	in := func(id string) string { return cred.Inputs[id] }
 	snmp := wire.SNMPCredential{
 		Community:      in(SNMPInputCommunity),
-		User:           strings.TrimSpace(in(SNMPInputUser)),
-		AuthProtocol:   wire.SNMPAuthProtocol(strings.TrimSpace(in(SNMPInputAuthProtocol))),
+		User:           in(SNMPInputUser),
+		AuthProtocol:   wire.SNMPAuthProtocol(in(SNMPInputAuthProtocol)),
 		AuthPassphrase: in(SNMPInputAuthPassphrase),
-		PrivProtocol:   wire.SNMPPrivProtocol(strings.TrimSpace(in(SNMPInputPrivProtocol))),
+		PrivProtocol:   wire.SNMPPrivProtocol(in(SNMPInputPrivProtocol)),
 		PrivPassphrase: in(SNMPInputPrivPassphrase),
 	}
 	if snmp.Empty() {

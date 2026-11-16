@@ -83,6 +83,8 @@ func TestCLI_AddCredential_SNMPRefusals(t *testing.T) {
 		"a short passphrase":          {"short77\n", []string{"--snmp-user", "u", "--snmp-auth", "md5", "--snmp-passphrase-stdin"}, "the SNMP authentication passphrase is shorter than 8"},
 		"a short community":           {"public\n", []string{"--snmp-community-stdin"}, "--allow-short-community"},
 		"an allowance it cannot need": {"c0mmunity-s3cret\n", []string{"--snmp-community-stdin", "--allow-short-community"}, "allows nothing"},
+		// Refused as the pleiades_snmp type refuses it, never trimmed.
+		"a user with a space": {"", []string{"--snmp-user", "monitor ", "--snmp-auth", "sha"}, "--snmp-user begins or ends with a space"},
 	} {
 		out, err := runPleiadesWithStdin(t, dir, tc.stdin, append([]string{"add-credential", "web01"}, tc.args...)...)
 		if err == nil || !strings.Contains(out, tc.want) {

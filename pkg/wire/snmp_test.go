@@ -89,6 +89,35 @@ func TestSNMPCredential_CheckRefusesWhatNoAgentAccepts(t *testing.T) {
 	}
 }
 
+// TestSNMPCredential_ANameWithASpaceIsRefusedNotTrimmed: a USM user or a
+// protocol name beginning or ending with white space is refused naming its
+// key and saying why, on every path that runs Check, rather than trimmed on
+// some paths and kept on others; a passphrase is taken as written, a space
+// at either end and all.
+func TestSNMPCredential_ANameWithASpaceIsRefusedNotTrimmed(t *testing.T) {
+	const auth, priv = "auth-pass-1", "priv-pass-1"
+	for _, tc := range []struct {
+		name string
+		cred wire.SNMPCredential
+		key  string
+	}{
+		{"a user with a leading space", wire.SNMPCredential{User: " monitor"}, wire.SecretSNMPUser},
+		{"a user with a trailing space", wire.SNMPCredential{User: "monitor ", AuthProtocol: wire.SNMPAuthSHA, AuthPassphrase: auth}, wire.SecretSNMPUser},
+		{"a user with a trailing no-break space", wire.SNMPCredential{User: "monitor "}, wire.SecretSNMPUser},
+		{"an auth protocol with a space", wire.SNMPCredential{User: "monitor", AuthProtocol: "sha ", AuthPassphrase: auth}, wire.SecretSNMPAuthProtocol},
+		{"a priv protocol with a space", wire.SNMPCredential{User: "monitor", AuthProtocol: wire.SNMPAuthSHA, AuthPassphrase: auth, PrivProtocol: " aes128", PrivPassphrase: priv}, wire.SecretSNMPPrivProtocol},
+	} {
+		var problem *wire.SNMPProblem
+		if err := tc.cred.Check(false); !errors.As(err, &problem) || problem.Key != tc.key || !strings.Contains(problem.Problem, "space") {
+			t.Errorf("%s: Check = %v, want a problem with %s saying it holds a space", tc.name, err, tc.key)
+		}
+	}
+	spaced := wire.SNMPCredential{User: "monitor", AuthProtocol: wire.SNMPAuthSHA, AuthPassphrase: " auth pass 1 "}
+	if err := spaced.Check(false); err != nil {
+		t.Errorf("a passphrase with spaces was refused: %v", err)
+	}
+}
+
 // TestSNMPCredential_AShortCommunityIsStoredOnlyWhenAllowed: the allowance
 // is what stores "public", and ShortCommunity says it is short.
 func TestSNMPCredential_AShortCommunityIsStoredOnlyWhenAllowed(t *testing.T) {

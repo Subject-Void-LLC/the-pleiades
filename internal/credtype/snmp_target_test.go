@@ -24,7 +24,7 @@ const testKeyPEM = "-----BEGIN PRIVATE KEY-----\nMIGHAgEAMBMGByqGSM49\n-----END 
 // is what leaves the Ansible path with nothing from it.
 func TestPleiadesSNMP_InjectsTheWireKeysAndNothingElse(t *testing.T) {
 	art, err := injectAll(t, kubernetesCredential(t, 9, "pleiades_snmp", map[string]string{
-		"username": " monitor ", "auth_protocol": "sha384", "auth_passphrase": "auth-pass-phrase",
+		"username": "monitor", "auth_protocol": "sha384", "auth_passphrase": "auth-pass-phrase",
 		"priv_protocol": "aes256-reeder", "priv_passphrase": "priv-pass-phrase",
 	}))
 	if err != nil {
@@ -66,6 +66,8 @@ func TestPleiadesSNMP_RefusesWhatTheWireRefuses(t *testing.T) {
 		"an allowance it cannot need":  {map[string]string{"community": "c0mmunity-s3cret", "allow_short_community": "true"}, `"community"`},
 		"nothing at all":               {map[string]string{}, "needs a community or a username"},
 		"an unknown protocol, unsaved": {map[string]string{"username": "u", "auth_protocol": "sha1", "auth_passphrase": "auth-pass-phrase"}, `"auth_protocol"`},
+		// Refused, not trimmed, as add-credential refuses --snmp-user with one.
+		"a user with a space at either end": {map[string]string{"username": " monitor ", "auth_protocol": "sha", "auth_passphrase": "auth-pass-phrase"}, `input "username" begins or ends with a space`},
 	} {
 		// An unknown protocol meets the schema's own choices first, which
 		// the injector reports as an injection failure; every other rule is
@@ -154,6 +156,9 @@ func TestCheckStoredValues_RefusesWhatNoRunCouldUse(t *testing.T) {
 	}
 	if err := credtype.CheckStoredValues(credtype.KindSNMP, "s", map[string]string{"username": "u", "auth_protocol": "sha", "auth_passphrase": "auth-pass-phrase"}); err != nil {
 		t.Errorf("a whole v3 user was refused: %v", err)
+	}
+	if err := credtype.CheckStoredValues(credtype.KindSNMP, "s", map[string]string{"username": "monitor ", "auth_protocol": "sha", "auth_passphrase": "auth-pass-phrase"}); !errors.Is(err, credtype.ErrInvalidCredential) {
+		t.Errorf("a user with a trailing space was stored: %v", err)
 	}
 	for kind, inputs := range map[credtype.Kind][2]string{
 		credtype.KindKubernetes:   {credtype.KubernetesInputClientCert, credtype.KubernetesInputClientKey},

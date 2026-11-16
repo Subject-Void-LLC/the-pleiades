@@ -45,6 +45,9 @@ func snmpProblem(key, text string) *SNMPProblem { return &SNMPProblem{Key: key, 
 //     every message.
 //   - A user name over 32 characters or holding a control character (RFC
 //     3414's SnmpAdminString (SIZE(1..32)); the name is shown in output).
+//   - A user or protocol name beginning or ending with a space, refused
+//     rather than trimmed (spaced says why), so every path reads one
+//     alike; a community or passphrase is taken as written.
 //   - A protocol outside the vocabulary, a protocol without its passphrase,
 //     and a passphrase without its protocol.
 //   - Privacy without authentication, which USM does not have.
@@ -77,6 +80,9 @@ func (c SNMPCredential) problem(allowShortCommunity bool) *SNMPProblem {
 	if c.User == "" {
 		return snmpProblem(SecretSNMPUser, "is empty, and an SNMPv3 protocol or passphrase needs the USM user it belongs to")
 	}
+	if spaced(c.User) {
+		return snmpProblem(SecretSNMPUser, "begins or ends with a space, which an agent would compare byte for byte; remove it, or it names another user")
+	}
 	if len(c.User) > maxSNMPUserLength || strings.IndexFunc(c.User, unicode.IsControl) >= 0 {
 		return snmpProblem(SecretSNMPUser, fmt.Sprintf("is over %d characters or holds a control character, which a USM user name may not", maxSNMPUserLength))
 	}
@@ -101,6 +107,8 @@ func pairProblem(protocolKey, passphraseKey, protocol, passphrase string, valid 
 		return nil
 	case protocol == "":
 		return snmpProblem(protocolKey, "is empty, and its passphrase is set; name the protocol the passphrase is for")
+	case spaced(protocol):
+		return snmpProblem(protocolKey, "begins or ends with a space; remove it, and name one of "+names)
 	case !valid:
 		return snmpProblem(protocolKey, "is not one of "+names)
 	case passphrase == "":
@@ -110,6 +118,13 @@ func pairProblem(protocolKey, passphraseKey, protocol, passphrase string, valid 
 	}
 	return nil
 }
+
+// spaced reports whether s begins or ends with white space. A name is
+// refused for it rather than trimmed: every write path runs Check, so
+// refusing here holds them all to one reading with nothing to forget, and a
+// trailing space is legal in a USM user name (SnmpAdminString), so a trim
+// could store a name other than the one an agent was given.
+func spaced(s string) bool { return strings.TrimSpace(s) != s }
 
 // authNames is the authentication vocabulary as a comma list.
 func authNames() string {
