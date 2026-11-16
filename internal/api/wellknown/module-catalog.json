@@ -14511,6 +14511,374 @@
       ]
     }
   },
+  "net.snmp.facts": {
+    "supportedTransports": [
+      "snmp"
+    ],
+    "requiredCapabilities": [
+      "SNMPCapable"
+    ],
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
+    "engineVersion": ">=0.4.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "A read-only fact gatherer changes nothing on the device, so there is nothing to undo.",
+      "readOnly": true
+    },
+    "supportsCheck": true,
+    "noExistsReason": "it describes the device itself; a device not there is unreachable, not absent",
+    "noBecomeReason": "it speaks SNMP over UDP to the device's agent, which no sudo prefix reaches",
+    "usesSnmpCredential": true,
+    "facts": [
+      {
+        "key": "snmp.version",
+        "kind": "stable",
+        "type": "string",
+        "description": "The SNMP version the agent was read in: 3, 2c or 1."
+      },
+      {
+        "key": "snmp.security_level",
+        "kind": "stable",
+        "type": "string",
+        "description": "The SNMPv3 security level the session ran at (authPriv, authNoPriv or noAuthNoPriv), or community for SNMPv1 and SNMPv2c."
+      },
+      {
+        "key": "snmp.sys_descr",
+        "kind": "stable",
+        "type": "string",
+        "description": "sysDescr.0: the agent's description of the device, usually its hardware and software."
+      },
+      {
+        "key": "snmp.sys_object_id",
+        "kind": "stable",
+        "type": "string",
+        "description": "sysObjectID.0, dotted: the vendor's identifier of the device's kind, under its enterprise number (1.3.6.1.4.1.9 is Cisco's, 1.3.6.1.4.1.8072 net-snmp's)."
+      },
+      {
+        "key": "snmp.sys_name",
+        "kind": "stable",
+        "type": "string",
+        "description": "sysName.0: the name the device's administrator gave it."
+      },
+      {
+        "key": "snmp.sys_contact",
+        "kind": "stable",
+        "type": "string",
+        "description": "sysContact.0: who to contact about the device."
+      },
+      {
+        "key": "snmp.sys_location",
+        "kind": "stable",
+        "type": "string",
+        "description": "sysLocation.0: where the device is."
+      },
+      {
+        "key": "snmp.sys_services",
+        "kind": "stable",
+        "type": "integer",
+        "description": "sysServices.0: the layers the device serves, as RFC 3418's sum of each layer's value (72 for a host offering applications, 78 for one that also bridges and routes)."
+      },
+      {
+        "key": "snmp.sys_uptime",
+        "kind": "volatile",
+        "type": "integer",
+        "description": "sysUpTime.0, in hundredths of a second since the agent's network management part started: it changes on every read, and goes back to 0 on a restart."
+      },
+      {
+        "key": "snmp.engine_id",
+        "kind": "stable",
+        "type": "string",
+        "description": "The agent's SNMP engine ID as lowercase hex: the one SNMPv3 discovered for the session, or snmpEngineID.0 for a community. An engine ID names one agent, so a new one at the same address is another agent, or the same one reinstalled."
+      },
+      {
+        "key": "snmp.engine_boots",
+        "kind": "volatile",
+        "type": "integer",
+        "description": "snmpEngineBoots.0: how many times the agent's engine has started since its engine ID was set."
+      },
+      {
+        "key": "snmp.interface_count",
+        "kind": "stable",
+        "type": "integer",
+        "description": "How many interfaces the table holds, as read (at most max_interfaces)."
+      },
+      {
+        "key": "snmp.interfaces",
+        "kind": "volatile",
+        "type": "list",
+        "description": "Each interface, by ifIndex order: index, descr, name, alias, type (IANAifType's number), mtu, speed (bits per second, from ifSpeed, or ifHighSpeed times a million when ifSpeed is at its 32-bit ceiling), phys_address (hex), admin_status and oper_status (up, down, testing and RFC 2863's others, or the number for one it does not name), each left out when the agent does not answer it."
+      }
+    ],
+    "doc": {
+      "summary": "Records what a device's SNMP agent says about it: its system group, engine and interfaces.",
+      "description": "Reads the device's SNMP agent with the SNMP family of its own credential, through the client onboarding and wait.snmp use (SNMPv3 unless the device's record opts into SNMPv1 or SNMPv2c with snmp_allow_cleartext_community, which is warned about): the MIB-II system group in one GET, the agent's engine ID (the one SNMPv3 discovered, or snmpEngineID.0 for a community) and boots, and the interface table, ifTable's index, description, type, MTU, speed, address and statuses and ifXTable's name, alias and high speed, walked column by column up to max_interfaces rows. It records them, changing nothing, as stats always and as facts only when the session authenticated the agent's answers (SNMPv3 at authNoPriv or authPriv): a community, or a noAuthNoPriv user, proves nothing about which agent answered, so what it says is not kept, and the run says so. A group the agent does not answer is left out, never recorded empty, and an agent that answers no system object at all fails the task. snmp.interfaces is left out, with a warning, when it does not fit in 60 KiB; snmp.interface_count is recorded whenever the table was read. Every text value is masked of the device's credential. Reports no change, and a check runs it for real.",
+      "params": [
+        {
+          "name": "max_interfaces",
+          "type": "int",
+          "default": "1000",
+          "description": "The most interfaces read, from 1 to 10000; a table with more is recorded as its first rows, with a warning."
+        }
+      ],
+      "returns": [
+        {
+          "name": "snmp.version",
+          "type": "string",
+          "returned": "always, as a stat; as a fact only over SNMPv3 with authentication",
+          "description": "The SNMP version the agent was read in: 3, 2c or 1."
+        },
+        {
+          "name": "snmp.security_level",
+          "type": "string",
+          "returned": "always, as a stat; as a fact only over SNMPv3 with authentication",
+          "description": "The SNMPv3 security level the session ran at (authPriv, authNoPriv or noAuthNoPriv), or community for SNMPv1 and SNMPv2c."
+        },
+        {
+          "name": "snmp.sys_descr",
+          "type": "string",
+          "returned": "when the agent answers it, as a stat; as a fact only over SNMPv3 with authentication",
+          "description": "sysDescr.0: the agent's description of the device, usually its hardware and software."
+        },
+        {
+          "name": "snmp.sys_object_id",
+          "type": "string",
+          "returned": "when the agent answers it, as a stat; as a fact only over SNMPv3 with authentication",
+          "description": "sysObjectID.0, dotted: the vendor's identifier of the device's kind, under its enterprise number (1.3.6.1.4.1.9 is Cisco's, 1.3.6.1.4.1.8072 net-snmp's)."
+        },
+        {
+          "name": "snmp.sys_name",
+          "type": "string",
+          "returned": "when the agent answers it, as a stat; as a fact only over SNMPv3 with authentication",
+          "description": "sysName.0: the name the device's administrator gave it."
+        },
+        {
+          "name": "snmp.sys_contact",
+          "type": "string",
+          "returned": "when the agent answers it, as a stat; as a fact only over SNMPv3 with authentication",
+          "description": "sysContact.0: who to contact about the device."
+        },
+        {
+          "name": "snmp.sys_location",
+          "type": "string",
+          "returned": "when the agent answers it, as a stat; as a fact only over SNMPv3 with authentication",
+          "description": "sysLocation.0: where the device is."
+        },
+        {
+          "name": "snmp.sys_services",
+          "type": "int",
+          "returned": "when the agent answers it, as a stat; as a fact only over SNMPv3 with authentication",
+          "description": "sysServices.0: the layers the device serves, as RFC 3418's sum of each layer's value (72 for a host offering applications, 78 for one that also bridges and routes)."
+        },
+        {
+          "name": "snmp.sys_uptime",
+          "type": "int",
+          "returned": "when the agent answers it, as a stat; as a fact only over SNMPv3 with authentication",
+          "description": "sysUpTime.0, in hundredths of a second since the agent's network management part started: it changes on every read, and goes back to 0 on a restart."
+        },
+        {
+          "name": "snmp.engine_id",
+          "type": "string",
+          "returned": "when the agent has one it says, as a stat; as a fact only over SNMPv3 with authentication",
+          "description": "The agent's SNMP engine ID as lowercase hex: the one SNMPv3 discovered for the session, or snmpEngineID.0 for a community. An engine ID names one agent, so a new one at the same address is another agent, or the same one reinstalled."
+        },
+        {
+          "name": "snmp.engine_boots",
+          "type": "int",
+          "returned": "when the agent answers it, as a stat; as a fact only over SNMPv3 with authentication",
+          "description": "snmpEngineBoots.0: how many times the agent's engine has started since its engine ID was set."
+        },
+        {
+          "name": "snmp.interface_count",
+          "type": "int",
+          "returned": "when the interface table was read, as a stat; as a fact only over SNMPv3 with authentication",
+          "description": "How many interfaces the table holds, as read (at most max_interfaces)."
+        },
+        {
+          "name": "snmp.interfaces",
+          "type": "list of dict",
+          "returned": "when the interface table was read and fits in 60 KiB, as a stat; as a fact only over SNMPv3 with authentication",
+          "description": "Each interface, by ifIndex order: index, descr, name, alias, type (IANAifType's number), mtu, speed (bits per second, from ifSpeed, or ifHighSpeed times a million when ifSpeed is at its 32-bit ceiling), phys_address (hex), admin_status and oper_status (up, down, testing and RFC 2863's others, or the number for one it does not name), each left out when the agent does not answer it."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Record what a device's agent says",
+          "runbookYaml": "- name: Read the agent's system group and interfaces\n  net.snmp.facts:\n  register: agent\n"
+        }
+      ],
+      "seeAlso": [
+        "net.snmp.get",
+        "wait.snmp"
+      ]
+    }
+  },
+  "net.snmp.get": {
+    "supportedTransports": [
+      "snmp"
+    ],
+    "requiredCapabilities": [
+      "SNMPCapable"
+    ],
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
+    "engineVersion": ">=0.4.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "A GET or a walk changes nothing on the device, so there is nothing to undo.",
+      "readOnly": true
+    },
+    "supportsCheck": true,
+    "noExistsReason": "it reads OIDs and answers each one, an object the agent does not hold included, as a value of type no-such-object or no-such-instance",
+    "noBecomeReason": "it speaks SNMP over UDP to the device's agent, which no sudo prefix reaches",
+    "usesSnmpCredential": true,
+    "doc": {
+      "summary": "Reads OIDs from a device's SNMP agent, in one GET or each walked, changing nothing.",
+      "description": "Reads the OIDs oids names from the device's SNMP agent with the SNMP family of its own credential, through the client onboarding and wait.snmp use: SNMPv3 unless the device's record opts into SNMPv1 or SNMPv2c (snmp_allow_cleartext_community), every one of which is warned about. Without walk the OIDs are read in one GET, at most 60 of them, and an object the agent does not hold is answered as a value of type no-such-object or no-such-instance; an SNMPv1 agent answers that noSuchName instead, which fails the task naming the OID. With walk each OID is the root of a subtree read in order, with GETBULK (unless the device's record sets snmp_no_bulk, or it speaks SNMPv1) or GETNEXT, until the subtree ends or max_results bindings are read, and an agent answering an OID not after the one asked from stops the walk rather than loop. An OID is numeric (1.3.6.1.2.1.1.5.0) or a name from a small curated table with its instance (sysName.0, ifDescr.2, SNMPv2-MIB::sysName.0): the MIB-II system and interfaces groups, IF-MIB's ifXTable and the SNMP engine group; anything else is refused before anything is sent, and is written numerically. Every value is masked of the device's credential, and every octet string in the agent's community table (SNMP-COMMUNITY-MIB) or USM user table is masked whole, whatever it holds. Reports no change, and a check runs it for real.",
+      "params": [
+        {
+          "name": "oids",
+          "type": "list",
+          "required": true,
+          "description": "The OIDs to read, or with walk the roots of the subtrees to walk: numeric, or a curated name with its instance (sysName.0). From 1 to 60 of them."
+        },
+        {
+          "name": "walk",
+          "type": "bool",
+          "default": "false",
+          "description": "Walk each OID's subtree instead of reading the OID itself."
+        },
+        {
+          "name": "max_results",
+          "type": "int",
+          "default": "1000",
+          "description": "With walk, the most bindings read for each OID, from 1 to 10000; a walk that stops there says so with truncated. Refused without walk."
+        }
+      ],
+      "returns": [
+        {
+          "name": "values",
+          "type": "list of dict",
+          "returned": "always",
+          "description": "Each binding read, in order: oid (numeric), type (integer, octet-string, object-identifier, ip-address, counter32, gauge32, timeticks, counter64, opaque, null, no-such-object, no-such-instance or end-of-mib-view) and value as text (a number in decimal, an OID dotted, an octet string as itself, or as 0x and hex when it is not printable, with hex true)."
+        },
+        {
+          "name": "truncated",
+          "type": "bool",
+          "returned": "with walk",
+          "description": "Whether a walk stopped at max_results before its subtree ended, so values may hold only its first part."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Read a device's name and uptime",
+          "runbookYaml": "- name: Read the agent's name and uptime\n  net.snmp.get:\n    oids:\n      - sysName.0\n      - sysUpTime.0\n  register: system\n"
+        },
+        {
+          "name": "Walk the interface descriptions",
+          "runbookYaml": "- name: Walk ifDescr\n  net.snmp.get:\n    oids:\n      - ifDescr\n    walk: true\n    max_results: 500\n"
+        }
+      ],
+      "seeAlso": [
+        "net.snmp.facts",
+        "net.snmp.set",
+        "wait.snmp"
+      ]
+    }
+  },
+  "net.snmp.set": {
+    "supportedTransports": [
+      "snmp"
+    ],
+    "requiredCapabilities": [
+      "SNMPCapable"
+    ],
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
+    "engineVersion": ">=0.4.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": true,
+      "notes": "A run that changed the object records net.snmp.set of the same OID with the type and value read before the write, which is exact: an SNMP object holds one typed value, and writing it back restores it. It is recorded as soon as the SET is answered, so it stands whatever happens after, the read back included. The value read before is kept in the run's journal, which is why net.snmp.set refuses every object under snmpModules (1.3.6.1.6.3), where an agent keeps its users, keys and communities; a value holding one of the run's secrets is withheld by the journal, and such an undo is not replayed. A run that changed nothing records nothing.",
+      "inverses": [
+        {
+          "fqcn": "net.snmp.set",
+          "record": [
+            "oid",
+            "type",
+            "value"
+          ],
+          "mayKeepOnFailure": true
+        }
+      ]
+    },
+    "supportsCheck": true,
+    "noBecomeReason": "it speaks SNMP over UDP to the device's agent, which no sudo prefix reaches",
+    "usesSnmpCredential": true,
+    "doc": {
+      "summary": "Writes one object on a device's SNMP agent, reading it before and after, with an exact undo.",
+      "description": "Writes value, of type, to the object oid names on the device's SNMP agent in one SET, with the SNMP family of the device's own credential: SNMPv3 unless the device's record opts into SNMPv1 or SNMPv2c (snmp_allow_cleartext_community), which is warned about, as a write in the clear with a community is. The object is read first. One the agent does not hold is refused, since creating a row is not this method's (its undo would not be exact), and so is one holding another type than type. One that already holds value is left alone: nothing is sent and the run reports no change, and a check reports what a run would change and sends no SET. After the SET the object is read again, and a value other than the one written fails the task: an agent can accept a write and drop it (IOS XE 17.15.1 accepted SNMPv3 users it never created, measured on 2026-11-15), so the answer to the SET is not taken as the change. A run that changed the object records its undo, net.snmp.set of the same OID with the type and value read before, as soon as the SET is answered. Every object under snmpModules (1.3.6.1.6.3), the agent's own users, keys, views and communities, is refused before anything is sent: their values would ride the undo and the run's journal. An OID is numeric or a curated name with its instance (sysContact.0), as net.snmp.get takes it. The values recorded are masked of the device's credential.",
+      "params": [
+        {
+          "name": "oid",
+          "type": "string",
+          "required": true,
+          "description": "The object to write, one instance: numeric (1.3.6.1.2.1.1.4.0) or a curated name with its instance (sysContact.0)."
+        },
+        {
+          "name": "type",
+          "type": "string",
+          "required": true,
+          "choices": [
+            "integer",
+            "octet-string",
+            "hex-string",
+            "object-identifier",
+            "ip-address",
+            "gauge32",
+            "timeticks"
+          ],
+          "description": "The value's SNMP type: integer (a signed 32-bit number), octet-string (text, written as its bytes), hex-string (an octet string given as hex, optionally after 0x, for one that is not text), object-identifier, ip-address (IPv4, dotted), gauge32 or timeticks (unsigned 32-bit numbers). Counters are read-only (RFC 2578) and are not offered. It must be the type the agent holds."
+        },
+        {
+          "name": "value",
+          "type": "string",
+          "required": true,
+          "description": "The value, as text of its type: a number in decimal, an OID dotted or by curated name, an address dotted, text, or hex. An octet string is at most 65535 bytes."
+        }
+      ],
+      "returns": [
+        {
+          "name": "diff",
+          "type": "dict",
+          "returned": "always",
+          "description": "The object before and after, each its oid, type and value (masked), so a run that changed nothing shows the same value twice."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Set a device's contact",
+          "runbookYaml": "- name: Name the device's contact\n  net.snmp.set:\n    oid: sysContact.0\n    type: octet-string\n    value: noc@example.net\n"
+        },
+        {
+          "name": "Shut an interface down",
+          "runbookYaml": "- name: Set ifAdminStatus of interface 3 to down\n  net.snmp.set:\n    oid: ifAdminStatus.3\n    type: integer\n    value: \"2\"\n"
+        }
+      ],
+      "seeAlso": [
+        "net.snmp.get",
+        "net.snmp.facts"
+      ]
+    }
+  },
   "net.ssh.ping": {
     "supportedTransports": [
       "ssh"
@@ -24155,6 +24523,137 @@
       "seeAlso": [
         "wait.path",
         "pleiades.builtin.wait.port"
+      ]
+    }
+  },
+  "wait.snmp": {
+    "supportedTransports": [
+      "snmp"
+    ],
+    "requiredCapabilities": [
+      "SNMPCapable"
+    ],
+    "executionContext": {
+      "site": "target",
+      "device": "required"
+    },
+    "engineVersion": ">=0.4.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "This method waits for a device's SNMP agent to answer and changes nothing on it, so there is nothing to undo.",
+      "readOnly": true
+    },
+    "supportsCheck": false,
+    "noCheckReason": "what it waits for is usually a device an earlier task starts or restarts, which a check never does, so a check would wait out its timeout and fail where the real run succeeds",
+    "noExistsReason": "it is a wait: failing at its timeout is its purpose",
+    "noBecomeReason": "it speaks SNMP over UDP to the device's agent, which no sudo prefix reaches",
+    "usesSnmpCredential": true,
+    "doc": {
+      "summary": "Waits until the target's SNMP agent answers its credential with sysUpTime.0.",
+      "description": "Tries the device's SNMP agent until a GET of sysUpTime.0 is answered with the SNMP family of the device's own credential, and fails when the timeout runs out first, through the same client the net.snmp.* methods and onboarding use: SNMPv3 unless the device's record opts into SNMPv1 or SNMPv2c (snmp_allow_cleartext_community), which is warned about. It is the task to put between one that starts or reconfigures a device and the first net.snmp.* task: a device answers a ping, and even SSH, before its agent runs, and wait.connection says nothing about SNMP. Each try is a new client, so a session from an earlier try is never taken for an answer. An SNMPv3 refusal ends the wait at once (an unknown user, a wrong authentication passphrase or protocol, a security level the user is not configured for, or a request the agent could not decrypt), since none of them changes by being asked again and a credential sent at every try can lock it out; so does a device record or credential the client refuses, such as a community for an SNMPv3 device or 3des privacy. An agent that does not answer within connect_timeout is tried again until the timeout, and that includes a wrong community: an SNMPv1 or SNMPv2c agent drops a request whose community it does not know without a word, so it reads exactly as an agent not up yet. A failed try is not an error, since it is what the task waits to see stop; the last one is quoted when the timeout ends the wait. The delay, backoff and steady parameters work as wait.connection's do. It changes nothing.",
+      "params": [
+        {
+          "name": "timeout",
+          "type": "int",
+          "default": "600",
+          "description": "How many seconds to wait in total before giving up, counted from the start of the task, so the delay comes out of it. Must be more than 0."
+        },
+        {
+          "name": "delay",
+          "type": "int",
+          "default": "0",
+          "description": "How many seconds to wait before the first try. Must be shorter than the timeout, which it is spent out of."
+        },
+        {
+          "name": "sleep",
+          "type": "int",
+          "default": "5",
+          "description": "How many seconds to wait between tries, or with backoff: exponential before the second try, the gap doubling after each failed one. Must be more than 0."
+        },
+        {
+          "name": "backoff",
+          "type": "string",
+          "default": "fixed",
+          "choices": [
+            "fixed",
+            "exponential"
+          ],
+          "description": "How the gap between failed tries grows: fixed keeps it at sleep; exponential doubles it after each failed try, up to max_sleep, each gap a random point in its upper half."
+        },
+        {
+          "name": "max_sleep",
+          "type": "int",
+          "default": "60",
+          "description": "With backoff: exponential, the longest gap between tries, in seconds. Not less than sleep; refused with backoff: fixed, where it would do nothing."
+        },
+        {
+          "name": "steady",
+          "type": "int",
+          "default": "1",
+          "description": "How many tries in a row must be answered before the agent counts as ready. Must be at least 1, and the streak must fit in the timeout after the delay."
+        },
+        {
+          "name": "steady_interval",
+          "type": "int",
+          "default": "10",
+          "description": "With steady above 1, the seconds between the answering tries. Must be more than 0; refused with steady 1, where it would do nothing."
+        },
+        {
+          "name": "connect_timeout",
+          "type": "int",
+          "default": "20",
+          "description": "How many seconds one try may take, every retry of its GET included (the device's snmp_timeout and snmp_retries), before it counts as failed. Must be more than 0."
+        }
+      ],
+      "returns": [
+        {
+          "name": "elapsed",
+          "type": "int",
+          "returned": "always",
+          "description": "How many whole seconds the task waited, including the delay."
+        },
+        {
+          "name": "version",
+          "type": "string",
+          "returned": "always",
+          "description": "The SNMP version the agent answered in: 3, 2c or 1."
+        },
+        {
+          "name": "port",
+          "type": "int",
+          "returned": "always",
+          "description": "The UDP port of the agent that answered."
+        },
+        {
+          "name": "tries",
+          "type": "int",
+          "returned": "always",
+          "description": "How many tries the task made, answered or not."
+        },
+        {
+          "name": "failures",
+          "type": "int",
+          "returned": "always",
+          "description": "How many of those tries did not answer."
+        },
+        {
+          "name": "diff",
+          "type": "dict",
+          "returned": "always",
+          "description": "The port that answered. Both halves are identical, since a wait changes nothing."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Wait for a device's SNMP agent after its configuration is applied",
+          "runbookYaml": "- name: Wait for the agent to answer its SNMPv3 user\n  wait.snmp:\n    timeout: 300\n    sleep: 5\n"
+        }
+      ],
+      "seeAlso": [
+        "wait.connection",
+        "net.snmp.facts",
+        "net.snmp.get"
       ]
     }
   },

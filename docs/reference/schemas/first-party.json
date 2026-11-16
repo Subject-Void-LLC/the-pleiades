@@ -129,6 +129,7 @@
     "scan",
     "service",
     "service_state",
+    "snmp",
     "svc",
     "user",
     "virt",
@@ -172,6 +173,7 @@
     "scan.",
     "service.",
     "service_state.",
+    "snmp.",
     "svc.",
     "user.",
     "virt.",
@@ -245,6 +247,9 @@
     ],
     "service_state.": [
       "facts"
+    ],
+    "snmp.": [
+      "net"
     ],
     "svc.": [],
     "user.": [
@@ -391,6 +396,9 @@
     "net.pcap.summary": "net",
     "net.restconf.config": "net",
     "net.restconf.facts": "net",
+    "net.snmp.facts": "net",
+    "net.snmp.get": "net",
+    "net.snmp.set": "net",
     "net.ssh.ping": "net",
     "net.trace": "net",
     "pkg.apt.install": "pkg",
@@ -514,6 +522,7 @@
     "wait.restconf": "wait",
     "wait.routes": "wait",
     "wait.search": "wait",
+    "wait.snmp": "wait",
     "win.archive.extract": "win",
     "win.capability.install": "win",
     "win.capability.remove": "win",

@@ -6,7 +6,7 @@ status: beta
 
 The full declared-versus-implemented matrix for every registered Collection method. See [Start here](../01-start-here.md#implementation-status) for what this means for the product as a whole.
 
-**266 of 268 methods are implemented.**
+**270 of 272 methods are implemented.**
 
 ## Implemented
 
@@ -276,6 +276,10 @@ The full declared-versus-implemented matrix for every registered Collection meth
 - [net.ovs.bridge](modules/net/ovs/bridge.md)
 - [net.ovs.port](modules/net/ovs/port.md)
 - [net.batfish.check](modules/net/batfish/check.md)
+- [net.snmp.facts](modules/net/snmp/facts.md)
+- [net.snmp.get](modules/net/snmp/get.md)
+- [net.snmp.set](modules/net/snmp/set.md)
+- [wait.snmp](modules/wait/snmp.md)
 
 ## Declared, not yet implemented
 

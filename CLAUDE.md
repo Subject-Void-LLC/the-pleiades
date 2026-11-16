@@ -72,12 +72,12 @@ pre-1.0 project and the honest state is not what the docs' introductions might i
   secret is masked by value in every run (`engine.WithKnownSecrets`), `net.ios.command`'s stdout is masked,
   and `validate` warns on a key written out. A Runner and an external Collection cannot resolve one yet
   (`sdk.ErrNoNamedSecrets`). Proven live by `TestCLI_ANamedSecretKeysAnIKEv2TunnelAndNeverShows`.
-- **Module catalog: 268 registered FQCNs; 266 implemented, 2 declared-not-implemented (2026-11-15).** These counts
+- **Module catalog: 272 registered FQCNs; 270 implemented, 2 declared-not-implemented (2026-11-15).** These counts
   and every per-method status come from the generated
   `docs/reference/schemas/module-catalog.json`, which `tools/gendocs` builds from the real registry
   and which is authoritative over any hand-written tally in this file - read it rather than trusting
-  this paragraph, which has gone stale before. By namespace, implemented: `virt` 83, `container` 37, `net` 33,
-  `svc` 16, `file` 14, `win` 12, `ai` 11, `pkg` 9, `db` 6, `identity` 6, `wait` 7, `cloud` 4, `build` 3, `edge` 3, `exec` 3, `fw` 3, `scan` 3, `archive` 2, `fs` 2, `gate` 2,
+  this paragraph, which has gone stale before. By namespace, implemented: `virt` 83, `container` 37, `net` 36,
+  `svc` 16, `file` 14, `win` 12, `ai` 11, `pkg` 9, `db` 6, `identity` 6, `wait` 8, `cloud` 4, `build` 3, `edge` 3, `exec` 3, `fw` 3, `scan` 3, `archive` 2, `fs` 2, `gate` 2,
   `http` 3, `pleiades` 3, `facts` 1. The `svc` group is the 6 `svc.systemd.*`
   methods, the 5 `svc.windows.*` ones, and the 5 generic `svc.*` ones that resolve a device's
   service manager and dispatch to whichever applies, all built on `pkg/remotesvc`. The `net` group
@@ -182,7 +182,7 @@ pre-1.0 project and the honest state is not what the docs' introductions might i
   once; and a target already running (a project mid-sync) is a **skip** carrying
   `already_running`, never a failure, since a failure would be retried for as long as the first
   run lasts.
-- **Check mode is real for 248 of the 266 implemented methods (Phase 46; counts from the generated catalog, 2026-11-15).** `pleiades run --mode
+- **Check mode is real for 251 of the 270 implemented methods (Phase 46; counts from the generated catalog, 2026-11-15).** `pleiades run --mode
   check` runs each task's declared `Descriptor.Check` (`collection.ModeCheck`; the
   manifest's `SupportsCheck` must agree, enforced by `Register`) and names every other
   task as unchecked, ending non-zero. The engine refuses a check result carrying an
@@ -193,9 +193,9 @@ pre-1.0 project and the honest state is not what the docs' introductions might i
   checks only some calls answers the rest with `collection.CannotCheck`, and when the
   params alone decide (`exec.command`/`exec.shell` guards, `http.request`'s method) also
   sets `Descriptor.CheckCall`, which validation calls to refuse `check_mode` on such a
-  call. The eighteen methods with no check (`container.exec`, `net.cli.*`, `net.ios.command`,
-  `net.netconf.config`, `net.restconf.config`, `net.gnmi.config`, `virt.clab.node.exec`, `virt.clab.vxlan.delete` and the nine waits, `http.wait`,
-  `wait.netconf`, `wait.restconf` and `wait.gnmi` among them; the first thirteen re-confirmed in C2c, 2026-11-02, when nine others gained a check) each carry
+  call. The nineteen methods with no check (`container.exec`, `net.cli.*`, `net.ios.command`,
+  `net.netconf.config`, `net.restconf.config`, `net.gnmi.config`, `virt.clab.node.exec`, `virt.clab.vxlan.delete` and the ten waits, `http.wait`,
+  `wait.netconf`, `wait.restconf`, `wait.gnmi` and `wait.snmp` among them; the first thirteen re-confirmed in C2c, 2026-11-02, when nine others gained a check) each carry
   `Manifest.NoCheckReason`, which `internal/archtest` requires of every built-in without
   check support. The generated module catalog's `supportsCheck` is the authority. The
   Walk tier runs checks too: the runbook launch kind's `mode` field (`launch.ModeField`, a
@@ -263,7 +263,7 @@ pre-1.0 project and the honest state is not what the docs' introductions might i
   refused. `PLEIADES_TEST_LOGIN_SHELL=fish|tcsh|zsh` runs the sshd-backed suites under that login shell, and
   `internal/archtest` keeps SSH sessions inside `pkg/remoteexec`.
 - **Generic device types are real (Phase 111).** `generic_ssh`, `generic_netconf`, `generic_restconf`,
-  `generic_gnmi`, `generic_http` and `generic_grpc` (`internal/inventory/devices/generic`) take their capabilities beyond a small baseline
+  `generic_gnmi`, `generic_snmp`, `generic_http` and `generic_grpc` (`internal/inventory/devices/generic`) take their capabilities beyond a small baseline
   from the device: `internal/inventory/onboard` probes it over its protocol (one prober per type on a
   `pkg/registry`) and records the result in the reserved `discovered` property
   (`pkg/inventory.DiscoveredProperty`), which only `record.Base.RecordDiscovery` writes and every other
