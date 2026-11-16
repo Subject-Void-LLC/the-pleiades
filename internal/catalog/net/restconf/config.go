@@ -6,6 +6,8 @@
 package restconf
 
 import (
+	"strings"
+
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
@@ -51,8 +53,34 @@ func init() {
 			Doc:           doc,
 			Facts:         collection.DeclareFacts(doc.Returns, factKeys, yangfacts.FactContentID),
 		},
-		Invoke: Config,
+		Invoke:   Config,
+		UndoCall: configUndoCall,
 	})
+}
+
+// configUndoCall is net.restconf.config's answer, from a call alone, to
+// whether it records the undo its manifest declares: a delete never does,
+// since putting back what it removed would keep it in the run's journal, and
+// neither does a patch, which merges into a resource that must already be
+// there. A post or a put records one only when the device answers it as a
+// create, which only the run can tell, so those are left to the run. A method
+// written as a template is not known before the run, and may be either.
+func configUndoCall(params map[string]any) string {
+	method, ok := params[paramMethod].(string)
+	if !ok {
+		// Absent is post; anything but text is the body's refusal.
+		return ""
+	}
+	if collection.IsTemplate(method) {
+		return "method is a template, so whether it is a delete or a patch, which record no undo, is not known before the run"
+	}
+	switch strings.ToLower(method) {
+	case "delete":
+		return "a delete records no undo: putting back what it removed would keep it in the run's journal"
+	case "patch":
+		return "a patch merges into a resource that was there, and records no undo: putting its earlier document back would keep it in the run's journal"
+	}
+	return ""
 }
 
 // configDoc is net.restconf.config's documentation, word for word its

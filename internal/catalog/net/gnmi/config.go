@@ -63,8 +63,31 @@ func init() {
 			Doc:           doc,
 			Facts:         collection.DeclareFacts(doc.Returns, factKeys),
 		},
-		Invoke: Config,
+		Invoke:   Config,
+		UndoCall: configUndoCall,
 	})
+}
+
+// configUndoCall is net.gnmi.config's answer, from a call alone, to whether
+// it records the undo its manifest declares: a call naming any delete records
+// none for it, since putting back what it removes would keep its values in
+// the run's journal, and a delete written as a template is not known before
+// the run. An update or a replace records one only for a node the read before
+// finds absent, which only the run can tell, so those are left to the run.
+func configUndoCall(params map[string]any) string {
+	switch deletes := params[paramDelete].(type) {
+	case string:
+		// A template renders to a list at dispatch; anything else is the
+		// body's refusal.
+		if collection.IsTemplate(deletes) {
+			return "delete is a template, so whether it names a node, whose delete records no undo, is not known before the run"
+		}
+	case []any:
+		if len(deletes) > 0 {
+			return "a delete records no undo: putting back what it removes would keep its values in the run's journal"
+		}
+	}
+	return ""
 }
 
 // configDoc is net.gnmi.config's documentation, word for word its catalog
