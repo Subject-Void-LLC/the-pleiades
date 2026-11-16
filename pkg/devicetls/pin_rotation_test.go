@@ -255,3 +255,21 @@ func TestPinList_Refusals(t *testing.T) {
 		t.Errorf("a list of exactly the bound reads as %d pins", got)
 	}
 }
+
+// TestNormalizePin_ReadsOnePinAsTheSettingsDo: either form in either case
+// comes back as tls_fingerprint holds it, and anything else is refused.
+func TestNormalizePin_ReadsOnePinAsTheSettingsDo(t *testing.T) {
+	for in, want := range map[string]string{
+		" SHA256:" + strings.Repeat("AB", 32):     "sha256:" + strings.Repeat("ab", 32),
+		"Spki-Sha256:" + strings.Repeat("Cd", 32): "spki-sha256:" + strings.Repeat("cd", 32),
+	} {
+		if got, err := devicetls.NormalizePin(in); err != nil || got != want {
+			t.Errorf("NormalizePin(%q) = %q, %v; want %q", in, got, err, want)
+		}
+	}
+	for _, bad := range []string{"", strings.Repeat("ab", 32), "sha256:" + strings.Repeat("ab", 31), "sha1:" + strings.Repeat("ab", 20)} {
+		if _, err := devicetls.NormalizePin(bad); err == nil {
+			t.Errorf("NormalizePin(%q) accepted it", bad)
+		}
+	}
+}

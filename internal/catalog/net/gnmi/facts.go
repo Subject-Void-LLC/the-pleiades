@@ -15,12 +15,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/gnmi"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/tlsfacts"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/yangfacts"
 )
 
@@ -33,8 +36,10 @@ const (
 	factModelsDigest = "gnmi.models_digest"
 )
 
-// factKeys are every fact a read may record, in the order they are recorded.
-var factKeys = append([]string{factVersion, factEncodings, factModels, factModelCount, factModelsDigest}, yangfacts.GNMIKeys...)
+// factKeys are every fact a read may record, in the order they are recorded:
+// the gnmi.* family, the yang.* family, and the certificate the device
+// presented (tls.certificate.*).
+var factKeys = append(append([]string{factVersion, factEncodings, factModels, factModelCount, factModelsDigest}, yangfacts.GNMIKeys...), tlsfacts.FactKeys...)
 
 // noBecome is why neither method takes become.
 const noBecome = "it speaks gNMI over gRPC to the device's own server, which no sudo prefix reaches"
@@ -95,7 +100,7 @@ func factsReturns() []collection.ReturnField {
 		{Name: factModels, Type: "list of string", Returned: when + ", when the list fits in 60 KiB", Description: "Every model the server lists, each name@version (name alone for a model with no version), as the server wrote them, sorted; an entry that is not printable or is too long is left out, with a warning."},
 		{Name: factModelCount, Type: "int", Returned: when, Description: "How many models the server lists, as gnmi.models counts them."},
 		{Name: factModelsDigest, Type: "string", Returned: when, Description: "The SHA-256 (hex) of the model list, each model's name, organization and version, sorted, so any change to what the server says it implements reads as a change of this one value. It is not yang.modules_digest, which only a YANG library gives."},
-	}, yangfacts.GNMIReturns(when)...)
+	}, append(yangfacts.GNMIReturns(when), tlsfacts.Returns()...)...)
 }
 
 // Facts implements the "net.gnmi.facts" collection method: one Capabilities
@@ -105,6 +110,9 @@ func Facts(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventor
 	if device == nil {
 		return collection.Result{}, errors.New(fqcn + ": the task has no target device")
 	}
+	// The read's own verified handshake says which certificate the device
+	// presented (tls.certificate.*).
+	ctx, seen := devicetls.WithPresented(ctx)
 	client, warnings, err := gnmi.ClientForContext(ctx, device, device.Name(), rc.InjectSecrets())
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: device %q: %w", fqcn, device.Name(), err)
@@ -119,7 +127,7 @@ func Facts(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventor
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: device %q: %w", fqcn, device.Name(), err)
 	}
-	found, err := recordCapabilities(rc, client.Verified(), caps)
+	found, err := recordRead(rc, device, client.Verified(), caps, seen)
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
@@ -133,9 +141,25 @@ func Facts(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventor
 	return collection.Result{Changed: false}, nil
 }
 
+// recordRead records what one read found: what caps says (recordCapabilities)
+// and the certificate the device presented on the read's verified handshakes
+// (seen, tlsfacts.Record), returning the warnings the task should carry.
+// net.gnmi.facts and net.gnmi.config both record through it.
+func recordRead(rc sdk.RunbookContext, device inventory.InventoryItem, verified bool, caps gnmi.Capabilities, seen *devicetls.Presented) ([]string, error) {
+	found, err := recordCapabilities(rc, verified, caps)
+	if err != nil {
+		return nil, err
+	}
+	certificate, err := tlsfacts.Record(rc, device.Name(), devicetls.For(device), seen, time.Now())
+	if err != nil {
+		return nil, err
+	}
+	return append(found, certificate...), nil
+}
+
 // recordCapabilities records what caps says as stats, and as facts only when
 // verified (the device was reached over TLS), returning the warnings the task
-// should carry. net.gnmi.facts and net.gnmi.config both record through it.
+// should carry.
 func recordCapabilities(rc sdk.RunbookContext, verified bool, caps gnmi.Capabilities) ([]string, error) {
 	values, warnings, err := capabilityValues(caps)
 	if err != nil {

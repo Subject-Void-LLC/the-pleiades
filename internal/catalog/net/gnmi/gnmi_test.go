@@ -21,8 +21,11 @@ import (
 
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/net/gnmi"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/gnmi/gnmitest"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/tlsfacts"
 )
 
 // login is the throwaway credential the test servers ask for.
@@ -135,6 +138,38 @@ func TestFacts_RecordsCapabilitiesAndThePartialYangFamily(t *testing.T) {
 	}
 	if d, _ := collection.Lookup("net.gnmi.facts"); d.Check == nil || !d.Manifest.SupportsCheck {
 		t.Error("net.gnmi.facts has no check, and a read changes nothing")
+	}
+}
+
+// TestFacts_RecordsTheCertificateAndNamesAPinToRetire: a device pinned
+// through a rotation, its list holding an old pin and the server's own,
+// records the certificate the verified handshake presented as stable facts,
+// and the read names the old pin as one to remove.
+func TestFacts_RecordsTheCertificateAndNamesAPinToRetire(t *testing.T) {
+	s := gnmitest.New(t, login)
+	cert := s.Certificate()
+	old := "sha256:" + strings.Repeat("ab", 32)
+	device := gnmitest.NewDeviceWith(t, s, map[string]inventory.PropertyValue{devicetls.FingerprintProperty: []any{old, devicetls.Fingerprint(cert)}})
+	d, _ := collection.Lookup("net.gnmi.facts")
+	rc := newRecorder(gnmitest.Secrets(s))
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	if _, err := d.Invoke(ctx, rc, device, nil); err != nil {
+		t.Fatal(err)
+	}
+	if rc.facts[tlsfacts.FactFingerprint] != devicetls.Fingerprint(cert) || rc.facts[tlsfacts.FactKeyFingerprint] != devicetls.KeyFingerprint(cert) ||
+		rc.facts[tlsfacts.FactNotAfter] != cert.NotAfter.UTC().Format(time.RFC3339) || rc.facts[tlsfacts.FactIssuer] != cert.Issuer.String() {
+		t.Errorf("facts %v, want the server's certificate", rc.facts)
+	}
+	warnings, _ := rc.stats[sdk.StatWarnings].([]string)
+	if !slices.ContainsFunc(warnings, func(w string) bool { return strings.Contains(w, "pin "+old+" does not match") }) ||
+		!slices.ContainsFunc(warnings, func(w string) bool { return strings.Contains(w, "trusts 2 pins") }) {
+		t.Errorf("warnings %q, want every pin named and the old one to retire", warnings)
+	}
+	for _, key := range tlsfacts.FactKeys {
+		if spec, ok := collection.FactFor(d.Manifest.Facts, key); !ok || spec.Kind != collection.FactStable {
+			t.Errorf("fact %s is declared %+v, %v; want it stable", key, spec, ok)
+		}
 	}
 }
 

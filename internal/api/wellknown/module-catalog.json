@@ -11943,6 +11943,36 @@
         "kind": "stable",
         "type": "string",
         "description": "Always partial for a gNMI read: Capabilities lists the models a server chose to name, with no namespace and nothing in the protocol making it every module the device implements, so a module it does not list may still be served. A read over NETCONF or RESTCONF, from the YANG library, is what can say complete."
+      },
+      {
+        "key": "tls.certificate.fingerprint",
+        "kind": "stable",
+        "type": "string",
+        "description": "The SHA-256 of the certificate the device presented, sha256:<hex>, the form a certificate pin (tls_fingerprint) takes: it changes whenever the certificate does, renewed or not."
+      },
+      {
+        "key": "tls.certificate.key_fingerprint",
+        "kind": "stable",
+        "type": "string",
+        "description": "The SHA-256 of its public key (SubjectPublicKeyInfo), spki-sha256:<hex>, the form a key pin takes: it stays the same across a certificate the device issues again for the same key."
+      },
+      {
+        "key": "tls.certificate.subject",
+        "kind": "stable",
+        "type": "string",
+        "description": "The certificate's subject, as text, with no control or format character and at most 512 bytes."
+      },
+      {
+        "key": "tls.certificate.issuer",
+        "kind": "stable",
+        "type": "string",
+        "description": "The certificate's issuer, as text, bounded as the subject is: the subject again for a self-signed certificate."
+      },
+      {
+        "key": "tls.certificate.not_after",
+        "kind": "stable",
+        "type": "string",
+        "description": "The last moment the certificate is valid, RFC 3339 in UTC. A read within 30 days of it, or past it, warns, in words that fit how the device is trusted: a certificate pin refuses the renewed certificate until it is pinned too."
       }
     ],
     "doc": {
@@ -12048,6 +12078,36 @@
           "type": "string",
           "returned": "on every read, as a stat; as a fact only when the device was reached over TLS",
           "description": "Always partial for a gNMI read: Capabilities lists the models a server chose to name, with no namespace and nothing in the protocol making it every module the device implements, so a module it does not list may still be served. A read over NETCONF or RESTCONF, from the YANG library, is what can say complete."
+        },
+        {
+          "name": "tls.certificate.fingerprint",
+          "type": "string",
+          "returned": "when the device was reached over TLS and presented one certificate, as a stat and a fact",
+          "description": "The SHA-256 of the certificate the device presented, sha256:<hex>, the form a certificate pin (tls_fingerprint) takes: it changes whenever the certificate does, renewed or not."
+        },
+        {
+          "name": "tls.certificate.key_fingerprint",
+          "type": "string",
+          "returned": "when the device was reached over TLS and presented one certificate, as a stat and a fact",
+          "description": "The SHA-256 of its public key (SubjectPublicKeyInfo), spki-sha256:<hex>, the form a key pin takes: it stays the same across a certificate the device issues again for the same key."
+        },
+        {
+          "name": "tls.certificate.subject",
+          "type": "string",
+          "returned": "when the device was reached over TLS and presented one certificate, as a stat and a fact",
+          "description": "The certificate's subject, as text, with no control or format character and at most 512 bytes."
+        },
+        {
+          "name": "tls.certificate.issuer",
+          "type": "string",
+          "returned": "when the device was reached over TLS and presented one certificate, as a stat and a fact",
+          "description": "The certificate's issuer, as text, bounded as the subject is: the subject again for a self-signed certificate."
+        },
+        {
+          "name": "tls.certificate.not_after",
+          "type": "string",
+          "returned": "when the device was reached over TLS and presented one certificate, as a stat and a fact",
+          "description": "The last moment the certificate is valid, RFC 3339 in UTC. A read within 30 days of it, or past it, warns, in words that fit how the device is trusted: a certificate pin refuses the renewed certificate until it is pinned too."
         }
       ],
       "examples": [
@@ -12136,6 +12196,36 @@
         "kind": "stable",
         "type": "string",
         "description": "Always partial for a gNMI read: Capabilities lists the models a server chose to name, with no namespace and nothing in the protocol making it every module the device implements, so a module it does not list may still be served. A read over NETCONF or RESTCONF, from the YANG library, is what can say complete."
+      },
+      {
+        "key": "tls.certificate.fingerprint",
+        "kind": "stable",
+        "type": "string",
+        "description": "The SHA-256 of the certificate the device presented, sha256:<hex>, the form a certificate pin (tls_fingerprint) takes: it changes whenever the certificate does, renewed or not."
+      },
+      {
+        "key": "tls.certificate.key_fingerprint",
+        "kind": "stable",
+        "type": "string",
+        "description": "The SHA-256 of its public key (SubjectPublicKeyInfo), spki-sha256:<hex>, the form a key pin takes: it stays the same across a certificate the device issues again for the same key."
+      },
+      {
+        "key": "tls.certificate.subject",
+        "kind": "stable",
+        "type": "string",
+        "description": "The certificate's subject, as text, with no control or format character and at most 512 bytes."
+      },
+      {
+        "key": "tls.certificate.issuer",
+        "kind": "stable",
+        "type": "string",
+        "description": "The certificate's issuer, as text, bounded as the subject is: the subject again for a self-signed certificate."
+      },
+      {
+        "key": "tls.certificate.not_after",
+        "kind": "stable",
+        "type": "string",
+        "description": "The last moment the certificate is valid, RFC 3339 in UTC. A read within 30 days of it, or past it, warns, in words that fit how the device is trusted: a certificate pin refuses the renewed certificate until it is pinned too."
       }
     ],
     "doc": {
@@ -12189,6 +12279,36 @@
           "type": "string",
           "returned": "on every read, as a stat; as a fact only when the device was reached over TLS",
           "description": "Always partial for a gNMI read: Capabilities lists the models a server chose to name, with no namespace and nothing in the protocol making it every module the device implements, so a module it does not list may still be served. A read over NETCONF or RESTCONF, from the YANG library, is what can say complete."
+        },
+        {
+          "name": "tls.certificate.fingerprint",
+          "type": "string",
+          "returned": "when the device was reached over TLS and presented one certificate, as a stat and a fact",
+          "description": "The SHA-256 of the certificate the device presented, sha256:<hex>, the form a certificate pin (tls_fingerprint) takes: it changes whenever the certificate does, renewed or not."
+        },
+        {
+          "name": "tls.certificate.key_fingerprint",
+          "type": "string",
+          "returned": "when the device was reached over TLS and presented one certificate, as a stat and a fact",
+          "description": "The SHA-256 of its public key (SubjectPublicKeyInfo), spki-sha256:<hex>, the form a key pin takes: it stays the same across a certificate the device issues again for the same key."
+        },
+        {
+          "name": "tls.certificate.subject",
+          "type": "string",
+          "returned": "when the device was reached over TLS and presented one certificate, as a stat and a fact",
+          "description": "The certificate's subject, as text, with no control or format character and at most 512 bytes."
+        },
+        {
+          "name": "tls.certificate.issuer",
+          "type": "string",
+          "returned": "when the device was reached over TLS and presented one certificate, as a stat and a fact",
+          "description": "The certificate's issuer, as text, bounded as the subject is: the subject again for a self-signed certificate."
+        },
+        {
+          "name": "tls.certificate.not_after",
+          "type": "string",
+          "returned": "when the device was reached over TLS and presented one certificate, as a stat and a fact",
+          "description": "The last moment the certificate is valid, RFC 3339 in UTC. A read within 30 days of it, or past it, warns, in words that fit how the device is trusted: a certificate pin refuses the renewed certificate until it is pinned too."
         }
       ],
       "examples": [
@@ -14262,6 +14382,36 @@
         "kind": "volatile",
         "type": "string",
         "description": "The YANG library's content-id (RFC 8525's content-id, or RFC 7895's module-set-id) from the library itself, a hint the device may regenerate on restart; yang.modules_digest is the module set's identity."
+      },
+      {
+        "key": "tls.certificate.fingerprint",
+        "kind": "stable",
+        "type": "string",
+        "description": "The SHA-256 of the certificate the device presented, sha256:<hex>, the form a certificate pin (tls_fingerprint) takes: it changes whenever the certificate does, renewed or not."
+      },
+      {
+        "key": "tls.certificate.key_fingerprint",
+        "kind": "stable",
+        "type": "string",
+        "description": "The SHA-256 of its public key (SubjectPublicKeyInfo), spki-sha256:<hex>, the form a key pin takes: it stays the same across a certificate the device issues again for the same key."
+      },
+      {
+        "key": "tls.certificate.subject",
+        "kind": "stable",
+        "type": "string",
+        "description": "The certificate's subject, as text, with no control or format character and at most 512 bytes."
+      },
+      {
+        "key": "tls.certificate.issuer",
+        "kind": "stable",
+        "type": "string",
+        "description": "The certificate's issuer, as text, bounded as the subject is: the subject again for a self-signed certificate."
+      },
+      {
+        "key": "tls.certificate.not_after",
+        "kind": "stable",
+        "type": "string",
+        "description": "The last moment the certificate is valid, RFC 3339 in UTC. A read within 30 days of it, or past it, warns, in words that fit how the device is trusted: a certificate pin refuses the renewed certificate until it is pinned too."
       }
     ],
     "doc": {
@@ -14393,6 +14543,36 @@
           "type": "string",
           "returned": "when the device's YANG library names one",
           "description": "The YANG library's content-id (RFC 8525's content-id, or RFC 7895's module-set-id) from the library itself, a hint the device may regenerate on restart; yang.modules_digest is the module set's identity."
+        },
+        {
+          "name": "tls.certificate.fingerprint",
+          "type": "string",
+          "returned": "when the device was reached over TLS and presented one certificate, as a stat and a fact",
+          "description": "The SHA-256 of the certificate the device presented, sha256:<hex>, the form a certificate pin (tls_fingerprint) takes: it changes whenever the certificate does, renewed or not."
+        },
+        {
+          "name": "tls.certificate.key_fingerprint",
+          "type": "string",
+          "returned": "when the device was reached over TLS and presented one certificate, as a stat and a fact",
+          "description": "The SHA-256 of its public key (SubjectPublicKeyInfo), spki-sha256:<hex>, the form a key pin takes: it stays the same across a certificate the device issues again for the same key."
+        },
+        {
+          "name": "tls.certificate.subject",
+          "type": "string",
+          "returned": "when the device was reached over TLS and presented one certificate, as a stat and a fact",
+          "description": "The certificate's subject, as text, with no control or format character and at most 512 bytes."
+        },
+        {
+          "name": "tls.certificate.issuer",
+          "type": "string",
+          "returned": "when the device was reached over TLS and presented one certificate, as a stat and a fact",
+          "description": "The certificate's issuer, as text, bounded as the subject is: the subject again for a self-signed certificate."
+        },
+        {
+          "name": "tls.certificate.not_after",
+          "type": "string",
+          "returned": "when the device was reached over TLS and presented one certificate, as a stat and a fact",
+          "description": "The last moment the certificate is valid, RFC 3339 in UTC. A read within 30 days of it, or past it, warns, in words that fit how the device is trusted: a certificate pin refuses the renewed certificate until it is pinned too."
         }
       ],
       "examples": [
@@ -14498,6 +14678,36 @@
         "kind": "volatile",
         "type": "string",
         "description": "The YANG library's content-id (RFC 8525's content-id, or RFC 7895's module-set-id) from the library itself, a hint the device may regenerate on restart; yang.modules_digest is the module set's identity."
+      },
+      {
+        "key": "tls.certificate.fingerprint",
+        "kind": "stable",
+        "type": "string",
+        "description": "The SHA-256 of the certificate the device presented, sha256:<hex>, the form a certificate pin (tls_fingerprint) takes: it changes whenever the certificate does, renewed or not."
+      },
+      {
+        "key": "tls.certificate.key_fingerprint",
+        "kind": "stable",
+        "type": "string",
+        "description": "The SHA-256 of its public key (SubjectPublicKeyInfo), spki-sha256:<hex>, the form a key pin takes: it stays the same across a certificate the device issues again for the same key."
+      },
+      {
+        "key": "tls.certificate.subject",
+        "kind": "stable",
+        "type": "string",
+        "description": "The certificate's subject, as text, with no control or format character and at most 512 bytes."
+      },
+      {
+        "key": "tls.certificate.issuer",
+        "kind": "stable",
+        "type": "string",
+        "description": "The certificate's issuer, as text, bounded as the subject is: the subject again for a self-signed certificate."
+      },
+      {
+        "key": "tls.certificate.not_after",
+        "kind": "stable",
+        "type": "string",
+        "description": "The last moment the certificate is valid, RFC 3339 in UTC. A read within 30 days of it, or past it, warns, in words that fit how the device is trusted: a certificate pin refuses the renewed certificate until it is pinned too."
       }
     ],
     "doc": {
@@ -14569,6 +14779,36 @@
           "type": "string",
           "returned": "when the device's YANG library names one",
           "description": "The YANG library's content-id (RFC 8525's content-id, or RFC 7895's module-set-id) from the library itself, a hint the device may regenerate on restart; yang.modules_digest is the module set's identity."
+        },
+        {
+          "name": "tls.certificate.fingerprint",
+          "type": "string",
+          "returned": "when the device was reached over TLS and presented one certificate, as a stat and a fact",
+          "description": "The SHA-256 of the certificate the device presented, sha256:<hex>, the form a certificate pin (tls_fingerprint) takes: it changes whenever the certificate does, renewed or not."
+        },
+        {
+          "name": "tls.certificate.key_fingerprint",
+          "type": "string",
+          "returned": "when the device was reached over TLS and presented one certificate, as a stat and a fact",
+          "description": "The SHA-256 of its public key (SubjectPublicKeyInfo), spki-sha256:<hex>, the form a key pin takes: it stays the same across a certificate the device issues again for the same key."
+        },
+        {
+          "name": "tls.certificate.subject",
+          "type": "string",
+          "returned": "when the device was reached over TLS and presented one certificate, as a stat and a fact",
+          "description": "The certificate's subject, as text, with no control or format character and at most 512 bytes."
+        },
+        {
+          "name": "tls.certificate.issuer",
+          "type": "string",
+          "returned": "when the device was reached over TLS and presented one certificate, as a stat and a fact",
+          "description": "The certificate's issuer, as text, bounded as the subject is: the subject again for a self-signed certificate."
+        },
+        {
+          "name": "tls.certificate.not_after",
+          "type": "string",
+          "returned": "when the device was reached over TLS and presented one certificate, as a stat and a fact",
+          "description": "The last moment the certificate is valid, RFC 3339 in UTC. A read within 30 days of it, or past it, warns, in words that fit how the device is trusted: a certificate pin refuses the renewed certificate until it is pinned too."
         }
       ],
       "examples": [

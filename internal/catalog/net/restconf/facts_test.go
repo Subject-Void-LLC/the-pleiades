@@ -13,15 +13,47 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/net/restconf"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/httpapi"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/restconf/restconftest"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/tlsfacts"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
+
+// TestFacts_RecordsTheCertificateItsPinTrusted: a read over the device's
+// pinned TLS records the certificate the verified handshake presented, both
+// of a pin's forms, its names and its last moment, as stable facts and as
+// stats.
+func TestFacts_RecordsTheCertificateItsPinTrusted(t *testing.T) {
+	s := restconftest.New(t, login)
+	rc := newRecorder(restconftest.Secrets(s))
+	if _, err := method(t).Invoke(context.Background(), rc, restconftest.NewDevice(t, s), map[string]any{}); err != nil {
+		t.Fatal(err)
+	}
+	cert := s.Certificate()
+	want := map[string]any{
+		tlsfacts.FactFingerprint:    devicetls.Fingerprint(cert),
+		tlsfacts.FactKeyFingerprint: devicetls.KeyFingerprint(cert),
+		tlsfacts.FactNotAfter:       cert.NotAfter.UTC().Format(time.RFC3339),
+		tlsfacts.FactSubject:        cert.Subject.String(),
+	}
+	for k, v := range want {
+		if rc.facts[k] != v || rc.stats[k] != v {
+			t.Errorf("%s: fact %v, stat %v, want %v", k, rc.facts[k], rc.stats[k], v)
+		}
+	}
+	for _, key := range tlsfacts.FactKeys {
+		if spec, ok := collection.FactFor(method(t).Manifest.Facts, key); !ok || spec.Kind != collection.FactStable || spec.Type != collection.FactString {
+			t.Errorf("fact %s is declared %+v, %v; want a stable string", key, spec, ok)
+		}
+	}
+}
 
 // recorder is a task's context: the secrets it hands the method, and what
 // the method recorded.

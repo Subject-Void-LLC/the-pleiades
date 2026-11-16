@@ -21,7 +21,8 @@ import (
 // NETCONF session fills (netconf., yang.; 2026-11-14), every RESTCONF
 // discovery fills (restconf., with the same yang.) and every gNMI read fills
 // (gnmi., with the same yang.; 2026-11-15), the family net.snmp.facts fills
-// (snmp., 2026-11-15), and ansible_, because the
+// (snmp., 2026-11-15), the certificate every facts gatherer reaching a device
+// over TLS fills (tls., 2026-11-16, pkg/tlsfacts), and ansible_, because the
 // playbook converter's mapping reads facts by those names. A family is reserved no
 // later than the release in which a built-in first fills it, and in a minor
 // release, since reserving one later would refuse a program the release
@@ -29,7 +30,7 @@ import (
 // reserved and filled together, for 0.4.0).
 var ReservedFactFamilies = []string{
 	"ansible_", "catalyst.", "file.", "gnmi.", "group.", "hardware.", "host.", "netconf.", "network.", "os.",
-	"package.", "port.", "restconf.", "service.", "service_state.", "snmp.", "user.", "yang.",
+	"package.", "port.", "restconf.", "service.", "service_state.", "snmp.", "tls.", "user.", "yang.",
 }
 
 // ReservedFact reports what reserves a key or family s declares: the fact

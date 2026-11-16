@@ -131,6 +131,7 @@
     "service_state",
     "snmp",
     "svc",
+    "tls",
     "user",
     "virt",
     "wait",
@@ -175,6 +176,7 @@
     "service_state.",
     "snmp.",
     "svc.",
+    "tls.",
     "user.",
     "virt.",
     "wait.",
@@ -252,6 +254,9 @@
       "net"
     ],
     "svc.": [],
+    "tls.": [
+      "net"
+    ],
     "user.": [
       "facts"
     ],
