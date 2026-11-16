@@ -62,7 +62,9 @@ func (p grpcProber) Probe(ctx context.Context, device inventory.InventoryItem, s
 		}
 		creds = insecure.NewCredentials()
 	} else {
-		cfg, err := settings.Config(secrets)
+		// Built under the onboarding's context, which records the
+		// certificate the verified handshake presents.
+		cfg, err := settings.ConfigContext(ctx, secrets)
 		if err != nil {
 			return Probed{}, err
 		}

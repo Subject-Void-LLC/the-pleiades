@@ -31,7 +31,9 @@ func (gnmiProber) Protocol() string { return "gnmi" }
 // is not a YANG library, and nothing in the protocol makes it every module
 // the device implements.
 func (gnmiProber) Probe(ctx context.Context, device inventory.InventoryItem, secrets map[string]string) (Probed, error) {
-	client, warnings, err := gnmi.ClientFor(device, device.Name(), secrets)
+	// Built under the onboarding's context, which carries no key log and
+	// records the certificate the verified handshake presents.
+	client, warnings, err := gnmi.ClientForContext(ctx, device, device.Name(), secrets)
 	if err != nil {
 		return Probed{}, err
 	}

@@ -61,7 +61,9 @@ func (containerProber) Probe(ctx context.Context, device inventory.InventoryItem
 		found, user, tried = f, login.user, notes
 	}
 	if tlsAddr != "" {
-		cfg, err := devicetls.For(device).Config(secrets)
+		// Built under the onboarding's context, which records the
+		// certificate the verified handshake presents.
+		cfg, err := devicetls.For(device).ConfigContext(ctx, secrets)
 		if err != nil {
 			return Probed{}, fmt.Errorf("the device's TLS settings: %w", err)
 		}

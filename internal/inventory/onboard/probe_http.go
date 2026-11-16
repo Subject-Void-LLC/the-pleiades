@@ -58,7 +58,9 @@ func (p httpProber) Probe(ctx context.Context, device inventory.InventoryItem, s
 	settings := devicetls.For(device)
 	var cfg *tls.Config
 	if base.Scheme == "https" {
-		if cfg, err = settings.Config(secrets); err != nil {
+		// Built under the onboarding's context, which records the
+		// certificate the verified handshake presents.
+		if cfg, err = settings.ConfigContext(ctx, secrets); err != nil {
 			return Probed{}, err
 		}
 	}
