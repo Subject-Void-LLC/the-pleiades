@@ -291,8 +291,10 @@ pre-1.0 project and the honest state is not what the docs' introductions might i
   onboarding and run (`snmp.Settings.Warnings`). Every USM auth protocol and every privacy protocol but 3DES (both
   AES-192/256 key extensions) is proven against net-snmp 5.9.4 (`pkg/snmp/snmplive`, `testsupport.StartSNMPD`);
   3DES is refused before anything is sent (`snmp.ErrUnsupportedPrivacy`): gosnmp and net-snmp lack it. Methods:
-  `net.snmp.facts` (facts only over authenticated SNMPv3), `net.snmp.get`, `net.snmp.set` (read before, read back,
-  exact undo; `snmpModules` refused) and `wait.snmp`. Each declares `collection.Manifest.UsesSNMPCredential`, the
+  `net.snmp.facts` (facts only over authenticated SNMPv3), `net.snmp.get` (one bound over all of a task's walks;
+  the security tables under `snmpModules` never read), `net.snmp.set` (read before, read back, its undo recorded
+  before the SET; `snmpModules` refused at run time; `secret: true` records no undo) and `wait.snmp`. A rollback
+  never renders a recorded undo's params (`engine.Undo.Literal`, set by `rollback.Runbook`). Each declares `collection.Manifest.UsesSNMPCredential`, the
   one thing that puts a device's own SNMP family on a Controller's dispatch (`internal/dispatch/inject_snmp.go`).
   OIDs are numeric or from a small curated name table (`snmp.ParseOID`), not a MIB compiler. Proven end to end by
   `TestCLI_SNMPFromDayZeroToDayN`; not on the Walk tier, and no real legacy device yet.

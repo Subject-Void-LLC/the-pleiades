@@ -172,7 +172,7 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | [net.restconf.facts](net/restconf/facts.md) | implemented | Records what a device's RESTCONF server says about it: its root, capabilities, datastores and YANG modules. |
 | [net.snmp.facts](net/snmp/facts.md) | implemented | Records what a device's SNMP agent says about it: its system group, engine and interfaces. |
 | [net.snmp.get](net/snmp/get.md) | implemented | Reads OIDs from a device's SNMP agent, in one GET or each walked, changing nothing. |
-| [net.snmp.set](net/snmp/set.md) | implemented | Writes one object on a device's SNMP agent, reading it before and after, with an exact undo. |
+| [net.snmp.set](net/snmp/set.md) | implemented | Writes one object on a device's SNMP agent, reading it before and after, its undo writing the value read before back. |
 | [net.ssh.ping](net/ssh/ping.md) | implemented | Opens a real SSH connection to the target and echoes a value back, to prove reachability. |
 | [net.trace](net/trace.md) | implemented | Traces the path to an address from a Linux device or a container on a container host, and fails when it is not the path expected. |
 | [pkg.apt.install](pkg/apt/install.md) | implemented | Makes sure a package is installed via APT. |

@@ -6,8 +6,10 @@ status: beta
 
 Some devices speak nothing but SNMP: PDUs, console servers, satellite modems, UPSes and plenty of
 older switches. The Pleiades reaches them as `generic_snmp` devices and reads and writes them with
-four methods: `net.snmp.facts`, `net.snmp.get`, `net.snmp.set` and `wait.snmp`. They run on the
-Crawl tier (`pleiades run`, `pleiades adhoc`) and on a Runner.
+four methods: `net.snmp.facts`, `net.snmp.get`, `net.snmp.set` and `wait.snmp`. They are proven on the
+Crawl tier (`pleiades run`, `pleiades adhoc`). A Runner has the same methods, and a Controller sends a
+device's SNMP credential only with a job that runs one of them, but no test yet runs them on the Walk
+tier end to end.
 
 ## SNMPv3 by default; v1 and v2c only when the device asks for them
 
@@ -67,7 +69,10 @@ Onboarding reads the agent's system group with the device's own credential and g
 `SNMPCapable` only when the agent answers it. It records the version, the security level,
 `sysDescr`, `sysObjectID`, `sysName`, the engine ID and the MIB groups the agent answers. The
 discovery holds only for the host, port and version it was made against: change any of them and
-the device must be onboarded again.
+the device must be onboarded again. Onboarding records what it found over a community or a
+noAuthNoPriv user too, with a warning, since that discovery is what lets such a device be used at all,
+as onboarding over plain HTTP does for RESTCONF; `net.snmp.facts` keeps the fact store to answers SNMPv3
+authenticated.
 
 SNMP runs over UDP, which a route of SSH hops does not carry, so an SNMP method refuses a device
 whose record names a route rather than reach its agent some other way.
@@ -83,17 +88,29 @@ requests).
   records them as facts only when SNMPv3 authenticated the answers. Over a community or a
   noAuthNoPriv user, nothing proves which agent answered, so they are stats only, and the run
   says so.
-- `net.snmp.get` reads OIDs in one GET, or walks each one's subtree, bounded by `max_results`.
+- `net.snmp.get` reads OIDs in one GET, or walks each one's subtree, bounded by `max_results` for each
+  walk and by 10000 bindings and 8 MiB over all of a task's walks together.
 - `net.snmp.set` writes one object. It reads the object first, so a check predicts the change
   and a run that would change nothing sends nothing. After the SET it reads the object again,
   because an agent can accept a write and drop it. IOS XE 17.15.1 did exactly that, accepting
-  SNMPv3 users it never created. It records an exact undo (the value it read before), so
-  `pleiades rollback` puts the object back. Objects under `snmpModules` (`1.3.6.1.6.3`), where
-  an agent keeps its own users, keys and communities, are refused, since their values would ride
-  the undo and the run's journal.
+  SNMPv3 users it never created. It records its undo (the value it read before) before the SET is
+  sent, so a SET whose answer is lost still leaves it, and `pleiades rollback` writes the value back
+  exactly, template markers such as `{{` included, which a rollback never renders. The undo is exact
+  for an object that keeps what it is written. One that does not (a RowStatus a `destroy(6)` removes,
+  a TestAndIncr lock, a trigger object) fails the task at the read back, and a rollback replaying
+  its undo refuses an object that is not there. Objects under `snmpModules` (`1.3.6.1.6.3`), where
+  an agent keeps its own users, keys and communities, are refused when the task runs (not yet by
+  `pleiades validate`), since their values would ride the undo and the run's journal.
+- A secret can live outside `snmpModules` too: a vendor MIB's trap receiver community, a RADIUS or
+  TACACS+ key. Write one with `secret: true`: its values are shown in the diff as
+  `(secret, not shown)` and join the run's masking set, and no undo is recorded, since the value read
+  before would be kept in the run's journal, so a rollback refuses the task unless it is left or its
+  `rollback:` list says what to do.
 - `wait.snmp` waits until the agent answers its credential. An SNMPv3 refusal (an unknown user,
-  a wrong passphrase) ends the wait at once. A wrong community cannot: an agent drops such a
-  request without a word, so it looks exactly like an agent that is not up yet.
+  a wrong passphrase) ends the wait at once, so it does not wait out an SNMPv3 user still being
+  configured. A wrong community cannot be told apart: an agent drops such a request without a word,
+  so it looks exactly like an agent that is not up yet, and so does a host name that does not
+  resolve yet; both are tried until the timeout.
 
 ```yaml
 - name: Name the device's location
@@ -114,5 +131,9 @@ name outside the table is refused before anything is sent.
 ## What is masked
 
 The device's community and passphrases are masked out of every error, stat and fact, a short
-community included where it stands as its own word. Every octet string in the agent's own
-community table (`SNMP-COMMUNITY-MIB`) or USM user table is masked whole, whatever it holds.
+community included where it stands as its own word. `net.snmp.get` never reads the agent's own
+security configuration under `snmpModules` (VACM, USM's user table, `SNMP-COMMUNITY-MIB`, the target
+and notification tables): their indexes spell the names the agent is configured with (net-snmp
+indexes `vacmSecurityToGroupTable` by each community's security name and `usmUserTable` by each user),
+so an OID there is refused, and a walk crossing them leaves every binding there out, OID and value,
+and says how many. The engine group and the counters under `snmpModules` are read as any other.
