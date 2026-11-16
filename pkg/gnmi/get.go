@@ -53,7 +53,7 @@ type GetRequest struct {
 	// Type is which data is read.
 	Type DataType
 	// PrefixTarget is the prefix's target (ValidatePrefixTarget); empty
-	// takes the client's (Options.PrefixTarget).
+	// takes the client's (Options.PrefixTarget), and NoPrefixTarget none.
 	PrefixTarget string
 }
 

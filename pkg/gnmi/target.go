@@ -15,6 +15,12 @@ import (
 // maxPrefixTargetBytes bounds a request prefix's target.
 const maxPrefixTargetBytes = 128
 
+// NoPrefixTarget is a request's PrefixTarget that sends no target even when
+// the client names one (Options.PrefixTarget), as an undo of a write made
+// with none must. It is not a target any device can name: a target starts
+// with a letter or a digit.
+const NoPrefixTarget = "-"
+
 // ValidatePrefixTarget checks target, such as SONiC's OC-YANG or CONFIG_DB:
 // empty for none, else a plain identifier of letters, digits, "_", "." and
 // "-", starting with a letter or a digit, at most 128 bytes. It is never a

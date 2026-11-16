@@ -75,12 +75,14 @@ func recordUndo(rc sdk.RunbookContext, req writeRequest, roots map[string]gnmi.P
 	for i, n := range names {
 		deletes[i] = n
 	}
-	params := map[string]any{paramDelete: deletes, paramEncoding: req.encoding.String()}
-	if req.target != "" {
-		// The undo names the tree the write did: a device's gnmi_target may
-		// have changed, or the task named its own, by the time it runs.
-		params[paramTarget] = req.target
+	// The undo names the tree the write did, an empty target for none, since
+	// a device's gnmi_target may have changed, or the task named its own, by
+	// the time it runs.
+	target := req.target
+	if target == gnmi.NoPrefixTarget {
+		target = ""
 	}
+	params := map[string]any{paramDelete: deletes, paramEncoding: req.encoding.String(), paramTarget: target}
 	return sdk.RecordInverse(rc, sdk.Inverse{
 		FQCN:          configFQCN,
 		Params:        params,

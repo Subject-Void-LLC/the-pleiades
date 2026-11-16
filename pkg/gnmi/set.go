@@ -37,7 +37,7 @@ type SetRequest struct {
 	// Update are nodes to merge a value into.
 	Update []SetValue
 	// PrefixTarget is the prefix's target (ValidatePrefixTarget); empty
-	// takes the client's (Options.PrefixTarget).
+	// takes the client's (Options.PrefixTarget), and NoPrefixTarget none.
 	PrefixTarget string
 }
 

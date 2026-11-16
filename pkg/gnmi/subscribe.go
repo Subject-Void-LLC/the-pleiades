@@ -36,7 +36,7 @@ type SubscribeRequest struct {
 	// before its sync_response.
 	UpdatesOnly bool
 	// PrefixTarget is the prefix's target (ValidatePrefixTarget); empty
-	// takes the client's (Options.PrefixTarget).
+	// takes the client's (Options.PrefixTarget), and NoPrefixTarget none.
 	PrefixTarget string
 }
 

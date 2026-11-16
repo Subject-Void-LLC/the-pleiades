@@ -258,9 +258,12 @@ func (c *Client) PrefixTarget() string {
 	return c.prefixTarget
 }
 
-// targetOf is the target a request's prefix names: the request's own, or
-// the client's when it names none.
+// targetOf is the target a request's prefix names: the request's own, none
+// for NoPrefixTarget, or the client's when it names none.
 func (c *Client) targetOf(requested string) string {
+	if requested == NoPrefixTarget {
+		return ""
+	}
 	if requested != "" {
 		return requested
 	}

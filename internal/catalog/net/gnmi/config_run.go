@@ -40,7 +40,7 @@ type writeRequest struct {
 	encoding gnmi.Encoding
 	backup   bool
 	// target is the prefix target every read and the Set name: the task's
-	// gnmi_target, else the device's, else empty.
+	// gnmi_target, else the device's, else gnmi.NoPrefixTarget for none.
 	target string
 }
 
@@ -59,9 +59,13 @@ func Config(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 	}
 	defer func() { _ = client.Close() }()
 	if req.target == "" {
-		// The device's own target, named in every request and in the undo,
-		// so a rollback addresses the tree this write did.
+		// The device's own target, or explicitly none, named in every request
+		// and in the undo, so a rollback addresses the tree this write did
+		// whatever the device's record says by then.
 		req.target = client.PrefixTarget()
+		if req.target == "" {
+			req.target = gnmi.NoPrefixTarget
+		}
 	}
 	if err := sdk.RecordWarnings(rc, warnings); err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", configFQCN, err)
@@ -146,6 +150,11 @@ func configRequest(params map[string]any) (writeRequest, error) {
 	}
 	if err := gnmi.ValidatePrefixTarget(req.target); err != nil {
 		return req, fmt.Errorf("%s: %w", paramTarget, err)
+	}
+	if _, named := params[paramTarget]; named && req.target == "" {
+		// Named empty: no target, whatever the device's record names, as the
+		// undo of a write made with none asks.
+		req.target = gnmi.NoPrefixTarget
 	}
 	return req, nil
 }

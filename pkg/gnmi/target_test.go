@@ -130,8 +130,11 @@ func TestPrefixTarget_ARequestsOwnTargetWins(t *testing.T) {
 	if _, err := c.Get(ctxOf(t), gnmi.GetRequest{Paths: []gnmi.Path{mustPath(t, "/a")}}); gnmi.Code(err) != codes.InvalidArgument {
 		t.Errorf("Get taking the device's target = %v, want the server's refusal of CONFIG_DB", err)
 	}
-	if got := s.Targets(); len(got) != 2 || got[0] != ocYANG || got[1] != "CONFIG_DB" {
-		t.Errorf("targets = %v, want [%s CONFIG_DB]", got, ocYANG)
+	if _, err := c.Get(ctxOf(t), gnmi.GetRequest{Paths: []gnmi.Path{mustPath(t, "/a")}, PrefixTarget: gnmi.NoPrefixTarget}); gnmi.Code(err) != codes.Unimplemented {
+		t.Errorf("Get naming no target over the device's = %v, want the server's refusal of none", err)
+	}
+	if got := s.Targets(); len(got) != 3 || got[0] != ocYANG || got[1] != "CONFIG_DB" || got[2] != "" {
+		t.Errorf("targets = %q, want [%s CONFIG_DB \"\"]", got, ocYANG)
 	}
 }
 

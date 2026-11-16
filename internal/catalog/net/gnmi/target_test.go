@@ -91,6 +91,27 @@ func TestConfig_ATargetReachesEveryReadAndTheSet(t *testing.T) {
 			}
 		})
 	}
+	// A write made with no target records none, explicitly: rolled back after
+	// the device's record names one, the undo still names none, so it deletes
+	// in the tree the write created in.
+	plain := gnmitest.New(t, login)
+	rc := newRecorder(gnmitest.Secrets(plain))
+	if res, err := runTargeted(t, "net.gnmi.config", plain, "", rc, create("lo5")); err != nil || !res.Changed {
+		t.Fatalf("config with no target = %+v, %v", res, err)
+	}
+	p, _ := inverse(rc)["params"].(map[string]any)
+	if target, recorded := p["gnmi_target"]; !recorded || target != "" {
+		t.Fatalf("inverse params = %v, want an explicit empty gnmi_target", p)
+	}
+	before := len(plain.Targets())
+	if res, err := runTargeted(t, "net.gnmi.config", plain, ocYANG, newRecorder(gnmitest.Secrets(plain)), p); err != nil || !res.Changed {
+		t.Fatalf("the undo through a device naming %s = %+v, %v", ocYANG, res, err)
+	}
+	for _, got := range plain.Targets()[before:] {
+		if got != "" {
+			t.Fatalf("the undo named target %q, want none, as the write did", got)
+		}
+	}
 	s := gnmitest.New(t, gnmitest.Options{Username: login.Username, Password: login.Password, RequireTarget: ocYANG})
 	_, err := runTargeted(t, "net.gnmi.config", s, "", newRecorder(gnmitest.Secrets(s)), create("lo4"))
 	if err == nil || !strings.Contains(err.Error(), gnmitest.EmptyTargetRefusal) || s.Sets() != 0 {
