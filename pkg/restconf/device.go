@@ -4,6 +4,7 @@
 package restconf
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"time"
@@ -25,7 +26,17 @@ var requestTimeout = time.Minute
 // always verified, a pinned certificate included), no proxy, and no redirect
 // followed. It returns what the record's settings make a run say: each TLS
 // weakening, and a credential sent over http://.
+//
+// It is ClientForContext outside a run, for a caller no key log can reach:
+// onboarding's probe, and tests.
 func ClientFor(device any, name string, secrets map[string]string) (*Client, []string, error) {
+	return ClientForContext(context.Background(), device, name, secrets)
+}
+
+// ClientForContext is ClientFor for a run's method: an https:// client built
+// under ctx writes its sessions' secrets to the run's key log when ctx carries
+// one (devicetls.WithKeyLog), as pleiades run --tls-keylog asks.
+func ClientForContext(ctx context.Context, device any, name string, secrets map[string]string) (*Client, []string, error) {
 	dev, ok := device.(capability.RestconfCapable)
 	if !ok {
 		return nil, nil, errors.New("the device does not serve RESTCONF")
@@ -38,7 +49,7 @@ func ClientFor(device any, name string, secrets map[string]string) (*Client, []s
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.Proxy = nil
 	if base.Scheme == "https" {
-		cfg, err := settings.Config(secrets)
+		cfg, err := settings.ConfigContext(ctx, secrets)
 		if err != nil {
 			return nil, nil, err
 		}

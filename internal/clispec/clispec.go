@@ -69,6 +69,14 @@ type Flag struct {
 	Doc     string
 }
 
+// tlsKeyLogDoc documents --tls-keylog, which run and adhoc both take.
+const tlsKeyLogDoc = "write this run's TLS session secrets, in the NSS key log format, to a NEW file outside the project, made mode 0600, " +
+	"so a packet tool (Wireshark's tls.keylog_file) can decrypt a capture of the run's gNMI, RESTCONF and http.request device sessions; the file decrypts them, " +
+	"credentials in gRPC metadata and HTTP headers included, so guard it and delete it once read. Refused before anything runs: a name that exists, " +
+	"a directory that does not, and one inside the project or, with external Collections loaded, inside their directory or a path they may read, each compared by identity, not by name. " +
+	"Not on Windows, which ignores the file's mode. Every run using it warns, at its start and in its report. " +
+	"The command line alone takes it: a Runner never writes a key log"
+
 // Root is the full pleiades command tree. Every entry's Name, Positional
 // and Flags are transcribed from the flag.FlagSet calls and usage strings
 // already in cmd/pleiades's own command files; none of it is invented
@@ -519,6 +527,7 @@ var Root = Command{
 				{Name: "limit", Type: "string", Default: "", Doc: "run on only these of the runbook's hosts: names, tags or globs, comma separated, ! to exclude and & to intersect, as Ansible's --limit; a device a task names outside the hosts is not limited, a task whose target names only hosts the limit leaves out is skipped, naming them, and a limit matching none of the hosts is refused"},
 				{Name: "persist-connections", Type: "bool", Default: "true", Doc: "keep one SSH connection per device open between its tasks; --persist-connections=false logs in afresh for every task, and a device, group or inventory setting persist_connections: false turns it off for its devices whatever this says"},
 				{Name: "setting", Type: "string", Default: "", Doc: "a run setting, <method>.<parameter>=<value> (file.remove.check_forbidden=warn), for every task that leaves the parameter out; only a parameter its method declares a run setting, and only one of its choices; the task's own value wins (repeatable)"},
+				{Name: "tls-keylog", Type: "string", Default: "", Doc: tlsKeyLogDoc},
 				{Name: "extra-vars", Type: "string", Default: "", Doc: "a variable the run starts with, as key=value, key:=yaml or @file.yaml holding a mapping (repeatable); a runbook reads it as vars.<name>, a name given twice is refused, and a runbook reading one none of these gives is refused before any task runs"},
 				{Name: "e", Type: "string", Default: "", Doc: "shorthand for --extra-vars"},
 			},
@@ -532,6 +541,7 @@ var Root = Command{
 				"pleiades run runbooks/site.yaml --limit 'web-*,!web-3'",
 				"pleiades run runbooks/site.yaml --persist-connections=false",
 				"pleiades run runbooks/site.yaml --json",
+				"pleiades run runbooks/gnmi.yaml --tls-keylog ~/gnmi.keylog",
 			},
 		},
 		{
@@ -551,6 +561,7 @@ var Root = Command{
 				{Name: "limit", Type: "string", Default: "", Doc: "run on only these of the hosts given: names, tags or globs, comma separated, ! to exclude and & to intersect, as Ansible's --limit"},
 				{Name: "persist-connections", Type: "bool", Default: "true", Doc: "keep one SSH connection per device open; =false logs in afresh"},
 				{Name: "setting", Type: "string", Default: "", Doc: "a run setting, <method>.<parameter>=<value> (file.remove.check_forbidden=warn), for every task that leaves the parameter out; only a parameter its method declares a run setting, and only one of its choices; the task's own value wins (repeatable)"},
+				{Name: "tls-keylog", Type: "string", Default: "", Doc: tlsKeyLogDoc},
 				{Name: "timeout", Type: "seconds", Default: "0", Doc: "how long the call may run on each device before it is stopped and fails, as a task's timeout key: whole seconds (40) or a duration (40s, 5m), up to 86400 seconds (0: no bound)"},
 			},
 			Examples: []string{
@@ -562,6 +573,7 @@ var Root = Command{
 				"pleiades adhoc lab exec.command argv:='[cat, /etc/os-release]'",
 				"pleiades adhoc br1,br2 net.ios.command command='show crypto ikev2 sa' --json",
 				"pleiades adhoc net.pcap.summary src=captures/core1-wan.pcap --json",
+				"pleiades adhoc srl1 net.gnmi.facts --tls-keylog ~/srl1.keylog",
 			},
 		},
 		{

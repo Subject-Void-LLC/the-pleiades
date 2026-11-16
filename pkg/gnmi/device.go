@@ -4,6 +4,7 @@
 package gnmi
 
 import (
+	"context"
 	"errors"
 	"fmt"
 
@@ -18,7 +19,17 @@ import (
 // plaintext connection its record asks for. It returns what the record's
 // settings make every run say: each TLS weakening, a plaintext connection,
 // and a credential sent over one.
+//
+// It is ClientForContext outside a run, for a caller no key log can reach:
+// onboarding's probe, and tests.
 func ClientFor(device any, name string, secrets map[string]string) (*Client, []string, error) {
+	return ClientForContext(context.Background(), device, name, secrets)
+}
+
+// ClientForContext is ClientFor for a run's method: a TLS client built under
+// ctx writes its sessions' secrets to the run's key log when ctx carries one
+// (devicetls.WithKeyLog), as pleiades run --tls-keylog asks.
+func ClientForContext(ctx context.Context, device any, name string, secrets map[string]string) (*Client, []string, error) {
 	dev, ok := device.(capability.GNMICapable)
 	if !ok {
 		return nil, nil, errors.New("the device does not serve gNMI")
@@ -38,7 +49,7 @@ func ClientFor(device any, name string, secrets map[string]string) (*Client, []s
 			warnings = append(warnings, PlaintextCredentialWarning(name))
 		}
 	} else {
-		cfg, err := settings.Config(secrets)
+		cfg, err := settings.ConfigContext(ctx, secrets)
 		if err != nil {
 			return nil, nil, err
 		}

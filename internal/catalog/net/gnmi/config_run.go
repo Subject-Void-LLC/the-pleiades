@@ -50,7 +50,7 @@ func Config(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 	if device == nil {
 		return collection.Result{}, errors.New(configFQCN + ": the task has no target device")
 	}
-	client, warnings, err := gnmi.ClientFor(device, device.Name(), rc.InjectSecrets())
+	client, warnings, err := gnmi.ClientForContext(ctx, device, device.Name(), rc.InjectSecrets())
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: device %q: %w", configFQCN, device.Name(), err)
 	}
