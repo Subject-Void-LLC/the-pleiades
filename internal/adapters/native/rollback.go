@@ -71,6 +71,8 @@ func rollbackDAG(logger *slog.Logger, ran *engine.DAG, payload wire.DispatchPayl
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("the rollback of job %s does not build: %w", rb.Of, err)
 	}
+	// The recorded values are data, never templates (engine.MarkLiteral).
+	engine.MarkLiteral(dag, undoes)
 	return dag, engine.WithRollback(rb.Of, undoes), notes, nil
 }
 

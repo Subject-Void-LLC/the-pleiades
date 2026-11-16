@@ -9,6 +9,8 @@
 // to undo a rollback.
 package engine
 
+import "slices"
+
 // Undo names what one node of a rollback run undoes: a node of the run
 // being undone, on the same device, and which step of that node's undo it
 // is (0 for a recorded undo, the position in a rollback: list for an
@@ -19,6 +21,14 @@ type Undo struct {
 
 	// Step is the step of that node's undo.
 	Step int
+
+	// Literal names the step's parameters whose values are the ones the
+	// undone run recorded, which this run never renders: every parameter of a
+	// recorded undo, and the values of an authored step the undone run
+	// rendered and journaled (rollback.Step.Rendered). A value read off a
+	// device can hold {{, {% or {# as data (a sysContact of "noc {# x #}"),
+	// and rendering it would write something else back and report success.
+	Literal []string
 }
 
 // rollbackLink is WithRollback's configuration: the run being undone, and
@@ -43,6 +53,37 @@ func WithRollback(of string, undoes map[string]Undo) ExecutorOption {
 		}
 		x.rollback = rollbackLink{of: of, undoes: copied}
 	}
+}
+
+// MarkLiteral marks each node of dag that undoes names with the parameters
+// its undo keeps as recorded (Undo.Literal), so validation does not read
+// them as templates and the executor does not render them. A rollback's
+// composition calls it on the DAG it built from rollback.Runbook, before
+// validating it: the CLI's run pipeline and a Runner's rollback dispatch.
+func MarkLiteral(dag *DAG, undoes map[string]Undo) {
+	if dag == nil {
+		return
+	}
+	for node, undo := range undoes {
+		if task := dag.Nodes[node]; task != nil && len(undo.Literal) > 0 {
+			task.Literal = append([]string(nil), undo.Literal...)
+		}
+	}
+}
+
+// LiteralFree is params without the keys literal names: what of a task's
+// parameters may be a template.
+func LiteralFree(params map[string]any, literal []string) map[string]any {
+	if len(literal) == 0 {
+		return params
+	}
+	out := make(map[string]any, len(params))
+	for key, value := range params {
+		if !slices.Contains(literal, key) {
+			out[key] = value
+		}
+	}
+	return out
 }
 
 // WithProvisionalChecks names, by this run's node id, the nodes whose check

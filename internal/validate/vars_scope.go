@@ -225,13 +225,16 @@ type varRead struct {
 // or a condition that does not parse is another rule's to report.
 func readsOf(eng render.Engine, pt paramTask) []varRead {
 	var reads []varRead
-	keys := make([]string, 0, len(pt.task.Params))
-	for k := range pt.task.Params {
+	// A rollback's recorded values read nothing: they are data
+	// (engine.MarkLiteral).
+	params := engine.LiteralFree(pt.task.Params, pt.task.Literal)
+	keys := make([]string, 0, len(params))
+	for k := range params {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
 	for _, key := range keys {
-		for _, source := range engine.TemplateStrings(pt.task.Params[key]) {
+		for _, source := range engine.TemplateStrings(params[key]) {
 			tmpl, err := eng.Compile(source)
 			if err != nil {
 				continue
