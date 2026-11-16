@@ -542,6 +542,7 @@ build, validate, and run a runbook
 | --limit | `string` | - | run on only these of the runbook's hosts: names, tags or globs, comma separated, ! to exclude and & to intersect, as Ansible's --limit; a device a task names outside the hosts is not limited, a task whose target names only hosts the limit leaves out is skipped, naming them, and a limit matching none of the hosts is refused |
 | --persist-connections | `bool` | `true` | keep one SSH connection per device open between its tasks; --persist-connections=false logs in afresh for every task, and a device, group or inventory setting persist_connections: false turns it off for its devices whatever this says |
 | --setting | `string` | - | a run setting, <method>.<parameter>=<value> (file.remove.check_forbidden=warn), for every task that leaves the parameter out; only a parameter its method declares a run setting, and only one of its choices; the task's own value wins (repeatable) |
+| --tls-keylog | `string` | - | write this run's TLS session secrets, in the NSS key log format, to a NEW file made mode 0600 (a name that exists is refused before anything runs), so a packet tool (Wireshark's tls.keylog_file) can decrypt a capture of the run's gNMI, RESTCONF and http.request device sessions; the file decrypts them, credentials in gRPC metadata and HTTP headers included, so guard it and delete it once read. Every run using it warns, at its start and in its report. The command line alone takes it: a Runner never writes a key log |
 | --extra-vars | `string` | - | a variable the run starts with, as key=value, key:=yaml or @file.yaml holding a mapping (repeatable); a runbook reads it as vars.<name>, a name given twice is refused, and a runbook reading one none of these gives is refused before any task runs |
 | --e | `string` | - | shorthand for --extra-vars |
 
@@ -563,6 +564,8 @@ build, validate, and run a runbook
 
 `pleiades run runbooks/site.yaml --json`
 
+`pleiades run runbooks/gnmi.yaml --tls-keylog captures/gnmi.keylog`
+
 ## pleiades adhoc
 
 run one method against a device, a tag or a comma list of devices, or with - (or no hosts at all) one that needs no device, with no runbook written
@@ -583,6 +586,7 @@ run one method against a device, a tag or a comma list of devices, or with - (or
 | --limit | `string` | - | run on only these of the hosts given: names, tags or globs, comma separated, ! to exclude and & to intersect, as Ansible's --limit |
 | --persist-connections | `bool` | `true` | keep one SSH connection per device open; =false logs in afresh |
 | --setting | `string` | - | a run setting, <method>.<parameter>=<value> (file.remove.check_forbidden=warn), for every task that leaves the parameter out; only a parameter its method declares a run setting, and only one of its choices; the task's own value wins (repeatable) |
+| --tls-keylog | `string` | - | write this run's TLS session secrets, in the NSS key log format, to a NEW file made mode 0600 (a name that exists is refused before anything runs), so a packet tool (Wireshark's tls.keylog_file) can decrypt a capture of the run's gNMI, RESTCONF and http.request device sessions; the file decrypts them, credentials in gRPC metadata and HTTP headers included, so guard it and delete it once read. Every run using it warns, at its start and in its report. The command line alone takes it: a Runner never writes a key log |
 | --timeout | `seconds` | `0` | how long the call may run on each device before it is stopped and fails, as a task's timeout key: whole seconds (40) or a duration (40s, 5m), up to 86400 seconds (0: no bound) |
 
 `pleiades adhoc web01 facts.gather`
@@ -600,6 +604,8 @@ run one method against a device, a tag or a comma list of devices, or with - (or
 `pleiades adhoc br1,br2 net.ios.command command='show crypto ikev2 sa' --json`
 
 `pleiades adhoc net.pcap.summary src=captures/core1-wan.pcap --json`
+
+`pleiades adhoc srl1 net.gnmi.facts --tls-keylog captures/srl1.keylog`
 
 ## pleiades rollback
 

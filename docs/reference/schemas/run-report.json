@@ -431,13 +431,14 @@
           ]
         },
         "kind": {
-          "description": "Kind is concurrent_run, concurrent_change, concurrent_unknown, serial_stopped or grant. Known values: concurrent_run, concurrent_change, concurrent_unknown, serial_stopped, grant. A newer producer may add others, and a reader treats one it does not know as not a pass.",
+          "description": "Kind is concurrent_run, concurrent_change, concurrent_unknown, serial_stopped, grant or tls_keylog. Known values: concurrent_run, concurrent_change, concurrent_unknown, serial_stopped, grant, tls_keylog. A newer producer may add others, and a reader treats one it does not know as not a pass.",
           "examples": [
             "concurrent_run",
             "concurrent_change",
             "concurrent_unknown",
             "serial_stopped",
-            "grant"
+            "grant",
+            "tls_keylog"
           ],
           "type": "string"
         },
