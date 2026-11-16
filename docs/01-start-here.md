@@ -127,8 +127,10 @@ probes it over its protocol and records what its answers prove, and nothing else
 grant one. Four are proven against a real server: a Debian host, a Netopeer2 NETCONF
 server, an HTTPS API and the gRPC project's own example server. On that Netopeer2 server,
 `net.netconf.config` reads what an edit changed rather than assuming it, so a re-run reports no change;
-records the undo of a create, and of a change the reads name for certain, before the edit is sent, so a
-lost answer still leaves it; and checks an edit through the device's locked candidate datastore when the
+records the undo of what it creates (a removal built only from the task's own content) before the edit is
+sent, so a lost answer still leaves it, while a change to what was there records none, since its undo would
+keep configuration read from the device in the run journal; and checks an edit through the device's locked
+candidate datastore when the
 task asks with `candidate_check: true` (`TestLive_*` in its package, and pkg/netconf's `TestAssurance_*`).
 None of that is proven on a real Cisco device: the Catalyst 8000V the earlier NETCONF gate ran on is
 no longer available, and the check runs only on a server measured to qualify, which IOS XE is not yet.

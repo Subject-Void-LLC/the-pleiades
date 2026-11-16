@@ -101,8 +101,9 @@ pre-1.0 project and the honest state is not what the docs' introductions might i
   structured error carrying the device's own error-tag and the XPath it objected to, rather than as a
   line of vendor text; parameter names are `ansible.netcommon.netconf_config`'s. `net.netconf.config` reads
   what an edit can touch before and after it (`netconf.EditFilter`, with-defaults explicit), so `changed` is
-  read, records an exact undo before the edit wherever the reads prove one (a create's removal, a named
-  node put back; `pkg/yangdoc` is the canonical form RESTCONF shares), and checks only with
+  read, records the undo of what it creates before the edit (a removal built only from the task's own content;
+  a change to what was there records none, since its undo would keep device-read configuration in the journal;
+  `pkg/yangdoc` is the canonical form RESTCONF shares), and checks only with
   `candidate_check: true` through a locked candidate (`Session.LimitToCheck`), from the CLI only
   (`sdk.StagedChecks`), on a server the conformance suite qualified: Netopeer2 alone, not yet IOS XE. `net.restconf.config`
   and `net.restconf.facts` (Phase 74b) speak RFC 8040 RESTCONF over HTTPS (`pkg/restconf`) to a
