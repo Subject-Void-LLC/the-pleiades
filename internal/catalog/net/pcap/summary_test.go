@@ -149,6 +149,41 @@ func TestSummary_NamesCleartextGRPCAndWarnsOfItsCredential(t *testing.T) {
 	}
 }
 
+// TestSummary_WarnsOfTextInEncryptedAndUnsearchedHeaders: a TLS record
+// forged around text is a warning and cleartext_in_encrypted, and an
+// HTTP/2 block that will not decode is counted in headers_unread and named
+// in its flow's warning.
+func TestSummary_WarnsOfTextInEncryptedAndUnsearchedHeaders(t *testing.T) {
+	dir := t.TempDir()
+	cl, sv := [4]byte{10, 0, 0, 1}, [4]byte{10, 0, 0, 2}
+	forged := append([]byte{0x16, 3, 1, 0, 4, 1, 0, 0, 0, 0x17, 3, 3, 0x01, 0x00}, []byte(strings.Repeat("show version\r\n", 20)[:256])...)
+	var h2 bytes.Buffer
+	h2.WriteString(http2.ClientPreface)
+	if err := http2.NewFramer(&h2, nil).WriteHeaders(http2.HeadersFrameParam{StreamID: 1, EndHeaders: true, BlockFragment: []byte{0x80 | 70}}); err != nil {
+		t.Fatal(err)
+	}
+	data := capture(tcpFrame(cl, sv, 40000, 443, 0x18, 1, forged), tcpFrame(cl, sv, 40001, 8080, 0x18, 1, h2.Bytes()))
+	if err := os.WriteFile(filepath.Join(dir, "w.pcap"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, rc, err := run(t, dir, map[string]any{"src": "w.pcap"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stats := rc.(interface{ Facts() map[string]any }).Facts()
+	warns, _ := stats[sdk.StatWarnings].([]string)
+	if stats["cleartext_in_encrypted"] != 1 || stats["headers_unread"] != 1 || stats["encrypted"] != 0 || len(warns) != 2 {
+		t.Fatalf("stats = %v", stats)
+	}
+	if !strings.Contains(warns[0], "read as text") || !strings.Contains(warns[1], "1 of its headers or header blocks could not be searched") {
+		t.Fatalf("warnings = %q", warns)
+	}
+	f := stats["flows"].([]any)[1].(map[string]any)
+	if f["headers_unread"] != 1 || f["protocol"] != "http2" {
+		t.Fatalf("flows = %v", stats["flows"])
+	}
+}
+
 // TestSummary_WarningsNameTenFlowsAndCountTheRest: eleven cleartext flows
 // make ten warning lines and one counting the eleventh.
 func TestSummary_WarningsNameTenFlowsAndCountTheRest(t *testing.T) {
