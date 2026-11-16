@@ -119,7 +119,9 @@ func TestRESTCONF_RefusesALibraryNamingNoLocation(t *testing.T) {
 // neither the header's credential nor the password inside it.
 func TestRESTCONF_ADebugPageEchoingTheLoginNeverReachesTheError(t *testing.T) {
 	basic := base64.StdEncoding.EncodeToString([]byte("admin:" + restconfPassword))
-	page := "Request headers\nAuthorization: Basic " + basic + "\nAccept: application/yang\n"
+	// The header first, where the source's first statement would be, which
+	// is the text a refusal is likeliest to quote.
+	page := "Authorization: Basic " + basic + "\nAccept: application/yang\n"
 	s, dev, rc := restconfServer(t, restconftest.Options{Sources: map[string][]byte{"pleiades-probe@2026-11-16": []byte(page)}})
 	_, err := Schema(context.Background(), rc, dev, map[string]any{paramModules: []any{"pleiades-probe"}})
 	if err == nil || !strings.Contains(err.Error(), "not the YANG source of module pleiades-probe@2026-11-16") {
