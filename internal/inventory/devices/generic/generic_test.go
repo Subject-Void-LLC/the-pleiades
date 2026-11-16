@@ -22,6 +22,7 @@ var addressed = map[string]map[string]inventory.PropertyValue{
 	generic.TypeNetconf:  {"host": "10.0.0.2"},
 	generic.TypeHTTP:     {generic.BaseURLProperty: "https://api.example.com"},
 	generic.TypeRestconf: {generic.BaseURLProperty: "https://router.example.com"},
+	generic.TypeSNMP:     {generic.HostProperty: "10.0.0.3"},
 	generic.TypeGRPC:     {generic.GRPCTargetProperty: "grpc.example.com:443"},
 	generic.TypeGNMI:     {generic.GRPCTargetProperty: "router.example.com:57400"},
 }
@@ -464,19 +465,27 @@ var repointed = map[string]map[string]inventory.PropertyValue{
 	generic.TypeRestconf: {generic.BaseURLProperty: "https://attacker.example.net"},
 	generic.TypeGRPC:     {generic.GRPCTargetProperty: "attacker.example.net:443"},
 	generic.TypeGNMI:     {generic.GRPCTargetProperty: "attacker.example.net:57400"},
+	generic.TypeSNMP:     {generic.HostProperty: "10.0.0.66"},
 }
 
 // TestGeneric_ARepointedDeviceHoldsOnlyItsBaseline is Phase 117a's S2 at
 // the type: a discovery made against one address grants nothing once the
 // record names another, and the device still loads and says to onboard it
-// again. Changing a TLS setting voids it the same way.
+// again. Changing a TLS setting voids it the same way, and for generic_snmp
+// changing its SNMP version.
 func TestGeneric_ARepointedDeviceHoldsOnlyItsBaseline(t *testing.T) {
 	for deviceType, change := range repointed {
 		t.Run(deviceType, func(t *testing.T) {
 			grants := generic.Discoverable(deviceType)
+			second := map[string]inventory.PropertyValue{"tls_server_name": "attacker.example.net"}
+			if deviceType == generic.TypeSNMP {
+				// generic_snmp has no TLS; a discovery made in one SNMP
+				// version says nothing about another.
+				second = map[string]inventory.PropertyValue{"snmp_version": "2c", "snmp_allow_cleartext_community": true}
+			}
 			for name, extra := range map[string]map[string]inventory.PropertyValue{
-				"address": change,
-				"tls":     {"tls_server_name": "attacker.example.net"},
+				"address":   change,
+				"transport": second,
 			} {
 				props := map[string]inventory.PropertyValue{inventory.DiscoveredProperty: boundDiscovery(deviceType, grants...)}
 				for k, v := range extra {

@@ -309,6 +309,19 @@ type Manifest struct {
 	// is refused such a device. It needs SeedsLogin.
 	SeedsLoginIOSSecret bool `json:"seedsLoginIOSSecret,omitempty"`
 
+	// UsesSNMPCredential says the method reads the SNMP family of its
+	// device's credential (a community, or an SNMPv3 user with its
+	// passphrases). A Controller keeps a device's own SNMP family off every
+	// dispatch whose job names no such method (internal/dispatch), since a
+	// dispatch sits on the message stream for its retention window and reaches
+	// every task's child process and every external program a task calls; the
+	// Crawl tier hands every method its device's whole credential. A
+	// Controller reads it from the module catalog it embeds, so on the Walk
+	// tier it is honored for a built-in method; an external Collection's
+	// method is known only to the Runner that loads it, and a dispatch naming
+	// only such methods carries no device SNMP family.
+	UsesSNMPCredential bool `json:"usesSnmpCredential,omitempty"`
+
 	// Facts declares every fact this method may emit through EmitFact,
 	// each stable or volatile with its value type (Phase 41b). The engine
 	// stores nothing for a key the method did not declare. Register refuses

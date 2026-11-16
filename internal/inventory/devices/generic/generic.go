@@ -1,5 +1,5 @@
 // Package generic holds the protocol-shaped device types: generic_ssh,
-// generic_netconf, generic_restconf, generic_gnmi, generic_http and
+// generic_netconf, generic_restconf, generic_gnmi, generic_snmp, generic_http and
 // generic_grpc. They exist so a device
 // nobody has written a vendor type for can still be managed, over the
 // protocol it speaks.
@@ -30,6 +30,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/httpapi"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/snmp"
 )
 
 // The generic device types.
@@ -37,6 +38,7 @@ const (
 	TypeSSH      = "generic_ssh"
 	TypeNetconf  = "generic_netconf"
 	TypeRestconf = "generic_restconf"
+	TypeSNMP     = "generic_snmp"
 	TypeHTTP     = "generic_http"
 	TypeGRPC     = "generic_grpc"
 	TypeGNMI     = "generic_gnmi"
@@ -50,7 +52,9 @@ const (
 // any host with a valid certificate for its own name. generic_gnmi's is bound
 // for the same reason, its credential going to its target. generic_grpc sends
 // no credential, and is bound because a discovery made against one server says
-// nothing about another. The SSH-based types are not bound: a strict
+// nothing about another. generic_snmp's is bound because its community or
+// SNMPv3 keys go to its host and port, and a discovery made against one agent
+// (or one version) says nothing about another. The SSH-based types are not bound: a strict
 // host-key check already refuses a repointed host before any credential is
 // sent.
 var rules = map[string]record.DiscoveryRules{
@@ -81,6 +85,11 @@ var rules = map[string]record.DiscoveryRules{
 	TypeRestconf: {
 		Grants: []capability.Name{capability.NameRestconf},
 		Bound:  append([]string{BaseURLProperty, HTTPAuthProperty, httpapi.AllowPlaintextCredentialsProperty}, devicetls.Properties()...),
+	},
+	TypeSNMP: {
+		Grants: []capability.Name{capability.NameSNMP},
+		Bound: []string{HostProperty, snmp.PortProperty, snmp.VersionProperty,
+			snmp.AllowCleartextCommunityProperty, snmp.AllowLegacyAlgorithmsProperty},
 	},
 	TypeHTTP: {
 		// A containerlab API server is an HTTP API that onboarding
@@ -116,7 +125,7 @@ func Binding(deviceType string, props inventory.Properties) string {
 
 // Types returns the generic device types, sorted.
 func Types() []string {
-	return []string{TypeGNMI, TypeGRPC, TypeHTTP, TypeNetconf, TypeRestconf, TypeSSH}
+	return []string{TypeGNMI, TypeGRPC, TypeHTTP, TypeNetconf, TypeRestconf, TypeSNMP, TypeSSH}
 }
 
 func init() {
@@ -127,6 +136,7 @@ func init() {
 	record.RegisterType(TypeSSH, NewSSH)
 	record.RegisterType(TypeNetconf, NewNetconf)
 	record.RegisterType(TypeRestconf, NewRestconf)
+	record.RegisterType(TypeSNMP, NewSNMP)
 	record.RegisterType(TypeHTTP, NewHTTP)
 	record.RegisterType(TypeGRPC, NewGRPC)
 	record.RegisterType(TypeGNMI, NewGNMI)

@@ -25,8 +25,13 @@ var propertyKey = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
 
 // keySources are the packages outside a device package whose property-key
 // constants a device package may name (pkg/devicetls's TLS settings,
-// pkg/httpapi's plaintext flag, linux's own when generic_ssh embeds it).
-var keySources = []string{"pkg/devicetls", "pkg/httpapi", "internal/inventory/devices/linux"}
+// pkg/httpapi's plaintext flag, pkg/snmp's agent settings, linux's own when
+// generic_ssh embeds it).
+var keySources = []string{"pkg/devicetls", "pkg/httpapi", "pkg/snmp", "internal/inventory/devices/linux"}
+
+// wholeSources are the key sources whose Parse reads every key they declare,
+// so a device package calling one reads them all.
+var wholeSources = map[string]bool{"devicetls": true, "snmp": true}
 
 // propertyConstants returns, for the Go files in dir, every package-level
 // string constant that names a property key: by this module's convention
@@ -82,7 +87,8 @@ func parseDir(t *testing.T, dir string) []*ast.File {
 // keysRead returns the property keys the code in dir reads: string
 // literals passed to Properties' String, Int and Bool or to pathProperty;
 // every reference to a property-key constant, its own or a key source's;
-// and pkg/devicetls's keys when it calls devicetls.Parse.
+// and every key of pkg/devicetls or pkg/snmp when it calls that package's
+// Parse or Properties.
 func keysRead(t *testing.T, root, dir string) map[string]bool {
 	t.Helper()
 	own := propertyConstants(t, dir)
@@ -99,8 +105,8 @@ func keysRead(t *testing.T, root, dir string) map[string]bool {
 				switch fun := x.Fun.(type) {
 				case *ast.SelectorExpr:
 					name = fun.Sel.Name
-					if pkg, ok := fun.X.(*ast.Ident); ok && pkg.Name == "devicetls" && (name == "Parse" || name == "Properties") {
-						for _, v := range foreign["devicetls"] {
+					if pkg, ok := fun.X.(*ast.Ident); ok && wholeSources[pkg.Name] && (name == "Parse" || name == "Properties") {
+						for _, v := range foreign[pkg.Name] {
 							read[v] = true
 						}
 					}

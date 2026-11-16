@@ -203,6 +203,7 @@ func markConditional(typeKey string, capabilities []string) (string, bool) {
 var genericExampleProperties = map[string]map[string]inventory.PropertyValue{
 	generic.TypeHTTP:       {generic.BaseURLProperty: "https://api.example.com"},
 	generic.TypeRestconf:   {generic.BaseURLProperty: "https://router.example.com"},
+	generic.TypeSNMP:       {generic.HostProperty: "pdu.example.com"},
 	generic.TypeGRPC:       {generic.GRPCTargetProperty: "grpc.example.com:443"},
 	generic.TypeGNMI:       {generic.GRPCTargetProperty: "router.example.com:57400"},
 	kubernetes.TypeCluster: {kubernetes.APIServerProperty: "https://k8s.example.com:6443"},
