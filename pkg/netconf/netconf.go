@@ -238,6 +238,11 @@ type Session struct {
 	// an answer, which are not failures (Junos sends them beside <ok/>).
 	warnings []RPCError
 
+	// checkOnly limits the session to the RPCs a check through the
+	// candidate datastore sends (LimitToCheck), refused in do before any
+	// byte of another is written.
+	checkOnly bool
+
 	// messageID is the RFC 6241 section 4.1 message-id, monotonic per
 	// session and compared against every reply. Atomic so that the
 	// value is well-defined even though concurrent use is unsupported:
