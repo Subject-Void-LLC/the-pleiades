@@ -122,6 +122,13 @@ type Options struct {
 	// RequireClientCertificate refuses a client that presents no
 	// certificate, in the handshake (TLS 1.2) or just after it (TLS 1.3).
 	RequireClientCertificate bool
+	// Sources are YANG sources the server serves, by name@revision (or the
+	// name alone), as IOS XE does (sources.go): modules-state then lists
+	// these alone, each naming its source's URL.
+	Sources map[string][]byte
+	// SourceOrigin, when set, is the origin modules-state's schema leaves
+	// name in place of the server's own.
+	SourceOrigin string
 }
 
 // Server is a RESTCONF server over TLS.
@@ -269,7 +276,7 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, modulesState []by
 		}
 	}
 	root := s.opts.Root
-	if s.write(w, r, path) {
+	if s.serveSource(w, r, path) || s.write(w, r, path) {
 		return
 	}
 	switch path {
@@ -390,6 +397,9 @@ func libraryJSON(doc []byte) ([]byte, error) {
 			Name     string `xml:"name" json:"name"`
 			Revision string `xml:"revision" json:"revision"`
 		} `xml:"deviation" json:"deviation,omitempty"`
+		// Schema is the URL of the module's source, which IOS XE's JSON
+		// carries as its XML does.
+		Schema string `xml:"schema" json:"schema,omitempty"`
 	}
 	var parsed struct {
 		XMLName    xml.Name
