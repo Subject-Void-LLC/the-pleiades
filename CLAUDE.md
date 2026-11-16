@@ -99,7 +99,13 @@ pre-1.0 project and the honest state is not what the docs' introductions might i
   (Phase 74a) and `net.netconf.facts` speak RFC 6241 NETCONF over an SSH subsystem channel
   (`pkg/netconf`, implementing the shared `pkg/datastore` port), so a rejected element comes back as a
   structured error carrying the device's own error-tag and the XPath it objected to, rather than as a
-  line of vendor text; parameter names are `ansible.netcommon.netconf_config`'s. `net.restconf.config`
+  line of vendor text; parameter names are `ansible.netcommon.netconf_config`'s. `net.netconf.config` reads
+  what an edit can touch before and after it (`netconf.EditFilter`, with-defaults explicit), so `changed` is
+  read, records the undo of what it creates before the edit (a removal built only from the task's own content;
+  a change to what was there records none, since its undo would keep device-read configuration in the journal;
+  `pkg/yangdoc` is the canonical form RESTCONF shares), and checks only with
+  `candidate_check: true` through a locked candidate (`Session.LimitToCheck`), from the CLI only
+  (`sdk.StagedChecks`), on a server the conformance suite qualified: Netopeer2 alone, not yet IOS XE. `net.restconf.config`
   and `net.restconf.facts` (Phase 74b) speak RFC 8040 RESTCONF over HTTPS (`pkg/restconf`) to a
   `generic_restconf` device: change detection by reading before and after, an exact recorded undo for
   a create, secret references in content; `wait.restconf` and `wait.netconf` wait for each listener.
@@ -182,7 +188,7 @@ pre-1.0 project and the honest state is not what the docs' introductions might i
   once; and a target already running (a project mid-sync) is a **skip** carrying
   `already_running`, never a failure, since a failure would be retried for as long as the first
   run lasts.
-- **Check mode is real for 251 of the 270 implemented methods (Phase 46; counts from the generated catalog, 2026-11-15).** `pleiades run --mode
+- **Check mode is real for 252 of the 270 implemented methods (Phase 46; counts from the generated catalog, 2026-11-16).** `pleiades run --mode
   check` runs each task's declared `Descriptor.Check` (`collection.ModeCheck`; the
   manifest's `SupportsCheck` must agree, enforced by `Register`) and names every other
   task as unchecked, ending non-zero. The engine refuses a check result carrying an
@@ -193,9 +199,9 @@ pre-1.0 project and the honest state is not what the docs' introductions might i
   checks only some calls answers the rest with `collection.CannotCheck`, and when the
   params alone decide (`exec.command`/`exec.shell` guards, `http.request`'s method) also
   sets `Descriptor.CheckCall`, which validation calls to refuse `check_mode` on such a
-  call. The nineteen methods with no check (`container.exec`, `net.cli.*`, `net.ios.command`,
-  `net.netconf.config`, `net.restconf.config`, `net.gnmi.config`, `virt.clab.node.exec`, `virt.clab.vxlan.delete` and the ten waits, `http.wait`,
-  `wait.netconf`, `wait.restconf`, `wait.gnmi` and `wait.snmp` among them; the first thirteen re-confirmed in C2c, 2026-11-02, when nine others gained a check) each carry
+  call. The eighteen methods with no check (`container.exec`, `net.cli.*`, `net.ios.command`,
+  `net.restconf.config`, `net.gnmi.config`, `virt.clab.node.exec`, `virt.clab.vxlan.delete` and the ten waits, `http.wait`,
+  `wait.netconf`, `wait.restconf`, `wait.gnmi` and `wait.snmp` among them; twelve of them re-confirmed in C2c, 2026-11-02, when nine others gained a check, and `net.netconf.config`, then the thirteenth, gained its gated check through the candidate on 2026-11-16) each carry
   `Manifest.NoCheckReason`, which `internal/archtest` requires of every built-in without
   check support. The generated module catalog's `supportsCheck` is the authority. The
   Walk tier runs checks too: the runbook launch kind's `mode` field (`launch.ModeField`, a

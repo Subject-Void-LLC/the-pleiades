@@ -20,6 +20,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/restconf"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/secretref"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/yangdoc"
 )
 
 // configFQCN is the method's name.
@@ -173,7 +174,7 @@ func checkContent(req writeRequest) error {
 	// The references are checked in place, unresolved: JSON that parses
 	// holds each one inside a string, since {{ outside a string does not
 	// parse, and XML that is well-formed holds each one as text.
-	return checkDocument(req.content, req.asJSON)
+	return yangdoc.CheckDocument(req.content, req.asJSON)
 }
 
 // checkAgainst refuses what the device's discovery says it cannot take: a

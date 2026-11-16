@@ -755,6 +755,9 @@ type run struct {
 	// predicted is, per device, what this check's earlier tasks predicted
 	// (predicted.go), which a later task's method reads.
 	predicted *predictionLedger
+	// earlier is, per device, whether a task checked earlier in this run
+	// predicted a change, could not be checked, or failed (earlier_change.go).
+	earlier *earlierChanges
 
 	// jobs are the run's background tasks, and leases the device leases they
 	// hold for the rest of the run to join (async.go).
@@ -808,6 +811,7 @@ func (x *Executor) RunAs(ctx context.Context, dag *DAG, runID string, sequenceAf
 		items:     map[string]inventory.InventoryItem{},
 		facts:     newFactStore(),
 		notified:  newNotifiedHandlers(),
+		earlier:   newEarlierChanges(),
 	}
 	// Predictions are kept only when the whole run is a check: the real tasks
 	// of a run that checks only some would change what they vouch for.
@@ -912,6 +916,9 @@ func (x *Executor) RunAs(ctx context.Context, dag *DAG, runID string, sequenceAf
 		// What a check predicted, read whole for the level so two siblings that
 		// disagree on a path are seen, and for the next level's tasks to read.
 		r.recordPredictions(slices.Concat(outs...))
+		// Which devices a checked task left possibly changed, for the next
+		// level's checks to read (sdk.EarlierChanges).
+		r.earlier.record(slices.Concat(outs...))
 		// What the level's real tasks observed, stored as their devices' facts.
 		r.recordFacts(ctx, slices.Concat(outs...))
 
@@ -1449,6 +1456,9 @@ func (r *run) runAction(ctx context.Context, cmd nodeExecution, result NodeResul
 			// What earlier tasks of this check predicted for the device, for the
 			// method to read (predicted.go, sdk.PredictedState).
 			checkCtx := sdk.WithPredictions(execCtx, r.predicted.snapshot(result.Device))
+			// And whether an earlier checked task on it predicted a change, could
+			// not be checked, or failed (earlier_change.go).
+			checkCtx = sdk.WithEarlierChange(checkCtx, r.earlier.on(result.Device))
 			actionResult, err = r.checkAction(checkCtx, cmd)
 			r.recordActionSecrets(actionResult)
 			if v, ok := actionResult.Stats[sdk.StatPredictedPaths]; ok {

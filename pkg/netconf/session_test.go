@@ -245,6 +245,13 @@ func TestOpen_RefusesAnUnsupportedTargetImmediately(t *testing.T) {
 			t.Errorf("Open() error = %q, want it to contain %q", err, want)
 		}
 	}
+	if !errors.Is(err, ErrDatastoreNotAdvertised) {
+		t.Errorf("Open() error = %v, want it to wrap ErrDatastoreNotAdvertised", err)
+	}
+	_, err = Open(ctx, (&fakeDevice{hello: realHelloPrelude}).start(t), Options{Target: Startup})
+	if !errors.Is(err, ErrDatastoreNotAdvertised) {
+		t.Errorf("Open(Target: startup) error = %v, want it to wrap ErrDatastoreNotAdvertised", err)
+	}
 }
 
 func TestOpen_BoundsTheHelloBeforeParsingIt(t *testing.T) {

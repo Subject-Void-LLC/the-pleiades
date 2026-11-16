@@ -3,6 +3,7 @@ package netconf
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -12,6 +13,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/netconf"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/yangdoc"
 )
 
 // This file proves Config's own decision logic -- parameter validation,
@@ -39,6 +41,7 @@ type fakeSession struct {
 	warnings    []netconf.RPCError
 	getSources  []netconf.Datastore
 	validateErr error
+	discardErr  error
 
 	// discardCtxErr and unlockCtxErr are the context's error when discard
 	// and unlock ran, so a test can tell they ran on a live context.
@@ -53,7 +56,58 @@ type fakeSession struct {
 	editErr      error
 	lockErr      error
 	commitErr    error
+
+	// running is the running datastore as XML, which an edit of running
+	// replaces with what it wrote (afterEdit when set, else the content): a
+	// crude model, enough for the reads before and after an edit to differ
+	// when it changed something and agree when it did not. staged is the
+	// candidate's edit until it is committed or discarded.
+	running   string
+	staged    *string
+	afterEdit *string
+	// reads counts ReadConfig calls; readErrAt fails the one with that
+	// number (1 is the first), and readErr fails every one.
+	reads     int
+	readErrAt int
+	readErr   error
+	// filters are the filters ReadConfig was asked to read through.
+	filters []string
+	// withDefaults is the mode WithDefaults reports; "" reads as explicit.
+	withDefaults string
+	// limited says LimitToCheck was called.
+	limited bool
+	// lostAnswer applies an edit and then answers as a lost session does.
+	lostAnswer bool
+	// onEdit runs as EditConfig is called, before the edit lands.
+	onEdit func()
+	// blockEdit holds EditConfig until its context ends, as a device that
+	// never answers does.
+	blockEdit bool
+	// discardLeaves answers a discard ok and leaves the staged edit.
+	discardLeaves bool
 }
+
+func (f *fakeSession) ReadConfig(ctx context.Context, source netconf.Datastore, filter string) ([]*yangdoc.Element, error) {
+	f.reads++
+	f.filters = append(f.filters, filter)
+	if f.readErr != nil || f.readErrAt == f.reads {
+		return nil, errors.Join(errors.New("the read failed"), f.readErr)
+	}
+	doc := f.running
+	if source == netconf.Candidate && f.staged != nil {
+		doc = *f.staged
+	}
+	return yangdoc.Parse([]byte(doc))
+}
+
+func (f *fakeSession) WithDefaults() string {
+	if f.withDefaults == "" {
+		return netconf.WithDefaultsExplicit
+	}
+	return f.withDefaults
+}
+
+func (f *fakeSession) LimitToCheck() { f.limited = true }
 
 func (f *fakeSession) GetConfigFrom(ctx context.Context, source netconf.Datastore, p datastore.Path) (datastore.Payload, error) {
 	f.getCalls = append(f.getCalls, p)
@@ -64,7 +118,13 @@ func (f *fakeSession) GetConfigFrom(ctx context.Context, source netconf.Datastor
 func (f *fakeSession) DiscardChanges(ctx context.Context) error {
 	f.discarded++
 	f.discardCtxErr = ctx.Err()
-	return nil
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	if !f.discardLeaves {
+		f.staged = nil
+	}
+	return f.discardErr
 }
 
 func (f *fakeSession) Validate(ctx context.Context) error {
@@ -91,7 +151,29 @@ func (f *fakeSession) TakeWarnings() []netconf.RPCError {
 
 func (f *fakeSession) EditConfig(ctx context.Context, req netconf.EditConfigRequest) error {
 	f.editCalls = append(f.editCalls, req)
-	return f.editErr
+	if f.onEdit != nil {
+		f.onEdit()
+	}
+	if f.blockEdit {
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	if f.editErr != nil {
+		return f.editErr
+	}
+	written := req.Config
+	if f.afterEdit != nil {
+		written = *f.afterEdit
+	}
+	if f.target == netconf.Candidate {
+		f.staged = &written
+	} else {
+		f.running = written
+	}
+	if f.lostAnswer {
+		return errors.New("netconf: reading the reply: the session was lost")
+	}
+	return nil
 }
 
 func (f *fakeSession) Lock(ctx context.Context) error {
@@ -107,7 +189,14 @@ func (f *fakeSession) Unlock(ctx context.Context) error {
 
 func (f *fakeSession) Commit(ctx context.Context) error {
 	f.committed++
-	return f.commitErr
+	if f.commitErr != nil {
+		return f.commitErr
+	}
+	if f.staged != nil {
+		f.running = *f.staged
+		f.staged = nil
+	}
+	return nil
 }
 
 func (f *fakeSession) HasCapability(urn string) bool { return f.capabilities[urn] }
@@ -133,6 +222,12 @@ func useSession(t *testing.T, f *fakeSession) *netconf.Datastore {
 	var seen netconf.Datastore
 	swapOpenSession(t, func(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any, fqcn string, target netconf.Datastore) (netconfSession, error) {
 		seen = target
+		// As netconf.Open does: a target the hello does not advertise is
+		// refused before the session exists.
+		if (target == netconf.Candidate && !f.capabilities[netconf.CapabilityCandidate]) ||
+			(target == netconf.Startup && !f.capabilities[netconf.CapabilityStartup]) {
+			return nil, fmt.Errorf("netconf: this device does not support the %s datastore: %w", target, netconf.ErrDatastoreNotAdvertised)
+		}
 		if f.target == "" {
 			f.target = target
 		}
@@ -189,8 +284,11 @@ func TestConfig_Registered(t *testing.T) {
 	if d.Invoke == nil {
 		t.Error("Manifest claims StatusImplemented but Invoke is nil")
 	}
-	if d.Manifest.Reversibility.Reversible {
-		t.Error("Reversibility.Reversible = true, want false")
+	if r := d.Manifest.Reversibility; !r.Reversible || len(r.Inverses) != 1 || r.Inverses[0].FQCN != configFQCN || !r.Inverses[0].MayKeepOnFailure {
+		t.Errorf("Reversibility = %+v, want this method undoing itself, kept on failure", r)
+	}
+	if d.Check == nil || d.CheckCall == nil || d.UndoCall == nil || !d.Manifest.SupportsCheck || d.Manifest.NoCheckReason != "" {
+		t.Error("the check through the candidate, its CheckCall and the UndoCall are not all registered")
 	}
 	if d.Manifest.Reversibility.Notes == "" {
 		t.Error("Reversibility.Notes is empty; collection.Register would have refused this")
@@ -425,7 +523,7 @@ func TestConfig_CommitsOnlyForTheCandidateDatastore(t *testing.T) {
 		{"candidate honors commit: false", "candidate", false, 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			f := &fakeSession{}
+			f := &fakeSession{capabilities: map[string]bool{netconf.CapabilityCandidate: true}}
 			useSession(t, f)
 
 			params := map[string]any{paramContent: "<native/>", paramDatastore: tc.target}

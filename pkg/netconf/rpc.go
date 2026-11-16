@@ -342,6 +342,11 @@ func (s *Session) expectOK(ctx context.Context, body, name string) error {
 // resynchronization attempt for the same reason Shell does not attempt
 // one after a bad read.
 func (s *Session) do(ctx context.Context, body string) (*rpcReply, error) {
+	// A session limited to a check refuses every other RPC here, the one
+	// place every RPC passes, before anything is written.
+	if err := s.refuseInCheck(body); err != nil {
+		return nil, err
+	}
 	stop := s.watchContext(ctx)
 	defer stop()
 

@@ -13,6 +13,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/netcfg"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/restconf"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/yangdoc"
 )
 
 // statBackup is the stat backup: true records the earlier document under.
@@ -143,8 +144,8 @@ func createdBy(req writeRequest, had bool, w restconf.Written) (restconf.Path, b
 // form; when either cannot be read as one, it compares the bytes and says
 // so.
 func differ(before, after []byte, asJSON bool, notes *[]string) bool {
-	a, errA := canonical(before, asJSON)
-	b, errB := canonical(after, asJSON)
+	a, errA := yangdoc.Canonical(before, asJSON)
+	b, errB := yangdoc.Canonical(after, asJSON)
 	if errA != nil || errB != nil {
 		*notes = append(*notes, "the device's answer could not be read as one document, so the reads before and after were compared byte for byte")
 		return !bytes.Equal(bytes.TrimSpace(before), bytes.TrimSpace(after))

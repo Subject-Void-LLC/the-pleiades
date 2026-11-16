@@ -575,8 +575,11 @@ func newRunExecutor(opts runOptions, world validate.WorldView, sink engine.Journ
 		// The command line holds the project, so a method may read its
 		// files (file.copy's src); a Runner's contexts cannot. A method
 		// writing one (pleiades.builtin.project.write) never replaces the
-		// inventory or reaches the external Collections directory.
-		engine.WithProjectFiles(engine.NewCredentialRunbookContext(credentials), opts.dir, projectWriteGuards(opts.dir)...),
+		// inventory or reaches the external Collections directory. Only the
+		// command line lets a check stage a change in a device's staging area
+		// (net.netconf.config through the candidate), where its RPCs are held
+		// to the check's.
+		engine.WithStagedChecks(engine.WithProjectFiles(engine.NewCredentialRunbookContext(credentials), opts.dir, projectWriteGuards(opts.dir)...)),
 		engine.WithConnectionPool(pool, engine.PersistFor(inventoryRepo)),
 		// A method creating a machine (virt.vbox.vm.clone) seeds it with a
 		// device's login from the same vault: the public key and a hash of

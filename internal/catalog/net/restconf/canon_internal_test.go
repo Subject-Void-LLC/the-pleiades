@@ -1,58 +1,11 @@
-// Package restconf: tests of the canonical form a change is judged by, and of
-// the content checks, apart from a server.
+// Package restconf: tests of how a change is judged from two reads and of how
+// a secret's value is escaped into content, apart from a server. The canonical
+// form itself is pkg/yangdoc's, tested there.
 package restconf
 
 import (
-	"strings"
 	"testing"
 )
-
-func TestCanonical_SetsAsideOrderAndWhiteSpaceAndKeepsTheRest(t *testing.T) {
-	same := [][2]string{
-		{`{"b": 1, "a": [1, 2]}`, `{"a":[1,2],"b":1}`},
-		{`{"n": 1.50}`, `{"n":1.50}`},
-	}
-	for _, pair := range same {
-		a, errA := canonical([]byte(pair[0]), true)
-		b, errB := canonical([]byte(pair[1]), true)
-		if errA != nil || errB != nil || a != b {
-			t.Errorf("%s and %s read as different (%v, %v)", pair[0], pair[1], errA, errB)
-		}
-	}
-	differs := [][2]string{
-		{`{"a": [1, 2]}`, `{"a": [2, 1]}`},
-		{`{"n": 1.5}`, `{"n": 1.50}`},
-	}
-	for _, pair := range differs {
-		a, _ := canonical([]byte(pair[0]), true)
-		b, _ := canonical([]byte(pair[1]), true)
-		if a == b {
-			t.Errorf("%s and %s read as the same", pair[0], pair[1])
-		}
-	}
-	x1 := `<a xmlns="urn:x" xmlns:p="urn:p" y="2" x="1"><!-- note --><b> text </b>
-	  <c/></a>`
-	x2 := `<q:a xmlns:q="urn:x" x="1" y="2"><q:b>text</q:b><q:c></q:c></q:a>`
-	a, errA := canonical([]byte(x1), false)
-	b, errB := canonical([]byte(x2), false)
-	if errA != nil || errB != nil || a != b {
-		t.Errorf("XML differing in prefixes, attribute order, comments and white space read as different:\n%s\n%s", a, b)
-	}
-	if c, _ := canonical([]byte(`<a xmlns="urn:other"><b>text</b><c/></a>`), false); c == a {
-		t.Error("another namespace read as the same")
-	}
-	for _, bad := range []string{`{`, `{} {}`} {
-		if _, err := canonical([]byte(bad), true); err == nil {
-			t.Errorf("canonical(%q) accepted", bad)
-		}
-	}
-	if _, err := canonical([]byte(`<a>`), false); err == nil {
-		t.Error("XML cut short was accepted")
-	}
-	if _, err := canonical([]byte(strings.Repeat("<a>", maxCanonDepth+1)), false); err == nil {
-		t.Error("XML past the depth bound was accepted")
-	}
-}
 
 func TestDiffer_FallsBackToBytesAndSaysSo(t *testing.T) {
 	var notes []string
@@ -62,20 +15,11 @@ func TestDiffer_FallsBackToBytesAndSaysSo(t *testing.T) {
 	if !differ([]byte("{"), []byte("["), true, &notes) {
 		t.Error("unreadable answers with different bytes read as no change")
 	}
-}
-
-func TestCheckDocument(t *testing.T) {
-	for doc, ok := range map[string]bool{
-		`<a/>`:                      true,
-		`<?xml version="1.0"?><a/>`: true,
-		`text only`:                 false,
-		`<!DOCTYPE a><a/>`:          false,
-		strings.Repeat("<a>", 300):  false,
-		`<a></b>`:                   false,
-	} {
-		if err := checkDocument(doc, false); (err == nil) != ok {
-			t.Errorf("checkDocument(%.20q) = %v, want ok=%v", doc, err, ok)
-		}
+	if differ([]byte(`{"a": 1}`), []byte(`{"a":1}`), true, &notes) {
+		t.Error("the same JSON spelled two ways read as a change")
+	}
+	if !differ([]byte(`<a xmlns="urn:x"><b>1</b></a>`), []byte(`<a xmlns="urn:x"><b>2</b></a>`), false, &notes) {
+		t.Error("XML with another value read as no change")
 	}
 }
 
