@@ -143,6 +143,7 @@
     "github.com/Subject-Void-LLC/the-pleiades/pkg/netcli": 79.0,
     "github.com/Subject-Void-LLC/the-pleiades/pkg/netconf": 89.0,
     "github.com/Subject-Void-LLC/the-pleiades/pkg/pcapsum": 91.0,
+    "github.com/Subject-Void-LLC/the-pleiades/pkg/yangdoc": 94.2,
     "github.com/Subject-Void-LLC/the-pleiades/pkg/pfx": 91.0,
     "github.com/Subject-Void-LLC/the-pleiades/pkg/policy": 100.0,
     "github.com/Subject-Void-LLC/the-pleiades/pkg/registry": 100.0,
