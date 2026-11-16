@@ -18,6 +18,7 @@ import (
 	"crypto/x509"
 	"net"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	gpb "github.com/openconfig/gnmi/proto/gnmi"
@@ -51,6 +52,11 @@ type Options struct {
 	// ClientCertificate requires the client to present a certificate the
 	// server's own authority signed (mutual TLS).
 	ClientCertificate bool
+	// TLS12 serves TLS 1.2 at most. A server refuses a client certificate
+	// inside a TLS 1.2 handshake, and in TLS 1.3 (the default) only after the
+	// client's side of the handshake has finished, so a test can hold the
+	// client to both.
+	TLS12 bool
 	// Version is the gNMI version Capabilities names; "0.7.0" when empty.
 	Version string
 	// Models are the models Capabilities lists; Models below when nil.
@@ -73,6 +79,12 @@ type Options struct {
 	SetAnswer func(resp *gpb.SetResponse)
 	// Files are the files File.Stat reports, by path.
 	Files map[string]uint64
+	// RequireTarget, when set, is the prefix target every Get, Set and
+	// Subscribe must name, as SONiC's server requires one: a request naming
+	// none is refused Unimplemented with EmptyTargetRefusal, and one naming
+	// another InvalidArgument. Get and Subscribe answers echo the target in
+	// their prefix, as SONiC's do.
+	RequireTarget string
 }
 
 // Models is the model list a Server's Capabilities names by default.
@@ -91,6 +103,10 @@ type Server struct {
 	ca     authority
 	leaf   *x509.Certificate
 	client map[string]string
+	// stranger is a client certificate another authority signed.
+	stranger map[string]string
+	// handshakes counts the TLS handshakes clients began.
+	handshakes atomic.Int32
 
 	mu sync.Mutex
 	// data is what the server holds.
@@ -103,6 +119,9 @@ type Server struct {
 	refusals int
 	// sets counts the Set calls that reached the data.
 	sets int
+	// targets are the prefix targets of each Get, Set and Subscribe, in
+	// order, empty for a request naming none.
+	targets []string
 	// changed is closed and replaced on every change, for ON_CHANGE.
 	changed chan struct{}
 }
@@ -124,13 +143,23 @@ func New(t testing.TB, opts Options) *Server {
 	if !opts.Plaintext {
 		pair, _, _, leaf := s.ca.issue(t, "gnmitest", false)
 		s.leaf = leaf
-		cfg := &tls.Config{Certificates: []tls.Certificate{pair}, MinVersion: tls.VersionTLS12}
+		cfg := &tls.Config{Certificates: []tls.Certificate{pair}, MinVersion: tls.VersionTLS12,
+			// Every ClientHello is a handshake begun, counted so a test can
+			// tell one try from many without timing them.
+			GetConfigForClient: func(*tls.ClientHelloInfo) (*tls.Config, error) { s.handshakes.Add(1); return nil, nil }}
+		if opts.TLS12 {
+			cfg.MaxVersion = tls.VersionTLS12
+		}
 		if opts.ClientCertificate {
 			pool := x509.NewCertPool()
 			pool.AddCert(s.ca.cert)
 			cfg.ClientCAs, cfg.ClientAuth = pool, tls.RequireAndVerifyClientCert
 			_, certPEM, keyPEM, _ := s.ca.issue(t, "gnmitest client", true)
 			s.client = map[string]string{wire.SecretCertificatePEM: certPEM, wire.SecretPrivateKeyPEM: keyPEM}
+			// A client certificate from an authority of its own, which this
+			// server does not trust.
+			_, otherPEM, otherKeyPEM, _ := newAuthority(t, "another authority").issue(t, "gnmitest stranger", true)
+			s.stranger = map[string]string{wire.SecretCertificatePEM: otherPEM, wire.SecretPrivateKeyPEM: otherKeyPEM}
 		}
 		serverOpts = append(serverOpts, grpc.Creds(credentials.NewTLS(cfg)))
 	}
@@ -174,6 +203,17 @@ func (s *Server) Certificate() *x509.Certificate {
 // credential's flattened secrets; nil unless ClientCertificate is set.
 func (s *Server) ClientSecrets() map[string]string {
 	return s.client
+}
+
+// Handshakes returns how many TLS handshakes clients began.
+func (s *Server) Handshakes() int {
+	return int(s.handshakes.Load())
+}
+
+// UntrustedClientSecrets are a client certificate and key another authority
+// signed, which the server refuses; nil unless ClientCertificate is set.
+func (s *Server) UntrustedClientSecrets() map[string]string {
+	return s.stranger
 }
 
 // RPCs returns the calls the server answered (or refused), in order.

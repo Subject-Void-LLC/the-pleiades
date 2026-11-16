@@ -300,6 +300,8 @@ func TestConfig_RefusesBeforeSending(t *testing.T) {
 		"bad encoding":      {"encoding": "xml", "delete": []any{"/a"}},
 		"unoffered":         {"encoding": "json", "delete": []any{"/a"}},
 		"backup not a bool": {"backup": "yes", "delete": []any{"/a"}},
+		"target a path":     {"gnmi_target": "OC-YANG/a", "delete": []any{"/a"}},
+		"target not text":   {"gnmi_target": 7, "delete": []any{"/a"}},
 	} {
 		if _, err := run(t, "net.gnmi.config", s, newRecorder(gnmitest.Secrets(s)), params); err == nil {
 			t.Errorf("%s: nil, want a refusal", name)

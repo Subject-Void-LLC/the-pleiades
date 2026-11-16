@@ -155,15 +155,18 @@ func restconfTry(ctx context.Context, rc sdk.RunbookContext, device inventory.In
 }
 
 // restconfTryFailed sorts a failed try: a certificate the device's settings
-// do not trust and a refused login stop the wait; every other failure is
-// tried again.
+// do not trust, a client certificate the server refuses (or the lack of one)
+// and a refused login stop the wait; every other failure is tried again.
 func restconfTryFailed(err error) error {
 	var untrusted *devicetls.UntrustedError
+	var clientCert *devicetls.ClientCertificateRefusedError
 	var refused *restconf.RefusedError
 	switch {
 	case errors.As(err, &untrusted):
 		return &stopWaiting{err: fmt.Errorf("the RESTCONF server answered with a certificate the device's TLS settings do not trust, so no request was sent and the wait stops here; "+
 			"check it with the device's owner, then pin it as %s (or trust its authority with %s): %w", devicetls.FingerprintProperty, devicetls.CAPEMProperty, err)}
+	case errors.As(err, &clientCert):
+		return &stopWaiting{err: fmt.Errorf("the RESTCONF server refused the connection over its client certificate, which asking again does not change, so the wait stops here: %w", err)}
 	case errors.As(err, &refused):
 		return &stopWaiting{err: fmt.Errorf("the RESTCONF server refused this login, so the wait stops here rather than send it again: %w", err)}
 	}

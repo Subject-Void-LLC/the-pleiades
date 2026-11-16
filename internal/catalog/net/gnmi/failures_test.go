@@ -95,7 +95,7 @@ func TestConfig_AnOKAnswerItCannotReadIsReadBack(t *testing.T) {
 	if err == nil || strings.Contains(err.Error(), "nothing changed") || !strings.Contains(err.Error(), "applied") {
 		t.Fatalf("Invoke = %v, want the unreadable answer read back as applied", err)
 	}
-	if !res.Changed || fmt.Sprint(inverse(rc)["params"]) != "map[delete:[/interface[name=lo4]] encoding:json_ietf]" {
+	if !res.Changed || fmt.Sprint(inverse(rc)["params"]) != "map[delete:[/interface[name=lo4]] encoding:json_ietf gnmi_target:]" {
 		t.Errorf("result %+v, inverse %v, want the change and the delete of what it created", res, inverse(rc))
 	}
 	if _, ok := s.Value(t, "/interface[name=lo4]"); !ok {
@@ -122,7 +122,7 @@ func TestConfig_AReadAfterTheSetThatFailsKeepsTheUndo(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "after the Set") {
 		t.Fatalf("Invoke = %v, want the read after the Set refused", err)
 	}
-	if !res.Changed || fmt.Sprint(inverse(rc)["params"]) != "map[delete:[/interface[name=lo6]] encoding:json_ietf]" {
+	if !res.Changed || fmt.Sprint(inverse(rc)["params"]) != "map[delete:[/interface[name=lo6]] encoding:json_ietf gnmi_target:]" {
 		t.Errorf("result %+v, inverse %v, want the change and its undo kept", res, inverse(rc))
 	}
 }

@@ -36,6 +36,9 @@ type SetRequest struct {
 	Replace []SetValue
 	// Update are nodes to merge a value into.
 	Update []SetValue
+	// PrefixTarget is the prefix's target (ValidatePrefixTarget); empty
+	// takes the client's (Options.PrefixTarget), and NoPrefixTarget none.
+	PrefixTarget string
 }
 
 // SetOperation is one operation a Set's answer reports.
@@ -69,7 +72,7 @@ func (c *Client) Set(ctx context.Context, req SetRequest) (SetResult, error) {
 	if err := c.refused(); err != nil {
 		return SetResult{}, err
 	}
-	wire, err := req.proto()
+	wire, err := req.proto(c.targetOf(req.PrefixTarget))
 	if err != nil {
 		return SetResult{}, err
 	}
@@ -77,6 +80,11 @@ func (c *Client) Set(ctx context.Context, req SetRequest) (SetResult, error) {
 	// that never answers ends the Set as a lost answer at the call timeout.
 	call, cancel := c.call(ctx)
 	defer cancel()
+	// A server refusing the client certificate is met here, never below: a
+	// connection is ready only once the server's HTTP/2 preface has been read
+	// (grpc-go's transport waits for it), and a TLS 1.3 server sends its
+	// refusal before any data, so a Set sent over a ready connection went to a
+	// server that accepted the certificate.
 	if err := c.ready(call); err != nil {
 		return SetResult{}, err
 	}
@@ -109,18 +117,18 @@ func lost(err error) bool {
 	return false
 }
 
-// proto checks req and returns it on the wire.
-func (req SetRequest) proto() (*gpb.SetRequest, error) {
+// proto checks req and returns it on the wire, its prefix naming target.
+func (req SetRequest) proto(target string) (*gpb.SetRequest, error) {
 	if len(req.Delete)+len(req.Replace)+len(req.Update) == 0 {
 		return nil, errors.New("the Set names nothing to delete, replace or update")
 	}
 	if err := req.Prefix.Validate(false); err != nil {
 		return nil, fmt.Errorf("prefix: %w", err)
 	}
-	out := &gpb.SetRequest{}
-	if req.Prefix.Origin != "" || len(req.Prefix.Elems) > 0 {
-		out.Prefix = req.Prefix.proto()
+	if err := ValidatePrefixTarget(target); err != nil {
+		return nil, err
 	}
+	out := &gpb.SetRequest{Prefix: prefixProto(req.Prefix, target)}
 	size := 0
 	for _, p := range req.Delete {
 		if err := p.Validate(false); err != nil {

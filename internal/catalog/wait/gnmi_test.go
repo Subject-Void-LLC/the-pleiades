@@ -94,6 +94,31 @@ func TestGNMI_AnUntrustedCertificateStopsAtOnce(t *testing.T) {
 	}
 }
 
+// TestGNMI_ARefusedClientCertificateStopsAtOnce points a device presenting
+// no client certificate at a server that requires one, as SONiC's does with
+// client_auth on: the TLS 1.3 alert comes after the client's side of the
+// handshake, as UNAVAILABLE to the call, and the wait ends on its first try
+// rather than at its timeout, naming the setting to change.
+func TestGNMI_ARefusedClientCertificateStopsAtOnce(t *testing.T) {
+	opts := gnmiLogin
+	opts.ClientCertificate = true
+	s := gnmitest.New(t, opts)
+	rc := &waitContext{secrets: map[string]string{wire.SecretUsername: opts.Username, wire.SecretPassword: opts.Password}, stats: map[string]any{}}
+	device := gnmitest.NewDeviceWith(t, s, map[string]inventory.PropertyValue{devicetls.CAPEMProperty: s.AuthorityPEM()})
+	_, err := wait.GNMI(context.Background(), rc, device, map[string]any{"timeout": 60, "sleep": 1, "connect_timeout": 5})
+	var refused *devicetls.ClientCertificateRefusedError
+	if !errors.As(err, &refused) || !strings.Contains(err.Error(), devicetls.ClientCertificateProperty) {
+		t.Fatalf("wait = %v, want it stopped on the refused client certificate", err)
+	}
+	// One try is the call's handshake and its diagnosis's, and gRPC may
+	// begin a reconnect or two on its one-second backoff before the try's
+	// client closes on a loaded machine; a wait that tried again would add
+	// one a second until its 60-second timeout.
+	if n := s.Handshakes(); n > 6 || len(s.RPCs()) != 0 {
+		t.Errorf("%d handshakes and the server answered %v, want one try and nothing read", n, s.RPCs())
+	}
+}
+
 // TestGNMI_ARefusedLoginIsSentOnce sends a wrong password once.
 func TestGNMI_ARefusedLoginIsSentOnce(t *testing.T) {
 	s := gnmitest.New(t, gnmiLogin)

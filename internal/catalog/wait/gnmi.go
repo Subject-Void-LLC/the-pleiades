@@ -122,8 +122,11 @@ func GNMI(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventory
 //
 // The certificate is checked in the handshake, before any call is sent, so
 // one the device's settings do not trust ends the wait having sent nothing;
-// a refused login ends it too (pkg/gnmi's RefusedError, after which the client
-// sends nothing more). Anything else is one more failed try.
+// so does a server refusing the client certificate, or its absence
+// (devicetls.ClientCertificateRefusedError, which a TLS 1.3 server sends just
+// after the handshake, as SONiC's does); a refused login ends it too
+// (pkg/gnmi's RefusedError, after which the client sends nothing more).
+// Anything else is one more failed try.
 func gnmiTry(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem) (string, []string, error) {
 	client, warnings, err := gnmi.ClientForContext(ctx, device, device.Name(), rc.InjectSecrets())
 	if err != nil {
@@ -139,15 +142,18 @@ func gnmiTry(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 }
 
 // gnmiTryFailed sorts a failed try: a certificate the device's settings do
-// not trust and a refused login stop the wait; every other failure is tried
-// again.
+// not trust, a client certificate the server refuses (or the lack of one) and
+// a refused login stop the wait; every other failure is tried again.
 func gnmiTryFailed(err error) error {
 	var untrusted *devicetls.UntrustedError
+	var clientCert *devicetls.ClientCertificateRefusedError
 	var refused *gnmi.RefusedError
 	switch {
 	case errors.As(err, &untrusted):
 		return &stopWaiting{err: fmt.Errorf("the gNMI server answered with a certificate the device's TLS settings do not trust, so no call was sent and the wait stops here; "+
 			"check it with the device's owner, then pin it as %s (or trust its authority with %s): %w", devicetls.FingerprintProperty, devicetls.CAPEMProperty, err)}
+	case errors.As(err, &clientCert):
+		return &stopWaiting{err: fmt.Errorf("the gNMI server refused the connection over its client certificate, which asking again does not change, so the wait stops here: %w", err)}
 	case errors.As(err, &refused):
 		return &stopWaiting{err: fmt.Errorf("the gNMI server refused this login, so the wait stops here rather than send it again: %w", err)}
 	}

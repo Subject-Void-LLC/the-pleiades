@@ -24,6 +24,9 @@ const (
 	paramDelete   = "delete"
 	paramEncoding = "encoding"
 	paramBackup   = "backup"
+	// paramTarget is the request prefix's target, after generic_gnmi's
+	// gnmi_target property, which it overrides for the task.
+	paramTarget = "gnmi_target"
 )
 
 // The keys of one update or replace entry.
@@ -55,7 +58,7 @@ func init() {
 				Notes:      "A run that created a node records net.gnmi.config deleting it, which is exact: for each update or replace path the read before found absent (the device answered NOT_FOUND, or nothing) and the read after found present, the undo deletes the highest node that was absent before, its absent ancestors read upward until one is present, so nothing the run did not make is removed. gNMI's Set answer does not say whether it created anything, so the reads are what decide. A replace, a merge or a delete of what was there records no undo: putting the earlier values back would keep them in the run's journal, which may hold secrets, so a rollback refuses such a task unless it is left (--leave) or the task's rollback: list says what to do; backup: true keeps the masked earlier values beside the run. A run that changed nothing records nothing.",
 				Inverses: []sdk.InverseSpec{{
 					FQCN:             configFQCN,
-					Record:           []string{paramDelete, paramEncoding},
+					Record:           []string{paramDelete, paramEncoding, paramTarget},
 					MayKeepOnFailure: true,
 				}},
 			},
@@ -103,6 +106,7 @@ func configDoc() collection.Doc {
 			{Name: paramDelete, Type: "list", Description: "Paths to remove, each a string as gNMI writes one. A path that is not there is accepted by the device, as the gNMI specification requires, and reported as no change."},
 			{Name: paramEncoding, Type: "string", Default: "json_ietf", Choices: []string{"json_ietf", "json"}, ChoicesIgnoreCase: true, Description: "How values are sent and the reads before and after are made: json_ietf (RFC 7951, member names qualified by their module) or json."},
 			{Name: paramBackup, Type: "bool", Default: "false", Description: "Record every path as it was before the Set under the backup stat, masked as every recorded value is: null for a path that was not there. A value masking cannot vouch for fails the task before anything is written."},
+			{Name: paramTarget, Type: "string", Description: "The target every read and the Set name in their request prefix (gNMI's Path.target), for a server that serves more than one data tree and refuses a request naming none: SONiC answers UNIMPLEMENTED \"Empty target data not supported\", and names its OpenConfig tree OC-YANG. It overrides the device's own gnmi_target property for this task; without either, no target is sent. A plain identifier (letters, digits, _, . and -), never a path. An empty value sends no target, even when the device names one. A recorded undo names the target the write used, an empty one for none, so a rollback addresses the tree the write did whatever the device's gnmi_target says by then. A Runner older than this parameter's release drops the device's gnmi_target and sends no target."},
 		},
 		Returns: append([]collection.ReturnField{
 			{Name: statBackup, Type: "dict", Returned: "when backup is true", Description: "Each path the task names, as gNMI writes it, mapped to its value as the device answered it before the Set (each node under it by its full path), masked by value (the device's credential and every named secret a value resolved) and by shape (every secret-named leaf and crypt-shaped value); null for a path that was not there. net.gnmi.config refuses a value holding a placeholder, so this cannot be written back as it is."},

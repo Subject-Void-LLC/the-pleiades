@@ -40,6 +40,21 @@ func NewDevice(t testing.TB, s *Server) *Device {
 	}
 }
 
+// NewDeviceAt returns a device for the origin base, sending basic
+// authentication and trusting caPEM as its tls_ca_pem, for a server that is
+// not a Server (pkg/devicetls/devicetlstest's, say).
+func NewDeviceAt(t testing.TB, base, caPEM string) *Device {
+	t.Helper()
+	settings, err := devicetls.Parse(inventory.NewProperties(map[string]inventory.PropertyValue{devicetls.CAPEMProperty: caPEM}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &Device{
+		Stub: &inventorytest.Stub{StubName: "restconf", Caps: []capability.Name{capability.NameRestconf, capability.NameNetworkAddressable}},
+		Base: base, Auth: "basic", tls: settings,
+	}
+}
+
 // RestconfBaseURL implements capability.RestconfCapable.
 func (d *Device) RestconfBaseURL() string { return d.Base }
 

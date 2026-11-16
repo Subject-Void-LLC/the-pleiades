@@ -27,6 +27,9 @@ func (s *Server) Get(_ context.Context, req *gpb.GetRequest) (*gpb.GetResponse, 
 	if s.opts.Stratum && req.GetEncoding() != gpb.Encoding_PROTO {
 		return nil, status.Error(codes.InvalidArgument, StratumGetRefusal)
 	}
+	if err := s.checkTarget(req.GetPrefix()); err != nil {
+		return nil, err
+	}
 	prefix, err := pathOf(req.GetPrefix())
 	if err != nil {
 		return nil, err
@@ -48,7 +51,7 @@ func (s *Server) Get(_ context.Context, req *gpb.GetRequest) (*gpb.GetResponse, 
 		if len(found) == 0 {
 			return nil, status.Errorf(codes.NotFound, "no data at %s", full)
 		}
-		n := &gpb.Notification{Timestamp: time.Now().UnixNano()}
+		n := &gpb.Notification{Timestamp: time.Now().UnixNano(), Prefix: echoed(req.GetPrefix().GetTarget())}
 		for _, e := range found {
 			val, err := encoded(e.val, req.GetEncoding())
 			if err != nil {
@@ -64,6 +67,9 @@ func (s *Server) Get(_ context.Context, req *gpb.GetRequest) (*gpb.GetResponse, 
 // Set implements gpb.GNMIServer: deletes, then replaces, then updates, on a
 // copy of the data that replaces it only when every operation applied.
 func (s *Server) Set(ctx context.Context, req *gpb.SetRequest) (*gpb.SetResponse, error) {
+	if err := s.checkTarget(req.GetPrefix()); err != nil {
+		return nil, err
+	}
 	prefix, err := pathOf(req.GetPrefix())
 	if err != nil {
 		return nil, err

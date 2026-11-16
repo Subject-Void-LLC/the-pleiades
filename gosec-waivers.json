@@ -246,6 +246,18 @@
       "line": "32",
       "rule_id": "G101",
       "reason": "Owned by Phase 97 (SNMP). This is secretShown, the string \"(secret, not shown)\": the text net.snmp.set's diff stat prints IN PLACE of a value when the call says secret: true. It hides a secret rather than holding one, the same kind of marker as pkg/wire/snmp.go's waived snmpSecretMarker; G101 matches the word \"secret\" in its name and literal."
+    },
+    {
+      "file": "pkg/devicetls/devicetlstest/devicetlstest.go",
+      "line": "80",
+      "rule_id": "G402",
+      "reason": "A test server, never linked into a binary (it lives in a *test package that only _test.go files import). Options.TLS12 caps it at TLS 1.2 so tests can prove the client-certificate refusal diagnosis on the TLS 1.2 path, where the server's alert arrives inside the handshake, as well as on TLS 1.3, where it arrives after. MinVersion is TLS 1.2 in the same struct, so the cap leaves exactly one version and nothing older can be negotiated. Without the cap the TLS 1.2 case could not be tested at all. Reviewed 2026-11-16 (fix/gnmi-client-cert-and-target). Keyed on an exact line: if it moves, re-review it rather than renumbering on faith."
+    },
+    {
+      "file": "pkg/gnmi/gnmitest/server.go",
+      "line": "151",
+      "rule_id": "G402",
+      "reason": "A test gNMI server, never linked into a binary (it lives in a *test package that only _test.go files import). Options.TLS12 caps it at TLS 1.2 so pkg/gnmi's tests can prove that a refused client certificate is read as a refusal on TLS 1.2 (the alert inside the handshake) as well as on TLS 1.3 (the alert after it, which gRPC's preface can lose to a reset). MinVersion is TLS 1.2 in the same struct, so the cap leaves exactly one version and nothing older can be negotiated. Without the cap the TLS 1.2 case could not be tested at all. Reviewed 2026-11-16 (fix/gnmi-client-cert-and-target). Keyed on an exact line: if it moves, re-review it rather than renumbering on faith."
     }
   ],
   "skips": [

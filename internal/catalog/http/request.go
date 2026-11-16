@@ -284,6 +284,9 @@ func Request(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
 	var deviceTLS *tls.Config
+	// certWatch, for a device, says whether its server asked for a client
+	// certificate and whether one was presented; nil for a full URL.
+	var certWatch *devicetls.Watch
 	if spec.device != nil {
 		secrets := rc.InjectSecrets()
 		if err := httpapi.Authorize(req, spec.device.auth, secrets); err != nil {
@@ -291,6 +294,9 @@ func Request(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 		}
 		if deviceTLS, err = spec.device.tlsConfig(ctx, secrets); err != nil {
 			return collection.Result{}, fmt.Errorf("%s: device %q: %w", fqcn, spec.device.name, err)
+		}
+		if deviceTLS != nil {
+			deviceTLS, certWatch = devicetls.Watched(deviceTLS, devicetls.HTTPSAddress(req.URL), devicetls.HTTPNextProtos...)
 		}
 		// Recorded before the call, so a request that fails still says
 		// what the device's record let it do.
@@ -304,8 +310,15 @@ func Request(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 	elapsed := time.Since(started)
 	if err != nil {
 		// A certificate nothing trusts is named by its fingerprint, so a
-		// person can check it with the device's owner and pin it.
-		return collection.Result{}, fmt.Errorf("%s: %s %s: %w", fqcn, spec.method, spec.url, devicetls.Explain(err))
+		// person can check it with the device's owner and pin it. A device's
+		// alert about the client certificate (or its absence) names the
+		// device's tls_client_certificate setting; a full URL reaches no
+		// device, so it has none to name.
+		explained := devicetls.Explain(err)
+		if certWatch != nil {
+			explained = certWatch.Explain(ctx, err)
+		}
+		return collection.Result{}, fmt.Errorf("%s: %s %s: %w", fqcn, spec.method, spec.url, explained)
 	}
 	defer func() { _ = resp.Body.Close() }()
 

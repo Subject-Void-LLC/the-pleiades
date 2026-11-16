@@ -48,12 +48,15 @@ func ClientForContext(ctx context.Context, device any, name string, secrets map[
 	settings := devicetls.For(device)
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.Proxy = nil
+	var watch *devicetls.Watch
 	if base.Scheme == "https" {
 		cfg, err := settings.ConfigContext(ctx, secrets)
 		if err != nil {
 			return nil, nil, err
 		}
-		transport.TLSClientConfig = cfg
+		// Watched, so a server refusing the client certificate (or its
+		// absence) is said as a refusal naming tls_client_certificate.
+		transport.TLSClientConfig, watch = devicetls.Watched(cfg, devicetls.HTTPSAddress(base), devicetls.HTTPNextProtos...)
 	}
 	hc := &http.Client{
 		Transport:     transport,
@@ -64,6 +67,7 @@ func ClientForContext(ctx context.Context, device any, name string, secrets map[
 	if err != nil {
 		return nil, nil, err
 	}
+	client.certWatch = watch
 	var warnings []string
 	if base.Scheme == "https" {
 		warnings = settings.Warnings(name)

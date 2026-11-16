@@ -1,0 +1,1 @@
+Added `gnmi_target` on `generic_gnmi` devices and as a `net.gnmi.config` parameter: the target every Get, Set and Subscribe prefix names, which SONiC requires (`OC-YANG` for its OpenConfig tree). A task's value wins over the device's, an empty one sends none, and an undo names the target its write used. A Runner older than this release sends no target.

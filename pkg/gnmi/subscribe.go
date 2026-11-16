@@ -35,6 +35,9 @@ type SubscribeRequest struct {
 	// UpdatesOnly asks the server to send no initial values, only changes,
 	// before its sync_response.
 	UpdatesOnly bool
+	// PrefixTarget is the prefix's target (ValidatePrefixTarget); empty
+	// takes the client's (Options.PrefixTarget), and NoPrefixTarget none.
+	PrefixTarget string
 }
 
 // StreamMode is how a STREAM subscription's server decides when to send.
@@ -68,9 +71,9 @@ type StreamEvent struct {
 	Sync bool
 }
 
-// list builds the wire request in mode, each (when not nil) setting what a
-// mode adds to every subscription.
-func (req SubscribeRequest) list(mode gpb.SubscriptionList_Mode, each func(*gpb.Subscription)) (*gpb.SubscribeRequest, error) {
+// list builds the wire request in mode, its prefix naming target, each (when
+// not nil) setting what a mode adds to every subscription.
+func (req SubscribeRequest) list(target string, mode gpb.SubscriptionList_Mode, each func(*gpb.Subscription)) (*gpb.SubscribeRequest, error) {
 	if len(req.Paths) == 0 {
 		return nil, errors.New("the subscription names no path")
 	}
@@ -83,10 +86,10 @@ func (req SubscribeRequest) list(mode gpb.SubscriptionList_Mode, each func(*gpb.
 	if err := req.Prefix.Validate(false); err != nil {
 		return nil, fmt.Errorf("prefix: %w", err)
 	}
-	list := &gpb.SubscriptionList{Mode: mode, Encoding: req.Encoding.proto(), UpdatesOnly: req.UpdatesOnly}
-	if req.Prefix.Origin != "" || len(req.Prefix.Elems) > 0 {
-		list.Prefix = req.Prefix.proto()
+	if err := ValidatePrefixTarget(target); err != nil {
+		return nil, err
 	}
+	list := &gpb.SubscriptionList{Mode: mode, Encoding: req.Encoding.proto(), UpdatesOnly: req.UpdatesOnly, Prefix: prefixProto(req.Prefix, target)}
 	for _, p := range req.Paths {
 		if err := p.Validate(true); err != nil {
 			return nil, fmt.Errorf("path %s: %w", quoted(p.String()), err)
@@ -107,7 +110,7 @@ func (c *Client) SubscribeOnce(ctx context.Context, req SubscribeRequest) ([]Not
 	if err := c.refused(); err != nil {
 		return nil, err
 	}
-	wire, err := req.list(gpb.SubscriptionList_ONCE, nil)
+	wire, err := req.list(c.targetOf(req.PrefixTarget), gpb.SubscriptionList_ONCE, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -174,7 +177,7 @@ func (c *Client) SubscribePoll(ctx context.Context, req SubscribeRequest) (*Poll
 	if err := c.refused(); err != nil {
 		return nil, nil, err
 	}
-	wire, err := req.list(gpb.SubscriptionList_POLL, nil)
+	wire, err := req.list(c.targetOf(req.PrefixTarget), gpb.SubscriptionList_POLL, nil)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -238,7 +241,7 @@ func (c *Client) SubscribeStream(ctx context.Context, req StreamRequest, handle 
 	if req.SampleInterval < 0 {
 		return errors.New("a sample interval is not negative")
 	}
-	wire, err := req.list(gpb.SubscriptionList_STREAM, func(s *gpb.Subscription) {
+	wire, err := req.list(c.targetOf(req.PrefixTarget), gpb.SubscriptionList_STREAM, func(s *gpb.Subscription) {
 		s.Mode = gpb.SubscriptionMode(req.Mode)
 		s.SampleInterval = uint64(req.SampleInterval.Nanoseconds()) // #nosec G115 -- checked not negative above
 	})

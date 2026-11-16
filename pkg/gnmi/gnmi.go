@@ -54,6 +54,8 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
+
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
 )
 
 // The ways a device's stored credential is sent (GNMIAuth).
@@ -123,6 +125,11 @@ type Options struct {
 	// subscription's each round); zero is DefaultCallTimeout, and a negative
 	// one is refused.
 	CallTimeout time.Duration
+	// PrefixTarget is the target every Get, Set and Subscribe prefix names
+	// unless the request names its own (ValidatePrefixTarget), empty for
+	// none. A server serving more than one data tree (SONiC: OC-YANG,
+	// CONFIG_DB and others) may refuse a request that names none.
+	PrefixTarget string
 }
 
 // Client is a gNMI client for one device. It is safe for concurrent use.
@@ -139,12 +146,19 @@ type Client struct {
 	// handshake keeps the last TLS handshake failure, so a refused
 	// certificate is reported as one rather than as gRPC's Unavailable.
 	handshake *handshakeSeen
+	// certWatch records whether the server asked for a client certificate
+	// and whether one was presented, so a refusal says which; nil over
+	// plaintext.
+	certWatch *devicetls.Watch
 	// secrets is the device's own credential, masked in every answer.
 	secrets map[string]string
 	// noneSent is true when the client sends no credential metadata.
 	noneSent bool
 	// callTimeout bounds each call (Options.CallTimeout).
 	callTimeout time.Duration
+	// prefixTarget is the target a request naming none takes
+	// (Options.PrefixTarget).
+	prefixTarget string
 
 	mu sync.Mutex
 	// extraSecrets are further values masked in every answer (MaskAlso).
@@ -179,7 +193,10 @@ func New(opts Options) (*Client, error) {
 	if opts.CallTimeout < 0 {
 		return nil, errors.New("a call timeout is not negative")
 	}
-	c := &Client{target: opts.Target, verified: !opts.Plaintext, secrets: opts.Secrets, noneSent: perRPC == nil, callTimeout: opts.CallTimeout}
+	if err := ValidatePrefixTarget(opts.PrefixTarget); err != nil {
+		return nil, err
+	}
+	c := &Client{target: opts.Target, verified: !opts.Plaintext, secrets: opts.Secrets, noneSent: perRPC == nil, callTimeout: opts.CallTimeout, prefixTarget: opts.PrefixTarget}
 	if c.callTimeout == 0 {
 		c.callTimeout = DefaultCallTimeout
 	}
@@ -187,8 +204,10 @@ func New(opts Options) (*Client, error) {
 	if opts.Plaintext {
 		transport = insecure.NewCredentials()
 	} else {
-		c.handshake = &handshakeSeen{}
-		transport = &capturingCredentials{TransportCredentials: credentials.NewTLS(opts.TLS), seen: c.handshake}
+		// gRPC offers h2 alone, so a diagnosis offers the same.
+		cfg, watch := devicetls.Watched(opts.TLS, opts.Target, "h2")
+		c.handshake, c.certWatch = &handshakeSeen{}, watch
+		transport = &capturingCredentials{TransportCredentials: credentials.NewTLS(cfg), seen: c.handshake}
 	}
 	dial := []grpc.DialOption{
 		grpc.WithTransportCredentials(transport),
@@ -233,6 +252,24 @@ func (c *Client) Target() string {
 	return c.target
 }
 
+// PrefixTarget returns the target a request naming none takes, empty for
+// none.
+func (c *Client) PrefixTarget() string {
+	return c.prefixTarget
+}
+
+// targetOf is the target a request's prefix names: the request's own, none
+// for NoPrefixTarget, or the client's when it names none.
+func (c *Client) targetOf(requested string) string {
+	if requested == NoPrefixTarget {
+		return ""
+	}
+	if requested != "" {
+		return requested
+	}
+	return c.prefixTarget
+}
+
 // ready connects the channel and waits until it is ready, so a call that
 // changes something (Set) is sent only over a connection that came up: a
 // failure after that is a lost answer, never a refusal of something unsent.
@@ -245,7 +282,7 @@ func (c *Client) ready(ctx context.Context) error {
 		case connectivity.Ready:
 			return nil
 		case connectivity.TransientFailure, connectivity.Shutdown:
-			if err := c.handshakeFailure(); err != nil {
+			if err := c.connectionFailure(ctx); err != nil {
 				return err
 			}
 			return fmt.Errorf("the connection to %s did not come up (%s)", c.target, state)

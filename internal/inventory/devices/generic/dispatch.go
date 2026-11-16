@@ -24,6 +24,6 @@ func init() {
 	record.RegisterDispatchProperties(TypeSNMP, append([]string{HostProperty}, snmp.Properties()...)...)
 	record.RegisterDispatchProperties(TypeGRPC, append([]string{GRPCTargetProperty, GRPCPlaintextProperty}, devicetls.Properties()...)...)
 	record.RegisterDispatchProperties(TypeGNMI, append([]string{
-		GRPCTargetProperty, GRPCPlaintextProperty, GNMIAuthProperty, GRPCAllowPlaintextCredentialsProperty,
+		GRPCTargetProperty, GRPCPlaintextProperty, GNMIAuthProperty, GRPCAllowPlaintextCredentialsProperty, GNMITargetProperty,
 	}, devicetls.Properties()...)...)
 }
