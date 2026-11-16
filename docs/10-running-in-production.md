@@ -2207,9 +2207,10 @@ so it is never mistaken for a pin a person checked. A record that loses it (a de
 `.inventory-state.generated.yaml`, an `inventory.yaml` copied to another project) loses the trust with
 it, and the device is refused rather than trusted. On the Crawl tier it lives in the generated state
 file beside the discovery, never in `inventory.yaml`. A Runner receives it with the device's other TLS
-settings and warns the same way. First use applies to `generic_http`, `generic_restconf` and
-`generic_gnmi`. `generic_grpc`'s probe reports an untrusted certificate as a failed connection, so a
-gRPC device is refused as before and is pinned by hand.
+settings and warns the same way. First use applies to `generic_http`, `generic_restconf`,
+`generic_gnmi` and `generic_grpc`, each of whose probes names a certificate nothing trusts by its
+fingerprints. A device whose probe reports no such refusal (a container engine over TLS, a CML
+controller) has nothing recorded, and is pinned by hand.
 
 **Certificate facts and expiry.** Every onboarding of a TLS device records the certificate that the
 probe's verified handshake presented as discovery facts: `tls_certificate_fingerprint`,

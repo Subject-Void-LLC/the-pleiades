@@ -24,6 +24,11 @@ import (
 	"testing"
 	"time"
 
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/health"
+	healthpb "google.golang.org/grpc/health/grpc_health_v1"
+
 	inv "github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/generic"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/kubernetes"
@@ -346,6 +351,36 @@ func TestWithFirstUsePin_RefusesATypeThatTakesNoPin(t *testing.T) {
 		if _, err := withFirstUsePin(item, pin); err == nil {
 			t.Errorf("%s took a first-use pin", typ)
 		}
+	}
+}
+
+// TestOnboard_FirstUseOverGRPC: the gRPC probe names a certificate nothing
+// trusts by its fingerprints, though gRPC flattens a failed handshake into a
+// status, so onboarding records it on first use there too, and its facts;
+// a handshake that failed for another reason is no certificate refusal.
+func TestOnboard_FirstUseOverGRPC(t *testing.T) {
+	cert, leaf := deviceCert(t, time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC))
+	srv := grpc.NewServer(grpc.Creds(credentials.NewTLS(&tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12})))
+	healthpb.RegisterHealthServer(srv, health.NewServer())
+	addr := grpcServer(t, srv)
+	repo, _ := newRepo(t, "rpc1", generic.TypeGRPC, map[string]inventory.PropertyValue{generic.GRPCTargetProperty: addr})
+	pin := devicetls.Fingerprint(leaf)
+
+	var untrusted *devicetls.UntrustedError
+	if _, err := onboardOnce(repo, "rpc1", nil, false); !errors.As(err, &untrusted) || untrusted.Fingerprint != pin || !strings.Contains(err.Error(), "nothing was sent") {
+		t.Fatalf("without --tls-first-use: %v, want the certificate refused by its fingerprint", err)
+	}
+	res, err := onboardOnce(repo, "rpc1", nil, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.FirstUse == nil || res.FirstUse.Fingerprint != pin || stored(t, repo, "rpc1", inventory.TLSFirstUseProperty) != pin || res.Facts[factCertificateFingerprint] != pin {
+		t.Errorf("first use %+v, facts %v; want %s recorded", res.FirstUse, res.Facts, pin)
+	}
+
+	other := &handshakeRecord{last: errors.New("connection reset by peer")}
+	if err := other.refusedCertificate(); err != nil {
+		t.Errorf("a reset read as a refused certificate: %v", err)
 	}
 }
 
