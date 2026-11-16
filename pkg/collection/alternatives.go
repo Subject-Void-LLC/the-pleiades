@@ -191,6 +191,9 @@ func (m Manifest) NamedCapabilities() []capability.Name {
 // alternative takes. Register calls it, and so does the loader before it
 // registers anything, so a program's directory does not load halfway.
 func ValidateAlternatives(fqcn string, m Manifest) error {
+	if err := validateAlternativeParam(fqcn, m); err != nil {
+		return err
+	}
 	if len(m.Alternatives) == 0 {
 		return nil
 	}
@@ -236,4 +239,42 @@ func ValidateAlternatives(fqcn string, m Manifest) error {
 		}
 	}
 	return nil
+}
+
+// AlternativeAuto is the value of a manifest's AlternativeParam that leaves
+// the choice of alternative to the device, as leaving the parameter out does.
+const AlternativeAuto = "auto"
+
+// validateAlternativeParam refuses an AlternativeParam a call could not
+// choose an alternative by: one on a manifest with no alternatives, or one
+// that is not a documented string parameter whose Choices are exactly auto and
+// every alternative's name, matched exactly, with auto its Default.
+func validateAlternativeParam(fqcn string, m Manifest) error {
+	if m.AlternativeParam == "" {
+		return nil
+	}
+	if len(m.Alternatives) == 0 {
+		return fmt.Errorf("collection: %q chooses an alternative by %q, and declares no alternatives", fqcn, m.AlternativeParam)
+	}
+	want := []string{AlternativeAuto}
+	for _, a := range m.Alternatives {
+		if a.Name == AlternativeAuto {
+			return fmt.Errorf("collection: %q chooses an alternative by %q, and names one alternative %s, the word that leaves the choice to the device", fqcn, m.AlternativeParam, AlternativeAuto)
+		}
+		want = append(want, a.Name)
+	}
+	slices.Sort(want)
+	for _, p := range m.Doc.Params {
+		if p.Name != m.AlternativeParam {
+			continue
+		}
+		choices := slices.Clone(p.Choices)
+		slices.Sort(choices)
+		if p.Type != "string" || p.Default != AlternativeAuto || p.ChoicesIgnoreCase || !slices.Equal(choices, want) {
+			return fmt.Errorf("collection: %q chooses an alternative by %q, which must be a string parameter defaulting to %s with exactly the choices %s, matched exactly",
+				fqcn, m.AlternativeParam, AlternativeAuto, strings.Join(want, ", "))
+		}
+		return nil
+	}
+	return fmt.Errorf("collection: %q chooses an alternative by %q, which it does not document", fqcn, m.AlternativeParam)
 }

@@ -188,6 +188,17 @@ type Manifest struct {
 	// ChooseAlternative; see alternatives.go.
 	Alternatives []Alternative `json:"alternatives,omitempty"`
 
+	// AlternativeParam names the parameter whose value names the
+	// alternative a call uses, for a method a device may fit more than one
+	// alternative of (net.yang.schema's via, between NETCONF and RESTCONF).
+	// A call naming one is held to that alternative alone, at plan time, at a
+	// Controller's admission and when it runs, through For; a call leaving
+	// it out, or giving auto, to the first alternative the device fits, as
+	// ever. The parameter is a documented string with Choices of auto and
+	// every alternative's name, and auto its Default
+	// (ValidateAlternatives). Empty for every other method.
+	AlternativeParam string `json:"alternativeParam,omitempty"`
+
 	ExecutionContext ExecutionContext `json:"executionContext,omitempty"`
 	PlatformTargets  []PlatformTarget `json:"platformTargets,omitempty"`
 
