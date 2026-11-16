@@ -12,41 +12,9 @@ package credential
 
 import (
 	"context"
-	"fmt"
 	"sort"
 	"sync"
-
-	"github.com/Subject-Void-LLC/the-pleiades/internal/crypto"
 )
-
-// SaveOptions are how SaveFileStoreWith marks the entry it writes.
-type SaveOptions struct {
-	// Unbound marks the entry as stored for a name no inventory device had
-	// when it was stored.
-	Unbound bool
-}
-
-// SaveFileStoreWith is SaveFileStore with the entry marked as opts says.
-// The entry is replaced whole, mark included, so saving again for a device
-// the inventory now has clears an old mark.
-func SaveFileStoreWith(dir string, key []byte, deviceName string, cred Credential, opts SaveOptions) error {
-	svc, err := crypto.NewAESService(key)
-	if err != nil {
-		return fmt.Errorf("failed to initialize credential encryption: %w", err)
-	}
-	return updateCredentialsDocument(dir, func(doc *credentialsDocument) error {
-		if doc.Devices == nil {
-			doc.Devices = make(map[string]credentialEntry)
-		}
-		entry, err := buildCredentialEntry(svc, cred)
-		if err != nil {
-			return fmt.Errorf("failed to encrypt credential for device %s: %w", deviceName, err)
-		}
-		entry.Unbound = opts.Unbound
-		doc.Devices[deviceName] = entry
-		return nil
-	})
-}
 
 // CredentialInfo is one stored device credential as a listing shows it:
 // its name, its account, which kinds of secret it holds, and whether it is
@@ -57,11 +25,18 @@ type CredentialInfo struct {
 	// Username is the account it logs in as, empty for a certificate or a
 	// token.
 	Username string `json:"username,omitempty"`
+	// SNMPUser is its SNMPv3 USM user, when it has one.
+	SNMPUser string `json:"snmp_user,omitempty"`
 	// Kinds names each secret it holds: password, private_key, passphrase,
-	// certificate, pfx, token, enable_password.
+	// certificate, pfx, token, enable_password, snmp_community, snmp_v3_auth
+	// and snmp_v3_priv.
 	Kinds []string `json:"kinds"`
 	// Unbound is set when it was stored for a name no inventory device had.
 	Unbound bool `json:"unbound,omitempty"`
+	// ShortCommunity is set when its SNMP community is shorter than
+	// wire.MinSNMPCommunityLength and was stored deliberately, so every run
+	// masks it by shape only.
+	ShortCommunity bool `json:"short_community,omitempty"`
 }
 
 // ListCredentials returns every device credential in dir's credential
@@ -73,7 +48,7 @@ func ListCredentials(dir string) ([]CredentialInfo, error) {
 	}
 	out := make([]CredentialInfo, 0, len(doc.Devices))
 	for name, e := range doc.Devices {
-		info := CredentialInfo{Name: name, Username: e.Username, Unbound: e.Unbound, Kinds: []string{}}
+		info := CredentialInfo{Name: name, Username: e.Username, SNMPUser: e.SNMPUser, Unbound: e.Unbound, ShortCommunity: e.ShortCommunity, Kinds: []string{}}
 		for _, kind := range []struct {
 			name string
 			set  bool
@@ -85,6 +60,11 @@ func ListCredentials(dir string) ([]CredentialInfo, error) {
 			{"pfx", e.PFXEncrypted != ""},
 			{"token", e.TokenEncrypted != ""},
 			{"enable_password", e.EnablePasswordEncrypted != ""},
+			// The SNMP kinds name what a run would hold, by version and level:
+			// a v1/v2c community, a v3 user's authentication, its privacy.
+			{"snmp_community", e.SNMPCommunityEncrypted != ""},
+			{"snmp_v3_auth", e.SNMPAuthPassphraseEncrypted != ""},
+			{"snmp_v3_priv", e.SNMPPrivPassphraseEncrypted != ""},
 		} {
 			if kind.set {
 				info.Kinds = append(info.Kinds, kind.name)
@@ -137,20 +117,7 @@ type noticeUnbound struct {
 // straight to inner: a wrapper that hid them made every secret reference in a
 // run fail as unresolvable.
 func NoticeUnbound(inner Store, dir string, notice func(name string)) Store {
-	n := &noticeUnbound{inner: inner, dir: dir, notice: notice}
-	if full, ok := inner.(interface {
-		SecretStore
-		RegistryStore
-		DatabaseStore
-	}); ok {
-		return struct {
-			*noticeUnbound
-			SecretStore
-			RegistryStore
-			DatabaseStore
-		}{n, full, full, full}
-	}
-	return n
+	return keepStores(inner, &noticeUnbound{inner: inner, dir: dir, notice: notice})
 }
 
 // Lookup implements Store.

@@ -2859,7 +2859,10 @@ environment's own roots (which is right for a managed cluster with a public
 certificate), and turns it off only when the credential says `verify_ssl:
 false`. `pleiades_kubernetes_client_certificate` does the same for a cluster
 that authenticates x509, setting `K8S_AUTH_CERT_FILE` and `K8S_AUTH_KEY_FILE`
-on the Ansible path. A template carries one Kubernetes credential at a time
+on the Ansible path. Its certificate input holds certificates only: a key
+pasted in beside the certificate is refused when the credential is saved and
+when it is used, naming `client_key` as its place, and a kubeconfig whose
+`client-certificate-data` holds one is refused at import the same way. A template carries one Kubernetes credential at a time
 for now; a second for the same cluster (another namespace's rights) needs the
 per-task credential slots a later release adds.
 

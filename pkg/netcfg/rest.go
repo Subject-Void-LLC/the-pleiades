@@ -12,9 +12,15 @@ import (
 )
 
 // snmpUserAlgorithms are the words that can stand between an snmp-server
-// user line's auth or priv and the password after it: snmp-server user u g
-// v3 auth sha x priv aes 128 y.
-var snmpUserAlgorithms = []string{"md5", "sha", "sha-2", "des", "3des", "aes", "128", "192", "256", "384", "512"}
+// user line's auth or priv and the password after it: IOS's snmp-server user
+// u g v3 auth sha-2 256 x priv aes 128 y, and NX-OS's snmp-server user u g
+// auth sha-256 x priv aes-128 y. NX-OS's priv with no algorithm (DES) is
+// followed by its key at once. A spelling missing here was masked in the
+// password's place, leaving the password after it in the clear.
+var snmpUserAlgorithms = []string{
+	"md5", "sha", "sha-2", "sha-224", "sha-256", "sha-384", "sha-512",
+	"des", "des56", "3des", "aes", "aes-128", "aes-192", "aes-256", "128", "192", "224", "256", "384", "512",
+}
 
 // ipsecWords are the words of an OSPFv3 IPsec SPI line that are not keys:
 // ipv6 ospf authentication ipsec spi 500 md5 0 k, ospfv3 encryption ipsec

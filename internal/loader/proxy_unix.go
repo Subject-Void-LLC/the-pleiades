@@ -71,7 +71,11 @@ func (p *program) invoke(ctx context.Context, fqcn string, mode collection.Mode,
 	// it (wire.ChildRequest.Protocol).
 	req.Protocol = p.protocol
 	req.Detach = remoteexec.Detached(ctx)
-	secrets := redact.MapValues(req.Secrets)
+	// The credential's values masked out of everything the program says, by
+	// the one rule every path masks a credential with (wire.MaskedValues):
+	// its identifiers, an SNMPv3 user and protocol names among them, stay
+	// readable.
+	secrets := wire.MaskedValues(req.Secrets)
 	body, err := json.Marshal(&req)
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("external collection method %q: failed to encode its request: %w", fqcn, err)

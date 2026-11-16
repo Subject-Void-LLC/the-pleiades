@@ -211,6 +211,12 @@ func TestImportKubeconfig_Refusals(t *testing.T) {
 			"kubeconfig": kubeconfigFor("https://k8s.example.com", ca, "    exec:\n      apiVersion: client.authentication.k8s.io/v1\n      command: evil\n")}, both, http.StatusUnprocessableEntity, "exec"},
 		{"plain http", map[string]any{"name": "a", "organization": f.org,
 			"kubeconfig": kubeconfigFor("http://k8s.example.com", ca, "    token: t\n")}, both, http.StatusUnprocessableEntity, "https"},
+		// A key pasted in beside the client certificate is refused naming
+		// the field it belongs in, before anything is stored.
+		{"a key beside the client certificate", map[string]any{"name": "a", "organization": f.org,
+			"kubeconfig": kubeconfigFor("https://k8s.example.com", ca,
+				"    client-certificate-data: "+base64.StdEncoding.EncodeToString([]byte(ca+"-----BEGIN EC PRIVATE KEY-----\nMHcCKEYBODY\n-----END EC PRIVATE KEY-----\n"))+
+					"\n    client-key-data: "+base64.StdEncoding.EncodeToString([]byte("KEY-PEM"))+"\n")}, both, http.StatusUnprocessableEntity, "client-key-data"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			rec := f.post(t, tc.body, tc.scopes...)

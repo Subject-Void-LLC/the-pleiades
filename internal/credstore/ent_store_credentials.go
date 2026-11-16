@@ -115,6 +115,12 @@ func (s *entStore) CreateCredential(ctx context.Context, organizationID, typeID 
 		if err := locked.Inputs.CheckValues(inputs, external, sourcedIDs(write.sources)...); err != nil {
 			return err
 		}
+		// What the type's kind reads from those values is checked at the
+		// write too (an SNMP credential's rules, a key beside a client
+		// certificate), leaving what a source supplies to injection.
+		if err := credtype.CheckStoredValues(credtype.Kind(locked.Kind), name, inputs, unresolvedIDs(external, sourcedIDs(write.sources))...); err != nil {
+			return err
+		}
 
 		tx := ent.FromContext(txCtx)
 		row, createErr := tx.Credential.Create().
@@ -236,7 +242,11 @@ func (s *entStore) UpdateCredentialWith(ctx context.Context, id int, fold func(s
 		// What the credential stores for an input its type no longer declares
 		// is carried as it is, not checked (carried.go).
 		merged := mergeInputs(current.Inputs, next.Inputs)
-		if err := locked.Inputs.CheckValues(uncarried(locked.Inputs, current, merged, next), next.External, sourced...); err != nil {
+		checked := uncarried(locked.Inputs, current, merged, next)
+		if err := locked.Inputs.CheckValues(checked, next.External, sourced...); err != nil {
+			return err
+		}
+		if err := credtype.CheckStoredValues(credtype.Kind(locked.Kind), next.Name, checked, unresolvedIDs(next.External, sourced)...); err != nil {
 			return err
 		}
 		external := withCarriedReferences(locked.Inputs, current.External, next.External)

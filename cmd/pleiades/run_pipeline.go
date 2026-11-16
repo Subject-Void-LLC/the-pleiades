@@ -508,6 +508,13 @@ func newRunExecutor(opts runOptions, world validate.WorldView, sink engine.Journ
 		fmt.Fprintf(os.Stderr, "warning: device %q is using a credential stored before any inventory device had that name (marked unbound); "+
 			"if it is not the one meant for this device, replace it with pleiades add-credential\n", termsafe.EscapeLine(name))
 	})
+	// The first lookup of a credential whose SNMP community is too short to
+	// mask by value (stored with --allow-short-community) says so, once in
+	// every run, since the run masks it by shape alone
+	// (wire.MaskedValues leaves it out of the value-masking set).
+	credentials = credential.NoticeShortCommunity(credentials, func(name string) {
+		fmt.Fprintln(os.Stderr, "warning: "+credential.ShortCommunityWarning(termsafe.EscapeLine(name)))
+	})
 
 	// A second, independent inventory.Repository from the same on-disk
 	// inventory.yaml the runbook was loaded against: the transport

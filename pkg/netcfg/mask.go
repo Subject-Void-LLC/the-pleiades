@@ -171,6 +171,11 @@ func maskLine(line string, inKeyChain bool, found *[]string) string {
 	if len(ws) >= 3 && ws[0].text == "snmp-server" && ws[1].text == "user" {
 		return maskSNMPUser(line, ws, found)
 	}
+	// A net-snmp agent's snmpd.conf: rocommunity, rwcommunity, com2sec and
+	// createUser lines (netsnmp.go).
+	if masked, ok := maskNetSNMP(line, ws, found); ok {
+		return masked
+	}
 	if spi := ipsecSPIAt(ws); spi >= 0 {
 		return maskIPsecSPI(line, ws, spi, found)
 	}
@@ -230,13 +235,31 @@ func maskLine(line string, inKeyChain bool, found *[]string) string {
 	return line
 }
 
+// snmpHostSettings are the words after an snmp-server host line's address
+// that open an NX-OS line holding no community: snmp-server host <addr>
+// use-vrf <vrf>, filter-vrf <vrf>, source-interface <if>.
+var snmpHostSettings = []string{"use-vrf", "filter-vrf", "source-interface"}
+
 // maskSNMPHost masks an snmp-server host line's community: snmp-server
-// host <addr> [traps|informs] [version 1|2c|3 [auth|noauth|priv]] <community>
-// ...; SNMPv3's word there is a user, not a secret.
+// host <addr> [vrf <vrf>] [traps|informs] [version 1|2c|3
+// [auth|noauth|priv]] <community> ...; SNMPv3's word there is a user, not a
+// secret. A vrf was read as the community before, masking the word "vrf"
+// and leaving the community after it in the clear.
 func maskSNMPHost(line string, ws []word, found *[]string) string {
 	j := 3
-	for j < len(ws) && (ws[j].text == "traps" || ws[j].text == "informs") {
-		j++
+	for j < len(ws) {
+		switch {
+		case ws[j].text == "traps" || ws[j].text == "informs":
+			j++
+			continue
+		case ws[j].text == "vrf" && j+1 < len(ws):
+			j += 2
+			continue
+		}
+		break
+	}
+	if j < len(ws) && slices.Contains(snmpHostSettings, ws[j].text) {
+		return line
 	}
 	if j+1 < len(ws) && ws[j].text == "version" {
 		if ws[j+1].text == "3" {

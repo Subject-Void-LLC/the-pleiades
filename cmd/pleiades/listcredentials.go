@@ -14,10 +14,11 @@ import (
 )
 
 // runListCredentials lists the device credentials in the project's vault:
-// each name, the account it logs in as, the kinds of secret it holds, and
-// "unbound" for one stored for a name no inventory device had
-// (add-credential's warning or --no-device). It needs no master key and
-// decrypts nothing.
+// each name, the account it logs in as, its SNMPv3 user, the kinds of secret
+// it holds, "unbound" for one stored for a name no inventory device had
+// (add-credential's warning or --no-device), and "short community" for an
+// SNMP community stored allowed short. It needs no master key and decrypts
+// nothing.
 func runListCredentials(args []string) error {
 	fs := flag.NewFlagSet("list-credentials", flag.ContinueOnError)
 	addVaultFlag(fs)
@@ -45,9 +46,16 @@ func runListCredentials(args []string) error {
 		if c.Username != "" {
 			line += "  " + termsafe.EscapeLine(c.Username)
 		}
+		if c.SNMPUser != "" {
+			line += "  snmp user " + termsafe.EscapeLine(c.SNMPUser)
+		}
 		line += "  " + strings.Join(c.Kinds, ", ")
 		if c.Unbound {
 			line += "  unbound"
+		}
+		if c.ShortCommunity {
+			// Every run masks such a community by shape only, and says so.
+			line += "  short community"
 		}
 		fmt.Println(line)
 	}

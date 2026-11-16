@@ -1,0 +1,1 @@
+`ssh_exec`, `telnet_exec` and the other transport actions, a route's hops and a console server masked only a credential's password, private key and passphrase in a command's output, so an enable secret, a bearer token or a PKCS#12 bundle a command echoed was shown in the clear. They now mask every secret a credential holds, by the rule a Collection method's task uses.

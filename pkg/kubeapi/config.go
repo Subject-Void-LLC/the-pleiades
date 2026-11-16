@@ -22,6 +22,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 	"k8s.io/client-go/rest"
 )
 
@@ -160,6 +161,13 @@ func checkIdentity(id Identity) error {
 	if len(id.ClientCertPEM) > 0 || len(id.ClientKeyPEM) > 0 {
 		if len(id.ClientCertPEM) == 0 || len(id.ClientKeyPEM) == 0 {
 			return errors.New("kubeapi: a client certificate needs both the certificate and its key")
+		}
+		// A key pasted in beside the certificate (a kubeconfig's
+		// client-certificate-data holding both) would be stored and carried
+		// as the one public field of the credential, so it is refused at
+		// import and at every session built from one.
+		if problem := wire.ClientCertificateProblem(id.ClientCertPEM); problem != "" {
+			return errors.New("kubeapi: the client certificate " + problem + "; its key belongs in the key field alone (a kubeconfig's client-key-data)")
 		}
 		forms++
 	}

@@ -21,6 +21,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
 
 // Credential is what identifies and authenticates to a device. Exactly
@@ -55,6 +57,12 @@ type Credential struct {
 	// lives here because it is useless without PrivateKeyPEM, not because
 	// it needs protecting, and String below says so rather than marking it
 	// redacted and implying otherwise.
+	//
+	// That marker is true only while the field holds certificates alone, so
+	// every write refuses a PEM block of any other type in it (a private key
+	// pasted in beside the certificate), naming PrivateKeyPEM as the key's
+	// field (wire.ClientCertificateProblem, checked by SaveFileStoreWith and
+	// again by Lookup).
 	CertificatePEM []byte
 	// PFXBase64 is a base64-encoded PKCS#12 bundle carrying a certificate
 	// and its private key together, unlocked by Passphrase at the point of
@@ -73,6 +81,26 @@ type Credential struct {
 	// privileged mode when this account lands in user mode (Cisco's
 	// enable), or empty. Phase 127c.
 	EnablePassword string
+
+	// The SNMP family (Phase 97), saved and replaced together, apart from
+	// every field above (families.go). Nothing sends any of them yet: the
+	// SNMP client is Phase 97's, and wire.SNMPCredential.Check is what each
+	// is held to on every write.
+
+	// SNMPCommunity is an SNMPv1/v2c community, or empty. A secret.
+	SNMPCommunity string
+	// SNMPUser is the SNMPv3 USM user name, or empty. An identifier, shown
+	// like Username and kept apart from it, since a device's login and its
+	// SNMPv3 user are separate accounts.
+	SNMPUser string
+	// SNMPAuthProtocol names the USM authentication protocol. Not a secret.
+	SNMPAuthProtocol wire.SNMPAuthProtocol
+	// SNMPAuthPassphrase is the USM authentication passphrase. A secret.
+	SNMPAuthPassphrase string
+	// SNMPPrivProtocol names the USM privacy protocol. Not a secret.
+	SNMPPrivProtocol wire.SNMPPrivProtocol
+	// SNMPPrivPassphrase is the USM privacy passphrase. A secret.
+	SNMPPrivPassphrase string
 }
 
 // redactedMarker replaces a secret field's real value in Credential's
@@ -108,7 +136,9 @@ const publicSetMarker = "<set, not secret>"
 func (c Credential) String() string {
 	return fmt.Sprintf(
 		"credential.Credential{Username:%q, Password:%s, PrivateKeyPEM:%s, Passphrase:%s, "+
-			"CertificatePEM:%s, PFXBase64:%s, Token:%s, EnablePassword:%s}",
+			"CertificatePEM:%s, PFXBase64:%s, Token:%s, EnablePassword:%s, "+
+			"SNMPCommunity:%s, SNMPUser:%q, SNMPAuthProtocol:%q, SNMPAuthPassphrase:%s, "+
+			"SNMPPrivProtocol:%q, SNMPPrivPassphrase:%s}",
 		c.Username,
 		setMarker(c.Password != ""),
 		setMarker(len(c.PrivateKeyPEM) != 0),
@@ -117,6 +147,15 @@ func (c Credential) String() string {
 		setMarker(c.PFXBase64 != ""),
 		setMarker(c.Token != ""),
 		setMarker(c.EnablePassword != ""),
+		setMarker(c.SNMPCommunity != ""),
+		// The USM user and the two protocol names are shown as values, like
+		// Username: none is a secret, and each says which agent account and
+		// algorithm a failure is about.
+		c.SNMPUser,
+		c.SNMPAuthProtocol,
+		setMarker(c.SNMPAuthPassphrase != ""),
+		c.SNMPPrivProtocol,
+		setMarker(c.SNMPPrivPassphrase != ""),
 	)
 }
 
@@ -139,23 +178,35 @@ func (c Credential) GoString() string {
 // "structurally impossible" before this method existed, and it was not.
 func (c Credential) MarshalJSON() ([]byte, error) {
 	return json.Marshal(struct {
-		Username       string
-		Password       string
-		PrivateKeyPEM  string
-		Passphrase     string
-		CertificatePEM string
-		PFXBase64      string
-		Token          string
-		EnablePassword string
+		Username           string
+		Password           string
+		PrivateKeyPEM      string
+		Passphrase         string
+		CertificatePEM     string
+		PFXBase64          string
+		Token              string
+		EnablePassword     string
+		SNMPCommunity      string
+		SNMPUser           string
+		SNMPAuthProtocol   wire.SNMPAuthProtocol
+		SNMPAuthPassphrase string
+		SNMPPrivProtocol   wire.SNMPPrivProtocol
+		SNMPPrivPassphrase string
 	}{
-		Username:       c.Username,
-		Password:       setMarker(c.Password != ""),
-		PrivateKeyPEM:  setMarker(len(c.PrivateKeyPEM) != 0),
-		Passphrase:     setMarker(c.Passphrase != ""),
-		CertificatePEM: publicMarker(len(c.CertificatePEM) != 0),
-		PFXBase64:      setMarker(c.PFXBase64 != ""),
-		Token:          setMarker(c.Token != ""),
-		EnablePassword: setMarker(c.EnablePassword != ""),
+		Username:           c.Username,
+		Password:           setMarker(c.Password != ""),
+		PrivateKeyPEM:      setMarker(len(c.PrivateKeyPEM) != 0),
+		Passphrase:         setMarker(c.Passphrase != ""),
+		CertificatePEM:     publicMarker(len(c.CertificatePEM) != 0),
+		PFXBase64:          setMarker(c.PFXBase64 != ""),
+		Token:              setMarker(c.Token != ""),
+		EnablePassword:     setMarker(c.EnablePassword != ""),
+		SNMPCommunity:      setMarker(c.SNMPCommunity != ""),
+		SNMPUser:           c.SNMPUser,
+		SNMPAuthProtocol:   c.SNMPAuthProtocol,
+		SNMPAuthPassphrase: setMarker(c.SNMPAuthPassphrase != ""),
+		SNMPPrivProtocol:   c.SNMPPrivProtocol,
+		SNMPPrivPassphrase: setMarker(c.SNMPPrivPassphrase != ""),
 	})
 }
 

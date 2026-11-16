@@ -75,7 +75,9 @@ func ConsoleDialerFor(ctx context.Context, repo deviceByName, credentials creden
 		}
 		return &consoleConn{Shell: shell, conn: conn}, nil
 	}
-	return dial, []string{cred.Password, string(cred.PrivateKeyPEM), cred.Passphrase}, nil
+	// The server's secrets join the masking set by CredentialSecrets' rule,
+	// the one every credential a task touches is masked by.
+	return dial, CredentialSecrets(credential.Flatten(cred)), nil
 }
 
 // consoleConn is a console line whose Close also closes the connection to

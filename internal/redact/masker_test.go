@@ -379,8 +379,25 @@ func TestSharedReturnsOneInstance(t *testing.T) {
 func TestRulesetHasExactlyOneCopy(t *testing.T) {
 	t.Parallel()
 
-	root := repoRoot(t)
+	found, err := rulesetCopies(repoRoot(t))
+	if err != nil {
+		t.Fatalf("walking the repository failed: %v", err)
+	}
 
+	if len(found) != 1 {
+		t.Fatalf("expected exactly one masking ruleset file, found %d: %v", len(found), found)
+	}
+	if filepath.Base(filepath.Dir(found[0])) != "redact" {
+		t.Errorf("the ruleset lives at %s, want it inside internal/redact", found[0])
+	}
+}
+
+// rulesetCopies returns every masking ruleset file under root. A directory
+// below root holding its own .git (a git worktree, such as the ones agents
+// keep under .claude/worktrees, or a nested clone) is another checkout of
+// the tree, not a copy inside this one, so it is not walked: counting it
+// failed this guard whenever a worktree existed.
+func rulesetCopies(root string) ([]string, error) {
 	var found []string
 	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
@@ -393,6 +410,11 @@ func TestRulesetHasExactlyOneCopy(t *testing.T) {
 			case ".git", "node_modules", "vendor":
 				return filepath.SkipDir
 			}
+			if path != root {
+				if _, err := os.Lstat(filepath.Join(path, ".git")); err == nil {
+					return filepath.SkipDir
+				}
+			}
 			return nil
 		}
 		if strings.Contains(d.Name(), "rules.json") || strings.Contains(d.Name(), "redact-rules.json") {
@@ -400,15 +422,35 @@ func TestRulesetHasExactlyOneCopy(t *testing.T) {
 		}
 		return nil
 	})
-	if err != nil {
-		t.Fatalf("walking the repository failed: %v", err)
-	}
+	return found, err
+}
 
-	if len(found) != 1 {
-		t.Fatalf("expected exactly one masking ruleset file, found %d: %v", len(found), found)
+// TestRulesetCopies_SkipsANestedCheckout holds the walk to this checkout: a
+// worktree below it (its .git a file, as git writes for a worktree) is not
+// counted, and a second ruleset inside this checkout still is.
+func TestRulesetCopies_SkipsANestedCheckout(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	write := func(rel, body string) {
+		t.Helper()
+		p := filepath.Join(root, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o750); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if filepath.Base(filepath.Dir(found[0])) != "redact" {
-		t.Errorf("the ruleset lives at %s, want it inside internal/redact", found[0])
+	write("internal/redact/rules.json", "{}")
+	write(".claude/worktrees/agent-x/.git", "gitdir: /elsewhere\n")
+	write(".claude/worktrees/agent-x/internal/redact/rules.json", "{}")
+	found, err := rulesetCopies(root)
+	if err != nil || len(found) != 1 {
+		t.Fatalf("rulesetCopies = %v, %v; want only this checkout's ruleset", found, err)
+	}
+	write("tools/stale/rules.json", "{}")
+	if found, _ := rulesetCopies(root); len(found) != 2 {
+		t.Errorf("a second ruleset inside this checkout was not counted: %v", found)
 	}
 }
 

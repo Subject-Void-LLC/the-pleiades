@@ -215,6 +215,17 @@ func sourcedIDs(bindings []InputSourceBinding) []string {
 	return out
 }
 
+// unresolvedIDs names the inputs a write holds no value for because an
+// external reference or a source binding supplies them at dispatch, which
+// credtype.CheckStoredValues leaves to injection.
+func unresolvedIDs(external map[string]string, sourced []string) []string {
+	out := append([]string(nil), sourced...)
+	for id := range external {
+		out = append(out, id)
+	}
+	return out
+}
+
 // Bound projects this credential into the shape the binding rule reads.
 //
 // The vault identifier is carried on the projection rather than read out of

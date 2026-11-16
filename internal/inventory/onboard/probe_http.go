@@ -21,6 +21,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/farside"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/httpapi"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
 
 // maxOpenAPIBytes bounds the OpenAPI document the probe reads.
@@ -166,10 +167,11 @@ func (httpProber) get(ctx context.Context, client *http.Client, u *url.URL, mode
 	if err != nil {
 		return nil, nil, err
 	}
-	// The API's own reason, with the credential masked by value first: an
+	// The API's own reason, with the credential masked by value first, by
+	// the one rule every path masks a credential with (wire.MaskedValues): an
 	// answer could echo a header it was sent.
 	said := func() string {
-		return farside.Masked(string(body), func(s string) string { return redact.Text(redact.MapValues(secrets), s) })
+		return farside.Masked(string(body), func(s string) string { return redact.Text(wire.MaskedValues(secrets), s) })
 	}
 	switch {
 	case (resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden) && mode == httpapi.AuthNone:

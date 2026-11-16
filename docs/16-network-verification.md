@@ -135,6 +135,41 @@ printf 'login-password\nenable-secret\n' | pleiades add-credential R1 --username
 
 A wrong enable secret is refused by name, and the secret appears in no result or error.
 
+### SNMP credentials
+
+A device's credential can also hold its SNMP side, stored apart from its login: saving SNMP replaces every
+SNMP field and keeps the login, and saving a login keeps the SNMP fields. No method speaks SNMP yet; the
+values are stored, carried and masked so the methods that come later find them. A credential holds an
+SNMPv1/v2c community or an SNMPv3 user, never both:
+
+```console
+pleiades add-credential R1 --snmp-community-stdin < community
+printf 'auth-passphrase\npriv-passphrase\n' | pleiades add-credential R1 --snmp-user monitor \
+  --snmp-auth sha256 --snmp-priv aes128 --snmp-passphrase-stdin
+```
+
+Every USM protocol is accepted: `md5`, `sha`, `sha224` to `sha512` for authentication, and `des`, `3des`,
+`aes128`, `aes192`, `aes256`, `aes192-reeder` and `aes256-reeder` for privacy. AES-192 and AES-256 are
+named twice because two drafts extend a passphrase's key differently: `aes192` and `aes256` are the
+Blumenthal draft net-snmp implements, the `-reeder` forms the Reeder draft often called the Cisco variant.
+A passphrase is at least 8 characters, and privacy needs authentication. Without `--snmp-passphrase-stdin`
+each passphrase is prompted for with no echo. A user or protocol name with a space at either end is refused
+rather than trimmed, here and in the `pleiades_snmp` credential type alike.
+
+A community shorter than 8 characters (`public`) cannot be masked by value without scrubbing ordinary
+words from every output, so it is refused unless `--allow-short-community` is given. Stored that way, it is
+marked in `list-credentials`, masked only by the shape of the configuration lines that hold it, and every
+run that uses it says so, before any task runs. Those lines are `snmp-server community` and
+`snmp-server host` on IOS and NX-OS, net-snmp's `rocommunity`, `rwcommunity`, `com2sec`, `trapsink`,
+`trap2sink`, `informsink`, `trapcommunity` and `trapsess -c`, and snmptrapd's `authCommunity`. Output in
+any other shape, such as `show snmp community`, shows it in the clear.
+
+On the Controller, a device's own SNMP fields never leave on a dispatch, whatever the job's kind: no task
+reads them yet, and a dispatch waits on the message stream and reaches every Collection a task calls. The
+release that adds an SNMP client sends them only to the methods that declare they need them. The
+`pleiades_snmp` credential type carries the same fields to a native job's devices when a template binds
+it; a playbook job is given nothing from it.
+
 ### Building a lab in CML
 
 A CML controller is a device too, `cml_controller`, holding its base URL, its own TLS settings and its own

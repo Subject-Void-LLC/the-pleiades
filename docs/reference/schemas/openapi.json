@@ -2265,7 +2265,7 @@
                             "type": "object"
                           },
                           "kind": {
-                            "description": "The coarse grouping: cloud, cryptography, database, external, galaxy, insights, kubernetes, net, registry, scm, ssh, token or vault. It is what the binding rule keys on.",
+                            "description": "The coarse grouping: cloud, cryptography, database, external, galaxy, insights, kubernetes, net, registry, scm, snmp, ssh, token or vault. It is what the binding rule keys on.",
                             "type": "string"
                           },
                           "managed": {
@@ -2419,7 +2419,7 @@
                     "type": "object"
                   },
                   "kind": {
-                    "description": "One of cloud, cryptography, database, external, galaxy, insights, kubernetes, net, registry, scm, ssh, token or vault.",
+                    "description": "One of cloud, cryptography, database, external, galaxy, insights, kubernetes, net, registry, scm, snmp, ssh, token or vault.",
                     "type": "string"
                   },
                   "name": {
@@ -2562,7 +2562,7 @@
                       "type": "object"
                     },
                     "kind": {
-                      "description": "The coarse grouping: cloud, cryptography, database, external, galaxy, insights, kubernetes, net, registry, scm, ssh, token or vault. It is what the binding rule keys on.",
+                      "description": "The coarse grouping: cloud, cryptography, database, external, galaxy, insights, kubernetes, net, registry, scm, snmp, ssh, token or vault. It is what the binding rule keys on.",
                       "type": "string"
                     },
                     "managed": {
@@ -2839,7 +2839,7 @@
                       "type": "object"
                     },
                     "kind": {
-                      "description": "The coarse grouping: cloud, cryptography, database, external, galaxy, insights, kubernetes, net, registry, scm, ssh, token or vault. It is what the binding rule keys on.",
+                      "description": "The coarse grouping: cloud, cryptography, database, external, galaxy, insights, kubernetes, net, registry, scm, snmp, ssh, token or vault. It is what the binding rule keys on.",
                       "type": "string"
                     },
                     "managed": {
@@ -3016,7 +3016,7 @@
                     "type": "object"
                   },
                   "kind": {
-                    "description": "One of cloud, cryptography, database, external, galaxy, insights, kubernetes, net, registry, scm, ssh, token or vault.",
+                    "description": "One of cloud, cryptography, database, external, galaxy, insights, kubernetes, net, registry, scm, snmp, ssh, token or vault.",
                     "type": "string"
                   },
                   "name": {
@@ -3153,7 +3153,7 @@
                       "type": "object"
                     },
                     "kind": {
-                      "description": "The coarse grouping: cloud, cryptography, database, external, galaxy, insights, kubernetes, net, registry, scm, ssh, token or vault. It is what the binding rule keys on.",
+                      "description": "The coarse grouping: cloud, cryptography, database, external, galaxy, insights, kubernetes, net, registry, scm, snmp, ssh, token or vault. It is what the binding rule keys on.",
                       "type": "string"
                     },
                     "managed": {
@@ -3416,7 +3416,7 @@
                       "type": "object"
                     },
                     "kind": {
-                      "description": "The coarse grouping: cloud, cryptography, database, external, galaxy, insights, kubernetes, net, registry, scm, ssh, token or vault. It is what the binding rule keys on.",
+                      "description": "The coarse grouping: cloud, cryptography, database, external, galaxy, insights, kubernetes, net, registry, scm, snmp, ssh, token or vault. It is what the binding rule keys on.",
                       "type": "string"
                     },
                     "managed": {
@@ -3726,7 +3726,7 @@
                       "type": "object"
                     },
                     "kind": {
-                      "description": "The coarse grouping: cloud, cryptography, database, external, galaxy, insights, kubernetes, net, registry, scm, ssh, token or vault. It is what the binding rule keys on.",
+                      "description": "The coarse grouping: cloud, cryptography, database, external, galaxy, insights, kubernetes, net, registry, scm, snmp, ssh, token or vault. It is what the binding rule keys on.",
                       "type": "string"
                     },
                     "managed": {

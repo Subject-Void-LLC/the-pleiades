@@ -12,6 +12,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/prompt"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/sealed"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
 
 // runAddCredential stores one device's SSH credential, encrypted at rest,
@@ -57,6 +58,13 @@ import (
 // A certificate names the account it authenticates as, by carrying a
 // principal the target maps to one, so a username beside it is a second
 // answer to a question that already has one.
+//
+// The SNMP flags (addcredential_snmp.go) store the device's SNMP family
+// apart from its login: given alone they replace only the SNMP fields and
+// keep a stored login, and given with login flags both are saved. A -stdin
+// flag reads one line of standard input, and every such line is read by one
+// reader in one order: the login's secret, the enable secret, then the SNMP
+// community or the SNMPv3 passphrases.
 func runAddCredential(args []string) error {
 	fs := flag.NewFlagSet("add-credential", flag.ContinueOnError)
 	addProjectFlags(fs)
@@ -66,7 +74,7 @@ func runAddCredential(args []string) error {
 	stdinPassword := fs.Bool("password-stdin", false, "read the password to authenticate with as one line on standard input")
 	passwordFile := fs.String("password-file", "", "path to a file `pleiades seal` wrote holding the password, opened with this project's seal key or, sealed to a passphrase, with --passphrase or --passphrase-stdin")
 	keyPath := fs.String("key", "", "path to a PEM private key file to authenticate with")
-	certPath := fs.String("certificate", "", "path to a PEM client certificate to present, which requires --key")
+	certPath := fs.String("certificate", "", "path to a PEM client certificate to present, which requires --key; the file holds certificates only, its key going to --key")
 	pfxPath := fs.String("pfx", "", "path to a PKCS#12 (.pfx/.p12) bundle holding a certificate and its key")
 	promptPassphrase := fs.Bool("passphrase", false, "prompt for the passphrase of the private key, the bundle or a passphrase-sealed --password-file")
 	stdinPassphrase := fs.Bool("passphrase-stdin", false,
@@ -75,13 +83,16 @@ func runAddCredential(args []string) error {
 	replace := fs.Bool("replace", false, "with --generate, replace a credential already stored for the device")
 	stdinToken := fs.Bool("token-stdin", false, "read a bearer token as one line on standard input, for a device whose API takes one (a Kubernetes cluster, a language model provider's API key)")
 	promptEnable := fs.Bool("enable-password", false, "prompt for the secret a network device asks for to enter privileged mode (Cisco's enable), when this account lands in user mode")
-	stdinEnable := fs.Bool("enable-password-stdin", false, "read that enable secret as one line on standard input; with --password-stdin it is the second line")
+	stdinEnable := fs.Bool("enable-password-stdin", false, "read that enable secret as one line on standard input, after the login's own secret when that is piped too")
 	noDevice := fs.Bool("no-device", false, "store the credential for a name no inventory device has (a sync source's account, a device added later), marked unbound; without it such a name is stored with a warning, and from 0.4.0 refused")
+	snmp := addSNMPFlags(fs)
 
 	name, err := parseOneArg(fs, args)
 	if err != nil {
 		return fmt.Errorf("usage: pleiades add-credential <device> [--username <user>] "+
-			"[--password <password> | --password-stdin | --password-file <sealed file> [--passphrase] | --key <path> [--passphrase] | --certificate <path> --key <path> | --pfx <path> --passphrase | --token-stdin | --generate [--replace]] [--enable-password | --enable-password-stdin] [--no-device]; with --password-stdin and --enable-password-stdin, standard input is two lines, the password and then the enable secret: %w", err)
+			"[--password <password> | --password-stdin | --password-file <sealed file> [--passphrase] | --key <path> [--passphrase] | --certificate <path> --key <path> | --pfx <path> --passphrase | --token-stdin | --generate [--replace]] [--enable-password | --enable-password-stdin] "+
+			"[--snmp-community | --snmp-community-stdin [--allow-short-community] | --snmp-user <user> [--snmp-auth <protocol> [--snmp-priv <protocol>] [--snmp-passphrase-stdin]]] [--no-device]; "+
+			"standard input holds one line for each secret a -stdin flag asks for, in this order: the login's secret, the enable secret, then the SNMP community or the SNMPv3 authentication and privacy passphrases: %w", err)
 	}
 
 	if *replace && !*generate {
@@ -93,13 +104,41 @@ func runAddCredential(args []string) error {
 	if *promptEnable && *stdinEnable {
 		return fmt.Errorf("--enable-password and --enable-password-stdin are mutually exclusive: an enable secret is read one way")
 	}
+	if err := snmp.check(); err != nil {
+		return err
+	}
+	// The SNMP family and the login are saved apart: given SNMP flags alone,
+	// only SNMP is replaced and a stored login is kept, and the reverse.
+	families := familiesGiven(fs)
 	// Checked before any secret is read, so a refusal consumes no input and
 	// a warning is printed before a prompt asks for the secret.
 	unbound, err := credentialBinding(*dir, name, *noDevice, os.Stderr)
 	if err != nil {
 		return err
 	}
-	opts := credential.SaveOptions{Unbound: unbound}
+	opts := credential.SaveOptions{Unbound: unbound, Families: families, AllowShortCommunity: *snmp.allowShort}
+	// Every line standard input holds is read by one reader, in the order
+	// the usage gives, whatever mix of -stdin flags asks for them.
+	in := &stdinQueue{n: snmp.stdinLines()}
+	for _, piped := range []bool{*stdinPassword, *stdinPassphrase, *stdinEnable, *stdinToken} {
+		if piped {
+			in.n++
+		}
+	}
+	// withSNMP adds the SNMP family to a login when SNMP flags were given.
+	withSNMP := func(cred credential.Credential) (credential.Credential, error) {
+		if families&credential.SNMPFamily == 0 {
+			return cred, nil
+		}
+		return snmp.read(in, cred)
+	}
+	if families == credential.SNMPFamily {
+		cred, err := withSNMP(credential.Credential{})
+		if err != nil {
+			return err
+		}
+		return saveCredential(*dir, name, cred, opts)
+	}
 	if *stdinToken {
 		// A token is the whole identity, so it combines with nothing: a
 		// cluster credential carries one way of authenticating, and an
@@ -108,14 +147,18 @@ func runAddCredential(args []string) error {
 			*promptPassphrase || *stdinPassphrase || *generate {
 			return fmt.Errorf("--token-stdin is the whole credential, so it cannot be combined with --username, a password, a key, a certificate, a bundle or --generate")
 		}
-		token, err := prompt.SecretFromStdin()
+		token, err := in.next()
 		if err != nil {
 			return err
 		}
 		if strings.TrimSpace(token) == "" {
 			return fmt.Errorf("--token-stdin read an empty token")
 		}
-		return saveCredential(*dir, name, credential.Credential{Token: strings.TrimSpace(token)}, opts)
+		cred, err := withSNMP(credential.Credential{Token: strings.TrimSpace(token)})
+		if err != nil {
+			return err
+		}
+		return saveCredential(*dir, name, cred, opts)
 	}
 	if *generate {
 		if *password != "" || *stdinPassword || *passwordFile != "" || *keyPath != "" || *certPath != "" || *pfxPath != "" || *promptPassphrase || *stdinPassphrase {
@@ -124,7 +167,11 @@ func runAddCredential(args []string) error {
 		if *username == "" {
 			return fmt.Errorf("--username is required")
 		}
-		return generateCredential(*dir, name, *username, *replace, opts)
+		snmpFamily, err := withSNMP(credential.Credential{})
+		if err != nil {
+			return err
+		}
+		return generateCredential(*dir, name, *username, *replace, opts, snmpFamily)
 	}
 
 	usesCertificate := *certPath != "" || *pfxPath != ""
@@ -173,24 +220,12 @@ func runAddCredential(args []string) error {
 	// cannot drift. Reading from a pipe is opted into by a flag rather than
 	// entered automatically when stdin is not a terminal, for the reason
 	// internal/prompt states: an automatic fallback means the same command
-	// echoes a secret on some machines and not others.
-	// A passphrase and an enable secret both from standard input are read
-	// by one reader, the passphrase first: two readers of one pipe would
-	// lose the second line to the first one's buffer.
-	var piped []string
-	if *stdinPassphrase && *stdinEnable {
-		read, err := prompt.SecretsFromStdin(2)
-		if err != nil {
-			return err
-		}
-		piped = read
-	}
+	// echoes a secret on some machines and not others. A piped passphrase is
+	// the login's secret, so it is the first line the queue gives.
 	readPassphrase := func(promptText string) (string, error) {
 		switch {
-		case piped != nil:
-			return piped[0], nil
 		case *stdinPassphrase:
-			return prompt.SecretFromStdin()
+			return in.next()
 		case *promptPassphrase:
 			return promptSecret(promptText)
 		default:
@@ -225,6 +260,12 @@ func runAddCredential(args []string) error {
 		if err != nil {
 			return fmt.Errorf("failed to read private key %s: %w", *keyPath, err)
 		}
+		// A certificate file holding its key too, the shape a "cert and key"
+		// bundle takes, is refused rather than stored: the certificate field
+		// is the one credential field printed and carried as public.
+		if problem := wire.ClientCertificateProblem(certBytes); problem != "" {
+			return fmt.Errorf("--certificate %s %s: give the private key to --key in a file of its own, or the pair as a bundle to --pfx", *certPath, problem)
+		}
 		cred.CertificatePEM = certBytes
 		cred.PrivateKeyPEM = keyBytes
 	case *keyPath != "":
@@ -240,16 +281,8 @@ func runAddCredential(args []string) error {
 		cred.Passphrase = passphrase
 	case *password != "":
 		cred.Password = *password
-	case *stdinPassword && *stdinEnable:
-		// One reader for both lines: two reads of a pipe would lose the
-		// second line to the first read's buffer.
-		read, err := prompt.SecretsFromStdin(2)
-		if err != nil {
-			return err
-		}
-		cred.Password, cred.EnablePassword = read[0], read[1]
 	case *stdinPassword:
-		read, err := prompt.SecretFromStdin()
+		read, err := in.next()
 		if err != nil {
 			return err
 		}
@@ -269,11 +302,8 @@ func runAddCredential(args []string) error {
 	}
 
 	switch {
-	case cred.EnablePassword != "":
-	case piped != nil:
-		cred.EnablePassword = piped[1]
 	case *stdinEnable:
-		read, err := prompt.SecretFromStdin()
+		read, err := in.next()
 		if err != nil {
 			return err
 		}
@@ -286,6 +316,9 @@ func runAddCredential(args []string) error {
 		cred.EnablePassword = read
 	}
 
+	if cred, err = withSNMP(cred); err != nil {
+		return err
+	}
 	for _, w := range sameAsUsernameWarnings(cred) {
 		fmt.Fprintln(os.Stderr, "WARNING: "+w)
 	}
@@ -358,15 +391,18 @@ func saveCredential(dir, name string, cred credential.Credential, opts credentia
 		return fmt.Errorf("failed to save credential: %w", err)
 	}
 
-	fmt.Printf("stored credential for device %q%s\n", name, unboundNote(opts))
+	if note := shortCommunityNote(name, cred); note != "" {
+		fmt.Fprintln(os.Stderr, note)
+	}
+	fmt.Printf("stored credential for device %q%s%s\n", name, familyNote(opts), unboundNote(opts))
 	return nil
 }
 
 // generateCredential stores a new random key and password for device in
 // dir's vault and prints the key's public half, labelled user@device,
 // which is what a machine is given so the key may log in to it. The entry is
-// marked as opts says.
-func generateCredential(dir, device, username string, replace bool, opts credential.SaveOptions) error {
+// marked as opts says, and carries snmp's SNMP family when opts names it.
+func generateCredential(dir, device, username string, replace bool, opts credential.SaveOptions, snmp credential.Credential) error {
 	key, err := credential.ResolveMasterKey(vaultDir(dir))
 	if err != nil {
 		return fmt.Errorf("failed to resolve master key: %w", err)
@@ -375,9 +411,22 @@ func generateCredential(dir, device, username string, replace bool, opts credent
 	if err != nil {
 		return fmt.Errorf("failed to open the credential store: %w", err)
 	}
-	_, err = store.Lookup(context.Background(), device)
+	// Only a stored login is what a new one would put out of reach; a device
+	// holding SNMP fields alone has none to lose. A stored credential the read
+	// refuses (credential.UnusableError) may hold a login all the same, so it
+	// too needs --replace, which then replaces it, as its refusal says to; a
+	// fault in a family this save keeps is named instead, since a new login
+	// beside it would leave the credential refused.
+	stored, err := store.Lookup(context.Background(), device)
+	var unusable *credential.UnusableError
 	switch {
-	case err == nil && !replace:
+	case errors.As(err, &unusable) && unusable.Family&opts.Families == 0:
+		return fmt.Errorf("%w; --generate replaces only its %s fields, so store its %s fields again first", err, opts.Families, unusable.Family)
+	case errors.As(err, &unusable) && !replace:
+		return fmt.Errorf("%w; with --generate, --replace discards it, and whatever it logs in to is then out of reach", err)
+	case errors.As(err, &unusable):
+		// --replace, and the save below replaces the family at fault.
+	case err == nil && stored.HasLogin() && !replace:
 		return fmt.Errorf("device %q already has a credential; --replace discards it, and whatever it logs in to is then out of reach", device)
 	case err != nil && !errors.Is(err, credential.ErrNotFound):
 		return fmt.Errorf("failed to read the credential store: %w", err)
@@ -387,6 +436,7 @@ func generateCredential(dir, device, username string, replace bool, opts credent
 	if err != nil {
 		return err
 	}
+	cred = cred.WithSNMP(snmp.SNMP())
 	public, err := credential.PublicKey(cred, comment)
 	if err != nil {
 		return err

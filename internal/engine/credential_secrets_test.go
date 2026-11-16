@@ -6,6 +6,8 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/transport"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
 
@@ -30,5 +32,19 @@ func TestCredentialSecrets_MasksEverythingButIdentifiers(t *testing.T) {
 	}
 	if len(credentialSecrets(nil)) != 0 {
 		t.Error("a device with no credential masked something")
+	}
+}
+
+// TestHopSecrets_MaskWhatATargetMasks: a bastion's every secret joins the
+// masking set by the target's rule, its enable secret and token included,
+// and its username does not. It masked a hop's password, key and passphrase
+// alone before.
+func TestHopSecrets_MaskWhatATargetMasks(t *testing.T) {
+	got := hopSecrets([]transport.Hop{{Credential: credential.Credential{
+		Username: "jump", Password: "jump-password-1", EnablePassword: "jump-enable-1", Token: "jump-token-12",
+	}}})
+	slices.Sort(got)
+	if want := []string{"jump-enable-1", "jump-password-1", "jump-token-12"}; !slices.Equal(got, want) {
+		t.Errorf("hopSecrets() = %q, want %q", got, want)
 	}
 }

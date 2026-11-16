@@ -24,6 +24,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
 
 // TestProbers_OneForEveryGenericType: onboarding reaches every generic
@@ -143,6 +144,33 @@ func TestHTTPProbe_SaysWhatTheAPISaid(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), want) || strings.Contains(err.Error(), token) {
 			t.Errorf("%s: err = %v, want it to hold %s and never the token", path, err, want)
 		}
+	}
+}
+
+// TestHTTPProbe_MasksTheCredentialByTheOneRule: an API's answer is masked by
+// the rule every path masks a credential with (wire.MaskedValues), not by
+// every value the device's credential holds: the password goes, and the
+// account's name and the protocol name of an SNMPv3 user stay readable.
+// Every value was masked before, so "sha256" read as ******** in any answer.
+func TestHTTPProbe_MasksTheCredentialByTheOneRule(t *testing.T) {
+	const password = "hunter2-long-enough"
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+		_, _ = w.Write([]byte("account api-reader, password " + password + ", wants sha256 keys"))
+	}))
+	defer srv.Close()
+	dev := build(t, generic.TypeHTTP, map[string]inventory.PropertyValue{devicetls.CAPEMProperty: caPEM(srv), generic.BaseURLProperty: srv.URL})
+	_, err := httpProber{}.Probe(context.Background(), dev, map[string]string{
+		wire.SecretUsername: "api-reader", wire.SecretPassword: password, wire.SecretSNMPUser: "monitor", wire.SecretSNMPAuthProtocol: "sha256",
+	})
+	if err == nil {
+		t.Fatal("a server error proved the API")
+	}
+	if strings.Contains(err.Error(), password) {
+		t.Errorf("the password reached the error: %v", err)
+	}
+	if !strings.Contains(err.Error(), "account api-reader, password ********, wants sha256 keys") {
+		t.Errorf("err = %v, want the answer with only the password masked", err)
 	}
 }
 

@@ -164,6 +164,18 @@ func (a *Adapter) Execute(ctx context.Context, payload wire.DispatchPayload) (wi
 	if err := a.publish(ctx, payload.JobID, started); err != nil {
 		return wire.Outcome{}, fmt.Errorf("failed to publish started event: %w", err)
 	}
+	// A community too short to mask by value (wire.MaskedValues leaves it
+	// out of every masking set below) is said before anything runs, so a
+	// dispatch refused or aborted on any path after this one says it too, as
+	// the CLI's run says it before its first task.
+	if credential.ShortCommunity(payload.Secrets) {
+		warning := wire.JobEvent{Status: "ok", Host: payload.DeviceHost, Task: "task.warning"}
+		warning.Timestamp = time.Now().UTC().Format(time.RFC3339)
+		warning.EventData.Message = "WARNING: " + credential.ShortCommunityWarning(payload.DeviceName)
+		if err := a.publish(ctx, payload.JobID, warning); err != nil {
+			return wire.Outcome{}, fmt.Errorf("failed to publish a warning: %w", err)
+		}
+	}
 
 	// The run-time backstop, before anything is resolved or executed:
 	// injected material this path cannot honour fails the dispatch loudly

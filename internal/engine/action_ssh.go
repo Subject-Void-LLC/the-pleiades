@@ -288,7 +288,13 @@ func (e *transportActionExecutor) Execute(ctx context.Context, task *Task, devic
 	// secret from THIS credential ever rides through in the error path
 	// this codebase actually surfaces (event.Bus, cmd/pleiades/run.go's
 	// printed output). FAILURE_PATTERNS.md #22.
-	secrets := []string{cred.Password, string(cred.PrivateKeyPEM), cred.Passphrase}
+	//
+	// The set is CredentialSecrets', the one a Collection method's task masks
+	// with, rather than a list of its own. It was the password, key and
+	// passphrase alone, so an enable secret, a token, a bundle and every SNMP
+	// secret the device's credential held printed in the clear whenever a
+	// command echoed one (a show running-config prints a community).
+	secrets := CredentialSecrets(credential.Flatten(cred))
 
 	// A device's configured hop chain, if any (Phase 72: nil e.inventory
 	// skips this entirely, exactly a direct connection, per
@@ -306,7 +312,7 @@ func (e *transportActionExecutor) Execute(ctx context.Context, task *Task, devic
 		}
 		target.Route = hops
 		for _, hop := range hops {
-			secrets = append(secrets, hop.Credential.Password, string(hop.Credential.PrivateKeyPEM), hop.Credential.Passphrase)
+			secrets = append(secrets, CredentialSecrets(credential.Flatten(hop.Credential))...)
 		}
 	}
 

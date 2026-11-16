@@ -99,6 +99,26 @@ func TestImport_RefusesAPlainHTTPServer(t *testing.T) {
 	}
 }
 
+// TestImport_RefusesAKeyBesideTheClientCertificate: a kubeconfig whose
+// client-certificate-data holds the key too is refused naming
+// client-key-data, without repeating the key; the certificate alone, its
+// key apart, imports.
+func TestImport_RefusesAKeyBesideTheClientCertificate(t *testing.T) {
+	const cert = "-----BEGIN CERTIFICATE-----\nMIIBclient\n-----END CERTIFICATE-----\n"
+	const key = "-----BEGIN EC PRIVATE KEY-----\nMHcCAQEEIKEYBODY\n-----END EC PRIVATE KEY-----\n"
+	user := func(certificate string) string {
+		return "    client-certificate-data: " + base64.StdEncoding.EncodeToString([]byte(certificate)) +
+			"\n    client-key-data: " + base64.StdEncoding.EncodeToString([]byte(key)) + "\n"
+	}
+	_, err := Import([]byte(kubeconfig("", user(cert+key))), "")
+	if err == nil || !strings.Contains(err.Error(), "client-key-data") || strings.Contains(err.Error(), "MHcCAQEEIKEYBODY") {
+		t.Errorf("a key beside the client certificate imported: %v", err)
+	}
+	if _, err := Import([]byte(kubeconfig("", user(cert))), ""); err != nil {
+		t.Errorf("a client certificate alone was refused: %v", err)
+	}
+}
+
 // FuzzImport proves an import never panics on any input, and that whatever
 // it accepts carries an https server and exactly one identity, and nothing
 // it refuses by name.
