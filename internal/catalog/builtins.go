@@ -52,6 +52,7 @@ import (
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/net/ovs"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/net/pcap"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/net/restconf"
+	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/net/snmp"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/net/ssh"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/pkg"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/pkg/apt"

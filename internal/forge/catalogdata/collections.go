@@ -52,6 +52,7 @@ var Collections = concatCollections(
 	winFirewallCollections,
 	winArchiveCollections,
 	routingCollections,
+	snmpCollections,
 )
 
 // concatCollections joins every catalog section slice into one, explicit
