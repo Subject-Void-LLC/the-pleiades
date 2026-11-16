@@ -31,10 +31,11 @@ func storeDeviceCredential(t *testing.T, device string, cred credential.Credenti
 // TestWorkerKeepsTheDevicesOwnSNMPOffEveryDispatch: a device whose stored
 // credential holds a login and an SNMP community, with no machine
 // credential bound, gets its login on the dispatch and none of its SNMP
-// keys, on a native job and a playbook job alike; a device whose credential
-// is SNMP alone gets no secrets at all. Nothing on a Runner reads them until
-// Phase 97, and a payload sits on the JetStream stream and reaches the
-// Runner's child and every external Collection.
+// keys, on a native job and a playbook job alike, when no method the job
+// runs reads them; a device whose credential is SNMP alone gets no secrets at
+// all. A payload sits on the JetStream stream and reaches the Runner's child
+// and every external Collection, so it carries the family only for a job that
+// reads it (TestWorkerCarriesTheDevicesOwnSNMPForAJobThatReadsIt).
 func TestWorkerKeepsTheDevicesOwnSNMPOffEveryDispatch(t *testing.T) {
 	login := credential.Credential{Username: "per-device", Password: "per-device-password"}
 	withSNMP := login

@@ -44,6 +44,13 @@ type PreparedDefinition struct {
 	// payload for the Runner to compare with its own. Nil for a playbook.
 	Collections map[string]wire.CollectionIdentity
 
+	// ReadsSNMP says a method the definition names, conditional tasks
+	// included (runbook.Runbook.AllMethods), declares it reads its device's
+	// SNMP credential (collection.Manifest.UsesSNMPCredential), so each
+	// device's own SNMP family travels with its dispatch (deviceSecrets).
+	// False for a playbook, which no SNMP method runs in.
+	ReadsSNMP bool
+
 	// Graph is the compiled runbook's version and what each of its nodes
 	// runs, from one compilation, pinned on the job by its first fan-out
 	// (JobStore.PinGraph). Nil for a playbook, which the platform never
@@ -97,7 +104,7 @@ func (s runbookDefinitionSource) Prepare(ctx context.Context, definition string)
 		return PreparedDefinition{}, err.Error(), err
 	}
 	return PreparedDefinition{Required: rb.Required, Methods: rb.Methods, Interruptible: rb.Interruptible, Serial: rb.Serial,
-		Collections: collectionIdentities(rb.AllMethods), Graph: &NodeGraph{Version: rb.Version, Scheme: runbook.GraphScheme, Digest: rb.GraphDigest, Nodes: rb.Nodes}}, "", nil
+		Collections: collectionIdentities(rb.AllMethods), ReadsSNMP: readsSNMP(rb.AllMethods), Graph: &NodeGraph{Version: rb.Version, Scheme: runbook.GraphScheme, Digest: rb.GraphDigest, Nodes: rb.Nodes}}, "", nil
 }
 
 // PlaybookGetter is the slice of internal/playbook.Source fan-out needs:
