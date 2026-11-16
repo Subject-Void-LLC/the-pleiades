@@ -62,7 +62,9 @@ type SetResult struct {
 // empty request, a wildcard, a value that is not one JSON document within the
 // bounds, and a request past MaxSendBytes are refused before anything is
 // sent. The device's refusal is an *Error, its own words masked; a lost
-// answer an *AnswerLostError.
+// answer an *AnswerLostError, and so is an OK answer this client refuses to
+// read, with Applied set: the device applied the Set, so a caller reading the
+// failure as a refusal would take a change made for one never made.
 func (c *Client) Set(ctx context.Context, req SetRequest) (SetResult, error) {
 	if err := c.refused(); err != nil {
 		return SetResult{}, err
@@ -81,7 +83,13 @@ func (c *Client) Set(ctx context.Context, req SetRequest) (SetResult, error) {
 		}
 		return SetResult{}, c.fail(ctx, "Set", err)
 	}
-	return readSetResponse(resp)
+	result, err := readSetResponse(resp)
+	if err != nil {
+		// An OK status is gNMI's word that the whole Set was applied (section
+		// 3.4.3); only the report of it is unreadable.
+		return SetResult{}, &AnswerLostError{Err: err, Applied: true}
+	}
+	return result, nil
 }
 
 // lost reports whether a Set's failure leaves its outcome unknown: the

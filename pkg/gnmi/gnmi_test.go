@@ -206,6 +206,30 @@ func TestSet_AnAnswerLostAfterTheChangeIsSaidSo(t *testing.T) {
 	}
 }
 
+// TestSet_AnOKAnswerItCannotReadIsApplied has the server apply a Set and
+// answer OK with a path in the field gNMI 0.4.0 deprecated, which the client
+// refuses to read, and holds the client to saying the change was applied,
+// never that it was refused.
+func TestSet_AnOKAnswerItCannotReadIsApplied(t *testing.T) {
+	for name, mangle := range map[string]func(*gpb.SetResponse){
+		"prefix":    func(r *gpb.SetResponse) { r.Prefix = &gpb.Path{Element: []string{"system"}} },
+		"operation": func(r *gpb.SetResponse) { r.Response[0].Path = &gpb.Path{Elem: []*gpb.PathElem{{Name: "bad\nname"}}} },
+	} {
+		t.Run(name, func(t *testing.T) {
+			s := gnmitest.New(t, gnmitest.Options{Username: testUser, Password: testPassword, SetAnswer: mangle})
+			c, _ := clientOf(t, s)
+			_, err := c.Set(ctxOf(t), gnmi.SetRequest{Update: []gnmi.SetValue{{Path: mustPath(t, "/system/config"), JSON: []byte(`{"hostname":"r1"}`), Encoding: gnmi.EncodingJSONIETF}}})
+			var lost *gnmi.AnswerLostError
+			if !errors.As(err, &lost) || !lost.Applied || !strings.Contains(err.Error(), "applied the change") {
+				t.Fatalf("Set = %v, want an AnswerLostError saying the change was applied", err)
+			}
+			if gnmi.Code(err) == codes.InvalidArgument || s.Sets() != 1 {
+				t.Errorf("code %v after %d Sets, want the one applied Set never taken for a refusal", gnmi.Code(err), s.Sets())
+			}
+		})
+	}
+}
+
 // TestRefusedLogin_IsSentOnce sends a wrong password once, and holds every
 // later call to the same refusal without sending anything.
 func TestRefusedLogin_IsSentOnce(t *testing.T) {

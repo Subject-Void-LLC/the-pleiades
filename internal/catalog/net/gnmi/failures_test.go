@@ -79,6 +79,27 @@ func TestConfig_ALostAnswerBeforeTheChangeIsSaidSo(t *testing.T) {
 	}
 }
 
+// TestConfig_AnOKAnswerItCannotReadIsReadBack has the server apply a Set and
+// answer OK with a prefix in the field gNMI 0.4.0 deprecated, and holds the
+// method to what an applied Set is: read back, changed, its undo kept, and
+// never "refused, nothing changed".
+func TestConfig_AnOKAnswerItCannotReadIsReadBack(t *testing.T) {
+	opts := login
+	opts.SetAnswer = func(r *gpb.SetResponse) { r.Prefix = &gpb.Path{Element: []string{"interface"}} }
+	s := gnmitest.New(t, opts)
+	rc := newRecorder(gnmitest.Secrets(s))
+	res, err := run(t, "net.gnmi.config", s, rc, update("/interface[name=lo4]", map[string]any{"name": "lo4"}))
+	if err == nil || strings.Contains(err.Error(), "nothing changed") || !strings.Contains(err.Error(), "applied") {
+		t.Fatalf("Invoke = %v, want the unreadable answer read back as applied", err)
+	}
+	if !res.Changed || fmt.Sprint(inverse(rc)["params"]) != "map[delete:[/interface[name=lo4]] encoding:json_ietf]" {
+		t.Errorf("result %+v, inverse %v, want the change and the delete of what it created", res, inverse(rc))
+	}
+	if _, ok := s.Value(t, "/interface[name=lo4]"); !ok {
+		t.Error("the server holds no change, so the test proves nothing")
+	}
+}
+
 // TestConfig_ADeleteOfWhatIsThereChangesAndRecordsNoUndo deletes a present
 // node: a change, and no undo, since putting it back would journal its value.
 func TestConfig_ADeleteOfWhatIsThereChangesAndRecordsNoUndo(t *testing.T) {

@@ -57,16 +57,26 @@ func (e *RefusedError) Error() string {
 // Refused reports that asking again would be refused the same way.
 func (e *RefusedError) Refused() bool { return true }
 
-// AnswerLostError is a Set whose answer never came: the deadline passed, or
-// the connection broke, after the request was sent over a connection that was
-// up. The device may have applied it or not; only reading the paths again
-// says which.
+// AnswerLostError is a Set whose answer this client could not take in after
+// the request was sent over a connection that was up. Either it never came
+// (the deadline passed, or the connection broke), and the device may have
+// applied the change or not, or, with Applied, the device answered OK, which
+// gNMI gives only for a Set it applied whole, in a SetResponse this client
+// refuses to read (a path breaking a rule, too many operations). Either way
+// only reading the paths again says what the device now holds, and the
+// change is never taken for refused.
 type AnswerLostError struct {
 	Err error
+	// Applied is true when the device answered OK, so the change was
+	// applied, and only its answer could not be read.
+	Applied bool
 }
 
-// Error says the answer was lost and what is not known.
+// Error says the answer was lost or unreadable, and what is not known.
 func (e *AnswerLostError) Error() string {
+	if e.Applied {
+		return fmt.Sprintf("gnmi Set: the device answered OK, so it applied the change, but its answer could not be read: read the paths again to see what it holds: %v", e.Err)
+	}
 	return fmt.Sprintf("gnmi Set: the answer was lost, so whether the device applied the change is not known: read the paths again to see: %v", e.Err)
 }
 

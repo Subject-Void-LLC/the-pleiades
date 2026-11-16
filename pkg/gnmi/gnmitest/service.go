@@ -124,6 +124,9 @@ func (s *Server) Set(ctx context.Context, req *gpb.SetRequest) (*gpb.SetResponse
 			return nil, err
 		}
 	}
+	if s.opts.SetAnswer != nil {
+		s.opts.SetAnswer(resp)
+	}
 	return resp, nil
 }
 

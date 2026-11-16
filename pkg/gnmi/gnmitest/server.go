@@ -67,6 +67,10 @@ type Options struct {
 	// AfterSet, when set, runs after a Set is applied and before it is
 	// answered; an error it returns is the answer, the change kept.
 	AfterSet func(ctx context.Context) error
+	// SetAnswer, when set, may change a Set's answer after the Set is
+	// applied and before the OK is sent, so a test can send an answer a
+	// client refuses to read for a change the server made.
+	SetAnswer func(resp *gpb.SetResponse)
 	// Files are the files File.Stat reports, by path.
 	Files map[string]uint64
 }
