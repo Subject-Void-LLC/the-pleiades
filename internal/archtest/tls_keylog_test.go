@@ -7,6 +7,7 @@
 package archtest
 
 import (
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -111,24 +112,83 @@ func TestOnlyDevicetlsSetsAKeyLogWriter(t *testing.T) {
 
 // TestNoDispatchCarriesATLSKeyLog holds the messages between the tiers, a
 // dispatch's payload and the Runner's per-task child request and response,
-// to having no field that names a key log, by Go name or JSON name, so a
-// Controller cannot ask a Runner for one and a child cannot hand one back.
+// to having no field that names a key log, by Go name or JSON name, at any
+// depth: a field of a nested struct, or of the element of a pointer, slice,
+// array or map. So a Controller cannot ask a Runner for one and a child
+// cannot hand one back. A field typed any is not looked inside, since its
+// shape is not known until it is decoded.
 func TestNoDispatchCarriesATLSKeyLog(t *testing.T) {
 	for _, typ := range []reflect.Type{
 		reflect.TypeFor[wire.DispatchPayload](),
 		reflect.TypeFor[wire.ChildRequest](),
 		reflect.TypeFor[wire.ChildResponse](),
 	} {
-		if typ.NumField() == 0 {
+		found, walked := keyLogFields(typ)
+		if walked == 0 {
 			t.Fatalf("%s has no fields, so this rule checks nothing", typ)
 		}
-		for i := range typ.NumField() {
-			f := typ.Field(i)
-			if mentionsKeyLog(f.Name) || mentionsKeyLog(f.Tag.Get("json")) {
-				t.Errorf("%s.%s (json %q) names a TLS key log: a key log is the command line's alone and never crosses to a Runner", typ, f.Name, f.Tag.Get("json"))
-			}
+		for _, f := range found {
+			t.Errorf("%s names a TLS key log: a key log is the command line's alone and never crosses to a Runner", f)
 		}
 	}
+}
+
+// keyLogFields returns every field of typ, at any depth, whose Go or JSON
+// name speaks of a key log, each as its dotted path from typ, and how many
+// fields it walked. Each struct type is walked once, so a type that holds
+// itself ends the walk.
+func keyLogFields(typ reflect.Type) ([]string, int) {
+	var found []string
+	walked := 0
+	seen := map[reflect.Type]bool{}
+	var walk func(t reflect.Type, at string)
+	walk = func(t reflect.Type, at string) {
+		for {
+			switch t.Kind() {
+			case reflect.Pointer, reflect.Slice, reflect.Array:
+				t = t.Elem()
+				continue
+			case reflect.Map:
+				walk(t.Key(), at+"[key]")
+				t = t.Elem()
+				continue
+			}
+			break
+		}
+		if t.Kind() != reflect.Struct || seen[t] {
+			return
+		}
+		seen[t] = true
+		for i := range t.NumField() {
+			f := t.Field(i)
+			walked++
+			path := at + "." + f.Name
+			if mentionsKeyLog(f.Name) || mentionsKeyLog(f.Tag.Get("json")) {
+				found = append(found, fmt.Sprintf("%s (json %q)", path, f.Tag.Get("json")))
+			}
+			walk(f.Type, path)
+		}
+	}
+	walk(typ, typ.String())
+	return found, walked
+}
+
+// keyLogControlInner and keyLogControlPayload are a payload holding a key log
+// field only at depth, for TestKeyLogMatchers_Control.
+type keyLogControlInner struct {
+	Path string `json:"tls_key_log_path"`
+}
+
+// keyLogControlPayload hides its key log fields in a nested struct and in
+// the element of a slice, beside a map of the same element and itself.
+type keyLogControlPayload struct {
+	Name  string `json:"name"`
+	Inner struct {
+		KeyLog string
+	}
+	List   []keyLogControlInner
+	ByName map[string]*keyLogControlInner
+	Self   *keyLogControlPayload
 }
 
 // mentionsKeyLog reports whether name speaks of a key log: keylog, key_log,
@@ -163,6 +223,17 @@ func work(s devicetls.Settings) { _, _ = s.ConfigContext(nil, nil) }`, nil, 0},
 func work(cfg *tls.Config, w io.Writer) { cfg.KeyLogWriter = w }`, nil, 1},
 		{"a literal", `package p
 var cfg = &tls.Config{MinVersion: tls.VersionTLS12, KeyLogWriter: os.Stderr}`, nil, 1},
+		{"a dot import names it bare", `package p
+import . "` + devicetlsPkg + `"
+func start() { _, _ = CreateKeyLog("x") }
+func carry(ctx context.Context) { _ = WithKeyLog(ctx, nil) }`, []string{"start", "carry"}, 0},
+		{"a dot import's other package's selector is not this one", `package p
+import . "` + devicetlsPkg + `"
+import "example.com/other"
+func work() { _ = other.CreateKeyLog; _ = Settings{} }`, nil, 0},
+		{"a bare name without the dot import is not this one", `package p
+import "` + devicetlsPkg + `"
+func work() { _ = CreateKeyLog; _ = devicetls.Settings{} }`, nil, 0},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -187,6 +258,17 @@ var cfg = &tls.Config{MinVersion: tls.VersionTLS12, KeyLogWriter: os.Stderr}`, n
 			t.Errorf("mentionsKeyLog(%q) = %t, want %t", name, !want, want)
 		}
 	}
+	// The field walk finds a key log field in a nested struct and in a
+	// slice's element (the map's element is the same type, walked once), and
+	// ends at the type that holds itself.
+	found, walked := keyLogFields(reflect.TypeFor[keyLogControlPayload]())
+	want := []string{
+		`archtest.keyLogControlPayload.Inner.KeyLog (json "")`,
+		`archtest.keyLogControlPayload.List.Path (json "tls_key_log_path")`,
+	}
+	if strings.Join(found, "|") != strings.Join(want, "|") || walked < 7 {
+		t.Errorf("keyLogFields found %q after %d fields, want %q", found, walked, want)
+	}
 }
 
 // keyLogUse is one place a file names a key log entry.
@@ -198,7 +280,8 @@ type keyLogUse struct {
 }
 
 // keyLogUses returns every place file names one of keyLogEntries through its
-// import of pkg/devicetls.
+// import of pkg/devicetls: as name.Entry, or as a bare Entry where the file
+// dot-imports the package (a selector's own name, other.Entry, is not one).
 func keyLogUses(file *ast.File) []keyLogUse {
 	name := importName(file, devicetlsPkg, "devicetls")
 	if name == "" {
@@ -206,13 +289,19 @@ func keyLogUses(file *ast.File) []keyLogUse {
 	}
 	var uses []keyLogUse
 	collect := func(node ast.Node, decl string) {
+		// The names a selector picks, which are never a dot import's bare use.
+		picked := map[*ast.Ident]bool{}
 		ast.Inspect(node, func(n ast.Node) bool {
-			sel, ok := n.(*ast.SelectorExpr)
-			if !ok {
-				return true
-			}
-			if x, isIdent := sel.X.(*ast.Ident); isIdent && x.Name == name && keyLogEntries[sel.Sel.Name] {
-				uses = append(uses, keyLogUse{pos: sel.Pos(), entry: sel.Sel.Name, decl: decl})
+			switch n := n.(type) {
+			case *ast.SelectorExpr:
+				picked[n.Sel] = true
+				if x, isIdent := n.X.(*ast.Ident); isIdent && x.Name == name && keyLogEntries[n.Sel.Name] {
+					uses = append(uses, keyLogUse{pos: n.Pos(), entry: n.Sel.Name, decl: decl})
+				}
+			case *ast.Ident:
+				if name == "." && !picked[n] && keyLogEntries[n.Name] {
+					uses = append(uses, keyLogUse{pos: n.Pos(), entry: n.Name, decl: decl})
+				}
 			}
 			return true
 		})
