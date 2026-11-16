@@ -128,24 +128,24 @@ func parseElem(s string) (Elem, string, error) {
 	for strings.HasPrefix(s, "[") {
 		eq := strings.IndexByte(s, '=')
 		if eq < 0 {
-			return Elem{}, "", fmt.Errorf("a key of %s has no =", elem.Name)
+			return Elem{}, "", fmt.Errorf("a key of %s has no =", quoted(elem.Name))
 		}
 		name := s[1:eq]
 		value, rest, err := parseKeyValue(s[eq+1:])
 		if err != nil {
-			return Elem{}, "", fmt.Errorf("key %q of %s: %w", name, elem.Name, err)
+			return Elem{}, "", fmt.Errorf("key %s of %s: %w", quoted(name), quoted(elem.Name), err)
 		}
 		if elem.Keys == nil {
 			elem.Keys = map[string]string{}
 		}
 		if _, repeated := elem.Keys[name]; repeated {
-			return Elem{}, "", fmt.Errorf("key %q of %s is given twice", name, elem.Name)
+			return Elem{}, "", fmt.Errorf("key %s of %s is given twice", quoted(name), quoted(elem.Name))
 		}
 		elem.Keys[name] = value
 		s = rest
 	}
 	if s != "" && s[0] != '/' {
-		return Elem{}, "", fmt.Errorf("element %s is followed by %q, not / or a key", elem.Name, s[:1])
+		return Elem{}, "", fmt.Errorf("element %s is followed by %q, not / or a key", quoted(elem.Name), s[:1])
 	}
 	return elem, s, nil
 }
@@ -177,7 +177,7 @@ func parseKeyValue(s string) (string, string, error) {
 // UTF-8 with no control character.
 func (p Path) Validate(allowWildcards bool) error {
 	if p.Origin != "" && (len(p.Origin) > maxOriginBytes || !originPattern.MatchString(p.Origin)) {
-		return fmt.Errorf("origin %q is not a name", p.Origin)
+		return fmt.Errorf("origin %s is not a name", quoted(p.Origin))
 	}
 	if len(p.Elems) > MaxElems {
 		return fmt.Errorf("the path names %d elements, more than %d", len(p.Elems), MaxElems)
@@ -213,12 +213,12 @@ func validName(name string, allowWildcards bool) error {
 	local := name
 	if prefix, after, prefixed := strings.Cut(name, ":"); prefixed {
 		if !yanglib.IsIdentifier(prefix) {
-			return fmt.Errorf("%q is not a YANG identifier with a module prefix", name)
+			return fmt.Errorf("%s is not a YANG identifier with a module prefix", quoted(name))
 		}
 		local = after
 	}
 	if !yanglib.IsIdentifier(local) {
-		return fmt.Errorf("%q is not a YANG identifier", name)
+		return fmt.Errorf("%s is not a YANG identifier", quoted(name))
 	}
 	return nil
 }

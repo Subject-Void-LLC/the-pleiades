@@ -90,7 +90,7 @@ func (req GetRequest) proto() (*gpb.GetRequest, error) {
 	}
 	for _, p := range req.Paths {
 		if err := p.Validate(true); err != nil {
-			return nil, fmt.Errorf("path %s: %w", p, err)
+			return nil, fmt.Errorf("path %s: %w", quoted(p.String()), err)
 		}
 		out.Path = append(out.Path, p.proto())
 	}
@@ -137,11 +137,11 @@ func decodeNotification(n *gpb.Notification) (Notification, error) {
 		if u.GetVal() == nil && u.GetValue() != nil {
 			// gNMI 0.4.0 replaced the value field with val; its bytes carry
 			// an encoding of the target's choosing, never read here.
-			return Notification{}, fmt.Errorf("the value at %s came in the value field gNMI 0.4.0 deprecated, which this client does not read", Join(prefix, path))
+			return Notification{}, fmt.Errorf("the value at %s came in the value field gNMI 0.4.0 deprecated, which this client does not read", shown(Join(prefix, path)))
 		}
 		value, err := decodeValue(u.GetVal())
 		if err != nil {
-			return Notification{}, fmt.Errorf("the value at %s: %w", Join(prefix, path), err)
+			return Notification{}, fmt.Errorf("the value at %s: %w", shown(Join(prefix, path)), err)
 		}
 		out.Updates = append(out.Updates, Update{Path: path, Value: value, Duplicates: u.GetDuplicates()})
 	}

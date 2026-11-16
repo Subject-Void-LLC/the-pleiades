@@ -89,7 +89,7 @@ func (req SubscribeRequest) list(mode gpb.SubscriptionList_Mode, each func(*gpb.
 	}
 	for _, p := range req.Paths {
 		if err := p.Validate(true); err != nil {
-			return nil, fmt.Errorf("path %s: %w", p, err)
+			return nil, fmt.Errorf("path %s: %w", quoted(p.String()), err)
 		}
 		sub := &gpb.Subscription{Path: p.proto()}
 		if each != nil {

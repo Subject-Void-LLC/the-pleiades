@@ -94,7 +94,7 @@ func fromDatastore(p datastore.Path) (Path, error) {
 	var out Path
 	for _, e := range p.Elem {
 		if e.Namespace != "" {
-			return Path{}, fmt.Errorf("element %s names the namespace %q; gNMI names a module by prefix in the element (module:%s), not by namespace", e.Name, e.Namespace, e.Name)
+			return Path{}, fmt.Errorf("element %s names the namespace %s; gNMI names a module by prefix in the element (module:name), not by namespace", quoted(e.Name), quoted(e.Namespace))
 		}
 		elem := Elem{Name: e.Name}
 		if len(e.Keys) > 0 {

@@ -11,6 +11,7 @@ import (
 	"encoding/pem"
 	"fmt"
 	"math"
+	"strconv"
 	"strings"
 	"time"
 
@@ -19,6 +20,7 @@ import (
 	"github.com/openconfig/gnoi/system"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/farside"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/yanglib"
 )
 
@@ -170,4 +172,32 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return strings.ToValidUTF8(s[:n], "")
+}
+
+// maxQuotedBytes bounds the text an error quotes from a name, a key or a
+// path a device (or a caller) supplied, as pkg/farside bounds a far side's
+// words: a device may send a name or a key of megabytes, and an error quoting
+// it whole would carry all of it into every log and report that keeps the
+// error.
+const maxQuotedBytes = farside.MaxBytes
+
+// quoted is s for an error: cut on a character boundary to maxQuotedBytes,
+// marked with "..." when cut, and quoted, so a control character in it is
+// shown escaped rather than acted on.
+func quoted(s string) string {
+	if len(s) <= maxQuotedBytes {
+		return strconv.Quote(s)
+	}
+	return strconv.Quote(truncate(s, maxQuotedBytes)) + "..."
+}
+
+// shown is a path for an error, cut as quoted cuts text but not quoted: a
+// path that passed Validate holds no control or format character, so only
+// its length needs a bound.
+func shown(p Path) string {
+	s := p.String()
+	if len(s) <= maxQuotedBytes {
+		return s
+	}
+	return truncate(s, maxQuotedBytes) + "..."
 }

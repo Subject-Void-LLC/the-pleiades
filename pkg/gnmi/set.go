@@ -124,7 +124,7 @@ func (req SetRequest) proto() (*gpb.SetRequest, error) {
 	size := 0
 	for _, p := range req.Delete {
 		if err := p.Validate(false); err != nil {
-			return nil, fmt.Errorf("delete %s: %w", p, err)
+			return nil, fmt.Errorf("delete %s: %w", quoted(p.String()), err)
 		}
 		out.Delete = append(out.Delete, p.proto())
 	}
@@ -132,16 +132,16 @@ func (req SetRequest) proto() (*gpb.SetRequest, error) {
 		var updates []*gpb.Update
 		for _, v := range in {
 			if err := v.Path.Validate(false); err != nil {
-				return nil, fmt.Errorf("%s %s: %w", kind, v.Path, err)
+				return nil, fmt.Errorf("%s %s: %w", kind, quoted(v.Path.String()), err)
 			}
 			raw, err := CanonicalJSON(v.JSON)
 			if err != nil {
-				return nil, fmt.Errorf("%s %s: %w", kind, v.Path, err)
+				return nil, fmt.Errorf("%s %s: %w", kind, shown(v.Path), err)
 			}
 			size += len(raw)
 			typed, err := typedJSON(raw, v.Encoding)
 			if err != nil {
-				return nil, fmt.Errorf("%s %s: %w", kind, v.Path, err)
+				return nil, fmt.Errorf("%s %s: %w", kind, shown(v.Path), err)
 			}
 			updates = append(updates, &gpb.Update{Path: v.Path.proto(), Val: typed})
 		}
