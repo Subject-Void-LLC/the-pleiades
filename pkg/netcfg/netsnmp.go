@@ -1,7 +1,10 @@
 // Package netcfg: the SNMP secrets of a net-snmp agent's snmpd.conf, which a
 // Linux device or an appliance built on net-snmp holds where a Cisco device
 // holds snmp-server lines: a community after rocommunity, rwcommunity, their
-// IPv6 forms or com2sec, and an SNMPv3 user's passphrases after createUser.
+// IPv6 forms or com2sec, the community its traps are sent with (trapsink,
+// trap2sink, informsink, trapcommunity, trapsess -c), an SNMPv3 user's
+// passphrases after createUser or trapsess -A and -X, and the community
+// snmptrapd.conf's authCommunity accepts.
 package netcfg
 
 import (
@@ -12,7 +15,19 @@ import (
 // netSNMPCommunityWords open a line whose first argument is a community:
 // rocommunity COMMUNITY [SOURCE [OID | -V VIEW [CONTEXT]]], and the same for
 // rwcommunity and the IPv6 forms (snmpd.conf(5)).
-var netSNMPCommunityWords = []string{"rocommunity", "rwcommunity", "rocommunity6", "rwcommunity6"}
+var netSNMPCommunityWords = []string{"rocommunity", "rwcommunity", "rocommunity6", "rwcommunity6", "trapcommunity"}
+
+// netSNMPSecondArgumentWords open a line whose second argument is a
+// community: trapsink HOST[:PORT] [COMMUNITY [PORT]], and the same for
+// trap2sink and informsink (snmpd.conf(5)), and snmptrapd.conf(5)'s
+// authCommunity TYPES COMMUNITY [SOURCE [OID | -v VIEW]].
+var netSNMPSecondArgumentWords = []string{"trapsink", "trap2sink", "informsink", "authcommunity"}
+
+// trapsessSecretOptions are the trapsess options (snmpcmd(1)'s) whose value
+// is a secret: -c COMMUNITY, -A AUTHPASSPHRASE and -X PRIVPASSPHRASE, apart
+// from the option or attached to it. Each is case-sensitive: -a and -x name
+// protocols, and -C is another option.
+var trapsessSecretOptions = []string{"-c", "-A", "-X"}
 
 // netSNMPAuthAlgorithms and netSNMPPrivAlgorithms are what createUser names
 // before each passphrase: createUser [-e ENGINEID] USER
@@ -34,6 +49,10 @@ func maskNetSNMP(line string, ws []word, found *[]string) (string, bool) {
 	switch {
 	case slices.Contains(netSNMPCommunityWords, keyword):
 		return maskNetSNMPWord(line, ws, 1, found), true
+	case slices.Contains(netSNMPSecondArgumentWords, keyword):
+		return maskNetSNMPWord(line, ws, 2, found), true
+	case keyword == "trapsess":
+		return maskTrapsess(line, ws, found), true
 	case keyword == "com2sec" || keyword == "com2sec6":
 		// com2sec [-Cn CONTEXT] NAME SOURCE COMMUNITY: the community is the
 		// third argument after any -Cn option.
@@ -113,4 +132,24 @@ func replaceArgument(line string, ws []word, at int, found *[]string) string {
 		return line
 	}
 	return replaceWord(line, word{text: line[start:stop], start: start}, found)
+}
+
+// maskTrapsess masks a trapsess line's community and passphrases: the word
+// after -c, -A or -X, or the rest of the word an option is attached to
+// (-cpublic). It works from the last word back, so every earlier word's
+// offset holds.
+func maskTrapsess(line string, ws []word, found *[]string) string {
+	for k := len(ws) - 1; k >= 1; k-- {
+		text := ws[k].text
+		if len(text) < 2 || !slices.Contains(trapsessSecretOptions, text[:2]) {
+			continue
+		}
+		switch {
+		case len(text) > 2 && !strings.HasPrefix(text[2:], MaskPrefix):
+			line = replaceWord(line, word{text: text[2:], start: ws[k].start + 2}, found)
+		case len(text) == 2 && k+1 < len(ws) && !strings.HasPrefix(ws[k+1].text, MaskPrefix):
+			line = replaceWord(line, ws[k+1], found)
+		}
+	}
+	return line
 }

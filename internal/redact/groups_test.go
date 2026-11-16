@@ -27,6 +27,38 @@ func TestSNMPShapes_MaskEachSecretAndKeepItsKeyword(t *testing.T) {
 		{"snmp-server user monitor grp v3 auth md5 auth-pass-2", "snmp-server user monitor grp v3 auth md5 ********"},
 		{`createUser -e 0x80001f88 monitor SHA-512 "auth pass three" AES-192 priv-pass-3`, "createUser -e 0x80001f88 monitor SHA-512 ******** AES-192 ********"},
 		{"createUser monitor SHA auth-pass-4 AES", "createUser monitor SHA ******** AES"},
+		// NX-OS's own spellings of a v3 user's algorithms, and its priv with
+		// no algorithm (DES), which prints localized keys.
+		{"snmp-server user admin network-admin auth sha-256 auth-pass-9 priv aes-128 priv-pass-9",
+			"snmp-server user admin network-admin auth sha-256 ******** priv aes-128 ********"},
+		{"snmp-server user admin network-admin auth md5 0x1a2b3c4d priv 0x5e6f7a8b localizedkey",
+			"snmp-server user admin network-admin auth md5 ******** priv ******** localizedkey"},
+		// A notification host's community, after any vrf, traps or informs
+		// and version; a v3 host's word is a user, and NX-OS's host lines
+		// naming a vrf or an interface hold no community.
+		{"snmp-server host 10.0.0.1 version 2c public", "snmp-server host 10.0.0.1 version 2c ********"},
+		{"snmp-server host 192.0.2.1 vrf Mgmt-intf informs version 2c public udp-port 162", "snmp-server host 192.0.2.1 vrf Mgmt-intf informs version 2c ******** udp-port 162"},
+		{"snmp-server host 10.0.0.1 traps version 1 public", "snmp-server host 10.0.0.1 traps version 1 ********"},
+		{"snmp-server host 10.0.0.1 public", "snmp-server host 10.0.0.1 ********"},
+		{"snmp-server host 10.0.0.1 informs version 3 priv monitor", "snmp-server host 10.0.0.1 informs version 3 priv monitor"},
+		{"snmp-server host 10.0.0.1 use-vrf management", "snmp-server host 10.0.0.1 use-vrf management"},
+		{"snmp-server host 10.0.0.1 source-interface mgmt0", "snmp-server host 10.0.0.1 source-interface mgmt0"},
+		// A net-snmp agent's trap sinks and trap community, and snmptrapd's
+		// accepted community.
+		{"trapsink 10.0.0.1 public", "trapsink 10.0.0.1 ********"},
+		{"trap2sink nms.example.com:162 public 162", "trap2sink nms.example.com:162 ******** 162"},
+		{"informsink nms.example.com public", "informsink nms.example.com ********"},
+		{"trapsink 10.0.0.1", "trapsink 10.0.0.1"},
+		{"trapcommunity public", "trapcommunity ********"},
+		{"authCommunity log,execute,net public", "authCommunity log,execute,net ********"},
+		// trapsess's options, apart or attached, in either order; the
+		// protocol options (-a, -x) are not secrets.
+		{"trapsess -v 2c -c public 10.0.0.1", "trapsess -v 2c -c ******** 10.0.0.1"},
+		{"trapsess -v2c -cpublic nms.example.com", "trapsess -v2c -c******** nms.example.com"},
+		{"trapsess -v 3 -u monitor -l authPriv -a SHA -A auth-pass-7 -x AES -X priv-pass-7 10.0.0.1",
+			"trapsess -v 3 -u monitor -l authPriv -a SHA -A ******** -x AES -X ******** 10.0.0.1"},
+		{"trapsess -v 3 -u monitor -l authPriv -X priv-pass-8 -a SHA -A auth-pass-8 10.0.0.1",
+			"trapsess -v 3 -u monitor -l authPriv -X ******** -a SHA -A ******** 10.0.0.1"},
 		// Masked already: a pkg/netcfg placeholder keeps the comparison it
 		// makes possible, and this package's own is not masked again.
 		{"snmp-server community pleiades-masked-0123456789abcdef RO", "snmp-server community pleiades-masked-0123456789abcdef RO"},

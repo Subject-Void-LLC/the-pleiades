@@ -153,16 +153,17 @@
     {
       "name": "snmp_community",
       "kind": "pattern",
-      "pattern": "(?i)\\b(?:snmp-server[ \\t]+community|rocommunity6?|rwcommunity6?)[ \\t]+([^ \\t\\r\\n]+)",
+      "pattern": "(?i)\\b(?:snmp-server[ \\t]+community|rocommunity6?|rwcommunity6?|trapcommunity)[ \\t]+([^ \\t\\r\\n]+)",
       "secret_groups": true,
-      "description": "An SNMPv1/v2c community in a device's configuration: an IOS snmp-server community line, or a net-snmp rocommunity or rwcommunity line and their IPv6 forms. A community is a password sent in the clear, and one shorter than eight characters is masked by this shape alone, since masking it by value would scrub ordinary words from every output.",
+      "description": "An SNMPv1/v2c community in a device's configuration: an IOS or NX-OS snmp-server community line, a net-snmp rocommunity or rwcommunity line and their IPv6 forms, or the trapcommunity a net-snmp agent sends its traps with. A community is a password sent in the clear, and one shorter than eight characters is masked by this shape alone, since masking it by value would scrub ordinary words from every output.",
       "prefilter": [
         "community"
       ],
       "samples": [
         "snmp-server community public RO",
         "rocommunity public 10.0.0.0/24",
-        "rwcommunity6 c0mmunity-s3cret fd00::/8"
+        "rwcommunity6 c0mmunity-s3cret fd00::/8",
+        "trapcommunity public"
       ]
     },
     {
@@ -180,18 +181,93 @@
       ]
     },
     {
+      "name": "snmp_server_host_community",
+      "kind": "pattern",
+      "pattern": "(?i)\\bsnmp-server[ \\t]+host[ \\t]+[^ \\t\\r\\n]+(?:[ \\t]+(?:vrf[ \\t]+[^ \\t\\r\\n]+|informs|traps))*(?:[ \\t]+version[ \\t]+3\\b|[ \\t]+(?:use-vrf|filter-vrf|source-interface)\\b|(?:[ \\t]+version[ \\t]+(?:1|2c))?[ \\t]+([^ \\t\\r\\n]+))",
+      "secret_groups": true,
+      "description": "The community an IOS or NX-OS snmp-server host line sends its notifications with, after the address and any vrf, traps or informs and version 1 or 2c. With version 3 the word there is a USM user, not a secret, and an NX-OS use-vrf, filter-vrf or source-interface line holds no community, so each of those matches without a group and masks nothing.",
+      "prefilter": [
+        "snmp-server"
+      ],
+      "samples": [
+        "snmp-server host 10.0.0.1 version 2c public",
+        "snmp-server host 192.0.2.1 vrf Mgmt-intf informs version 2c c0mmunity-s3cret",
+        "snmp-server host 10.0.0.1 traps version 2c public udp-port 162",
+        "snmp-server host 10.0.0.1 public"
+      ]
+    },
+    {
+      "name": "snmp_net_snmp_trap_community",
+      "kind": "pattern",
+      "pattern": "(?i)\\b(?:trapsink|trap2sink|informsink|authcommunity)[ \\t]+[^ \\t\\r\\n]+[ \\t]+([^ \\t\\r\\n]+)",
+      "secret_groups": true,
+      "description": "The community a net-snmp agent's trapsink, trap2sink or informsink line sends to its host with, its second argument, and the community an snmptrapd authCommunity line accepts, after its types.",
+      "prefilter": [
+        "sink",
+        "authcommunity"
+      ],
+      "samples": [
+        "trapsink 10.0.0.1 public",
+        "trap2sink 10.0.0.1:162 c0mmunity-s3cret 162",
+        "informsink nms.example.com public",
+        "authCommunity log,execute,net public"
+      ]
+    },
+    {
+      "name": "snmp_net_snmp_trapsess_community",
+      "kind": "pattern",
+      "pattern": "\\b(?i:trapsess)\\b[^\\r\\n]*?[ \\t]-c[ \\t]*([^ \\t\\r\\n]+)",
+      "secret_groups": true,
+      "description": "The community a net-snmp trapsess line passes as -c, apart or attached. The option is matched in lower case only, since snmpcmd reads -C as another option.",
+      "prefilter": [
+        "trapsess"
+      ],
+      "samples": [
+        "trapsess -v 2c -c public 10.0.0.1",
+        "trapsess -v2c -cc0mmunity-s3cret nms.example.com:162"
+      ]
+    },
+    {
+      "name": "snmp_net_snmp_trapsess_auth_passphrase",
+      "kind": "pattern",
+      "pattern": "\\b(?i:trapsess)\\b[^\\r\\n]*?[ \\t]-A[ \\t]*([^ \\t\\r\\n]+)",
+      "secret_groups": true,
+      "description": "The authentication passphrase a net-snmp trapsess line passes as -A, apart or attached. The option is matched in upper case only, since -a names the protocol.",
+      "prefilter": [
+        "trapsess"
+      ],
+      "samples": [
+        "trapsess -v 3 -u monitor -l authPriv -a SHA -A auth-pass-7 -x AES -X priv-pass-7 10.0.0.1"
+      ]
+    },
+    {
+      "name": "snmp_net_snmp_trapsess_priv_passphrase",
+      "kind": "pattern",
+      "pattern": "\\b(?i:trapsess)\\b[^\\r\\n]*?[ \\t]-X[ \\t]*([^ \\t\\r\\n]+)",
+      "secret_groups": true,
+      "description": "The privacy passphrase a net-snmp trapsess line passes as -X, apart or attached, in upper case only, since -x names the protocol. It is its own rule so a line naming -X before -A is masked too.",
+      "prefilter": [
+        "trapsess"
+      ],
+      "samples": [
+        "trapsess -v 3 -u monitor -l authPriv -X priv-pass-8 -a SHA -A auth-pass-8 10.0.0.1"
+      ]
+    },
+    {
       "name": "snmp_v3_user_passphrases",
       "kind": "pattern",
-      "pattern": "(?i)\\bsnmp-server[ \\t]+user[ \\t][^\\r\\n]*?\\bauth[ \\t]+(?:md5|sha-2[ \\t]+(?:256|384|512)|sha)[ \\t]+([^ \\t\\r\\n]+)(?:[ \\t]+priv[ \\t]+(?:des|3des|aes[ \\t]+(?:128|192|256))[ \\t]+([^ \\t\\r\\n]+))?",
+      "pattern": "(?i)\\bsnmp-server[ \\t]+user[ \\t][^\\r\\n]*?\\bauth[ \\t]+(?:md5|sha-2[ \\t]+(?:224|256|384|512)|sha-(?:224|256|384|512)|sha)[ \\t]+([^ \\t\\r\\n]+)(?:[ \\t]+priv[ \\t]+(?:(?:des56|des|3des|aes[ \\t]+(?:128|192|256)|aes-(?:128|192|256))[ \\t]+)?([^ \\t\\r\\n]+))?",
       "secret_groups": true,
-      "description": "An IOS SNMPv3 user's authentication and privacy passphrases, or its localized keys on an encrypted line, each after its algorithm. IOS does not print these in its running configuration, so this is for a line an operator or a runbook wrote, echoed back.",
+      "description": "An IOS or NX-OS SNMPv3 user's authentication and privacy passphrases, or its localized keys, each after its algorithm: IOS's sha-2 256 and aes 128, NX-OS's sha-256 and aes-128, and NX-OS's priv with no algorithm, which is DES. IOS does not print these in its running configuration and NX-OS prints the localized keys, so this is for a line an operator or a runbook wrote, echoed back, and for an NX-OS running configuration.",
       "prefilter": [
         "snmp-server"
       ],
       "samples": [
         "snmp-server user monitor grp v3 auth sha auth-pass-1 priv aes 256 priv-pass-1",
         "snmp-server user monitor grp v3 auth sha-2 512 auth-pass-2 priv 3des priv-pass-2 access 10",
-        "snmp-server user monitor grp v3 encrypted auth md5 0a1b2c3d4e5f"
+        "snmp-server user monitor grp v3 encrypted auth md5 0a1b2c3d4e5f",
+        "snmp-server user admin network-admin auth sha-256 auth-pass-9 priv aes-128 priv-pass-9",
+        "snmp-server user admin network-admin auth md5 0x1a2b3c4d priv 0x5e6f7a8b localizedkey"
       ]
     },
     {

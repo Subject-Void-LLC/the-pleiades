@@ -237,6 +237,7 @@ func shortCommunityNote(name string, cred credential.Credential) string {
 	if !cred.SNMP().ShortCommunity() {
 		return ""
 	}
-	return fmt.Sprintf("WARNING: the SNMP community stored for %q is shorter than %d characters, so every run masks it only by its shape (the configuration lines that hold it), never by value, and says so",
+	return fmt.Sprintf("WARNING: the SNMP community stored for %q is shorter than %d characters, so every run masks it only by its shape (the configuration lines that hold it), never by value, and says so: "+
+		"output that shows it any other way, such as show snmp community, shows it in the clear",
 		name, wire.MinSNMPCommunityLength)
 }

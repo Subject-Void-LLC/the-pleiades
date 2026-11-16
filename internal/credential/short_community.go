@@ -13,6 +13,7 @@ package credential
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
@@ -26,12 +27,24 @@ func ShortCommunity(secrets map[string]string) bool {
 	return wire.SNMPOf(secrets).ShortCommunity()
 }
 
+// shortCommunityShapes are the configuration lines whose shape masks a
+// community in every output the platform masks (internal/redact's rules.json,
+// which pkg/netcfg matches for a configuration a method reads), as the
+// warning names them. A test holds each to a line the run's masking really
+// masks, so the warning cannot name a shape nothing masks.
+var shortCommunityShapes = []string{
+	"snmp-server community", "snmp-server host",
+	"rocommunity", "rwcommunity", "com2sec", "trapsink", "trap2sink", "informsink", "trapcommunity", "trapsess -c",
+	"authCommunity",
+}
+
 // ShortCommunityWarning is what a run says about device, whose credential
 // carries a short community: where it is still masked, and where it is not.
 func ShortCommunityWarning(device string) string {
 	return fmt.Sprintf("device %q's SNMP community is shorter than %d characters and was stored allowed short, so this run masks it "+
-		"only by its shape (a configuration line that holds it, such as snmp-server community or rocommunity), never by value: "+
-		"output that shows it any other way shows it", device, wire.MinSNMPCommunityLength)
+		"only by the shape of the configuration lines that hold it (%s), never by value: any other output that shows it, "+
+		"such as show snmp community or a device's own message naming it, shows it in the clear",
+		device, wire.MinSNMPCommunityLength, strings.Join(shortCommunityShapes, ", "))
 }
 
 // noticeShortCommunity is a Store that announces each device whose
