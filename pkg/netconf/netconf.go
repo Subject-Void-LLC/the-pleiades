@@ -56,6 +56,7 @@ package netconf
 import (
 	"context"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -367,9 +368,15 @@ func (s *Session) TakeWarnings() []RPCError {
 	return out
 }
 
+// ErrDatastoreNotAdvertised marks Open's refusal of a Target the server's
+// hello does not advertise, so a caller can tell "this device has no such
+// datastore" from a session that failed.
+var ErrDatastoreNotAdvertised = errors.New("netconf: the datastore is not advertised")
+
 // checkTarget refuses a configured Target the server never advertised
 // support for, naming the capability rather than the datastore, since
-// the capability is what an operator has to enable on the device.
+// the capability is what an operator has to enable on the device. The
+// refusal wraps ErrDatastoreNotAdvertised.
 func (s *Session) checkTarget() error {
 	switch s.target {
 	case Running:
@@ -380,11 +387,11 @@ func (s *Session) checkTarget() error {
 		return nil
 	case Candidate:
 		if !s.HasCapability(CapabilityCandidate) {
-			return fmt.Errorf("netconf: this device does not support the candidate datastore (it does not advertise %s); use the running datastore instead", CapabilityCandidate)
+			return fmt.Errorf("netconf: this device does not support the candidate datastore (it does not advertise %s); use the running datastore instead: %w", CapabilityCandidate, ErrDatastoreNotAdvertised)
 		}
 	case Startup:
 		if !s.HasCapability(CapabilityStartup) {
-			return fmt.Errorf("netconf: this device does not support the startup datastore (it does not advertise %s)", CapabilityStartup)
+			return fmt.Errorf("netconf: this device does not support the startup datastore (it does not advertise %s): %w", CapabilityStartup, ErrDatastoreNotAdvertised)
 		}
 	default:
 		return fmt.Errorf("netconf: unknown datastore %q: valid datastores are running, candidate and startup", s.target)
