@@ -58,6 +58,9 @@ func write(ctx context.Context, rc sdk.RunbookContext, client *gnmi.Client, req 
 	if err != nil {
 		return collection.Result{}, nil, fmt.Errorf("%w; nothing was written", err)
 	}
+	if err := undoFits(undoDeletes(req, roots, nil)); err != nil {
+		return collection.Result{}, nil, fmt.Errorf("%w; nothing was sent", err)
+	}
 	backups, backupErr := recordedAll(rc, client, targets, before)
 	if req.backup {
 		if backupErr != nil {
@@ -306,6 +309,33 @@ func recordUndo(rc sdk.RunbookContext, req writeRequest, roots map[string]gnmi.P
 		Description:   "deletes " + strings.Join(names, ", ") + ", which this run created",
 		KeepOnFailure: true,
 	})
+}
+
+// The bounds the run journal holds an undo's values to (internal/engine's
+// maxRecordedItems and maxRecordedText, which a Collection cannot import):
+// past either, the journal keeps none of the undo, and a rollback refuses the
+// task as not recorded in full, under a manifest saying the undo is exact.
+const (
+	// maxUndoDeletes is the most nodes one undo deletes.
+	maxUndoDeletes = 128
+	// maxUndoPathBytes bounds one node's path, as gNMI writes it.
+	maxUndoPathBytes = 256
+)
+
+// undoFits refuses an undo deleting more nodes than the journal keeps, or a
+// node whose path is longer than it keeps, before the Set that would need it
+// is sent. Every other rule of the journal's (valid UTF-8, nothing a terminal
+// acts on) already holds for a path, which Path.Validate checked.
+func undoFits(deletes []string) error {
+	if len(deletes) > maxUndoDeletes {
+		return fmt.Errorf("the write creates %d nodes, and its undo, which deletes each, can name at most %d: split the task", len(deletes), maxUndoDeletes)
+	}
+	for _, d := range deletes {
+		if len(d) > maxUndoPathBytes {
+			return fmt.Errorf("the write creates a node whose path is %d bytes, and its undo can name one of at most %d: write it in a task whose path creates less", len(d), maxUndoPathBytes)
+		}
+	}
+	return nil
 }
 
 // undoDeletes are the roots recordUndo deletes, as gNMI writes each path, in
