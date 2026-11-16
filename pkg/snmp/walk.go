@@ -15,6 +15,8 @@ type WalkResult struct {
 	// Truncated says the walk stopped at its limit before it saw the
 	// subtree's end, so Bindings may be only its first part.
 	Truncated bool
+	// Bytes is how many bytes the bindings hold, as the bound counts them.
+	Bytes int
 }
 
 // ErrNotIncreasing is an agent's answer to a GETNEXT or GETBULK that names
@@ -30,14 +32,23 @@ var ErrNotIncreasing = errors.New("the agent answered an OID not after the one a
 // whole by walking it: the walk returns nothing for it, since nothing is
 // after it inside its own subtree, so a caller reading one value uses Get.
 func (c *Client) Walk(ctx context.Context, root string, limit int) (WalkResult, error) {
+	return c.WalkWithin(ctx, root, limit, MaxWalkBytes)
+}
+
+// WalkWithin is Walk bounded by maxBytes of values (at most MaxWalkBytes)
+// rather than MaxWalkBytes, for a caller walking several subtrees under one
+// bound: it hands each walk what the earlier ones left.
+func (c *Client) WalkWithin(ctx context.Context, root string, limit, maxBytes int) (WalkResult, error) {
 	if err := checkOIDs([]string{root}); err != nil {
 		return WalkResult{}, err
 	}
 	if limit < 1 || limit > MaxWalkResults {
 		return WalkResult{}, fmt.Errorf("a walk returns from 1 to %d bindings", MaxWalkResults)
 	}
+	if maxBytes < 1 || maxBytes > MaxWalkBytes {
+		return WalkResult{}, fmt.Errorf("a walk keeps from 1 to %d bytes", MaxWalkBytes)
+	}
 	var res WalkResult
-	bytes := 0
 	from := root
 	bulk := c.settings.Version != Version1 && !c.settings.NoBulk
 	for {
@@ -67,10 +78,11 @@ func (c *Client) Walk(ctx context.Context, root string, limit int) (WalkResult, 
 			if compareOIDs(v.OID, from) <= 0 {
 				return res, ErrNotIncreasing
 			}
-			if bytes += v.size(); bytes > MaxWalkBytes {
+			if res.Bytes+v.size() > maxBytes {
 				res.Truncated = true
 				return res, nil
 			}
+			res.Bytes += v.size()
 			res.Bindings = append(res.Bindings, v)
 			from = v.OID
 			if len(res.Bindings) >= limit {

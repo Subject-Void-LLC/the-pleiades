@@ -198,7 +198,10 @@ func TestRequest_SilenceIsATimeoutAfterEveryRetry(t *testing.T) {
 }
 
 // TestRequest_TheMinimumIntervalSpacesEveryRequest: a device's minimum
-// interval holds between every two requests, a walk's included.
+// interval holds between every two requests, a walk's included. It is
+// measured on the client, where the interval is kept: five requests take at
+// least four intervals, however the datagrams are delayed on the way, which
+// a gap between arrivals at the agent cannot promise on a loaded host.
 func TestRequest_TheMinimumIntervalSpacesEveryRequest(t *testing.T) {
 	tb := table{root: "1.3.6.1.2.1.1", n: 4}
 	agent := snmptest.Start(t, func(req *gosnmp.SnmpPacket) snmptest.Answer {
@@ -207,25 +210,52 @@ func TestRequest_TheMinimumIntervalSpacesEveryRequest(t *testing.T) {
 	s := v2cAt(agent)
 	s.NoBulk, s.MinInterval = true, 60*time.Millisecond
 	c := dialFake(t, s)
+	started := time.Now()
 	if _, err := c.Walk(context.Background(), tb.root, MaxWalkResults); err != nil {
 		t.Fatal(err)
 	}
-	times := agent.Arrived()
-	if len(times) != 5 {
-		t.Fatalf("the walk sent %d requests, want 5", len(times))
+	took := time.Since(started)
+	if n := len(agent.Arrived()); n != 5 {
+		t.Fatalf("the walk sent %d requests, want 5", n)
 	}
-	for i := 1; i < len(times); i++ {
-		if gap := times[i].Sub(times[i-1]); gap < 55*time.Millisecond {
-			t.Errorf("requests %d and %d arrived %s apart, under the 60ms minimum", i, i+1, gap)
-		}
+	if took < 4*s.MinInterval {
+		t.Errorf("five requests took %s, under the four %s intervals between them", took, s.MinInterval)
 	}
 }
 
-// TestRequest_AMaliciousAnswerIsAnErrorThatHoldsNoSecret: an answer that is
-// not SNMP, one announcing a length far past its datagram, and one nested
-// past any real message are each refused as an error, never a panic, and no
-// error holds the community, however short.
-func TestRequest_AMaliciousAnswerIsAnErrorThatHoldsNoSecret(t *testing.T) {
+// TestWalkWithin_KeepsToItsBytes: a walk handed a byte budget stops inside
+// it, saying it was cut short and how much it kept, and a budget past
+// MaxWalkBytes is refused; a host that does not resolve is a DialError.
+func TestWalkWithin_KeepsToItsBytes(t *testing.T) {
+	tb := table{root: "1.3.6.1.2.1.2.2.1.2", n: 25}
+	agent := snmptest.Start(t, func(req *gosnmp.SnmpPacket) snmptest.Answer {
+		return snmptest.Answer{Packet: &gosnmp.SnmpPacket{Variables: tb.after(strings.TrimPrefix(req.Variables[0].Name, "."), int(req.MaxRepetitions))}}
+	})
+	c := dialFake(t, v2cAt(agent))
+	whole, err := c.Walk(context.Background(), tb.root, MaxWalkResults)
+	if err != nil || whole.Truncated || len(whole.Bindings) != 25 {
+		t.Fatalf("Walk = %d bindings, %v", len(whole.Bindings), err)
+	}
+	budget := whole.Bytes / 2
+	half, err := c.WalkWithin(context.Background(), tb.root, MaxWalkResults, budget)
+	if err != nil || !half.Truncated || half.Bytes > budget || len(half.Bindings) == 0 || len(half.Bindings) >= 25 {
+		t.Fatalf("WalkWithin(%d bytes) = %d bindings of %d bytes, truncated %v, %v", budget, len(half.Bindings), half.Bytes, half.Truncated, err)
+	}
+	if _, err := c.WalkWithin(context.Background(), tb.root, 10, MaxWalkBytes+1); err == nil {
+		t.Error("a budget past MaxWalkBytes was accepted")
+	}
+	var dial *DialError
+	if _, err := Dial("no-such-agent.invalid", v2cAt(agent), wire.SNMPCredential{Community: testCommunity}); !errors.As(err, &dial) || dial.Unwrap() == nil {
+		t.Errorf("Dial of a name that does not resolve = %v, want a DialError", err)
+	}
+}
+
+// TestRequest_AMaliciousAnswerIsAnError: an answer that is not SNMP, one
+// announcing a length far past its datagram, one nested past any real message
+// and one cut off inside a binding are each an error, never a panic or an
+// answer. Whether an error can hold a secret is requestError's, which
+// TestRequestError_MasksTheCredentialAndDropsAStack holds.
+func TestRequest_AMaliciousAnswerIsAnError(t *testing.T) {
 	short := "pub1ic"
 	for name, raw := range map[string][]byte{
 		"not SNMP":            []byte("HTTP/1.1 400 Bad Request\r\n\r\n" + short),
@@ -244,9 +274,6 @@ func TestRequest_AMaliciousAnswerIsAnErrorThatHoldsNoSecret(t *testing.T) {
 			_, err = c.Get(context.Background(), []string{OIDSysName})
 			if err == nil {
 				t.Fatal("a malicious answer was accepted")
-			}
-			if strings.Contains(err.Error(), short) || strings.Contains(err.Error(), "goroutine") {
-				t.Fatalf("the error holds the community or a stack: %v", err)
 			}
 		})
 	}

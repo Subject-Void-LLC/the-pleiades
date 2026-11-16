@@ -127,11 +127,18 @@ type Store struct {
 	Drops map[string]bool
 	// ReadOnly are the OIDs a SET is refused for, with notWritable.
 	ReadOnly map[string]bool
+	// Unanswered are the OIDs whose SET is applied and never answered, as a
+	// SET whose answer UDP loses.
+	Unanswered map[string]bool
+	// Removes are the OIDs a SET removes from the store rather than keeps,
+	// as a RowStatus destroy(6) removes its row.
+	Removes map[string]bool
 }
 
 // NewStore is a store answering community, holding objects.
 func NewStore(community string, objects ...gosnmp.SnmpPDU) *Store {
-	s := &Store{Community: community, objects: map[string]gosnmp.SnmpPDU{}, Drops: map[string]bool{}, ReadOnly: map[string]bool{}}
+	s := &Store{Community: community, objects: map[string]gosnmp.SnmpPDU{}, Drops: map[string]bool{}, ReadOnly: map[string]bool{},
+		Unanswered: map[string]bool{}, Removes: map[string]bool{}}
 	for _, o := range objects {
 		s.Put(o)
 	}
@@ -207,11 +214,19 @@ func (s *Store) Handle(req *gosnmp.SnmpPacket) Answer {
 				return Answer{Packet: &gosnmp.SnmpPacket{Error: gosnmp.WrongType, ErrorIndex: uint8(i + 1), Variables: req.Variables}} // #nosec G115 -- a test request names few OIDs
 			}
 		}
+		unanswered := false
 		for _, v := range req.Variables {
 			oid := strings.TrimPrefix(v.Name, ".")
-			if !s.Drops[oid] {
+			switch {
+			case s.Removes[oid]:
+				delete(s.objects, oid)
+			case !s.Drops[oid]:
 				s.objects[oid] = v
 			}
+			unanswered = unanswered || s.Unanswered[oid]
+		}
+		if unanswered {
+			return Answer{Drop: true}
 		}
 		out.Variables = req.Variables
 	}
@@ -275,9 +290,45 @@ func System() []gosnmp.SnmpPDU {
 		{Name: "1.3.6.1.2.1.2.2.1.6.2", Type: gosnmp.OctetString, Value: []byte{0x02, 0x42, 0xac, 0x11, 0x00, 0x02}},
 		Int("1.3.6.1.2.1.2.2.1.7.1", 1), Int("1.3.6.1.2.1.2.2.1.7.2", 1),
 		Int("1.3.6.1.2.1.2.2.1.8.1", 1), Int("1.3.6.1.2.1.2.2.1.8.2", 2),
+		{Name: "1.3.6.1.2.1.2.2.1.10.2", Type: gosnmp.Counter32, Value: uint32(123456)},
 		Text("1.3.6.1.2.1.31.1.1.1.1.2", "eth0"),
 		{Name: "1.3.6.1.2.1.31.1.1.1.15.2", Type: gosnmp.Gauge32, Value: uint32(10000)},
 		Text("1.3.6.1.6.3.10.2.1.1.0", "\x80\x00\x1f\x88\x80test-engine"),
 		Int("1.3.6.1.6.3.10.2.1.2.0", 3),
+	}
+}
+
+// Rows answers a GETNEXT or GETBULK with a synthetic table of n octet-string
+// rows under root (root.1 to root.n), each holding size bytes, and
+// endOfMibView past the last, with no store behind it: a table as large as a
+// test needs costs nothing to build. Any other request is dropped.
+func Rows(community, root string, n, size int) func(req *gosnmp.SnmpPacket) Answer {
+	value := []byte(strings.Repeat("r", size))
+	return func(req *gosnmp.SnmpPacket) Answer {
+		if req.Community != community || (req.PDUType != gosnmp.GetNextRequest && req.PDUType != gosnmp.GetBulkRequest) {
+			return Answer{Drop: true}
+		}
+		count := 1
+		if req.PDUType == gosnmp.GetBulkRequest {
+			count = int(req.MaxRepetitions)
+		}
+		from := strings.TrimPrefix(req.Variables[0].Name, ".")
+		next := 1
+		if strings.HasPrefix(from, root+".") {
+			i, _ := strconv.Atoi(strings.SplitN(from[len(root)+1:], ".", 2)[0])
+			next = i + 1
+		} else if less(root, from) {
+			next = n + 1
+		}
+		out := &gosnmp.SnmpPacket{}
+		for ; count > 0; count-- {
+			if next > n {
+				out.Variables = append(out.Variables, gosnmp.SnmpPDU{Name: req.Variables[0].Name, Type: gosnmp.EndOfMibView})
+				break
+			}
+			out.Variables = append(out.Variables, gosnmp.SnmpPDU{Name: "." + root + "." + strconv.Itoa(next), Type: gosnmp.OctetString, Value: value})
+			next++
+		}
+		return Answer{Packet: out}
 	}
 }

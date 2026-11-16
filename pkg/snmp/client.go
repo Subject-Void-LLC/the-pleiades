@@ -72,7 +72,7 @@ func Dial(host string, s Settings, cred wire.SNMPCredential) (*Client, error) {
 		g.Version, g.SecurityModel, g.MsgFlags, g.SecurityParameters = gosnmp.Version3, gosnmp.UserSecurityModel, flags, usm
 	}
 	if err := g.Connect(); err != nil {
-		return nil, fmt.Errorf("opening a UDP socket to %s: %w", net.JoinHostPort(host, strconv.Itoa(s.Port)), err)
+		return nil, &DialError{Address: net.JoinHostPort(host, strconv.Itoa(s.Port)), Err: err}
 	}
 	return &Client{g: g, settings: s, cred: cred, secrets: MaskedSecrets(cred.Secrets()), sleep: sleepCtx}, nil
 }

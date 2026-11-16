@@ -313,7 +313,7 @@ func TestSet_RefusesBeforeSending(t *testing.T) {
 		"another type":    {"oid": "sysLocation.0", "type": "integer", "value": 7},
 		"an absent one":   {"oid": "1.3.6.1.2.1.1.99.0", "type": "integer", "value": "7"},
 		"snmpModules":     {"oid": "snmpEngineID.0", "type": "hex-string", "value": "0x80001f8880"},
-		"a counter":       {"oid": "sysLocation.0", "type": "counter32", "value": "1"},
+		"a counter":       {"oid": "ifInOctets.2", "type": "counter32", "value": "1"},
 		"a bad integer":   {"oid": "sysServices.0", "type": "integer", "value": "seven"},
 		"a fraction":      {"oid": "sysServices.0", "type": "integer", "value": 7.5},
 		"no value":        {"oid": "sysServices.0", "type": "integer"},

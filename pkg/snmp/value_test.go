@@ -118,4 +118,19 @@ func TestMask_TheCommunityAndTheAgentsSecretTables(t *testing.T) {
 	if !snmp.SecretOID("1.3.6.1.6.3.15.1.2.2.1.6.1") || snmp.SecretOID(snmp.OIDSysName) {
 		t.Error("SecretOID does not follow the secret tables")
 	}
+	for _, oid := range []string{"1.3.6.1.6.3.16.1.2.1.3.2.6.112.117.98.108.105.99", "1.3.6.1.6.3.18.1.1.1.2.1", "1.3.6.1.6.3.15.1.2.2.1.3.1", "1.3.6.1.6.3.12.1.3.1.4.1", snmp.OIDSNMPModules} {
+		if !snmp.SecurityOID(oid) {
+			t.Errorf("SecurityOID(%s) = false, want it in the agent's security configuration", oid)
+		}
+	}
+	for _, oid := range []string{snmp.OIDEngineID, snmp.OIDEngineBoots, "1.3.6.1.6.3.15.1.1.5.0", "1.3.6.1.6.3.11.2.1.1.0", "1.3.6.1.6.3.1.1.6.1.0", snmp.OIDSysName} {
+		if snmp.SecurityOID(oid) {
+			t.Errorf("SecurityOID(%s) = true, want it read as any other", oid)
+		}
+	}
+	// A walk of snmpModules, or of USM, reaches open parts too; one of VACM
+	// reaches nothing else.
+	if snmp.SecuritySubtree(snmp.OIDSNMPModules) || snmp.SecuritySubtree("1.3.6.1.6.3.15") || !snmp.SecuritySubtree("1.3.6.1.6.3.16") || snmp.SecuritySubtree(snmp.OIDSystem) {
+		t.Error("SecuritySubtree does not tell a subtree holding open parts from one holding none")
+	}
 }

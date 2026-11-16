@@ -42,6 +42,25 @@ func (c *Client) requestError(what string, err error) error {
 	return fmt.Errorf("%s: %s", what, c.mask(text))
 }
 
+// DialError is a client that could not open its UDP socket to the agent:
+// most often a host name that does not resolve, which may resolve later (a
+// device whose name its DHCP lease registers as it boots), so a wait tries
+// again on one where it stops on a record the client refuses.
+type DialError struct {
+	// Address is the agent's host and port.
+	Address string
+	// Err is the network's own error.
+	Err error
+}
+
+// Error names the address and the network's error.
+func (e *DialError) Error() string {
+	return fmt.Sprintf("opening a UDP socket to %s: %v", e.Address, e.Err)
+}
+
+// Unwrap returns the network's error.
+func (e *DialError) Unwrap() error { return e.Err }
+
 // TimeoutError is a request no answer came back for, after every retry. An
 // SNMPv1 or SNMPv2c agent that does not know the community answers nothing,
 // so it reads as this too.

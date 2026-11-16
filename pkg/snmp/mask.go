@@ -24,6 +24,46 @@ import (
 // whose key-change columns an agent should answer empty and need not.
 var secretTables = []string{"1.3.6.1.6.3.18.1.1", "1.3.6.1.6.3.15.1.2.2"}
 
+// openModules are the parts of snmpModules (OIDSNMPModules) that hold no
+// name of the agent's security: SNMPv2-MIB's own objects, the engine group,
+// and the message and USM counters.
+var openModules = []string{"1.3.6.1.6.3.1", "1.3.6.1.6.3.10.2.1", "1.3.6.1.6.3.11.2", "1.3.6.1.6.3.15.1.1"}
+
+// SecurityOID reports whether oid lies in the agent's own security
+// configuration: snmpModules but the parts openModules names. There the
+// table indexes spell what the agent is configured with (measured on net-snmp
+// 5.9.4: vacmSecurityToGroupTable is indexed by the security name each
+// community maps to, and usmUserTable by each user name; an agent may name a
+// community there), so a binding's OID can carry a secret, not only its
+// value, and masking the value is not enough. net.snmp.get reads none of it.
+func SecurityOID(oid string) bool {
+	if !Under(oid, OIDSNMPModules) {
+		return false
+	}
+	for _, open := range openModules {
+		if Under(oid, open) {
+			return false
+		}
+	}
+	return true
+}
+
+// SecuritySubtree reports whether a walk rooted at root would read nothing
+// but the agent's security configuration: root is in it (SecurityOID) and
+// holds none of openModules, as snmpModules itself does. A walk of such a
+// root is refused; a walk of any other root leaves the security bindings out.
+func SecuritySubtree(root string) bool {
+	if !SecurityOID(root) {
+		return false
+	}
+	for _, open := range openModules {
+		if Under(open, root) {
+			return false
+		}
+	}
+	return true
+}
+
 // SecretOID reports whether oid's value is masked by its place alone
 // (secretTables).
 func SecretOID(oid string) bool {
