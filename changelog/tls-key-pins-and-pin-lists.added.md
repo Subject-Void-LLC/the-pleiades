@@ -1,0 +1,1 @@
+`tls_fingerprint` takes a key pin, `spki-sha256:` and the SHA-256 of the certificate's public key, which accepts a certificate the device issues again for the same key, and a list of up to eight pins, so a rotation or an HA pair holds both; every pin is named in a warning, and a refused certificate is named in both forms.

@@ -7304,7 +7304,7 @@
     },
     "/inventory/devices/{name}/onboard": {
       "post": {
-        "description": "Probes a device whose capabilities onboarding proves (generic_ssh, generic_netconf, generic_restconf, generic_gnmi, generic_snmp, generic_http, generic_grpc, linux_server, container_host, kubernetes_cluster) over its protocol from the Controller, authenticating with the device's stored credential (for a kubernetes_cluster with none, the one stored Kubernetes credential of the cluster's own organization whose host names its API server, refused for a cluster in no organization, one reached through a route, or one pinning an authority the credential does not carry), and records the capabilities the device's own answers prove as a revision. A discovered device moves to onboarding, then to active when the probe succeeds; a failed first probe leaves it onboarding. Onboarding an active device re-probes it and writes only what changed. It needs inventory:onboard, which inventory:write does not imply: this is the only way a device is granted a capability its Go type does not declare.",
+        "description": "Probes a device whose capabilities onboarding proves (generic_ssh, generic_netconf, generic_restconf, generic_gnmi, generic_snmp, generic_http, generic_grpc, linux_server, container_host, kubernetes_cluster) over its protocol from the Controller, authenticating with the device's stored credential (for a kubernetes_cluster with none, the one stored Kubernetes credential of the cluster's own organization whose host names its API server, refused for a cluster in no organization, one reached through a route, or one pinning an authority the credential does not carry), and records the capabilities the device's own answers prove as a revision. A discovered device moves to onboarding, then to active when the probe succeeds; a failed first probe leaves it onboarding. Onboarding an active device re-probes it and writes only what changed. It needs inventory:onboard, which inventory:write does not imply: this is the only way a device is granted a capability its Go type does not declare. With tls_first_use=true, a TLS device whose record names nothing it trusts, and whose certificate nothing trusts, has the certificate it presents recorded as its pin (tls_first_use_fingerprint), the way SSH's accept-new records a host key: listed in the result for review, said to be unconfirmed on every use until confirmed (POST /inventory/devices/{name}/tls-pin/confirm), never in place of a pin or an authority, and recorded only with an onboarding that proved the device through it.",
         "operationId": "onboard_device",
         "parameters": [
           {
@@ -7314,6 +7314,15 @@
             "required": true,
             "schema": {
               "type": "string"
+            }
+          },
+          {
+            "description": "true records the certificate a TLS device presents as its pin on first use, when nothing in its record trusts it; false or absent refuses an untrusted certificate.",
+            "in": "query",
+            "name": "tls_first_use",
+            "required": false,
+            "schema": {
+              "type": "boolean"
             }
           }
         ],
@@ -7368,12 +7377,40 @@
                       "description": "active after a successful probe; onboarding after a failed first one.",
                       "type": "string"
                     },
+                    "tls_first_use": {
+                      "description": "The pin this onboarding recorded on first use (tls_first_use=true), for a person to review before confirming it; absent when it recorded none.",
+                      "properties": {
+                        "fingerprint": {
+                          "description": "The certificate pin recorded, sha256:<hex>.",
+                          "type": "string"
+                        },
+                        "issuer": {
+                          "type": "string"
+                        },
+                        "key_fingerprint": {
+                          "description": "The certificate's public key, spki-sha256:<hex>, as a key pin would hold it.",
+                          "type": "string"
+                        },
+                        "not_after": {
+                          "description": "The certificate's last day, YYYY-MM-DD in UTC.",
+                          "type": "string"
+                        },
+                        "subject": {
+                          "type": "string"
+                        },
+                        "untrusted": {
+                          "description": "Why nothing trusted the certificate before it was pinned.",
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    },
                     "type": {
                       "description": "The device's generic type.",
                       "type": "string"
                     },
                     "warnings": {
-                      "description": "What each weakening the device's record allows means: a deprecated TLS version, legacy cipher suites, or a credential sent over plain HTTP (with the advice to rotate it).",
+                      "description": "What each weakening the device's record allows means: a deprecated TLS version, legacy cipher suites, a credential sent over plain HTTP (with the advice to rotate it), every pin it trusts, a pin recorded on first use that nobody confirmed, and a certificate near its last day.",
                       "items": {
                         "type": "string"
                       },
@@ -7400,7 +7437,7 @@
                 }
               }
             },
-            "description": "name is empty, too long, does not decode, or holds a NUL, a carriage return or a line feed."
+            "description": "name is empty, too long, does not decode, or holds a NUL, a carriage return or a line feed, or tls_first_use is given more than once or as other than true or false."
           },
           "404": {
             "content": {
@@ -7500,12 +7537,40 @@
                       "description": "active after a successful probe; onboarding after a failed first one.",
                       "type": "string"
                     },
+                    "tls_first_use": {
+                      "description": "The pin this onboarding recorded on first use (tls_first_use=true), for a person to review before confirming it; absent when it recorded none.",
+                      "properties": {
+                        "fingerprint": {
+                          "description": "The certificate pin recorded, sha256:<hex>.",
+                          "type": "string"
+                        },
+                        "issuer": {
+                          "type": "string"
+                        },
+                        "key_fingerprint": {
+                          "description": "The certificate's public key, spki-sha256:<hex>, as a key pin would hold it.",
+                          "type": "string"
+                        },
+                        "not_after": {
+                          "description": "The certificate's last day, YYYY-MM-DD in UTC.",
+                          "type": "string"
+                        },
+                        "subject": {
+                          "type": "string"
+                        },
+                        "untrusted": {
+                          "description": "Why nothing trusted the certificate before it was pinned.",
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    },
                     "type": {
                       "description": "The device's generic type.",
                       "type": "string"
                     },
                     "warnings": {
-                      "description": "What each weakening the device's record allows means: a deprecated TLS version, legacy cipher suites, or a credential sent over plain HTTP (with the advice to rotate it).",
+                      "description": "What each weakening the device's record allows means: a deprecated TLS version, legacy cipher suites, a credential sent over plain HTTP (with the advice to rotate it), every pin it trusts, a pin recorded on first use that nobody confirmed, and a certificate near its last day.",
                       "items": {
                         "type": "string"
                       },
@@ -7529,6 +7594,140 @@
         ],
         "summary": "Onboard a device",
         "x-link-relation": "onboard"
+      }
+    },
+    "/inventory/devices/{name}/tls-pin/confirm": {
+      "post": {
+        "description": "Records a person's confirmation that the pin onboarding recorded on first use (tls_first_use_fingerprint) is the device's own certificate, checked with its owner: the pin moves into tls_fingerprint, as a revision, and runs stop saying it is unconfirmed. The body names the pin the person checked, which must be the one recorded, so a confirmation is a comparison someone made. The device trusts the same certificate before and after, so its discovery and grants hold. It needs inventory:assert, which no role but admin holds, so the operator who onboarded a device does not also vouch for it.",
+        "operationId": "confirm_tls_pin",
+        "parameters": [
+          {
+            "description": "The device's name.",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "fingerprint": {
+                    "description": "The pin the person checked, sha256:<64 hex>, as onboarding listed it.",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "fingerprint"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "device": {
+                      "type": "string"
+                    },
+                    "pins": {
+                      "description": "The device's tls_fingerprint after the confirmation.",
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The pin was confirmed."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "name is unusable, or the body is malformed."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "No device with that name exists, or it holds no pin recorded on first use."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The device's own tls_fingerprint or tls_ca_pem overrides its first-use pin, which onboarding it again removes; or it was modified concurrently, or the inventory is read-only."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "fingerprint is not a pin, or not the one recorded."
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "inventory:assert",
+              "inventory:read"
+            ]
+          }
+        ],
+        "summary": "Confirm a device's pin recorded on first use",
+        "x-link-relation": "confirm_pin"
       }
     },
     "/inventory/kubeconfig-imports": {

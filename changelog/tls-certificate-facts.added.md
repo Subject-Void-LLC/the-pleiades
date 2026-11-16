@@ -1,0 +1,1 @@
+Onboarding and `net.gnmi.facts`, `net.restconf.facts` and their config methods record the certificate a TLS device presented (both fingerprints, subject, issuer and last day), as discovery facts and as stable `tls.certificate.*` facts, and warn when it is within 30 days of its last day or a pin of a list matched nothing.

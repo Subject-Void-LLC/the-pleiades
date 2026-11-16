@@ -2079,6 +2079,8 @@ the WinRM section below):
 | `tls_min_version` | The lowest version allowed: `1.2` (the default) or `1.3`, and `1.0` or `1.1` only as below. |
 | `tls_server_name` | The name the device's certificate is checked against, when it is not the host being dialed. |
 | `tls_ca_pem` | A certificate authority in PEM, trusted for this device instead of the system's roots. |
+| `tls_fingerprint` | A pin, or a list of up to eight: `sha256:<hex>` trusts one certificate, `spki-sha256:<hex>` any certificate for one public key ([below](#pinning-a-self-signed-certificate)). |
+| `tls_first_use_fingerprint` | The pin onboarding recorded on first use, trusted with a warning until a person confirms it. Only onboarding writes it. |
 | `tls_client_certificate` | `true` presents the device's stored certificate (mutual TLS): `add-credential --certificate` and `--key`, or `--pfx`. |
 
 Certificates are always verified; no setting turns that off. Nothing lowers TLS by default, and
@@ -2114,9 +2116,11 @@ explicit choices, each warned about on every onboarding and every run:
   `grpc_plaintext`, where it would allow nothing.
 
 A device with a self-signed certificate (Nokia SR Linux's default profile, whose certificate names
-no IP address) is refused until pinned: the refusal names the certificate's subject and SHA-256
-fingerprint, and once that is checked with the device's owner, `pleiades set-host <name> --set
-tls_fingerprint=sha256:...` pins it.
+no IP address) is refused until pinned: the refusal names the certificate's subject, its SHA-256
+fingerprint and its key fingerprint, and once those are checked with the device's owner, `pleiades
+set-host <name> --set tls_fingerprint=sha256:...` pins it. [Pinning a self-signed
+certificate](#pinning-a-self-signed-certificate) below covers key pins, rotation, and recording a
+fleet's certificates on first use.
 
 A server that requires a client certificate and is presented none, or one it does not accept,
 answers with a TLS alert (`certificate required`, `bad certificate`, `unknown certificate
@@ -2146,6 +2150,76 @@ target its write used, an empty one for none, so a rollback deletes in the tree 
 created in even after the device's `gnmi_target` changes. With mixed versions, a Runner older
 than `gnmi_target` rebuilds the device without it and sends no target, and does not know the
 parameter.
+
+#### Pinning a self-signed certificate
+
+Brownfield devices often present a self-signed certificate, even in a fleet whose other devices an
+authority signs. Such a device is refused until something trusts its certificate. The refusal names
+the certificate's subject, issuer and last day, and both forms a pin can take: its fingerprint and
+its key fingerprint. Check them with the device's owner, then pin one in `tls_fingerprint`. A pin is
+the device's identity: on every handshake it replaces the chain, date and name checks with an exact
+match, and every onboarding and run names each pin in a warning.
+
+- **A certificate pin**, `sha256:` and the SHA-256 of the certificate, trusts that one certificate.
+  It is the default and the narrowest trust: a renewed certificate is refused until it is pinned too.
+- **A key pin**, `spki-sha256:` and the SHA-256 of the certificate's public key, trusts any
+  certificate for that key, whatever its issuer, dates or names. It survives a device that issues its
+  certificate again with the same key (an upgrade, a new host name, a yearly rollover). It also
+  accepts such a certificate without anyone seeing it: that is what it is for, and what it costs.
+- **A list** of up to eight pins, any one matching, holds a planned rotation (the old pin and the new
+  one together) or an HA pair whose members trade an address. In `inventory.yaml` it is a YAML list;
+  on the command line it is one value with the pins separated by commas (`--set
+  tls_fingerprint=sha256:aaa...,sha256:bbb...`). A pin written twice, an empty list and a list of more
+  than eight are refused. Retire a pin by removing it from the list. A pin left after a rotation
+  still trusts the old certificate or key for as long as it is listed, so each onboarding and each
+  facts read names any pin the presented certificate did not match.
+
+`tls_fingerprint` and `tls_ca_pem` are two answers to what a device's certificate is trusted by, so a
+record that holds both is refused. A `kubernetes_cluster` takes no pin of any kind: its API server is
+verified against its authority.
+
+**Recording a fleet's certificates on first use.** `pleiades onboard <name> --tls-first-use`, or the
+Controller's `POST /inventory/devices/{name}/onboard?tls_first_use=true` (scope `inventory:onboard`),
+records the certificate a device presents as its pin instead of refusing it, the way SSH's
+`accept-new` records a host key. It is off unless asked for, and it applies to that one onboarding
+and never to a run. It records only for a device whose record names nothing it trusts, so it never
+replaces a pin, an authority or an earlier first-use pin, and a changed certificate is still refused.
+The pin is taken from the refusal (no credential is sent on that connection), the probe runs again
+trusting it, and the pin is recorded only when that probe proves the device. It goes into
+`tls_first_use_fingerprint`, which only onboarding writes: `add-host --set`, `set-host`,
+`inventory.yaml` and a sync are each refused it. The result lists the pin for review, with both
+forms, the certificate's names and last day, and why nothing trusted it. That run warns about it,
+and every later run says it is unconfirmed.
+
+Check the pin with the device's owner, then confirm it: `pleiades confirm-tls-pin <name>
+sha256:...`, or the Controller's `POST /inventory/devices/{name}/tls-pin/confirm` with
+`{"fingerprint": "sha256:..."}`. The pin given must be the one recorded, so a confirmation is a
+comparison someone made. The Controller route needs `inventory:assert`, which only an admin holds, so
+the operator who onboarded a device does not also vouch for it. Confirming moves the pin into
+`tls_fingerprint`, as a revision, and the device keeps its discovery, since it trusts the same
+certificate before and after. A first-use pin that the record's own `tls_fingerprint` or `tls_ca_pem`
+later overrides is not trusted, and the next onboarding removes it.
+
+What first use costs is what `accept-new` costs: a machine in the middle at the one onboarding that
+records the pin would be the certificate pinned, and would be sent the device's credential. That is
+why the pin is listed for review, warned about until confirmed, and kept apart from `tls_fingerprint`
+so it is never mistaken for a pin a person checked. A record that loses it (a deleted
+`.inventory-state.generated.yaml`, an `inventory.yaml` copied to another project) loses the trust with
+it, and the device is refused rather than trusted. On the Crawl tier it lives in the generated state
+file beside the discovery, never in `inventory.yaml`. A Runner receives it with the device's other TLS
+settings and warns the same way. First use applies to `generic_http`, `generic_restconf` and
+`generic_gnmi`. `generic_grpc`'s probe reports an untrusted certificate as a failed connection, so a
+gRPC device is refused as before and is pinned by hand.
+
+**Certificate facts and expiry.** Every onboarding of a TLS device records the certificate that the
+probe's verified handshake presented as discovery facts: `tls_certificate_fingerprint`,
+`tls_certificate_key_fingerprint`, `tls_certificate_subject`, `tls_certificate_issuer` and
+`tls_certificate_not_after`. `net.gnmi.facts`, `net.restconf.facts`, `net.gnmi.config` and
+`net.restconf.config` record the same as stable facts (`tls.certificate.*`), so a changed certificate
+is a change in the device's fact history. They come from the connection the read already makes, never
+from one of their own. A certificate within 30 days of its last day, or past it, is warned about in
+words that fit how the device is trusted. Under a certificate pin, add the new pin beside the old one
+before the change. A read that saw more than one certificate at the device's address records none.
 
 #### Other gNMI servers: SONiC
 
