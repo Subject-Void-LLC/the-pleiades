@@ -200,7 +200,7 @@ pre-1.0 project and the honest state is not what the docs' introductions might i
   sets `Descriptor.CheckCall`, which validation calls to refuse `check_mode` on such a
   call. The eighteen methods with no check (`container.exec`, `net.cli.*`, `net.ios.command`,
   `net.restconf.config`, `net.gnmi.config`, `virt.clab.node.exec`, `virt.clab.vxlan.delete` and the ten waits, `http.wait`,
-  `wait.netconf`, `wait.restconf`, `wait.gnmi` and `wait.snmp` among them; the first thirteen re-confirmed in C2c, 2026-11-02, when nine others gained a check) each carry
+  `wait.netconf`, `wait.restconf`, `wait.gnmi` and `wait.snmp` among them; twelve of them re-confirmed in C2c, 2026-11-02, when nine others gained a check, and `net.netconf.config`, then the thirteenth, gained its gated check through the candidate on 2026-11-16) each carry
   `Manifest.NoCheckReason`, which `internal/archtest` requires of every built-in without
   check support. The generated module catalog's `supportsCheck` is the authority. The
   Walk tier runs checks too: the runbook launch kind's `mode` field (`launch.ModeField`, a

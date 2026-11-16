@@ -58,8 +58,6 @@ var reviewedCheckClass = map[string]string{
 	// as unchecked, never as a guess.
 	"ansible.builtin.wait_for -> pleiades.builtin.wait.port": "it only reads, but what it waits for is " +
 		"usually an earlier task's change, which a check never makes, so a check would time out where the run succeeds",
-	"ansible.netcommon.netconf_config -> net.netconf.config": "a desired state, but only applying the document " +
-		"says what the device makes of it, and a candidate-datastore check would stage it on the device",
 }
 
 // checkSupport reports whether a method can check every call (full) or

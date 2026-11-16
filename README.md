@@ -22,7 +22,7 @@ lands unchanged, then converts to native typed collections at its own pace.
 
 The offline tier is a single static binary with no server, no database and no message
 broker, and it reaches real devices over real SSH. Every implemented method declares
-whether it can be reversed, and 251 of the 270 can predict what they would change before
+whether it can be reversed, and 252 of the 270 can predict what they would change before
 changing anything (`pleiades run --mode check`), naming every task they could not check
 rather than reporting a clean run.
 
