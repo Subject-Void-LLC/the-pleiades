@@ -135,7 +135,7 @@ func (r *fileRepository) createSidecarEntry(item inventory.InventoryItem) error 
 		History: fromRevisions(item.History()),
 	}
 	_, held := splitReserved(item.Properties().Raw())
-	entry.Discovered, entry.Granted = held.discovered, held.granted
+	held.into(&entry)
 	if src := item.Source(); src.Plugin != "" {
 		entry.Source = src.Plugin
 		if !src.SyncedAt.IsZero() {

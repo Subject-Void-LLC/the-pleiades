@@ -61,6 +61,13 @@ type sidecarEntry struct {
 	// same reason: a program's probe and pleiades grant-capability write it,
 	// and no person writes it in hosts.yaml.
 	Granted map[string]any `yaml:"granted,omitempty"`
+	// FirstUsePin is the device's inventory.TLSFirstUseProperty, kept here
+	// for the same reason: onboarding records it, and a person's
+	// confirmation moves it into hosts.yaml's tls_fingerprint. A hosts.yaml
+	// copied to another project carries no first-use pin, so the device
+	// there is refused rather than trusting a pin nobody checked as if
+	// someone had.
+	FirstUsePin string `yaml:"tls_first_use_fingerprint,omitempty"`
 }
 
 // sidecarRevision is the on-disk form of inventory.Revision.
@@ -194,15 +201,48 @@ func refuseReservedProperties(h HostSpec) error {
 }
 
 // reserved holds the values of the reserved properties a device carries,
-// which live in the sidecar rather than in hosts.yaml. Each is nil when the
-// device does not carry it.
+// which live in the sidecar rather than in hosts.yaml. Each is nil (or
+// empty) when the device does not carry it.
 type reserved struct {
 	discovered map[string]any
 	granted    map[string]any
+	firstUse   string
 }
 
 // empty reports whether the device carries none of them.
-func (r reserved) empty() bool { return r.discovered == nil && r.granted == nil }
+func (r reserved) empty() bool { return r.discovered == nil && r.granted == nil && r.firstUse == "" }
+
+// into writes r into entry's fields for them.
+func (r reserved) into(entry *sidecarEntry) {
+	entry.Discovered, entry.Granted, entry.FirstUsePin = r.discovered, r.granted, r.firstUse
+}
+
+// reservedOf reads the reserved properties entry holds.
+func reservedOf(entry sidecarEntry) reserved {
+	return reserved{discovered: entry.Discovered, granted: entry.Granted, firstUse: entry.FirstUsePin}
+}
+
+// withReserved returns props with r's values added under their properties,
+// as a new map, or props itself when r holds none.
+func withReserved(props map[string]any, r reserved) map[string]any {
+	if r.empty() {
+		return props
+	}
+	out := make(map[string]any, len(props)+3)
+	for k, v := range props {
+		out[k] = v
+	}
+	if r.discovered != nil {
+		out[inventory.DiscoveredProperty] = r.discovered
+	}
+	if r.granted != nil {
+		out[inventory.GrantedProperty] = r.granted
+	}
+	if r.firstUse != "" {
+		out[inventory.TLSFirstUseProperty] = r.firstUse
+	}
+	return out
+}
 
 // splitReserved returns props without the reserved properties, for
 // hosts.yaml, and their values, for the sidecar.
@@ -215,6 +255,8 @@ func splitReserved(props map[string]any) (map[string]any, reserved) {
 			out.discovered, _ = v.(map[string]any)
 		case inventory.GrantedProperty:
 			out.granted, _ = v.(map[string]any)
+		case inventory.TLSFirstUseProperty:
+			out.firstUse, _ = v.(string)
 		default:
 			rest[k] = v
 		}
