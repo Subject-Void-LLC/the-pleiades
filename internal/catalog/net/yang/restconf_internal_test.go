@@ -12,7 +12,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Subject-Void-LLC/the-pleiades/pkg/netcfg"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/restconf/restconftest"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/yanglib"
@@ -46,7 +45,7 @@ func TestRESTCONF_FetchesFromModulesStateAtTheDevicesOrigin(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, ok := rc.read(t, "yang/restconf/pleiades-probe@2026-11-16.yang")
-	want := strings.Replace(probeSource, "the secret key 100", "the secret key 100 "+netcfg.Placeholder(restconfPassword), 1)
+	want := strings.Replace(probeSource, "the secret key 100", "the secret key 100 "+placeholder, 1)
 	if !ok || got != want {
 		t.Fatalf("saved\n%s\nwant the probe, its password masked and nothing else changed", got)
 	}

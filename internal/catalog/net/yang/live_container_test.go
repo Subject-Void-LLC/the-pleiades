@@ -224,7 +224,7 @@ func TestLive_NETCONFMasksAKnownSecretInASource(t *testing.T) {
 	}
 	raw := served(t, "pleiades-secret@2026-11-16")
 	got, _ := rc.read(t, "yang/nc1/pleiades-secret@2026-11-16.yang")
-	if !strings.Contains(raw, knownInSchema) || strings.Contains(got, knownInSchema) || got != strings.ReplaceAll(raw, knownInSchema, netcfg.Placeholder(knownInSchema)) {
+	if !strings.Contains(raw, knownInSchema) || strings.Contains(got, knownInSchema) || got != strings.ReplaceAll(raw, knownInSchema, placeholder) {
 		t.Errorf("saved\n%s\nwant the server's text with the known value masked and nothing else changed", got)
 	}
 }

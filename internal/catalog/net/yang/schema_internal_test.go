@@ -84,7 +84,7 @@ func TestSchema_MasksTheRunsSecretsByValueOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, _ := rc.read(t, "yang/r1/pleiades-probe@2026-11-16.yang")
-	want := strings.Replace(probeSource, "the secret key 100", "the secret key 100 "+netcfg.Placeholder(password)+" and "+netcfg.Placeholder(named)+netcfg.Placeholder(named), 1)
+	want := strings.Replace(probeSource, "the secret key 100", "the secret key 100 "+placeholder+" and "+placeholder+placeholder, 1)
 	if got != want {
 		t.Errorf("saved\n%s\nwant\n%s", got, want)
 	}
@@ -110,7 +110,7 @@ func TestMaskKnown_FindsASecretAsAQuotedStringWritesIt(t *testing.T) {
 	forms, short := maskForms(rc)
 	src := "module m { description \"" + `pa\"ss\\word-123` + "\"; reference '" + secret + "'; }"
 	got, masked := maskKnown([]byte(src), forms)
-	want := "module m { description \"" + netcfg.Placeholder(secret) + "\"; reference '" + netcfg.Placeholder(secret) + "'; }"
+	want := "module m { description \"" + placeholder + "\"; reference '" + placeholder + "'; }"
 	if short || !masked || string(got) != want {
 		t.Errorf("maskKnown = %q (masked %v, short %v), want both forms masked by one placeholder: %q", got, masked, short, want)
 	}

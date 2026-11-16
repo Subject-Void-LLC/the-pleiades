@@ -25,11 +25,13 @@ import (
 // method exists to avoid.
 const minMaskLength = netcfg.MinLearnedLength
 
-// maskForm is one form a secret can stand in a source in, and the
-// placeholder that replaces it: the secret's own, whichever form it stood in.
-type maskForm struct {
-	text, placeholder string
-}
+// placeholder stands in for every known secret a saved source held: one
+// fixed word, the same in every run and for every secret, so a re-run against
+// an unchanged device writes nothing, and a file says nothing of which secret
+// stood where or how long it was. netcfg.Placeholder, which a run's report
+// uses, is keyed afresh in every process, so a file masked with it would
+// differ on every run (the release gate's second run found this).
+const placeholder = netcfg.MaskPrefix + "secret"
 
 // maskForms is what a source is masked by: the values of the device's
 // credential output must never show (wire.MaskedValues, the rule every path
@@ -37,7 +39,7 @@ type maskForm struct {
 // project's named secrets, sdk.KnownSecrets), each once, as it is and as a
 // YANG double-quoted string writes it (yangQuoted), longest first, those
 // shorter than minMaskLength left out. short says one was left out.
-func maskForms(rc sdk.RunbookContext) (forms []maskForm, short bool) {
+func maskForms(rc sdk.RunbookContext) (forms []string, short bool) {
 	seen := map[string]bool{}
 	for _, v := range append(wire.MaskedValues(rc.InjectSecrets()), sdk.KnownSecretValues(rc)...) {
 		if v == "" || seen[v] {
@@ -48,20 +50,19 @@ func maskForms(rc sdk.RunbookContext) (forms []maskForm, short bool) {
 			short = true
 			continue
 		}
-		placeholder := netcfg.Placeholder(v)
-		forms = append(forms, maskForm{v, placeholder})
+		forms = append(forms, v)
 		if q := yangQuoted(v); !seen[q] {
 			seen[q] = true
-			forms = append(forms, maskForm{q, placeholder})
+			forms = append(forms, q)
 		}
 	}
 	// Longest first, so where one form holds another the longer is
 	// replaced whole; then by text, so the order is the same every run.
 	sort.Slice(forms, func(i, j int) bool {
-		if len(forms[i].text) != len(forms[j].text) {
-			return len(forms[i].text) > len(forms[j].text)
+		if len(forms[i]) != len(forms[j]) {
+			return len(forms[i]) > len(forms[j])
 		}
-		return forms[i].text < forms[j].text
+		return forms[i] < forms[j]
 	})
 	return forms, short
 }
@@ -73,17 +74,17 @@ func yangQuoted(v string) string {
 	return strings.NewReplacer(`\`, `\\`, `"`, `\"`, "\n", `\n`, "\t", `\t`).Replace(v)
 }
 
-// maskKnown is src with each form replaced by its placeholder wherever it
+// maskKnown is src with each form replaced by placeholder wherever it
 // stands, in one pass over src that never reads its own output, and whether
 // anything was replaced. With nothing to replace it is src itself, byte for
 // byte.
-func maskKnown(src []byte, forms []maskForm) ([]byte, bool) {
+func maskKnown(src []byte, forms []string) ([]byte, bool) {
 	if len(forms) == 0 {
 		return src, false
 	}
 	pairs := make([]string, 0, 2*len(forms))
 	for _, f := range forms {
-		pairs = append(pairs, f.text, f.placeholder)
+		pairs = append(pairs, f, placeholder)
 	}
 	// A Replacer matches its old strings in the order given at each place in
 	// the text, so the longest form standing there wins.
