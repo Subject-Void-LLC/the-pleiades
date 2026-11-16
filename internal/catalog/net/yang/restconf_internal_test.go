@@ -166,6 +166,22 @@ func TestRESTCONF_AFailedDiscoveryAndAFailedModulesState(t *testing.T) {
 	if _, err := Schema(context.Background(), rc, dev, map[string]any{}); err == nil || !strings.Contains(err.Error(), "reading modules-state for the sources' URLs") {
 		t.Errorf("an unusable modules-state: %v", err)
 	}
+	// A refusal of modules-state other than "not here" (404, 400) is the
+	// server failing or denying it, the task's failure, never read as a
+	// server naming no source.
+	for _, status := range []int{http.StatusInternalServerError, http.StatusForbidden} {
+		_, dev, rc = restconfServer(t, restconftest.Options{Override: map[string]http.HandlerFunc{
+			"/restconf/data/ietf-yang-library:modules-state": func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/yang-data+json")
+				w.WriteHeader(status)
+				_, _ = w.Write([]byte(`{"ietf-restconf:errors":{"error":[{"error-type":"application","error-tag":"operation-failed"}]}}`))
+			},
+		}})
+		if _, err := Schema(context.Background(), rc, dev, map[string]any{paramModules: []any{"Cisco-IOS-XE-native"}}); err == nil ||
+			!strings.Contains(err.Error(), "reading modules-state for the sources' URLs") || strings.Contains(err.Error(), "names no location") {
+			t.Errorf("modules-state answering %d: %v, want the task's failure, not a library naming no location", status, err)
+		}
+	}
 	// A device the client cannot be built for fails before anything is sent.
 	dev.Base = "ftp://nowhere"
 	if _, err := Schema(context.Background(), newContext(t), dev, map[string]any{}); err == nil || !strings.Contains(err.Error(), "over restconf") {

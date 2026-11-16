@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/restconf"
@@ -54,8 +55,10 @@ func (s *restconfSource) list(ctx context.Context) (listing, error) {
 	state, err := s.client.StateSchemas(ctx)
 	var status *restconf.StatusError
 	switch {
-	case errors.As(err, &status):
-		// No modules-state: the library's entries stand, naming no URL.
+	case errors.As(err, &status) && (status.Status == http.StatusNotFound || status.Status == http.StatusBadRequest):
+		// No modules-state (RFC 8040 section 7: a resource the server does
+		// not have): the library's entries stand, naming no URL. Any other
+		// refusal (a 403, a 500) is the task's failure, below.
 		return l, nil
 	case err != nil:
 		return listing{}, fmt.Errorf("reading modules-state for the sources' URLs: %w", err)
