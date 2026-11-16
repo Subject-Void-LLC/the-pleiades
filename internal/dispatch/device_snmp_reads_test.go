@@ -45,14 +45,17 @@ func installSNMPCatalog(t *testing.T) {
 	}
 }
 
-// snmpRunbooks is a source holding a runbook that reads SNMP (snmp-read)
-// and one that does not (ssh-only).
+// snmpRunbooks is a source holding a runbook that reads SNMP (snmp-read),
+// one that does not (ssh-only), and one that backs a router up and reads
+// SNMP only where a variable asks (mixed), which admission leaves out of
+// each device's checks and the job's reads still count.
 func snmpRunbooks(t *testing.T) runbook.Source {
 	t.Helper()
 	dir := t.TempDir()
 	for name, content := range map[string]string{
 		"snmp-read.yaml": "id: snmp-read\ntasks:\n  - name: read the name\n    net.snmp.get:\n      oids:\n        - sysName.0\n",
-		"ssh-only.yaml":  "id: ssh-only\ntasks:\n  - name: step\n    fqcn: ios_backup\n",
+		"ssh-only.yaml":  "id: ssh-only\ntasks:\n  - name: step\n    ios_backup: {}\n",
+		"mixed.yaml":     "id: mixed\ntasks:\n  - name: back it up\n    ios_backup: {}\n  - name: read the name where asked\n    net.snmp.get:\n      oids:\n        - sysName.0\n    when: vars.snmp == true\n",
 	} {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o600); err != nil {
 			t.Fatal(err)
@@ -123,6 +126,26 @@ func TestWorkerCarriesTheDevicesOwnSNMPForAJobThatReadsIt(t *testing.T) {
 		for _, key := range wire.SNMPKeys() {
 			if _, carried := secrets[key]; carried {
 				t.Errorf("a job reading no SNMP carries the device's %s", key)
+			}
+		}
+	})
+
+	t.Run("a router, in a job that reads SNMP elsewhere", func(t *testing.T) {
+		ctx := t.Context()
+		store := newTestJobStore(t)
+		bus := newCapturingBus()
+		repo := &fakeRepository{Devices: []pkginventory.InventoryItem{sshCapableDevice("dev-id-ssh", "core-switch-1", "10.0.0.9", 22)}}
+		worker := dispatch.NewWorker(store, repo, snmpRunbooks(t), bus, credential.NewLazyFileStore(storeDeviceCredential(t, "core-switch-1", withLogin)))
+		if err := worker.HandleJobRequested(requestJob(t, ctx, store, "mixed", "routers")); err != nil {
+			t.Fatalf("HandleJobRequested: %v", err)
+		}
+		secrets := dispatchedPayload(t, bus).Secrets
+		if secrets[wire.SecretUsername] != "per-device" {
+			t.Errorf("the router's login did not travel")
+		}
+		for _, key := range wire.SNMPKeys() {
+			if _, carried := secrets[key]; carried {
+				t.Errorf("a router that is not SNMPCapable carries its %s on a job that reads SNMP elsewhere", key)
 			}
 		}
 	})

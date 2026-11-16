@@ -308,6 +308,12 @@ func (w *Worker) dispatchPayload(ctx context.Context, job *Job, prepared Prepare
 		// (Rollback.DAGVersion), not the graph this job prepared.
 		payload.GraphScheme, payload.GraphDigest = "", ""
 	}
+	// And only to a device reached by SNMP: every SNMP method requires
+	// SNMPCapable, so a router in the same job, admitted for its other
+	// tasks, has no task that reads its SNMP family.
+	if withSNMP && !device.HasCapability(capability.NameSNMP) {
+		withSNMP = false
+	}
 
 	// The template's own bound credentials, already rendered for the whole
 	// fan-out, reach the payload first. A machine credential among them
