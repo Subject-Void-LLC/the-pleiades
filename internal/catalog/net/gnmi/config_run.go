@@ -178,6 +178,11 @@ func values(params map[string]any, key string, prefix gnmi.Path) ([]value, error
 			return nil, fmt.Errorf("%s[%d].%s is required, as text", key, i, entryPath)
 		}
 		p, err := fullPath(prefix, rawPath)
+		if err == nil {
+			// A node this write may create is held to the rule a new one is,
+			// which a path read back (a delete, a recorded undo) is not.
+			err = p.CheckNew()
+		}
 		if err != nil {
 			return nil, fmt.Errorf("%s[%d].%s: %w", key, i, entryPath, err)
 		}

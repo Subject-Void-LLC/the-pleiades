@@ -14,8 +14,6 @@ import (
 	"regexp"
 	"slices"
 	"strings"
-	"unicode"
-	"unicode/utf8"
 
 	gpb "github.com/openconfig/gnmi/proto/gnmi"
 
@@ -174,7 +172,10 @@ func parseKeyValue(s string) (string, string, error) {
 // Validate checks p against the rules a path sent to a device is held to,
 // with wildcards allowed or not: the bounds, the origin's grammar, every name
 // a YANG identifier with an optional module prefix, and every key value
-// UTF-8 with no control character.
+// UTF-8 with no control or format character (validKeyValue). It reads no
+// table a Go release can change, so a path it accepted once (a recorded
+// undo, re-parsed at rollback) it accepts under every release; a path a
+// write creates is held to CheckNew as well.
 func (p Path) Validate(allowWildcards bool) error {
 	if p.Origin != "" && (len(p.Origin) > maxOriginBytes || !originPattern.MatchString(p.Origin)) {
 		return fmt.Errorf("origin %s is not a name", quoted(p.Origin))
@@ -219,26 +220,6 @@ func validName(name string, allowWildcards bool) error {
 	}
 	if !yanglib.IsIdentifier(local) {
 		return fmt.Errorf("%s is not a YANG identifier", quoted(name))
-	}
-	return nil
-}
-
-// validKeyValue checks a key value: bounded UTF-8 with no control or
-// invisible formatting character, and the wildcard only where allowed.
-func validKeyValue(v string, allowWildcards bool) error {
-	if v == wildcardValue && !allowWildcards {
-		return errors.New("the wildcard * names no one entry, and this path must")
-	}
-	if len(v) > MaxKeyBytes {
-		return fmt.Errorf("the value is longer than %d bytes", MaxKeyBytes)
-	}
-	if !utf8.ValidString(v) {
-		return errors.New("the value is not UTF-8")
-	}
-	for _, r := range v {
-		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) {
-			return fmt.Errorf("the value holds the control character %U", r)
-		}
 	}
 	return nil
 }
