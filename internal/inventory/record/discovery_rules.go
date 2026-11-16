@@ -52,6 +52,19 @@ func Discoverable(deviceType string) []capability.Name {
 	return slices.Clone(r.Grants)
 }
 
+// BoundProperties returns the properties deviceType's discovery is bound
+// to (DiscoveryRules.Bound), sorted, or nil for a type whose discovery is
+// not bound.
+func BoundProperties(deviceType string) []string {
+	r, _ := discoveryRules.Get(deviceType)
+	if len(r.Bound) == 0 {
+		return nil
+	}
+	out := slices.Clone(r.Bound)
+	slices.Sort(out)
+	return out
+}
+
 // DiscoveryBinding is the digest a discovery of a deviceType device must
 // carry for props to hold it (inventory.Discovery.Binding), or the empty
 // string for a type whose discovery is not bound.
