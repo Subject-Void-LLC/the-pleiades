@@ -240,6 +240,12 @@
       "line": "250",
       "rule_id": "G101",
       "reason": "Owned by Phase 97's SNMP credential model (feat/snmp-credentials). This is snmpSecretMarker, the string \"<redacted, set>\": the marker SNMPCredential's own String, GoString, MarshalJSON and LogValue print IN PLACE of a secret, the same text as internal/credential's redactedMarker. It is what hides a secret, not a secret; G101 matches the word \"secret\" in its name."
+    },
+    {
+      "file": "internal/catalog/net/snmp/set.go",
+      "line": "32",
+      "rule_id": "G101",
+      "reason": "Owned by Phase 97 (SNMP). This is secretShown, the string \"(secret, not shown)\": the text net.snmp.set's diff stat prints IN PLACE of a value when the call says secret: true. It hides a secret rather than holding one, the same kind of marker as pkg/wire/snmp.go's waived snmpSecretMarker; G101 matches the word \"secret\" in its name and literal."
     }
   ],
   "skips": [
