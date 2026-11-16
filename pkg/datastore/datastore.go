@@ -1,7 +1,7 @@
 // Package datastore is the shared port through which this platform
 // reads and writes a device's structured configuration, independent of
-// which protocol carries it: NETCONF (pkg/netconf), and later RESTCONF
-// and gNMI.
+// which protocol carries it: NETCONF (pkg/netconf) and gNMI (pkg/gnmi)
+// implement it, and RESTCONF (pkg/restconf) does not yet.
 //
 // # "Datastore" means the device's, never this platform's
 //

@@ -2108,9 +2108,10 @@ explicit choices, each warned about on every onboarding and every run:
   serves gNMI. Nothing proves which server answered, so what a read finds is recorded as stats
   only, never as facts.
 - **`grpc_allow_plaintext_credentials: true`**, a further flag, sends the stored credential over
-  that connection. gNMI's credential is request metadata: HPACK-coded on the wire, which hides it
-  from a byte search and from nobody reading the stream. It is refused with `gnmi_auth: none` or
-  without `grpc_plaintext`, where it would allow nothing.
+  that connection. gNMI's credential is request metadata, which HPACK sends as written or
+  Huffman-coded, whichever is shorter: a plain byte search of the traffic may find it, and anyone
+  decoding the frames reads it either way. It is refused with `gnmi_auth: none` or without
+  `grpc_plaintext`, where it would allow nothing.
 
 A device with a self-signed certificate (Nokia SR Linux's default profile, whose certificate names
 no IP address) is refused until pinned: the refusal names the certificate's subject and SHA-256

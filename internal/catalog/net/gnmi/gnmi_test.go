@@ -171,6 +171,24 @@ func TestFacts_ARefusedLoginFailsTheRead(t *testing.T) {
 	}
 }
 
+// TestConfig_ARefusedLoginIsSentOncePerTask runs two tasks with a wrong
+// password, and holds the documentation's scope to what the code does: each
+// task's client sends the login once and nothing after its refusal, and the
+// next task, with a client of its own, sends it once more.
+func TestConfig_ARefusedLoginIsSentOncePerTask(t *testing.T) {
+	s := gnmitest.New(t, login)
+	secrets := gnmitest.Secrets(s)
+	secrets["password"] = "wrong"
+	for task := 1; task <= 2; task++ {
+		if _, err := run(t, "net.gnmi.config", s, newRecorder(secrets), map[string]any{"delete": []any{"/a"}}); err == nil || !strings.Contains(err.Error(), "refused the login") {
+			t.Fatalf("task %d with a wrong password = %v", task, err)
+		}
+		if s.Refusals() != task || len(s.RPCs()) != task {
+			t.Fatalf("after task %d: %d refusals over %v, want one call per task", task, s.Refusals(), s.RPCs())
+		}
+	}
+}
+
 // inverse is the undo rc recorded, nil when none.
 func inverse(rc *recorder) map[string]any {
 	inv, _ := rc.stats[sdk.StatInverse].(map[string]any)

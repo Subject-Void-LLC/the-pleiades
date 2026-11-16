@@ -11,8 +11,10 @@
 // bearer token, or not at all. A connection without TLS is made only when the
 // device's record asks for one, and a credential is sent over it only when
 // the record asks for that as well: on a plaintext connection every message
-// can be read on the network, the credential included. It travels
-// HPACK-coded, which hides it from a byte search and from nobody else.
+// can be read on the network, the credential included. HPACK sends a header
+// value as written or Huffman-coded, whichever is shorter, so the credential
+// may even show in a plain byte search of the traffic, and anyone decoding
+// the frames reads it either way.
 //
 // Every call is bounded in time as well as size: Capabilities, Get, Set, each
 // gNOI call, a ONCE subscription and each round of a POLL one end at the
@@ -30,7 +32,9 @@
 // (the client's own credential) and by shape (pkg/netcfg) before any of it is
 // kept. A refused login (Unauthenticated) ends the client: every later call
 // returns the same refusal unsent, since each login sent is one more failed
-// attempt toward the account's lockout.
+// attempt toward the account's lockout. That holds for one client, and each
+// task makes its own, so a later task against the same device sends the
+// login once more.
 //
 // gNMI is device-facing gRPC. It has nothing to do with the mesh's own
 // Runner to Controller communication, which is NATS and pull-only.

@@ -1,8 +1,9 @@
 // Package gnmi_test: what the client puts on the wire, read back from the
-// bytes it sent. gRPC metadata travels in HTTP/2 HEADERS frames, HPACK-coded
-// (often Huffman-coded too), so a credential in it is invisible to a search
-// of the raw bytes; these tests decode every frame and look at each header
-// field, which is the only reading that can say where a credential went.
+// bytes it sent. gRPC metadata travels in HTTP/2 HEADERS frames, HPACK-coded,
+// each value as written or Huffman-coded, whichever is shorter, so a search
+// of the raw bytes finds a credential only sometimes; these tests decode
+// every frame and look at each header field, which is the only reading that
+// can say where a credential went.
 package gnmi_test
 
 import (
@@ -104,8 +105,8 @@ func (r *recorder) fields(t *testing.T) ([]hpack.HeaderField, []byte) {
 // TestWire_ThePasswordTravelsOnlyAsItsOwnMetadata sends a password login over
 // a plaintext connection the record accepted, through a recording proxy, and
 // holds the password to the "password" header field alone: never the path,
-// the authority or any other field, and never visible to a byte search, which
-// is why the frames are decoded.
+// the authority or any other field. A byte search may or may not find it
+// (HPACK chose a literal or Huffman), which is why the frames are decoded.
 func TestWire_ThePasswordTravelsOnlyAsItsOwnMetadata(t *testing.T) {
 	const password = "Hpack-hidden-pw-31f0"
 	s := gnmitest.New(t, gnmitest.Options{Plaintext: true, Username: testUser, Password: password})
