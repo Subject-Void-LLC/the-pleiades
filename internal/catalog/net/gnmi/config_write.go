@@ -29,9 +29,11 @@ type reading struct {
 	present bool
 }
 
-// write reads every path, sends the Set, reads every path again, records the
-// undo of each node the Set created, and records the backup and the diff,
-// returning the warnings the task should carry.
+// write reads every path, sends the Set, records the undo of each node the
+// Set created as soon as the Set is known to be applied, reads every path
+// again, and records the backup and the diff, returning the warnings the task
+// should carry. Once the Set may have been applied, no later failure reports
+// the task unchanged or drops its undo.
 func write(ctx context.Context, rc sdk.RunbookContext, client *gnmi.Client, req writeRequest) (collection.Result, []string, error) {
 	var notes []string
 	targets := req.targets()
@@ -43,20 +45,9 @@ func write(ctx context.Context, rc sdk.RunbookContext, client *gnmi.Client, req 
 		}
 		before[i] = r
 	}
-	// Where each node a write would create starts: the highest node above
-	// it that the device holds nothing at, read now, while it is still absent.
-	roots := map[string]gnmi.Path{}
-	for _, v := range append(append([]value(nil), req.replaces...), req.updates...) {
-		i := indexOf(targets, v.path)
-		if before[i].present {
-			continue
-		}
-		root, err := createdRoot(ctx, client, v.path, req.encoding)
-		if err != nil {
-			notes = append(notes, fmt.Sprintf("no undo is recorded for %s: reading what is above it failed (%v)", v.path, err))
-			continue
-		}
-		roots[v.path.String()] = root
+	roots, err := createdRoots(ctx, client, req, targets, before)
+	if err != nil {
+		return collection.Result{}, nil, fmt.Errorf("%w; nothing was written", err)
 	}
 	backups, backupErr := recordedAll(rc, client, targets, before)
 	if req.backup {
@@ -82,6 +73,15 @@ func write(ctx context.Context, rc sdk.RunbookContext, client *gnmi.Client, req 
 		// nothing.
 		return collection.Result{}, notes, fmt.Errorf("the device refused the Set, and gNMI applies all of a Set or none, so nothing changed: %w", setErr)
 	}
+	// An OK answer, read or not, is a Set the device applied whole: its undo
+	// is recorded now, from the reads before alone, before anything else can
+	// fail. A lost answer's is recorded once the read after says what it did.
+	applied := setErr == nil || lost.Applied
+	if applied {
+		if err := recordUndo(rc, req, roots, nil); err != nil {
+			return collection.Result{Changed: true}, notes, fmt.Errorf("the Set was applied, and its undo could not be recorded: %w", err)
+		}
+	}
 	// A lost answer may be the caller's deadline passing, so the read that
 	// says what happened gets its own bound rather than none.
 	readCtx := ctx
@@ -98,12 +98,26 @@ func write(ctx context.Context, rc sdk.RunbookContext, client *gnmi.Client, req 
 			if setErr != nil {
 				why = fmt.Errorf("%w, and %w", setErr, why)
 			}
+			if !applied {
+				// Whether the lost Set was applied is not known, so the undo
+				// is kept for the change it may have made: it deletes only
+				// nodes that were absent before, which a Set never applied
+				// leaves absent, so running it then changes nothing.
+				if uerr := recordUndo(rc, req, roots, nil); uerr != nil {
+					why = fmt.Errorf("%w, and its undo could not be recorded: %w", why, uerr)
+				}
+			}
 			return collection.Result{Changed: true}, notes, why
 		}
 		after[i] = r
 	}
-	if err := recordUndos(rc, req, targets, before, after, roots); err != nil {
-		return collection.Result{}, notes, err
+	if !applied {
+		// A lost answer read back: the undo deletes what is there now and
+		// was absent before.
+		created := func(v value) bool { return after[indexOf(targets, v.path)].present }
+		if err := recordUndo(rc, req, roots, created); err != nil {
+			return collection.Result{Changed: true}, notes, fmt.Errorf("%w; its undo could not be recorded: %w", setErr, err)
+		}
 	}
 	changed := false
 	for i := range targets {
@@ -113,12 +127,17 @@ func write(ctx context.Context, rc sdk.RunbookContext, client *gnmi.Client, req 
 	}
 	afterDocs, afterErr := recordedAll(rc, client, targets, after)
 	if err := recordDiff(rc, targets, before, backups, backupErr, after, afterDocs, afterErr); err != nil {
-		return collection.Result{}, notes, err
+		return collection.Result{Changed: changed}, notes, err
 	}
 	if setErr != nil {
-		what := "the paths read the same as before, so it was most likely not applied"
-		if changed {
+		var what string
+		switch {
+		case lost.Applied:
+			what = "the device applied it"
+		case changed:
 			what = "the paths read differently than before, so it was applied"
+		default:
+			what = "the paths read the same as before, so it was most likely not applied"
 		}
 		return collection.Result{Changed: changed}, notes, fmt.Errorf("%w; read back, %s", setErr, what)
 	}
@@ -214,6 +233,33 @@ func read(ctx context.Context, client *gnmi.Client, p gnmi.Path, enc gnmi.Encodi
 	return reading{doc: doc, present: true}, nil
 }
 
+// createdRoots is, for each update or replace path the read before found
+// absent, by path, where the node a write there would create starts: the
+// highest node above it that the device holds nothing at, read now, while it
+// is still absent. A read that fails refuses the write: an undo is recorded
+// the moment the Set is applied, from these alone, and a write whose undo
+// could not be decided would make a change the manifest promises to undo
+// with none.
+func createdRoots(ctx context.Context, client *gnmi.Client, req writeRequest, targets []gnmi.Path, before []reading) (map[string]gnmi.Path, error) {
+	roots := map[string]gnmi.Path{}
+	for _, v := range req.writes() {
+		if before[indexOf(targets, v.path)].present {
+			continue
+		}
+		root, err := createdRoot(ctx, client, v.path, req.encoding)
+		if err != nil {
+			return nil, fmt.Errorf("reading what is above %s, to know what an undo deletes, failed: %w", v.path, err)
+		}
+		roots[v.path.String()] = root
+	}
+	return roots, nil
+}
+
+// writes are the request's replaces, then its updates.
+func (req writeRequest) writes() []value {
+	return append(append([]value(nil), req.replaces...), req.updates...)
+}
+
 // createdRoot is the node a write at p would create: p itself, or the
 // highest of its ancestors the device holds nothing at, read upward until one
 // is present, so an undo deleting it removes only what the write made.
@@ -233,29 +279,21 @@ func createdRoot(ctx context.Context, client *gnmi.Client, p gnmi.Path, enc gnmi
 	return root, nil
 }
 
-// recordUndos records, for each update or replace path the read before found
-// absent and the read after found present, the delete of the node it
-// created, which is exact. A path that was there records none, and the run
-// says why only through the method's documentation: putting its earlier
-// value back would keep that value in the journal.
-func recordUndos(rc sdk.RunbookContext, req writeRequest, targets []gnmi.Path, before, after []reading, roots map[string]gnmi.Path) error {
-	var deletes []any
-	seen := map[string]bool{}
-	for _, v := range append(append([]value(nil), req.replaces...), req.updates...) {
-		i := indexOf(targets, v.path)
-		root, ok := roots[v.path.String()]
-		if !ok || before[i].present || !after[i].present || seen[root.String()] {
-			continue
-		}
-		seen[root.String()] = true
-		deletes = append(deletes, root.String())
-	}
-	if len(deletes) == 0 {
+// recordUndo records the delete of the node each update or replace path
+// created, which is exact: for each path the read before found absent (it
+// has a root) and keep, when given, accepts, its root, once each. A path that
+// was there records none, and the run says why only through the method's
+// documentation: putting its earlier value back would keep that value in the
+// journal. Deleting a root a Set left absent changes nothing, so an undo
+// recorded for a Set whose effect is not known yet is safe to keep.
+func recordUndo(rc sdk.RunbookContext, req writeRequest, roots map[string]gnmi.Path, keep func(value) bool) error {
+	names := undoDeletes(req, roots, keep)
+	if len(names) == 0 {
 		return nil
 	}
-	names := make([]string, 0, len(deletes))
-	for _, d := range deletes {
-		names = append(names, d.(string))
+	deletes := make([]any, len(names))
+	for i, n := range names {
+		deletes[i] = n
 	}
 	return sdk.RecordInverse(rc, sdk.Inverse{
 		FQCN:          configFQCN,
@@ -263,6 +301,22 @@ func recordUndos(rc sdk.RunbookContext, req writeRequest, targets []gnmi.Path, b
 		Description:   "deletes " + strings.Join(names, ", ") + ", which this run created",
 		KeepOnFailure: true,
 	})
+}
+
+// undoDeletes are the roots recordUndo deletes, as gNMI writes each path, in
+// the request's order, once each.
+func undoDeletes(req writeRequest, roots map[string]gnmi.Path, keep func(value) bool) []string {
+	var names []string
+	seen := map[string]bool{}
+	for _, v := range req.writes() {
+		root, ok := roots[v.path.String()]
+		if !ok || (keep != nil && !keep(v)) || seen[root.String()] {
+			continue
+		}
+		seen[root.String()] = true
+		names = append(names, root.String())
+	}
+	return names
 }
 
 // recordedAll is each path's reading as a run may keep it, by path:

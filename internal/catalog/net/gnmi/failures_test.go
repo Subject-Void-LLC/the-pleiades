@@ -1,7 +1,9 @@
 // Package gnmi_test: what the net.gnmi methods do when something fails: a
 // read before the write, the device's refusal of a Set, a Set whose answer is
-// lost before it was applied, a run with no named secrets, and a server whose
-// Capabilities is malformed or too long to record whole.
+// lost before it was applied or answered OK in a form the client cannot read,
+// a read or a stat that fails after an applied Set, a run with no named
+// secrets, and a server whose Capabilities is malformed or too long to record
+// whole.
 package gnmi_test
 
 import (
@@ -9,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -97,6 +100,83 @@ func TestConfig_AnOKAnswerItCannotReadIsReadBack(t *testing.T) {
 	}
 	if _, ok := s.Value(t, "/interface[name=lo4]"); !ok {
 		t.Error("the server holds no change, so the test proves nothing")
+	}
+}
+
+// TestConfig_AReadAfterTheSetThatFailsKeepsTheUndo refuses every read once
+// the Set is applied, and holds the method to keeping what it changed: the
+// task changed, and the undo recorded from the read before.
+func TestConfig_AReadAfterTheSetThatFailsKeepsTheUndo(t *testing.T) {
+	var applied atomic.Bool
+	opts := login
+	opts.AfterSet = func(context.Context) error { applied.Store(true); return nil }
+	opts.Hook = func(_ context.Context, rpc string) error {
+		if strings.HasSuffix(rpc, "/Get") && applied.Load() {
+			return status.Error(codes.PermissionDenied, "refused by the test")
+		}
+		return nil
+	}
+	s := gnmitest.New(t, opts)
+	rc := newRecorder(gnmitest.Secrets(s))
+	res, err := run(t, "net.gnmi.config", s, rc, update("/interface[name=lo6]/description", "six"))
+	if err == nil || !strings.Contains(err.Error(), "after the Set") {
+		t.Fatalf("Invoke = %v, want the read after the Set refused", err)
+	}
+	if !res.Changed || fmt.Sprint(inverse(rc)["params"]) != "map[delete:[/interface[name=lo6]] encoding:json_ietf]" {
+		t.Errorf("result %+v, inverse %v, want the change and its undo kept", res, inverse(rc))
+	}
+}
+
+// TestConfig_AnAncestorReadThatFailsWritesNothing refuses the read of what
+// is above the path a write creates, the read that says what its undo
+// deletes, and holds the method to sending no Set rather than a change it
+// could not undo.
+func TestConfig_AnAncestorReadThatFailsWritesNothing(t *testing.T) {
+	var gets atomic.Int32
+	opts := login
+	opts.Hook = func(_ context.Context, rpc string) error {
+		// The first Get reads the path itself; the second, what is above it.
+		if strings.HasSuffix(rpc, "/Get") && gets.Add(1) == 2 {
+			return status.Error(codes.Unavailable, "refused by the test")
+		}
+		return nil
+	}
+	s := gnmitest.New(t, opts)
+	_, err := run(t, "net.gnmi.config", s, newRecorder(gnmitest.Secrets(s)), update("/interface[name=lo7]/description", "seven"))
+	if err == nil || !strings.Contains(err.Error(), "nothing was written") || s.Sets() != 0 {
+		t.Fatalf("Invoke = %v after %d Sets, want the write refused before its Set", err, s.Sets())
+	}
+}
+
+// failingStat is a run context whose SetStat refuses one key, as a store
+// that cannot take a stat would.
+type failingStat struct {
+	*recorder
+	key string
+}
+
+// SetStat implements sdk.RunbookContext.
+func (f failingStat) SetStat(key string, value any) error {
+	if key == f.key {
+		return errors.New("the stat store refused " + key)
+	}
+	return f.recorder.SetStat(key, value)
+}
+
+// TestConfig_AStatThatCannotBeRecordedLeavesTheChange refuses the undo, then
+// the diff, after an applied Set, and holds the task to reporting the change
+// it made rather than none.
+func TestConfig_AStatThatCannotBeRecordedLeavesTheChange(t *testing.T) {
+	for i, key := range []string{sdk.StatInverse, sdk.StatDiff} {
+		s := gnmitest.New(t, login)
+		rc := failingStat{recorder: newRecorder(gnmitest.Secrets(s)), key: key}
+		res, err := run(t, "net.gnmi.config", s, rc, update(fmt.Sprintf("/interface[name=lo%d]", 10+i), map[string]any{"name": "x"}))
+		if err == nil || !strings.Contains(err.Error(), key) || !res.Changed || s.Sets() != 1 {
+			t.Errorf("%s refused: Invoke = %+v, %v after %d Sets, want the change reported", key, res, err, s.Sets())
+		}
+		if key == sdk.StatDiff && inverse(rc.recorder) == nil {
+			t.Error("the diff refused: the undo, recorded first, is gone")
+		}
 	}
 }
 
