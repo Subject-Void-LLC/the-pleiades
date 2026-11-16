@@ -22,6 +22,12 @@ func IsIdentifier(s string) bool {
 	return yangIdentifier.MatchString(s)
 }
 
+// IsRevision reports whether s is a revision date (RFC 7950 section 7.1.9),
+// such as 2024-07-01.
+func IsRevision(s string) bool {
+	return yangRevision.MatchString(s)
+}
+
 // KeepModules is modules with every malformed entry refused (counted on d's
 // Dropped and ModulesDropped),
 // each feature and deviation list checked the same way, duplicates removed,
