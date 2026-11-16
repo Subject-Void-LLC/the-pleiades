@@ -77,7 +77,17 @@ func (c *Client) SchemaRef(location string) (string, error) {
 	}
 	ref := u.EscapedPath()
 	if !strings.HasPrefix(ref, "/") {
+		// A relative path: under the base, where the request joins it.
 		ref = "/" + ref
+	} else if base := strings.TrimSuffix(c.base.EscapedPath(), "/"); base != "" {
+		// A path from the origin's root, which the request would join under
+		// the base's own path a second time (/r1/r1/...): it must lie under
+		// that path, and is sent relative to it. New refuses a base with a
+		// path today; this keeps a location right if one is ever allowed.
+		if ref != base && !strings.HasPrefix(ref, base+"/") {
+			return "", fmt.Errorf("the device's library names %s for the source, which is outside the device's base path %s", quoted, base)
+		}
+		ref = "/" + strings.TrimPrefix(strings.TrimPrefix(ref, base), "/")
 	}
 	if u.RawQuery != "" {
 		ref += "?" + u.RawQuery
