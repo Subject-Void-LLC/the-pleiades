@@ -334,11 +334,15 @@ func (w *Worker) dispatchPayload(ctx context.Context, job *Job, prepared Prepare
 	// being skipped outright, since a device that only runs
 	// capability-free tasks should not fail merely because credential
 	// storage itself is unhealthy.
+	//
+	// The device's login travels and its SNMP family does not, on every
+	// dispatch, until Phase 97 adds it back for the methods that declare
+	// they need it (deviceSecrets).
 	if payload.Secrets == nil && w.credentials != nil {
 		cred, err := w.credentials.Lookup(ctx, device.Name())
 		switch {
 		case err == nil:
-			payload.Secrets = credential.Flatten(cred)
+			payload.Secrets = deviceSecrets(cred)
 		case errors.Is(err, credential.ErrNotFound):
 			// No credential stored for this device; Secrets stays empty.
 		default:
@@ -348,10 +352,9 @@ func (w *Worker) dispatchPayload(ctx context.Context, job *Job, prepared Prepare
 				slog.Any("error", err))
 		}
 	}
-	// The template's SNMP credential, if it binds one, replaces the SNMP
-	// family of whichever secrets the device ended up with, the login beside
-	// it kept. It comes last so it never stands in for a login the fallback
-	// above would otherwise have read (ApplySNMP).
+	// The template's SNMP credential, if it binds one, joins whichever login
+	// the device ended up with. It comes last so it never stands in for a
+	// login the fallback above would otherwise have read (ApplySNMP).
 	ApplySNMP(&payload, injected, device)
 	return payload
 }
