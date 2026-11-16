@@ -209,7 +209,7 @@ func TestRead_SSHGaps(t *testing.T) {
 	newkeys := []byte{0, 0, 0, 12, 10, 21, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
 	big := flowPackets([]chunk{
 		{up: false, data: []byte("SSH-2.0-OpenSSH_9.6\r\n")},
-		{up: true, data: append(append(append([]byte("SSH-2.0-Go\r\n"), kexinit...), newkeys...), bytes.Repeat([]byte{0x5a}, 900)...)},
+		{up: true, data: append(append(append([]byte("SSH-2.0-Go\r\n"), kexinit...), newkeys...), noise(t, 900)...)},
 	})
 	up := dataIndexes(big, true)
 	lost := append(append([]pkt(nil), big[:up[1]]...), big[up[1]+1:]...)

@@ -48,12 +48,18 @@ type opening int
 
 // The openings a direction is recognized by.
 const (
-	openPlain    opening = iota // none below: cleartext
-	openSSH                     // an SSH-2.0 (or 1.99) banner
-	openTLSHello                // a TLS handshake record holding a ClientHello
-	openTLSReply                // a TLS handshake record holding a ServerHello
-	openH2Client                // HTTP/2's client connection preface
+	openPlain      opening = iota // none below: cleartext
+	openSSH                       // an SSH-2.0 (or 1.99) banner
+	openTLSHello                  // a TLS handshake record holding a ClientHello
+	openTLSReply                  // a TLS handshake record holding a ServerHello
+	openH2Client                  // HTTP/2's client connection preface
+	openH1Request                 // an HTTP/1.x request line
+	openH1Response                // an HTTP/1.x status line
 )
+
+// h1Methods are the request methods an HTTP/1.x request line is known by,
+// each with the space that follows it.
+var h1Methods = []string{"GET ", "POST ", "PUT ", "DELETE ", "HEAD ", "OPTIONS ", "PATCH ", "CONNECT ", "TRACE "}
 
 // h2Preface is the HTTP/2 client connection preface (RFC 9113 section 3.4).
 const h2Preface = "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"
@@ -77,8 +83,57 @@ func open(p []byte) opening {
 		case 2:
 			return openTLSReply
 		}
+	case bytes.HasPrefix(p, []byte("HTTP/1.0 ")), bytes.HasPrefix(p, []byte("HTTP/1.1 ")):
+		return openH1Response
+	}
+	for _, m := range h1Methods {
+		if bytes.HasPrefix(p, []byte(m)) {
+			return openH1Request
+		}
 	}
 	return openPlain
+}
+
+// The bounds on calling bytes that were framed as encrypted text instead:
+// a run of at least textMinBytes captured bytes (a TLS application data
+// record's body, or a block of what SSH sent after NEWKEYS) of which at
+// least textNum/textDen are printable ASCII. Encrypted bytes are uniform, so
+// about 38% of them are printable (98 of 256 values); 48 printable of 64 is
+// 6 standard deviations above that (a chance of about 3 in a billion for one
+// run, and less for a longer one), and the real sessions this package is
+// tested on never come close (TestText_RealSessionsAreNeverText).
+const (
+	textMinBytes = 64
+	textBlock    = 256
+	textNum      = 3
+	textDen      = 4
+)
+
+// textCheck counts how many of a run of bytes are printable ASCII.
+type textCheck struct {
+	n, printable int
+}
+
+// add counts p.
+func (c *textCheck) add(p []byte) {
+	c.n += len(p)
+	for _, b := range p {
+		if (b >= 0x20 && b < 0x7f) || b == '\t' || b == '\n' || b == '\r' {
+			c.printable++
+		}
+	}
+}
+
+// text reports whether the run counted is long enough and printable enough
+// to be text, not ciphertext.
+func (c *textCheck) text() bool {
+	return c.n >= textMinBytes && c.printable*textDen >= c.n*textNum
+}
+
+// textual is a parser that can say bytes it framed as encrypted read as
+// text: TLS with a NULL cipher or a forged record, SSH's none cipher.
+type textual interface {
+	sawText() bool
 }
 
 // plain is a direction nothing was recognized in: every byte is cleartext.

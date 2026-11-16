@@ -15,8 +15,9 @@ import (
 
 // recordingSink is a headerSink keeping what it was told.
 type recordingSink struct {
-	grpc  bool
-	names []string
+	grpc   bool
+	names  []string
+	unread int
 }
 
 // sawGRPC implements headerSink.
@@ -24,6 +25,9 @@ func (r *recordingSink) sawGRPC() { r.grpc = true }
 
 // sawCredential implements headerSink.
 func (r *recordingSink) sawCredential(name string) { r.names = append(r.names, name) }
+
+// unsearched implements headerSink.
+func (r *recordingSink) unsearched() { r.unread++ }
 
 // sshSeed is an SSH banner and one KEXINIT-shaped packet in the clear, then
 // NEWKEYS, then bytes under the new keys.
@@ -86,9 +90,16 @@ func FuzzParsers(f *testing.F) {
 	f.Add(tlsSeed(), []byte{1, 2, 3, 4, 5})
 	f.Add(h2Seed(f), []byte{9, 9, 130, 1})
 	f.Add([]byte(h2Preface+"\x00\x00\x05\x01\x05\x00\x00\x00\x01\x82\x86\x84\x41\x8a"), []byte{})
+	f.Add([]byte("POST /restconf HTTP/1.1\r\nAuthorization: Basic x\r\nTransfer-Encoding: chunked\r\n\r\n4\r\nabcd\r\n0\r\n\r\nGET / HTTP/1.1\r\nContent-Length: 2\r\n\r\nhi"), []byte{7, 3, 200})
 	f.Fuzz(func(t *testing.T, data, cuts []byte) {
-		for _, p := range []parser{&sshParser{}, &tlsParser{}, newH2Parser(true, &recordingSink{}), newH2Parser(false, &recordingSink{}), plain{}} {
+		for _, p := range []parser{&sshParser{}, &tlsParser{}, newH2Parser(true, &recordingSink{}), newH2Parser(false, &recordingSink{}), newH1Parser(&recordingSink{}), plain{}} {
 			pieces(t, p, data, cuts)
+			if tx, ok := p.(textual); ok {
+				_ = tx.sawText()
+			}
+			if h, ok := p.(*h1Parser); ok && len(h.line) > maxH1Line {
+				t.Fatalf("http/1 kept a line of %d bytes", len(h.line))
+			}
 		}
 		_ = open(data)
 	})

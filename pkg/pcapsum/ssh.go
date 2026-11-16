@@ -40,6 +40,39 @@ type sshParser struct {
 	// NEWKEYS.
 	msg     kind
 	newkeys bool
+	// block counts the printable bytes of the textBlock bytes after NEWKEYS
+	// being read, and text is set once a block read as text: what SSH's none
+	// cipher (HPN-SSH's) sends.
+	block textCheck
+	text  bool
+}
+
+// sealed counts bytes sent after NEWKEYS, block by block.
+func (s *sshParser) sealed(p []byte) {
+	for len(p) > 0 {
+		n := min(len(p), textBlock-s.block.n)
+		s.block.add(p[:n])
+		p = p[n:]
+		if s.block.n == textBlock {
+			s.judgeBlock()
+		}
+	}
+}
+
+// judgeBlock sets text when the block read so far is text, and starts the
+// next block.
+func (s *sshParser) judgeBlock() {
+	if s.block.text() {
+		s.text = true
+	}
+	s.block = textCheck{}
+}
+
+// sawText implements textual: a block after NEWKEYS that was text, the one
+// the capture ends inside included.
+func (s *sshParser) sawText() bool {
+	s.judgeBlock()
+	return s.text
 }
 
 // feed implements parser.
@@ -93,6 +126,7 @@ func (s *sshParser) feed(p []byte, _ bool) kind {
 				s.end()
 			}
 		case sshEncrypted:
+			s.sealed(p)
 			return k | kindEncrypted
 		default:
 			return k | kindCleartext
@@ -141,7 +175,10 @@ func (s *sshParser) end() {
 // length is known; one anywhere else loses the framing.
 func (s *sshParser) gap(n uint64) {
 	switch {
-	case s.state == sshEncrypted || s.state == sshLost:
+	case s.state == sshEncrypted:
+		// The block's bytes are no longer one run.
+		s.judgeBlock()
+	case s.state == sshLost:
 	case s.state == sshPacket && s.hdrN == len(s.hdr) && n <= s.remaining:
 		s.remaining -= n
 		if s.remaining == 0 {

@@ -5,6 +5,7 @@
 package pcapsum
 
 import (
+	"bytes"
 	"net/netip"
 	"sort"
 )
@@ -35,8 +36,13 @@ func (f *flow) read() (Flow, bool) {
 			name = SSH
 		case o == openTLSHello || o == openTLSReply:
 			parsers[i] = &tlsParser{}
-			if name == "" {
+			if name == "" || name == HTTP {
 				name = TLS
+			}
+		case o == openH1Request || o == openH1Response:
+			parsers[i] = newH1Parser(f)
+			if name == "" {
+				name = HTTP
 			}
 		default:
 			parsers[i] = plain{}
@@ -44,6 +50,12 @@ func (f *flow) read() (Flow, bool) {
 	}
 	for i := range f.dirs {
 		f.feed(&f.dirs[i], parsers[i])
+		if t, ok := parsers[i].(textual); ok && t.sawText() {
+			// Bytes framed as encrypted read as text: none of this
+			// direction's packets is proven encrypted.
+			f.text = true
+			f.unseal(&f.dirs[i])
+		}
 		f.dirs[i].segs = nil
 	}
 	if name == HTTP2 && f.grpc {
@@ -70,7 +82,9 @@ func (f *flow) read() (Flow, bool) {
 			out.Cleartext++
 		}
 	}
-	out.CleartextManagement = (name == HTTP2 || name == GRPC) && out.Cleartext > 0
+	out.CleartextManagement = (name == HTTP || name == HTTP2 || name == GRPC) && out.Cleartext > 0
+	out.CleartextInEncrypted = f.text
+	out.HeadersUnread = f.unread
 	for c := range f.creds {
 		out.CleartextCredentials = append(out.CleartextCredentials, c)
 	}
@@ -107,40 +121,90 @@ func (d *direction) opening() opening {
 	return open(first)
 }
 
+// span is a stretch of a direction already read: its first and last
+// sequence numbers past the base, its bytes as captured, and their kind.
+type span struct {
+	start, end uint64
+	data       []byte
+	kind       kind
+}
+
 // feed feeds d's segments to p in sequence order, recording the kind of
-// each segment's bytes on its packet's entry. A segment wholly seen before
-// (a retransmission) is the kind of the segment read just before it in
-// sequence order, which is the one it repeats or the one ending inside it.
+// each segment's bytes on its packet's entry. A segment repeating bytes
+// already read (a retransmission, an overlap) is the kind of the bytes it
+// repeats when its bytes are the same, and cleartext when they differ, since
+// the parser judged only the first. A data packet whose bytes the capture
+// holds none of is cleartext in every state: nothing was seen to be
+// encrypted.
 func (f *flow) feed(d *direction, p parser) {
 	var next uint64
-	var last kind
+	var read []span
 	for _, s := range d.segs {
 		start := uint64(s.rel)
 		end := start + s.wire
-		if end <= next {
-			f.entries[s.entry].kind |= last
-			continue
-		}
 		var k kind
-		from := uint64(0)
-		switch {
-		case start > next:
-			p.gap(start - next)
-		case start < next:
-			// The part already read is the kind it was.
-			k |= last
-			from = next - start
+		if start < next {
+			k |= repeated(read, start, start, min(end, next), s.data)
 		}
-		if from < uint64(len(s.data)) {
-			k |= p.feed(s.data[from:], from == 0)
+		if end > next {
+			from := uint64(0)
+			if start > next {
+				p.gap(start - next)
+			} else {
+				from = next - start
+			}
+			if from < uint64(len(s.data)) {
+				fed := p.feed(s.data[from:], from == 0)
+				read = append(read, span{start: start + from, end: start + uint64(len(s.data)), data: s.data[from:], kind: fed})
+				k |= fed
+			}
+			if captured := start + uint64(len(s.data)); captured < end {
+				p.gap(end - max(captured, next))
+			}
+			next = end
 		}
-		if captured := start + uint64(len(s.data)); captured < end {
-			p.gap(end - max(captured, next))
+		if len(s.data) == 0 {
+			k |= kindCleartext
 		}
-		next = end
 		f.entries[s.entry].kind |= k
-		if k != kindNone {
-			last = k
+	}
+}
+
+// repeated is the kind of data, a segment's captured bytes from sequence
+// number start, over [lo, hi), which spans (in order, not overlapping)
+// already read: the kinds of the spans it repeats when its bytes are theirs,
+// cleartext when any byte differs or was never read (a gap the parser was
+// told of).
+func repeated(spans []span, start, lo, hi uint64, data []byte) kind {
+	hi = min(hi, start+uint64(len(data)))
+	if lo >= hi {
+		return kindNone
+	}
+	var k kind
+	i := sort.Search(len(spans), func(i int) bool { return spans[i].end > lo })
+	for x := lo; x < hi; {
+		if i == len(spans) || spans[i].start > x {
+			// Bytes the parser never judged.
+			return kindCleartext
+		}
+		sp := spans[i]
+		upto := min(hi, sp.end)
+		if !bytes.Equal(data[x-start:upto-start], sp.data[x-sp.start:upto-sp.start]) {
+			return kindCleartext
+		}
+		k |= sp.kind
+		x = upto
+		i++
+	}
+	return k
+}
+
+// unseal makes every packet of d counted encrypted cleartext.
+func (f *flow) unseal(d *direction) {
+	for _, s := range d.segs {
+		e := &f.entries[s.entry]
+		if e.kind&kindEncrypted != 0 {
+			e.kind = e.kind&^kindEncrypted | kindCleartext
 		}
 	}
 }
@@ -182,8 +246,9 @@ func (f *flow) count(s *Summary) {
 }
 
 // clientSide is the index in f.key of the client: the side that sent the
-// first SYN, else the side that sent the HTTP/2 preface or a ClientHello (or
-// not the ServerHello), else the side with the higher port.
+// first SYN, else the side that sent the HTTP/2 preface, a ClientHello or an
+// HTTP/1.x request (or not the ServerHello or status line), else the side
+// with the higher port.
 func (f *flow) clientSide(opens [2]opening, h2 int) int {
 	switch {
 	case f.client >= 0:
@@ -193,9 +258,9 @@ func (f *flow) clientSide(opens [2]opening, h2 int) int {
 	}
 	for i, o := range opens {
 		switch o {
-		case openTLSHello:
+		case openTLSHello, openH1Request:
 			return i
-		case openTLSReply:
+		case openTLSReply, openH1Response:
 			return 1 - i
 		}
 	}

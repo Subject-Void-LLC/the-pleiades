@@ -74,9 +74,14 @@ type flow struct {
 	hasData bool
 	grpc    bool
 	creds   map[string]bool
+	// unread counts headers or header blocks no credential was looked for
+	// in; text is set when bytes framed as encrypted read as text.
+	unread int
+	text   bool
 }
 
-// maxFlowCredentials bounds the credential header names kept for one flow.
+// maxFlowCredentials bounds the credential header names kept for one flow;
+// a name past it is counted unsearched each time it is seen.
 const maxFlowCredentials = 32
 
 // sawGRPC implements headerSink.
@@ -87,10 +92,17 @@ func (f *flow) sawCredential(name string) {
 	if f.creds == nil {
 		f.creds = map[string]bool{}
 	}
-	if len(f.creds) < maxFlowCredentials {
+	switch {
+	case f.creds[name]:
+	case len(f.creds) < maxFlowCredentials:
 		f.creds[name] = true
+	default:
+		f.unread++
 	}
 }
+
+// unsearched implements headerSink.
+func (f *flow) unsearched() { f.unread++ }
 
 // tracker holds a read's TCP flows.
 type tracker struct {
@@ -168,8 +180,12 @@ func (t *tracker) resolve(s *Summary) {
 		if fl, ok := f.read(); ok {
 			s.Flows = append(s.Flows, fl)
 			s.CleartextCredentials += len(fl.CleartextCredentials)
+			s.HeadersUnread += fl.HeadersUnread
 			if fl.CleartextManagement {
 				s.CleartextManagement++
+			}
+			if fl.CleartextInEncrypted {
+				s.CleartextInEncrypted++
 			}
 		}
 		f.count(s)
@@ -178,17 +194,20 @@ func (t *tracker) resolve(s *Summary) {
 	t.all, t.current = nil, nil
 }
 
-// sortFlows puts flows carrying a credential in the clear first, then the
-// other cleartext management flows, then most packets first.
+// sortFlows puts flows carrying a credential in the clear first, then those
+// whose encrypted-looking bytes read as text, then the other cleartext
+// management flows, then most packets first.
 func sortFlows(flows []Flow) {
 	rank := func(f Flow) int {
 		switch {
 		case len(f.CleartextCredentials) > 0:
 			return 0
-		case f.CleartextManagement:
+		case f.CleartextInEncrypted:
 			return 1
+		case f.CleartextManagement:
+			return 2
 		}
-		return 2
+		return 3
 	}
 	sort.SliceStable(flows, func(i, j int) bool {
 		a, b := flows[i], flows[j]

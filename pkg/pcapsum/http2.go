@@ -32,11 +32,14 @@ const (
 	maxHeaderTable  = 64 << 10
 )
 
-// headerSink is told what a direction's header blocks held: a gRPC
-// content-type, and the name of each header that carried a credential.
+// headerSink is told what a direction's headers held: a gRPC content-type,
+// the name of each header that carried a credential, and each time headers
+// went unsearched (a block too large or undecodable, a name too long to
+// search, the framing lost).
 type headerSink interface {
 	sawGRPC()
 	sawCredential(name string)
+	unsearched()
 }
 
 // h2Parser reads one direction of HTTP/2 in the clear. Every byte is
@@ -50,6 +53,7 @@ type h2Parser struct {
 	// frame's.
 	remaining   uint64
 	typ, flags  byte
+	carries     bool
 	collect     bool
 	frame       []byte
 	block       []byte
@@ -77,8 +81,22 @@ func (h *h2Parser) field(f hpack.HeaderField) {
 	if f.Name == "content-type" && strings.HasPrefix(f.Value, "application/grpc") {
 		h.sink.sawGRPC()
 	}
-	if f.Value != "" && (f.Sensitive || credentialHeader(f.Name)) {
-		h.sink.sawCredential(headerName(f.Name))
+	credential(h.sink, f.Name, f.Value != "", f.Sensitive)
+}
+
+// credential tells sink of a header named name: its name when it carries a
+// credential (marked never-indexed, or named as one) and has a value, and
+// that it went unsearched when its name is too long to search.
+func credential(sink headerSink, name string, valued, sensitive bool) {
+	if !valued {
+		return
+	}
+	if len(name) > maxCredentialName && !sensitive {
+		sink.unsearched()
+		return
+	}
+	if sensitive || credentialHeader(name) {
+		sink.sawCredential(headerName(name))
 	}
 }
 
@@ -117,8 +135,8 @@ func (h *h2Parser) feed(p []byte, _ bool) kind {
 func (h *h2Parser) begin() {
 	length := uint64(h.hdr[0])<<16 | uint64(h.hdr[1])<<8 | uint64(h.hdr[2])
 	h.typ, h.flags, h.remaining = h.hdr[3], h.hdr[4], length
-	carries := h.typ == h2Headers || h.typ == h2PushPromise || h.typ == h2Continuation
-	h.collect = carries && !h.undecodable
+	h.carries = h.typ == h2Headers || h.typ == h2PushPromise || h.typ == h2Continuation
+	h.collect = h.carries && !h.undecodable
 	if h.collect && length > maxHeaderBlock {
 		h.collect, h.undecodable = false, true
 	}
@@ -129,30 +147,45 @@ func (h *h2Parser) begin() {
 }
 
 // end ends a frame: a header-carrying one adds its fragment to the block,
-// and the last of a block decodes it.
+// and the last of a block decodes it. A block that ends undecoded (too
+// large, cut by a gap, or after the table was lost) is unsearched.
 func (h *h2Parser) end() {
 	h.hdrN = 0
-	if !h.collect {
+	if !h.carries {
 		return
 	}
+	h.carries = false
+	ok := h.collect && h.addFragment()
 	h.collect = false
-	fragment, ok := h.fragment()
-	if !ok || len(h.block)+len(fragment) > maxHeaderBlock {
-		h.undecodable = true
-		return
-	}
-	h.block = append(h.block, fragment...)
 	if h.flags&h2EndHeaders == 0 {
 		return
 	}
-	_, err := h.dec.Write(h.block)
-	if err == nil {
-		err = h.dec.Close()
+	if ok {
+		_, err := h.dec.Write(h.block)
+		if err == nil {
+			err = h.dec.Close()
+		}
+		if err != nil {
+			// The table is now unknown: no later block can be read either.
+			h.undecodable, ok = true, false
+		}
 	}
 	h.block = h.block[:0]
-	if err != nil {
-		h.undecodable = true
+	if !ok {
+		h.sink.unsearched()
 	}
+}
+
+// addFragment adds the frame's header block fragment to the block, false
+// (and decoding stopped) when the frame is malformed or the block too large.
+func (h *h2Parser) addFragment() bool {
+	fragment, ok := h.fragment()
+	if !ok || len(h.block)+len(fragment) > maxHeaderBlock {
+		h.undecodable = true
+		return false
+	}
+	h.block = append(h.block, fragment...)
+	return true
 }
 
 // fragment is the header block fragment in the frame just read, past its
@@ -199,7 +232,9 @@ func (h *h2Parser) gap(n uint64) {
 		}
 		return
 	}
+	// Whatever headers follow are never read.
 	h.lost = true
+	h.sink.unsearched()
 }
 
 // credentialNames are header names that carry a credential, exactly.

@@ -41,6 +41,10 @@ type tlsParser struct {
 	// lost is set when a byte was not where a record header should be; the
 	// direction is read again only from a segment that begins with one.
 	lost bool
+	// body counts the printable bytes of the application data record being
+	// read, and text is set once one read as text rather than ciphertext.
+	body textCheck
+	text bool
 }
 
 // recordKind is the kind of a record of the type being read.
@@ -77,11 +81,13 @@ func (t *tlsParser) feed(p []byte, fresh bool) kind {
 				continue
 			}
 			if !tlsHeader(t.hdr[:]) {
+				t.hdrN = 0
 				t.lost = true
 				return k | kindCleartext
 			}
 			t.typ = t.hdr[0]
 			t.remaining = uint64(binary.BigEndian.Uint16(t.hdr[3:]))
+			t.body = textCheck{}
 			k |= t.recordKind()
 			if t.remaining == 0 {
 				t.end()
@@ -90,6 +96,9 @@ func (t *tlsParser) feed(p []byte, fresh bool) kind {
 		}
 		n := min(uint64(len(p)), t.remaining)
 		k |= t.recordKind()
+		if t.typ == tlsApplicationData {
+			t.body.add(p[:n])
+		}
 		t.remaining -= n
 		p = p[n:]
 		if t.remaining == 0 {
@@ -101,6 +110,7 @@ func (t *tlsParser) feed(p []byte, fresh bool) kind {
 
 // end ends a record.
 func (t *tlsParser) end() {
+	t.judgeBody()
 	t.hdrN = 0
 	if t.typ == tlsChangeCipherSpec || t.typ == tlsApplicationData {
 		t.encrypted = true
@@ -121,5 +131,21 @@ func (t *tlsParser) gap(n uint64) {
 		}
 		return
 	}
+	t.judgeBody()
 	t.lost = true
+}
+
+// judgeBody sets text when the application data record read so far is text.
+func (t *tlsParser) judgeBody() {
+	if t.hdrN == len(t.hdr) && t.typ == tlsApplicationData && t.body.text() {
+		t.text = true
+	}
+}
+
+// sawText implements textual: an application data record whose body was
+// text (a NULL cipher suite, or a record forged around cleartext), the one
+// the capture ends inside included.
+func (t *tlsParser) sawText() bool {
+	t.judgeBody()
+	return t.text
 }

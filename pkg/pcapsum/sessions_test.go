@@ -40,6 +40,16 @@ func throwaway(t *testing.T) string {
 	return hex.EncodeToString(b)
 }
 
+// noise is n random bytes, as ciphertext looks.
+func noise(t *testing.T, n int) []byte {
+	t.Helper()
+	b := make([]byte, n)
+	if _, err := rand.Read(b); err != nil {
+		t.Fatal(err)
+	}
+	return b
+}
+
 // listen is a loopback listener closed when t ends.
 func listen(t *testing.T) net.Listener {
 	t.Helper()
