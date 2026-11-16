@@ -70,9 +70,11 @@ type Flag struct {
 }
 
 // tlsKeyLogDoc documents --tls-keylog, which run and adhoc both take.
-const tlsKeyLogDoc = "write this run's TLS session secrets, in the NSS key log format, to a NEW file made mode 0600 (a name that exists is refused before anything runs), " +
+const tlsKeyLogDoc = "write this run's TLS session secrets, in the NSS key log format, to a NEW file outside the project, made mode 0600, " +
 	"so a packet tool (Wireshark's tls.keylog_file) can decrypt a capture of the run's gNMI, RESTCONF and http.request device sessions; the file decrypts them, " +
-	"credentials in gRPC metadata and HTTP headers included, so guard it and delete it once read. Every run using it warns, at its start and in its report. " +
+	"credentials in gRPC metadata and HTTP headers included, so guard it and delete it once read. Refused before anything runs: a name that exists, " +
+	"a directory that does not, and one inside the project or, with external Collections loaded, inside their directory or a path they may read, each compared by identity, not by name. " +
+	"Not on Windows, which ignores the file's mode. Every run using it warns, at its start and in its report. " +
 	"The command line alone takes it: a Runner never writes a key log"
 
 // Root is the full pleiades command tree. Every entry's Name, Positional
@@ -539,7 +541,7 @@ var Root = Command{
 				"pleiades run runbooks/site.yaml --limit 'web-*,!web-3'",
 				"pleiades run runbooks/site.yaml --persist-connections=false",
 				"pleiades run runbooks/site.yaml --json",
-				"pleiades run runbooks/gnmi.yaml --tls-keylog captures/gnmi.keylog",
+				"pleiades run runbooks/gnmi.yaml --tls-keylog ~/gnmi.keylog",
 			},
 		},
 		{
@@ -571,7 +573,7 @@ var Root = Command{
 				"pleiades adhoc lab exec.command argv:='[cat, /etc/os-release]'",
 				"pleiades adhoc br1,br2 net.ios.command command='show crypto ikev2 sa' --json",
 				"pleiades adhoc net.pcap.summary src=captures/core1-wan.pcap --json",
-				"pleiades adhoc srl1 net.gnmi.facts --tls-keylog captures/srl1.keylog",
+				"pleiades adhoc srl1 net.gnmi.facts --tls-keylog ~/srl1.keylog",
 			},
 		},
 		{
