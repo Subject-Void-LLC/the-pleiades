@@ -6,12 +6,16 @@
 // changes nothing, the facts are in the project's store, and pleiades
 // rollback deletes the loopback from the undo the first run recorded. Each
 // change is read back over SR Linux's own command line (sr_cli), never
-// through the gNMI session that made it.
+// through the gNMI session that made it, the second run's report is held to
+// no task changed, and a wrong password's refusal is counted in SR Linux's
+// own state.
 package main_test
 
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"os/exec"
 	"regexp"
 	"strings"
 	"testing"
@@ -118,10 +122,15 @@ func TestCLI_GNMIFromDayZeroToDayN(t *testing.T) {
 		t.Fatalf("sr_cli after the run:\n%s", out)
 	}
 
-	// Day N: the same runbook changes nothing.
-	again, err := runPleiadesWithEnv(t, dir, nil, "run", "runbooks/gnmi.yaml")
-	if err != nil || strings.Contains(again, testsupport.SRLinuxPassword) {
-		t.Fatalf("the second run: %v\n%s", err, again)
+	// Day N: the same runbook changes nothing, and prints no password.
+	again, printed := gnmiReport(t, dir, "run", "runbooks/gnmi.yaml")
+	if again.Outcome.ExitCode != 0 || len(again.Tasks) != 3 || strings.Contains(printed, testsupport.SRLinuxPassword) {
+		t.Fatalf("the second run: %+v\n%s", again, printed)
+	}
+	for _, task := range again.Tasks {
+		if task.Status == "changed" {
+			t.Errorf("the second run changed %s (%s): a re-run of the same runbook must change nothing", task.ID, task.Method)
+		}
 	}
 	shown, err := runPleiadesWithEnv(t, dir, nil, "facts", "srl1", "--json")
 	if err != nil {
@@ -157,8 +166,8 @@ func TestCLI_GNMIFromDayZeroToDayN(t *testing.T) {
 		t.Errorf("sr_cli still shows the loopback after the rollback:\n%s", out)
 	}
 
-	// A device holding a wrong password is refused once, and nothing printed
-	// holds the password.
+	// A device holding a wrong password is refused once, counted by SR Linux
+	// itself, and nothing printed holds the password.
 	for _, args := range [][]string{
 		{"add-host", "srl2", "--type", "generic_gnmi", "--set", "target=" + srl.Target, "--set", "tls_fingerprint=" + match[1]},
 	} {
@@ -169,8 +178,42 @@ func TestCLI_GNMIFromDayZeroToDayN(t *testing.T) {
 	if out, err := runPleiadesWithStdin(t, dir, "wrong-Gnmi-Gate-5\n", "add-credential", "srl2", "--username", testsupport.SRLinuxUser, "--password-stdin"); err != nil {
 		t.Fatalf("add-credential srl2: %v\n%s", err, out)
 	}
+	before := srlRejects(t, srl)
 	wrong, err := runPleiadesWithEnv(t, dir, nil, "onboard", "srl2", "--json", "--timeout", "60s")
 	if err == nil || !strings.Contains(wrong, "refused the login") || strings.Contains(wrong, "wrong-Gnmi-Gate-5") {
 		t.Errorf("onboarding with a wrong password: %v\n%s", err, wrong)
 	}
+	if refused := srlRejects(t, srl) - before; refused != 1 {
+		t.Errorf("SR Linux refused %d logins while onboarding srl2, want one: the wrong password was sent again", refused)
+	}
+}
+
+// gnmiReport runs the binary with --json in dir and returns its report and
+// everything it printed, standard output and standard error, for a search.
+func gnmiReport(t *testing.T, dir string, args ...string) (gateReport, string) {
+	t.Helper()
+	cmd := exec.Command(binPath, append(args, "--json")...) // #nosec G204 -- the test's own binary
+	cmd.Dir = dir
+	cmd.Env = os.Environ()
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+	out, _ := cmd.Output()
+	var rep gateReport
+	if err := json.Unmarshal(out, &rep); err != nil {
+		t.Fatalf("pleiades %v --json printed no report: %v\nstdout: %s\nstderr: %s", args, err, out, stderr.String())
+	}
+	return rep, string(out) + stderr.String()
+}
+
+// srlRejects is how many logins SR Linux's gRPC server has refused, from its
+// own state.
+func srlRejects(t *testing.T, srl *testsupport.SRLinux) int {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	n, err := srl.LoginRejects(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return n
 }

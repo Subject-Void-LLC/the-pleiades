@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"regexp"
 	"strconv"
 	"testing"
 	"time"
@@ -113,6 +114,31 @@ func StartSRLinux(t testing.TB) *SRLinux {
 		t.Fatal(err)
 	}
 	return s
+}
+
+// srlinuxRejects finds the count of refused logins in the gRPC server's
+// statistics, the server-wide one, which sr_cli writes first.
+var srlinuxRejects = regexp.MustCompile(`access-rejects\s+(\d+)`)
+
+// LoginRejects is how many logins SR Linux's mgmt gRPC server has refused,
+// read from its own state over sr_cli, never through gNMI: zero before the
+// first, when SR Linux writes no statistics at all.
+func (s *SRLinux) LoginRejects(ctx context.Context) (int, error) {
+	out, err := s.CLI(ctx, "info from state /system grpc-server mgmt statistics", false)
+	if err != nil {
+		return 0, err
+	}
+	return loginRejects(out)
+}
+
+// loginRejects reads the server-wide count of refused logins from sr_cli's
+// statistics, zero when it wrote none.
+func loginRejects(statistics string) (int, error) {
+	m := srlinuxRejects.FindStringSubmatch(statistics)
+	if m == nil {
+		return 0, nil
+	}
+	return strconv.Atoi(m[1])
 }
 
 // CLI runs one command on SR Linux's own command line (sr_cli) as root,

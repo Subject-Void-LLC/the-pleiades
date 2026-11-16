@@ -108,9 +108,14 @@ func TestSRLinux_ItsCertificateIsRefusedUntilPinned(t *testing.T) {
 }
 
 // TestSRLinux_AWrongPasswordIsRefusedAndNotSentAgain holds a wrong password
-// to SR Linux's UNAUTHENTICATED, and every later call to the same refusal.
+// to SR Linux's UNAUTHENTICATED, and every later call to the same refusal,
+// counted by SR Linux itself: one login refused, whatever followed it.
 func TestSRLinux_AWrongPasswordIsRefusedAndNotSentAgain(t *testing.T) {
 	s := startSRLinux(t)
+	before, err := s.srl.LoginRejects(ctxOf(t))
+	if err != nil {
+		t.Fatal(err)
+	}
 	c, err := srlClient(s.target, "Not-The-Password-1")
 	if err != nil {
 		t.Fatal(err)
@@ -126,6 +131,16 @@ func TestSRLinux_AWrongPasswordIsRefusedAndNotSentAgain(t *testing.T) {
 	}
 	if _, err := c.Get(ctxOf(t), gnmi.GetRequest{Paths: []gnmi.Path{mustPath(t, "/system")}}); !errors.Is(err, refused) && !errors.As(err, &refused) {
 		t.Errorf("Get after the refusal = %v", err)
+	}
+	if _, err := c.Set(ctxOf(t), gnmi.SetRequest{Delete: []gnmi.Path{mustPath(t, "/interface[name=lo99]")}}); !errors.As(err, &refused) {
+		t.Errorf("Set after the refusal = %v", err)
+	}
+	after, err := s.srl.LoginRejects(ctxOf(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after-before != 1 {
+		t.Errorf("SR Linux refused %d logins (%d before, %d after), want one: the client sent the wrong password again", after-before, before, after)
 	}
 }
 
