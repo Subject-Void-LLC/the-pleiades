@@ -10,6 +10,7 @@ import (
 	"crypto/tls"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -22,6 +23,9 @@ import (
 // session's version: the four TLS 1.3 traffic secrets, or TLS 1.2's
 // CLIENT_RANDOM.
 func TestRequestDevice_WritesTheRunsTLSKeyLog(t *testing.T) {
+	if keyLogRefusedHere(t) {
+		return
+	}
 	for _, tc := range []struct {
 		name   string
 		max    uint16
@@ -73,6 +77,9 @@ func TestRequestDevice_WritesTheRunsTLSKeyLog(t *testing.T) {
 // device's own API and is not built by pkg/devicetls, under a context
 // carrying a key log: the session is made and nothing reaches the file.
 func TestRequest_AFullURLWritesNoKeyLog(t *testing.T) {
+	if keyLogRefusedHere(t) {
+		return
+	}
 	srv := tlsDeviceServer(t, tls.VersionTLS12, 0)
 	path := filepath.Join(t.TempDir(), "run.keylog")
 	keyLog, err := devicetls.CreateKeyLog(path)
@@ -92,4 +99,20 @@ func TestRequest_AFullURLWritesNoKeyLog(t *testing.T) {
 	if info, err := os.Stat(path); err != nil || info.Size() != 0 {
 		t.Errorf("a full URL's session wrote to the key log: %v", err)
 	}
+}
+
+// keyLogRefusedHere reports whether this platform refuses every key log
+// (Windows, which ignores a file's mode), having held CreateKeyLog to
+// refusing one, so the tests above end with that check there rather than a
+// skip.
+func keyLogRefusedHere(t *testing.T) bool {
+	t.Helper()
+	if runtime.GOOS != "windows" {
+		return false
+	}
+	if keyLog, err := devicetls.CreateKeyLog(filepath.Join(t.TempDir(), "run.keylog")); err == nil {
+		_ = keyLog.Close()
+		t.Fatal("a key log was made on Windows, which ignores its mode")
+	}
+	return true
 }

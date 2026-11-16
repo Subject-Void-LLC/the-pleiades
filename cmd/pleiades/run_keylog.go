@@ -9,10 +9,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"io/fs"
 	"os"
-	"path/filepath"
-	"strings"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/clireport"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
@@ -31,7 +28,7 @@ type tlsKeyLogFlag struct {
 // rollback and onboarding do not take the flag.
 func addTLSKeyLogFlag(fs *flag.FlagSet) *tlsKeyLogFlag {
 	f := &tlsKeyLogFlag{}
-	fs.Func(tlsKeyLogFlagName, "write this run's TLS session secrets (the NSS key log format) to a NEW file, mode 0600, so a packet tool can decrypt a capture of the run's gNMI, RESTCONF and http.request device sessions; the file then decrypts them, credentials included, so guard and delete it", func(v string) error {
+	fs.Func(tlsKeyLogFlagName, "write this run's TLS session secrets (the NSS key log format) to a NEW file outside the project, mode 0600 (a name that exists, or one inside the project, is refused; not on Windows), so a packet tool can decrypt a capture of the run's gNMI, RESTCONF and http.request device sessions; the file then decrypts them, credentials included, so guard and delete it", func(v string) error {
 		switch {
 		case v == "":
 			return errors.New("needs a file name")
@@ -46,76 +43,52 @@ func addTLSKeyLogFlag(fs *flag.FlagSet) *tlsKeyLogFlag {
 	return f
 }
 
-// option returns the file named, refusing one that already exists, or one
-// inside projectDir, before anything is loaded, so a run that could only be
-// refused later is refused first. The file is created only as the run
-// starts (startTLSKeyLog), where creating it refuses an existing name again,
-// atomically.
-//
-// A key log inside the project is refused because methods read project
-// files (file.copy's src, a template) and send them to devices: a runbook in
-// the same project could then carry the run's own session secrets off the
-// machine.
+// option returns the file named, refusing before anything is loaded what
+// the run would refuse as it starts (devicetls.CheckKeyLogPath): Windows, a
+// name that exists, a directory that does not exist or is not one, and a
+// directory in or below one keyLogKeepOut lists for projectDir. The file is
+// created only as the run starts (startTLSKeyLog), where everything is
+// checked again, in the directory held open from that check to the file's
+// creation.
 func (f *tlsKeyLogFlag) option(projectDir string) (string, error) {
 	if f.path == "" {
 		return "", nil
 	}
-	inside, err := insideDirResolved(f.path, projectDir)
-	if err != nil {
-		return "", fmt.Errorf("--%s: %w", tlsKeyLogFlagName, err)
-	}
-	if inside {
-		return "", fmt.Errorf("--%s: %s is inside the project %s, whose files a run's methods can read and send to devices: write the key log outside the project", tlsKeyLogFlagName, f.path, projectDir)
-	}
-	if _, err := os.Lstat(f.path); err == nil {
-		return "", fmt.Errorf("--%s: %s already exists: a key log is never written over or added to, so name a file that does not exist yet", tlsKeyLogFlagName, f.path)
-	} else if !errors.Is(err, fs.ErrNotExist) {
+	if err := devicetls.CheckKeyLogPath(f.path, keyLogKeepOut(projectDir)...); err != nil {
 		return "", fmt.Errorf("--%s: %w", tlsKeyLogFlagName, err)
 	}
 	return f.path, nil
 }
 
-// insideDirResolved reports whether path, which need not exist, lies in dir or
-// below it, comparing both with symbolic links resolved where they exist
-// (the file's directory, and dir), so a link cannot carry the key log into
-// the project unnoticed. (ai.go's insideDir compares without resolving
-// links, which is enough where it is used and not here.)
-func insideDirResolved(path, dir string) (bool, error) {
-	absDir, err := resolvedAbs(dir)
-	if err != nil {
-		return false, err
+// keyLogKeepOut lists the directories a run's key log may not be made in or
+// below, for projectDir's run, each compared by identity
+// (devicetls.KeepOut): the project, because methods read project files
+// (file.copy's src, a template) and send them to devices, so a runbook in it
+// could carry the run's own session secrets off the machine; and, when
+// external Collections are loaded, their directory and each path they are
+// granted, since those third-party programs run during the run and can read
+// both.
+func keyLogKeepOut(projectDir string) []devicetls.KeepOut {
+	keep := []devicetls.KeepOut{{Dir: projectDir, What: "the project", Why: "whose files a run's methods can read and send to devices"}}
+	collections := os.Getenv(collectionsDirEnv)
+	if collections == "" {
+		return keep
 	}
-	absParent, err := resolvedAbs(filepath.Dir(path))
-	if err != nil {
-		return false, err
+	keep = append(keep, devicetls.KeepOut{Dir: collections, What: "the external Collections directory (" + collectionsDirEnv + ")", Why: "whose programs run during the run and can read it"})
+	for _, p := range readPaths(os.Getenv(collectionsReadPathsEnv)) {
+		keep = append(keep, devicetls.KeepOut{Dir: p, What: "a path external Collections may read (" + collectionsReadPathsEnv + ")", Why: "which every loaded program can read during the run"})
 	}
-	rel, err := filepath.Rel(absDir, filepath.Join(absParent, filepath.Base(path)))
-	if err != nil {
-		return false, nil
-	}
-	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)), nil
+	return keep
 }
 
-// resolvedAbs is p made absolute, with its symbolic links resolved when p
-// exists; a p that does not exist is only made absolute.
-func resolvedAbs(p string) (string, error) {
-	abs, err := filepath.Abs(p)
-	if err != nil {
-		return "", err
-	}
-	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
-		return resolved, nil
-	}
-	return abs, nil
-}
-
-// startTLSKeyLog creates the run's key log when path names one, recording
-// the warning every such run gives on rep, and returns it (nil for none).
-func startTLSKeyLog(path string, rep *runReport) (*devicetls.KeyLog, error) {
+// startTLSKeyLog creates the run's key log when path names one, kept out of
+// keepOut, recording the warning every such run gives on rep, and returns it
+// (nil for none).
+func startTLSKeyLog(path string, keepOut []devicetls.KeepOut, rep *runReport) (*devicetls.KeyLog, error) {
 	if path == "" {
 		return nil, nil
 	}
-	keyLog, err := devicetls.CreateKeyLog(path)
+	keyLog, err := devicetls.CreateKeyLog(path, keepOut...)
 	if err != nil {
 		return nil, fmt.Errorf("--%s: %w", tlsKeyLogFlagName, err)
 	}

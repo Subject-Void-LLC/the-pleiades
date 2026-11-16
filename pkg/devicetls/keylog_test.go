@@ -2,7 +2,8 @@
 // lines written are the NSS key log lines a packet tool decrypts a session
 // with, the very secrets the server derived for the same sessions, written
 // only for a client built under a context carrying the log, into a file the
-// log created itself, mode 0600, and never one that existed.
+// log created itself, mode 0600, and never one that existed. On Windows,
+// where every key log is refused, each test holds that refusal and ends.
 package devicetls_test
 
 import (
@@ -15,7 +16,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -112,6 +112,9 @@ func fileLines(t *testing.T, path string) []string {
 // server derived for the same sessions: so the file decrypts what was sent,
 // not merely something shaped like a key log.
 func TestKeyLog_WritesEverySessionsSecrets(t *testing.T) {
+	if refusedHere(t) {
+		return
+	}
 	const sessions = 3
 	for _, tc := range []struct {
 		name   string
@@ -169,14 +172,12 @@ func TestKeyLog_WritesEverySessionsSecrets(t *testing.T) {
 			if !slices.Equal(got, want) {
 				t.Errorf("the client wrote %d lines that are not the %d the server derived for the same sessions", len(got), len(want))
 			}
-			if runtime.GOOS != "windows" {
-				info, err := os.Stat(path)
-				if err != nil {
-					t.Fatal(err)
-				}
-				if info.Mode().Perm() != 0o600 {
-					t.Errorf("the key log's mode is %v, want 0600", info.Mode().Perm())
-				}
+			info, err := os.Stat(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if info.Mode().Perm() != 0o600 {
+				t.Errorf("the key log's mode is %v, want 0600", info.Mode().Perm())
 			}
 		})
 	}
@@ -188,6 +189,9 @@ func TestKeyLog_WritesEverySessionsSecrets(t *testing.T) {
 // one. A key log that exists but rides no context stays empty through real
 // sessions.
 func TestKeyLog_NothingIsWrittenWithoutItsContext(t *testing.T) {
+	if refusedHere(t) {
+		return
+	}
 	srv, _, settings := keyLogServer(t, 0)
 	path := filepath.Join(t.TempDir(), "unused.keylog")
 	keyLog, err := devicetls.CreateKeyLog(path)
@@ -231,22 +235,22 @@ func TestKeyLog_NothingIsWrittenWithoutItsContext(t *testing.T) {
 // a file and a dangling one are each refused naming the path, and none is
 // changed or created through. An empty name and "-" are refused too.
 func TestCreateKeyLog_RefusesAPathThatExists(t *testing.T) {
+	if refusedHere(t) {
+		return
+	}
 	dir := t.TempDir()
 	existing := filepath.Join(dir, "existing.keylog")
 	if err := os.WriteFile(existing, []byte("keep me\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	cases := map[string]string{"an existing file": existing, "a directory": dir}
-	if runtime.GOOS != "windows" {
-		toFile, dangling := filepath.Join(dir, "to-file"), filepath.Join(dir, "dangling")
-		if err := os.Symlink(existing, toFile); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.Symlink(filepath.Join(dir, "nowhere"), dangling); err != nil {
-			t.Fatal(err)
-		}
-		cases["a link to a file"], cases["a dangling link"] = toFile, dangling
+	toFile, dangling := filepath.Join(dir, "to-file"), filepath.Join(dir, "dangling")
+	if err := os.Symlink(existing, toFile); err != nil {
+		t.Fatal(err)
 	}
+	if err := os.Symlink(filepath.Join(dir, "nowhere"), dangling); err != nil {
+		t.Fatal(err)
+	}
+	cases := map[string]string{"an existing file": existing, "a directory": dir, "a link to a file": toFile, "a dangling link": dangling}
 	for name, path := range cases {
 		keyLog, err := devicetls.CreateKeyLog(path)
 		if err == nil {
@@ -270,7 +274,7 @@ func TestCreateKeyLog_RefusesAPathThatExists(t *testing.T) {
 			t.Errorf("CreateKeyLog(%q) created a key log", path)
 		}
 	}
-	if _, err := devicetls.CreateKeyLog(filepath.Join(dir, "missing", "run.keylog")); err == nil || !strings.Contains(err.Error(), "creating the TLS key log") {
+	if _, err := devicetls.CreateKeyLog(filepath.Join(dir, "missing", "run.keylog")); err == nil || !strings.Contains(err.Error(), "does not exist") {
 		t.Errorf("a key log in a missing directory: %v", err)
 	}
 }
@@ -279,6 +283,9 @@ func TestCreateKeyLog_RefusesAPathThatExists(t *testing.T) {
 // written to ending the session rather than letting one run that the file
 // would not decrypt, with an error naming the file and holding no secret.
 func TestKeyLog_AClosedLogEndsTheHandshake(t *testing.T) {
+	if refusedHere(t) {
+		return
+	}
 	srv, serverLog, settings := keyLogServer(t, 0)
 	path := filepath.Join(t.TempDir(), "closed.keylog")
 	keyLog, err := devicetls.CreateKeyLog(path)
@@ -314,6 +321,9 @@ func TestKeyLog_AClosedLogEndsTheHandshake(t *testing.T) {
 // absolute file a relative name was made into, and Warning to naming that
 // file and what it exposes.
 func TestKeyLog_NamesItsFileAbsoluteAndWarnsWhatItDecrypts(t *testing.T) {
+	if refusedHere(t) {
+		return
+	}
 	dir := t.TempDir()
 	t.Chdir(dir)
 	keyLog, err := devicetls.CreateKeyLog("relative.keylog")

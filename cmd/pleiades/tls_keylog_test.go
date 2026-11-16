@@ -125,6 +125,9 @@ func keyLogLabels(t *testing.T, path string) (map[string]int, []string) {
 // naming the file, and every key log value to appearing nowhere the runs
 // printed or left in the project.
 func TestCLI_TLSKeyLogWritesTheRunsSessions(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("needs a platform that honors a file's mode: --tls-keylog is refused on Windows, as run_keylog_internal_test.go holds")
+	}
 	dir, _, _ := keyLogProject(t)
 	logs := t.TempDir()
 	gnmiLog, restconfLog := filepath.Join(logs, "gnmi.keylog"), filepath.Join(logs, "restconf.keylog")
@@ -208,6 +211,9 @@ func TestCLI_TLSKeyLogWritesTheRunsSessions(t *testing.T) {
 // to one, as the key log of run and of adhoc: each is refused naming it, no
 // device is contacted, and the file is unchanged.
 func TestCLI_TLSKeyLogRefusesAFileThatExists(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("needs a platform that honors a file's mode: --tls-keylog is refused on Windows, as run_keylog_internal_test.go holds")
+	}
 	dir, g, rc := keyLogProject(t)
 	existing := filepath.Join(t.TempDir(), "existing.keylog")
 	if err := os.WriteFile(existing, []byte("do not touch\n"), 0o600); err != nil {

@@ -9,8 +9,10 @@
 // file as secret as every credential the sessions carry, since a gNMI login
 // rides the gRPC metadata and an HTTP one the Authorization header, both
 // inside the encryption the file undoes. So it is never written unless asked
-// for, never written over or added to, created readable by its owner alone,
-// and nothing here reads it back: what reaches it goes nowhere else.
+// for, never written over or added to, created readable by its owner alone
+// (and so not made at all on Windows, which ignores the mode), never placed
+// where the caller keeps it out of (keylog_place.go), and nothing here reads
+// it back: what reaches it goes nowhere else.
 //
 // The key log travels on a run's context (WithKeyLog), and only the clients
 // built with Settings.ConfigContext under that context write to it. The
@@ -21,11 +23,9 @@ package devicetls
 import (
 	"context"
 	"crypto/tls"
-	"errors"
 	"fmt"
 	"io/fs"
 	"os"
-	"path/filepath"
 	"sync"
 )
 
@@ -46,33 +46,6 @@ type KeyLog struct {
 // keyLogMode is the key log's permission: its owner reads and writes it, and
 // nobody else can do either.
 const keyLogMode fs.FileMode = 0o600
-
-// CreateKeyLog creates path as a new key log, mode 0600. A path that already
-// exists, a file, a directory or a symbolic link (dangling or not), is refused
-// naming it, since a key log never overwrites or adds to a file it did not
-// create, and "-" is refused because a key log is never standard output.
-func CreateKeyLog(path string) (*KeyLog, error) {
-	switch path {
-	case "":
-		return nil, errors.New("the TLS key log needs a file name")
-	case "-":
-		return nil, errors.New("the TLS key log is written to a new file, never to standard output: name a file")
-	}
-	abs, err := filepath.Abs(path)
-	if err != nil {
-		return nil, fmt.Errorf("resolving the TLS key log %s: %w", path, err)
-	}
-	// O_EXCL with O_CREATE refuses any name that exists, a symbolic link
-	// included, so the file opened is always the one created here.
-	f, err := os.OpenFile(abs, os.O_WRONLY|os.O_CREATE|os.O_EXCL, keyLogMode) // #nosec G304 -- the path the person running the command named
-	switch {
-	case errors.Is(err, fs.ErrExist):
-		return nil, fmt.Errorf("the TLS key log %s already exists: a key log is never written over or added to, so name a file that does not exist yet", abs)
-	case err != nil:
-		return nil, fmt.Errorf("creating the TLS key log %s: %w", abs, err)
-	}
-	return &KeyLog{path: abs, f: f}, nil
-}
 
 // Path is the key log's absolute path.
 func (k *KeyLog) Path() string { return k.path }

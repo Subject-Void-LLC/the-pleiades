@@ -275,11 +275,14 @@ func carryOut(opts runOptions, src runSource) (*runReport, error) {
 	}
 	rep.Warnings = append(rep.Warnings, grantWarnings...)
 
-	// --tls-keylog's file is created as the run starts, after everything
-	// that can refuse it short of creating it, so a refused run leaves no
-	// empty key log behind to refuse the next attempt. Creating it refuses a
-	// name that appeared since the flag was read.
-	keyLog, err := startTLSKeyLog(opts.tlsKeyLog, rep)
+	// --tls-keylog's file is created as the run starts, so a run refused
+	// earlier leaves no empty key log behind to refuse the next attempt. The
+	// flag's check (option) already refused what can be known before
+	// loading; what can still fail here, after the journal and the
+	// concurrency record are begun, is only what changed since or what only
+	// creating the file shows: a name that appeared, a directory moved into a
+	// kept-out one, a directory this user cannot write, a full disk.
+	keyLog, err := startTLSKeyLog(opts.tlsKeyLog, keyLogKeepOut(opts.dir), rep)
 	if err != nil {
 		return rep, err
 	}
