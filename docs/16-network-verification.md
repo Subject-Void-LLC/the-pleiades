@@ -323,6 +323,40 @@ out of `yang.modules`, `yang.module_count` and `yang.modules_digest` and recorde
 with those left out both protocols record 556 data models and one digest, so reading the device over the other protocol
 is not drift.
 
+### Reading the device's own schema
+
+A configuration task over NETCONF or RESTCONF is written against the device's YANG models, and the path that works is
+the one the device's own module says. `net.yang.schema` fetches a module's source from the device and saves it into the
+project, so an author or an agent reads the real schema rather than guessing:
+
+```yaml
+# What this does: saves the YANG source of three of P1's models into the project.
+# Blast radius: files under yang/p1 in this project; nothing on P1 changes.
+# Changes: one .yang file per module and submodule. Undo: none, the project is under version control.
+  - name: read the schema of P1's tunnel and crypto models
+    net.yang.schema:
+      target: P1
+      modules:
+        - Cisco-IOS-XE-native@2024-07-01
+        - Cisco-IOS-XE-tunnel
+        - Cisco-IOS-XE-crypto
+      dest: yang/p1
+```
+
+Over NETCONF it asks with RFC 6022's `get-schema`; over RESTCONF it fetches the URL the device's YANG library names for
+each source, which IOS XE 17.15.1a names in `modules-state`, not in its RFC 8525 library. A device serving both is read
+over NETCONF unless `via:` names the other; the choice is made at plan time and a failed fetch is never retried over the
+other protocol. A URL at another origin than the device's base URL is refused, since fetching it would send the device's
+credential there, and a server that names no URL (rousette names none, though it serves sources under `/yang/`) is
+refused naming that. gNMI has no way to fetch a module's source.
+
+A source is schema, so it is saved as the device sent it: a leaf named `password`, a list's `key` statement and the word
+`secret` are its grammar, and the configuration masker that reads values by their shape is never run over it. Only the
+run's known secret values (the device's credential and the project's named secrets) of at least 8 bytes are replaced,
+wherever they stand. Each file is `name@revision.yang`, built from the library's identifiers alone, and every source is
+fetched and checked to be the module asked for before any file is written. It runs from the command line, which holds
+the project.
+
 ### Reaching a node through the controller's console
 
 A node with no address reachable from here is reached through the controller's console server: an SSH

@@ -72,11 +72,11 @@ pre-1.0 project and the honest state is not what the docs' introductions might i
   secret is masked by value in every run (`engine.WithKnownSecrets`), `net.ios.command`'s stdout is masked,
   and `validate` warns on a key written out. A Runner and an external Collection cannot resolve one yet
   (`sdk.ErrNoNamedSecrets`). Proven live by `TestCLI_ANamedSecretKeysAnIKEv2TunnelAndNeverShows`.
-- **Module catalog: 272 registered FQCNs; 270 implemented, 2 declared-not-implemented (2026-11-15).** These counts
+- **Module catalog: 273 registered FQCNs; 271 implemented, 2 declared-not-implemented (2026-11-16).** These counts
   and every per-method status come from the generated
   `docs/reference/schemas/module-catalog.json`, which `tools/gendocs` builds from the real registry
   and which is authoritative over any hand-written tally in this file - read it rather than trusting
-  this paragraph, which has gone stale before. By namespace, implemented: `virt` 83, `container` 37, `net` 36,
+  this paragraph, which has gone stale before. By namespace, implemented: `virt` 83, `container` 37, `net` 37,
   `svc` 16, `file` 14, `win` 12, `ai` 11, `pkg` 9, `db` 6, `identity` 6, `wait` 8, `cloud` 4, `build` 3, `edge` 3, `exec` 3, `fw` 3, `scan` 3, `archive` 2, `fs` 2, `gate` 2,
   `http` 3, `pleiades` 3, `facts` 1. The `svc` group is the 6 `svc.systemd.*`
   methods, the 5 `svc.windows.*` ones, and the 5 generic `svc.*` ones that resolve a device's
@@ -110,7 +110,10 @@ pre-1.0 project and the honest state is not what the docs' introductions might i
   `generic_restconf` device: change detection by reading before and after, an exact recorded undo for
   a create, secret references in content; `wait.restconf` and `wait.netconf` wait for each listener.
   Both families discover the device's YANG library on every session, and the `yang.*` facts are
-  protocol-neutral (each protocol's own modules go in `netconf.modules`/`restconf.modules`). RESTCONF is
+  protocol-neutral (each protocol's own modules go in `netconf.modules`/`restconf.modules`). `net.yang.schema` saves
+  modules' YANG source into the project over either (NETCONF's get-schema, else RESTCONF's library URL at the device's
+  own origin, chosen at plan time or by `via:`, `Manifest.AlternativeParam`), masked by known secret values only, never
+  by the configuration masker; proven on Netopeer2, not on a Cisco device or the Walk tier. RESTCONF is
   proven on a real Catalyst 8000V by `TestCLI_RESTCONFFromDayZeroToDayN` (2026-11-15), NETCONF by
   `TestCLI_NETCONFAndRESTCONFFromDayZeroToDayN`; neither on the Walk tier. gNMI (Phase 74c) is the third:
   `net.gnmi.facts`, `net.gnmi.config` (after `nokia.grpc.gnmi_config`: deletes, replaces and updates as one Set,
@@ -188,7 +191,7 @@ pre-1.0 project and the honest state is not what the docs' introductions might i
   once; and a target already running (a project mid-sync) is a **skip** carrying
   `already_running`, never a failure, since a failure would be retried for as long as the first
   run lasts.
-- **Check mode is real for 252 of the 270 implemented methods (Phase 46; counts from the generated catalog, 2026-11-16).** `pleiades run --mode
+- **Check mode is real for 253 of the 271 implemented methods (Phase 46; counts from the generated catalog, 2026-11-16).** `pleiades run --mode
   check` runs each task's declared `Descriptor.Check` (`collection.ModeCheck`; the
   manifest's `SupportsCheck` must agree, enforced by `Register`) and names every other
   task as unchecked, ending non-zero. The engine refuses a check result carrying an
