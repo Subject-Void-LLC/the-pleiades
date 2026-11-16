@@ -36,6 +36,17 @@ func ProjectFileRule(world WorldView) []Finding {
 		for _, p := range desc.Manifest.Doc.Params {
 			value, given := task.Params[p.Name]
 			if !given || value == nil {
+				// A project path the task leaves to its default still names
+				// a file in the project (net.yang.schema's dest), which this
+				// run has no more than one it gives.
+				if slices.Contains(projectFileFormats, p.Format) && p.Default != "" {
+					findings = append(findings, Finding{
+						RuleName: "project-file",
+						Node:     id,
+						Message: fmt.Sprintf("task %s leaves %s to its default, %s, a file in the project, and this run has no project directory "+
+							"(a Walk-tier Runner is handed the runbook, not the project): run it from the command line", taskLabel(id, task), p.Name, p.Default),
+					})
+				}
 				continue
 			}
 			var places []string
