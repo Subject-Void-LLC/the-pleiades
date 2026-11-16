@@ -92,6 +92,26 @@ func TestCheckSource_RefusesAnythingElse(t *testing.T) {
 	}
 }
 
+// TestCheckSource_NeverQuotesTheAnswer holds every refusal to naming kinds
+// of token only: a debug page echoing a login's Authorization header, at
+// each place a refusal could have quoted it, never reaches the error.
+func TestCheckSource_NeverQuotesTheAnswer(t *testing.T) {
+	const echoed = "YWRtaW46czNjcmV0LVBhc3N3MHJk"
+	for _, src := range []string{
+		"Authorization: Basic " + echoed + "\n",
+		"module " + echoed + " { }",
+		echoed + " pleiades-probe { }",
+		"module pleiades-probe { revision 2026-11-16 " + echoed + " }",
+		`module pleiades-probe { "` + echoed + `" x; }`,
+		"module pleiades-probe { revision 2026-11-16; } " + echoed,
+	} {
+		err := CheckSource([]byte(src), Schema{Name: "pleiades-probe", Revision: "2026-11-16"}, false)
+		if err == nil || strings.Contains(err.Error(), echoed) || strings.Contains(err.Error(), "Basic") {
+			t.Errorf("CheckSource(%q) = %v, want a refusal quoting none of the answer", src, err)
+		}
+	}
+}
+
 // FuzzCheckSource holds CheckSource to returning, whatever it is handed.
 func FuzzCheckSource(f *testing.F) {
 	f.Add([]byte(probeSource), "pleiades-probe", "2026-11-16")

@@ -104,7 +104,9 @@ func schemaText(raw []byte, limit int) ([]byte, error) {
 			depth++
 			switch {
 			case inData:
-				return nil, fmt.Errorf("the reply's data holds an element (%s), not the source's text", t.Name.Local)
+				// The element's name is the device's text, so it is not
+				// quoted.
+				return nil, errors.New("the reply's data holds an element, not the source's text")
 			case depth == 2 && t.Name.Local == "data":
 				// RFC 6022 puts the data element in the monitoring
 				// namespace; a server putting it in the base one is read

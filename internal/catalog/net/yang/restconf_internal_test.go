@@ -8,6 +8,7 @@ package yang
 
 import (
 	"context"
+	"encoding/base64"
 	"net/http"
 	"strings"
 	"testing"
@@ -109,6 +110,28 @@ func TestRESTCONF_RefusesALibraryNamingNoLocation(t *testing.T) {
 	_, err := Schema(context.Background(), rc, dev, map[string]any{paramModules: []any{"Cisco-IOS-XE-native"}})
 	if err == nil || !strings.Contains(err.Error(), "names no location for Cisco-IOS-XE-native@2024-07-01's source") || !strings.Contains(err.Error(), "via: netconf") {
 		t.Fatalf("a library naming no location: %v, want the refusal naming NETCONF", err)
+	}
+}
+
+// TestRESTCONF_ADebugPageEchoingTheLoginNeverReachesTheError: a server
+// answering a source's URL with a page that echoes the request's
+// Authorization header is refused as not the source, and the refusal holds
+// neither the header's credential nor the password inside it.
+func TestRESTCONF_ADebugPageEchoingTheLoginNeverReachesTheError(t *testing.T) {
+	basic := base64.StdEncoding.EncodeToString([]byte("admin:" + restconfPassword))
+	page := "Request headers\nAuthorization: Basic " + basic + "\nAccept: application/yang\n"
+	s, dev, rc := restconfServer(t, restconftest.Options{Sources: map[string][]byte{"pleiades-probe@2026-11-16": []byte(page)}})
+	_, err := Schema(context.Background(), rc, dev, map[string]any{paramModules: []any{"pleiades-probe"}})
+	if err == nil || !strings.Contains(err.Error(), "not the YANG source of module pleiades-probe@2026-11-16") {
+		t.Fatalf("a debug page: %v, want it refused as not the source", err)
+	}
+	for _, leaked := range []string{basic, restconfPassword, "Basic"} {
+		if strings.Contains(err.Error(), leaked) {
+			t.Errorf("the refusal holds %q: %v", leaked, err)
+		}
+	}
+	if s.SourceRequests() != 1 || rc.writes != 0 {
+		t.Errorf("%d source requests, %d writes; want the one read and no write", s.SourceRequests(), rc.writes)
 	}
 }
 

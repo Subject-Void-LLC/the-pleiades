@@ -37,7 +37,10 @@ const (
 // UTF-8 holding no control character but white space, whose one top-level
 // statement is "module" (or "submodule", when submodule is true) naming s.Name,
 // with s.Revision among its revision statements when s names one. The error
-// names what is wrong, never the answer's text beyond a short quoted word.
+// names what is wrong and the kind of token it met (a word, a quoted string,
+// a brace), never any of the answer's text: on RESTCONF the answer reaches
+// here before any masking, and a page echoing a login would put the
+// credential in the error.
 func CheckSource(src []byte, s Schema, submodule bool) error {
 	what := "module"
 	if submodule {
@@ -99,7 +102,7 @@ func readHeader(l *lexer, keyword, name string) ([]string, error) {
 			closed = depth == 0
 			continue
 		case kind != tokWord:
-			return nil, fmt.Errorf("a statement begins with %s, not a keyword", describe(kind, tok))
+			return nil, fmt.Errorf("a statement begins with %s, not a keyword", describe(kind))
 		}
 		// A statement: its keyword (tok), an optional argument, then ";" or
 		// "{" (RFC 7950 section 6.3).
@@ -117,7 +120,10 @@ func readHeader(l *lexer, keyword, name string) ([]string, error) {
 		}
 		switch {
 		case depth == 0 && (stmt != keyword || !hasArg || arg != name):
-			return nil, fmt.Errorf("its first statement is %q %q, not %s %s", short(stmt), short(arg), keyword, name)
+			// What the statement does say is device text, which on RESTCONF
+			// reached here unmasked (a debug page echoing a login), so only
+			// what was asked for is named.
+			return nil, fmt.Errorf("its first statement is not %s %s", keyword, name)
 		case depth == 1 && stmt == "revision" && hasArg:
 			revisions = append(revisions, arg)
 		}
@@ -131,21 +137,14 @@ func readHeader(l *lexer, keyword, name string) ([]string, error) {
 				return nil, fmt.Errorf("its statements nest more than %d deep", maxSourceDepth)
 			}
 		default:
-			return nil, fmt.Errorf("the statement %q ends with %s, not ; or {", short(stmt), describe(kind, tok))
+			return nil, fmt.Errorf("a statement ends with %s, not ; or {", describe(kind))
 		}
 	}
 }
 
-// short is s cut to 64 bytes, for a refusal to quote.
-func short(s string) string {
-	if len(s) > 64 {
-		return s[:64]
-	}
-	return s
-}
-
-// describe names a token for a refusal.
-func describe(kind int, tok string) string {
+// describe names a token's kind for a refusal, never its text, which is the
+// device's.
+func describe(kind int) string {
 	switch kind {
 	case tokEOF:
 		return "the end of the text"
@@ -158,7 +157,7 @@ func describe(kind int, tok string) string {
 	case tokString:
 		return "a quoted string"
 	}
-	return fmt.Sprintf("%q", short(tok))
+	return "a word"
 }
 
 // lexer reads RFC 7950 section 6's tokens from src.
