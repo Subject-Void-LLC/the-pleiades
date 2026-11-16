@@ -1,6 +1,10 @@
 // The "wait.snmp" method: waiting until a device's SNMP agent answers its
 // credential, which on a device just started can be well after it answers a
-// ping, or never while its SNMP configuration is not yet applied.
+// ping. An agent that is up and refuses the credential (an SNMPv3 report, which
+// net-snmp sends unauthenticated for a wrong passphrase or an unknown user)
+// ends the wait at once rather than being asked again, so a wait is not a way
+// to wait out an SNMPv3 user still being configured; a community the agent does
+// not know yet is silence, and is waited through.
 //
 // It is a method of its own, as wait.netconf and wait.restconf are, because a
 // manifest says what a method needs for every call: this one only a device
@@ -129,13 +133,18 @@ func SNMP(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventory
 // A record or credential the client refuses ends the wait, since no try
 // changes it, and so does an SNMPv3 refusal (an unknown user, a wrong digest,
 // a level the user lacks, a message the agent could not decrypt), since
-// sending the credential again can lock it out. Silence is one more failed
-// try, a wrong community included: an SNMPv1 or SNMPv2c agent drops such a
-// request without a word, so it reads as an agent not up yet until the
-// timeout.
+// sending the credential again can lock it out. A socket that could not be
+// opened (a host name that does not resolve yet, as a device's name a DHCP
+// lease registers as it boots) is one more failed try, and so is silence, a
+// wrong community included: an SNMPv1 or SNMPv2c agent drops such a request
+// without a word, so it reads as an agent not up yet until the timeout.
 func snmpTry(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem) (snmp.Version, []string, error) {
 	client, warnings, err := snmp.ClientFor(device, device.Name(), rc.InjectSecrets())
-	if err != nil {
+	var dial *snmp.DialError
+	switch {
+	case errors.As(err, &dial):
+		return "", nil, err
+	case err != nil:
 		return "", nil, &stopWaiting{err: err}
 	}
 	defer func() { _ = client.Close() }()

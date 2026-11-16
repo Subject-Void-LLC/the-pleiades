@@ -112,6 +112,23 @@ func TestSNMP_ARefusedRecordStopsAtOnce(t *testing.T) {
 	}
 }
 
+// TestSNMP_AHostNameNotResolvingYetIsTriedAgain: a host name that does not
+// resolve, as a device's own name may not until its lease registers it, is a
+// failed try like silence, tried until the timeout, never a refused record.
+func TestSNMP_AHostNameNotResolvingYetIsTriedAgain(t *testing.T) {
+	item, err := generic.NewSNMP(record.Record{Name: "unborn", Type: generic.TypeSNMP, Properties: map[string]any{
+		generic.HostProperty: "no-such-agent.invalid", snmp.VersionProperty: "2c", snmp.AllowCleartextCommunityProperty: true,
+		snmp.TimeoutProperty: 1, snmp.RetriesProperty: 0,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = wait.SNMP(context.Background(), snmpContext(wire.SNMPCredential{Community: snmpCommunity}), item, map[string]any{"timeout": 3, "sleep": 1, "connect_timeout": 2})
+	if err == nil || !strings.Contains(err.Error(), "timed out") || strings.Contains(err.Error(), "stopped at try") {
+		t.Fatalf("wait.snmp of a name that does not resolve = %v, want it tried until the timeout", err)
+	}
+}
+
 // TestSNMP_AStatItCannotRecordFailsTheTask: an answering agent whose
 // warnings, diff or any stat cannot be recorded fails the task.
 func TestSNMP_AStatItCannotRecordFailsTheTask(t *testing.T) {

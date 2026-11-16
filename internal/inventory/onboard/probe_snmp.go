@@ -40,7 +40,10 @@ var snmpGroups = []struct{ name, root string }{
 // answers it) and the groups the agent answers, every value masked of the
 // credential and bounded. Each warning the device's settings give is
 // reported, and one more for a session that authenticates nothing: nothing
-// then proves which agent answered.
+// then proves which agent answered. Such a discovery is still recorded, as
+// onboarding over plain HTTP records a RESTCONF one, since it is what lets a
+// device that speaks only a community be used at all; net.snmp.facts, which
+// writes the fact store, keeps it to answers SNMPv3 authenticated.
 func (snmpProber) Probe(ctx context.Context, device inventory.InventoryItem, secrets map[string]string) (Probed, error) {
 	client, warnings, err := snmp.ClientFor(device, device.Name(), secrets)
 	if err != nil {
