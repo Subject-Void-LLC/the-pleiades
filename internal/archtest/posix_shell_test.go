@@ -32,6 +32,7 @@ var shellFreeServers = map[string]string{
 	"internal/catalog/wait/netconf_test.go:TestNetconf_AHelloItCannotReadIsNotReady":                                           "a scripted NETCONF subsystem whose hello does not parse; a try opens the subsystem and no exec session",
 	"internal/catalog/net/ios/ios_session_internal_test.go:TestOpenSession_FailsWhenNoPromptEverArrives":                       "a scripted CLI that never prompts; no exec session is opened",
 	"internal/catalog/net/netconf/netconf_session_internal_test.go:scriptedServer":                                             "a scripted NETCONF subsystem; no exec session is opened",
+	"internal/catalog/net/yang/netconf_internal_test.go:scripted":                                                              "a scripted NETCONF subsystem answering get-schema; no exec session is opened",
 	"internal/catalog/net/netconf/netconf_session_internal_test.go:TestOpenSession_FailsWhenTheDeviceOffersNoNetconfSubsystem": "asks only for a subsystem the server lacks",
 	"internal/engine/route_dial_test.go:newRouteFixture":                                                                       "a bastion forwarding to a local echo listener",
 	"internal/engine/refused_test.go:TestRefusedLogin_ARealServerIsSentItOnce":                                                 "every login is refused, so no session is ever opened",

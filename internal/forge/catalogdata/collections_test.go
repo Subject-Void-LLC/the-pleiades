@@ -95,9 +95,10 @@ func TestCollections_MatchesDocumentedCount(t *testing.T) {
 	// wait.restconf. gNMI (Phase 74c) added the 266th through 268th:
 	// net.gnmi.facts, net.gnmi.config and wait.gnmi. SNMP (Phase 97) added the
 	// 269th through 272nd: net.snmp.facts, get and set, and wait.snmp.
+	// Reading a device's YANG source added the 273rd: net.yang.schema.
 	// This test pins the number down so a future accidental entry loss or
 	// duplication is a build failure, not a silent gap.
-	const wantCollections = 272
+	const wantCollections = 273
 	if got := len(catalogdata.Collections); got != wantCollections {
 		t.Errorf("len(Collections) = %d, want %d", got, wantCollections)
 	}
