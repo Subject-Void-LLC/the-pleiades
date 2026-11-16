@@ -1,8 +1,9 @@
 // Package gnmi: net.gnmi.config's run. Every refusal is made before anything
 // is written: the parameters, every path, every value, and the encoding
 // against what the device's Capabilities said. The secret references are
-// resolved just before the Set, every path is read before and after it, and
-// the undo is recorded only where it is exact.
+// resolved before any path is read, so every value they stand for is masked
+// in every read, every path is read before and after the Set, and the undo is
+// recorded only where it is exact.
 package gnmi
 
 import (

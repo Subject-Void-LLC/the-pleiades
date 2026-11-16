@@ -36,6 +36,15 @@ type reading struct {
 // the task unchanged or drops its undo.
 func write(ctx context.Context, rc sdk.RunbookContext, client *gnmi.Client, req writeRequest) (collection.Result, []string, error) {
 	var notes []string
+	// The secret references are resolved first, before anything is read, so
+	// each value they stand for is in the client's masking before any read
+	// can meet it: a run after the one that wrote a secret reads it back,
+	// under whatever leaf holds it (a description is no secret-named field),
+	// into the backup, the diff and any error the device words.
+	set, err := req.set(rc, client)
+	if err != nil {
+		return collection.Result{}, nil, fmt.Errorf("%w; nothing was sent", err)
+	}
 	targets := req.targets()
 	before := make([]reading, len(targets))
 	for i, p := range targets {
@@ -61,10 +70,6 @@ func write(ctx context.Context, rc sdk.RunbookContext, client *gnmi.Client, req 
 	if len(req.replaces)+len(req.updates) == 0 && !anyPresent(before) {
 		notes = append(notes, "every path to delete is not there, so nothing was sent")
 		return collection.Result{Changed: false}, notes, recordDiff(rc, targets, before, backups, backupErr, before, backups, backupErr)
-	}
-	set, err := req.set(rc, client)
-	if err != nil {
-		return collection.Result{}, nil, fmt.Errorf("%w; nothing was sent", err)
 	}
 	_, setErr := client.Set(ctx, set)
 	var lost *gnmi.AnswerLostError

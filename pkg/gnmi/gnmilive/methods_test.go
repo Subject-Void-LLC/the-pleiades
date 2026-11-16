@@ -158,10 +158,19 @@ func TestSRLinux_ConfigCreatesUndoesAndMasks(t *testing.T) {
 		t.Fatalf("inverse = %v, want the loopback the run created deleted", inv)
 	}
 
+	// The same update again reads the secret back from SR Linux before it
+	// writes, into its backup and its diff, and records neither unmasked.
 	again := newRecorder(srlSecrets(srlPassword))
 	again.named = rc.named
 	if res, err := invoke(t, "net.gnmi.config", device, again, params); err != nil || res.Changed || again.stats[sdk.StatInverse] != nil {
 		t.Errorf("the same update again = %+v, %v, inverse %v", res, err, again.stats[sdk.StatInverse])
+	}
+	recorded, _ = json.Marshal(map[string]any{"stats": again.stats, "facts": again.facts})
+	if strings.Contains(string(recorded), secret) {
+		t.Errorf("the second run recorded the secret it read back: %s", recorded)
+	}
+	if backup := fmt.Sprint(again.stats["backup"]); !strings.Contains(backup, "pleiades-masked-") {
+		t.Errorf("the second run's backup = %s, want the description read back and masked", backup)
 	}
 
 	if res, err := invoke(t, "net.gnmi.config", device, newRecorder(srlSecrets(srlPassword)), undo); err != nil || !res.Changed {

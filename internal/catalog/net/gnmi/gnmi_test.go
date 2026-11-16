@@ -318,6 +318,33 @@ func TestConfig_ANamedSecretIsResolvedAndMasked(t *testing.T) {
 	}
 }
 
+// TestConfig_ARerunMasksTheSecretItReadsBack writes a named secret into a
+// description, a leaf no shape masking reads as a secret, then runs the same
+// task again with a backup: the read before now finds the secret on the
+// device, and neither the backup nor the diff of the second run holds it.
+func TestConfig_ARerunMasksTheSecretItReadsBack(t *testing.T) {
+	const secret = "Desc-Secret-Rerun-58"
+	s := gnmitest.New(t, login)
+	params := map[string]any{
+		"update": []any{map[string]any{"path": "/interface[name=lo8]/description", "val": "{{ secret.lab.description }}"}},
+		"backup": true,
+	}
+	for i := range 2 {
+		rc := newRecorder(gnmitest.Secrets(s))
+		rc.named = map[string]string{"lab.description": secret}
+		res, err := run(t, "net.gnmi.config", s, rc, params)
+		if err != nil || res.Changed != (i == 0) {
+			t.Fatalf("run %d = %+v, %v", i+1, res, err)
+		}
+		if all := rc.everything(t); strings.Contains(all, secret) {
+			t.Errorf("run %d recorded the secret it read back: %s", i+1, all)
+		}
+		if i == 1 && !strings.Contains(fmt.Sprint(rc.stats["backup"]), "pleiades-masked-") {
+			t.Errorf("run 2's backup = %v, want the description read back masked", rc.stats["backup"])
+		}
+	}
+}
+
 // TestConfig_ALostAnswerIsReadBack has the server apply a Set and never
 // answer it, and holds the method to reading back, recording the undo of
 // what it sees created, and failing the task saying so.
