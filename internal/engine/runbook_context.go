@@ -67,6 +67,9 @@ type runbookContext struct {
 	// a write into the project may not replace or write into; see
 	// WithProjectFiles.
 	projectGuards []string
+	// stagedChecks says a check may stage a change in a device's own staging
+	// area and discard it (sdk.StagedChecks); see WithStagedChecks.
+	stagedChecks bool
 	// ai, when set, is the run's project for the ai methods
 	// (sdk.AIProject); nil answers sdk.ErrNoAIProject.
 	ai *aiProject
