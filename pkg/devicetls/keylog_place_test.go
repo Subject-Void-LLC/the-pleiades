@@ -103,6 +103,45 @@ func TestKeyLog_ItsDirectoryMustExist(t *testing.T) {
 	}
 }
 
+// TestKeyLog_TheSystemsOwnRefusalsAreNamed holds each refusal the system
+// makes to a name or directory to an error saying which step failed and
+// where: a name longer than the system allows, at the lookup and at the
+// creation; a directory named that way; a kept-out directory named that way;
+// and a directory this user may not read, which cannot be held open.
+func TestKeyLog_TheSystemsOwnRefusalsAreNamed(t *testing.T) {
+	if refusedHere(t) {
+		return
+	}
+	dir := t.TempDir()
+	long := strings.Repeat("k", 300)
+	if err := devicetls.CheckKeyLogPath(filepath.Join(dir, long)); err == nil || !strings.Contains(err.Error(), "checking the TLS key log ") {
+		t.Errorf("a name too long, checked: %v", err)
+	}
+	if keyLog, err := devicetls.CreateKeyLog(filepath.Join(dir, long)); err == nil {
+		_ = keyLog.Close()
+		t.Error("a name too long was created")
+	} else if !strings.Contains(err.Error(), "creating the TLS key log") {
+		t.Errorf("a name too long, created: %v", err)
+	}
+	if err := devicetls.CheckKeyLogPath(filepath.Join(dir, long, "run.keylog")); err == nil || !strings.Contains(err.Error(), "checking the TLS key log's directory") {
+		t.Errorf("a directory named too long: %v", err)
+	}
+	if err := devicetls.CheckKeyLogPath(filepath.Join(dir, "run.keylog"), keepProject(filepath.Join(dir, long))); err == nil || !strings.Contains(err.Error(), "checking the project") {
+		t.Errorf("a kept-out directory named too long: %v", err)
+	}
+	if os.Geteuid() == 0 {
+		return // root reads any directory, so one it cannot hold open cannot be made
+	}
+	unreadable := filepath.Join(dir, "unreadable")
+	if err := os.Mkdir(unreadable, 0o300); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(unreadable, 0o700) })
+	if err := devicetls.CheckKeyLogPath(filepath.Join(unreadable, "run.keylog")); err == nil || !strings.Contains(err.Error(), "opening the TLS key log's directory") {
+		t.Errorf("a directory this user may not read: %v", err)
+	}
+}
+
 // TestKeyLog_KeptOutOfADirectoryAndBelowIt refuses a key log in a kept-out
 // directory, below it, and through links into it or into one of its
 // subdirectories, from the check and from the creation alike, naming what

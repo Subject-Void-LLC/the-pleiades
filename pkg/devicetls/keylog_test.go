@@ -183,6 +183,21 @@ func TestKeyLog_WritesEverySessionsSecrets(t *testing.T) {
 	}
 }
 
+// TestConfigContext_RefusesWhatConfigRefuses holds ConfigContext to Config's
+// own refusals, with a key log on the context or not: a device that presents
+// a client certificate its credential does not hold gets no configuration.
+func TestConfigContext_RefusesWhatConfigRefuses(t *testing.T) {
+	settings, err := devicetls.Parse(inventory.NewProperties(map[string]inventory.PropertyValue{devicetls.ClientCertificateProperty: true}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, ctx := range map[string]context.Context{"no key log": context.Background(), "a nil key log": devicetls.WithKeyLog(context.Background(), nil)} {
+		if cfg, err := settings.ConfigContext(ctx, nil); err == nil || cfg != nil {
+			t.Errorf("%s: ConfigContext with no client certificate = %v, %v, want a refusal", name, cfg, err)
+		}
+	}
+}
+
 // TestKeyLog_NothingIsWrittenWithoutItsContext holds every way of building a
 // configuration without the run's context to writing nothing: Config,
 // ConfigContext under a context carrying no key log, and one carrying a nil
