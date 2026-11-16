@@ -171,6 +171,47 @@ func checkStorable(c Credential, families Families, allowShortCommunity bool) er
 	return checkCertificate(c.CertificatePEM)
 }
 
+// readProblem is what Lookup holds a stored credential to: the rules
+// checkStorable saved it under, with the family each refusal is in, so a
+// caller replacing one family knows whether that replaces what is wrong.
+// shortCommunity is the entry's mark.
+func readProblem(c Credential, shortCommunity bool) (Families, error) {
+	if err := c.SNMP().Check(shortCommunity); err != nil {
+		return SNMPFamily, err
+	}
+	if err := checkCertificate(c.CertificatePEM); err != nil {
+		return LoginFamily, err
+	}
+	return 0, nil
+}
+
+// UnusableError is Lookup's refusal of a stored credential that breaks a
+// rule it is held to on every write (a plaintext protocol name edited in the
+// file, a short community stored without its mark, a key a save before the
+// certificate check put beside a certificate), so it never reaches a run.
+// It names the family at fault, which a save replacing that family fixes.
+type UnusableError struct {
+	// Device is the name the credential is stored under.
+	Device string
+	// Family is the family the refusal is in.
+	Family Families
+	// Err is the rule the credential breaks; it never repeats a value.
+	Err error
+}
+
+// Error names the device, the rule and the command that replaces the family
+// at fault.
+func (e *UnusableError) Error() string {
+	fix := fmt.Sprintf("replace it with pleiades add-credential %s", e.Device)
+	if e.Family == SNMPFamily {
+		fix = fmt.Sprintf("replace its SNMP fields with pleiades add-credential %s and its SNMP flags", e.Device)
+	}
+	return fmt.Sprintf("the credential stored for device %s cannot be used: %v (%s)", e.Device, e.Err, fix)
+}
+
+// Unwrap returns the rule the credential breaks.
+func (e *UnusableError) Unwrap() error { return e.Err }
+
 // checkCertificate refuses a certificate holding a PEM block that is not one,
 // naming the field a private key belongs in.
 func checkCertificate(certificate []byte) error {

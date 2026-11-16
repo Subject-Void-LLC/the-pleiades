@@ -218,8 +218,8 @@ func (s *fileStore) Lookup(ctx context.Context, deviceName string) (Credential, 
 	// protocol name edited in the file, a short community stored without its
 	// mark, or a key a save before this check put beside a certificate never
 	// reaches a run.
-	if err := checkStorable(cred, LoginFamily|SNMPFamily, entry.ShortCommunity); err != nil {
-		return Credential{}, fmt.Errorf("the credential stored for device %s cannot be used: %w (replace it with pleiades add-credential %s)", deviceName, err, deviceName)
+	if family, err := readProblem(cred, entry.ShortCommunity); err != nil {
+		return Credential{}, &UnusableError{Device: deviceName, Family: family, Err: err}
 	}
 	return cred, nil
 }

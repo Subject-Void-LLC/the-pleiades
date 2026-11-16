@@ -6,6 +6,7 @@ package credential_test
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -205,7 +206,7 @@ func TestLookup_HoldsWhatWasStoredToTheSameRules(t *testing.T) {
 		t.Fatal(err)
 	}
 	edit(t, dir, func(e map[string]any) { e["snmp_auth_protocol"] = "rot13" })
-	if _, err := lookup(t, dir, key, "r1"); err == nil || !strings.Contains(err.Error(), wire.SecretSNMPAuthProtocol) {
+	if _, err := lookup(t, dir, key, "r1"); err == nil || !strings.Contains(err.Error(), wire.SecretSNMPAuthProtocol) || !inFamily(err, credential.SNMPFamily) {
 		t.Errorf("an edited protocol name was read as %v", err)
 	}
 
@@ -217,7 +218,7 @@ func TestLookup_HoldsWhatWasStoredToTheSameRules(t *testing.T) {
 		t.Fatalf("an allowed short community read back as %v, %v", got, err)
 	}
 	edit(t, dir, func(e map[string]any) { delete(e, "short_community") })
-	if _, err := lookup(t, dir, key, "r1"); err == nil || !strings.Contains(err.Error(), "add-credential r1") {
+	if _, err := lookup(t, dir, key, "r1"); err == nil || !strings.Contains(err.Error(), "add-credential r1 and its SNMP flags") || !inFamily(err, credential.SNMPFamily) {
 		t.Errorf("a short community without its mark was read as %v", err)
 	}
 
@@ -228,9 +229,17 @@ func TestLookup_HoldsWhatWasStoredToTheSameRules(t *testing.T) {
 	svc, _ := crypto.NewAESService(key)
 	sealed, _ := svc.Encrypt([]byte("-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n-----BEGIN EC PRIVATE KEY-----\nMHcC\n-----END EC PRIVATE KEY-----\n"))
 	edit(t, dir, func(e map[string]any) { e["certificate_encrypted"] = base64.StdEncoding.EncodeToString(sealed) })
-	if _, err := lookup(t, dir, key, "r1"); err == nil || !strings.Contains(err.Error(), "private key field") || strings.Contains(err.Error(), "MHcC") {
+	if _, err := lookup(t, dir, key, "r1"); err == nil || !strings.Contains(err.Error(), "private key field") || strings.Contains(err.Error(), "MHcC") ||
+		!strings.Contains(err.Error(), "(replace it with pleiades add-credential r1)") || !inFamily(err, credential.LoginFamily) {
 		t.Errorf("a key stored beside a certificate was read as %v", err)
 	}
+}
+
+// inFamily reports whether err is Lookup's refusal of a stored credential
+// naming family as the one at fault.
+func inFamily(err error, family credential.Families) bool {
+	var unusable *credential.UnusableError
+	return errors.As(err, &unusable) && unusable.Family == family && unusable.Device == "r1"
 }
 
 // TestCredential_WithSNMPReplacesOnlyTheSNMPFamily: WithSNMP sets all six

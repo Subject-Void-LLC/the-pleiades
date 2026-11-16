@@ -412,9 +412,20 @@ func generateCredential(dir, device, username string, replace bool, opts credent
 		return fmt.Errorf("failed to open the credential store: %w", err)
 	}
 	// Only a stored login is what a new one would put out of reach; a device
-	// holding SNMP fields alone has none to lose.
+	// holding SNMP fields alone has none to lose. A stored credential the read
+	// refuses (credential.UnusableError) may hold a login all the same, so it
+	// too needs --replace, which then replaces it, as its refusal says to; a
+	// fault in a family this save keeps is named instead, since a new login
+	// beside it would leave the credential refused.
 	stored, err := store.Lookup(context.Background(), device)
+	var unusable *credential.UnusableError
 	switch {
+	case errors.As(err, &unusable) && unusable.Family&opts.Families == 0:
+		return fmt.Errorf("%w; --generate replaces only its %s fields, so store its %s fields again first", err, opts.Families, unusable.Family)
+	case errors.As(err, &unusable) && !replace:
+		return fmt.Errorf("%w; with --generate, --replace discards it, and whatever it logs in to is then out of reach", err)
+	case errors.As(err, &unusable):
+		// --replace, and the save below replaces the family at fault.
 	case err == nil && stored.HasLogin() && !replace:
 		return fmt.Errorf("device %q already has a credential; --replace discards it, and whatever it logs in to is then out of reach", device)
 	case err != nil && !errors.Is(err, credential.ErrNotFound):
