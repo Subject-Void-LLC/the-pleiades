@@ -11,7 +11,6 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/snmp"
-	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
 
 type snmpProber struct{}
@@ -48,8 +47,8 @@ func (snmpProber) Probe(ctx context.Context, device inventory.InventoryItem, sec
 		return Probed{}, err
 	}
 	defer func() { _ = client.Close() }()
-	masked := wire.MaskedValues(secrets)
-	system, err := client.Get(ctx, []string{snmp.OIDSysDescr, snmp.OIDSysObjectID, snmp.OIDSysName})
+	masked := snmp.MaskedSecrets(secrets)
+	system, err := readSystem(ctx, client)
 	if err != nil {
 		return Probed{}, err
 	}
@@ -86,6 +85,25 @@ var systemFacts = map[string]string{
 	snmp.OIDSysDescr:    "snmp_sys_descr",
 	snmp.OIDSysObjectID: "snmp_sys_object_id",
 	snmp.OIDSysName:     "snmp_sys_name",
+}
+
+// readSystem reads the three system objects in one GET, or, from an SNMPv1
+// agent that refuses the GET whole because it lacks one (noSuchName), one at
+// a time, keeping what it holds.
+func readSystem(ctx context.Context, client *snmp.Client) ([]snmp.Varbind, error) {
+	oids := []string{snmp.OIDSysDescr, snmp.OIDSysObjectID, snmp.OIDSysName}
+	got, err := client.Get(ctx, oids)
+	var agent *snmp.AgentError
+	if !errors.As(err, &agent) || agent.Status != "noSuchName" {
+		return got, err
+	}
+	got = nil
+	for _, oid := range oids {
+		if one, err := client.Get(ctx, []string{oid}); err == nil {
+			got = append(got, one...)
+		}
+	}
+	return got, nil
 }
 
 // securityLevel is the session's SNMPv3 level, or "community" for SNMPv1

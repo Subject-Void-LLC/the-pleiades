@@ -72,6 +72,12 @@ func SNMP(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventory
 	if !ok {
 		return collection.Result{}, fmt.Errorf("%s: device %q has no SNMP agent (it does not implement %s)", snmpFQCN, device.Name(), capability.NameSNMP)
 	}
+	// SNMP is UDP, which a route of SSH hops does not carry, so a try would
+	// reach the agent some other way than its record says, or not at all;
+	// net.snmp.* refuses such a device the same way.
+	if r, routed := rc.(sdk.Router); routed && r.DeviceRoute() != nil {
+		return collection.Result{}, fmt.Errorf("%s: device %q is reached through a route of SSH hops, which carries no UDP, so its SNMP agent is not reached through it", snmpFQCN, device.Name())
+	}
 	var version snmp.Version
 	var warnings []string
 	tried := false

@@ -9,6 +9,7 @@ package wait_test
 import (
 	"context"
 	"errors"
+	"net"
 	"strings"
 	"testing"
 
@@ -43,6 +44,15 @@ func snmpDevice(t *testing.T, agent *snmptest.Agent, version string) inventory.I
 // snmpContext hands the method cred.
 func snmpContext(cred wire.SNMPCredential) *waitContext {
 	return &waitContext{secrets: cred.Secrets(), stats: map[string]any{}}
+}
+
+// routedWaitContext is a task's context for a device reached through a route
+// of SSH hops (sdk.Router).
+type routedWaitContext struct{ *waitContext }
+
+// DeviceRoute implements sdk.Router with a dialer that is never called.
+func (routedWaitContext) DeviceRoute() sdk.RouteDial {
+	return func(context.Context, string, string) (net.Conn, error) { return nil, errors.New("never dialed") }
 }
 
 // TestSNMP_AnAnswerEndsTheWait: an agent answering sysUpTime.0 ends the wait
@@ -89,6 +99,13 @@ func TestSNMP_ARefusedRecordStopsAtOnce(t *testing.T) {
 	}
 	if _, err := wait.SNMP(context.Background(), snmpContext(wire.SNMPCredential{}), nil, nil); err == nil {
 		t.Error("no device was waited for")
+	}
+	routed := &routedWaitContext{snmpContext(wire.SNMPCredential{Community: snmpCommunity})}
+	if _, err := wait.SNMP(context.Background(), routed, snmpDevice(t, agent, "2c"), map[string]any{"timeout": 30}); err == nil || !strings.Contains(err.Error(), "route of SSH hops") {
+		t.Errorf("a routed device = %v, want it refused", err)
+	}
+	if len(agent.Requests()) != 0 {
+		t.Error("a refused wait sent a request")
 	}
 	if _, err := wait.SNMP(context.Background(), snmpContext(wire.SNMPCredential{}), snmpDevice(t, agent, "2c"), map[string]any{"timeout": 0}); err == nil {
 		t.Error("a timeout of 0 was accepted")

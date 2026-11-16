@@ -15,7 +15,6 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/snmp"
-	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
 
 // noBecomeReason is every net.snmp method's reason become does not apply.
@@ -37,6 +36,9 @@ func open(rc sdk.RunbookContext, device inventory.InventoryItem, fqcn string) (*
 	if device == nil {
 		return nil, errors.New(fqcn + ": the task has no target device")
 	}
+	if err := refuseRoute(rc, device); err != nil {
+		return nil, fmt.Errorf("%s: %w", fqcn, err)
+	}
 	secrets := rc.InjectSecrets()
 	client, warnings, err := snmp.ClientFor(device, device.Name(), secrets)
 	if err != nil {
@@ -46,7 +48,18 @@ func open(rc sdk.RunbookContext, device inventory.InventoryItem, fqcn string) (*
 		_ = client.Close()
 		return nil, fmt.Errorf("%s: %w", fqcn, err)
 	}
-	return &session{client: client, masked: wire.MaskedValues(secrets), warnings: warnings}, nil
+	return &session{client: client, masked: snmp.MaskedSecrets(secrets), warnings: warnings}, nil
+}
+
+// refuseRoute refuses device when rc says it is reached through a route of
+// SSH hops (sdk.Router): SNMP is UDP, which an SSH tunnel does not carry, so
+// dialing the agent directly would reach it some other way than the route its
+// record names, or not at all. wait.snmp asks the same question.
+func refuseRoute(rc sdk.RunbookContext, device inventory.InventoryItem) error {
+	if r, ok := rc.(sdk.Router); ok && r.DeviceRoute() != nil {
+		return fmt.Errorf("device %q is reached through a route of SSH hops, which carries no UDP, so its SNMP agent is not reached through it; reach the agent directly, with no route", device.Name())
+	}
+	return nil
 }
 
 // warn records the settings' warnings followed by more, since the stat holds

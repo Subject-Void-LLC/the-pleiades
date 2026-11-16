@@ -252,6 +252,34 @@ func TestRequest_AMaliciousAnswerIsAnErrorThatHoldsNoSecret(t *testing.T) {
 	}
 }
 
+// TestRequestError_MasksTheCredentialAndDropsAStack: an error gosnmp returns
+// holding the client's secrets is masked of them, a short community only as
+// its own word, and a panic gosnmp recovered from, whose text carries every
+// goroutine's stack, is replaced with what it means.
+func TestRequestError_MasksTheCredentialAndDropsAStack(t *testing.T) {
+	agent := snmptest.Start(t, func(*gosnmp.SnmpPacket) snmptest.Answer { return snmptest.Answer{Drop: true} })
+	c, err := Dial("127.0.0.1", v2cAt(agent), wire.SNMPCredential{Community: "pub1ic"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = c.Close() }()
+	got := c.requestError("GET", errors.New("the agent said pub1ic, and xpub1icx")).Error()
+	if strings.Contains(got, "said pub1ic") || !strings.Contains(got, "xpub1icx") {
+		t.Errorf("requestError = %q, want the community masked as a word and nothing else", got)
+	}
+	got = c.requestError("GET", errors.New("recover: index out of range Stack:goroutine 1 [running]:\nmain.main()")).Error()
+	if strings.Contains(got, "goroutine") || !strings.Contains(got, "could not be decoded") {
+		t.Errorf("requestError = %q, want the stack replaced", got)
+	}
+	var refused *RefusedError
+	if !errors.As(c.requestError("GET", errors.New("incoming packet is not authentic, discarding")), &refused) {
+		t.Error("an unauthenticated answer is not a refusal")
+	}
+	if !errors.As(c.requestError("GET", gosnmp.ErrWrongDigest), &refused) {
+		t.Error("a wrong digest report is not a refusal")
+	}
+}
+
 // nested is a BER message of depth sequences, each holding the next.
 func nested(depth int) []byte {
 	out := []byte{0x05, 0x00}

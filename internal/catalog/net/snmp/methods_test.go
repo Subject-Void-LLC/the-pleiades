@@ -8,7 +8,9 @@ package snmp_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net"
 	"strings"
 	"sync"
 	"testing"
@@ -269,6 +271,35 @@ func TestSet_ChecksWritesReadsBackAndUndoes(t *testing.T) {
 	}
 }
 
+// routed is a task's context for a device reached through a route of SSH
+// hops (sdk.Router).
+type routed struct{ *recorder }
+
+// DeviceRoute implements sdk.Router with a dialer that is never called.
+func (routed) DeviceRoute() sdk.RouteDial {
+	return func(context.Context, string, string) (net.Conn, error) { return nil, errors.New("never dialed") }
+}
+
+// TestMethods_RefuseARoutedDevice: SNMP is UDP, which a route of SSH hops
+// does not carry, so every method refuses a device reached through one
+// before anything is sent.
+func TestMethods_RefuseARoutedDevice(t *testing.T) {
+	agent, item := agentDevice(t, snmptest.NewStore(community, snmptest.System()...), "2c")
+	for fqcn, params := range map[string]map[string]any{
+		"net.snmp.facts": nil,
+		"net.snmp.get":   {"oids": []any{"sysName.0"}},
+		"net.snmp.set":   {"oid": "sysLocation.0", "type": "octet-string", "value": "x"},
+	} {
+		_, err := call(t, fqcn, routed{newRecorder(wire.SNMPCredential{Community: community})}, item, params, false)
+		if err == nil || !strings.Contains(err.Error(), "route of SSH hops") {
+			t.Errorf("%s on a routed device = %v", fqcn, err)
+		}
+	}
+	if n := len(agent.Requests()); n != 0 {
+		t.Errorf("a routed device's agent was sent %d requests", n)
+	}
+}
+
 // TestSet_RefusesBeforeSending: another type, an absent object, an object
 // under snmpModules, a counter, a malformed value and a read-only object are
 // each refused, and only the read-only one reaches a SET, which the agent
@@ -281,7 +312,7 @@ func TestSet_RefusesBeforeSending(t *testing.T) {
 	for name, params := range map[string]map[string]any{
 		"another type":    {"oid": "sysLocation.0", "type": "integer", "value": 7},
 		"an absent one":   {"oid": "1.3.6.1.2.1.1.99.0", "type": "integer", "value": "7"},
-		"snmpModules":     {"oid": "1.3.6.1.6.3.15.1.2.2.1.6.1", "type": "octet-string", "value": "x"},
+		"snmpModules":     {"oid": "snmpEngineID.0", "type": "hex-string", "value": "0x80001f8880"},
 		"a counter":       {"oid": "sysLocation.0", "type": "counter32", "value": "1"},
 		"a bad integer":   {"oid": "sysServices.0", "type": "integer", "value": "seven"},
 		"a fraction":      {"oid": "sysServices.0", "type": "integer", "value": 7.5},

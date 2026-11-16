@@ -63,6 +63,24 @@ func TestSNMPProbe_OnboardsFromTheAgentsOwnAnswers(t *testing.T) {
 	}
 }
 
+// TestSNMPProbe_AnSNMPv1AgentMissingAnObject: an SNMPv1 agent refuses a GET
+// whole for one object it lacks (noSuchName), so the probe reads the system
+// objects one at a time and records the ones the agent holds.
+func TestSNMPProbe_AnSNMPv1AgentMissingAnObject(t *testing.T) {
+	agent := snmptest.Start(t, snmptest.NewStore(snmpCommunity, snmptest.Text("1.3.6.1.2.1.1.5.0", "old-switch")).Handle)
+	repo, _ := newRepo(t, "agent1", generic.TypeSNMP, map[string]inventory.PropertyValue{
+		generic.HostProperty: "127.0.0.1", snmp.PortProperty: agent.Port(), snmp.VersionProperty: 1,
+		snmp.AllowCleartextCommunityProperty: true, snmp.TimeoutProperty: 1, snmp.RetriesProperty: 0,
+	})
+	res, err := onboardWith(context.Background(), repo, "agent1", staticSecrets(wire.SNMPCredential{Community: snmpCommunity}.Secrets()), fixedNow, Lookup, options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Facts["snmp_version"] != "1" || res.Facts["snmp_sys_name"] != "old-switch" || res.Facts["snmp_sys_descr"] != nil {
+		t.Errorf("facts %v, want the one object the agent holds", res.Facts)
+	}
+}
+
 // TestSNMPProbe_SilenceOrAnEmptyViewProvesNothing: a wrong community, which
 // an agent drops without a word, and an agent holding no system object for
 // this credential each leave the device unproven.
