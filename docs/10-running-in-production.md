@@ -2121,18 +2121,31 @@ tls_fingerprint=sha256:...` pins it.
 A server that requires a client certificate and is presented none, or one it does not accept,
 answers with a TLS alert (`certificate required`, `bad certificate`, `unknown certificate
 authority` and the like). In TLS 1.3 that alert comes after the client's side of the handshake,
-so it meets the first call rather than the handshake. Either way it is a refusal, not an outage:
-the call fails naming `tls_client_certificate`, says that no password or token reached the
-server, and `wait.gnmi` stops at once rather than trying until its timeout. The same holds for
-`generic_restconf`, `wait.restconf` and `http.request` against a device's own API.
+so it meets the first call rather than the handshake. By then the client may have written its
+request, credential included; it reaches the server encrypted and is discarded unread, so the
+server processes no request and no login is attempted. Either way it is a refusal, not an outage:
+the call fails naming `tls_client_certificate`, and `wait.gnmi` stops at once rather than trying
+until its timeout. A host that discards queued data when a reset arrives (Windows does, and macOS
+often) can lose the alert to the reset the request's write draws. So when a connection fails
+after a server asked for a client certificate, the client opens one more connection that writes
+nothing after its handshake and reads the server's answer, for at most two seconds or the call's
+own deadline. That connection carries no request. The same holds for `generic_restconf`,
+`wait.restconf`, `http.request` against a device's own API, and onboarding a `generic_http`
+device. Not yet covered, so a refused client certificate there still reads as a connection
+failure: the CML client, the Kubernetes API client, container engines over TLS,
+`net.batfish.check`'s Batfish client and AI providers.
 
 A server that serves more than one data tree may require each request's prefix to name the
 tree it addresses (gNMI's `Path.target`). Set it on the device with `gnmi_target` (`pleiades
 set-host <name> --set gnmi_target=OC-YANG`), or for one task with `net.gnmi.config`'s
-`gnmi_target` parameter, which wins over the device's. It reaches every Get, Set and Subscribe;
-Capabilities carries no prefix, so onboarding, `wait.gnmi` and `net.gnmi.facts` need none. It is
-a plain identifier (letters, digits, `_`, `.` and `-`), never a path, and an undo `net.gnmi.config`
-records names the target its write used.
+`gnmi_target` parameter, which wins over the device's; an empty parameter sends no target even
+when the device names one. It reaches every Get, Set and Subscribe; Capabilities carries no
+prefix, so onboarding, `wait.gnmi` and `net.gnmi.facts` need none. It is a plain identifier
+(letters, digits, `_`, `.` and `-`), never a path. An undo `net.gnmi.config` records names the
+target its write used, an empty one for none, so a rollback deletes in the tree the write
+created in even after the device's `gnmi_target` changes. With mixed versions, a Runner older
+than `gnmi_target` rebuilds the device without it and sends no target, and does not know the
+parameter.
 
 #### Other gNMI servers: SONiC
 
