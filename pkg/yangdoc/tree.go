@@ -123,6 +123,35 @@ func (e *Element) ValuePrefix() (prefix, uri string, ok bool) {
 	return m[1], uri, ok
 }
 
+// prefixToken matches each place a value may name a namespace prefix: an
+// identifier followed by a colon, at the start or after a character no
+// identifier holds, as each step of an instance-identifier (/a:x/b:y) names
+// one.
+var prefixToken = regexp.MustCompile(`(^|[^A-Za-z0-9_.-])([A-Za-z_][A-Za-z0-9_.-]*):`)
+
+// ValuePrefixes returns every namespace prefix e's value names that is
+// declared where e sits, each with the namespace it is bound to, in the order
+// they first appear: an identityref names one, an instance-identifier one per
+// step.
+func (e *Element) ValuePrefixes() [][2]string {
+	if !e.IsLeaf() {
+		return nil
+	}
+	seen := map[string]bool{}
+	var out [][2]string
+	for _, m := range prefixToken.FindAllStringSubmatch(e.text, -1) {
+		prefix := m[2]
+		if seen[prefix] {
+			continue
+		}
+		seen[prefix] = true
+		if uri, ok := e.Resolve(prefix); ok {
+			out = append(out, [2]string{prefix, uri})
+		}
+	}
+	return out
+}
+
 // Parse reads doc as a sequence of elements: one document, or the
 // several top-level elements an edit-config's config holds. Comments,
 // processing instructions and directives are skipped; white space between

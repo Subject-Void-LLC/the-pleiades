@@ -81,6 +81,33 @@ func TestCanonical_AnIdentityrefIsReadByItsNamespace(t *testing.T) {
 	}
 }
 
+// TestAValueNamingSeveralPrefixesKeepsEveryBinding: an instance-identifier
+// names a prefix per step; written alone, each keeps its namespace, and two
+// reads binding other prefixes to the same namespaces read as the same.
+func TestAValueNamingSeveralPrefixesKeepsEveryBinding(t *testing.T) {
+	els, err := yangdoc.Parse([]byte(`<r xmlns:a="urn:a" xmlns:b="urn:b"><ref xmlns="urn:t">/a:x/b:y[b:k='1']</ref></r>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref := els[0].Children[0]
+	got, err := yangdoc.Write([]*yangdoc.Element{ref})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := `<ref xmlns="urn:t" xmlns:a="urn:a" xmlns:b="urn:b">/a:x/b:y[b:k=&#39;1&#39;]</ref>`; got != want {
+		t.Errorf("Write() = %s, want %s", got, want)
+	}
+	if len(ref.ValuePrefixes()) != 2 {
+		t.Errorf("ValuePrefixes() = %v", ref.ValuePrefixes())
+	}
+	one, _ := yangdoc.Canonical([]byte(`<r xmlns:a="urn:a" xmlns:b="urn:b"><ref xmlns="urn:t">/a:x/b:y</ref></r>`), false)
+	two, _ := yangdoc.Canonical([]byte(`<r xmlns:p="urn:a" xmlns:q="urn:b"><ref xmlns="urn:t">/p:x/q:y</ref></r>`), false)
+	other, _ := yangdoc.Canonical([]byte(`<r xmlns:p="urn:a" xmlns:q="urn:other"><ref xmlns="urn:t">/p:x/q:y</ref></r>`), false)
+	if one != two || one == other {
+		t.Errorf("canonical forms:\n%s\n%s\n%s", one, two, other)
+	}
+}
+
 func TestCheckDocument(t *testing.T) {
 	for doc, ok := range map[string]bool{
 		`<a/>`:                         true,

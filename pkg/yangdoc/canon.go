@@ -86,16 +86,22 @@ func writeCanonical(b *strings.Builder, e *Element) {
 	b.WriteString("</>")
 }
 
-// CanonicalValue is a leaf's value as two reads compare it: trimmed, and a
-// leading namespace prefix declared where it sits replaced by the namespace
-// it names.
+// CanonicalValue is a leaf's value as two reads compare it: trimmed, and
+// every namespace prefix it names that is declared where it sits (an
+// identityref's one, an instance-identifier's one per step) replaced by the
+// namespace it names.
 func CanonicalValue(e *Element) string {
 	text := strings.TrimSpace(e.text)
-	if _, uri, ok := e.ValuePrefix(); ok {
-		_, rest, _ := strings.Cut(text, ":")
-		return "{" + uri + "}" + rest
+	if !e.IsLeaf() {
+		return text
 	}
-	return text
+	return prefixToken.ReplaceAllStringFunc(text, func(m string) string {
+		sub := prefixToken.FindStringSubmatch(m)
+		if uri, ok := e.Resolve(sub[2]); ok {
+			return sub[1] + "{" + uri + "}"
+		}
+		return m
+	})
 }
 
 // CheckDocument refuses content a server would read as something other than

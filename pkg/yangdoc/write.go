@@ -80,11 +80,12 @@ func writeElement(b *strings.Builder, e *Element, defaultNS string, prefixes map
 		b.WriteString(" " + name + `="` + escaped(a.Value) + `"`)
 	}
 	if e.IsLeaf() {
-		// A value whose prefix its document binds (an identityref) keeps that
-		// binding; one whose prefix nothing binds is text holding a colon (a
-		// time, an address) and is written as it is.
-		if prefix, uri, ok := e.ValuePrefix(); ok {
-			declare(prefix, uri)
+		// Every prefix a value names that its document binds (an
+		// identityref's one, an instance-identifier's one per step) keeps
+		// that binding; one nothing binds is text holding a colon (a time,
+		// an address) and is written as it is.
+		for _, pu := range e.ValuePrefixes() {
+			declare(pu[0], pu[1])
 		}
 		b.WriteString(">" + escaped(e.text) + "</" + e.Name.Local + ">")
 		return nil
