@@ -28,7 +28,6 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
-	"github.com/Subject-Void-LLC/the-pleiades/pkg/netcfg"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 )
 
@@ -160,8 +159,8 @@ func TestGenericReleaseGate_YANGSchemaSavedAsServed(t *testing.T) {
 	}
 	secret := readProjectFile(t, dir, "yang/nc1/pleiades-gate-secret@2026-11-16.yang")
 	served := yangGateServed(t, host, int(webPort.Num()), "pleiades-gate-secret@2026-11-16")
-	if !strings.Contains(served, yangGateSecret) || strings.Contains(secret, yangGateSecret) || !strings.Contains(secret, netcfg.MaskPrefix) {
-		t.Errorf("the saved secret module:\n%s\nwant the named secret the server's text holds masked", secret)
+	if !strings.Contains(served, yangGateSecret) || strings.Contains(secret, yangGateSecret) || secret != strings.ReplaceAll(served, yangGateSecret, "pleiades-masked-secret") {
+		t.Errorf("the saved secret module:\n%s\nwant the server's text with the named secret replaced by pleiades-masked-secret and nothing else changed", secret)
 	}
 	for _, out := range []string{checkOut, runOut} {
 		if strings.Contains(out, yangGateSecret) || strings.Contains(out, "leaf password") {
