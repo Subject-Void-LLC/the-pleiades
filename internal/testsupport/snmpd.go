@@ -13,10 +13,12 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/snmp"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
 
@@ -180,5 +182,30 @@ func StartSNMPD(tb testing.TB) *SNMPD {
 		host = "127.0.0.1"
 	}
 	agent.Host, agent.Port = host, int(port.Num())
+	agent.waitAnswering(tb)
 	return agent
+}
+
+// waitAnswering returns once the agent answers a real GET of sysUpTime.0
+// over SNMPv2c through the published port, the readiness a test means: the
+// log line says snmpd started, not that a datagram from the host reaches it.
+func (a *SNMPD) waitAnswering(tb testing.TB) {
+	tb.Helper()
+	s := snmp.Defaults()
+	s.Port, s.Version, s.AllowCleartextCommunity, s.Timeout, s.Retries = a.Port, snmp.Version2c, true, time.Second, 0
+	deadline := time.Now().Add(ContainerStartupTimeout)
+	var last error
+	for time.Now().Before(deadline) {
+		c, err := snmp.Dial(a.Host, s, wire.SNMPCredential{Community: a.ReadCommunity})
+		if err == nil {
+			_, err = c.Get(context.Background(), []string{snmp.OIDSysUpTime})
+			_ = c.Close()
+			if err == nil {
+				return
+			}
+		}
+		last = err
+		time.Sleep(250 * time.Millisecond)
+	}
+	tb.Fatalf("snmpd did not answer a GET through %s:%d within %s: %v", a.Host, a.Port, ContainerStartupTimeout, last)
 }

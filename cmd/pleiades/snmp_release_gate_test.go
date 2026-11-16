@@ -11,6 +11,10 @@ package main_test
 import (
 	"context"
 	"encoding/json"
+	"io/fs"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -59,8 +63,9 @@ tasks:
     net.snmp.facts:
 `
 
-// sysLocation reads the agent's sysLocation.0 over SNMPv3 as user.
-func sysLocation(t *testing.T, agent *testsupport.SNMPD, user wire.SNMPCredential) string {
+// sysLocation reads the agent's sysLocation.0 over SNMPv3 as user, first
+// writing set to it when set is not empty.
+func sysLocation(t *testing.T, agent *testsupport.SNMPD, user wire.SNMPCredential, set string) string {
 	t.Helper()
 	s := snmp.Defaults()
 	s.Port = agent.Port
@@ -71,11 +76,70 @@ func sysLocation(t *testing.T, agent *testsupport.SNMPD, user wire.SNMPCredentia
 	defer func() { _ = c.Close() }()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
+	if set != "" {
+		v, err := snmp.Value("sysLocation.0", snmp.TypeOctetString, set)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := c.Set(ctx, []snmp.Varbind{v}); err != nil {
+			t.Fatalf("writing sysLocation.0: %v", err)
+		}
+	}
 	got, err := c.Get(ctx, []string{snmp.OIDSysLocation})
 	if err != nil || len(got) != 1 {
 		t.Fatalf("reading sysLocation.0: %v", err)
 	}
 	return got[0].Text
+}
+
+// heldLocation is the location the agent holds before the run: every
+// template marker the engine renders, as data a device can hold, which the
+// rollback must write back exactly rather than render.
+const heldLocation = "noc {{ vars.site }} {% if true %}x{% endif %} {# a comment #}"
+
+// rawReport runs the binary with --json in dir and returns what it printed
+// and its report.
+func rawReport(t *testing.T, dir string, args ...string) (string, gateReport) {
+	t.Helper()
+	cmd := exec.Command(binPath, append(args, "--json")...) // #nosec G204 -- the test's own binary
+	cmd.Dir = dir
+	cmd.Env = os.Environ()
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+	out, _ := cmd.Output()
+	var rep gateReport
+	if err := json.Unmarshal(out, &rep); err != nil {
+		t.Fatalf("pleiades %v --json printed no report: %v\nstdout: %s\nstderr: %s", args, err, out, stderr.String())
+	}
+	return string(out) + stderr.String(), rep
+}
+
+// filesHolding names every file under dir holding any of secrets in the
+// clear: the run's journal, its facts, its logs and everything else the
+// project keeps on disk.
+func filesHolding(t *testing.T, dir string, secrets []string) []string {
+	t.Helper()
+	var found []string
+	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		data, err := os.ReadFile(path) // #nosec G304 -- a file of the test's own project
+		if err != nil {
+			return err
+		}
+		for _, s := range secrets {
+			if strings.Contains(string(data), s) {
+				found = append(found, path)
+				break
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return found
 }
 
 func TestCLI_SNMPFromDayZeroToDayN(t *testing.T) {
@@ -113,13 +177,17 @@ func TestCLI_SNMPFromDayZeroToDayN(t *testing.T) {
 		t.Fatalf("onboarded %+v", res)
 	}
 
-	original := sysLocation(t, agent, user)
+	original := sysLocation(t, agent, user, heldLocation)
+	if original != heldLocation {
+		t.Fatalf("the agent holds %q, want %q", original, heldLocation)
+	}
 	writeFile(t, dir, "runbooks/snmp.yaml", snmpGateRunbook)
-	run := restconfReport(t, dir, "run", "runbooks/snmp.yaml")
+	printed, run := rawReport(t, dir, "run", "runbooks/snmp.yaml")
 	if run.Outcome.ExitCode != 0 || run.RunID == "" {
 		t.Fatalf("the run %+v", run)
 	}
-	if got := sysLocation(t, agent, user); got != "rack 7, row C, set by the release gate" {
+	leaks(t, "the first run's report", printed)
+	if got := sysLocation(t, agent, user, ""); got != "rack 7, row C, set by the release gate" {
 		t.Fatalf("sysLocation.0 after the run = %q", got)
 	}
 	out, err := runPleiadesWithEnv(t, dir, nil, "run", "runbooks/snmp.yaml")
@@ -153,8 +221,8 @@ func TestCLI_SNMPFromDayZeroToDayN(t *testing.T) {
 	if rollback.Outcome.ExitCode != 0 || len(rollback.methods()) != 1 || !strings.HasPrefix(rollback.methods()[0], "net.snmp.set ") {
 		t.Fatalf("the rollback %+v, want one net.snmp.set step", rollback)
 	}
-	if got := sysLocation(t, agent, user); got != original {
-		t.Errorf("sysLocation.0 after the rollback = %q, want %q", got, original)
+	if got := sysLocation(t, agent, user, ""); got != original {
+		t.Errorf("sysLocation.0 after the rollback = %q, want %q written back exactly", got, original)
 	}
 
 	// SNMPv2c is refused until the record opts in, then works and warns.
@@ -180,4 +248,7 @@ func TestCLI_SNMPFromDayZeroToDayN(t *testing.T) {
 		t.Fatalf("the SNMPv2c run: %v\n%s", err, out)
 	}
 	leaks(t, "the SNMPv2c run", out)
+	if held := filesHolding(t, dir, secrets); len(held) != 0 {
+		t.Errorf("the project keeps a secret in the clear in %v", held)
+	}
 }

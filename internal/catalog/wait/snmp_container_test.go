@@ -33,7 +33,10 @@ func TestSNMP_NetSNMPAnswersAUserAndRefusesAWrongPassphraseOnce(t *testing.T) {
 	if _, err := wait.SNMP(context.Background(), rc, item, map[string]any{"timeout": 60, "connect_timeout": 15}); err != nil {
 		t.Fatal(err)
 	}
-	if rc.stats["version"] != "3" || rc.stats["tries"] != 1 {
+	// The agent answers a GET before StartSNMPD returns, so the wait should
+	// end at once; a loaded host may still lose the first datagram, so only
+	// the answer is held, not the count of tries.
+	if tries, _ := rc.stats["tries"].(int); rc.stats["version"] != "3" || tries < 1 || rc.stats["failures"] != tries-1 {
 		t.Errorf("stats = %v", rc.stats)
 	}
 	wrong := user
