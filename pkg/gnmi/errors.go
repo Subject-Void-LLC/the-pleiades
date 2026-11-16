@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -131,6 +132,12 @@ func (c *Client) fail(ctx context.Context, rpc string, err error) error {
 		c.mu.Unlock()
 		return refusal
 	case codes.DeadlineExceeded, codes.Canceled:
+		// gRPC reads the deadline from the clock, and can say it passed a
+		// moment before the context's own timer marks the context done;
+		// once the deadline has passed, Done follows at once.
+		if deadline, ok := ctx.Deadline(); ok && !time.Now().Before(deadline) {
+			<-ctx.Done()
+		}
 		// The call's own context ending is said as itself, by its cause: the
 		// caller's deadline or cancellation, or the client's call timeout, so
 		// a wait can tell its timeout from the server's refusal.
