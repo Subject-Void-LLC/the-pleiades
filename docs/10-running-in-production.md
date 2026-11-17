@@ -621,10 +621,10 @@ The Walk tier stores the same fields as columns in `journal_entries` (the
 `collection` object as `collection_group`, `collection_version`,
 `collection_program` and `collection_manifests`).
 
-Each Crawl-tier line also carries `format`, the version of its shape. 0.4.0 writes
-format 3. Format 2 added `collection` and `inverse_spec_digest`, and format 3 added
-`authored_steps` and `inverse_withheld`; 0.4.0 reads format 1 and 2 lines, and lines with no `format`, with
-the fields added since absent. A build refuses a line whose format is newer than it
+Each Crawl-tier line also carries `format`, the version of its shape. This build writes
+format 4. Format 2 added `collection` and `inverse_spec_digest`, format 3 added
+`authored_steps` and `inverse_withheld`, and format 4 added `read_only_call`; it reads
+format 1, 2 and 3 lines, and lines with no `format`, with the fields added since absent. A build refuses a line whose format is newer than it
 knows, naming the version, rather than half reading it.
 
 **Identifiers**
@@ -689,6 +689,7 @@ These are what `pleiades rollback` and a Controller rollback are planned from.
 | `inverse_complete` | True when every parameter the undo takes has its value here, so it can be replayed exactly. |
 | `inverse_partial` | True when the undo does not put back everything the task overwrote, such as a file copied over another, whose earlier content is not kept. A rollback runs one only when told to. |
 | `action_changed` | True when the task changed the device, even if a later step of the same task failed. |
+| `read_only_call` | True when the call, with the parameters it ran with, only reads by its built-in method's own declaration: a method that only reads, or a call its method says reads, such as `net.ios.command` running a `show`. A rollback reads it to tell a call that failed while only reading, which changed nothing, from one that failed while changing the device. Absent otherwise, for an external Collection program's method, and on a record written before journal format 4. |
 | `authored_rollback` | True when the task had its own `rollback:` list when it ran. |
 | `authored_steps` | For a task that changed the device, each step of its `rollback:` list that holds a `{{ }}` template, as the run rendered it there with the values the task ran with: its `index` in the list, its method (`fqcn`), a `step_digest` of the step as written, and the `params` its templates rendered to, held to the same rules as `inverse_params` (only keys the task's method declares recordable for an undo through the step's method, only values the journal may hold, and never one holding a secret the run knows). A step that cannot meet them has `complete` false, no values, and a `withheld` reason: `undeclared`, `not_recordable`, `secret` or `render_failed`. Absent on a step with no template, on a task with none, and on a record written before 0.4.0 (journal format 3). |
 | `rollback_of` | On a rollback's own records, the run (or job) it undoes. Empty otherwise. |
@@ -721,6 +722,12 @@ ordinary run of ordinary tasks, journaled like any other.
   values it will run with or why a rollback refuses it.
 - **The order.** Every change a run made is undone, newest first, and nothing it
   did not change: a task that only read, or was skipped, has nothing to undo.
+- **A cleanup in a block's `always:`.** A change a block's `always:` task made (a lab
+  torn down, a grant revoked) is left in place, and listed once as a cleanup with the
+  reason (`cleanups` in `--json`): an `always:` task runs to clean up after its block,
+  and undoing it would put back what the block meant to remove. Give the task a
+  `rollback:` list to have it undone like any other task. A run whose cleanup is left
+  in place still counts as a later run that changed the device.
 - **It refuses as a whole, before it touches any device.** When a change cannot be
   undone exactly (no undo was recorded, part of it was withheld, the device has left
   the inventory), when a later run has changed the same device since, or when the
@@ -740,8 +747,10 @@ ordinary run of ordinary tasks, journaled like any other.
   device partway, exactly as such a task in the run being undone may have, so read it
   and step over it once the device is known to be as this run left it; a run that
   failed before it reached the device (a lock it could not take, a parameter that
-  would not render) is no reason to refuse. A later run with any task that failed
-  during its action there, in a method that is not read-only, refuses a rollback
+  would not render) is no reason to refuse, and neither is a call that failed while
+  only reading (`read_only_call`: a `show` the device refused, or one whose login never
+  finished). A later run with any task that failed
+  during its action there, in a call that is not read-only, refuses a rollback
   beneath it until `--despite-run`, as the
   run being undone does, and that includes an `until:` poll's failed tries and a failure
   `ignore_errors` let the run go past, which stay failures in the journal. Rolling that
