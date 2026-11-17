@@ -23,7 +23,7 @@ import (
 // (record.Base).
 type firstUser interface {
 	RecordFirstUsePin(string)
-	ConfirmFirstUsePin(pin, into string) error
+	ConfirmFirstUsePin(pin string) error
 	RecordDiscovery(inventory.Discovery)
 	DiscoveryBinding() string
 }
@@ -77,7 +77,7 @@ func TestFileRepository_KeepsAFirstUsePinInTheStateFile(t *testing.T) {
 		t.Errorf("a copied hosts.yaml trusts %q", s.Pins())
 	}
 
-	if err := reloaded.(firstUser).ConfirmFirstUsePin(pin, devicetls.FingerprintProperty); err != nil {
+	if err := reloaded.(firstUser).ConfirmFirstUsePin(pin); err != nil {
 		t.Fatal(err)
 	}
 	if err := NewFileRepository(path, NewItemFactory()).Save(ctx, reloaded); err != nil {

@@ -94,6 +94,11 @@ func TestFirstUse_IsTheReservedKeyAndTravelsWithTheTLSSettings(t *testing.T) {
 	if devicetls.FirstUseProperty != inventory.TLSFirstUseProperty {
 		t.Fatalf("devicetls reads %q and pkg/inventory reserves %q", devicetls.FirstUseProperty, inventory.TLSFirstUseProperty)
 	}
+	// The keys whose write drops a first-use pin (record.Base) are the ones
+	// devicetls reads a person's trust from.
+	if devicetls.FingerprintProperty != inventory.TLSPinProperty || devicetls.CAPEMProperty != inventory.TLSAuthorityProperty {
+		t.Fatalf("devicetls reads %q and %q, pkg/inventory names %q and %q", devicetls.FingerprintProperty, devicetls.CAPEMProperty, inventory.TLSPinProperty, inventory.TLSAuthorityProperty)
+	}
 	if !inventory.IsReservedProperty(devicetls.FirstUseProperty) {
 		t.Error("the first-use pin is not reserved, so a person or a sync could write one")
 	}

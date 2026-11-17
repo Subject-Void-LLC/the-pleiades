@@ -249,6 +249,7 @@ func (b *Base) AddInfo(key string, value inventory.PropertyValue, overwrite bool
 		OldValue:  old,
 		NewValue:  value,
 	})
+	b.dropOverriddenFirstUse(key)
 	return nil
 }
 
@@ -273,6 +274,7 @@ func (b *Base) RemoveInfo(key string) error {
 		OldValue:  old,
 		NewValue:  nil,
 	})
+	b.dropOverriddenFirstUse(key)
 	return nil
 }
 

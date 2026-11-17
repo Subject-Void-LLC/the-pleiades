@@ -200,7 +200,7 @@ func TestOnboard_FirstUseRecordsConfirmsAndThenVerifies(t *testing.T) {
 	// nothing says it is unconfirmed any more.
 	srv.present(first)
 	item, _ := repo.GetByName(context.Background(), "api1")
-	if err := item.(interface{ ConfirmFirstUsePin(string, string) error }).ConfirmFirstUsePin(pin, devicetls.FingerprintProperty); err != nil {
+	if err := item.(interface{ ConfirmFirstUsePin(string) error }).ConfirmFirstUsePin(pin); err != nil {
 		t.Fatal(err)
 	}
 	if err := repo.Save(context.Background(), item); err != nil {

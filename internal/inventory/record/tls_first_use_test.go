@@ -77,7 +77,7 @@ func TestFirstUsePin_OnlyItsOwnWritersReachIt(t *testing.T) {
 func TestConfirmFirstUsePin_MovesThePinAndKeepsWhatHeld(t *testing.T) {
 	rec := firstUseRecord(t, firstUseType)
 	b := record.NewBase(rec, nil)
-	if err := b.ConfirmFirstUsePin(firstUsePin, "tls_fingerprint"); err != nil {
+	if err := b.ConfirmFirstUsePin(firstUsePin); err != nil {
 		t.Fatal(err)
 	}
 	props := b.Properties()
@@ -119,17 +119,17 @@ func TestConfirmFirstUsePin_MovesThePinAndKeepsWhatHeld(t *testing.T) {
 // nothing.
 func TestConfirmFirstUsePin_Refusals(t *testing.T) {
 	none := record.NewBase(record.Record{Name: "fw1", Type: firstUseType, Properties: map[string]inventory.PropertyValue{"host": "10.0.0.1"}}, nil)
-	if err := none.ConfirmFirstUsePin(firstUsePin, "tls_fingerprint"); !errors.Is(err, record.ErrNoFirstUsePin) {
+	if err := none.ConfirmFirstUsePin(firstUsePin); !errors.Is(err, record.ErrNoFirstUsePin) {
 		t.Errorf("no first-use pin: %v", err)
 	}
 	other := record.NewBase(firstUseRecord(t, firstUseType), nil)
-	if err := other.ConfirmFirstUsePin("sha256:"+strings.Repeat("cd", 32), "tls_fingerprint"); !errors.Is(err, record.ErrNoFirstUsePin) || !strings.Contains(err.Error(), firstUsePin) {
+	if err := other.ConfirmFirstUsePin("sha256:" + strings.Repeat("cd", 32)); !errors.Is(err, record.ErrNoFirstUsePin) || !strings.Contains(err.Error(), firstUsePin) {
 		t.Errorf("another pin: %v, want a refusal naming the recorded one", err)
 	}
 	rec := firstUseRecord(t, firstUseType)
 	rec.Properties["tls_fingerprint"] = "sha256:" + strings.Repeat("ef", 32)
 	set := record.NewBase(rec, nil)
-	if err := set.ConfirmFirstUsePin(firstUsePin, "tls_fingerprint"); err == nil || !strings.Contains(err.Error(), "already sets tls_fingerprint") {
+	if err := set.ConfirmFirstUsePin(firstUsePin); err == nil || !strings.Contains(err.Error(), "already sets tls_fingerprint") {
 		t.Errorf("a pin already set: %v", err)
 	}
 	for _, b := range []*record.Base{none, other, set} {
@@ -139,13 +139,64 @@ func TestConfirmFirstUsePin_Refusals(t *testing.T) {
 	}
 }
 
+// TestFirstUsePin_APersonsTrustDropsIt: writing tls_fingerprint or
+// tls_ca_pem (set-host, a sync) drops the first-use pin with a revision of
+// its own, and so does removing either, so an unchecked pin never comes back
+// into force once a person's trust is taken away; writing anything else
+// leaves it.
+func TestFirstUsePin_APersonsTrustDropsIt(t *testing.T) {
+	for name, write := range map[string]func(*record.Base) error{
+		"tls_fingerprint written": func(b *record.Base) error {
+			return b.AddInfo(inventory.TLSPinProperty, "sha256:"+strings.Repeat("ef", 32), true)
+		},
+		"tls_ca_pem written": func(b *record.Base) error { return b.AddInfo(inventory.TLSAuthorityProperty, "pem", true) },
+		"tls_fingerprint removed": func(b *record.Base) error {
+			b.RecordFirstUsePin(firstUsePin) // as a hand-edited inventory.yaml can leave both
+			if err := b.AddInfo(inventory.TLSPinProperty, "x", true); err != nil {
+				return err
+			}
+			b.RecordFirstUsePin(firstUsePin)
+			return b.RemoveInfo(inventory.TLSPinProperty)
+		},
+	} {
+		b := record.NewBase(firstUseRecord(t, firstUseType), nil)
+		if err := write(b); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if _, present := b.Properties().Raw()[inventory.TLSFirstUseProperty]; present {
+			t.Errorf("%s: the first-use pin survived", name)
+		}
+		if last := b.History()[len(b.History())-1]; last.Field != inventory.TLSFirstUseProperty || last.NewValue != nil {
+			t.Errorf("%s: the last revision is %+v, want the first-use pin's removal", name, last)
+		}
+	}
+	kept := record.NewBase(firstUseRecord(t, firstUseType), nil)
+	if err := kept.AddInfo("host", "10.0.0.2", true); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := kept.Properties().String(inventory.TLSFirstUseProperty); got != firstUsePin {
+		t.Error("writing a property that says nothing of trust dropped the first-use pin")
+	}
+}
+
+// TestConfirmFirstUsePin_RefusesBesideAnAuthority: a first-use pin beside a
+// pinned authority is not the one the device trusts, so it is not confirmed.
+func TestConfirmFirstUsePin_RefusesBesideAnAuthority(t *testing.T) {
+	rec := firstUseRecord(t, firstUseType)
+	rec.Properties[inventory.TLSAuthorityProperty] = "pem"
+	b := record.NewBase(rec, nil)
+	if err := b.ConfirmFirstUsePin(firstUsePin); err == nil || !strings.Contains(err.Error(), "already sets tls_ca_pem") || len(b.History()) != 0 {
+		t.Errorf("beside a pinned authority: %v, %d revisions", err, len(b.History()))
+	}
+}
+
 // TestConfirmFirstUsePin_LeavesWhatWasNotBoundAlone: on a type whose
 // discovery is not bound the move is all there is, and on a bound type with
 // a stale discovery, or none, and no grant bound to the record, nothing is
 // rebound.
 func TestConfirmFirstUsePin_LeavesWhatWasNotBoundAlone(t *testing.T) {
 	unbound := record.NewBase(firstUseRecord(t, "first_use_unbound_test_type"), nil)
-	if err := unbound.ConfirmFirstUsePin(firstUsePin, "tls_fingerprint"); err != nil || len(unbound.History()) != 2 {
+	if err := unbound.ConfirmFirstUsePin(firstUsePin); err != nil || len(unbound.History()) != 2 {
 		t.Errorf("unbound: %v, %d revisions (want the move's 2)", err, len(unbound.History()))
 	}
 
@@ -153,7 +204,7 @@ func TestConfirmFirstUsePin_LeavesWhatWasNotBoundAlone(t *testing.T) {
 	rec.Properties[inventory.DiscoveredProperty] = inventory.Discovery{Protocol: "http", Binding: "sha256:" + strings.Repeat("1", 64)}.Property()
 	delete(rec.Properties, inventory.GrantedProperty)
 	staleDiscovery := record.NewBase(rec, nil)
-	if err := staleDiscovery.ConfirmFirstUsePin(firstUsePin, "tls_fingerprint"); err != nil {
+	if err := staleDiscovery.ConfirmFirstUsePin(firstUsePin); err != nil {
 		t.Fatal(err)
 	}
 	d, _, _ := inventory.DiscoveryFrom(staleDiscovery.Properties())
@@ -167,7 +218,7 @@ func TestConfirmFirstUsePin_LeavesWhatWasNotBoundAlone(t *testing.T) {
 	only.Binding = "sha256:" + strings.Repeat("2", 64)
 	bare.Properties[inventory.GrantedProperty] = inventory.GrantsProperty([]inventory.Grant{only})
 	noneBound := record.NewBase(bare, nil)
-	if err := noneBound.ConfirmFirstUsePin(firstUsePin, "tls_fingerprint"); err != nil || len(noneBound.History()) != 2 {
+	if err := noneBound.ConfirmFirstUsePin(firstUsePin); err != nil || len(noneBound.History()) != 2 {
 		t.Errorf("nothing bound to the record: %v, %d revisions (want the move's 2)", err, len(noneBound.History()))
 	}
 }

@@ -19,7 +19,7 @@ import (
 // confirmingPin is the one writer of a confirmation an inventory item has
 // (record.Base.ConfirmFirstUsePin).
 type confirmingPin interface {
-	ConfirmFirstUsePin(pin, into string) error
+	ConfirmFirstUsePin(pin string) error
 }
 
 // confirmTLSPinUsage is the command's usage line.
@@ -71,7 +71,7 @@ func runConfirmTLSPin(args []string) error {
 	if !ok {
 		return fmt.Errorf("host %q cannot confirm a pin", name)
 	}
-	if err := c.ConfirmFirstUsePin(recorded, devicetls.FingerprintProperty); err != nil {
+	if err := c.ConfirmFirstUsePin(recorded); err != nil {
 		return err
 	}
 	if err := repo.Save(ctx, item); err != nil {

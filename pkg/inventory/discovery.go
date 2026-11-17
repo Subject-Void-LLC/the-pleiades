@@ -36,6 +36,16 @@ const DiscoveredProperty = "discovered"
 // trust with it.
 const TLSFirstUseProperty = "tls_first_use_fingerprint"
 
+// The properties a person sets to say what a device's certificate is
+// trusted by (pkg/devicetls reads them, under the same keys): a first-use pin
+// is trusted only while neither is set, so writing or removing either drops
+// one (record.Base), and it never comes back into force when a person's
+// trust is taken away later.
+const (
+	TLSPinProperty       = "tls_fingerprint"
+	TLSAuthorityProperty = "tls_ca_pem"
+)
+
 // IsReservedProperty reports whether key is written only by the platform,
 // never by a person or a sync plugin as a property: DiscoveredProperty and
 // TLSFirstUseProperty, written by onboarding, and GrantedProperty, written

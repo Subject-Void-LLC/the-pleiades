@@ -13,7 +13,7 @@ import (
 // pinConfirmer is the one writer of a confirmation a stored device has
 // (record.Base.ConfirmFirstUsePin).
 type pinConfirmer interface {
-	ConfirmFirstUsePin(pin, into string) error
+	ConfirmFirstUsePin(pin string) error
 }
 
 // tlsPinRequest is the body of POST
@@ -74,7 +74,7 @@ func (h *DeviceHandler) ConfirmTLSPin(w http.ResponseWriter, r *http.Request) {
 	// the store's own and is answered as one.
 	err = errors.New("the stored device cannot confirm a pin")
 	if c, ok := item.(pinConfirmer); ok {
-		err = c.ConfirmFirstUsePin(recorded, devicetls.FingerprintProperty)
+		err = c.ConfirmFirstUsePin(recorded)
 	}
 	if err != nil {
 		h.logger.ErrorContext(r.Context(), "confirming a pin failed", slog.String("device", name), slog.String("error", err.Error()))

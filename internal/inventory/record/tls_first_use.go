@@ -40,9 +40,10 @@ func (b *Base) RemoveFirstUsePin() bool {
 }
 
 // ConfirmFirstUsePin is a person's confirmation of the device's first-use
-// pin: pin must be the one recorded, written as recorded, and into (the
-// device's pin property) must be unset, which it is whenever the first-use
-// pin is the one trusted. The pin moves into into, and the first-use pin is
+// pin: pin must be the one recorded, written as recorded, and the one the
+// device trusts, which it is only while the record names no trust of its own
+// (neither inventory.TLSPinProperty nor inventory.TLSAuthorityProperty is
+// set). The pin moves into inventory.TLSPinProperty, and the first-use pin is
 // removed, each with a revision.
 //
 // What the device trusts does not change: the same one certificate before
@@ -50,16 +51,20 @@ func (b *Base) RemoveFirstUsePin() bool {
 // (inventory.Discovery.Binding) is bound again to the record as it is, since
 // the move repoints nothing; one bound to anything else is left as it was,
 // stale as it already was.
-func (b *Base) ConfirmFirstUsePin(pin, into string) error {
+func (b *Base) ConfirmFirstUsePin(pin string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	recorded, _ := b.props[inventory.TLSFirstUseProperty].(string)
 	if recorded == "" || recorded != pin {
 		return fmt.Errorf("device %s: %s is not its %s (%q): %w", b.name, pin, inventory.TLSFirstUseProperty, recorded, ErrNoFirstUsePin)
 	}
-	if _, set := b.props[into]; set {
-		return fmt.Errorf("device %s already sets %s, so its first-use pin is not the one it trusts: onboard it again to remove the first-use pin, or add the pin to %s yourself once checked", b.name, into, into)
+	for _, own := range []string{inventory.TLSPinProperty, inventory.TLSAuthorityProperty} {
+		if _, set := b.props[own]; set {
+			return fmt.Errorf("device %s already sets %s, so its first-use pin is not the one it trusts: onboard it again to remove the first-use pin, or add the pin to %s yourself once checked",
+				b.name, own, inventory.TLSPinProperty)
+		}
 	}
+	into := inventory.TLSPinProperty
 	before := DiscoveryBinding(b.deviceType, inventory.NewProperties(b.props))
 	b.revise(into, pin)
 	b.revise(inventory.TLSFirstUseProperty, nil)
@@ -84,6 +89,21 @@ func (b *Base) ConfirmFirstUsePin(pin, into string) error {
 		}
 	}
 	return nil
+}
+
+// dropOverriddenFirstUse removes the device's first-use pin, with a
+// revision, when key is one of the properties a person sets to say what the
+// device's certificate is trusted by: writing one overrides the first-use
+// pin, and removing one later must not bring an unchecked pin back into
+// force. set-host and a sync write through AddInfo and RemoveInfo, which call
+// it. The caller holds b.mu.
+func (b *Base) dropOverriddenFirstUse(key string) {
+	if key != inventory.TLSPinProperty && key != inventory.TLSAuthorityProperty {
+		return
+	}
+	if _, present := b.props[inventory.TLSFirstUseProperty]; present {
+		b.revise(inventory.TLSFirstUseProperty, nil)
+	}
 }
 
 // revise sets field to value, or removes it for nil, and records the change

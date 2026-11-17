@@ -86,6 +86,39 @@ func TestConfirmTLSPin_ConfirmsOnlyTheRecordedPinItTrusts(t *testing.T) {
 	}
 }
 
+// TestSetHost_APersonsPinDropsTheFirstUsePin: set-host writing tls_fingerprint
+// drops the pin recorded on first use, so unsetting tls_fingerprint later
+// leaves the host trusting nothing, never the unchecked pin again.
+func TestSetHost_APersonsPinDropsTheFirstUsePin(t *testing.T) {
+	pin := "sha256:" + strings.Repeat("ab", 32)
+	dir := pinProject(t, map[string]inventory.PropertyValue{"base_url": "https://10.0.0.9"}, pin)
+	stored := func() devicetls.Settings {
+		t.Helper()
+		item, err := inv.NewFileRepository(filepath.Join(dir, inv.DefaultInventoryFilename), inv.NewItemFactory()).GetByName(context.Background(), "api1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return devicetls.For(item)
+	}
+	person := "sha256:" + strings.Repeat("cd", 32)
+	captureStdout(t, func() {
+		if err := runSetHost([]string{"api1", "--set", "tls_fingerprint=" + person, "--dir", dir}); err != nil {
+			t.Error(err)
+		}
+	})
+	if s := stored(); s.UnusedFirstUsePin() != "" || len(s.Pins()) != 1 || s.Pins()[0] != person {
+		t.Fatalf("after set-host: pins %q, unused first use %q", s.Pins(), s.UnusedFirstUsePin())
+	}
+	captureStdout(t, func() {
+		if err := runSetHost([]string{"api1", "--unset", "tls_fingerprint", "--dir", dir}); err != nil {
+			t.Error(err)
+		}
+	})
+	if s := stored(); s.Pins() != nil || s.FirstUsePin() != "" {
+		t.Errorf("after unsetting tls_fingerprint the host trusts %q (first use %q), want nothing", s.Pins(), s.FirstUsePin())
+	}
+}
+
 // TestPrintOnboard_ListsAFirstUsePinForReview: the pin an onboarding
 // recorded is printed whole, both forms and the names, with the command that
 // confirms it, every device-supplied field escaped.
