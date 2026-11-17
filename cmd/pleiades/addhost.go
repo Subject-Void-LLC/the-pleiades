@@ -3,13 +3,16 @@ package main
 import (
 	"flag"
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/classification"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/recordname"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/termsafe"
 	pkginventory "github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/google/uuid"
 )
@@ -182,5 +185,38 @@ func runAddHost(args []string) error {
 	}
 
 	fmt.Printf("added host %q (%s) to %s\n", name, resolvedType, path)
+	bindStoredCredential(*dir, name)
 	return nil
+}
+
+// bindStoredCredential binds the credential stored for name before any
+// device had it (add-credential's unbound mark) now that add-host gave it its
+// device, and says so naming the account, so the choice is seen when it is
+// made rather than on the first run that sends it. If the credential was not
+// meant for this device, the message says how to remove it. The host is added
+// either way: a vault that cannot be read is said on standard error, and the
+// mark then stays for the first run to announce, as for a device added
+// another way (an import, a sync, an edit to inventory.yaml).
+func bindStoredCredential(dir, name string) {
+	listed, err := credential.ListCredentials(vaultDir(dir))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: host %q was added, but whether a credential was stored for it before it existed could not be read: %v\n", name, err)
+		return
+	}
+	for _, c := range listed {
+		if c.Name != name || !c.Unbound {
+			continue
+		}
+		if _, err := credential.BindFileStore(vaultDir(dir), name); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: host %q was added, but the credential stored for it before it existed is still marked unbound: %v\n", name, err)
+			return
+		}
+		account := ""
+		if c.Username != "" {
+			account = " (account " + termsafe.Quote(c.Username) + ")"
+		}
+		fmt.Printf("bound the credential stored for %s before it existed%s to the new host; if it was not meant for this device: pleiades remove-credential %s\n",
+			termsafe.Quote(name), account, termsafe.Quote(name))
+		return
+	}
 }

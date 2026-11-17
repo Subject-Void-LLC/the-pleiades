@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
 )
 
 // credentialProject returns a project holding the device web01.
@@ -144,16 +145,64 @@ func TestCLI_ListCredentials_ShowsUnboundNeverAValue(t *testing.T) {
 	}
 }
 
+// TestCLI_AddHost_BindsACredentialStoredBeforeIt: a credential stored before
+// its device exists is bound by the add-host that adds the device, which says
+// so naming the account and how to remove it if it was not meant for the
+// device, so the listing no longer calls it unbound and no run need announce
+// it. It used to stay listed unbound until a run used it.
+func TestCLI_AddHost_BindsACredentialStoredBeforeIt(t *testing.T) {
+	dir := credentialProject(t)
+	if out, err := runPleiadesWithStdin(t, dir, "s3cret\n", "add-credential", "late01", "--username", "ops", "--password-stdin"); err != nil {
+		t.Fatalf("add-credential: %v\n%s", err, out)
+	}
+	if out, _ := runPleiades(t, dir, "list-credentials"); !strings.Contains(out, "unbound: no device of this name; add-host binds it when one is added") {
+		t.Errorf("the listing does not say how an unbound credential is bound:\n%s", out)
+	}
+	out, err := runPleiades(t, dir, "add-host", "late01", "--type", "linux_server", "--set", "host=127.0.0.1", "--set", "port=1")
+	if err != nil {
+		t.Fatalf("add-host: %v\n%s", err, out)
+	}
+	for _, want := range []string{"bound the credential stored for late01 before it existed (account ops)", "pleiades remove-credential late01"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("add-host does not say %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "s3cret") {
+		t.Errorf("add-host printed the secret:\n%s", out)
+	}
+	if listed := listedCredentials(t, dir)["late01"]; listed.Unbound {
+		t.Errorf("the credential is still unbound after add-host: %+v", listed)
+	}
+	// A host with no credential stored before it says nothing of one.
+	if out, err := runPleiades(t, dir, "add-host", "plain01", "--type", "linux_server", "--set", "host=127.0.0.2"); err != nil || strings.Contains(out, "bound the credential") {
+		t.Errorf("add-host with no stored credential: %v\n%s", err, out)
+	}
+}
+
 // TestCLI_Run_TheFirstRunUsingAnUnboundCredentialSaysSo: a credential is
-// stored before its device exists, then the device is added and a run uses
-// it. That run warns once and clears the mark; the next run does not warn.
+// stored before its device exists, then the device arrives other than by
+// add-host (an edit to inventory.yaml, as an import or a sync adds one), and
+// a run uses it. The listing says the device now exists; that run warns once
+// and clears the mark; the next run does not warn.
 func TestCLI_Run_TheFirstRunUsingAnUnboundCredentialSaysSo(t *testing.T) {
 	dir := credentialProject(t)
 	if out, err := runPleiadesWithStdin(t, dir, "s3cret\n", "add-credential", "late01", "--username", "u", "--password-stdin"); err != nil {
 		t.Fatalf("add-credential: %v\n%s", err, out)
 	}
-	if out, err := runPleiades(t, dir, "add-host", "late01", "--type", "linux_server", "--set", "host=127.0.0.1", "--set", "port=1"); err != nil {
-		t.Fatalf("add-host: %v\n%s", err, out)
+	path := filepath.Join(dir, inventory.DefaultInventoryFilename)
+	hosts, err := inventory.ReadHosts(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hosts = append(hosts, inventory.HostSpec{ID: "late01-id", Name: "late01", Type: "linux_server", Properties: map[string]any{"host": "127.0.0.1", "port": 1}})
+	if err := inventory.WriteHosts(path, hosts); err != nil {
+		t.Fatal(err)
+	}
+	if listed := listedCredentials(t, dir)["late01"]; !listed.Unbound || !listed.DeviceExists {
+		t.Errorf("the listing of an unbound credential whose device arrived: %+v", listed)
+	}
+	if out, _ := runPleiades(t, dir, "list-credentials"); !strings.Contains(out, "a device of this name now exists: its first run binds it and says so") {
+		t.Errorf("the text listing does not say the device exists:\n%s", out)
 	}
 	runbook := filepath.Join(dir, "runbooks", "touch.yaml")
 	if err := os.WriteFile(runbook, []byte("# Reads the uptime of late01; changes nothing.\nid: touch\nhosts: late01\ntasks:\n  - name: uptime\n    exec.command:\n      cmd: uptime\n"), 0o600); err != nil {

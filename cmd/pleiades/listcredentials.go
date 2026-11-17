@@ -34,6 +34,7 @@ func runListCredentials(args []string) error {
 	if err != nil {
 		return err
 	}
+	markDevicesThatExist(*dir, listed)
 	if *asJSON {
 		return writeJSON(os.Stdout, listed)
 	}
@@ -50,8 +51,13 @@ func runListCredentials(args []string) error {
 			line += "  snmp user " + termsafe.EscapeLine(c.SNMPUser)
 		}
 		line += "  " + strings.Join(c.Kinds, ", ")
-		if c.Unbound {
-			line += "  unbound"
+		switch {
+		case c.Unbound && c.DeviceExists:
+			// A device of the name arrived other than by add-host (an import,
+			// a sync, an edit), which would have bound it.
+			line += "  unbound, and a device of this name now exists: its first run binds it and says so"
+		case c.Unbound:
+			line += "  unbound: no device of this name; add-host binds it when one is added"
 		}
 		if c.ShortCommunity {
 			// Every run masks such a community by shape only, and says so.
@@ -60,4 +66,21 @@ func runListCredentials(args []string) error {
 		fmt.Println(line)
 	}
 	return nil
+}
+
+// markDevicesThatExist sets DeviceExists on each unbound entry whose name a
+// device in the project's inventory now has. An inventory that cannot be read
+// marks nothing: the listing is of the vault, and says only what it can.
+func markDevicesThatExist(dir string, listed []credential.CredentialInfo) {
+	items, err := loadInventory(dir)
+	if err != nil {
+		return
+	}
+	names := map[string]bool{}
+	for _, item := range items {
+		names[item.Name()] = true
+	}
+	for i := range listed {
+		listed[i].DeviceExists = listed[i].Unbound && names[listed[i].Name]
+	}
 }
