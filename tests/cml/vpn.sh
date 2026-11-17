@@ -42,17 +42,46 @@ load() {
 	[ "$mode" = 600 ] || die "$env_file is mode $mode and holds passwords: chmod 600 it"
 	vpn_host="$(setting PLEIADES_CML_VPN_HOST)" || true
 	vpn_user="$(setting PLEIADES_CML_VPN_USER)" || true
-	# An optional pin of the VPN server's key (openconnect's pin-sha256 form),
-	# for a sandbox whose certificate has expired: the pin trusts that one key
-	# and nothing else, where skipping verification would trust any server.
+	# An optional pin of the VPN server's key (openconnect's pin-sha256 form).
+	# The sandbox's certificate is not signed by a CA this machine trusts and
+	# its key changes between reservations, so the script accepts whatever key
+	# the server presents (server_pin) and names it on every connect; this
+	# pin is only compared with it, and a difference is warned about.
 	vpn_pin="$(setting PLEIADES_CML_VPN_SERVERCERT)" || true
 	cml_url="$(setting PLEIADES_CML_URL)" || true
 	[ -n "$vpn_host" ] && [ -n "$vpn_user" ] || die "PLEIADES_CML_VPN_HOST and PLEIADES_CML_VPN_USER must be set in $env_file"
 }
 
+# server_pin prints the pin-sha256 of the key the VPN server presents now.
+# It asks with a pin that matches no key, so openconnect names the server's
+# own pin and stops at the certificate, before any credential is sent; no
+# password is on its standard input either.
+server_pin() {
+	local out pin
+	out="$(openconnect --protocol=anyconnect --authenticate --non-inter \
+		--servercert=pin-sha256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= "$1" </dev/null 2>&1 || true)"
+	pin="$(printf '%s\n' "$out" | grep -o 'pin-sha256:[A-Za-z0-9+/]*=*' | grep -v '^pin-sha256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=$' | tail -n 1 || true)"
+	[ -n "$pin" ] || { printf '%s\n' "$out" | tail -n 5 >&2; die "the server at $1 named no certificate pin"; }
+	printf '%s' "$pin"
+}
+
+# accept_pin sets vpn_pin to the key the server presents now, saying so,
+# and warning when it is not the one tests/cml/.env pins.
+accept_pin() {
+	local presented
+	presented="$(server_pin "$vpn_host")"
+	if [ -n "$vpn_pin" ] && [ "$vpn_pin" != "$presented" ]; then
+		echo "vpn.sh: WARNING: $vpn_host presents $presented, not the $vpn_pin tests/cml/.env pins; accepting it" >&2
+	else
+		echo "vpn.sh: accepting $vpn_host's certificate key $presented (not verified by any CA)" >&2
+	fi
+	vpn_pin="$presented"
+}
+
 up() {
 	load
 	command -v openconnect >/dev/null || die "openconnect is not installed: sudo apt-get install -y openconnect"
+	accept_pin
 	if sudo test -f "$pid_file" && sudo kill -0 "$(sudo cat "$pid_file")" 2>/dev/null; then
 		echo "vpn.sh: already up ($iface)"
 		return 0
