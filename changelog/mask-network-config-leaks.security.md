@@ -1,0 +1,1 @@
+Network configuration masking no longer leaves two secrets in the clear: a password that is the word itself (`username admin password password`), and an NX-OS RADIUS key after `authentication accounting` (`radius-server host 10.0.0.9 authentication accounting key 7 ...`), where the masker took `accounting` for the secret and stopped.
