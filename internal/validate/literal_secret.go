@@ -47,7 +47,11 @@ func LiteralSecretWarnings(dag *engine.DAG) []Finding {
 				continue
 			}
 			for _, text := range paramStrings(value) {
-				written := secretrefPattern(text)
+				// A reference stands in its place as a placeholder, not as
+				// nothing: taken out, the word after it moved up behind the
+				// secret word and read as a secret written out ("password {{
+				// secret.a.b }} role network-admin" warned of "role").
+				written := refsAsPlaceholders(text)
 				if _, found := netcfg.MaskFound(written); len(found) > 0 {
 					out = append(out, literalSecret(pt.id, pt.task, key, fmt.Sprintf("a line holds a secret written out (after %q)", secretWordBefore(written))))
 				}
@@ -148,23 +152,39 @@ func secretField(v any) string {
 	return ""
 }
 
-// secretrefPattern is text with every secret reference taken out, so a line
+// secretrefPattern is text with every secret reference taken out, so a field
 // that names its secret is not taken for one that writes it.
 func secretrefPattern(text string) string {
-	for _, r := range secretref.Find(text) {
-		text = strings.ReplaceAll(text, r.String(), "")
-		text = strings.ReplaceAll(text, "{{"+secretref.Root+"."+r.Name+"."+r.Field+"}}", "")
-	}
-	return text
+	return replaceRefs(text, "")
+}
+
+// referencePlaceholder is what a secret reference reads as in a line: one
+// word pkg/netcfg takes for a secret masked already, so the secret word
+// before it has its secret and every other word keeps its place.
+const referencePlaceholder = netcfg.MaskPrefix + "secret-reference"
+
+// refsAsPlaceholders is text with every secret reference replaced by
+// referencePlaceholder, so a line that names its secret is not taken for one
+// that writes it, whatever words follow the reference.
+func refsAsPlaceholders(text string) string {
+	return replaceRefs(text, referencePlaceholder)
+}
+
+// replaceRefs is text with every secret reference, whatever its spacing,
+// replaced by with. Only the two spacings a runbook usually writes were
+// replaced before, so "{{secret.a.b }}" was left in the line and its braces
+// read as a secret written out.
+func replaceRefs(text, with string) string {
+	return secretref.ReplaceAll(text, with)
 }
 
 // secretWordBefore is the word a masked line's secret follows, for a warning
 // that may name the word and never the secret: the masked line's word before
-// its first placeholder.
+// its first placeholder that is not a reference's (referencePlaceholder).
 func secretWordBefore(text string) string {
 	masked := strings.Fields(netcfg.Mask(text))
 	for i, w := range masked {
-		if strings.HasPrefix(w, netcfg.MaskPrefix) && i > 0 {
+		if strings.HasPrefix(w, netcfg.MaskPrefix) && w != referencePlaceholder && i > 0 {
 			return masked[i-1]
 		}
 	}

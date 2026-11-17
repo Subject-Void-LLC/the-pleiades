@@ -194,6 +194,14 @@ func maskLine(line string, inKeyChain bool, found *[]string) string {
 		if w.text == "key" && i == 1 && ws[0].text == "tunnel" {
 			continue
 		}
+		// IOS's and NX-OS's "aaa authentication login default group tacacs+
+		// local" names a method list: the word after "authentication" is the
+		// list's type (login, enable, dot1x, ppp), never a secret, and an aaa
+		// line holds none. Masking it hid the methods and warned of a secret
+		// written out.
+		if w.text == "authentication" && i == 1 && ws[0].text == "aaa" {
+			continue
+		}
 		psk := w.text == "pre-shared-key"
 		j := i + 1
 		for j < len(ws)-1 && (isSmallNumber(ws[j].text) || slices.Contains(skipped, ws[j].text) || psk && slices.Contains(pskSides, ws[j].text)) {

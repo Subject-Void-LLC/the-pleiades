@@ -145,6 +145,10 @@ func TestMask_ByVendor(t *testing.T) {
 		{"username admin privilege 15 secret 9 $9$hashval", "$9$hashval"},
 		// A numeric secret after a key that is not a tunnel's stays masked.
 		{"tacacs server t2\n key 98765", "98765"},
+		// An aaa line names a method list, but only an aaa line's second word
+		// is set aside: another line's "authentication" still holds one.
+		{"interface Vlan10\n hsrp 10\n  authentication text nxHsrp", "nxHsrp"},
+		{"interface Gi1\n standby 1 authentication login", "login"},
 	} {
 		masked := netcfg.Mask(tc.config)
 		if strings.Contains(masked, tc.secret) || !strings.Contains(masked, netcfg.MaskPrefix) {
@@ -162,6 +166,14 @@ func TestMask_ByVendor(t *testing.T) {
 		// The GRE key field is an identifier every packet carries in the
 		// clear (FAILURE_PATTERNS 644).
 		"interface Tunnel100\n tunnel key 100",
+		// An aaa authentication line names a method list, IOS's and
+		// NX-OS's alike, and holds no secret.
+		"aaa authentication login default group tacacs+ local",
+		"aaa authentication login default local",
+		"aaa authentication enable default group tacacs+ enable",
+		"aaa authentication dot1x default group radius",
+		"aaa authentication login console local",
+		"aaa authentication login error-enable",
 	} {
 		if netcfg.Mask(kept) != kept {
 			t.Errorf("%q was masked:\n%s", kept, netcfg.Mask(kept))
