@@ -20970,7 +20970,7 @@
     "supportsCheck": true,
     "doc": {
       "summary": "Stops a packet capture on a link of a CML lab and writes its file into the project.",
-      "description": "Stops the capture on the link named by link, or the one between a's a_interface and b's b_interface, and, with dest, fetches its pcap file from the controller and writes it into the project at dest (a path under the project directory, never .pleiades; up to 16 MiB, so bound a long capture with packets or seconds; a file the controller says is larger is refused with its size before it is read). A download the controller cuts off partway (an HTTP/2 stream it resets, as CML did on a capture of 22,419 packets) is asked for again, from where it stopped when the controller serves byte ranges and from the start otherwise, four tries in all; the download is bounded by a minute without a byte, not by its length. A capture that already stopped at its bound is not stopped again, and its file is still fetched. The file is the packets as they crossed the wire: any cleartext that crossed is in it, so keep it with the project's other private files. Its result names the file, its size and SHA-256. The task's target is a cml_controller device; it writes only on the command line (pleiades run and adhoc), which holds the project. A check reads the capture and reports what it would do, writing nothing.",
+      "description": "Stops the capture on the link named by link, or the one between a's a_interface and b's b_interface, and, with dest, fetches its pcap file from the controller and writes it into the project at dest (a path under the project directory, never .pleiades; up to 16 MiB, so bound a long capture with packets or seconds; a file the controller says is larger is refused with its size before it is read). The controller writes the file behind the capture (CML 2.7 took about four minutes to write 25,593 packets, 9 MB, after the stop, and served it short until then), so the stop waits, up to timeout, until the file is whole: its length held still for five seconds, its last record complete, and as many packets in it as the capture had taken (when this task stopped it; for a capture already stopped the count is not known, and the steady length decides). Its length is read without fetching it until then. A download the controller cuts off partway (it resets the HTTP/2 stream when the file grows during one) is asked for again, from where it stopped when the controller serves byte ranges and from the start otherwise, four tries in all; a download is bounded by a minute without a byte, not by its length. A capture that already stopped at its bound is not stopped again, and its file is still fetched. The file is the packets as they crossed the wire: any cleartext that crossed is in it, so keep it with the project's other private files. Its result names the file, its size and SHA-256. The task's target is a cml_controller device; it writes only on the command line (pleiades run and adhoc), which holds the project. A check reads the capture and reports what it would do, writing nothing.",
       "params": [
         {
           "name": "lab",
@@ -21008,6 +21008,12 @@
           "type": "string",
           "description": "Where in the project to write the capture file, a name ending in .pcap or .pcapng, such as captures/core1-wan.pcap. Without it the capture is stopped and its file left on the controller.",
           "format": "project_path"
+        },
+        {
+          "name": "timeout",
+          "type": "int",
+          "default": "900",
+          "description": "How many seconds to wait for the controller to finish writing the file, 1 to 86400. A file still being written then is refused, naming how far it had got, and nothing is written."
         }
       ],
       "returns": [

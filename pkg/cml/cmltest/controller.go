@@ -81,6 +81,8 @@ type Capture struct {
 	// MaxPackets, MaxTime and Filter are what it was started with.
 	MaxPackets, MaxTime int
 	Filter              string
+	// Packets is how many packets its status reports taken while it runs.
+	Packets int
 }
 
 // Controller is the controller and what it holds, for a test to read and
@@ -125,6 +127,11 @@ type Controller struct {
 	// does: over HTTP/2 the client reads RST_STREAM with INTERNAL_ERROR,
 	// over HTTP/1.1 a connection closed short of its Content-Length.
 	PCAPCuts int
+	// PCAPAt, when set, is what the n'th /pcap/{key} request (from 1) is
+	// answered with, in place of PCAP: a file the controller is still
+	// writing, as a real one writes a capture's file for minutes after the
+	// capture stops. It runs with Mu held, so it may set PCAPCuts itself.
+	PCAPAt func(n int) []byte
 	// PCAPRequests are each /pcap/{key} request's protocol and Range header,
 	// as "HTTP/2.0 bytes=100-", in order.
 	PCAPRequests []string
@@ -648,7 +655,7 @@ func (c *Controller) serveLink(w http.ResponseWriter, r *http.Request, l *Link, 
 		}
 		reply(w, map[string]any{
 			"config":          map[string]any{"bpfilter": l.Capture.Filter, "link_capture_key": l.Capture.Key, "maxpackets": l.Capture.MaxPackets, "maxtime": l.Capture.MaxTime},
-			"packetscaptured": 0, "starttime": "2026-10-26T01:56:26Z",
+			"packetscaptured": l.Capture.Packets, "starttime": "2026-10-26T01:56:26Z",
 		})
 	case route == "capture/key" && r.Method == http.MethodGet:
 		if l.Capture == nil {

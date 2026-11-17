@@ -5,7 +5,8 @@
 // the controller cuts off partway is asked for again. A real CML 2.7
 // controller reset the stream (HTTP/2 RST_STREAM, INTERNAL_ERROR) partway
 // through a 22,419-packet capture on both of two tries (2026-11-17), while a
-// 3,000-packet one came whole.
+// 3,000-packet one came whole: it was still writing the larger file, which
+// grew during the download (pcap_await.go waits for it to be whole).
 package cml
 
 import (
@@ -35,6 +36,10 @@ var (
 	fetchIdle      = time.Minute
 	fetchRetryWait = 2 * time.Second
 )
+
+// ErrCaptureChanged is a capture file that changed between two attempts
+// of one fetch: the controller was still writing it.
+var ErrCaptureChanged = errors.New("the file changed between attempts")
 
 // errFetchIdle is why a fetch that waited fetchIdle for bytes was ended.
 var errFetchIdle = errors.New("the controller sent nothing for the idle bound")
@@ -118,14 +123,22 @@ func (c *Client) FetchPCAP(ctx context.Context, key string, max int64) ([]byte, 
 	hc.Timeout = 0
 	f := &pcapFetch{hc: &hc, url: u, token: c.token, max: max, total: -1}
 	began := time.Now()
+	var prev error
 	for attempt := 1; ; attempt++ {
 		again, err := f.attempt(ctx)
 		if err == nil {
 			break
 		}
 		if !again || attempt == fetchAttempts {
-			return nil, fmt.Errorf("cml: GET /api/v0/pcap: %w (attempt %d of %d, %s in all)", err, attempt, fetchAttempts, time.Since(began).Round(time.Millisecond))
+			after := ""
+			if prev != nil && !again {
+				// What made this attempt a second one, which a refusal on
+				// its own would hide.
+				after = fmt.Sprintf(", after one that ended: %v", prev)
+			}
+			return nil, fmt.Errorf("cml: GET /api/v0/pcap: %w (attempt %d of %d, %s in all%s)", err, attempt, fetchAttempts, time.Since(began).Round(time.Millisecond), after)
 		}
+		prev = err
 		select {
 		case <-ctx.Done():
 			return nil, fmt.Errorf("cml: GET /api/v0/pcap: %w, then %w", err, ctx.Err())
@@ -204,7 +217,7 @@ func (f *pcapFetch) begin(res *http.Response) error {
 		if n >= 0 {
 			then = fmt.Sprintf("%d bytes", n)
 		}
-		return fmt.Errorf("the file changed between attempts: its answers stated %d bytes and then %s", f.total, then)
+		return fmt.Errorf("%w: its answers stated %d bytes and then %s", ErrCaptureChanged, f.total, then)
 	}
 	if n > f.max {
 		f.total = n

@@ -25,6 +25,10 @@ func (c *Controller) servePCAP(w http.ResponseWriter, r *http.Request, key strin
 				continue
 			}
 			data := c.PCAP
+			if c.PCAPAt != nil {
+				// A file the controller is still writing.
+				data = c.PCAPAt(len(c.PCAPRequests))
+			}
 			if data == nil {
 				data = emptyPCAP
 			}

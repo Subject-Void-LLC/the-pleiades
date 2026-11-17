@@ -10,6 +10,7 @@ package capture_test
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -131,7 +132,8 @@ func TestCapture_StartStopAndWrite(t *testing.T) {
 	}
 
 	ctl.Mu.Lock()
-	ctl.PCAP = append([]byte{0xd4, 0xc3, 0xb2, 0xa1}, make([]byte, 60)...)
+	// A 64-byte pcap file of two 4-byte records.
+	ctl.PCAP = pcapFile(2, 4)
 	ctl.Mu.Unlock()
 	stop := map[string]any{"lab": "cvd", "link": link, "dest": "captures/r1-r2.pcap"}
 	if res, _, err := run(t, ctl, dir, "virt.cml.capture.stop", true, stop); err != nil || !res.Changed {
@@ -185,6 +187,20 @@ func TestCapture_Refusals(t *testing.T) {
 	}
 }
 
+// pcapFile is a little-endian pcap file of n records, each a 16-byte
+// header holding its length and then size bytes.
+func pcapFile(n, size int) []byte {
+	b := bytes.NewBuffer([]byte{0xd4, 0xc3, 0xb2, 0xa1, 2, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 0, 0, 1, 0, 0, 0})
+	for i := range n {
+		hdr := make([]byte, 16)
+		binary.LittleEndian.PutUint32(hdr[8:], uint32(size))
+		binary.LittleEndian.PutUint32(hdr[12:], uint32(size))
+		b.Write(hdr)
+		b.Write(bytes.Repeat([]byte{byte(i)}, size))
+	}
+	return b.Bytes()
+}
+
 // TestCapture_ALargeCaptureIsWrittenWholeAfterAReset: a 12 MiB capture
 // (about what 22,419 packets came to on a real controller) whose download
 // the controller resets a quarter of the way in, over HTTP/2 as a real
@@ -195,9 +211,15 @@ func TestCapture_ALargeCaptureIsWrittenWholeAfterAReset(t *testing.T) {
 	if _, _, err := run(t, ctl, dir, "virt.cml.capture.start", false, map[string]any{"lab": "cvd", "link": link, "packets": 25000}); err != nil {
 		t.Fatal(err)
 	}
-	want := append([]byte{0xd4, 0xc3, 0xb2, 0xa1}, bytes.Repeat([]byte("0123456789abcdef"), (12<<20)/16)...)
+	want := pcapFile(12<<20/1016, 1000)
 	ctl.Mu.Lock()
-	ctl.PCAP, ctl.PCAPCuts = want, 1
+	ctl.PCAPAt = func(n int) []byte {
+		if n == 3 {
+			// The fetch, after two reads of the length, is cut.
+			ctl.PCAPCuts = 1
+		}
+		return want
+	}
 	ctl.Mu.Unlock()
 	res, rc, err := run(t, ctl, dir, "virt.cml.capture.stop", false, map[string]any{"lab": "cvd", "link": link, "dest": "captures/big.pcap"})
 	if err != nil || !res.Changed || rc.Stats["bytes"] != len(want) {
@@ -209,8 +231,46 @@ func TestCapture_ALargeCaptureIsWrittenWholeAfterAReset(t *testing.T) {
 	}
 	ctl.Mu.Lock()
 	defer ctl.Mu.Unlock()
-	if len(ctl.PCAPRequests) != 2 || !strings.HasPrefix(ctl.PCAPRequests[0], "HTTP/2.0") {
-		t.Fatalf("pcap requests %q: not a cut one and a whole one over HTTP/2", ctl.PCAPRequests)
+	// Two reads of the length, a fetch cut, and the fetch again whole.
+	if len(ctl.PCAPRequests) != 4 || !strings.HasPrefix(ctl.PCAPRequests[0], "HTTP/2.0") {
+		t.Fatalf("pcap requests %q: not two reads of the length and two fetches, over HTTP/2", ctl.PCAPRequests)
+	}
+}
+
+// TestCapture_StopWaitsForEveryPacketItTook: a stop waits, up to its
+// timeout, for the file to hold every packet the capture had taken when it
+// was stopped, as a real controller writes the file behind the capture; a
+// file still short of them then is refused with how far it got, nothing
+// written, and a timeout out of range is refused before any call.
+func TestCapture_StopWaitsForEveryPacketItTook(t *testing.T) {
+	ctl, link := linked(t)
+	dir := t.TempDir()
+	if _, _, err := run(t, ctl, dir, "virt.cml.capture.start", false, map[string]any{"lab": "cvd", "link": link, "packets": 25000}); err != nil {
+		t.Fatal(err)
+	}
+	ctl.Mu.Lock()
+	// Two of the three packets taken.
+	ctl.PCAP = pcapFile(2, 4)
+	for _, l := range ctl.Labs {
+		l.Links[link].Capture.Packets = 3
+	}
+	ctl.Mu.Unlock()
+	stop := map[string]any{"lab": "cvd", "link": link, "dest": "captures/short.pcap"}
+	for _, bad := range []any{0, 86401, "soon"} {
+		stop["timeout"] = bad
+		if _, _, err := run(t, ctl, dir, "virt.cml.capture.stop", false, stop); err == nil || !strings.Contains(err.Error(), "timeout") {
+			t.Errorf("timeout %v: %v", bad, err)
+		}
+	}
+	// Long enough for two reads of the length five seconds apart and one
+	// fetch, and too short for the next.
+	stop["timeout"] = 7
+	_, _, err := run(t, ctl, dir, "virt.cml.capture.stop", false, stop)
+	if err == nil || !strings.Contains(err.Error(), "held 2 packets of the 3 the capture took") {
+		t.Fatalf("stop: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "captures", "short.pcap")); !os.IsNotExist(err) {
+		t.Fatalf("a file short of its packets was written: %v", err)
 	}
 }
 
