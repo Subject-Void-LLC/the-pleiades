@@ -450,8 +450,16 @@ func sshTry(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 // is unreached for everything but those two and a cancellation.
 func sshTryFailed(err error) error {
 	var dialErr *remoteexec.DialError
-	if errors.As(err, &dialErr) && !dialErr.Unreached() && !errors.Is(err, context.Canceled) {
-		return &stopWaiting{err: fmt.Errorf("the device answered and refused this login, so the wait stops here rather than try it again: %w", err)}
+	if !errors.As(err, &dialErr) || dialErr.Unreached() || errors.Is(err, context.Canceled) {
+		return err
 	}
-	return err
+	// The device answered either way; which side refused is said, since a
+	// host key or an algorithm this side refused is not the device turning
+	// the login down, and is fixed on this side (trust-host, a legacy flag).
+	var hostKey *remoteexec.HostKeyError
+	var legacy *remoteexec.LegacyRefusedError
+	if errors.As(err, &hostKey) || errors.As(err, &legacy) {
+		return &stopWaiting{err: fmt.Errorf("the device answered, and this side refused what it presented before any credential was sent, so the wait stops here rather than try it again: %w", err)}
+	}
+	return &stopWaiting{err: fmt.Errorf("the device answered and refused this login, so the wait stops here rather than try it again: %w", err)}
 }

@@ -215,7 +215,8 @@ func authRejected(err error) bool {
 func hostKeyRefused(err error) bool {
 	var keyErr *knownhosts.KeyError
 	var revoked *knownhosts.RevokedError
-	return errors.As(err, &keyErr) || errors.As(err, &revoked)
+	var described *HostKeyError
+	return errors.As(err, &keyErr) || errors.As(err, &revoked) || errors.As(err, &described)
 }
 
 // answeredRefusal reports whether err is an answer rather than the network

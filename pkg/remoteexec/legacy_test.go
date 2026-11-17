@@ -319,3 +319,26 @@ func TestLegacyFor_AnUnreadableRecordAllowsNothing(t *testing.T) {
 		t.Errorf("a readable record = %+v", got)
 	}
 }
+
+// TestLegacy_ScanConfigAsksForOneKindAtATime proves a host key scan asks for
+// each kind of key in a handshake of its own, an RSA key by its SHA-2
+// signatures and by ssh-rsa only when legacy host keys are allowed, last, and
+// negotiates the rest as a connection under the same flags does.
+func TestLegacy_ScanConfigAsksForOneKindAtATime(t *testing.T) {
+	config, groups := Legacy{}.ScanConfig()
+	if !slices.Equal(config.KeyExchanges, Legacy{}.keyExchanges()) || len(groups) != 5 {
+		t.Fatalf("secure scan: %v, groups %v", config.KeyExchanges, groups)
+	}
+	for _, g := range groups {
+		if slices.ContainsFunc(g, func(a string) bool { return slices.Contains(legacyHostKeys(), a) }) {
+			t.Errorf("a secure scan asks for %v", g)
+		}
+	}
+	config, groups = Legacy{KeyExchange: true, HostKeys: true}.ScanConfig()
+	if !slices.Contains(config.KeyExchanges, ssh.InsecureKeyExchangeDH14SHA1) || len(groups) != 6 {
+		t.Fatalf("legacy scan: %v, groups %v", config.KeyExchanges, groups)
+	}
+	if rsa := groups[4]; !slices.Equal(rsa, []string{ssh.KeyAlgoRSASHA512, ssh.KeyAlgoRSASHA256, ssh.KeyAlgoRSA}) {
+		t.Errorf("the RSA group is %v, want SHA-2 first and ssh-rsa last", rsa)
+	}
+}

@@ -164,6 +164,7 @@ func TestCLI_AChangedHostKeyNamesBothKeysAndTheCommandThatAcceptsIt(t *testing.T
 	msg := rep.Tasks[0].Error
 	for _, want := range []string{
 		"stopped at try 1",
+		"this side refused what it presented before any credential was sent",
 		"port " + strconv.Itoa(srv.Port) + " changed",
 		"presented ssh-ed25519 " + remoteexec.Fingerprint(srv.HostKey),
 		"trusts ssh-ed25519 " + remoteexec.Fingerprint(old),

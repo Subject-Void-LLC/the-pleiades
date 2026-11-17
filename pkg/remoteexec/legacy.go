@@ -328,5 +328,6 @@ func ExplainNegotiation(err error, addr string, l Legacy) error {
 // server's offer is the same on every attempt.
 func negotiationRefused(err error) bool {
 	var neg *ssh.AlgorithmNegotiationError
-	return errors.As(err, &neg)
+	var explained *LegacyRefusedError
+	return errors.As(err, &neg) || errors.As(err, &explained)
 }
