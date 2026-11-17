@@ -479,6 +479,13 @@ story, per `.AGENTS/AGENTS.md`.
 444. When one tier's record is bound to another's, pin the data the consumers judge by, not a version of where it came from: a version computed over a definition that deliberately omits a field cannot vouch for that field, and a job that pinned nothing carries nothing (a refinement of 415; FAILURE_PATTERNS 1164 and 1165) (2026-11-11)
 445. Two consumers of one batch share one judging function, one noting point and one first-party rule: a rule each writes for itself drifts the first time either changes (a refinement of 244; FAILURE_PATTERNS 1007, 1168 and 1171) (2026-11-11)
 446. A protocol is supported when Day 0 through Day N run through the product on a real device; captured replies prove only the parsers (2026-11-14).
+447. Before any gate, ask what every list the coverage job reads holds for the branch's packages (floors, durations, resources), and treat a "coverage at floor" report as unproven until it is measured in the package's own tier (a refinement of 270 and 365; FAILURE_PATTERNS 1122, 1253 and 1254) (2026-11-17).
+448. A brief that hands an agent a wait loop on pgrep -f spells the bracket form (pgrep -f '[m]onitor.py run'), since the plain pattern matches the loop's own shell and never ends (a repeat of FAILURE_PATTERNS 153, 689 and 1067) (2026-11-17).
+449. A gate running in the main clone blocks every change to the tree there, and a new worktree cannot be made beside it, since the guard hook refuses git worktree add: plan data-only fixes (a durations line, a floor) for after the gate ends (a refinement of 288) (2026-11-17).
+450. The permission check refuses a force push: to replace a pushed branch, push the rebased branch under a new name, or add a follow-up commit (2026-11-17).
+451. A real device finds what fixtures cannot: run each new protocol method on one before calling it done, and turn what it shows into a test or a device fact (a refinement of 446 and 322; FAILURE_PATTERNS 1264, 1268 and 1269) (2026-11-17).
+452. After any version or dependency edit, the roadmap tracker's JSON summary must show an empty version_problems list (2026-11-17).
+453. When one session adds many items to one phase, split it into the core its release needs and a catalogue for a later release, and let the owner choose (2026-11-17).
 
 Each entry above is the rule only. Full reasoning and the incident that produced it lives in [`LESSONS_LEARNED_ARCHIVE.md`](LESSONS_LEARNED_ARCHIVE.md), same entry numbers. Read an archive entry when its rule is directly relevant to what you're doing and you need the *why*; the rule sentence above is usually enough on its own.
 
