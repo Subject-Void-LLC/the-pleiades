@@ -161,10 +161,27 @@ func TestWrite_Refusals(t *testing.T) {
 	if err := c.StartLab(ctx, lab.ID); err != nil {
 		t.Fatal(err)
 	}
-	short, cancel := context.WithTimeout(ctx, 50*time.Millisecond)
+	// The wait is ended at a known point, during its second read of the
+	// nodes, which the controller then never answers: never on a deadline,
+	// which could land between reads or during one.
+	short, cancel := context.WithCancel(ctx)
 	defer cancel()
-	err = c.WaitBooted(short, lab.ID, []string{node, "gone"}, 5*time.Millisecond)
-	if err == nil || !strings.Contains(err.Error(), "SLOW (STARTED)") || !strings.Contains(err.Error(), "gone (missing)") || !errors.Is(err, context.DeadlineExceeded) {
+	reads := 0
+	ctl.Mu.Lock()
+	ctl.OnCall = func(_ http.ResponseWriter, r *http.Request) bool {
+		if !strings.HasSuffix(r.URL.Path, "/nodes") {
+			return false
+		}
+		if reads++; reads < 2 {
+			return false
+		}
+		cancel()
+		<-r.Context().Done()
+		return true
+	}
+	ctl.Mu.Unlock()
+	err = c.WaitBooted(short, lab.ID, []string{node, "gone"}, time.Millisecond)
+	if err == nil || !strings.Contains(err.Error(), "SLOW (STARTED)") || !strings.Contains(err.Error(), "gone (missing)") || !errors.Is(err, context.Canceled) {
 		t.Errorf("WaitBooted = %v", err)
 	}
 }
