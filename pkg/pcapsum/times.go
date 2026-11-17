@@ -120,18 +120,20 @@ func (units tsUnits) at(count uint64) time.Time {
 	// below units, so the quotient is below a billion and fits.
 	hi, lo := bits.Mul64(frac, uint64(time.Second))
 	nanos, _ := bits.Div64(hi, lo, uint64(units))
-	if sec > uint64(maxUnix) {
+	if sec > maxUnix {
 		return time.Time{}
 	}
 	return writable(time.Unix(int64(sec), int64(nanos)).UTC()) // #nosec G115 -- sec is at most maxUnix, checked above
 }
 
-// minUnix and maxUnix are the first and last seconds RFC 3339 writes, the
-// starts of years 1 and 10000 less one second.
-var (
-	minUnix = time.Date(1, 1, 1, 0, 0, 0, 0, time.UTC).Unix()
-	maxUnix = time.Date(10000, 1, 1, 0, 0, 0, 0, time.UTC).Unix() - 1
-)
+// minUnix is the first second RFC 3339 writes, the start of year 1.
+var minUnix = time.Date(1, 1, 1, 0, 0, 0, 0, time.UTC).Unix()
+
+// maxUnix is the last second RFC 3339 writes, the start of year 10000 less
+// one second. It is an untyped constant so a uint64 count and an int64
+// second compare with it without a conversion; TestMaxUnix_IsTheLastWritableSecond
+// holds it to that date.
+const maxUnix = 253402300799
 
 // writable is t, or the zero time when RFC 3339 cannot write t's year.
 func writable(t time.Time) time.Time {
