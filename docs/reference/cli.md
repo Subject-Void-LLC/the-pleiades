@@ -510,8 +510,11 @@ confirm a pin onboarding recorded on first use, once checked with the device's o
 | --- | --- | --- | --- |
 | --dir | `string` | `.` | project directory |
 | --inventory | `string` | - | inventory file to read and write, in place of --dir's inventory.yaml; group_vars/ and host_vars/ are read beside it |
+| --json | `bool` | `false` | print the result as one JSON document, in the same model the text shows |
 
 `pleiades confirm-tls-pin switch01 sha256:3a7b...`
+
+`pleiades confirm-tls-pin switch01 sha256:3a7b... --json`
 
 ## pleiades validate
 

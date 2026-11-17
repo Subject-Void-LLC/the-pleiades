@@ -127,12 +127,12 @@
   "confirm-tls-pin --help": {
     "code": 0,
     "stdout": "",
-    "stderr": "usage: pleiades confirm-tls-pin \u003cdevice\u003e \u003cpin\u003e\n"
+    "stderr": "usage: pleiades confirm-tls-pin \u003cdevice\u003e \u003cpin\u003e [--dir DIR] [--json]\n"
   },
   "confirm-tls-pin -h": {
     "code": 0,
     "stdout": "",
-    "stderr": "usage: pleiades confirm-tls-pin \u003cdevice\u003e \u003cpin\u003e\n"
+    "stderr": "usage: pleiades confirm-tls-pin \u003cdevice\u003e \u003cpin\u003e [--dir DIR] [--json]\n"
   },
   "doc --help": {
     "code": 0,

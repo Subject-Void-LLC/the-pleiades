@@ -6,7 +6,9 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -83,6 +85,31 @@ func TestConfirmTLSPin_ConfirmsOnlyTheRecordedPinItTrusts(t *testing.T) {
 	}
 	if s := devicetls.For(item); len(s.Pins()) != 1 || s.Pins()[0] != pin || s.FirstUsePin() != "" {
 		t.Errorf("after confirming: pins %q, first use %q", s.Pins(), s.FirstUsePin())
+	}
+}
+
+// TestConfirmTLSPin_JSONIsTheSameModel: --json prints the confirmation as
+// one document holding the pin, where it now is, and the pins the stored
+// host trusts, and nothing else on stdout.
+func TestConfirmTLSPin_JSONIsTheSameModel(t *testing.T) {
+	pin := "sha256:" + strings.Repeat("ab", 32)
+	dir := pinProject(t, map[string]inventory.PropertyValue{"base_url": "https://10.0.0.9"}, pin)
+	out := captureStdout(t, func() {
+		if err := runConfirmTLSPin([]string{"api1", pin, "--dir", dir, "--json"}); err != nil {
+			t.Error(err)
+		}
+	})
+	var got confirmedPin
+	dec := json.NewDecoder(strings.NewReader(out))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&got); err != nil {
+		t.Fatalf("stdout is not one confirmation document: %v\n%s", err, out)
+	}
+	if dec.More() {
+		t.Errorf("stdout holds more than one document: %s", out)
+	}
+	if want := (confirmedPin{Host: "api1", Pin: pin, Property: devicetls.FingerprintProperty, Pins: []string{pin}}); !reflect.DeepEqual(got, want) {
+		t.Errorf("--json = %+v, want %+v", got, want)
 	}
 }
 

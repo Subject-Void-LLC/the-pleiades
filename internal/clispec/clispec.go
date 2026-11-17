@@ -503,9 +503,11 @@ var Root = Command{
 			Flags: []Flag{
 				{Name: "dir", Type: "string", Default: ".", Doc: "project directory"},
 				{Name: "inventory", Type: "string", Default: "", Doc: "inventory file to read and write, in place of --dir's inventory.yaml; group_vars/ and host_vars/ are read beside it"},
+				{Name: "json", Type: "bool", Default: "false", Doc: "print the result as one JSON document, in the same model the text shows"},
 			},
 			Examples: []string{
 				"pleiades confirm-tls-pin switch01 sha256:3a7b...",
+				"pleiades confirm-tls-pin switch01 sha256:3a7b... --json",
 			},
 		},
 		{

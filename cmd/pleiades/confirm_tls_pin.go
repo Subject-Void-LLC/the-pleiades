@@ -23,7 +23,21 @@ type confirmingPin interface {
 }
 
 // confirmTLSPinUsage is the command's usage line.
-const confirmTLSPinUsage = "usage: pleiades confirm-tls-pin <device> <pin>"
+const confirmTLSPinUsage = "usage: pleiades confirm-tls-pin <device> <pin> [--dir DIR] [--json]"
+
+// confirmedPin is what confirm-tls-pin did, its --json view and the model its
+// text is written from.
+type confirmedPin struct {
+	// Host is the device whose pin was confirmed.
+	Host string `json:"host"`
+	// Pin is the pin confirmed, as it was recorded on first use.
+	Pin string `json:"pin"`
+	// Property is where it now is (tls_fingerprint).
+	Property string `json:"property"`
+	// Pins are the pins the host trusts now, as read back from the stored
+	// record.
+	Pins []string `json:"pins"`
+}
 
 // runConfirmTLSPin confirms the named device's first-use pin. The person
 // gives the pin they checked with the device's owner, and it must be the one
@@ -35,6 +49,7 @@ func runConfirmTLSPin(args []string) error {
 	fs := flag.NewFlagSet("confirm-tls-pin", flag.ContinueOnError)
 	addInventoryFlag(fs)
 	dir := fs.String("dir", ".", "project directory")
+	asJSON := fs.Bool("json", false, "print one JSON document instead of text")
 	positional, err := parseCheckedArgs(fs, args, func(p []string) error {
 		if len(p) != 2 {
 			return errors.New(confirmTLSPinUsage)
@@ -77,6 +92,14 @@ func runConfirmTLSPin(args []string) error {
 	if err := repo.Save(ctx, item); err != nil {
 		return fmt.Errorf("host %q not changed: %w", name, err)
 	}
-	fmt.Fprintf(os.Stdout, "confirmed %s's pin %s: it is now the host's %s, checked by a person\n", termsafe.EscapeLine(name), recorded, devicetls.FingerprintProperty)
+	stored, err := repo.GetByName(ctx, name)
+	if err != nil {
+		return fmt.Errorf("host %q was confirmed, and reading it back failed: %w", name, err)
+	}
+	out := confirmedPin{Host: name, Pin: recorded, Property: devicetls.FingerprintProperty, Pins: devicetls.For(stored).Pins()}
+	if *asJSON {
+		return writeJSON(os.Stdout, out)
+	}
+	fmt.Fprintf(os.Stdout, "confirmed %s's pin %s: it is now the host's %s, checked by a person\n", termsafe.EscapeLine(out.Host), out.Pin, out.Property)
 	return nil
 }
