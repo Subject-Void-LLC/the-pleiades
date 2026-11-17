@@ -76,7 +76,7 @@ func seenOn(t *testing.T, servers ...*httptest.Server) (devicetls.Settings, *dev
 	if err != nil {
 		t.Fatal(err)
 	}
-	client := &http.Client{Transport: &http.Transport{TLSClientConfig: cfg, DisableKeepAlives: true}, Timeout: 10 * time.Second}
+	client := &http.Client{Transport: seen.Transport(&http.Transport{TLSClientConfig: cfg, DisableKeepAlives: true}), Timeout: 10 * time.Second}
 	for _, srv := range servers {
 		resp, err := client.Get(srv.URL)
 		if err != nil {

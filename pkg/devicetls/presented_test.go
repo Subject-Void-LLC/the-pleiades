@@ -1,7 +1,9 @@
 // Tests for recording the certificate a device presented, on real
-// handshakes over loopback: a verified one is recorded once however often
-// it is seen, a refused one never, and nothing is recorded or wrapped for a
-// configuration built outside a context that asks.
+// handshakes over loopback: a completed one is recorded once however often
+// it is seen; a refused one never; one from a server replaying a trusted
+// certificate without its key, which passes the certificate check and fails
+// the key's proof, never; and nothing is recorded for a client built outside
+// a context that asks.
 package devicetls_test
 
 import (
@@ -23,10 +25,11 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 )
 
-// getWith fetches srv's root with cfg, returning the request's error.
-func getWith(t *testing.T, cfg *tls.Config, srv *httptest.Server) error {
+// getWith fetches srv's root with cfg through a transport recording on seen
+// (nil records nothing), returning the request's error.
+func getWith(t *testing.T, cfg *tls.Config, seen *devicetls.Presented, srv *httptest.Server) error {
 	t.Helper()
-	client := &http.Client{Transport: &http.Transport{TLSClientConfig: cfg, DisableKeepAlives: true}, Timeout: 30 * time.Second}
+	client := &http.Client{Transport: seen.Transport(&http.Transport{TLSClientConfig: cfg, DisableKeepAlives: true}), Timeout: 30 * time.Second}
 	resp, err := client.Get(srv.URL)
 	if err != nil {
 		return err
@@ -35,23 +38,40 @@ func getWith(t *testing.T, cfg *tls.Config, srv *httptest.Server) error {
 	return nil
 }
 
-// TestPresented_RecordsEachVerifiedCertificateOnce: a pinned configuration
+// serveWithoutTheKey starts a TLS server presenting m's certificate but
+// holding another key, as a server replaying a certificate it captured
+// does: the client's certificate check passes, and the key's proof (TLS 1.3's
+// CertificateVerify, TLS 1.2's signed key exchange) fails. maxVersion picks
+// the protocol.
+func serveWithoutTheKey(t *testing.T, m minted, maxVersion uint16) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("ok")) }))
+	srv.TLS = &tls.Config{MinVersion: tls.VersionTLS12, MaxVersion: maxVersion, Certificates: []tls.Certificate{{Certificate: [][]byte{m.der}, PrivateKey: newKey(t)}}}
+	srv.StartTLS()
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// TestPresented_RecordsEachCompletedHandshakeOnce: a pinned configuration
 // and one verifying against a pinned authority each record the certificate
-// of every handshake they verify, each distinct certificate once; a refused
-// handshake records nothing; and a configuration built with no Presented on
-// its context records nothing and keeps Go's own verification as it was.
-func TestPresented_RecordsEachVerifiedCertificateOnce(t *testing.T) {
+// of every handshake that completed, each distinct certificate once; a
+// refused handshake records nothing; and a client with no Presented records
+// nothing and is given no wrapper.
+func TestPresented_RecordsEachCompletedHandshakeOnce(t *testing.T) {
 	a := mint(t, newKey(t), 1, "127.0.0.1", time.Now().Add(time.Hour))
 	b := mint(t, newKey(t), 2, "127.0.0.1", time.Now().Add(time.Hour))
 	srvA, srvB := serveMinted(t, a), serveMinted(t, b)
 
 	ctx, seen := devicetls.WithPresented(context.Background())
+	if devicetls.PresentedFrom(ctx) != seen || devicetls.PresentedFrom(context.Background()) != nil {
+		t.Fatal("PresentedFrom does not return what WithPresented put on the context")
+	}
 	cfg, err := pinning(t, []any{devicetls.Fingerprint(a.cert), devicetls.Fingerprint(b.cert)}).ConfigContext(ctx, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, srv := range []*httptest.Server{srvA, srvA, srvB} {
-		if err := getWith(t, cfg, srv); err != nil {
+		if err := getWith(t, cfg, seen, srv); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -60,57 +80,100 @@ func TestPresented_RecordsEachVerifiedCertificateOnce(t *testing.T) {
 		t.Errorf("seen %d certificates (more %v), want a then b once each", len(certs), more)
 	}
 
-	refusedCtx, refusedSeen := devicetls.WithPresented(context.Background())
-	refusing, err := pinning(t, devicetls.Fingerprint(a.cert)).ConfigContext(refusedCtx, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := getWith(t, refusing, srvB); err == nil {
+	_, refusedSeen := devicetls.WithPresented(context.Background())
+	if err := getWith(t, pinnedConfig(t, devicetls.Fingerprint(a.cert)), refusedSeen, srvB); err == nil {
 		t.Fatal("a certificate no pin matches was trusted")
 	}
 	if certs, _ := refusedSeen.Certificates(); len(certs) != 0 {
 		t.Errorf("a refused handshake recorded %d certificates", len(certs))
 	}
 
-	// A pinned authority: Go verifies the chain, then the record is made.
+	// A pinned authority: Go verifies the chain, and the completed handshake
+	// is recorded.
 	authority := mint(t, newKey(t), 3, "127.0.0.1", time.Now().Add(time.Hour))
-	caSrv := serveMinted(t, authority)
 	caPEM := string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: authority.der}))
 	caSettings, err := parse(map[string]inventory.PropertyValue{devicetls.CAPEMProperty: caPEM})
 	if err != nil {
 		t.Fatal(err)
 	}
-	caCtx, caSeen := devicetls.WithPresented(context.Background())
-	caCfg, err := caSettings.ConfigContext(caCtx, nil)
+	caCfg, err := caSettings.Config(nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := getWith(t, caCfg, caSrv); err != nil {
+	_, caSeen := devicetls.WithPresented(context.Background())
+	if err := getWith(t, caCfg, caSeen, serveMinted(t, authority)); err != nil {
 		t.Fatalf("the pinned authority's own certificate was refused: %v", err)
 	}
 	if certs, _ := caSeen.Certificates(); len(certs) != 1 || !certs[0].Equal(authority.cert) {
 		t.Errorf("a chain-verified handshake recorded %d certificates", len(certs))
 	}
 
-	plain, err := caSettings.ConfigContext(context.Background(), nil)
+	var none *devicetls.Presented
+	inner := &http.Transport{}
+	if none.Transport(inner) != http.RoundTripper(inner) {
+		t.Error("a nil Presented wrapped the transport")
+	}
+	if certs, more := none.Certificates(); certs != nil || more {
+		t.Error("a nil Presented holds certificates")
+	}
+	none.Record(tls.ConnectionState{HandshakeComplete: true, PeerCertificates: []*x509.Certificate{a.cert}})
+}
+
+// TestPresented_ACertificateReplayedWithoutItsKeyIsNeverRecorded: a server
+// presenting a certificate the client trusts while holding another key
+// passes the client's certificate check, and Go calls VerifyConnection
+// there, before the key's proof fails; nothing is recorded from it, over
+// TLS 1.3 or 1.2, and the real device's handshake that follows leaves its
+// one certificate, never two.
+func TestPresented_ACertificateReplayedWithoutItsKeyIsNeverRecorded(t *testing.T) {
+	for name, version := range map[string]uint16{"1.3": tls.VersionTLS13, "1.2": tls.VersionTLS12} {
+		t.Run(name, func(t *testing.T) {
+			replayed := mint(t, newKey(t), 1, "127.0.0.1", time.Now().Add(time.Hour))
+			genuine := mint(t, newKey(t), 2, "127.0.0.1", time.Now().Add(time.Hour))
+			cfg := pinnedConfig(t, []any{devicetls.Fingerprint(replayed.cert), devicetls.Fingerprint(genuine.cert)})
+			_, seen := devicetls.WithPresented(context.Background())
+			if err := getWith(t, cfg, seen, serveWithoutTheKey(t, replayed, version)); err == nil {
+				t.Fatal("a server without the certificate's key completed the handshake")
+			}
+			if certs, _ := seen.Certificates(); len(certs) != 0 {
+				t.Fatalf("a handshake whose server never proved the key recorded %d certificates", len(certs))
+			}
+			if err := getWith(t, cfg, seen, serveMinted(t, genuine)); err != nil {
+				t.Fatal(err)
+			}
+			if certs, _ := seen.Certificates(); len(certs) != 1 || !certs[0].Equal(genuine.cert) {
+				t.Errorf("after the real device's handshake %d certificates are recorded, want its one", len(certs))
+			}
+		})
+	}
+}
+
+// pinnedConfig is the client configuration of settings pinning pins.
+func pinnedConfig(t *testing.T, pins inventory.PropertyValue) *tls.Config {
+	t.Helper()
+	cfg, err := pinning(t, pins).Config(nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if plain.VerifyConnection != nil {
-		t.Error("a configuration built with no Presented on its context was given a verification hook")
-	}
+	return cfg
 }
 
 // TestPresented_KeepsABoundedNumber: a server presenting a new certificate
 // on every connection fills the record to its bound and says more were
-// seen, rather than growing it.
+// seen, rather than growing it; a handshake that did not complete adds
+// nothing.
 func TestPresented_KeepsABoundedNumber(t *testing.T) {
 	_, seen := devicetls.WithPresented(context.Background())
+	seen.Record(tls.ConnectionState{PeerCertificates: []*x509.Certificate{mint(t, newKey(t), 99, "x", time.Now().Add(time.Hour)).cert}})
 	for i := 0; i < 10; i++ {
-		devicetls.Observe(seen, mint(t, newKey(t), int64(i+1), "x", time.Now().Add(time.Hour)).cert)
+		seen.Record(tls.ConnectionState{HandshakeComplete: true, PeerCertificates: []*x509.Certificate{mint(t, newKey(t), int64(i+1), "x", time.Now().Add(time.Hour)).cert}})
 	}
-	if certs, more := seen.Certificates(); len(certs) != 8 || !more {
+	certs, more := seen.Certificates()
+	if len(certs) != 8 || !more {
 		t.Errorf("kept %d certificates (more %v), want the bound of 8 and more", len(certs), more)
+	}
+	if certs[0].SerialNumber.Int64() == 99 {
+		t.Error("a handshake that never completed was recorded")
 	}
 }
 

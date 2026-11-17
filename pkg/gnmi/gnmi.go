@@ -130,6 +130,10 @@ type Options struct {
 	// none. A server serving more than one data tree (SONiC: OC-YANG,
 	// CONFIG_DB and others) may refuse a request that names none.
 	PrefixTarget string
+	// Presented, when set, records the certificate each completed TLS
+	// handshake presented (devicetls.Presented), for a caller recording what
+	// the device presented; nil records nothing.
+	Presented *devicetls.Presented
 }
 
 // Client is a gNMI client for one device. It is safe for concurrent use.
@@ -207,7 +211,7 @@ func New(opts Options) (*Client, error) {
 		// gRPC offers h2 alone, so a diagnosis offers the same.
 		cfg, watch := devicetls.Watched(opts.TLS, opts.Target, "h2")
 		c.handshake, c.certWatch = &handshakeSeen{}, watch
-		transport = &capturingCredentials{TransportCredentials: credentials.NewTLS(cfg), seen: c.handshake}
+		transport = &capturingCredentials{TransportCredentials: credentials.NewTLS(cfg), seen: c.handshake, presented: opts.Presented}
 	}
 	dial := []grpc.DialOption{
 		grpc.WithTransportCredentials(transport),

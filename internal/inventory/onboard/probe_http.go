@@ -68,7 +68,7 @@ func (p httpProber) Probe(ctx context.Context, device inventory.InventoryItem, s
 	if httpapi.SendsPlaintextCredential(base, dev.HTTPAuth()) {
 		warnings = append(warnings, httpapi.PlaintextWarning(device.Name()))
 	}
-	client := p.httpClient(cfg, devicetls.HTTPSAddress(base))
+	client := p.httpClient(cfg, devicetls.HTTPSAddress(base), devicetls.PresentedFrom(ctx))
 
 	resp, _, err := p.get(ctx, client, base, dev.HTTPAuth(), secrets, 64<<10)
 	if err != nil {
@@ -146,13 +146,14 @@ type probeClient struct {
 // httpClient returns the probe's client: the device's TLS configuration
 // (nil for an http:// base URL), watched for its server's request for a
 // client certificate (addr is the base URL's host:port), on a transport of
-// its own, and no redirects followed.
-func (httpProber) httpClient(cfg *tls.Config, addr string) probeClient {
+// its own recording on seen what each completed handshake presented, and no
+// redirects followed.
+func (httpProber) httpClient(cfg *tls.Config, addr string, seen *devicetls.Presented) probeClient {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	watched, watch := devicetls.Watched(cfg, addr, devicetls.HTTPNextProtos...)
 	transport.TLSClientConfig = watched
 	return probeClient{Client: &http.Client{
-		Transport:     transport,
+		Transport:     seen.Transport(transport),
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}, watch: watch}
 }

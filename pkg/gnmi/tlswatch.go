@@ -55,20 +55,26 @@ func (h *handshakeSeen) get() error {
 type capturingCredentials struct {
 	credentials.TransportCredentials
 	seen *handshakeSeen
+	// presented records the certificate of each handshake that completed
+	// (Options.Presented); nil records nothing.
+	presented *devicetls.Presented
 }
 
 // ClientHandshake implements credentials.TransportCredentials, recording the
-// handshake's outcome.
+// handshake's outcome, and the certificate of one that completed.
 func (c *capturingCredentials) ClientHandshake(ctx context.Context, authority string, raw net.Conn) (net.Conn, credentials.AuthInfo, error) {
 	conn, info, err := c.TransportCredentials.ClientHandshake(ctx, authority, raw)
 	c.seen.set(err)
+	if tlsInfo, ok := info.(credentials.TLSInfo); ok && err == nil {
+		c.presented.Record(tlsInfo.State)
+	}
 	return conn, info, err
 }
 
 // Clone implements credentials.TransportCredentials. The clone shares the
 // record, so a failure on any of the client's connections is seen.
 func (c *capturingCredentials) Clone() credentials.TransportCredentials {
-	return &capturingCredentials{TransportCredentials: c.TransportCredentials.Clone(), seen: c.seen}
+	return &capturingCredentials{TransportCredentials: c.TransportCredentials.Clone(), seen: c.seen, presented: c.presented}
 }
 
 // connectionFailure explains why the client's connection failed, or returns

@@ -67,7 +67,7 @@ func (containerProber) Probe(ctx context.Context, device inventory.InventoryItem
 		if err != nil {
 			return Probed{}, fmt.Errorf("the device's TLS settings: %w", err)
 		}
-		e, err := probeTLSEngine(ctx, tlsAddr, containerengine.TLS(tlsAddr, cfg))
+		e, err := probeTLSEngine(ctx, tlsAddr, recordingDial(containerengine.TLS(tlsAddr, cfg), devicetls.PresentedFrom(ctx)))
 		if err != nil {
 			tried = append(tried, err.Error())
 		} else if found, err = withTLS(found, e); err != nil {

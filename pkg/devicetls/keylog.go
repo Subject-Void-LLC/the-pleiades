@@ -102,9 +102,7 @@ func keyLogFrom(ctx context.Context) *KeyLog {
 
 // ConfigContext is Config for a client a run opens under ctx: the same
 // configuration, writing its sessions' secrets to the run's key log when ctx
-// carries one (WithKeyLog), and to nothing otherwise, and recording the
-// certificate each verified handshake presents on the Presented ctx carries
-// (WithPresented), when it carries one.
+// carries one (WithKeyLog), and to nothing otherwise.
 func (s Settings) ConfigContext(ctx context.Context, secrets map[string]string) (*tls.Config, error) {
 	cfg, err := s.Config(secrets)
 	if err != nil {
@@ -112,9 +110,6 @@ func (s Settings) ConfigContext(ctx context.Context, secrets map[string]string) 
 	}
 	if k := keyLogFrom(ctx); k != nil {
 		cfg.KeyLogWriter = k
-	}
-	if p := presentedFrom(ctx); p != nil {
-		cfg.VerifyConnection = p.watching(cfg.VerifyConnection)
 	}
 	return cfg, nil
 }

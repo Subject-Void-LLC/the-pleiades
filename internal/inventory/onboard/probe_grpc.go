@@ -69,7 +69,7 @@ func (p grpcProber) Probe(ctx context.Context, device inventory.InventoryItem, s
 		if err != nil {
 			return Probed{}, err
 		}
-		creds = keptHandshakes{TransportCredentials: credentials.NewTLS(cfg), record: handshakes}
+		creds = keptHandshakes{TransportCredentials: credentials.NewTLS(cfg), record: handshakes, presented: devicetls.PresentedFrom(ctx)}
 	}
 	conn, err := grpc.NewClient("passthrough:///"+dev.GRPCTarget(),
 		grpc.WithTransportCredentials(creds),

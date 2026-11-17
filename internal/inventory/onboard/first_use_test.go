@@ -315,7 +315,7 @@ func TestCertificateFacts_MoreThanOneCertificateRecordsNone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	client := &http.Client{Transport: &http.Transport{TLSClientConfig: cfg, DisableKeepAlives: true}}
+	client := &http.Client{Transport: seen.Transport(&http.Transport{TLSClientConfig: cfg, DisableKeepAlives: true})}
 	for _, cert := range []tls.Certificate{a, b} {
 		srv.present(cert)
 		resp, err := client.Get(srv.URL)
