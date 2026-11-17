@@ -40,10 +40,8 @@ func onboardRouterWith(t *testing.T, o api.Onboarder, authenticate func(http.Han
 		Auth:      authenticate,
 		Admission: admission,
 		HATEOAS:   allowAllGenerator(t),
-		Routes: []api.Route{{
-			Method: apispec.OnboardDevice.Method, Pattern: apispec.OnboardDevice.Pattern,
-			Scope: apispec.OnboardDevice.Scope, Rel: apispec.OnboardDevice.Rel, Handler: handler.Onboard,
-		}},
+		// Mounted as cmd/controller mounts it, so its scopes are the spec's.
+		Routes: []api.Route{apispec.OnboardDevice.Route(handler.Onboard)},
 	})
 	if err != nil {
 		t.Fatal(err)

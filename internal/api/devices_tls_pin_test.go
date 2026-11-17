@@ -56,7 +56,9 @@ func pinRouterWith(t *testing.T, authenticate func(http.Handler) http.Handler, a
 	return confirmRouter(t, repo, authenticate, admission), path
 }
 
-// confirmRouter mounts the confirmation route over repo.
+// confirmRouter mounts the confirmation route over repo as cmd/controller
+// does, through the endpoint's own Route, so its scopes are the spec's
+// (inventory:read as well as inventory:assert).
 func confirmRouter(t *testing.T, repo inventory.Repository, authenticate func(http.Handler) http.Handler, admission api.Admitter) http.Handler {
 	t.Helper()
 	handler := api.NewDeviceHandler(repo, inventory.NewItemFactory(), slog.New(slog.NewJSONHandler(io.Discard, nil)))
@@ -65,10 +67,7 @@ func confirmRouter(t *testing.T, repo inventory.Repository, authenticate func(ht
 		Auth:      authenticate,
 		Admission: admission,
 		HATEOAS:   allowAllGenerator(t),
-		Routes: []api.Route{{
-			Method: apispec.ConfirmTLSPin.Method, Pattern: apispec.ConfirmTLSPin.Pattern,
-			Scope: apispec.ConfirmTLSPin.Scope, Rel: apispec.ConfirmTLSPin.Rel, Handler: handler.ConfirmTLSPin,
-		}},
+		Routes:    []api.Route{apispec.ConfirmTLSPin.Route(handler.ConfirmTLSPin)},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -161,8 +160,10 @@ func TestConfirmTLSPin_WhatTheStoreRefusesIsTheStores(t *testing.T) {
 
 // TestConfirmTLSPin_TheOnboarderDoesNotVouch: through the real token
 // authentication and scope rule, an operator holding inventory:write and
-// inventory:onboard, who may record a pin on first use, may not confirm
-// it; an admin may.
+// inventory:onboard may not confirm a pin, and neither may a caller holding
+// inventory:assert without inventory:read, since the route reads the
+// device; a caller who is no admin and holds exactly inventory:assert and
+// inventory:read may.
 func TestConfirmTLSPin_TheOnboarderDoesNotVouch(t *testing.T) {
 	if apispec.ConfirmTLSPin.Scope != auth.ScopeInventoryAssert {
 		t.Fatalf("confirming needs %s", apispec.ConfirmTLSPin.Scope)
@@ -181,11 +182,18 @@ func TestConfirmTLSPin_TheOnboarderDoesNotVouch(t *testing.T) {
 	if code := send(operator); code != http.StatusForbidden {
 		t.Errorf("confirm by the onboarding operator = %d, want 403", code)
 	}
+	assertOnly := &auth.Identity{Subject: "assert-only", Role: auth.RoleOperator, Scopes: []auth.Scope{auth.ScopeInventoryAssert}}
+	if code := send(assertOnly); code != http.StatusForbidden {
+		t.Errorf("confirm by a caller holding inventory:assert without inventory:read = %d, want 403", code)
+	}
 	if s := storedTLS(t, path, "api1"); s.FirstUsePin() != firstUsePinAPI {
 		t.Fatal("a refused confirmation was written")
 	}
-	admin := &auth.Identity{Subject: "admin", Role: auth.RoleAdmin, Scopes: auth.ScopesForRole(auth.RoleAdmin)}
-	if code := send(admin); code != http.StatusOK {
-		t.Errorf("confirm by an admin = %d, want 200", code)
+	asserter := &auth.Identity{Subject: "asserter", Role: auth.RoleOperator, Scopes: []auth.Scope{auth.ScopeInventoryAssert, auth.ScopeInventoryRead}}
+	if code := send(asserter); code != http.StatusOK {
+		t.Errorf("confirm by a non-admin holding exactly inventory:assert and inventory:read = %d, want 200", code)
+	}
+	if s := storedTLS(t, path, "api1"); s.FirstUsePin() != "" || len(s.Pins()) != 1 {
+		t.Errorf("after the confirmation: first use %q, pins %q", s.FirstUsePin(), s.Pins())
 	}
 }
