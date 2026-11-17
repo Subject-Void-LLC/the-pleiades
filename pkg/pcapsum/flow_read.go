@@ -11,8 +11,9 @@ import (
 )
 
 // read reads f's directions and judges each of its packets; it returns the
-// Flow it reports and true when its bytes named it.
-func (f *flow) read() (Flow, bool) {
+// Flow it reports and true when its bytes named it. opts says which
+// servers are management endpoints.
+func (f *flow) read(opts Options) (Flow, bool) {
 	for i := range f.dirs {
 		segs := f.dirs[i].segs
 		sort.SliceStable(segs, func(a, b int) bool { return segs[a].rel < segs[b].rel })
@@ -66,13 +67,18 @@ func (f *flow) read() (Flow, bool) {
 		return Flow{}, false
 	}
 	client := f.clientSide(opens, h2)
+	server := netip.AddrPortFrom(f.key[1-client].addr, f.key[1-client].port)
 	out := Flow{
 		Client:   netip.AddrPortFrom(f.key[client].addr, f.key[client].port).String(),
-		Server:   netip.AddrPortFrom(f.key[1-client].addr, f.key[1-client].port).String(),
+		Server:   server.String(),
 		Protocol: name,
+		First:    f.span.first, Last: f.span.last, DurationSeconds: f.span.seconds(),
 	}
+	marks := dscpTally{}
 	for _, e := range f.entries {
 		out.Packets++
+		out.Bytes += int64(e.bytes)
+		marks.add(e.dscp, e.bytes)
 		switch e.kind {
 		case kindEncrypted:
 			out.Encrypted++
@@ -82,7 +88,12 @@ func (f *flow) read() (Flow, bool) {
 			out.Cleartext++
 		}
 	}
-	out.CleartextManagement = (name == HTTP || name == HTTP2 || name == GRPC) && out.Cleartext > 0
+	out.DSCP = marks.list()
+	if name == HTTP || name == HTTP2 || name == GRPC {
+		// Only a management endpoint's HTTP is management (management.go).
+		out.Management = opts.management(server, f.api)
+		out.CleartextManagement = out.Management != "" && out.Cleartext > 0
+	}
 	out.CleartextInEncrypted = f.text
 	out.HeadersUnread = f.unread
 	for c := range f.creds {

@@ -134,6 +134,7 @@ func (h *h1Parser) startLine(line string) {
 		}
 		h.response, h.status = true, code
 	case len(parts) == 3 && (parts[2] == "HTTP/1.0" || parts[2] == "HTTP/1.1") && h1Method(parts[0]):
+		h.sink.sawTarget(parts[1])
 	default:
 		h.lose()
 		return

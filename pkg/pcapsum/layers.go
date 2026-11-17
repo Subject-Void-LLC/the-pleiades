@@ -66,6 +66,9 @@ type ipPacket struct {
 	// bytes are not all here, and for an extension chain not followed to
 	// its end.
 	fragment bool
+	// dscp is the packet's DSCP: the top six bits of IPv4's DS field (the
+	// old TOS byte) or of IPv6's traffic class (RFC 2474).
+	dscp int
 }
 
 // ip reads an IP packet's addresses and names its protocol; ok is false for
@@ -77,6 +80,9 @@ func ip(pkt []byte, v6 bool) (p ipPacket, ok bool) {
 		}
 		p.src, _ = netip.AddrFromSlice(pkt[8:24])
 		p.dst, _ = netip.AddrFromSlice(pkt[24:40])
+		// The traffic class spans the low four bits of the first byte and
+		// the high four of the second.
+		p.dscp = int((pkt[0]&0x0f)<<4|pkt[1]>>4) >> 2
 		p.wire = int(binary.BigEndian.Uint16(pkt[4:]))
 		if p.wire == 0 {
 			// A jumbogram gives its length in an option, not read here.
@@ -121,6 +127,7 @@ func ip(pkt []byte, v6 bool) (p ipPacket, ok bool) {
 	}
 	p.src = netip.AddrFrom4([4]byte(pkt[12:16]))
 	p.dst = netip.AddrFrom4([4]byte(pkt[16:20]))
+	p.dscp = int(pkt[1] >> 2)
 	p.next, p.payload = int(pkt[9]), pkt[ihl:]
 	p.wire = int(binary.BigEndian.Uint16(pkt[2:])) - ihl
 	flags := binary.BigEndian.Uint16(pkt[6:])

@@ -15,6 +15,12 @@
 // Only HTTP/1.x and HTTP/2 headers are searched for one: Telnet, FTP, SNMP
 // communities, URL query strings and bodies are not.
 //
+// Every IP packet is also counted by its DSCP mark, named by its codepoint
+// and RFC 4594 service class (dscp.go), and each flow carries its bytes,
+// marks and first and last packet times (times.go). An HTTP, HTTP/2 or gRPC
+// flow in the clear is cleartext management only to a management endpoint
+// (management.go).
+//
 // Bytes framed as encrypted (a TLS application data record, SSH after
 // NEWKEYS) that read as text are counted cleartext and the flow flagged, so
 // a NULL cipher suite, SSH's none cipher or records forged around cleartext
@@ -42,6 +48,7 @@ import (
 	"fmt"
 	"net/netip"
 	"sort"
+	"time"
 )
 
 // The protocol names a Summary counts packets under.
@@ -100,6 +107,10 @@ type Pair struct {
 	Encrypted   int `json:"encrypted"`
 	KeyExchange int `json:"key_exchange"`
 	Cleartext   int `json:"cleartext"`
+	// DSCP counts the pair's IP packets by DSCP value, most bytes first.
+	DSCP []DSCPCount `json:"dscp,omitempty"`
+	// dscp is DSCP while the capture is read.
+	dscp dscpTally
 }
 
 // Summary is what a capture holds.
@@ -124,6 +135,14 @@ type Summary struct {
 	Cleartext   int `json:"cleartext"`
 	// Pairs are the address pairs, most packets first.
 	Pairs []Pair `json:"pairs"`
+	// DSCP counts every IP packet by DSCP value, most bytes first.
+	DSCP []DSCPCount `json:"dscp,omitempty"`
+	// First and Last are the times of the first and last packet that has
+	// one (a pcapng simple packet block has none), and DurationSeconds the
+	// time between them.
+	First           time.Time `json:"first,omitzero"`
+	Last            time.Time `json:"last,omitzero"`
+	DurationSeconds float64   `json:"duration_seconds"`
 	// Flows are the TCP flows named from their bytes (ssh, tls, http,
 	// http2, grpc): those carrying a credential in the clear first, then
 	// those whose encrypted-looking bytes read as text, then the other
@@ -165,9 +184,26 @@ type Flow struct {
 	Encrypted   int `json:"encrypted"`
 	KeyExchange int `json:"key_exchange"`
 	Cleartext   int `json:"cleartext"`
-	// CleartextManagement is set for a management protocol (http, http2,
-	// grpc) that crossed in the clear.
+	// Bytes is the flow's frames' lengths on the wire, both directions.
+	Bytes int64 `json:"bytes"`
+	// DSCP counts the flow's packets, both directions, by DSCP value, most
+	// bytes first: a sender and its peer may mark differently.
+	DSCP []DSCPCount `json:"dscp,omitempty"`
+	// First and Last are the times of the flow's first and last packet that
+	// has one, and DurationSeconds the time between them.
+	First           time.Time `json:"first,omitzero"`
+	Last            time.Time `json:"last,omitzero"`
+	DurationSeconds float64   `json:"duration_seconds"`
+	// CleartextManagement is set for an http, http2 or grpc flow in the
+	// clear to a management endpoint (Management says how it is known).
+	// HTTP in the clear to any other server, a lab's web server on 8080
+	// say, is cleartext and not management.
 	CleartextManagement bool `json:"cleartext_management"`
+	// Management is what makes the flow's server a management endpoint,
+	// whether or not the flow was in the clear: restconf, gnmi or gnoi when
+	// a request named that API by its path, or listed when Options listed
+	// the server; "" when nothing did.
+	Management string `json:"management,omitempty"`
 	// CleartextInEncrypted is set when bytes framed as encrypted (a TLS
 	// application data record, SSH after NEWKEYS) read as text: a NULL
 	// cipher suite, SSH's none cipher, or records forged around cleartext.
@@ -191,12 +227,17 @@ type Flow struct {
 // pcapng.
 var ErrNotACapture = errors.New("pcapsum: not a pcap or pcapng file")
 
-// Read summarizes data, a whole capture file. On a malformed record it
-// returns what it counted before the record and an error naming where the
-// record was.
+// Read summarizes data, a whole capture file, with no Options. On a
+// malformed record it returns what it counted before the record and an
+// error naming where the record was.
 func Read(data []byte) (Summary, error) {
+	return ReadWith(data, Options{})
+}
+
+// ReadWith is Read with opts.
+func ReadWith(data []byte, opts Options) (Summary, error) {
 	s := Summary{Protocols: map[string]Counter{}}
-	r := &reader{s: &s, pairs: map[[2]string]*Pair{}, flows: newTracker()}
+	r := &reader{s: &s, pairs: map[[2]string]*Pair{}, flows: newTracker(), dscp: dscpTally{}}
 	var err error
 	switch {
 	case len(data) >= 4 && binary.BigEndian.Uint32(data) == 0x0a0d0d0a:
@@ -210,8 +251,10 @@ func Read(data []byte) (Summary, error) {
 	}
 	// Every TCP segment waits for its flow to be read whole, in sequence
 	// order, before it is counted, even when the read stopped early.
-	r.flows.resolve(r.s)
+	r.flows.resolve(r.s, opts)
 	s.Pairs = sortedPairs(r.pairs)
+	s.DSCP = r.dscp.list()
+	s.First, s.Last, s.DurationSeconds = r.span.first, r.span.last, r.span.seconds()
 	return s, err
 }
 
@@ -221,6 +264,10 @@ type reader struct {
 	s     *Summary
 	pairs map[[2]string]*Pair
 	flows *tracker
+	// dscp counts every IP packet by DSCP, and span holds the capture's
+	// first and last time.
+	dscp dscpTally
+	span timeSpan
 }
 
 // readPcap reads a classic pcap file: a 24-byte header naming the byte order
@@ -240,6 +287,12 @@ func readPcap(data []byte, r *reader) error {
 			return ErrNotACapture
 		}
 	}
+	// 0xa1b23c4d says each record's fraction is in nanoseconds, else in
+	// microseconds.
+	fraction := int64(time.Microsecond)
+	if order.Uint32(data) == 0xa1b23c4d {
+		fraction = 1
+	}
 	link := order.Uint32(data[20:24]) & 0x0fffffff
 	s.LinkTypes = []string{linkName(link)}
 	off := 24
@@ -247,13 +300,14 @@ func readPcap(data []byte, r *reader) error {
 		if len(data)-off < 16 {
 			return fmt.Errorf("pcapsum: a record header at byte %d is cut short", off)
 		}
+		at := time.Unix(int64(order.Uint32(data[off:])), int64(order.Uint32(data[off+4:]))*fraction).UTC()
 		captured := int(order.Uint32(data[off+8:]))
 		original := int(order.Uint32(data[off+12:]))
 		off += 16
 		if captured < 0 || captured > len(data)-off {
 			return fmt.Errorf("pcapsum: the record at byte %d claims %d bytes, more than remain", off-16, captured)
 		}
-		r.count(link, data[off:off+captured], original)
+		r.count(link, data[off:off+captured], original, at)
 		off += captured
 	}
 	return nil
@@ -266,6 +320,8 @@ func readPcapng(data []byte, r *reader) error {
 	s := r.s
 	var order binary.ByteOrder = binary.LittleEndian
 	var links []uint32
+	// units are each interface's time units a second.
+	var units []tsUnits
 	off := 0
 	for off < len(data) {
 		if len(data)-off < 12 {
@@ -283,7 +339,7 @@ func readPcapng(data []byte, r *reader) error {
 			default:
 				return fmt.Errorf("pcapsum: the section header at byte %d has no byte-order magic", off)
 			}
-			links = nil
+			links, units = nil, nil
 		}
 		length := int(order.Uint32(data[off+4:]))
 		if length < 12 || length%4 != 0 || length > len(data)-off {
@@ -297,6 +353,7 @@ func readPcapng(data []byte, r *reader) error {
 			}
 			link := uint32(order.Uint16(body))
 			links = append(links, link)
+			units = append(units, interfaceUnits(order, body[8:]))
 			s.LinkTypes = appendOnce(s.LinkTypes, linkName(link))
 		case 6: // enhanced packet: interface, time, captured and original length, frame
 			if len(body) < 20 {
@@ -311,7 +368,8 @@ func readPcapng(data []byte, r *reader) error {
 			if iface < 0 || iface >= len(links) {
 				return fmt.Errorf("pcapsum: the packet block at byte %d names interface %d, which no interface block declared", off, iface)
 			}
-			r.count(links[iface], body[20:20+captured], original)
+			at := units[iface].at(uint64(order.Uint32(body[4:]))<<32 | uint64(order.Uint32(body[8:])))
+			r.count(links[iface], body[20:20+captured], original, at)
 		case 3: // simple packet: original length, then the frame, on interface 0
 			if len(body) < 4 || len(links) == 0 {
 				return fmt.Errorf("pcapsum: the simple packet block at byte %d is cut short or has no interface", off)
@@ -321,7 +379,8 @@ func readPcapng(data []byte, r *reader) error {
 			if original < len(frame) {
 				frame = frame[:original]
 			}
-			r.count(links[0], frame, original)
+			// A simple packet block carries no time.
+			r.count(links[0], frame, original, time.Time{})
 		}
 		off += length
 	}
@@ -364,11 +423,13 @@ func linkName(link uint32) string {
 	return fmt.Sprintf("linktype_%d", link)
 }
 
-// count counts one frame of link type link, whose wire length was original.
-func (r *reader) count(link uint32, frame []byte, original int) {
+// count counts one frame of link type link, whose wire length was original,
+// captured at at (the zero time when its record gave none).
+func (r *reader) count(link uint32, frame []byte, original int, at time.Time) {
 	s := r.s
 	s.Packets++
 	s.Bytes += int64(original)
+	r.span.see(at)
 	var etherType int
 	var payload []byte
 	switch link {
@@ -404,9 +465,12 @@ func (r *reader) count(link uint32, frame []byte, original int) {
 			return
 		}
 		pr := pair(r.pairs, pkt.src, pkt.dst)
+		// Every IP packet's mark is counted now, whatever its protocol.
+		r.dscp.add(pkt.dscp, original)
+		pr.dscp.add(pkt.dscp, original)
 		// A whole TCP segment waits for its flow to be read; anything else,
 		// a fragment included, is counted now by its protocol's name.
-		if pkt.next == ipTCP && !pkt.fragment && r.flows.segment(pr, pkt, original) {
+		if pkt.next == ipTCP && !pkt.fragment && r.flows.segment(pr, pkt, original, at) {
 			return
 		}
 		add(s, pr, pkt.proto, original)
@@ -465,7 +529,7 @@ func pair(pairs map[[2]string]*Pair, a, b netip.Addr) *Pair {
 	key := [2]string{a.String(), b.String()}
 	p, ok := pairs[key]
 	if !ok {
-		p = &Pair{A: key[0], B: key[1], Protocols: map[string]Counter{}}
+		p = &Pair{A: key[0], B: key[1], Protocols: map[string]Counter{}, dscp: dscpTally{}}
 		pairs[key] = p
 	}
 	return p
@@ -475,6 +539,7 @@ func pair(pairs map[[2]string]*Pair, a, b netip.Addr) *Pair {
 func sortedPairs(pairs map[[2]string]*Pair) []Pair {
 	out := make([]Pair, 0, len(pairs))
 	for _, p := range pairs {
+		p.DSCP = p.dscp.list()
 		out = append(out, *p)
 	}
 	total := func(p Pair) int { return p.Encrypted + p.KeyExchange + p.Cleartext }

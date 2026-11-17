@@ -7,6 +7,7 @@ package pcapsum_test
 import (
 	"bytes"
 	"encoding/binary"
+	"net/netip"
 	"testing"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/pcapsum"
@@ -154,7 +155,8 @@ func TestRead_AFlowWithoutItsSYNsIsReadFromItsFirstBytes(t *testing.T) {
 
 // TestRead_FlowsListCredentialsFirstThenCleartextManagement: a flow that
 // carried a credential is listed before one only in the clear, and both
-// before an encrypted one with more packets.
+// before an encrypted one with more packets. The HTTP/2 server on 8080 names
+// no management API, so it is management only once Options lists it.
 func TestRead_FlowsListCredentialsFirstThenCleartextManagement(t *testing.T) {
 	c := newH2Writer()
 	c.buf.WriteString("PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n")
@@ -167,18 +169,38 @@ func TestRead_FlowsListCredentialsFirstThenCleartextManagement(t *testing.T) {
 	frames = append(frames, tcpFrames(flowPackets(sshSession(t, "aes128-ctr")), 40000, 22)...)
 	frames = append(frames, tcpFrames(flowPackets([]chunk{{up: true, data: plainH2}}), 40001, 8080)...)
 	frames = append(frames, tcpFrames(flowPackets(grpcSession(t, user, pass)), 40002, 50001)...)
-	s := read(t, pcapFile(binary.LittleEndian, frames))
-	var order []string
-	for _, f := range s.Flows {
-		order = append(order, f.Protocol)
+	capture := pcapFile(binary.LittleEndian, frames)
+	for _, listed := range []netip.AddrPort{netip.MustParseAddrPort("198.51.100.20:8080"), netip.AddrPortFrom(netip.MustParseAddr("198.51.100.20"), 0)} {
+		s, err := pcapsum.ReadWith(capture, pcapsum.Options{Management: []netip.AddrPort{listed}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var order []string
+		for _, f := range s.Flows {
+			order = append(order, f.Protocol)
+		}
+		if len(order) != 3 || order[0] != pcapsum.GRPC || order[1] != pcapsum.HTTP2 || order[2] != pcapsum.SSH {
+			t.Errorf("order = %v", order)
+		}
+		if s.CleartextManagement != 2 || s.CleartextCredentials != 2 || s.Flows[1].Management != pcapsum.ManagementListed {
+			t.Errorf("management %d, credentials %d, %+v", s.CleartextManagement, s.CleartextCredentials, s.Flows[1])
+		}
+		assertNoValue(t, s, user, pass)
 	}
-	if len(order) != 3 || order[0] != pcapsum.GRPC || order[1] != pcapsum.HTTP2 || order[2] != pcapsum.SSH {
-		t.Errorf("order = %v", order)
+	// Unlisted, the HTTP/2 server is cleartext and not management, and the
+	// gRPC flow still is, by the gNMI service it called.
+	s := read(t, capture)
+	if s.CleartextManagement != 1 || s.Flows[0].Management != pcapsum.ManagementGNMI || s.Flows[2].Protocol != pcapsum.HTTP2 || s.Flows[2].CleartextManagement || s.Flows[2].Cleartext == 0 {
+		t.Errorf("unlisted: management %d, flows %+v", s.CleartextManagement, s.Flows)
 	}
-	if s.CleartextManagement != 2 || s.CleartextCredentials != 2 {
-		t.Errorf("management %d, credentials %d", s.CleartextManagement, s.CleartextCredentials)
+	// A list naming another port on the server, or another address, does
+	// not make it one.
+	for _, other := range []string{"198.51.100.20:80", "198.51.100.21:8080"} {
+		s, err := pcapsum.ReadWith(capture, pcapsum.Options{Management: []netip.AddrPort{netip.MustParseAddrPort(other)}})
+		if err != nil || s.CleartextManagement != 1 {
+			t.Errorf("listing %s: management %d, %v", other, s.CleartextManagement, err)
+		}
 	}
-	assertNoValue(t, s, user, pass)
 }
 
 // TestRead_SSHGaps: a segment lost after NEWKEYS leaves the rest
