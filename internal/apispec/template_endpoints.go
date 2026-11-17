@@ -241,6 +241,20 @@ var rollbackAcceptedSchema = map[string]any{
 				},
 			},
 		},
+		"cleanups": map[string]any{
+			"type": "array",
+			"description": "The changes a block's always: task made that the rollback leaves in place, always present and empty when there " +
+				"are none: an always: task cleans up after its block, so its undo would put back what the block meant to remove. A task with " +
+				"a rollback: list in its runbook is undone like any other instead.",
+			"items": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"node":   stringSchema("The node of the job's runbook that made the change."),
+					"device": stringSchema("The device, by name."),
+					"reason": stringSchema("Why it is left in place."),
+				},
+			},
+		},
 		"_links": linksSchema(),
 	},
 }
@@ -669,7 +683,8 @@ var RollbackJob = Endpoint{
 							"field":  stringSchema("The request field that accepts it; absent when nothing can."),
 							"value":  stringSchema("What to put in that field."),
 							"kind": stringSchema("For a later job: undo_first (it has changes of its own to undo), cannot_undo (its changes there cannot be undone), " +
-								"nothing_to_undo (its runbook says none needs undoing) or unknown_effect (a task of it failed during its action there, and it recorded no change there that is still to undo); " +
+								"nothing_to_undo (its runbook says none needs undoing), left_in_place (what it still has there is a cleanup its block's always: ran, which its rollback leaves in place, so rolling it back first has nothing to undo) " +
+								"or unknown_effect (a task of it failed during its action there, and it recorded no change there that is still to undo); " +
 								"no_runbook for a change whose undo needs a runbook not found. Absent otherwise."),
 							"unknown_effects": namesSchema("For a later job, the methods whose tasks failed during their action on the devices this problem names, so may have changed them partway, whatever its kind. Absent when none did."),
 						},

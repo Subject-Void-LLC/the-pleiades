@@ -27,21 +27,26 @@ func TestReadRunRefusesANewerFormatByName(t *testing.T) {
 		t.Fatal(err)
 	}
 	line := strings.TrimSuffix(string(written), "\n")
-	if !strings.HasPrefix(line, `{"format":3,`) {
+	if !strings.HasPrefix(line, `{"format":4,`) {
 		t.Fatalf("a written line does not lead with its format: %s", line)
 	}
 	for _, tc := range []struct {
 		name, line, wantErr string
 	}{
 		{name: "this build's format", line: line},
-		{name: "no format, from before the field", line: strings.Replace(line, `"format":3,`, "", 1)},
-		{name: "format 1, from before the Collection identity", line: strings.Replace(line, `"format":3,`, `"format":1,`, 1)},
-		{name: "format 2, from before the rendered rollback steps", line: strings.Replace(line, `"format":3,`, `"format":2,`, 1)},
-		{name: "a newer format with a key this build lacks", line: strings.Replace(line, `"format":3,`, `"format":4,"a_newer_key":true,`, 1),
-			wantErr: "is journal format 4, and this build reads formats up to 3"},
-		{name: "a newer format alone", line: strings.Replace(line, `"format":3,`, `"format":4,`, 1),
-			wantErr: "is journal format 4"},
-		{name: "a negative format", line: strings.Replace(line, `"format":3,`, `"format":-1,`, 1),
+		{name: "no format, from before the field", line: strings.Replace(line, `"format":4,`, "", 1)},
+		{name: "format 1, from before the Collection identity", line: strings.Replace(line, `"format":4,`, `"format":1,`, 1)},
+		{name: "format 2, from before the rendered rollback steps", line: strings.Replace(line, `"format":4,`, `"format":2,`, 1)},
+		{name: "format 3, from before a call's read-only answer", line: strings.Replace(line, `"format":4,`, `"format":3,`, 1)},
+		{name: "format 3 claiming a call that only read", line: strings.Replace(line, `"format":4,`, `"format":3,"read_only_call":true,`, 1),
+			wantErr: "is journal format 3 and records a call that only read, which format 4 added"},
+		{name: "no format claiming a call that only read", line: strings.Replace(line, `"format":4,`, `"read_only_call":true,`, 1),
+			wantErr: "is journal format 1 and records a call that only read"},
+		{name: "a newer format with a key this build lacks", line: strings.Replace(line, `"format":4,`, `"format":5,"a_newer_key":true,`, 1),
+			wantErr: "is journal format 5, and this build reads formats up to 4"},
+		{name: "a newer format alone", line: strings.Replace(line, `"format":4,`, `"format":5,`, 1),
+			wantErr: "is journal format 5"},
+		{name: "a negative format", line: strings.Replace(line, `"format":4,`, `"format":-1,`, 1),
 			wantErr: "names format -1, which is not a format version"},
 		{name: "not an object at all", line: `["format",2]`, wantErr: "not a journal entry"},
 	} {

@@ -318,6 +318,10 @@ type RollbackReport struct {
 	// NothingToUndo are changes whose task's rollback: list is empty: its
 	// runbook says undoing them means doing nothing.
 	NothingToUndo []rollback.Gap `json:"nothing_to_undo,omitempty"`
+	// Cleanups are changes a block's always: task made, left in place
+	// because the task's runbook gives no rollback: list: an always: task
+	// cleans up, and its undo would put back what the block removed.
+	Cleanups []rollback.Gap `json:"cleanups,omitempty"`
 	// OrderedByClock names the other runs whose order against the one undone
 	// was read from the journals' clock times, because a journal predates the
 	// project's run counter; every other run was ordered by the counter.

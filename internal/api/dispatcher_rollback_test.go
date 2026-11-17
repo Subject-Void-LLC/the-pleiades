@@ -92,8 +92,24 @@ func text(s string) *string { return &s }
 
 func newRollbackFixture(t *testing.T, tmpl *launch.Template, extraVars map[string]any) *rollbackFixture {
 	t.Helper()
+	return newRollbackFixtureOf(t, tmpl, extraVars, rollbackRan, func(entry func(node, fqcn string, seq int) engine.JournalEntry) []engine.JournalEntry {
+		made := entry("tasks[0]", "file.directory", 1)
+		made.InverseFQCN, made.InverseParamKeys, made.InverseComplete = "file.remove", []string{"path"}, true
+		made.InverseParams = []engine.InverseParam{{Key: "path", Text: text("/tmp/made")}}
+		edited := entry("tasks[1]", "file.line.set", 2)
+		edited.InverseFQCN, edited.InverseParamKeys = "file.copy", []string{"content", "dest"}
+		edited.InverseParams = []engine.InverseParam{{Key: "dest", Text: text("/tmp/conf")}}
+		return []engine.JournalEntry{made, edited}
+	})
+}
+
+// newRollbackFixtureOf is newRollbackFixture for a job that ran source, whose
+// journal entries writes, given a builder of one changed entry.
+func newRollbackFixtureOf(t *testing.T, tmpl *launch.Template, extraVars map[string]any, source string,
+	entries func(entry func(node, fqcn string, seq int) engine.JournalEntry) []engine.JournalEntry) *rollbackFixture {
+	t.Helper()
 	f := &rollbackFixture{jobs: newTestJobStore(t), bus: newCapturingBus(), dir: t.TempDir()}
-	if err := os.WriteFile(filepath.Join(f.dir, "rb-1.yaml"), []byte(rollbackRan), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(f.dir, "rb-1.yaml"), []byte(source), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	var err error
@@ -119,13 +135,7 @@ func newRollbackFixture(t *testing.T, tmpl *launch.Template, extraVars map[strin
 			Outcome: engine.OutcomeChanged, ActionChanged: true, DAGID: "rb-1", DAGVersion: dag.Version,
 			StartedAt: start.Add(time.Duration(seq) * time.Second), FinishedAt: start.Add(time.Duration(seq)*time.Second + time.Millisecond)}
 	}
-	made := entry("tasks[0]", "file.directory", 1)
-	made.InverseFQCN, made.InverseParamKeys, made.InverseComplete = "file.remove", []string{"path"}, true
-	made.InverseParams = []engine.InverseParam{{Key: "path", Text: text("/tmp/made")}}
-	edited := entry("tasks[1]", "file.line.set", 2)
-	edited.InverseFQCN, edited.InverseParamKeys = "file.copy", []string{"content", "dest"}
-	edited.InverseParams = []engine.InverseParam{{Key: "dest", Text: text("/tmp/conf")}}
-	f.journal = journalStub{entries: map[string][]engine.JournalEntry{job.JobID: {made, edited}}}
+	f.journal = journalStub{entries: map[string][]engine.JournalEntry{job.JobID: entries(entry)}}
 
 	opts := []api.DispatcherOption{api.WithRollback(&f.journal, func(_ context.Context, ids []string) (map[string]string, error) {
 		return map[string]string{"dev-1": "web1"}, nil

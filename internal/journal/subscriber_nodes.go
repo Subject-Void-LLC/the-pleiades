@@ -128,6 +128,7 @@ func clearClaimed(entry *engine.JournalEntry) {
 	entry.InverseSpecDigest = ""
 	entry.InverseWithheld = ""
 	// Its rendered rollback: steps were held to the claimed method's
-	// declarations too.
+	// declarations too, and so was its answer that the call only read.
 	entry.AuthoredSteps = nil
+	entry.ReadOnlyCall = false
 }

@@ -4,7 +4,7 @@
 // rollback read by a later build plans from a file an earlier build wrote.
 // Two files pin it. testdata/golden/entries.jsonl is what this build writes,
 // and changes only when someone runs -update-golden on purpose.
-// testdata/format-1, format-2 and format-3 hold frozen copies of each
+// testdata/format-1 through format-4 hold frozen copies of each
 // format's lines, never rewritten by any flag: every later build must still
 // read them.
 package journal_test
@@ -77,6 +77,14 @@ func goldenEntries() []engine.JournalEntry {
 		FQCN: "file.stat", StartedAt: at(6), FinishedAt: at(7), Outcome: engine.OutcomeRan,
 		Collection: wire.CollectionIdentity{Group: "file", Version: "0.4.0", Manifests: "sha256:" + hex64('e')},
 		StatKeys:   []string{}, ParamKeys: []string{}, InverseParamKeys: []string{}, InverseParams: []engine.InverseParam{},
+	}, {
+		// A built-in's call that only read and failed during its action: a
+		// show the device refused (format 4).
+		RunID: goldenRunID, Sequence: 5, NodeID: "tasks[4]", DAGID: "golden-runbook",
+		FQCN: "net.ios.command", StartedAt: at(8), FinishedAt: at(9), Outcome: engine.OutcomeFailed, FailureStage: engine.FailureStageAction,
+		Collection: wire.CollectionIdentity{Group: "net", Version: "0.4.0", Manifests: "sha256:" + hex64('9')},
+		StatKeys:   []string{}, ParamKeys: []string{"command"}, InverseParamKeys: []string{}, InverseParams: []engine.InverseParam{},
+		ReadOnlyCall: true,
 	}}
 }
 
@@ -176,18 +184,30 @@ func formatOneEntries() []engine.JournalEntry {
 		entries[i].InverseSpecDigest = ""
 		entries[i].AuthoredSteps = nil
 		entries[i].InverseWithheld = ""
+		entries[i].ReadOnlyCall = false
 	}
 	return entries
 }
 
 // formatTwoEntries is what the frozen format-2 file holds: the golden entries
 // with the rendered rollback steps and the undo's withheld reason format 3
-// added at their zero.
+// added, and the read-only answer format 4 added, at their zero.
 func formatTwoEntries() []engine.JournalEntry {
-	entries := goldenEntries()
+	entries := formatThreeEntries()
 	for i := range entries {
 		entries[i].AuthoredSteps = nil
 		entries[i].InverseWithheld = ""
+	}
+	return entries
+}
+
+// formatThreeEntries is what the frozen format-3 file holds: the golden
+// entries format 3 had (the first four), with the read-only answer format 4
+// added at its zero.
+func formatThreeEntries() []engine.JournalEntry {
+	entries := goldenEntries()[:4]
+	for i := range entries {
+		entries[i].ReadOnlyCall = false
 	}
 	return entries
 }
@@ -222,28 +242,43 @@ func TestJournalFormatTwoStaysReadable(t *testing.T) {
 
 // TestJournalFormatThreeStaysReadable holds every later build to read the
 // frozen format-3 file, a copy of the golden file as Phase 87 first wrote it,
-// as the golden entries: the rendered rollback steps read back exactly.
+// as the golden entries less what format 4 added: the rendered rollback steps
+// read back exactly.
 func TestJournalFormatThreeStaysReadable(t *testing.T) {
-	frozen, err := os.ReadFile(filepath.Join("testdata", "format-3", "entries.jsonl"))
+	testFrozenFormat(t, "format-3", formatThreeEntries())
+}
+
+// TestJournalFormatFourStaysReadable holds every later build to read the
+// frozen format-4 file, a copy of the golden file as the read-only answer
+// first wrote it, as the golden entries: a call that only read reads back so.
+func TestJournalFormatFourStaysReadable(t *testing.T) {
+	testFrozenFormat(t, "format-4", goldenEntries())
+}
+
+// testFrozenFormat reads testdata/<dir>/entries.jsonl as the journal of one
+// run and holds it to want.
+func testFrozenFormat(t *testing.T, dir string, want []engine.JournalEntry) {
+	t.Helper()
+	frozen, err := os.ReadFile(filepath.Join("testdata", dir, "entries.jsonl")) // #nosec G304 -- this package's own test data
 	if err != nil {
 		t.Fatal(err)
 	}
 	root := t.TempDir()
-	dir := filepath.Join(root, ".pleiades", "journal")
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	journalDir := filepath.Join(root, ".pleiades", "journal")
+	if err := os.MkdirAll(journalDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, goldenRunID+".jsonl"), frozen, 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(journalDir, goldenRunID+".jsonl"), frozen, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	run, err := journal.ReadRun(root, goldenRunID)
 	if err != nil {
-		t.Fatalf("a format-3 journal no longer reads: %v", err)
+		t.Fatalf("a %s journal no longer reads: %v", dir, err)
 	}
-	if want := goldenEntries(); !reflect.DeepEqual(run.Entries, want) {
+	if !reflect.DeepEqual(run.Entries, want) {
 		gotJSON, _ := json.MarshalIndent(run.Entries, "", " ")
 		wantJSON, _ := json.MarshalIndent(want, "", " ")
-		t.Errorf("a format-3 journal reads differently:\ngot  %s\nwant %s", gotJSON, wantJSON)
+		t.Errorf("a %s journal reads differently:\ngot  %s\nwant %s", dir, gotJSON, wantJSON)
 	}
 }
 

@@ -59,6 +59,12 @@ func Find(text string) []Ref {
 	return out
 }
 
+// ReplaceAll returns text with every well formed reference, whatever its
+// spacing inside the braces, replaced by with, which is taken literally.
+func ReplaceAll(text, with string) string {
+	return refPattern.ReplaceAllLiteralString(text, with)
+}
+
 // Problems returns what is wrong with text as a string holding secret
 // references, or nothing: a reference that is not exactly
 // {{ secret.<name>.<field> }}, and any other template expression beside one.

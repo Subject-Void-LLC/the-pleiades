@@ -271,6 +271,16 @@
             "null"
           ]
         },
+        "cleanups": {
+          "description": "Cleanups are changes a block's always: task made, left in place because the task's runbook gives no rollback: list: an always: task cleans up, and its undo would put back what the block removed.",
+          "items": {
+            "$ref": "#/$defs/Gap"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
         "left": {
           "description": "Left are changes left in place, by --leave.",
           "items": {

@@ -118,6 +118,8 @@ const (
 	FieldAuthoredSteps = "authored_steps"
 	// FieldInverseWithheld holds the string denoting the inverse_withheld field in the database.
 	FieldInverseWithheld = "inverse_withheld"
+	// FieldReadOnlyCall holds the string denoting the read_only_call field in the database.
+	FieldReadOnlyCall = "read_only_call"
 	// Table holds the table name of the journalentry in the database.
 	Table = "journal_entries"
 )
@@ -177,6 +179,7 @@ var Columns = []string{
 	FieldInverseSpecDigest,
 	FieldAuthoredSteps,
 	FieldInverseWithheld,
+	FieldReadOnlyCall,
 }
 
 // ValidColumn reports if the column name is valid (part of the table columns).
@@ -252,6 +255,8 @@ var (
 	DefaultLeaseRevision uint64
 	// DefaultCollectionProgram holds the default value on creation for the "collection_program" field.
 	DefaultCollectionProgram bool
+	// DefaultReadOnlyCall holds the default value on creation for the "read_only_call" field.
+	DefaultReadOnlyCall bool
 )
 
 // Outcome defines the type for the "outcome" enum field.
@@ -521,4 +526,9 @@ func ByInverseSpecDigest(opts ...sql.OrderTermOption) OrderOption {
 // ByInverseWithheld orders the results by the inverse_withheld field.
 func ByInverseWithheld(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldInverseWithheld, opts...).ToFunc()
+}
+
+// ByReadOnlyCall orders the results by the read_only_call field.
+func ByReadOnlyCall(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldReadOnlyCall, opts...).ToFunc()
 }

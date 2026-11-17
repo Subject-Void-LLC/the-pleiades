@@ -221,8 +221,9 @@ const skillGuide = "## Starting in a project\n\n" +
 	"   without `--mode check`. A check of a rollback sees each device as it is now, so a step on a device an earlier\n" +
 	"   step of the same rollback changes first is named provisional, and its failed check is unchecked, not failed.\n" +
 	"   A rollback refused over a later run says what that run is: one with changes of its own to undo (roll it back\n" +
-	"   first), one whose changes recorded no undo, or one whose runbook says none needs undoing (read it with\n" +
-	"   `pleiades journal show <run-id>`, then step over it with `--despite-run <run-id>`). A rollback finds a task's\n" +
+	"   first), or one whose changes recorded no undo, whose runbook says none needs undoing, or whose only change left\n" +
+	"   is a block's `always:` cleanup its own rollback leaves in place (read it with `pleiades journal show <run-id>`,\n" +
+	"   then step over it with `--despite-run <run-id>`). A rollback finds a task's\n" +
 	"   `rollback:` list by its position in the runbook as it ran: do not insert, remove or reorder tasks in a runbook\n" +
 	"   whose runs may be rolled back, or name the copy that ran with `--runbook <file>`.\n" +
 	"7. To look at a device without changing it, use a method that only reads (`facts.gather`, `file.stat`) or\n" +

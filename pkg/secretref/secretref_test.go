@@ -93,6 +93,25 @@ func TestProblems_OnlyExactReferencesStandAlone(t *testing.T) {
 	}
 }
 
+// TestReplaceAll_ReplacesEveryWellFormedReference: each well formed
+// reference, in any spacing, is replaced by the text given, taken literally,
+// and a malformed one and plain text are left as they are.
+func TestReplaceAll_ReplacesEveryWellFormedReference(t *testing.T) {
+	for _, tc := range []struct{ in, want string }{
+		{"password {{ secret.a.b }} role x", "password R role x"},
+		{"password {{secret.a.b}} and {{secret.c.d   }}", "password R and R"},
+		{"password {{ secret.A.b }}", "password {{ secret.A.b }}"},
+		{"hostname r1", "hostname r1"},
+	} {
+		if got := secretref.ReplaceAll(tc.in, "R"); got != tc.want {
+			t.Errorf("ReplaceAll(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+	if got := secretref.ReplaceAll("key {{ secret.a.b }}", "$1"); got != "key $1" {
+		t.Errorf("ReplaceAll expanded its replacement: %q", got)
+	}
+}
+
 // FuzzResolve: no input makes Resolve panic, a resolved text never holds a
 // reference or a value CheckValue refuses, and every value it returns came
 // from the lookup.

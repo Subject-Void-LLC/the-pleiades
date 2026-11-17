@@ -33,7 +33,7 @@ func changesOf(run Run) (changed, unknown []engine.JournalEntry) {
 			if prev, seen := latest[p]; !seen || e.Attempt > prev.Attempt {
 				latest[p] = e
 			}
-		case e.Outcome == engine.OutcomeFailed && e.FailureStage == engine.FailureStageAction && !changesNothing(e.FQCN):
+		case e.Outcome == engine.OutcomeFailed && e.FailureStage == engine.FailureStageAction && !changesNothing(e):
 			unknown = append(unknown, e)
 		}
 	}
@@ -65,16 +65,34 @@ func changesOf(run Run) (changed, unknown []engine.JournalEntry) {
 	return changed, unknown
 }
 
-// changesNothing reports whether a task calling fqcn cannot have changed a
-// device: a built-in method that declares itself read-only (which the
-// engine holds it to), or an engine action that touches no device.
-func changesNothing(fqcn string) bool {
-	switch fqcn {
+// changesNothing reports whether e's call cannot have changed a device,
+// whether it succeeded or failed: a built-in method that declares itself
+// read-only (which the engine holds it to), a call the journal says only
+// read by its method's own declaration of the parameters it ran with
+// (JournalEntry.ReadOnlyCall, net.ios.command's show: the engine asks the
+// method, since neither the parameters nor the method reach this planner on
+// a Controller), or an engine action that touches no device.
+//
+// Before, only the manifest was asked, so a show that failed (IOS refused
+// the line, or the SSH handshake never finished) counted as a change nobody
+// could vouch for, and every rollback beneath its run needed --despite-run
+// (FAILURE_PATTERNS 1269). The answer is taken only where the engine writes
+// one, a built-in this build's catalog holds that changed nothing: never from
+// an entry naming an external Collection program, a method the catalog does
+// not hold, or an engine action, since an entry claiming it there was not
+// written by the engine.
+func changesNothing(e engine.JournalEntry) bool {
+	switch e.FQCN {
 	case "noop", "set_metadata", "pleiades.builtin.set_metadata", "ios_backup":
 		return true
 	}
-	manifest, ok := collection.BuiltinManifest(fqcn)
-	return ok && manifest.Reversibility.ReadOnly
+	manifest, builtin := collection.BuiltinManifest(e.FQCN)
+	// The answer is the engine's only for a method this build's catalog
+	// holds as a built-in, run by no external program, that changed nothing.
+	if e.ReadOnlyCall && builtin && e.ProviderProgram == "" && !e.ActionChanged && !engine.IsBuiltinAction(e.FQCN) {
+		return true
+	}
+	return builtin && manifest.Reversibility.ReadOnly
 }
 
 // stepError is why one change cannot be undone, with the flag that

@@ -16764,6 +16764,7 @@ type JournalEntryMutation struct {
 	authored_steps                    *jsontext.Value
 	appendauthored_steps              jsontext.Value
 	inverse_withheld                  *string
+	read_only_call                    *bool
 	clearedFields                     map[string]struct{}
 	done                              bool
 	oldValue                          func(context.Context) (*JournalEntry, error)
@@ -19371,6 +19372,42 @@ func (m *JournalEntryMutation) ResetInverseWithheld() {
 	delete(m.clearedFields, journalentry.FieldInverseWithheld)
 }
 
+// SetReadOnlyCall sets the "read_only_call" field.
+func (m *JournalEntryMutation) SetReadOnlyCall(b bool) {
+	m.read_only_call = &b
+}
+
+// ReadOnlyCall returns the value of the "read_only_call" field in the mutation.
+func (m *JournalEntryMutation) ReadOnlyCall() (r bool, exists bool) {
+	v := m.read_only_call
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldReadOnlyCall returns the old "read_only_call" field's value of the JournalEntry entity.
+// If the JournalEntry object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *JournalEntryMutation) OldReadOnlyCall(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldReadOnlyCall is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldReadOnlyCall requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldReadOnlyCall: %w", err)
+	}
+	return oldValue.ReadOnlyCall, nil
+}
+
+// ResetReadOnlyCall resets all changes to the "read_only_call" field.
+func (m *JournalEntryMutation) ResetReadOnlyCall() {
+	m.read_only_call = nil
+}
+
 // Where appends a list predicates to the JournalEntryMutation builder.
 func (m *JournalEntryMutation) Where(ps ...predicate.JournalEntry) {
 	m.predicates = append(m.predicates, ps...)
@@ -19405,7 +19442,7 @@ func (m *JournalEntryMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *JournalEntryMutation) Fields() []string {
-	fields := make([]string, 0, 52)
+	fields := make([]string, 0, 53)
 	if m.created_at != nil {
 		fields = append(fields, journalentry.FieldCreatedAt)
 	}
@@ -19562,6 +19599,9 @@ func (m *JournalEntryMutation) Fields() []string {
 	if m.inverse_withheld != nil {
 		fields = append(fields, journalentry.FieldInverseWithheld)
 	}
+	if m.read_only_call != nil {
+		fields = append(fields, journalentry.FieldReadOnlyCall)
+	}
 	return fields
 }
 
@@ -19674,6 +19714,8 @@ func (m *JournalEntryMutation) Field(name string) (ent.Value, bool) {
 		return m.AuthoredSteps()
 	case journalentry.FieldInverseWithheld:
 		return m.InverseWithheld()
+	case journalentry.FieldReadOnlyCall:
+		return m.ReadOnlyCall()
 	}
 	return nil, false
 }
@@ -19787,6 +19829,8 @@ func (m *JournalEntryMutation) OldField(ctx context.Context, name string) (ent.V
 		return m.OldAuthoredSteps(ctx)
 	case journalentry.FieldInverseWithheld:
 		return m.OldInverseWithheld(ctx)
+	case journalentry.FieldReadOnlyCall:
+		return m.OldReadOnlyCall(ctx)
 	}
 	return nil, fmt.Errorf("unknown JournalEntry field %s", name)
 }
@@ -20159,6 +20203,13 @@ func (m *JournalEntryMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetInverseWithheld(v)
+		return nil
+	case journalentry.FieldReadOnlyCall:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetReadOnlyCall(v)
 		return nil
 	}
 	return fmt.Errorf("unknown JournalEntry field %s", name)
@@ -20652,6 +20703,9 @@ func (m *JournalEntryMutation) ResetField(name string) error {
 		return nil
 	case journalentry.FieldInverseWithheld:
 		m.ResetInverseWithheld()
+		return nil
+	case journalentry.FieldReadOnlyCall:
+		m.ResetReadOnlyCall()
 		return nil
 	}
 	return fmt.Errorf("unknown JournalEntry field %s", name)

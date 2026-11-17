@@ -39,12 +39,9 @@ func ConditionReads(c Conditional) (names []string, dynamic bool, err error) {
 	if err != nil {
 		return nil, false, err
 	}
-	exprs := append(append(append([]string(nil), c.When...), c.WhenOr...), c.WhenCEL)
+	exprs := c.Sources()
 	seen := map[string]bool{}
 	for _, src := range exprs {
-		if src == "" {
-			continue
-		}
 		ast, iss := env.Parse(src)
 		if iss.Err() != nil {
 			return nil, false, fmt.Errorf("condition %q does not parse: %w", src, iss.Err())
@@ -160,10 +157,7 @@ func eachConditionExpr(c Conditional, visit func(celast.Expr)) error {
 	if err != nil {
 		return err
 	}
-	for _, src := range append(append(append([]string(nil), c.When...), c.WhenOr...), c.WhenCEL) {
-		if src == "" {
-			continue
-		}
+	for _, src := range c.Sources() {
 		ast, iss := env.Parse(src)
 		if iss.Err() != nil {
 			return fmt.Errorf("condition %q does not parse: %w", src, iss.Err())

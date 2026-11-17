@@ -240,6 +240,12 @@ func (JournalEntry) Fields() []ent.Field {
 		// say why it refuses the undo; empty otherwise. A closed enum, never
 		// the value.
 		field.String("inverse_withheld").Immutable().Optional(),
+		// read_only_call reports that the call, with the parameters it ran
+		// with, only read by its built-in method's own declaration
+		// (engine.JournalEntry.ReadOnlyCall), so a rollback leaves a failed
+		// read out of what may have changed the device. A decision the
+		// platform made, never a value. False on a row written before it.
+		field.Bool("read_only_call").Immutable().Default(false),
 	}
 }
 

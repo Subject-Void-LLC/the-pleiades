@@ -246,6 +246,12 @@ type Plan struct {
 	// runs and none is refused.
 	NothingToUndo []Gap `json:"nothing_to_undo,omitempty"`
 
+	// Cleanups are changes a block's always: task made, which its runbook
+	// gives no rollback: list for: an always: task cleans up after its block,
+	// so its undo would put back what the block meant to remove, and the
+	// change is left in place without a --leave (cleanup.go).
+	Cleanups []Gap `json:"cleanups,omitempty"`
+
 	// OrderedByClock names the other runs whose order against this one was
 	// read from the journals' clock times, because one of the two journals
 	// predates run ordering (order.go). Every other run was ordered by the
@@ -365,6 +371,18 @@ func Build(req Request) (Plan, error) {
 			plan.Left = append(plan.Left, Gap{Node: e.NodeID, DeviceID: e.DeviceID, DeviceName: name, Reason: reason})
 			continue
 		}
+		// A cleanup a block's always: ran is left in place unless its runbook
+		// says how to undo it, and, where this process runs what it plans, a
+		// skew named for it accepts nothing, as for a node named to leave.
+		if isCleanup(req, e) {
+			if req.ExecutorIsPlanner && req.AllowSkew[e.NodeID] {
+				problems = append(problems, Problem{Node: e.NodeID, DeviceID: e.DeviceID, DeviceName: name,
+					Reason: fmt.Sprintf("node %s ran in a block's always: and is left in place, so nothing of it is replayed and --allow-skew accepts nothing; drop --allow-skew %s", Printable(e.NodeID), Printable(e.NodeID))})
+				continue
+			}
+			plan.Cleanups = append(plan.Cleanups, Gap{Node: e.NodeID, DeviceID: e.DeviceID, DeviceName: name, Reason: cleanupReason})
+			continue
+		}
 		// Where this process runs what it plans, a node named to
 		// --allow-skew with no skew is refused, and nothing but dropping the
 		// name answers it (Request.ExecutorIsPlanner).
@@ -429,10 +447,10 @@ func Build(req Request) (Plan, error) {
 	problems = append(problems, unplannedSkews(req, changed)...)
 
 	// Nothing left but what an earlier rollback undid, what the operator
-	// named to leave and what its runbook says has nothing to undo: a
-	// refusal saying so, rather than a run of nothing that reads as a
-	// rollback done.
-	if len(plan.AlreadyUndone) > 0 && len(plan.AlreadyUndone)+len(plan.Left)+len(plan.NothingToUndo) == len(changed) && len(problems) == 0 {
+	// named to leave, what its runbook says has nothing to undo and the
+	// cleanups an always: ran: a refusal saying so, rather than a run of
+	// nothing that reads as a rollback done.
+	if len(plan.AlreadyUndone) > 0 && len(plan.AlreadyUndone)+len(plan.Left)+len(plan.NothingToUndo)+len(plan.Cleanups) == len(changed) && len(problems) == 0 {
 		reason := "every change this run made has already been undone, by the run itself or by an earlier rollback of it; there is nothing left to undo"
 		if len(plan.Left) > 0 {
 			reason = "every change this run made has already been undone, by the run itself or by an earlier rollback of it, apart from those named to leave in place; there is nothing left to undo"

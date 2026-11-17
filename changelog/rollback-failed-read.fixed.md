@@ -1,0 +1,1 @@
+A rollback no longer counts a failed call that only read (a `net.ios.command` show the device refused, or one whose login never finished) as one that may have changed its device, so its run no longer has to be named with `--despite-run`. The journal records the answer as `read_only_call`, in journal format 4.

@@ -218,6 +218,11 @@ func decodeEntry(line []byte, runID string) (engine.JournalEntry, error) {
 	// Format 3 added the rendered rollback: steps (format.go).
 	case l.Format < 3 && (len(e.AuthoredSteps) > 0 || e.InverseWithheld != ""):
 		return e, fmt.Errorf("is journal format %d and carries rendered rollback steps or an undo's withheld reason, which format 3 added", max(l.Format, 1))
+	// Format 4 added whether a call only read (format.go).
+	case l.Format < 4 && e.ReadOnlyCall:
+		return e, fmt.Errorf("is journal format %d and records a call that only read, which format 4 added", max(l.Format, 1))
+	case ReadOnlyCallProblem(e) != "":
+		return e, fmt.Errorf("records a call that only read, which no build writes there: %s", ReadOnlyCallProblem(e))
 	case e.InverseWithheld != "" && (e.InverseWithheld != engine.WithheldSecret || e.InverseComplete):
 		return e, fmt.Errorf("records an undo withheld for %s, which no build writes", termsafe.Quote(string(e.InverseWithheld)))
 	case authoredStepsProblem(e.AuthoredSteps) != "":

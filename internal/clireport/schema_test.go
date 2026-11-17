@@ -55,7 +55,7 @@ func fullRunReport() RunReport {
 				{{Node: "tasks[2]", DeviceID: "id-1", DeviceName: "r1", Emitter: "acme.make", FQCN: "acme.remove", Params: map[string]any{}, Name: "undo 2", Source: "recorded",
 					Collection: wire.CollectionIdentity{Group: "acme", Program: true, Manifests: "sha256:" + strings.Repeat("e", 64)}}}},
 			Left: []rollback.Gap{gap}, Unknown: []rollback.Gap{gap}, UnacceptedUnknown: 1, AlreadyUndone: []rollback.Gap{gap},
-			NothingToUndo: []rollback.Gap{gap}, OrderedByClock: []string{"0f8fad5b-d9cb-469f-a165-70867728950e"},
+			NothingToUndo: []rollback.Gap{gap}, Cleanups: []rollback.Gap{gap}, OrderedByClock: []string{"0f8fad5b-d9cb-469f-a165-70867728950e"},
 			Warnings:    []rollback.Warning{{Node: "tasks[0]", DeviceID: "id-1", DeviceName: "r1", Message: "--allow-skew accepted the undo"}},
 			Problems:    []rollback.Problem{{Node: "tasks[0]", DeviceID: "id-1", DeviceName: "r1", Reason: "no undo", Kind: "later_run", Accept: "--despite-run run-2", UnknownEffects: []string{"exec.shell"}}},
 			Provisional: []ProvisionalStep{{Name: "undo", Device: "r1", Reason: "an earlier step changes it"}},

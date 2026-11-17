@@ -35,6 +35,7 @@ var controllerRegistryReaders = map[string]map[string]string{
 		"Execute":           executorOnly,
 		"Check":             executorOnly,
 		"keepsUndo":         executorOnly,
+		"readsOnlyCall":     executorOnly + " (the journal projection is the Runner's)",
 		"declaredFacts":     executorOnly,
 		"resolveFQCN":       executorOnly + " (the journal projection is the Runner's)",
 		"projectResult":     executorOnly + " (the journal projection is the Runner's)",

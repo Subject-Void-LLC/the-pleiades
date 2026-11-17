@@ -284,6 +284,11 @@ func InverseWithheld(v string) predicate.JournalEntry {
 	return predicate.JournalEntry(sql.FieldEQ(FieldInverseWithheld, v))
 }
 
+// ReadOnlyCall applies equality check predicate on the "read_only_call" field. It's identical to ReadOnlyCallEQ.
+func ReadOnlyCall(v bool) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldEQ(FieldReadOnlyCall, v))
+}
+
 // CreatedAtEQ applies the EQ predicate on the "created_at" field.
 func CreatedAtEQ(v time.Time) predicate.JournalEntry {
 	return predicate.JournalEntry(sql.FieldEQ(FieldCreatedAt, v))
@@ -2717,6 +2722,16 @@ func InverseWithheldEqualFold(v string) predicate.JournalEntry {
 // InverseWithheldContainsFold applies the ContainsFold predicate on the "inverse_withheld" field.
 func InverseWithheldContainsFold(v string) predicate.JournalEntry {
 	return predicate.JournalEntry(sql.FieldContainsFold(FieldInverseWithheld, v))
+}
+
+// ReadOnlyCallEQ applies the EQ predicate on the "read_only_call" field.
+func ReadOnlyCallEQ(v bool) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldEQ(FieldReadOnlyCall, v))
+}
+
+// ReadOnlyCallNEQ applies the NEQ predicate on the "read_only_call" field.
+func ReadOnlyCallNEQ(v bool) predicate.JournalEntry {
+	return predicate.JournalEntry(sql.FieldNEQ(FieldReadOnlyCall, v))
 }
 
 // And groups predicates with the AND operator between them.

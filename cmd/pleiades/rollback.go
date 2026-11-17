@@ -138,7 +138,7 @@ func runRollback(args []string) error {
 	plan, err := planRollback(opts.dir, runID, rf)
 	report := &rollbackReport{Of: runID, Levels: plan.Levels, Left: plan.Left, Unknown: plan.Unknown,
 		UnacceptedUnknown: plan.UnacceptedUnknown, AlreadyUndone: plan.AlreadyUndone, NothingToUndo: plan.NothingToUndo,
-		OrderedByClock: plan.OrderedByClock, Warnings: plan.Warnings}
+		Cleanups: plan.Cleanups, OrderedByClock: plan.OrderedByClock, Warnings: plan.Warnings}
 	var refused *rollback.RefusedError
 	switch {
 	case errors.As(err, &refused):
@@ -397,7 +397,7 @@ func printGaps(plan rollback.Plan) {
 	for _, list := range []struct {
 		title string
 		gaps  []rollback.Gap
-	}{{"left in place", plan.Left}, {"unknown", plan.Unknown}, {"already undone", plan.AlreadyUndone}, {"nothing to undo", plan.NothingToUndo}} {
+	}{{"left in place", plan.Left}, {"unknown", plan.Unknown}, {"already undone", plan.AlreadyUndone}, {"nothing to undo", plan.NothingToUndo}, {"cleanup left in place", plan.Cleanups}} {
 		for _, g := range list.gaps {
 			where := g.Node
 			if g.DeviceName != "" {

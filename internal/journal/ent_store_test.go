@@ -762,6 +762,10 @@ func TestEntStoreRoundTripsEveryFieldByReflection(t *testing.T) {
 	want.Collection.Version = ""
 	want.Collection.Manifests = "sha256:" + strings.Repeat("c", 64)
 	want.InverseSpecDigest = "sha256:" + strings.Repeat("d", 64)
+	// No build writes a read-only answer on a program's method that changed
+	// the device, so the store clears it (readonly_call.go);
+	// readonly_call_test.go round-trips one a build writes.
+	want.ReadOnlyCall = false
 
 	if _, err := store.Save(ctx, []engine.JournalEntry{want}); err != nil {
 		t.Fatalf("Save: %v", err)

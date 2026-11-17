@@ -20,6 +20,15 @@ func TestConditionVarReads_ReadsEveryFormAndSurvivesBadInput(t *testing.T) {
 	if !reflect.DeepEqual(read, []string{"a", "d"}) || !reflect.DeepEqual(tested, []string{"b", "c"}) {
 		t.Errorf("read %v tested %v", read, tested)
 	}
+	// Ansible's is defined in a when: list tests the name as has() does, and
+	// in when_cel, which is CEL as written, it is no condition at all.
+	read, tested = conditionVarReads(engine.Conditional{When: engine.StringList{"vars.e is defined", "vars.f is not defined", "vars.g == 1"}})
+	if !reflect.DeepEqual(read, []string{"g"}) || !reflect.DeepEqual(tested, []string{"e", "f"}) {
+		t.Errorf("is defined: read %v tested %v", read, tested)
+	}
+	if read, tested := conditionVarReads(engine.Conditional{WhenCEL: "vars.e is defined"}); len(read)+len(tested) != 0 {
+		t.Errorf("is defined in when_cel read %v %v", read, tested)
+	}
 	if read, tested := conditionVarReads(engine.Conditional{WhenCEL: "vars.("}); len(read)+len(tested) != 0 {
 		t.Errorf("a condition that does not parse read %v %v", read, tested)
 	}

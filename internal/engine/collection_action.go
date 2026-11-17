@@ -436,12 +436,38 @@ func holdReadOnly(desc collection.Descriptor, fqcn string, params map[string]any
 		return nil
 	}
 	if changed {
-		return fmt.Errorf("collection method %q declares that it only reads, and reported a change", fqcn)
+		return &ReadOnlyBrokenError{FQCN: fqcn, Did: "reported a change"}
 	}
 	if _, undo := stats[sdk.StatInverse]; undo {
-		return fmt.Errorf("collection method %q declares that it only reads, and recorded an undo", fqcn)
+		return &ReadOnlyBrokenError{FQCN: fqcn, Did: "recorded an undo"}
 	}
 	return nil
+}
+
+// ReadOnlyBrokenError is holdReadOnly's failure: a built-in method declaring
+// that a call only reads reported a change or an undo for it. The call did
+// not only read, so the journal never records it as one
+// (JournalEntry.ReadOnlyCall), and a rollback counts its task as one that
+// may have changed the device.
+type ReadOnlyBrokenError struct {
+	// FQCN is the method; Did is what it did that a read does not.
+	FQCN, Did string
+}
+
+// Error names the method and what it did.
+func (e *ReadOnlyBrokenError) Error() string {
+	return fmt.Sprintf("collection method %q declares that it only reads, and %s", e.FQCN, e.Did)
+}
+
+// readsOnlyCall reports whether task, with the parameters it ran with, is a
+// call of a built-in method declaring that it only reads
+// (collection.Descriptor.ReadsOnly): the answer the journal records
+// (JournalEntry.ReadOnlyCall) for a rollback, which cannot ask the method
+// itself. An external Collection program's declaration is not honored, as
+// holdReadOnly does not hold it, and an engine action is no method.
+func readsOnlyCall(task *Task) bool {
+	desc, ok := collection.Lookup(task.FQCN)
+	return ok && desc.Provider == nil && desc.ReadsOnly(task.Params)
 }
 
 // secretRegistry is satisfied by a RunbookContext that kept the secrets a

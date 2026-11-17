@@ -50,6 +50,13 @@ func identityProblems(entry engine.JournalEntry) (engine.JournalEntry, []string)
 		reasons = append(reasons, "undo digest: it is not sha256:<64 lowercase hex digits>")
 		entry.InverseSpecDigest = ""
 	}
+	// A call the engine never records as one that only read (another's
+	// method, an engine action, a change) is stored as one that did not, so
+	// a rollback counts it as a possible change (readonly_call.go).
+	if why := ReadOnlyCallProblem(entry); why != "" {
+		reasons = append(reasons, "read-only answer: "+why)
+		entry.ReadOnlyCall = false
+	}
 	return entry, reasons
 }
 

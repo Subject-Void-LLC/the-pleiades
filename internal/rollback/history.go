@@ -73,6 +73,27 @@ func fullyUndone(run Run, others []Run) bool {
 	if len(changed) == 0 {
 		return false
 	}
+	done := undonePairs(run, others)
+	undone := false
+	for _, e := range changed {
+		if e.AuthoredRollbackEmpty {
+			// Nothing to undo, so no step was ever run for it.
+			continue
+		}
+		undone = true
+		if !done[pair{e.NodeID, e.DeviceID}] {
+			return false
+		}
+	}
+	// A run none of whose changes needed undoing was never rolled back at
+	// all: laterRunProblems names it as nothing to undo instead.
+	return undone
+}
+
+// undonePairs returns each change of run (a node on a device) that a
+// rollback of it, or its own rollback_on_failure, has undone: its undo has
+// a step on record, and every step's latest attempt succeeded.
+func undonePairs(run Run, others []Run) map[pair]bool {
 	type attempt struct {
 		entry engine.JournalEntry
 		ok    bool
@@ -92,31 +113,19 @@ func fullyUndone(run Run, others []Run) bool {
 			}
 		}
 	}
-	undone := false
-	for _, e := range changed {
-		if e.AuthoredRollbackEmpty {
-			// Nothing to undo, so no step was ever run for it.
-			continue
-		}
-		undone = true
-		p := pair{e.NodeID, e.DeviceID}
-		recorded := false
-		for k, a := range latest {
-			if k.pair != p {
-				continue
-			}
-			recorded = true
-			if !a.ok {
-				return false
-			}
-		}
-		if !recorded {
-			return false
+	done := map[pair]bool{}
+	failed := map[pair]bool{}
+	for k, a := range latest {
+		if a.ok {
+			done[k.pair] = true
+		} else {
+			failed[k.pair] = true
 		}
 	}
-	// A run none of whose changes needed undoing was never rolled back at
-	// all: laterRunProblems names it as nothing to undo instead.
-	return undone
+	for p := range failed {
+		delete(done, p)
+	}
+	return done
 }
 
 // laterRunProblems refuses undoing target beneath another run that has
@@ -168,8 +177,11 @@ func laterRunProblems(req Request, changed []engine.JournalEntry) ([]Problem, []
 		if basis == byClock && (slices.ContainsFunc(theirs, onDevices) || slices.ContainsFunc(failedActing, onDevices)) {
 			byClockRuns = append(byClockRuns, r.ID)
 		}
-		var changedOn, mayHaveOn, irreversible, unknown []string
-		undoable := false
+		var changedOn, mayHaveOn, irreversible, cleanups, unknown []string
+		undoable, undone := false, false
+		// What a rollback of r has already undone, which rolling it back
+		// again leaves alone.
+		done := undonePairs(r, req.Others)
 		// share notes e's device in list when the other run came later on
 		// one this rollback undoes on, and reports whether it did.
 		share := func(e engine.JournalEntry, list *[]string) bool {
@@ -189,8 +201,18 @@ func laterRunProblems(req Request, changed []engine.JournalEntry) ([]Problem, []
 			if !share(e, &changedOn) {
 				continue
 			}
+			// A change already undone, and a cleanup a rollback of r leaves in
+			// place, are not ones rolling r back would undo: counting them
+			// as undoable told the operator to roll r back first, and that
+			// rollback then said nothing was left, forever.
 			switch {
 			case e.AuthoredRollbackEmpty:
+			case done[pair{e.NodeID, e.DeviceID}]:
+				undone = true
+			case leftCleanup(e):
+				if !slices.Contains(cleanups, Printable(e.FQCN)) {
+					cleanups = append(cleanups, Printable(e.FQCN))
+				}
 			case e.AuthoredRollback || e.InverseFQCN != "":
 				undoable = true
 			case !slices.Contains(irreversible, Printable(e.FQCN)):
@@ -212,7 +234,9 @@ func laterRunProblems(req Request, changed []engine.JournalEntry) ([]Problem, []
 		slices.Sort(mayHaveOn)
 		slices.Sort(irreversible)
 		slices.Sort(unknown)
-		p := laterRun(r.ID, changedOn, mayHaveOn, undoable, irreversible, unknown)
+		slices.Sort(cleanups)
+		p := laterRun(laterFacts{id: r.ID, changed: changedOn, mayHave: mayHaveOn, undoable: undoable, undone: undone,
+			irreversible: irreversible, cleanups: cleanups, unknown: unknown})
 		switch basis {
 		case byUnfinished:
 			p.Reason += "; it never recorded its end on the project's run counter, and no run began after it stopped to record that it was gone, so it may have changed them at any time after this run began"
