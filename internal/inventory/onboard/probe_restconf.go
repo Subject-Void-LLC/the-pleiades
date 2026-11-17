@@ -41,6 +41,9 @@ func (restconfProber) Probe(ctx context.Context, device inventory.InventoryItem,
 	if err != nil {
 		return Probed{}, err
 	}
+	// A device refusing requests for too many sessions is waited out
+	// (pkg/restconf), within onboarding's own time, and the wait reported.
+	client.WaitsWithin("onboarding's time")
 	d, err := client.Discover(ctx)
 	if err != nil {
 		return Probed{}, err
@@ -50,6 +53,7 @@ func (restconfProber) Probe(ctx context.Context, device inventory.InventoryItem,
 	}
 	probed := restconfProbed(d)
 	probed.Warnings = append(warnings, probed.Warnings...)
+	probed.Warnings = append(probed.Warnings, client.SessionWarnings(device.Name())...)
 	if !client.Verified() {
 		probed.Warnings = append(probed.Warnings, "the device is reached over http://, so nothing proves which server answered this probe")
 	}

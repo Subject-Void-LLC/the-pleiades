@@ -141,6 +141,9 @@ func restconfTry(ctx context.Context, rc sdk.RunbookContext, device inventory.In
 		return "", "", nil, &stopWaiting{err: err}
 	}
 	defer client.Close()
+	// A device refusing requests for too many sessions is waited out within
+	// this try's own time, then tried again on the wait's schedule.
+	client.WaitsWithin("this try's time (the wait's per-try bound)")
 	root, err := client.DiscoverRoot(ctx)
 	if err == nil {
 		_, err = client.Capabilities(ctx)

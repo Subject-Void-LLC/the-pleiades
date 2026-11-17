@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/generic"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
@@ -71,6 +72,39 @@ func TestRestconfProbe_OnboardsFromTheDevicesOwnLibrary(t *testing.T) {
 	}
 	if again.Changed {
 		t.Errorf("a second onboarding of an unchanged device changed the record: %+v", again)
+	}
+}
+
+// TestRestconfProbe_ABusyDeviceIsWaitedOutAndSaid: a device refusing a read
+// for too many sessions, as IOS XE does past its cap, is waited out, and the
+// onboarding's result says how long; a cap that never frees ends onboarding
+// naming onboarding's own time.
+func TestRestconfProbe_ABusyDeviceIsWaitedOutAndSaid(t *testing.T) {
+	fast := restconf.WithPacing(context.Background(), restconf.Pacing{First: time.Millisecond, Max: 2 * time.Millisecond, PerRequest: time.Minute, PerTask: time.Minute})
+	opts := restconfLogin
+	opts.SessionCap, opts.SessionReleaseAfter = 1, 1
+	s := restconftest.New(t, opts)
+	repo, _ := newRepo(t, "rc1", generic.TypeRestconf, map[string]inventory.PropertyValue{
+		devicetls.CAPEMProperty: s.CAPEM(), generic.BaseURLProperty: s.URL,
+	})
+	res, err := onboardWith(fast, repo, "rc1", staticSecrets(restconftest.Secrets(s)), fixedNow, Lookup, options{})
+	if err != nil || res.State != "active" || s.SessionRefusals() == 0 {
+		t.Fatalf("onboarding a busy device = %+v, %v after %d refusals; want it active", res, err, s.SessionRefusals())
+	}
+	if !strings.Contains(strings.Join(res.Warnings, "\n"), "409 in-use, too many sessions") {
+		t.Errorf("warnings %q do not say the device's sessions were waited for", res.Warnings)
+	}
+
+	opts.SessionReleaseAfter = 0
+	s = restconftest.New(t, opts)
+	repo, _ = newRepo(t, "rc1", generic.TypeRestconf, map[string]inventory.PropertyValue{
+		devicetls.CAPEMProperty: s.CAPEM(), generic.BaseURLProperty: s.URL,
+	})
+	ctx, cancel := context.WithTimeout(fast, 50*time.Millisecond)
+	defer cancel()
+	res, err = onboardWith(ctx, repo, "rc1", staticSecrets(restconftest.Secrets(s)), fixedNow, Lookup, options{})
+	if err == nil || res.State == "active" || !strings.Contains(res.Error+err.Error(), "when onboarding's time ended") {
+		t.Errorf("onboarding a device whose cap never frees = %+v, %v; want it ended by onboarding's time", res, err)
 	}
 }
 
