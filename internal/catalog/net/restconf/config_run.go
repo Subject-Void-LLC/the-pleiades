@@ -59,6 +59,12 @@ func Config(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 	}
 	d, err := client.Discover(ctx)
 	if err != nil {
+		// A discovery that waited for sessions and then failed says so.
+		if waited := client.SessionWarnings(device.Name()); waited != nil {
+			if werr := sdk.RecordWarnings(rc, append(append([]string(nil), warnings...), waited...)); werr != nil {
+				err = errors.Join(err, werr)
+			}
+		}
 		return collection.Result{}, fmt.Errorf("%s: device %q: %w", configFQCN, device.Name(), err)
 	}
 	if err := confirmedRoot(d); err != nil {

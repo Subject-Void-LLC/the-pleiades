@@ -87,10 +87,27 @@ func write(ctx context.Context, rc sdk.RunbookContext, client *restconf.Client, 
 		// 2026-11-15); section 7 maps data-exists to 409 as well.
 		if req.method == restconf.MethodPost && errors.As(err, &status) && status.Status == http.StatusConflict &&
 			(status.HasTag("resource-denied") || status.HasTag("data-exists")) {
+			if status.Resent > 0 {
+				// The first try may have created it before the device
+				// refused it; the resource is the device's word, and no undo
+				// is recorded, since it may not be this run's.
+				return collection.Result{}, notes, &restconf.AnswerLostError{FirstTry: true, Err: fmt.Errorf(
+					"the post was refused for too many sessions and sent again (%d times), and the device then answered that the resource it would create is there (%w), which the first try may have created, so no undo is recorded", status.Resent, err)}
+			}
 			notes = append(notes, "the resource post would create is already there, and post never replaces one, so nothing changed: use put to make it match content")
 			return collection.Result{Changed: false}, notes, nil
 		}
+		if req.method == restconf.MethodDelete && errors.As(err, &status) && status.Status == http.StatusNotFound && status.Resent > 0 {
+			// The read before found it; the first try may have removed it.
+			return collection.Result{}, notes, firstTry(ctx, rc, client, req, had, maskedBefore, maskErr, fmt.Sprintf(
+				"the delete was refused for too many sessions and sent again (%d times), and the device then answered 404 (%v)", status.Resent, err))
+		}
 		return collection.Result{}, notes, err
+	}
+	if req.method == restconf.MethodPut && !had && written.Status != http.StatusCreated && written.Resent > 0 {
+		// A first try that created the resource leaves the resend a replace.
+		return collection.Result{}, notes, firstTry(ctx, rc, client, req, had, maskedBefore, maskErr, fmt.Sprintf(
+			"the put of a resource the read before did not find was refused for too many sessions and sent again (%d times), and the device then answered %d, not 201 Created, so no undo is recorded", written.Resent, written.Status))
 	}
 	if req.method != restconf.MethodPost {
 		readAt = req.path
@@ -108,6 +125,29 @@ func write(ctx context.Context, rc sdk.RunbookContext, client *restconf.Client, 
 		notes = append(notes, "the device answered the write, and the resource it created is not there to read")
 	}
 	return collection.Result{Changed: changed}, notes, recordDiff(rc, had, maskedBefore, maskErr, present, maskedAfter, afterErr)
+}
+
+// firstTry is the error for a write sent again after the device refused it
+// for too many sessions whose answer a first try having applied it would also
+// explain: IOS XE's refusal suggests a refused write was not applied, which
+// was never measured for writes. The resource is read after and the diff
+// recorded, so the error says where the resource stands; whether the first
+// try or the resend put it there is what is not known (AnswerLostError's
+// FirstTry), and no undo is recorded for it.
+func firstTry(ctx context.Context, rc sdk.RunbookContext, client *restconf.Client, req writeRequest, had bool, before string, beforeErr error, what string) error {
+	after, present, err := client.Read(ctx, req.datastore, req.path, req.mediaType)
+	if err != nil {
+		return &restconf.AnswerLostError{FirstTry: true, Err: fmt.Errorf("%s, and reading the resource after it failed: %w", what, err)}
+	}
+	maskedAfter, afterErr := recorded(rc, client, after)
+	if err := recordDiff(rc, had, before, beforeErr, present, maskedAfter, afterErr); err != nil {
+		return err
+	}
+	stands := "the read after found the resource there"
+	if !present {
+		stands = "the read after found the resource not there"
+	}
+	return &restconf.AnswerLostError{FirstTry: true, Err: fmt.Errorf("%s; %s", what, stands)}
 }
 
 // createdBy reads a write's answer: the resource the write created (a put's
