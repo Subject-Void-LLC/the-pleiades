@@ -444,6 +444,17 @@ func holdReadOnly(desc collection.Descriptor, fqcn string, params map[string]any
 	return nil
 }
 
+// readsOnlyCall reports whether task, with the parameters it ran with, is a
+// call of a built-in method declaring that it only reads
+// (collection.Descriptor.ReadsOnly): the answer the journal records
+// (JournalEntry.ReadOnlyCall) for a rollback, which cannot ask the method
+// itself. An external Collection program's declaration is not honored, as
+// holdReadOnly does not hold it, and an engine action is no method.
+func readsOnlyCall(task *Task) bool {
+	desc, ok := collection.Lookup(task.FQCN)
+	return ok && desc.Provider == nil && desc.ReadsOnly(task.Params)
+}
+
 // secretRegistry is satisfied by a RunbookContext that kept the secrets a
 // method registered while it ran (sdk.SecretRegistrar), which the executor
 // reads back once the method returns. Like FactCollector, it is the

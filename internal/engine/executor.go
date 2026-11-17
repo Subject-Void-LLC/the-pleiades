@@ -208,6 +208,12 @@ type NodeResult struct {
 	// most needs.
 	journalChanged bool
 
+	// readOnlyCall is readsOnlyCall of the task as it ran, for the journal
+	// (JournalEntry.ReadOnlyCall): set once the action has run, whether it
+	// succeeded or failed, since a failed read is the case a rollback asks
+	// about.
+	readOnlyCall bool
+
 	// background marks the result a background task (poll: 0) returns when
 	// it starts: not a change yet, and never journaled (async.go). fromJob
 	// marks a job's own result once collected, journaled under its node, its
@@ -1499,6 +1505,10 @@ func (r *run) runAction(ctx context.Context, cmd nodeExecution, result NodeResul
 	// sealed one only where this run publishes to a Controller
 	// (fact_digests.go).
 	actionResult.Stats = scrubResultDigests(actionResult.Stats, r.x.sealedDigests)
+	// Whether the call only read, asked of the parameters it ran with, for
+	// the journal: a read that failed changed nothing, and a rollback needs
+	// to tell it from a change that failed (JournalEntry.ReadOnlyCall).
+	result.readOnlyCall = readsOnlyCall(cmd.Task)
 	// Which stats are facts is the engine's to read, never a result's: the
 	// list is taken off every result, and kept only from a real run that
 	// succeeded, whose facts the run stores (facts.go).

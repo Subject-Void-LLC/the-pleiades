@@ -661,6 +661,20 @@ func (_c *JournalEntryCreate) SetNillableInverseWithheld(v *string) *JournalEntr
 	return _c
 }
 
+// SetReadOnlyCall sets the "read_only_call" field.
+func (_c *JournalEntryCreate) SetReadOnlyCall(v bool) *JournalEntryCreate {
+	_c.mutation.SetReadOnlyCall(v)
+	return _c
+}
+
+// SetNillableReadOnlyCall sets the "read_only_call" field if the given value is not nil.
+func (_c *JournalEntryCreate) SetNillableReadOnlyCall(v *bool) *JournalEntryCreate {
+	if v != nil {
+		_c.SetReadOnlyCall(*v)
+	}
+	return _c
+}
+
 // Mutation returns the JournalEntryMutation object of the builder.
 func (_c *JournalEntryCreate) Mutation() *JournalEntryMutation {
 	return _c.mutation
@@ -771,6 +785,10 @@ func (_c *JournalEntryCreate) defaults() {
 	if _, ok := _c.mutation.CollectionProgram(); !ok {
 		v := journalentry.DefaultCollectionProgram
 		_c.mutation.SetCollectionProgram(v)
+	}
+	if _, ok := _c.mutation.ReadOnlyCall(); !ok {
+		v := journalentry.DefaultReadOnlyCall
+		_c.mutation.SetReadOnlyCall(v)
 	}
 }
 
@@ -910,6 +928,9 @@ func (_c *JournalEntryCreate) check() error {
 	}
 	if _, ok := _c.mutation.CollectionProgram(); !ok {
 		return &ValidationError{Name: "collection_program", err: errors.New(`ent: missing required field "JournalEntry.collection_program"`)}
+	}
+	if _, ok := _c.mutation.ReadOnlyCall(); !ok {
+		return &ValidationError{Name: "read_only_call", err: errors.New(`ent: missing required field "JournalEntry.read_only_call"`)}
 	}
 	return nil
 }
@@ -1144,6 +1165,10 @@ func (_c *JournalEntryCreate) createSpec() (*JournalEntry, *sqlgraph.CreateSpec)
 	if value, ok := _c.mutation.InverseWithheld(); ok {
 		_spec.SetField(journalentry.FieldInverseWithheld, field.TypeString, value)
 		_node.InverseWithheld = value
+	}
+	if value, ok := _c.mutation.ReadOnlyCall(); ok {
+		_spec.SetField(journalentry.FieldReadOnlyCall, field.TypeBool, value)
+		_node.ReadOnlyCall = value
 	}
 	return _node, _spec
 }

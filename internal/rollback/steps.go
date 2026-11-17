@@ -33,7 +33,7 @@ func changesOf(run Run) (changed, unknown []engine.JournalEntry) {
 			if prev, seen := latest[p]; !seen || e.Attempt > prev.Attempt {
 				latest[p] = e
 			}
-		case e.Outcome == engine.OutcomeFailed && e.FailureStage == engine.FailureStageAction && !changesNothing(e.FQCN):
+		case e.Outcome == engine.OutcomeFailed && e.FailureStage == engine.FailureStageAction && !changesNothing(e):
 			unknown = append(unknown, e)
 		}
 	}
@@ -65,15 +65,29 @@ func changesOf(run Run) (changed, unknown []engine.JournalEntry) {
 	return changed, unknown
 }
 
-// changesNothing reports whether a task calling fqcn cannot have changed a
-// device: a built-in method that declares itself read-only (which the
-// engine holds it to), or an engine action that touches no device.
-func changesNothing(fqcn string) bool {
-	switch fqcn {
+// changesNothing reports whether e's call cannot have changed a device,
+// whether it succeeded or failed: a built-in method that declares itself
+// read-only (which the engine holds it to), a call the journal says only
+// read by its method's own declaration of the parameters it ran with
+// (JournalEntry.ReadOnlyCall, net.ios.command's show: the engine asks the
+// method, since neither the parameters nor the method reach this planner on
+// a Controller), or an engine action that touches no device.
+//
+// Before, only the manifest was asked, so a show that failed (IOS refused
+// the line, or the SSH handshake never finished) counted as a change nobody
+// could vouch for, and every rollback beneath its run needed --despite-run
+// (FAILURE_PATTERNS 1269). An entry that names an external Collection
+// program is never taken at its word here: the engine records no such
+// answer for one, so an entry that claims it was not written by the engine.
+func changesNothing(e engine.JournalEntry) bool {
+	switch e.FQCN {
 	case "noop", "set_metadata", "pleiades.builtin.set_metadata", "ios_backup":
 		return true
 	}
-	manifest, ok := collection.BuiltinManifest(fqcn)
+	if e.ReadOnlyCall && e.ProviderProgram == "" {
+		return true
+	}
+	manifest, ok := collection.BuiltinManifest(e.FQCN)
 	return ok && manifest.Reversibility.ReadOnly
 }
 

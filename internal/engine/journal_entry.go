@@ -438,6 +438,10 @@ func (r *run) projectResult(n NodeResult) (JournalEntry, error) {
 		projectInverse(&entry, n.journalStats, emitter, r.secrets.Snapshot())
 	}
 	entry.ActionChanged = n.journalChanged
+	// Whether the call only read, by its built-in method's own declaration of
+	// the parameters it ran with; never for an engine action, whose name a
+	// Collection cannot take but whose table this projection keeps apart.
+	entry.ReadOnlyCall = n.readOnlyCall && !resolved.engineAction
 	// Non-nil, not non-empty: rollback: [] is an authored undo of nothing.
 	entry.AuthoredRollback = task.Rollback != nil
 	entry.AuthoredRollbackEmpty = task.Rollback != nil && len(task.Rollback) == 0

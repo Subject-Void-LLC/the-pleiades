@@ -666,6 +666,10 @@ func init() {
 	journalentryDescCollectionProgram := journalentryFields[45].Descriptor()
 	// journalentry.DefaultCollectionProgram holds the default value on creation for the collection_program field.
 	journalentry.DefaultCollectionProgram = journalentryDescCollectionProgram.Default.(bool)
+	// journalentryDescReadOnlyCall is the schema descriptor for read_only_call field.
+	journalentryDescReadOnlyCall := journalentryFields[50].Descriptor()
+	// journalentry.DefaultReadOnlyCall holds the default value on creation for the read_only_call field.
+	journalentry.DefaultReadOnlyCall = journalentryDescReadOnlyCall.Default.(bool)
 	launchableMixin := schema.Launchable{}.Mixin()
 	launchableMixinFields0 := launchableMixin[0].Fields()
 	_ = launchableMixinFields0

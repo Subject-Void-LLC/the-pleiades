@@ -401,6 +401,20 @@ type JournalEntry struct {
 	// it.
 	ActionChanged bool `json:"action_changed"`
 
+	// ReadOnlyCall reports that the call, with the parameters it ran with,
+	// only reads by its built-in method's own declaration (kind 3): the
+	// manifest's Reversibility.ReadOnly, or the method's ReadOnlyCall
+	// answering true for those parameters (collection.Descriptor.ReadsOnly),
+	// as net.ios.command's does for a show. The executor asks it of the
+	// rendered parameters once the call has run (readsOnlyCall), and holds a
+	// call that succeeded to it (holdReadOnly). A rollback reads it to tell a
+	// failed read, which changed nothing, from a failed change, which may have
+	// changed part of a device: the parameters themselves are never journaled,
+	// and a Controller links no Collection to ask. False for an engine action,
+	// an external Collection program's method, whose declarations are not
+	// honored, and an entry written before the field existed (format 4).
+	ReadOnlyCall bool `json:"read_only_call,omitempty"`
+
 	// AuthoredRollback reports that the task carries a rollback: list in
 	// its runbook (kind 3), which a rollback runs instead of the recorded
 	// undo; an empty one, rollback: [], included, which says undoing the

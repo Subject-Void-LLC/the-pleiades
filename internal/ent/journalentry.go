@@ -123,7 +123,9 @@ type JournalEntry struct {
 	AuthoredSteps jsontext.Value `json:"authored_steps,omitempty"`
 	// InverseWithheld holds the value of the "inverse_withheld" field.
 	InverseWithheld string `json:"inverse_withheld,omitempty"`
-	selectValues    sql.SelectValues
+	// ReadOnlyCall holds the value of the "read_only_call" field.
+	ReadOnlyCall bool `json:"read_only_call,omitempty"`
+	selectValues sql.SelectValues
 }
 
 // scanValues returns the types for scanning values from sql.Rows.
@@ -133,7 +135,7 @@ func (*JournalEntry) scanValues(columns []string) ([]any, error) {
 		switch columns[i] {
 		case journalentry.FieldStatKeys, journalentry.FieldParamKeys, journalentry.FieldInverseParamKeys, journalentry.FieldInverseParams, journalentry.FieldAuthoredSteps:
 			values[i] = new([]byte)
-		case journalentry.FieldFqcnUnresolved, journalentry.FieldInverseFqcnUnresolved, journalentry.FieldDiffRecorded, journalentry.FieldInverseComplete, journalentry.FieldInversePartial, journalentry.FieldActionChanged, journalentry.FieldAuthoredRollback, journalentry.FieldAuthoredRollbackEmpty, journalentry.FieldCollectionProgram:
+		case journalentry.FieldFqcnUnresolved, journalentry.FieldInverseFqcnUnresolved, journalentry.FieldDiffRecorded, journalentry.FieldInverseComplete, journalentry.FieldInversePartial, journalentry.FieldActionChanged, journalentry.FieldAuthoredRollback, journalentry.FieldAuthoredRollbackEmpty, journalentry.FieldCollectionProgram, journalentry.FieldReadOnlyCall:
 			values[i] = new(sql.NullBool)
 		case journalentry.FieldID, journalentry.FieldAttempt, journalentry.FieldSequence, journalentry.FieldSkipOrdinal, journalentry.FieldSkipTotal, journalentry.FieldUndeclaredStatCount, journalentry.FieldUndeclaredParamCount, journalentry.FieldUndeclaredInverseParamCount, journalentry.FieldUndoesStep, journalentry.FieldRunTick, journalentry.FieldLeaseRevision:
 			values[i] = new(sql.NullInt64)
@@ -484,6 +486,12 @@ func (_m *JournalEntry) assignValues(columns []string, values []any) error {
 			} else if value.Valid {
 				_m.InverseWithheld = value.String
 			}
+		case journalentry.FieldReadOnlyCall:
+			if value, ok := values[i].(*sql.NullBool); !ok {
+				return fmt.Errorf("unexpected type %T for field read_only_call", values[i])
+			} else if value.Valid {
+				_m.ReadOnlyCall = value.Bool
+			}
 		default:
 			_m.selectValues.Set(columns[i], values[i])
 		}
@@ -675,6 +683,9 @@ func (_m *JournalEntry) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("inverse_withheld=")
 	builder.WriteString(_m.InverseWithheld)
+	builder.WriteString(", ")
+	builder.WriteString("read_only_call=")
+	builder.WriteString(fmt.Sprintf("%v", _m.ReadOnlyCall))
 	builder.WriteByte(')')
 	return builder.String()
 }

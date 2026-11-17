@@ -168,6 +168,7 @@ func (s *EntStore) saveOne(ctx context.Context, entry engine.JournalEntry) (bool
 		SetInverseComplete(entry.InverseComplete).
 		SetInversePartial(entry.InversePartial).
 		SetActionChanged(entry.ActionChanged).
+		SetReadOnlyCall(entry.ReadOnlyCall).
 		SetAuthoredRollback(entry.AuthoredRollback).
 		SetAuthoredRollbackEmpty(entry.AuthoredRollbackEmpty).
 		SetBecome(entry.Become).
@@ -363,6 +364,7 @@ func hydrateEntry(row *ent.JournalEntry) engine.JournalEntry {
 		InverseWithheld:             engine.WithheldReason(row.InverseWithheld),
 		InversePartial:              row.InversePartial,
 		ActionChanged:               row.ActionChanged,
+		ReadOnlyCall:                row.ReadOnlyCall,
 		AuthoredRollback:            row.AuthoredRollback,
 		AuthoredRollbackEmpty:       row.AuthoredRollbackEmpty,
 		AuthoredSteps:               hydrateAuthoredSteps(row.AuthoredSteps),

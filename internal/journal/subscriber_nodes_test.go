@@ -46,6 +46,9 @@ func recordedUndo(e engine.JournalEntry) engine.JournalEntry {
 	e.InverseComplete = true
 	e.InverseSpecDigest = digestOf("b")
 	e.Collection = wire.CollectionIdentity{Group: "file", Version: "0.4.0", Manifests: digestOf("a")}
+	// The claimed method's answer that the call only read is its own too,
+	// held to it as the undo is.
+	e.ReadOnlyCall = true
 	return e
 }
 
@@ -98,12 +101,12 @@ func TestSubscriber_StoresEachRowUnderItsNodesMethod(t *testing.T) {
 		byNode[e.NodeID] = e
 	}
 	cleared := func(e engine.JournalEntry) bool {
-		return e.Collection.IsZero() && e.InverseFQCN == "" && len(e.InverseParams) == 0 && !e.InverseComplete && e.InverseSpecDigest == ""
+		return e.Collection.IsZero() && e.InverseFQCN == "" && len(e.InverseParams) == 0 && !e.InverseComplete && e.InverseSpecDigest == "" && !e.ReadOnlyCall
 	}
 	if e := byNode["tasks[0]"]; e.FQCN != "acme.inventory.write" || e.FQCNUnresolved || !cleared(e) {
 		t.Errorf("the forged row was stored as %q (unresolved %v), identity %+v, undo %q: want the node's method and nothing it brought", e.FQCN, e.FQCNUnresolved, e.Collection, e.InverseFQCN)
 	}
-	if e := byNode["tasks[1].item[2]"]; e.FQCN != "file.permissions" || cleared(e) || e.InverseFQCN != "file.permissions" {
+	if e := byNode["tasks[1].item[2]"]; e.FQCN != "file.permissions" || cleared(e) || e.InverseFQCN != "file.permissions" || !e.ReadOnlyCall {
 		t.Errorf("the honest row lost what it carried: %+v", e)
 	}
 	if e := byNode["tasks[2]"]; e.FQCN != "pkg.install" {

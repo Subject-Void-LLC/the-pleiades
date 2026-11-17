@@ -35,7 +35,13 @@ import (
 // format-2 reader refuses the line by version rather than by an unknown key. A
 // format-2 line reads with none, and a step of it that reads what only the run
 // had is refused at rollback (internal/rollback's steps.go).
-const FormatVersion = 3
+//
+// Format 4 adds whether a call only read by its method's own declaration
+// ("read_only_call"), which a rollback reads to leave a failed read out of
+// what may have changed a device: a field a plan depends on, so the version is
+// raised. A format-3 line reads with it false, which plans the failed call as
+// an unknown effect, as that build did.
+const FormatVersion = 4
 
 // fileLine is the shape of one journal line: the entry, plus the format.
 //
