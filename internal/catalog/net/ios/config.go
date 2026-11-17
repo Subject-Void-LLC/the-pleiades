@@ -17,7 +17,6 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/clidialog"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
-	"github.com/Subject-Void-LLC/the-pleiades/pkg/iosconfig"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/netcfg"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/netcli"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
@@ -86,9 +85,14 @@ func init() {
 			Status:          collection.StatusImplemented,
 			Reversibility: collection.Reversibility{
 				Reversible: true,
-				Notes:      "Its undo returns the device to a checkpoint of its running configuration kept on the device (net.ios.replace, named by the file's path alone, so no configuration text reaches the journal), refusing when the device has changed since. A device with nowhere to keep one records no undo: the configuration lines that would undo the change are shown, masked, for the task's rollback: list, since lines read off the device never reach the journal.",
+				Notes:      "Its undo returns the device to a checkpoint of its running configuration kept on the device (net.ios.replace, named by the file's path alone, so no configuration text reaches the journal), refusing when the device has changed since. A device with nowhere to keep one records no undo: the configuration lines that would undo the change are shown, masked, for the task's rollback: list, since lines read off the device never reach the journal. A change to a switch's VLAN database alone, which no checkpoint holds, is undone by net.ios.config with lines removing the VLANs it made and putting back the names it changed; beside a configuration change, the return to the checkpoint is partial.",
 				Inverses: []sdk.InverseSpec{
 					{FQCN: replaceFQCN, Record: []string{"checkpoint", "expect", sdk.ParamInsecureTelnet}, MayKeepOnFailure: true, MayBePartial: true},
+					// A change to the VLAN database alone is undone by lines
+					// this method writes (vlanUndo): "no vlan N" and a VLAN's
+					// old name, numbers and names the switch holds, never a
+					// secret.
+					{FQCN: configFQCN, Record: []string{paramLines, sdk.ParamInsecureTelnet}},
 				},
 			},
 			SupportsCheck: true,
@@ -110,7 +114,7 @@ func configDoc() collection.Doc {
 		Description: "Opens an interactive session over SSH (or over Telnet, with insecure_telnet), using netcli.IOS's own paging, configuration-mode and error conventions, and applies lines as a batch: \"configure terminal\", each line in order, then \"end\". Aborts on the first line the device rejects (an IOS \"% ...\" error), still leaving configuration mode before returning that error. A \"% \" line IOS prints for a line it accepted is a notice, not a rejection, and is reported under notices: an access list entry, IKEv2 proposal or profile match already there, a key pair being made or replaced, and what removing one says first; accept adds the task's own. A line that changes key material (crypto key generate, zeroize, import, move, decrypt, encrypt) changes what the configuration does not hold, so its run reports changed whatever the configuration shows, and no checkpoint returns it: such a call's undo is never exact. " +
 			"A line that asks a question (removing a key pair asks to confirm) is answered from prompts, each answer written in the task, or by a model with ask, which picks one of the task's own choices by id or refuses; a question nothing answers (a line left ending in ?, [confirm], [yes/no] or asking for a password) fails the line at once, naming it, rather than waiting; anything else a device waits on, such as a banner's text, still waits until the read limit. " +
 			"Before the lines, it copies the running configuration to a checkpoint file on the device (its default writable disk or flash, such as unix: or flash:), and after them the device's own show archive config differences says what changed: no difference reports unchanged and deletes the checkpoint, so a second run of the same lines changes nothing. A change copies the configuration it left to a second checkpoint and records its undo as net.ios.replace naming both files, which returns the device exactly to the first (configure replace) and refuses if the device no longer matches the second. The files stay on the device until that undo runs. " +
-			"A device with no writable file system, or no configure replace, records no undo, with a warning: the configuration lines that would undo the change, written from its configuration read before and after it (the negation of each added line, each removed line put back), are reported under undo_lines, masked, for the task's rollback: list, since lines read off a device never reach the journal. A change inside an access list, a banner or a certificate has no such lines. checkpoint: false does the same on any device. The differences this reports are masked as net.batfish.check masks a candidate. " +
+			"A device with no writable file system, or no configure replace, records no undo, with a warning: the configuration lines that would undo the change, written from its configuration read before and after it (the negation of each added line, each removed line put back), are reported under undo_lines, masked, for the task's rollback: list, since lines read off a device never reach the journal. A change inside an access list, a banner or a certificate has no such lines. checkpoint: false does the same on any device. The differences this reports are masked as net.batfish.check masks a candidate. On a switch that keeps its VLANs outside the configuration (VTP server or client mode), lines that make or remove VLANs (vlan N, no vlan N, a list or a range) have the VLAN table read with show vlan brief before and after them: the VLANs they changed are reported under differences (+vlan 60, or a name changed under vlan 50), and a change to the VLAN database alone is undone by net.ios.config with lines that remove each VLAN made and put back each name changed. A VLAN removed, or whose state changed, cannot be made again exactly from that table, so such a change records no undo, saying why; beside a configuration change the return to the checkpoint is partial, since configure replace leaves the VLAN database as it is. A device that refuses show vlan brief is warned of. " +
 			"A check reads the running configuration over the same session and sends no line: each line is looked for, as written, in the block the lines before it entered and only there (a line that opens a block, such as interface or address-family, also where IOS would open it), so a line found only in an enclosing block, such as a neighbor under the router and not in the address family entered, is predicted to change. IOS leaves a submode for a global command, and the check follows it: when the lines are indented as show running-config indents them (\" switchport mode trunk\" under its interface), a line at the margin is at the top level, and a line the configuration holds at its top level and not in the current block is taken there wherever it is written. A new line among lines indented nowhere stays in the block before it, so write exit before it or indent the block's lines. On a switch, whose VLANs IOS keeps out of the running configuration in VTP server or client mode, a vlan N line the configuration lacks is held to show vlan brief (its VLAN and name), and a device that refuses that command has it predicted to change, with a warning. The lines not found are reported under differences as IOS reports a change (+ added, - what a no line removes, each under the block it sits in), masked as the backup is, with changed when there is one. A line IOS prints differently (an abbreviation such as int, or a default it does not print, such as no shutdown) is predicted to change. A call with a secret reference, prompts or ask, a crypto key line, a banner, end or a do line is reported unchecked, since only applying it tells what it changes.",
 		Params: append(append([]collection.Param{
 			{Name: paramLines, Type: "list of string", Required: true, Description: "The configuration lines to apply, in order, WITHOUT \"configure terminal\" or \"end\": this method supplies both itself. A line may name a stored secret, such as a pre-shared key, with a secret reference, {{ secret.<name>.<field> }} (pleiades add-secret): it is resolved just before the line is sent, and masked in everything the run reports. A line holding one holds no other template expression, and a value with whitespace, a control character or ? is refused.", Format: collection.ParamFormatCommand, SecretRefs: true},
@@ -162,6 +166,9 @@ func configUndoCall(params map[string]any) string {
 	if err != nil {
 		// A lines that is not a list of text is the body's refusal.
 		return ""
+	}
+	if touchesVLANs(lines) {
+		return "a vlan line changes the switch's VLAN database, which no checkpoint returns: its undo is exact only when the lines change nothing else and only make or rename VLANs, which only the run can tell"
 	}
 	for i, l := range lines {
 		switch {
@@ -381,13 +388,19 @@ func config(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 		return checkConfig(rc, running, vlans, lines)
 	}
 
+	// A switch's VLAN database is outside the configuration: the lines'
+	// effect on it is read from the VLAN table around them.
+	watch, err := watchVLANs(ctx, session, lines)
+	if err != nil {
+		return collection.Result{}, err
+	}
 	var warnings []string
 	if checkpoint {
 		before, after, err := takeCheckpoint(ctx, session)
 		switch {
 		case err == nil:
 			applyErr := applyLines(ctx, rc, session, lines, opts)
-			return finishCheckpoint(ctx, rc, session, params, before, after, changesKeys(lines), applyErr)
+			return finishCheckpoint(ctx, rc, session, params, checkpointPair{before, after}, changesKeys(lines), watch, applyErr)
 		case !errors.Is(err, errNoCheckpoint):
 			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 		}
@@ -400,7 +413,13 @@ func config(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 		_ = learnSecrets(rc, running)
 	}
 	applyErr := applyLines(ctx, rc, session, lines, opts)
-	return finishLines(ctx, rc, session, running, changesKeys(lines), applyErr, warnings)
+	return finishLines(ctx, rc, session, running, changesKeys(lines), watch, applyErr, warnings)
+}
+
+// checkpointPair is the checkpoint a change keeps before its lines and the
+// file the configuration they leave is saved to.
+type checkpointPair struct {
+	before, after string
 }
 
 // readConfigOptions reads prompts and ask (clidialog.ReadConfig) when the
@@ -468,128 +487,6 @@ func applyLines(ctx context.Context, rc sdk.RunbookContext, session iosSession, 
 		}
 	}
 	return applyErr
-}
-
-// finishCheckpoint ends a change made with a checkpoint: it asks the device
-// what the lines changed, deletes the checkpoint when nothing did, and
-// otherwise saves the configuration the change left and records the undo
-// that returns to the checkpoint. A change that failed part way keeps an
-// undo with no second checkpoint, since whatever reached the device is
-// on it.
-func finishCheckpoint(ctx context.Context, rc sdk.RunbookContext, session iosSession, params map[string]any, before, after string, keys bool, applyErr error) (collection.Result, error) {
-	const fqcn = configFQCN
-	diffs, diffErr := differences(ctx, session, before, runningConfig)
-	if applyErr != nil || diffErr != nil {
-		if recErr := recordReplace(rc, params, before, "", keys, true); recErr != nil {
-			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, recErr)
-		}
-		if applyErr != nil {
-			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, applyErr)
-		}
-		return collection.Result{}, fmt.Errorf("%s: after the change: %w", fqcn, diffErr)
-	}
-	if err := rc.SetStat(statDifferences, diffs); err != nil {
-		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
-	}
-	if len(diffs) == 0 {
-		if err := deleteFile(ctx, session, before); err != nil {
-			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
-		}
-		if keys {
-			// The configuration reads the same, and a key pair changed.
-			if err := sdk.RecordWarnings(rc, []string{keysWarning}); err != nil {
-				return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
-			}
-		}
-		return collection.Result{Changed: keys}, nil
-	}
-	if err := rc.SetStat(statCheckpoint, before); err != nil {
-		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
-	}
-	if err := saveRunning(ctx, session, after); err != nil {
-		// The change is on the device and its checkpoint is kept: the
-		// undo stands, only without the refusal a later change would get.
-		if recErr := recordReplace(rc, params, before, "", keys, true); recErr != nil {
-			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, recErr)
-		}
-		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
-	}
-	if keys {
-		if err := sdk.RecordWarnings(rc, []string{keysWarning}); err != nil {
-			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
-		}
-	}
-	if err := recordReplace(rc, params, before, after, keys, true); err != nil {
-		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
-	}
-	return collection.Result{Changed: true}, nil
-}
-
-// recordReplace records the undo that returns the device to before,
-// refusing if it no longer matches after when after is not empty. It
-// reaches the device the way the change did.
-func recordReplace(rc sdk.RunbookContext, params map[string]any, before, after string, partial, keepOnFailure bool) error {
-	undo := map[string]any{"checkpoint": before}
-	if after != "" {
-		undo["expect"] = after
-	}
-	carryTransport(params, undo)
-	return sdk.RecordInverse(rc, sdk.Inverse{
-		FQCN:          replaceFQCN,
-		Params:        undo,
-		Description:   fmt.Sprintf("Returns the device's configuration to the checkpoint %s, kept before this change.", before),
-		KeepOnFailure: keepOnFailure,
-		// A key pair the change made or removed is not in the checkpoint,
-		// so returning to it puts back the configuration and not the key.
-		Partial: partial,
-	})
-}
-
-// carryTransport copies the change's Telnet opt-in into its undo: a device
-// reached only over Telnet has no other way in, and the exposure is the
-// one the change's author already accepted for that device. Skipping host
-// key verification is never carried (pkg/collection refuses it): an undo
-// checks the host key like any task.
-func carryTransport(params, undo map[string]any) {
-	if sdk.BoolParam(params, sdk.ParamInsecureTelnet) {
-		undo[sdk.ParamInsecureTelnet] = true
-	}
-}
-
-// finishLines ends a change made without a checkpoint: it reads the
-// configuration again and writes, masked, the lines that would undo the
-// difference, for the task's rollback: list. It records no undo: the
-// lines are read off the device, which the journal never holds.
-func finishLines(ctx context.Context, rc sdk.RunbookContext, session iosSession, before string, keys bool, applyErr error, warnings []string) (collection.Result, error) {
-	const fqcn = configFQCN
-	after, err := session.Command(ctx, "show running-config")
-	if err != nil {
-		if applyErr != nil {
-			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, applyErr)
-		}
-		return collection.Result{}, fmt.Errorf("%s: reading the configuration after the change: %w", fqcn, err)
-	}
-	undo, invErr := iosconfig.Inverse(iosconfig.Parse(before), iosconfig.Parse(after))
-	changed := invErr != nil || len(undo) > 0 || keys
-	if keys {
-		warnings = append(warnings, keysWarning)
-	}
-	switch {
-	case invErr != nil:
-		warnings = append(warnings, fmt.Sprintf("no undo was recorded, and none can be written: %v; give the task a rollback: list", invErr))
-	case len(undo) > 0:
-		if err := rc.SetStat(statUndoLines, maskLines(undo)); err != nil {
-			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
-		}
-		warnings = append(warnings, "no undo was recorded: the lines that undo this change are under undo_lines (masked); copy them into the task's rollback: list")
-	}
-	if err := sdk.RecordWarnings(rc, warnings); err != nil {
-		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
-	}
-	if applyErr != nil {
-		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, applyErr)
-	}
-	return collection.Result{Changed: changed}, nil
 }
 
 // resolveLines returns a copy of lines with each secret reference resolved

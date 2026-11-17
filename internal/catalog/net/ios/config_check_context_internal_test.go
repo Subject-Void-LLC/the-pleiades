@@ -136,10 +136,10 @@ func TestPredictLines_IndentationDecidesOnlyTheMargin(t *testing.T) {
 		t.Errorf("got %q, want %q", got, want)
 	}
 	held := iosconfig.Parse("vlan 50\n name held\n!\nend")
-	if with := withVLANs(held, map[int]string{50: "other", 70: "VLAN0070"}); len(with) != 2 || len(with[0].Children) != 1 || with[0].Children[0].Line != "name held" || with[1].Line != "vlan 70" || len(with[1].Children) != 0 {
+	if with := withVLANs(held, map[int]vlan{50: {"other", "active"}, 70: {"VLAN0070", "active"}}); len(with) != 2 || len(with[0].Children) != 1 || with[0].Children[0].Line != "name held" || with[1].Line != "vlan 70" || len(with[1].Children) != 0 {
 		t.Errorf("withVLANs = %+v", with)
 	}
-	if vlans := parseVLANBrief(iolVLANBrief); len(vlans) != 6 || vlans[50] != "host1-segment" || vlans[1005] != "trnet-default" {
-		t.Errorf("parseVLANBrief = %v", vlans)
+	if vlans, err := parseVLANs(iolVLANBrief); err != nil || len(vlans) != 6 || vlans[50].name != "host1-segment" || vlans[1005].name != "trnet-default" {
+		t.Errorf("parseVLANs = %v, %v", vlans, err)
 	}
 }

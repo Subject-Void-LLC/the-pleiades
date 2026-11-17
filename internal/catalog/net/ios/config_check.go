@@ -69,7 +69,7 @@ func configCheckCall(params map[string]any) error {
 // checkConfig records the predicted differences of lines against running,
 // and the VLANs a switch keeps out of it (vlans, readVLANs), masked as the
 // backup is, and reports changed when there is one.
-func checkConfig(rc sdk.RunbookContext, running string, vlans map[int]string, lines []string) (collection.Result, error) {
+func checkConfig(rc sdk.RunbookContext, running string, vlans map[int]vlan, lines []string) (collection.Result, error) {
 	// The configuration's own secrets join the run's masking set, as a run's
 	// read of it does.
 	_ = learnSecrets(rc, running)
