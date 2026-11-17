@@ -18,7 +18,16 @@ var pcapTime = time.Date(2026, 11, 17, 3, 0, 0, 0, time.UTC)
 
 // servePCAP answers a capture's file by its key.
 func (c *Controller) servePCAP(w http.ResponseWriter, r *http.Request, key string) {
-	c.PCAPRequests = append(c.PCAPRequests, r.Proto+" "+r.Header.Get("Range"))
+	c.PCAPRequests = append(c.PCAPRequests, r.Method+" "+r.Proto+" "+r.Header.Get("Range"))
+	if r.Method != http.MethodGet && !(r.Method == http.MethodHead && c.PCAPHead) {
+		// As CML 2.7 answers HEAD on its GET-only route.
+		w.Header().Set("Allow", http.MethodGet)
+		fail(w, http.StatusMethodNotAllowed, "Method Not Allowed")
+		return
+	}
+	if r.Method == http.MethodGet {
+		c.pcapGets++
+	}
 	for _, lab := range c.Labs {
 		for _, l := range lab.Links {
 			if l.Capture == nil || l.Capture.Key != key {
@@ -27,14 +36,16 @@ func (c *Controller) servePCAP(w http.ResponseWriter, r *http.Request, key strin
 			data := c.PCAP
 			if c.PCAPAt != nil {
 				// A file the controller is still writing.
-				data = c.PCAPAt(len(c.PCAPRequests))
+				// A HEAD sees the file as the last GET did (the first
+				// GET's file before any).
+				data = c.PCAPAt(max(c.pcapGets, 1))
 			}
 			if data == nil {
 				data = emptyPCAP
 			}
 			w.Header().Set("Content-Type", "application/cap")
 			out := http.ResponseWriter(w)
-			if c.PCAPCuts > 0 {
+			if c.PCAPCuts > 0 && r.Method == http.MethodGet && r.Header.Get("Range") != "bytes=0-0" {
 				c.PCAPCuts--
 				out = &cutWriter{ResponseWriter: w, left: len(data) / 4}
 			}

@@ -1,7 +1,9 @@
 // A real controller's link state and packet capture: Cisco's DevNet CML
 // sandbox, as client_live_test.go reaches it. Two IOL XE nodes, linked and
 // booted, carry their own keepalive and CDP frames, which a capture takes and
-// the client fetches as a pcap; the link is stopped and started between.
+// the client waits for and fetches as a pcap holding at least the packets
+// the capture had taken before its stop; the link is stopped and started
+// between.
 package cml_test
 
 import (
@@ -11,6 +13,7 @@ import (
 	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/cml"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/pcapsum"
 )
 
 // TestClient_LinkStateAndCaptureOnARealController is the measurement and
@@ -83,8 +86,16 @@ func TestClient_LinkStateAndCaptureOnARealController(t *testing.T) {
 			break
 		}
 	}
-	if err := c.StopCapture(ctx, lab.ID, link); err != nil {
+	// The count just before the stop, which the whole file holds at least;
+	// a capture that already stopped at its bound reports none.
+	if status, err = c.CaptureStatus(ctx, lab.ID, link); err != nil {
 		t.Fatal(err)
+	}
+	taken := status.Packets
+	if status.Running {
+		if err := c.StopCapture(ctx, lab.ID, link); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if status, err = c.CaptureStatus(ctx, lab.ID, link); err != nil || status.Running {
 		t.Fatalf("a stopped capture's status = %+v, %v", status, err)
@@ -93,14 +104,19 @@ func TestClient_LinkStateAndCaptureOnARealController(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	data, err := c.FetchPCAP(ctx, key, 16<<20)
+	// The controller writes the file behind the capture, so it is waited
+	// for rather than fetched at once.
+	waitCtx, cancelWait := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancelWait()
+	data, err := c.AwaitPCAP(waitCtx, key, 16<<20, cml.Await{Packets: taken})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(data) <= 24 {
-		t.Fatalf("the capture holds %d bytes: no frame was captured in 30 s on a link between two booted routers", len(data))
+	summary, err := pcapsum.Read(data)
+	if err != nil || summary.Packets < taken || summary.Packets == 0 {
+		t.Fatalf("the capture holds %d packets (%v), and the controller had taken %d before the stop", summary.Packets, err, taken)
 	}
-	t.Logf("the capture is %d bytes, magic % x", len(data), data[:4])
+	t.Logf("the capture is %d bytes holding %d packets, %d taken before the stop", len(data), summary.Packets, taken)
 
 	if err := c.StopLink(ctx, lab.ID, link); err != nil {
 		t.Fatal(err)

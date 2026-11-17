@@ -121,20 +121,26 @@ type Controller struct {
 	// (Accept-Ranges, Range and If-Range, with an ETag); without it every
 	// answer is the whole file with its Content-Length.
 	PCAPRanges bool
-	// PCAPCuts is how many of the next /pcap/{key} answers are cut off a
+	// PCAPHead makes /pcap/{key} answer HEAD with the file's headers; without
+	// it HEAD is refused with 405 and "Allow: GET", as CML 2.7 refuses it.
+	PCAPHead bool
+	// PCAPCuts is how many of the next /pcap/{key} answers to a GET (other
+	// than a length's one-byte range, bytes=0-0) are cut off a
 	// quarter of the file's length into their body (so a ranged answer
 	// resumed after one cut is cut again), as a controller resetting the stream
 	// does: over HTTP/2 the client reads RST_STREAM with INTERNAL_ERROR,
 	// over HTTP/1.1 a connection closed short of its Content-Length.
 	PCAPCuts int
-	// PCAPAt, when set, is what the n'th /pcap/{key} request (from 1) is
+	// PCAPAt, when set, is what the n'th GET of /pcap/{key} (from 1) is
 	// answered with, in place of PCAP: a file the controller is still
 	// writing, as a real one writes a capture's file for minutes after the
 	// capture stops. It runs with Mu held, so it may set PCAPCuts itself.
 	PCAPAt func(n int) []byte
-	// PCAPRequests are each /pcap/{key} request's protocol and Range header,
-	// as "HTTP/2.0 bytes=100-", in order.
+	// PCAPRequests are each /pcap/{key} request's method, protocol and
+	// Range header, as "GET HTTP/2.0 bytes=100-", in order.
 	PCAPRequests []string
+	// pcapGets counts the GETs of /pcap/{key}, which PCAPAt is indexed by.
+	pcapGets int
 	// OnCall, when set, runs before each request is answered, with Mu held
 	// (so it changes the controller's labs directly and never locks Mu): a
 	// lab deleted or a node renamed between two of an import's calls, or a

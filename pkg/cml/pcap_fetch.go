@@ -95,7 +95,12 @@ type pcapFetch struct {
 	total int64
 	// ranges is whether that answer said the controller serves byte ranges,
 	// and validator its ETag (a strong one) or Last-Modified, which a resumed
-	// request sends as If-Range so a changed file is never spliced.
+	// request sends as If-Range. That is a courtesy, not the guard: a
+	// Last-Modified is one second coarse, and a file still being written can
+	// grow within that second. What keeps a changed file from being spliced
+	// is checkRange, which takes a partial answer only when its total is
+	// exactly the first answer's length, and begin, which takes a restarted
+	// whole answer only when its Content-Length is that length too.
 	ranges    bool
 	validator string
 	started   bool
@@ -139,6 +144,9 @@ func (c *Client) FetchPCAP(ctx context.Context, key string, max int64) ([]byte, 
 			return nil, fmt.Errorf("cml: GET /api/v0/pcap: %w (attempt %d of %d, %s in all%s)", err, attempt, fetchAttempts, time.Since(began).Round(time.Millisecond), after)
 		}
 		prev = err
+		if beforeRetry != nil {
+			beforeRetry(attempt)
+		}
 		select {
 		case <-ctx.Done():
 			return nil, fmt.Errorf("cml: GET /api/v0/pcap: %w, then %w", err, ctx.Err())
@@ -193,7 +201,7 @@ func (f *pcapFetch) attempt(parent context.Context) (bool, error) {
 		return false, &StatusError{Method: http.MethodGet, Path: "/pcap/<key>", Status: res.StatusCode, Body: string(body)}
 	}
 	room := f.max + 1 - int64(f.buf.Len())
-	_, err = io.Copy(&f.buf, &idleReader{r: io.LimitReader(res.Body, room), timer: idle})
+	_, err = io.Copy(&f.buf, &idleReader{r: io.LimitReader(res.Body, room), timer: idle, fire: func() { cancel(errFetchIdle) }})
 	if int64(f.buf.Len()) > f.max {
 		return false, f.overBound()
 	}
@@ -271,10 +279,24 @@ func explainCancel(ctx context.Context, err error) error {
 	return err
 }
 
+// beforeRetry, when set, runs after a failed attempt that will be made
+// again, before the wait, so a test can end the fetch there at a known
+// point. Nothing but a test sets it.
+var beforeRetry func(attempt int)
+
+// afterBodyRead, when set, runs after each read of a file's body with the
+// bytes read so far and a function that ends the fetch as the idle bound
+// does, so a test can end it at a known point rather than on a timer.
+// Nothing but a test sets it.
+var afterBodyRead func(read int, fireIdle func())
+
 // idleReader pushes the idle bound back each time bytes arrive.
 type idleReader struct {
 	r     io.Reader
 	timer *time.Timer
+	// fire ends the fetch as the idle bound does; read counts the bytes.
+	fire func()
+	read int
 }
 
 // Read implements io.Reader.
@@ -282,6 +304,10 @@ func (i *idleReader) Read(p []byte) (int, error) {
 	n, err := i.r.Read(p)
 	if n > 0 {
 		i.timer.Reset(fetchIdle)
+		i.read += n
+		if afterBodyRead != nil {
+			afterBodyRead(i.read, i.fire)
+		}
 	}
 	return n, err
 }

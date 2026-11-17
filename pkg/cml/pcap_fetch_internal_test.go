@@ -81,7 +81,7 @@ func TestFetchPCAP_ALargeCaptureOverHTTP2ComesWhole(t *testing.T) {
 	if err != nil || !bytes.Equal(got, want) {
 		t.Fatalf("FetchPCAP = %d bytes, %v", len(got), err)
 	}
-	if r := requests(ctl); len(r) != 1 || !strings.HasPrefix(r[0], "HTTP/2.0") {
+	if r := requests(ctl); len(r) != 1 || !strings.HasPrefix(r[0], "GET HTTP/2.0") {
 		t.Fatalf("requests %q: not one, over HTTP/2", r)
 	}
 }
@@ -100,7 +100,7 @@ func TestFetchPCAP_AStreamResetPartwayIsFetchedAgain(t *testing.T) {
 	if err != nil || !bytes.Equal(got, want) {
 		t.Fatalf("FetchPCAP = %d bytes, %v", len(got), err)
 	}
-	if r := requests(ctl); len(r) != 2 || r[1] != "HTTP/2.0 " {
+	if r := requests(ctl); len(r) != 2 || r[1] != "GET HTTP/2.0 " {
 		t.Fatalf("requests %q: not a second, whole one", r)
 	}
 }
@@ -139,7 +139,7 @@ func TestFetchPCAP_ResumesWhereTheStreamWasCut(t *testing.T) {
 		t.Fatalf("FetchPCAP = %d bytes, %v", len(got), err)
 	}
 	q := largeCapture / 4
-	wantReqs := []string{"HTTP/2.0 ", fmt.Sprintf("HTTP/2.0 bytes=%d-", q), fmt.Sprintf("HTTP/2.0 bytes=%d-", 2*q)}
+	wantReqs := []string{"GET HTTP/2.0 ", fmt.Sprintf("GET HTTP/2.0 bytes=%d-", q), fmt.Sprintf("GET HTTP/2.0 bytes=%d-", 2*q)}
 	if r := requests(ctl); strings.Join(r, "|") != strings.Join(wantReqs, "|") {
 		t.Fatalf("requests %q, not %q", r, wantReqs)
 	}
@@ -157,7 +157,7 @@ func TestFetchPCAP_AClosedHTTP1ConnectionIsFetchedAgain(t *testing.T) {
 	if err != nil || !bytes.Equal(got, want) {
 		t.Fatalf("FetchPCAP = %d bytes, %v", len(got), err)
 	}
-	if r := requests(ctl); len(r) != 2 || !strings.HasPrefix(r[1], "HTTP/1.1") {
+	if r := requests(ctl); len(r) != 2 || !strings.HasPrefix(r[1], "GET HTTP/1.1") {
 		t.Fatalf("requests %q", r)
 	}
 }
@@ -215,11 +215,16 @@ func TestFetchPCAP_AnUnstatedLengthIsRefusedAtTheBound(t *testing.T) {
 
 // TestFetchPCAP_TheIdleBoundEndsAStalledFetchOnce: a controller that stops
 // sending partway is given up on after the idle bound, which is not a cut
-// to fetch again.
+// to fetch again. The bound is fired from afterBodyRead once the six bytes
+// sent have been read, so it ends the fetch at that point and not on a
+// timer racing the answer's headers.
 func TestFetchPCAP_TheIdleBoundEndsAStalledFetchOnce(t *testing.T) {
-	old := fetchIdle
-	fetchIdle = 200 * time.Millisecond
-	t.Cleanup(func() { fetchIdle = old })
+	afterBodyRead = func(read int, fireIdle func()) {
+		if read >= 6 {
+			fireIdle()
+		}
+	}
+	t.Cleanup(func() { afterBodyRead = nil })
 	ctl, c := capturing(t, true, nil)
 	n := pcapHandler(ctl, func(_ int, w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Length", "1000")
@@ -228,7 +233,7 @@ func TestFetchPCAP_TheIdleBoundEndsAStalledFetchOnce(t *testing.T) {
 		<-r.Context().Done()
 	})
 	_, err := c.FetchPCAP(context.Background(), "k1", 16<<20)
-	if err == nil || !strings.Contains(err.Error(), "sent nothing for the idle bound (200ms)") || !strings.Contains(err.Error(), "after 6 of 1000 bytes") {
+	if err == nil || !strings.Contains(err.Error(), "sent nothing for the idle bound (1m0s)") || !strings.Contains(err.Error(), "after 6 of 1000 bytes") {
 		t.Fatalf("FetchPCAP: %v", err)
 	}
 	if *n != 1 {
@@ -240,11 +245,11 @@ func TestFetchPCAP_TheIdleBoundEndsAStalledFetchOnce(t *testing.T) {
 // keeps arriving for longer than the client's per-request timeout (a large
 // capture over a slow link) is read to its end; only idle time bounds it.
 func TestFetchPCAP_ADownloadOutlastingOneRequestsBoundIsWhole(t *testing.T) {
-	old := requestTimeout
-	requestTimeout = 300 * time.Millisecond
-	t.Cleanup(func() { requestTimeout = old })
 	want := bigPCAP(10 << 10)
 	ctl, c := capturing(t, true, nil)
+	// Shortened once logged in, so the login keeps its own minute and only
+	// the download, which lasts at least a second, outlasts it.
+	c.http.Timeout = 300 * time.Millisecond
 	pcapHandler(ctl, func(_ int, w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Length", strconv.Itoa(len(want)))
 		for i := 0; i < len(want); i += 1 << 10 {
@@ -340,9 +345,10 @@ func TestFetchPCAP_AnEndedContextStopsTheRetries(t *testing.T) {
 	fetchRetryWait = time.Hour
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	// Ended after the cut, as the fetch starts to wait its hour.
+	beforeRetry = func(int) { cancel() }
+	t.Cleanup(func() { beforeRetry = nil })
 	pcapHandler(ctl, func(_ int, w http.ResponseWriter, _ *http.Request) {
-		// Ended a second after the cut, while the fetch waits its hour.
-		time.AfterFunc(time.Second, cancel)
 		cutAt(w, bigPCAP(64<<10), 100)
 	})
 	_, err := c.FetchPCAP(ctx, "k1", 16<<20)

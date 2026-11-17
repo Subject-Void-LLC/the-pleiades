@@ -16,14 +16,19 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/cml"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/cml/cmltest"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 
-	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/virt/cml/capture"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/catalog/virt/cml/capture"
 )
+
+// A stop's wait reads the file's length every millisecond here, not every
+// five seconds.
+func init() { capture.SetAwaitPoll(time.Millisecond) }
 
 // projectContext is cmltest's context with a project directory to write
 // into, as the command line's has.
@@ -52,6 +57,12 @@ func (p *projectContext) WriteProjectFile(name string, data []byte, perm os.File
 // project at dir.
 func run(t *testing.T, ctl *cmltest.Controller, dir, fqcn string, check bool, params map[string]any) (collection.Result, *projectContext, error) {
 	t.Helper()
+	return runIn(context.Background(), t, ctl, dir, fqcn, check, params)
+}
+
+// runIn is run under ctx.
+func runIn(ctx context.Context, t *testing.T, ctl *cmltest.Controller, dir, fqcn string, check bool, params map[string]any) (collection.Result, *projectContext, error) {
+	t.Helper()
 	d, ok := collection.Lookup(fqcn)
 	if !ok {
 		t.Fatalf("%s is not registered", fqcn)
@@ -61,7 +72,7 @@ func run(t *testing.T, ctl *cmltest.Controller, dir, fqcn string, check bool, pa
 		call = d.Check
 	}
 	rc := &projectContext{Context: cmltest.NewContext(ctl), dir: dir}
-	res, err := call(context.Background(), rc, cmltest.NewDevice(t, ctl), params)
+	res, err := call(ctx, rc, cmltest.NewDevice(t, ctl), params)
 	return res, rc, err
 }
 
@@ -213,9 +224,14 @@ func TestCapture_ALargeCaptureIsWrittenWholeAfterAReset(t *testing.T) {
 	}
 	want := pcapFile(12<<20/1016, 1000)
 	ctl.Mu.Lock()
+	// The count the capture reports before the stop, which the file holds.
+	for _, l := range ctl.Labs {
+		l.Links[link].Capture.Packets = 12 << 20 / 1016
+	}
 	ctl.PCAPAt = func(n int) []byte {
 		if n == 3 {
-			// The fetch, after two reads of the length, is cut.
+			// The fetch, after two reads of the length (GETs, since HEAD
+			// is refused and no range is served), is cut.
 			ctl.PCAPCuts = 1
 		}
 		return want
@@ -231,17 +247,20 @@ func TestCapture_ALargeCaptureIsWrittenWholeAfterAReset(t *testing.T) {
 	}
 	ctl.Mu.Lock()
 	defer ctl.Mu.Unlock()
-	// Two reads of the length, a fetch cut, and the fetch again whole.
-	if len(ctl.PCAPRequests) != 4 || !strings.HasPrefix(ctl.PCAPRequests[0], "HTTP/2.0") {
-		t.Fatalf("pcap requests %q: not two reads of the length and two fetches, over HTTP/2", ctl.PCAPRequests)
+	// HEAD refused, two reads of the length, a fetch cut, and the fetch
+	// again whole.
+	wantReqs := "HEAD HTTP/2.0 |GET HTTP/2.0 bytes=0-0|GET HTTP/2.0 |GET HTTP/2.0 |GET HTTP/2.0 "
+	if got := strings.Join(ctl.PCAPRequests, "|"); got != wantReqs {
+		t.Fatalf("pcap requests %q, not %q", got, wantReqs)
 	}
 }
 
 // TestCapture_StopWaitsForEveryPacketItTook: a stop waits, up to its
 // timeout, for the file to hold every packet the capture had taken when it
 // was stopped, as a real controller writes the file behind the capture; a
-// file still short of them then is refused with how far it got, nothing
-// written, and a timeout out of range is refused before any call.
+// file still short of them when the wait ends (here at a known request) is
+// refused with how far it got, nothing written; the timeout ends a wait
+// that never would; and a timeout out of range is refused before any call.
 func TestCapture_StopWaitsForEveryPacketItTook(t *testing.T) {
 	ctl, link := linked(t)
 	dir := t.TempDir()
@@ -262,15 +281,63 @@ func TestCapture_StopWaitsForEveryPacketItTook(t *testing.T) {
 			t.Errorf("timeout %v: %v", bad, err)
 		}
 	}
-	// Long enough for two reads of the length five seconds apart and one
-	// fetch, and too short for the next.
-	stop["timeout"] = 7
-	_, _, err := run(t, ctl, dir, "virt.cml.capture.stop", false, stop)
-	if err == nil || !strings.Contains(err.Error(), "held 2 packets of the 3 the capture took") {
+	// Ended at the read of the length after the fetch (the fourth GET):
+	// whether that read is answered or not, the wait ends at that poll.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ctl.Mu.Lock()
+	ctl.PCAPAt = func(n int) []byte {
+		if n == 4 {
+			cancel()
+		}
+		return pcapFile(2, 4)
+	}
+	ctl.Mu.Unlock()
+	delete(stop, "timeout")
+	_, _, err := runIn(ctx, t, ctl, dir, "virt.cml.capture.stop", false, stop)
+	if err == nil || !strings.Contains(err.Error(), "held 2 packets of the 3 the capture took") || !strings.HasSuffix(err.Error(), "context canceled") {
 		t.Fatalf("stop: %v", err)
+	}
+	// The capture is stopped now, so its count is not known: a second stop
+	// waits on the length alone, which holds still, but the timeout of a
+	// second still ends it when the file never ends a record.
+	ctl.Mu.Lock()
+	ctl.PCAPAt = func(int) []byte { return pcapFile(2, 4)[:50] }
+	ctl.Mu.Unlock()
+	stop["timeout"] = 1
+	if _, _, err := run(t, ctl, dir, "virt.cml.capture.stop", false, stop); err == nil || !strings.Contains(err.Error(), "had not finished writing the capture file") || !strings.HasSuffix(err.Error(), "context deadline exceeded") {
+		t.Fatalf("stop with timeout 1: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "captures", "short.pcap")); !os.IsNotExist(err) {
 		t.Fatalf("a file short of its packets was written: %v", err)
+	}
+}
+
+// TestCapture_TheTimeoutBoundsACheck: a check's one fetch is bounded by the
+// task's timeout, not only by the minute a fetch may sit idle: a controller
+// that sends a file's first bytes and then nothing ends the check when the
+// timeout does.
+func TestCapture_TheTimeoutBoundsACheck(t *testing.T) {
+	ctl, link := linkedOn(t, cmltest.NewHTTP2(t, "admin", "pw"))
+	dir := t.TempDir()
+	if _, _, err := run(t, ctl, dir, "virt.cml.capture.start", false, map[string]any{"lab": "cvd", "link": link, "packets": 25000}); err != nil {
+		t.Fatal(err)
+	}
+	ctl.Mu.Lock()
+	ctl.OnCall = func(w http.ResponseWriter, r *http.Request) bool {
+		if !strings.Contains(r.URL.Path, "/pcap/") {
+			return false
+		}
+		w.Header().Set("Content-Length", "1000")
+		_, _ = w.Write([]byte{0xd4, 0xc3, 0xb2, 0xa1})
+		_ = http.NewResponseController(w).Flush()
+		<-r.Context().Done()
+		return true
+	}
+	ctl.Mu.Unlock()
+	_, _, err := run(t, ctl, dir, "virt.cml.capture.stop", true, map[string]any{"lab": "cvd", "link": link, "dest": "captures/c.pcap", "timeout": 1})
+	if err == nil || !strings.Contains(err.Error(), "context deadline exceeded") || strings.Contains(err.Error(), "idle bound") {
+		t.Fatalf("check: %v", err)
 	}
 }
 
