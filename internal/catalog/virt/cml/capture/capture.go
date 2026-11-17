@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/cml"
@@ -33,7 +34,19 @@ const (
 	paramSeconds = "seconds"
 	paramFilter  = "filter"
 	paramDest    = "dest"
+	paramTimeout = "timeout"
 )
+
+// defaultStopTimeout is how many seconds a stop waits, by default, for the
+// controller to finish writing the file: a real CML 2.7 controller took
+// about four minutes for 9 MB (2026-11-17), so a file at the 16 MiB bound
+// takes about eight.
+const defaultStopTimeout = 900
+
+// awaitPoll is how often a stop reads the file's length while it waits. It
+// is a variable only so this package's tests can wait in milliseconds
+// (export_test.go); nothing else sets it.
+var awaitPoll = cml.DefaultAwaitPoll
 
 // manifest is what both methods share, but for reversibility, check
 // support and documentation.
@@ -117,9 +130,10 @@ func StartDoc() collection.Doc {
 func StopDoc() collection.Doc {
 	return collection.Doc{
 		Summary:     "Stops a packet capture on a link of a CML lab and writes its file into the project.",
-		Description: "Stops the capture on the link named by link, or the one between a's a_interface and b's b_interface, and, with dest, fetches its pcap file from the controller and writes it into the project at dest (a path under the project directory, never .pleiades; up to 16 MiB, so bound a long capture with packets or seconds). A capture that already stopped at its bound is not stopped again, and its file is still fetched. The file is the packets as they crossed the wire: any cleartext that crossed is in it, so keep it with the project's other private files. Its result names the file, its size and SHA-256. The task's target is a cml_controller device; it writes only on the command line (pleiades run and adhoc), which holds the project. A check reads the capture and reports what it would do, writing nothing.",
+		Description: "Stops the capture on the link named by link, or the one between a's a_interface and b's b_interface, and, with dest, fetches its pcap file from the controller and writes it into the project at dest (a path under the project directory, never .pleiades; up to 16 MiB, so bound a long capture with packets or seconds; a file the controller says is larger is refused with its size before it is read). The controller writes the file behind the capture (CML 2.7 took about four minutes to write 25,593 packets, 9 MB, after the stop, and served it short until then), so the stop waits, up to timeout, until the file is whole: its length held still across one five-second poll, its last record complete, and at least as many packets in it as the capture reported just before this task stopped it. For a capture that had already stopped (at its own packets or seconds bound) that count is not known, and the length must hold still across three polls in a row (fifteen seconds) instead. Each poll reads the length from the headers of a request for the file whose download is then cut off (CML refuses HEAD and serves no byte ranges), and the file is downloaded whole only once its length holds, not on every poll. A capture that stopped at its own bound reports itself running until its file is whole (measured: 15,000 packets taken in 20 seconds, the file written for another 63 seconds at about 70 KB a second without a pause, and the capture reported stopped at the moment it was whole). A download the controller cuts off partway (it resets the HTTP/2 stream when the file grows during one) is asked for again, from where it stopped when the controller serves byte ranges and from the start otherwise, four tries in all; a download is bounded by a minute without a byte, not by its length. A capture that already stopped at its bound is not stopped again, and its file is still fetched. The file is the packets as they crossed the wire: any cleartext that crossed is in it, so keep it with the project's other private files. Its result names the file, its size and SHA-256. The task's target is a cml_controller device; it writes only on the command line (pleiades run and adhoc), which holds the project. A check reads the capture and reports what it would do, writing nothing.",
 		Params: append(linkParams(),
 			collection.Param{Name: paramDest, Type: "string", Description: "Where in the project to write the capture file, a name ending in .pcap or .pcapng, such as captures/core1-wan.pcap. Without it the capture is stopped and its file left on the controller.", Format: collection.ParamFormatProjectPath},
+			collection.Param{Name: paramTimeout, Type: "int", Default: "900", Description: "How many seconds to wait for the controller to finish writing the file, 1 to 86400; it also bounds a check's one fetch. A file still being written then is refused, naming how far it had got and how the last fetch ended, and nothing is written."},
 		),
 		Returns: []collection.ReturnField{
 			{Name: "id", Type: "string", Returned: "always", Description: "The link's id."},
@@ -232,6 +246,15 @@ func runStop(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 		return collection.Result{}, fmt.Errorf("%s: %w", stopFQCN, err)
 	}
 	dest := sdk.StringParam(params, paramDest)
+	timeout, set, err := sdk.IntParam(params, paramTimeout)
+	switch {
+	case err != nil:
+		return fail(err)
+	case !set:
+		timeout = defaultStopTimeout
+	case timeout < 1 || timeout > cml.MaxCaptureSeconds:
+		return fail(fmt.Errorf("%s must be 1 to %d seconds", paramTimeout, cml.MaxCaptureSeconds))
+	}
 	// A capture file, never another of the project's files: a runbook a
 	// later rollback reads as it ran must not be replaced by a pcap.
 	if dest != "" && !strings.HasSuffix(dest, ".pcap") && !strings.HasSuffix(dest, ".pcapng") {
@@ -276,7 +299,20 @@ func runStop(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 	if err != nil {
 		return fail(err)
 	}
-	data, err := client.FetchPCAP(ctx, key, sdk.MaxProjectFileWrite)
+	// The timeout bounds a check's one fetch as well as a run's wait: a
+	// fetch is otherwise bounded only by idle time.
+	waitCtx, cancel := context.WithTimeout(ctx, time.Duration(timeout)*time.Second)
+	defer cancel()
+	var data []byte
+	if mode == collection.ModeCheck {
+		// A check stops nothing, so the file is read as it stands.
+		data, err = client.FetchPCAP(waitCtx, key, sdk.MaxProjectFileWrite)
+	} else {
+		// The controller writes the file behind the capture: wait until
+		// it holds every packet the capture took (state.Packets, 0 when
+		// the capture had already stopped and the count is not known).
+		data, err = client.AwaitPCAP(waitCtx, key, sdk.MaxProjectFileWrite, cml.Await{Packets: state.Packets, Poll: awaitPoll})
+	}
 	if err != nil {
 		return fail(err)
 	}

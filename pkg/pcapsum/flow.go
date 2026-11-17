@@ -10,6 +10,7 @@ import (
 	"encoding/binary"
 	"net/netip"
 	"sort"
+	"time"
 )
 
 // The TCP flags read.
@@ -61,6 +62,8 @@ type entry struct {
 	proto string
 	bytes int
 	kind  kind
+	// dscp is the packet's DSCP.
+	dscp int
 }
 
 // flow is one TCP connection.
@@ -78,6 +81,10 @@ type flow struct {
 	// in; text is set when bytes framed as encrypted read as text.
 	unread int
 	text   bool
+	// api is the management API a request named (managementAPI), and span
+	// the flow's first and last time.
+	api  string
+	span timeSpan
 }
 
 // maxFlowCredentials bounds the credential header names kept for one flow;
@@ -115,10 +122,10 @@ func newTracker() *tracker {
 	return &tracker{current: map[flowKey]*flow{}}
 }
 
-// segment keeps pkt, a TCP segment counted under pr, for its flow; false
-// when its TCP header cannot be read, so it is counted by its port's name
-// now.
-func (t *tracker) segment(pr *Pair, pkt ipPacket, original int) bool {
+// segment keeps pkt, a TCP segment counted under pr and captured at at,
+// for its flow; false when its TCP header cannot be read, so it is counted
+// by its port's name now.
+func (t *tracker) segment(pr *Pair, pkt ipPacket, original int, at time.Time) bool {
 	tcp := pkt.payload
 	if len(tcp) < 20 {
 		return false
@@ -159,7 +166,8 @@ func (t *tracker) segment(pr *Pair, pkt ipPacket, original int) bool {
 	if !d.baseSet {
 		d.base, d.baseSet = seq, true
 	}
-	f.entries = append(f.entries, entry{pair: pr, proto: pkt.proto, bytes: original})
+	f.entries = append(f.entries, entry{pair: pr, proto: pkt.proto, bytes: original, dscp: pkt.dscp})
+	f.span.see(at)
 	data := tcp[off:]
 	// The data's length on the wire, by the IP header: never less than what
 	// was captured, and at most 65535, an IP header's 16 bits.
@@ -174,10 +182,11 @@ func (t *tracker) segment(pr *Pair, pkt ipPacket, original int) bool {
 	return true
 }
 
-// resolve reads every flow and counts its packets into s.
-func (t *tracker) resolve(s *Summary) {
+// resolve reads every flow and counts its packets into s, opts saying which
+// servers are management endpoints.
+func (t *tracker) resolve(s *Summary, opts Options) {
 	for _, f := range t.all {
-		if fl, ok := f.read(); ok {
+		if fl, ok := f.read(opts); ok {
 			s.Flows = append(s.Flows, fl)
 			s.CleartextCredentials += len(fl.CleartextCredentials)
 			s.HeadersUnread += fl.HeadersUnread
@@ -194,9 +203,18 @@ func (t *tracker) resolve(s *Summary) {
 	t.all, t.current = nil, nil
 }
 
+// Flagged reports whether f is one a reader must be told of: it carried a
+// credential in the clear, bytes framed as encrypted read as text, it was
+// management in the clear, or headers it carried in the clear could not be
+// searched, so a credential may have crossed unseen whatever the server.
+func (f Flow) Flagged() bool {
+	return len(f.CleartextCredentials) > 0 || f.CleartextInEncrypted || f.CleartextManagement || f.HeadersUnread > 0 && f.Cleartext > 0
+}
+
 // sortFlows puts flows carrying a credential in the clear first, then those
-// whose encrypted-looking bytes read as text, then the other cleartext
-// management flows, then most packets first.
+// whose encrypted-looking bytes read as text, then the other flagged ones
+// (management in the clear, or headers unsearched in the clear), then most
+// packets first.
 func sortFlows(flows []Flow) {
 	rank := func(f Flow) int {
 		switch {
@@ -204,7 +222,7 @@ func sortFlows(flows []Flow) {
 			return 0
 		case f.CleartextInEncrypted:
 			return 1
-		case f.CleartextManagement:
+		case f.Flagged():
 			return 2
 		}
 		return 3

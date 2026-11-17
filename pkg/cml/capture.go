@@ -5,17 +5,14 @@
 // them required) and an optional bpfilter; capture/stop ends it;
 // capture/status answers {config, packetscaptured, starttime} while it runs
 // and {} once it stops; capture/key names its key, a UUID; and GET
-// /pcap/{key} returns the file as application/cap.
+// /pcap/{key} returns the file as application/cap (pcap_fetch.go).
 package cml
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
-	"net/url"
 	"strings"
 )
 
@@ -122,58 +119,4 @@ func (c *Client) CaptureKey(ctx context.Context, lab, id string) (string, error)
 		return "", fmt.Errorf("cml: the controller gave a capture key this client will not put in a path")
 	}
 	return key, nil
-}
-
-// FetchPCAP returns the capture file the key names, refusing one over max
-// bytes rather than reading it all.
-func (c *Client) FetchPCAP(ctx context.Context, key string, max int64) ([]byte, error) {
-	if c.token == "" {
-		return nil, errors.New("cml: Connect first")
-	}
-	u, err := c.endpoint("/pcap/" + url.PathEscape(key))
-	if err != nil {
-		return nil, err
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Authorization", "Bearer "+c.token)
-	res, err := c.http.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("cml: GET /api/v0/pcap: %w", err)
-	}
-	defer func() { _ = res.Body.Close() }()
-	data, err := io.ReadAll(io.LimitReader(res.Body, max+1))
-	if err != nil {
-		return nil, fmt.Errorf("cml: GET /api/v0/pcap: reading the file: %w", err)
-	}
-	if res.StatusCode/100 != 2 {
-		return nil, &StatusError{Method: http.MethodGet, Path: "/pcap/<key>", Status: res.StatusCode, Body: string(data)}
-	}
-	if int64(len(data)) > max {
-		return nil, fmt.Errorf("cml: the capture is over %d bytes: bound it with fewer packets or less time", max)
-	}
-	if !isCapture(data) {
-		return nil, errors.New("cml: the controller's answer is not a pcap or pcapng file")
-	}
-	return data, nil
-}
-
-// The magic numbers a capture file begins with: pcap in either byte order,
-// with microsecond or nanosecond times, and pcapng's section header.
-var captureMagics = [][]byte{
-	{0xd4, 0xc3, 0xb2, 0xa1}, {0xa1, 0xb2, 0xc3, 0xd4},
-	{0x4d, 0x3c, 0xb2, 0xa1}, {0xa1, 0xb2, 0x3c, 0x4d},
-	{0x0a, 0x0d, 0x0d, 0x0a},
-}
-
-// isCapture reports whether data begins as a pcap or pcapng file does.
-func isCapture(data []byte) bool {
-	for _, m := range captureMagics {
-		if bytes.HasPrefix(data, m) {
-			return true
-		}
-	}
-	return false
 }

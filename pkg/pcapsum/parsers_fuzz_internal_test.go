@@ -23,6 +23,10 @@ type recordingSink struct {
 // sawGRPC implements headerSink.
 func (r *recordingSink) sawGRPC() { r.grpc = true }
 
+// sawTarget implements headerSink; a target is read and never kept, so the
+// sink checks only that reading it does not panic.
+func (r *recordingSink) sawTarget(target string) { _ = managementAPI(target) }
+
 // sawCredential implements headerSink.
 func (r *recordingSink) sawCredential(name string) { r.names = append(r.names, name) }
 

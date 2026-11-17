@@ -1,0 +1,1 @@
+`net.ios.config`'s check places a global line written after a block's lines at the top level, by the lines' indentation or by the line already being global in the configuration, and holds a `vlan N` line to `show vlan brief` on a switch that keeps its VLANs out of the running configuration.

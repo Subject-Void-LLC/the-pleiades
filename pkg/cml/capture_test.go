@@ -133,7 +133,7 @@ func TestCaptures_StartStopFetch(t *testing.T) {
 	ctl.PCAP = make([]byte, 4096)
 	copy(ctl.PCAP, []byte{0x0a, 0x0d, 0x0d, 0x0a})
 	ctl.Mu.Unlock()
-	if _, err := c.FetchPCAP(ctx, key, 1024); err == nil || !strings.Contains(err.Error(), "over 1024 bytes") {
+	if _, err := c.FetchPCAP(ctx, key, 1024); err == nil || !strings.Contains(err.Error(), "the capture is 4096 bytes, over the 1024") {
 		t.Fatalf("a capture over its bound: %v", err)
 	}
 	ctl.Mu.Lock()

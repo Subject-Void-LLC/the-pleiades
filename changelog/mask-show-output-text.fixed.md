@@ -1,0 +1,1 @@
+Show output and log lines that name a key or an authentication with no secret after them (show lacp neighbor's header, show ip ssh's Diffie Hellman key size, the CRYPTO_ENGINE key messages, SSH2_USERAUTH lines and show ip http server status's authentication method) are no longer partly masked.

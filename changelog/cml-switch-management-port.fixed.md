@@ -1,0 +1,1 @@
+`virt.cml.node.create` with `device:` on a switch definition (`ioll2-xe`, `iosvl2`, the Catalyst 9000v images) now writes `no switchport` before the management address, so the switch boots reachable; before, its management port stayed a switchport with no address.

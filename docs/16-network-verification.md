@@ -76,6 +76,17 @@ command: name the container, and the task's target is the container host.
       includes: [10.1.1.1]
 ```
 
+A trace also says what kind of path it found (`path`): `reached`; `loop`, when one router answered again after
+another had answered between them (a possible loop, or per-flow load balancing; a hop that did not answer is
+passed over); `unreached`, when some hop answered; or `unknown`, when none did. A run of
+hops that did not answer is never called a loop, since a filter, an ICMP rate limit and a loop all look the
+same from the host, so a trace no hop answered fails the task unless the only thing expected is
+`reached: false`. tracepath reads how many hops each reply came back over from its TTL, assuming the reply
+began at 64, 128 or 255: `asymmetric` and
+`return_hops` say whether the destination answered over a different number of hops than the probe went out
+over, `hop_details` gives the same for each hop, and `expect: {symmetric: true}` fails an asymmetric path.
+These count hops, so a return path of the same length through other routers still reads as symmetric.
+
 ### GNS3 and Cisco Modeling Labs
 
 A GNS3 project's nodes come from the server's own API, on a 3.x server (which needs a login) or a 2.2
@@ -412,9 +423,21 @@ crossed. Four `virt.cml` methods give both, each naming a link by `link:` (its i
 IP packet as encrypted, key exchange or cleartext, in all and per address pair. ESP and ESP in UDP 4500
 are encrypted and IKE is key exchange. Each TCP connection is read from its own bytes, never its port: SSH
 is key exchange up to NEWKEYS and encrypted after it, and TLS is key exchange in its handshake records and
-encrypted in its application data, so NETCONF over SSH and RESTCONF over TLS count as encrypted. HTTP/1.x
-and HTTP/2 in the clear (RESTCONF over plain HTTP, plaintext gRPC such as gNMI without TLS) are cleartext
-management: they are listed first in `flows`, and a header carrying a credential (`Authorization`, `Cookie`,
+encrypted in its application data, so NETCONF over SSH and RESTCONF over TLS count as encrypted. HTTP/1.x,
+HTTP/2 and gRPC in the clear to a management endpoint are cleartext management, listed first in `flows` and
+warned of. A server is one when a request names a management API by its path (RESTCONF's `/restconf`, gNMI's
+`/gnmi.gNMI/`, gNOI's `/gnoi.`, NX-API's `/ins` and `/api/aaaLogin.json`, eAPI's `/command-api`, IOS's
+`/level/15/exec`, IOS XE's `/webui`), or when the `management` parameter lists it by address or address and port:
+
+```yaml
+- name: Count what crossed, the routers' web interfaces counted as management
+  net.pcap.summary:
+    src: captures/core1-wan.pcap
+    management: [10.0.0.1, "10.0.0.2:80"]
+```
+
+A port alone never decides, so a lab's web server on 8080 is cleartext and not management. Every HTTP/1.x and
+HTTP/2 connection's headers are still searched, management or not: a header carrying a credential (`Authorization`, `Cookie`,
 `username`, `password` and the like) is named in `cleartext_credentials` and a warning, by its name and never
 its value. Credentials are searched in HTTP/1.x and HTTP/2 headers only: Telnet, FTP, SNMP communities, URL
 query strings and bodies are not searched, so `cleartext_credentials` 0 means no credential header was found,
@@ -424,6 +447,14 @@ TLS NULL cipher suite, the SSH none cipher, records forged around cleartext) are
 in `cleartext_in_encrypted`; ESP is counted encrypted whatever its cipher, ESP-NULL included. Everything else
 carried over IP is cleartext, and so is anything the method could not prove encrypted, such as a connection
 whose start the capture lacks or a packet the snapshot length cut down to its headers.
+
+Every IP packet is also counted by its DSCP mark (`dscp`, over the capture, in each pair and in each connection),
+named by its codepoint (`EF`, `AF41`, `CS6`) and the RFC 4594 service class that codepoint is recommended for
+(`Telephony`, `Multimedia Conferencing`, `Network Control`). The name is RFC 4594's even where a network uses
+a codepoint for another class (call signaling on CS3, which RFC 4594 gives to broadcast video), and a mark is
+what was written on the packet, not proof of how a queue treated it. Each connection also carries its `bytes`,
+its `first` and `last` packet times and `duration_seconds`, so a long, large connection (an elephant) stands
+out; UDP is counted by pair and mark, not as connections.
 
 "The sites' traffic crosses encrypted" is then a pair whose `cleartext` is 0 and whose `encrypted` count grew
 while traffic was sent. Whether it crossed inside the IPsec tunnel is the pair's `protocols.esp` (and
@@ -666,7 +697,7 @@ without the person's say-so.
 | `net.frr.config` | The whole intended configuration, applied through FRR's own `frr-reload.py` | yes | restores the backup it took |
 | `net.frr.interface` | An interface administratively up or down | yes | the state it found |
 | `wait.routes` | Waits until the routing table holds the routes given, through the next hops given, and has stopped changing | no (a wait) | read only |
-| `net.trace` | `tracepath` from a Linux device, or with `container` from a container on a `container_host` through its engine, failing when the path is not the one expected | yes | read only |
+| `net.trace` | `tracepath` from a Linux device, or with `container` from a container on a `container_host` through its engine, saying whether the path was reached, looped, stopped or is unknown and whether replies came back over as many hops, and failing when the path is not the one expected | yes | read only |
 | `net.ovs.bridge`, `net.ovs.port` | A bridge and its datapath, a port and its VLAN tag | yes | the state they found |
 | `net.batfish.check` | The candidate held to the model, before any change | yes | read only |
 | `pleiades.builtin.project.write` | Keeps text a run produced, such as a registered `running_config`, as a file in the project | yes | none (the project is under version control) |

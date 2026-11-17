@@ -45,8 +45,13 @@ func TestCheckConfig_PredictsFromTheRunningConfigAndSendsNothing(t *testing.T) {
 		// IOS takes a line in the submode first, so a line found only in an
 		// enclosing block is a change: a check errs toward change.
 		{"a line found only in the enclosing block is a change", []any{"router bgp 65000", "address-family ipv4", "neighbor 192.0.2.1 remote-as 65001"}, []string{"router bgp 65000", " address-family ipv4", "  +neighbor 192.0.2.1 remote-as 65001"}},
-		{"a top-level line written inside a block is a change", []any{"interface Loopback0", "hostname r1"}, []string{"interface Loopback0", " +hostname r1"}},
-		{"a line of a new block is a change wherever else it is", []any{"interface Loopback9", "hostname r1"}, []string{"+interface Loopback9", " +hostname r1"}},
+		// IOS leaves the submode for a global command: a line the
+		// configuration holds at its top level is taken there, unchanged
+		// (this predicted "+hostname r1" inside the interface before).
+		{"a top-level line written inside a block is taken at the top level", []any{"interface Loopback0", "hostname r1"}, []string{}},
+		// A new block's lines are never found in it, but a global command is
+		// still taken at the top level.
+		{"a global line after a new block is taken at the top level", []any{"interface Loopback9", "hostname r1"}, []string{"+interface Loopback9"}},
 		{"a no line looks only in the current block", []any{"router bgp 65000", "address-family ipv4", "no neighbor 192.0.2.1 remote-as 65001"}, []string{"router bgp 65000", " address-family ipv4", "  +no neighbor 192.0.2.1 remote-as 65001"}},
 		{"exit-address-family leaves the address family", []any{"router bgp 65000", "address-family ipv4", "neighbor 192.0.2.1 activate", "exit-address-family", "neighbor 192.0.2.1 remote-as 65001"}, []string{}},
 		{"a second interface is looked for at the top level", []any{"interface Loopback0", "description managed", "interface Loopback1", "description same"}, []string{}},
@@ -175,10 +180,27 @@ func TestPredictLines_NewBlocksAndNestedOpeners(t *testing.T) {
 // another VRF's address family is still found under the router.
 func TestPredictLines_ANeighborInAVRFIsNotTheRoutersNeighbor(t *testing.T) {
 	roots := iosconfig.Parse("router bgp 1\n neighbor 10.0.0.2 remote-as 2\n !\n address-family ipv4 vrf RED\n  neighbor 10.0.0.9 activate\n exit-address-family\n !\n address-family ipv4 vrf BLUE\n  neighbor 10.0.0.2 remote-as 2\n exit-address-family\n!\nend")
-	got := renderPredicted(predictLines(roots, []string{"router bgp 1", "address-family ipv4 vrf RED", "neighbor 10.0.0.2 remote-as 2", "address-family ipv4 vrf BLUE", "neighbor 10.0.0.2 remote-as 2"}))
 	want := []string{"router bgp 1", " address-family ipv4 vrf RED", "  +neighbor 10.0.0.2 remote-as 2"}
-	if !slices.Equal(got, want) {
-		t.Errorf("got %q, want %q", got, want)
+	// Written flat, indented as show running-config indents it, and with the
+	// neighbor one space in, level with the address family before it (where
+	// reading indentation as the block once found it under the router and
+	// predicted it unchanged): IOS adds it to the VRF each time.
+	for name, lines := range map[string][]string{
+		"flat":           {"router bgp 1", "address-family ipv4 vrf RED", "neighbor 10.0.0.2 remote-as 2", "address-family ipv4 vrf BLUE", "neighbor 10.0.0.2 remote-as 2"},
+		"indented":       {"router bgp 1", " address-family ipv4 vrf RED", "  neighbor 10.0.0.2 remote-as 2", " address-family ipv4 vrf BLUE", "  neighbor 10.0.0.2 remote-as 2"},
+		"level with it":  {"router bgp 1", " address-family ipv4 vrf RED", " neighbor 10.0.0.2 remote-as 2", " address-family ipv4 vrf BLUE", " neighbor 10.0.0.2 remote-as 2"},
+		"one space each": {"router bgp 1", " address-family ipv4 vrf RED", " neighbor 10.0.0.2 remote-as 2"},
+	} {
+		if got := renderPredicted(predictLines(roots, lines)); !slices.Equal(got, want) {
+			t.Errorf("%s: got %q, want %q", name, got, want)
+		}
+	}
+	// The same for a VRF's address family: route-target export written level
+	// with the address family stays in it.
+	vrf := iosconfig.Parse("vrf definition X\n rd 1:1\n route-target export 1:1\n !\n address-family ipv4\n exit-address-family\n!\nend")
+	got := renderPredicted(predictLines(vrf, []string{"vrf definition X", " address-family ipv4", " route-target export 1:1"}))
+	if want := []string{"vrf definition X", " address-family ipv4", "  +route-target export 1:1"}; !slices.Equal(got, want) {
+		t.Errorf("vrf: got %q, want %q", got, want)
 	}
 }
 

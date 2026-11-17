@@ -185,7 +185,10 @@ func TestSummary_WarnsOfTextInEncryptedAndUnsearchedHeaders(t *testing.T) {
 }
 
 // TestSummary_WarningsNameTenFlowsAndCountTheRest: eleven cleartext flows
-// make ten warning lines and one counting the eleventh.
+// to a listed management endpoint make ten warning lines and one counting
+// the eleventh. Unlisted, the same server asked for "/" is a web server:
+// cleartext, and neither management nor warned of, as the CML lab's
+// python http.server on 8080 was before.
 func TestSummary_WarningsNameTenFlowsAndCountTheRest(t *testing.T) {
 	dir := t.TempDir()
 	cl, sv := [4]byte{10, 0, 0, 1}, [4]byte{10, 0, 0, 2}
@@ -204,14 +207,33 @@ func TestSummary_WarningsNameTenFlowsAndCountTheRest(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "h2.pcap"), capture(frames...), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	_, rc, err := run(t, dir, map[string]any{"src": "h2.pcap", "flows": 3})
+	for _, listed := range []any{"10.0.0.2:8080", "10.0.0.2"} {
+		_, rc, err := run(t, dir, map[string]any{"src": "h2.pcap", "flows": 3, "management": []any{listed}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		stats := rc.(interface{ Facts() map[string]any }).Facts()
+		warns, _ := stats[sdk.StatWarnings].([]string)
+		if len(warns) != 11 || !strings.Contains(warns[10], "and 1 more") || !strings.Contains(warns[0], "http2 from 10.0.0.1:") || !strings.Contains(warns[0], "management: listed") || len(stats["flows"].([]any)) != 3 {
+			t.Fatalf("warnings = %q, flows %v", warns, stats["flows"])
+		}
+		if f := stats["flows"].([]any)[0].(map[string]any); f["management"] != "listed" || stats["cleartext_management"] != 11 {
+			t.Fatalf("listed %v: %v, %v", listed, f, stats["cleartext_management"])
+		}
+	}
+	_, rc, err := run(t, dir, map[string]any{"src": "h2.pcap"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	stats := rc.(interface{ Facts() map[string]any }).Facts()
-	warns, _ := stats[sdk.StatWarnings].([]string)
-	if len(warns) != 11 || !strings.Contains(warns[10], "and 1 more") || !strings.Contains(warns[0], "http2 from 10.0.0.1:") || len(stats["flows"].([]any)) != 3 {
-		t.Fatalf("warnings = %q, flows %v", warns, stats["flows"])
+	if warns, _ := stats[sdk.StatWarnings].([]string); len(warns) != 0 || stats["cleartext_management"] != 0 || stats["cleartext"] != 11 {
+		t.Fatalf("a web server: warnings %q, stats %v", warns, stats)
+	}
+	if _, _, err := run(t, dir, map[string]any{"src": "h2.pcap", "management": []any{"r1.lab"}}); err == nil || !strings.Contains(err.Error(), "neither an address") {
+		t.Fatalf("a host name in management: %v", err)
+	}
+	if _, _, err := run(t, dir, map[string]any{"src": "h2.pcap", "management": "10.0.0.2"}); err == nil {
+		t.Fatal("management that is not a list was taken")
 	}
 }
 
@@ -236,7 +258,18 @@ func TestSummary_CountsAWANCapture(t *testing.T) {
 	if stats["format"] != "pcap" || stats["packets"] != 4 || stats["encrypted"] != 3 || stats["cleartext"] != 1 || stats["key_exchange"] != 0 || stats["unexamined"] != 0 {
 		t.Fatalf("stats = %v", stats)
 	}
+	// Every packet is unmarked (DF, RFC 4594's Standard), and its pair's
+	// table says the same; the records' times are all the epoch.
+	if d := stats["dscp"].([]any); len(d) != 1 || d[0].(map[string]any)["name"] != "DF" || d[0].(map[string]any)["class"] != "Standard" || d[0].(map[string]any)["packets"] != 4 {
+		t.Fatalf("dscp = %v", stats["dscp"])
+	}
+	if stats["first"] != "1970-01-01T00:00:00Z" || stats["duration_seconds"] != 0.0 {
+		t.Fatalf("times: %v %v", stats["first"], stats["duration_seconds"])
+	}
 	pairs := stats["pairs"].([]any)
+	if d := pairs[0].(map[string]any)["dscp"].([]any); len(d) != 1 {
+		t.Fatalf("pair dscp = %v", d)
+	}
 	top := pairs[0].(map[string]any)
 	if len(pairs) != 2 || top["a"] != "172.16.1.1" || top["cleartext"] != 1 || top["encrypted"] != 2 {
 		t.Fatalf("pairs = %v", pairs)

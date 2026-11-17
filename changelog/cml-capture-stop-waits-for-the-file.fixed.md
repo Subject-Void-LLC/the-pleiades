@@ -1,0 +1,1 @@
+`virt.cml.capture.stop` now waits for the controller to finish writing a capture's file and takes it only whole. CML writes the file for minutes after a large capture stops, and the stop used to fetch it at once, writing a short file without saying so or failing with an HTTP/2 stream reset; a download the controller cuts off is now asked for again.

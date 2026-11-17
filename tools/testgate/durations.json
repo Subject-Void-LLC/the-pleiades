@@ -17,7 +17,7 @@
  "internal/catalog/db/pg": 43,
  "internal/catalog/facts/live": 20,
  "internal/catalog/file": 14,
- "internal/catalog/net": 7,
+ "internal/catalog/net": 49,
  "internal/catalog/net/batfish": 58,
  "internal/catalog/net/frr": 10,
  "internal/catalog/net/linux": 10,
