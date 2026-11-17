@@ -12,28 +12,44 @@ import (
 // undefined". CEL has no "is", so no item this matches is CEL already.
 var definedTest = regexp.MustCompile(`^\s*(.*?)\s+is\s+(not\s+)?(defined|undefined)\s*$`)
 
-// variableReference is what a definedness test may ask about: one of the
-// condition roots (CELVariableOptions) and one name under it, the form CEL's
-// has() takes. A deeper path is not one: has(vars.a.b) fails, where Ansible
-// answers false, when vars.a is not a mapping.
-var variableReference = regexp.MustCompile(`^(vars|result|nodes|stat|device|loop|item|error)\.[A-Za-z_][A-Za-z0-9_]*$`)
+// variableReference is what a definedness test may ask about: a run
+// variable, vars and one name under it, the form CEL's has() takes and the
+// one root whose answer is Ansible's. A deeper path is not one: has(vars.a.b)
+// fails, where Ansible answers false, when vars.a is not a mapping.
+var variableReference = regexp.MustCompile(`^vars\.[A-Za-z_][A-Za-z0-9_]*$`)
+
+// otherRoot is a subject on one of the other condition roots, which a
+// definedness test is refused on with its own reason.
+var otherRoot = regexp.MustCompile(`^(result|nodes|stat|device|loop|item|error)(\.|\[|$)`)
 
 // ansibleTest returns the CEL a when:, when_or:, until:, changed_when:,
-// failed_when: or that: item means: an item that is wholly "<ref> is
-// defined" (or "is not undefined") is has(<ref>), one that is "<ref> is not
-// defined" (or "is undefined") is !has(<ref>), and any other item is its own
-// CEL, returned as written. A definedness test of anything but a variable
-// reference (vars.region, result.probe) is refused, naming the form that
-// works, rather than handed to CEL to fail on the word "is". when_cel: is
-// never read here: it is CEL as written.
+// failed_when: or that: item means: an item that is wholly "vars.<name> is
+// defined" (or "is not undefined") is has(vars.<name>), one that is
+// "vars.<name> is not defined" (or "is undefined") is !has(vars.<name>), and
+// any other item is its own CEL, returned as written. when_cel: is never read
+// here: it is CEL as written.
+//
+// The test is asked only of a run variable, where has() answers as Ansible
+// does. Every other root is refused when the runbook is built, rather than
+// given an answer Ansible would not give: a register (result, nodes, stat) is
+// written only by a task that ran, where Ansible registers a skipped task's
+// result too, and result holds only a register exactly one device wrote, so
+// on two devices "result.probe is not defined" would run where Ansible skips
+// (the playbook converter refuses the same case); item.<name> fails on a
+// scalar item, where Ansible answers false; device, loop and error are the
+// platform's own. Anything else that is not a run variable is refused too,
+// rather than handed to CEL to fail on the word "is".
 func ansibleTest(expr string) (string, error) {
 	m := definedTest.FindStringSubmatch(expr)
 	if m == nil {
 		return expr, nil
 	}
 	subject, negated, word := m[1], m[2] != "", m[3]
-	if !variableReference.MatchString(subject) {
-		return "", fmt.Errorf("`%s` tests whether something is defined, which is asked only of a variable reference, a root and one name such as vars.region or result.probe; for anything else write has() in when_cel:, testing each level of a path", expr)
+	switch {
+	case otherRoot.MatchString(subject):
+		return "", fmt.Errorf("`%s` tests whether something is defined, which is asked here only of a run variable (vars.<name>): a registered result (result, nodes, stat) exists only for a task that ran, where Ansible registers a skipped task's too, and result holds one only a single device wrote, so the answer would not be Ansible's; an item may not be a mapping; write the condition you mean with has() in when_cel:", expr)
+	case !variableReference.MatchString(subject):
+		return "", fmt.Errorf("`%s` tests whether something is defined, which is asked here only of a run variable, vars and one name such as vars.region; for anything else write has() in when_cel:, testing each level of a path", expr)
 	}
 	// "is not undefined" asks what "is defined" does, and "is undefined"
 	// what "is not defined" does.

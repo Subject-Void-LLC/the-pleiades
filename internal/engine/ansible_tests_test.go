@@ -91,29 +91,36 @@ func TestWhen_IsDefinedDecidesAsHasDoes(t *testing.T) {
 	}
 }
 
-// TestWhen_IsDefinedOnlyOfAVariableReference: a definedness test of a
-// deeper path, a literal or a bare name is refused when the runbook is
-// built, naming the form that works, in when: and in failed_when:; in when_cel,
-// which is CEL as written, it is CEL's own parse error.
-func TestWhen_IsDefinedOnlyOfAVariableReference(t *testing.T) {
+// TestWhen_IsDefinedOnlyOfARunVariable: a definedness test of a register,
+// an item or any other root is refused when the runbook is built, saying why
+// its answer would not be Ansible's (a register two devices wrote is absent
+// from result, so "result.probe is not defined" would run where Ansible
+// skips); a deeper path, a literal or a bare name is refused naming the form
+// that works; both in when: and in failed_when:; in when_cel, which is CEL as
+// written, it is CEL's own parse error.
+func TestWhen_IsDefinedOnlyOfARunVariable(t *testing.T) {
 	eval, err := engine.NewCELEvaluator()
 	if err != nil {
 		t.Fatal(err)
 	}
 	build := func(key, expr string) error {
-		_, err := engine.NewBuilder(eval).BuildFromYAML([]byte("id: refused\nhosts: web\ntasks:\n  - name: t\n    " + key + ": \"" + expr + "\"\n    register: out\n    noop: {}\n"))
+		_, err := engine.NewBuilder(eval).BuildFromYAML([]byte("id: refused\nhosts: web\ntasks:\n  - name: probe\n    register: probe\n    noop: {}\n  - name: t\n    " + key + ": \"" + expr + "\"\n    register: out\n    noop: {}\n"))
 		return err
 	}
-	for _, expr := range []string{"vars.a.b is defined", "'x' is defined", "region is defined", "vars['a'] is not defined", "size(vars) is undefined"} {
-		err := build("when", expr)
-		if err == nil || !strings.Contains(err.Error(), "asked only of a variable reference") {
-			t.Errorf("when: %s: err = %v, want the variable-reference refusal", expr, err)
+	for _, expr := range []string{"result.probe is not defined", "result.probe is defined", "nodes.probe is defined", "stat.probe is undefined", "item.port is defined", "device.site is defined"} {
+		if err := build("when", expr); err == nil || !strings.Contains(err.Error(), "only of a run variable (vars.<name>): a registered result") {
+			t.Errorf("when: %s: err = %v, want the other-root refusal", expr, err)
 		}
 	}
-	if err := build("failed_when", "vars.a.b is defined"); err == nil || !strings.Contains(err.Error(), "asked only of a variable reference") {
-		t.Errorf("failed_when: err = %v, want the variable-reference refusal", err)
+	for _, expr := range []string{"vars.a.b is defined", "'x' is defined", "region is defined", "vars['a'] is not defined", "size(vars) is undefined"} {
+		if err := build("when", expr); err == nil || !strings.Contains(err.Error(), "only of a run variable, vars and one name") {
+			t.Errorf("when: %s: err = %v, want the run-variable refusal", expr, err)
+		}
 	}
-	if err := build("when_cel", "vars.a is defined"); err == nil || strings.Contains(err.Error(), "asked only of a variable reference") {
+	if err := build("failed_when", "result.probe is defined"); err == nil || !strings.Contains(err.Error(), "a registered result") {
+		t.Errorf("failed_when: err = %v, want the other-root refusal", err)
+	}
+	if err := build("when_cel", "vars.a is defined"); err == nil || strings.Contains(err.Error(), "run variable") {
 		t.Errorf("when_cel: err = %v, want CEL's own parse error", err)
 	}
 	// A string that merely holds the words is CEL, and compiles as it is.
@@ -142,18 +149,15 @@ tasks:
 }
 
 // TestConditionSources_ReadIsDefinedAsHas: the readers that parse a
-// condition (which registers it reads, which it tests for) read an Ansible
-// is defined as the has() it compiles to.
+// condition (which variables it reads, which it tests for) read an Ansible
+// is defined as the has() it compiles to, and an item refused is read as
+// written, for Compile to refuse.
 func TestConditionSources_ReadIsDefinedAsHas(t *testing.T) {
-	c := engine.Conditional{When: engine.StringList{"result.probe is defined", "result.other is not defined", "", "vars.x.y is defined"}}
+	c := engine.Conditional{When: engine.StringList{"vars.probe is defined", "vars.other is not defined", "", "result.x is defined"}}
 	got := c.Sources()
-	want := []string{"has(result.probe)", "!has(result.other)", "vars.x.y is defined"}
+	want := []string{"has(vars.probe)", "!has(vars.other)", "result.x is defined"}
 	if strings.Join(got, "|") != strings.Join(want, "|") {
 		t.Errorf("Sources = %q, want %q", got, want)
-	}
-	tested, err := engine.ConditionTestsPresence(engine.Conditional{When: engine.StringList{"result.probe is defined"}})
-	if err != nil || !tested["probe"] {
-		t.Errorf("ConditionTestsPresence = %v, %v, want probe tested", tested, err)
 	}
 	if got := (engine.Conditional{WhenCEL: "has(vars.a)"}).Sources(); len(got) != 1 || got[0] != "has(vars.a)" {
 		t.Errorf("when_cel Sources = %q", got)
