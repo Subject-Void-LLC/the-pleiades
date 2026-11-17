@@ -29,6 +29,9 @@ func SetClockLockWait(t interface{ Cleanup(func()) }, d time.Duration) {
 	t.Cleanup(func() { clockLockWait = old })
 }
 
+// CommandOf is how the counter's lock holder names its process.
+var CommandOf = commandOf
+
 // DieForTest drops a store's hold on its run marker without removing it, as
 // the OS does when the process running it dies.
 func DieForTest(s *FileStore) {

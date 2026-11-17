@@ -118,7 +118,10 @@ func NextTick(root string) (uint64, error) {
 }
 
 // lockClock takes the counter's own lock, waiting up to clockLockWait for
-// another run's tick, and returns the function that releases it.
+// another run's tick, and returns the function that releases it. It is held
+// around one tick's read and write alone (TickClock, NextTick), never across
+// a run, so a wait that runs out is a holder stopped or stuck inside that
+// write, and the refusal names it (clock_holder.go).
 func lockClock(dir string) (func() error, error) {
 	path := filepath.Join(dir, clockLockName)
 	// #nosec G304 -- the project directory joined with this package's own
@@ -136,13 +139,17 @@ func lockClock(dir string) (func() error, error) {
 		if !errors.Is(err, errLockHeld) || time.Now().After(deadline) {
 			_ = f.Close()
 			if errors.Is(err, errLockHeld) {
-				return nil, fmt.Errorf("the run counter's lock %s was held for over %s", path, clockLockWait)
+				return nil, fmt.Errorf("the run counter's lock %s was held for over %s, %s", path, clockLockWait, describeClockHolder(dir, time.Now()))
 			}
 			return nil, fmt.Errorf("failed to lock %s: %w", path, err)
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
+	// Who holds it, for a tick that waits too long; cleared before the lock
+	// is let go, so a waiter never names a holder that has gone.
+	holder := writeClockHolder(dir, time.Now())
 	return func() error {
+		holder()
 		return errors.Join(unlockFile(f), f.Close())
 	}, nil
 }
