@@ -135,6 +135,40 @@ func TestCreate_ASeededNodeBootsAsItsInventoryDevice(t *testing.T) {
 	}
 }
 
+// TestCreate_EachDefinitionsManagementInterface: every IOS definition a seed
+// covers gets its management address on a port that can hold one. A switch
+// definition's ports boot as switchports, which take no VRF and no address,
+// so its management interface is made a routed port first; a router's needs
+// no such line. The block is read whole, so a "no switchport" written after
+// the address (where IOS would already have refused the address) fails too.
+func TestCreate_EachDefinitionsManagementInterface(t *testing.T) {
+	routed := " vrf forwarding Mgmt-intf\n ip address 10.10.20.181 255.255.255.0\n no shutdown\n"
+	for definition, iface := range map[string]string{
+		"iol-xe": "Ethernet0/0", "iosv": "GigabitEthernet0/0", "csr1000v": "GigabitEthernet1", "cat8000v": "GigabitEthernet1",
+		"ioll2-xe": "Ethernet0/0", "iosvl2": "GigabitEthernet0/0", "cat9000v-q200": "GigabitEthernet1/0/1", "cat9000v-uadp": "GigabitEthernet1/0/1",
+	} {
+		t.Run(definition, func(t *testing.T) {
+			f := newFixture(t)
+			_, rc, err := f.run("virt.cml.node.create", false, map[string]any{"lab": "cvd", "label": "N1", "definition": definition,
+				"device": "N1", "management_interface": iface, "management_gateway": "10.10.20.254"}, coreSeed(t))
+			if err != nil {
+				t.Fatal(err)
+			}
+			cfg := f.ctl.Labs[f.lab.ID].Nodes[rc.Stats["id"].(string)].Configuration
+			want := "interface " + iface + "\n" + routed
+			if strings.HasPrefix(definition, "ioll2") || strings.HasPrefix(definition, "iosvl2") || strings.HasPrefix(definition, "cat9000v") {
+				want = "interface " + iface + "\n no switchport\n" + routed
+			}
+			if !strings.Contains(cfg, want) {
+				t.Errorf("the management interface is not\n%s\nin:\n%s", want, cfg)
+			}
+			if strings.Count(cfg, "switchport") != strings.Count(want, "switchport") {
+				t.Errorf("switchport lines elsewhere in:\n%s", cfg)
+			}
+		})
+	}
+}
+
 // TestCreate_PlainAndConsoleNodes: a node standing for no device boots on
 // the configuration as given; one standing for a device with no address of
 // its own gets the login and no management interface.

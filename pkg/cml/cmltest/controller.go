@@ -35,8 +35,10 @@ var Interfaces = map[string][]string{
 // controller already running as many nodes as its license allows.
 const NodeLimitRefusal = "Licensing issue: Maximum node count exceeded."
 
-// Definitions are the node definitions the controller offers.
-var Definitions = []string{"iol-xe", "iosv", "external_connector", "unmanaged_switch"}
+// Definitions are the node definitions the controller offers: routers,
+// switches (ioll2-xe, iosvl2 and the two Catalyst 9000v images), and the
+// two that are not devices.
+var Definitions = []string{"iol-xe", "iosv", "csr1000v", "cat8000v", "ioll2-xe", "iosvl2", "cat9000v-q200", "cat9000v-uadp", "external_connector", "unmanaged_switch"}
 
 // Lab is one lab the controller holds.
 type Lab struct {

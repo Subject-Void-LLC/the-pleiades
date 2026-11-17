@@ -49,14 +49,26 @@ var iosDefinitions = map[string]bool{
 	"cat8000v": true, "cat9000v-q200": true, "cat9000v-uadp": true,
 }
 
+// switchDefinitions are the IOS definitions that are switches: every
+// Ethernet port on one boots as a switchport, which takes no address (IOL
+// L2's Ethernet0/0 on a real CML 2.7 controller, 2026-11-17), so a seed
+// makes the management interface a routed port before it addresses it.
+var switchDefinitions = map[string]bool{
+	"ioll2-xe": true, "iosvl2": true, "cat9000v-q200": true, "cat9000v-uadp": true,
+}
+
 // seed is what a seeded node's day-0 configuration is written from.
 type seed struct {
 	label, username, secret, enableSecret string
 	host                                  netip.Addr
 	iface                                 string
-	prefix                                int
-	gateway                               netip.Addr
-	extra                                 string
+	// switchport is whether the management interface boots as a
+	// switchport, as a switch definition's does, and so needs "no
+	// switchport" before it takes an address.
+	switchport bool
+	prefix     int
+	gateway    netip.Addr
+	extra      string
 }
 
 // readSeed reads a seed from the secrets the engine handed the method and
@@ -64,7 +76,8 @@ type seed struct {
 // the configuration it is written into.
 func readSeed(secrets map[string]string, definition, label, iface string, prefix int, gateway, extra string) (seed, error) {
 	s := seed{label: label, username: secrets[wire.SecretSeedUsername], secret: secrets[wire.SecretSeedIOSSecret],
-		enableSecret: secrets[wire.SecretSeedIOSEnableSecret], iface: iface, prefix: prefix, extra: extra}
+		enableSecret: secrets[wire.SecretSeedIOSEnableSecret], iface: iface, prefix: prefix, extra: extra,
+		switchport: switchDefinitions[definition]}
 	switch {
 	case !iosDefinitions[definition]:
 		return seed{}, fmt.Errorf("%s writes an IOS configuration, and %q is not an IOS or IOS XE definition", paramDevice, definition)
@@ -131,6 +144,11 @@ func (s seed) config() string {
 		line(" address-family ipv4")
 		line(" exit-address-family")
 		line("interface %s", s.iface)
+		if s.switchport {
+			// A switchport takes neither a VRF nor an address: without
+			// this line a switch boots with neither, and unreachable.
+			line(" no switchport")
+		}
 		line(" vrf forwarding %s", mgmtVRF)
 		line(" ip address %s %s", s.host, mask(s.prefix))
 		line(" no shutdown")
