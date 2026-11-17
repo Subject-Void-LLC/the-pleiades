@@ -31154,7 +31154,9 @@ and a vlan line the configuration lacks is held to show vlan brief, read through
 refusing it warned of. A new line not at the margin still stays in its block, since the check does not guess which
 commands are global. The run reads the same table before and after lines that make or remove VLANs
 (`config_vlans_run.go`): what changed is reported under differences, a change to the database alone is undone exactly by
-net.ios.config (`no vlan N`, a renamed VLAN's old name), a VLAN removed or a state changed records no undo and says why,
+net.ios.config (`no vlan N` for a VLAN made), a VLAN renamed records no undo (its old name is text read off the switch,
+which the journal keeps none of while the owner decision is pending), a VLAN removed or a state changed records none either
+and says why,
 and beside a configuration change the return to the checkpoint is partial. `TestCheckConfig_AGlobalLineLeavesTheSubmode`
 against a scripted switch with SW-A's show vlan brief, and `TestConfig_AVLANTheLinesMakeIsAChangeWithAnExactUndo` against
 a switch double whose VLAN database the lines change.
