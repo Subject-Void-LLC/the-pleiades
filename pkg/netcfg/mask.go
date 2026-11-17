@@ -205,7 +205,7 @@ func maskLine(line string, inKeyChain bool, found *[]string) string {
 		}
 		// A show command's column header, field label or log message that
 		// uses a secret word with no secret after it (outputPhrases).
-		if inOutputPhrase(ws, i) {
+		if inOutputPhrase(line, ws, i) {
 			continue
 		}
 		psk := w.text == "pre-shared-key"
