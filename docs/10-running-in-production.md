@@ -724,10 +724,15 @@ ordinary run of ordinary tasks, journaled like any other.
   did not change: a task that only read, or was skipped, has nothing to undo.
 - **A cleanup in a block's `always:`.** A change a block's `always:` task made (a lab
   torn down, a grant revoked) is left in place, and listed once as a cleanup with the
-  reason (`cleanups` in `--json`): an `always:` task runs to clean up after its block,
-  and undoing it would put back what the block meant to remove. Give the task a
-  `rollback:` list to have it undone like any other task. A run whose cleanup is left
-  in place still counts as a later run that changed the device.
+  reason: printed by `pleiades rollback`, as `cleanups` in its `--json`, and as
+  `cleanups` in a Controller's answer to `POST /jobs/{id}/rollback`, whose refusal
+  names them when nothing else is left to run. An `always:` task runs to clean up
+  after its block, and undoing it would put back what the block meant to remove. Give
+  the task a `rollback:` list to have it undone like any other task. A run whose
+  cleanup is left in place still counts as a later run that changed the device: a
+  rollback beneath it is refused as `left_in_place`, since rolling it back has nothing
+  left to undo there, and you step over it with `--despite-run` once its device is
+  known to be as the run being undone left it.
 - **It refuses as a whole, before it touches any device.** When a change cannot be
   undone exactly (no undo was recorded, part of it was withheld, the device has left
   the inventory), when a later run has changed the same device since, or when the
@@ -756,7 +761,7 @@ ordinary run of ordinary tasks, journaled like any other.
   `ignore_errors` let the run go past, which stay failures in the journal. Rolling that
   later run back does not clear it, since no rollback undoes a failed task: the
   refusal stays, as `unknown_effect`, until you step over it. `--json` gives each
-  problem's `kind`: `undo_first`, `cannot_undo`, `nothing_to_undo` or `unknown_effect`,
+  problem's `kind`: `undo_first`, `cannot_undo`, `nothing_to_undo`, `left_in_place` or `unknown_effect`,
   and `unknown_effects` names the methods that failed during their action there,
   whatever the kind. A Controller's refusal gives both too, as `kind` and
   `unknown_effects` on each problem.
