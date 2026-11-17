@@ -54,7 +54,10 @@ func newRecorder(t *testing.T, target string) *recorder {
 			r.wg.Add(2)
 			go func() {
 				defer r.wg.Done()
-				_, _ = io.Copy(io.MultiWriter(server, r), client)
+				// Record before forwarding: with the server first, it could answer
+				// and the test read the recording before these bytes were kept (the
+				// repeat pass saw "decoded 0 times in []").
+				_, _ = io.Copy(io.MultiWriter(r, server), client)
 				_ = server.Close()
 			}()
 			go func() {
