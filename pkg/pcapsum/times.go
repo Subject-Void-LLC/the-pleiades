@@ -2,8 +2,10 @@
 // seconds and a fraction in microseconds, or nanoseconds when the file's
 // magic says so; a pcapng enhanced packet block gives one 64-bit count in
 // the units its interface's if_tsresol option names, microseconds when it
-// names none (the pcapng specification, section 4.2). A simple packet block
-// has no time at all, so its packet has none.
+// names none, from the second its if_tsoffset option names, the epoch when
+// it names none (the pcapng specification, section 4.2). A simple packet
+// block has no time at all, so its packet has none, and neither has a time
+// RFC 3339 cannot write (before year 1 or after year 9999).
 package pcapsum
 
 import (
@@ -20,19 +22,27 @@ type tsUnits uint64
 // microseconds.
 const defaultUnits tsUnits = 1_000_000
 
-// ifTSResol is the interface description option that gives its time
-// resolution.
-const ifTSResol = 9
+// The interface description options that give its time resolution and the
+// second its time counts from.
+const (
+	ifTSResol  = 9
+	ifTSOffset = 14
+)
 
-// interfaceUnits reads an interface description block's options, body past
-// its first 8 bytes, for if_tsresol: a byte whose high bit clear says the
-// units are 10 to the minus its value of a second, and set says 2 to the
-// minus its low seven bits. A resolution too fine to count in 64 bits gives
-// 0, so its packets have no time rather than a wrong one.
-func interfaceUnits(order binary.ByteOrder, opts []byte) tsUnits {
+// tsClock is a pcapng interface's clock: its units a second and the second,
+// from the epoch, its counts start at.
+type tsClock struct {
+	units  tsUnits
+	offset int64
+}
+
+// pcapngOption returns the value of option code among an interface
+// description block's options, body past its first 8 bytes, and whether it
+// is there. A list cut short ends the search.
+func pcapngOption(order binary.ByteOrder, opts []byte, code uint16) ([]byte, bool) {
 	for len(opts) >= 4 {
-		code, length := order.Uint16(opts), int(order.Uint16(opts[2:]))
-		if code == 0 {
+		c, length := order.Uint16(opts), int(order.Uint16(opts[2:]))
+		if c == 0 {
 			// opt_endofopt.
 			break
 		}
@@ -40,30 +50,67 @@ func interfaceUnits(order binary.ByteOrder, opts []byte) tsUnits {
 		if 4+padded > len(opts) {
 			break
 		}
-		if code == ifTSResol && length >= 1 {
-			v := opts[4]
-			if v&0x80 != 0 {
-				if e := v & 0x7f; e < 64 {
-					return tsUnits(1) << e
-				}
-				return 0
-			}
-			if v > 19 {
-				return 0
-			}
-			u := tsUnits(1)
-			for range v {
-				u *= 10
-			}
-			return u
+		if c == code {
+			return opts[4 : 4+length], true
 		}
 		opts = opts[4+padded:]
 	}
-	return defaultUnits
+	return nil, false
+}
+
+// interfaceClock reads an interface's clock from its options.
+func interfaceClock(order binary.ByteOrder, opts []byte) tsClock {
+	clock := tsClock{units: interfaceUnits(order, opts)}
+	if v, ok := pcapngOption(order, opts, ifTSOffset); ok && len(v) == 8 {
+		// A signed count of seconds, in the section's byte order.
+		clock.offset = int64(order.Uint64(v)) // #nosec G115 -- the option is a signed 64-bit integer, read as one
+	}
+	return clock
+}
+
+// interfaceUnits reads if_tsresol from an interface description block's
+// options, body past its first 8 bytes: a byte whose high bit clear says the
+// units are 10 to the minus its value of a second, and set says 2 to the
+// minus its low seven bits. A resolution too fine to count in 64 bits gives
+// 0, so its packets have no time rather than a wrong one.
+func interfaceUnits(order binary.ByteOrder, opts []byte) tsUnits {
+	v, ok := pcapngOption(order, opts, ifTSResol)
+	if !ok || len(v) < 1 {
+		return defaultUnits
+	}
+	if v[0]&0x80 != 0 {
+		if e := v[0] & 0x7f; e < 64 {
+			return tsUnits(1) << e
+		}
+		return 0
+	}
+	if v[0] > 19 {
+		return 0
+	}
+	u := tsUnits(1)
+	for range v[0] {
+		u *= 10
+	}
+	return u
+}
+
+// at is count, in the clock's units from its offset, as a time; the zero
+// time when the clock has no units or the time is one RFC 3339 cannot
+// write.
+func (c tsClock) at(count uint64) time.Time {
+	t := c.units.at(count)
+	if t.IsZero() {
+		return t
+	}
+	sec := t.Unix()
+	if c.offset > 0 && sec > maxUnix-c.offset || c.offset < 0 && sec < minUnix-c.offset {
+		return time.Time{}
+	}
+	return writable(time.Unix(sec+c.offset, int64(t.Nanosecond())).UTC())
 }
 
 // at is the time count, in units a second, as a time; the zero time when
-// units is 0.
+// units is 0, or when the time is one RFC 3339 cannot write.
 func (units tsUnits) at(count uint64) time.Time {
 	if units == 0 {
 		return time.Time{}
@@ -73,11 +120,25 @@ func (units tsUnits) at(count uint64) time.Time {
 	// below units, so the quotient is below a billion and fits.
 	hi, lo := bits.Mul64(frac, uint64(time.Second))
 	nanos, _ := bits.Div64(hi, lo, uint64(units))
-	if sec > 1<<62 {
-		// Past any time a capture was made.
+	if sec > uint64(maxUnix) {
 		return time.Time{}
 	}
-	return time.Unix(int64(sec), int64(nanos)).UTC()
+	return writable(time.Unix(int64(sec), int64(nanos)).UTC()) // #nosec G115 -- sec is at most maxUnix, checked above
+}
+
+// minUnix and maxUnix are the first and last seconds RFC 3339 writes, the
+// starts of years 1 and 10000 less one second.
+var (
+	minUnix = time.Date(1, 1, 1, 0, 0, 0, 0, time.UTC).Unix()
+	maxUnix = time.Date(10000, 1, 1, 0, 0, 0, 0, time.UTC).Unix() - 1
+)
+
+// writable is t, or the zero time when RFC 3339 cannot write t's year.
+func writable(t time.Time) time.Time {
+	if y := t.Year(); y < 1 || y > 9999 {
+		return time.Time{}
+	}
+	return t
 }
 
 // timeSpan is the first and last time of packets seen, either zero until one

@@ -426,7 +426,8 @@ is key exchange up to NEWKEYS and encrypted after it, and TLS is key exchange in
 encrypted in its application data, so NETCONF over SSH and RESTCONF over TLS count as encrypted. HTTP/1.x,
 HTTP/2 and gRPC in the clear to a management endpoint are cleartext management, listed first in `flows` and
 warned of. A server is one when a request names a management API by its path (RESTCONF's `/restconf`, gNMI's
-`/gnmi.gNMI/`, gNOI's `/gnoi.`), or when the `management` parameter lists it by address or address and port:
+`/gnmi.gNMI/`, gNOI's `/gnoi.`, NX-API's `/ins` and `/api/aaaLogin.json`, eAPI's `/command-api`, IOS's
+`/level/15/exec`, IOS XE's `/webui`), or when the `management` parameter lists it by address or address and port:
 
 ```yaml
 - name: Count what crossed, the routers' web interfaces counted as management

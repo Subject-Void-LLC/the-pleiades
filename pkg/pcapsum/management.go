@@ -5,7 +5,10 @@
 // management in the clear before, on 2026-11-17). A server is one when the
 // flow's requests name a management API by its path, RESTCONF (RFC 8040's
 // /restconf root, or its /.well-known/host-meta discovery), gNMI
-// (/gnmi.gNMI/) or gNOI (/gnoi.), or when the caller lists it in
+// (/gnmi.gNMI/), gNOI (/gnoi.), Cisco NX-API (/ins, and its REST login
+// /api/aaaLogin.json), Arista eAPI (/command-api), IOS's HTTP exec
+// (/level/15/exec, any privilege level) or IOS XE's web interface
+// (/webui), or when the caller lists it in
 // Options.Management, by address or by address and port. A port alone
 // never decides: a device's web interface on 80 and a web server on 80
 // look the same on the wire.
@@ -32,9 +35,38 @@ const (
 	ManagementGNMI = "gnmi"
 	// ManagementGNOI is a gRPC flow that called a gNOI service.
 	ManagementGNOI = "gnoi"
+	// ManagementNXAPI is a flow to Cisco NX-API: its /ins endpoint, or the
+	// REST API's /api/aaaLogin.json login.
+	ManagementNXAPI = "nx-api"
+	// ManagementEAPI is a flow to Arista eAPI's /command-api.
+	ManagementEAPI = "eapi"
+	// ManagementIOSExec is a flow to IOS's HTTP exec, /level/15/exec.
+	ManagementIOSExec = "ios-exec"
+	// ManagementWebUI is a flow to IOS XE's web interface, /webui.
+	ManagementWebUI = "webui"
 	// ManagementListed is a flow whose server Options.Management lists.
 	ManagementListed = "listed"
 )
+
+// pathIs reports whether target is path itself, or path followed by a
+// query or (when sub is set) a further segment.
+func pathIs(target, path string, sub bool) bool {
+	return target == path || strings.HasPrefix(target, path+"?") || sub && strings.HasPrefix(target, path+"/")
+}
+
+// iosExec is IOS's HTTP exec path: /level/<privilege>/exec, then the
+// command's words as segments.
+func iosExec(target string) bool {
+	rest, ok := strings.CutPrefix(target, "/level/")
+	if !ok {
+		return false
+	}
+	level, rest, _ := strings.Cut(rest, "/")
+	if level == "" || strings.Trim(level, "0123456789") != "" {
+		return false
+	}
+	return pathIs("/"+rest, "/exec", true)
+}
 
 // managementAPI is the management API a request's target names, or "".
 // An absolute target (http://host/path), which a request to a proxy
@@ -49,13 +81,20 @@ func managementAPI(target string) string {
 		target = rest[j:]
 	}
 	switch {
-	case target == "/restconf" || strings.HasPrefix(target, "/restconf/") || strings.HasPrefix(target, "/restconf?"),
-		target == "/.well-known/host-meta" || strings.HasPrefix(target, "/.well-known/host-meta?"):
+	case pathIs(target, "/restconf", true), pathIs(target, "/.well-known/host-meta", false):
 		return ManagementRESTCONF
 	case strings.HasPrefix(target, "/gnmi.gNMI/"):
 		return ManagementGNMI
 	case strings.HasPrefix(target, "/gnoi."):
 		return ManagementGNOI
+	case pathIs(target, "/ins", false), pathIs(target, "/api/aaaLogin.json", false):
+		return ManagementNXAPI
+	case pathIs(target, "/command-api", false):
+		return ManagementEAPI
+	case iosExec(target):
+		return ManagementIOSExec
+	case pathIs(target, "/webui", true):
+		return ManagementWebUI
 	}
 	return ""
 }

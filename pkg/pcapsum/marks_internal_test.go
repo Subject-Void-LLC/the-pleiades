@@ -8,10 +8,27 @@ import (
 	"time"
 )
 
-// TestManagementAPI names RESTCONF, gNMI and gNOI by their paths, absolute
-// targets included, and nothing that only begins like one.
+// TestManagementAPI names RESTCONF, gNMI, gNOI, NX-API, eAPI, IOS's HTTP
+// exec and IOS XE's web interface by their paths, absolute targets
+// included, and nothing that only begins like one.
 func TestManagementAPI(t *testing.T) {
 	for target, want := range map[string]string{
+		"/ins":                             ManagementNXAPI,
+		"/ins?x=1":                         ManagementNXAPI,
+		"/api/aaaLogin.json":               ManagementNXAPI,
+		"/command-api":                     ManagementEAPI,
+		"/level/15/exec/show/version/CR":   ManagementIOSExec,
+		"/level/1/exec":                    ManagementIOSExec,
+		"/webui":                           ManagementWebUI,
+		"/webui/":                          ManagementWebUI,
+		"/webui/#/dashboard":               ManagementWebUI,
+		"/insert":                          "",
+		"/api/aaaLogin.jsonx":              "",
+		"/command-api-docs":                "",
+		"/level/x/exec":                    "",
+		"/level//exec":                     "",
+		"/level/15/execute":                "",
+		"/webuikit":                        "",
 		"/restconf":                        ManagementRESTCONF,
 		"/restconf/data/ietf-interfaces":   ManagementRESTCONF,
 		"/restconf?depth=1":                ManagementRESTCONF,

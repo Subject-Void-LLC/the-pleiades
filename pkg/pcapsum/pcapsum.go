@@ -200,9 +200,10 @@ type Flow struct {
 	// say, is cleartext and not management.
 	CleartextManagement bool `json:"cleartext_management"`
 	// Management is what makes the flow's server a management endpoint,
-	// whether or not the flow was in the clear: restconf, gnmi or gnoi when
-	// a request named that API by its path, or listed when Options listed
-	// the server; "" when nothing did.
+	// whether or not the flow was in the clear: restconf, gnmi, gnoi,
+	// nx-api, eapi, ios-exec or webui when a request named that API by its
+	// path (management.go), or listed when Options listed the server; ""
+	// when nothing did.
 	Management string `json:"management,omitempty"`
 	// CleartextInEncrypted is set when bytes framed as encrypted (a TLS
 	// application data record, SSH after NEWKEYS) read as text: a NULL
@@ -320,8 +321,8 @@ func readPcapng(data []byte, r *reader) error {
 	s := r.s
 	var order binary.ByteOrder = binary.LittleEndian
 	var links []uint32
-	// units are each interface's time units a second.
-	var units []tsUnits
+	// units are each interface's clock: its units a second and its offset.
+	var units []tsClock
 	off := 0
 	for off < len(data) {
 		if len(data)-off < 12 {
@@ -353,7 +354,7 @@ func readPcapng(data []byte, r *reader) error {
 			}
 			link := uint32(order.Uint16(body))
 			links = append(links, link)
-			units = append(units, interfaceUnits(order, body[8:]))
+			units = append(units, interfaceClock(order, body[8:]))
 			s.LinkTypes = appendOnce(s.LinkTypes, linkName(link))
 		case 6: // enhanced packet: interface, time, captured and original length, frame
 			if len(body) < 20 {

@@ -131,13 +131,18 @@ func TestRead_CountsDSCPByClass(t *testing.T) {
 	if s.DSCP[0].DSCP != 34 || s.DSCP[0].Bytes != 3*int64(len(video)) {
 		t.Errorf("first class %+v", s.DSCP[0])
 	}
+	found := false
 	for _, p := range s.Pairs {
 		if p.A == "10.1.1.10" && p.B == "172.16.1.1" {
+			found = true
 			// Voice, video, scavenger and the unnamed value; OSPF is another pair.
 			if len(p.DSCP) != 4 {
 				t.Errorf("pair %s-%s dscp %+v", p.A, p.B, p.DSCP)
 			}
 		}
+	}
+	if !found {
+		t.Errorf("no pair 10.1.1.10-172.16.1.1 in %+v", s.Pairs)
 	}
 }
 
@@ -178,6 +183,28 @@ func TestRead_TimesEveryFormat(t *testing.T) {
 		if !s.First.Equal(tc.first) || !near(s.DurationSeconds, tc.dur) {
 			t.Errorf("%s: first %v, %v s", name, s.First, s.DurationSeconds)
 		}
+	}
+	// if_tsoffset moves every count by its seconds, after if_tsresol or alone.
+	hour := binary.LittleEndian.AppendUint64([]byte{14, 0, 8, 0}, uint64(3600))
+	for name, opts := range map[string][]byte{
+		"offset alone":          append(append([]byte(nil), hour...), 0, 0, 0, 0),
+		"offset after tsresol":  append([]byte{9, 0, 1, 0, 6, 0, 0, 0}, append(hour, 0, 0, 0, 0)...),
+		"offset before tsresol": append(append([]byte(nil), hour...), 9, 0, 1, 0, 6, 0, 0, 0, 0, 0, 0, 0),
+	} {
+		earlier := []uint64{counts[0] - 3600_000_000, counts[1] - 3600_000_000, counts[2] - 3600_000_000}
+		if s := read(t, timedPcapng(opts, earlier, frames)); !s.First.Equal(at[0]) || !near(s.DurationSeconds, 10.890939) {
+			t.Errorf("%s: first %v, %v s", name, s.First, s.DurationSeconds)
+		}
+	}
+	// A time RFC 3339 cannot write, past year 9999 from a count or from an
+	// offset, is no time.
+	far := uint64(time.Date(10000, 1, 1, 0, 0, 0, 0, time.UTC).Unix()) * 1_000_000
+	if s := read(t, timedPcapng(nil, []uint64{far, far, far}, frames)); !s.First.IsZero() {
+		t.Errorf("a time past 9999 gave %v", s.First)
+	}
+	huge := binary.LittleEndian.AppendUint64([]byte{14, 0, 8, 0}, uint64(1)<<62)
+	if s := read(t, timedPcapng(append(huge, 0, 0, 0, 0), counts, frames)); !s.First.IsZero() {
+		t.Errorf("an offset past 9999 gave %v", s.First)
 	}
 	// 10^-20 does not fit a 64-bit count of a second: no time at all.
 	if s := read(t, timedPcapng(tsresol(20), counts, frames)); !s.First.IsZero() || s.DurationSeconds != 0 {
@@ -231,10 +258,20 @@ func TestRead_HTTPIsManagementOnlyToAManagementEndpoint(t *testing.T) {
 	if s := read(t, web); s.CleartextManagement != 0 {
 		t.Errorf("a web server counted as management: %d", s.CleartextManagement)
 	}
-	for _, path := range []string{"/restconf/data/ietf-interfaces:interfaces", "/.well-known/host-meta"} {
+	// Each management API a real request names on the wire, on a port that
+	// says nothing.
+	for path, want := range map[string]string{
+		"/restconf/data/ietf-interfaces:interfaces": pcapsum.ManagementRESTCONF,
+		"/.well-known/host-meta":                    pcapsum.ManagementRESTCONF,
+		"/ins":                                      pcapsum.ManagementNXAPI,
+		"/api/aaaLogin.json":                        pcapsum.ManagementNXAPI,
+		"/command-api":                              pcapsum.ManagementEAPI,
+		"/level/15/exec/show/version":               pcapsum.ManagementIOSExec,
+		"/webui/":                                   pcapsum.ManagementWebUI,
+	} {
 		f := onlyFlow(t, read(t, sessionCapture(getSession(t, path), 40000, 8080)))
-		if !f.CleartextManagement || f.Management != pcapsum.ManagementRESTCONF {
-			t.Errorf("%s: %+v", path, f)
+		if !f.CleartextManagement || f.Management != want {
+			t.Errorf("%s: %+v, want %s", path, f, want)
 		}
 	}
 	for _, listed := range []netip.AddrPort{netip.MustParseAddrPort("198.51.100.20:8080"), netip.AddrPortFrom(netip.MustParseAddr("198.51.100.20"), 0)} {
