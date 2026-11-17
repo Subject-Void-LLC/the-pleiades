@@ -57,8 +57,11 @@ func (s *vtpSwitch) Command(ctx context.Context, line string) (string, error) {
 	for _, id := range slices.Sorted(maps.Keys(s.vlans)) {
 		v := s.vlans[id]
 		status := v.state
-		if status == "unsupport" {
+		switch status {
+		case "unsupport":
 			status = "act/unsup"
+		case "suspend":
+			status = "suspended"
 		}
 		fmt.Fprintf(&b, "%-4d %-32s %-9s \r\n", id, v.name, status)
 	}
@@ -142,7 +145,8 @@ func TestConfig_AVLANTheLinesMakeIsAChangeWithAnExactUndo(t *testing.T) {
 	}{
 		{"made", []string{"vlan 60", " name lab"}, []string{"+vlan 60", " +name lab"}, []string{"no vlan 60"}, false},
 		{"made with IOS's own name", []string{"vlan 70"}, []string{"+vlan 70"}, []string{"no vlan 70"}, false},
-		{"renamed", []string{"vlan 50", " name web"}, []string{"vlan 50", " -name host1-segment", " +name web"}, []string{"vlan 50", " name host1-segment", "exit"}, false},
+		// From IOS's own name back to it is "no name", no text of the switch.
+		{"renamed from IOS's own name", []string{"vlan 70", "exit", "vlan 80", " name web"}, []string{"+vlan 70", "+vlan 80", " +name web"}, []string{"no vlan 70", "no vlan 80"}, false},
 		{"already as written", []string{"vlan 50", " name host1-segment"}, []string{}, nil, true},
 	}
 	for _, tc := range cases {
@@ -185,20 +189,47 @@ func TestConfig_AVLANTheLinesMakeIsAChangeWithAnExactUndo(t *testing.T) {
 
 // TestConfig_AVLANChangeWithNoExactUndoRecordsNone: a VLAN removed, or
 // whose state changed, cannot be made again exactly from show vlan brief,
-// so the run records no undo and says why.
+// and a VLAN renamed would put its old name, text read off the switch, into
+// the journal, which keeps none until the owner decides otherwise; so the
+// run records no undo and says why.
 func TestConfig_AVLANChangeWithNoExactUndoRecordsNone(t *testing.T) {
-	for _, lines := range [][]string{{"no vlan 50"}, {"vlan 50", " state suspend"}} {
-		changed, rc, err := runVLANs(t, newVTPSwitch(), lines, nil)
+	for _, tc := range []struct {
+		lines []string
+		diffs []string
+		why   string
+	}{
+		{[]string{"no vlan 50"}, []string{"-vlan 50", " -name host1-segment"}, "no undo was recorded: VLAN 50 was removed"},
+		{[]string{"vlan 50", " state suspend"}, []string{"vlan 50", " -state active", " +state suspend"}, "no undo was recorded: VLAN 50's state changed"},
+		{[]string{"vlan 50", " name web"}, []string{"vlan 50", " -name host1-segment", " +name web"}, "no undo was recorded: a VLAN was renamed"},
+		// Beside a VLAN made, a rename still records nothing.
+		{[]string{"vlan 60", "exit", "vlan 50", " name web"}, []string{"vlan 50", " -name host1-segment", " +name web", "+vlan 60"}, "no undo was recorded: a VLAN was renamed"},
+	} {
+		changed, rc, err := runVLANs(t, newVTPSwitch(), tc.lines, nil)
 		if err != nil || !changed {
-			t.Fatalf("%q: changed %v, err %v", lines, changed, err)
+			t.Fatalf("%q: changed %v, err %v", tc.lines, changed, err)
+		}
+		if got, _ := rc.stats[statDifferences].([]string); !slices.Equal(got, tc.diffs) {
+			t.Errorf("%q: differences %q, want %q", tc.lines, got, tc.diffs)
 		}
 		if inv, ok := recordedInverse(t, rc); ok {
-			t.Errorf("%q recorded %+v", lines, inv)
+			t.Errorf("%q recorded %+v", tc.lines, inv)
 		}
 		warns, _ := rc.stats[sdk.StatWarnings].([]string)
-		if len(warns) != 1 || !strings.HasPrefix(warns[0], "no undo was recorded: VLAN 50") {
-			t.Errorf("%q: warnings %q", lines, warns)
+		if len(warns) != 1 || !strings.HasPrefix(warns[0], tc.why) {
+			t.Errorf("%q: warnings %q", tc.lines, warns)
 		}
+		if strings.Contains(tc.why, "renamed") && !strings.Contains(warns[0], "owner decision still pending") {
+			t.Errorf("%q: the warning does not say the decision is pending: %q", tc.lines, warns)
+		}
+	}
+	// Without a checkpoint nothing is journaled, so the rename's undo is shown
+	// under undo_lines with its old name.
+	_, rc, err := runVLANs(t, newVTPSwitch(), []string{"vlan 50", " name web"}, map[string]any{paramCheckpoint: false})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := rc.stats[statUndoLines].([]string); !slices.Equal(got, []string{"vlan 50", " name host1-segment", "exit"}) {
+		t.Errorf("undo_lines %q", got)
 	}
 }
 

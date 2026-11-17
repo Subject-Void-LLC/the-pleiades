@@ -130,17 +130,19 @@ func vlanDifferences(changes []vlanChange) []string {
 // they removed, or whose state they changed, cannot be put back exactly
 // from show vlan brief, which shows neither its MTU, its type nor its
 // private VLAN or remote SPAN settings: why then says so, and there is no
-// undo.
-func vlanUndo(changes []vlanChange) (lines []string, why string) {
+// undo. putBack says a line puts back text read off the switch (a renamed
+// VLAN's old name), which may be shown but is never journaled (whyPutBackName).
+func vlanUndo(changes []vlanChange) (lines []string, why string, putBack bool) {
 	for _, c := range changes {
 		switch {
 		case c.before == nil:
 			lines = append(lines, fmt.Sprintf("no vlan %d", c.id))
 		case c.after == nil:
-			return nil, fmt.Sprintf("VLAN %d was removed, and show vlan brief does not show all it held (its MTU, type, private VLAN or remote SPAN settings), so it cannot be made again exactly", c.id)
+			return nil, fmt.Sprintf("VLAN %d was removed, and show vlan brief does not show all it held (its MTU, type, private VLAN or remote SPAN settings), so it cannot be made again exactly", c.id), false
 		case c.before.state != c.after.state:
-			return nil, fmt.Sprintf("VLAN %d's state changed from %s to %s, which show vlan brief does not show exactly enough to set back", c.id, c.before.state, c.after.state)
+			return nil, fmt.Sprintf("VLAN %d's state changed from %s to %s, which show vlan brief does not show exactly enough to set back", c.id, c.before.state, c.after.state), false
 		default:
+			putBack = putBack || !defaultName(c.id, c.before.name)
 			lines = append(lines, fmt.Sprintf("vlan %d", c.id))
 			if defaultName(c.id, c.before.name) {
 				lines = append(lines, " no name")
@@ -150,8 +152,15 @@ func vlanUndo(changes []vlanChange) (lines []string, why string) {
 			lines = append(lines, "exit")
 		}
 	}
-	return lines, ""
+	return lines, "", putBack
 }
+
+// whyPutBackName is why a rename records no undo: putting the old name back
+// writes text read off the switch into the run's journal, which keeps none
+// (as net.netconf.config's put-back records none). Whether a journal may
+// keep such text is the owner's decision, still pending; until it is made,
+// the contract-safe side holds.
+const whyPutBackName = "a VLAN was renamed, and its undo would put back the name read from the switch, which the run's journal does not keep (whether it may keep text read off a device is an owner decision still pending); a rollback refuses this task unless it is left (--leave) or the task's rollback: list says what to do"
 
 // managedInDifferences reports, from a run's contextual differences, the
 // VLANs the configuration itself holds: a difference line at the top level
@@ -180,7 +189,7 @@ func recordVLANUndo(rc sdk.RunbookContext, params map[string]any, lines []string
 	return sdk.RecordInverse(rc, sdk.Inverse{
 		FQCN:        configFQCN,
 		Params:      undo,
-		Description: "Removes the VLANs this change made and puts back the names it changed, in the switch's VLAN database.",
+		Description: "Removes the VLANs this change made from the switch's VLAN database.",
 	})
 }
 

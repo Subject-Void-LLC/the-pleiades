@@ -92,17 +92,19 @@ func finishCheckpoint(ctx context.Context, rc sdk.RunbookContext, session iosSes
 }
 
 // finishVLANsOnly records the undo of a change whose configuration reads
-// the same: vlanUndo's lines, when the VLAN changes have an exact undo and
-// no key pair changed (which nothing returns). Otherwise it records none,
-// and the warning says why.
+// the same: vlanUndo's lines, when the VLAN changes have an exact undo that
+// puts back no text read off the switch, and no key pair changed (which
+// nothing returns). Otherwise it records none, and the warning says why.
 func finishVLANsOnly(rc sdk.RunbookContext, params map[string]any, vlans []vlanChange, keys bool) error {
 	if len(vlans) == 0 {
 		return nil
 	}
-	undo, why := vlanUndo(vlans)
+	undo, why, putBack := vlanUndo(vlans)
 	switch {
 	case why != "":
 		return sdk.RecordWarnings(rc, []string{"no undo was recorded: " + why})
+	case putBack:
+		return sdk.RecordWarnings(rc, []string{"no undo was recorded: " + whyPutBackName})
 	case keys:
 		return sdk.RecordWarnings(rc, []string{"no undo was recorded: a key pair changed beside the VLANs, and no undo returns it"})
 	}
@@ -172,7 +174,8 @@ func finishLines(ctx context.Context, rc sdk.RunbookContext, session iosSession,
 		warnings = append(warnings, vlanWarning(nil, vlanWhy))
 	}
 	if len(vlans) > 0 && invErr == nil {
-		vlanLines, why := vlanUndo(vlans)
+		// Shown under undo_lines, never journaled, so an old name may stand.
+		vlanLines, why, _ := vlanUndo(vlans)
 		if why != "" {
 			invErr = fmt.Errorf("%s", why)
 		}
