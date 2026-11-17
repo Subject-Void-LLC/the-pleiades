@@ -100,7 +100,10 @@ func TestRestconfProbe_ABusyDeviceIsWaitedOutAndSaid(t *testing.T) {
 	repo, _ = newRepo(t, "rc1", generic.TypeRestconf, map[string]inventory.PropertyValue{
 		devicetls.CAPEMProperty: s.CAPEM(), generic.BaseURLProperty: s.URL,
 	})
-	ctx, cancel := context.WithTimeout(fast, 50*time.Millisecond)
+	// Long enough that the device's first refusal arrives before the deadline
+	// even under load; the deadline then lands on a resend in flight, which is
+	// the case this test is for (a 50 ms deadline lost that race under CI).
+	ctx, cancel := context.WithTimeout(fast, 2*time.Second)
 	defer cancel()
 	res, err = onboardWith(ctx, repo, "rc1", staticSecrets(restconftest.Secrets(s)), fixedNow, Lookup, options{})
 	if err == nil || res.State == "active" || !strings.Contains(res.Error+err.Error(), "when onboarding's time ended") {
