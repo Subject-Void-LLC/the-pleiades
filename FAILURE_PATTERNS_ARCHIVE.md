@@ -30729,3 +30729,345 @@ or another message-id still ends the session. Any dropped entry makes the list p
 content-id and module-set-id parameters. The cache is keyed by device and account and bounded at 512 entries. The same
 review moved the device API's answer in `http.request`, `net.ios.parse` and `net.frr.command` to `MaskOutput` (siblings of
 1247), and made the release gate check every form for crypt hashes and wait for the NETCONF listener's own refusal.
+
+## 1253. PR 187's coverage job failed with every floor met, because the new container package internal/catalog/net/netconf had no time in durations.json, a check only the pull request's coverage job runs (a repeat of 1122 and 745) (fixed)
+
+**Symptom.** PR 187 (`feat/netconf-assurance`), 2026-11-16: every test job passed, the local `make pr-check` passed
+(45b6c88d), and `make branch-containers` passed 33 packages (run 43953874405). The `coverage` job then failed. The floors
+were all met; `testgate -durations-check` failed because `internal/catalog/net/netconf`, newly in
+`DOCKER_DEPENDENT_PACKAGES`, had no time in `tools/testgate/durations.json`. The owner: "coverage should NEVER be a
+surprise that late in the game."
+
+**Root cause.** As 1122. The durations check reads the containers jobs' measurements. A local pr-check leaves container
+packages to the runners, so it writes no containers record and never runs the check, and branch-containers runs the
+package's tests but not the check. Only the pull request's coverage job meets the missing line.
+
+**Why 1122's fix did not hold.** 1122 added one line by hand, and its lesson said so plainly: "Until a check enforces
+it (prscope or commitgate could flag a listed package with no time), add it by hand." No check was built, and the next
+branch to add a container package missed the line in the same way.
+
+**Fix.** ea19436f timed the package (and refreshed four drifted times), pushed to the pull request. PR 188 added the check
+1122 asked for: `TestEveryContainerPackageHasADuration` (`tools/internal/flakegate/durations_listed_test.go`) reads the
+Makefile's list and `durations.json` and fails a listed package with no time, on every branch and in every tier that
+runs `tools/internal/flakegate`. It needs no measurement, since both lists are files in the tree. It also holds
+`tools/testgate/resources.json` to the list once that manifest says it is complete. `TestHasDuration_ReadsBothKeyShapes`
+covers a package that `durations.json` divides by test.
+
+**Lesson.** A rule a lesson says "until a check enforces it" is a check to build in that change. A list the coverage job
+reads (floors, durations, resources) is checked from the tree on every branch, never first in CI.
+
+## 1254. pkg/yangdoc's coverage floor was first set at the displayed, rounded 94.2, which the package's exact figure can sit just under (fixed)
+
+**Symptom.** PR 187's branch floored `pkg/yangdoc` at 94.2 (e118635b), the figure the coverage report shows. The report
+rounds to one decimal place, so (for example) an exact 94.15 shows as 94.2 and fails a floor of 94.2. The floor was lowered to 94.1
+(4486652e) before the merge.
+
+**Root cause.** The floor was copied from the rounded display, not from the profile's exact value.
+
+**Fix.** 4486652e. From PR 187 on (and in PRs 189 and 190), each new floor is taken from the profile's exact value and
+rounded down, never up.
+
+**Lesson.** A floor is the exact measured value rounded down. A displayed figure may be rounded up, and a floor at it is
+a scheduled failure.
+
+## 1255. TestPaced_TheCallersTimeEndsTheWait gave its wait a 30 ms deadline, and under pr-check's repeat pass the deadline ended mid-request rather than in the wait (a repeat of 558) (fixed before push)
+
+**Symptom.** PR 191 (`fix/restconf-session-cap`), 2026-11-17: `make pr-check` failed once. In the strict repeat pass,
+`TestPaced_TheCallersTimeEndsTheWait` (`pkg/restconf/sessions_internal_test.go`) failed with a plain deadline error. The
+test means to prove that the caller's context ends a wait for a device's sessions.
+
+**Root cause.** The test bounded elapsed time where it meant to cancel at a point. Its 30 ms deadline sometimes expired
+while a request was in flight, before the wait began, so the error came from the request.
+
+**Why 558's fix did not prevent it.** 558's lesson (a test that waits for an outcome waits for it; a short window proves
+only how fast the machine was) is a rule, and nothing enforces it. The branch's own review fixed this class in its other
+tests and missed this one.
+
+**Fix.** e23e6bf8. A test-only hook, `afterSessionRefusal` (`pkg/restconf/sessions.go`), runs after each refusal is
+counted and before its wait. The test cancels from it at the second refusal, so the cancellation always lands inside the
+wait. pr-check then passed on e23e6bf8.
+
+**Lesson.** As 558. A test that asserts what a cancellation does cancels at a known point (a hook, a channel), never
+by a short deadline. When a review sweeps a branch's tests for one class, list every test of that shape it found, so
+the one left out shows.
+
+## 1256. net.netconf.config's check and run unlocked the candidate after a discard that failed or was not proven, so the edit could stay staged for another client's commit (a repeat in kind of 1244 and 1251) (fixed before push)
+
+**Symptom.** The failure-pattern review of PR 187's branch (its F1), 2026-11-16, before push. When a check or a run's
+discard failed or had no answer, the method still unlocked the shared candidate. Any client could then commit the edit.
+
+**Root cause.** The unlock assumed the device resets the candidate. Measured on Netopeer2, an unlock without a discard
+does reset it (`TestAssurance_AnUnlockWithoutADiscard`, `pkg/netconf/assurance_unlock_container_test.go`), but RFC 6241
+does not require that, so another server may keep the edit.
+
+**Why 1244 and 1251 did not prevent it.** Both closed paths that left an edit staged (`commit: false`, a canceled task's
+cleanup). Neither asked what happens when the discard itself is not proven.
+
+**Fix.** 2e52a3a0 (`internal/catalog/net/netconf/config_lock.go`). A check or run whose discard fails, or is not proven,
+keeps the lock and closes the session; the session's close ends the lock, which Netopeer2 is measured to end by leaving
+the candidate as running. Every discard runs on a context of its own, `commit: false`'s and the check's included. Tests:
+`TestConfig_AFailedDiscardKeepsTheCandidatesLock`, `TestConfigCheck_DiscardsOnAContextOfItsOwn`,
+`TestConfig_CommitFalseDiscardsOnAContextOfItsOwn` and the live
+`TestLive_ALostDiscardKeepsTheLockAndLeavesTheCandidateAsRunning`. 03525757 records the Netopeer2 behavior in a test that
+fails if the server stops doing it, and nothing relies on it.
+
+**Lesson.** Release a shared lock only once what it guards is proven clean. When cleanup is not proven, hold the lock
+until the session ends.
+
+## 1257. net.netconf.config's put-back undos would have kept configuration read off the device in the run journal, against what sdk.InverseSpec allows (security; a repeat in kind of 604 and 529) (fixed before push; whether a put-back may journal device text waits on the owner)
+
+**Symptom.** The same review (F3). An undo that restores what an edit replaced or deleted must put back the configuration
+the task read off the device. Journaling it would keep device text, which can hold secrets, in the run journal, where
+`sdk.InverseSpec` lets a method keep only identifiers it names in `Record`.
+
+**Root cause.** The undo was written as a replay of the read before, and the read before is device text.
+
+**Why 604 and 529 did not prevent it.** 529 found device-held text listed as `Record` where it belonged in `Withhold`;
+604 withheld net.ios.config's fallback undo for the same reason and recorded none. Both fixes were made in one method
+each, and no rule or test reaches a new method that builds its undo from device reads.
+
+**Fix.** 2e52a3a0. A journaled undo holds only the author's own content: names, namespaces, and the keys and values the
+task wrote. A change to what was there records no undo, and the run says why; a rollback then refuses the task unless it
+is left or its `rollback:` list says what to do. ddfad8d7 holds copied undo bounds to the run journal's.
+`TestLive_AReplaceRecordsNoJournaledUndo` and `TestLive_ACreateIsUndoneByItsRecordedUndo` cover both sides.
+
+**Open.** Whether a put-back may journal device text at all, here and in `net.snmp.set`, is an owner decision.
+
+**Lesson.** As 604: an undo built from what a device returned is device text. Record no undo before journaling it, and
+say why in the run.
+
+## 1258. net.netconf.config's undo, built from the reads before and after an edit, would have taken another client's entry added between the reads for the task's own (a repeat of LESSONS 147) (fixed before push)
+
+**Symptom.** The same review (F4). The undo for a create named each new list entry by diffing the read after against the
+read before. An entry another client added between the two reads looked new, and the task's undo would have removed it.
+
+**Root cause.** LESSONS 147's class: an undo taken from a before/after diff counts whatever changed, not what the task
+did.
+
+**Why LESSONS 147 did not prevent it.** 147 was written for converge methods on a host's accounts; nothing carried it to
+a datastore that many clients write at once.
+
+**Fix.** 2e52a3a0 (`internal/catalog/net/netconf/config_undo_match.go`). A group decided from the read after attributes
+each new instance to a content element of its own, holding every leaf of it, and refuses when more are new than the
+content names. `TestLive_AnotherClientsEntryIsNeverTakenForThisTasks`.
+
+**Lesson.** As LESSONS 147. On a shared datastore, an undo names only what the task's own content proves it made.
+
+## 1259. pkg/pcapsum counted a repeated TCP segment by the kind of the copy before it, so plaintext injected into an encrypted TLS flow read as encrypted, and bytes framed as TLS or SSH were never inspected (security; a repeat in kind of 659) (fixed before push)
+
+**Symptom.** The failure-pattern review of PR 186's branch (its F3 and F5), 2026-11-16, before push. A retransmitted or
+overlapping segment took the kind of the segment read there before, whatever its own bytes held. A forged TLS record,
+or SSH's none cipher, read as encrypted, since only the framing was checked.
+
+**Root cause.** The reader judged position and framing, not the bytes. A summary used as proof that nothing crossed in
+the clear said more than it saw.
+
+**Why 659 did not prevent it.** 659 made the summary count frames it never examined. Here the frames were examined, and
+the reader trusted what came before and how the bytes were framed.
+
+**Fix.** fcafcec8 and 03d8f248. A repeated or overlapping segment's bytes are compared with what was read there, and any
+that differ, or were never read, are cleartext. A TLS application data record, or a 256-byte block after NEWKEYS, of 64
+bytes or more that is three quarters printable is text, and the flow is flagged `cleartext_in_encrypted` (real
+crypto/tls and x/crypto/ssh sessions peak at 47% printable). Tests: `TestRead_ARepeatedSegmentIsItsOwnBytesKind`,
+`TestRead_TextFramedAsEncryptedIsCleartext`, `TestRead_APacketWithNoCapturedDataIsCleartext`,
+`TestText_RealSessionsAreNeverText`. Still open: TLS resync after a lost segment trusts any record-shaped
+bytes.
+
+**Lesson.** A classifier that proves encryption judges each copy of the bytes by its own content. Framing and order are
+claims the sender makes.
+
+## 1260. Onboarding's TLS first use read "no pin" as "never seen", so a device a system root had verified, now presenting a certificate nothing trusts, would have had that certificate pinned (security; a repeat in kind of LESSONS 25 and 117) (fixed before push)
+
+**Symptom.** The failure-pattern review of PR 190's branch (its F1), 2026-11-16 to 17, before push. `onboard
+--tls-first-use` pinned an untrusted certificate whenever the record held no `tls_fingerprint`, `tls_ca_pem` or earlier
+first-use pin. A device verified at an earlier onboarding through the system's roots has none of those, so a machine in
+the middle presenting its own certificate would have been pinned.
+
+**Root cause.** The first-use check asked "is there a pin" where it meant "has this device ever been verified". The
+stored discovery already recorded the verified certificate's fingerprints.
+
+**Why LESSONS 25 and 117 did not prevent it.** Both say a security default fails closed on every branch. The branch
+tested was the brand-new device; the device already verified another way was not in the table.
+
+**Fix.** 183c4686. First use refuses when the stored discovery's `tls_certificate_fingerprint` or
+`tls_certificate_key_fingerprint` differs from the untrusted certificate's, names both, and says what a person does
+instead. Proven through the onboarder and the binary: `TestOnboard_FirstUseNeverPinsAChangedVerifiedCertificate`,
+`TestCLI_FirstUseNeverPinsACertificateThatReplacedAVerifiedOne`. f183f412 tests each fingerprint changing alone.
+On the Controller, recording a pin on first use needs `inventory:assert` (15b0bc9d, `TestDeviceOnboard_FirstUseNeedsAssert`).
+
+**Lesson.** Trust on first use applies only to a device never seen. "Seen" includes every record of a verified
+certificate, not only a pin.
+
+## 1261. pkg/devicetls recorded the presented certificate in VerifyConnection, which Go calls before the server proves it holds the key, so a replayed trusted certificate was recorded (security) (fixed before push)
+
+**Symptom.** The same review (F2). The certificate facts recorded what `tls.Config.VerifyConnection` saw. A server
+replaying a trusted certificate it has no key for would be recorded as presenting it, and that record feeds first use
+(1260).
+
+**Root cause.** Go calls `VerifyConnection` before CertificateVerify in TLS 1.3 and before the ServerKeyExchange signature
+is checked in TLS 1.2. At that point the certificate is a claim.
+
+**Fix.** e8132504. `Presented` records only a completed handshake's state: an HTTP client through
+`Presented.Transport` (the response's TLS state), gNMI and gRPC through the credentials' `ClientHandshake`, and the
+container engine through its dial. `ConfigContext` no longer records. Tests:
+`TestPresented_ACertificateReplayedWithoutItsKeyIsNeverRecorded` and `TestPresented_RecordsEachCompletedHandshakeOnce`;
+b61f5eb7 builds the replay test's client as a run builds one.
+
+**Lesson.** Record a peer's identity only after the handshake has proven the peer holds its key. A verify callback runs
+before that proof.
+
+## 1262. net.yang.schema saved a source holding a secret under eight bytes unmasked, into a 0644 project file (security; a repeat of 704) (fixed before push)
+
+**Symptom.** The failure-pattern review of PR 189's branch (its F1), 2026-11-16, before push. `net.yang.schema` masks a
+saved source by value, from the run's known secrets. A secret under eight bytes is below the value masker's floor, so it
+was written in the clear, into a file created 0644, under a warning given whenever the run held any short value.
+
+**Root cause.** 704's class: masking by value alone, which cannot mask a short secret without cutting ordinary words
+apart.
+
+**Why 704's fix did not hold.** 704 moved configuration backups to the form-based masker. A YANG source is a new form with
+no form-based masker, and value masking was the only one left.
+
+**Fix.** 8a492529. A source holding a short secret as a word of its own is refused, naming the module and never the
+value, and nothing is written; files are written 0600. Every file passes the project writer's dry run before any is
+written. 5cdb9f7f masks with one fixed placeholder, so an unchanged device is not rewritten. 09cf8313 keeps
+`sdk.KnownSecrets` to the one package that needs it. Tests: `TestSchema_RefusesASourceHoldingAShortSecret`,
+`TestSchema_WritesNothingUntilEveryFileWould`.
+
+**Lesson.** As 704. Where a secret cannot be masked, refuse the write; never save it with a warning.
+
+## 1263. pkg/yanglib's CheckSource quoted up to 64 bytes of a RESTCONF answer that reaches it before any masking, so a debug page echoing an Authorization header would have put the credential in the task's error (security; a repeat of 626 and 750) (fixed before push)
+
+**Symptom.** The same review (F4). A source URL answered with a page echoing `Authorization: Basic <token>` would have
+quoted the token into the task's error, and so into the report and the journal.
+
+**Root cause.** A refusal quoted the device's answer, and on RESTCONF that answer had not been masked yet.
+
+**Why 626 and 750 did not prevent it.** Both fixed a client quoting a response body that echoes a login (CML and GNS3,
+then clab). Each fix lived in its own client; a new parser of device answers started over.
+
+**Fix.** bb68a29b. Each refusal names the kind of token it met and what was asked for, never the answer's text.
+`TestCheckSource_NeverQuotesTheAnswer`, `TestRESTCONF_ADebugPageEchoingTheLoginNeverReachesTheError`; d9419cb6 puts the
+echoed login where a refusal would quote first.
+
+**Lesson.** An error about a device's answer names what kind of thing was wrong, never the answer, unless the answer has
+been masked first.
+
+## 1264. IOS XE counts every authenticated RESTCONF request as a session, so net.yang.schema was refused at the 101st of 676 sources with 409 in-use "Too many sessions" (fixed)
+
+**Symptom.** 2026-11-17, the CML lab, a Catalyst 8000V on IOS XE 17.15. `net.yang.schema` over NETCONF saved all 676
+sources. Over RESTCONF it failed at source 101 with 409 `in-use` "Too many sessions.". The client already kept one
+keep-alive connection for its life, and that did not help (measured).
+
+**Root cause.** Not a client defect. IOS XE holds about 100 sessions, counts each authenticated request as one until it
+expires (its idle time-out is 600 s), and refuses past the cap. A fetch of more than about 100 requests in ten minutes
+meets it.
+
+**Fix.** PR 191. f9151a7f waits out that answer, and only that one, from 2 s doubling to 30 s, up to 15 minutes a request
+or the caller's context; every other 409 returns at once, and a refused credential is never sent again. 291444d1 bounds
+a whole task's waits (15 minutes by default) and counts resends. Proven live twice on the router (486 s with 44 refusals, then 504 s with 48 after the review's fixes), each saving
+674 sources, identical across both runs, and the 673 that NETCONF also lists byte-identical to its copy. Tests: `TestPaced_A676SourceFetchStaysWithinTheCap`,
+`TestPaced_WithoutWaitingTheFetchFailsAsMeasured`, `TestPaced_OnlyTheSessionCapIsWaitedOut`; `restconftest` caps
+sessions per request as IOS XE does (c7a67834).
+
+**Lesson.** A device's rate of requests is part of its protocol. Measure it on the real device before a method makes
+hundreds of calls.
+
+## 1265. net.restconf.config resent a write refused for sessions on IOS XE's word that the refused try applied nothing, which was measured for reads only (a repeat in kind of 1251) (fixed before push)
+
+**Symptom.** The failure-pattern review of PR 191's branch (its F1), 2026-11-17, before push. Once session refusals were
+waited out (1264), a refused write was sent again. An answer such as data-exists to a resent post would have been read as
+the device refusing this task's write, when the first try may have applied it.
+
+**Root cause.** The answer "too many sessions" suggests the refused try applied nothing. That was measured for reads,
+not writes.
+
+**Why 1251 did not prevent it.** 1251 made a commit with no answer say its outcome is unknown. The same question (is this
+answer proof of what the write did) came back on a resend, a new path.
+
+**Fix.** 17b4e6a3. A resent write whose answer a first try having applied it would also explain fails as an
+`AnswerLostError` with `FirstTry` set and records no undo: a post answered data-exists or resource-denied, a delete
+answered 404, and a put of a resource the read before did not find answered other than 201. Tests:
+`TestConfig_AResentWriteAFirstTryMayHaveAppliedIsNotKnown`, `TestConfig_AWriteRefusedForSessionsIsSentAgainAndLands`,
+`TestConfig_AResentDeleteWhoseReadAfterFailsSaysBoth`.
+
+**Lesson.** A resend's answer can be the first try's work. Unless that is ruled out by measurement, report the outcome as
+unknown and record no undo.
+
+## 1266. Binding one more property (tls_first_use_fingerprint) would have changed the binding digest of every device that does not set it, so each would have been onboarded again (a repeat in kind of 1167) (fixed before push)
+
+**Symptom.** PR 190's branch, before push. `BindingDigest` wrote every absent bound key as a marker of its own. Adding
+`tls_first_use_fingerprint` to the bound list (through `devicetls.Properties`) changed the digest of every device without
+it, on a Controller and a Runner of either release.
+
+**Root cause.** 1167's class: a digest two releases compare was computed over a list that a release grows.
+
+**Why 1167 did not prevent it.** 1167 froze the graph digest's encoding. The binding digest is another digest, and
+nothing listed it as a frozen contract.
+
+**Fix.** a03f34b2. A key bound from now on contributes nothing while absent. The keys a type bound before 0.4.0 keep
+their marker (a frozen set), so every stored binding stays valid byte for byte. Tests:
+`TestBindingDigest_AKeyBoundLaterLeavesADeviceThatDoesNotSetItAlone` and `TestBinding_EveryBoundTypeKeepsItsDigest`,
+which holds every bound type to the pre-0.4.0 algorithm over its pre-0.4.0 list. The breaking changelog fragment was
+dropped.
+
+**Lesson.** As 1167. List every digest stored or compared across releases, and treat each one's input list as frozen.
+
+## 1267. API tests built their routes by hand and dropped an endpoint's AlsoScopes, so the scopes the Controller enforces were never exercised (a repeat of 583) (fixed for PR 190's two routes; open in internal/api/device_facts_test.go)
+
+**Symptom.** The failure-pattern review of PR 190's branch (its F7), before push. The TLS pin confirmation test
+refused a caller holding `inventory:assert` without `inventory:read` only after it mounted the route as `cmd/controller`
+does. Its hand-built route had copied `Method`, `Pattern`, `Scope` and `Rel` from the spec and left out `AlsoScopes`. The
+onboard route's test router had the same gap.
+
+**Root cause.** A test router assembled from some of the spec's fields is a second copy of the route, and it lags the
+spec when a field is added.
+
+**Why 583 did not prevent it.** 583 found grant route tests that never exercised the routes' own scope, and its fix was
+in those tests. Nothing makes a test mount a route through `apispec.Endpoint.Route`.
+
+**Fix.** 3cc27e8c (`internal/api/devices_tls_pin_test.go`, `internal/api/devices_onboard_test.go`) mounts each route
+through `Endpoint.Route` and adds a non-admin caller holding exactly `inventory:assert` and `inventory:read`.
+
+**Open.** `internal/api/device_facts_test.go` (`factsRouter`) still builds its three routes by hand. Today those endpoints
+declare no `AlsoScopes`, so nothing is lost yet; a scope added to them later would not reach the test.
+
+**Lesson.** A test mounts a route from the same spec value the Controller mounts, never a copy of some of its fields.
+
+## 1268. On real IOS, show output lost ordinary text to masking: the `key` column header of show lacp neighbor and words in log lines naming a user's authentication (a repeat of 640) (open)
+
+**Symptom.** 2026-11-17, the CML lab's IOS XE 17.15 devices. `net.ios.command` output of `show lacp neighbor`
+lost text after its `key` header, and IOS log lines of the form "User ... authentication ..." lost words. No secret was
+there to mask.
+
+**Root cause.** Reasoned, not yet traced to the line: output passes through `netcfg.MaskOutput`, whose CLI branch is
+`MaskFound`, a denylist that masks the word after each secret word it knows (577). `key` and `authentication` are on that
+list, and show output and log text use both words with no secret after them.
+
+**Why 640 did not prevent it.** 640 found the same fault in `crypto key generate` and kept a list of command words after
+`key`. That list was written for configuration lines; a column header and a log line were not in the table.
+
+**Fix.** Not yet. A fix belongs in `pkg/netcfg` with the measured lines as tests.
+
+**Lesson.** As 640: a denylist mask is checked against the commands that share a secret word without holding a secret,
+and show output and log text are such commands.
+
+## 1269. Rollback counted every failed read-only net.ios.command show, even one that failed at the SSH handshake, as a run that may have changed the device, so each rollback needed --despite-run (a repeat of 650 and 599) (open)
+
+**Symptom.** 2026-11-17, the CML lab. Failed `net.ios.command` show commands (some failed at the SSH handshake, before
+any command was sent) made their runs count as later changes on the device. Rolling back an earlier run then needed a
+`--despite-run` for each.
+
+**Root cause.** `changesOf` (`internal/rollback/steps.go`) counts a failed action as an unknown change unless
+`changesNothing` says the method changes nothing, and `changesNothing` asks only the manifest's
+`Reversibility.ReadOnly`. `net.ios.command` is read-only per call, through `Descriptor.ReadOnlyCall` (599's `iosShow`), so
+a failed show is treated like any failed command.
+
+**Why 650 and 599 did not prevent it.** 599 and 650 taught `net.ios.command` which calls are reads, for a call that
+succeeds. The rollback planner never asks the per-call answer, so a read that fails is still a possible change.
+
+**Fix.** Not yet. The planner should ask the call's own read-only answer for a failed action, and a failure before any
+command was sent changed nothing.
+
+**Lesson.** A read-only answer given per call must be asked by every reader that judges the call, the rollback planner as
+well as the engine, and for a failure as well as a success.

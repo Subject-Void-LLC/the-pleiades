@@ -8281,3 +8281,88 @@ then found that the NETCONF listener's key could not be trusted through the prod
 not be learned through it, that turning the candidate datastore on broke every default runbook, that `commit: false` left
 an edit for someone else to commit, and that onboarding cut the module list short (FAILURE_PATTERNS 1243 to 1246). None of
 those shows in a parser test.
+
+## 447. Before any gate, ask what every list the coverage job reads holds for the branch's packages (floors, durations, resources), and treat a "coverage at floor" report as unproven until it is measured in the package's own tier (a refinement of 270 and 365; FAILURE_PATTERNS 1122, 1253 and 1254) (2026-11-17)
+
+**Why.** PR 187, 2026-11-16. Local pr-check passed and branch-containers passed 33 packages, and the pull request's
+`coverage` job still failed, with every floor met: a new container package had no time in
+`tools/testgate/durations.json` (FAILURE_PATTERNS 1253, a repeat of 1122). The same branch set a floor at a rounded
+display (1254). The owner: "coverage should NEVER be a surprise that late in the game."
+
+**What is old and what is new.** 270 says to measure every touched package against its floor before pushing, and 365 to
+run a feature's tests where CI runs them. Both are about floors and tests. The coverage job reads more than floors:
+`durations.json` and, once it says complete, `resources.json`. A writer reporting "coverage at floor" has checked one
+list of three, often in a tier the package does not run in.
+
+**Rule in practice.** Before a gate, for each package the branch adds or changes: its floor from the profile's exact
+value rounded down, measured in the package's own tier (container packages in the container pass); its line in
+`durations.json` if it is a container package; its unit in `resources.json` once that manifest is complete.
+`TestEveryContainerPackageHasADuration` now holds the second on every branch.
+
+## 448. A brief that hands an agent a wait loop on pgrep -f spells the bracket form (pgrep -f '[m]onitor.py run'), since the plain pattern matches the loop's own shell and never ends (a repeat of FAILURE_PATTERNS 153, 689 and 1067) (2026-11-17)
+
+**Why.** FAILURE_PATTERNS 1067 (2026-11-09) found a writer's wait loop running 33 minutes after its gate ended, because
+`pgrep -f` matched the loop's own `bash -c` command line, and the brief had handed the writer that form. No guard catches
+a self-matching `pgrep -f`. The pattern came up again in this session's agent briefs (2026-11-16 to 17), and the bracket
+form held.
+
+**What is old and what is new.** 153 and 1067 are failure patterns with this lesson inside them; it was never a rule of
+its own here, so a brief writer reading only the lessons index would not meet it.
+
+**Rule in practice.** Every brief that tells an agent to wait for a process writes the bracket form, or a wait on the
+process's own endpoint (the monitor's `/wait` URL), never the plain pattern. Since no guard enforces it, the brief is the
+only place it can be enforced.
+
+## 449. A gate running in the main clone blocks every change to the tree there, and a new worktree cannot be made beside it, since the guard hook refuses git worktree add: plan data-only fixes (a durations line, a floor) for after the gate ends (a refinement of 288) (2026-11-17)
+
+**Why.** 2026-11-16 to 17, while gates ran in the main clone for this run's pull requests. A change to the main clone's
+tree mid-gate changes what the gate is checking, and the guard hook refuses `git worktree add`, so a new worktree could
+not be made to work beside it.
+
+**What is old and what is new.** 288 says never edit a worktree a gate is running in. The new part is that, here, the
+gate blocks the main clone's edits for its whole run, and a new worktree is not a way around it.
+
+**Rule in practice.** Before starting a gate, finish every data-only change the branch will need (times, floors,
+counts). Note anything found during the run and apply it after the run ends, then gate again only if the change
+touches what the gate checks.
+
+## 450. The permission check refuses a force push: to replace a pushed branch, push the rebased branch under a new name, or add a follow-up commit (2026-11-17)
+
+**Why.** 2026-11-16 to 17. A force push of a rebased branch was refused by the session's permission check.
+
+**Rule in practice.** Plan for no force push. Fix a pushed branch with a follow-up commit; when a rebase is needed, push
+it under a new branch name and open the pull request from that.
+
+## 451. A real device finds what fixtures cannot: run each new protocol method on one before calling it done, and turn what it shows into a test or a device fact (a refinement of 446 and 322; FAILURE_PATTERNS 1264, 1268 and 1269) (2026-11-17)
+
+**Why.** The CML window, 2026-11-17. Every item below passed its fixtures and was found only on real Cisco devices:
+IOS XE's cap of about 100 RESTCONF sessions (FAILURE_PATTERNS 1264); the self-signed HTTPS certificate an unsaved
+configuration holds, which a reload regenerates, breaking RESTCONF pins; an RFC 8525 YANG library naming no location for a
+module's source; a CML link stop leaving the interfaces up/up; uRPF on a Catalyst 8000V subinterface dropping BFD echo,
+so BFD and OSPF flapped every 5 s; GLBP's forwarder role not moving; and AAA showing a dead TACACS server as "Alive" while
+each login waited 4.5 to 7.7 s for it. Masking over-reached on real show output (1268), and rollback counted failed
+reads as changes (1269).
+
+**What is old and what is new.** 446 says a protocol is supported only when Day 0 to Day N runs on a real device. 322 says
+device wording is measured, never recalled. The new part is how much a real device adds after the fixtures pass: limits,
+timers and state that no captured reply carries.
+
+**Rule in practice.** Budget a real-device run for every new protocol method, not only for a new protocol. Record each
+finding as a test (a fixture mode, such as `restconftest`'s session cap) or as a device fact a later check reads.
+
+## 452. After any version or dependency edit, the roadmap tracker's JSON summary must show an empty version_problems list (2026-11-17)
+
+**Why.** 2026-11-16 to 17. Phases were moved between releases (Phase 91 split into 91, 91b and 91c for v0.4.0, v0.8.0 and
+v0.10.0; Phases 144 to 146 placed in v0.6.0 and v0.7.0). The tracker reports a release or dependency that does not agree
+under `version_problems` in its JSON summary.
+
+**Rule in practice.** After editing a phase's release or its dependencies, run the tracker with `--json`, read
+`summary.version_problems`, and fix each entry before moving on.
+
+## 453. When one session adds many items to one phase, split it into the core its release needs and a catalogue for a later release, and let the owner choose (2026-11-17)
+
+**Why.** 2026-11-17. One evening of lab findings added about a dozen checks to one phase. The owner chose "core plus
+catalogue": Phase 144 keeps the core for v0.6.0, and the health catalogue is Phase 146, in v0.7.0.
+
+**Rule in practice.** When a phase grows by more than a few items in one sitting, stop and propose the split: what the
+release cannot ship without, and what can follow. Ask the owner before recording either half.
