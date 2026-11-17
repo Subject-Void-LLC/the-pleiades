@@ -83,6 +83,7 @@ func Config(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 	}
 	res, notes, err := write(ctx, rc, client, req)
 	found = append(found, notes...)
+	found = append(found, client.SessionWarnings(device.Name())...)
 	if len(found) > 0 {
 		if werr := sdk.RecordWarnings(rc, append(append([]string(nil), warnings...), found...)); werr != nil && err == nil {
 			err = werr

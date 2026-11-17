@@ -135,7 +135,9 @@ func Facts(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventor
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
-	if found = append(found, certificate...); len(found) > 0 {
+	found = append(found, certificate...)
+	found = append(found, client.SessionWarnings(device.Name())...)
+	if len(found) > 0 {
 		// The stat holds one list, so the record's own warnings are kept
 		// beside what the read found.
 		if err := sdk.RecordWarnings(rc, append(append([]string(nil), warnings...), found...)); err != nil {

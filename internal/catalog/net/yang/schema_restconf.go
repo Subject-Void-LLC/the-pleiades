@@ -99,9 +99,11 @@ func (s *restconfSource) fetch(ctx context.Context, e yanglib.Schema, limit int)
 	return nil, refused
 }
 
-// warnings are the client's.
+// warnings are the client's: its record's, and how long it waited for the
+// device's sessions when the device refused requests for too many of them
+// (IOS XE counts each request as a session; pkg/restconf waits them out).
 func (s *restconfSource) warnings() []string {
-	return s.said
+	return append(append([]string(nil), s.said...), s.client.SessionWarnings(s.device)...)
 }
 
 // close drops the client's idle connections.

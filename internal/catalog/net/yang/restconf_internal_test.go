@@ -9,9 +9,11 @@ package yang
 import (
 	"context"
 	"encoding/base64"
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/restconf/restconftest"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
@@ -188,6 +190,38 @@ func TestRESTCONF_AFailedDiscoveryAndAFailedModulesState(t *testing.T) {
 	dev.Base = "ftp://nowhere"
 	if _, err := Schema(context.Background(), newContext(t), dev, map[string]any{}); err == nil || !strings.Contains(err.Error(), "over restconf") {
 		t.Errorf("a device with no usable base URL: %v", err)
+	}
+}
+
+// TestRESTCONF_AFetchOfEveryModuleWaitsOutTheSessionCap is the fetch measured
+// failing on a Catalyst 8000V (IOS XE 17.15, 2026-11-17): every one of 676
+// sources, from a server capping its sessions at 100 as IOS XE does, each
+// request a session held after its answer. Through the method and the real
+// client at its real pacing, every source is fetched and written, and the
+// task says how long it waited.
+func TestRESTCONF_AFetchOfEveryModuleWaitsOutTheSessionCap(t *testing.T) {
+	sources := map[string][]byte{}
+	for i := range 676 {
+		name := fmt.Sprintf("m%03d", i)
+		sources[name+"@2026-11-16"] = []byte("module " + name + " {\n  namespace \"urn:t:" + name + "\";\n  prefix p;\n  revision 2026-11-16;\n}\n")
+	}
+	// Held for less than the client's first wait, so each wait frees the cap.
+	s, dev, rc := restconfServer(t, restconftest.Options{Sources: sources, SessionCap: 100, SessionHold: 500 * time.Millisecond})
+	if _, err := Schema(context.Background(), rc, dev, map[string]any{paramMaxModules: 1000}); err != nil {
+		t.Fatalf("a fetch of every module under the cap: %v", err)
+	}
+	if rc.stats["files_changed"] != 676 || s.SessionRefusals() == 0 {
+		t.Fatalf("%v files changed, %d refusals; want all 676 written past a cap that was reached", rc.stats["files_changed"], s.SessionRefusals())
+	}
+	for _, name := range []string{"m000", "m100", "m675"} {
+		got, ok := rc.read(t, "yang/restconf/"+name+"@2026-11-16.yang")
+		if !ok || got != string(sources[name+"@2026-11-16"]) {
+			t.Errorf("%s saved as %q, want it as served", name, got)
+		}
+	}
+	warned := fmt.Sprint(rc.stats["warnings"])
+	if !strings.Contains(warned, fmt.Sprintf("refused %d RESTCONF requests with 409 in-use, too many sessions", s.SessionRefusals())) {
+		t.Errorf("warnings %s do not name the %d refusals waited out", warned, s.SessionRefusals())
 	}
 }
 
