@@ -130,9 +130,6 @@ func maskPredicted(rc sdk.RunbookContext, predicted []predictedLine) ([]string, 
 // configuration lacks, in which nothing is ever found.
 type level struct {
 	node *iosconfig.Node
-	// indent is how far the line that entered the block was indented as
-	// written, -1 for the top level.
-	indent int
 }
 
 // predictLines walks lines as IOS's configuration mode would take them and
@@ -162,23 +159,25 @@ type level struct {
 // IOS leaves a submode for a global command written in it (the CML lab's
 // "ip igmp snooping querier" after an interface's lines, 2026-11-17), and
 // the check follows it two ways, never by guessing which commands are
-// global. Lines that draw their blocks by indentation, as show
+// global. Among lines that draw their blocks by indentation, as show
 // running-config does (" switchport mode trunk" under "interface
-// Ethernet0/1"), are read by it: a line is entered in the innermost block
-// whose opening line was indented less, so a line at the margin is at the
-// top level. And a line, or a "no" line's whole command, not in the current
-// block but at the configuration's top level is a global command, since IOS
-// prints one there only when it is: it is taken there and the submode left.
-// A line found nowhere, among lines indented nowhere, stays in the current
-// block (write exit before it), as before. A line both IOS's top level and
+// Ethernet0/1"), a line at the margin is at the top level. Indentation
+// decides nothing else: a line indented as far as the block it follows (a
+// neighbor written level with the "address-family ipv4 vrf RED" before it)
+// stays in that block, as IOS keeps it in the submode, rather than being
+// found in a parent below the top level and predicted unchanged
+// (FAILURE_PATTERNS 720). And a line, or a "no" line's whole command, not
+// in the current block but at the configuration's top level is a global
+// command, since IOS prints one there only when it is: it is taken there
+// and the submode left. A line found nowhere, not at the margin of indented
+// lines, stays in the current block (write exit before it), as before. A line both IOS's top level and
 // the submode take, printed at the top level, would be predicted unchanged
 // where IOS sets it in the submode; none is known.
 func predictLines(roots []*iosconfig.Node, lines []string) []predictedLine {
-	p := predictor{stack: []level{{node: &iosconfig.Node{Children: roots}, indent: -1}}}
+	p := predictor{stack: []level{{node: &iosconfig.Node{Children: roots}}}}
 	indented := drawsBlocks(lines)
 	for _, raw := range lines {
 		line := strings.TrimSpace(raw)
-		indent := indentOf(raw)
 		switch {
 		case line == "" || strings.HasPrefix(line, "!"):
 			continue
@@ -189,23 +188,24 @@ func predictLines(roots []*iosconfig.Node, lines []string) []predictedLine {
 			}
 			continue
 		}
-		if indented {
-			p.leaveFor(indent)
+		if indented && indentOf(raw) == 0 {
+			// The margin, among indented lines, is the top level.
+			p.stack = p.stack[:1]
 		}
-		if p.enter(p.scope(line), line, indent) {
+		if p.enter(p.scope(line), line) {
 			continue
 		}
 		if x, ok := strings.CutPrefix(line, "no "); ok && p.remove(x) {
 			continue
 		}
-		if len(p.stack) > 1 && p.enter([]int{0}, line, indent) {
+		if len(p.stack) > 1 && p.enter([]int{0}, line) {
 			// A global command the configuration already holds, written in a
 			// submode: IOS took it at the top level and left the submode.
 			continue
 		}
 		if at := p.opens(line); at >= 0 {
 			p.emit(p.path(at), "+", line)
-			p.stack = append(p.stack[:at+1], level{node: &iosconfig.Node{Line: line}, indent: indent})
+			p.stack = append(p.stack[:at+1], level{node: &iosconfig.Node{Line: line}})
 			continue
 		}
 		p.emit(p.path(len(p.stack)-1), "+", line)
@@ -216,14 +216,14 @@ func predictLines(roots []*iosconfig.Node, lines []string) []predictedLine {
 // enter looks for line among levels (find) and, found, enters it in its
 // block: it is the block the next line is looked for in only when it opens
 // one (hostname does not). It reports whether line was found.
-func (p *predictor) enter(levels []int, line string, indent int) bool {
+func (p *predictor) enter(levels []int, line string) bool {
 	at, n := p.find(levels, func(c *iosconfig.Node) bool { return c.Line == line })
 	if n == nil {
 		return false
 	}
 	p.stack = p.stack[:at+1]
 	if len(n[0].Children) > 0 || isOpener(line) {
-		p.stack = append(p.stack, level{node: n[0], indent: indent})
+		p.stack = append(p.stack, level{node: n[0]})
 	}
 	return true
 }
@@ -246,15 +246,6 @@ func (p *predictor) remove(x string) bool {
 		p.removeTree(p.path(at), r)
 	}
 	return len(removed) > 0
-}
-
-// leaveFor leaves every block whose opening line was indented as far as
-// indent or further, so a line is looked for in the innermost block its
-// indentation places it in.
-func (p *predictor) leaveFor(indent int) {
-	for len(p.stack) > 1 && p.stack[len(p.stack)-1].indent >= indent {
-		p.stack = p.stack[:len(p.stack)-1]
-	}
 }
 
 // drawsBlocks reports whether any line of lines is indented: such lines draw

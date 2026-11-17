@@ -180,10 +180,27 @@ func TestPredictLines_NewBlocksAndNestedOpeners(t *testing.T) {
 // another VRF's address family is still found under the router.
 func TestPredictLines_ANeighborInAVRFIsNotTheRoutersNeighbor(t *testing.T) {
 	roots := iosconfig.Parse("router bgp 1\n neighbor 10.0.0.2 remote-as 2\n !\n address-family ipv4 vrf RED\n  neighbor 10.0.0.9 activate\n exit-address-family\n !\n address-family ipv4 vrf BLUE\n  neighbor 10.0.0.2 remote-as 2\n exit-address-family\n!\nend")
-	got := renderPredicted(predictLines(roots, []string{"router bgp 1", "address-family ipv4 vrf RED", "neighbor 10.0.0.2 remote-as 2", "address-family ipv4 vrf BLUE", "neighbor 10.0.0.2 remote-as 2"}))
 	want := []string{"router bgp 1", " address-family ipv4 vrf RED", "  +neighbor 10.0.0.2 remote-as 2"}
-	if !slices.Equal(got, want) {
-		t.Errorf("got %q, want %q", got, want)
+	// Written flat, indented as show running-config indents it, and with the
+	// neighbor one space in, level with the address family before it (where
+	// reading indentation as the block once found it under the router and
+	// predicted it unchanged): IOS adds it to the VRF each time.
+	for name, lines := range map[string][]string{
+		"flat":           {"router bgp 1", "address-family ipv4 vrf RED", "neighbor 10.0.0.2 remote-as 2", "address-family ipv4 vrf BLUE", "neighbor 10.0.0.2 remote-as 2"},
+		"indented":       {"router bgp 1", " address-family ipv4 vrf RED", "  neighbor 10.0.0.2 remote-as 2", " address-family ipv4 vrf BLUE", "  neighbor 10.0.0.2 remote-as 2"},
+		"level with it":  {"router bgp 1", " address-family ipv4 vrf RED", " neighbor 10.0.0.2 remote-as 2", " address-family ipv4 vrf BLUE", " neighbor 10.0.0.2 remote-as 2"},
+		"one space each": {"router bgp 1", " address-family ipv4 vrf RED", " neighbor 10.0.0.2 remote-as 2"},
+	} {
+		if got := renderPredicted(predictLines(roots, lines)); !slices.Equal(got, want) {
+			t.Errorf("%s: got %q, want %q", name, got, want)
+		}
+	}
+	// The same for a VRF's address family: route-target export written level
+	// with the address family stays in it.
+	vrf := iosconfig.Parse("vrf definition X\n rd 1:1\n route-target export 1:1\n !\n address-family ipv4\n exit-address-family\n!\nend")
+	got := renderPredicted(predictLines(vrf, []string{"vrf definition X", " address-family ipv4", " route-target export 1:1"}))
+	if want := []string{"vrf definition X", " address-family ipv4", "  +route-target export 1:1"}; !slices.Equal(got, want) {
+		t.Errorf("vrf: got %q, want %q", got, want)
 	}
 }
 

@@ -124,13 +124,15 @@ func TestCheckConfig_ADeviceWithNoVLANTableSaysSo(t *testing.T) {
 	}
 }
 
-// TestPredictLines_IndentationPlacesNestedLines: a line indented under a
-// router, after an address family's deeper lines, is the router's; and a
-// VLAN table entry the configuration already holds is not added twice.
-func TestPredictLines_IndentationPlacesNestedLines(t *testing.T) {
+// TestPredictLines_IndentationDecidesOnlyTheMargin: a line written less
+// indented than an address family's lines, but not at the margin, stays in
+// the address family, where IOS takes it, so the router's neighbor is a
+// change there; a line at the margin is at the top level. And a VLAN table
+// entry the configuration already holds is not added twice.
+func TestPredictLines_IndentationDecidesOnlyTheMargin(t *testing.T) {
 	roots := iosconfig.Parse(checkRunning)
-	got := renderPredicted(predictLines(roots, []string{"router bgp 65000", " address-family ipv4", "  neighbor 192.0.2.1 activate", " neighbor 192.0.2.1 remote-as 65001", " neighbor 192.0.2.9 remote-as 65009"}))
-	if want := []string{"router bgp 65000", " +neighbor 192.0.2.9 remote-as 65009"}; !slices.Equal(got, want) {
+	got := renderPredicted(predictLines(roots, []string{"router bgp 65000", " address-family ipv4", "  neighbor 192.0.2.1 activate", " neighbor 192.0.2.1 remote-as 65001", "hostname r1"}))
+	if want := []string{"router bgp 65000", " address-family ipv4", "  +neighbor 192.0.2.1 remote-as 65001"}; !slices.Equal(got, want) {
 		t.Errorf("got %q, want %q", got, want)
 	}
 	held := iosconfig.Parse("vlan 50\n name held\n!\nend")
