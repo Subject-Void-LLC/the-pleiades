@@ -413,6 +413,9 @@ func (r *Runner) Connect(ctx context.Context, hops []Hop, target Target, auth Au
 		return nil, err
 	}
 	conn = &Conn{client: chain[len(chain)-1], chain: chain, addr: legs[len(legs)-1].addr, legacy: target.Legacy}
+	for i, h := range hops {
+		conn.hopLegacy = append(conn.hopLegacy, hopLegacy{addr: legs[i].addr, legacy: h.Target.Legacy})
+	}
 	// A detached command whose connection drops polls on a fresh one, dialed
 	// the same way (detach.go).
 	conn.redial = func(ctx context.Context) (*Conn, error) { return r.Connect(ctx, hops, target, auth) }

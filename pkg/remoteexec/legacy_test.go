@@ -194,6 +194,37 @@ func TestConnect_AFlagAModernDeviceDoesNotNeedIsWarned(t *testing.T) {
 	}
 }
 
+// TestLegacyWarnings_ABastionsWeakeningIsWarnedToo proves a legacy flag on a
+// bastion hop is reported, naming the hop, when the connection to the device
+// behind it negotiated one: the hop's session carries the device's traffic,
+// so its weakening cannot pass unwarned. The hop record's flags are carried
+// on the Conn by Connect (hopLegacy); this test holds the warning for them.
+func TestLegacyWarnings_ABastionsWeakeningIsWarnedToo(t *testing.T) {
+	s := startOldSSHServer(t, []string{ssh.InsecureKeyExchangeDH14SHA1}, true)
+	r := s.knownRunner(t)
+	base, err := s.connectAs(t, r, Legacy{KeyExchange: true, HostKeys: true})
+	if err != nil {
+		t.Fatalf("the legacy handshake: %v", err)
+	}
+	defer base.Close()
+
+	hop := &Conn{
+		client:    base.client,
+		chain:     []*ssh.Client{base.client},
+		hopLegacy: []hopLegacy{{addr: "bastion.example:22", legacy: Legacy{KeyExchange: true, HostKeys: true}}},
+	}
+	warnings := strings.Join(hop.LegacyWarnings("sw-l2"), "\n")
+	if !strings.Contains(warnings, "bastion bastion.example:22 carrying sw-l2") || !strings.Contains(warnings, "used legacy SSH key exchange "+ssh.InsecureKeyExchangeDH14SHA1) {
+		t.Errorf("warnings %q do not name the bastion's legacy key exchange", warnings)
+	}
+
+	// A hop whose record allows nothing adds no warning of its own.
+	none := &Conn{client: base.client, chain: []*ssh.Client{base.client}, hopLegacy: []hopLegacy{{addr: "bastion.example:22"}}}
+	if w := none.LegacyWarnings("sw-l2"); w != nil {
+		t.Errorf("a hop that allows nothing warned %q", w)
+	}
+}
+
 // TestLegacy_TheDefaultOffersNoWeakAlgorithm proves the zero Legacy names
 // none of the algorithms the library calls insecure, though the library's
 // own default would offer SHA-1 key exchange, ssh-rsa and hmac-sha1-96, and
