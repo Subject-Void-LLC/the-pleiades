@@ -1,12 +1,14 @@
 // Tests that a Controller's admission holds a task to the alternative it
-// names (collection.Manifest.AlternativeParam), from the module catalog it
-// ships, as validate does: net.yang.schema with via: restconf skips a device
-// served only by NETCONF at launch.
+// names (collection.Manifest.AlternativeParam), as validate does: a method
+// with net.yang.schema's shipped alternatives and via skips, under via:
+// restconf, a device served only by NETCONF at launch.
 package dispatch_test
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -28,7 +30,23 @@ import (
 func TestWorker_HoldsATaskToTheAlternativeItNames(t *testing.T) {
 	t.Cleanup(collection.SnapshotForTest())
 	t.Cleanup(collection.CatalogForTest())
-	if err := collection.InstallCatalog(wellknown.ModuleCatalog); err != nil {
+	// net.yang.schema itself writes into the project, which fan-out refuses
+	// before admission (project_files_test.go), so the method here is its
+	// shipped manifest, alternatives and via as they ship, without dest.
+	var shipped map[string]collection.Manifest
+	if err := json.Unmarshal(wellknown.ModuleCatalog, &shipped); err != nil {
+		t.Fatal(err)
+	}
+	m := shipped["net.yang.schema"]
+	m.Doc.Params = slices.DeleteFunc(slices.Clone(m.Doc.Params), func(p collection.Param) bool { return p.Name == "dest" })
+	if m.AlternativeParam != "via" || len(m.Alternatives) != 2 {
+		t.Fatalf("the shipped net.yang.schema chooses by %q among %d alternatives, want via between two", m.AlternativeParam, len(m.Alternatives))
+	}
+	catalog, err := json.Marshal(map[string]collection.Manifest{"viatest.schema": m})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := collection.InstallCatalog(catalog); err != nil {
 		t.Fatal(err)
 	}
 	stub := func(id, name string, caps ...capability.Name) *inventorytest.Stub {
@@ -48,7 +66,7 @@ func TestWorker_HoldsATaskToTheAlternativeItNames(t *testing.T) {
 		"{{ vars.proto }}": {},
 	} {
 		dir := t.TempDir()
-		task := "id: schema\ntasks:\n  - name: read the schema\n    net.yang.schema:\n      modules: [ietf-interfaces]\n"
+		task := "id: schema\ntasks:\n  - name: read the schema\n    viatest.schema:\n      modules: [ietf-interfaces]\n"
 		if via != "" {
 			task += "      via: '" + via + "'\n"
 		}

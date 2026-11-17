@@ -29,11 +29,11 @@ type PreparedDefinition struct {
 	// playbook, which the platform never parses.
 	Methods []string
 
-	// Calls are the literal parameters each of those tasks gives its method
+	// Calls are those tasks with the literal parameters each gives its method
 	// (runbook.Runbook.Calls), by FQCN, so admission holds a task naming one
 	// of its method's alternatives (collection.Manifest.AlternativeParam) to
 	// that one. Nil for a playbook.
-	Calls map[string][]map[string]any
+	Calls map[string][]runbook.Call
 
 	// Interruptible is whether the run tolerates being stopped mid-flight,
 	// carried onto every device's dispatch payload.
@@ -107,6 +107,12 @@ func (s runbookDefinitionSource) Prepare(ctx context.Context, definition string)
 	// Runner only through the claim-time credential fetch, and a Runner's own
 	// refusal would come after the dispatch had crossed the stream.
 	if err := RefuseSeededLogins(rb); err != nil {
+		return PreparedDefinition{}, err.Error(), err
+	}
+	// So is a task naming a file in the project, which no Runner holds:
+	// refused here before publish rather than by each Runner's validation
+	// after the dispatch crossed the stream.
+	if err := RefuseProjectFiles(rb); err != nil {
 		return PreparedDefinition{}, err.Error(), err
 	}
 	return PreparedDefinition{Required: rb.Required, Methods: rb.Methods, Calls: rb.Calls, Interruptible: rb.Interruptible, Serial: rb.Serial,

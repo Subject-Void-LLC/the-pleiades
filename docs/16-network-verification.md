@@ -361,9 +361,10 @@ entry says so). Each file is `name@revision.yang`, built from the library's iden
 alone (mode 0600). Every source is fetched, checked to be the module asked for, masked and held to the bounds, and
 every file to the project's rules, before any file is written, so a refusal writes nothing; a write that fails after that
 (a full disk) leaves the files before it, which the task's error says. It runs from the command line, which holds the
-project. On the Walk tier a task calling it, like any method writing a project file, is refused by the Runner's own
-validation once the job has been dispatched to it: the Controller runs no validation when a job is launched, so it does
-not yet refuse such a template itself.
+project. On the Walk tier a job whose runbook calls it, like any method reading or writing a project file (its `dest`
+left to the default included), fails when the Controller fans it out, naming each task and parameter, before any device
+is dispatched to: the Controller holds the job to the rule a Runner's validation holds the runbook to. A task that runs
+only under a `when:` is not judged there, as it is not at admission, and the Runner refuses it where its condition holds.
 
 ### Reaching a node through the controller's console
 

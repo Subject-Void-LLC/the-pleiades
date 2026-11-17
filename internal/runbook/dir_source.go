@@ -406,22 +406,22 @@ func methods(dag *engine.DAG, conditional bool) []string {
 	return names
 }
 
-// calls computes Runbook.Calls from a compiled DAG: the parameters of every
-// node Runbook.Methods counts (a method, no condition of its own), copied, by
-// FQCN, in sorted node-ID order so two compilations of one runbook agree.
-func calls(dag *engine.DAG) map[string][]map[string]any {
+// calls computes Runbook.Calls from a compiled DAG: every node Runbook.Methods
+// counts (a method, no condition of its own), its parameters copied, by FQCN,
+// in sorted node-ID order so two compilations of one runbook agree.
+func calls(dag *engine.DAG) map[string][]Call {
 	ids := make([]string, 0, len(dag.Nodes))
 	for id := range dag.Nodes {
 		ids = append(ids, id)
 	}
 	sort.Strings(ids)
-	out := map[string][]map[string]any{}
+	out := map[string][]Call{}
 	for _, id := range ids {
 		task := dag.Nodes[id]
 		if task.FQCN == "" || dag.Conditional(id) {
 			continue
 		}
-		out[task.FQCN] = append(out[task.FQCN], maps.Clone(task.Params))
+		out[task.FQCN] = append(out[task.FQCN], Call{Node: id, Name: task.Name, Params: maps.Clone(task.Params)})
 	}
 	return out
 }

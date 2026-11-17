@@ -24,10 +24,31 @@ package runbook
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 )
+
+// Call is one task of a compiled runbook as the Controller holds it before
+// dispatch: which node it is and what parameters it gives its method.
+type Call struct {
+	// Node is the task's node ID in the compiled DAG, tasks[1] or the like.
+	Node string
+	// Name is the task's own name, empty when it has none.
+	Name string
+	// Params are its parameters as the runbook writes them, never rendered.
+	Params map[string]any
+}
+
+// Label names the call for a human, as validate names a task: the node ID,
+// with the task's name when it has one.
+func (c Call) Label() string {
+	if c.Name != "" {
+		return fmt.Sprintf("%s (name %q)", c.Node, c.Name)
+	}
+	return c.Node
+}
 
 // Runbook is the compiled, capability-resolved view of a single runbook: an
 // ID and the deduplicated set of device capabilities every task in it
@@ -81,13 +102,15 @@ type Runbook struct {
 	// that holds on the Runner runs it.
 	AllMethods []string
 
-	// Calls are the parameters each task in Methods gives its method, as the
-	// runbook writes them (never rendered), by FQCN, in node-ID order. The
-	// Controller's admission holds a task to the alternative it names
-	// (collection.Manifest.AlternativeParam, net.yang.schema's via) through
-	// collection.Manifest.For, as validate does; a value only rendering
-	// decides is the Runner's to hold.
-	Calls map[string][]map[string]any
+	// Calls are the tasks Methods counts (no condition of their own), each
+	// with the parameters it gives its method as the runbook writes them
+	// (never rendered), by FQCN, in node-ID order. The Controller holds a
+	// task to the alternative it names (collection.Manifest.AlternativeParam,
+	// net.yang.schema's via) through collection.Manifest.For, and refuses one
+	// naming a project file (collection.ProjectFiles), as validate does on a
+	// Runner; a task under a condition, and a value only rendering decides, is
+	// the Runner's to hold.
+	Calls map[string][]Call
 
 	// Interruptible is engine.Metadata.IsInterruptible()'s own resolved
 	// answer for this runbook (dir_source.go's Get applies the default

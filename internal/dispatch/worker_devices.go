@@ -21,6 +21,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/launch"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/runbook"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
@@ -210,7 +211,7 @@ func notUndone(job *Job, a admission) admission {
 // there, through collection.Manifest.For with those parameters, as validate
 // does; a templated value names none here and is held by the Runner once
 // rendered.
-func methodsAdmit(device pkginventory.InventoryItem, methods []string, calls map[string][]map[string]any) error {
+func methodsAdmit(device pkginventory.InventoryItem, methods []string, calls map[string][]runbook.Call) error {
 	for _, fqcn := range methods {
 		// The registry, or on a Controller, which registers no Collection, the
 		// module catalog its composition root installed.
@@ -228,8 +229,8 @@ func methodsAdmit(device pkginventory.InventoryItem, methods []string, calls map
 		if manifest.AlternativeParam == "" {
 			continue
 		}
-		for _, params := range calls[fqcn] {
-			if err := collection.Admits(device, fqcn, manifest.For(params)); err != nil {
+		for _, call := range calls[fqcn] {
+			if err := collection.Admits(device, fqcn, manifest.For(call.Params)); err != nil {
 				return err
 			}
 		}
