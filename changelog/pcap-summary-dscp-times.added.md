@@ -1,0 +1,1 @@
+`net.pcap.summary` counts every IP packet by DSCP mark, named by its codepoint and RFC 4594 service class, over the capture, each pair and each connection, and gives the capture's and each connection's first and last packet times and duration, and each connection's bytes.

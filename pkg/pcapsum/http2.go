@@ -33,11 +33,14 @@ const (
 )
 
 // headerSink is told what a direction's headers held: a gRPC content-type,
-// the name of each header that carried a credential, and each time headers
+// each request's target (an HTTP/1.x request line's, an HTTP/2 :path), the
+// name of each header that carried a credential, and each time headers
 // went unsearched (a block too large or undecodable, a name too long to
-// search, the framing lost).
+// search, the framing lost). A target is read for the management API it
+// names (managementAPI) and never kept.
 type headerSink interface {
 	sawGRPC()
+	sawTarget(target string)
 	sawCredential(name string)
 	unsearched()
 }
@@ -80,6 +83,9 @@ func newH2Parser(client bool, sink headerSink) *h2Parser {
 func (h *h2Parser) field(f hpack.HeaderField) {
 	if f.Name == "content-type" && strings.HasPrefix(f.Value, "application/grpc") {
 		h.sink.sawGRPC()
+	}
+	if f.Name == ":path" {
+		h.sink.sawTarget(f.Value)
 	}
 	credential(h.sink, f.Name, f.Value != "", f.Sensitive)
 }

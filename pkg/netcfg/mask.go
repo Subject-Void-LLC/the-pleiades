@@ -203,6 +203,11 @@ func maskLine(line string, inKeyChain bool, found *[]string) string {
 		if w.text == "authentication" && i == 1 && ws[0].text == "aaa" {
 			continue
 		}
+		// A show command's column header, field label or log message that
+		// uses a secret word with no secret after it (outputPhrases).
+		if inOutputPhrase(line, ws, i) {
+			continue
+		}
 		psk := w.text == "pre-shared-key"
 		j := i + 1
 		for j < len(ws)-1 && (isSmallNumber(ws[j].text) || slices.Contains(skipped, ws[j].text) || psk && slices.Contains(pskSides, ws[j].text)) {

@@ -1,0 +1,1 @@
+`net.ios.config` reports the VLANs its lines make, rename or remove on a switch that keeps them outside its running configuration, read from `show vlan brief` before and after the lines, and undoes a VLAN it made with `no vlan N`; a VLAN renamed or removed records no undo and says why.

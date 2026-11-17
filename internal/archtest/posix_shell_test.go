@@ -26,6 +26,7 @@ var shellFreeServers = map[string]string{
 	"internal/catalog/net/ios/config_session_internal_test.go:configuringDevice":                                               "a scripted IOS CLI in configuration mode that asks a question; no exec session is opened",
 	"internal/catalog/net/ios/ios_session_internal_test.go:iosDevice":                                                          "a scripted IOS CLI answers the shell request; no exec session is opened",
 	"internal/catalog/net/ios/config_backup_internal_test.go:backupDevice":                                                     "a scripted IOS CLI in configuration mode showing its running configuration; no exec session is opened",
+	"internal/catalog/net/ios/config_check_context_internal_test.go:switchDevice":                                              "a scripted IOS switch CLI showing its running configuration and VLANs; no exec session is opened",
 	"internal/catalog/wait/connection_test.go:TestConnection_ANetworkDeviceNotLettingATerminalInIsNotReady":                    "a scripted network CLI with no session budget; nothing is ever run",
 	"internal/catalog/wait/connection_test.go:startCLIDevice":                                                                  "a scripted network CLI; a try opens a terminal and no exec session",
 	"internal/catalog/wait/netconf_test.go:startNetconfServer":                                                                 "a scripted NETCONF subsystem; a try opens the subsystem and no exec session",

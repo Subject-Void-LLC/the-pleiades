@@ -1,0 +1,1 @@
+`net.trace` returns `path` (reached, loop, unreached or unknown), `hop_details` with each hop's return hop count, and for a reached destination `return_hops` and `asymmetric`; `expect: {symmetric: true}` fails a path whose reply came back over a different number of hops.

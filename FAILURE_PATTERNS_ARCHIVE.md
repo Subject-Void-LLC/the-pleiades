@@ -31034,23 +31034,41 @@ declare no `AlsoScopes`, so nothing is lost yet; a scope added to them later wou
 
 **Lesson.** A test mounts a route from the same spec value the Controller mounts, never a copy of some of its fields.
 
-## 1268. On real IOS, show output lost ordinary text to masking: the `key` column header of show lacp neighbor and words in log lines naming a user's authentication (a repeat of 640) (open)
+## 1268. On real IOS, show output lost ordinary text to masking: the `key` column header of show lacp neighbor and words in log lines naming a user's authentication (a repeat of 640) (fixed)
 
 **Symptom.** 2026-11-17, the CML lab's IOS XE 17.15 devices. `net.ios.command` output of `show lacp neighbor`
 lost text after its `key` header, and IOS log lines of the form "User ... authentication ..." lost words. No secret was
 there to mask.
 
-**Root cause.** Reasoned, not yet traced to the line: output passes through `netcfg.MaskOutput`, whose CLI branch is
-`MaskFound`, a denylist that masks the word after each secret word it knows (577). `key` and `authentication` are on that
-list, and show output and log text use both words with no secret after them.
+**Root cause.** Traced: `net.ios.command`'s stdout passes through `netcfg.MaskOutput` (`internal/catalog/net/ios/command.go`
+`maskedStdout`), whose CLI branch is `MaskFound`, a denylist that masks the word after each secret word it knows (577).
+`key` and `authentication` are on that list (`pkg/netcfg/mask.go` `secretWords`), and `maskLine` took the word after either
+as the secret: after `key`, untyped and so clear text, everything to the end of the line (`replaceRest`); after
+`authentication`, one word (`secretIsOneWord`). Measured on the transcripts of 2026-11-17: show lacp neighbor's and show
+etherchannel detail's partner header lost "Key Number State", show ip ssh's "Minimum expected Diffie Hellman key size : 2048
+bits" lost "size : 2048 bits" (IOSvL2), every %CRYPTO_ENGINE-5-KEY_ADDITION line lost "named <label> has been generated or
+imported by ...", every %SSH-5-SSH2_USERAUTH line lost the "for" of "authentication for SSH2 Session", and show ip http
+server status lost the "method:" of "HTTP server authentication method: local". Nothing else in the 794 text transcripts was
+over-masked.
 
 **Why 640 did not prevent it.** 640 found the same fault in `crypto key generate` and kept a list of command words after
 `key`. That list was written for configuration lines; a column header and a log line were not in the table.
 
-**Fix.** Not yet. A fix belongs in `pkg/netcfg` with the measured lines as tests.
+**Fix.** Branch `fix/network-read-fidelity`: `pkg/netcfg/phrases.go` holds each measured shape (`outputPhrases`) as the
+secret word and the words after it, in the line's own context: for show output the whole start of the line ("Port Flags
+Priority Dev ID Age", "Minimum expected Diffie Hellman", "HTTP server"), and for a log message its tag
+(`%CRYPTO_ENGINE-`, `%CRYPTO_ENGINE-5-KEY_REPLACE:`, `%SSH-5-SSH2_USERAUTH:` with "User '<name>'") with nothing but a
+syslog timestamp before it on the line. `maskLine` passes over a secret word that begins one. The first form of the fix
+held a phrase to the one word before it, which a configuration line could match: "tacacs-server host A key named Xyz123",
+and the RADIUS and NX-OS server lines named the same way, kept their keys in the clear. The branch's review found it before
+merge (vuln-corpus class C7), and `TestMask_PhrasesAreWholeShapes` now holds every phrase's words in a wrong context to
+being masked. Tests: `TestMask_KeepsMeasuredShowOutput` (the transcripts' lines, lab addresses, MAC addresses and user
+replaced, in `pkg/netcfg/testdata`) and `TestMask_PhrasesAreWholeShapes`; FuzzMask ran four minutes (22 million inputs)
+after each form of the fix.
 
 **Lesson.** As 640: a denylist mask is checked against the commands that share a secret word without holding a secret,
-and show output and log text are such commands.
+and show output and log text are such commands. An exception is held to the whole context it was measured in, from the
+start of the line, never to its words and a word beside them: a configuration line can name a host anything.
 
 ## 1269. Rollback counted every failed read-only net.ios.command show, even one that failed at the SSH handshake, as a run that may have changed the device, so each rollback needed --despite-run (a repeat of 650 and 599) (open)
 
@@ -31075,3 +31093,73 @@ covered only when the call itself is read-only. `TestCLI_ARollbackBeneathFailedR
 
 **Lesson.** A read-only answer given per call must be asked by every reader that judges the call, the rollback planner as
 well as the engine, and for a failure as well as a success.
+
+## 1270. net.trace dropped tracepath's asymm and back columns and called a trace no hop answered a success, so an asymmetric path, a routing loop and a filtered path all read as an ordinary result (fixed)
+
+**Symptom.** 2026-11-17, the CML lab. Host1's trace to Host2 went out over three hops and came back over two, and
+tracepath printed so itself ("2: 10.0.10.2 ... asymm 1", "Resume: pmtu 1500 hops 3 back 2"); net.trace returned only the
+hop addresses. With a route loop between the two routers, Host1's trace was twelve "*" hops, reached false, and the task
+was ok: no ICMP reached the host, and nothing said the path was unknown.
+
+**Root cause.** `parseTracepath` (`internal/catalog/net/trace.go:268` at c5dc1f88) read each hop line's number and address
+(`traceHop`, line 44) and nothing after them, and never read the Resume line. `Trace` failed only when there were no hop
+lines at all (line 155), so a trace of nothing but "no reply" lines returned success.
+
+**Fix.** Branch `fix/network-read-fidelity`: `trace_parse.go` keeps each hop's asymm count and the Resume line's hops and
+back, returned as `hop_details`, `return_hops` and `asymmetric`, and `expect.symmetric`. `path` names the result: a
+possible loop (or per-flow load balancing) only from an address that answered again after another address answered
+between, an unanswered hop passed over (so "A, *, A" is not one, and "*" alone never is), unknown when no hop answered, and
+an unknown path fails the task unless only `reached: false` was expected. Proven on three real FRR routers routed to make each
+case (`TestTrace_AsymmetryLoopsAndSilenceOnRealRouters`), which also showed tracepath prints no asymm on the reached line.
+
+**Lesson.** A tool's own diagnosis is part of its answer: read every column it prints before adding a second probe to learn
+the same thing. And an answer of nothing is unknown, not success: a filter, a rate limit and a loop look alike from the end.
+
+## 1271. net.pcap.summary called any HTTP in the clear cleartext management, so a lab web server on 8080 was warned of as management traffic (fixed)
+
+**Symptom.** 2026-11-17, the CML lab's QoS capture: python's http.server on Host2:8080 answering a traffic generator was
+reported as "management traffic crossed in the clear". The same summary had no DSCP, time or bytes per flow, so it could
+show neither the marked classes nor the long, large flows.
+
+**Root cause.** `flow.read` (`pkg/pcapsum/flow_read.go:85` at c5dc1f88) set `CleartextManagement` for every http, http2 or
+grpc flow with a cleartext packet: the protocol alone decided, though HTTP is every test web server as well as a device's
+API.
+
+**Fix.** Branch `fix/network-read-fidelity`: a flow is management only to a management endpoint (`pkg/pcapsum/management.go`):
+a request naming RESTCONF, gNMI, gNOI, Cisco NX-API, Arista eAPI, IOS's HTTP exec or IOS XE's web interface by its path, or
+a server the new `management` parameter lists. A port never
+decides. A cleartext flow whose headers could not all be searched is still warned of, whatever its server. DSCP (with the
+RFC 4594 class), packet times and bytes per flow were added; read from the lab's capture, the counts match tshark's.
+`TestRead_HTTPIsManagementOnlyToAManagementEndpoint`, `TestSummary_WarningsNameTenFlowsAndCountTheRest`.
+
+**Lesson.** A flag that says what traffic is for needs evidence of that purpose, not of the protocol: name it from the
+request, or from what the operator says the endpoint is.
+
+## 1272. net.ios.config's check predicted a global line written after an interface's lines inside the interface, and "+vlan 50" for a VLAN an IOL switch had (fixed)
+
+**Symptom.** 2026-11-17, the CML lab's multicast runbook on IOL switches: without an exit, "ip igmp snooping querier" after
+an interface's indented lines was predicted inside the interface, though IOS applied it globally. "vlan 50" was predicted
+added on SW-A, where VLAN 50 existed.
+
+**Root cause.** `predictLines` (`internal/catalog/net/ios/config_check.go` at c5dc1f88) trimmed every line (line 159),
+throwing away the indentation that placed it, and a line not found in the current block was a change there (line 193),
+even one the configuration held at its top level. And the check read only show running-config (line 75), which in VTP
+server or client mode holds no vlan block.
+
+**Fix.** Branch `fix/network-read-fidelity`: among indented lines, a line at the margin is at the top level, and
+indentation decides nothing else (reading it as the block found a neighbor written level with "address-family ipv4 vrf
+RED" under the router, predicted unchanged, the class of 720; the review found it before merge); a line (or a no line's
+whole command) the configuration holds at its top level and not in the current block is taken there and the submode left;
+and a vlan line the configuration lacks is held to show vlan brief, read through `pkg/iosparse`'s ShowVlan, a device
+refusing it warned of. A new line not at the margin still stays in its block, since the check does not guess which
+commands are global. The run reads the same table before and after lines that make or remove VLANs
+(`config_vlans_run.go`): what changed is reported under differences, a change to the database alone is undone exactly by
+net.ios.config (`no vlan N` for a VLAN made), a VLAN renamed records no undo (its old name is text read off the switch,
+which the journal keeps none of while the owner decision is pending), a VLAN removed or a state changed records none either
+and says why,
+and beside a configuration change the return to the checkpoint is partial. `TestCheckConfig_AGlobalLineLeavesTheSubmode`
+against a scripted switch with SW-A's show vlan brief, and `TestConfig_AVLANTheLinesMakeIsAChangeWithAnExactUndo` against
+a switch double whose VLAN database the lines change.
+
+**Lesson.** A prediction is held to everything that holds the state, not only the one file that usually does: the VLAN
+database is configuration a switch never prints.

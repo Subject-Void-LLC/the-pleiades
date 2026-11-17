@@ -141,8 +141,8 @@ func TestConfig_Registered(t *testing.T) {
 	if d.Manifest.Status != collection.StatusImplemented {
 		t.Errorf("Manifest.Status = %v, want %v", d.Manifest.Status, collection.StatusImplemented)
 	}
-	if !d.Manifest.Reversibility.Reversible || len(d.Manifest.Reversibility.Inverses) != 1 || d.Manifest.Reversibility.Inverses[0].FQCN != "net.ios.replace" {
-		t.Errorf("Manifest.Reversibility = %+v, want reversible through net.ios.replace alone", d.Manifest.Reversibility)
+	if !d.Manifest.Reversibility.Reversible || len(d.Manifest.Reversibility.Inverses) != 2 || d.Manifest.Reversibility.Inverses[0].FQCN != "net.ios.replace" || d.Manifest.Reversibility.Inverses[1].FQCN != "net.ios.config" {
+		t.Errorf("Manifest.Reversibility = %+v, want reversible through net.ios.replace, and net.ios.config for the VLAN database", d.Manifest.Reversibility)
 	}
 	if d.Invoke == nil {
 		t.Error("Manifest claims StatusImplemented but Invoke is nil")

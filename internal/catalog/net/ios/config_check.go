@@ -67,12 +67,13 @@ func configCheckCall(params map[string]any) error {
 }
 
 // checkConfig records the predicted differences of lines against running,
-// masked as the backup is, and reports changed when there is one.
-func checkConfig(rc sdk.RunbookContext, running string, lines []string) (collection.Result, error) {
+// and the VLANs a switch keeps out of it (vlans, readVLANs), masked as the
+// backup is, and reports changed when there is one.
+func checkConfig(rc sdk.RunbookContext, running string, vlans map[int]vlan, lines []string) (collection.Result, error) {
 	// The configuration's own secrets join the run's masking set, as a run's
 	// read of it does.
 	_ = learnSecrets(rc, running)
-	predicted := predictLines(iosconfig.Parse(running), lines)
+	predicted := predictLines(withVLANs(iosconfig.Parse(running), vlans), lines)
 	masked, err := maskPredicted(rc, predicted)
 	if err != nil {
 		return collection.Result{}, err
@@ -138,9 +139,10 @@ type level struct {
 // nothing and, when it opens a block, becomes the block the next line is
 // looked for in. IOS takes a line in the current submode first and only
 // one the submode refuses in a block enclosing it, which a check cannot
-// know, so a line found only in an enclosing block (a neighbor under the
-// router and not under the address family entered) is predicted to change:
-// a check errs toward change, never toward unchanged. The exceptions are
+// know, so a line found only in an enclosing block below the top level (a
+// neighbor under the router and not under the address family entered) is
+// predicted to change: a check errs toward change. The top level is the
+// one enclosing block read otherwise (below). The exceptions are
 // the lines that open a block: one IOS always opens at the top level
 // (blockOpeners) is looked for there, and an address family or a class
 // (nestedOpeners) in the current block and then each enclosing one, since
@@ -153,37 +155,53 @@ type level struct {
 // commands (exit-address-family) leave one block, and comments change
 // nothing. A do line is an exec command, which configCheckCall answers
 // unchecked; reached here, it is predicted to change.
+//
+// IOS leaves a submode for a global command written in it (the CML lab's
+// "ip igmp snooping querier" after an interface's lines, 2026-11-17), and
+// the check follows it two ways, never by guessing which commands are
+// global. Among lines that draw their blocks by indentation, as show
+// running-config does (" switchport mode trunk" under "interface
+// Ethernet0/1"), a line at the margin is at the top level. Indentation
+// decides nothing else: a line indented as far as the block it follows (a
+// neighbor written level with the "address-family ipv4 vrf RED" before it)
+// stays in that block, as IOS keeps it in the submode, rather than being
+// found in a parent below the top level and predicted unchanged
+// (FAILURE_PATTERNS 720). And a line, or a "no" line's whole command, not
+// in the current block but at the configuration's top level is a global
+// command, since IOS prints one there only when it is: it is taken there
+// and the submode left. A line found nowhere, not at the margin of indented
+// lines, stays in the current block (write exit before it), as before. A line both IOS's top level and
+// the submode take, printed at the top level, would be predicted unchanged
+// where IOS sets it in the submode; none is known.
 func predictLines(roots []*iosconfig.Node, lines []string) []predictedLine {
 	p := predictor{stack: []level{{node: &iosconfig.Node{Children: roots}}}}
+	indented := drawsBlocks(lines)
 	for _, raw := range lines {
 		line := strings.TrimSpace(raw)
 		switch {
 		case line == "" || strings.HasPrefix(line, "!"):
 			continue
 		case line == "exit" || strings.HasPrefix(line, "exit-"):
+			// An exit leaves one block however it is indented.
 			if len(p.stack) > 1 {
 				p.stack = p.stack[:len(p.stack)-1]
 			}
 			continue
 		}
-		if at, n := p.find(p.scope(line), func(c *iosconfig.Node) bool { return c.Line == line }); n != nil {
-			// Found, the line is entered in its block; it is the block the
-			// next line is looked for in only when it opens one (hostname
-			// does not).
-			p.stack = p.stack[:at+1]
-			if len(n[0].Children) > 0 || isOpener(line) {
-				p.stack = append(p.stack, level{node: n[0]})
-			}
+		if indented && indentOf(raw) == 0 {
+			// The margin, among indented lines, is the top level.
+			p.stack = p.stack[:1]
+		}
+		if p.enter(p.scope(line), line) {
 			continue
 		}
-		if x, ok := strings.CutPrefix(line, "no "); ok {
-			at, removed := p.find(p.scope(x), func(c *iosconfig.Node) bool { return c.Line == x || strings.HasPrefix(c.Line, x+" ") })
-			if len(removed) > 0 {
-				for _, r := range removed {
-					p.removeTree(p.path(at), r)
-				}
-				continue
-			}
+		if x, ok := strings.CutPrefix(line, "no "); ok && p.remove(x) {
+			continue
+		}
+		if len(p.stack) > 1 && p.enter([]int{0}, line) {
+			// A global command the configuration already holds, written in a
+			// submode: IOS took it at the top level and left the submode.
+			continue
 		}
 		if at := p.opens(line); at >= 0 {
 			p.emit(p.path(at), "+", line)
@@ -193,6 +211,58 @@ func predictLines(roots []*iosconfig.Node, lines []string) []predictedLine {
 		p.emit(p.path(len(p.stack)-1), "+", line)
 	}
 	return p.out
+}
+
+// enter looks for line among levels (find) and, found, enters it in its
+// block: it is the block the next line is looked for in only when it opens
+// one (hostname does not). It reports whether line was found.
+func (p *predictor) enter(levels []int, line string) bool {
+	at, n := p.find(levels, func(c *iosconfig.Node) bool { return c.Line == line })
+	if n == nil {
+		return false
+	}
+	p.stack = p.stack[:at+1]
+	if len(n[0].Children) > 0 || isOpener(line) {
+		p.stack = append(p.stack, level{node: n[0]})
+	}
+	return true
+}
+
+// remove writes as removed what "no x" names, reporting whether it named
+// anything: the lines x begins where x would be looked for, else, from a
+// submode, a top-level line that is x exactly (a global command, as enter
+// takes one), whose removal leaves the submode. Only an exact match is taken
+// at the top level: "no logging event link-status" in an interface is the
+// interface's, though the top level holds "logging event link-status
+// default".
+func (p *predictor) remove(x string) bool {
+	at, removed := p.find(p.scope(x), func(c *iosconfig.Node) bool { return c.Line == x || strings.HasPrefix(c.Line, x+" ") })
+	if len(removed) == 0 && len(p.stack) > 1 {
+		if at, removed = p.find([]int{0}, func(c *iosconfig.Node) bool { return c.Line == x }); len(removed) > 0 {
+			p.stack = p.stack[:1]
+		}
+	}
+	for _, r := range removed {
+		p.removeTree(p.path(at), r)
+	}
+	return len(removed) > 0
+}
+
+// drawsBlocks reports whether any line of lines is indented: such lines draw
+// their blocks by indentation, and a line at the margin among them is meant
+// for the top level.
+func drawsBlocks(lines []string) bool {
+	for _, l := range lines {
+		if strings.TrimSpace(l) != "" && indentOf(l) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// indentOf is how many spaces and tabs l begins with.
+func indentOf(l string) int {
+	return len(l) - len(strings.TrimLeft(l, " \t"))
 }
 
 // predictor is predictLines' state: the blocks the lines have entered

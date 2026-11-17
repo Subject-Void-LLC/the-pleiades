@@ -13,7 +13,7 @@ import (
 // configuration to itself, and leaves no secret that follows a password
 // word as its own word, nor any key on a manual IPsec session key line.
 func FuzzMask(f *testing.F) {
-	for _, s := range []string{"password zebra", " neighbor 10.0.0.2 password 7 abc", "key chain k\n key 1\n  key-string s", "ip ospf message-digest-key 1 md5", "password", "\x00password\tx", " set session-key inbound esp 256 cipher 0123456789abcdef authenticator fedcba9876543210", " set session-key outbound ah 300 1111111111111111", "set session-key inbound esp", "set session-key\vinbound ah 256 \tk"} {
+	for _, s := range []string{"password zebra", " neighbor 10.0.0.2 password 7 abc", "key chain k\n key 1\n  key-string s", "ip ospf message-digest-key 1 md5", "password", "\x00password\tx", " set session-key inbound esp 256 cipher 0123456789abcdef authenticator fedcba9876543210", " set session-key outbound ah 300 1111111111111111", "set session-key inbound esp", "set session-key\vinbound ah 256 \tk", "Port  Flags  Priority  Dev ID  Age  key    Key    Number  State", "User 'u' authentication for SSH2 Session from 192.0.2.1", "A key named TP-self-signed-1 has been removed from key storage"} {
 		f.Add(s)
 	}
 	f.Fuzz(func(t *testing.T, config string) {
