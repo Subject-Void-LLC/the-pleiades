@@ -1,10 +1,9 @@
 // Tests of the project-file rule's edges: a task naming a method this
-// process does not hold, and a structured parameter given as one map rather
-// than a list of maps.
+// process does not hold, and a project path left to its default. Which calls
+// name a project file is collection.ProjectFiles, tested in pkg/collection.
 package validate
 
 import (
-	"slices"
 	"strings"
 	"testing"
 
@@ -53,26 +52,5 @@ func TestProjectFileRule_ADefaultedProjectPathNamesAProjectFile(t *testing.T) {
 	}
 	if got := ProjectFileRule(WorldView{DAG: dag}); len(got) != 0 {
 		t.Errorf("the command line found %+v, want nothing", got)
-	}
-}
-
-// TestProjectFileEntries_ReadsOneMapAsWellAsAList: a structured parameter
-// given as a single map has its entries read at the parameter's own place,
-// at any depth, and a field given as null names nothing.
-func TestProjectFileEntries_ReadsOneMapAsWellAsAList(t *testing.T) {
-	fields := []collection.Param{
-		{Name: "src", Format: collection.ParamFormatProjectPath},
-		{Name: "inner", Entries: []collection.Param{{Name: "template", Format: collection.ParamFormatTemplateFile}}},
-		{Name: "name"},
-	}
-	value := map[string]any{
-		"src":   "configs/r1.conf",
-		"inner": map[string]any{"template": "templates/r1.j2"},
-		"name":  nil,
-	}
-	got := projectFileEntries("device", fields, value)
-	want := []string{"device.inner.template", "device.src"}
-	if !slices.Equal(got, want) {
-		t.Errorf("projectFileEntries = %v, want %v", got, want)
 	}
 }

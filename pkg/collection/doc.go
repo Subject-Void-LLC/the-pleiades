@@ -117,8 +117,10 @@ const (
 	// only vars (what the person running the work supplied), never nodes,
 	// result or error, which hold what a device returned: a device's output
 	// must not choose which project file is replaced, or which one is sent
-	// on. Only the command line has a project, so validation refuses one
-	// given on a Walk-tier Runner (internal/validate's project file rule).
+	// on. Only the command line has a project, so a call giving one, or
+	// leaving one to its default, is refused on the Walk tier: by a
+	// Controller's fan-out before any dispatch, and by a Runner's validation
+	// (ProjectFiles, the one rule both read).
 	ParamFormatProjectPath ParamFormat = "project_path"
 	// ParamFormatTemplateFile is a path to a file in the project directory
 	// holding a template. The engine reads it, renders it with the run's
