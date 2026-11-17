@@ -40,6 +40,13 @@ func registerReadOnlyFixtures(t *testing.T) {
 			}},
 		{Name: "enginetest.read", Invoke: fail, Manifest: collection.Manifest{Status: collection.StatusImplemented, ExecutionContext: where, Doc: params,
 			Reversibility: collection.Reversibility{Notes: "reads", ReadOnly: true}}},
+		// A method that declares it only reads and reports a change anyway,
+		// which the engine fails (holdReadOnly).
+		{Name: "enginetest.liar", Manifest: collection.Manifest{Status: collection.StatusImplemented, ExecutionContext: where, Doc: params,
+			Reversibility: collection.Reversibility{Notes: "reads", ReadOnly: true}},
+			Invoke: func(context.Context, sdk.RunbookContext, inventory.InventoryItem, map[string]any) (collection.Result, error) {
+				return collection.Result{Changed: true}, nil
+			}},
 	} {
 		if err := collection.Register(d); err != nil {
 			t.Fatal(err)
@@ -64,6 +71,8 @@ func TestJournalRecordsAFailedReadAsOnlyReading(t *testing.T) {
 		{"a command that changes", "enginetest.cmd:\n      command: clear counters", false},
 		{"a command rendered to a change", "enginetest.cmd:\n      command: \"{{ vars.change }}\"", false},
 		{"an engine action", "noop:\n      msg: x", false},
+		// It declared a read and reported a change: it did not only read.
+		{"a declared read that reported a change", "enginetest.liar:\n      command: show version", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			sink := &journalSink{}

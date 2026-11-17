@@ -1508,7 +1508,10 @@ func (r *run) runAction(ctx context.Context, cmd nodeExecution, result NodeResul
 	// Whether the call only read, asked of the parameters it ran with, for
 	// the journal: a read that failed changed nothing, and a rollback needs
 	// to tell it from a change that failed (JournalEntry.ReadOnlyCall).
-	result.readOnlyCall = readsOnlyCall(cmd.Task)
+	// A call its method declared a read and that reported a change or an
+	// undo anyway (holdReadOnly) did not only read, whatever it declares.
+	var broken *ReadOnlyBrokenError
+	result.readOnlyCall = readsOnlyCall(cmd.Task) && !errors.As(err, &broken)
 	// Which stats are facts is the engine's to read, never a result's: the
 	// list is taken off every result, and kept only from a real run that
 	// succeeded, whose facts the run stores (facts.go).
