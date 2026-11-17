@@ -42,18 +42,19 @@ func (containerProber) Probe(ctx context.Context, device inventory.InventoryItem
 	}
 
 	var found []engineFound
-	var tried []string
+	var tried, warnings []string
 	user := ""
 	if dev.SSHHost() != "" {
 		auth, err := remoteexec.AuthFromSecrets(secrets)
 		if err != nil {
 			return Probed{}, err
 		}
-		conn, err := remoteexec.Shared(remoteexec.Options{}).Connect(ctx, nil, remoteexec.Target{Host: dev.SSHHost(), Port: dev.SSHPort()}, auth)
+		conn, err := connectSSH(ctx, device, dev.SSHHost(), dev.SSHPort(), auth)
 		if err != nil {
 			return Probed{}, err
 		}
 		defer func() { _ = conn.Close() }()
+		warnings = conn.LegacyWarnings(device.Name())
 		f, login, notes, err := probeRemoteEngines(ctx, conn)
 		if err != nil {
 			return Probed{}, err
@@ -89,7 +90,9 @@ func (containerProber) Probe(ctx context.Context, device inventory.InventoryItem
 	if len(found) == 0 {
 		return Probed{}, fmt.Errorf("no container engine answered: %s", strings.Join(tried, "; "))
 	}
-	return engineProbed(found, user), nil
+	probed := engineProbed(found, user)
+	probed.Warnings = append(probed.Warnings, warnings...)
+	return probed, nil
 }
 
 // withTLS adds an engine reached over TLS to what SSH found: as one more

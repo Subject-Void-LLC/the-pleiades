@@ -24,6 +24,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
 
 // hostKeysMethod is the method --from-console runs on the VM's host.
@@ -32,22 +33,17 @@ const hostKeysMethod = "virt.vbox.vm.host_keys"
 // ephemeralProperty is the device property that says a device is made again
 // (a lab node) and so has new host keys on every deploy. An import of a lab
 // sets it; it is what lets --first-connect run without a reason.
-const ephemeralProperty = "ephemeral"
+const ephemeralProperty = sdk.EphemeralProperty
 
 // firstConnectReasonProperty is where a --first-connect trust of a device not
 // flagged ephemeral records when and why, as a revision of the device.
 const firstConnectReasonProperty = "first_connect_reason"
 
 // isEphemeral reports whether device is flagged ephemeral: the property is
-// true, as a bool or as the word an operator typed.
+// true, as a bool or as the word an operator typed (sdk.IsEphemeral, which a
+// refused host key's advice reads too).
 func isEphemeral(device inventory.InventoryItem) bool {
-	switch v := device.Properties().Raw()[ephemeralProperty].(type) {
-	case bool:
-		return v
-	case string:
-		return strings.EqualFold(v, "true")
-	}
-	return false
+	return sdk.IsEphemeral(device)
 }
 
 // runTrustHost trusts a device's SSH host keys, taken one of two ways.
@@ -109,7 +105,14 @@ func runTrustHost(args []string) error {
 			return err
 		}
 		fmt.Fprintf(os.Stderr, "WARNING: trusting whatever answered at %s without verifying it: anything on that network could have answered as %s\n", address, name)
-		keys, err = hosttrust.Scan(ctx, address, 10*time.Second)
+		// The scan negotiates only what every connection to the device may,
+		// so a legacy device is refused here naming the property that allows
+		// it, and each weakening its record allows is said again.
+		legacy := remoteexec.LegacyFor(device)
+		for _, w := range legacy.Warnings(name) {
+			fmt.Fprintf(os.Stderr, "WARNING: %s\n", w)
+		}
+		keys, err = hosttrust.Scan(ctx, address, 10*time.Second, legacy)
 	} else {
 		if *vm == "" {
 			*vm = name

@@ -6,8 +6,9 @@ package container
 import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 )
 
 func init() {
-	record.RegisterDispatchProperties(TypeHost, append([]string{"host", "port", EngineTLSProperty}, devicetls.Properties()...)...)
+	record.RegisterDispatchProperties(TypeHost, append(append([]string{"host", "port", EngineTLSProperty}, devicetls.Properties()...), remoteexec.LegacyProperties()...)...)
 }

@@ -49,6 +49,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/rsa"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -114,6 +115,13 @@ type Options struct {
 	// unaffected: a server with a Device still runs commands through a
 	// real shell.
 	Device *Device
+
+	// Legacy makes the server offer only what an IOSvL2 15.2 switch offers,
+	// measured on one in the 2026-11-17 CML window: SHA-1 key exchange
+	// (diffie-hellman-group14-sha1) and an RSA host key signed with SHA-1
+	// (ssh-rsa), so a client reaches it only through a record allowing
+	// legacy key exchange and legacy host keys (pkg/remoteexec's legacy.go).
+	Legacy bool
 }
 
 // Limit returns a SessionLimit for n, so a caller can write
@@ -264,6 +272,40 @@ func (s *Server) Close() {
 	})
 }
 
+// hostSigner returns the server's host key: an ed25519 one, or for a legacy
+// server an RSA one that signs with SHA-1 only (ssh-rsa), as an old IOS
+// device's does.
+func hostSigner(legacy bool) (cryptossh.Signer, error) {
+	if !legacy {
+		_, priv, err := ed25519.GenerateKey(rand.Reader)
+		if err != nil {
+			return nil, fmt.Errorf("remoteexectest: generating a host key: %w", err)
+		}
+		signer, err := cryptossh.NewSignerFromKey(priv)
+		if err != nil {
+			return nil, fmt.Errorf("remoteexectest: building a host key signer: %w", err)
+		}
+		return signer, nil
+	}
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		return nil, fmt.Errorf("remoteexectest: generating an RSA host key: %w", err)
+	}
+	signer, err := cryptossh.NewSignerFromKey(key)
+	if err != nil {
+		return nil, fmt.Errorf("remoteexectest: building a host key signer: %w", err)
+	}
+	algorithmSigner, ok := signer.(cryptossh.AlgorithmSigner)
+	if !ok {
+		return nil, errors.New("remoteexectest: an RSA signer that cannot choose its algorithm")
+	}
+	sha1Only, err := cryptossh.NewSignerWithAlgorithms(algorithmSigner, []string{cryptossh.KeyAlgoRSA})
+	if err != nil {
+		return nil, fmt.Errorf("remoteexectest: restricting the host key to ssh-rsa: %w", err)
+	}
+	return sha1Only, nil
+}
+
 // Start brings up a server on a loopback port chosen by the kernel.
 func Start(opts Options) (*Server, error) {
 	username := opts.Username
@@ -279,13 +321,9 @@ func Start(opts Options) (*Server, error) {
 		budget = *opts.SessionLimit
 	}
 
-	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	signer, err := hostSigner(opts.Legacy)
 	if err != nil {
-		return nil, fmt.Errorf("remoteexectest: generating a host key: %w", err)
-	}
-	signer, err := cryptossh.NewSignerFromKey(priv)
-	if err != nil {
-		return nil, fmt.Errorf("remoteexectest: building a host key signer: %w", err)
+		return nil, err
 	}
 
 	var srv *Server
@@ -298,6 +336,10 @@ func Start(opts Options) (*Server, error) {
 			srv.logins.Add(1)
 			return &cryptossh.Permissions{}, nil
 		},
+	}
+	if opts.Legacy {
+		// The one key exchange an IOSvL2 15.2 switch offers.
+		config.KeyExchanges = []string{cryptossh.InsecureKeyExchangeDH14SHA1}
 	}
 	if opts.AuthorizedKey != nil {
 		authorized := opts.AuthorizedKey.Marshal()

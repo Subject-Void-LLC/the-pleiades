@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"errors"
 	"net"
 	"os"
 	"path/filepath"
@@ -20,8 +21,46 @@ import (
 	"golang.org/x/crypto/ssh/knownhosts"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport/refusing"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec/remoteexectest"
 )
+
+// TestScan_AnOldDeviceIsScannedOnlyWhenItsRecordAllowsIt proves a host that
+// offers only SHA-1 key exchange and an ssh-rsa host key, as an IOSvL2 15.2
+// switch does, is refused naming the property each step needs, rather than
+// said to present no key, and is scanned once its record allows both: its one
+// RSA key, once.
+func TestScan_AnOldDeviceIsScannedOnlyWhenItsRecordAllowsIt(t *testing.T) {
+	srv, err := remoteexectest.Start(remoteexectest.Options{Legacy: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer srv.Close()
+	address := net.JoinHostPort(srv.Host, strconv.Itoa(srv.Port))
+	for _, step := range []struct {
+		legacy remoteexec.Legacy
+		want   string
+	}{
+		{remoteexec.Legacy{}, remoteexec.LegacyKeyExchangeProperty},
+		{remoteexec.Legacy{KeyExchange: true}, remoteexec.LegacyHostKeysProperty},
+	} {
+		_, err := Scan(context.Background(), address, 5*time.Second, step.legacy)
+		var refused *remoteexec.LegacyRefusedError
+		if !errors.As(err, &refused) || refused.Property != step.want || !strings.Contains(err.Error(), "set "+step.want+": true") {
+			t.Fatalf("legacy %+v: %v, want a refusal naming %s", step.legacy, err, step.want)
+		}
+	}
+	keys, err := Scan(context.Background(), address, 5*time.Second, remoteexec.Legacy{KeyExchange: true, HostKeys: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(keys) != 1 || keys[0].Type() != ssh.KeyAlgoRSA || string(keys[0].Marshal()) != string(srv.HostKey.Marshal()) {
+		t.Errorf("scanned %d keys, want the server's one RSA key", len(keys))
+	}
+	if srv.Logins() != 0 {
+		t.Error("the scan logged in")
+	}
+}
 
 // newKey returns a fresh ed25519 public key.
 func newKey(t *testing.T) ssh.PublicKey {
@@ -129,7 +168,7 @@ func TestScan(t *testing.T) {
 	}
 	defer srv.Close()
 	address := net.JoinHostPort(srv.Host, strconv.Itoa(srv.Port))
-	keys, err := Scan(context.Background(), address, 5*time.Second)
+	keys, err := Scan(context.Background(), address, 5*time.Second, remoteexec.Legacy{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -139,7 +178,7 @@ func TestScan(t *testing.T) {
 	if srv.Logins() != 0 {
 		t.Error("the scan logged in")
 	}
-	if _, err := Scan(context.Background(), refusing.Addr(t), time.Second); err == nil || !strings.Contains(err.Error(), "could not be reached") {
+	if _, err := Scan(context.Background(), refusing.Addr(t), time.Second, remoteexec.Legacy{}); err == nil || !strings.Contains(err.Error(), "could not be reached") {
 		t.Errorf("a closed port = %v, want it named unreachable", err)
 	}
 	// A listener that speaks something else answers, but with no key.
@@ -158,12 +197,12 @@ func TestScan(t *testing.T) {
 			_ = c.Close()
 		}
 	}()
-	if _, err := Scan(context.Background(), notSSH.Addr().String(), time.Second); err == nil || !strings.Contains(err.Error(), "presented no host key:") {
+	if _, err := Scan(context.Background(), notSSH.Addr().String(), time.Second, remoteexec.Legacy{}); err == nil || !strings.Contains(err.Error(), "presented no host key:") {
 		t.Errorf("a listener that is not SSH = %v, want no host key and the cause", err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, err := Scan(ctx, address, time.Second); err == nil {
+	if _, err := Scan(ctx, address, time.Second, remoteexec.Legacy{}); err == nil {
 		t.Error("a cancelled scan gave keys")
 	}
 }

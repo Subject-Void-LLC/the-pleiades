@@ -132,8 +132,8 @@ func TestConnect_AChangedKeyOfAnotherTypeIsStillAKeyError(t *testing.T) {
 
 // TestHostKeyAlgorithms_OrdersTheKnownTypesFirst proves the order itself: the
 // algorithms of the keys known_hosts holds for the host come first, RSA's
-// SHA-2 forms ahead of SHA-1, then every other default algorithm once, so a
-// server with only an old key type is still reached.
+// SHA-2 forms only (no ssh-rsa, which only a record allowing legacy host keys
+// adds, last), then every other allowed algorithm once.
 func TestHostKeyAlgorithms_OrdersTheKnownTypesFirst(t *testing.T) {
 	signers := hostKeySigners(t)
 	hostPort := "router.test:22"
@@ -151,15 +151,26 @@ func TestHostKeyAlgorithms_OrdersTheKnownTypesFirst(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := hostKeyAlgorithms(cb, hostPort)
-	want := []string{ssh.KeyAlgoRSASHA512, ssh.KeyAlgoRSASHA256, ssh.KeyAlgoRSA, ssh.KeyAlgoED25519}
+	got := hostKeyAlgorithms(cb, hostPort, Legacy{})
+	want := []string{ssh.KeyAlgoRSASHA512, ssh.KeyAlgoRSASHA256, ssh.KeyAlgoED25519}
 	if len(got) < len(want) || !slices.Equal(got[:len(want)], want) {
 		t.Fatalf("order = %v, want it to start %v", got, want)
 	}
-	for _, algo := range defaultHostKeyAlgorithms() {
+	for _, algo := range (Legacy{}).hostKeys() {
 		if n := countOf(got, algo); n != 1 {
 			t.Errorf("%s appears %d times in %v, want once", algo, n, got)
 		}
+	}
+	for _, weak := range legacyHostKeys() {
+		if slices.Contains(got, weak) {
+			t.Errorf("%s is offered to a device whose record allows no legacy host key: %v", weak, got)
+		}
+	}
+	// A record allowing legacy host keys offers ssh-rsa after RSA's SHA-2
+	// forms, never ahead of them.
+	legacy := hostKeyAlgorithms(cb, hostPort, Legacy{HostKeys: true})
+	if want := []string{ssh.KeyAlgoRSASHA512, ssh.KeyAlgoRSASHA256, ssh.KeyAlgoRSA, ssh.KeyAlgoED25519}; !slices.Equal(legacy[:len(want)], want) {
+		t.Errorf("legacy order = %v, want it to start %v", legacy, want)
 	}
 }
 
@@ -175,8 +186,10 @@ func countOf(s []string, v string) int {
 }
 
 // TestHostKeyAlgorithms_LeavesTheDefaultAlone proves each case that must not
-// change the offer: verification skipped, a host known_hosts does not name, a
-// host trusted through a certificate authority, and no callback at all.
+// reorder the offer: verification skipped, a host known_hosts does not name, a
+// host trusted through a certificate authority, and no callback at all. Each
+// still gets an explicit list, never nil, since the library's own default
+// would offer ssh-rsa and DSA.
 func TestHostKeyAlgorithms_LeavesTheDefaultAlone(t *testing.T) {
 	ed := generateTestHostKey(t).PublicKey()
 	dir := t.TempDir()
@@ -207,13 +220,13 @@ func TestHostKeyAlgorithms_LeavesTheDefaultAlone(t *testing.T) {
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
-			if got := hostKeyAlgorithms(c.cb, c.addr); got != nil {
-				t.Errorf("hostKeyAlgorithms = %v, want nil (the library's default)", got)
+			if got := hostKeyAlgorithms(c.cb, c.addr, Legacy{}); !slices.Equal(got, Legacy{}.hostKeys()) {
+				t.Errorf("hostKeyAlgorithms = %v, want the allowed list in the library's order %v", got, Legacy{}.hostKeys())
 			}
 		})
 	}
 	// The control: the same plain file does set an order for the host it names.
-	if got := hostKeyAlgorithms(callback(plain, false), "known.test:22"); len(got) == 0 || got[0] != ssh.KeyAlgoED25519 {
+	if got := hostKeyAlgorithms(callback(plain, false), "known.test:22", Legacy{}); len(got) == 0 || got[0] != ssh.KeyAlgoED25519 {
 		t.Errorf("control: hostKeyAlgorithms for a pinned ed25519 host = %v, want it first", got)
 	}
 }
@@ -226,13 +239,17 @@ func TestCertAuthorityLines_UnreadableFileIsEmpty(t *testing.T) {
 	}
 }
 
-// TestAlgorithmsForKeyType_UnknownTypeIsNotOffered proves a key type the
-// library cannot negotiate as a host key adds nothing to the offer.
+// TestAlgorithmsForKeyType_UnknownTypeIsNotOffered proves a key type no
+// allowed algorithm proves adds nothing to the offer: a security key type,
+// and a DSA key unless the record allows legacy host keys.
 func TestAlgorithmsForKeyType_UnknownTypeIsNotOffered(t *testing.T) {
-	if got := algorithmsForKeyType("sk-ssh-ed25519@openssh.com"); got != nil {
+	if got := algorithmsForKeyType("sk-ssh-ed25519@openssh.com", Legacy{}.hostKeys()); got != nil {
 		t.Errorf("algorithmsForKeyType(security key) = %v, want nil", got)
 	}
-	if got := algorithmsForKeyType(ssh.InsecureKeyAlgoDSA); !slices.Equal(got, []string{ssh.InsecureKeyAlgoDSA}) {
-		t.Errorf("algorithmsForKeyType(DSA) = %v, want the one DSA algorithm the default still offers", got)
+	if got := algorithmsForKeyType(ssh.InsecureKeyAlgoDSA, Legacy{}.hostKeys()); got != nil {
+		t.Errorf("algorithmsForKeyType(DSA) = %v, want nil without the legacy flag", got)
+	}
+	if got := algorithmsForKeyType(ssh.InsecureKeyAlgoDSA, Legacy{HostKeys: true}.hostKeys()); !slices.Equal(got, []string{ssh.InsecureKeyAlgoDSA}) {
+		t.Errorf("algorithmsForKeyType(DSA) = %v, want the one DSA algorithm the legacy flag allows", got)
 	}
 }

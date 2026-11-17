@@ -9,6 +9,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/transport"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	pkginventory "github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 )
 
 // hopChainInventory is the narrow slice of inventory.Repository
@@ -133,6 +134,8 @@ func ResolveRoute(ctx context.Context, repo hopChainInventory, credentials crede
 			Port:       sshDev.SSHPort(),
 			DeviceName: hopName,
 			Credential: cred,
+			// The hop's own record decides what its handshake may agree to.
+			Legacy: remoteexec.LegacyFor(hopItem),
 		})
 	}
 	return hops, nil

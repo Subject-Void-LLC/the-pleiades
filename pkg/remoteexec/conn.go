@@ -76,6 +76,22 @@ type Conn struct {
 	// cuts it from the route's first hop inward; a cancelled command's watch
 	// calls it before closing the clients (conn_watch.go).
 	severVia func()
+
+	// legacy is what the target's record allowed this connection to agree
+	// to, which LegacyWarnings holds against what it did agree to.
+	legacy Legacy
+}
+
+// LegacyWarnings says, for the named device, what this connection did with
+// each legacy SSH algorithm its record allows (legacy.go): that it used one,
+// naming it, or that it did not need it. It is empty for a device whose
+// record allows none, which is every connection by default. A caller reports
+// them on every connection, so a weakening is never forgotten once set.
+func (c *Conn) LegacyWarnings(device string) []string {
+	if c == nil || c.legacy.IsZero() || c.client == nil {
+		return nil
+	}
+	return connectionWarnings(device, c.legacy, c.client.Conn.(ssh.AlgorithmsConnMetadata).Algorithms())
 }
 
 // taint marks a borrowed connection as not to be reused. It does nothing

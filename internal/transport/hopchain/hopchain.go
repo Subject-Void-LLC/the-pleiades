@@ -40,7 +40,7 @@ func Convert(route []transport.Hop) ([]remoteexec.Hop, error) {
 			return nil, fmt.Errorf("hop %q: %w", hop.DeviceName, err)
 		}
 		hops[i] = remoteexec.Hop{
-			Target: remoteexec.Target{Host: hop.Host, Port: hop.Port},
+			Target: remoteexec.Target{Host: hop.Host, Port: hop.Port, Legacy: hop.Legacy},
 			Auth:   auth,
 		}
 	}

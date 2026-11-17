@@ -153,7 +153,7 @@ func (r *Runner) dialWithRetry(ctx context.Context, dial dialFunc, addr string, 
 
 		client, err := dial(ctx, addr, config)
 		if err != nil {
-			if authRejected(err) || hostKeyRefused(err) {
+			if answeredRefusal(err) {
 				r.breaker.RecordRefusal(addr)
 				return nil, err
 			}
@@ -174,7 +174,7 @@ func (r *Runner) dialWithRetry(ctx context.Context, dial dialFunc, addr string, 
 		return retry.Backoff(defaultBackoffBase, defaultBackoffMax, attempt)
 	}
 	retryable := func(err error) bool {
-		return !errors.Is(err, breaker.ErrOpen) && !authRejected(err) && !hostKeyRefused(err)
+		return !errors.Is(err, breaker.ErrOpen) && !answeredRefusal(err)
 	}
 
 	return retry.Do(ctx, delay, r.opts.MaxRetries, retryable, fn)
@@ -216,4 +216,13 @@ func hostKeyRefused(err error) bool {
 	var keyErr *knownhosts.KeyError
 	var revoked *knownhosts.RevokedError
 	return errors.As(err, &keyErr) || errors.As(err, &revoked)
+}
+
+// answeredRefusal reports whether err is an answer rather than the network
+// failing: a refused credential, a host key this side refused, or a
+// handshake that found no algorithm in common (legacy.go), since a server
+// offers the same algorithms on every attempt. None is retried, and none is
+// counted against the address's circuit, which belongs to every caller.
+func answeredRefusal(err error) bool {
+	return authRejected(err) || hostKeyRefused(err) || negotiationRefused(err)
 }

@@ -43,8 +43,7 @@ func (netconfProber) Probe(ctx context.Context, device inventory.InventoryItem, 
 	if err != nil {
 		return Probed{}, err
 	}
-	target := remoteexec.Target{Host: dev.SSHHost(), Port: dev.NetconfPort()}
-	conn, err := remoteexec.Shared(remoteexec.Options{}).Connect(ctx, nil, target, auth)
+	conn, err := connectSSH(ctx, device, dev.SSHHost(), dev.NetconfPort(), auth)
 	if err != nil {
 		var keyErr *knownhosts.KeyError
 		if errors.As(err, &keyErr) && len(keyErr.Want) == 0 {
@@ -64,6 +63,7 @@ func (netconfProber) Probe(ctx context.Context, device inventory.InventoryItem, 
 	}
 	defer func() { _ = session.Close(ctx) }()
 	probed := netconfProbed(session.Discovery(), session.Framing().String())
+	probed.Warnings = append(probed.Warnings, conn.LegacyWarnings(device.Name())...)
 	for _, w := range session.TakeWarnings() {
 		probed.Warnings = append(probed.Warnings, "the device warned: "+w.Error())
 	}

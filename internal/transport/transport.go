@@ -14,6 +14,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/serialline"
 )
 
@@ -130,6 +131,11 @@ type Target struct {
 	// the login shell (pkg/remoteexec/shline), so a POSIX command means the
 	// same under bash, zsh, tcsh or fish. Other transports never read it.
 	LoginShell bool
+
+	// SSHLegacy is the legacy SSH algorithms the device's record allows
+	// (pkg/remoteexec's legacy.go), read by internal/engine from the device;
+	// the zero value allows none. Only an SSH transport reads it.
+	SSHLegacy remoteexec.Legacy
 }
 
 // Hop is one intermediate connection reached before a Target's own
@@ -157,6 +163,11 @@ type Hop struct {
 	// Target is built: a hop with no stored credential of its own must
 	// fail naming that hop, never silently fall back to the Target's.
 	Credential credential.Credential
+
+	// Legacy is the legacy SSH algorithms the hop's own record allows,
+	// never the Target's: a bastion's weakening does not reach the device
+	// behind it, nor the other way.
+	Legacy remoteexec.Legacy
 }
 
 // Result is what running one command against one Target produced.

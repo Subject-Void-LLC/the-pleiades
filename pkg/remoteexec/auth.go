@@ -75,22 +75,27 @@ func (a Auth) usable() bool {
 }
 
 // clientConfig builds the ssh.ClientConfig for one connection to addr: this
-// Auth's user and method, the caller's host key check, the host key
-// algorithms that check can verify offered first (hostKeyAlgorithms), and
-// dialTimeout as a fallback bound.
+// Auth's user and method, the caller's host key check (which names the keys
+// when it refuses one, hostkeyerror.go), the algorithms legacy allows and no
+// others (legacy.go), the host key algorithms that check can verify offered
+// first (hostKeyAlgorithms), and dialTimeout as a fallback bound.
 //
 // It is a method on Auth rather than a free function so the method
 // itself never has to leave this type, not even to be assembled into a
 // config by code elsewhere in the package.
-func (a Auth) clientConfig(hostKey ssh.HostKeyCallback, addr string, dialTimeout time.Duration) *ssh.ClientConfig {
+func (a Auth) clientConfig(hostKey ssh.HostKeyCallback, addr string, dialTimeout time.Duration, legacy Legacy) *ssh.ClientConfig {
 	return &ssh.ClientConfig{
+		// Named explicitly, never left to the library, whose own default
+		// still offers SHA-1 key exchange and the truncated SHA-1 MAC.
+		Config:          legacy.algorithms(),
 		User:            a.user,
 		Auth:            a.methods,
-		HostKeyCallback: hostKey,
-		// nil keeps the library's default order. Set, it puts the types
-		// known_hosts holds for addr first, so a file pinning one key type
-		// is not refused when the server prefers another.
-		HostKeyAlgorithms: hostKeyAlgorithms(hostKey, addr),
+		HostKeyCallback: describeHostKeyRefusal(hostKey),
+		// Always set: the library's default also offers ssh-rsa (SHA-1)
+		// and DSA. The types known_hosts holds for addr come first, so a
+		// file pinning one key type is not refused when the server prefers
+		// another.
+		HostKeyAlgorithms: hostKeyAlgorithms(hostKey, addr, legacy),
 		// Timeout is a fallback bound only. The caller's ctx is honored
 		// inside realDial and dialWithRetry, so a context deadline aborts
 		// an in-flight dial rather than waiting this out. It matters when
