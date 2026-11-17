@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/restconf"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/restconf/restconftest"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/yanglib"
@@ -193,21 +194,32 @@ func TestRESTCONF_AFailedDiscoveryAndAFailedModulesState(t *testing.T) {
 	}
 }
 
-// TestRESTCONF_AFetchOfEveryModuleWaitsOutTheSessionCap is the fetch measured
-// failing on a Catalyst 8000V (IOS XE 17.15, 2026-11-17): every one of 676
-// sources, from a server capping its sessions at 100 as IOS XE does, each
-// request a session held after its answer. Through the method and the real
-// client at its real pacing, every source is fetched and written, and the
-// task says how long it waited.
-func TestRESTCONF_AFetchOfEveryModuleWaitsOutTheSessionCap(t *testing.T) {
+// fastSessions is a context whose RESTCONF client waits a millisecond or two
+// for a device's sessions, rather than its real seconds.
+func fastSessions() context.Context {
+	return restconf.WithPacing(context.Background(), restconf.Pacing{First: time.Millisecond, Max: 2 * time.Millisecond, PerRequest: time.Minute, PerTask: time.Minute})
+}
+
+// numberedSources are n sources, m000 and on.
+func numberedSources(n int) map[string][]byte {
 	sources := map[string][]byte{}
-	for i := range 676 {
+	for i := range n {
 		name := fmt.Sprintf("m%03d", i)
 		sources[name+"@2026-11-16"] = []byte("module " + name + " {\n  namespace \"urn:t:" + name + "\";\n  prefix p;\n  revision 2026-11-16;\n}\n")
 	}
-	// Held for less than the client's first wait, so each wait frees the cap.
-	s, dev, rc := restconfServer(t, restconftest.Options{Sources: sources, SessionCap: 100, SessionHold: 500 * time.Millisecond})
-	if _, err := Schema(context.Background(), rc, dev, map[string]any{paramMaxModules: 1000}); err != nil {
+	return sources
+}
+
+// TestRESTCONF_AFetchOfEveryModuleWaitsOutTheSessionCap is the fetch measured
+// failing on a Catalyst 8000V (IOS XE 17.15, 2026-11-17): every one of 676
+// sources, from a server capping its sessions at 100 as IOS XE does, each
+// request a session held until released (here after one refusal). Through
+// the method and the real client, every source is fetched and written, and
+// the task says how long it waited.
+func TestRESTCONF_AFetchOfEveryModuleWaitsOutTheSessionCap(t *testing.T) {
+	sources := numberedSources(676)
+	s, dev, rc := restconfServer(t, restconftest.Options{Sources: sources, SessionCap: 100, SessionReleaseAfter: 1})
+	if _, err := Schema(fastSessions(), rc, dev, map[string]any{paramMaxModules: 1000}); err != nil {
 		t.Fatalf("a fetch of every module under the cap: %v", err)
 	}
 	if rc.stats["files_changed"] != 676 || s.SessionRefusals() == 0 {
@@ -220,8 +232,28 @@ func TestRESTCONF_AFetchOfEveryModuleWaitsOutTheSessionCap(t *testing.T) {
 		}
 	}
 	warned := fmt.Sprint(rc.stats["warnings"])
-	if !strings.Contains(warned, fmt.Sprintf("refused %d RESTCONF requests with 409 in-use, too many sessions", s.SessionRefusals())) {
+	if !strings.Contains(warned, fmt.Sprintf("answered RESTCONF requests %d times with 409 in-use, too many sessions", s.SessionRefusals())) {
 		t.Errorf("warnings %s do not name the %d refusals waited out", warned, s.SessionRefusals())
+	}
+}
+
+// TestRESTCONF_AFetchThatWaitedAndFailedSaysItWaited: a fetch that waited out
+// the device's sessions and then failed on a source records the wait beside
+// its failure.
+func TestRESTCONF_AFetchThatWaitedAndFailedSaysItWaited(t *testing.T) {
+	broken := func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/yang-data+json")
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"ietf-restconf:errors":{"error":[{"error-type":"application","error-tag":"operation-failed"}]}}`))
+	}
+	s, dev, rc := restconfServer(t, restconftest.Options{Sources: numberedSources(150), SessionCap: 100, SessionReleaseAfter: 1,
+		Override: map[string]http.HandlerFunc{"/restconf/tailf/modules/m120/2026-11-16": broken}})
+	_, err := Schema(fastSessions(), rc, dev, map[string]any{paramMaxModules: 1000})
+	if err == nil || !strings.Contains(err.Error(), "m120") || s.SessionRefusals() == 0 {
+		t.Fatalf("a fetch failing past the cap: %v after %d refusals", err, s.SessionRefusals())
+	}
+	if warned := fmt.Sprint(rc.stats["warnings"]); !strings.Contains(warned, "409 in-use, too many sessions") {
+		t.Errorf("warnings %s do not say the fetch waited for the device's sessions", warned)
 	}
 }
 

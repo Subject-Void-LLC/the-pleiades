@@ -86,6 +86,9 @@ type Written struct {
 	// written, nil when the server named none or one this client could not
 	// read as such.
 	Location Path
+	// Resent is how many times the write was sent again after the server
+	// refused it for too many sessions before this answer (sessions.go).
+	Resent int
 }
 
 // Write sends method to the resource p in datastore with body in mediaType
@@ -134,7 +137,9 @@ func (c *Client) WriteThen(ctx context.Context, method, datastore string, p Path
 	if a.status < 200 || a.status > 299 {
 		return Written{}, c.statusError(a)
 	}
-	return c.written(method, datastore, a.status, a.location), nil
+	w := c.written(method, datastore, a.status, a.location)
+	w.Resent = a.resent
+	return w, nil
 }
 
 // written is a write's answer as Written.
