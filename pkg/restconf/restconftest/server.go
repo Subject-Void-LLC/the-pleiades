@@ -29,6 +29,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 //go:embed testdata/c8k-17.15.1a-yang-library.xml.gz
@@ -129,6 +130,14 @@ type Options struct {
 	// SourceOrigin, when set, is the origin modules-state's schema leaves
 	// name in place of the server's own.
 	SourceOrigin string
+	// SessionCap, when set, caps the server's sessions as IOS XE's are
+	// capped (sessions.go): each request carrying a credential opens a
+	// session of its own, whatever connection carries it, held for
+	// SessionHold after it arrives, and a request arriving while SessionCap
+	// are held is answered 409 in-use "Too many sessions." and opens none.
+	SessionCap int
+	// SessionHold is how long a session is held; SessionCap needs it.
+	SessionHold time.Duration
 }
 
 // Server is a RESTCONF server over TLS.
@@ -151,6 +160,10 @@ type Server struct {
 	stored map[string]resource
 	// methods are the methods requested, in order, beside paths.
 	methods []string
+	// sessions are when each held session expires, under SessionCap.
+	sessions []time.Time
+	// sessionRefusals counts the requests refused for too many sessions.
+	sessionRefusals int
 }
 
 // resource is one written resource: the document and its media type.
@@ -254,6 +267,10 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, modulesState []by
 		s.mu.Lock()
 		s.hostMetaLogins++
 		s.mu.Unlock()
+	}
+	if !s.openSession(r) {
+		s.iosxeAnswer(w, http.StatusConflict, []byte(IOSXETooManySessions))
+		return
 	}
 	if h, ok := s.opts.Override[path]; ok {
 		h(w, r)
