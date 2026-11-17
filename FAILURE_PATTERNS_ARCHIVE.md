@@ -31054,17 +31054,21 @@ over-masked.
 **Why 640 did not prevent it.** 640 found the same fault in `crypto key generate` and kept a list of command words after
 `key`. That list was written for configuration lines; a column header and a log line were not in the table.
 
-**Fix.** Branch `fix/network-read-fidelity`: `pkg/netcfg/phrases.go` holds each measured shape as a whole phrase
-(`outputPhrases`), the secret word and the words after it together with the word right before it ("Age key Key Number
-State", "Hellman key size :", "A key named", "new key data", "'<user>' authentication for SSH2 Session from", "server
-authentication method:"), and `maskLine` passes over a secret word that begins one. A server block's "key named", an HSRP
-string "for" and a configuration line a %PARSER log message quotes are still masked. Tests:
-`TestMask_KeepsMeasuredShowOutput` (the transcripts' lines, lab addresses replaced, in `pkg/netcfg/testdata`) and
-`TestMask_PhrasesAreWholeShapes`; FuzzMask ran four minutes (22 million inputs) with the phrases as seeds.
+**Fix.** Branch `fix/network-read-fidelity`: `pkg/netcfg/phrases.go` holds each measured shape (`outputPhrases`) as the
+secret word and the words after it, in the line's own context: for show output the whole start of the line ("Port Flags
+Priority Dev ID Age", "Minimum expected Diffie Hellman", "HTTP server"), and for a log message its tag
+(`%CRYPTO_ENGINE-`, `%CRYPTO_ENGINE-5-KEY_REPLACE:`, `%SSH-5-SSH2_USERAUTH:` with "User '<name>'") with nothing but a
+syslog timestamp before it on the line. `maskLine` passes over a secret word that begins one. The first form of the fix
+held a phrase to the one word before it, which a configuration line could match: "tacacs-server host A key named Xyz123",
+and the RADIUS and NX-OS server lines named the same way, kept their keys in the clear. The branch's review found it before
+merge (vuln-corpus class C7), and `TestMask_PhrasesAreWholeShapes` now holds every phrase's words in a wrong context to
+being masked. Tests: `TestMask_KeepsMeasuredShowOutput` (the transcripts' lines, lab addresses, MAC addresses and user
+replaced, in `pkg/netcfg/testdata`) and `TestMask_PhrasesAreWholeShapes`; FuzzMask ran four minutes (22 million inputs)
+after each form of the fix.
 
 **Lesson.** As 640: a denylist mask is checked against the commands that share a secret word without holding a secret,
-and show output and log text are such commands. An exception is written as the whole measured phrase, never as the secret
-word and the next word alone, so it cannot open a hole a configuration line could use.
+and show output and log text are such commands. An exception is held to the whole context it was measured in, from the
+start of the line, never to its words and a word beside them: a configuration line can name a host anything.
 
 ## 1269. Rollback counted every failed read-only net.ios.command show, even one that failed at the SSH handshake, as a run that may have changed the device, so each rollback needed --despite-run (a repeat of 650 and 599) (open)
 
@@ -31102,9 +31106,10 @@ was ok: no ICMP reached the host, and nothing said the path was unknown.
 lines at all (line 155), so a trace of nothing but "no reply" lines returned success.
 
 **Fix.** Branch `fix/network-read-fidelity`: `trace_parse.go` keeps each hop's asymm count and the Resume line's hops and
-back, returned as `hop_details`, `return_hops` and `asymmetric`, and `expect.symmetric`. `path` names the result: a loop
-only from an address that answered at two hops with another between (never from "*"), unknown when no hop answered, and an
-unknown path fails the task unless only `reached: false` was expected. Proven on three real FRR routers routed to make each
+back, returned as `hop_details`, `return_hops` and `asymmetric`, and `expect.symmetric`. `path` names the result: a
+possible loop (or per-flow load balancing) only from an address that answered again after another address answered
+between, an unanswered hop passed over (so "A, *, A" is not one, and "*" alone never is), unknown when no hop answered, and
+an unknown path fails the task unless only `reached: false` was expected. Proven on three real FRR routers routed to make each
 case (`TestTrace_AsymmetryLoopsAndSilenceOnRealRouters`), which also showed tracepath prints no asymm on the reached line.
 
 **Lesson.** A tool's own diagnosis is part of its answer: read every column it prints before adding a second probe to learn
@@ -31121,7 +31126,8 @@ grpc flow with a cleartext packet: the protocol alone decided, though HTTP is ev
 API.
 
 **Fix.** Branch `fix/network-read-fidelity`: a flow is management only to a management endpoint (`pkg/pcapsum/management.go`):
-a request naming RESTCONF, gNMI or gNOI by its path, or a server the new `management` parameter lists. A port never
+a request naming RESTCONF, gNMI, gNOI, Cisco NX-API, Arista eAPI, IOS's HTTP exec or IOS XE's web interface by its path, or
+a server the new `management` parameter lists. A port never
 decides. A cleartext flow whose headers could not all be searched is still warned of, whatever its server. DSCP (with the
 RFC 4594 class), packet times and bytes per flow were added; read from the lab's capture, the counts match tshark's.
 `TestRead_HTTPIsManagementOnlyToAManagementEndpoint`, `TestSummary_WarningsNameTenFlowsAndCountTheRest`.
@@ -31140,11 +31146,18 @@ throwing away the indentation that placed it, and a line not found in the curren
 even one the configuration held at its top level. And the check read only show running-config (line 75), which in VTP
 server or client mode holds no vlan block.
 
-**Fix.** Branch `fix/network-read-fidelity`: lines that are indented are placed by their indentation, a line (or a no line's
-whole command) the configuration holds at its top level and not in the current block is taken there and the submode left,
-and a vlan line the configuration lacks is held to show vlan brief (`config_check_vlans.go`), a device refusing it warned
-of. A new line among lines indented nowhere still stays in its block, since the check does not guess which commands are
-global. `TestCheckConfig_AGlobalLineLeavesTheSubmode` against a scripted switch, with SW-A's show vlan brief.
+**Fix.** Branch `fix/network-read-fidelity`: among indented lines, a line at the margin is at the top level, and
+indentation decides nothing else (reading it as the block found a neighbor written level with "address-family ipv4 vrf
+RED" under the router, predicted unchanged, the class of 720; the review found it before merge); a line (or a no line's
+whole command) the configuration holds at its top level and not in the current block is taken there and the submode left;
+and a vlan line the configuration lacks is held to show vlan brief, read through `pkg/iosparse`'s ShowVlan, a device
+refusing it warned of. A new line not at the margin still stays in its block, since the check does not guess which
+commands are global. The run reads the same table before and after lines that make or remove VLANs
+(`config_vlans_run.go`): what changed is reported under differences, a change to the database alone is undone exactly by
+net.ios.config (`no vlan N`, a renamed VLAN's old name), a VLAN removed or a state changed records no undo and says why,
+and beside a configuration change the return to the checkpoint is partial. `TestCheckConfig_AGlobalLineLeavesTheSubmode`
+against a scripted switch with SW-A's show vlan brief, and `TestConfig_AVLANTheLinesMakeIsAChangeWithAnExactUndo` against
+a switch double whose VLAN database the lines change.
 
 **Lesson.** A prediction is held to everything that holds the state, not only the one file that usually does: the VLAN
 database is configuration a switch never prints.
