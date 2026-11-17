@@ -83,7 +83,9 @@ func (s Settings) matching(cert *x509.Certificate) (pin, bool) {
 // presented, which s trusted) has expired or will within ExpiryWindow of now,
 // and what its replacement means for how s trusts it; "" when it is further
 // off. A pin ignores dates, so an expired certificate is reached anyway, and
-// a certificate pin refuses the renewed one until it is pinned too.
+// a certificate pin refuses the renewed one until it is pinned too. An
+// expired certificate nothing pins is never one s trusted (Go's own checks
+// refuse it), so it draws no warning here.
 func (s Settings) ExpiryWarning(device string, cert *x509.Certificate, now time.Time) string {
 	left := cert.NotAfter.Sub(now)
 	if left > ExpiryWindow {
@@ -92,11 +94,10 @@ func (s Settings) ExpiryWarning(device string, cert *x509.Certificate, now time.
 	day := cert.NotAfter.UTC().Format("2006-01-02")
 	matched, pinned := s.matching(cert)
 	if left <= 0 {
-		how := "its pin accepts it anyway, since a pin ignores dates"
 		if !pinned {
-			how = "it was accepted anyway"
+			return ""
 		}
-		return fmt.Sprintf("device %q presents a certificate that expired on %s, and %s: renew it, and pin the new certificate before it replaces this one", device, day, how)
+		return fmt.Sprintf("device %q presents a certificate that expired on %s, and its pin accepts it anyway, since a pin ignores dates: renew it, and pin the new certificate before it replaces this one", device, day)
 	}
 	when := fmt.Sprintf("device %q's certificate expires on %s, in %d days", device, day, int(left.Hours()/24))
 	switch {

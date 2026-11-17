@@ -208,7 +208,7 @@ func TestPin_IgnoresDatesAndNamesButSaysWhenTheCertificateExpires(t *testing.T) 
 		want string
 	}{
 		{"expired, pinned", pinning(t, devicetls.Fingerprint(expired.cert)), expired.cert, "expired on " + expired.cert.NotAfter.UTC().Format("2006-01-02") + ", and its pin accepts it anyway"},
-		{"expired, not pinned", defaults, expired.cert, "it was accepted anyway"},
+		{"expired, not pinned (never trusted, so never warned)", defaults, expired.cert, ""},
 		{"soon, certificate pin", certPin, soon.cert, "its certificate pin refuses the renewed one until it is pinned too"},
 		{"soon, key pin", keyPin, soon.cert, "its key pin accepts a renewed certificate for the same key"},
 		{"soon, an authority", defaults, soon.cert, "renew it before then"},
