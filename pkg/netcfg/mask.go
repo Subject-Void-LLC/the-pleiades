@@ -49,8 +49,9 @@ var skipped = []string{"md5", "sha1", "sha256", "sha384", "sha512", "hmac-sha-25
 // than hold a secret: ip ospf authentication message-digest, ip rip
 // authentication mode md5, isis authentication key-chain k, and an IKEv2
 // profile's authentication local|remote pre-share, whose key, when the
-// line holds one, follows a later "key".
-var notSecret = []string{"message-digest", "null", "key-chain", "mode", "key-id", "local", "remote"}
+// line holds one, follows a later "key"; and NX-OS's "radius-server host
+// 10.0.0.9 key 7 x authentication accounting", where the server serves both.
+var notSecret = []string{"message-digest", "null", "key-chain", "mode", "key-id", "local", "remote", "accounting"}
 
 // keyCommands are the words after "key" that name what a crypto key
 // command does, not a secret: crypto key generate rsa, crypto key zeroize
@@ -224,8 +225,12 @@ func maskLine(line string, inKeyChain bool, found *[]string) string {
 			return line
 		}
 		// A mode, or another secret word whose own secret follows it
-		// (standby 1 authentication md5 key-string x), is not the secret.
-		if slices.Contains(secretWords, target) || (w.text == "authentication" && slices.Contains(notSecret, target)) || (psk && slices.Contains(pskPeers, target)) || (w.text == "key" && slices.Contains(keyCommands, target)) {
+		// (standby 1 authentication md5 key-string x), is not the secret;
+		// but the same word again, last on the line, is: "username admin
+		// password password" holds the password "password", which was left
+		// in the clear (found by FuzzMask).
+		repeated := target == w.text && j == len(ws)-1
+		if (!repeated && slices.Contains(secretWords, target)) || (w.text == "authentication" && slices.Contains(notSecret, target)) || (psk && slices.Contains(pskPeers, target)) || (w.text == "key" && slices.Contains(keyCommands, target)) {
 			continue
 		}
 		// IOS XE's global "password encryption aes" turns type 6 encryption

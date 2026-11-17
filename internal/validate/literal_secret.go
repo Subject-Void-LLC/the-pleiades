@@ -50,10 +50,10 @@ func LiteralSecretWarnings(dag *engine.DAG) []Finding {
 				// A reference stands in its place as a placeholder, not as
 				// nothing: taken out, the word after it moved up behind the
 				// secret word and read as a secret written out ("password {{
-				// secret.a.b }} role network-admin" warned of "role").
-				written := refsAsPlaceholders(text)
-				if _, found := netcfg.MaskFound(written); len(found) > 0 {
-					out = append(out, literalSecret(pt.id, pt.task, key, fmt.Sprintf("a line holds a secret written out (after %q)", secretWordBefore(written))))
+				// secret.a.b }} role network-admin" warned of "role"). What
+				// follows a reference is read too (writtenSecret).
+				if word, found := writtenSecret(refsAsPlaceholders(text)); found {
+					out = append(out, literalSecret(pt.id, pt.task, key, fmt.Sprintf("a line holds a secret written out (after %q)", word)))
 				}
 			}
 		}
@@ -176,6 +176,30 @@ func refsAsPlaceholders(text string) string {
 // read as a secret written out.
 func replaceRefs(text, with string) string {
 	return secretref.ReplaceAll(text, with)
+}
+
+// writtenSecret reports whether written, a parameter's text with each
+// secret reference stood in as referencePlaceholder, holds a secret written
+// out, and the word it follows. The masker stops reading a line at the first
+// secret masked already, which keeps masking a fixed point, so it would stop
+// at a reference and never see a key written out after it on the same line.
+// Each part after a reference is therefore read again on its own, as
+// pkg/netcfg's MaskChecked reads a line past its last placeholder.
+func writtenSecret(written string) (string, bool) {
+	if _, found := netcfg.MaskFound(written); len(found) > 0 {
+		return secretWordBefore(written), true
+	}
+	rest := written
+	for {
+		at := strings.Index(rest, referencePlaceholder)
+		if at < 0 {
+			return "", false
+		}
+		rest = rest[at+len(referencePlaceholder):]
+		if _, found := netcfg.MaskFound(rest); len(found) > 0 {
+			return secretWordBefore(rest), true
+		}
+	}
 }
 
 // secretWordBefore is the word a masked line's secret follows, for a warning

@@ -149,6 +149,12 @@ func TestMask_ByVendor(t *testing.T) {
 		// is set aside: another line's "authentication" still holds one.
 		{"interface Vlan10\n hsrp 10\n  authentication text nxHsrp", "nxHsrp"},
 		{"interface Gi1\n standby 1 authentication login", "login"},
+		// A server serving both authentication and accounting names no
+		// secret there, and its key, wherever it stands, is masked.
+		{"radius-server host 10.0.0.9 authentication accounting key 7 radAcct", "radAcct"},
+		// A secret that is its own secret word, last on the line.
+		{"username admin password password", "password password"},
+		{"enable secret secret", "secret secret"},
 	} {
 		masked := netcfg.Mask(tc.config)
 		if strings.Contains(masked, tc.secret) || !strings.Contains(masked, netcfg.MaskPrefix) {
@@ -174,6 +180,7 @@ func TestMask_ByVendor(t *testing.T) {
 		"aaa authentication dot1x default group radius",
 		"aaa authentication login console local",
 		"aaa authentication login error-enable",
+		"radius-server host 10.0.0.9 authentication accounting",
 	} {
 		if netcfg.Mask(kept) != kept {
 			t.Errorf("%q was masked:\n%s", kept, netcfg.Mask(kept))

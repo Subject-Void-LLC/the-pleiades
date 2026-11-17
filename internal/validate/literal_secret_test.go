@@ -197,6 +197,10 @@ func TestLiteralSecretWarnings_RealIOSAndNXOSLines(t *testing.T) {
 		{" standby 1 authentication Literal-99", "authentication"},
 		{"ntp authentication-key 1 md5 Literal-99", "md5"},
 		{" neighbor 10.0.0.2 password Literal-99", "password"},
+		// Written out after a reference on the same line: still found.
+		{"username netops password {{ secret.a.b }} role network-admin secret Literal-99", "secret"},
+		{"radius-server host 10.1.1.9 key {{ secret.rad.key }} authentication Literal-99", "authentication"},
+		{"radius-server host 10.1.1.9 authentication accounting key Literal-99", "key"},
 	}
 	var yaml strings.Builder
 	yaml.WriteString("id: lines\nhosts: r1\ntasks:\n")
