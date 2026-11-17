@@ -37,11 +37,15 @@ func TestOnboard_AFailedSaveReportsNoFirstUsePin(t *testing.T) {
 	srv := newSwappable(t, cert)
 	repo, _ := newRepo(t, "api1", generic.TypeHTTP, map[string]inventory.PropertyValue{generic.BaseURLProperty: srv.URL, generic.HTTPAuthProperty: httpapi.AuthBasic})
 	// A generic device starts discovered: the first save moves it to
-	// onboarding, and the second, with the pin and the discovery, fails.
+	// onboarding, the second, with the pin and the discovery, fails, and the
+	// third returns it to discovered with neither.
 	failing := &saveFailing{Repository: repo, failOn: 2}
 	res, err := onboardWith(context.Background(), failing, "api1", staticSecrets(apiLogin), fixedNow, Lookup, options{firstUse: true})
-	if err == nil || !strings.Contains(err.Error(), "the store is full") || failing.saves != 2 {
-		t.Fatalf("err %v after %d saves, want the second save's failure", err, failing.saves)
+	if err == nil || !strings.Contains(err.Error(), "the store is full") || failing.saves != 3 {
+		t.Fatalf("err %v after %d saves, want the second save's failure and a third returning it to discovered", err, failing.saves)
+	}
+	if item, _ := repo.GetByName(context.Background(), "api1"); item.State() != inventory.StateDiscovered || res.State != "discovered" {
+		t.Errorf("after a failed save the device is %s (result %s), want discovered", item.State(), res.State)
 	}
 	if res.FirstUse != nil || hasWarning(res.Warnings, "recorded the certificate it presented") || res.Changed {
 		t.Errorf("a failed save reported first use %+v, warnings %q, changed %v", res.FirstUse, res.Warnings, res.Changed)

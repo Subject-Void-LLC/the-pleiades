@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/pem"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -125,10 +126,11 @@ func TestOnboard_DiscoveredToActive(t *testing.T) {
 	}
 }
 
-// TestOnboard_FailedProbeLeavesOnboarding: a refused credential proves
-// nothing, so the device stays onboarding, holds no discovered
-// capability, and the result says why.
-func TestOnboard_FailedProbeLeavesOnboarding(t *testing.T) {
+// TestOnboard_AFailedProbeReturnsTheDeviceToDiscovered: a refused
+// credential proves nothing, so the device goes back to discovered, holds
+// no discovered capability, and the result says why. It used to stay
+// onboarding, which the next attempt then reported as its previous state.
+func TestOnboard_AFailedProbeReturnsTheDeviceToDiscovered(t *testing.T) {
 	srv := apiServer(t)
 	repo, _ := newRepo(t, "api1", generic.TypeHTTP, map[string]inventory.PropertyValue{
 		devicetls.CAPEMProperty: caPEM(srv), generic.BaseURLProperty: srv.URL, generic.HTTPAuthProperty: httpapi.AuthBasic,
@@ -138,11 +140,25 @@ func TestOnboard_FailedProbeLeavesOnboarding(t *testing.T) {
 		t.Fatalf("err %v, result %+v", err, res)
 	}
 	item, _ := repo.GetByName(context.Background(), "api1")
-	if item.State() != inventory.StateOnboarding || item.HasCapability(capability.NameHTTPAPI) {
-		t.Errorf("after a failed probe: %s, HTTPAPICapable=%v", item.State(), item.HasCapability(capability.NameHTTPAPI))
+	if item.State() != inventory.StateDiscovered || res.State != "discovered" || item.HasCapability(capability.NameHTTPAPI) {
+		t.Errorf("after a failed probe: %s (result %s), HTTPAPICapable=%v", item.State(), res.State, item.HasCapability(capability.NameHTTPAPI))
 	}
 	if _, ok := item.Properties().Raw()[inventory.DiscoveredProperty]; ok {
 		t.Error("a failed probe recorded a discovery")
+	}
+	// The attempt is still on record: to onboarding, and back.
+	var states []string
+	for _, rev := range item.History() {
+		if rev.Field == "state" {
+			states = append(states, fmt.Sprint(rev.NewValue))
+		}
+	}
+	if strings.Join(states, ",") != "onboarding,discovered" {
+		t.Errorf("state revisions %v, want onboarding then discovered", states)
+	}
+	again, _ := onboardWith(context.Background(), repo, "api1", staticSecrets(map[string]string{"username": "api", "password": "wrong"}), fixedNow, Lookup, options{})
+	if again.PreviousState != "discovered" {
+		t.Errorf("the next attempt starts from %s, want discovered", again.PreviousState)
 	}
 }
 

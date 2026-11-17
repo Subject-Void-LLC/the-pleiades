@@ -156,10 +156,11 @@ var onboardable = []inventory.LifecycleState{
 // Onboard probes the named device over its protocol and records the
 // result. A discovered device moves to onboarding (saved, so the attempt
 // is visible) and then, when the probe proves the device, to active with
-// its discovery recorded as a revision. A failed probe leaves a new device
-// onboarding and an onboarded one as it was, with the reason in the
-// Result and the error. Re-onboarding an active device re-probes it and
-// writes only when what it proved changed.
+// its discovery recorded as a revision. A failed or interrupted attempt
+// returns a new device to discovered, saved, and leaves an onboarded one as
+// it was, with the reason in the Result and the error, so no failure leaves
+// a record onboarding (revertOnboarding). Re-onboarding an active device
+// re-probes it and writes only when what it proved changed.
 func Onboard(ctx context.Context, repo inv.Repository, name string, secrets SecretsFunc, now func() time.Time, opts ...Option) (Result, error) {
 	var o options
 	for _, opt := range opts {
@@ -190,11 +191,30 @@ func onboardWith(ctx context.Context, repo inv.Repository, name string, secrets 
 		return res, fmt.Errorf("device %s is %s: %w", name, item.State(), ErrAdministratorState)
 	}
 
-	if item.State() == inventory.StateDiscovered {
-		if item, err = moveTo(ctx, repo, item, inventory.StateOnboarding); err != nil {
-			return res, err
+	// A record already onboarding is what an attempt the process did not
+	// live to finish (killed, or its machine lost) left behind: this one
+	// starts over, and its failure returns the record to discovered too.
+	if item.State() == inventory.StateOnboarding {
+		res.Warnings = append(res.Warnings, fmt.Sprintf("device %s was left onboarding by an attempt that did not finish; this one starts over", name))
+	}
+	var pristine inventory.InventoryItem
+	if item.State() == inventory.StateDiscovered || item.State() == inventory.StateOnboarding {
+		if item.State() == inventory.StateDiscovered {
+			if item, err = moveTo(ctx, repo, item, inventory.StateOnboarding); err != nil {
+				return res, err
+			}
 		}
 		res.State = item.State().String()
+		// A copy as stored now, before the probe's findings are written onto
+		// item, is what a failure saves back as discovered: nothing the
+		// failed attempt learned is kept, and a record another writer moved
+		// on since is refused (inventory.ErrVersionConflict), never clobbered.
+		if pristine, err = repo.GetByName(ctx, name); err != nil {
+			return res, err
+		}
+	}
+	fail := func(res Result, err error) (Result, error) {
+		return revertOnboarding(ctx, repo, pristine, res, err)
 	}
 
 	creds, err := secrets(ctx, item)
@@ -226,7 +246,8 @@ func onboardWith(ctx context.Context, repo inv.Repository, name string, secrets 
 	if next.Facts == nil {
 		next.Facts = map[string]any{}
 	}
-	res.Warnings = append(probed.Warnings, certificateFacts(name, devicetls.For(trusted), presented, now(), next.Facts)...)
+	res.Warnings = append(res.Warnings, probed.Warnings...)
+	res.Warnings = append(res.Warnings, certificateFacts(name, devicetls.For(trusted), presented, now(), next.Facts)...)
 	pinChanged, warning, err := recordPinChange(item, firstUse)
 	if err != nil {
 		return fail(res, err)
@@ -302,6 +323,25 @@ func moveTo(ctx context.Context, repo inv.Repository, item inventory.InventoryIt
 func fail(res Result, err error) (Result, error) {
 	res.Error = err.Error()
 	return res, err
+}
+
+// revertOnboarding is fail for an attempt that moved the record to
+// onboarding: pristine, the record as stored at onboarding before the probe,
+// is saved back as discovered, so a failed attempt never leaves a record
+// onboarding. It runs whatever ended the attempt, a cancelled context (an
+// interrupt, a deadline) included, since the save that moved the record was
+// made. A nil pristine (an onboarded device, which stays as it was) reverts
+// nothing. A revert that fails, a record another writer moved on since among
+// them, is said in the error, and the result then says onboarding.
+func revertOnboarding(ctx context.Context, repo inv.Repository, pristine inventory.InventoryItem, res Result, err error) (Result, error) {
+	if pristine != nil {
+		if _, revertErr := moveTo(context.WithoutCancel(ctx), repo, pristine, inventory.StateDiscovered); revertErr != nil {
+			err = fmt.Errorf("%w; and returning %s to discovered failed, so it is left onboarding until it is onboarded again: %w", err, res.Device, revertErr)
+		} else {
+			res.State = inventory.StateDiscovered.String()
+		}
+	}
+	return fail(res, err)
 }
 
 // sameDiscovery reports whether a and b prove the same thing, ignoring

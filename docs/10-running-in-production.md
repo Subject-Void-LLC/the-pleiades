@@ -1263,8 +1263,13 @@ an operator.
   `generic_gnmi`, `generic_http` or `generic_grpc` device, however it was added, starts `discovered`, which runs nothing.
   Onboarding (`pleiades onboard <name>`, or `POST /api/v1/inventory/devices/{name}/onboard`)
   moves it to `onboarding`, probes it over its protocol, and moves it to `active` when the
-  probe proves the device; a failed first probe leaves it `onboarding` with the reason in the
-  answer. Onboarding refuses a device an administrator put in `quarantined`,
+  probe proves the device. A failed or interrupted attempt returns it to `discovered`, with
+  the reason in the answer, and keeps nothing the attempt learned; the attempt stays in the
+  device's history as the two state changes. A device left `onboarding` by an attempt that
+  did not finish (the process killed mid-probe) is onboarded again from there: the answer
+  says so, and a failure returns it to `discovered` too. A device another writer changed
+  during the attempt is never overwritten on the way back: the answer then says it was left
+  `onboarding`. Onboarding refuses a device an administrator put in `quarantined`,
   `simulate-locked`, `decommissioning` or `archived`. Onboarding an `active` device again
   re-probes it and records only what changed.
 - **Promotion, and any other change.** `PATCH /api/v1/inventory/devices/{name}` with a body
