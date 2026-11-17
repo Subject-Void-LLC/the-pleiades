@@ -231,10 +231,6 @@ func onboardWith(ctx context.Context, repo inv.Repository, name string, secrets 
 	if err != nil {
 		return fail(res, err)
 	}
-	if warning != "" {
-		res.Warnings = append(res.Warnings, warning)
-	}
-	res.FirstUse = firstUse
 	// A type whose discovery holds only for the address it probed binds
 	// it to the properties as they are now, the pin just recorded among
 	// them, so repointing the device later voids it until it is onboarded
@@ -261,22 +257,31 @@ func onboardWith(ctx context.Context, repo inv.Repository, name string, secrets 
 		}
 		writer.RecordDiscovery(next)
 	}
-	if item, err = moveTo(ctx, repo, item, inventory.StateActive); err != nil {
-		return fail(res, err)
+	// The device rebuilt by the real factory from what this onboarding wrote
+	// must hold every capability the probe proved. generic's constructors
+	// and internal/archtest make this true; checking it before anything is
+	// saved means a regression refuses the onboarding whole, rather than
+	// leaving a stored discovery or pin a failed result does not report.
+	rebuilt, err := inv.NewItemFactory().Rebuilt(item)
+	if err != nil {
+		return fail(res, fmt.Errorf("device %s cannot be rebuilt with what the probe proved: %w", name, err))
 	}
-	res.State = item.State().String()
-	res.Changed = true
-
-	// The stored device, rebuilt by the real factory, must now hold every
-	// capability the probe proved. generic's constructors and
-	// internal/archtest make this true; checking it here means a
-	// regression reports rather than leaving a device that claims less
-	// than it was told.
 	for _, c := range next.Capabilities {
-		if !item.HasCapability(c) {
-			return fail(res, fmt.Errorf("device %s was granted %s and does not hold it after saving", name, c))
+		if !rebuilt.HasCapability(c) {
+			return fail(res, fmt.Errorf("device %s was granted %s and does not hold it when rebuilt; nothing was saved", name, c))
 		}
 	}
+	if _, err = moveTo(ctx, repo, item, inventory.StateActive); err != nil {
+		return fail(res, err)
+	}
+	res.State = inventory.StateActive.String()
+	res.Changed = true
+	// Reported only once it is stored, so a failed save never lists a pin
+	// it did not record.
+	if warning != "" {
+		res.Warnings = append(res.Warnings, warning)
+	}
+	res.FirstUse = firstUse
 	return res, nil
 }
 
