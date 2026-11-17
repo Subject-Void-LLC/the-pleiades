@@ -26,6 +26,7 @@
     "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/http": 100.0,
     "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/identity/group": 100.0,
     "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/identity/user": 100.0,
+    "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/net": 88.2,
     "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/net/catalyst": 84.2,
     "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/net/cli": 66.0,
     "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/net/eos": 100.0,
