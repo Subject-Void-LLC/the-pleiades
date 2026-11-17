@@ -76,6 +76,15 @@ command: name the container, and the task's target is the container host.
       includes: [10.1.1.1]
 ```
 
+A trace also says what kind of path it found (`path`): `reached`; `loop`, when one router answered at two
+hops with another between them; `unreached`, when some hop answered; or `unknown`, when none did. A run of
+hops that did not answer is never called a loop, since a filter, an ICMP rate limit and a loop all look the
+same from the host, so a trace no hop answered fails the task unless the only thing expected is
+`reached: false`. tracepath reads how many hops each reply came back over from its TTL: `asymmetric` and
+`return_hops` say whether the destination answered over a different number of hops than the probe went out
+over, `hop_details` gives the same for each hop, and `expect: {symmetric: true}` fails an asymmetric path.
+These count hops, so a return path of the same length through other routers still reads as symmetric.
+
 ### GNS3 and Cisco Modeling Labs
 
 A GNS3 project's nodes come from the server's own API, on a 3.x server (which needs a login) or a 2.2
@@ -666,7 +675,7 @@ without the person's say-so.
 | `net.frr.config` | The whole intended configuration, applied through FRR's own `frr-reload.py` | yes | restores the backup it took |
 | `net.frr.interface` | An interface administratively up or down | yes | the state it found |
 | `wait.routes` | Waits until the routing table holds the routes given, through the next hops given, and has stopped changing | no (a wait) | read only |
-| `net.trace` | `tracepath` from a Linux device, or with `container` from a container on a `container_host` through its engine, failing when the path is not the one expected | yes | read only |
+| `net.trace` | `tracepath` from a Linux device, or with `container` from a container on a `container_host` through its engine, saying whether the path was reached, looped, stopped or is unknown and whether replies came back over as many hops, and failing when the path is not the one expected | yes | read only |
 | `net.ovs.bridge`, `net.ovs.port` | A bridge and its datapath, a port and its VLAN tag | yes | the state they found |
 | `net.batfish.check` | The candidate held to the model, before any change | yes | read only |
 | `pleiades.builtin.project.write` | Keeps text a run produced, such as a registered `running_config`, as a file in the project | yes | none (the project is under version control) |
