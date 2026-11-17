@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -27,6 +28,9 @@ type removedHost struct {
 	CredentialRemoved bool   `json:"credential_removed"`
 	HostKeysRemoved   int    `json:"host_keys_removed"`
 	HostKeysKept      string `json:"host_keys_kept,omitempty"`
+	// HostKeysNote says why --forget-host-keys had nothing to forget: the
+	// host is reached through a console server, whose keys are the server's.
+	HostKeysNote string `json:"host_keys_note,omitempty"`
 }
 
 // runRemoveHost removes one host from the project's inventory, and with
@@ -53,9 +57,11 @@ func runRemoveHost(args []string) error {
 	// only when no other device is reached at it.
 	var addresses []string
 	if *forgetKeys {
-		if addresses, out.HostKeysKept, err = addressesToForget(*dir, hostsPath, name); err != nil {
+		var toForget forgetPlan
+		if toForget, err = addressesToForget(*dir, hostsPath, name); err != nil {
 			return err
 		}
+		addresses, out.HostKeysKept, out.HostKeysNote = toForget.addresses, toForget.kept, toForget.note
 	}
 
 	spec, err := inv.RemoveHost(hostsPath, name, *leaveRefs)
@@ -96,6 +102,9 @@ func runRemoveHost(args []string) error {
 	if out.HostKeysKept != "" {
 		fmt.Println(termsafe.EscapeLine(out.HostKeysKept))
 	}
+	if out.HostKeysNote != "" {
+		fmt.Println(termsafe.EscapeLine(out.HostKeysNote))
+	}
 	if len(addresses) > 0 {
 		fmt.Printf("removed %d known_hosts line(s) for %s\n", out.HostKeysRemoved, termsafe.EscapeLine(strings.Join(addresses, " and ")))
 	}
@@ -124,24 +133,41 @@ func runRemoveCredential(args []string) error {
 	return nil
 }
 
+// forgetPlan is what remove-host --forget-host-keys drops for one host.
+type forgetPlan struct {
+	// addresses are those whose known_hosts lines go.
+	addresses []string
+	// kept says which addresses stayed and why, empty when none did.
+	kept string
+	// note says why there was nothing to forget at all, empty otherwise.
+	note string
+}
+
 // addressesToForget returns the addresses whose known_hosts lines
 // remove-host --forget-host-keys drops for the host name: its SSH address
 // and its NETCONF listener's, less each one another device in the project is
-// also reached at, whose keys must stay trusted. kept says which stayed and
-// why, empty when none did.
-func addressesToForget(dir, hostsPath, name string) (forget []string, kept string, err error) {
+// also reached at, whose keys must stay trusted.
+//
+// A host with no SSH address (a node reached only through a console server)
+// has no keys of its own to forget: the keys trust-host trusted for it are the
+// console server's, which other nodes still reach. That is a note and not a
+// refusal, so the host itself is still removed.
+func addressesToForget(dir, hostsPath, name string) (forgetPlan, error) {
 	repo := inv.NewFileRepository(hostsPath, inv.NewItemFactory())
 	device, err := repo.GetByName(context.Background(), name)
 	if err != nil {
-		return nil, "", err
+		return forgetPlan{}, err
 	}
 	mine, err := trustedAddresses(device)
+	if errors.Is(err, errNotReachedOverSSH) {
+		return forgetPlan{note: fmt.Sprintf("%s is not reached over SSH at an address, so it has no host keys of its own to forget", name)}, nil
+	}
 	if err != nil {
-		return nil, "", fmt.Errorf("--forget-host-keys: %w", err)
+		return forgetPlan{}, fmt.Errorf("--forget-host-keys: %w", err)
 	}
 	others, err := loadInventory(dir)
 	if err != nil {
-		return nil, "", err
+		return forgetPlan{}, err
 	}
 	// Every address another device is reached at, with the first such
 	// device, so a shared one can be named.
@@ -161,13 +187,15 @@ func addressesToForget(dir, hostsPath, name string) (forget []string, kept strin
 			}
 		}
 	}
+	var plan forgetPlan
 	var reasons []string
 	for _, address := range mine {
 		if other, shared := sharedWith[address]; shared {
 			reasons = append(reasons, fmt.Sprintf("%s is also reached at %s, so its host keys stay trusted", other, address))
 			continue
 		}
-		forget = append(forget, address)
+		plan.addresses = append(plan.addresses, address)
 	}
-	return forget, strings.Join(reasons, "; "), nil
+	plan.kept = strings.Join(reasons, "; ")
+	return plan, nil
 }

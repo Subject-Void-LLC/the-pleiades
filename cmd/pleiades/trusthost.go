@@ -171,6 +171,11 @@ func recordFirstConnectReason(ctx context.Context, repo inv.Repository, device i
 	return nil
 }
 
+// errNotReachedOverSSH is sshAddress's refusal of a device with no SSH address
+// at all (a node reached only through a console server), which remove-host
+// --forget-host-keys reads as a device with no host keys of its own.
+var errNotReachedOverSSH = errors.New("is not reached over SSH at an address, and is not a console server")
+
 // sshAddress is the host and port a device is reached at over SSH, or a
 // CML controller's console server at.
 func sshAddress(device inventory.InventoryItem) (string, error) {
@@ -186,7 +191,7 @@ func sshAddress(device inventory.InventoryItem) (string, error) {
 	}
 	ssh, ok := device.(capability.SSHTransportCapable)
 	if !ok || ssh.SSHHost() == "" {
-		return "", fmt.Errorf("device %q is not reached over SSH at an address, and is not a console server", device.Name())
+		return "", fmt.Errorf("device %q %w", device.Name(), errNotReachedOverSSH)
 	}
 	port := ssh.SSHPort()
 	if port == 0 || port == 22 {
