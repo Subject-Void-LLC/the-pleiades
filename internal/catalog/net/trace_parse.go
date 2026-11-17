@@ -28,8 +28,9 @@ const (
 	// pathReached is a trace whose destination answered.
 	pathReached = "reached"
 	// pathLoop is a trace that did not reach its destination, where one
-	// address answered at two hops that are not next to each other: the
-	// probe passed that router twice.
+	// address answered again after another address had answered between:
+	// possibly a loop, the probe passing that router twice, or per-flow
+	// load balancing.
 	pathLoop = "loop"
 	// pathUnreached is a trace that did not reach its destination, where
 	// some hop answered and none shows a loop: the path is known up to the
@@ -129,28 +130,33 @@ func (p tracedPath) addresses() []string {
 }
 
 // state names the path: reached, loop, unreached or unknown. A loop is
-// read only from addresses that answered, an address at two hops with
-// another hop between them, never from hops that did not answer: a run of
-// "*" is a filter, a rate limit or a loop alike. The same address at two
-// hops next to each other is not one either, since a router that does not
-// count down the TTL answers twice in a row.
+// read only from addresses that answered: an address that answered again
+// after another address answered between them. A hop that did not answer is
+// passed over in that reading, never counted as an address between, since a
+// run of "*" is a filter, a rate limit or a loop alike, and "A, *, A" may be
+// one router answering every other probe. The same address at two answers
+// next to each other is not one either, since a router that does not count
+// down the TTL answers twice in a row. A loop so read is a possible one: a
+// router that balances flows over two paths can answer on both sides of
+// another.
 func (p tracedPath) state() string {
 	if p.reached {
 		return pathReached
 	}
+	// at is each address's place among the answers, not among the hops.
 	at := map[string]int{}
-	answered := false
-	for i, h := range p.hops {
+	answers := 0
+	for _, h := range p.hops {
 		if h.addr == "*" {
 			continue
 		}
-		answered = true
-		if first, ok := at[h.addr]; ok && i > first+1 {
+		if first, ok := at[h.addr]; ok && answers > first+1 {
 			return pathLoop
 		}
-		at[h.addr] = i
+		at[h.addr] = answers
+		answers++
 	}
-	if !answered {
+	if answers == 0 {
 		return pathUnknown
 	}
 	return pathUnreached

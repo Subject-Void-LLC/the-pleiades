@@ -121,7 +121,11 @@ func TestTracePathState(t *testing.T) {
 		{"every hop silent, as the lab's loop was from Host1", []string{"*", "*", "*", "*", "*", "*", "*", "*", "*", "*", "*", "*"}, pathUnknown},
 		{"a filtered last hop", []string{"10.0.0.1", "10.0.1.1", "*", "*", "*"}, pathUnreached},
 		{"two routers alternating", []string{"10.0.10.2", "10.0.10.1", "10.0.10.2", "10.0.10.1"}, pathLoop},
-		{"a router passed twice past a silent one", []string{"10.0.0.1", "*", "10.0.0.1"}, pathLoop},
+		// An unanswered hop is passed over: one router answering every other
+		// probe is not a loop, and one answering on both sides of another is.
+		{"a router answering every other probe", []string{"10.0.0.1", "*", "10.0.0.1"}, pathUnreached},
+		{"a router answering every other probe, twice", []string{"10.0.0.1", "*", "10.0.0.1", "*", "10.0.0.1"}, pathUnreached},
+		{"two routers alternating past silent hops", []string{"10.0.0.1", "*", "10.0.0.2", "*", "10.0.0.1"}, pathLoop},
 		{"a router answering twice in a row is not a loop", []string{"10.0.0.1", "10.0.0.1", "10.0.0.2", "*"}, pathUnreached},
 		{"a loop of silent routers is not read from stars", []string{"10.0.0.1", "*", "*", "*"}, pathUnreached},
 	} {

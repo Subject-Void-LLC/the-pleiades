@@ -76,11 +76,13 @@ command: name the container, and the task's target is the container host.
       includes: [10.1.1.1]
 ```
 
-A trace also says what kind of path it found (`path`): `reached`; `loop`, when one router answered at two
-hops with another between them; `unreached`, when some hop answered; or `unknown`, when none did. A run of
+A trace also says what kind of path it found (`path`): `reached`; `loop`, when one router answered again after
+another had answered between them (a possible loop, or per-flow load balancing; a hop that did not answer is
+passed over); `unreached`, when some hop answered; or `unknown`, when none did. A run of
 hops that did not answer is never called a loop, since a filter, an ICMP rate limit and a loop all look the
 same from the host, so a trace no hop answered fails the task unless the only thing expected is
-`reached: false`. tracepath reads how many hops each reply came back over from its TTL: `asymmetric` and
+`reached: false`. tracepath reads how many hops each reply came back over from its TTL, assuming the reply
+began at 64, 128 or 255: `asymmetric` and
 `return_hops` say whether the destination answered over a different number of hops than the probe went out
 over, `hop_details` gives the same for each hop, and `expect: {symmetric: true}` fails an asymmetric path.
 These count hops, so a return path of the same length through other routers still reads as symmetric.
