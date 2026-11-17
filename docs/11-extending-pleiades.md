@@ -72,10 +72,13 @@ A TLS device whose certificate nothing trusts (a self-signed one, as many brownf
 present) is refused by its probe, which names the certificate's fingerprint and key fingerprint
 for a person to check and pin. `pleiades onboard <host> --tls-first-use` instead records the
 certificate it presents as its pin on first use, for that one onboarding only and only when the
-record names nothing it trusts: the result lists the pin for review, every run says it is
-unconfirmed, and `pleiades confirm-tls-pin <host> <pin>` makes it a pin a person checked. Each
-onboarding also records the presented certificate (`tls_certificate_*`) with the rest of the
-discovery. [Pinning a self-signed certificate](10-running-in-production.md#pinning-a-self-signed-certificate)
+record names nothing it trusts and no earlier onboarding verified another certificate: the
+result lists the pin for review, every run says it is unconfirmed, and `pleiades
+confirm-tls-pin <host> <pin>` makes it a pin a person checked. Onboarding a generic HTTP,
+RESTCONF, gNMI or gRPC device, a container host, a language model provider or a Cloudflare
+account over TLS also records the presented certificate (`tls_certificate_*`) with the rest of
+the discovery; a Kubernetes cluster's does not.
+[Pinning a self-signed certificate](10-running-in-production.md#pinning-a-self-signed-certificate)
 has the details.
 
 A generic type is enough when the methods you need run on what the protocol proves:

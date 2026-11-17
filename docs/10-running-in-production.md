@@ -2185,9 +2185,14 @@ the Controller, asking for it needs `inventory:assert` (which only an admin hold
 `inventory:onboard`, while ordinary onboarding still needs `inventory:onboard` alone. The reason is
 what first use does: it sends the device's stored credential, once, to a certificate nobody has
 checked, so an operator who may only onboard must never be able to make the Controller do that. It is off unless asked for, and it applies to that one onboarding
-and never to a run. It records only for a device whose record names nothing it trusts, so it never
-replaces a pin, an authority or an earlier first-use pin, and a changed certificate is still refused.
-The pin is taken from the refusal (no credential is sent on that connection), the probe runs again
+and never to a run. It records only for a device whose record names nothing it trusts (no
+`tls_fingerprint`, no `tls_ca_pem`, no earlier first-use pin) and whose earlier onboarding verified no
+other certificate. A device the system's authorities vouched for at an earlier onboarding has that
+certificate in its discovery facts (below), and one that now presents a certificate nothing trusts is
+refused with both certificates named, since a changed certificate is exactly what a machine in the
+middle presents: check the new one with the device's owner, then pin it or trust the authority that
+signed it. So first use never replaces a pin, an authority, an earlier first-use pin or a certificate
+that was trusted. The pin is taken from the refusal (no credential is sent on that connection), the probe runs again
 trusting it, and the pin is recorded only when that probe proves the device. It goes into
 `tls_first_use_fingerprint`, which only onboarding writes: `add-host --set`, `set-host`,
 `inventory.yaml` and a sync are each refused it. The result lists the pin for review, with both
@@ -2200,8 +2205,11 @@ sha256:...`, or the Controller's `POST /inventory/devices/{name}/tls-pin/confirm
 comparison someone made. The Controller route needs `inventory:assert`, which only an admin holds, so
 the operator who onboarded a device does not also vouch for it. Confirming moves the pin into
 `tls_fingerprint`, as a revision, and the device keeps its discovery, since it trusts the same
-certificate before and after. A first-use pin that the record's own `tls_fingerprint` or `tls_ca_pem`
-later overrides is not trusted, and the next onboarding removes it.
+certificate before and after. Setting or removing `tls_fingerprint` or `tls_ca_pem` with `set-host`,
+or a sync writing either, removes the first-use pin as a revision of its own, so taking a person's
+trust away later leaves the device trusting nothing rather than the unchecked pin again. A hand edit of
+`inventory.yaml` adding either is not seen until the next onboarding, which removes the pin it
+overrides; until then the pin is not trusted, and a confirmation of it is refused.
 
 What first use costs is what `accept-new` costs: a machine in the middle at the one onboarding that
 records the pin would be the certificate pinned, and would be sent the device's credential. That is
@@ -2212,18 +2220,28 @@ it, and the device is refused rather than trusted. On the Crawl tier it lives in
 file beside the discovery, never in `inventory.yaml`. A Runner receives it with the device's other TLS
 settings and warns the same way. First use applies to `generic_http`, `generic_restconf`,
 `generic_gnmi` and `generic_grpc`, each of whose probes names a certificate nothing trusts by its
-fingerprints. A device whose probe reports no such refusal (a container engine over TLS, a CML
-controller) has nothing recorded, and is pinned by hand.
+fingerprints. Every other type is pinned by hand: a `container_host` over TLS, an `ai_provider` and a
+`cloudflare_account`, whose probes report no such refusal, and a `kubernetes_cluster`, which takes no
+pin.
 
-**Certificate facts and expiry.** Every onboarding of a TLS device records the certificate that the
-probe's verified handshake presented as discovery facts: `tls_certificate_fingerprint`,
-`tls_certificate_key_fingerprint`, `tls_certificate_subject`, `tls_certificate_issuer` and
-`tls_certificate_not_after`. `net.gnmi.facts`, `net.restconf.facts`, `net.gnmi.config` and
-`net.restconf.config` record the same as stable facts (`tls.certificate.*`), so a changed certificate
-is a change in the device's fact history. They come from the connection the read already makes, never
-from one of their own. A certificate within 30 days of its last day, or past it, is warned about in
-words that fit how the device is trusted. Under a certificate pin, add the new pin beside the old one
-before the change. A read that saw more than one certificate at the device's address records none.
+**Certificate facts and expiry.** Onboarding records the certificate the device presented as discovery
+facts: `tls_certificate_fingerprint`, `tls_certificate_key_fingerprint`, `tls_certificate_subject`,
+`tls_certificate_issuer` and `tls_certificate_not_after`. It does so for these types, when they are
+reached over TLS: `generic_http`, `generic_restconf`, `generic_gnmi`, `generic_grpc`,
+`container_host`, `ai_provider` and `cloudflare_account`. A `kubernetes_cluster` records none, and
+neither does a device reached over plain HTTP or plaintext gRPC. `net.gnmi.facts`,
+`net.restconf.facts`, `net.gnmi.config` and `net.restconf.config` record the same as stable facts
+(`tls.certificate.*`), so a changed certificate is a change in the device's fact history; no other
+method records them. They come from the connection the read already makes, never from one of their
+own, and only from a handshake that completed, so a server that presents a certificate whose key it
+does not hold is never recorded as presenting it. A read that saw more than one certificate at the
+device's address records none.
+
+A certificate within 30 days of its last day is warned about in words that fit how the device is
+trusted, and so is one past its last day that a pin still accepts (a pin ignores dates; an expired
+certificate nothing pins is refused, so it is never reached to be warned about). Under a certificate
+pin, add the new pin beside the old one before the change. The warning is given only by onboarding and
+by those four methods: no other method warns about a certificate's last day.
 
 #### Other gNMI servers: SONiC
 
