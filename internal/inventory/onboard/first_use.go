@@ -21,6 +21,7 @@ package onboard
 import (
 	"errors"
 	"fmt"
+	"maps"
 
 	inv "github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
@@ -109,19 +110,20 @@ func ownTrust(s devicetls.Settings) string {
 
 // withFirstUsePin returns item rebuilt by the factory with pin as its
 // first-use pin, for a probe only: it is never saved, so it carries no
-// revision. A type whose TLS is not read from its record, or that refuses a
-// pin (a Kubernetes cluster, verified against its authority alone), cannot
-// have one recorded.
+// revision. Its properties are a copy, and its capabilities those item
+// declares, as a vendor type's classification set them. A type whose TLS is
+// not read from its record, or that refuses a pin (a Kubernetes cluster,
+// verified against its authority alone), cannot have one recorded.
 func withFirstUsePin(item inventory.InventoryItem, pin string) (inventory.InventoryItem, error) {
 	typed, ok := item.(deviceTyped)
 	if !ok {
 		return nil, fmt.Errorf("device %s reports no type", item.Name())
 	}
-	props := item.Properties().Raw()
+	props := maps.Clone(item.Properties().Raw())
 	props[devicetls.FirstUseProperty] = pin
 	built, err := inv.NewItemFactory().Build(record.Record{
 		ID: item.ID(), Name: item.Name(), Type: typed.DeviceType(), Properties: props,
-		Tags: item.Tags(), State: item.State(), Source: item.Source(),
+		Tags: item.Tags(), State: item.State(), Source: item.Source(), Capabilities: item.Capabilities(),
 	})
 	if err != nil {
 		return nil, err
