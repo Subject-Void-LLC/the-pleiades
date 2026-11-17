@@ -154,11 +154,20 @@ type ConditionProgram struct {
 // compileItems compiles each of exprs as its own separate Program (rather
 // than joining them into one expression first), so Eval can later report
 // exactly which item was responsible for a false result. keyword and or
-// are stored on the returned ConditionProgram for Eval to use.
+// are stored on the returned ConditionProgram for Eval to use. Every item
+// but when_cel's is read through ansibleTest first (an Ansible is defined
+// becomes has()), and its Reason still quotes the item as written.
 func compileItems(cel Evaluator, keyword string, or bool, exprs []string) (*ConditionProgram, error) {
 	items := make([]conditionItem, len(exprs))
 	for i, expr := range exprs {
-		prg, err := cel.Compile(expr)
+		source := expr
+		if keyword != "when_cel" {
+			var err error
+			if source, err = ansibleTest(expr); err != nil {
+				return nil, fmt.Errorf("failed to compile %s expression %d: %w", keyword, i+1, err)
+			}
+		}
+		prg, err := cel.Compile(source)
 		if err != nil {
 			return nil, fmt.Errorf("failed to compile %s expression %d (`%s`): %w", keyword, i+1, expr, err)
 		}

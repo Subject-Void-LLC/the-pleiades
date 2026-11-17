@@ -277,10 +277,7 @@ func conditionVarReads(c engine.Conditional) (read, tested []string) {
 		return e.Kind() == celast.IdentKind && e.AsIdent() == engine.TemplateRootVars
 	}
 	readSet, testedSet := map[string]bool{}, map[string]bool{}
-	for _, src := range append(append(append([]string(nil), c.When...), c.WhenOr...), c.WhenCEL) {
-		if src == "" {
-			continue
-		}
+	for _, src := range c.Sources() {
 		ast, iss := env.Parse(src)
 		if iss.Err() != nil {
 			continue
