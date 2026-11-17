@@ -1,0 +1,1 @@
+`virt.cml.capture.stop` takes `timeout`, the seconds it waits for the controller to finish writing the file (default 900); a file still short then is refused with how far it had got, and nothing is written.
