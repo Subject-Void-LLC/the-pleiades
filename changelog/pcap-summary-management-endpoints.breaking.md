@@ -1,0 +1,1 @@
+`net.pcap.summary` counts HTTP, HTTP/2 and gRPC in the clear as `cleartext_management` only to a management endpoint: a request naming RESTCONF, gNMI or gNOI by its path, or a server the new `management` parameter lists. Plain HTTP to any other server, a lab web server on 8080 say, is cleartext and no longer a management warning.
