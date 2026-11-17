@@ -80,8 +80,8 @@ func TestPresented_RecordsEachCompletedHandshakeOnce(t *testing.T) {
 		t.Errorf("seen %d certificates (more %v), want a then b once each", len(certs), more)
 	}
 
-	_, refusedSeen := devicetls.WithPresented(context.Background())
-	if err := getWith(t, pinnedConfig(t, devicetls.Fingerprint(a.cert)), refusedSeen, srvB); err == nil {
+	refusedCtx, refusedSeen := devicetls.WithPresented(context.Background())
+	if err := getWith(t, pinnedConfig(t, refusedCtx, devicetls.Fingerprint(a.cert)), refusedSeen, srvB); err == nil {
 		t.Fatal("a certificate no pin matches was trusted")
 	}
 	if certs, _ := refusedSeen.Certificates(); len(certs) != 0 {
@@ -130,8 +130,11 @@ func TestPresented_ACertificateReplayedWithoutItsKeyIsNeverRecorded(t *testing.T
 		t.Run(name, func(t *testing.T) {
 			replayed := mint(t, newKey(t), 1, "127.0.0.1", time.Now().Add(time.Hour))
 			genuine := mint(t, newKey(t), 2, "127.0.0.1", time.Now().Add(time.Hour))
-			cfg := pinnedConfig(t, []any{devicetls.Fingerprint(replayed.cert), devicetls.Fingerprint(genuine.cert)})
-			_, seen := devicetls.WithPresented(context.Background())
+			// The client is built as every client a run opens is, under the
+			// context that carries the record, so a hook ConfigContext put on
+			// the handshake would run here too.
+			ctx, seen := devicetls.WithPresented(context.Background())
+			cfg := pinnedConfig(t, ctx, []any{devicetls.Fingerprint(replayed.cert), devicetls.Fingerprint(genuine.cert)})
 			if err := getWith(t, cfg, seen, serveWithoutTheKey(t, replayed, version)); err == nil {
 				t.Fatal("a server without the certificate's key completed the handshake")
 			}
@@ -148,10 +151,11 @@ func TestPresented_ACertificateReplayedWithoutItsKeyIsNeverRecorded(t *testing.T
 	}
 }
 
-// pinnedConfig is the client configuration of settings pinning pins.
-func pinnedConfig(t *testing.T, pins inventory.PropertyValue) *tls.Config {
+// pinnedConfig is the client configuration of settings pinning pins, built
+// under ctx as a run builds one (ConfigContext).
+func pinnedConfig(t *testing.T, ctx context.Context, pins inventory.PropertyValue) *tls.Config {
 	t.Helper()
-	cfg, err := pinning(t, pins).Config(nil)
+	cfg, err := pinning(t, pins).ConfigContext(ctx, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
