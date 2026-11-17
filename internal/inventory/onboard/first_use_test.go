@@ -245,38 +245,53 @@ func TestOnboard_FirstUseNeverReplacesAnAuthority(t *testing.T) {
 // earlier onboarding verified (by the system's roots: its record names no
 // trust of its own, and its discovery holds the certificate) that now
 // presents another certificate nothing trusts is refused with
-// --tls-first-use, naming both, nothing recorded and no credential sent.
+// --tls-first-use, naming both, nothing recorded and no credential sent:
+// another certificate and key, another certificate for the same key, and
+// another key where only the key was recorded. The very certificate an
+// earlier onboarding verified, no longer trusted (an authority dropped from
+// the system's roots), is recorded.
 func TestOnboard_FirstUseNeverPinsAChangedVerifiedCertificate(t *testing.T) {
 	_, verified := deviceCert(t, farOff())
 	changed, changedCert := deviceCert(t, farOff())
 	srv := newSwappable(t, changed)
-	props := map[string]inventory.PropertyValue{generic.BaseURLProperty: srv.URL, generic.HTTPAuthProperty: httpapi.AuthBasic}
-	earlier := inventory.Discovery{Protocol: "http", Capabilities: []capability.Name{capability.NameHTTPAPI}, Facts: map[string]any{
-		factCertificateFingerprint: devicetls.Fingerprint(verified), factCertificateKeyFingerprint: devicetls.KeyFingerprint(verified),
-	}, Binding: generic.Binding(generic.TypeHTTP, inventory.NewProperties(props))}
-	props[inventory.DiscoveredProperty] = earlier.Property()
-	repo, _ := newRepo(t, "api1", generic.TypeHTTP, props)
+	for name, tc := range map[string]struct {
+		earlier map[string]any
+		refused string
+	}{
+		"another certificate and key": {map[string]any{
+			factCertificateFingerprint: devicetls.Fingerprint(verified), factCertificateKeyFingerprint: devicetls.KeyFingerprint(verified),
+		}, devicetls.Fingerprint(verified)},
+		"another certificate for the same key": {map[string]any{
+			factCertificateFingerprint: devicetls.Fingerprint(verified), factCertificateKeyFingerprint: devicetls.KeyFingerprint(changedCert),
+		}, devicetls.Fingerprint(verified)},
+		"another key, only the key recorded": {map[string]any{
+			factCertificateKeyFingerprint: devicetls.KeyFingerprint(verified),
+		}, devicetls.KeyFingerprint(verified)},
+		"the very certificate verified before": {map[string]any{
+			factCertificateFingerprint: devicetls.Fingerprint(changedCert), factCertificateKeyFingerprint: devicetls.KeyFingerprint(changedCert),
+		}, ""},
+	} {
+		props := map[string]inventory.PropertyValue{generic.BaseURLProperty: srv.URL, generic.HTTPAuthProperty: httpapi.AuthBasic}
+		earlier := inventory.Discovery{Protocol: "http", Capabilities: []capability.Name{capability.NameHTTPAPI}, Facts: tc.earlier,
+			Binding: generic.Binding(generic.TypeHTTP, inventory.NewProperties(props))}
+		props[inventory.DiscoveredProperty] = earlier.Property()
+		repo, _ := newRepo(t, "api1", generic.TypeHTTP, props)
+		logins := srv.logins.Load()
 
-	_, err := onboardOnce(repo, "api1", apiLogin, true)
-	if err == nil || !strings.Contains(err.Error(), devicetls.Fingerprint(verified)) || !strings.Contains(err.Error(), devicetls.Fingerprint(changedCert)) ||
-		!strings.Contains(err.Error(), "never recorded on first use") || !strings.Contains(err.Error(), devicetls.FingerprintProperty) {
-		t.Fatalf("err %v, want a refusal naming both certificates and what a person does", err)
-	}
-	if got := stored(t, repo, "api1", inventory.TLSFirstUseProperty); got != "" || srv.logins.Load() != 0 {
-		t.Errorf("recorded %q, sent the credential %d times", got, srv.logins.Load())
-	}
-
-	// The same certificate the earlier onboarding verified, no longer
-	// trusted (an authority dropped from the system's roots): recorded.
-	srv.present(changed)
-	same := map[string]inventory.PropertyValue{generic.BaseURLProperty: srv.URL, generic.HTTPAuthProperty: httpapi.AuthBasic}
-	sameDiscovery := inventory.Discovery{Protocol: "http", Capabilities: []capability.Name{capability.NameHTTPAPI}, Facts: map[string]any{
-		factCertificateFingerprint: devicetls.Fingerprint(changedCert), factCertificateKeyFingerprint: devicetls.KeyFingerprint(changedCert),
-	}, Binding: generic.Binding(generic.TypeHTTP, inventory.NewProperties(same))}
-	same[inventory.DiscoveredProperty] = sameDiscovery.Property()
-	sameRepo, _ := newRepo(t, "api2", generic.TypeHTTP, same)
-	if res, err := onboardOnce(sameRepo, "api2", apiLogin, true); err != nil || res.FirstUse == nil {
-		t.Errorf("the very certificate an earlier onboarding verified: %v, first use %+v", err, res.FirstUse)
+		res, err := onboardOnce(repo, "api1", apiLogin, true)
+		if tc.refused == "" {
+			if err != nil || res.FirstUse == nil || res.FirstUse.Fingerprint != devicetls.Fingerprint(changedCert) {
+				t.Errorf("%s: %v, first use %+v, want it recorded", name, err, res.FirstUse)
+			}
+			continue
+		}
+		if err == nil || !strings.Contains(err.Error(), tc.refused) || !strings.Contains(err.Error(), devicetls.Fingerprint(changedCert)) ||
+			!strings.Contains(err.Error(), "never recorded on first use") || !strings.Contains(err.Error(), devicetls.FingerprintProperty) {
+			t.Errorf("%s: err %v, want a refusal naming both and what a person does", name, err)
+		}
+		if got := stored(t, repo, "api1", inventory.TLSFirstUseProperty); got != "" || srv.logins.Load() != logins {
+			t.Errorf("%s: recorded %q, sent the credential %d times", name, got, srv.logins.Load()-logins)
+		}
 	}
 }
 
