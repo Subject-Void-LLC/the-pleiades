@@ -124,7 +124,10 @@ func TestPaced_WithoutWaitingTheFetchFailsAsMeasured(t *testing.T) {
 }
 
 // TestPaced_TheCallersTimeEndsTheWait: a cap that never frees ends when the
-// caller's context does, the error naming whose time that was.
+// caller's context does, the error naming whose time that was. The context is
+// ended from afterSessionRefusal at the second refusal, inside the wait, so
+// the test never depends on a deadline landing between requests (a 30 ms
+// deadline once expired mid-request under pr-check's repeat pass).
 func TestPaced_TheCallersTimeEndsTheWait(t *testing.T) {
 	fastPacing(t, time.Hour, time.Hour)
 	_, client := capped(t, 1, restconftest.Options{SessionCap: 1})
@@ -132,15 +135,22 @@ func TestPaced_TheCallersTimeEndsTheWait(t *testing.T) {
 	if _, err := client.StateSchemas(context.Background()); err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { afterSessionRefusal = nil })
 	for _, within := range []string{"", "onboarding's time"} {
 		if within != "" {
 			client.WaitsWithin(within)
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+		ctx, cancel := context.WithCancel(context.Background())
+		afterSessionRefusal = func(refusals int) {
+			if refusals >= 2 {
+				cancel()
+			}
+		}
 		_, err := client.StateSchemas(ctx)
 		cancel()
+		afterSessionRefusal = nil
 		var exhausted *SessionsExhaustedError
-		if !errors.As(err, &exhausted) || !errors.Is(exhausted.Cause, context.DeadlineExceeded) || exhausted.Limit != "" || exhausted.Refusals < 2 {
+		if !errors.As(err, &exhausted) || !errors.Is(exhausted.Cause, context.Canceled) || exhausted.Limit != "" || exhausted.Refusals < 2 {
 			t.Fatalf("a cap that never frees: %v, want the wait ended by the deadline after more than one refusal", err)
 		}
 		want := "when the task's time ended"

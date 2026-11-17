@@ -160,6 +160,12 @@ func (c *Client) tooManySessions(a answer) bool {
 	return false
 }
 
+// afterSessionRefusal, when set, runs after each refusal is counted and
+// before its wait. Only this package's tests set it, so a test ends the
+// caller's context at a known point inside the wait instead of racing a
+// deadline against a request in flight; it is nil in every other build.
+var afterSessionRefusal func(refusals int)
+
 // paced sends one request through once, sending it again on ctx's pacing
 // while the server refuses it for too many sessions, and returns the answer
 // that ended it, counting on it how many times it was sent again. Every wait
@@ -179,6 +185,9 @@ func (c *Client) paced(ctx context.Context, once func() (answer, error)) (answer
 		}
 		refusals++
 		c.sessionRefusals++
+		if afterSessionRefusal != nil {
+			afterSessionRefusal(refusals)
+		}
 		exhausted := func(limit string, bound time.Duration, cause error) error {
 			c.sessionGaveUp++
 			e := &SessionsExhaustedError{Answer: c.statusError(a), Refusals: refusals, Waited: waited, Limit: limit, Bound: bound, Cause: cause, Within: c.within}
