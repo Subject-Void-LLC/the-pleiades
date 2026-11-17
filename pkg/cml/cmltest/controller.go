@@ -115,6 +115,19 @@ type Controller struct {
 	// PCAP is what /pcap/{key} answers for any capture's key; nil answers a
 	// minimal empty pcap file.
 	PCAP []byte
+	// PCAPRanges makes /pcap/{key} serve byte ranges as a file server does
+	// (Accept-Ranges, Range and If-Range, with an ETag); without it every
+	// answer is the whole file with its Content-Length.
+	PCAPRanges bool
+	// PCAPCuts is how many of the next /pcap/{key} answers are cut off a
+	// quarter of the file's length into their body (so a ranged answer
+	// resumed after one cut is cut again), as a controller resetting the stream
+	// does: over HTTP/2 the client reads RST_STREAM with INTERNAL_ERROR,
+	// over HTTP/1.1 a connection closed short of its Content-Length.
+	PCAPCuts int
+	// PCAPRequests are each /pcap/{key} request's protocol and Range header,
+	// as "HTTP/2.0 bytes=100-", in order.
+	PCAPRequests []string
 	// OnCall, when set, runs before each request is answered, with Mu held
 	// (so it changes the controller's labs directly and never locks Mu): a
 	// lab deleted or a node renamed between two of an import's calls, or a
@@ -132,8 +145,22 @@ var emptyPCAP = []byte{0xd4, 0xc3, 0xb2, 0xa1, 2, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 
 // ends.
 func New(t *testing.T, username, password string) *Controller {
 	t.Helper()
+	return start(t, username, password, false)
+}
+
+// NewHTTP2 is New serving HTTP/2, as a real controller's front end does.
+func NewHTTP2(t *testing.T, username, password string) *Controller {
+	t.Helper()
+	return start(t, username, password, true)
+}
+
+// start starts a controller over TLS, offering HTTP/2 with h2.
+func start(t *testing.T, username, password string, h2 bool) *Controller {
+	t.Helper()
 	c := &Controller{Labs: map[string]*Lab{}, Username: username, Password: password, BootPolls: 1}
-	c.Server = httptest.NewTLSServer(http.HandlerFunc(c.serve))
+	c.Server = httptest.NewUnstartedServer(http.HandlerFunc(c.serve))
+	c.EnableHTTP2 = h2
+	c.StartTLS()
 	t.Cleanup(c.Close)
 	return c
 }
@@ -210,7 +237,7 @@ func (c *Controller) serve(w http.ResponseWriter, r *http.Request) {
 		reply(w, c.labJSON(lab))
 		return
 	case strings.HasPrefix(path, "/pcap/"):
-		c.servePCAP(w, strings.TrimPrefix(path, "/pcap/"))
+		c.servePCAP(w, r, strings.TrimPrefix(path, "/pcap/"))
 		return
 	}
 	parts := strings.Split(strings.TrimPrefix(path, "/labs/"), "/")
@@ -632,22 +659,4 @@ func (c *Controller) serveLink(w http.ResponseWriter, r *http.Request, l *Link, 
 	default:
 		fail(w, http.StatusNotFound, "no such call: %s %s", r.Method, r.URL.Path)
 	}
-}
-
-// servePCAP answers a capture's file by its key.
-func (c *Controller) servePCAP(w http.ResponseWriter, key string) {
-	for _, lab := range c.Labs {
-		for _, l := range lab.Links {
-			if l.Capture != nil && l.Capture.Key == key {
-				w.Header().Set("Content-Type", "application/cap")
-				data := c.PCAP
-				if data == nil {
-					data = emptyPCAP
-				}
-				_, _ = w.Write(data)
-				return
-			}
-		}
-	}
-	fail(w, http.StatusNotFound, "no capture with key %s", key)
 }
