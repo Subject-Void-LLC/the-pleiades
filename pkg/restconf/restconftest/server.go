@@ -129,6 +129,22 @@ type Options struct {
 	// SourceOrigin, when set, is the origin modules-state's schema leaves
 	// name in place of the server's own.
 	SourceOrigin string
+	// SessionCap, when set, caps the server's sessions as IOS XE's are
+	// capped (sessions.go): each request carrying a credential opens a
+	// session of its own, whatever connection carries it, held until
+	// released, and a request arriving while SessionCap are held is answered
+	// 409 in-use "Too many sessions." and opens none.
+	SessionCap int
+	// SessionReleaseAfter releases every held session after this many
+	// refusals in a row, as their expiry would; zero holds them for good.
+	SessionReleaseAfter int
+	// SessionApplyRefused applies a write before refusing it for too many
+	// sessions, as a device that did so would: what a client resending a
+	// refused write must not take for granted never happens.
+	SessionApplyRefused bool
+	// SessionRefusalXML answers the refusal in XML to a request asking for
+	// XML first.
+	SessionRefusalXML bool
 }
 
 // Server is a RESTCONF server over TLS.
@@ -151,6 +167,12 @@ type Server struct {
 	stored map[string]resource
 	// methods are the methods requested, in order, beside paths.
 	methods []string
+	// sessions counts the sessions held under SessionCap, and refusedInARow
+	// the refusals since one was last opened or all were released.
+	sessions      int
+	refusedInARow int
+	// sessionRefusals counts the requests refused for too many sessions.
+	sessionRefusals int
 }
 
 // resource is one written resource: the document and its media type.
@@ -255,6 +277,15 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, modulesState []by
 		s.hostMetaLogins++
 		s.mu.Unlock()
 	}
+	if !s.openSession(r) {
+		s.refuseSession(w, r, path, modulesState)
+		return
+	}
+	s.route(w, r, path, modulesState)
+}
+
+// route answers one request a session was opened for.
+func (s *Server) route(w http.ResponseWriter, r *http.Request, path string, modulesState []byte) {
 	if h, ok := s.opts.Override[path]; ok {
 		h(w, r)
 		return

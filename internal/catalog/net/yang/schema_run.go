@@ -64,6 +64,13 @@ func run(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryI
 	forms, shorts := maskForms(rc)
 	files, err := gather(ctx, src, req, forms, shorts)
 	if err != nil {
+		// What the source said (a fetch that waited for the device's
+		// sessions, then failed, says how long) stands beside the failure.
+		if warnings := src.warnings(); len(warnings) > 0 {
+			if werr := sdk.RecordWarnings(rc, warnings); werr != nil {
+				err = errors.Join(err, werr)
+			}
+		}
 		return fail(fmt.Errorf("over %s: %w", alt.Name, err))
 	}
 

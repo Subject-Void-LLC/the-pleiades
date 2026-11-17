@@ -29,6 +29,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/httpapi"
@@ -84,6 +85,16 @@ type Client struct {
 	// asked for a client certificate and whether one was presented, so a
 	// refusal of it says which; nil for a client New built alone.
 	certWatch *devicetls.Watch
+	// sessionRefusals counts the answers refusing a request for too many
+	// sessions, sessionWaited the time spent waiting after them, and
+	// sessionGaveUp the requests given up on (sessions.go), which
+	// SessionWarnings reports; taskBound is the pacing's PerTask last used.
+	sessionRefusals int
+	sessionWaited   time.Duration
+	sessionGaveUp   int
+	taskBound       time.Duration
+	// within names whose time a wait runs within (WaitsWithin).
+	within string
 }
 
 // New returns a client for the RESTCONF server at base, an http or https
@@ -135,6 +146,9 @@ type answer struct {
 	mediaType string
 	body      []byte
 	location  string
+	// resent is how many times the request was sent again after the server
+	// refused it for too many sessions before this answer (sessions.go).
+	resent int
 }
 
 // get sends one authenticated GET of ref, a path on the device's origin as
@@ -173,7 +187,17 @@ func (c *Client) do(ctx context.Context, method, ref, accept, contentType string
 }
 
 // send is do, sending no credential and judging no refusal when anonymous.
+// A request the server refuses for too many sessions is sent again on the
+// package's schedule (sessions.go), each time as sendOnce sends it, so a
+// credential refused meanwhile is never sent again.
 func (c *Client) send(ctx context.Context, method, ref, accept, contentType string, body []byte, limit int64, data, anonymous bool, headers func(status int, location string) error) (answer, error) {
+	return c.paced(ctx, func() (answer, error) {
+		return c.sendOnce(ctx, method, ref, accept, contentType, body, limit, data, anonymous, headers)
+	})
+}
+
+// sendOnce sends one request as send describes, once.
+func (c *Client) sendOnce(ctx context.Context, method, ref, accept, contentType string, body []byte, limit int64, data, anonymous bool, headers func(status int, location string) error) (answer, error) {
 	if c.refusal != nil {
 		// The credential was refused once; it is not sent again.
 		return answer{}, c.refusal
@@ -295,10 +319,18 @@ func (e *RefusedError) Error() string {
 // resource again says which.
 type AnswerLostError struct {
 	Err error
+	// FirstTry is set when the answer that came is one a first try, refused
+	// for too many sessions and then sent again, having applied the write
+	// would also explain (a post answered data-exists, a delete 404): it is
+	// the first try's outcome that is not known.
+	FirstTry bool
 }
 
 // Error says the answer was lost and what is not known.
 func (e *AnswerLostError) Error() string {
+	if e.FirstTry {
+		return e.Err.Error() + ": whether the first try applied it is not known, so read the resource before writing again"
+	}
 	return e.Err.Error() + ": whether the device applied it is not known, so read the resource before writing again"
 }
 

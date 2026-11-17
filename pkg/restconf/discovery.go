@@ -103,8 +103,15 @@ func statusOf(err error) int {
 
 // isFatal reports whether err ended discovery rather than one read: anything
 // but a server's refusal of one resource or an answer that could not be
-// used.
+// used. A request the server kept refusing for too many sessions is a busy
+// device, not a refusal of the resource, so it ends discovery, though it
+// unwraps to the server's 409: recorded, it would read as a device that
+// refused its capabilities or its library.
 func isFatal(err error) bool {
+	var exhausted *SessionsExhaustedError
+	if errors.As(err, &exhausted) {
+		return true
+	}
 	var status *StatusError
 	return err != nil && !errors.As(err, &status) && !errors.Is(err, errUnusable)
 }

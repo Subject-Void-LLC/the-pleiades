@@ -48,6 +48,9 @@ type StatusError struct {
 	// Said is the server's answer as farside.Text quotes it, masked, when it
 	// held no errors container; empty when masking could not vouch for it.
 	Said string
+	// Resent is how many times the request was sent again after the server
+	// refused it for too many sessions before this answer (sessions.go).
+	Resent int
 }
 
 // Error says the status and what the server said, each field quoted, so a
@@ -87,7 +90,7 @@ func (e *StatusError) HasTag(tag string) bool {
 // when it holds none, its text as farside quotes it. A body masking refuses
 // is named as withheld, and none of it is kept.
 func statusError(a answer, mask func(string) (string, error)) *StatusError {
-	e := &StatusError{Status: a.status}
+	e := &StatusError{Status: a.status, Resent: a.resent}
 	if len(a.body) == 0 {
 		return e
 	}
