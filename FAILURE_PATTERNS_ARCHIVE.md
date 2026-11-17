@@ -31066,8 +31066,12 @@ a failed show is treated like any failed command.
 **Why 650 and 599 did not prevent it.** 599 and 650 taught `net.ios.command` which calls are reads, for a call that
 succeeds. The rollback planner never asks the per-call answer, so a read that fails is still a possible change.
 
-**Fix.** Not yet. The planner should ask the call's own read-only answer for a failed action, and a failure before any
-command was sent changed nothing.
+**Fix.** Branch `fix/rollback-reads-and-validate`: the engine asks `Descriptor.ReadsOnly` with the rendered parameters
+after a call runs, success or failure, and journals the answer (`read_only_call`, journal format 4, an ent column on the
+Walk tier); the planner's `changesNothing` counts it as no change only for a built-in method with no provider, not an
+engine action and no recorded change, and a call the read-only guard failed is journaled as not read-only. A failure
+before any command was sent is not proven from the journal (a dial error alone cannot say nothing was sent), so it is
+covered only when the call itself is read-only. `TestCLI_ARollbackBeneathFailedReadsNeedsNoDespiteRun`.
 
 **Lesson.** A read-only answer given per call must be asked by every reader that judges the call, the rollback planner as
 well as the engine, and for a failure as well as a success.
