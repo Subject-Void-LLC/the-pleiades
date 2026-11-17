@@ -38,7 +38,6 @@ func TestReadRunRefusesANewerFormatByName(t *testing.T) {
 		{name: "format 1, from before the Collection identity", line: strings.Replace(line, `"format":4,`, `"format":1,`, 1)},
 		{name: "format 2, from before the rendered rollback steps", line: strings.Replace(line, `"format":4,`, `"format":2,`, 1)},
 		{name: "format 3, from before a call's read-only answer", line: strings.Replace(line, `"format":4,`, `"format":3,`, 1)},
-		{name: "this build's format, a call that only read", line: strings.Replace(line, `"format":4,`, `"format":4,"read_only_call":true,`, 1)},
 		{name: "format 3 claiming a call that only read", line: strings.Replace(line, `"format":4,`, `"format":3,"read_only_call":true,`, 1),
 			wantErr: "is journal format 3 and records a call that only read, which format 4 added"},
 		{name: "no format claiming a call that only read", line: strings.Replace(line, `"format":4,`, `"read_only_call":true,`, 1),

@@ -51,18 +51,37 @@ func TestBuild_AFailedReadOnlyCallChangedNothing(t *testing.T) {
 	}
 }
 
-// TestBuild_AReadOnlyAnswerFromAProgramIsNotTaken: an entry naming an
-// external Collection program is never taken at its word that the call only
-// read, since the engine records no such answer for one.
+// TestBuild_AReadOnlyAnswerFromAProgramIsNotTaken: the answer that a call
+// only read is taken only where the engine writes one, a built-in this
+// build's catalog holds: never from an entry naming an external Collection
+// program, a method the catalog does not hold, an engine action, or an entry
+// that changed the device.
 func TestBuild_AReadOnlyAnswerFromAProgramIsNotTaken(t *testing.T) {
 	registerShapes(t)
 	run := createRun()
 	claimed := failedCall("run-A", "tasks[3]", 4, "rb.shell", true)
 	claimed.ProviderProgram = "acme"
-	run.Entries = append(run.Entries, claimed)
-	plan, err := rollback.Build(rollback.Request{Target: run, Devices: inventoryOf("h1")})
-	if err != nil || len(plan.Unknown) != 1 || plan.Unknown[0].Node != "tasks[3]" {
-		t.Errorf("Build = %v, unknown %+v; want the program's failed call unknown", err, plan.Unknown)
+	unknownMethod := failedCall("run-A", "tasks[4]", 5, "acme.show", true)
+	changedToo := failedCall("run-A", "tasks[5]", 6, "rb.shell", true)
+	changedToo.ActionChanged = true
+	engineAction := failedCall("run-A", "tasks[6]", 7, "ssh_exec", true)
+	run.Entries = append(run.Entries, claimed, unknownMethod, changedToo, engineAction)
+	plan, err := rollback.Build(rollback.Request{Target: run, Devices: inventoryOf("h1"), Leave: map[string]bool{"tasks[5]": true}})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	unknown := map[string]bool{}
+	for _, g := range plan.Unknown {
+		unknown[g.Node] = true
+	}
+	// A changed entry is a change (left here), never an unknown effect.
+	for _, node := range []string{"tasks[3]", "tasks[4]", "tasks[6]"} {
+		if !unknown[node] {
+			t.Errorf("%s is not an unknown effect: %+v", node, plan.Unknown)
+		}
+	}
+	if len(plan.Left) != 1 || plan.Left[0].Node != "tasks[5]" {
+		t.Errorf("left %+v, want the failed call that changed the device planned as a change", plan.Left)
 	}
 }
 

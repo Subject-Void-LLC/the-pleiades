@@ -76,19 +76,23 @@ func changesOf(run Run) (changed, unknown []engine.JournalEntry) {
 // Before, only the manifest was asked, so a show that failed (IOS refused
 // the line, or the SSH handshake never finished) counted as a change nobody
 // could vouch for, and every rollback beneath its run needed --despite-run
-// (FAILURE_PATTERNS 1269). An entry that names an external Collection
-// program is never taken at its word here: the engine records no such
-// answer for one, so an entry that claims it was not written by the engine.
+// (FAILURE_PATTERNS 1269). The answer is taken only where the engine writes
+// one, a built-in this build's catalog holds that changed nothing: never from
+// an entry naming an external Collection program, a method the catalog does
+// not hold, or an engine action, since an entry claiming it there was not
+// written by the engine.
 func changesNothing(e engine.JournalEntry) bool {
 	switch e.FQCN {
 	case "noop", "set_metadata", "pleiades.builtin.set_metadata", "ios_backup":
 		return true
 	}
-	if e.ReadOnlyCall && e.ProviderProgram == "" {
+	manifest, builtin := collection.BuiltinManifest(e.FQCN)
+	// The answer is the engine's only for a method this build's catalog
+	// holds as a built-in, run by no external program, that changed nothing.
+	if e.ReadOnlyCall && builtin && e.ProviderProgram == "" && !e.ActionChanged && !engine.IsBuiltinAction(e.FQCN) {
 		return true
 	}
-	manifest, ok := collection.BuiltinManifest(e.FQCN)
-	return ok && manifest.Reversibility.ReadOnly
+	return builtin && manifest.Reversibility.ReadOnly
 }
 
 // stepError is why one change cannot be undone, with the flag that

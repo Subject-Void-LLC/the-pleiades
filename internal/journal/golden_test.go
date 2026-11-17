@@ -51,7 +51,7 @@ func goldenEntries() []engine.JournalEntry {
 			{Key: "force", Bool: &yes},
 			{Key: "names", Texts: []string{"a", "b"}},
 		},
-		InverseSpecDigest: "sha256:" + hex64('d'), InverseComplete: true, InversePartial: true, DiffRecorded: true, ActionChanged: true, ReadOnlyCall: true,
+		InverseSpecDigest: "sha256:" + hex64('d'), InverseComplete: true, InversePartial: true, DiffRecorded: true, ActionChanged: true,
 		AuthoredRollback: true, AuthoredRollbackEmpty: true, Become: "root",
 		AuthoredSteps: []engine.AuthoredStep{
 			{Index: 1, FQCN: "file.remove", StepDigest: "sha256:" + hex64('f'), Params: []engine.InverseParam{{Key: "path", Text: &text}}, Complete: true},
@@ -77,6 +77,14 @@ func goldenEntries() []engine.JournalEntry {
 		FQCN: "file.stat", StartedAt: at(6), FinishedAt: at(7), Outcome: engine.OutcomeRan,
 		Collection: wire.CollectionIdentity{Group: "file", Version: "0.4.0", Manifests: "sha256:" + hex64('e')},
 		StatKeys:   []string{}, ParamKeys: []string{}, InverseParamKeys: []string{}, InverseParams: []engine.InverseParam{},
+	}, {
+		// A built-in's call that only read and failed during its action: a
+		// show the device refused (format 4).
+		RunID: goldenRunID, Sequence: 5, NodeID: "tasks[4]", DAGID: "golden-runbook",
+		FQCN: "net.ios.command", StartedAt: at(8), FinishedAt: at(9), Outcome: engine.OutcomeFailed, FailureStage: engine.FailureStageAction,
+		Collection: wire.CollectionIdentity{Group: "net", Version: "0.4.0", Manifests: "sha256:" + hex64('9')},
+		StatKeys:   []string{}, ParamKeys: []string{"command"}, InverseParamKeys: []string{}, InverseParams: []engine.InverseParam{},
+		ReadOnlyCall: true,
 	}}
 }
 
@@ -194,9 +202,10 @@ func formatTwoEntries() []engine.JournalEntry {
 }
 
 // formatThreeEntries is what the frozen format-3 file holds: the golden
-// entries with the read-only answer format 4 added at its zero.
+// entries format 3 had (the first four), with the read-only answer format 4
+// added at its zero.
 func formatThreeEntries() []engine.JournalEntry {
-	entries := goldenEntries()
+	entries := goldenEntries()[:4]
 	for i := range entries {
 		entries[i].ReadOnlyCall = false
 	}
