@@ -1271,8 +1271,11 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 1265. net.restconf.config resent a write refused for sessions on IOS XE's word that the refused try applied nothing, which was measured for reads only (a repeat in kind of 1251) (fixed before push)
 1266. Binding one more property (tls_first_use_fingerprint) would have changed the binding digest of every device that does not set it, so each would have been onboarded again (a repeat in kind of 1167) (fixed before push)
 1267. API tests built their routes by hand and dropped an endpoint's AlsoScopes, so the scopes the Controller enforces were never exercised (a repeat of 583) (fixed for PR 190's two routes; open in internal/api/device_facts_test.go)
-1268. On real IOS, show output lost ordinary text to masking: the `key` column header of show lacp neighbor and words in log lines naming a user's authentication (a repeat of 640) (open)
+1268. On real IOS, show output lost ordinary text to masking: the `key` column header of show lacp neighbor and words in log lines naming a user's authentication (a repeat of 640) (fixed)
 1269. Rollback counted every failed read-only net.ios.command show, even one that failed at the SSH handshake, as a run that may have changed the device, so each rollback needed --despite-run (a repeat of 650 and 599) (fixed)
+1270. net.trace dropped tracepath's asymm and back columns and called a trace no hop answered a success, so an asymmetric path, a routing loop and a filtered path all read as an ordinary result (fixed)
+1271. net.pcap.summary called any HTTP in the clear cleartext management, so a lab web server on 8080 was warned of as management traffic (fixed)
+1272. net.ios.config's check predicted a global line written after an interface's lines inside the interface, and "+vlan 50" for a VLAN an IOL switch had (fixed)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 
