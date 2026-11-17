@@ -20,11 +20,8 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
-	"strings"
 	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
@@ -104,23 +101,12 @@ func ReadRun(root, runID string) (RunJournal, error) {
 // runs from before the run counter by their first entry's time, then the
 // rest by start tick. A project with no journal directory has no runs.
 func ListRuns(root string) ([]RunJournal, error) {
-	dir := filepath.Join(root, pleiadesDirName, journalDirName)
-	if _, err := os.Lstat(dir); errors.Is(err, fs.ErrNotExist) {
-		return nil, nil
-	}
-	if err := checkJournalDir(dir); err != nil {
+	ids, err := listRunIDs(root)
+	if err != nil {
 		return nil, err
 	}
-	names, err := os.ReadDir(dir)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list %s: %w", dir, err)
-	}
 	var runs []RunJournal
-	for _, e := range names {
-		runID, ok := strings.CutSuffix(e.Name(), fileExtension)
-		if !ok {
-			continue
-		}
+	for _, runID := range ids {
 		run, err := ReadRun(root, runID)
 		if err != nil {
 			return nil, fmt.Errorf("run %s: %w", runID, err)
@@ -129,17 +115,8 @@ func ListRuns(root string) ([]RunJournal, error) {
 	}
 	// Every run that carries no tick was written before the counter existed,
 	// so before every run that does: those come first, by time, then the rest
-	// by tick. One total order, whatever the mix.
-	sort.SliceStable(runs, func(i, j int) bool {
-		a, b := startTick(runs[i]), startTick(runs[j])
-		switch {
-		case a == 0 && b == 0:
-			return firstStart(runs[i]).Before(firstStart(runs[j]))
-		case a == 0 || b == 0:
-			return a == 0
-		}
-		return a < b
-	})
+	// by tick. One total order, whatever the mix (sortRuns).
+	sortRuns(runs)
 	return runs, nil
 }
 

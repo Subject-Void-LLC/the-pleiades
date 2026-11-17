@@ -97,6 +97,12 @@ type runOptions struct {
 	// itself.
 	holdsRunLock bool
 
+	// readsWithoutRunLock, set by adhoc, lets a call that only reads
+	// (engine.OnlyReads) run without the project's run lock, so a poller of
+	// reads never refuses a rollback, nor is refused by one. A runbook run
+	// takes the lock whatever it holds.
+	readsWithoutRunLock bool
+
 	// rollback is a rollback's plan, reported with the run, and whose
 	// unaccepted unknowns make a run that otherwise completed incomplete.
 	rollback *rollbackReport
@@ -205,8 +211,12 @@ func carryOut(opts runOptions, src runSource) (*runReport, error) {
 	// excluded while any run is changing devices (internal/journal's
 	// runlock.go). A check changes nothing and writes no journal, so it
 	// takes none, and still works in a project directory this user cannot
-	// write.
-	if !checking && !opts.holdsRunLock {
+	// write. An adhoc call that only reads takes none either: it changes
+	// nothing a rollback undoes, and a rollback passes over a run still live
+	// beside it (journal.ListRunsForRollback), so a poller of reads and a
+	// rollback never refuse each other. It is still journaled.
+	lockFreeReads := opts.readsWithoutRunLock && engine.OnlyReads(dag)
+	if !checking && !opts.holdsRunLock && !lockFreeReads {
 		release, err := journal.LockRuns(opts.dir, false)
 		switch {
 		case errors.Is(err, journal.ErrRunsBusy):

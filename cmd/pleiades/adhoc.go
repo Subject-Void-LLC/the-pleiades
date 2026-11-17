@@ -91,6 +91,9 @@ func runAdhoc(args []string) error {
 	if err != nil {
 		return refuseAdhoc(opts, label, err, err)
 	}
+	// A call that only reads takes no run lock (run_pipeline.go), so adhoc
+	// pollers never stand in a rollback's way.
+	opts.readsWithoutRunLock = true
 	return runPipeline(opts, runSource{label: label, yaml: payload})
 }
 

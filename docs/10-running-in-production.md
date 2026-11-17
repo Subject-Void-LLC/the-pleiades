@@ -830,7 +830,14 @@ On the Controller, a rollback job dispatches only the devices it undoes changes 
 each with its own steps, and each device's steps run in order on that device. A job
 launched on the same devices after the rollback was planned is not detected, since
 the Controller has no lock across jobs; the CLI holds `.pleiades/run.lock` so no run
-starts while a rollback plans and runs. The job's extra variables go to the rollback
+starts while a rollback plans and runs. An `adhoc` call that only reads (a method that
+declares the call read-only for the parameters written, with no template and no loop, such as
+`net.ios.command` with a `show`) takes no lock: it runs while a rollback runs, and a rollback
+is never refused for it, so a poller of reads can watch a change being undone. A rollback
+plans past such a read still running beside it, and refuses to roll back the read itself
+until it ends. The run counter's own lock (`.pleiades/clock.lock`) is held for one tick's
+small write, never across a run; a tick that waits for it over ten seconds names the
+process holding it, its command and how long it has held it. The job's extra variables go to the rollback
 without any answer the template's survey marks as a password.
 
 ### The message bus survives a link outage of any length

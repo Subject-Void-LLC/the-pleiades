@@ -135,7 +135,7 @@ func runRollback(args []string) error {
 		opts.holdsRunLock = true
 	}
 
-	plan, err := planRollback(opts.dir, runID, rf)
+	plan, err := planRollback(opts.dir, runID, rf, opts.holdsRunLock)
 	report := &rollbackReport{Of: runID, Levels: plan.Levels, Left: plan.Left, Unknown: plan.Unknown,
 		UnacceptedUnknown: plan.UnacceptedUnknown, AlreadyUndone: plan.AlreadyUndone, NothingToUndo: plan.NothingToUndo,
 		Cleanups: plan.Cleanups, OrderedByClock: plan.OrderedByClock, Warnings: plan.Warnings}
@@ -177,18 +177,31 @@ func runRollback(args []string) error {
 
 // planRollback reads the journals and inventory of the project at dir and
 // plans runID's undo.
-func planRollback(dir, runID string, rf rollbackFlags) (rollback.Plan, error) {
+func planRollback(dir, runID string, rf rollbackFlags, exclusive bool) (rollback.Plan, error) {
 	// External Collections register first, as a run's do, so the planner
 	// knows every method a journal can name (and that a third party's undo
 	// is not one it replays).
 	if _, err := loadExternalCollections(context.Background(), dir); err != nil {
 		return rollback.Plan{}, err
 	}
+	// A run still live beside a rollback is one that takes no run lock (an
+	// adhoc call that only reads): there is nothing of it to undo yet.
+	if journal.RunLive(dir, runID) {
+		return rollback.Plan{}, fmt.Errorf("run %s is still running: roll it back once it ends", runID)
+	}
 	target, err := journal.ReadRun(dir, runID)
 	if err != nil {
 		return rollback.Plan{}, err
 	}
-	all, err := journal.ListRuns(dir)
+	// The other runs. Holding the run lock exclusive, a run still live beside
+	// the rollback is one that takes no lock, which only reads, and is passed
+	// over (journal.ListRunsForRollback); a check holds no lock, so a live
+	// run may be changing devices, and every run counts.
+	list := journal.ListRuns
+	if exclusive {
+		list = journal.ListRunsForRollback
+	}
+	all, err := list(dir)
 	if err != nil {
 		return rollback.Plan{}, fmt.Errorf("reading this project's other runs, which decide what a later run has changed since: %w", err)
 	}

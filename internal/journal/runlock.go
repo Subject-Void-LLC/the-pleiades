@@ -9,6 +9,11 @@
 // given. Neither waits: a run or rollback that cannot take the lock is
 // refused at once, saying why, rather than sitting silent behind another
 // that may take an hour.
+//
+// An adhoc call that only reads takes no lock at all (cmd/pleiades), since
+// it changes nothing a rollback undoes: a poller of reads then never refuses
+// a rollback, nor is refused by one, and the rollback passes over such a run
+// still live beside it (ListRunsForRollback).
 package journal
 
 import (
