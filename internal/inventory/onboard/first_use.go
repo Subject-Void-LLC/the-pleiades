@@ -5,8 +5,10 @@
 // onboard --tls-first-use, or the Controller's onboard route with
 // tls_first_use), and it applies only there: no run writes a pin. It records
 // only for a device whose record names nothing it trusts (no tls_fingerprint,
-// no tls_ca_pem, no pin recorded on first use before), so it never replaces a
-// pin and a changed certificate is still refused. The pin goes into
+// no tls_ca_pem, no pin recorded on first use before) and whose earlier
+// onboarding verified no other certificate (its tls_certificate_* facts), so
+// it never replaces a pin or a certificate that was trusted, and a changed
+// certificate is still refused. The pin goes into
 // tls_first_use_fingerprint, never tls_fingerprint, and every use of it says
 // nobody confirmed it until a person moves it there. It is recorded only with
 // the onboarding that proved the device through it: a probe that then fails
@@ -81,6 +83,16 @@ func probeWithFirstUse(probe probeFunc, item inventory.InventoryItem, o options)
 		return Probed{}, nil, item, fmt.Errorf("%w; a certificate is recorded on first use only for a device whose record names nothing it trusts, and this one names %s, "+
 			"which a first-use pin never replaces, so a changed certificate is still refused: check the one it presents with the device's owner, then pin it yourself", err, own)
 	}
+	// A device whose certificate an earlier onboarding verified (by the
+	// system's roots, say) and which now presents another that nothing
+	// trusts has changed its certificate, which first use never records: a
+	// machine in the middle presents exactly that.
+	if fp, key := verifiedCertificate(item); (fp != "" && fp != untrusted.Fingerprint) || (key != "" && key != untrusted.KeyFingerprint) {
+		return Probed{}, nil, item, fmt.Errorf("%w; an earlier onboarding verified this device's certificate %s (key %s), and it now presents %s (key %s), which nothing trusts: "+
+			"a changed certificate is never recorded on first use. If the change is expected, check the new certificate with the device's owner, then pin it (%s) "+
+			"or trust the authority that signed it (%s); otherwise treat it as a machine in the middle", err, fp, key, untrusted.Fingerprint, untrusted.KeyFingerprint,
+			devicetls.FingerprintProperty, devicetls.CAPEMProperty)
+	}
 	pinned, buildErr := withFirstUsePin(item, untrusted.Fingerprint)
 	if buildErr != nil {
 		return Probed{}, nil, item, fmt.Errorf("%w; and no pin can be recorded for it: %w", err, buildErr)
@@ -106,6 +118,19 @@ func ownTrust(s devicetls.Settings) string {
 		return devicetls.CAPEMProperty
 	}
 	return ""
+}
+
+// verifiedCertificate returns the fingerprint and key fingerprint of the
+// certificate item's stored discovery records an earlier onboarding verified
+// (certificateFacts), each "" when it records none.
+func verifiedCertificate(item inventory.InventoryItem) (string, string) {
+	d, ok, err := inventory.DiscoveryFrom(item.Properties())
+	if err != nil || !ok {
+		return "", ""
+	}
+	fp, _ := d.Facts[factCertificateFingerprint].(string)
+	key, _ := d.Facts[factCertificateKeyFingerprint].(string)
+	return fp, key
 }
 
 // withFirstUsePin returns item rebuilt by the factory with pin as its

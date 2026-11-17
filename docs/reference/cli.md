@@ -492,7 +492,7 @@ probe a device over its protocol and record what it proved: a generic device's c
 | --vault | `string` | - | directory whose .pleiades/ holds the credential vault (master.key, credentials.yaml, seal.key), in place of --dir's; the journal and facts stay under --dir |
 | --json | `bool` | `false` | print the result as JSON, in the same model the text shows |
 | --timeout | `duration` | `30s` | how long the probe may take |
-| --tls-first-use | `bool` | `false` | record the certificate the device presents as its pin (tls_first_use_fingerprint) when nothing in its record trusts it, the way SSH's accept-new records a host key: listed for review, warned about on every use until confirmed with confirm-tls-pin, and never in place of a pin or an authority, so a changed certificate is still refused |
+| --tls-first-use | `bool` | `false` | record the certificate the device presents as its pin (tls_first_use_fingerprint) when nothing in its record trusts it, the way SSH's accept-new records a host key: listed for review, warned about on every use until confirmed with confirm-tls-pin, and never in place of a pin, an authority or a certificate an earlier onboarding verified, so a changed certificate is still refused |
 
 `pleiades onboard edge01`
 

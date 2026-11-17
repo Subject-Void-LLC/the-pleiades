@@ -32,7 +32,7 @@ func runOnboard(args []string) error {
 	dir := fs.String("dir", ".", "project directory")
 	asJSON := fs.Bool("json", false, "print the result as JSON")
 	timeout := fs.Duration("timeout", 30*time.Second, "how long the probe may take")
-	firstUse := fs.Bool("tls-first-use", false, "record the certificate the device presents as its pin when nothing in its record trusts it, unverified until confirmed with confirm-tls-pin; never replaces a pin or an authority")
+	firstUse := fs.Bool("tls-first-use", false, "record the certificate the device presents as its pin when nothing in its record trusts it, unverified until confirmed with confirm-tls-pin; never replaces a pin, an authority or a certificate an earlier onboarding verified")
 	name, err := parseOneArg(fs, args)
 	if err != nil {
 		return fmt.Errorf("usage: pleiades onboard <name> [--json] [--timeout 30s] [--tls-first-use]: %w", err)
