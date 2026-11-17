@@ -29,6 +29,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/httpapi"
@@ -84,6 +85,11 @@ type Client struct {
 	// asked for a client certificate and whether one was presented, so a
 	// refusal of it says which; nil for a client New built alone.
 	certWatch *devicetls.Watch
+	// sessionRefusals counts the answers refusing a request for too many
+	// sessions, and sessionWaited the time spent waiting after them
+	// (sessions.go), which SessionWarnings reports.
+	sessionRefusals int
+	sessionWaited   time.Duration
 }
 
 // New returns a client for the RESTCONF server at base, an http or https
@@ -173,7 +179,17 @@ func (c *Client) do(ctx context.Context, method, ref, accept, contentType string
 }
 
 // send is do, sending no credential and judging no refusal when anonymous.
+// A request the server refuses for too many sessions is sent again on the
+// package's schedule (sessions.go), each time as sendOnce sends it, so a
+// credential refused meanwhile is never sent again.
 func (c *Client) send(ctx context.Context, method, ref, accept, contentType string, body []byte, limit int64, data, anonymous bool, headers func(status int, location string) error) (answer, error) {
+	return c.paced(ctx, func() (answer, error) {
+		return c.sendOnce(ctx, method, ref, accept, contentType, body, limit, data, anonymous, headers)
+	})
+}
+
+// sendOnce sends one request as send describes, once.
+func (c *Client) sendOnce(ctx context.Context, method, ref, accept, contentType string, body []byte, limit int64, data, anonymous bool, headers func(status int, location string) error) (answer, error) {
 	if c.refusal != nil {
 		// The credential was refused once; it is not sent again.
 		return answer{}, c.refusal
