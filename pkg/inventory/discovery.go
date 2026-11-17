@@ -25,19 +25,44 @@ import (
 // method, with a revision like any other change.
 const DiscoveredProperty = "discovered"
 
+// TLSFirstUseProperty is the property onboarding writes when, on an
+// explicit opt-in, it records the certificate a device first presented as
+// the pin it trusts (pkg/devicetls reads it, under the same key). It is
+// reserved for the same reason DiscoveredProperty is: its value is worth
+// something only because onboarding saw it, and a person's check is what
+// moves it into tls_fingerprint (record.Base.ConfirmFirstUsePin). Kept apart
+// from tls_fingerprint, it can be neither forged by another write path nor
+// mistaken for a pin a person checked, and a record that loses it loses the
+// trust with it.
+const TLSFirstUseProperty = "tls_first_use_fingerprint"
+
+// The properties a person sets to say what a device's certificate is
+// trusted by (pkg/devicetls reads them, under the same keys): a first-use pin
+// is trusted only while neither is set, so writing or removing either drops
+// one (record.Base), and it never comes back into force when a person's
+// trust is taken away later.
+const (
+	TLSPinProperty       = "tls_fingerprint"
+	TLSAuthorityProperty = "tls_ca_pem"
+)
+
 // IsReservedProperty reports whether key is written only by the platform,
-// never by a person or a sync plugin as a property: DiscoveredProperty,
-// written by onboarding, and GrantedProperty, written by a program's probe
-// or an operator's scoped assertion through their own commands.
+// never by a person or a sync plugin as a property: DiscoveredProperty and
+// TLSFirstUseProperty, written by onboarding, and GrantedProperty, written
+// by a program's probe or an operator's scoped assertion through their own
+// commands.
 func IsReservedProperty(key string) bool {
-	return key == DiscoveredProperty || key == GrantedProperty
+	return key == DiscoveredProperty || key == GrantedProperty || key == TLSFirstUseProperty
 }
 
 // ReservedPropertyWriter names, for an error message, what writes the
 // reserved property key.
 func ReservedPropertyWriter(key string) string {
-	if key == GrantedProperty {
+	switch key {
+	case GrantedProperty:
 		return "pleiades onboard (a program's probe) and pleiades grant-capability"
+	case TLSFirstUseProperty:
+		return "onboarding with --tls-first-use, and confirming its pin (pleiades confirm-tls-pin) moves it to tls_fingerprint"
 	}
 	return "onboarding"
 }
@@ -77,26 +102,57 @@ type StaleDiscoverer interface {
 	StaleDiscovery() string
 }
 
+// absenceRecorded are the keys whose absence a binding records with a
+// marker of its own: every key a device type bound before 0.4.0, when a
+// binding recorded the absence of every key it was bound to. Each stored
+// binding made then holds those markers, so keeping them keeps every one of
+// those bindings valid, byte for byte, on a build of either release. A key
+// bound since (tls_first_use_fingerprint, the first) contributes nothing while
+// it is absent, so binding a new property leaves the binding of every device
+// that does not set it as it was, and no device is onboarded again because a
+// release bound one more key.
+//
+// The set is frozen: never add to it. A key added here would change the
+// binding of every device of a type bound to it that does not set it;
+// internal/inventory's TestBinding_EveryBoundTypeKeepsItsDigest holds each
+// type's digest of a record that sets nothing to what it was.
+var absenceRecorded = map[string]bool{
+	"account_id": true, "ai_kind": true, "api_base": true, "api_server": true, "aws_region": true,
+	"base_url": true, "eks_cluster_name": true, "engine_tls": true, "gnmi_auth": true,
+	"grpc_allow_plaintext_credentials": true, "grpc_plaintext": true, "host": true,
+	"http_allow_plaintext_credentials": true, "http_auth": true, "node_engine_host": true, "port": true,
+	"snmp_allow_cleartext_community": true, "snmp_allow_legacy_algorithms": true, "snmp_port": true,
+	"snmp_version": true, "target": true, "tls_allow_deprecated_versions": true,
+	"tls_allow_legacy_ciphers": true, "tls_ca_pem": true, "tls_client_certificate": true,
+	"tls_fingerprint": true, "tls_min_version": true, "tls_server_name": true,
+}
+
 // BindingDigest returns a SHA-256 digest, "sha256:<hex>", over keys'
 // values in props. Keys are taken in sorted order, each value in the JSON
-// form Go writes (map keys sorted), and an absent key is distinct from any
-// value, so adding, removing or changing any one of them changes the
-// digest. It holds no value in the clear, which matters for a PEM or a
-// flag no less than for anything secret-looking.
+// form Go writes (map keys sorted), so adding, removing or changing the value
+// of any one of them changes the digest, and a key set to any value differs
+// from the key absent. An absent key contributes a marker of its own when its
+// absence has always been recorded (absenceRecorded), and nothing otherwise,
+// so a key bound later changes nothing for a device that does not set it. It
+// holds no value in the clear, which matters for a PEM or a flag no less than
+// for anything secret-looking.
 func BindingDigest(props Properties, keys []string) string {
 	sorted := append([]string(nil), keys...)
 	sort.Strings(sorted)
 	raw := props.Raw()
 	var b strings.Builder
 	for _, k := range sorted {
-		b.WriteString(k)
 		v, present := raw[k]
 		if !present {
-			// A NUL cannot appear in JSON text, so an absent key never
-			// collides with any present value.
-			b.WriteString("\x00absent\n")
+			if absenceRecorded[k] {
+				// A NUL cannot appear in JSON text, so an absent key never
+				// collides with any present value.
+				b.WriteString(k)
+				b.WriteString("\x00absent\n")
+			}
 			continue
 		}
+		b.WriteString(k)
 		encoded, err := json.Marshal(v)
 		if err != nil {
 			// A value JSON cannot encode is still bound, by its Go form, so

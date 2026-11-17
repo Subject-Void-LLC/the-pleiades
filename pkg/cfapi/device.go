@@ -3,6 +3,7 @@
 package cfapi
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -25,6 +26,14 @@ const requestTimeout = time.Minute
 // verified; and no redirect followed, so the token reaches the base URL's
 // origin alone. It returns what the record's TLS settings make a run say.
 func ClientFor(device any, name string, secrets map[string]string) (*Client, []string, error) {
+	return ClientForContext(context.Background(), device, name, secrets)
+}
+
+// ClientForContext is ClientFor for a client built under ctx: its TLS
+// configuration comes from devicetls.Settings.ConfigContext, and its
+// transport records the certificate each completed handshake presented on
+// the Presented ctx carries (devicetls.WithPresented), as onboarding asks.
+func ClientForContext(ctx context.Context, device any, name string, secrets map[string]string) (*Client, []string, error) {
 	dev, ok := device.(capability.CloudflareAPICapable)
 	if !ok {
 		return nil, nil, errors.New("the device is not a Cloudflare account")
@@ -38,7 +47,7 @@ func ClientFor(device any, name string, secrets map[string]string) (*Client, []s
 		return nil, nil, err
 	}
 	settings := devicetls.For(device)
-	cfg, err := settings.Config(secrets)
+	cfg, err := settings.ConfigContext(ctx, secrets)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -49,7 +58,7 @@ func ClientFor(device any, name string, secrets map[string]string) (*Client, []s
 		Base:  base,
 		Token: token,
 		HTTP: &http.Client{
-			Transport:     transport,
+			Transport:     devicetls.PresentedFrom(ctx).Transport(transport),
 			Timeout:       requestTimeout,
 			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 		},

@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/netcfg"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/restconf"
@@ -46,6 +47,9 @@ func Config(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 	if device == nil {
 		return collection.Result{}, errors.New(configFQCN + ": the task has no target device")
 	}
+	// The read's own verified handshakes say which certificate the device
+	// presented (tls.certificate.*), as net.restconf.facts records it.
+	ctx, seen := devicetls.WithPresented(ctx)
 	client, warnings, err := restconf.ClientForContext(ctx, device, device.Name(), rc.InjectSecrets())
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: device %q: %w", configFQCN, device.Name(), err)
@@ -63,6 +67,16 @@ func Config(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 	found, err := discoveryWarnings(rc, client.Verified(), d)
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", configFQCN, err)
+	}
+	if d.Learned() == nil {
+		// As net.restconf.facts records it, and only beside a discovery that
+		// learned something: a write past one that learned nothing records
+		// no fact at all.
+		certificate, err := recordCertificate(rc, device, seen)
+		if err != nil {
+			return collection.Result{}, fmt.Errorf("%s: %w", configFQCN, err)
+		}
+		found = append(found, certificate...)
 	}
 	if err := checkAgainst(req, d); err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w; nothing was sent", configFQCN, err)

@@ -55,6 +55,7 @@ func (p grpcProber) Probe(ctx context.Context, device inventory.InventoryItem, s
 	}
 	token := secrets[wire.SecretPassword]
 	settings := devicetls.For(device)
+	handshakes := &handshakeRecord{}
 	var creds credentials.TransportCredentials
 	if dev.GRPCPlaintext() {
 		if token != "" {
@@ -62,11 +63,13 @@ func (p grpcProber) Probe(ctx context.Context, device inventory.InventoryItem, s
 		}
 		creds = insecure.NewCredentials()
 	} else {
-		cfg, err := settings.Config(secrets)
+		// Built under the onboarding's context, which records the
+		// certificate the verified handshake presents.
+		cfg, err := settings.ConfigContext(ctx, secrets)
 		if err != nil {
 			return Probed{}, err
 		}
-		creds = credentials.NewTLS(cfg)
+		creds = keptHandshakes{TransportCredentials: credentials.NewTLS(cfg), record: handshakes, presented: devicetls.PresentedFrom(ctx)}
 	}
 	conn, err := grpc.NewClient("passthrough:///"+dev.GRPCTarget(),
 		grpc.WithTransportCredentials(creds),
@@ -90,6 +93,11 @@ func (p grpcProber) Probe(ctx context.Context, device inventory.InventoryItem, s
 	case status.Code(err) == codes.Unimplemented:
 		facts["health"] = "not served"
 	default:
+		// A certificate this side refused is said as one, naming its
+		// fingerprints, rather than as the status gRPC flattens it into.
+		if refused := handshakes.refusedCertificate(); refused != nil {
+			return Probed{}, refused
+		}
 		return Probed{}, fmt.Errorf("health check: %w", err)
 	}
 

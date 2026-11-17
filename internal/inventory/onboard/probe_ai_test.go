@@ -33,9 +33,16 @@ func TestAIProbe_ListsModelsWithItsOwnKey(t *testing.T) {
 	dev := build(t, ai.TypeProvider, map[string]inventory.PropertyValue{
 		ai.KindProperty: "anthropic", ai.APIBaseProperty: srv.URL, ai.ResidencyProperty: "hosted", devicetls.CAPEMProperty: caPEM(srv),
 	})
-	got, err := aiProber{}.Probe(context.Background(), dev, map[string]string{"bearer_token": "sk-test"})
+	// Under onboarding's context the probe's client records the certificate
+	// of the handshake that completed, so onboarding keeps it with the
+	// discovery.
+	ctx, seen := devicetls.WithPresented(context.Background())
+	got, err := aiProber{}.Probe(ctx, dev, map[string]string{"bearer_token": "sk-test"})
 	if err != nil {
 		t.Fatal(err)
+	}
+	if certs, _ := seen.Certificates(); len(certs) != 1 || !certs[0].Equal(srv.Certificate()) {
+		t.Errorf("the probe recorded %d certificates, want the API's own", len(certs))
 	}
 	if !slices.Equal(got.Capabilities, []capability.Name{capability.NameAIProvider}) {
 		t.Errorf("capabilities %v", got.Capabilities)

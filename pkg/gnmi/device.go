@@ -67,6 +67,9 @@ func ClientForContext(ctx context.Context, device any, name string, secrets map[
 			return nil, nil, err
 		}
 		opts.TLS = cfg
+		// What each completed handshake presented, for a caller recording it
+		// under ctx (devicetls.WithPresented).
+		opts.Presented = devicetls.PresentedFrom(ctx)
 		warnings = append(warnings, settings.Warnings(name)...)
 	}
 	client, err := New(opts)

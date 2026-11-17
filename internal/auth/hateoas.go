@@ -167,6 +167,12 @@ const (
 	// external program defines, or takes the grant back. It carries
 	// inventory:assert.
 	RelGrant LinkRel = "grant"
+
+	// RelConfirmPin is the affordance that confirms a device's pin
+	// recorded on first use, making it one a person checked. It carries
+	// inventory:assert: a person vouching for a device's identity, apart
+	// from the onboarding that recorded the pin.
+	RelConfirmPin LinkRel = "confirm_pin"
 )
 
 // Affordance is one candidate action, described purely in authorization

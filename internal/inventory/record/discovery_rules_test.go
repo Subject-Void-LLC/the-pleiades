@@ -33,6 +33,22 @@ func discovered(props map[string]inventory.PropertyValue, d inventory.Discovery)
 	return out
 }
 
+// TestBoundProperties: a bound type's properties, sorted and the caller's
+// own copy; nothing for an unbound or unknown type.
+func TestBoundProperties(t *testing.T) {
+	got := record.BoundProperties(firstUseType)
+	if !slices.Equal(got, []string{"host", "tls_fingerprint", inventory.TLSFirstUseProperty}) {
+		t.Fatalf("bound %q", got)
+	}
+	got[0] = "changed"
+	if record.BoundProperties(firstUseType)[0] != "host" {
+		t.Error("the caller's copy reached the table")
+	}
+	if record.BoundProperties(unboundType) != nil || record.BoundProperties("no_such_type") != nil {
+		t.Error("an unbound or unknown type reports bound properties")
+	}
+}
+
 // TestDiscoverable: a registered type's grants, and nothing for a type
 // onboarding grants nothing; the copy returned is the caller's own.
 func TestDiscoverable(t *testing.T) {

@@ -59,3 +59,21 @@ func TestCloudflareProbe(t *testing.T) {
 		}
 	}
 }
+
+// TestCloudflareProbe_RecordsTheCertificatePresented: the probe's client,
+// built under onboarding's context, records the certificate of the handshake
+// that completed, as every other TLS probe does, so onboarding keeps it with
+// the discovery.
+func TestCloudflareProbe_RecordsTheCertificatePresented(t *testing.T) {
+	const acct = "0123456789abcdef0123456789abcdef"
+	srv := cfapitest.New(t, acct, "tok")
+	ctx, seen := devicetls.WithPresented(context.Background())
+	if _, err := (cloudflareProber{}).Probe(ctx, build(t, cloudflare.TypeAccount, map[string]inventory.PropertyValue{
+		cloudflare.AccountIDProperty: acct, cloudflare.APIBaseProperty: srv.URL + "/client/v4", devicetls.CAPEMProperty: caPEM(srv.Server),
+	}), map[string]string{"bearer_token": "tok"}); err != nil {
+		t.Fatal(err)
+	}
+	if certs, _ := seen.Certificates(); len(certs) != 1 || !certs[0].Equal(srv.Server.Certificate()) {
+		t.Errorf("the probe recorded %d certificates, want the API's own", len(certs))
+	}
+}

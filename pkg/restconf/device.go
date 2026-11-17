@@ -59,7 +59,10 @@ func ClientForContext(ctx context.Context, device any, name string, secrets map[
 		transport.TLSClientConfig, watch = devicetls.Watched(cfg, devicetls.HTTPSAddress(base), devicetls.HTTPNextProtos...)
 	}
 	hc := &http.Client{
-		Transport:     transport,
+		// Recording what each completed handshake presented, for a caller
+		// recording it under ctx (devicetls.WithPresented); transport itself
+		// otherwise.
+		Transport:     devicetls.PresentedFrom(ctx).Transport(transport),
 		Timeout:       requestTimeout,
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}

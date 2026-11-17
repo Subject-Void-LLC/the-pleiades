@@ -1444,8 +1444,14 @@ func main() {
 		dial, _, err := engine.RouteDialerFor(ctx, repo, deviceCredentials, device)
 		return dial, err
 	})
-	devices.WithOnboarder(func(ctx context.Context, name string) (onboard.Result, error) {
-		return onboard.Onboard(ctx, repo, name, onboardSecrets, time.Now, onboardRoutes)
+	devices.WithOnboarder(func(ctx context.Context, name string, firstUse bool) (onboard.Result, error) {
+		opts := []onboard.Option{onboardRoutes}
+		if firstUse {
+			// Asked for on this one onboarding (tls_first_use=true), never by
+			// a dispatch: no Runner writes a pin.
+			opts = append(opts, onboard.WithFirstUsePins())
+		}
+		return onboard.Onboard(ctx, repo, name, onboardSecrets, time.Now, opts...)
 	})
 	// One canceller, shared by the JSON API below and the browser's own
 	// Cancel button, so the two cannot mean different things by stopping a
@@ -1610,6 +1616,7 @@ func main() {
 		apispec.UpdateDevice.Name:          devices.Update,
 		apispec.DeleteDevice.Name:          devices.Delete,
 		apispec.OnboardDevice.Name:         devices.Onboard,
+		apispec.ConfirmTLSPin.Name:         devices.ConfirmTLSPin,
 		apispec.GrantCapability.Name:       devices.GrantCapability,
 		apispec.RevokeCapability.Name:      devices.RevokeCapability,
 		apispec.ImportKubeconfig.Name:      devices.ImportKubeconfig,

@@ -103,6 +103,32 @@ func TestBindingDigest_ChangesWithEveryBoundProperty(t *testing.T) {
 	}
 }
 
+// TestBindingDigest_AKeyBoundLaterLeavesADeviceThatDoesNotSetItAlone: a key
+// added to a binding's list changes nothing for a device that does not set
+// it, so no device is onboarded again because a release bound a new
+// property; once the device sets it, it counts, absent from set and set to
+// one value from another.
+func TestBindingDigest_AKeyBoundLaterLeavesADeviceThatDoesNotSetItAlone(t *testing.T) {
+	keys := []string{"base_url", "http_auth", "tls_ca_pem", "tls_fingerprint"}
+	later := append(append([]string(nil), keys...), "tls_first_use_fingerprint")
+	for name, props := range map[string]map[string]inventory.PropertyValue{
+		"most keys absent":  {"base_url": "https://api.example.com"},
+		"every old key set": {"base_url": "https://api.example.com", "http_auth": "basic", "tls_ca_pem": "pem", "tls_fingerprint": "sha256:aa"},
+		"nothing set":       nil,
+	} {
+		if before, after := inventory.BindingDigest(inventory.NewProperties(props), keys), inventory.BindingDigest(inventory.NewProperties(props), later); before != after {
+			t.Errorf("%s: binding a key the device does not set changed its digest from %s to %s", name, before, after)
+		}
+	}
+	base := map[string]inventory.PropertyValue{"base_url": "https://api.example.com"}
+	unset := inventory.BindingDigest(inventory.NewProperties(base), later)
+	set := inventory.BindingDigest(inventory.NewProperties(map[string]inventory.PropertyValue{"base_url": "https://api.example.com", "tls_first_use_fingerprint": "sha256:aa"}), later)
+	other := inventory.BindingDigest(inventory.NewProperties(map[string]inventory.PropertyValue{"base_url": "https://api.example.com", "tls_first_use_fingerprint": "sha256:bb"}), later)
+	if set == unset || set == other {
+		t.Error("a key bound later does not count once the device sets it")
+	}
+}
+
 // TestBindingDigest_BindsAValueJSONCannotEncode: a bound value JSON refuses
 // (a NaN, an infinity) is still bound, by its Go form, so the digest is
 // stable for it, differs from the key being absent, and changes when the

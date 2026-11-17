@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/auth"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/onboard"
 )
 
@@ -17,10 +18,30 @@ import (
 // the Controller.
 const onboardTimeout = 60 * time.Second
 
-// Onboarder onboards the named device. cmd/controller binds it to the
-// device repository and the credential store (onboard.Onboard); a handler
-// without one answers 501.
-type Onboarder func(ctx context.Context, name string) (onboard.Result, error)
+// Onboarder onboards the named device, recording the certificate a TLS
+// device presents on first use when firstUse is set (the route's
+// tls_first_use=true, onboard.WithFirstUsePins). cmd/controller binds it to
+// the device repository and the credential store (onboard.Onboard); a
+// handler without one answers 501.
+type Onboarder func(ctx context.Context, name string, firstUse bool) (onboard.Result, error)
+
+// firstUseParam reads the onboard route's tls_first_use query parameter:
+// absent, true or false, given once. Anything else is refused rather than
+// read as false, since a caller who wrote it meant something.
+func firstUseParam(r *http.Request) (bool, bool) {
+	values, present := r.URL.Query()["tls_first_use"]
+	switch {
+	case !present:
+		return false, true
+	case len(values) != 1:
+		return false, false
+	case values[0] == "true":
+		return true, true
+	case values[0] == "false":
+		return false, true
+	}
+	return false, false
+}
 
 // WithOnboarder enables the onboarding route.
 func (h *DeviceHandler) WithOnboarder(o Onboarder) *DeviceHandler {
@@ -47,13 +68,32 @@ func (h *DeviceHandler) Onboard(w http.ResponseWriter, r *http.Request) {
 		RespondError(w, r, http.StatusNotImplemented, "device onboarding is not enabled")
 		return
 	}
+	firstUse, ok := firstUseParam(r)
+	if !ok {
+		RespondError(w, r, http.StatusBadRequest, "tls_first_use must be given once, as true or false")
+		return
+	}
+	// Recording on first use sends the device's stored credential, once, to
+	// whatever answers at its address with a certificate nothing checked, so
+	// it needs inventory:assert (an admin's), as confirming the pin does:
+	// inventory:onboard alone must never make the Controller trust an
+	// unchecked certificate. Ordinary onboarding needs no more than the route
+	// declares.
+	if identity, has := IdentityFromContext(r.Context()); firstUse && (!has || !identity.HasScope(auth.ScopeInventoryAssert)) {
+		RespondError(w, r, http.StatusForbidden, "tls_first_use=true needs inventory:assert: it sends the device's credential to a certificate nothing has checked")
+		return
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), onboardTimeout)
 	defer cancel()
-	res, err := h.onboarder(ctx, name)
+	res, err := h.onboarder(ctx, name, firstUse)
 
 	actor := ""
 	if id, ok := IdentityFromContext(r.Context()); ok && id != nil {
 		actor = id.Subject
+	}
+	recorded := ""
+	if res.FirstUse != nil {
+		recorded = res.FirstUse.Fingerprint
 	}
 	h.logger.InfoContext(r.Context(), "device onboarding",
 		slog.String("device", name),
@@ -62,6 +102,8 @@ func (h *DeviceHandler) Onboard(w http.ResponseWriter, r *http.Request) {
 		slog.String("from", res.PreviousState),
 		slog.String("to", res.State),
 		slog.Bool("changed", res.Changed),
+		slog.Bool("tls_first_use", firstUse),
+		slog.String("tls_first_use_pin", recorded),
 		slog.Bool("succeeded", err == nil))
 
 	switch {

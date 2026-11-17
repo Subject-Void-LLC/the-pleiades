@@ -181,10 +181,12 @@ pleiades add-host cml --type cml_controller --set api_base=https://10.10.20.161 
 pleiades add-credential cml --username developer --password-stdin < cml.pw
 ```
 
-`tls_fingerprint` is a device TLS setting any device can use: it trusts exactly the certificate with that
-SHA-256 fingerprint, whatever its issuer, dates or names, and every run against the device warns that it
-does. `import-cml --controller cml` then reads the server, its trust and its login from that device, so
-the controller's password stays in the vault.
+`tls_fingerprint` is a device TLS setting any device can use: written `sha256:` it trusts exactly the
+certificate with that SHA-256 fingerprint, whatever its issuer, dates or names, and every run against the
+device warns that it does. It also takes a key pin (`spki-sha256:`) or a short list of pins for a
+rotation ([Pinning a self-signed certificate](10-running-in-production.md#pinning-a-self-signed-certificate)).
+`import-cml --controller cml` then reads the server, its trust and its login from that device, so the
+controller's password stays in the vault.
 
 The `virt.cml` methods build and take apart labs through it, one verb each, every one with a check (a lab or node an earlier task in the same run makes is reported
 unchecked, since it is not there yet):

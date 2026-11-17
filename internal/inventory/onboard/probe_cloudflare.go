@@ -27,7 +27,7 @@ func (cloudflareProber) Probe(ctx context.Context, device inventory.InventoryIte
 	if !ok {
 		return Probed{}, errors.New("the device is not a Cloudflare account")
 	}
-	c, warnings, err := cfapi.ClientFor(device, device.Name(), secrets)
+	c, warnings, err := cfapi.ClientForContext(ctx, device, device.Name(), secrets)
 	if err != nil {
 		return Probed{}, err
 	}

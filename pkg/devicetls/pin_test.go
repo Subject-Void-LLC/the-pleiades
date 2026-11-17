@@ -99,8 +99,8 @@ func TestPin_TrustsExactlyThePinnedCertificate(t *testing.T) {
 	if pinned, err = parse(map[string]inventory.PropertyValue{devicetls.FingerprintProperty: "SHA256:" + strings.ToUpper(want[len("sha256:"):])}); err != nil {
 		t.Fatal(err)
 	}
-	if pinned.PinnedFingerprint() != want {
-		t.Errorf("the pin reads as %q, want %q", pinned.PinnedFingerprint(), want)
+	if got := pinned.Pins(); len(got) != 1 || got[0] != want {
+		t.Errorf("the pin reads as %q, want %q", got, want)
 	}
 	if err := get(t, pinned, srv); err != nil {
 		t.Errorf("the pinned certificate was refused: %v", err)

@@ -492,10 +492,29 @@ probe a device over its protocol and record what it proved: a generic device's c
 | --vault | `string` | - | directory whose .pleiades/ holds the credential vault (master.key, credentials.yaml, seal.key), in place of --dir's; the journal and facts stay under --dir |
 | --json | `bool` | `false` | print the result as JSON, in the same model the text shows |
 | --timeout | `duration` | `30s` | how long the probe may take |
+| --tls-first-use | `bool` | `false` | record the certificate the device presents as its pin (tls_first_use_fingerprint) when nothing in its record trusts it, the way SSH's accept-new records a host key: listed for review, warned about on every use until confirmed with confirm-tls-pin, and never in place of a pin, an authority or a certificate an earlier onboarding verified, so a changed certificate is still refused |
 
 `pleiades onboard edge01`
 
 `pleiades onboard api01 --json`
+
+`pleiades onboard switch01 --tls-first-use`
+
+## pleiades confirm-tls-pin
+
+confirm a pin onboarding recorded on first use, once checked with the device's owner, making it the device's tls_fingerprint
+
+`pleiades confirm-tls-pin <device> <pin> [flags]`
+
+| Flag | Type | Default | Description |
+| --- | --- | --- | --- |
+| --dir | `string` | `.` | project directory |
+| --inventory | `string` | - | inventory file to read and write, in place of --dir's inventory.yaml; group_vars/ and host_vars/ are read beside it |
+| --json | `bool` | `false` | print the result as one JSON document, in the same model the text shows |
+
+`pleiades confirm-tls-pin switch01 sha256:3a7b...`
+
+`pleiades confirm-tls-pin switch01 sha256:3a7b... --json`
 
 ## pleiades validate
 

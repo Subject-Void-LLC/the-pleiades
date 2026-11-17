@@ -35,7 +35,9 @@ func (restconfProber) Protocol() string { return "restconf" }
 // http_auth is none), is what grants RestconfCapable: a host-meta naming a
 // root is not proof of a RESTCONF server, nor of the credential.
 func (restconfProber) Probe(ctx context.Context, device inventory.InventoryItem, secrets map[string]string) (Probed, error) {
-	client, warnings, err := restconf.ClientFor(device, device.Name(), secrets)
+	// Built under the onboarding's context, which carries no key log and
+	// records the certificate the verified handshake presents.
+	client, warnings, err := restconf.ClientForContext(ctx, device, device.Name(), secrets)
 	if err != nil {
 		return Probed{}, err
 	}

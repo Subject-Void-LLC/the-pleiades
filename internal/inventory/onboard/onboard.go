@@ -15,6 +15,7 @@ import (
 	inv "github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/generic"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
@@ -99,7 +100,10 @@ type Result struct {
 	// It is never empty for a device reached over deprecated TLS, legacy
 	// ciphers or a plain-HTTP credential.
 	Warnings []string `json:"warnings"`
-	Error    string   `json:"error,omitempty"`
+	// FirstUse is the pin this onboarding recorded on first use, for a
+	// person to review before confirming it; absent when it recorded none.
+	FirstUse *FirstUsePin `json:"tls_first_use,omitempty"`
+	Error    string       `json:"error,omitempty"`
 	// Grants is what each loaded external program's probe did for the
 	// capability it probes (the command line runs them after its own
 	// probe; a Controller runs none, since it loads no program).
@@ -197,12 +201,17 @@ func onboardWith(ctx context.Context, repo inv.Repository, name string, secrets 
 	if err != nil {
 		return fail(res, fmt.Errorf("resolving the credential for %s: %w", name, err))
 	}
-	var probed Probed
-	if pp, ok := prober.(PeerProber); ok {
-		probed, err = pp.ProbeWithPeers(ctx, item, creds, repoPeers{repo: repo, secrets: secrets, route: o.route})
-	} else {
-		probed, err = prober.Probe(ctx, item, creds)
+	// The probe's own verified handshakes say which certificate a TLS
+	// device presented (devicetls.WithPresented), with no connection of
+	// onboarding's own.
+	ctx, presented := devicetls.WithPresented(ctx)
+	probe := func(target inventory.InventoryItem) (Probed, error) {
+		if pp, ok := prober.(PeerProber); ok {
+			return pp.ProbeWithPeers(ctx, target, creds, repoPeers{repo: repo, secrets: secrets, route: o.route})
+		}
+		return prober.Probe(ctx, target, creds)
 	}
+	probed, firstUse, trusted, err := probeWithFirstUse(probe, item, o)
 	if err != nil {
 		return fail(res, fmt.Errorf("%w: probing %s over %s: %w", ErrProbe, name, res.Protocol, err))
 	}
@@ -217,9 +226,15 @@ func onboardWith(ctx context.Context, repo inv.Repository, name string, secrets 
 	if next.Facts == nil {
 		next.Facts = map[string]any{}
 	}
+	res.Warnings = append(probed.Warnings, certificateFacts(name, devicetls.For(trusted), presented, now(), next.Facts)...)
+	pinChanged, warning, err := recordPinChange(item, firstUse)
+	if err != nil {
+		return fail(res, err)
+	}
 	// A type whose discovery holds only for the address it probed binds
-	// it to the properties as they are now, so repointing the device later
-	// voids it until it is onboarded again (Phase 117a, finding S2).
+	// it to the properties as they are now, the pin just recorded among
+	// them, so repointing the device later voids it until it is onboarded
+	// again (Phase 117a, finding S2).
 	if binder, ok := item.(inventory.DiscoveryBinder); ok {
 		next.Binding = binder.DiscoveryBinding()
 	}
@@ -227,13 +242,12 @@ func onboardWith(ctx context.Context, repo inv.Repository, name string, secrets 
 	if err != nil {
 		return fail(res, err)
 	}
-	res.Warnings = probed.Warnings
 	res.Capabilities = names(next.Capabilities)
 	res.Added, res.Removed = diff(prev.Capabilities, next.Capabilities)
 	res.Facts = next.Facts
 
 	same := sameDiscovery(prev, next)
-	if same && item.State() == inventory.StateActive {
+	if same && !pinChanged && item.State() == inventory.StateActive {
 		return res, nil
 	}
 	if !same {
@@ -243,22 +257,31 @@ func onboardWith(ctx context.Context, repo inv.Repository, name string, secrets 
 		}
 		writer.RecordDiscovery(next)
 	}
-	if item, err = moveTo(ctx, repo, item, inventory.StateActive); err != nil {
-		return fail(res, err)
+	// The device rebuilt by the real factory from what this onboarding wrote
+	// must hold every capability the probe proved. generic's constructors
+	// and internal/archtest make this true; checking it before anything is
+	// saved means a regression refuses the onboarding whole, rather than
+	// leaving a stored discovery or pin a failed result does not report.
+	rebuilt, err := inv.NewItemFactory().Rebuilt(item)
+	if err != nil {
+		return fail(res, fmt.Errorf("device %s cannot be rebuilt with what the probe proved: %w", name, err))
 	}
-	res.State = item.State().String()
-	res.Changed = true
-
-	// The stored device, rebuilt by the real factory, must now hold every
-	// capability the probe proved. generic's constructors and
-	// internal/archtest make this true; checking it here means a
-	// regression reports rather than leaving a device that claims less
-	// than it was told.
 	for _, c := range next.Capabilities {
-		if !item.HasCapability(c) {
-			return fail(res, fmt.Errorf("device %s was granted %s and does not hold it after saving", name, c))
+		if !rebuilt.HasCapability(c) {
+			return fail(res, fmt.Errorf("device %s was granted %s and does not hold it when rebuilt; nothing was saved", name, c))
 		}
 	}
+	if _, err = moveTo(ctx, repo, item, inventory.StateActive); err != nil {
+		return fail(res, err)
+	}
+	res.State = inventory.StateActive.String()
+	res.Changed = true
+	// Reported only once it is stored, so a failed save never lists a pin
+	// it did not record.
+	if warning != "" {
+		res.Warnings = append(res.Warnings, warning)
+	}
+	res.FirstUse = firstUse
 	return res, nil
 }
 
@@ -349,6 +372,9 @@ type Option func(*options)
 // options are an onboarding's settings.
 type options struct {
 	route RouteFunc
+	// firstUse records the certificate a device presents as its pin when
+	// nothing in its record trusts it (WithFirstUsePins).
+	firstUse bool
 }
 
 // WithRoutes lets a prober reach a device through its route of SSH hops

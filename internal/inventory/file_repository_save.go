@@ -128,7 +128,7 @@ func (r *fileRepository) Save(ctx context.Context, item inventory.InventoryItem)
 		}
 	}
 	hostProperties, held := splitReserved(item.Properties().Raw())
-	entry.Discovered, entry.Granted = held.discovered, held.granted
+	held.into(&entry)
 	// Variables folded from group_vars and host_vars at load are not this
 	// file's content: write back only what hosts.yaml itself held.
 	hostProperties = r.unfoldVars(hostProperties, hosts[hostIdx])

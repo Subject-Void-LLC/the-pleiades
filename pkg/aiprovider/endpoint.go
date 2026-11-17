@@ -3,6 +3,7 @@
 package aiprovider
 
 import (
+	"context"
 	"crypto/tls"
 	"errors"
 	"fmt"
@@ -29,6 +30,14 @@ type Provider struct {
 // name); TLS is the device's own (pkg/devicetls, always verified); and no
 // redirect is followed, so the key reaches the provider's origin alone.
 func EndpointFor(device any, name string, secrets map[string]string) (Provider, error) {
+	return EndpointForContext(context.Background(), device, name, secrets)
+}
+
+// EndpointForContext is EndpointFor for a client built under ctx: its TLS
+// configuration comes from devicetls.Settings.ConfigContext, and its
+// transport records the certificate each completed handshake presented on
+// the Presented ctx carries (devicetls.WithPresented), as onboarding asks.
+func EndpointForContext(ctx context.Context, device any, name string, secrets map[string]string) (Provider, error) {
 	dev, ok := device.(capability.AIProviderCapable)
 	if !ok {
 		return Provider{}, errors.New("the device is not a language model provider")
@@ -54,7 +63,7 @@ func EndpointFor(device any, name string, secrets map[string]string) (Provider, 
 	settings := devicetls.For(device)
 	var cfg *tls.Config
 	if base.Scheme == "https" {
-		if cfg, err = settings.Config(secrets); err != nil {
+		if cfg, err = settings.ConfigContext(ctx, secrets); err != nil {
 			return Provider{}, err
 		}
 	}
@@ -66,7 +75,7 @@ func EndpointFor(device any, name string, secrets map[string]string) (Provider, 
 	transport.TLSClientConfig = cfg
 	transport.Proxy = nil
 	client := &http.Client{
-		Transport:     transport,
+		Transport:     devicetls.PresentedFrom(ctx).Transport(transport),
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}
 	return Provider{Kind: kind, Endpoint: Endpoint{Base: base, Client: client, Key: key}, Warnings: warnings}, nil

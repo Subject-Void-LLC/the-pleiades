@@ -12,12 +12,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/restconf"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/tlsfacts"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/yangfacts"
 )
 
@@ -30,8 +33,10 @@ const (
 	factOwnModules   = "restconf.modules"
 )
 
-// factKeys are every fact a read may record, in the order they are recorded.
-var factKeys = append([]string{factRoot, factRootSource, factCapabilities, factDatastores, factOwnModules}, yangfacts.FactKeys...)
+// factKeys are every fact a read may record, in the order they are recorded:
+// RESTCONF's own, the yang.* family, and the certificate the device
+// presented (tls.certificate.*).
+var factKeys = append(append([]string{factRoot, factRootSource, factCapabilities, factDatastores, factOwnModules}, yangfacts.FactKeys...), tlsfacts.FactKeys...)
 
 // description is the method's description, word for word its catalog
 // entry's.
@@ -90,7 +95,7 @@ func factsReturns() []collection.ReturnField {
 		{Name: factCapabilities, Type: "list of string", Returned: "when the capability list was read and fits, as a stat; as a fact only when the device was reached over https", Description: "Every capability URI the device's ietf-restconf-monitoring lists (RFC 8040 section 9.1), with its parameters, sorted. Left out, with a warning, when the list could not be read or does not fit in 60 KiB, so an unread list never reads as an empty one; an entry that is not printable is left out whole."},
 		{Name: factDatastores, Type: "list of string", Returned: whenLibrary, Description: "The datastores the device's YANG library lists, sorted: an NMDA device's running, intended and operational, which RFC 8527 addresses under the root's /ds/; empty for a library that lists none, as RFC 7895's modules-state does."},
 		{Name: factOwnModules, Type: "list of string", Returned: whenLibrary, Description: yangfacts.OwnModulesDescription("RESTCONF")},
-	}, yangfacts.Returns(whenLibrary, yangfacts.RestconfSource)...)
+	}, append(yangfacts.Returns(whenLibrary, yangfacts.RestconfSource), tlsfacts.Returns()...)...)
 }
 
 // Facts implements the "net.restconf.facts" collection method: one
@@ -100,6 +105,9 @@ func Facts(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventor
 	if device == nil {
 		return collection.Result{}, errors.New(fqcn + ": the task has no target device")
 	}
+	// The read's own verified handshakes say which certificate the device
+	// presented (tls.certificate.*).
+	ctx, seen := devicetls.WithPresented(ctx)
 	client, warnings, err := restconf.ClientForContext(ctx, device, device.Name(), rc.InjectSecrets())
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: device %q: %w", fqcn, device.Name(), err)
@@ -123,7 +131,11 @@ func Facts(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventor
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
-	if len(found) > 0 {
+	certificate, err := recordCertificate(rc, device, seen)
+	if err != nil {
+		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+	}
+	if found = append(found, certificate...); len(found) > 0 {
 		// The stat holds one list, so the record's own warnings are kept
 		// beside what the read found.
 		if err := sdk.RecordWarnings(rc, append(append([]string(nil), warnings...), found...)); err != nil {
@@ -131,6 +143,14 @@ func Facts(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventor
 		}
 	}
 	return collection.Result{Changed: false}, nil
+}
+
+// recordCertificate records the certificate device presented on a read's
+// verified handshakes (seen) as the tls.certificate.* facts, returning the
+// warnings it calls for. net.restconf.facts and net.restconf.config both
+// record through it.
+func recordCertificate(rc sdk.RunbookContext, device inventory.InventoryItem, seen *devicetls.Presented) ([]string, error) {
+	return tlsfacts.Record(rc, device.Name(), devicetls.For(device), seen, time.Now())
 }
 
 // recordDiscovery records what d learned as stats, and as facts only when

@@ -14,6 +14,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/clidialog"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/iosparse"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/tlsfacts"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/yangfacts"
 )
 
@@ -553,5 +554,5 @@ func restconfFactsReturns() []collection.ReturnField {
 		{Name: "restconf.capabilities", Type: "list of string", Returned: "when the capability list was read and fits, as a stat; as a fact only when the device was reached over https", Description: "Every capability URI the device's ietf-restconf-monitoring lists (RFC 8040 section 9.1), with its parameters, sorted. Left out, with a warning, when the list could not be read or does not fit in 60 KiB, so an unread list never reads as an empty one; an entry that is not printable is left out whole."},
 		{Name: "restconf.datastores", Type: "list of string", Returned: whenLibrary, Description: "The datastores the device's YANG library lists, sorted: an NMDA device's running, intended and operational, which RFC 8527 addresses under the root's /ds/; empty for a library that lists none, as RFC 7895's modules-state does."},
 		{Name: "restconf.modules", Type: "list of string", Returned: whenLibrary, Description: yangfacts.OwnModulesDescription("RESTCONF")},
-	}, yangfacts.Returns(whenLibrary, yangfacts.RestconfSource)...)
+	}, append(yangfacts.Returns(whenLibrary, yangfacts.RestconfSource), tlsfacts.Returns()...)...)
 }

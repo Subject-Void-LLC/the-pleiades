@@ -31,7 +31,7 @@ func (aiProber) Probe(ctx context.Context, device inventory.InventoryItem, secre
 	if _, ok := device.(capability.AIProviderCapable); !ok {
 		return Probed{}, errors.New("the device is not a language model provider")
 	}
-	p, err := aiprovider.EndpointFor(device, device.Name(), secrets)
+	p, err := aiprovider.EndpointForContext(ctx, device, device.Name(), secrets)
 	if err != nil {
 		return Probed{}, err
 	}

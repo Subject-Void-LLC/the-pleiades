@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/gnmi"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/netcfg"
@@ -53,6 +54,9 @@ func Config(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 	if device == nil {
 		return collection.Result{}, errors.New(configFQCN + ": the task has no target device")
 	}
+	// The read's own verified handshake says which certificate the device
+	// presented (tls.certificate.*), as net.gnmi.facts records it.
+	ctx, seen := devicetls.WithPresented(ctx)
 	client, warnings, err := gnmi.ClientForContext(ctx, device, device.Name(), rc.InjectSecrets())
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: device %q: %w", configFQCN, device.Name(), err)
@@ -74,7 +78,7 @@ func Config(ctx context.Context, rc sdk.RunbookContext, device inventory.Invento
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: device %q: %w; nothing was written", configFQCN, device.Name(), err)
 	}
-	found, err := recordCapabilities(rc, client.Verified(), caps)
+	found, err := recordRead(rc, device, client.Verified(), caps, seen)
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", configFQCN, err)
 	}

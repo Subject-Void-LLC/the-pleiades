@@ -32,9 +32,10 @@ func runOnboard(args []string) error {
 	dir := fs.String("dir", ".", "project directory")
 	asJSON := fs.Bool("json", false, "print the result as JSON")
 	timeout := fs.Duration("timeout", 30*time.Second, "how long the probe may take")
+	firstUse := fs.Bool("tls-first-use", false, "record the certificate the device presents as its pin when nothing in its record trusts it, unverified until confirmed with confirm-tls-pin; never replaces a pin, an authority or a certificate an earlier onboarding verified")
 	name, err := parseOneArg(fs, args)
 	if err != nil {
-		return fmt.Errorf("usage: pleiades onboard <name> [--json] [--timeout 30s]: %w", err)
+		return fmt.Errorf("usage: pleiades onboard <name> [--json] [--timeout 30s] [--tls-first-use]: %w", err)
 	}
 	if *timeout <= 0 {
 		return errors.New("--timeout must be positive")
@@ -56,7 +57,12 @@ func runOnboard(args []string) error {
 	// machine's own engine socket, which run allowed for every command
 	// (containerengine.AllowLocalCarrier): the process that onboards here is
 	// the process that runs this project's tasks.
-	res, onboardErr := onboard.Onboard(ctx, repo, name, secrets, time.Now, routes)
+	opts := []onboard.Option{routes}
+	if *firstUse {
+		// Asked for on this one onboarding, and never by a run.
+		opts = append(opts, onboard.WithFirstUsePins())
+	}
+	res, onboardErr := onboard.Onboard(ctx, repo, name, secrets, time.Now, opts...)
 	// Then each loaded program's probe, whatever the device's own probe
 	// found (a program may reach it another way, an API rather than SSH):
 	// what a program defines is proved by that program. A failed probe of
@@ -105,6 +111,12 @@ func printOnboard(w io.Writer, res onboard.Result) {
 	if res.Error != "" {
 		fmt.Fprintf(w, "  failed: %s\n", termsafe.EscapeLine(res.Error))
 		return
+	}
+	if p := res.FirstUse; p != nil {
+		// Listed whole, so the person reviewing it has both of its forms and
+		// the names to check with the device's owner before confirming it.
+		fmt.Fprintf(w, "  pinned on first use, unconfirmed: %s\n    key: %s\n    subject: %s\n    issuer: %s\n    valid until: %s\n    untrusted because: %s\n    confirm once checked: pleiades confirm-tls-pin %s %s\n",
+			p.Fingerprint, p.KeyFingerprint, termsafe.EscapeLine(p.Subject), termsafe.EscapeLine(p.Issuer), p.NotAfter, termsafe.EscapeLine(p.Untrusted), termsafe.EscapeLine(res.Device), p.Fingerprint)
 	}
 	fmt.Fprintf(w, "  capabilities: %s\n", joinOrNone(res.Capabilities))
 	if len(res.Added)+len(res.Removed) > 0 {

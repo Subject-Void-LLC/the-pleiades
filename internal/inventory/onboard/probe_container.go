@@ -61,11 +61,13 @@ func (containerProber) Probe(ctx context.Context, device inventory.InventoryItem
 		found, user, tried = f, login.user, notes
 	}
 	if tlsAddr != "" {
-		cfg, err := devicetls.For(device).Config(secrets)
+		// Built under the onboarding's context, which records the
+		// certificate the verified handshake presents.
+		cfg, err := devicetls.For(device).ConfigContext(ctx, secrets)
 		if err != nil {
 			return Probed{}, fmt.Errorf("the device's TLS settings: %w", err)
 		}
-		e, err := probeTLSEngine(ctx, tlsAddr, containerengine.TLS(tlsAddr, cfg))
+		e, err := probeTLSEngine(ctx, tlsAddr, recordingDial(containerengine.TLS(tlsAddr, cfg), devicetls.PresentedFrom(ctx)))
 		if err != nil {
 			tried = append(tried, err.Error())
 		} else if found, err = withTLS(found, e); err != nil {

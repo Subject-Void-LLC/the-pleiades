@@ -7,6 +7,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/forge/collectionscaffold"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/tlsfacts"
 )
 
 // gnmiCollections are the gNMI methods.
@@ -22,7 +23,7 @@ var gnmiCollections = []collectionscaffold.Config{
 		Doc: collection.Doc{
 			Summary:     "Records what a device's gNMI server says about itself: its gNMI version, encodings and models.",
 			Description: "Asks the device's gNMI server its Capabilities (gNMI specification section 3.2) and records what it says, changing nothing: the gNMI version, the encodings it answers in and the models it implements, in the gnmi.* family, beside the protocol-neutral yang.* facts net.netconf.facts and net.restconf.facts record from a YANG library. gNMI's Capabilities is not a YANG library (no namespace, and a model's own version in place of a revision when it is no date), so yang.completeness is always partial and no yang.modules_digest is recorded; gnmi.models_digest is the model list's own. The device is reached at its own target with its own TLS (always verified, a pinned certificate included, mutual TLS from the stored certificate) and its own stored credential, as the gNMI specification's username and password metadata, a bearer token, or none; a refused login is not sent again within the task. A device reached over plaintext gRPC (grpc_plaintext) records its findings as stats only, never as facts, since nothing proves which server answered, and every run says so. Reports no change, and a check runs it for real.",
-			Returns: []collection.ReturnField{
+			Returns: append([]collection.ReturnField{
 				{Name: "gnmi.version", Type: "string", Returned: "on every read, as a stat; as a fact only when the device was reached over TLS", Description: "The gNMI version the server says it implements, such as 0.7.0; empty when it names none."},
 				{Name: "gnmi.encodings", Type: "list of string", Returned: "on every read, as a stat; as a fact only when the device was reached over TLS", Description: "The encodings the server says it answers in, by gNMI's names lowercased (json, bytes, proto, ascii, json_ietf), in gNMI's own order. A server that answers PROTO alone (Stratum, measured 2026-11-15) refuses a Get in JSON."},
 				{Name: "gnmi.models", Type: "list of string", Returned: "on every read, as a stat; as a fact only when the device was reached over TLS, when the list fits in 60 KiB", Description: "Every model the server lists, each name@version (name alone for a model with no version), as the server wrote them, sorted; an entry that is not printable or is too long is left out, with a warning."},
@@ -31,7 +32,7 @@ var gnmiCollections = []collectionscaffold.Config{
 				{Name: "yang.modules", Type: "list of string", Returned: "on every read, as a stat; as a fact only when the device was reached over TLS, when the list fits in 60 KiB", Description: "Every YANG module the device's gNMI Capabilities lists a model for, each name@revision, or name alone where the model's version is not a revision date (an OpenConfig model's semantic version, such as 2.4.1, is not one), sorted. A model named by a URN ending in :module is read as that module. gNMI's Capabilities is not a YANG library, so this list is never complete: yang.completeness is always partial. The same key net.netconf.facts and net.restconf.facts record from the device's YANG library."},
 				{Name: "yang.module_count", Type: "int", Returned: "on every read, as a stat; as a fact only when the device was reached over TLS", Description: "How many modules yang.modules lists."},
 				{Name: "yang.completeness", Type: "string", Returned: "on every read, as a stat; as a fact only when the device was reached over TLS", Description: "Always partial for a gNMI read: Capabilities lists the models a server chose to name, with no namespace and nothing in the protocol making it every module the device implements, so a module it does not list may still be served. A read over NETCONF or RESTCONF, from the YANG library, is what can say complete."},
-			},
+			}, tlsfacts.Returns()...),
 			Examples: []collection.Example{
 				{Name: "Read what a device offers over gNMI", RunbookYAML: "- name: Discover the device's gNMI models\n  net.gnmi.facts:\n  register: discovered\n"},
 			},
@@ -57,7 +58,7 @@ var gnmiCollections = []collectionscaffold.Config{
 				{Name: "backup", Type: "bool", Default: "false", Description: "Record every path as it was before the Set under the backup stat, masked as every recorded value is: null for a path that was not there. A value masking cannot vouch for fails the task before anything is written."},
 				{Name: "gnmi_target", Type: "string", Description: "The target every read and the Set name in their request prefix (gNMI's Path.target), for a server that serves more than one data tree and refuses a request naming none: SONiC answers UNIMPLEMENTED \"Empty target data not supported\", and names its OpenConfig tree OC-YANG. It overrides the device's own gnmi_target property for this task; without either, no target is sent. A plain identifier (letters, digits, _, . and -), never a path. An empty value sends no target, even when the device names one. A recorded undo names the target the write used, an empty one for none, so a rollback addresses the tree the write did whatever the device's gnmi_target says by then. A Runner older than this parameter's release drops the device's gnmi_target and sends no target."},
 			},
-			Returns: []collection.ReturnField{
+			Returns: append([]collection.ReturnField{
 				{Name: "backup", Type: "dict", Returned: "when backup is true", Description: "Each path the task names, as gNMI writes it, mapped to its value as the device answered it before the Set (each node under it by its full path), masked by value (the device's credential and every named secret a value resolved) and by shape (every secret-named leaf and crypt-shaped value); null for a path that was not there. net.gnmi.config refuses a value holding a placeholder, so this cannot be written back as it is."},
 				{Name: "gnmi.version", Type: "string", Returned: "on every read, as a stat; as a fact only when the device was reached over TLS", Description: "The gNMI version the server says it implements, such as 0.7.0; empty when it names none."},
 				{Name: "gnmi.encodings", Type: "list of string", Returned: "on every read, as a stat; as a fact only when the device was reached over TLS", Description: "The encodings the server says it answers in, by gNMI's names lowercased (json, bytes, proto, ascii, json_ietf), in gNMI's own order. A server that answers PROTO alone (Stratum, measured 2026-11-15) refuses a Get in JSON."},
@@ -67,7 +68,7 @@ var gnmiCollections = []collectionscaffold.Config{
 				{Name: "yang.modules", Type: "list of string", Returned: "on every read, as a stat; as a fact only when the device was reached over TLS, when the list fits in 60 KiB", Description: "Every YANG module the device's gNMI Capabilities lists a model for, each name@revision, or name alone where the model's version is not a revision date (an OpenConfig model's semantic version, such as 2.4.1, is not one), sorted. A model named by a URN ending in :module is read as that module. gNMI's Capabilities is not a YANG library, so this list is never complete: yang.completeness is always partial. The same key net.netconf.facts and net.restconf.facts record from the device's YANG library."},
 				{Name: "yang.module_count", Type: "int", Returned: "on every read, as a stat; as a fact only when the device was reached over TLS", Description: "How many modules yang.modules lists."},
 				{Name: "yang.completeness", Type: "string", Returned: "on every read, as a stat; as a fact only when the device was reached over TLS", Description: "Always partial for a gNMI read: Capabilities lists the models a server chose to name, with no namespace and nothing in the protocol making it every module the device implements, so a module it does not list may still be served. A read over NETCONF or RESTCONF, from the YANG library, is what can say complete."},
-			},
+			}, tlsfacts.Returns()...),
 			Examples: []collection.Example{
 				{Name: "Describe and enable a loopback", RunbookYAML: "- name: Describe and enable lo0\n  net.gnmi.config:\n    update:\n      - path: /interface[name=lo0]\n        val:\n          admin-state: enable\n          description: managed by The Pleiades\n"},
 				{Name: "Remove a network instance", RunbookYAML: "- name: Remove the lab VRF\n  net.gnmi.config:\n    delete:\n      - /network-instance[name=lab]\n"},

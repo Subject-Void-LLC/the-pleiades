@@ -52,6 +52,7 @@ var commands = map[string]commandFunc{
 	"import-gns3":                runImportGNS3,
 	"import-kubeconfig":          runImportKubeconfig,
 	"onboard":                    runOnboard,
+	"confirm-tls-pin":            runConfirmTLSPin,
 	"trust-host":                 runTrustHost,
 	"validate":                   runValidate,
 	"run":                        runRunbook,

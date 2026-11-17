@@ -5,12 +5,15 @@ package native
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/generic"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/external"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
@@ -60,6 +63,57 @@ func TestDispatchedDevice_RebuildsTheRealType(t *testing.T) {
 	}
 	if wd := linuxItem.(capability.CommandExecCapable).WorkingDirectory(); wd != "/srv/app" {
 		t.Errorf("working directory %q", wd)
+	}
+}
+
+// TestDispatchedDevice_CarriesTheFirstUsePinAndItsWarning: a device
+// trusting a pin onboarding recorded on first use is dispatched with it
+// (record.Dispatched, the Controller's own selection), and the Runner's
+// rebuild, after the payload's JSON round trip, trusts the same pin, says on
+// every run that nobody confirmed it, and keeps the discovery bound to it. A
+// dispatch that lost the pin is refused trust rather than treated as
+// verified: no pin, and no discovered capability.
+func TestDispatchedDevice_CarriesTheFirstUsePinAndItsWarning(t *testing.T) {
+	pin := "sha256:" + strings.Repeat("ab", 32)
+	props := map[string]inventory.PropertyValue{generic.BaseURLProperty: "https://10.0.0.9", generic.HTTPAuthProperty: "bearer", devicetls.FirstUseProperty: pin}
+	found := inventory.Discovery{Protocol: "http", Capabilities: []capability.Name{capability.NameHTTPAPI}}
+	found.Binding = generic.Binding(generic.TypeHTTP, inventory.NewProperties(props))
+	props[inventory.DiscoveredProperty] = found.Property()
+	stored, err := generic.NewHTTP(record.Record{ID: "d1", Name: "api1", Type: generic.TypeHTTP, Properties: props})
+	if err != nil {
+		t.Fatal(err)
+	}
+	typ, dispatched := record.Dispatched(stored)
+	if dispatched[devicetls.FirstUseProperty] != pin {
+		t.Fatalf("the dispatch carries %v, want the first-use pin", dispatched[devicetls.FirstUseProperty])
+	}
+	raw, err := json.Marshal(wire.DispatchPayload{JobID: "j1", DeviceID: "d1", DeviceName: "api1", DeviceHost: "10.0.0.9", DeviceType: typ, DeviceProperties: dispatched})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload wire.DispatchPayload
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		t.Fatal(err)
+	}
+	item, err := dispatchedDevice(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := devicetls.For(item)
+	if s.FirstUsePin() != pin || !item.HasCapability(capability.NameHTTPAPI) {
+		t.Errorf("rebuilt: first use %q, HTTPAPI %v", s.FirstUsePin(), item.HasCapability(capability.NameHTTPAPI))
+	}
+	if w := s.Warnings("api1"); len(w) != 1 || !strings.Contains(w[0], "no person has confirmed") {
+		t.Errorf("the Runner's warnings %q do not say the pin is unconfirmed", w)
+	}
+
+	delete(payload.DeviceProperties, devicetls.FirstUseProperty)
+	lost, err := dispatchedDevice(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if devicetls.For(lost).Pins() != nil || lost.HasCapability(capability.NameHTTPAPI) {
+		t.Error("a dispatch without the first-use pin was trusted as if it held one, or kept its discovery")
 	}
 }
 
