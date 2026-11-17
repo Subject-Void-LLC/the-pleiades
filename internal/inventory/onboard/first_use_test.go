@@ -53,7 +53,7 @@ func deviceCert(t *testing.T, notAfter time.Time) (tls.Certificate, *x509.Certif
 		SerialNumber: big.NewInt(time.Now().UnixNano()),
 		Subject:      pkix.Name{CommonName: "device.lab.invalid", Organization: []string{"Brownfield"}},
 		IPAddresses:  []net.IP{net.ParseIP("127.0.0.1")},
-		NotBefore:    time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
+		NotBefore:    time.Now().Add(-24 * time.Hour),
 		NotAfter:     notAfter,
 		KeyUsage:     x509.KeyUsageDigitalSignature,
 		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
@@ -68,6 +68,10 @@ func deviceCert(t *testing.T, notAfter time.Time) (tls.Certificate, *x509.Certif
 	}
 	return tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key}, cert
 }
+
+// farOff is a last day a year from now, so no certificate here ever expires
+// under a test or draws the warning one near its last day draws.
+func farOff() time.Time { return time.Now().Add(365 * 24 * time.Hour) }
 
 // swappable is an HTTPS API on loopback whose certificate a test changes
 // between onboardings, as a device does when it issues a new one, and which
@@ -139,8 +143,8 @@ func stored(t *testing.T, repo inv.Repository, name, key string) string {
 // certificate refused under it, a person's confirmation, to a pin a person
 // checked that a changed certificate is refused under too.
 func TestOnboard_FirstUseRecordsConfirmsAndThenVerifies(t *testing.T) {
-	first, firstCert := deviceCert(t, time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC))
-	other, otherCert := deviceCert(t, time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC))
+	first, firstCert := deviceCert(t, farOff())
+	other, otherCert := deviceCert(t, farOff())
 	srv := newSwappable(t, first)
 	repo, _ := newRepo(t, "api1", generic.TypeHTTP, map[string]inventory.PropertyValue{generic.BaseURLProperty: srv.URL, generic.HTTPAuthProperty: httpapi.AuthBasic})
 	pin := devicetls.Fingerprint(firstCert)
@@ -162,7 +166,7 @@ func TestOnboard_FirstUseRecordsConfirmsAndThenVerifies(t *testing.T) {
 		t.Fatal(err)
 	}
 	if res.State != "active" || res.FirstUse == nil || res.FirstUse.Fingerprint != pin || res.FirstUse.KeyFingerprint != devicetls.KeyFingerprint(firstCert) ||
-		!strings.Contains(res.FirstUse.Subject, "device.lab.invalid") || res.FirstUse.NotAfter != "2030-01-01" || !strings.Contains(res.FirstUse.Untrusted, "unknown authority") {
+		!strings.Contains(res.FirstUse.Subject, "device.lab.invalid") || res.FirstUse.NotAfter != firstCert.NotAfter.UTC().Format("2006-01-02") || !strings.Contains(res.FirstUse.Untrusted, "unknown authority") {
 		t.Fatalf("result %+v, first use %+v", res, res.FirstUse)
 	}
 	if !hasWarning(res.Warnings, "recorded the certificate it presented as its pin on first use") || !hasWarning(res.Warnings, "no person has confirmed") {
@@ -171,7 +175,7 @@ func TestOnboard_FirstUseRecordsConfirmsAndThenVerifies(t *testing.T) {
 	if got := stored(t, repo, "api1", inventory.TLSFirstUseProperty); got != pin || stored(t, repo, "api1", devicetls.FingerprintProperty) != "" {
 		t.Errorf("recorded first use %q, tls_fingerprint %q; want the pin as first use alone", got, stored(t, repo, "api1", devicetls.FingerprintProperty))
 	}
-	if res.Facts[factCertificateFingerprint] != pin || res.Facts[factCertificateKeyFingerprint] != devicetls.KeyFingerprint(firstCert) || res.Facts[factCertificateNotAfter] != "2030-01-01T00:00:00Z" {
+	if res.Facts[factCertificateFingerprint] != pin || res.Facts[factCertificateKeyFingerprint] != devicetls.KeyFingerprint(firstCert) || res.Facts[factCertificateNotAfter] != firstCert.NotAfter.UTC().Format(time.RFC3339) {
 		t.Errorf("certificate facts %v", res.Facts)
 	}
 
@@ -221,7 +225,7 @@ func TestOnboard_FirstUseRecordsConfirmsAndThenVerifies(t *testing.T) {
 // an authority that did not sign the certificate presented is refused with
 // --tls-first-use too, and nothing is recorded.
 func TestOnboard_FirstUseNeverReplacesAnAuthority(t *testing.T) {
-	cert, _ := deviceCert(t, time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC))
+	cert, _ := deviceCert(t, farOff())
 	srv := newSwappable(t, cert)
 	unrelated := apiServer(t)
 	repo, _ := newRepo(t, "api1", generic.TypeHTTP, map[string]inventory.PropertyValue{
@@ -241,7 +245,7 @@ func TestOnboard_FirstUseNeverReplacesAnAuthority(t *testing.T) {
 // is trusted for the second probe, the API refuses the credential, and no
 // pin is recorded, since onboarding proved nothing through it.
 func TestOnboard_FirstUseRecordsNothingWhenTheProbeThenFails(t *testing.T) {
-	cert, _ := deviceCert(t, time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC))
+	cert, _ := deviceCert(t, farOff())
 	srv := newSwappable(t, cert)
 	repo, _ := newRepo(t, "api1", generic.TypeHTTP, map[string]inventory.PropertyValue{generic.BaseURLProperty: srv.URL, generic.HTTPAuthProperty: httpapi.AuthBasic})
 	res, err := onboardOnce(repo, "api1", map[string]string{"username": "api", "password": "wrong"}, true)
@@ -257,7 +261,7 @@ func TestOnboard_FirstUseRecordsNothingWhenTheProbeThenFails(t *testing.T) {
 // certificate by hand beside a first-use pin overrides it, and the next
 // onboarding removes it and says so.
 func TestOnboard_RemovesAFirstUsePinTheRecordOverrides(t *testing.T) {
-	cert, parsed := deviceCert(t, time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC))
+	cert, parsed := deviceCert(t, farOff())
 	srv := newSwappable(t, cert)
 	repo, _ := newRepo(t, "api1", generic.TypeHTTP, map[string]inventory.PropertyValue{
 		generic.BaseURLProperty: srv.URL, generic.HTTPAuthProperty: httpapi.AuthBasic, devicetls.FingerprintProperty: devicetls.KeyFingerprint(parsed),
@@ -281,21 +285,23 @@ func TestOnboard_RemovesAFirstUsePinTheRecordOverrides(t *testing.T) {
 // certificate is recorded, its expiry is warned about in a pin's words, and
 // the list's other pin is named as one to retire.
 func TestOnboard_RecordsTheCertificateAndWarnsBeforeItExpires(t *testing.T) {
-	cert, parsed := deviceCert(t, fixedNow().Add(10*24*time.Hour))
+	// Ten days and an hour from now, on the real clock onboarding reads, so
+	// it is ten whole days off when the probe runs.
+	cert, parsed := deviceCert(t, time.Now().Add(10*24*time.Hour+time.Hour))
 	srv := newSwappable(t, cert)
 	retired := "sha256:" + strings.Repeat("cd", 32)
 	repo, _ := newRepo(t, "api1", generic.TypeHTTP, map[string]inventory.PropertyValue{
 		generic.BaseURLProperty: srv.URL, generic.HTTPAuthProperty: httpapi.AuthBasic,
 		devicetls.FingerprintProperty: []any{retired, devicetls.Fingerprint(parsed)},
 	})
-	res, err := onboardOnce(repo, "api1", apiLogin, false)
+	res, err := onboardWith(context.Background(), repo, "api1", staticSecrets(apiLogin), time.Now, Lookup, options{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if res.Facts[factCertificateFingerprint] != devicetls.Fingerprint(parsed) || res.Facts[factCertificateSubject] == "" || res.Facts[factCertificateIssuer] == "" {
 		t.Errorf("facts %v", res.Facts)
 	}
-	if !hasWarning(res.Warnings, "expires on "+parsed.NotAfter.Format("2006-01-02")+", in 10 days") || !hasWarning(res.Warnings, "pin "+retired+" does not match") {
+	if !hasWarning(res.Warnings, "expires on "+parsed.NotAfter.UTC().Format("2006-01-02")+", in 10 days") || !hasWarning(res.Warnings, "pin "+retired+" does not match") {
 		t.Errorf("warnings %q, want the expiry and the pin to retire", res.Warnings)
 	}
 }
@@ -303,8 +309,8 @@ func TestOnboard_RecordsTheCertificateAndWarnsBeforeItExpires(t *testing.T) {
 // TestCertificateFacts_MoreThanOneCertificateRecordsNone: two certificates
 // seen at one address record no certificate fact, and say why.
 func TestCertificateFacts_MoreThanOneCertificateRecordsNone(t *testing.T) {
-	a, aCert := deviceCert(t, time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC))
-	b, bCert := deviceCert(t, time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC))
+	a, aCert := deviceCert(t, farOff())
+	b, bCert := deviceCert(t, farOff())
 	srv := newSwappable(t, a)
 	settings, err := devicetls.Parse(inventory.NewProperties(map[string]inventory.PropertyValue{devicetls.FingerprintProperty: []any{devicetls.Fingerprint(aCert), devicetls.Fingerprint(bCert)}}))
 	if err != nil {
@@ -359,7 +365,7 @@ func TestWithFirstUsePin_RefusesATypeThatTakesNoPin(t *testing.T) {
 // status, so onboarding records it on first use there too, and its facts;
 // a handshake that failed for another reason is no certificate refusal.
 func TestOnboard_FirstUseOverGRPC(t *testing.T) {
-	cert, leaf := deviceCert(t, time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC))
+	cert, leaf := deviceCert(t, farOff())
 	srv := grpc.NewServer(grpc.Creds(credentials.NewTLS(&tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12})))
 	healthpb.RegisterHealthServer(srv, health.NewServer())
 	addr := grpcServer(t, srv)
