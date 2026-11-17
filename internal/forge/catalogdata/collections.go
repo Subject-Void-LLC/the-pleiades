@@ -28,6 +28,7 @@ var Collections = concatCollections(
 	filesCollections,
 	networkCollections,
 	gnmiCollections,
+	yangCollections,
 	extendedCollections,
 	gatingCollections,
 	gateCollections,

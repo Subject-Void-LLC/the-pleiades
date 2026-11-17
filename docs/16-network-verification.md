@@ -323,6 +323,49 @@ out of `yang.modules`, `yang.module_count` and `yang.modules_digest` and recorde
 with those left out both protocols record 556 data models and one digest, so reading the device over the other protocol
 is not drift.
 
+### Reading the device's own schema
+
+A configuration task over NETCONF or RESTCONF is written against the device's YANG models, and the path that works is
+the one the device's own module says. `net.yang.schema` fetches a module's source from the device and saves it into the
+project, so an author or an agent reads the real schema rather than guessing:
+
+```yaml
+# What this does: saves the YANG source of three of P1's models into the project.
+# Blast radius: files under yang/p1 in this project; nothing on P1 changes.
+# Changes: one .yang file per module and submodule. Undo: none, the project is under version control.
+  - name: read the schema of P1's tunnel and crypto models
+    net.yang.schema:
+      target: P1
+      modules:
+        - Cisco-IOS-XE-native@2024-07-01
+        - Cisco-IOS-XE-tunnel
+        - Cisco-IOS-XE-crypto
+      dest: yang/p1
+```
+
+Over NETCONF it asks with RFC 6022's `get-schema`; over RESTCONF it fetches the URL the device's YANG library names for
+each source, which IOS XE 17.15.1a names in `modules-state`, not in its RFC 8525 library. A device serving both is read
+over NETCONF unless `via:` names the other; the choice is made at plan time and a failed fetch is never retried over the
+other protocol. A URL at another origin than the device's base URL is refused, since fetching it would send the device's
+credential there, and a server that names no URL (rousette names none, though it serves sources under `/yang/`) is
+refused naming that. gNMI has no way to fetch a module's source.
+
+A source is schema, so it is saved as the device sent it: a leaf named `password`, a list's `key` statement and the word
+`secret` are its grammar, and the configuration masker that reads values by their shape is never run over it. Only the
+run's known secret values (the device's credential and the project's named secrets) of at least 8 bytes are replaced,
+wherever they stand, by `pleiades-masked-secret`. A shorter one cannot be masked without cutting the schema's own words
+apart, so a source holding one as a word of its own is refused, naming the module and never the value, and nothing is
+written: give the account a longer password. A secret split across a YANG `+` concatenation or folded across lines is not
+found by its value, and a named secret that equals a word of the schema replaces that word too (the module's `masked`
+entry says so). Each file is `name@revision.yang`, built from the library's identifiers alone, written for its owner
+alone (mode 0600). Every source is fetched, checked to be the module asked for, masked and held to the bounds, and
+every file to the project's rules, before any file is written, so a refusal writes nothing; a write that fails after that
+(a full disk) leaves the files before it, which the task's error says. It runs from the command line, which holds the
+project. On the Walk tier a job whose runbook calls it, like any method reading or writing a project file (its `dest`
+left to the default included), fails when the Controller fans it out, naming each task and parameter, before any device
+is dispatched to: the Controller holds the job to the rule a Runner's validation holds the runbook to. A task that runs
+only under a `when:` is not judged there, as it is not at admission, and the Runner refuses it where its condition holds.
+
 ### Reaching a node through the controller's console
 
 A node with no address reachable from here is reached through the controller's console server: an SSH

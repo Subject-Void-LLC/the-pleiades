@@ -60,6 +60,20 @@ func (m Manifest) For(params map[string]any) Manifest {
 			return m
 		}
 	}
+	// A call naming one of the alternatives by AlternativeParam is held to
+	// it alone, its transports in place of their union. Any other value
+	// (auto, a template validation has not rendered) leaves the choice to
+	// the device; the engine holds the rendered value to Choices before
+	// the method runs, and For is asked again with it there.
+	if name, ok := params[m.AlternativeParam].(string); ok && m.AlternativeParam != "" {
+		for _, a := range m.Alternatives {
+			if a.Name == name {
+				m.Alternatives = []Alternative{a}
+				m.SupportedTransports = a.SupportedTransports
+				return m
+			}
+		}
+	}
 	return m
 }
 

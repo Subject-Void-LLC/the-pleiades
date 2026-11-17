@@ -401,6 +401,7 @@
     "net.snmp.set": "net",
     "net.ssh.ping": "net",
     "net.trace": "net",
+    "net.yang.schema": "net",
     "pkg.apt.install": "pkg",
     "pkg.apt.remove": "pkg",
     "pkg.apt.upgrade": "pkg",

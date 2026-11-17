@@ -6,7 +6,7 @@ status: beta
 
 The full declared-versus-implemented matrix for every registered Collection method. See [Start here](../01-start-here.md#implementation-status) for what this means for the product as a whole.
 
-**270 of 272 methods are implemented.**
+**271 of 273 methods are implemented.**
 
 ## Implemented
 
@@ -79,6 +79,7 @@ The full declared-versus-implemented matrix for every registered Collection meth
 - [net.gnmi.facts](modules/net/gnmi/facts.md)
 - [net.gnmi.config](modules/net/gnmi/config.md)
 - [wait.gnmi](modules/wait/gnmi.md)
+- [net.yang.schema](modules/net/yang/schema.md)
 - [fw.firewalld.allow](modules/fw/firewalld/allow.md)
 - [fw.firewalld.deny](modules/fw/firewalld/deny.md)
 - [fw.firewalld.reload](modules/fw/firewalld/reload.md)

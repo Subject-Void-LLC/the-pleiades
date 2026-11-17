@@ -23,7 +23,7 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | `gate` | 2 | 2 |
 | `http` | 3 | 3 |
 | `identity` | 6 | 6 |
-| `net` | 38 | 36 |
+| `net` | 39 | 37 |
 | `pkg` | 9 | 9 |
 | `pleiades` | 3 | 3 |
 | `scan` | 3 | 3 |
@@ -31,7 +31,7 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | `virt` | 83 | 83 |
 | `wait` | 8 | 8 |
 | `win` | 12 | 12 |
-| **total** | **272** | **270** |
+| **total** | **273** | **271** |
 
 ## All methods
 
@@ -175,6 +175,7 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | [net.snmp.set](net/snmp/set.md) | implemented | Writes one object on a device's SNMP agent, reading it before and after, its undo writing the value read before back. |
 | [net.ssh.ping](net/ssh/ping.md) | implemented | Opens a real SSH connection to the target and echoes a value back, to prove reachability. |
 | [net.trace](net/trace.md) | implemented | Traces the path to an address from a Linux device or a container on a container host, and fails when it is not the path expected. |
+| [net.yang.schema](net/yang/schema.md) | implemented | Fetches the YANG source of a device's modules from the device and saves each into the project. |
 | [pkg.apt.install](pkg/apt/install.md) | implemented | Makes sure a package is installed via APT. |
 | [pkg.apt.remove](pkg/apt/remove.md) | implemented | Removes a package via APT. |
 | [pkg.apt.upgrade](pkg/apt/upgrade.md) | implemented | Makes sure a package is at its newest available version via APT. |

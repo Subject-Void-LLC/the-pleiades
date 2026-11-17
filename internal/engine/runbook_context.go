@@ -70,6 +70,9 @@ type runbookContext struct {
 	// stagedChecks says a check may stage a change in a device's own staging
 	// area and discard it (sdk.StagedChecks); see WithStagedChecks.
 	stagedChecks bool
+	// known are the values the run masks from its start, handed to a method
+	// that asks (sdk.KnownSecrets); see WithKnownSecretValues.
+	known []string
 	// earlierChange says a task checked earlier in this run on this device
 	// predicted a change, could not be checked, or failed
 	// (sdk.EarlierChanges); the collection executor sets it per task.
@@ -111,6 +114,7 @@ var (
 	_ sdk.AIProject           = (*runbookContext)(nil)
 	_ sdk.Reviewer            = (*runbookContext)(nil)
 	_ sdk.PredictedState      = (*runbookContext)(nil)
+	_ sdk.KnownSecrets        = (*runbookContext)(nil)
 )
 
 // NewRunbookContext builds a context carrying secrets for one device.
