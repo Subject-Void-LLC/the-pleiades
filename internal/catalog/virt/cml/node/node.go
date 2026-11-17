@@ -50,9 +50,12 @@ var iosDefinitions = map[string]bool{
 }
 
 // switchDefinitions are the IOS definitions that are switches: every
-// Ethernet port on one boots as a switchport, which takes no address (IOL
-// L2's Ethernet0/0 on a real CML 2.7 controller, 2026-11-17), so a seed
-// makes the management interface a routed port before it addresses it.
+// Ethernet port on one boots as a switchport, which takes no address, so a
+// seed makes the management interface a routed port before it addresses
+// it. Measured on a real CML 2.7 controller (2026-11-17) for ioll2-xe
+// (Ethernet0/0) and iosvl2 (GigabitEthernet0/0); the two cat9000v images
+// are untested, and their GigabitEthernet0/0 is a dedicated management
+// port in their own Mgmt-vrf rather than a switchport.
 var switchDefinitions = map[string]bool{
 	"ioll2-xe": true, "iosvl2": true, "cat9000v-q200": true, "cat9000v-uadp": true,
 }
