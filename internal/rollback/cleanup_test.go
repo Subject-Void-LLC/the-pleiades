@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/rollback"
@@ -144,6 +145,62 @@ func TestBuild_AnAlwaysCleanupEdges(t *testing.T) {
 	plan, err = rollback.Build(rollback.Request{Target: failed, Devices: inventoryOf("h1"), Authored: noLists})
 	if err != nil || len(plan.Unknown) != 1 || plan.Unknown[0].Node != "tasks[0].always[0]" || plan.UnacceptedUnknown != 1 {
 		t.Errorf("a failed cleanup: %v, unknown %+v", err, plan.Unknown)
+	}
+}
+
+// TestBuild_ALaterRunWithOnlyACleanupLeftIsSteppedOver: beneath a later run
+// whose block change its own rollback undid and whose always: cleanups that
+// rollback left in place, a rollback is refused with advice to step over it,
+// never to roll it back first, since rolling it back says nothing is left:
+// the loop the advice used to send an operator around. Before that run is
+// rolled back, its block change is still one to undo first.
+func TestBuild_ALaterRunWithOnlyACleanupLeftIsSteppedOver(t *testing.T) {
+	registerShapes(t)
+	target := rollback.Run{ID: "run-T", Sealed: true, Entries: []engine.JournalEntry{
+		undo(entry("run-T", "tasks[0]", "h1", 1, "rb.start", engine.OutcomeChanged), "rb.stop", map[string]any{"name": "svc"}),
+	}}
+	// cleanupRun is run-A, later than run-T on h1 by its clock times.
+	later := cleanupRun()
+	for i := range later.Entries {
+		later.Entries[i].Sequence += 10
+		later.Entries[i].StartedAt = later.Entries[i].StartedAt.Add(time.Hour)
+		later.Entries[i].FinishedAt = later.Entries[i].FinishedAt.Add(time.Hour)
+	}
+	plan := func(others ...rollback.Run) []rollback.Problem {
+		_, err := rollback.Build(rollback.Request{Target: target, Others: others, Devices: inventoryOf("h1"), Authored: noLists})
+		return refused(t, err)
+	}
+	if problems := plan(later); len(problems) != 1 || problems[0].Kind != rollback.KindUndoFirst {
+		t.Fatalf("beneath a run not rolled back: %+v, want undo_first", problems)
+	}
+
+	undone := entry("run-R", "tasks[0]", "h1", 30, "rb.delete", engine.OutcomeChanged)
+	undone.RollbackOf, undone.UndoesNode = "run-A", "tasks[0].block[0]"
+	undone.StartedAt, undone.FinishedAt = undone.StartedAt.Add(2*time.Hour), undone.FinishedAt.Add(2*time.Hour)
+	rolled := rollback.Run{ID: "run-R", Sealed: true, Entries: []engine.JournalEntry{undone}}
+	// Rolling run-A back again has nothing left to do.
+	_, err := rollback.Build(rollback.Request{Target: later, Others: []rollback.Run{rolled}, Devices: inventoryOf("h1"), Authored: noLists})
+	if again := refused(t, err); len(again) != 1 || !strings.Contains(again[0].Reason, "nothing left") {
+		t.Fatalf("rolling run-A back again: %+v, want nothing left", again)
+	}
+	problems := plan(later, rolled)
+	if len(problems) != 1 || problems[0].Kind != rollback.KindLeftInPlace || problems[0].Accept != "--despite-run run-A" {
+		t.Fatalf("beneath a rolled-back run with a cleanup left: %+v, want left_in_place accepted by --despite-run run-A", problems)
+	}
+	for _, want := range []string{"cleanup its block's always: ran (rb.shell, rb.stop)", "already undid the rest", "nothing left to undo", "step over it"} {
+		if !strings.Contains(problems[0].Reason, want) {
+			t.Errorf("reason %q does not say %q", problems[0].Reason, want)
+		}
+	}
+	if strings.Contains(problems[0].Reason, "roll it back first") {
+		t.Errorf("reason %q still says to roll it back first", problems[0].Reason)
+	}
+	// A task of it that failed during its action there is said beside it.
+	failing := later
+	failing.Entries = append(append([]engine.JournalEntry(nil), later.Entries...), failedCall("run-A", "tasks[1]", 14, "rb.shell", false))
+	failing.Entries[len(failing.Entries)-1].StartedAt = later.Entries[0].StartedAt
+	if problems := plan(failing, rolled); len(problems) != 1 || problems[0].Kind != rollback.KindLeftInPlace || !strings.Contains(problems[0].Reason, "failed during its action") {
+		t.Errorf("with a failed task too: %+v, want left_in_place naming the failure", problems)
 	}
 }
 

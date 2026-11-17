@@ -30,16 +30,37 @@ const (
 	// which was not found as it ran: naming it with --runbook may answer
 	// it, where --leave gives the change up.
 	KindNoRunbook = "no_runbook"
+	// KindLeftInPlace is a later run with nothing left there that rolling it
+	// back would undo: what it still has on the shared devices is a cleanup
+	// its block's always: ran, which its rollback leaves in place (and the
+	// rest, if any, its rollback already undid). Rolling it back first would
+	// say nothing is left, so read it and step over it.
+	KindLeftInPlace = "left_in_place"
 )
 
-// laterRun is the refusal over run id, which changed the devices changed
-// names after the run being undone began, and may have changed those
-// mayHave names, where a task failed during its action (unknown names the
-// methods): which kind it is, and what to do about it. Rolling the run back
-// never clears a failed task, so a run with one is always stepped over
-// with --despite-run once its devices are known to be as this run left
-// them, whatever else it did.
-func laterRun(id string, changed, mayHave []string, undoable bool, irreversible, unknown []string) Problem {
+// laterFacts is what one later run did on the devices a rollback undoes on,
+// as laterRunProblems read it from that run's journal.
+type laterFacts struct {
+	// id names the run.
+	id string
+	// changed and mayHave name the devices it changed, and those it may
+	// have changed where a task failed during its action.
+	changed, mayHave []string
+	// undoable says it has a change there that rolling it back would undo;
+	// undone, that its rollback already undid one.
+	undoable, undone bool
+	// irreversible names the methods whose changes there recorded no undo,
+	// cleanups those of the always: cleanups its rollback leaves in place,
+	// and unknown those whose tasks failed during their action there.
+	irreversible, cleanups, unknown []string
+}
+
+// laterRun is the refusal over the later run f describes: which kind it is,
+// and what to do about it. Rolling the run back never clears a failed task,
+// so a run with one is always stepped over with --despite-run once its
+// devices are known to be as this run left them, whatever else it did.
+func laterRun(f laterFacts) Problem {
+	id, changed, mayHave, undoable, irreversible, unknown := f.id, f.changed, f.mayHave, f.undoable, f.irreversible, f.unknown
 	var did []string
 	if len(changed) > 0 {
 		did = append(did, "changed "+strings.Join(changed, ", "))
@@ -69,6 +90,18 @@ func laterRun(id string, changed, mayHave []string, undoable bool, irreversible,
 	case len(irreversible) > 0:
 		p.Kind = KindCannotUndo
 		p.Reason = head + "; its changes there cannot be undone (" + strings.Join(irreversible, ", ") + " recorded no undo), so read it (pleiades journal show " + id + ") and step over it with " + accept
+	case len(f.cleanups) > 0:
+		p.Kind = KindLeftInPlace
+		left := "; what it still has there is a cleanup its block's always: ran (" + strings.Join(f.cleanups, ", ") + "), which a rollback of it leaves in place"
+		if f.undone {
+			left += ", and its rollback already undid the rest"
+		}
+		left += ", so rolling it back has nothing left to undo there"
+		if len(unknown) > 0 {
+			p.Reason = head + left + failed + "; " + stepOver
+		} else {
+			p.Reason = head + left + "; read it (pleiades journal show " + id + ") and step over it with " + accept + " once those devices are known to be as this run left them"
+		}
 	case len(unknown) > 0:
 		p.Kind = KindUnknownEffect
 		p.Reason = what + failed + ", so " + stepOver

@@ -35,7 +35,7 @@ const cleanupReason = "it ran in a block's always:, which runs to clean up after
 // runbook lookup that fails for any reason but the runbook being absent is
 // left to the ordinary path, which reports it.
 func isCleanup(req Request, e engine.JournalEntry) bool {
-	if !strings.Contains(e.NodeID, alwaysPart) || e.AuthoredRollback {
+	if !leftCleanup(e) {
 		return false
 	}
 	if req.Authored == nil {
@@ -50,4 +50,13 @@ func isCleanup(req Request, e engine.JournalEntry) bool {
 		return false
 	}
 	return true
+}
+
+// leftCleanup is isCleanup as far as the journal alone says it: a change a
+// block's always: task made that had no rollback: list when it ran. It is
+// what a later run's change is judged by (laterRunProblems), whose runbook
+// the plan does not read: a rollback of that run leaves such a change in
+// place, unless a list has been written into its runbook since.
+func leftCleanup(e engine.JournalEntry) bool {
+	return strings.Contains(e.NodeID, alwaysPart) && !e.AuthoredRollback
 }
