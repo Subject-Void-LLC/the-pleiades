@@ -177,24 +177,32 @@ func (c *Client) paced(ctx context.Context, once func() (answer, error)) (answer
 	delay := p.First
 	var waited time.Duration
 	refusals := 0
+	var last answer // the server's latest refusal, for the error's answer
+	exhausted := func(limit string, bound time.Duration, cause error) error {
+		c.sessionGaveUp++
+		e := &SessionsExhaustedError{Answer: c.statusError(last), Refusals: refusals, Waited: waited, Limit: limit, Bound: bound, Cause: cause, Within: c.within}
+		if e.Within == "" {
+			e.Within = "the task's time"
+		}
+		return e
+	}
 	for {
 		a, err := once()
+		// A request the caller's context cut short after the server had refused
+		// it is the wait ending, not a transport failure: a deadline that lands
+		// while a resend is in flight reads as one that lands between resends.
+		if err != nil && refusals > 0 && ctx.Err() != nil {
+			return answer{}, exhausted("", 0, ctx.Err())
+		}
 		if err != nil || !c.tooManySessions(a) {
 			a.resent = refusals
 			return a, err
 		}
+		last = a
 		refusals++
 		c.sessionRefusals++
 		if afterSessionRefusal != nil {
 			afterSessionRefusal(refusals)
-		}
-		exhausted := func(limit string, bound time.Duration, cause error) error {
-			c.sessionGaveUp++
-			e := &SessionsExhaustedError{Answer: c.statusError(a), Refusals: refusals, Waited: waited, Limit: limit, Bound: bound, Cause: cause, Within: c.within}
-			if e.Within == "" {
-				e.Within = "the task's time"
-			}
-			return e
 		}
 		// The wait is cut to what the limits leave, and a request with
 		// nothing left is the caller's.
