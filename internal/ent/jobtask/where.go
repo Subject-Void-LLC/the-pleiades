@@ -110,6 +110,26 @@ func Batch(v int) predicate.JobTask {
 	return predicate.JobTask(sql.FieldEQ(FieldBatch, v))
 }
 
+// ClaimAttempt applies equality check predicate on the "claim_attempt" field. It's identical to ClaimAttemptEQ.
+func ClaimAttempt(v int) predicate.JobTask {
+	return predicate.JobTask(sql.FieldEQ(FieldClaimAttempt, v))
+}
+
+// ClaimRunner applies equality check predicate on the "claim_runner" field. It's identical to ClaimRunnerEQ.
+func ClaimRunner(v string) predicate.JobTask {
+	return predicate.JobTask(sql.FieldEQ(FieldClaimRunner, v))
+}
+
+// ClaimOrderSource applies equality check predicate on the "claim_order_source" field. It's identical to ClaimOrderSourceEQ.
+func ClaimOrderSource(v string) predicate.JobTask {
+	return predicate.JobTask(sql.FieldEQ(FieldClaimOrderSource, v))
+}
+
+// ClaimOrderToken applies equality check predicate on the "claim_order_token" field. It's identical to ClaimOrderTokenEQ.
+func ClaimOrderToken(v uint64) predicate.JobTask {
+	return predicate.JobTask(sql.FieldEQ(FieldClaimOrderToken, v))
+}
+
 // CreatedAtEQ applies the EQ predicate on the "created_at" field.
 func CreatedAtEQ(v time.Time) predicate.JobTask {
 	return predicate.JobTask(sql.FieldEQ(FieldCreatedAt, v))
@@ -718,6 +738,216 @@ func BatchIsNil() predicate.JobTask {
 // BatchNotNil applies the NotNil predicate on the "batch" field.
 func BatchNotNil() predicate.JobTask {
 	return predicate.JobTask(sql.FieldNotNull(FieldBatch))
+}
+
+// ClaimAttemptEQ applies the EQ predicate on the "claim_attempt" field.
+func ClaimAttemptEQ(v int) predicate.JobTask {
+	return predicate.JobTask(sql.FieldEQ(FieldClaimAttempt, v))
+}
+
+// ClaimAttemptNEQ applies the NEQ predicate on the "claim_attempt" field.
+func ClaimAttemptNEQ(v int) predicate.JobTask {
+	return predicate.JobTask(sql.FieldNEQ(FieldClaimAttempt, v))
+}
+
+// ClaimAttemptIn applies the In predicate on the "claim_attempt" field.
+func ClaimAttemptIn(vs ...int) predicate.JobTask {
+	return predicate.JobTask(sql.FieldIn(FieldClaimAttempt, vs...))
+}
+
+// ClaimAttemptNotIn applies the NotIn predicate on the "claim_attempt" field.
+func ClaimAttemptNotIn(vs ...int) predicate.JobTask {
+	return predicate.JobTask(sql.FieldNotIn(FieldClaimAttempt, vs...))
+}
+
+// ClaimAttemptGT applies the GT predicate on the "claim_attempt" field.
+func ClaimAttemptGT(v int) predicate.JobTask {
+	return predicate.JobTask(sql.FieldGT(FieldClaimAttempt, v))
+}
+
+// ClaimAttemptGTE applies the GTE predicate on the "claim_attempt" field.
+func ClaimAttemptGTE(v int) predicate.JobTask {
+	return predicate.JobTask(sql.FieldGTE(FieldClaimAttempt, v))
+}
+
+// ClaimAttemptLT applies the LT predicate on the "claim_attempt" field.
+func ClaimAttemptLT(v int) predicate.JobTask {
+	return predicate.JobTask(sql.FieldLT(FieldClaimAttempt, v))
+}
+
+// ClaimAttemptLTE applies the LTE predicate on the "claim_attempt" field.
+func ClaimAttemptLTE(v int) predicate.JobTask {
+	return predicate.JobTask(sql.FieldLTE(FieldClaimAttempt, v))
+}
+
+// ClaimRunnerEQ applies the EQ predicate on the "claim_runner" field.
+func ClaimRunnerEQ(v string) predicate.JobTask {
+	return predicate.JobTask(sql.FieldEQ(FieldClaimRunner, v))
+}
+
+// ClaimRunnerNEQ applies the NEQ predicate on the "claim_runner" field.
+func ClaimRunnerNEQ(v string) predicate.JobTask {
+	return predicate.JobTask(sql.FieldNEQ(FieldClaimRunner, v))
+}
+
+// ClaimRunnerIn applies the In predicate on the "claim_runner" field.
+func ClaimRunnerIn(vs ...string) predicate.JobTask {
+	return predicate.JobTask(sql.FieldIn(FieldClaimRunner, vs...))
+}
+
+// ClaimRunnerNotIn applies the NotIn predicate on the "claim_runner" field.
+func ClaimRunnerNotIn(vs ...string) predicate.JobTask {
+	return predicate.JobTask(sql.FieldNotIn(FieldClaimRunner, vs...))
+}
+
+// ClaimRunnerGT applies the GT predicate on the "claim_runner" field.
+func ClaimRunnerGT(v string) predicate.JobTask {
+	return predicate.JobTask(sql.FieldGT(FieldClaimRunner, v))
+}
+
+// ClaimRunnerGTE applies the GTE predicate on the "claim_runner" field.
+func ClaimRunnerGTE(v string) predicate.JobTask {
+	return predicate.JobTask(sql.FieldGTE(FieldClaimRunner, v))
+}
+
+// ClaimRunnerLT applies the LT predicate on the "claim_runner" field.
+func ClaimRunnerLT(v string) predicate.JobTask {
+	return predicate.JobTask(sql.FieldLT(FieldClaimRunner, v))
+}
+
+// ClaimRunnerLTE applies the LTE predicate on the "claim_runner" field.
+func ClaimRunnerLTE(v string) predicate.JobTask {
+	return predicate.JobTask(sql.FieldLTE(FieldClaimRunner, v))
+}
+
+// ClaimRunnerContains applies the Contains predicate on the "claim_runner" field.
+func ClaimRunnerContains(v string) predicate.JobTask {
+	return predicate.JobTask(sql.FieldContains(FieldClaimRunner, v))
+}
+
+// ClaimRunnerHasPrefix applies the HasPrefix predicate on the "claim_runner" field.
+func ClaimRunnerHasPrefix(v string) predicate.JobTask {
+	return predicate.JobTask(sql.FieldHasPrefix(FieldClaimRunner, v))
+}
+
+// ClaimRunnerHasSuffix applies the HasSuffix predicate on the "claim_runner" field.
+func ClaimRunnerHasSuffix(v string) predicate.JobTask {
+	return predicate.JobTask(sql.FieldHasSuffix(FieldClaimRunner, v))
+}
+
+// ClaimRunnerEqualFold applies the EqualFold predicate on the "claim_runner" field.
+func ClaimRunnerEqualFold(v string) predicate.JobTask {
+	return predicate.JobTask(sql.FieldEqualFold(FieldClaimRunner, v))
+}
+
+// ClaimRunnerContainsFold applies the ContainsFold predicate on the "claim_runner" field.
+func ClaimRunnerContainsFold(v string) predicate.JobTask {
+	return predicate.JobTask(sql.FieldContainsFold(FieldClaimRunner, v))
+}
+
+// ClaimOrderSourceEQ applies the EQ predicate on the "claim_order_source" field.
+func ClaimOrderSourceEQ(v string) predicate.JobTask {
+	return predicate.JobTask(sql.FieldEQ(FieldClaimOrderSource, v))
+}
+
+// ClaimOrderSourceNEQ applies the NEQ predicate on the "claim_order_source" field.
+func ClaimOrderSourceNEQ(v string) predicate.JobTask {
+	return predicate.JobTask(sql.FieldNEQ(FieldClaimOrderSource, v))
+}
+
+// ClaimOrderSourceIn applies the In predicate on the "claim_order_source" field.
+func ClaimOrderSourceIn(vs ...string) predicate.JobTask {
+	return predicate.JobTask(sql.FieldIn(FieldClaimOrderSource, vs...))
+}
+
+// ClaimOrderSourceNotIn applies the NotIn predicate on the "claim_order_source" field.
+func ClaimOrderSourceNotIn(vs ...string) predicate.JobTask {
+	return predicate.JobTask(sql.FieldNotIn(FieldClaimOrderSource, vs...))
+}
+
+// ClaimOrderSourceGT applies the GT predicate on the "claim_order_source" field.
+func ClaimOrderSourceGT(v string) predicate.JobTask {
+	return predicate.JobTask(sql.FieldGT(FieldClaimOrderSource, v))
+}
+
+// ClaimOrderSourceGTE applies the GTE predicate on the "claim_order_source" field.
+func ClaimOrderSourceGTE(v string) predicate.JobTask {
+	return predicate.JobTask(sql.FieldGTE(FieldClaimOrderSource, v))
+}
+
+// ClaimOrderSourceLT applies the LT predicate on the "claim_order_source" field.
+func ClaimOrderSourceLT(v string) predicate.JobTask {
+	return predicate.JobTask(sql.FieldLT(FieldClaimOrderSource, v))
+}
+
+// ClaimOrderSourceLTE applies the LTE predicate on the "claim_order_source" field.
+func ClaimOrderSourceLTE(v string) predicate.JobTask {
+	return predicate.JobTask(sql.FieldLTE(FieldClaimOrderSource, v))
+}
+
+// ClaimOrderSourceContains applies the Contains predicate on the "claim_order_source" field.
+func ClaimOrderSourceContains(v string) predicate.JobTask {
+	return predicate.JobTask(sql.FieldContains(FieldClaimOrderSource, v))
+}
+
+// ClaimOrderSourceHasPrefix applies the HasPrefix predicate on the "claim_order_source" field.
+func ClaimOrderSourceHasPrefix(v string) predicate.JobTask {
+	return predicate.JobTask(sql.FieldHasPrefix(FieldClaimOrderSource, v))
+}
+
+// ClaimOrderSourceHasSuffix applies the HasSuffix predicate on the "claim_order_source" field.
+func ClaimOrderSourceHasSuffix(v string) predicate.JobTask {
+	return predicate.JobTask(sql.FieldHasSuffix(FieldClaimOrderSource, v))
+}
+
+// ClaimOrderSourceEqualFold applies the EqualFold predicate on the "claim_order_source" field.
+func ClaimOrderSourceEqualFold(v string) predicate.JobTask {
+	return predicate.JobTask(sql.FieldEqualFold(FieldClaimOrderSource, v))
+}
+
+// ClaimOrderSourceContainsFold applies the ContainsFold predicate on the "claim_order_source" field.
+func ClaimOrderSourceContainsFold(v string) predicate.JobTask {
+	return predicate.JobTask(sql.FieldContainsFold(FieldClaimOrderSource, v))
+}
+
+// ClaimOrderTokenEQ applies the EQ predicate on the "claim_order_token" field.
+func ClaimOrderTokenEQ(v uint64) predicate.JobTask {
+	return predicate.JobTask(sql.FieldEQ(FieldClaimOrderToken, v))
+}
+
+// ClaimOrderTokenNEQ applies the NEQ predicate on the "claim_order_token" field.
+func ClaimOrderTokenNEQ(v uint64) predicate.JobTask {
+	return predicate.JobTask(sql.FieldNEQ(FieldClaimOrderToken, v))
+}
+
+// ClaimOrderTokenIn applies the In predicate on the "claim_order_token" field.
+func ClaimOrderTokenIn(vs ...uint64) predicate.JobTask {
+	return predicate.JobTask(sql.FieldIn(FieldClaimOrderToken, vs...))
+}
+
+// ClaimOrderTokenNotIn applies the NotIn predicate on the "claim_order_token" field.
+func ClaimOrderTokenNotIn(vs ...uint64) predicate.JobTask {
+	return predicate.JobTask(sql.FieldNotIn(FieldClaimOrderToken, vs...))
+}
+
+// ClaimOrderTokenGT applies the GT predicate on the "claim_order_token" field.
+func ClaimOrderTokenGT(v uint64) predicate.JobTask {
+	return predicate.JobTask(sql.FieldGT(FieldClaimOrderToken, v))
+}
+
+// ClaimOrderTokenGTE applies the GTE predicate on the "claim_order_token" field.
+func ClaimOrderTokenGTE(v uint64) predicate.JobTask {
+	return predicate.JobTask(sql.FieldGTE(FieldClaimOrderToken, v))
+}
+
+// ClaimOrderTokenLT applies the LT predicate on the "claim_order_token" field.
+func ClaimOrderTokenLT(v uint64) predicate.JobTask {
+	return predicate.JobTask(sql.FieldLT(FieldClaimOrderToken, v))
+}
+
+// ClaimOrderTokenLTE applies the LTE predicate on the "claim_order_token" field.
+func ClaimOrderTokenLTE(v uint64) predicate.JobTask {
+	return predicate.JobTask(sql.FieldLTE(FieldClaimOrderToken, v))
 }
 
 // HasJob applies the HasEdge predicate on the "job" edge.

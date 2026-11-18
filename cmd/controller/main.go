@@ -1208,6 +1208,9 @@ func main() {
 	// links no Collection (Phase 41b).
 	factStore := entstore.New(client)
 	factsOpts = append(factsOpts, entstore.WithNodeResolver(nodes.Resolve))
+	// Each batch is held to the claim its device's dispatch record gives (Phase 41b):
+	// a Runner's later batches cannot change place in the job.
+	factsOpts = append(factsOpts, entstore.WithClaims(jobStore))
 	factsSubscriber, err := newFactsSubscriber(factStore, logger, journalAdmission(jobStore), factsOpts...)
 	if err != nil {
 		fatal("failed to read the built-in fact declarations", err)

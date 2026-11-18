@@ -179,6 +179,62 @@ func (_c *JobTaskCreate) SetNillableBatch(v *int) *JobTaskCreate {
 	return _c
 }
 
+// SetClaimAttempt sets the "claim_attempt" field.
+func (_c *JobTaskCreate) SetClaimAttempt(v int) *JobTaskCreate {
+	_c.mutation.SetClaimAttempt(v)
+	return _c
+}
+
+// SetNillableClaimAttempt sets the "claim_attempt" field if the given value is not nil.
+func (_c *JobTaskCreate) SetNillableClaimAttempt(v *int) *JobTaskCreate {
+	if v != nil {
+		_c.SetClaimAttempt(*v)
+	}
+	return _c
+}
+
+// SetClaimRunner sets the "claim_runner" field.
+func (_c *JobTaskCreate) SetClaimRunner(v string) *JobTaskCreate {
+	_c.mutation.SetClaimRunner(v)
+	return _c
+}
+
+// SetNillableClaimRunner sets the "claim_runner" field if the given value is not nil.
+func (_c *JobTaskCreate) SetNillableClaimRunner(v *string) *JobTaskCreate {
+	if v != nil {
+		_c.SetClaimRunner(*v)
+	}
+	return _c
+}
+
+// SetClaimOrderSource sets the "claim_order_source" field.
+func (_c *JobTaskCreate) SetClaimOrderSource(v string) *JobTaskCreate {
+	_c.mutation.SetClaimOrderSource(v)
+	return _c
+}
+
+// SetNillableClaimOrderSource sets the "claim_order_source" field if the given value is not nil.
+func (_c *JobTaskCreate) SetNillableClaimOrderSource(v *string) *JobTaskCreate {
+	if v != nil {
+		_c.SetClaimOrderSource(*v)
+	}
+	return _c
+}
+
+// SetClaimOrderToken sets the "claim_order_token" field.
+func (_c *JobTaskCreate) SetClaimOrderToken(v uint64) *JobTaskCreate {
+	_c.mutation.SetClaimOrderToken(v)
+	return _c
+}
+
+// SetNillableClaimOrderToken sets the "claim_order_token" field if the given value is not nil.
+func (_c *JobTaskCreate) SetNillableClaimOrderToken(v *uint64) *JobTaskCreate {
+	if v != nil {
+		_c.SetClaimOrderToken(*v)
+	}
+	return _c
+}
+
 // SetJobID sets the "job" edge to the Job entity by ID.
 func (_c *JobTaskCreate) SetJobID(id int) *JobTaskCreate {
 	_c.mutation.SetJobID(id)
@@ -241,6 +297,22 @@ func (_c *JobTaskCreate) defaults() {
 		v := jobtask.DefaultWaiting
 		_c.mutation.SetWaiting(v)
 	}
+	if _, ok := _c.mutation.ClaimAttempt(); !ok {
+		v := jobtask.DefaultClaimAttempt
+		_c.mutation.SetClaimAttempt(v)
+	}
+	if _, ok := _c.mutation.ClaimRunner(); !ok {
+		v := jobtask.DefaultClaimRunner
+		_c.mutation.SetClaimRunner(v)
+	}
+	if _, ok := _c.mutation.ClaimOrderSource(); !ok {
+		v := jobtask.DefaultClaimOrderSource
+		_c.mutation.SetClaimOrderSource(v)
+	}
+	if _, ok := _c.mutation.ClaimOrderToken(); !ok {
+		v := jobtask.DefaultClaimOrderToken
+		_c.mutation.SetClaimOrderToken(v)
+	}
 }
 
 // check runs all checks and user-defined validators on the builder.
@@ -300,6 +372,23 @@ func (_c *JobTaskCreate) check() error {
 		if err := jobtask.BatchValidator(v); err != nil {
 			return &ValidationError{Name: "batch", err: fmt.Errorf(`ent: validator failed for field "JobTask.batch": %w`, err)}
 		}
+	}
+	if _, ok := _c.mutation.ClaimAttempt(); !ok {
+		return &ValidationError{Name: "claim_attempt", err: errors.New(`ent: missing required field "JobTask.claim_attempt"`)}
+	}
+	if v, ok := _c.mutation.ClaimAttempt(); ok {
+		if err := jobtask.ClaimAttemptValidator(v); err != nil {
+			return &ValidationError{Name: "claim_attempt", err: fmt.Errorf(`ent: validator failed for field "JobTask.claim_attempt": %w`, err)}
+		}
+	}
+	if _, ok := _c.mutation.ClaimRunner(); !ok {
+		return &ValidationError{Name: "claim_runner", err: errors.New(`ent: missing required field "JobTask.claim_runner"`)}
+	}
+	if _, ok := _c.mutation.ClaimOrderSource(); !ok {
+		return &ValidationError{Name: "claim_order_source", err: errors.New(`ent: missing required field "JobTask.claim_order_source"`)}
+	}
+	if _, ok := _c.mutation.ClaimOrderToken(); !ok {
+		return &ValidationError{Name: "claim_order_token", err: errors.New(`ent: missing required field "JobTask.claim_order_token"`)}
 	}
 	if len(_c.mutation.JobIDs()) == 0 {
 		return &ValidationError{Name: "job", err: errors.New(`ent: missing required edge "JobTask.job"`)}
@@ -381,6 +470,22 @@ func (_c *JobTaskCreate) createSpec() (*JobTask, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.Batch(); ok {
 		_spec.SetField(jobtask.FieldBatch, field.TypeInt, value)
 		_node.Batch = &value
+	}
+	if value, ok := _c.mutation.ClaimAttempt(); ok {
+		_spec.SetField(jobtask.FieldClaimAttempt, field.TypeInt, value)
+		_node.ClaimAttempt = value
+	}
+	if value, ok := _c.mutation.ClaimRunner(); ok {
+		_spec.SetField(jobtask.FieldClaimRunner, field.TypeString, value)
+		_node.ClaimRunner = value
+	}
+	if value, ok := _c.mutation.ClaimOrderSource(); ok {
+		_spec.SetField(jobtask.FieldClaimOrderSource, field.TypeString, value)
+		_node.ClaimOrderSource = value
+	}
+	if value, ok := _c.mutation.ClaimOrderToken(); ok {
+		_spec.SetField(jobtask.FieldClaimOrderToken, field.TypeUint64, value)
+		_node.ClaimOrderToken = value
 	}
 	if nodes := _c.mutation.JobIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{

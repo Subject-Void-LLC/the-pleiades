@@ -27,6 +27,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/facts"
 	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
@@ -726,6 +727,11 @@ type JobStore interface {
 	// The run journal's consumer asks it before storing a batch a Runner
 	// published, since any Runner may publish on any job's subject.
 	DispatchState(ctx context.Context, jobID, deviceID string) (DispatchState, error)
+
+	// ClaimBatch holds a facts batch's place in the job to the claim the
+	// device's row gives (facts.ClaimStore): it writes the claim when the
+	// batch is allowed to move it, and returns the reason when refused.
+	ClaimBatch(ctx context.Context, jobID, deviceID string, next facts.Claim) (string, error)
 
 	// PinGraph records graph (its version and its nodes) as the compiled
 	// runbook jobID was prepared from, once: a job already holding one keeps

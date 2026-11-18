@@ -133,6 +133,16 @@ func (JobTask) Fields() []ent.Field {
 		// with a failure (internal/dispatch's serial gate). Nullable and last,
 		// so the migration adding it only expands the schema.
 		field.Int("batch").Optional().Nillable().NonNegative(),
+
+		// The claim a Runner's facts batches hold this device to (Phase 41b,
+		// internal/dispatch's ClaimBatch): the delivery attempt, the Runner's
+		// name and the lease's order it reported, as the first verified batch
+		// of that attempt set them. Zero or empty until a facts batch arrives.
+		// Last, so the migration adding them only expands the schema.
+		field.Int("claim_attempt").Default(0).NonNegative(),
+		field.String("claim_runner").Default(""),
+		field.String("claim_order_source").Default(""),
+		field.Uint64("claim_order_token").Default(0),
 	}
 }
 
