@@ -135,16 +135,33 @@ func TestOnboard_TheWayBackNeverClobbersAnotherWriter(t *testing.T) {
 // and returns that context's error: a store that has stopped answering.
 type stallingRepo struct {
 	inv.Repository
+	// stall makes Save wait until its context ends, as a context-honouring store would.
 	stall bool
+	// block, when set, makes Save and GetByName wait on it and ignore their
+	// context, as the file store does with its lock.
+	block chan struct{}
 }
 
-// Save blocks while stall is set, until ctx ends.
+// Save blocks as stall or block says.
 func (r *stallingRepo) Save(ctx context.Context, item inventory.InventoryItem) error {
+	if r.block != nil {
+		<-r.block
+		return errors.New("the store was released")
+	}
 	if r.stall {
 		<-ctx.Done()
 		return ctx.Err()
 	}
 	return r.Repository.Save(ctx, item)
+}
+
+// GetByName blocks as block says, ignoring its context.
+func (r *stallingRepo) GetByName(ctx context.Context, name string) (inventory.InventoryItem, error) {
+	if r.block != nil {
+		<-r.block
+		return nil, errors.New("the store was released")
+	}
+	return r.Repository.GetByName(ctx, name)
 }
 
 // TestOnboard_TheWayBackIsBoundedWhenTheStoreStalls proves a failed attempt
@@ -161,17 +178,52 @@ func TestOnboard_TheWayBackIsBoundedWhenTheStoreStalls(t *testing.T) {
 		repo.stall = true
 		return Probed{}, errors.New("the API refused the credential (401)")
 	}}
-	done := make(chan error, 1)
+	res, err := runBounded(t, repo, stalls)
+	if err == nil || !strings.Contains(err.Error(), "401") || !strings.Contains(err.Error(), "so it is now onboarding") || res.State != "onboarding" {
+		t.Fatalf("a stalled way back did not name the failure and the record's state: %v, result %+v", err, res)
+	}
+}
+
+// TestOnboard_TheWayBackIsBoundedWhenTheStoreIgnoresItsContext proves a failed
+// attempt whose store ignores its context on both writes and reads, as the
+// file store's lock does, still returns at the revert deadline. It reports the
+// record's state as unknown, never as onboarding, since the store could not say.
+func TestOnboard_TheWayBackIsBoundedWhenTheStoreIgnoresItsContext(t *testing.T) {
+	old := revertTimeout
+	revertTimeout = 50 * time.Millisecond
+	t.Cleanup(func() { revertTimeout = old })
+
+	block := make(chan struct{})
+	t.Cleanup(func() { close(block) })
+	repo := &stallingRepo{Repository: newAPIRepo(t)}
+	locked := funcProber{probe: func(ctx context.Context, device inventory.InventoryItem) (Probed, error) {
+		repo.block = block
+		return Probed{}, errors.New("the API refused the credential (401)")
+	}}
+	res, err := runBounded(t, repo, locked)
+	if err == nil || !strings.Contains(err.Error(), "401") || !strings.Contains(err.Error(), "its state is unknown") || res.State != "unknown" {
+		t.Fatalf("a store that ignores its context did not leave the state unknown: %v, result %+v", err, res)
+	}
+}
+
+// runBounded runs a failing onboarding of api1 over repo and fails the test if
+// it has not returned within five seconds, which a missing deadline would cause.
+func runBounded(t *testing.T, repo inv.Repository, p funcProber) (Result, error) {
+	t.Helper()
+	type outcome struct {
+		res Result
+		err error
+	}
+	done := make(chan outcome, 1)
 	go func() {
-		_, err := onboardWith(context.Background(), repo, "api1", staticSecrets(nil), fixedNow, only(stalls), options{})
-		done <- err
+		res, err := onboardWith(context.Background(), repo, "api1", staticSecrets(nil), fixedNow, only(p), options{})
+		done <- outcome{res, err}
 	}()
 	select {
-	case err := <-done:
-		if err == nil || !strings.Contains(err.Error(), "401") || !strings.Contains(err.Error(), "could not be read") && !strings.Contains(err.Error(), "still onboarding") {
-			t.Fatalf("a stalled way back returned without naming the failure and its state: %v", err)
-		}
+	case o := <-done:
+		return o.res, o.err
 	case <-time.After(5 * time.Second):
 		t.Fatal("the way back waited on a stalled store with no deadline")
+		return Result{}, nil
 	}
 }
