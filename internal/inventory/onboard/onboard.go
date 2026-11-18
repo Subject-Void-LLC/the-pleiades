@@ -325,6 +325,11 @@ func fail(res Result, err error) (Result, error) {
 	return res, err
 }
 
+// revertTimeout bounds the way back to discovered. The way back runs after an
+// interrupt, so it has no caller's deadline to rely on, and a stalled store
+// must not hold it forever. A variable so a test can shorten it.
+var revertTimeout = 10 * time.Second
+
 // revertOnboarding is fail for an attempt that moved the record to
 // onboarding: pristine, the record as stored at onboarding before the probe,
 // is saved back as discovered, so a failed attempt never leaves a record
@@ -335,8 +340,22 @@ func fail(res Result, err error) (Result, error) {
 // them, is said in the error, and the result then says onboarding.
 func revertOnboarding(ctx context.Context, repo inv.Repository, pristine inventory.InventoryItem, res Result, err error) (Result, error) {
 	if pristine != nil {
-		if _, revertErr := moveTo(context.WithoutCancel(ctx), repo, pristine, inventory.StateDiscovered); revertErr != nil {
-			err = fmt.Errorf("%w; and returning %s to discovered failed, so it is left onboarding until it is onboarded again: %w", err, res.Device, revertErr)
+		revertCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), revertTimeout)
+		defer cancel()
+		if _, revertErr := moveTo(revertCtx, repo, pristine, inventory.StateDiscovered); revertErr != nil {
+			// Say what the record is now, not what the attempt assumed it was:
+			// a racing writer may have moved it to active or discovered, or left it onboarding.
+			current, readErr := repo.GetByName(revertCtx, pristine.Name())
+			switch {
+			case readErr != nil:
+				err = fmt.Errorf("%w; and returning %s to discovered failed, and its state could not be read: %w", err, res.Device, revertErr)
+			case errors.Is(revertErr, inv.ErrVersionConflict):
+				res.State = current.State().String()
+				err = fmt.Errorf("%w; the way back to discovered was refused because another writer already saved %s as %s: %w", err, res.Device, res.State, revertErr)
+			default:
+				res.State = current.State().String()
+				err = fmt.Errorf("%w; and returning %s to discovered failed, so it is still %s: %w", err, res.Device, res.State, revertErr)
+			}
 		} else {
 			res.State = inventory.StateDiscovered.String()
 		}

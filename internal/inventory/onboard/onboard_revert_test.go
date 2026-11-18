@@ -9,6 +9,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	inv "github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/generic"
@@ -121,11 +122,56 @@ func TestOnboard_TheWayBackNeverClobbersAnotherWriter(t *testing.T) {
 		return Probed{}, errors.New("the API refused the credential (401)")
 	}}
 	res, err := onboardWith(ctx, repo, "api1", staticSecrets(nil), fixedNow, only(racing), options{})
-	if !errors.Is(err, inv.ErrVersionConflict) || !strings.Contains(err.Error(), "left onboarding until it is onboarded again") || res.State != "onboarding" {
+	if !errors.Is(err, inv.ErrVersionConflict) || !strings.Contains(err.Error(), "another writer already saved api1 as onboarding") || res.State != "onboarding" {
 		t.Fatalf("a failed attempt racing another writer: %v, result %+v", err, res)
 	}
 	item, _ := repo.GetByName(ctx, "api1")
 	if note, _ := item.Properties().String("note"); note != "set by another writer" || item.State() != inventory.StateOnboarding {
 		t.Errorf("the other writer's record was changed: state %s, note %q", item.State(), note)
+	}
+}
+
+// stallingRepo is a store whose Save, once stall is set, waits for its context
+// and returns that context's error: a store that has stopped answering.
+type stallingRepo struct {
+	inv.Repository
+	stall bool
+}
+
+// Save blocks while stall is set, until ctx ends.
+func (r *stallingRepo) Save(ctx context.Context, item inventory.InventoryItem) error {
+	if r.stall {
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	return r.Repository.Save(ctx, item)
+}
+
+// TestOnboard_TheWayBackIsBoundedWhenTheStoreStalls proves a failed attempt
+// whose store stops answering during the way back returns within the revert
+// deadline, naming the failure that started it, rather than waiting forever
+// for a write that never completes.
+func TestOnboard_TheWayBackIsBoundedWhenTheStoreStalls(t *testing.T) {
+	old := revertTimeout
+	revertTimeout = 50 * time.Millisecond
+	t.Cleanup(func() { revertTimeout = old })
+
+	repo := &stallingRepo{Repository: newAPIRepo(t)}
+	stalls := funcProber{probe: func(ctx context.Context, device inventory.InventoryItem) (Probed, error) {
+		repo.stall = true
+		return Probed{}, errors.New("the API refused the credential (401)")
+	}}
+	done := make(chan error, 1)
+	go func() {
+		_, err := onboardWith(context.Background(), repo, "api1", staticSecrets(nil), fixedNow, only(stalls), options{})
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if err == nil || !strings.Contains(err.Error(), "401") || !strings.Contains(err.Error(), "could not be read") && !strings.Contains(err.Error(), "still onboarding") {
+			t.Fatalf("a stalled way back returned without naming the failure and its state: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the way back waited on a stalled store with no deadline")
 	}
 }
