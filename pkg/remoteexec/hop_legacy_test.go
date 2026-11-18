@@ -1,5 +1,6 @@
-// Package remoteexec holds the tests that each hop of a bastion chain is held
-// to its own legacy SSH flags, and to no other hop's.
+// Package remoteexec holds the tests that Connect holds each hop of a bastion
+// chain to the legacy SSH flags its own record gave it. The route built from
+// device records is tested in internal/engine.
 package remoteexec
 
 import (
