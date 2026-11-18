@@ -325,6 +325,11 @@ func fail(res Result, err error) (Result, error) {
 	return res, err
 }
 
+// revertTimeout bounds the way back to discovered. The way back runs after an
+// interrupt, so it has no caller's deadline to rely on, and a stalled store
+// must not hold it forever. A variable so a test can shorten it.
+var revertTimeout = 10 * time.Second
+
 // revertOnboarding is fail for an attempt that moved the record to
 // onboarding: pristine, the record as stored at onboarding before the probe,
 // is saved back as discovered, so a failed attempt never leaves a record
@@ -335,13 +340,58 @@ func fail(res Result, err error) (Result, error) {
 // them, is said in the error, and the result then says onboarding.
 func revertOnboarding(ctx context.Context, repo inv.Repository, pristine inventory.InventoryItem, res Result, err error) (Result, error) {
 	if pristine != nil {
-		if _, revertErr := moveTo(context.WithoutCancel(ctx), repo, pristine, inventory.StateDiscovered); revertErr != nil {
-			err = fmt.Errorf("%w; and returning %s to discovered failed, so it is left onboarding until it is onboarded again: %w", err, res.Device, revertErr)
-		} else {
+		revertCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), revertTimeout)
+		defer cancel()
+		revertErr := storeCall(revertCtx, func() error {
+			_, e := moveTo(revertCtx, repo, pristine, inventory.StateDiscovered)
+			return e
+		})
+		if revertErr == nil {
 			res.State = inventory.StateDiscovered.String()
+		} else {
+			res, err = describeFailedRevert(ctx, repo, pristine, res, err, revertErr)
 		}
 	}
 	return fail(res, err)
+}
+
+// describeFailedRevert says, after a way back that failed, what the record is
+// now. The read has a budget of its own, since the failed save may have spent
+// the first. A record that cannot be read is unknown, never assumed onboarding:
+// a racing writer may have moved it, and a save that timed out may still land.
+func describeFailedRevert(ctx context.Context, repo inv.Repository, pristine inventory.InventoryItem, res Result, err, revertErr error) (Result, error) {
+	readCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), revertTimeout)
+	defer cancel()
+	var current inventory.InventoryItem
+	readErr := storeCall(readCtx, func() error {
+		var e error
+		current, e = repo.GetByName(readCtx, pristine.Name())
+		return e
+	})
+	if readErr != nil {
+		res.State = "unknown"
+		return res, fmt.Errorf("%w; and returning %s to discovered failed, so its state is unknown: %w", err, res.Device, revertErr)
+	}
+	res.State = current.State().String()
+	if errors.Is(revertErr, inv.ErrVersionConflict) {
+		return res, fmt.Errorf("%w; the way back to discovered was refused because another writer already saved %s as %s: %w", err, res.Device, res.State, revertErr)
+	}
+	return res, fmt.Errorf("%w; and returning %s to discovered failed, so it is now %s: %w", err, res.Device, res.State, revertErr)
+}
+
+// storeCall runs call and waits for it until ctx ends. A store may ignore its
+// context (the file store takes its lock with none), so the caller stops
+// waiting at the deadline and the call finishes, or never does, in the
+// background; its result is then unknown to the caller.
+func storeCall(ctx context.Context, call func() error) error {
+	done := make(chan error, 1)
+	go func() { done <- call() }()
+	select {
+	case err := <-done:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // sameDiscovery reports whether a and b prove the same thing, ignoring

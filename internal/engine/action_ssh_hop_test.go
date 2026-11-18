@@ -13,6 +13,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/transport"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory/inventorytest"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 )
 
 // fakeHopInventory is a hopChainInventory test double: a fixed set of
@@ -92,6 +93,53 @@ func TestTransportActionExecutor_ResolvesConfiguredHopChain(t *testing.T) {
 	}
 	if hop.Credential.Password != "bastion-secret" {
 		t.Errorf("hop.Credential.Password = %q, want the bastion's OWN credential, not the target's", hop.Credential.Password)
+	}
+}
+
+// TestTransportActionExecutor_EachHopCarriesItsOwnLegacyFlags proves the engine
+// hands each leg the legacy SSH flags of its own record: the bastion's hop
+// carries the bastion's flag and the target carries the target's. A wiring
+// that swapped them, or gave the target's to the hop, would let a weak
+// algorithm onto a leg whose record refuses it, and no other test would fail.
+func TestTransportActionExecutor_EachHopCarriesItsOwnLegacyFlags(t *testing.T) {
+	bastion := newSSHDevice("bastion", "10.0.0.1", 2200)
+	bastion.Props = map[string]inventory.PropertyValue{"ssh_allow_legacy_ciphers": true}
+	target := newSSHDevice("target", "10.0.0.5", 22)
+	target.Props = map[string]inventory.PropertyValue{
+		"route":                         []interface{}{"bastion"},
+		"ssh_allow_legacy_key_exchange": true,
+	}
+
+	hopInv := &fakeHopInventory{items: map[string]inventory.InventoryItem{"bastion": bastion}}
+	credentials := fakeCredentialStore{perDevice: map[string]credential.Credential{
+		"target":  {Username: "admin", Password: "target-secret"},
+		"bastion": {Username: "bastion-admin", Password: "bastion-secret"},
+	}}
+
+	var capturedTarget transport.Target
+	binding := sshBinding(func(_ context.Context, tgt transport.Target, _ credential.Credential, _ string) (transport.Result, error) {
+		capturedTarget = tgt
+		return transport.Result{ExitCode: 0}, nil
+	})
+
+	actions := engine.NewTransportActionExecutor(
+		map[string]engine.TransportBinding{"ssh_exec": binding},
+		credentials,
+		hopInv,
+		engine.NewBuiltinActionExecutor(),
+	)
+	if _, err := actions.Execute(context.Background(), &engine.Task{FQCN: "ssh_exec", Params: map[string]interface{}{"command": "uptime"}}, target); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+
+	if len(capturedTarget.Route) != 1 {
+		t.Fatalf("target.Route = %+v, want exactly 1 hop", capturedTarget.Route)
+	}
+	if got, want := capturedTarget.Route[0].Legacy, (remoteexec.Legacy{Ciphers: true}); got != want {
+		t.Errorf("the bastion's hop allows %+v, want its own record's %+v", got, want)
+	}
+	if got, want := capturedTarget.SSHLegacy, (remoteexec.Legacy{KeyExchange: true}); got != want {
+		t.Errorf("the target allows %+v, want its own record's %+v", got, want)
 	}
 }
 
