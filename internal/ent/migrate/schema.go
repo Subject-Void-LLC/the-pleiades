@@ -544,6 +544,10 @@ var (
 		{Name: "waiting", Type: field.TypeBool, Default: false},
 		{Name: "slot", Type: field.TypeInt, Nullable: true},
 		{Name: "batch", Type: field.TypeInt, Nullable: true},
+		{Name: "claim_attempt", Type: field.TypeInt, Default: 0},
+		{Name: "claim_runner", Type: field.TypeString, Default: ""},
+		{Name: "claim_order_source", Type: field.TypeString, Default: ""},
+		{Name: "claim_order_token", Type: field.TypeUint64, Default: 0},
 		{Name: "job_tasks", Type: field.TypeInt},
 	}
 	// JobTasksTable holds the schema information for the "job_tasks" table.
@@ -554,7 +558,7 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "job_tasks_jobs_tasks",
-				Columns:    []*schema.Column{JobTasksColumns[14]},
+				Columns:    []*schema.Column{JobTasksColumns[18]},
 				RefColumns: []*schema.Column{JobsColumns[0]},
 				OnDelete:   schema.NoAction,
 			},
@@ -563,12 +567,12 @@ var (
 			{
 				Name:    "jobtask_outcome_job_tasks",
 				Unique:  false,
-				Columns: []*schema.Column{JobTasksColumns[5], JobTasksColumns[14]},
+				Columns: []*schema.Column{JobTasksColumns[5], JobTasksColumns[18]},
 			},
 			{
 				Name:    "jobtask_slot_job_tasks",
 				Unique:  true,
-				Columns: []*schema.Column{JobTasksColumns[12], JobTasksColumns[14]},
+				Columns: []*schema.Column{JobTasksColumns[12], JobTasksColumns[18]},
 			},
 		},
 	}

@@ -551,6 +551,24 @@ func init() {
 	jobtaskDescBatch := jobtaskFields[10].Descriptor()
 	// jobtask.BatchValidator is a validator for the "batch" field. It is called by the builders before save.
 	jobtask.BatchValidator = jobtaskDescBatch.Validators[0].(func(int) error)
+	// jobtaskDescClaimAttempt is the schema descriptor for claim_attempt field.
+	jobtaskDescClaimAttempt := jobtaskFields[11].Descriptor()
+	// jobtask.DefaultClaimAttempt holds the default value on creation for the claim_attempt field.
+	jobtask.DefaultClaimAttempt = jobtaskDescClaimAttempt.Default.(int)
+	// jobtask.ClaimAttemptValidator is a validator for the "claim_attempt" field. It is called by the builders before save.
+	jobtask.ClaimAttemptValidator = jobtaskDescClaimAttempt.Validators[0].(func(int) error)
+	// jobtaskDescClaimRunner is the schema descriptor for claim_runner field.
+	jobtaskDescClaimRunner := jobtaskFields[12].Descriptor()
+	// jobtask.DefaultClaimRunner holds the default value on creation for the claim_runner field.
+	jobtask.DefaultClaimRunner = jobtaskDescClaimRunner.Default.(string)
+	// jobtaskDescClaimOrderSource is the schema descriptor for claim_order_source field.
+	jobtaskDescClaimOrderSource := jobtaskFields[13].Descriptor()
+	// jobtask.DefaultClaimOrderSource holds the default value on creation for the claim_order_source field.
+	jobtask.DefaultClaimOrderSource = jobtaskDescClaimOrderSource.Default.(string)
+	// jobtaskDescClaimOrderToken is the schema descriptor for claim_order_token field.
+	jobtaskDescClaimOrderToken := jobtaskFields[14].Descriptor()
+	// jobtask.DefaultClaimOrderToken holds the default value on creation for the claim_order_token field.
+	jobtask.DefaultClaimOrderToken = jobtaskDescClaimOrderToken.Default.(uint64)
 	journalentryMixin := schema.JournalEntry{}.Mixin()
 	journalentryMixinFields0 := journalentryMixin[0].Fields()
 	_ = journalentryMixinFields0

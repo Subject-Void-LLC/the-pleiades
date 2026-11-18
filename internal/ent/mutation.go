@@ -15432,31 +15432,37 @@ func (m *JobMutation) ResetEdge(name string) error {
 // JobTaskMutation represents an operation that mutates the JobTask nodes in the graph.
 type JobTaskMutation struct {
 	config
-	op            Op
-	typ           string
-	id            *int
-	created_at    *time.Time
-	updated_at    *time.Time
-	device_id     *string
-	device_name   *string
-	outcome       *jobtask.Outcome
-	reason        *string
-	result        *jobtask.Result
-	result_reason *string
-	finished_at   *time.Time
-	unchecked     *int
-	addunchecked  *int
-	waiting       *bool
-	slot          *int
-	addslot       *int
-	batch         *int
-	addbatch      *int
-	clearedFields map[string]struct{}
-	job           *int
-	clearedjob    bool
-	done          bool
-	oldValue      func(context.Context) (*JobTask, error)
-	predicates    []predicate.JobTask
+	op                   Op
+	typ                  string
+	id                   *int
+	created_at           *time.Time
+	updated_at           *time.Time
+	device_id            *string
+	device_name          *string
+	outcome              *jobtask.Outcome
+	reason               *string
+	result               *jobtask.Result
+	result_reason        *string
+	finished_at          *time.Time
+	unchecked            *int
+	addunchecked         *int
+	waiting              *bool
+	slot                 *int
+	addslot              *int
+	batch                *int
+	addbatch             *int
+	claim_attempt        *int
+	addclaim_attempt     *int
+	claim_runner         *string
+	claim_order_source   *string
+	claim_order_token    *uint64
+	addclaim_order_token *int64
+	clearedFields        map[string]struct{}
+	job                  *int
+	clearedjob           bool
+	done                 bool
+	oldValue             func(context.Context) (*JobTask, error)
+	predicates           []predicate.JobTask
 }
 
 var _ ent.Mutation = (*JobTaskMutation)(nil)
@@ -16165,6 +16171,190 @@ func (m *JobTaskMutation) ResetBatch() {
 	delete(m.clearedFields, jobtask.FieldBatch)
 }
 
+// SetClaimAttempt sets the "claim_attempt" field.
+func (m *JobTaskMutation) SetClaimAttempt(i int) {
+	m.claim_attempt = &i
+	m.addclaim_attempt = nil
+}
+
+// ClaimAttempt returns the value of the "claim_attempt" field in the mutation.
+func (m *JobTaskMutation) ClaimAttempt() (r int, exists bool) {
+	v := m.claim_attempt
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldClaimAttempt returns the old "claim_attempt" field's value of the JobTask entity.
+// If the JobTask object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *JobTaskMutation) OldClaimAttempt(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldClaimAttempt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldClaimAttempt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldClaimAttempt: %w", err)
+	}
+	return oldValue.ClaimAttempt, nil
+}
+
+// AddClaimAttempt adds i to the "claim_attempt" field.
+func (m *JobTaskMutation) AddClaimAttempt(i int) {
+	if m.addclaim_attempt != nil {
+		*m.addclaim_attempt += i
+	} else {
+		m.addclaim_attempt = &i
+	}
+}
+
+// AddedClaimAttempt returns the value that was added to the "claim_attempt" field in this mutation.
+func (m *JobTaskMutation) AddedClaimAttempt() (r int, exists bool) {
+	v := m.addclaim_attempt
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetClaimAttempt resets all changes to the "claim_attempt" field.
+func (m *JobTaskMutation) ResetClaimAttempt() {
+	m.claim_attempt = nil
+	m.addclaim_attempt = nil
+}
+
+// SetClaimRunner sets the "claim_runner" field.
+func (m *JobTaskMutation) SetClaimRunner(s string) {
+	m.claim_runner = &s
+}
+
+// ClaimRunner returns the value of the "claim_runner" field in the mutation.
+func (m *JobTaskMutation) ClaimRunner() (r string, exists bool) {
+	v := m.claim_runner
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldClaimRunner returns the old "claim_runner" field's value of the JobTask entity.
+// If the JobTask object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *JobTaskMutation) OldClaimRunner(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldClaimRunner is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldClaimRunner requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldClaimRunner: %w", err)
+	}
+	return oldValue.ClaimRunner, nil
+}
+
+// ResetClaimRunner resets all changes to the "claim_runner" field.
+func (m *JobTaskMutation) ResetClaimRunner() {
+	m.claim_runner = nil
+}
+
+// SetClaimOrderSource sets the "claim_order_source" field.
+func (m *JobTaskMutation) SetClaimOrderSource(s string) {
+	m.claim_order_source = &s
+}
+
+// ClaimOrderSource returns the value of the "claim_order_source" field in the mutation.
+func (m *JobTaskMutation) ClaimOrderSource() (r string, exists bool) {
+	v := m.claim_order_source
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldClaimOrderSource returns the old "claim_order_source" field's value of the JobTask entity.
+// If the JobTask object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *JobTaskMutation) OldClaimOrderSource(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldClaimOrderSource is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldClaimOrderSource requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldClaimOrderSource: %w", err)
+	}
+	return oldValue.ClaimOrderSource, nil
+}
+
+// ResetClaimOrderSource resets all changes to the "claim_order_source" field.
+func (m *JobTaskMutation) ResetClaimOrderSource() {
+	m.claim_order_source = nil
+}
+
+// SetClaimOrderToken sets the "claim_order_token" field.
+func (m *JobTaskMutation) SetClaimOrderToken(u uint64) {
+	m.claim_order_token = &u
+	m.addclaim_order_token = nil
+}
+
+// ClaimOrderToken returns the value of the "claim_order_token" field in the mutation.
+func (m *JobTaskMutation) ClaimOrderToken() (r uint64, exists bool) {
+	v := m.claim_order_token
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldClaimOrderToken returns the old "claim_order_token" field's value of the JobTask entity.
+// If the JobTask object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *JobTaskMutation) OldClaimOrderToken(ctx context.Context) (v uint64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldClaimOrderToken is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldClaimOrderToken requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldClaimOrderToken: %w", err)
+	}
+	return oldValue.ClaimOrderToken, nil
+}
+
+// AddClaimOrderToken adds u to the "claim_order_token" field.
+func (m *JobTaskMutation) AddClaimOrderToken(u int64) {
+	if m.addclaim_order_token != nil {
+		*m.addclaim_order_token += u
+	} else {
+		m.addclaim_order_token = &u
+	}
+}
+
+// AddedClaimOrderToken returns the value that was added to the "claim_order_token" field in this mutation.
+func (m *JobTaskMutation) AddedClaimOrderToken() (r int64, exists bool) {
+	v := m.addclaim_order_token
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetClaimOrderToken resets all changes to the "claim_order_token" field.
+func (m *JobTaskMutation) ResetClaimOrderToken() {
+	m.claim_order_token = nil
+	m.addclaim_order_token = nil
+}
+
 // SetJobID sets the "job" edge to the Job entity by id.
 func (m *JobTaskMutation) SetJobID(id int) {
 	m.job = &id
@@ -16238,7 +16428,7 @@ func (m *JobTaskMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *JobTaskMutation) Fields() []string {
-	fields := make([]string, 0, 13)
+	fields := make([]string, 0, 17)
 	if m.created_at != nil {
 		fields = append(fields, jobtask.FieldCreatedAt)
 	}
@@ -16278,6 +16468,18 @@ func (m *JobTaskMutation) Fields() []string {
 	if m.batch != nil {
 		fields = append(fields, jobtask.FieldBatch)
 	}
+	if m.claim_attempt != nil {
+		fields = append(fields, jobtask.FieldClaimAttempt)
+	}
+	if m.claim_runner != nil {
+		fields = append(fields, jobtask.FieldClaimRunner)
+	}
+	if m.claim_order_source != nil {
+		fields = append(fields, jobtask.FieldClaimOrderSource)
+	}
+	if m.claim_order_token != nil {
+		fields = append(fields, jobtask.FieldClaimOrderToken)
+	}
 	return fields
 }
 
@@ -16312,6 +16514,14 @@ func (m *JobTaskMutation) Field(name string) (ent.Value, bool) {
 		return m.Slot()
 	case jobtask.FieldBatch:
 		return m.Batch()
+	case jobtask.FieldClaimAttempt:
+		return m.ClaimAttempt()
+	case jobtask.FieldClaimRunner:
+		return m.ClaimRunner()
+	case jobtask.FieldClaimOrderSource:
+		return m.ClaimOrderSource()
+	case jobtask.FieldClaimOrderToken:
+		return m.ClaimOrderToken()
 	}
 	return nil, false
 }
@@ -16347,6 +16557,14 @@ func (m *JobTaskMutation) OldField(ctx context.Context, name string) (ent.Value,
 		return m.OldSlot(ctx)
 	case jobtask.FieldBatch:
 		return m.OldBatch(ctx)
+	case jobtask.FieldClaimAttempt:
+		return m.OldClaimAttempt(ctx)
+	case jobtask.FieldClaimRunner:
+		return m.OldClaimRunner(ctx)
+	case jobtask.FieldClaimOrderSource:
+		return m.OldClaimOrderSource(ctx)
+	case jobtask.FieldClaimOrderToken:
+		return m.OldClaimOrderToken(ctx)
 	}
 	return nil, fmt.Errorf("unknown JobTask field %s", name)
 }
@@ -16447,6 +16665,34 @@ func (m *JobTaskMutation) SetField(name string, value ent.Value) error {
 		}
 		m.SetBatch(v)
 		return nil
+	case jobtask.FieldClaimAttempt:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetClaimAttempt(v)
+		return nil
+	case jobtask.FieldClaimRunner:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetClaimRunner(v)
+		return nil
+	case jobtask.FieldClaimOrderSource:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetClaimOrderSource(v)
+		return nil
+	case jobtask.FieldClaimOrderToken:
+		v, ok := value.(uint64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetClaimOrderToken(v)
+		return nil
 	}
 	return fmt.Errorf("unknown JobTask field %s", name)
 }
@@ -16464,6 +16710,12 @@ func (m *JobTaskMutation) AddedFields() []string {
 	if m.addbatch != nil {
 		fields = append(fields, jobtask.FieldBatch)
 	}
+	if m.addclaim_attempt != nil {
+		fields = append(fields, jobtask.FieldClaimAttempt)
+	}
+	if m.addclaim_order_token != nil {
+		fields = append(fields, jobtask.FieldClaimOrderToken)
+	}
 	return fields
 }
 
@@ -16478,6 +16730,10 @@ func (m *JobTaskMutation) AddedField(name string) (ent.Value, bool) {
 		return m.AddedSlot()
 	case jobtask.FieldBatch:
 		return m.AddedBatch()
+	case jobtask.FieldClaimAttempt:
+		return m.AddedClaimAttempt()
+	case jobtask.FieldClaimOrderToken:
+		return m.AddedClaimOrderToken()
 	}
 	return nil, false
 }
@@ -16507,6 +16763,20 @@ func (m *JobTaskMutation) AddField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.AddBatch(v)
+		return nil
+	case jobtask.FieldClaimAttempt:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddClaimAttempt(v)
+		return nil
+	case jobtask.FieldClaimOrderToken:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddClaimOrderToken(v)
 		return nil
 	}
 	return fmt.Errorf("unknown JobTask numeric field %s", name)
@@ -16612,6 +16882,18 @@ func (m *JobTaskMutation) ResetField(name string) error {
 		return nil
 	case jobtask.FieldBatch:
 		m.ResetBatch()
+		return nil
+	case jobtask.FieldClaimAttempt:
+		m.ResetClaimAttempt()
+		return nil
+	case jobtask.FieldClaimRunner:
+		m.ResetClaimRunner()
+		return nil
+	case jobtask.FieldClaimOrderSource:
+		m.ResetClaimOrderSource()
+		return nil
+	case jobtask.FieldClaimOrderToken:
+		m.ResetClaimOrderToken()
 		return nil
 	}
 	return fmt.Errorf("unknown JobTask field %s", name)

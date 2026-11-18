@@ -50,6 +50,22 @@ type Subscriber struct {
 	// method, never under the method it names. Nil trusts the batch's
 	// method, which only a test of the store alone wants.
 	nodes journal.NodeResolver
+	// claims holds each batch to the claim its job's record gives the device
+	// (WithClaims, facts.Claim): a Runner's later batches cannot move to
+	// another Runner's place or an earlier attempt's. Nil checks nothing, which
+	// only a test of the store alone wants.
+	claims facts.ClaimStore
+}
+
+// WithClaims holds every batch to the claim its job's record gives the device
+// (internal/dispatch's ClaimBatch): a batch whose attempt, Runner or order
+// the claim does not allow is dropped and logged, and a claim store that fails
+// returns the error so the bus redelivers. The Controller passes its dispatch
+// store; without it no claim is checked.
+func WithClaims(claims facts.ClaimStore) SubscriberOption {
+	return func(s *Subscriber) {
+		s.claims = claims
+	}
 }
 
 // SubscriberOption configures a Subscriber.
@@ -170,6 +186,21 @@ func (s *Subscriber) Handle(evt event.Event) error {
 			return nil
 		default:
 			return fmt.Errorf("the facts batch names job %s device %s, which this controller has not recorded dispatching yet", termsafe.Quote(batch.JobID), termsafe.Quote(batch.DeviceID))
+		}
+	}
+	// The batch's place in the job is held to the claim its device's record
+	// gives (WithClaims) before anything is stored: a refused batch is dropped
+	// whole, since redelivering it would only refuse it again.
+	if s.claims != nil {
+		refusal, err := s.claims.ClaimBatch(context.Background(), batch.JobID, batch.DeviceID, facts.Claim{Attempt: batch.Attempt, Runner: by.Runner, Order: by.Order})
+		if err != nil {
+			return fmt.Errorf("failed to check the claim of the facts batch for job %s: %w", termsafe.Quote(batch.JobID), err)
+		}
+		if refusal != "" {
+			s.logger.Warn("dropping a facts batch whose place in the job its device's claim does not allow",
+				slog.String("job", termsafe.Quote(batch.JobID)), slog.String("device", termsafe.Quote(batch.DeviceID)),
+				slog.String("runner", termsafe.Quote(by.Runner)), slog.Int("attempt", batch.Attempt), slog.String("reason", termsafe.Quote(refusal)))
+			return nil
 		}
 	}
 	// The method is the node's, as the Controller dispatched it, never the

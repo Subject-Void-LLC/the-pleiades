@@ -218,6 +218,76 @@ func (_u *JobTaskUpdate) ClearBatch() *JobTaskUpdate {
 	return _u
 }
 
+// SetClaimAttempt sets the "claim_attempt" field.
+func (_u *JobTaskUpdate) SetClaimAttempt(v int) *JobTaskUpdate {
+	_u.mutation.ResetClaimAttempt()
+	_u.mutation.SetClaimAttempt(v)
+	return _u
+}
+
+// SetNillableClaimAttempt sets the "claim_attempt" field if the given value is not nil.
+func (_u *JobTaskUpdate) SetNillableClaimAttempt(v *int) *JobTaskUpdate {
+	if v != nil {
+		_u.SetClaimAttempt(*v)
+	}
+	return _u
+}
+
+// AddClaimAttempt adds value to the "claim_attempt" field.
+func (_u *JobTaskUpdate) AddClaimAttempt(v int) *JobTaskUpdate {
+	_u.mutation.AddClaimAttempt(v)
+	return _u
+}
+
+// SetClaimRunner sets the "claim_runner" field.
+func (_u *JobTaskUpdate) SetClaimRunner(v string) *JobTaskUpdate {
+	_u.mutation.SetClaimRunner(v)
+	return _u
+}
+
+// SetNillableClaimRunner sets the "claim_runner" field if the given value is not nil.
+func (_u *JobTaskUpdate) SetNillableClaimRunner(v *string) *JobTaskUpdate {
+	if v != nil {
+		_u.SetClaimRunner(*v)
+	}
+	return _u
+}
+
+// SetClaimOrderSource sets the "claim_order_source" field.
+func (_u *JobTaskUpdate) SetClaimOrderSource(v string) *JobTaskUpdate {
+	_u.mutation.SetClaimOrderSource(v)
+	return _u
+}
+
+// SetNillableClaimOrderSource sets the "claim_order_source" field if the given value is not nil.
+func (_u *JobTaskUpdate) SetNillableClaimOrderSource(v *string) *JobTaskUpdate {
+	if v != nil {
+		_u.SetClaimOrderSource(*v)
+	}
+	return _u
+}
+
+// SetClaimOrderToken sets the "claim_order_token" field.
+func (_u *JobTaskUpdate) SetClaimOrderToken(v uint64) *JobTaskUpdate {
+	_u.mutation.ResetClaimOrderToken()
+	_u.mutation.SetClaimOrderToken(v)
+	return _u
+}
+
+// SetNillableClaimOrderToken sets the "claim_order_token" field if the given value is not nil.
+func (_u *JobTaskUpdate) SetNillableClaimOrderToken(v *uint64) *JobTaskUpdate {
+	if v != nil {
+		_u.SetClaimOrderToken(*v)
+	}
+	return _u
+}
+
+// AddClaimOrderToken adds value to the "claim_order_token" field.
+func (_u *JobTaskUpdate) AddClaimOrderToken(v int64) *JobTaskUpdate {
+	_u.mutation.AddClaimOrderToken(v)
+	return _u
+}
+
 // SetJobID sets the "job" edge to the Job entity by ID.
 func (_u *JobTaskUpdate) SetJobID(id int) *JobTaskUpdate {
 	_u.mutation.SetJobID(id)
@@ -303,6 +373,11 @@ func (_u *JobTaskUpdate) check() error {
 			return &ValidationError{Name: "batch", err: fmt.Errorf(`ent: validator failed for field "JobTask.batch": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.ClaimAttempt(); ok {
+		if err := jobtask.ClaimAttemptValidator(v); err != nil {
+			return &ValidationError{Name: "claim_attempt", err: fmt.Errorf(`ent: validator failed for field "JobTask.claim_attempt": %w`, err)}
+		}
+	}
 	if _u.mutation.JobCleared() && len(_u.mutation.JobIDs()) > 0 {
 		return errors.New(`ent: clearing a required unique edge "JobTask.job"`)
 	}
@@ -377,6 +452,24 @@ func (_u *JobTaskUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if _u.mutation.BatchCleared() {
 		_spec.ClearField(jobtask.FieldBatch, field.TypeInt)
+	}
+	if value, ok := _u.mutation.ClaimAttempt(); ok {
+		_spec.SetField(jobtask.FieldClaimAttempt, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedClaimAttempt(); ok {
+		_spec.AddField(jobtask.FieldClaimAttempt, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.ClaimRunner(); ok {
+		_spec.SetField(jobtask.FieldClaimRunner, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.ClaimOrderSource(); ok {
+		_spec.SetField(jobtask.FieldClaimOrderSource, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.ClaimOrderToken(); ok {
+		_spec.SetField(jobtask.FieldClaimOrderToken, field.TypeUint64, value)
+	}
+	if value, ok := _u.mutation.AddedClaimOrderToken(); ok {
+		_spec.AddField(jobtask.FieldClaimOrderToken, field.TypeUint64, value)
 	}
 	if _u.mutation.JobCleared() {
 		edge := &sqlgraph.EdgeSpec{
@@ -616,6 +709,76 @@ func (_u *JobTaskUpdateOne) ClearBatch() *JobTaskUpdateOne {
 	return _u
 }
 
+// SetClaimAttempt sets the "claim_attempt" field.
+func (_u *JobTaskUpdateOne) SetClaimAttempt(v int) *JobTaskUpdateOne {
+	_u.mutation.ResetClaimAttempt()
+	_u.mutation.SetClaimAttempt(v)
+	return _u
+}
+
+// SetNillableClaimAttempt sets the "claim_attempt" field if the given value is not nil.
+func (_u *JobTaskUpdateOne) SetNillableClaimAttempt(v *int) *JobTaskUpdateOne {
+	if v != nil {
+		_u.SetClaimAttempt(*v)
+	}
+	return _u
+}
+
+// AddClaimAttempt adds value to the "claim_attempt" field.
+func (_u *JobTaskUpdateOne) AddClaimAttempt(v int) *JobTaskUpdateOne {
+	_u.mutation.AddClaimAttempt(v)
+	return _u
+}
+
+// SetClaimRunner sets the "claim_runner" field.
+func (_u *JobTaskUpdateOne) SetClaimRunner(v string) *JobTaskUpdateOne {
+	_u.mutation.SetClaimRunner(v)
+	return _u
+}
+
+// SetNillableClaimRunner sets the "claim_runner" field if the given value is not nil.
+func (_u *JobTaskUpdateOne) SetNillableClaimRunner(v *string) *JobTaskUpdateOne {
+	if v != nil {
+		_u.SetClaimRunner(*v)
+	}
+	return _u
+}
+
+// SetClaimOrderSource sets the "claim_order_source" field.
+func (_u *JobTaskUpdateOne) SetClaimOrderSource(v string) *JobTaskUpdateOne {
+	_u.mutation.SetClaimOrderSource(v)
+	return _u
+}
+
+// SetNillableClaimOrderSource sets the "claim_order_source" field if the given value is not nil.
+func (_u *JobTaskUpdateOne) SetNillableClaimOrderSource(v *string) *JobTaskUpdateOne {
+	if v != nil {
+		_u.SetClaimOrderSource(*v)
+	}
+	return _u
+}
+
+// SetClaimOrderToken sets the "claim_order_token" field.
+func (_u *JobTaskUpdateOne) SetClaimOrderToken(v uint64) *JobTaskUpdateOne {
+	_u.mutation.ResetClaimOrderToken()
+	_u.mutation.SetClaimOrderToken(v)
+	return _u
+}
+
+// SetNillableClaimOrderToken sets the "claim_order_token" field if the given value is not nil.
+func (_u *JobTaskUpdateOne) SetNillableClaimOrderToken(v *uint64) *JobTaskUpdateOne {
+	if v != nil {
+		_u.SetClaimOrderToken(*v)
+	}
+	return _u
+}
+
+// AddClaimOrderToken adds value to the "claim_order_token" field.
+func (_u *JobTaskUpdateOne) AddClaimOrderToken(v int64) *JobTaskUpdateOne {
+	_u.mutation.AddClaimOrderToken(v)
+	return _u
+}
+
 // SetJobID sets the "job" edge to the Job entity by ID.
 func (_u *JobTaskUpdateOne) SetJobID(id int) *JobTaskUpdateOne {
 	_u.mutation.SetJobID(id)
@@ -714,6 +877,11 @@ func (_u *JobTaskUpdateOne) check() error {
 			return &ValidationError{Name: "batch", err: fmt.Errorf(`ent: validator failed for field "JobTask.batch": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.ClaimAttempt(); ok {
+		if err := jobtask.ClaimAttemptValidator(v); err != nil {
+			return &ValidationError{Name: "claim_attempt", err: fmt.Errorf(`ent: validator failed for field "JobTask.claim_attempt": %w`, err)}
+		}
+	}
 	if _u.mutation.JobCleared() && len(_u.mutation.JobIDs()) > 0 {
 		return errors.New(`ent: clearing a required unique edge "JobTask.job"`)
 	}
@@ -805,6 +973,24 @@ func (_u *JobTaskUpdateOne) sqlSave(ctx context.Context) (_node *JobTask, err er
 	}
 	if _u.mutation.BatchCleared() {
 		_spec.ClearField(jobtask.FieldBatch, field.TypeInt)
+	}
+	if value, ok := _u.mutation.ClaimAttempt(); ok {
+		_spec.SetField(jobtask.FieldClaimAttempt, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedClaimAttempt(); ok {
+		_spec.AddField(jobtask.FieldClaimAttempt, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.ClaimRunner(); ok {
+		_spec.SetField(jobtask.FieldClaimRunner, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.ClaimOrderSource(); ok {
+		_spec.SetField(jobtask.FieldClaimOrderSource, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.ClaimOrderToken(); ok {
+		_spec.SetField(jobtask.FieldClaimOrderToken, field.TypeUint64, value)
+	}
+	if value, ok := _u.mutation.AddedClaimOrderToken(); ok {
+		_spec.AddField(jobtask.FieldClaimOrderToken, field.TypeUint64, value)
 	}
 	if _u.mutation.JobCleared() {
 		edge := &sqlgraph.EdgeSpec{

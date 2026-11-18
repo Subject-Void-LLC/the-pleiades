@@ -1,0 +1,1 @@
+ALTER TABLE "job_tasks" ADD COLUMN "claim_attempt" bigint NOT NULL DEFAULT 0, ADD COLUMN "claim_runner" character varying NOT NULL DEFAULT '', ADD COLUMN "claim_order_source" character varying NOT NULL DEFAULT '', ADD COLUMN "claim_order_token" bigint NOT NULL DEFAULT 0;

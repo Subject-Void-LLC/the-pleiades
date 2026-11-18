@@ -229,9 +229,17 @@ Each value carries its kind (`stable`, history kept; `volatile`, latest value
 only) and its provenance: the job, attempt, run, task, method and Runner that
 observed it (`by`) and that last confirmed it (`last_by`), with the run's order,
 the device lease's fencing token, and the Collection the method came from
-(`collection`, as the Runner's engine recorded it). The Runner's name is the host name it reported,
-and the token is the one it reports: neither is checked by the Controller, so a
-Runner that is not trusted can mislabel its facts or misorder them. The Collection
+(`collection`, as the Runner's engine recorded it). The Controller holds each device's place in a job to a
+claim (`internal/facts`'s `DecideClaim`, written on the job's device row by
+`dispatch`'s `ClaimBatch`): the first verified batch of each delivery attempt sets
+the Runner's name and the order it reports, and a later batch of that attempt must
+name the same Runner and the same order (where both compare); an earlier attempt
+than the claim's is refused, and a later attempt takes the claim only with an order
+that does not go backwards. A batch that breaks those rules is dropped and logged.
+This checks consistency, not truth: a Runner that is not trusted and stays
+consistent can still mislabel its facts or misorder them, and binding a
+publication to its Runner is Phase 105's work. A Runner whose host name cannot
+be read stops at startup rather than publishing facts no batch can be checked for. The Collection
 is checked only for its shape and for agreeing with the method (a first-party
 method's group, or a program's method outside every group); one that does not is
 stored as unknown, with a warning, and the facts are kept. A device's

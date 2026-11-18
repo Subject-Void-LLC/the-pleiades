@@ -44,6 +44,14 @@ type JobTask struct {
 	Slot *int `json:"slot,omitempty"`
 	// Batch holds the value of the "batch" field.
 	Batch *int `json:"batch,omitempty"`
+	// ClaimAttempt holds the value of the "claim_attempt" field.
+	ClaimAttempt int `json:"claim_attempt,omitempty"`
+	// ClaimRunner holds the value of the "claim_runner" field.
+	ClaimRunner string `json:"claim_runner,omitempty"`
+	// ClaimOrderSource holds the value of the "claim_order_source" field.
+	ClaimOrderSource string `json:"claim_order_source,omitempty"`
+	// ClaimOrderToken holds the value of the "claim_order_token" field.
+	ClaimOrderToken uint64 `json:"claim_order_token,omitempty"`
 	// Edges holds the relations/edges for other nodes in the graph.
 	// The values are being populated by the JobTaskQuery when eager-loading is set.
 	Edges        JobTaskEdges `json:"edges"`
@@ -78,9 +86,9 @@ func (*JobTask) scanValues(columns []string) ([]any, error) {
 		switch columns[i] {
 		case jobtask.FieldWaiting:
 			values[i] = new(sql.NullBool)
-		case jobtask.FieldID, jobtask.FieldUnchecked, jobtask.FieldSlot, jobtask.FieldBatch:
+		case jobtask.FieldID, jobtask.FieldUnchecked, jobtask.FieldSlot, jobtask.FieldBatch, jobtask.FieldClaimAttempt, jobtask.FieldClaimOrderToken:
 			values[i] = new(sql.NullInt64)
-		case jobtask.FieldDeviceID, jobtask.FieldDeviceName, jobtask.FieldOutcome, jobtask.FieldReason, jobtask.FieldResult, jobtask.FieldResultReason:
+		case jobtask.FieldDeviceID, jobtask.FieldDeviceName, jobtask.FieldOutcome, jobtask.FieldReason, jobtask.FieldResult, jobtask.FieldResultReason, jobtask.FieldClaimRunner, jobtask.FieldClaimOrderSource:
 			values[i] = new(sql.NullString)
 		case jobtask.FieldCreatedAt, jobtask.FieldUpdatedAt, jobtask.FieldFinishedAt:
 			values[i] = new(sql.NullTime)
@@ -187,6 +195,30 @@ func (_m *JobTask) assignValues(columns []string, values []any) error {
 				_m.Batch = new(int)
 				*_m.Batch = int(value.Int64)
 			}
+		case jobtask.FieldClaimAttempt:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field claim_attempt", values[i])
+			} else if value.Valid {
+				_m.ClaimAttempt = int(value.Int64)
+			}
+		case jobtask.FieldClaimRunner:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field claim_runner", values[i])
+			} else if value.Valid {
+				_m.ClaimRunner = value.String
+			}
+		case jobtask.FieldClaimOrderSource:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field claim_order_source", values[i])
+			} else if value.Valid {
+				_m.ClaimOrderSource = value.String
+			}
+		case jobtask.FieldClaimOrderToken:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field claim_order_token", values[i])
+			} else if value.Valid {
+				_m.ClaimOrderToken = uint64(value.Int64)
+			}
 		case jobtask.ForeignKeys[0]:
 			if value, ok := values[i].(*sql.NullInt64); !ok {
 				return fmt.Errorf("unexpected type %T for edge-field job_tasks", value)
@@ -277,6 +309,18 @@ func (_m *JobTask) String() string {
 		builder.WriteString("batch=")
 		builder.WriteString(fmt.Sprintf("%v", *v))
 	}
+	builder.WriteString(", ")
+	builder.WriteString("claim_attempt=")
+	builder.WriteString(fmt.Sprintf("%v", _m.ClaimAttempt))
+	builder.WriteString(", ")
+	builder.WriteString("claim_runner=")
+	builder.WriteString(_m.ClaimRunner)
+	builder.WriteString(", ")
+	builder.WriteString("claim_order_source=")
+	builder.WriteString(_m.ClaimOrderSource)
+	builder.WriteString(", ")
+	builder.WriteString("claim_order_token=")
+	builder.WriteString(fmt.Sprintf("%v", _m.ClaimOrderToken))
 	builder.WriteByte(')')
 	return builder.String()
 }

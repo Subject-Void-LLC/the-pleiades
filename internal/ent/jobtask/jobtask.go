@@ -41,6 +41,14 @@ const (
 	FieldSlot = "slot"
 	// FieldBatch holds the string denoting the batch field in the database.
 	FieldBatch = "batch"
+	// FieldClaimAttempt holds the string denoting the claim_attempt field in the database.
+	FieldClaimAttempt = "claim_attempt"
+	// FieldClaimRunner holds the string denoting the claim_runner field in the database.
+	FieldClaimRunner = "claim_runner"
+	// FieldClaimOrderSource holds the string denoting the claim_order_source field in the database.
+	FieldClaimOrderSource = "claim_order_source"
+	// FieldClaimOrderToken holds the string denoting the claim_order_token field in the database.
+	FieldClaimOrderToken = "claim_order_token"
 	// EdgeJob holds the string denoting the job edge name in mutations.
 	EdgeJob = "job"
 	// Table holds the table name of the jobtask in the database.
@@ -70,6 +78,10 @@ var Columns = []string{
 	FieldWaiting,
 	FieldSlot,
 	FieldBatch,
+	FieldClaimAttempt,
+	FieldClaimRunner,
+	FieldClaimOrderSource,
+	FieldClaimOrderToken,
 }
 
 // ForeignKeys holds the SQL foreign-keys that are owned by the "job_tasks"
@@ -114,6 +126,16 @@ var (
 	SlotValidator func(int) error
 	// BatchValidator is a validator for the "batch" field. It is called by the builders before save.
 	BatchValidator func(int) error
+	// DefaultClaimAttempt holds the default value on creation for the "claim_attempt" field.
+	DefaultClaimAttempt int
+	// ClaimAttemptValidator is a validator for the "claim_attempt" field. It is called by the builders before save.
+	ClaimAttemptValidator func(int) error
+	// DefaultClaimRunner holds the default value on creation for the "claim_runner" field.
+	DefaultClaimRunner string
+	// DefaultClaimOrderSource holds the default value on creation for the "claim_order_source" field.
+	DefaultClaimOrderSource string
+	// DefaultClaimOrderToken holds the default value on creation for the "claim_order_token" field.
+	DefaultClaimOrderToken uint64
 )
 
 // Outcome defines the type for the "outcome" enum field.
@@ -234,6 +256,26 @@ func BySlot(opts ...sql.OrderTermOption) OrderOption {
 // ByBatch orders the results by the batch field.
 func ByBatch(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldBatch, opts...).ToFunc()
+}
+
+// ByClaimAttempt orders the results by the claim_attempt field.
+func ByClaimAttempt(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldClaimAttempt, opts...).ToFunc()
+}
+
+// ByClaimRunner orders the results by the claim_runner field.
+func ByClaimRunner(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldClaimRunner, opts...).ToFunc()
+}
+
+// ByClaimOrderSource orders the results by the claim_order_source field.
+func ByClaimOrderSource(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldClaimOrderSource, opts...).ToFunc()
+}
+
+// ByClaimOrderToken orders the results by the claim_order_token field.
+func ByClaimOrderToken(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldClaimOrderToken, opts...).ToFunc()
 }
 
 // ByJobField orders the results by job field.
