@@ -40,6 +40,8 @@ var shellFreeServers = map[string]string{
 	"internal/engine/refused_test.go:TestRefusedLogin_ARealServerIsSentItOnce":                                                 "every login is refused, so no session is ever opened",
 	"pkg/external/refused_test.go:TestInvokeRequest_ARefusedLoginIsMarked":                                                     "logs in and closes the connection; no exec session is opened",
 	"internal/hosttrust/hosttrust_test.go:TestScan":                                                                            "reads the host key and never logs in",
+	"internal/hosttrust/hosttrust_test.go:TestScan_AnOldDeviceIsScannedOnlyWhenItsRecordAllowsIt":                              "reads a legacy server's host key and never logs in",
+	"cmd/pleiades/legacy_ssh_release_gate_test.go:scriptedIOS":                                                                 "a scripted IOS CLI; trust-host reads its key, and net.ios.command and wait.connection open a terminal, never an exec session",
 	"internal/inventory/onboard/probe_kubernetes_onboard_live_test.go:TestKubernetesOnboard_NodesAndRoutes":                    "a bastion forwarding to the k3s API",
 	"internal/transport/serialtcp/serialtcp_test.go:TestExec_TunnelsThroughABastionWhenRouteIsSet":                             "a bastion forwarding to a console server",
 	"internal/transport/serialtcp/serialtcp_test.go:TestExec_UnreachableConsoleServerThroughBastionFailsWithChannelError":      "a bastion whose forward fails",

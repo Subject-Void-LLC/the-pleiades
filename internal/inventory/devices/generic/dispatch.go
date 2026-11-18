@@ -8,13 +8,16 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/httpapi"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/snmp"
 )
 
 func init() {
 	// generic_ssh's accessors are linux.Server's.
 	record.RegisterDispatchProperties(TypeSSH, linux.AccessorProperties()...)
-	record.RegisterDispatchProperties(TypeNetconf, "host", "port", "netconf_port")
+	// A NETCONF listener is an SSH server, whose handshake reads the legacy
+	// SSH flags (remoteexec.LegacyFor).
+	record.RegisterDispatchProperties(TypeNetconf, append([]string{"host", "port", "netconf_port"}, remoteexec.LegacyProperties()...)...)
 	record.RegisterDispatchProperties(TypeHTTP, append([]string{
 		BaseURLProperty, HTTPAuthProperty, OpenAPIPathProperty, httpapi.AllowPlaintextCredentialsProperty,
 	}, devicetls.Properties()...)...)

@@ -339,6 +339,10 @@ func (e *collectionActionExecutor) run(ctx context.Context, task *Task, device i
 		lent.earlierChange = desc.Provider == nil && sdk.EarlierChangeFrom(ctx)
 	}
 	e.lendAIProject(rc)
+	// What the SSH connections the method opens say about themselves (a
+	// legacy algorithm the device's record allowed and the connection used)
+	// is added to the task's warnings below, whichever method opened them.
+	ctx = sdk.WithConnectionNotes(ctx, nameOfDevice(device))
 	result, err := method(ctx, rc, device, task.Params)
 	e.endLoginSession(desc, device, mode)
 	// A secret the method obtained while it ran (a registry password, a
@@ -353,6 +357,12 @@ func (e *collectionActionExecutor) run(ctx context.Context, task *Task, device i
 	}
 	// No raw digest outlives this line, on failure as on success.
 	stats = e.digestsOf(device, stats)
+	if warnings := sdk.ConnectionWarnings(ctx); len(warnings) > 0 {
+		if stats == nil {
+			stats = map[string]interface{}{}
+		}
+		sdk.MergeWarnings(stats, warnings...)
+	}
 	recordBecome(ctx, task.FQCN, becomeUser, becomes, err == nil, stats)
 	if err != nil {
 		return ActionResult{Stats: failedStats(task.FQCN, mode, stats), Secrets: secrets}, methodError(task.FQCN, mode, err)
@@ -362,6 +372,14 @@ func (e *collectionActionExecutor) run(ctx context.Context, task *Task, device i
 	}
 
 	return ActionResult{Changed: result.Changed, Stats: stats, Secrets: secrets}, nil
+}
+
+// nameOfDevice is device's name, or "" for a task that runs on no device.
+func nameOfDevice(device inventory.InventoryItem) string {
+	if device == nil {
+		return ""
+	}
+	return device.Name()
 }
 
 // failedStats is what a failed method recorded before it failed (exec.command

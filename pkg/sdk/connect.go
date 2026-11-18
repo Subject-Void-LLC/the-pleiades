@@ -114,7 +114,9 @@ func connect(ctx context.Context, rc RunbookContext, device inventory.InventoryI
 		InsecureSkipHostKeyVerify: BoolParam(params, ParamInsecureSkipHostKeyVerify),
 	})
 
-	target := remoteexec.Target{Host: sshDev.SSHHost(), Port: port}
+	// The legacy SSH algorithms the device's record allows, none unless set
+	// (remoteexec's legacy.go).
+	target := remoteexec.Target{Host: sshDev.SSHHost(), Port: port, Legacy: remoteexec.LegacyFor(device)}
 	var conn *remoteexec.Conn
 	switch route := routeOf(rc); {
 	case route != nil:
@@ -129,8 +131,11 @@ func connect(ctx context.Context, rc RunbookContext, device inventory.InventoryI
 		conn, err = runner.Connect(ctx, nil, target, auth)
 	}
 	if err != nil {
-		return nil, fmt.Errorf("%s: device %q: %w", fqcn, device.Name(), err)
+		return nil, fmt.Errorf("%s: device %q: %w", fqcn, device.Name(), WithTrustAdvice(err, device, port))
 	}
+	// What the connection agreed to that the record had to allow is warned
+	// about on every task that uses it (connnotes.go).
+	NoteConnection(ctx, conn)
 	// sh reads every command, whatever the login shell is, except on a device
 	// whose exec channel is not a POSIX shell (a network CLI), which reads them
 	// as written.

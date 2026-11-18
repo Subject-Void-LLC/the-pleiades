@@ -63,7 +63,7 @@ func TestSecretsFrom(t *testing.T) {
 	repo, _ := newRepo(t, "grpc1", generic.TypeGRPC, map[string]inventory.PropertyValue{generic.GRPCTargetProperty: "a.invalid:1"})
 	calls := 0
 	res, err := onboardWith(context.Background(), repo, "grpc1", SecretsFrom(failingStore{}), fixedNow, only(countingProber{calls: &calls}), options{})
-	if err == nil || calls != 0 || res.State != "onboarding" {
+	if err == nil || calls != 0 || res.State != "discovered" {
 		t.Errorf("a broken store: err %v after %d probes, state %s", err, calls, res.State)
 	}
 }

@@ -56,7 +56,7 @@ func TestDeviceOnboard_AnswersEachOutcome(t *testing.T) {
 	const warning = "device api1 allows TLS 1.0 and 1.1 (tls_allow_deprecated_versions), which RFC 8996 deprecates"
 	done := onboard.Result{Device: "api1", Type: "generic_http", Protocol: "http", PreviousState: "discovered", State: "active", Capabilities: []string{"HTTPAPICapable"}, Changed: true,
 		Warnings: []string{warning}}
-	failed := onboard.Result{Device: "api1", Type: "generic_http", Protocol: "http", PreviousState: "discovered", State: "onboarding", Error: "the probe proved nothing: refused"}
+	failed := onboard.Result{Device: "api1", Type: "generic_http", Protocol: "http", PreviousState: "discovered", State: "discovered", Error: "the probe proved nothing: refused"}
 	for _, tc := range []struct {
 		name   string
 		o      api.Onboarder

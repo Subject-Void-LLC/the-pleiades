@@ -11,6 +11,8 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
 
 // ParamInsecureRawPassthrough is the RequireOptInParam name for the
@@ -105,6 +107,9 @@ func SSHTarget(item inventory.InventoryItem) (transport.Target, bool) {
 	return transport.Target{
 		Endpoint:   transport.NetworkEndpoint{Host: sshDev.SSHHost(), Port: sshDev.SSHPort()},
 		LoginShell: !inventory.ExecIsPOSIX(item),
+		// The legacy SSH algorithms the device's record allows, none unless
+		// set (pkg/remoteexec's legacy.go).
+		SSHLegacy: remoteexec.LegacyFor(item),
 	}, true
 }
 
@@ -316,8 +321,17 @@ func (e *transportActionExecutor) Execute(ctx context.Context, task *Task, devic
 		}
 	}
 
+	// What the SSH connection says about itself (a legacy algorithm the
+	// record allowed and it used) becomes a warning on the task, as it does
+	// for a Collection method (collection_action.go).
+	ctx = sdk.WithConnectionNotes(ctx, device.Name())
 	result, err := execCommand(ctx, binding.Transport, target, cred, device, task, command)
 	if err != nil {
+		// A refused host key names the trust-host command that would accept
+		// it, for the device's SSH port.
+		if network, ok := target.Endpoint.(transport.NetworkEndpoint); ok {
+			err = sdk.WithTrustAdvice(err, device, network.Port)
+		}
 		return ActionResult{}, fmt.Errorf("fqcn %q on device %q: %s", task.FQCN, device.Name(), redact.Text(secrets, err.Error()))
 	}
 
@@ -361,13 +375,12 @@ func (e *transportActionExecutor) Execute(ctx context.Context, task *Task, devic
 		changed = explicit
 	}
 
-	return ActionResult{
-		Changed: changed,
-		Stats: map[string]interface{}{
-			"stdout":              stdout,
-			"stderr":              stderr,
-			"exit_code":           result.ExitCode,
-			"exit_status_unknown": result.ExitStatusUnknown,
-		},
-	}, nil
+	stats := map[string]interface{}{
+		"stdout":              stdout,
+		"stderr":              stderr,
+		"exit_code":           result.ExitCode,
+		"exit_status_unknown": result.ExitStatusUnknown,
+	}
+	sdk.MergeWarnings(stats, sdk.ConnectionWarnings(ctx)...)
+	return ActionResult{Changed: changed, Stats: stats}, nil
 }

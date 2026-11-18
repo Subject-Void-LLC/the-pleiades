@@ -1,0 +1,1 @@
+A device whose SSH server offers only SHA-1 key exchange, only an `ssh-rsa` (SHA-1) or DSA host key signature, or only CBC, 3DES or RC4 ciphers or `hmac-sha1-96`, is refused until its record sets the matching `ssh_allow_legacy_*` flag; OpenSSH 7.2 and later and current IOS XE are not affected.

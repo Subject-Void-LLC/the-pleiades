@@ -76,6 +76,58 @@ type Conn struct {
 	// cuts it from the route's first hop inward; a cancelled command's watch
 	// calls it before closing the clients (conn_watch.go).
 	severVia func()
+
+	// legacy is what the target's record allowed this connection to agree
+	// to, which LegacyWarnings holds against what it did agree to.
+	legacy Legacy
+
+	// hopLegacy is what each bastion hop's own record allowed, one entry per
+	// hop in order, so a weakening on a bastion is reported too: its session
+	// carries the device's traffic (LegacyWarnings).
+	hopLegacy []hopLegacy
+}
+
+// hopLegacy is one bastion hop's address and the legacy algorithms its record
+// allowed, kept so the hop's negotiated algorithms can be warned about.
+type hopLegacy struct {
+	addr   string
+	legacy Legacy
+}
+
+// LegacyWarnings says, for the named device, what this connection did with
+// each legacy SSH algorithm its record allows (legacy.go): that it used one,
+// naming it, or that it did not need it. It covers the device's own leg and
+// each bastion hop that allows any. It is empty for a device whose records
+// allow none, which is every connection by default. A caller reports them on
+// every connection, so a weakening is never forgotten once set.
+func (c *Conn) LegacyWarnings(device string) []string {
+	if c == nil || c.client == nil {
+		return nil
+	}
+	var out []string
+	if !c.legacy.IsZero() {
+		out = append(out, connectionWarnings(device, c.legacy, negotiatedAlgorithms(c.client))...)
+	}
+	for i, h := range c.hopLegacy {
+		if h.legacy.IsZero() || i >= len(c.chain) {
+			continue
+		}
+		out = append(out, connectionWarnings("bastion "+h.addr+" carrying "+device, h.legacy, negotiatedAlgorithms(c.chain[i]))...)
+	}
+	return out
+}
+
+// negotiatedAlgorithms is what a client's handshake agreed to. A client
+// without that metadata yields none, so no warning is named from nothing.
+func negotiatedAlgorithms(client *ssh.Client) ssh.NegotiatedAlgorithms {
+	if client == nil {
+		return ssh.NegotiatedAlgorithms{}
+	}
+	meta, ok := client.Conn.(ssh.AlgorithmsConnMetadata)
+	if !ok {
+		return ssh.NegotiatedAlgorithms{}
+	}
+	return meta.Algorithms()
 }
 
 // taint marks a borrowed connection as not to be reused. It does nothing

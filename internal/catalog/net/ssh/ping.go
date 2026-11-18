@@ -147,7 +147,8 @@ func Ping(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventory
 	runner := remoteexec.Shared(remoteexec.Options{
 		InsecureSkipHostKeyVerify: boolParam(params, paramInsecureSkipHostKeyVerify),
 	})
-	target := remoteexec.Target{Host: sshDev.SSHHost(), Port: sshDev.SSHPort()}
+	// The legacy SSH algorithms the device's record allows, none unless set.
+	target := remoteexec.Target{Host: sshDev.SSHHost(), Port: sshDev.SSHPort(), Legacy: remoteexec.LegacyFor(device)}
 
 	// QuoteArg is what makes params.data safe to interpolate: an
 	// author-supplied value can contain any byte sequence, including shell
@@ -165,9 +166,12 @@ func Ping(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventory
 	}
 	conn, err := runner.ConnectVia(ctx, via, target, auth)
 	if err != nil {
-		return collection.Result{}, fmt.Errorf("net.ssh.ping: %w", err)
+		return collection.Result{}, fmt.Errorf("net.ssh.ping: %w", sdk.WithTrustAdvice(err, device, sshDev.SSHPort()))
 	}
 	defer func() { _ = conn.Close() }()
+	// A legacy algorithm the record allowed and this connection used is a
+	// warning on the task (sdk.NoteConnection).
+	sdk.NoteConnection(ctx, conn)
 	// sh prints the data with printf '%s\n', which takes it as one operand
 	// and prints it as itself: echo read data of -n, -e or -E as its own
 	// options and printed nothing, and dash's echo turned a backslash in it

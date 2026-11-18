@@ -744,7 +744,9 @@ var OnboardDevice = Endpoint{
 		"cluster in no organization, one reached through a route, or one pinning an authority the credential does " +
 		"not carry), and records the capabilities the device's own " +
 		"answers prove as a revision. A discovered device moves to onboarding, " +
-		"then to active when the probe succeeds; a failed first probe leaves it onboarding. Onboarding an " +
+		"then to active when the probe succeeds; a failed or interrupted attempt returns it to discovered, keeping nothing it learned " +
+		"(one another writer changed meanwhile is left onboarding, never overwritten, and the answer says so), and a device an attempt " +
+		"left onboarding is onboarded again from there. Onboarding an " +
 		"active device re-probes it and writes only what changed. It needs inventory:onboard, which " +
 		"inventory:write does not imply: this is the only way a device is granted a capability its Go type " +
 		"does not declare. With tls_first_use=true, a TLS device whose record names nothing it trusts, and " +

@@ -22,6 +22,8 @@ import (
 
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/knownhosts"
+
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 )
 
 // Outcome is what Merge did to the file.
@@ -214,26 +216,38 @@ func writeFile(path string, content []byte, mode os.FileMode) error {
 	return nil
 }
 
-// scanAlgorithms are the host key algorithms Scan asks for one at a time,
-// so it sees each kind of key a host has, as ssh-keyscan does.
-var scanAlgorithms = []string{ssh.KeyAlgoED25519, ssh.KeyAlgoECDSA256, ssh.KeyAlgoECDSA384, ssh.KeyAlgoECDSA521, ssh.KeyAlgoRSASHA512}
-
 // errSeen ends a handshake once the host has shown its key.
 var errSeen = errors.New("hosttrust: key seen")
 
-// Scan connects to address once per host key algorithm and returns the
-// keys the host presents, without logging in. Nothing proves the host at
-// address is the one meant: whatever answers first is what is returned.
-func Scan(ctx context.Context, address string, timeout time.Duration) ([]ssh.PublicKey, error) {
+// Scan connects to address once per kind of host key and returns the keys
+// the host presents, without logging in, negotiating only what legacy (the
+// device record's legacy SSH algorithms) allows, as every connection to it
+// does (pkg/remoteexec's legacy.go). Nothing proves the host at address is
+// the one meant: whatever answers first is what is returned.
+//
+// A host that offers only legacy algorithms its record does not allow is
+// refused naming them and the property that allows them, rather than said
+// to present no key: an IOSvL2 15.2 switch offers SHA-1 key exchange and an
+// ssh-rsa host key and nothing else.
+func Scan(ctx context.Context, address string, timeout time.Duration, legacy remoteexec.Legacy) ([]ssh.PublicKey, error) {
+	algorithms, groups := legacy.ScanConfig()
 	var keys []ssh.PublicKey
-	var last error
-	for _, algorithm := range scanAlgorithms {
-		key, err := scanOne(ctx, withPort(address), algorithm, timeout)
+	var last, refused error
+	for _, group := range groups {
+		key, err := scanOne(ctx, withPort(address), algorithms, group, timeout)
 		if err != nil {
 			if ctx.Err() != nil {
 				return nil, ctx.Err()
 			}
 			last = err
+			// A key exchange with nothing in common refuses every group the
+			// same way, and a host key group the host has no key for is
+			// expected; a refusal naming the property that would allow the
+			// host's offer is the one worth reporting, the first one kept.
+			candidate := remoteexec.ExplainNegotiation(err, withPort(address), legacy)
+			if candidate != err && (refused == nil || namesProperty(candidate) && !namesProperty(refused)) {
+				refused = candidate
+			}
 			continue
 		}
 		keys = append(keys, key)
@@ -243,16 +257,27 @@ func Scan(ctx context.Context, address string, timeout time.Duration) ([]ssh.Pub
 		// be unreachable: "presented no host key" sent a reader looking at
 		// SSH algorithms for a router that runs no SSH server at all.
 		var op *net.OpError
-		if errors.As(last, &op) && op.Op == "dial" {
+		switch {
+		case errors.As(last, &op) && op.Op == "dial":
 			return nil, fmt.Errorf("hosttrust: %s could not be reached over SSH: %w", address, last)
+		case refused != nil && namesProperty(refused):
+			return nil, fmt.Errorf("hosttrust: %w", refused)
 		}
 		return nil, fmt.Errorf("hosttrust: %s presented no host key: %w", address, last)
 	}
 	return keys, nil
 }
 
-// scanOne returns the key address presents for algorithm.
-func scanOne(ctx context.Context, address, algorithm string, timeout time.Duration) (ssh.PublicKey, error) {
+// namesProperty reports whether err is a legacy refusal naming the property
+// that would allow what the host offered.
+func namesProperty(err error) bool {
+	var named *remoteexec.LegacyRefusedError
+	return errors.As(err, &named) && named.Property != ""
+}
+
+// scanOne returns the key address presents for the first of hostKeys it
+// shares with the host, negotiating algorithms for everything else.
+func scanOne(ctx context.Context, address string, algorithms ssh.Config, hostKeys []string, timeout time.Duration) (ssh.PublicKey, error) {
 	dialer := net.Dialer{Timeout: timeout}
 	conn, err := dialer.DialContext(ctx, "tcp", address)
 	if err != nil {
@@ -264,8 +289,9 @@ func scanOne(ctx context.Context, address, algorithm string, timeout time.Durati
 	}
 	var seen ssh.PublicKey
 	config := &ssh.ClientConfig{
+		Config:            algorithms,
 		User:              "pleiades-trust-host",
-		HostKeyAlgorithms: []string{algorithm},
+		HostKeyAlgorithms: hostKeys,
 		HostKeyCallback: func(_ string, _ net.Addr, key ssh.PublicKey) error {
 			seen = key
 			return errSeen

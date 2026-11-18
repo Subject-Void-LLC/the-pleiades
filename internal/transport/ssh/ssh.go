@@ -34,6 +34,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/transport"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
 
 // Options configures a Transport backed by real SSH connections.
@@ -103,11 +104,14 @@ func (t *sshTransport) Exec(ctx context.Context, target transport.Target, cred c
 		return transport.Result{}, fmt.Errorf("ssh: %w", err)
 	}
 
-	conn, err := t.runner.Connect(ctx, hops, remoteexec.Target{Host: net.Host, Port: net.Port}, auth)
+	conn, err := t.runner.Connect(ctx, hops, remoteexec.Target{Host: net.Host, Port: net.Port, Legacy: target.SSHLegacy}, auth)
 	if err != nil {
 		return transport.Result{}, fmt.Errorf("ssh: %w", err)
 	}
 	defer func() { _ = conn.Close() }()
+	// A legacy algorithm the record allowed and this connection used is
+	// warned about on the task, by the engine that set the collector.
+	sdk.NoteConnection(ctx, conn)
 	// sh reads the command whatever the login shell is, unless the device's
 	// exec channel is not a POSIX shell (Target.LoginShell).
 	if target.LoginShell {
@@ -149,7 +153,7 @@ func hopsFrom(route []transport.Hop) ([]remoteexec.Hop, error) {
 			return nil, fmt.Errorf("hop %q: %w", hop.DeviceName, err)
 		}
 		hops[i] = remoteexec.Hop{
-			Target: remoteexec.Target{Host: hop.Host, Port: hop.Port},
+			Target: remoteexec.Target{Host: hop.Host, Port: hop.Port, Legacy: hop.Legacy},
 			Auth:   auth,
 		}
 	}

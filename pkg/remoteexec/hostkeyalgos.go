@@ -53,82 +53,65 @@ func hostKeyProbe() ssh.PublicKey {
 // names, wildcards, negations and the bracketed host and port form. So this
 // can never disagree with the check the handshake runs.
 //
-// The algorithms of those keys come first, then every other algorithm the
-// library offers by default. The order is a preference, not a restriction, on
-// purpose: a server whose key really changed still presents another type, and
-// the callback refuses it as a changed key (knownhosts.KeyError), which
-// hostKeyRefused counts as an answer rather than a network failure. A list
-// cut down to the known types would instead end in "no common algorithm", a
-// handshake failure that is retried and charged to the address's circuit.
+// The algorithms of those keys come first, then every other algorithm legacy
+// allows. The order is a preference, not a restriction, on purpose: a server
+// whose key really changed still presents another type, and the callback
+// refuses it as a changed key (knownhosts.KeyError), which hostKeyRefused
+// counts as an answer rather than a network failure.
 //
-// nil comes back, so nothing changes, when verification is skipped (cb accepts
-// any key), when the host has no entry (the handshake refuses it as unknown),
-// and when an entry for the host is an @cert-authority line, since such a
-// host presents a certificate and the default order already puts certificate
-// algorithms first.
-func hostKeyAlgorithms(cb ssh.HostKeyCallback, addr string) []string {
+// Only what legacy allows is ever offered (legacy.go): an RSA key is asked
+// for with SHA-2 signatures, and with ssh-rsa (SHA-1) only on a device whose
+// record allows legacy host keys. The list is never nil, since the library's
+// own default would offer ssh-rsa and DSA. The allowed list comes back in the
+// library's order when verification is skipped (cb accepts any key), when the
+// host has no entry (the handshake refuses it as unknown), and when an entry
+// for the host is an @cert-authority line, since such a host presents a
+// certificate and that order already puts certificate algorithms first.
+func hostKeyAlgorithms(cb ssh.HostKeyCallback, addr string, legacy Legacy) []string {
+	allowed := legacy.hostKeys()
 	if cb == nil {
-		return nil
+		return allowed
 	}
 	// The remote address is read only when addr is empty, which it never is
 	// here, so any well-formed address will do.
 	err := cb(addr, &net.TCPAddr{IP: net.IPv4zero}, hostKeyProbe())
 	var keyErr *knownhosts.KeyError
 	if !errors.As(err, &keyErr) || len(keyErr.Want) == 0 {
-		return nil
+		return allowed
 	}
 	if anyCertAuthority(keyErr.Want) {
-		return nil
+		return allowed
 	}
 
 	var preferred []string
 	for _, known := range keyErr.Want {
-		for _, algo := range algorithmsForKeyType(known.Key.Type()) {
+		for _, algo := range algorithmsForKeyType(known.Key.Type(), allowed) {
 			if !slices.Contains(preferred, algo) {
 				preferred = append(preferred, algo)
 			}
 		}
 	}
-	if len(preferred) == 0 {
-		// A key type this library cannot negotiate as a host key: leave the
-		// order alone, and the handshake reports the host's key as before.
-		return nil
-	}
-	out := preferred
-	for _, algo := range defaultHostKeyAlgorithms() {
-		if !slices.Contains(out, algo) {
-			out = append(out, algo)
-		}
-	}
-	return out
+	// A key type no allowed algorithm proves leaves the order alone, and the
+	// handshake reports the host's key as before.
+	return appendNew(preferred, allowed...)
 }
 
-// algorithmsForKeyType returns the host key algorithms that prove possession
-// of a plain key of keyType, in the library's order of preference. An RSA key
-// signs with SHA-2 first and SHA-1 last, as the library's own default does.
-func algorithmsForKeyType(keyType string) []string {
+// algorithmsForKeyType returns the host key algorithms among allowed that
+// prove possession of a plain key of keyType, in the library's order of
+// preference. An RSA key signs with SHA-2 first and SHA-1 last.
+func algorithmsForKeyType(keyType string, allowed []string) []string {
+	var candidates []string
 	switch keyType {
 	case ssh.KeyAlgoRSA:
-		return []string{ssh.KeyAlgoRSASHA512, ssh.KeyAlgoRSASHA256, ssh.KeyAlgoRSA}
-	case ssh.KeyAlgoECDSA256, ssh.KeyAlgoECDSA384, ssh.KeyAlgoECDSA521, ssh.KeyAlgoED25519:
-		return []string{keyType}
+		candidates = []string{ssh.KeyAlgoRSASHA512, ssh.KeyAlgoRSASHA256, ssh.KeyAlgoRSA}
+	default:
+		// Any other type (an ECDSA, ed25519 or DSA key, a security key type)
+		// is proved by the algorithm of its own name.
+		candidates = []string{keyType}
 	}
-	// Anything else (a DSA key, a security key type) is offered only if the
-	// library offers it at all; defaultHostKeyAlgorithms decides that.
-	if slices.Contains(defaultHostKeyAlgorithms(), keyType) {
-		return []string{keyType}
-	}
-	return nil
-}
-
-// defaultHostKeyAlgorithms returns every host key algorithm the library
-// negotiates when a client sets none: its supported list followed by the ones
-// it marks insecure but still offers by default (SHA-1 RSA, DSA), so a device
-// that has only an old RSA key is reached exactly as it was before this file.
-func defaultHostKeyAlgorithms() []string {
-	out := ssh.SupportedAlgorithms().HostKeys
-	for _, algo := range ssh.InsecureAlgorithms().HostKeys {
-		if !slices.Contains(out, algo) {
+	var out []string
+	for _, algo := range candidates {
+		if slices.Contains(allowed, algo) {
 			out = append(out, algo)
 		}
 	}

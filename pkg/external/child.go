@@ -12,6 +12,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
 
@@ -156,7 +157,13 @@ func InvokeRequestFor(ctx context.Context, lookup LookupFunc, req wire.ChildRequ
 	// stronger guarantee needs a breaking sdk.RunbookContext change.
 	defer rc.Zero()
 
+	// What the SSH connections the method opens say about themselves (a
+	// legacy algorithm the device's record allowed) goes back as warnings,
+	// as the engine adds them in process (sdk.NoteConnection).
+	ctx = sdk.WithConnectionNotes(ctx, req.DeviceName)
 	result, err := method(ctx, rc, device, req.Params)
+	facts := rc.Facts()
+	sdk.MergeWarnings(facts, sdk.ConnectionWarnings(ctx)...)
 	if err != nil {
 		var cannot *collection.CannotCheckError
 		if mode == collection.ModeCheck && errors.As(err, &cannot) {
@@ -166,9 +173,9 @@ func InvokeRequestFor(ctx context.Context, lookup LookupFunc, req wire.ChildRequ
 		// and output) goes back with the failure, for the failed task's
 		// report; it changed nothing the parent may count on. Whether the
 		// failure is a refused login goes back too, since its type cannot.
-		return wire.ChildResponse{Error: err.Error(), Facts: rc.Facts(), Refused: refused(err)}
+		return wire.ChildResponse{Error: err.Error(), Facts: facts, Refused: refused(err)}
 	}
-	return wire.ChildResponse{Changed: result.Changed, Facts: rc.Facts()}
+	return wire.ChildResponse{Changed: result.Changed, Facts: facts}
 }
 
 // ReadChildRequest decodes exactly one wire.ChildRequest from r.

@@ -33,6 +33,11 @@ type CredentialInfo struct {
 	Kinds []string `json:"kinds"`
 	// Unbound is set when it was stored for a name no inventory device had.
 	Unbound bool `json:"unbound,omitempty"`
+	// DeviceExists is set, on an unbound entry, when a device of its name is
+	// in the inventory now (added other than by add-host, which binds it at
+	// once): its first run binds it and says so. Only a caller that read the
+	// inventory sets it; ListCredentials never does.
+	DeviceExists bool `json:"device_exists,omitempty"`
 	// ShortCommunity is set when its SNMP community is shorter than
 	// wire.MinSNMPCommunityLength and was stored deliberately, so every run
 	// masks it by shape only.

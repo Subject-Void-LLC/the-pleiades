@@ -70,6 +70,10 @@ type poolKey struct {
 	identity   [sha256.Size]byte
 	insecure   bool
 	knownHosts string
+	// legacy is what the device's record allowed the handshake: a
+	// connection that agreed to a legacy algorithm is never lent to a call
+	// whose record no longer allows it.
+	legacy Legacy
 }
 
 // pooled is one open connection and what the Pool knows about it.
@@ -162,7 +166,7 @@ func (p *Pool) keyFor(r *Runner, target Target, auth Auth) (poolKey, bool) {
 	if auth.identity == ([sha256.Size]byte{}) {
 		return poolKey{}, false
 	}
-	key := poolKey{addr: target.Addr(), identity: auth.identity, insecure: r.opts.InsecureSkipHostKeyVerify}
+	key := poolKey{addr: target.Addr(), identity: auth.identity, insecure: r.opts.InsecureSkipHostKeyVerify, legacy: target.Legacy}
 	if !key.insecure {
 		path, err := knownHostsPath(r.opts)
 		if err != nil {
@@ -217,7 +221,7 @@ func (p *Pool) lendLocked(device string, e *pooled) *Conn {
 
 // lend wraps e's connection in a borrowed Conn. p.mu must be held.
 func (p *Pool) lend(device string, e *pooled) *Conn {
-	return &Conn{client: e.conn.client, chain: e.conn.chain, addr: e.conn.addr, redial: e.conn.redial, lease: &lease{pool: p, device: device, entry: e}}
+	return &Conn{client: e.conn.client, chain: e.conn.chain, addr: e.conn.addr, redial: e.conn.redial, legacy: e.conn.legacy, lease: &lease{pool: p, device: device, entry: e}}
 }
 
 // forget removes e from the Pool when it is still device's entry.

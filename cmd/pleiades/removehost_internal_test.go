@@ -80,6 +80,42 @@ func TestRemoveHost_TakesAHostAndWhatItWasGivenApart(t *testing.T) {
 	}
 }
 
+// TestRemoveHost_AConsoleNodeHasNoHostKeysToForget proves --forget-host-keys
+// on a node reached only through a console server removes the node and says it
+// had no host keys of its own, rather than refusing the whole command: the
+// keys trust-host trusted for it are the console server's, which stay.
+func TestRemoveHost_AConsoleNodeHasNoHostKeysToForget(t *testing.T) {
+	dir := t.TempDir()
+	knownHosts := filepath.Join(dir, "known_hosts")
+	t.Setenv(remoteexec.KnownHostsEnv, knownHosts)
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	must(runInit([]string{"--dir", dir}))
+	must(runAddHost([]string{"sw1", "--dir", dir, "--type", "cisco_switch", "--set", "transport=console",
+		"--set", "console_server=cml", "--set", "console_line=00000000-0000-4000-8000-000000000001"}))
+	keyLine := "192.0.2.161 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl\n"
+	must(os.WriteFile(knownHosts, []byte(keyLine), 0o600))
+
+	var out removedHost
+	text := captureStdout(t, func() { must(runRemoveHost([]string{"sw1", "--dir", dir, "--forget-host-keys", "--json"})) })
+	must(json.Unmarshal([]byte(text), &out))
+	if out.Host != "sw1" || out.HostKeysRemoved != 0 || !strings.Contains(out.HostKeysNote, "sw1 is not reached over SSH at an address") {
+		t.Errorf("a console node: %+v", out)
+	}
+	hosts, err := inv.ReadHosts(filepath.Join(dir, inv.DefaultInventoryFilename))
+	must(err)
+	if len(hosts) != 0 {
+		t.Errorf("hosts left: %+v", hosts)
+	}
+	if lines, err := os.ReadFile(knownHosts); err != nil || string(lines) != keyLine {
+		t.Errorf("the console server's keys changed: %q, %v", lines, err)
+	}
+}
+
 // TestRemoveHost_ForgetsTheNetconfListenersKeysToo proves --forget-host-keys
 // drops the "[host]:port" lines trust-host --netconf writes for a device's
 // NETCONF listener as well as its SSH lines: a cisco_router's on 830 by

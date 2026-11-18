@@ -51,7 +51,7 @@ import (
 func (r *Runner) DialThroughHops(ctx context.Context, hops []Hop, target Target) (conn net.Conn, err error) {
 	legs := make([]connectLeg, len(hops))
 	for i, h := range hops {
-		legs[i] = connectLeg{addr: h.Target.Addr(), auth: h.Auth, insecureSkipHostKeyVerify: h.InsecureSkipHostKeyVerify}
+		legs[i] = connectLeg{addr: h.Target.Addr(), auth: h.Auth, insecureSkipHostKeyVerify: h.InsecureSkipHostKeyVerify, legacy: h.Target.Legacy}
 	}
 
 	chain, err := r.dialChain(ctx, legs)

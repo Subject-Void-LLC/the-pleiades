@@ -25,19 +25,20 @@ func (e *DialError) Unwrap() error { return e.Err }
 
 // Unreached reports whether the device never answered: the TCP connection
 // or the SSH handshake failed or timed out. A retry is safe, since nothing
-// was sent. A refused credential and a refused host key are answers, not
-// silence: the device is reachable, and asking again changes nothing (a
-// refused password counts toward the account's lockout). A caller's own
-// cancellation is not the network either.
+// was sent. A refused credential, a refused host key and a handshake with no
+// algorithm in common are answers, not silence: the device is reachable, and
+// asking again changes nothing (a refused password counts toward the
+// account's lockout). A caller's own cancellation is not the network either.
 func (e *DialError) Unreached() bool {
-	return !authRejected(e.Err) && !hostKeyRefused(e.Err) && !errors.Is(e.Err, context.Canceled)
+	return !answeredRefusal(e.Err) && !errors.Is(e.Err, context.Canceled)
 }
 
 // Refused reports whether the dial ended in a refusal: the device turned
-// down the login, or this side turned down its host key. Either answer is
-// the same however often it is asked, and asking again with a password is
-// one more failed login toward the account's lockout, so a caller that
-// would try again (a task's until, the next item of its loop) stops here.
+// down the login, this side turned down its host key, or the two found no
+// algorithm in common. Each answer is the same however often it is asked,
+// and asking again with a password is one more failed login toward the
+// account's lockout, so a caller that would try again (a task's until, the
+// next item of its loop, a wait) stops here.
 func (e *DialError) Refused() bool {
-	return authRejected(e.Err) || hostKeyRefused(e.Err)
+	return answeredRefusal(e.Err)
 }

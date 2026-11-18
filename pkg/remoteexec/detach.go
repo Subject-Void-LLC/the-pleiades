@@ -207,7 +207,7 @@ func (c *Conn) reconnect(ctx context.Context, err error) bool {
 	}
 	fresh, derr := c.redial(ctx)
 	if derr != nil {
-		c.redialRefused = authRejected(derr) || hostKeyRefused(derr)
+		c.redialRefused = answeredRefusal(derr)
 		return false
 	}
 	c.taint()

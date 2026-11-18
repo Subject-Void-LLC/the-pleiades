@@ -11,6 +11,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
 
 // sshProbeScript is the one command the SSH probe runs. It is a constant:
@@ -71,8 +72,7 @@ func (sshProber) Probe(ctx context.Context, device inventory.InventoryItem, secr
 	if err != nil {
 		return Probed{}, err
 	}
-	target := remoteexec.Target{Host: dev.SSHHost(), Port: dev.SSHPort()}
-	conn, err := remoteexec.Shared(remoteexec.Options{}).Connect(ctx, nil, target, auth)
+	conn, err := connectSSH(ctx, device, dev.SSHHost(), dev.SSHPort(), auth)
 	if err != nil {
 		return Probed{}, err
 	}
@@ -82,6 +82,9 @@ func (sshProber) Probe(ctx context.Context, device inventory.InventoryItem, secr
 		return Probed{}, err
 	}
 	probed := parseSSHProbe(res.Stdout)
+	// A legacy SSH algorithm the record allowed is warned about on every
+	// onboarding, as on every run (pkg/remoteexec's legacy.go).
+	probed.Warnings = append(probed.Warnings, conn.LegacyWarnings(device.Name())...)
 	if !strings.Contains(res.Stdout, "pleiades-probe=1") {
 		// Not a POSIX shell (a router's command line): no engine to look for.
 		return probed, nil
@@ -91,6 +94,19 @@ func (sshProber) Probe(ctx context.Context, device inventory.InventoryItem, secr
 		return Probed{}, err
 	}
 	return merge(probed, engineProbed(found, login.user)), nil
+}
+
+// connectSSH logs in to device at host and port with auth, verifying its
+// host key against known_hosts and agreeing only to the legacy algorithms its
+// record allows, as every SSH connection does. A refused host key names the
+// trust-host command that would accept it.
+func connectSSH(ctx context.Context, device inventory.InventoryItem, host string, port int, auth remoteexec.Auth) (*remoteexec.Conn, error) {
+	target := remoteexec.Target{Host: host, Port: port, Legacy: remoteexec.LegacyFor(device)}
+	conn, err := remoteexec.Shared(remoteexec.Options{}).Connect(ctx, nil, target, auth)
+	if err != nil {
+		return nil, sdk.WithTrustAdvice(err, device, port)
+	}
+	return conn, nil
 }
 
 // parseSSHProbe maps the probe script's output to capabilities. Only the

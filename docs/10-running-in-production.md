@@ -830,7 +830,14 @@ On the Controller, a rollback job dispatches only the devices it undoes changes 
 each with its own steps, and each device's steps run in order on that device. A job
 launched on the same devices after the rollback was planned is not detected, since
 the Controller has no lock across jobs; the CLI holds `.pleiades/run.lock` so no run
-starts while a rollback plans and runs. The job's extra variables go to the rollback
+starts while a rollback plans and runs. An `adhoc` call that only reads (a method that
+declares the call read-only for the parameters written, with no template and no loop, such as
+`net.ios.command` with a `show`) takes no lock: it runs while a rollback runs, and a rollback
+is never refused for it, so a poller of reads can watch a change being undone. A rollback
+plans past such a read still running beside it, and refuses to roll back the read itself
+until it ends. The run counter's own lock (`.pleiades/clock.lock`) is held for one tick's
+small write, never across a run; a tick that waits for it over ten seconds names the
+process holding it, its command and how long it has held it. The job's extra variables go to the rollback
 without any answer the template's survey marks as a password.
 
 ### The message bus survives a link outage of any length
@@ -1263,8 +1270,13 @@ an operator.
   `generic_gnmi`, `generic_http` or `generic_grpc` device, however it was added, starts `discovered`, which runs nothing.
   Onboarding (`pleiades onboard <name>`, or `POST /api/v1/inventory/devices/{name}/onboard`)
   moves it to `onboarding`, probes it over its protocol, and moves it to `active` when the
-  probe proves the device; a failed first probe leaves it `onboarding` with the reason in the
-  answer. Onboarding refuses a device an administrator put in `quarantined`,
+  probe proves the device. A failed or interrupted attempt returns it to `discovered`, with
+  the reason in the answer, and keeps nothing the attempt learned; the attempt stays in the
+  device's history as the two state changes. A device left `onboarding` by an attempt that
+  did not finish (the process killed mid-probe) is onboarded again from there: the answer
+  says so, and a failure returns it to `discovered` too. A device another writer changed
+  during the attempt is never overwritten on the way back: the answer then says it was left
+  `onboarding`. Onboarding refuses a device an administrator put in `quarantined`,
   `simulate-locked`, `decommissioning` or `archived`. Onboarding an `active` device again
   re-probes it and records only what changed.
 - **Promotion, and any other change.** `PATCH /api/v1/inventory/devices/{name}` with a body
@@ -2279,6 +2291,48 @@ here, and what follows is what those images did:
   `encoding: json_ietf`.
 - Its JWT login reads the token from `access_token` metadata, not `authorization: Bearer`, so
   `gnmi_auth: bearer` does not reach it; use `password` (or `none` with a client certificate).
+
+### Device SSH: old devices and changed host keys
+
+Every SSH connection names the algorithms it may agree to, the SSH library's secure set and no
+more: no SHA-1 key exchange, no `ssh-rsa` (SHA-1) or DSA host key signature, no CBC, 3DES or RC4
+cipher and no `hmac-sha1-96`, although the library itself would still offer some of these to a
+client that names none. An RSA host key is still accepted, proved with a SHA-2 signature
+(`rsa-sha2-256` or `rsa-sha2-512`), which OpenSSH 7.2 and later, and current IOS XE, offer.
+
+An old device that offers nothing better (an IOSvL2 15.2 switch offers only
+`diffie-hellman-group14-sha1` and an `ssh-rsa` host key) is refused, naming what it offered and
+the property that allows it, and is reached only through its own record, one explicit flag per
+weakening, on any device reached over SSH (a `linux_server`, `generic_ssh`, `generic_netconf`,
+`cisco_router`, `cisco_switch`, `container_host`, or a CML controller's console server):
+
+| Property | Allows |
+|---|---|
+| `ssh_allow_legacy_key_exchange: true` | SHA-1 Diffie-Hellman key exchange: `diffie-hellman-group14-sha1`, `diffie-hellman-group-exchange-sha1`, and the 1024-bit `diffie-hellman-group1-sha1`. |
+| `ssh_allow_legacy_host_keys: true` | A host key proved with `ssh-rsa` (SHA-1), or a DSA key (`ssh-dss`), and their certificates. |
+| `ssh_allow_legacy_ciphers: true` | The CBC, 3DES and RC4 ciphers and the truncated `hmac-sha1-96` MAC. |
+
+The secure algorithms are always offered first, so a device that can do better still does.
+Every connection to a device with a flag set warns, on every run and every onboarding, either
+that it used a legacy algorithm (naming it) or that it did not need the flag, which the record
+should then drop. It is a warning rather than a refusal because only a connection can tell, and
+one device may run two SSH servers: a Catalyst 8000V runs Cisco's SSH on port 22 and OpenSSH on
+its NETCONF port 830. A flag that is not `true` or `false` is refused when the record is written
+or loaded, and so is one set on a device type no SSH connection is made to. `trust-host --first-connect`
+negotiates under the same flags, so the keys of an old device are trusted only once its record
+allows them. A hop of a route and a console server are held to their own records' flags, never
+to the device's behind them.
+
+A host key that does not match the one known_hosts trusts is refused, and stays refused: a
+machine in the middle presents a changed key too. The refusal names the port, the key the host
+presented and each key known_hosts trusts for it (with the file and line), and the `trust-host`
+command that replaces the old key with the new one, once its fingerprint has been checked against
+the device itself, for example `pleiades trust-host c8k-b --first-connect --replace` (a device
+not flagged `ephemeral` adds `--reason`). A device that makes a new key at every boot (a Catalyst
+8000V on IOS XE 17.15 does on port 22, even after `write memory`; its NETCONF key and HTTPS
+certificate survive) needs that after each boot. `wait.connection` stops at such a refusal on the
+first try that reaches the device, as it does for a refused login: asking again changes nothing,
+and no credential is ever sent to a key that was refused.
 
 ### Connection persistence
 

@@ -1,0 +1,1 @@
+`remove-host --forget-host-keys` now removes a node reached only through a console server, saying it had no host keys of its own to forget (`host_keys_note` in `--json`), where before it refused the whole command.

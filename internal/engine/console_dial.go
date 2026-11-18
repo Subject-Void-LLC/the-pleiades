@@ -59,7 +59,9 @@ func ConsoleDialerFor(ctx context.Context, repo deviceByName, credentials creden
 	line := served.ConsoleLine()
 	runner := remoteexec.Shared(remoteexec.Options{})
 	dial := func(ctx context.Context) (netcli.Shell, error) {
-		conn, err := runner.Connect(ctx, nil, remoteexec.Target{Host: host, Port: port}, auth)
+		// The console server's own record decides what its handshake may
+		// agree to, never the node's behind it.
+		conn, err := runner.Connect(ctx, nil, remoteexec.Target{Host: host, Port: port, Legacy: remoteexec.LegacyFor(server)}, auth)
 		if err != nil {
 			return nil, fmt.Errorf("the console server %q: %w", name, err)
 		}

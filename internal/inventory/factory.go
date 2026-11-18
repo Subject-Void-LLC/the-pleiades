@@ -9,7 +9,9 @@ import (
 	"maps"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 )
 
 // ItemFactory hydrates Records into strongly typed InventoryItem values,
@@ -57,7 +59,47 @@ func (f *ItemFactory) Build(rec record.Record) (inventory.InventoryItem, error) 
 		return nil, fmt.Errorf("unsupported device type: %s", rec.Type)
 	}
 
-	return constructor(rec)
+	item, err := constructor(rec)
+	if err != nil {
+		return nil, err
+	}
+	if err := checkSSHLegacy(item); err != nil {
+		return nil, fmt.Errorf("device %q: %w", rec.Name, err)
+	}
+	return item, nil
+}
+
+// checkSSHLegacy refuses a record's legacy SSH flags (pkg/remoteexec's
+// legacy.go) when one is not a boolean, or when one is true on a device no
+// SSH connection is ever made to, where it allows nothing: a record that
+// says a weakening is on where none can be is one whose author believes
+// something the platform does not do. A device reached over SSH, or through
+// an SSH console server (a CML controller), may set them; whether a given
+// connection needed one is said on that connection, since one device can run
+// two SSH servers (remoteexec.Conn.LegacyWarnings).
+func checkSSHLegacy(item inventory.InventoryItem) error {
+	// A constructor that built nothing has no record to hold to anything.
+	if item == nil {
+		return nil
+	}
+	legacy, err := remoteexec.ParseLegacy(item.Properties())
+	if err != nil {
+		return err
+	}
+	if legacy.IsZero() {
+		return nil
+	}
+	_, ssh := item.(capability.SSHTransportCapable)
+	_, console := item.(capability.CMLAPICapable)
+	if ssh || console {
+		return nil
+	}
+	for _, key := range remoteexec.LegacyProperties() {
+		if on, _ := item.Properties().Raw()[key].(bool); on {
+			return fmt.Errorf("property %s is true and this device type is not reached over SSH, so it allows nothing: remove it", key)
+		}
+	}
+	return nil
 }
 
 // Rebuild constructs item afresh through f from its current type,

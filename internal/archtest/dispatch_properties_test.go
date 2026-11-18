@@ -25,13 +25,19 @@ var propertyKey = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
 
 // keySources are the packages outside a device package whose property-key
 // constants a device package may name (pkg/devicetls's TLS settings,
-// pkg/httpapi's plaintext flag, pkg/snmp's agent settings, linux's own when
-// generic_ssh embeds it).
-var keySources = []string{"pkg/devicetls", "pkg/httpapi", "pkg/snmp", "internal/inventory/devices/linux"}
+// pkg/httpapi's plaintext flag, pkg/snmp's agent settings, pkg/remoteexec's
+// legacy SSH flags, linux's own when generic_ssh embeds it).
+var keySources = []string{"pkg/devicetls", "pkg/httpapi", "pkg/snmp", "pkg/remoteexec", "internal/inventory/devices/linux"}
 
 // wholeSources are the key sources whose Parse reads every key they declare,
 // so a device package calling one reads them all.
-var wholeSources = map[string]bool{"devicetls": true, "snmp": true}
+var wholeSources = map[string]bool{"devicetls": true, "snmp": true, "remoteexec": true}
+
+// wholeReaders are the functions of a whole source that stand for reading
+// every key it declares: its Parse, its Properties, and pkg/remoteexec's
+// LegacyProperties, the flags every SSH connection to the device reads
+// through LegacyFor, so a device type reached over SSH declares them.
+var wholeReaders = map[string]bool{"Parse": true, "Properties": true, "LegacyProperties": true}
 
 // propertyConstants returns, for the Go files in dir, every package-level
 // string constant that names a property key: by this module's convention
@@ -105,7 +111,7 @@ func keysRead(t *testing.T, root, dir string) map[string]bool {
 				switch fun := x.Fun.(type) {
 				case *ast.SelectorExpr:
 					name = fun.Sel.Name
-					if pkg, ok := fun.X.(*ast.Ident); ok && wholeSources[pkg.Name] && (name == "Parse" || name == "Properties") {
+					if pkg, ok := fun.X.(*ast.Ident); ok && wholeSources[pkg.Name] && wholeReaders[name] {
 						for _, v := range foreign[pkg.Name] {
 							read[v] = true
 						}

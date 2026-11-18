@@ -30,7 +30,7 @@ func (linuxProber) Probe(ctx context.Context, device inventory.InventoryItem, se
 	if err != nil {
 		return Probed{}, err
 	}
-	conn, err := remoteexec.Shared(remoteexec.Options{}).Connect(ctx, nil, remoteexec.Target{Host: dev.SSHHost(), Port: dev.SSHPort()}, auth)
+	conn, err := connectSSH(ctx, device, dev.SSHHost(), dev.SSHPort(), auth)
 	if err != nil {
 		return Probed{}, err
 	}
@@ -39,5 +39,7 @@ func (linuxProber) Probe(ctx context.Context, device inventory.InventoryItem, se
 	if err != nil {
 		return Probed{}, err
 	}
-	return engineProbed(found, login.user), nil
+	probed := engineProbed(found, login.user)
+	probed.Warnings = append(probed.Warnings, conn.LegacyWarnings(device.Name())...)
+	return probed, nil
 }

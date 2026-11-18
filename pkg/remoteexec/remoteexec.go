@@ -88,20 +88,26 @@ const (
 	defaultBackoffMax  = 5 * time.Second
 )
 
-// Target is the address of one device: where to connect, and nothing
-// else.
+// Target is the address of one device: where to connect, and which legacy
+// SSH algorithms its record allows there.
 //
 // It carries no device identity, no capability and no credential on
 // purpose. Turning an inventory item into a Target is the caller's job,
 // and keeping this type this narrow is what lets both a Collection
 // method and internal/transport/ssh build one without either of them
-// needing the other's vocabulary.
+// needing the other's vocabulary. Legacy is the one setting from the
+// record it holds, since it decides what the handshake with that address
+// may agree to; its zero value allows no legacy algorithm (legacy.go).
 type Target struct {
 	// Host is the address or hostname to connect to.
 	Host string
 
 	// Port is the TCP port to connect to.
 	Port int
+
+	// Legacy is the legacy SSH algorithms the device's record allows
+	// (LegacyFor), none unless set.
+	Legacy Legacy
 }
 
 // Addr returns the "host:port" string a dialer and a known_hosts lookup
@@ -373,6 +379,9 @@ type connectLeg struct {
 	addr                      string
 	auth                      Auth
 	insecureSkipHostKeyVerify bool
+	// legacy is what the leg's own device record allows: a bastion's
+	// weakening never reaches the device behind it, nor the other way.
+	legacy Legacy
 }
 
 // Connect dials through hops, in order, then to target, completing an
@@ -395,15 +404,18 @@ type connectLeg struct {
 func (r *Runner) Connect(ctx context.Context, hops []Hop, target Target, auth Auth) (conn *Conn, err error) {
 	legs := make([]connectLeg, 0, len(hops)+1)
 	for _, h := range hops {
-		legs = append(legs, connectLeg{addr: h.Target.Addr(), auth: h.Auth, insecureSkipHostKeyVerify: h.InsecureSkipHostKeyVerify})
+		legs = append(legs, connectLeg{addr: h.Target.Addr(), auth: h.Auth, insecureSkipHostKeyVerify: h.InsecureSkipHostKeyVerify, legacy: h.Target.Legacy})
 	}
-	legs = append(legs, connectLeg{addr: target.Addr(), auth: auth, insecureSkipHostKeyVerify: r.opts.InsecureSkipHostKeyVerify})
+	legs = append(legs, connectLeg{addr: target.Addr(), auth: auth, insecureSkipHostKeyVerify: r.opts.InsecureSkipHostKeyVerify, legacy: target.Legacy})
 
 	chain, err := r.dialChain(ctx, legs)
 	if err != nil {
 		return nil, err
 	}
-	conn = &Conn{client: chain[len(chain)-1], chain: chain, addr: legs[len(legs)-1].addr}
+	conn = &Conn{client: chain[len(chain)-1], chain: chain, addr: legs[len(legs)-1].addr, legacy: target.Legacy}
+	for i, h := range hops {
+		conn.hopLegacy = append(conn.hopLegacy, hopLegacy{addr: legs[i].addr, legacy: h.Target.Legacy})
+	}
 	// A detached command whose connection drops polls on a fresh one, dialed
 	// the same way (detach.go).
 	conn.redial = func(ctx context.Context) (*Conn, error) { return r.Connect(ctx, hops, target, auth) }
@@ -440,11 +452,11 @@ func (r *Runner) ConnectVia(ctx context.Context, via NetDial, target Target, aut
 	if err != nil {
 		return nil, fmt.Errorf("remoteexec: host key verification unavailable for %s: %w", addr, err)
 	}
-	client, raw, err := dialVia(ctx, via, addr, auth.clientConfig(hostKeyCB, addr, r.opts.DialTimeout))
+	client, raw, err := dialVia(ctx, via, addr, auth.clientConfig(hostKeyCB, addr, r.opts.DialTimeout, target.Legacy))
 	if err != nil {
-		return nil, &DialError{Addr: addr, Err: err}
+		return nil, &DialError{Addr: addr, Err: ExplainNegotiation(err, addr, target.Legacy)}
 	}
-	conn := &Conn{client: client, chain: []*ssh.Client{client}, addr: addr, severVia: severerFor(raw)}
+	conn := &Conn{client: client, chain: []*ssh.Client{client}, addr: addr, severVia: severerFor(raw), legacy: target.Legacy}
 	conn.redial = func(ctx context.Context) (*Conn, error) { return r.ConnectVia(ctx, via, target, auth) }
 	return conn, nil
 }
@@ -506,7 +518,7 @@ func (r *Runner) dialChain(ctx context.Context, legs []connectLeg) (chain []*ssh
 			return nil, fmt.Errorf("remoteexec: host key verification unavailable for %s: %w", leg.addr, hkErr)
 		}
 
-		config := leg.auth.clientConfig(hostKeyCB, leg.addr, r.opts.DialTimeout)
+		config := leg.auth.clientConfig(hostKeyCB, leg.addr, r.opts.DialTimeout, leg.legacy)
 
 		// Step 3: dial with retry and backoff, scoped to the dial phase
 		// only. The first leg dials directly (r.dial); every leg after
@@ -517,7 +529,9 @@ func (r *Runner) dialChain(ctx context.Context, legs []connectLeg) (chain []*ssh
 		}
 		next, dialErr := r.dialWithRetry(ctx, dial, leg.addr, config)
 		if dialErr != nil {
-			return nil, &DialError{Addr: leg.addr, Err: dialErr}
+			// A handshake with nothing in common names what the server
+			// offered and the property that would allow it (legacy.go).
+			return nil, &DialError{Addr: leg.addr, Err: ExplainNegotiation(dialErr, leg.addr, leg.legacy)}
 		}
 
 		// Step 4: a successful dial closes the circuit, or completes a
