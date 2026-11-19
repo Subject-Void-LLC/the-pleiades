@@ -127,14 +127,15 @@ func TestDistribution_TellsIOSXEFromClassicIOS(t *testing.T) {
 // configuration nor the subsets gathered is a fact.
 func TestFacts_DeclaresTheNativeKeys(t *testing.T) {
 	want := map[string][2]string{
-		"host.name":          {"stable", "string"},
-		"os.version":         {"stable", "string"},
-		"os.distribution":    {"stable", "string"},
-		"hardware.model":     {"stable", "string"},
-		"hardware.serial":    {"stable", "string"},
-		"os.image":           {"stable", "string"},
-		"host.uptime":        {"volatile", "string"},
-		"network.interfaces": {"stable", "list"},
+		"host.name":             {"stable", "string"},
+		"os.version":            {"stable", "string"},
+		"os.distribution":       {"stable", "string"},
+		"hardware.model":        {"stable", "string"},
+		"hardware.serial":       {"stable", "string"},
+		"os.image":              {"stable", "string"},
+		"host.uptime":           {"volatile", "string"},
+		"network.interfaces":    {"stable", "list"},
+		"config.running_digest": {"stable", "object"},
 	}
 	d, ok := collection.Lookup("net.ios.facts")
 	if !ok {

@@ -87,6 +87,7 @@ var routingCollections = []collectionscaffold.Config{
 				{Name: "routes", Type: "dict", Returned: "always", Description: "show ip route json: every route by prefix."},
 				{Name: "bgp_summary", Type: "dict", Returned: "always", Description: "show bgp summary json, empty when BGP is not running."},
 				{Name: "config_sha256", Type: "string", Returned: "always", Description: "The SHA-256 of the running configuration as it runs (from its frr version line), in hex: equal to a candidate file's digest exactly when the router runs that file."},
+				{Name: "config.running_digest", Type: "dict", Returned: "always", Description: "A digest of the running configuration, never its text, stored as a fact: scheme (frr-cli-text/v1), datastore (running) and hmac_sha256, HMAC-SHA-256 under the project's key (or the Controller's), with hmac_key naming the key. Taken over vtysh's running configuration with its banner lines removed. Keyed, since a plain digest of a short secret is a guessing oracle; where no key is held it is not kept. config_sha256 is unchanged and is not a fact."},
 				{Name: "running_config", Type: "string", Returned: "unless include_config is false", Description: "The running configuration with its secrets replaced."},
 			},
 			Examples: []collection.Example{

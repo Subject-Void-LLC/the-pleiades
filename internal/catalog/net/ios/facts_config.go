@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/netcfg"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
 
@@ -44,6 +45,10 @@ func gatherConfig(ctx context.Context, rc sdk.RunbookContext, session iosSession
 		return false, fmt.Errorf("%s: the output does not end at the configuration's \"end\" line, so it may be cut short and is not returned", showRunningConfig)
 	}
 	g.values[factConfig] = strings.TrimSpace(masked) + "\n"
+	// The digest is of the configuration as the device holds it, secrets
+	// included, its volatile lines removed (pkg/netcfg): the engine keys it
+	// before anything keeps or shows it.
+	g.values[factRunningDigest] = netcfg.RunningDigest(netcfg.NormalizeIOS(out), netcfg.SchemeIOSText)
 	return true, nil
 }
 

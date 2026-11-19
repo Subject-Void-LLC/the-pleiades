@@ -34,6 +34,10 @@ func init() {
 			NoExistsReason:       collection.NoExistsDevice,
 			Reversibility:        collection.Reversibility{ReadOnly: true, Notes: "Runs only show commands, which change nothing."},
 			SupportsCheck:        true,
+			// The running configuration's keyed digest is the one fact (Phase 41c):
+			// the rest is a router's live state, read for a model, not drift data.
+			Facts: []collection.FactSpec{{Key: netcfg.RunningDigestFact, Kind: collection.FactStable, Type: collection.FactObject,
+				Description: "The running configuration's keyed digest, never its text."}},
 			Doc: collection.Doc{
 				Summary:     "Reads an FRRouting router's version, interfaces, OSPF neighbours, routes and BGP peers as data.",
 				Description: "Asks vtysh for each in JSON and returns it as data, and by default also the running configuration with every secret in it (a password, an authentication or message-digest key, a neighbour's password) replaced by a placeholder that is the same for equal secrets throughout one command-line run, so a model can still compare two routers' keys without seeing one (a Runner reads each device apart, so there placeholders compare only within one router). The word after each secret word (password, secret, authentication-key, message-digest-key, key-string, community, key) is masked, past any encryption type, key id or algorithm between them. It changes nothing.",
@@ -49,6 +53,7 @@ func init() {
 					{Name: "routes", Type: "dict", Returned: "always", Description: "show ip route json: every route by prefix."},
 					{Name: "bgp_summary", Type: "dict", Returned: "always", Description: "show bgp summary json, empty when BGP is not running."},
 					{Name: "config_sha256", Type: "string", Returned: "always", Description: "The SHA-256 of the running configuration as it runs (from its frr version line), in hex: equal to a candidate file's digest exactly when the router runs that file."},
+					{Name: "config.running_digest", Type: "dict", Returned: "always", Description: "A digest of the running configuration, never its text, stored as a fact: scheme (frr-cli-text/v1), datastore (running) and hmac_sha256, HMAC-SHA-256 under the project's key (or the Controller's), with hmac_key naming the key. Taken over vtysh's running configuration with its banner lines removed. Keyed, since a plain digest of a short secret is a guessing oracle; where no key is held it is not kept. config_sha256 is unchanged and is not a fact."},
 					{Name: "running_config", Type: "string", Returned: "unless include_config is false", Description: "The running configuration with its secrets replaced."},
 				},
 				Examples: []collection.Example{
@@ -114,6 +119,12 @@ func Facts(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventor
 	// text a reader sees stays masked.
 	sum := sha256.Sum256([]byte(config))
 	stats["config_sha256"] = hex.EncodeToString(sum[:])
+	// The keyed digest (Phase 41c), a fact: over the same configuration with its
+	// banner lines removed, handed over raw so the engine keys it before
+	// anything keeps or shows it.
+	if err := rc.EmitFact(netcfg.RunningDigestFact, netcfg.RunningDigest(netcfg.NormalizeFRR(config), netcfg.SchemeFRRText)); err != nil {
+		return collection.Result{}, err
+	}
 	// The masked configuration is returned unless the task asks it not to
 	// be (Phase 131's R5): it was read for the digest anyway.
 	include, err := sdk.BoolParamOr(params, "include_config", true)

@@ -87,6 +87,9 @@ const (
 	factImage        = "os.image"
 	factUptime       = "host.uptime"
 	factInterfaces   = "network.interfaces"
+	// factRunningDigest is the running configuration's keyed digest (Phase
+	// 41c), a fact where the configuration itself is a stat only.
+	factRunningDigest = netcfg.RunningDigestFact
 	// factConfig and factGatherSubset are stats only, never facts, so they
 	// keep the names cisco.ios.ios_facts gives them.
 	factConfig       = "ansible_net_config"
@@ -101,7 +104,7 @@ const (
 )
 
 // factKeys is every key net.ios.facts declares and emits as a fact.
-var factKeys = []string{factHostname, factVersion, factDistribution, factModel, factSerialNum, factImage, factUptime, factInterfaces}
+var factKeys = []string{factHostname, factVersion, factDistribution, factModel, factSerialNum, factImage, factUptime, factInterfaces, factRunningDigest}
 
 // isFact reports whether name is one of factKeys, which record emits as a
 // fact beside its stat.

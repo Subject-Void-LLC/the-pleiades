@@ -38,6 +38,7 @@ Asks vtysh for each in JSON and returns it as data, and by default also the runn
 | `routes` | `dict` | always | show ip route json: every route by prefix. |
 | `bgp_summary` | `dict` | always | show bgp summary json, empty when BGP is not running. |
 | `config_sha256` | `string` | always | The SHA-256 of the running configuration as it runs (from its frr version line), in hex: equal to a candidate file's digest exactly when the router runs that file. |
+| `config.running_digest` | `dict` | always | A digest of the running configuration, never its text, stored as a fact: scheme (frr-cli-text/v1), datastore (running) and hmac_sha256, HMAC-SHA-256 under the project's key (or the Controller's), with hmac_key naming the key. Taken over vtysh's running configuration with its banner lines removed. Keyed, since a plain digest of a short secret is a guessing oracle; where no key is held it is not kept. config_sha256 is unchanged and is not a fact. |
 | `running_config` | `string` | unless include_config is false | The running configuration with its secrets replaced. |
 
 ## Undoing this
@@ -47,6 +48,14 @@ Asks vtysh for each in JSON and returns it as data, and by default also the runn
 Runs only show commands, which change nothing.
 
 `pleiades rollback` and the Controller's rollback route replay a recorded instruction. It is recorded during the forward run because the values an undo needs are gone once the change is applied.
+
+## Facts it keeps
+
+A real run stores each of these as the device's fact. A **stable** fact keeps every value it has had, and a change is drift; a **volatile** one keeps only its latest value and never counts as drift. A check stores none.
+
+| Fact | Kind | Type | Description |
+| --- | --- | --- | --- |
+| `config.running_digest` | stable | object | The running configuration's keyed digest, never its text. |
 
 ## See also
 

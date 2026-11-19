@@ -11755,6 +11755,14 @@
     },
     "supportsCheck": true,
     "noExistsReason": "it describes the device itself; a device not there is unreachable, not absent",
+    "facts": [
+      {
+        "key": "config.running_digest",
+        "kind": "stable",
+        "type": "object",
+        "description": "The running configuration's keyed digest, never its text."
+      }
+    ],
     "doc": {
       "summary": "Reads an FRRouting router's version, interfaces, OSPF neighbours, routes and BGP peers as data.",
       "description": "Asks vtysh for each in JSON and returns it as data, and by default also the running configuration with every secret in it (a password, an authentication or message-digest key, a neighbour's password) replaced by a placeholder that is the same for equal secrets throughout one command-line run, so a model can still compare two routers' keys without seeing one (a Runner reads each device apart, so there placeholders compare only within one router). The word after each secret word (password, secret, authentication-key, message-digest-key, key-string, community, key) is masked, past any encryption type, key id or algorithm between them. It changes nothing.",
@@ -11814,6 +11822,12 @@
           "type": "string",
           "returned": "always",
           "description": "The SHA-256 of the running configuration as it runs (from its frr version line), in hex: equal to a candidate file's digest exactly when the router runs that file."
+        },
+        {
+          "name": "config.running_digest",
+          "type": "dict",
+          "returned": "always",
+          "description": "A digest of the running configuration, never its text, stored as a fact: scheme (frr-cli-text/v1), datastore (running) and hmac_sha256, HMAC-SHA-256 under the project's key (or the Controller's), with hmac_key naming the key. Taken over vtysh's running configuration with its banner lines removed. Keyed, since a plain digest of a short secret is a guessing oracle; where no key is held it is not kept. config_sha256 is unchanged and is not a fact."
         },
         {
           "name": "running_config",
@@ -12782,6 +12796,12 @@
         "kind": "stable",
         "type": "list",
         "description": "One map per interface, in the order \"show ip interface brief\" lists them. From that command: name, ip_address (left out when the device says \"unassigned\"), status and protocol, the status taken whole so \"administratively down\" is not cut at its space. From \"show interfaces\": description (when one is set), mtu (a number), admin_state (\"down\" when the interface is shut down, else \"up\") and line_protocol (as written, e.g. \"up\" or \"down (notconnect)\"). And vrf, the VRF's name, only when the interface is in one: an interface with no vrf key is in the global table. A list, not the map keyed by name cisco.ios.ios_facts returns, because this method has returned a list since it was written, a list keeps the device's own order, and a condition finds one interface with exists(i, i.name == \"Ethernet0/0\")."
+      },
+      {
+        "key": "config.running_digest",
+        "kind": "stable",
+        "type": "object",
+        "description": "A digest of the running configuration, never its text: scheme (ios-cli-text/v1), datastore (running) and hmac_sha256, HMAC-SHA-256 under the project's key (or the Controller's), with hmac_key naming the key. Taken over show running-config as the device prints it, secrets included, with the lines IOS changes on its own removed (the build banner, the byte count, the last-change and NVRAM-save stamps, the NTP clock period), so it changes exactly when the configuration does. Keyed, since a plain digest of a short secret is a guessing oracle; where no key is held it is not kept."
       }
     ],
     "doc": {
@@ -12862,6 +12882,12 @@
           "type": "list of map",
           "returned": "when the interfaces subset is gathered",
           "description": "One map per interface, in the order \"show ip interface brief\" lists them. From that command: name, ip_address (left out when the device says \"unassigned\"), status and protocol, the status taken whole so \"administratively down\" is not cut at its space. From \"show interfaces\": description (when one is set), mtu (a number), admin_state (\"down\" when the interface is shut down, else \"up\") and line_protocol (as written, e.g. \"up\" or \"down (notconnect)\"). And vrf, the VRF's name, only when the interface is in one: an interface with no vrf key is in the global table. A list, not the map keyed by name cisco.ios.ios_facts returns, because this method has returned a list since it was written, a list keeps the device's own order, and a condition finds one interface with exists(i, i.name == \"Ethernet0/0\")."
+        },
+        {
+          "name": "config.running_digest",
+          "type": "dict",
+          "returned": "when the config subset is gathered",
+          "description": "A digest of the running configuration, never its text: scheme (ios-cli-text/v1), datastore (running) and hmac_sha256, HMAC-SHA-256 under the project's key (or the Controller's), with hmac_key naming the key. Taken over show running-config as the device prints it, secrets included, with the lines IOS changes on its own removed (the build banner, the byte count, the last-change and NVRAM-save stamps, the NTP clock period), so it changes exactly when the configuration does. Keyed, since a plain digest of a short secret is a guessing oracle; where no key is held it is not kept."
         },
         {
           "name": "ansible_net_config",
