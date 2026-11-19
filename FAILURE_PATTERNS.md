@@ -1276,6 +1276,12 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 1270. net.trace dropped tracepath's asymm and back columns and called a trace no hop answered a success, so an asymmetric path, a routing loop and a filtered path all read as an ordinary result (fixed)
 1271. net.pcap.summary called any HTTP in the clear cleartext management, so a lab web server on 8080 was warned of as management traffic (fixed)
 1272. net.ios.config's check predicted a global line written after an interface's lines inside the interface, and "+vlan 50" for a VLAN an IOL switch had (fixed)
+1273. The upgrade's backup ran this build's encrypted-column census against the old database before migrating it, so the new mesh_signing_keys.runner_seed column made the census query fail and the upgrade refused to start (fixed; found only by CI's tests/e2e upgrade gate; the mixed-version class of 1144)
+1274. A NATS user permission written as pleiades.jobs.facts.{{name()}}.> refused every publish, the Runner's own name included, since the server expands that template only for users signed by a scoped signing key (fixed before push)
+1275. Waiting on a pull request's checks by polling statusCheckRollup right after a push read the previous commit's finished checks, and reported green for a commit CI had not run yet (fixed; the class of 1173)
+1276. pkg/netcfg's digest normalization turned only "\r\n" into "\n", so a stray carriage return inside a line survived and would have changed config.running_digest with no configuration change (fixed)
+1277. A single-unit systemctl show reports an unloaded unit as dead where facts.gather's listings say inactive, so a read-back built on it would have stored a value the next gather reads as drift (fixed before push)
+1278. The dpkg-query, rpm and systemctl test fakes printed a fixed answer whatever format they were asked for, so the new read-back tests could pass without the fact being read (fixed before push; a repeat in kind of 1053 and 436)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

@@ -8366,3 +8366,31 @@ catalogue": Phase 144 keeps the core for v0.6.0, and the health catalogue is Pha
 
 **Rule in practice.** When a phase grows by more than a few items in one sitting, stop and propose the split: what the
 release cannot ship without, and what can follow. Ask the owner before recording either half.
+
+## 454. A post-change reading uses the gatherer's own query and parser, moved into one shared package, never a lookalike read; its test fakes answer the gatherer's format, and its tests assert the fact is there (a refinement of 445; FAILURE_PATTERNS 1277 and 1278) (2026-11-19)
+
+**Why.** Phase 41c's post-change readings, PRs #207 (packages) and #208 (systemd, open). A read-back exists so that the
+journal entry of a change carries its observed result, and so that the next gather reads the item as unchanged. Both
+hold only if the read-back emits exactly the key and value the gatherer stores. A single-unit `systemctl show` says
+`dead` where the gatherer's listings say `inactive` (1277), so a read-back written as a lookalike would itself have
+read as drift on the next gather. And fakes that ignored their format let the new tests pass without the fact (1278).
+
+**What is old and what is new.** 445 says two consumers of one batch share one judging function. The new part is the
+producer side: two producers of one fact share one query and one parser, so they cannot disagree.
+
+**Rule in practice.** Move the gatherer's query, its parser and its key encoding into `pkg/hostfacts` (packages:
+the dpkg and rpm formats, `ItemKey`, the value; services: the three systemd listings and the state split), and call
+them from both the gatherer and the method. Keep the gatherer's tests unchanged as the proof its behavior did not move.
+A read-back test compares the emitted fact with what the shared parser makes from the same answer, and every fake
+answers the format it is asked for as the real tool does.
+
+## 455. A step of the pull-request cycle that lives only in memory gets skipped: put it in the same command as the step it follows (2026-11-19)
+
+**Why.** The local, git-ignored pull-request log is rebuilt by a script after each pull request is opened and after
+each merge. On 2026-11-13 the owner found it had drifted (it stopped at #151 while #152 to #169 existed). The rule
+was then kept only in agent memory, not in these records. On 2026-11-19 the owner found it had drifted again: #200 to
+#207 went by with no refresh. The memory existed and was not applied.
+
+**Rule in practice.** A step that must follow another is chained to it in one command, so it cannot be skipped: the
+merge command ends with the pull, then the log refresh, and the refresh runs right after `gh pr create` too. A rule
+that relies on remembering, missed twice, becomes a command.

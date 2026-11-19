@@ -1,0 +1,1 @@
+After a real start, stop, restart, enable or disable, `svc.systemd.*` reads the unit back through the same listings `facts.gather` uses and records its `service.<unit>` and `service_state.<unit>` facts exactly as the next gather would store them. A check, an unchanged run and a unit the listings leave out record nothing, and a failed read-back is a warning, not a failure.

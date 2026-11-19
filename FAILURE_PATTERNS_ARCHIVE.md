@@ -31163,3 +31163,123 @@ a switch double whose VLAN database the lines change.
 
 **Lesson.** A prediction is held to everything that holds the state, not only the one file that usually does: the VLAN
 database is configuration a switch never prints.
+
+## 1273. The upgrade's backup ran this build's encrypted-column census against the old database before migrating it, so the new mesh_signing_keys.runner_seed column made the census query fail and the upgrade refused to start (fixed; found only by CI's tests/e2e upgrade gate; the mixed-version class of 1144)
+
+**Symptom.** 2026-11-18, PR #202 (broker-enforced Runner identity), in GitHub Actions: `tests/e2e`'s
+`TestUpgradeReleaseGate_ComposeUpgradesAndRollsBack` failed. The compose upgrade stopped before it migrated anything,
+because the backup it takes first could not finish its census of sealed columns. `make pr-check` had passed on the
+branch: it leaves `tests/e2e` to CI (CI_LESSONS 2).
+
+**Root cause.** The branch added a sealed column, `MeshSigningKey.runner_seed` (Postgres 0048, SQLite 0051), and
+listed it in `internal/crypto`'s encrypted-column list, as FAILURE_PATTERNS 233's rule requires. The upgrade runs the
+new build's backup, and its census (`crypto.TakeCensus`, `internal/crypto/census.go`) reads every listed column through
+`ent.ExistingDatabase.StoredValues` (`internal/ent/open_existing.go`), on the old database, before any migration runs.
+`StoredValues` already treated a missing table as holding nothing, but not a missing column, so the query for
+`runner_seed` failed and the backup, and with it the upgrade, refused to start. No unit test ran the census against a
+database made before the column.
+
+**Fix.** PR #202's commit "fix(ent): a column an older schema lacks reads as empty": `StoredValues` checks the column
+(`hasColumn`) after the table and returns no rows when it is absent, the same answer it gives for a missing table.
+`TestOpenExisting_AColumnTheSchemaLacksReadsAsEmpty` (`internal/ent/open_existing_column_test.go`) builds a SQLite
+database whose mesh table predates the column. The upgrade gate passed in the PR's next CI run, and #202 merged as
+`da63e0b5`.
+
+**Lesson.** Code that the upgrade runs before migrating reads the old schema, so every table and every column it names
+may be absent. A new column is a change to what that code reads, and only the upgrade gate runs this build against an
+older database (CI_LESSONS 34).
+
+## 1274. A NATS user permission written as pleiades.jobs.facts.{{name()}}.> refused every publish, the Runner's own name included, since the server expands that template only for users signed by a scoped signing key (fixed before push)
+
+**Symptom.** 2026-11-18, the first step of broker-enforced Runner identity (PR #202). A Runner credential whose own
+user permissions allowed `pleiades.jobs.facts.{{name()}}.>` was refused on every publish against nats-server 2.14.4 in
+operator mode, under its own name as well as under another Runner's.
+
+**Root cause.** NATS expands `{{name()}}` and the other permission templates only in a scoped signing key's template,
+for a user that key signs. In a plain user's own permissions the template is a literal subject, which no real
+subject matches. A user signed by a scoped key must also carry no permissions or limits of its own: the jwt library's
+`NewUserClaims` sets a default limit, and `ValidateScopedSigner` refuses a scoped user that has one. Measured against
+nats-server 2.14.4, not taken from documentation.
+
+**Fix.** `internal/meshid/runner_scope.go`: the application account carries a scoped signing key for the role
+`runner` (`jwt.UserScope`), whose template grants the Runner's usual subjects with facts and journal limited to
+`{{name()}}`. `RunnerIssuer` mints under that scope with empty user permissions and limits. The system account gets no
+such key. `TestReleaseGate_ARunnerPublishesOnlyUnderItsOwnName` (`internal/meshid/runner_identity_release_gate_test.go`,
+real nats-server): runner-a publishes under its own name and is refused under runner-b's, and runner-b the same the
+other way. Merged in #202 (`da63e0b5`).
+
+**Lesson.** A broker permission rule is proven against the real server before it is designed around. A template that
+matches nothing refuses everything, and it reads exactly like a working rule until a test publishes through it.
+
+## 1275. Waiting on a pull request's checks by polling statusCheckRollup right after a push read the previous commit's finished checks, and reported green for a commit CI had not run yet (fixed; the class of 1173)
+
+**Symptom.** This session, 2026-11-18 to 19, while waiting on pull request checks between pushes. A wait that polled
+the pull request's `statusCheckRollup` just after a push saw every check complete and passing, and reported the
+pull request green. Those checks belonged to the commit before the push; the pushed commit's runs had not started.
+
+**Root cause.** For a short time after a push, the rollup still lists the previous head commit's finished checks.
+The wait asked "are all checks done?" without asking which commit they were for.
+
+**Fix.** The wait follows the runs for the pushed commit: `gh run list` filtered by the pushed `headSha`, waiting until
+those runs exist and have finished. Whether `tools/failures watch-pr` reads the rollup the same way was not checked;
+it is worth a look.
+
+**Lesson.** A wait names the run it waits for. 1173 was a wait that could never find its run; this one found the wrong
+run and believed it (CI_LESSONS 35).
+
+## 1276. pkg/netcfg's digest normalization turned only "\r\n" into "\n", so a stray carriage return inside a line survived and would have changed config.running_digest with no configuration change (fixed)
+
+**Symptom.** PR #206 (keyed running-configuration digests). `FuzzNormalize` (`pkg/netcfg/digest_test.go`), on its first
+run, found an input whose normalized form still held a carriage return in the middle of a line, which broke its
+invariant that no line keeps a carriage return.
+
+**Root cause.** `NormalizeIOS` and `NormalizeFRR` share line-ending rules that replaced `"\r\n"` with `"\n"` and
+nothing else. A lone `"\r"` elsewhere in a line (a device or terminal redrawing a line) stayed in the text, so two
+reads of the same configuration could digest differently, and drift would be reported with nothing changed.
+
+**Fix.** The shared rules drop every carriage return left after line endings are made `"\n"`. The fuzz input is kept as
+a regression seed (`pkg/netcfg/testdata/fuzz/FuzzNormalize/7c28ef9f47c75ed0`). After the fix, 60 seconds clean (about
+38.8 million executions). Merged in #206 (`2ef3b341`).
+
+**Lesson.** A normalizer behind a digest is written as an invariant and fuzzed, not as a list of the cases someone
+thought of. Its job is that the same configuration always digests the same.
+
+## 1277. A single-unit systemctl show reports an unloaded unit as dead where facts.gather's listings say inactive, so a read-back built on it would have stored a value the next gather reads as drift (fixed before push)
+
+**Symptom.** PR #208 (open on 2026-11-19), the systemd read-back. A read-back of one unit through `systemctl show`
+would emit `service.<unit>` with a state the gatherer never stores for that unit: `dead` for an unloaded unit, where
+`facts.gather`'s three systemd listings report `inactive`.
+
+**Root cause.** The two systemd queries answer the same question in different words. The gatherer's value comes from
+its listings and its parser; a read-back from any other query is a lookalike, equal in the common case and different
+at the edges.
+
+**Fix.** Branch `feat/facts-readback-services` (`bd15b50f`): the listings, their check, their parser, the session-unit
+rules, the state split and the service fact specs moved into `pkg/hostfacts` (`pkg/hostfacts/systemd.go`).
+`facts.gather` uses them with its behavior and tests unchanged, and `svc.systemd.*` runs the same three listings after a
+real change (`internal/catalog/svc/systemd/readback.go`). `readback_test.go`: a start emits exactly the facts the shared
+parser makes from the same listing. Package read-backs (#207) took the same path for dpkg and rpm.
+
+**Lesson.** A read-back's value must be the gatherer's, byte for byte, so it uses the gatherer's query and parser
+(LESSONS 454).
+
+## 1278. The dpkg-query, rpm and systemctl test fakes printed a fixed answer whatever format they were asked for, so the new read-back tests could pass without the fact being read (fixed before push; a repeat in kind of 1053 and 436)
+
+**Symptom.** PRs #207 and #208, while writing the package and service read-back tests. The fakes for `dpkg-query`,
+`rpm` and `systemctl` ignored their format argument and printed one canned answer. A read-back that asked in the
+gatherer's format got an answer shaped for another query, and a test that did not assert the fact was present passed
+either way.
+
+**Root cause.** The fakes were written for the methods' own earlier queries. They were more permissive than the tools
+they stand for (1053's class), and a check that can find nothing still passed (436's class).
+
+**Fix.** Each fake answers the gatherer's format as the real tool does: the fake rpm answers it before its
+not-installed reply, and the fake systemctl answers the three listings from its own state. Every read-back test asserts
+the fact is present and equal to what the shared parser makes from the same row (`internal/catalog/pkg/dnf/readback_test.go`,
+`internal/catalog/pkg/apt/readback_test.go`, `internal/catalog/svc/systemd/readback_test.go`).
+
+**Why 1053 and 436 did not prevent it.** Both fixes were local to their own fakes and checks. Nothing holds a new fake,
+or an old fake given a new question, to the real tool's answer for that question.
+
+**Lesson.** A fake answers what it is asked, as the real tool would, or refuses. A test of a reading asserts what was
+read (LESSONS 454).
