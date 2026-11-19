@@ -21,7 +21,9 @@ func aclDenies(t *testing.T, path, perm string) bool {
 	var tries [][]string
 	switch runtime.GOOS {
 	case "darwin":
-		tries = [][]string{{"chmod", "+a", "everyone deny " + perm, path}}
+		// The user nobody, not everyone: everyone includes this login,
+		// which would then not reach the file at all.
+		tries = [][]string{{"chmod", "+a", "user:nobody deny " + perm, path}}
 	default:
 		// A POSIX.1e entry naming nobody without the permission (r-- keeps
 		// read but not search on a directory), else an NFSv4 deny entry.
@@ -114,8 +116,8 @@ func TestGather_AnACLThatWithholdsReadMakesAFilePrivate(t *testing.T) {
 				t.Skip("this file system or system takes no access control list here")
 			}
 			got := gatherFile(t, file)
-			if got["sha256"] != nil || got["world_readable"] != false {
-				t.Fatalf("with a list on %s withholding %s: %v, want no plain digest", on, perm, got)
+			if got["sha256"] != nil || got["world_readable"] != false || got["readable"] != true {
+				t.Fatalf("with a list on %s withholding %s: %v, want it read and no plain digest", on, perm, got)
 			}
 		})
 	}
