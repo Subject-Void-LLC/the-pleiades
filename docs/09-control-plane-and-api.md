@@ -236,9 +236,12 @@ the Runner's name and the order it reports, and a later batch of that attempt mu
 name the same Runner and the same order (where both compare); an earlier attempt
 than the claim's is refused, and a later attempt takes the claim only with an order
 that does not go backwards. A batch that breaks those rules is dropped and logged.
-This checks consistency, not truth: a Runner that is not trusted and stays
-consistent can still mislabel its facts or misorder them, and binding a
-publication to its Runner is Phase 105's work. A Runner whose host name cannot
+The Runner's name is now enforced by the broker (0.5.0): a Runner credential is
+signed by the account's runner scope, whose template lets it publish only on
+subjects carrying its own name, and the consumers refuse a batch whose subject
+names another Runner than its label. What the broker does not check is the
+values a Runner reports under its own name: a compromised Runner can still
+mislabel them, and signing each batch with a per-Runner key is Phase 105's work. A Runner whose host name cannot
 be read stops at startup rather than publishing facts no batch can be checked for. The Collection
 is checked only for its shape and for agreeing with the method (a first-party
 method's group, or a program's method outside every group); one that does not is
