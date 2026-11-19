@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts/entstore"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/sealed"
@@ -70,7 +69,7 @@ func TestFactDigestOptions_KeyWhatARunnerSealedThroughTheConsumerMainBuilds(t *t
 	// consumer keeps a built-in fact (file.) only from a built-in method.
 	data, _ := json.Marshal(facts.Batch{JobID: "job-1", DeviceID: "dev-1", Attempt: 1, ObservedAt: time.Now(), Entries: entries,
 		By: facts.Provenance{Method: "facts.gather"}})
-	if err := sub.Handle(event.Event{ID: "e1", Type: facts.EventType, Data: data}); err != nil {
+	if err := sub.Handle(factsEventFromJSON(t, "e1", data)); err != nil {
 		t.Fatal(err)
 	}
 	want, _ := keyer.Seal("dev-1", "file.x", pinDigest)

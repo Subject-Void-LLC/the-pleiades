@@ -125,6 +125,15 @@ func (s *Subscriber) Handle(evt event.Event) error {
 		}
 	}
 
+	// The subject names the Runner that published the batch, and the broker
+	// allows a Runner to publish only under its own name (0.5.0). A batch
+	// whose label names another Runner, or none, is not what it says.
+	if runner, ok := topology.JournalRunner(evt.Subject); !ok || batch.Runner == "" || runner != topology.RunnerToken(batch.Runner) {
+		s.logger.Warn("dropping a run journal batch whose subject names a different Runner than its label",
+			slog.String("job", termsafe.Quote(batch.JobID)), slog.String("device", termsafe.Quote(batch.DeviceID)),
+			slog.String("runner", termsafe.Quote(batch.Runner)), slog.String("subject", termsafe.Quote(evt.Subject)))
+		return nil
+	}
 	// Before any query: an ID PostgreSQL refuses (a NUL) failed every query
 	// made with it, the admission check's included, so the batch was
 	// redelivered until its budget ran out (FAILURE_PATTERNS 924). A batch

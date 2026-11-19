@@ -14,7 +14,6 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/api/wellknown"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
-	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/rollback"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
@@ -108,7 +107,7 @@ func TestNewFactsSubscriber_HoldsBatchesToTheBuiltInDeclarations(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := sub.Handle(event.Event{ID: "e1", Type: facts.EventType, Data: data}); err != nil {
+	if err := sub.Handle(factsEventFromJSON(t, "e1", data)); err != nil {
 		t.Fatal(err)
 	}
 	if len(store.got) != 1 || store.got[0].Key != "host.uptime_seconds" {
@@ -136,7 +135,7 @@ func TestNewFactsSubscriber_KeepsBuiltInFactsFromAMethodOutsideItsCatalog(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := sub.Handle(event.Event{ID: "e1", Type: facts.EventType, Data: data}); err != nil {
+	if err := sub.Handle(factsEventFromJSON(t, "e1", data)); err != nil {
 		t.Fatal(err)
 	}
 	if len(store.got) != 3 {

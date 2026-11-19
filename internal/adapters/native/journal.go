@@ -147,6 +147,7 @@ func (p *journalPublisher) Record(ctx context.Context, entries []engine.JournalE
 		DeviceID: p.deviceID,
 		Attempt:  p.attempt,
 		Entries:  stamped,
+		Runner:   p.runnerID,
 	}
 
 	key := p.idempotencyKey(stamped)

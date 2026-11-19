@@ -4,14 +4,18 @@ package entstore_test
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts/entstore"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
 )
 
 // fakeClaims records each claim it is asked about and answers from a script:
@@ -89,4 +93,40 @@ func TestSubscriber_HoldsEachBatchToItsDevicesClaim(t *testing.T) {
 			t.Fatalf("a batch whose claim could not be checked stored %v", got)
 		}
 	})
+}
+
+// TestSubscriber_DropsABatchWhoseSubjectNamesAnotherRunner: the broker limits a
+// Runner to its own name, so a batch delivered on another Runner's subject
+// carrying this label is not what it claims. It is dropped before any claim is
+// taken or any fact stored, and an unparseable subject is refused too.
+func TestSubscriber_DropsABatchWhoseSubjectNamesAnotherRunner(t *testing.T) {
+	observed := map[string]any{"host.name": "web1"}
+	for i, subject := range []string{
+		topology.FactsSubject("runner-b", "job-1"),
+		"pleiades.jobs.facts.not-a-job-subject",
+		"",
+	} {
+		t.Run(fmt.Sprintf("case%d", i), func(t *testing.T) {
+			client, device := open(t)
+			store := entstore.New(client)
+			claims := &fakeClaims{}
+			sub := entstore.NewSubscriber(store, nil, nil, entstore.WithClaims(claims))
+			batch := facts.Batch{JobID: "job-1", DeviceID: device, Attempt: 1, ObservedAt: time.Now(),
+				Entries: prepared(t, observed),
+				By:      facts.Provenance{Node: "tasks[1]", Method: "facts.gather", Runner: "runner-a", Order: facts.Order{Source: "lease:e1", Token: 1}}}
+			data, err := json.Marshal(batch)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := sub.Handle(event.Event{ID: "e1", Type: facts.EventType, Data: data, Subject: subject}); err != nil {
+				t.Fatalf("a mismatched batch must be acknowledged, got %v", err)
+			}
+			if len(claims.asked) != 0 {
+				t.Errorf("a mismatched batch reached the claim store: %+v", claims.asked)
+			}
+			if got := storedMethods(t, store, device); len(got) != 0 {
+				t.Errorf("a mismatched batch stored %v", got)
+			}
+		})
+	}
 }

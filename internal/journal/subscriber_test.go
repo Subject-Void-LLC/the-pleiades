@@ -23,10 +23,15 @@ func discardLogger() *slog.Logger {
 // batchEvent wraps a batch the way the publisher does.
 func batchEvent(t *testing.T, batch journal.Batch) event.Event {
 	t.Helper()
+	if batch.Runner == "" {
+		batch.Runner = "runner-test"
+	}
 	wrapped, err := event.WrapPayload("key-1", journal.EventType, batch)
 	if err != nil {
 		t.Fatalf("wrapping the batch: %v", err)
 	}
+	// Delivered on the subject its Runner publishes to, as the broker delivers it.
+	wrapped.Subject = topology.JournalSubject(batch.Runner, batch.JobID)
 	return *wrapped
 }
 
@@ -287,5 +292,36 @@ func TestSubscriberRetriesWhenAdmissionCannotBeAnswered(t *testing.T) {
 	}
 	if rows := rawQuery(t, path, "SELECT COUNT(*) FROM journal_entries"); rows[0] != "0" {
 		t.Errorf("stored %v rows without an answer", rows)
+	}
+}
+
+// TestSubscriber_DropsABatchWhoseSubjectNamesAnotherRunner: a batch delivered
+// on another Runner's subject, or one naming no Runner, is not what it claims,
+// and is dropped before anything is written (0.5.0).
+func TestSubscriber_DropsABatchWhoseSubjectNamesAnotherRunner(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		runner string
+	}{
+		{"subject names another Runner", "runner-b"},
+		{"batch names no Runner", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store, path := newEntStore(t)
+			sub := journal.NewSubscriber(store, discardLogger())
+			batch := journal.Batch{JobID: "job-1", DeviceID: "device-1", Runner: tc.runner,
+				Entries: []engine.JournalEntry{walkEntry("job-1", "device-1", 0, 1, "tasks[0]")}}
+			data, err := json.Marshal(batch)
+			if err != nil {
+				t.Fatal(err)
+			}
+			evt := event.Event{ID: "e1", Type: journal.EventType, Data: data, Subject: topology.JournalSubject("runner-a", "job-1")}
+			if err := sub.Handle(evt); err != nil {
+				t.Fatalf("a mismatched batch must be acknowledged, got %v", err)
+			}
+			if rows := rawQuery(t, path, "SELECT COUNT(*) FROM journal_entries"); rows[0] != "0" {
+				t.Errorf("a mismatched batch wrote %v rows", rows)
+			}
+		})
 	}
 }

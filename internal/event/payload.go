@@ -26,6 +26,11 @@ type Event struct {
 	// Data holds the raw JSON payload specific to the Type.
 	Data json.RawMessage `json:"data"`
 
+	// Subject is the subject the bus delivered this event on. The bus sets it;
+	// it is never read from the payload (json:"-"), so a publisher cannot
+	// name a subject it did not publish on.
+	Subject string `json:"-"`
+
 	// CorrelationID identifies the chain of causally related events this
 	// one belongs to. Every event in a chain (a trigger firing a runbook
 	// whose own results fire another trigger) shares the same

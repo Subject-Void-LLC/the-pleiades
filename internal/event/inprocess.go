@@ -138,6 +138,9 @@ func (b *inProcessBus) Publish(ctx context.Context, topic string, evt Event) err
 // logged: see inProcessBus's own doc comment for why that is the extent of
 // this adapter's failure handling.
 func deliver(topic string, evt Event, handler func(Event) error) {
+	// The topic it was published on is the event's subject, as the NATS bus
+	// sets it from the delivery.
+	evt.Subject = topic
 	if err := handler(evt); err != nil {
 		slog.Error("in-process event handler returned an error",
 			slog.String("topic", topic),

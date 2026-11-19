@@ -387,6 +387,32 @@ func FactsSubjectTemplate() string {
 	return factsSubjectPrefix + "{{name()}}.>"
 }
 
+// FactsRunner returns the Runner token a facts subject names, and whether
+// subject is a facts subject of this layout at all. A consumer compares it
+// with RunnerToken of the batch's own Runner label (0.5.0).
+func FactsRunner(subject string) (string, bool) {
+	return runnerOf(subject, factsSubjectPrefix)
+}
+
+// JournalRunner is FactsRunner for the journal subject.
+func JournalRunner(subject string) (string, bool) {
+	return runnerOf(subject, journalSubjectPrefix)
+}
+
+// runnerOf returns the first token after prefix, which is the Runner's, when
+// the rest of the subject is a job token and nothing more.
+func runnerOf(subject, prefix string) (string, bool) {
+	if !strings.HasPrefix(subject, prefix) {
+		return "", false
+	}
+	rest := subject[len(prefix):]
+	runner, job, ok := strings.Cut(rest, ".")
+	if !ok || runner == "" || job == "" || strings.Contains(job, ".") {
+		return "", false
+	}
+	return runner, true
+}
+
 // RunnerToken is a Runner's name as one subject token. A name a credential
 // carries is already one token, so it is used exactly as it is: the broker
 // matches its {{name()}} expansion against the subject's token, and a
