@@ -524,6 +524,9 @@ type Executor struct {
 	// facts stores real runs' observed facts (WithFactRecorder, facts.go);
 	// nil stores none.
 	facts FactRecorder
+
+	// factReader reads a device's stored facts during a run (facts_read.go).
+	factReader FactReader
 	// sealedDigests lets a sealed digest through to facts
 	// (WithSealedFactDigests, fact_digests.go).
 	sealedDigests bool
