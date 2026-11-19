@@ -1,0 +1,1 @@
+A file fact now says whether the access control lists that decide its privacy were read: `acl` is `listed`, `unreadable` (which makes the file private) or `unlisted` where the system cannot show one (BusyBox without `getfacl`, where the mode alone decides), on macOS, FreeBSD, Linux and Windows, so a gap in what was inspected never reads as a clean answer.

@@ -234,15 +234,19 @@ func posixFileProbe(f posixStat) gatherProbe {
 // user or group (user:bob:---), or the mask, restricts when its permissions,
 // the effective ones where getfacl prints them, lack PERM. With no getfacl, a
 // GNU ls that marks an ACL with + after the mode restricts. BusyBox's ls marks
-// none, so on a BusyBox system without getfacl an ACL is not seen.
+// none, so on a BusyBox system without getfacl an ACL is not seen, and ar says
+// so rather than read as a clean answer (owner decision 2026-11-19): every
+// call prints acl:listed, acl:unreadable or acl:unlisted, and the file's acl
+// field is the worst of its own and its directories' (aclState).
 const posixACLRestricts = `o=$(uname -s 2>/dev/null); ar(){ ` +
-	`if [ "$o" = Darwin ]; then l=$(LC_ALL=C ls -lde -- "$1" 2>/dev/null) || return 0; ` +
+	`if [ "$o" = Darwin ]; then l=$(LC_ALL=C ls -lde -- "$1" 2>/dev/null) || { echo acl:unreadable; return 0; }; echo acl:listed; ` +
 	`printf '%s\n' "$l" | { read -r _; while IFS= read -r e; do case $e in *' deny '*) exit 3;; esac; done; }; [ $? = 3 ] && return 0; return 1; fi; ` +
-	`if command -v getfacl >/dev/null 2>&1; then l=$(LC_ALL=C getfacl -- "$1" 2>/dev/null) || return 0; ` +
+	`if command -v getfacl >/dev/null 2>&1; then l=$(LC_ALL=C getfacl -- "$1" 2>/dev/null) || { echo acl:unreadable; return 0; }; echo acl:listed; ` +
 	`printf '%s\n' "$l" | while IFS= read -r e; do case $e in '#'*|'') ;; *:deny) exit 3;; *:allow) ;; ` +
 	`user:?*:*|group:?*:*|mask:*) case $e in *'#effective:'*) e=${e##*#effective:};; *) e=${e##*:};; esac; e=${e%%[	 ]*}; ` +
 	`case $e in *"$2"*) ;; *) exit 3;; esac;; esac; done; [ $? = 3 ] && return 0; return 1; fi; ` +
-	`case $(LC_ALL=C ls -ld -- "$1" 2>/dev/null) in ??????????+*) return 0;; esac; return 1; }; `
+	`if LC_ALL=C ls --version >/dev/null 2>&1; then echo acl:listed; case $(LC_ALL=C ls -ld -- "$1" 2>/dev/null) in ??????????+*) return 0;; esac; return 1; fi; ` +
+	`echo acl:unlisted; return 1; }; `
 
 // posixAttachedListing defines ax PATH, which prints what PATH carries beside
 // its content (owner decision 2026-11-19): its extended attributes, among them
@@ -387,6 +391,8 @@ func parseFileSection(section string) map[string]any {
 			value["world_readable"] = world
 		case line == "sha-unreadable", line == "raw-unreadable":
 			value["readable"], value["world_readable"] = false, line == "sha-unreadable"
+		case strings.HasPrefix(line, "acl:"):
+			value["acl"] = worseACLState(value["acl"], strings.TrimPrefix(line, "acl:"))
 		case strings.HasPrefix(line, "xs:"):
 			value[attachedStateField] = strings.TrimPrefix(line, "xs:")
 		case strings.HasPrefix(line, "xn:"):
@@ -413,6 +419,35 @@ func parseFileSection(section string) map[string]any {
 		delete(value, "sha256")
 	}
 	return value
+}
+
+// aclStates are what the acl field of a file fact says of the access control
+// lists the world-readable check had to read, from best to worst: each was
+// read (listed), one could not be (unreadable, which already made the file
+// private), or the system has no way to show one (unlisted: BusyBox without
+// getfacl). The field is there only for a file whose mode would have let
+// everyone read it, since a list cannot make a private file public.
+var aclStates = []string{"listed", "unreadable", "unlisted"}
+
+// worseACLState is the worse of the acl state value holds so far and next, by
+// aclStates; a word it does not know is unreadable, never listed.
+func worseACLState(so any, next string) string {
+	rank := func(s string) int {
+		for i, w := range aclStates {
+			if w == s {
+				return i
+			}
+		}
+		return 1
+	}
+	cur, _ := so.(string)
+	if cur == "" || rank(next) > rank(cur) {
+		if rank(next) == 1 {
+			return "unreadable"
+		}
+		return next
+	}
+	return cur
 }
 
 // filesFacts names each of the probe's answers by the path at its position.

@@ -284,7 +284,7 @@ symbolic link, it has only one hard link, and no access control list on it or a
 directory above it denies anyone or withholds read from a user or group it names;
 the digest is then read from the very file that was checked, so a path renamed
 between the check and the read is kept keyed. A BusyBox system without `getfacl`
-cannot show an access control list, and there one is not seen. On Windows a file
+cannot show an access control list, and there one is not seen: the file fact's `acl` field says `unlisted`, where elsewhere it says `listed`, or `unreadable` when a list could not be read (which makes the file private). On Windows a file
 is private unless its security descriptor, read from the handle the digest is read
 from, lets Everyone, Authenticated Users or Users read it, denies read to no one,
 holds no conditional entry, mandatory label or central access policy, and no

@@ -72,7 +72,9 @@ func worldDir(t *testing.T) string {
 func worldDirWhere(t *testing.T, ok func(dir string) bool) string {
 	t.Helper()
 	home, _ := os.UserHomeDir()
-	for _, base := range []string{"/tmp", os.TempDir(), home} {
+	// /pleiades-acl is the ZFS pool the FreeBSD lab machine keeps for these
+	// tests (its UFS is mounted without acls); elsewhere it does not exist.
+	for _, base := range []string{"/tmp", os.TempDir(), home, aclPoolMount} {
 		real, err := filepath.EvalSymlinks(base)
 		if err != nil || real == "" {
 			continue
@@ -85,6 +87,9 @@ func worldDirWhere(t *testing.T, ok func(dir string) bool) string {
 			continue
 		}
 		t.Cleanup(func() { _ = os.RemoveAll(root) })
+		if real == aclPoolMount {
+			ownDataset(t, root)
+		}
 		if err := os.Chmod(root, 0o755); err != nil || !ok(root) {
 			continue
 		}
@@ -92,6 +97,35 @@ func worldDirWhere(t *testing.T, ok func(dir string) bool) string {
 	}
 	t.Skip("no directory here that others may search to (and that the test's file system needs)")
 	return ""
+}
+
+// aclPoolMount and aclPool are the FreeBSD lab machine's ZFS pool for ACL
+// tests (its runbook check-08-zfs-acl), whose login may create and destroy
+// datasets in it.
+const (
+	aclPoolMount = "/pleiades-acl"
+	aclPool      = "pleiadesacl"
+)
+
+// ownDataset mounts a dataset of this run's own at root, destroyed when the
+// test ends, so nothing one run leaves in the pool reaches another; where the
+// pool refuses one, root stays a plain directory in it, which its own Cleanup
+// removes.
+func ownDataset(t *testing.T, root string) {
+	t.Helper()
+	name := aclPool + "/" + filepath.Base(root)
+	if out, err := exec.Command("zfs", "create", "-o", "mountpoint="+root, name).CombinedOutput(); err != nil {
+		t.Logf("zfs create %s: %v: %s (using a plain directory in the pool)", name, err, out)
+		return
+	}
+	t.Cleanup(func() {
+		if out, err := exec.Command("zfs", "destroy", "-f", name).CombinedOutput(); err != nil {
+			t.Errorf("zfs destroy %s: %v: %s", name, err, out)
+		}
+	})
+	if err := os.Chmod(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // searchableUp reports whether dir and every directory above it let others
@@ -135,8 +169,8 @@ func TestGather_AnACLThatWithholdsReadMakesAFilePrivate(t *testing.T) {
 			if err := os.WriteFile(file, []byte("pin1234\n"), 0o644); err != nil {
 				t.Fatal(err)
 			}
-			if got := gatherFile(t, file); got["world_readable"] != true || got["sha256"] == nil {
-				t.Fatalf("without a list %v, want a plain digest", got)
+			if got := gatherFile(t, file); got["world_readable"] != true || got["sha256"] == nil || got["acl"] != "listed" {
+				t.Fatalf("without a list %v, want a plain digest and the lists read", got)
 			}
 			target, perm := file, "read"
 			if on == "its directory" {
@@ -168,5 +202,30 @@ func TestGather_AnACLThatOnlyGrantsLeavesAFileWorldReadable(t *testing.T) {
 	}
 	if got := gatherFile(t, file); got["world_readable"] != true || got["sha256"] == nil {
 		t.Fatalf("an allow-only list: %v, want a plain digest", got)
+	}
+}
+
+// TestGather_AListTheSystemCannotShowIsSaidSo: where no tool can show an
+// access control list (BusyBox's ls marks none, and there is no getfacl), the
+// mode decides as before and the file fact says the lists went unseen
+// (owner decision 2026-11-19), so a gap never reads as a clean answer.
+func TestGather_AListTheSystemCannotShowIsSaidSo(t *testing.T) {
+	gatherNeedsPOSIX(t)
+	if runtime.GOOS == "darwin" {
+		t.Skip("macOS's ls always shows a list")
+	}
+	if _, err := exec.LookPath("getfacl"); err == nil {
+		t.Skip("getfacl is here, so the lists are read")
+	}
+	if exec.Command("ls", "--version").Run() == nil {
+		t.Skip("this ls marks a list with +, so the lists are read")
+	}
+	file := filepath.Join(worldDir(t), "f")
+	if err := os.WriteFile(file, []byte("pin1234\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := gatherFile(t, file)
+	if got["acl"] != "unlisted" || got["world_readable"] != true || got["sha256"] == nil {
+		t.Fatalf("on a system that cannot show a list: %v, want acl unlisted and the mode's answer", got)
 	}
 }

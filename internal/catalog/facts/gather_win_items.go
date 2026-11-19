@@ -102,7 +102,8 @@ $out = @(foreach ($p in @($paths)) {
     try {
       $s = [IO.File]::Open($p, 'Open', 'Read', 'ReadWrite, Delete')
       try {
-        if ($sdOK) { try { $world = Test-WorldReadable ([PleiadesFileSD]::Sddl($s.SafeFileHandle)) } catch { $world = $false } }
+        $r.acl = 'unlisted'
+        if ($sdOK) { try { $sd = [PleiadesFileSD]::Sddl($s.SafeFileHandle); if ($sd) { $r.acl = 'listed' } else { $r.acl = 'unreadable' }; $world = Test-WorldReadable $sd } catch { $world = $false; $r.acl = 'unreadable' } }
         if ($world -and (Test-LinkedAbove $p)) { $world = $false }
         if ($world) { $r.size = [int64]$s.Length }
         $h = [Security.Cryptography.SHA256]::Create().ComputeHash($s)
@@ -166,6 +167,9 @@ func parseWindowsFiles(out string) []gatherFact {
 		World      *bool  `json:"world_readable"`
 		Raw        string `json:"sha256_raw"`
 		LinkTarget string `json:"link_target"`
+		// ACL is whether the file's security descriptor was read (listed,
+		// unreadable, unlisted), the POSIX acl field's words.
+		ACL string `json:"acl"`
 		// What the path carries beside its content (windowsFileSDHelper's
 		// Streams), moved into its file_attached. fact by filesFacts.
 		AttachedKind      string   `json:"_attached_kind"`
@@ -187,6 +191,9 @@ func parseWindowsFiles(out string) []gatherFact {
 				if v != "" {
 					value[k] = v
 				}
+			}
+			if it.ACL != "" {
+				value["acl"] = worseACLState(nil, it.ACL)
 			}
 			if it.Size != nil && *it.Size >= 0 {
 				value["size"] = *it.Size
