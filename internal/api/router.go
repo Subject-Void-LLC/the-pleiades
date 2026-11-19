@@ -77,6 +77,15 @@ type Route struct {
 	// from PUT to PATCH.
 	Rel auth.LinkRel
 
+	// LinkedFrom, when set, is the pattern of the resource this route belongs
+	// to (a device's for its facts), whose responses then link here under
+	// LinkedAs, offered by this route's own Scope and AlsoScopes. The pattern
+	// must be LinkedFrom with fixed segments after it, so every parameter of
+	// the link's href comes from the parent's own request. It adds nothing to
+	// the parent's Allow header, which names the methods of the parent's URL.
+	LinkedFrom string
+	LinkedAs   auth.LinkRel
+
 	// Handler is the application handler. It runs only after tracing,
 	// metrics, logging, auth, the rate limiter, and RequireScope have all
 	// already accepted the request.
@@ -412,6 +421,43 @@ func validateRoutes(routes []Route) error {
 		relKey := route.Pattern + " " + string(route.Rel)
 		if seenRel[relKey] {
 			return fmt.Errorf("api: Route pattern %s declares the relation %q more than once, so its _links array would carry two entries a client cannot tell apart", route.Pattern, route.Rel)
+		}
+		seenRel[relKey] = true
+	}
+	return validateLinkedRoutes(routes, seenRel)
+}
+
+// validateLinkedRoutes refuses a LinkedFrom that could not become a real
+// link: a missing relation, a parent no route registers, a pattern that is not
+// the parent's with fixed segments after it (a parameter the parent's request
+// lacks would stay unfilled in the href), or a relation the parent already
+// answers to, which would give its _links two entries a client cannot tell
+// apart.
+func validateLinkedRoutes(routes []Route, seenRel map[string]bool) error {
+	patterns := make(map[string]bool, len(routes))
+	for _, route := range routes {
+		patterns[route.Pattern] = true
+	}
+	for _, route := range routes {
+		if route.LinkedFrom == "" {
+			if route.LinkedAs != "" {
+				return fmt.Errorf("api: Route %s %s names a LinkedAs relation but no LinkedFrom", route.Method, route.Pattern)
+			}
+			continue
+		}
+		if route.LinkedAs == "" {
+			return fmt.Errorf("api: Route %s %s is linked from %s under no relation", route.Method, route.Pattern, route.LinkedFrom)
+		}
+		if !patterns[route.LinkedFrom] {
+			return fmt.Errorf("api: Route %s %s is linked from %s, which no route registers", route.Method, route.Pattern, route.LinkedFrom)
+		}
+		rest, ok := strings.CutPrefix(route.Pattern, route.LinkedFrom+"/")
+		if !ok || rest == "" || strings.Contains(rest, "{") {
+			return fmt.Errorf("api: Route %s %s is not %s with fixed segments after it, so a link from there could not fill its href", route.Method, route.Pattern, route.LinkedFrom)
+		}
+		relKey := route.LinkedFrom + " " + string(route.LinkedAs)
+		if seenRel[relKey] {
+			return fmt.Errorf("api: Route pattern %s answers to the relation %q more than once, counting the routes linked from it", route.LinkedFrom, route.LinkedAs)
 		}
 		seenRel[relKey] = true
 	}
