@@ -92,8 +92,8 @@ func TestParseDarwinNetstat_ReadsTheProcessBetweenFixedColumns(t *testing.T) {
 func TestParseLinuxPorts_ReadsTheKernelsTablesInItsByteOrder(t *testing.T) {
 	// Alpine 3.20's /proc/net/tcp6 (two listeners on ::, by root, seen by
 	// uid 1000), with an IPv4 loopback listener, a bound and a connected UDP
-	// socket, an established TCP socket, ls -l of the fd directories this
-	// login could list, and the process names.
+	// socket, an established TCP socket, stat -L of the descriptors this login
+	// could look into, and the process names.
 	tcp := "  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode\n" +
 		"   0: 0100007F:1538 00000000:0000 0A 00000000:00000000 00:00000000 00000000  1000        0 29011 1 0000000000000000 100 0 0 10 0\n" +
 		"   1: 0100007F:1538 0100007F:A000 01 00000000:00000000 00:00000000 00000000  1000        0 29012 1 0000000000000000 100 0 0 10 0\n"
@@ -105,8 +105,12 @@ func TestParseLinuxPorts_ReadsTheKernelsTablesInItsByteOrder(t *testing.T) {
 		"  6: 0100007F:14EA 0100007F:0035 01 00000000:00000000 00:00000000 00000000  1000        0 7002 2 0000000000000000 0\n" +
 		// A UDP socket not yet bound lists as 0.0.0.0:0 in state 07.
 		"  7: 00000000:0000 00000000:0000 07 00000000:00000000 00:00000000 00000000  1000        0 7003 2 0000000000000000 0\n"
-	fds := "/proc/1/fd:\nls: /proc/1/fd: Permission denied\n/proc/40/fd:\nlrwx------    1 u        u               64 Nov  4 09:00 3 -> socket:[29011]\n" +
-		"lrwx------    1 u        u               64 Nov  4 09:00 4 -> socket:[7001]\n/proc/41/fd:\nlrwx------    1 u        u               64 Nov  4 09:00 3 -> socket:[29011]\n"
+	// stat -L's lines, with lines a forged file name could make (another
+	// type, a path outside /proc/<pid>/fd, an extra field, a listing's text),
+	// none of which is a descriptor.
+	fds := "socket 29011 /proc/40/fd/3\nsocket 7001 /proc/40/fd/4\nsocket 29011 /proc/41/fd/3\n" +
+		"socket 29011 /proc/1/fd/9 extra\nregular file 29011 /proc/1/fd/9\nsocket 29011 /tmp/a\nsocket 29011 /proc/1/fd/x\n" +
+		"socket 29011 /proc/0/fd/3\nsocket x1 /proc/1/fd/3\nlrwx 1 u u 64 9 -> socket:[29011]\n/proc/1/fd:\n"
 	comm := "1\tinit\n40\tpostgres\n41\tpostgres worker\n"
 	out := "x86_64\n" + portSectionMark + " tcp\n" + tcp + portSectionMark + " tcp6\n" + tcp6 + portSectionMark + " udp\n" + udp +
 		portSectionMark + " udp6\n" + portSectionMark + " fd\n" + fds + portSectionMark + " comm\n" + comm
