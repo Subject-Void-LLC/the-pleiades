@@ -84,6 +84,12 @@ func (MeshSigningKey) Fields() []ent.Field {
 		// plaintext.
 		field.String("seed").Sensitive(),
 
+		// runner_seed is the seed of the scoped signing key that issues
+		// Runner credentials (meshid's RunnerIssuer). It is sealed under the
+		// same envelope and bound to this row by the same secret_binding as
+		// seed, and empty for a key minted before the runner scope existed.
+		field.String("runner_seed").Default("").Sensitive(),
+
 		// active marks the one key new credentials are signed with.
 		//
 		// A retired key stays in the table rather than being deleted: its

@@ -72,6 +72,20 @@ func (_c *MeshSigningKeyCreate) SetSeed(v string) *MeshSigningKeyCreate {
 	return _c
 }
 
+// SetRunnerSeed sets the "runner_seed" field.
+func (_c *MeshSigningKeyCreate) SetRunnerSeed(v string) *MeshSigningKeyCreate {
+	_c.mutation.SetRunnerSeed(v)
+	return _c
+}
+
+// SetNillableRunnerSeed sets the "runner_seed" field if the given value is not nil.
+func (_c *MeshSigningKeyCreate) SetNillableRunnerSeed(v *string) *MeshSigningKeyCreate {
+	if v != nil {
+		_c.SetRunnerSeed(*v)
+	}
+	return _c
+}
+
 // SetActive sets the "active" field.
 func (_c *MeshSigningKeyCreate) SetActive(v bool) *MeshSigningKeyCreate {
 	_c.mutation.SetActive(v)
@@ -143,6 +157,10 @@ func (_c *MeshSigningKeyCreate) defaults() {
 		v := meshsigningkey.DefaultUpdatedAt()
 		_c.mutation.SetUpdatedAt(v)
 	}
+	if _, ok := _c.mutation.RunnerSeed(); !ok {
+		v := meshsigningkey.DefaultRunnerSeed
+		_c.mutation.SetRunnerSeed(v)
+	}
 	if _, ok := _c.mutation.Active(); !ok {
 		v := meshsigningkey.DefaultActive
 		_c.mutation.SetActive(v)
@@ -187,6 +205,9 @@ func (_c *MeshSigningKeyCreate) check() error {
 	}
 	if _, ok := _c.mutation.Seed(); !ok {
 		return &ValidationError{Name: "seed", err: errors.New(`ent: missing required field "MeshSigningKey.seed"`)}
+	}
+	if _, ok := _c.mutation.RunnerSeed(); !ok {
+		return &ValidationError{Name: "runner_seed", err: errors.New(`ent: missing required field "MeshSigningKey.runner_seed"`)}
 	}
 	if _, ok := _c.mutation.Active(); !ok {
 		return &ValidationError{Name: "active", err: errors.New(`ent: missing required field "MeshSigningKey.active"`)}
@@ -243,6 +264,10 @@ func (_c *MeshSigningKeyCreate) createSpec() (*MeshSigningKey, *sqlgraph.CreateS
 	if value, ok := _c.mutation.Seed(); ok {
 		_spec.SetField(meshsigningkey.FieldSeed, field.TypeString, value)
 		_node.Seed = value
+	}
+	if value, ok := _c.mutation.RunnerSeed(); ok {
+		_spec.SetField(meshsigningkey.FieldRunnerSeed, field.TypeString, value)
+		_node.RunnerSeed = value
 	}
 	if value, ok := _c.mutation.Active(); ok {
 		_spec.SetField(meshsigningkey.FieldActive, field.TypeBool, value)

@@ -29,6 +29,8 @@ type MeshSigningKey struct {
 	PublicKey string `json:"public_key,omitempty"`
 	// Seed holds the value of the "seed" field.
 	Seed string `json:"-"`
+	// RunnerSeed holds the value of the "runner_seed" field.
+	RunnerSeed string `json:"-"`
 	// Active holds the value of the "active" field.
 	Active bool `json:"active,omitempty"`
 	// SecretBinding holds the value of the "secret_binding" field.
@@ -45,7 +47,7 @@ func (*MeshSigningKey) scanValues(columns []string) ([]any, error) {
 			values[i] = new(sql.NullBool)
 		case meshsigningkey.FieldID:
 			values[i] = new(sql.NullInt64)
-		case meshsigningkey.FieldKeyID, meshsigningkey.FieldAccountSubject, meshsigningkey.FieldPublicKey, meshsigningkey.FieldSeed, meshsigningkey.FieldSecretBinding:
+		case meshsigningkey.FieldKeyID, meshsigningkey.FieldAccountSubject, meshsigningkey.FieldPublicKey, meshsigningkey.FieldSeed, meshsigningkey.FieldRunnerSeed, meshsigningkey.FieldSecretBinding:
 			values[i] = new(sql.NullString)
 		case meshsigningkey.FieldCreatedAt, meshsigningkey.FieldUpdatedAt:
 			values[i] = new(sql.NullTime)
@@ -105,6 +107,12 @@ func (_m *MeshSigningKey) assignValues(columns []string, values []any) error {
 				return fmt.Errorf("unexpected type %T for field seed", values[i])
 			} else if value.Valid {
 				_m.Seed = value.String
+			}
+		case meshsigningkey.FieldRunnerSeed:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field runner_seed", values[i])
+			} else if value.Valid {
+				_m.RunnerSeed = value.String
 			}
 		case meshsigningkey.FieldActive:
 			if value, ok := values[i].(*sql.NullBool); !ok {
@@ -170,6 +178,8 @@ func (_m *MeshSigningKey) String() string {
 	builder.WriteString(_m.PublicKey)
 	builder.WriteString(", ")
 	builder.WriteString("seed=<sensitive>")
+	builder.WriteString(", ")
+	builder.WriteString("runner_seed=<sensitive>")
 	builder.WriteString(", ")
 	builder.WriteString("active=")
 	builder.WriteString(fmt.Sprintf("%v", _m.Active))

@@ -38,7 +38,7 @@ func TestRotateAll_LeavesNothingThatNeedsThePreviousKey(t *testing.T) {
 		t.Fatalf("RotateAll() error = %v", err)
 	}
 
-	wantTables := []string{"credentials", "devices", "saved launch configurations", "mesh signing keys"}
+	wantTables := []string{"credentials", "devices", "saved launch configurations", "mesh signing keys", "mesh runner signing keys"}
 	if len(results) != len(wantTables) {
 		t.Fatalf("RotateAll() reported %d tables, want %d: %+v", len(results), len(wantTables), results)
 	}

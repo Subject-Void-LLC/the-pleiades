@@ -84,6 +84,11 @@ func Seed(v string) predicate.MeshSigningKey {
 	return predicate.MeshSigningKey(sql.FieldEQ(FieldSeed, v))
 }
 
+// RunnerSeed applies equality check predicate on the "runner_seed" field. It's identical to RunnerSeedEQ.
+func RunnerSeed(v string) predicate.MeshSigningKey {
+	return predicate.MeshSigningKey(sql.FieldEQ(FieldRunnerSeed, v))
+}
+
 // Active applies equality check predicate on the "active" field. It's identical to ActiveEQ.
 func Active(v bool) predicate.MeshSigningKey {
 	return predicate.MeshSigningKey(sql.FieldEQ(FieldActive, v))
@@ -432,6 +437,71 @@ func SeedEqualFold(v string) predicate.MeshSigningKey {
 // SeedContainsFold applies the ContainsFold predicate on the "seed" field.
 func SeedContainsFold(v string) predicate.MeshSigningKey {
 	return predicate.MeshSigningKey(sql.FieldContainsFold(FieldSeed, v))
+}
+
+// RunnerSeedEQ applies the EQ predicate on the "runner_seed" field.
+func RunnerSeedEQ(v string) predicate.MeshSigningKey {
+	return predicate.MeshSigningKey(sql.FieldEQ(FieldRunnerSeed, v))
+}
+
+// RunnerSeedNEQ applies the NEQ predicate on the "runner_seed" field.
+func RunnerSeedNEQ(v string) predicate.MeshSigningKey {
+	return predicate.MeshSigningKey(sql.FieldNEQ(FieldRunnerSeed, v))
+}
+
+// RunnerSeedIn applies the In predicate on the "runner_seed" field.
+func RunnerSeedIn(vs ...string) predicate.MeshSigningKey {
+	return predicate.MeshSigningKey(sql.FieldIn(FieldRunnerSeed, vs...))
+}
+
+// RunnerSeedNotIn applies the NotIn predicate on the "runner_seed" field.
+func RunnerSeedNotIn(vs ...string) predicate.MeshSigningKey {
+	return predicate.MeshSigningKey(sql.FieldNotIn(FieldRunnerSeed, vs...))
+}
+
+// RunnerSeedGT applies the GT predicate on the "runner_seed" field.
+func RunnerSeedGT(v string) predicate.MeshSigningKey {
+	return predicate.MeshSigningKey(sql.FieldGT(FieldRunnerSeed, v))
+}
+
+// RunnerSeedGTE applies the GTE predicate on the "runner_seed" field.
+func RunnerSeedGTE(v string) predicate.MeshSigningKey {
+	return predicate.MeshSigningKey(sql.FieldGTE(FieldRunnerSeed, v))
+}
+
+// RunnerSeedLT applies the LT predicate on the "runner_seed" field.
+func RunnerSeedLT(v string) predicate.MeshSigningKey {
+	return predicate.MeshSigningKey(sql.FieldLT(FieldRunnerSeed, v))
+}
+
+// RunnerSeedLTE applies the LTE predicate on the "runner_seed" field.
+func RunnerSeedLTE(v string) predicate.MeshSigningKey {
+	return predicate.MeshSigningKey(sql.FieldLTE(FieldRunnerSeed, v))
+}
+
+// RunnerSeedContains applies the Contains predicate on the "runner_seed" field.
+func RunnerSeedContains(v string) predicate.MeshSigningKey {
+	return predicate.MeshSigningKey(sql.FieldContains(FieldRunnerSeed, v))
+}
+
+// RunnerSeedHasPrefix applies the HasPrefix predicate on the "runner_seed" field.
+func RunnerSeedHasPrefix(v string) predicate.MeshSigningKey {
+	return predicate.MeshSigningKey(sql.FieldHasPrefix(FieldRunnerSeed, v))
+}
+
+// RunnerSeedHasSuffix applies the HasSuffix predicate on the "runner_seed" field.
+func RunnerSeedHasSuffix(v string) predicate.MeshSigningKey {
+	return predicate.MeshSigningKey(sql.FieldHasSuffix(FieldRunnerSeed, v))
+}
+
+// RunnerSeedEqualFold applies the EqualFold predicate on the "runner_seed" field.
+func RunnerSeedEqualFold(v string) predicate.MeshSigningKey {
+	return predicate.MeshSigningKey(sql.FieldEqualFold(FieldRunnerSeed, v))
+}
+
+// RunnerSeedContainsFold applies the ContainsFold predicate on the "runner_seed" field.
+func RunnerSeedContainsFold(v string) predicate.MeshSigningKey {
+	return predicate.MeshSigningKey(sql.FieldContainsFold(FieldRunnerSeed, v))
 }
 
 // ActiveEQ applies the EQ predicate on the "active" field.
