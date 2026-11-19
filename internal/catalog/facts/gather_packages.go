@@ -6,12 +6,14 @@ package facts
 
 import (
 	"strings"
+
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/hostfacts"
 )
 
 // The databases a package fact comes from, as its source names them.
 const (
-	sourceDpkg = "dpkg"
-	sourceRPM  = "rpm"
+	sourceDpkg = hostfacts.SourceDpkg
+	sourceRPM  = hostfacts.SourceRPM
 	sourceAPK  = "apk"
 )
 
@@ -26,7 +28,7 @@ func linuxPackageProbes() []gatherProbe {
 			subset:  gatherSubsetPackages,
 			family:  gatherFamilyPackage,
 			present: `command -v dpkg-query >/dev/null 2>&1`,
-			command: orFailed(`dpkg-query -W -f='${db:Status-Abbrev}\t${binary:Package}\t${Version}\t${Architecture}\n'`),
+			command: orFailed(`dpkg-query -W -f='` + hostfacts.DpkgFormat + `'`),
 			parse:   func(out string) []gatherFact { return packageFacts(parseDpkg(out)) },
 		},
 		{
@@ -36,7 +38,7 @@ func linuxPackageProbes() []gatherProbe {
 			// rpm with no database of its own, whose failing listing would
 			// fail the family dpkg answered (FAILURE_PATTERNS 925).
 			present: `command -v rpm >/dev/null 2>&1 && d=$(rpm --eval '%_dbpath' 2>/dev/null) && [ -d "$d" ]`,
-			command: orFailed(`rpm -qa --qf '%{NAME}\t%{EPOCH}\t%{VERSION}-%{RELEASE}\t%{ARCH}\n'`),
+			command: orFailed(`rpm -qa --qf '` + hostfacts.RPMFormat + `'`),
 			parse:   func(out string) []gatherFact { return packageFacts(parseRPM(out)) },
 		},
 		{
@@ -60,61 +62,29 @@ type installedPackage struct {
 func packageFacts(pkgs []installedPackage) []gatherFact {
 	out := make([]gatherFact, 0, len(pkgs))
 	for _, p := range pkgs {
-		value := map[string]any{"source": p.source}
-		if p.version != "" {
-			value["version"] = p.version
-		}
-		if p.arch != "" {
-			value["arch"] = p.arch
-		}
-		out = append(out, gatherFact{key: itemKey(gatherFamilyPackage, p.name), value: value})
+		hp := hostfacts.Package{Name: p.name, Version: p.version, Arch: p.arch, Source: p.source}
+		out = append(out, gatherFact{key: hostfacts.PackageKey(hp), value: hostfacts.PackageValue(hp)})
 	}
 	return out
 }
 
-// dpkgInstalled are the status letters (the second of dpkg's abbreviation)
-// of a package whose files are on the system: installed, unpacked,
-// half-configured, and awaiting or pending triggers. Not installed (n),
-// config files only (c) and half installed (H) are not. The first letter, what
-// is wanted of it (install, hold, remove, purge), does not decide: a held
-// package (hi) is installed.
-const dpkgInstalled = "iUFWt"
-
 // parseDpkg reads dpkg-query's lines (status abbreviation, package, version,
 // architecture), keeping the installed ones (dpkgInstalled).
-func parseDpkg(out string) []installedPackage {
-	var pkgs []installedPackage
-	for _, line := range strings.Split(out, "\n") {
-		fields := strings.Split(line, "\t")
-		if len(fields) != 4 || len(fields[0]) < 2 || !strings.ContainsRune(dpkgInstalled, rune(fields[0][1])) || fields[1] == "" || fields[2] == "" {
-			continue
-		}
-		pkgs = append(pkgs, installedPackage{name: fields[1], version: fields[2], arch: fields[3], source: sourceDpkg})
-	}
-	return pkgs
-}
+func parseDpkg(out string) []installedPackage { return fromHostfacts(hostfacts.ParseDpkg(out)) }
 
 // parseRPM reads rpm's lines (name, epoch, version-release, architecture),
 // leaving out the gpg-pubkey entries rpm lists as packages for its keys. An
 // epoch prefixes the version as rpm writes it (2:1.0-1); "(none)" is none.
-func parseRPM(out string) []installedPackage {
-	var pkgs []installedPackage
-	for _, line := range strings.Split(out, "\n") {
-		fields := strings.Split(line, "\t")
-		if len(fields) != 4 || fields[0] == "" || fields[0] == "gpg-pubkey" || fields[2] == "" {
-			continue
-		}
-		version := fields[2]
-		if epoch := fields[1]; epoch != "" && epoch != "(none)" && epoch != "0" {
-			version = epoch + ":" + version
-		}
-		arch := fields[3]
-		if arch == "(none)" {
-			arch = ""
-		}
-		pkgs = append(pkgs, installedPackage{name: fields[0], version: version, arch: arch, source: sourceRPM})
+func parseRPM(out string) []installedPackage { return fromHostfacts(hostfacts.ParseRPM(out)) }
+
+// fromHostfacts is pkg/hostfacts' packages as this file's own type, which apk's
+// parser shares.
+func fromHostfacts(pkgs []hostfacts.Package) []installedPackage {
+	out := make([]installedPackage, 0, len(pkgs))
+	for _, p := range pkgs {
+		out = append(out, installedPackage{name: p.Name, version: p.Version, arch: p.Arch, source: p.Source})
 	}
-	return pkgs
+	return out
 }
 
 // parseAPK reads apk's installed list ("name-1.2.3-r0 x86_64 {origin}

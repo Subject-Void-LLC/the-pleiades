@@ -196,6 +196,15 @@ if [ "$#" = "2" ]; then
   exit 0
 fi
 if [ "$3" != "--" ]; then printf 'dpkg-query: error: no -- before the name\n' >&2; exit 2; fi
+# facts.gather's format (pkg/hostfacts.DpkgFormat), which the post-change
+# reading asks for: a row in that format for an installed package, as real
+# dpkg-query prints one, and none for one it does not hold.
+case "$2" in *binary:Package*)
+  if [ -e "$FAKE_RECORD.installed" ] || [ "$FAKE_STATUS" = "install ok installed" ]; then
+    [ -n "$FAKE_VERSION" ] && printf 'ii\t%s\t%s\tamd64\n' "$4" "$FAKE_VERSION"
+  fi
+  exit 0 ;;
+esac
 printf '%s\t%s' "$FAKE_STATUS" "$FAKE_VERSION"
 exit "$FAKE_DPKG_EXIT"
 `

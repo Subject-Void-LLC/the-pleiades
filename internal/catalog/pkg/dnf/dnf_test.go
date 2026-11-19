@@ -171,6 +171,12 @@ if [ "$4" != "--" ]; then printf 'rpm: %s: unknown option\n' "$4" >&2; exit 1; f
 if [ -n "$FAKE_RPM_ERROR" ]; then printf '%s\n' "$FAKE_RPM_ERROR" >&2; exit 1; fi
 if [ "$FAKE_RPM_EXIT" = "1" ] && [ "$LC_ALL" != "C" ]; then printf "le paquet %s n'est pas install\303\251\n" "$5"; exit 1; fi
 if [ "$FAKE_RPM_EXIT" = "1" ]; then printf 'package %s is not installed\n' "$5"; exit 1; fi
+# facts.gather's format (pkg/hostfacts.RPMFormat), which the post-change
+# reading asks for: one row, as real rpm prints it for an installed package.
+case "$3" in *'%{NAME}'*)
+  [ -n "$FAKE_VERSION" ] && printf '%s\t(none)\t%s\tx86_64\n' "$5" "$FAKE_VERSION"
+  exit "$FAKE_RPM_EXIT" ;;
+esac
 printf '%s' "$FAKE_VERSION"
 exit "$FAKE_RPM_EXIT"
 `

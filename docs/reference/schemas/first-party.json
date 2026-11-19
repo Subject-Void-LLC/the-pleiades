@@ -238,7 +238,8 @@
       "net"
     ],
     "package.": [
-      "facts"
+      "facts",
+      "pkg"
     ],
     "pkg.": [],
     "pleiades.": [],

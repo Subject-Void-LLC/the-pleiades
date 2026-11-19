@@ -35,6 +35,8 @@ func init() {
 				},
 			},
 			Doc: installDoc(),
+			// What it changed, read back after (Phase 41c, readback.go).
+			Facts: []collection.FactSpec{packageReadBackSpec()},
 		},
 		Invoke: Install,
 		Check:  CheckInstall,
@@ -149,6 +151,12 @@ func install(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 
 	if err := recordState(rc, name, before, after); err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+	}
+	if changed {
+		// What the change left, as the package fact the next gather stores.
+		if err := sdk.RecordWarnings(rc, readBack(ctx, rc, conn, name)); err != nil {
+			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+		}
 	}
 
 	if changed && !before.installed {

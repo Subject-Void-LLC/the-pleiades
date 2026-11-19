@@ -31,6 +31,8 @@ func init() {
 					"the information an undo would need still exists anywhere reachable.",
 			},
 			Doc: upgradeDoc(),
+			// What it changed, read back after (Phase 41c, readback.go).
+			Facts: []collection.FactSpec{packageReadBackSpec()},
 		},
 		Invoke: Upgrade,
 		Check:  CheckUpgrade,
@@ -137,6 +139,10 @@ func upgrade(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 		if err := recordState(rc, name, before, after); err != nil {
 			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 		}
+		// What the change left, as the package fact the next gather stores.
+		if err := sdk.RecordWarnings(rc, readBack(ctx, rc, conn, name)); err != nil {
+			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+		}
 		return collection.Result{Changed: true}, nil
 	}
 
@@ -159,6 +165,12 @@ func upgrade(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 
 	if err := recordState(rc, name, before, after); err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+	}
+	if changed {
+		// What the change left, as the package fact the next gather stores.
+		if err := sdk.RecordWarnings(rc, readBack(ctx, rc, conn, name)); err != nil {
+			return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
+		}
 	}
 
 	// No inverse: Reversible is false on this method's own manifest, and
