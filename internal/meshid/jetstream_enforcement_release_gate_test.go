@@ -222,14 +222,14 @@ func TestReleaseGate_TheRealControlPlaneRunsUnderAMintedIdentity(t *testing.T) {
 	// contradict them, and a denied publish here would show up not as a
 	// permissions error but as a JetStream request that never gets a
 	// reply.
-	if _, err := runJS.Publish(runCtx, topology.JournalSubject("gate-1"), []byte(`{"job_id":"gate-1"}`)); err != nil {
+	if _, err := runJS.Publish(runCtx, topology.JournalSubject("runner-test", "gate-1"), []byte(`{"job_id":"gate-1"}`)); err != nil {
 		t.Fatalf("the Runner could not publish a run journal batch under FleetRunnerGrant: %v", err)
 	}
 	// And the Controller's own dead letter path for that consumer. A
 	// handler error routes into event.HandleDeliveryFailure, which
 	// returns BEFORE msg.Term() if this publish is denied, so a batch the
 	// store keeps refusing would be neither dead-lettered nor terminated.
-	dlq := topology.DeadLetterSubject(topology.JournalSubject("gate-1"))
+	dlq := topology.DeadLetterSubject(topology.JournalSubject("runner-test", "gate-1"))
 	if _, err := ctrlJS.Publish(runCtx, dlq, []byte(`{"dead":true}`)); err != nil {
 		t.Fatalf("the Controller could not dead-letter a run journal batch under ControllerGrant: %v", err)
 	}

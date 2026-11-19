@@ -63,7 +63,7 @@ func TestJournalPublisherStampsTheDispatchIdentity(t *testing.T) {
 	// engine leaves both at zero for exactly that reason.
 	bus := &mockBus{}
 	ctx := journal.WithAttempt(context.Background(), 3)
-	p := newJournalPublisher(ctx, bus, quietLogger(), "job-1", "device-1")
+	p := newJournalPublisher(ctx, bus, quietLogger(), "job-1", "device-1", "runner-test")
 
 	if err := p.Record(ctx, journalEntries("run-1", 1, 2)); err != nil {
 		t.Fatalf("Record: %v", err)
@@ -95,7 +95,7 @@ func TestJournalPublisherDoesNotMutateTheCallersEntries(t *testing.T) {
 	// a level barrier.
 	bus := &mockBus{}
 	ctx := journal.WithAttempt(context.Background(), 2)
-	p := newJournalPublisher(ctx, bus, quietLogger(), "job-1", "device-1")
+	p := newJournalPublisher(ctx, bus, quietLogger(), "job-1", "device-1", "runner-test")
 
 	entries := journalEntries("run-1", 1)
 	if err := p.Record(ctx, entries); err != nil {
@@ -109,12 +109,12 @@ func TestJournalPublisherDoesNotMutateTheCallersEntries(t *testing.T) {
 func TestJournalPublisherUsesTheJobsOwnSubject(t *testing.T) {
 	bus := &mockBus{}
 	ctx := journal.WithAttempt(context.Background(), 0)
-	p := newJournalPublisher(ctx, bus, quietLogger(), "job-1", "device-1")
+	p := newJournalPublisher(ctx, bus, quietLogger(), "job-1", "device-1", "runner-test")
 
 	if err := p.Record(ctx, journalEntries("run-1", 1)); err != nil {
 		t.Fatalf("Record: %v", err)
 	}
-	if got, want := bus.published[0].topic, topology.JournalSubject("job-1"); got != want {
+	if got, want := bus.published[0].topic, topology.JournalSubject("runner-test", "job-1"); got != want {
 		t.Errorf("published to %q, want %q", got, want)
 	}
 }
@@ -127,7 +127,7 @@ func TestJournalPublisherKeyIsStableAcrossARetry(t *testing.T) {
 	// does.
 	bus := &mockBus{}
 	ctx := journal.WithAttempt(context.Background(), 1)
-	p := newJournalPublisher(ctx, bus, quietLogger(), "job-1", "device-1")
+	p := newJournalPublisher(ctx, bus, quietLogger(), "job-1", "device-1", "runner-test")
 
 	if err := p.Record(ctx, journalEntries("run-first", 1, 2)); err != nil {
 		t.Fatalf("first Record: %v", err)
@@ -148,14 +148,14 @@ func TestJournalPublisherKeyDistinguishesLevelsAndAttempts(t *testing.T) {
 	bus := &mockBus{}
 	base := context.Background()
 
-	first := newJournalPublisher(journal.WithAttempt(base, 1), bus, quietLogger(), "job-1", "device-1")
+	first := newJournalPublisher(journal.WithAttempt(base, 1), bus, quietLogger(), "job-1", "device-1", "runner-test")
 	if err := first.Record(base, journalEntries("run-1", 1, 2)); err != nil {
 		t.Fatalf("Record: %v", err)
 	}
 	if err := first.Record(base, journalEntries("run-1", 3)); err != nil {
 		t.Fatalf("Record: %v", err)
 	}
-	retry := newJournalPublisher(journal.WithAttempt(base, 2), bus, quietLogger(), "job-1", "device-1")
+	retry := newJournalPublisher(journal.WithAttempt(base, 2), bus, quietLogger(), "job-1", "device-1", "runner-test")
 	if err := retry.Record(base, journalEntries("run-2", 1, 2)); err != nil {
 		t.Fatalf("Record: %v", err)
 	}
@@ -174,7 +174,7 @@ func TestJournalPublisherKeyDistinguishesLevelsAndAttempts(t *testing.T) {
 
 func TestJournalPublisherPublishesNothingForAnEmptyLevel(t *testing.T) {
 	bus := &mockBus{}
-	p := newJournalPublisher(context.Background(), bus, quietLogger(), "job-1", "device-1")
+	p := newJournalPublisher(context.Background(), bus, quietLogger(), "job-1", "device-1", "runner-test")
 	if err := p.Record(context.Background(), nil); err != nil {
 		t.Fatalf("Record: %v", err)
 	}
@@ -189,7 +189,7 @@ func TestJournalPublisherReportsAPublishFailure(t *testing.T) {
 	// this tier an execution error Naks for redelivery, so a failed
 	// audit write that became one would re-run the runbook against the
 	// same device.
-	p := newJournalPublisher(context.Background(), failingBus{}, quietLogger(), "job-1", "device-1")
+	p := newJournalPublisher(context.Background(), failingBus{}, quietLogger(), "job-1", "device-1", "runner-test")
 	err := p.Record(context.Background(), journalEntries("run-1", 1))
 	if err == nil {
 		t.Fatal("Record swallowed a publish failure")
@@ -207,7 +207,7 @@ func TestNewJournalPublisherDefaultsAMissingAttemptToZero(t *testing.T) {
 	// count to give, and zero is what JournalEntry documents for a tier
 	// with no dispatch at all.
 	bus := &mockBus{}
-	p := newJournalPublisher(context.Background(), bus, quietLogger(), "job-1", "device-1")
+	p := newJournalPublisher(context.Background(), bus, quietLogger(), "job-1", "device-1", "runner-test")
 	if err := p.Record(context.Background(), journalEntries("run-1", 1)); err != nil {
 		t.Fatalf("Record: %v", err)
 	}
@@ -223,7 +223,7 @@ func TestJournalPublisherCarriesTheAttemptAcrossADetachedContext(t *testing.T) {
 	// keep values and drop only cancellation.
 	bus := &mockBus{}
 	delivered := journal.WithAttempt(context.Background(), 4)
-	p := newJournalPublisher(delivered, bus, quietLogger(), "job-1", "device-1")
+	p := newJournalPublisher(delivered, bus, quietLogger(), "job-1", "device-1", "runner-test")
 
 	detached, cancel := context.WithCancel(context.WithoutCancel(delivered))
 	cancel()
@@ -244,7 +244,7 @@ func TestAdapterExecutePublishesTheRunJournal(t *testing.T) {
 	// every unit test.
 	bus := &mockBus{}
 	runbooks := writeRunbook(t, "pb-1", "id: pb-1\ntasks:\n  - name: step\n    fqcn: noop\n    params:\n      changed: true\n")
-	adapter, err := NewAdapter(bus, runbooks, nil)
+	adapter, err := NewAdapter(bus, runbooks, nil, WithRunnerID("runner-test"))
 	if err != nil {
 		t.Fatalf("NewAdapter: %v", err)
 	}
@@ -260,7 +260,7 @@ func TestAdapterExecutePublishesTheRunJournal(t *testing.T) {
 
 	var batches []journal.Batch
 	for _, p := range bus.published {
-		if p.topic != topology.JournalSubject("job-1") {
+		if p.topic != topology.JournalSubject("runner-test", "job-1") {
 			continue
 		}
 		var batch journal.Batch
@@ -297,7 +297,7 @@ func TestJournalPublisherAttributesADevicelessEntryToTheDispatchsDevice(t *testi
 	// (job, device, attempt, node) identity.
 	bus := &mockBus{}
 	ctx := journal.WithAttempt(context.Background(), 1)
-	p := newJournalPublisher(ctx, bus, quietLogger(), "job-1", "device-1")
+	p := newJournalPublisher(ctx, bus, quietLogger(), "job-1", "device-1", "runner-test")
 
 	entries := journalEntries("run-1", 1, 2)
 	entries[0].DeviceID = ""
@@ -323,7 +323,7 @@ func TestJournalPublisherKeepsTheDeviceTheRunResolved(t *testing.T) {
 	// value as though the run had observed it.
 	bus := &mockBus{}
 	ctx := journal.WithAttempt(context.Background(), 1)
-	p := newJournalPublisher(ctx, bus, quietLogger(), "job-1", "device-1")
+	p := newJournalPublisher(ctx, bus, quietLogger(), "job-1", "device-1", "runner-test")
 
 	entries := journalEntries("run-1", 1)
 	entries[0].DeviceID = "device-the-run-resolved"
@@ -345,7 +345,7 @@ func TestJournalPublisherStampsTheLeaseRevision(t *testing.T) {
 	bus := &mockBus{}
 	fence := lock.NewFence(4242, "nats:epoch-1")
 	ctx := lock.WithFence(journal.WithAttempt(context.Background(), 1), fence)
-	p := newJournalPublisher(ctx, bus, quietLogger(), "job-1", "device-1")
+	p := newJournalPublisher(ctx, bus, quietLogger(), "job-1", "device-1", "runner-test")
 	if err := p.Record(ctx, journalEntries("run-1", 1, 2)); err != nil {
 		t.Fatalf("Record: %v", err)
 	}
@@ -359,7 +359,7 @@ func TestJournalPublisherStampsTheLeaseRevision(t *testing.T) {
 	// device may be another job's by then.
 	fence.Lose()
 	after := &mockBus{}
-	q := newJournalPublisher(ctx, after, quietLogger(), "job-1", "device-1")
+	q := newJournalPublisher(ctx, after, quietLogger(), "job-1", "device-1", "runner-test")
 	if err := q.Record(ctx, journalEntries("run-1", 3)); err != nil {
 		t.Fatalf("Record: %v", err)
 	}
@@ -368,7 +368,7 @@ func TestJournalPublisherStampsTheLeaseRevision(t *testing.T) {
 	}
 
 	bare := &mockBus{}
-	r := newJournalPublisher(journal.WithAttempt(context.Background(), 1), bare, quietLogger(), "job-1", "device-1")
+	r := newJournalPublisher(journal.WithAttempt(context.Background(), 1), bare, quietLogger(), "job-1", "device-1", "runner-test")
 	if err := r.Record(context.Background(), journalEntries("run-1", 1)); err != nil {
 		t.Fatalf("Record: %v", err)
 	}

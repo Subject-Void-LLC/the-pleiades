@@ -69,7 +69,7 @@ func (p *factsPublisher) Record(ctx context.Context, device string, obs facts.Ob
 		if err != nil {
 			return fmt.Errorf("failed to wrap a facts batch for job %s: %w", p.jobID, err)
 		}
-		if err := p.bus.Publish(event.WithIdempotencyKey(ctx, key), topology.FactsSubject(p.jobID), *wrapped); err != nil {
+		if err := p.bus.Publish(event.WithIdempotencyKey(ctx, key), topology.FactsSubject(p.runnerID, p.jobID), *wrapped); err != nil {
 			return fmt.Errorf("failed to publish a facts batch for job %s: %w", p.jobID, err)
 		}
 	}

@@ -352,15 +352,20 @@ func ResultSubjectAll() string {
 	return resultSubjectPrefix + ">"
 }
 
-// JournalSubject returns the subject a given job's run journal entries
-// publish to (Phase 40). It falls under StreamSubjectRoot exactly like
-// every other subject this package declares, so no stream change is
-// needed for it.
-//
-// The job id goes through SubjectToken for the reason LogSubject's own
-// comment gives.
-func JournalSubject(jobID string) string {
-	return journalSubjectPrefix + SubjectToken(jobID)
+// JournalSubject returns the subject one Runner's run journal entries for a
+// job publish to (Phase 40). The Runner's name is the broker-enforced identity
+// (0.5.0): a credential may publish only under its own name, so the subject
+// carries it as RunnerToken gives it, and the job id goes through SubjectToken
+// as it always has.
+func JournalSubject(runner, jobID string) string {
+	return journalSubjectPrefix + RunnerToken(runner) + "." + SubjectToken(jobID)
+}
+
+// JournalSubjectTemplate is the journal publish permission a Runner credential
+// is granted: its subject with the broker expanding {{name()}} to the
+// credential's own name (internal/meshid's runner scope).
+func JournalSubjectTemplate() string {
+	return journalSubjectPrefix + "{{name()}}.>"
 }
 
 // JournalSubjectAll is LogSubjectAll's sibling for the journal subject;
@@ -369,11 +374,46 @@ func JournalSubjectAll() string {
 	return journalSubjectPrefix + ">"
 }
 
-// FactsSubject returns the subject a given job's observed facts publish to
-// (Phase 41), under StreamSubjectRoot as the journal's is, the job id through
-// SubjectToken.
-func FactsSubject(jobID string) string {
-	return factsSubjectPrefix + SubjectToken(jobID)
+// FactsSubject returns the subject one Runner's observed facts for a job
+// publish to (Phase 41), under StreamSubjectRoot as the journal's is. The
+// Runner's name is the broker-enforced identity, as JournalSubject's is.
+func FactsSubject(runner, jobID string) string {
+	return factsSubjectPrefix + RunnerToken(runner) + "." + SubjectToken(jobID)
+}
+
+// FactsSubjectTemplate is the facts publish permission a Runner credential is
+// granted, with {{name()}} expanded by the broker to the credential's name.
+func FactsSubjectTemplate() string {
+	return factsSubjectPrefix + "{{name()}}.>"
+}
+
+// RunnerToken is a Runner's name as one subject token. A name a credential
+// carries is already one token, so it is used exactly as it is: the broker
+// matches its {{name()}} expansion against the subject's token, and a
+// sanitized form would never match. Any other name (an unauthenticated
+// Runner's host name, which may hold dots) is sanitized by SubjectToken.
+func RunnerToken(name string) string {
+	if IsSubjectToken(name) {
+		return name
+	}
+	return SubjectToken(name)
+}
+
+// IsSubjectToken reports whether name is exactly one NATS subject token: not
+// empty, and free of dots, wildcards, separators, whitespace and control
+// characters. A Runner credential's name must satisfy it, since the name
+// becomes part of the subjects the Runner may publish on.
+func IsSubjectToken(name string) bool {
+	if name == "" {
+		return false
+	}
+	for _, r := range name {
+		switch {
+		case r == '.', r == '*', r == '>', r == '/', r == '\\', r <= 0x20, r == 0x7f:
+			return false
+		}
+	}
+	return true
 }
 
 // FactsSubjectAll is FactsSubject over every job, the Controller consumer's

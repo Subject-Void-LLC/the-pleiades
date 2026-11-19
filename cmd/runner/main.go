@@ -429,13 +429,23 @@ func main() {
 		log.Fatalf("failed to init runbook source: %v", err)
 	}
 
-	// The host's name labels the facts this Runner publishes (Phase 41b), and the
-	// Controller refuses a batch with no name (facts.DecideClaim), so a host whose
-	// name cannot be read stops here rather than having every fact it observes
-	// dropped at the Controller.
-	runnerID, err := os.Hostname()
-	if err != nil || runnerID == "" {
-		log.Fatalf("failed to read the host name the Runner labels its facts with: %v", err)
+	// The Runner's name labels every fact and journal batch it publishes, and the
+	// broker enforces it when the Runner holds a credential (0.5.0): the name
+	// is the credential's own. Without a credential the broker enforces nothing,
+	// and the host name labels the batches the Controller checks (facts.DecideClaim).
+	// A Runner with neither stops here rather than publishing nothing it can name.
+	runnerID := ""
+	if meshCreds != nil {
+		runnerID, err = topology.RunnerNameFromCredentials(meshCreds)
+		if err != nil {
+			log.Fatalf("the Runner credential names no Runner: %v", err)
+		}
+	}
+	if runnerID == "" {
+		runnerID, err = os.Hostname()
+		if err != nil || runnerID == "" {
+			log.Fatalf("failed to read a name for the Runner to label its facts with: %v", err)
+		}
 	}
 	nativeAdapter, err := native.NewAdapter(bus, runbooks, logger, native.WithRenderer(render.New()), native.WithRunnerID(runnerID))
 	if err != nil {

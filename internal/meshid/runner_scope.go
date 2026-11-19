@@ -32,8 +32,8 @@ const RunnerRole = "runner"
 // the Runner's own name. They replace the fleet-wide facts and journal
 // subjects in the runner template.
 var runnerIdentitySubjects = map[string]string{
-	topology.FactsSubjectAll():   "facts.{{name()}}.>",
-	topology.JournalSubjectAll(): "journal.{{name()}}.>",
+	topology.FactsSubjectAll():   topology.FactsSubjectTemplate(),
+	topology.JournalSubjectAll(): topology.JournalSubjectTemplate(),
 }
 
 // RunnerTemplate is the permission template a scoped Runner credential is
@@ -135,16 +135,11 @@ func (r *RunnerIssuer) Issue(name string, expiry time.Duration) (Credential, err
 }
 
 // validRunnerName refuses a name that is not one NATS subject token, since
-// the name becomes part of the subjects the Runner may publish on.
+// the name becomes part of the subjects the Runner may publish on
+// (topology.IsSubjectToken, the same rule the subject uses).
 func validRunnerName(name string) error {
-	if name == "" {
-		return fmt.Errorf("meshid: a runner needs a name")
-	}
-	for _, r := range name {
-		switch {
-		case r == '.', r == '*', r == '>', r == ' ', r == '/', r == '\\', r < 0x21, r == 0x7f:
-			return fmt.Errorf("meshid: runner name %q is not a single subject token", name)
-		}
+	if !topology.IsSubjectToken(name) {
+		return fmt.Errorf("meshid: runner name %q is not a single subject token", name)
 	}
 	return nil
 }

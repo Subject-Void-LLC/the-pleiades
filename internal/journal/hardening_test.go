@@ -78,11 +78,11 @@ func TestHardeningSubjectConstructionCannotBeWidened(t *testing.T) {
 	root := topology.StreamSubjectRoot[:len(topology.StreamSubjectRoot)-1]
 	for name, hostile := range hostileStrings {
 		t.Run(name, func(t *testing.T) {
-			got := topology.JournalSubject(hostile)
+			got := topology.JournalSubject("runner-test", hostile)
 			if !strings.HasPrefix(got, root) {
 				t.Errorf("JournalSubject(%q) = %q, which escapes the stream root %q", hostile, got, root)
 			}
-			if strings.ContainsAny(strings.TrimPrefix(got, "pleiades.jobs.journal."), ".*>") {
+			if strings.ContainsAny(strings.TrimPrefix(got, "pleiades.jobs.journal.runner-test."), ".*>") {
 				t.Errorf("JournalSubject(%q) = %q, whose final token is not a single literal token", hostile, got)
 			}
 		})

@@ -176,7 +176,7 @@ func TestSubscriberAttachesToTheJournalSubject(t *testing.T) {
 		JobID: "job-1", DeviceID: "device-1",
 		Entries: []engine.JournalEntry{walkEntry("job-1", "device-1", 0, 1, "tasks[0]")},
 	})
-	if err := bus.Publish(ctx, topology.JournalSubject("job-1"), evt); err != nil {
+	if err := bus.Publish(ctx, topology.JournalSubject("runner-test", "job-1"), evt); err != nil {
 		t.Fatalf("Publish: %v", err)
 	}
 

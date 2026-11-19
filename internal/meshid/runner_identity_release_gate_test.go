@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/meshid"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
 	"github.com/nats-io/nats.go"
 )
 
@@ -84,16 +85,16 @@ func TestReleaseGate_ARunnerPublishesOnlyUnderItsOwnName(t *testing.T) {
 		return denied != ""
 	}
 
-	if publish(t, credA.Creds, "runner-a", "facts.runner-a.job-1") {
+	if publish(t, credA.Creds, "runner-a", topology.FactsSubject("runner-a", "job-1")) {
 		t.Errorf("runner-a was refused publishing under its own name")
 	}
-	if publish(t, credA.Creds, "runner-a", "journal.runner-a.job-1") {
+	if publish(t, credA.Creds, "runner-a", topology.JournalSubject("runner-a", "job-1")) {
 		t.Errorf("runner-a was refused publishing its own journal")
 	}
-	if !publish(t, credA.Creds, "runner-a", "facts.runner-b.job-1") {
+	if !publish(t, credA.Creds, "runner-a", topology.FactsSubject("runner-b", "job-1")) {
 		t.Errorf("runner-a was NOT refused publishing under runner-b's name: the broker does not enforce identity")
 	}
-	if !publish(t, credB.Creds, "runner-b", "journal.runner-a.job-1") {
+	if !publish(t, credB.Creds, "runner-b", topology.JournalSubject("runner-a", "job-1")) {
 		t.Errorf("runner-b was NOT refused publishing under runner-a's name")
 	}
 }

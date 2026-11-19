@@ -37,6 +37,9 @@ import (
 // and its own publisher, so two of these never share state. A publisher
 // held on the Adapter would need one.
 type journalPublisher struct {
+	// runnerID is the Runner's name, which the journal subject carries (0.5.0
+	// broker-enforced identity). Set once per dispatch.
+	runnerID string
 	// bus is the port this publishes through. Deliberately not a
 	// jetstream handle: internal/adapters/native is not on
 	// internal/archtest's adapter allowlist and must not import a
@@ -69,7 +72,7 @@ type journalPublisher struct {
 // Record is handed a context the engine detached, and reading a value
 // off it there would work but would make the sink's identity depend on
 // which context a level barrier happened to carry.
-func newJournalPublisher(ctx context.Context, bus event.Bus, logger *slog.Logger, jobID, deviceID string) *journalPublisher {
+func newJournalPublisher(ctx context.Context, bus event.Bus, logger *slog.Logger, jobID, deviceID, runnerID string) *journalPublisher {
 	attempt, ok := journal.AttemptFrom(ctx)
 	if !ok {
 		// Not an error. A caller that built this adapter outside the
@@ -85,7 +88,7 @@ func newJournalPublisher(ctx context.Context, bus event.Bus, logger *slog.Logger
 	// dispatch against other jobs on the device without a clock. A caller
 	// outside the Runner's delivery path has none, and its entries order by
 	// clock, as a journal from before lease revisions does.
-	return &journalPublisher{bus: bus, logger: logger, jobID: jobID, deviceID: deviceID, attempt: attempt, fence: lock.FenceFrom(ctx)}
+	return &journalPublisher{bus: bus, logger: logger, jobID: jobID, deviceID: deviceID, runnerID: runnerID, attempt: attempt, fence: lock.FenceFrom(ctx)}
 }
 
 // Record implements engine.Journal by publishing one message per level.
@@ -158,7 +161,7 @@ func (p *journalPublisher) Record(ctx context.Context, entries []engine.JournalE
 	// level would otherwise produce duplicate rows nothing can collapse,
 	// which is the failure the store's own unique index exists to
 	// prevent and which is cheaper to prevent here.
-	if err := p.bus.Publish(event.WithIdempotencyKey(ctx, key), topology.JournalSubject(p.jobID), *wrapped); err != nil {
+	if err := p.bus.Publish(event.WithIdempotencyKey(ctx, key), topology.JournalSubject(p.runnerID, p.jobID), *wrapped); err != nil {
 		return fmt.Errorf("failed to publish a journal batch for job %s: %w", p.jobID, err)
 	}
 	return nil
