@@ -33,7 +33,8 @@ func aclDenies(t *testing.T, path, perm string) bool {
 		}
 		tries = [][]string{
 			{"setfacl", "-m", "u:nobody:" + posix, path},
-			{"setfacl", "-a", "0", "everyone@:" + nfs + "::deny", path},
+			// The user nobody, not everyone@, which includes this login.
+			{"setfacl", "-a", "0", "user:nobody:" + nfs + "::deny", path},
 		}
 	}
 	for _, c := range tries {
