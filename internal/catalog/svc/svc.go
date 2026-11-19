@@ -41,6 +41,7 @@ package svc
 import (
 	"context"
 	"fmt"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/hostfacts"
 	"slices"
 	"sort"
 	"strings"
@@ -207,5 +208,8 @@ func genericManifest(reversibility collection.Reversibility, doc collection.Doc)
 		SupportsCheck: true,
 		Reversibility: reversibility,
 		Doc:           doc,
+		// What a concrete method reads back after a change (Phase 41c), declared
+		// under the method the task names too.
+		Facts: hostfacts.ServiceFactSpecs(),
 	}
 }

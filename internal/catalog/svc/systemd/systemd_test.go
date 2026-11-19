@@ -2,6 +2,7 @@ package systemd_test
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -30,10 +31,15 @@ import (
 type svcContext struct {
 	secrets map[string]string
 	stats   map[string]any
+	// failOnKey, when set, makes SetStat refuse exactly that key.
+	failOnKey string
 }
 
 func (c *svcContext) InjectSecrets() map[string]string { return c.secrets }
 func (c *svcContext) SetStat(key string, value any) error {
+	if c.failOnKey != "" && key == c.failOnKey {
+		return fmt.Errorf("svcContext: refusing %q", key)
+	}
 	c.stats[key] = value
 	return nil
 }
@@ -100,6 +106,18 @@ if [ "$1" = "show" ]; then
   printf 'UnitFileState=%s\n' "$(cat "$FAKE_STATE/unitfile")"
   exit 0
 fi
+# The three listings the post-change reading runs (pkg/hostfacts'
+# SystemdListings), answered from the same state files as real systemd would
+# list the one unit: its unit file, its loaded unit with its sub-state, and no
+# socket.
+case "$*" in
+  *list-unit-files*) printf 'nginx.service %s enabled\n' "$(cat "$FAKE_STATE/unitfile")"; exit 0 ;;
+  *--type=service*list-units*)
+    [ -n "$FAKE_LIST_SILENT" ] && exit 0
+    a="$(cat "$FAKE_STATE/active")"; sub=dead; [ "$a" = active ] && sub=running
+    printf 'nginx.service loaded %s %s nginx\n' "$a" "$sub"; exit 0 ;;
+  *--type=socket*list-units*) exit 0 ;;
+esac
 status="${FAKE_EXIT:-0}"
 if [ "$status" != 0 ]; then exit "$status"; fi
 case "$1" in
@@ -172,7 +190,9 @@ func (h *harness) verbs(t *testing.T) []string {
 	t.Helper()
 	var verbs []string
 	for _, verb := range h.invocations(t) {
-		if verb != "show" {
+		// show is the method's own read of the unit, and a --type= listing is
+		// the post-change reading's (readback.go): neither acts.
+		if verb != "show" && !strings.HasPrefix(verb, "--type=") {
 			verbs = append(verbs, verb)
 		}
 	}

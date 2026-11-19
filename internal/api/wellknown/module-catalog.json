@@ -17104,6 +17104,24 @@
       ]
     },
     "supportsCheck": true,
+    "facts": [
+      {
+        "key": "service.",
+        "prefix": true,
+        "item_names": true,
+        "kind": "stable",
+        "type": "object",
+        "description": "A service as its manager lists it after the change: enabled, status and source."
+      },
+      {
+        "key": "service_state.",
+        "prefix": true,
+        "item_names": true,
+        "kind": "volatile",
+        "type": "string",
+        "description": "A service's state after the change, kept as its latest value only."
+      }
+    ],
     "doc": {
       "summary": "Stops a service starting at boot, whichever service manager the device runs.",
       "description": "Makes sure a service is not set to start at boot, without caring which init system the device uses. This is ansible.builtin.service with enabled=no: it resolves the device's service manager and hands the call to that manager's concrete method. It changes the boot-time setting only, so a service disabled by this task keeps running until svc.stop runs or the device reboots.",
@@ -17183,6 +17201,24 @@
       ]
     },
     "supportsCheck": true,
+    "facts": [
+      {
+        "key": "service.",
+        "prefix": true,
+        "item_names": true,
+        "kind": "stable",
+        "type": "object",
+        "description": "A service as its manager lists it after the change: enabled, status and source."
+      },
+      {
+        "key": "service_state.",
+        "prefix": true,
+        "item_names": true,
+        "kind": "volatile",
+        "type": "string",
+        "description": "A service's state after the change, kept as its latest value only."
+      }
+    ],
     "doc": {
       "summary": "Makes a service start at boot, whichever service manager the device runs.",
       "description": "Makes sure a service is set to start at boot, without caring which init system the device uses. This is ansible.builtin.service with enabled=yes: it resolves the device's service manager and hands the call to that manager's concrete method. It changes the boot-time setting only, so a service enabled by this task is not running until svc.start runs or the device reboots.",
@@ -17248,6 +17284,24 @@
       "notes": "A restart's effect is the interruption itself, and no instruction un-interrupts a service. Restarting a second time repeats this method rather than reversing it. The concrete method still records the service's state under diff, so a rollback reaching this task can see what was running and decide for itself."
     },
     "supportsCheck": true,
+    "facts": [
+      {
+        "key": "service.",
+        "prefix": true,
+        "item_names": true,
+        "kind": "stable",
+        "type": "object",
+        "description": "A service as its manager lists it after the change: enabled, status and source."
+      },
+      {
+        "key": "service_state.",
+        "prefix": true,
+        "item_names": true,
+        "kind": "volatile",
+        "type": "string",
+        "description": "A service's state after the change, kept as its latest value only."
+      }
+    ],
     "doc": {
       "summary": "Restarts a service, whichever service manager the device runs.",
       "description": "Restarts a service, starting it if it was not running. This is ansible.builtin.service with state=restarted: it resolves the device's service manager and hands the call to that manager's concrete method. It is the one method here that is never converged, since restarting a running service is the point rather than a no-op, so it always reports changed. That makes it the one most worth putting behind a when condition, so a service is only bounced when something it reads actually changed.",
@@ -17327,6 +17381,24 @@
       ]
     },
     "supportsCheck": true,
+    "facts": [
+      {
+        "key": "service.",
+        "prefix": true,
+        "item_names": true,
+        "kind": "stable",
+        "type": "object",
+        "description": "A service as its manager lists it after the change: enabled, status and source."
+      },
+      {
+        "key": "service_state.",
+        "prefix": true,
+        "item_names": true,
+        "kind": "volatile",
+        "type": "string",
+        "description": "A service's state after the change, kept as its latest value only."
+      }
+    ],
     "doc": {
       "summary": "Starts a service now, whichever service manager the device runs.",
       "description": "Makes sure a service is running right now, without caring which init system the device uses. This is ansible.builtin.service with state=started: it resolves the device's service manager and hands the call to that manager's concrete method, so on a Linux host it runs svc.systemd.start and behaves exactly as that method does, including reporting no change when the service is already running. Use the concrete method instead when a runbook is written for one platform and should say so.",
@@ -17407,6 +17479,24 @@
       ]
     },
     "supportsCheck": true,
+    "facts": [
+      {
+        "key": "service.",
+        "prefix": true,
+        "item_names": true,
+        "kind": "stable",
+        "type": "object",
+        "description": "A service as its manager lists it after the change: enabled, status and source."
+      },
+      {
+        "key": "service_state.",
+        "prefix": true,
+        "item_names": true,
+        "kind": "volatile",
+        "type": "string",
+        "description": "A service's state after the change, kept as its latest value only."
+      }
+    ],
     "doc": {
       "summary": "Stops a service now, whichever service manager the device runs.",
       "description": "Makes sure a service is not running right now, without caring which init system the device uses. This is ansible.builtin.service with state=stopped: it resolves the device's service manager and hands the call to that manager's concrete method. It stops the service now and leaves the boot-time setting alone, so a service stopped by this task starts again at the next reboot unless svc.disable is also run.",
@@ -17521,6 +17611,24 @@
       ]
     },
     "supportsCheck": true,
+    "facts": [
+      {
+        "key": "service.",
+        "prefix": true,
+        "item_names": true,
+        "kind": "stable",
+        "type": "object",
+        "description": "A service as its manager lists it after the change: enabled, status and source."
+      },
+      {
+        "key": "service_state.",
+        "prefix": true,
+        "item_names": true,
+        "kind": "volatile",
+        "type": "string",
+        "description": "A service's state after the change, kept as its latest value only."
+      }
+    ],
     "doc": {
       "summary": "Stops a systemd unit starting at boot, without stopping it now.",
       "description": "Makes sure a systemd unit is not set to start at boot. This is ansible.builtin.systemd with enabled=no, and it leaves the running system alone: a unit disabled by this task keeps running until svc.systemd.stop runs or the device reboots. State is read before anything is sent, so a unit that is already disabled reports no change. A static unit is refused, since a unit with no [Install] section was never enabled and cannot be disabled.",
@@ -17593,6 +17701,24 @@
       ]
     },
     "supportsCheck": true,
+    "facts": [
+      {
+        "key": "service.",
+        "prefix": true,
+        "item_names": true,
+        "kind": "stable",
+        "type": "object",
+        "description": "A service as its manager lists it after the change: enabled, status and source."
+      },
+      {
+        "key": "service_state.",
+        "prefix": true,
+        "item_names": true,
+        "kind": "volatile",
+        "type": "string",
+        "description": "A service's state after the change, kept as its latest value only."
+      }
+    ],
     "doc": {
       "summary": "Makes a systemd unit start at boot, without starting it now.",
       "description": "Makes sure a systemd unit is set to start at boot. This is ansible.builtin.systemd with enabled=yes, and it is deliberately not also start: a unit enabled by this task is not running until svc.systemd.start runs or the device reboots. State is read before anything is sent, so a unit that is already enabled reports no change. A static unit is refused with that word named, because systemd's own failure for enabling one describes a missing symlink rather than the cause, which is that the unit has no [Install] section and is meant to be pulled in by another unit.",
@@ -17657,6 +17783,24 @@
       "notes": "A restart's effect is the interruption itself, and there is no instruction that un-interrupts a service. Restarting it a second time would run this method again rather than reverse it. The unit's state is deliberately still recorded under diff, so a rollback reaching this task can see that the unit was running before and after and decide for itself, but this method emits no instruction because none would be true."
     },
     "supportsCheck": true,
+    "facts": [
+      {
+        "key": "service.",
+        "prefix": true,
+        "item_names": true,
+        "kind": "stable",
+        "type": "object",
+        "description": "A service as its manager lists it after the change: enabled, status and source."
+      },
+      {
+        "key": "service_state.",
+        "prefix": true,
+        "item_names": true,
+        "kind": "volatile",
+        "type": "string",
+        "description": "A service's state after the change, kept as its latest value only."
+      }
+    ],
     "doc": {
       "summary": "Restarts a systemd unit, starting it if it was not running.",
       "description": "Restarts a systemd unit. This is ansible.builtin.systemd with state=restarted, and like that module it starts a unit that was not running rather than failing. It is the one method in this namespace that is never converged: restarting a running unit is the point, not a no-op, so this always sends the command and always reports changed. That makes it the method most worth putting behind a when condition or a handler, so a service is only bounced when something it reads actually changed. A unit systemd does not know is refused, and a masked unit is refused with the mask named.",
@@ -17729,6 +17873,24 @@
       ]
     },
     "supportsCheck": true,
+    "facts": [
+      {
+        "key": "service.",
+        "prefix": true,
+        "item_names": true,
+        "kind": "stable",
+        "type": "object",
+        "description": "A service as its manager lists it after the change: enabled, status and source."
+      },
+      {
+        "key": "service_state.",
+        "prefix": true,
+        "item_names": true,
+        "kind": "volatile",
+        "type": "string",
+        "description": "A service's state after the change, kept as its latest value only."
+      }
+    ],
     "doc": {
       "summary": "Starts a systemd unit now, without changing whether it starts at boot.",
       "description": "Makes sure a systemd unit is running right now. This is ansible.builtin.systemd with state=started, and it is deliberately not also enable: starting and enabling are separate in systemd and separate here, so a task that wants both says both. State is read before anything is sent, so a unit that is already running reports no change and no command reaches the device. A unit systemd does not know is refused rather than reported as started, and a masked unit is refused with the mask named, since systemd's own error for that case describes a symlink rather than the cause.",
@@ -17806,6 +17968,24 @@
       ]
     },
     "supportsCheck": true,
+    "facts": [
+      {
+        "key": "service.",
+        "prefix": true,
+        "item_names": true,
+        "kind": "stable",
+        "type": "object",
+        "description": "A service as its manager lists it after the change: enabled, status and source."
+      },
+      {
+        "key": "service_state.",
+        "prefix": true,
+        "item_names": true,
+        "kind": "volatile",
+        "type": "string",
+        "description": "A service's state after the change, kept as its latest value only."
+      }
+    ],
     "doc": {
       "summary": "Stops a systemd unit now, without changing whether it starts at boot.",
       "description": "Makes sure a systemd unit is not running right now. This is ansible.builtin.systemd with state=stopped, and it leaves the boot-time setting alone: a unit stopped by this task still starts at the next reboot unless svc.systemd.disable is also run. State is read before anything is sent, so a unit that is already stopped reports no change. A unit systemd does not know is refused rather than reported as stopped, which matters more here than anywhere else in this namespace: systemctl answers \"inactive\" for a name that has never existed, so a method trusting it would report success for a typo.",

@@ -223,6 +223,14 @@ func runUnitOp(ctx context.Context, rc sdk.RunbookContext, device inventory.Inve
 		}
 	}
 
+	// What the change left, as the service facts the next gather stores
+	// (readback.go). After the undo, so a failed read costs nothing it needs.
+	if changed && !check {
+		if err := sdk.RecordWarnings(rc, readBack(ctx, rc, conn, unit)); err != nil {
+			return collection.Result{}, fmt.Errorf("%s: %w", op.fqcn, err)
+		}
+	}
+
 	return collection.Result{Changed: changed}, nil
 }
 
