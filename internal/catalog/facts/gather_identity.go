@@ -33,6 +33,21 @@ var identityPlaceholders = map[string]bool{
 	"ffffffff-ffff-ffff-ffff-ffffffffffff": true,
 }
 
+// gatherNotInContainer guards an identity read so it runs only outside a
+// container: a container sees its host's DMI values and its image's machine id,
+// so storing them would make every container of one image read as one machine
+// and every reschedule as a replacement (the identity item's rule). Docker's and
+// Podman's marker files and systemd-detect-virt each say "container"; any of
+// them skips the read, which then emits nothing. WSL reads as a container too.
+const gatherNotInContainer = "[ -e /.dockerenv ] || [ -e /run/.containerenv ] || systemd-detect-virt --container -q 2>/dev/null || "
+
+// The identity reads, each guarded by gatherNotInContainer.
+const (
+	gatherMachineIDCommand  = gatherNotInContainer + "cat /etc/machine-id 2>/dev/null; true"
+	gatherSystemUUIDCommand = gatherNotInContainer + "cat /sys/class/dmi/id/product_uuid 2>/dev/null; true"
+	gatherSerialCommand     = gatherNotInContainer + "cat /sys/class/dmi/id/product_serial 2>/dev/null; true"
+)
+
 // gatherIdentityValue reads one line of firmware text as a stable identity
 // fact under key, or nothing when the text is empty or a placeholder.
 func gatherIdentityValue(key string) func(string) []gatherFact {
