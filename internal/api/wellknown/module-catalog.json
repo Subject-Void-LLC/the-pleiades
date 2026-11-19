@@ -7167,6 +7167,30 @@
         "description": "How long the device has been up, in whole seconds, from the first field of /proc/uptime; from the boot time and the device's own clock on FreeBSD, macOS and Windows."
       },
       {
+        "key": "os.machine_id",
+        "kind": "stable",
+        "type": "string",
+        "description": "The systemd machine id, 32 lowercase hexadecimal digits, from /etc/machine-id; a file that is not one is left out. Stable: it changes only when the install does."
+      },
+      {
+        "key": "hardware.system_uuid",
+        "kind": "stable",
+        "type": "string",
+        "description": "The hardware UUID the firmware reports, from /sys/class/dmi/id/product_uuid, which only root may read. A placeholder (all zeros, all ones) is left out, never stored. Stable: a change is a change of machine."
+      },
+      {
+        "key": "hardware.serial",
+        "kind": "stable",
+        "type": "string",
+        "description": "The device's serial number as its firmware reports it, from /sys/class/dmi/id/product_serial, which only root may read. A placeholder (To be filled by O.E.M., 0, Not Specified) is left out, never stored. Stable: a change is a change of machine."
+      },
+      {
+        "key": "hardware.virtualization",
+        "kind": "stable",
+        "type": "string",
+        "description": "What the device is: physical, vm:<hypervisor>, cloud:<provider> for a cloud instance, or container:<engine>, from systemd-detect-virt. Azure and Hyper-V both report microsoft, which reads as vm:microsoft, since the tool cannot tell them apart. Absent when the tool is not on the device, since a missing tool is not evidence the device is physical. Stable: a change of this is a different kind of event for the same identity."
+      },
+      {
         "key": "host.nodename",
         "kind": "stable",
         "type": "string",
@@ -7351,6 +7375,30 @@
           "type": "int",
           "returned": "when the device reports it",
           "description": "How long the device has been up, in whole seconds, from the first field of /proc/uptime; from the boot time and the device's own clock on FreeBSD, macOS and Windows."
+        },
+        {
+          "name": "os.machine_id",
+          "type": "string",
+          "returned": "when the device has a machine id",
+          "description": "The systemd machine id, 32 lowercase hexadecimal digits, from /etc/machine-id; a file that is not one is left out. Stable: it changes only when the install does."
+        },
+        {
+          "name": "hardware.system_uuid",
+          "type": "string",
+          "returned": "when the firmware reports a real one and the login may read it",
+          "description": "The hardware UUID the firmware reports, from /sys/class/dmi/id/product_uuid, which only root may read. A placeholder (all zeros, all ones) is left out, never stored. Stable: a change is a change of machine."
+        },
+        {
+          "name": "hardware.serial",
+          "type": "string",
+          "returned": "when the firmware reports a real one and the login may read it",
+          "description": "The device's serial number as its firmware reports it, from /sys/class/dmi/id/product_serial, which only root may read. A placeholder (To be filled by O.E.M., 0, Not Specified) is left out, never stored. Stable: a change is a change of machine."
+        },
+        {
+          "name": "hardware.virtualization",
+          "type": "string",
+          "returned": "when systemd-detect-virt is on the device",
+          "description": "What the device is: physical, vm:<hypervisor>, cloud:<provider> for a cloud instance, or container:<engine>, from systemd-detect-virt. Azure and Hyper-V both report microsoft, which reads as vm:microsoft, since the tool cannot tell them apart. Absent when the tool is not on the device, since a missing tool is not evidence the device is physical. Stable: a change of this is a different kind of event for the same identity."
         },
         {
           "name": "host.nodename",

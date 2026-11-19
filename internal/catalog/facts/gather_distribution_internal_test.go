@@ -65,11 +65,17 @@ func TestGatherOSRelease_MapsToAnsibleOnEveryMeasuredDistribution(t *testing.T) 
 // ansible_distribution on Windows).
 func TestGatherFacts_EachHasItsAnsibleName(t *testing.T) {
 	names := gatherFactNames()
-	if len(names) != 17 {
+	if len(names) != 21 {
 		t.Errorf("%d facts declared: %v", len(names), names)
 	}
 	for _, key := range names {
 		ansible, ok := ansiblefacts.AnsibleKey(key)
+		if identityWithoutAnsibleName[key] {
+			if ok {
+				t.Errorf("%s maps to %s", key, ansible)
+			}
+			continue
+		}
 		if key == gatherFactEdition {
 			if ok {
 				t.Errorf("%s maps to %s", key, ansible)
@@ -181,4 +187,15 @@ func TestProbeRead_ReadsTheMinProbeAsGatherDoes(t *testing.T) {
 	if got := probes[0].Read(string(out)); got[gatherFactDistribution] != "debian" || got[gatherFactVersion] != "12.12" || got[gatherFactVersionMajor] != 12 {
 		t.Errorf("%v", got)
 	}
+}
+
+// identityWithoutAnsibleName are the identity facts (Phase 41, base) with no
+// Ansible word mapped yet: none has a measured value to hold a mapping to, so
+// each is native-only until a lab comparison against ansible.builtin.setup
+// measures it.
+var identityWithoutAnsibleName = map[string]bool{
+	gatherFactMachineID:      true,
+	gatherFactSystemUUID:     true,
+	gatherFactSerial:         true,
+	gatherFactVirtualization: true,
 }
