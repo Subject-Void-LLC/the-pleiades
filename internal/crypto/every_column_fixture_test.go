@@ -23,6 +23,7 @@ var everyColumnSecret = map[string]string{
 	"devices":                     "device-secret-value",
 	"saved launch configurations": "survey-secret-value",
 	"mesh signing keys":           "SAMESHSEEDFORTESTINGONLYNOTAREALKEY",
+	"mesh runner signing keys":    "SAMERUNNERSEEDFORTESTINGONLYNOTAREALKEY",
 }
 
 // everyColumnIDs holds the id of each seeded row.
@@ -41,6 +42,8 @@ func installEveryHook(client *ent.Client, svc *crypto.EnvelopeService) {
 	client.Credential.Intercept(crypto.CredentialInputsInterceptor(svc))
 	client.MeshSigningKey.Use(crypto.MeshSigningKeySeedHook(svc))
 	client.MeshSigningKey.Intercept(crypto.MeshSigningKeySeedInterceptor(svc))
+	client.MeshSigningKey.Use(crypto.MeshRunnerSeedHook(svc))
+	client.MeshSigningKey.Intercept(crypto.MeshRunnerSeedInterceptor(svc))
 }
 
 // openEveryColumn opens dbPath with every hook installed under svc.
@@ -95,6 +98,7 @@ func seedEveryColumn(t *testing.T, svc *crypto.EnvelopeService) (string, everyCo
 	ids.meshKey = client.MeshSigningKey.Create().
 		SetKeyID("key-1").SetAccountSubject("ACCOUNT").SetPublicKey("APUBLICKEY").
 		SetSeed(everyColumnSecret["mesh signing keys"]).
+		SetRunnerSeed(everyColumnSecret["mesh runner signing keys"]).
 		SaveX(ctx).ID
 	return dbPath, ids
 }
@@ -129,6 +133,7 @@ func readEveryColumn(t *testing.T, client *ent.Client, ids everyColumnIDs) map[s
 		t.Fatalf("MeshSigningKey.Get() error = %v", err)
 	}
 	ok["mesh signing keys"] = key.Seed == everyColumnSecret["mesh signing keys"]
+	ok["mesh runner signing keys"] = key.RunnerSeed == everyColumnSecret["mesh runner signing keys"]
 
 	return ok
 }

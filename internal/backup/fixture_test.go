@@ -87,6 +87,8 @@ func installHooks(client *ent.Client, svc *crypto.EnvelopeService) {
 	client.Credential.Intercept(crypto.CredentialInputsInterceptor(svc))
 	client.MeshSigningKey.Use(crypto.MeshSigningKeySeedHook(svc))
 	client.MeshSigningKey.Intercept(crypto.MeshSigningKeySeedInterceptor(svc))
+	client.MeshSigningKey.Use(crypto.MeshRunnerSeedHook(svc))
+	client.MeshSigningKey.Intercept(crypto.MeshRunnerSeedInterceptor(svc))
 }
 
 // open opens the server's live database the way the controller does: the

@@ -1995,6 +1995,8 @@ func installCryptoHooks(client *ent.Client, envelopeSvc *crypto.EnvelopeService)
 	// boundary.
 	client.MeshSigningKey.Use(crypto.MeshSigningKeySeedHook(envelopeSvc))
 	client.MeshSigningKey.Intercept(crypto.MeshSigningKeySeedInterceptor(envelopeSvc))
+	client.MeshSigningKey.Use(crypto.MeshRunnerSeedHook(envelopeSvc))
+	client.MeshSigningKey.Intercept(crypto.MeshRunnerSeedInterceptor(envelopeSvc))
 }
 
 // projectRoot is the directory every project's working tree lives under.

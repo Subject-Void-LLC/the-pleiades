@@ -34,6 +34,8 @@ func hookedClient(t *testing.T, name string) *ent.Client {
 	t.Cleanup(func() { _ = client.Close() })
 	client.MeshSigningKey.Use(crypto.MeshSigningKeySeedHook(svc))
 	client.MeshSigningKey.Intercept(crypto.MeshSigningKeySeedInterceptor(svc))
+	client.MeshSigningKey.Use(crypto.MeshRunnerSeedHook(svc))
+	client.MeshSigningKey.Intercept(crypto.MeshRunnerSeedInterceptor(svc))
 	return client
 }
 

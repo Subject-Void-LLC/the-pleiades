@@ -48,6 +48,20 @@ func (_u *MeshSigningKeyUpdate) SetNillableSeed(v *string) *MeshSigningKeyUpdate
 	return _u
 }
 
+// SetRunnerSeed sets the "runner_seed" field.
+func (_u *MeshSigningKeyUpdate) SetRunnerSeed(v string) *MeshSigningKeyUpdate {
+	_u.mutation.SetRunnerSeed(v)
+	return _u
+}
+
+// SetNillableRunnerSeed sets the "runner_seed" field if the given value is not nil.
+func (_u *MeshSigningKeyUpdate) SetNillableRunnerSeed(v *string) *MeshSigningKeyUpdate {
+	if v != nil {
+		_u.SetRunnerSeed(*v)
+	}
+	return _u
+}
+
 // SetActive sets the "active" field.
 func (_u *MeshSigningKeyUpdate) SetActive(v bool) *MeshSigningKeyUpdate {
 	_u.mutation.SetActive(v)
@@ -118,6 +132,9 @@ func (_u *MeshSigningKeyUpdate) sqlSave(ctx context.Context) (_node int, err err
 	if value, ok := _u.mutation.Seed(); ok {
 		_spec.SetField(meshsigningkey.FieldSeed, field.TypeString, value)
 	}
+	if value, ok := _u.mutation.RunnerSeed(); ok {
+		_spec.SetField(meshsigningkey.FieldRunnerSeed, field.TypeString, value)
+	}
 	if value, ok := _u.mutation.Active(); ok {
 		_spec.SetField(meshsigningkey.FieldActive, field.TypeBool, value)
 	}
@@ -157,6 +174,20 @@ func (_u *MeshSigningKeyUpdateOne) SetSeed(v string) *MeshSigningKeyUpdateOne {
 func (_u *MeshSigningKeyUpdateOne) SetNillableSeed(v *string) *MeshSigningKeyUpdateOne {
 	if v != nil {
 		_u.SetSeed(*v)
+	}
+	return _u
+}
+
+// SetRunnerSeed sets the "runner_seed" field.
+func (_u *MeshSigningKeyUpdateOne) SetRunnerSeed(v string) *MeshSigningKeyUpdateOne {
+	_u.mutation.SetRunnerSeed(v)
+	return _u
+}
+
+// SetNillableRunnerSeed sets the "runner_seed" field if the given value is not nil.
+func (_u *MeshSigningKeyUpdateOne) SetNillableRunnerSeed(v *string) *MeshSigningKeyUpdateOne {
+	if v != nil {
+		_u.SetRunnerSeed(*v)
 	}
 	return _u
 }
@@ -260,6 +291,9 @@ func (_u *MeshSigningKeyUpdateOne) sqlSave(ctx context.Context) (_node *MeshSign
 	}
 	if value, ok := _u.mutation.Seed(); ok {
 		_spec.SetField(meshsigningkey.FieldSeed, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.RunnerSeed(); ok {
+		_spec.SetField(meshsigningkey.FieldRunnerSeed, field.TypeString, value)
 	}
 	if value, ok := _u.mutation.Active(); ok {
 		_spec.SetField(meshsigningkey.FieldActive, field.TypeBool, value)

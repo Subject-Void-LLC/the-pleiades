@@ -127,7 +127,7 @@ type journalWatch struct {
 func (h *releaseGateHarness) journalEntries(t *testing.T, jobID string) *journalWatch {
 	t.Helper()
 	w := &journalWatch{outcomes: map[string]engine.Outcome{}}
-	err := h.bus.Subscribe(context.Background(), topology.JournalSubject(jobID), func(evt event.Event) error {
+	err := h.bus.Subscribe(context.Background(), topology.JournalSubject(gateRunnerID, jobID), func(evt event.Event) error {
 		var batch journal.Batch
 		if err := json.Unmarshal(evt.Data, &batch); err != nil {
 			t.Errorf("decoding a journal batch: %v", err)

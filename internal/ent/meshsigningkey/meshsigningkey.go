@@ -25,6 +25,8 @@ const (
 	FieldPublicKey = "public_key"
 	// FieldSeed holds the string denoting the seed field in the database.
 	FieldSeed = "seed"
+	// FieldRunnerSeed holds the string denoting the runner_seed field in the database.
+	FieldRunnerSeed = "runner_seed"
 	// FieldActive holds the string denoting the active field in the database.
 	FieldActive = "active"
 	// FieldSecretBinding holds the string denoting the secret_binding field in the database.
@@ -42,6 +44,7 @@ var Columns = []string{
 	FieldAccountSubject,
 	FieldPublicKey,
 	FieldSeed,
+	FieldRunnerSeed,
 	FieldActive,
 	FieldSecretBinding,
 }
@@ -69,6 +72,8 @@ var (
 	AccountSubjectValidator func(string) error
 	// PublicKeyValidator is a validator for the "public_key" field. It is called by the builders before save.
 	PublicKeyValidator func(string) error
+	// DefaultRunnerSeed holds the default value on creation for the "runner_seed" field.
+	DefaultRunnerSeed string
 	// DefaultActive holds the default value on creation for the "active" field.
 	DefaultActive bool
 	// DefaultSecretBinding holds the default value on creation for the "secret_binding" field.
@@ -111,6 +116,11 @@ func ByPublicKey(opts ...sql.OrderTermOption) OrderOption {
 // BySeed orders the results by the seed field.
 func BySeed(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldSeed, opts...).ToFunc()
+}
+
+// ByRunnerSeed orders the results by the runner_seed field.
+func ByRunnerSeed(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldRunnerSeed, opts...).ToFunc()
 }
 
 // ByActive orders the results by the active field.

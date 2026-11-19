@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/nats-io/jwt/v2"
 	"github.com/nats-io/nkeys"
 )
 
@@ -102,4 +103,20 @@ func validateCredential(creds []byte) error {
 	// have no owner.
 	kp.Wipe()
 	return nil
+}
+
+// RunnerNameFromCredentials returns the name a Runner's own credential was
+// minted under: the name the broker enforces on everything the Runner
+// publishes (0.5.0). A credential that does not decode is an error, and a
+// credential with no name returns "", so the caller can decide the fallback.
+func RunnerNameFromCredentials(creds []byte) (string, error) {
+	token, err := jwt.ParseDecoratedJWT(creds)
+	if err != nil {
+		return "", fmt.Errorf("topology: reading the runner credential: %w", err)
+	}
+	claims, err := jwt.DecodeUserClaims(token)
+	if err != nil {
+		return "", fmt.Errorf("topology: decoding the runner credential: %w", err)
+	}
+	return claims.Name, nil
 }

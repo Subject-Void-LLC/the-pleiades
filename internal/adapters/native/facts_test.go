@@ -72,7 +72,7 @@ func TestFactsPublisher_PublishesTheDispatchsBatchOnItsJobsSubject(t *testing.T)
 	if err := p.Record(context.Background(), "device-1", facts.Observation{Entries: factEntries(t), At: at.Add(time.Second)}); err != nil {
 		t.Fatal(err)
 	}
-	if len(bus.published) != 3 || bus.published[0].topic != topology.FactsSubject("job-1") {
+	if len(bus.published) != 3 || bus.published[0].topic != topology.FactsSubject("runner-1", "job-1") {
 		t.Fatalf("published %+v", bus.published)
 	}
 	var batch facts.Batch
@@ -134,7 +134,7 @@ func TestExecute_PublishesNoFactHoldingTheDispatchsSecret(t *testing.T) {
 	const password = "Lattice7Harbor"
 	bus := &mockBus{}
 	runbooks := writeRunbook(t, "facts-echo", "# Reports a fact. Read only.\nid: facts-echo\ntasks:\n  - name: echo\n    "+factsEchoMethod+": {}\n")
-	adapter, err := NewAdapter(bus, runbooks, nil)
+	adapter, err := NewAdapter(bus, runbooks, nil, WithRunnerID("runner-test"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -148,7 +148,7 @@ func TestExecute_PublishesNoFactHoldingTheDispatchsSecret(t *testing.T) {
 	}
 	stored := map[string]any{}
 	for _, p := range bus.published {
-		if p.topic != topology.FactsSubject(payload.JobID) {
+		if p.topic != topology.FactsSubject("runner-test", payload.JobID) {
 			continue
 		}
 		var batch facts.Batch

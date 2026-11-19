@@ -45,7 +45,7 @@ func TestJournalRoundTripFromRunnerToDatabase(t *testing.T) {
 	runbooks := writeRunbook(t, "pb-1",
 		"id: pb-1\ntasks:\n  - name: first\n    fqcn: noop\n    params:\n      changed: true\n"+
 			"  - name: second\n    fqcn: noop\n")
-	adapter, err := NewAdapter(bus, runbooks, nil)
+	adapter, err := NewAdapter(bus, runbooks, nil, WithRunnerID("runner-test"))
 	if err != nil {
 		t.Fatalf("NewAdapter: %v", err)
 	}
@@ -191,7 +191,7 @@ func TestJournalRoundTripKeepsEveryDispatchsCopyOfADevicelessNode(t *testing.T) 
 		"id: pb-2\ntasks:\n  - name: first\n    fqcn: noop\n"+
 			"  - name: skipped everywhere\n    fqcn: noop\n    when: \"1 == 2\"\n"+
 			"  - name: third\n    fqcn: noop\n")
-	adapter, err := NewAdapter(bus, runbooks, nil)
+	adapter, err := NewAdapter(bus, runbooks, nil, WithRunnerID("runner-test"))
 	if err != nil {
 		t.Fatalf("NewAdapter: %v", err)
 	}

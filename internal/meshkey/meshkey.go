@@ -118,6 +118,7 @@ func (s *Store) Save(ctx context.Context, keyID string, acct *meshid.Account) er
 		SetAccountSubject(acct.Subject).
 		SetPublicKey(pub).
 		SetSeed(string(acct.SigningKeySeed)).
+		SetRunnerSeed(string(acct.RunnerSeed)).
 		SetActive(true).
 		Save(ctx); err != nil {
 		return fmt.Errorf("meshkey: recording the new signing key: %w", err)
@@ -161,6 +162,39 @@ func (s *Store) Issuer(ctx context.Context, accountSubject string) (*meshid.Issu
 	issuer, err := meshid.NewIssuer(row.AccountSubject, []byte(row.Seed))
 	if err != nil {
 		return nil, fmt.Errorf("meshkey: building an issuer from the stored key %q: %w", row.KeyID, err)
+	}
+	return issuer, nil
+}
+
+// ErrNoRunnerKey means the active key was minted before the account had a
+// runner scope, so it cannot issue Runner credentials. The fix is to mint the
+// account's runner scope again (a re-issued account), not to retry.
+var ErrNoRunnerKey = errors.New("meshkey: this account has no runner signing key, so it cannot issue Runner credentials; re-mint the account")
+
+// RunnerIssuer returns the Runner-credential issuer for accountSubject's
+// active key, from the scoped seed held beside the account seed. It returns
+// ErrNoRunnerKey for an account minted before the runner scope existed.
+func (s *Store) RunnerIssuer(ctx context.Context, accountSubject string) (*meshid.RunnerIssuer, error) {
+	row, err := s.client.MeshSigningKey.Query().
+		Where(
+			meshsigningkey.AccountSubjectEQ(accountSubject),
+			meshsigningkey.ActiveEQ(true),
+		).
+		Only(ctx)
+	if ent.IsNotFound(err) {
+		return nil, fmt.Errorf("%w: %s", ErrNoActiveKey, accountSubject)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("meshkey: reading the active signing key: %w", err)
+	}
+	if row.RunnerSeed == "" {
+		return nil, fmt.Errorf("%w: %s", ErrNoRunnerKey, accountSubject)
+	}
+	// The seed arrives decrypted (MeshRunnerSeedInterceptor). A value still
+	// sealed here means it could not be opened, and meshid refuses it.
+	issuer, err := meshid.NewRunnerIssuer(row.AccountSubject, []byte(row.RunnerSeed))
+	if err != nil {
+		return nil, fmt.Errorf("meshkey: building a runner issuer from the stored key %q: %w", row.KeyID, err)
 	}
 	return issuer, nil
 }

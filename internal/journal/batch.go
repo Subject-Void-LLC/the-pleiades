@@ -36,6 +36,11 @@ type Batch struct {
 	// Entries is the level's entries, already stamped with JobID and
 	// Attempt by the publisher.
 	Entries []engine.JournalEntry `json:"entries"`
+
+	// Runner is the Runner that published the batch, the name its credential
+	// carries (0.5.0). The subject it was delivered on must name the same
+	// Runner, which the consumer checks.
+	Runner string `json:"runner,omitempty"`
 }
 
 // EventType is the envelope type a Batch is published under, matching

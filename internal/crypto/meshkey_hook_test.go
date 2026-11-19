@@ -26,6 +26,8 @@ func meshKeyClient(t *testing.T) (*ent.Client, *crypto.EnvelopeService) {
 	t.Cleanup(func() { client.Close() })
 	client.MeshSigningKey.Use(crypto.MeshSigningKeySeedHook(svc))
 	client.MeshSigningKey.Intercept(crypto.MeshSigningKeySeedInterceptor(svc))
+	client.MeshSigningKey.Use(crypto.MeshRunnerSeedHook(svc))
+	client.MeshSigningKey.Intercept(crypto.MeshRunnerSeedInterceptor(svc))
 	return client, svc
 }
 

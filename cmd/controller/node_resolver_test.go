@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -350,23 +351,39 @@ func TestNodeConsumers_StoreEachBatchUnderItsNodesMethod(t *testing.T) {
 }
 
 // factsEvent wraps batch as the facts subject carries it.
+// factsEventFromJSON wraps an encoded facts batch as the bus delivers it: on
+// the subject its own Runner publishes to (0.5.0). A batch that does not
+// decode is delivered with no subject, which the consumer refuses.
+func factsEventFromJSON(t *testing.T, id string, data []byte) event.Event {
+	t.Helper()
+	evt := event.Event{ID: id, Type: facts.EventType, Data: data}
+	var b facts.Batch
+	if err := json.Unmarshal(data, &b); err == nil {
+		evt.Subject = topology.FactsSubject(b.By.Runner, b.JobID)
+	}
+	return evt
+}
+
 func factsEvent(t *testing.T, batch facts.Batch) event.Event {
 	t.Helper()
 	data, err := json.Marshal(batch)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return event.Event{ID: "facts-1", Type: facts.EventType, Data: data}
+	return event.Event{ID: "facts-1", Type: facts.EventType, Data: data, Subject: topology.FactsSubject(batch.By.Runner, batch.JobID)}
 }
 
 // journalEvent wraps batch as the journal subject carries it.
 func journalEvent(t *testing.T, batch journal.Batch) event.Event {
 	t.Helper()
+	if batch.Runner == "" {
+		batch.Runner = "runner-test"
+	}
 	data, err := json.Marshal(batch)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return event.Event{ID: "journal-1", Type: journal.EventType, Data: data}
+	return event.Event{ID: "journal-1", Type: journal.EventType, Data: data, Subject: topology.JournalSubject(batch.Runner, batch.JobID)}
 }
 
 // TestNodeConsumers_JudgeIdentityAndSkewAlike: the facts and journal

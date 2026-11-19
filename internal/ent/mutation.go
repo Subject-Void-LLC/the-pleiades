@@ -22586,6 +22586,7 @@ type MeshSigningKeyMutation struct {
 	account_subject *string
 	public_key      *string
 	seed            *string
+	runner_seed     *string
 	active          *bool
 	secret_binding  *string
 	clearedFields   map[string]struct{}
@@ -22908,6 +22909,42 @@ func (m *MeshSigningKeyMutation) ResetSeed() {
 	m.seed = nil
 }
 
+// SetRunnerSeed sets the "runner_seed" field.
+func (m *MeshSigningKeyMutation) SetRunnerSeed(s string) {
+	m.runner_seed = &s
+}
+
+// RunnerSeed returns the value of the "runner_seed" field in the mutation.
+func (m *MeshSigningKeyMutation) RunnerSeed() (r string, exists bool) {
+	v := m.runner_seed
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldRunnerSeed returns the old "runner_seed" field's value of the MeshSigningKey entity.
+// If the MeshSigningKey object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MeshSigningKeyMutation) OldRunnerSeed(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldRunnerSeed is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldRunnerSeed requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldRunnerSeed: %w", err)
+	}
+	return oldValue.RunnerSeed, nil
+}
+
+// ResetRunnerSeed resets all changes to the "runner_seed" field.
+func (m *MeshSigningKeyMutation) ResetRunnerSeed() {
+	m.runner_seed = nil
+}
+
 // SetActive sets the "active" field.
 func (m *MeshSigningKeyMutation) SetActive(b bool) {
 	m.active = &b
@@ -23014,7 +23051,7 @@ func (m *MeshSigningKeyMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *MeshSigningKeyMutation) Fields() []string {
-	fields := make([]string, 0, 8)
+	fields := make([]string, 0, 9)
 	if m.created_at != nil {
 		fields = append(fields, meshsigningkey.FieldCreatedAt)
 	}
@@ -23032,6 +23069,9 @@ func (m *MeshSigningKeyMutation) Fields() []string {
 	}
 	if m.seed != nil {
 		fields = append(fields, meshsigningkey.FieldSeed)
+	}
+	if m.runner_seed != nil {
+		fields = append(fields, meshsigningkey.FieldRunnerSeed)
 	}
 	if m.active != nil {
 		fields = append(fields, meshsigningkey.FieldActive)
@@ -23059,6 +23099,8 @@ func (m *MeshSigningKeyMutation) Field(name string) (ent.Value, bool) {
 		return m.PublicKey()
 	case meshsigningkey.FieldSeed:
 		return m.Seed()
+	case meshsigningkey.FieldRunnerSeed:
+		return m.RunnerSeed()
 	case meshsigningkey.FieldActive:
 		return m.Active()
 	case meshsigningkey.FieldSecretBinding:
@@ -23084,6 +23126,8 @@ func (m *MeshSigningKeyMutation) OldField(ctx context.Context, name string) (ent
 		return m.OldPublicKey(ctx)
 	case meshsigningkey.FieldSeed:
 		return m.OldSeed(ctx)
+	case meshsigningkey.FieldRunnerSeed:
+		return m.OldRunnerSeed(ctx)
 	case meshsigningkey.FieldActive:
 		return m.OldActive(ctx)
 	case meshsigningkey.FieldSecretBinding:
@@ -23138,6 +23182,13 @@ func (m *MeshSigningKeyMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetSeed(v)
+		return nil
+	case meshsigningkey.FieldRunnerSeed:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetRunnerSeed(v)
 		return nil
 	case meshsigningkey.FieldActive:
 		v, ok := value.(bool)
@@ -23219,6 +23270,9 @@ func (m *MeshSigningKeyMutation) ResetField(name string) error {
 		return nil
 	case meshsigningkey.FieldSeed:
 		m.ResetSeed()
+		return nil
+	case meshsigningkey.FieldRunnerSeed:
+		m.ResetRunnerSeed()
 		return nil
 	case meshsigningkey.FieldActive:
 		m.ResetActive()

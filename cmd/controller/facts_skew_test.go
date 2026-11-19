@@ -17,7 +17,6 @@ import (
 	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/api/wellknown"
-	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts/entstore"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/journal"
@@ -132,7 +131,7 @@ func TestFactsSkew_AnOlderControllerKeepsTheCertificateFacts(t *testing.T) {
 	var logged bytes.Buffer
 	sub := entstore.NewSubscriber(store, slog.New(slog.NewTextHandler(&logged, nil)), nil,
 		entstore.WithDeclarations(index), entstore.WithBuiltinProvenance(builtins), entstore.WithNodeResolver(gnmiFactsNode))
-	if err := sub.Handle(event.Event{ID: "e1", Type: facts.EventType, Data: batch}); err != nil {
+	if err := sub.Handle(factsEventFromJSON(t, "e1", batch)); err != nil {
 		t.Fatal(err)
 	}
 	if len(store.got) != want || strings.Contains(logged.String(), "level=WARN") {
@@ -150,7 +149,7 @@ func TestFactsSkew_AnOlderControllerKeepsTheCertificateFacts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := sub.Handle(event.Event{ID: "e2", Type: facts.EventType, Data: batch}); err != nil {
+	if err := sub.Handle(factsEventFromJSON(t, "e2", batch)); err != nil {
 		t.Fatal(err)
 	}
 	if len(current.got) != want || strings.Contains(logged.String(), "level=WARN") {

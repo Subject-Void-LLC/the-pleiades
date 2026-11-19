@@ -150,7 +150,7 @@ func (h *releaseGateHarness) journaled(t *testing.T, jobID string) bool {
 	if err != nil {
 		t.Fatalf("binding the stream: %v", err)
 	}
-	_, err = stream.GetLastMsgForSubject(ctx, topology.JournalSubject(jobID))
+	_, err = stream.GetLastMsgForSubject(ctx, topology.JournalSubject(gateRunnerID, jobID))
 	switch {
 	case err == nil:
 		return true

@@ -93,6 +93,10 @@ func (b *natsBus) handleDelivery(ctx context.Context, msg jetstream.Msg, handler
 		return
 	}
 
+	// The subject the broker delivered this on, never the payload's word for
+	// it: a Runner's batch names the Runner by it (0.5.0 broker-enforced identity).
+	evt.Subject = msg.Subject()
+
 	if err := handler(evt); err != nil {
 		if dlqErr := HandleDeliveryFailure(ctx, b.js, msg, topology.MaxDeliverDefault, err.Error()); dlqErr != nil {
 			slog.Error("failed to route failed delivery to dead letter handling",

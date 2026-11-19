@@ -799,12 +799,16 @@ func init() {
 	meshsigningkeyDescPublicKey := meshsigningkeyFields[2].Descriptor()
 	// meshsigningkey.PublicKeyValidator is a validator for the "public_key" field. It is called by the builders before save.
 	meshsigningkey.PublicKeyValidator = meshsigningkeyDescPublicKey.Validators[0].(func(string) error)
+	// meshsigningkeyDescRunnerSeed is the schema descriptor for runner_seed field.
+	meshsigningkeyDescRunnerSeed := meshsigningkeyFields[4].Descriptor()
+	// meshsigningkey.DefaultRunnerSeed holds the default value on creation for the runner_seed field.
+	meshsigningkey.DefaultRunnerSeed = meshsigningkeyDescRunnerSeed.Default.(string)
 	// meshsigningkeyDescActive is the schema descriptor for active field.
-	meshsigningkeyDescActive := meshsigningkeyFields[4].Descriptor()
+	meshsigningkeyDescActive := meshsigningkeyFields[5].Descriptor()
 	// meshsigningkey.DefaultActive holds the default value on creation for the active field.
 	meshsigningkey.DefaultActive = meshsigningkeyDescActive.Default.(bool)
 	// meshsigningkeyDescSecretBinding is the schema descriptor for secret_binding field.
-	meshsigningkeyDescSecretBinding := meshsigningkeyFields[5].Descriptor()
+	meshsigningkeyDescSecretBinding := meshsigningkeyFields[6].Descriptor()
 	// meshsigningkey.DefaultSecretBinding holds the default value on creation for the secret_binding field.
 	meshsigningkey.DefaultSecretBinding = meshsigningkeyDescSecretBinding.Default.(func() string)
 	organizationMixin := schema.Organization{}.Mixin()

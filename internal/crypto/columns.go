@@ -67,4 +67,10 @@ var encryptedColumns = []encryptedColumn{
 		bare:   true,
 		rotate: RotateMeshSigningKeySeeds,
 	},
+	{
+		noun: "mesh runner signing keys", hook: "MeshRunnerSeedHook",
+		table: meshsigningkey.Table, column: meshsigningkey.FieldRunnerSeed,
+		bare:   true,
+		rotate: RotateMeshRunnerSeeds,
+	},
 }

@@ -362,7 +362,7 @@ func (a *Adapter) Execute(ctx context.Context, payload wire.DispatchPayload) (wi
 	// limit is NOT read anywhere yet, although device selection happens in
 	// internal/dispatch's fan-out, where it belongs; that is recorded as an
 	// open item (FAILURE_PATTERNS.md #116's shape) rather than claimed.
-	var journalSink engine.Journal = newJournalPublisher(ctx, a.bus, a.logger, payload.JobID, payload.DeviceID)
+	var journalSink engine.Journal = newJournalPublisher(ctx, a.bus, a.logger, payload.JobID, payload.DeviceID, a.runnerID)
 	// The facts its tasks observe (Phase 41), published for the Controller
 	// to store; declared as the interface for the journal's typed-nil reason.
 	var factSink engine.FactRecorder = newFactsPublisher(ctx, a.bus, payload.JobID, payload.DeviceID, a.runnerID)

@@ -20,6 +20,8 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"flag"
 	"fmt"
@@ -197,12 +199,22 @@ resolver_preload: {
 `, op.JWT, sys.Subject, sys.Subject, sys.JWT, app.Subject, app.JWT)
 }
 
-// runMeshIssue mints one credential from the stored signing key.
+// newRunnerName is a Runner name no other credential is likely to share: the
+// broker enforces it, so a default that collided would make two Runners one.
+func newRunnerName() (string, error) {
+	var b [6]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", fmt.Errorf("generating a runner name: %w", err)
+	}
+	return "runner-" + hex.EncodeToString(b[:]), nil
+}
+
+// runMeshIssue mints one Runner credential from the stored runner scope.
 func runMeshIssue(ctx context.Context, deps *adminDeps, args []string) error {
 	fs := flag.NewFlagSet("mesh issue", flag.ContinueOnError)
 	out := fs.String("out", "", "file to write the credential to")
 	expiry := fs.Duration("expiry", meshid.DefaultFleetExpiry, "how long the credential is valid for")
-	label := fs.String("label", "runner", "a label recorded in the credential's name, for reading connz")
+	label := fs.String("label", "", "the Runner's name, which the broker enforces: its facts and journal batches go only under this name. Unique per Runner; empty generates one")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -221,12 +233,19 @@ func runMeshIssue(ctx context.Context, deps *adminDeps, args []string) error {
 		}
 		return err
 	}
-	issuer, err := store.Issuer(ctx, account)
+	name := *label
+	if name == "" {
+		name, err = newRunnerName()
+		if err != nil {
+			return err
+		}
+	}
+	runners, err := store.RunnerIssuer(ctx, account)
 	if err != nil {
 		return err
 	}
 
-	cred, err := issuer.Issue(meshid.FleetRunnerGrant(*label), *expiry)
+	cred, err := runners.Issue(name, *expiry)
 	if err != nil {
 		return err
 	}

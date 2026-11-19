@@ -118,6 +118,10 @@ type Account struct {
 	// Controller is expected to hold. It is returned rather than kept
 	// because this package does not do custody.
 	SigningKeySeed []byte
+	// RunnerSeed is the seed of the scoped signing key that issues Runner
+	// credentials (runner_scope.go). Empty for the system account, which has
+	// no Runners.
+	RunnerSeed []byte
 
 	kp nkeys.KeyPair
 }
@@ -253,12 +257,25 @@ func newAccount(op *Operator, name string, jetStream bool) (*Account, error) {
 		}
 	}
 
+	// The application account delegates Runner credentials to a scoped
+	// signer (runner_scope.go), so a Runner's publish permission can name
+	// the Runner. The system account gets none.
+	var runnerSeed []byte
+	if jetStream {
+		scope, seed, err := newRunnerScope()
+		if err != nil {
+			return nil, err
+		}
+		claims.SigningKeys.AddScopedSigner(scope)
+		runnerSeed = seed
+	}
+
 	token, err := claims.Encode(op.kp)
 	if err != nil {
 		return nil, fmt.Errorf("meshid: encoding account jwt: %w", err)
 	}
 
-	return &Account{Subject: pub, JWT: token, SigningKeySeed: signingSeed, kp: kp}, nil
+	return &Account{Subject: pub, JWT: token, SigningKeySeed: signingSeed, RunnerSeed: runnerSeed, kp: kp}, nil
 }
 
 // SigningKeyPublic returns the public key of an account signing seed.

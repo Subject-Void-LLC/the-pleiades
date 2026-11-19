@@ -24,6 +24,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts/entstore"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts/factstest"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/journal"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
 )
 
 // open returns a client over a real file and one device in it.
@@ -108,7 +109,13 @@ func handle(t *testing.T, sub *entstore.Subscriber, batch any) error {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return sub.Handle(event.Event{ID: "e1", Type: facts.EventType, Data: data})
+	// Delivered on the subject its Runner would publish to, as the broker
+	// delivers it, so the Runner-named subject check passes.
+	subject := ""
+	if b, ok := batch.(facts.Batch); ok {
+		subject = topology.FactsSubject(b.By.Runner, b.JobID)
+	}
+	return sub.Handle(event.Event{ID: "e1", Type: facts.EventType, Data: data, Subject: subject})
 }
 
 // TestSubscriber_StoresOnlyWhatPassesAndWasDispatched: what a Runner publishes

@@ -740,6 +740,7 @@ var (
 		{Name: "account_subject", Type: field.TypeString},
 		{Name: "public_key", Type: field.TypeString},
 		{Name: "seed", Type: field.TypeString},
+		{Name: "runner_seed", Type: field.TypeString, Default: ""},
 		{Name: "active", Type: field.TypeBool, Default: false},
 		{Name: "secret_binding", Type: field.TypeString},
 	}

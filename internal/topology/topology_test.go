@@ -249,12 +249,12 @@ func TestJournalSubject(t *testing.T) {
 		jobID string
 		want  string
 	}{
-		{"uuid job id", "abc-123", "pleiades.jobs.journal.abc-123-5942d94f"},
-		{"empty job id", "", "pleiades.jobs.journal.unnamed-e3b0c442"},
+		{"uuid job id", "abc-123", "pleiades.jobs.journal.runner-test.abc-123-5942d94f"},
+		{"empty job id", "", "pleiades.jobs.journal.runner-test.unnamed-e3b0c442"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := topology.JournalSubject(tt.jobID); got != tt.want {
+			if got := topology.JournalSubject("runner-test", tt.jobID); got != tt.want {
 				t.Errorf("JournalSubject(%q) = %q, want %q", tt.jobID, got, tt.want)
 			}
 		})
@@ -262,14 +262,14 @@ func TestJournalSubject(t *testing.T) {
 
 	// It must fall under StreamSubjectRoot ("pleiades.>"), which is what
 	// makes a new subject need no stream change at all.
-	if got := topology.JournalSubject("job-1"); !strings.HasPrefix(got, "pleiades.") {
+	if got := topology.JournalSubject("runner-test", "job-1"); !strings.HasPrefix(got, "pleiades.") {
 		t.Errorf("JournalSubject(%q) = %q, does not fall under StreamSubjectRoot %q", "job-1", got, topology.StreamSubjectRoot)
 	}
 
 	// And it must not collide with the log or result space, or one
 	// consumer would silently receive the other's messages.
 	for _, other := range []string{topology.LogSubject("job-1"), topology.ResultSubject("job-1")} {
-		if topology.JournalSubject("job-1") == other {
+		if topology.JournalSubject("runner-test", "job-1") == other {
 			t.Errorf("JournalSubject collides with %q", other)
 		}
 	}
@@ -280,14 +280,14 @@ func TestJournalSubject(t *testing.T) {
 // other subject of the same job, or one consumer would receive another's
 // messages.
 func TestFactsSubject(t *testing.T) {
-	if got, want := topology.FactsSubject("abc-123"), "pleiades.jobs.facts.abc-123-5942d94f"; got != want {
+	if got, want := topology.FactsSubject("runner-test", "abc-123"), "pleiades.jobs.facts.runner-test.abc-123-5942d94f"; got != want {
 		t.Errorf("FactsSubject = %q, want %q", got, want)
 	}
 	if got, want := topology.FactsSubjectAll(), "pleiades.jobs.facts.>"; got != want {
 		t.Errorf("FactsSubjectAll = %q, want %q", got, want)
 	}
-	facts := topology.FactsSubject("job-1")
-	for _, other := range []string{topology.LogSubject("job-1"), topology.ResultSubject("job-1"), topology.JournalSubject("job-1")} {
+	facts := topology.FactsSubject("runner-test", "job-1")
+	for _, other := range []string{topology.LogSubject("job-1"), topology.ResultSubject("job-1"), topology.JournalSubject("runner-test", "job-1")} {
 		if facts == other {
 			t.Errorf("FactsSubject collides with %q", other)
 		}
@@ -308,11 +308,11 @@ func TestJournalSubjectAll(t *testing.T) {
 	// The trap this function exists to avoid: the per-job builder
 	// sanitizes its argument, so passing a wildcard through it produces a
 	// literal token rather than a pattern.
-	if built := topology.JournalSubject(">"); built == got {
+	if built := topology.JournalSubject("runner-test", ">"); built == got {
 		t.Error("JournalSubject(\">\") happens to equal the wildcard, so this function would look unnecessary")
 	}
-	if !strings.Contains(topology.JournalSubject(">"), "unnamed-") {
-		t.Errorf("JournalSubject(\">\") = %q, expected it to be sanitized into a literal token", topology.JournalSubject(">"))
+	if !strings.Contains(topology.JournalSubject("runner-test", ">"), "unnamed-") {
+		t.Errorf("JournalSubject(\">\") = %q, expected it to be sanitized into a literal token", topology.JournalSubject("runner-test", ">"))
 	}
 }
 
@@ -349,7 +349,7 @@ func TestControlSubject(t *testing.T) {
 	for _, other := range []string{
 		topology.LogSubject("job-1"),
 		topology.ResultSubject("job-1"),
-		topology.JournalSubject("job-1"),
+		topology.JournalSubject("runner-test", "job-1"),
 		topology.DispatchSubject("job-1"),
 	} {
 		if topology.ControlSubject("job-1") == other {
@@ -384,5 +384,35 @@ func TestControlSubjectAll(t *testing.T) {
 	// literal token rather than a pattern.
 	if built := topology.ControlSubject(">"); built == got {
 		t.Error("ControlSubject(\">\") happens to equal the wildcard, so this function would look unnecessary")
+	}
+}
+
+// TestRunnerSubjectsCarryTheCredentialName pins the property the broker
+// enforces (0.5.0): a subject built for a credential's name sits under that
+// credential's publish template, and a name a credential carries is used in
+// the subject exactly, not sanitized, since the broker matches the literal.
+func TestRunnerSubjectsCarryTheCredentialName(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		tmpl string
+		subj func(runner, job string) string
+	}{
+		{"facts", topology.FactsSubjectTemplate(), topology.FactsSubject},
+		{"journal", topology.JournalSubjectTemplate(), topology.JournalSubject},
+	} {
+		prefix := strings.TrimSuffix(tc.tmpl, "{{name()}}.>")
+		got := tc.subj("runner-a", "job-1")
+		if !strings.HasPrefix(got, prefix+"runner-a.") {
+			t.Errorf("%s subject %q does not sit under the credential's template %q", tc.name, got, tc.tmpl)
+		}
+		if strings.HasPrefix(tc.subj("runner-b", "job-1"), prefix+"runner-a.") {
+			t.Errorf("%s: runner-b's subject sits under runner-a's name", tc.name)
+		}
+	}
+	if got := topology.RunnerToken("runner-a"); got != "runner-a" {
+		t.Errorf("RunnerToken(credential name) = %q, want it unchanged", got)
+	}
+	if got := topology.RunnerToken("router.example.com"); topology.IsSubjectToken(got) == false || strings.Contains(got, ".") {
+		t.Errorf("RunnerToken(host name) = %q, want one subject token", got)
 	}
 }

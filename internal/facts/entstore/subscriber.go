@@ -143,6 +143,15 @@ func (s *Subscriber) Handle(evt event.Event) error {
 			slog.String("event", termsafe.Quote(evt.ID)), slog.String("reason", err.Error()))
 		return nil
 	}
+	// The subject the broker delivered the batch on names the Runner that
+	// published it (0.5.0): its credential may publish only under its own
+	// name, so a batch whose label names another Runner is not what it says.
+	if runner, ok := topology.FactsRunner(evt.Subject); !ok || runner != topology.RunnerToken(batch.By.Runner) {
+		s.logger.Warn("dropping a facts batch whose subject names a different Runner than its label",
+			slog.String("job", termsafe.Quote(batch.JobID)), slog.String("device", termsafe.Quote(batch.DeviceID)),
+			slog.String("runner", termsafe.Quote(batch.By.Runner)), slog.String("subject", termsafe.Quote(evt.Subject)))
+		return nil
+	}
 	// The run that observed them, held to the batch's own job and attempt
 	// rather than trusting a second copy of each.
 	by := batch.By

@@ -153,6 +153,17 @@ func (d *ExistingDatabase) StoredValues(ctx context.Context, table, column strin
 	if !exists {
 		return nil, nil
 	}
+	// A column an older schema lacks is the same case one level down: the
+	// database cannot hold a value in it. The upgrade's backup reads the
+	// database before its migrations run, so every column added since is
+	// absent here.
+	hasColumn, err := d.hasColumn(ctx, table, column)
+	if err != nil {
+		return nil, err
+	}
+	if !hasColumn {
+		return nil, nil
+	}
 
 	// The column is cast to text so a PostgreSQL jsonb column scans into a
 	// string the same way SQLite's text does.
@@ -224,6 +235,25 @@ func (d *ExistingDatabase) hasTable(ctx context.Context, table string) (bool, er
 	var n int
 	if err := d.db.QueryRowContext(ctx, query, table).Scan(&n); err != nil {
 		return false, fmt.Errorf("ent: checking for table %s in %s: %w", table, d.describe, err)
+	}
+	return n > 0, nil
+}
+
+// hasColumn reports whether table has column: hasTable's check one level down,
+// for the same reason (a database created before the column cannot hold it).
+func (d *ExistingDatabase) hasColumn(ctx context.Context, table, column string) (bool, error) {
+	var query string
+	switch d.driver {
+	case dialect.SQLite:
+		query = `SELECT COUNT(*) FROM pragma_table_info(?) WHERE name = ?`
+	case dialect.Postgres:
+		query = `SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = $1 AND column_name = $2`
+	default:
+		return false, fmt.Errorf("ent: no column catalog query for dialect %q", d.driver)
+	}
+	var n int
+	if err := d.db.QueryRowContext(ctx, query, table, column).Scan(&n); err != nil {
+		return false, fmt.Errorf("ent: checking for column %s.%s in %s: %w", table, column, d.describe, err)
 	}
 	return n > 0, nil
 }

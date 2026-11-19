@@ -17,6 +17,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts/entstore"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/journal"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
 
@@ -42,7 +43,8 @@ func TestStores_KeepTheSameIdentityForOneTask(t *testing.T) {
 			at := time.Now().UTC()
 			entry := engine.JournalEntry{JobID: "job-1", DeviceID: device, Attempt: 1, RunID: "run-1", Sequence: 1, NodeID: "tasks[0]",
 				FQCN: "facts.gather", Outcome: engine.OutcomeRan, StartedAt: at, FinishedAt: at, Collection: c.sent}
-			wrapped, err := event.WrapPayload("k-1", journal.EventType, journal.Batch{JobID: "job-1", DeviceID: device, Attempt: 1, Entries: []engine.JournalEntry{entry}})
+			wrapped, err := event.WrapPayload("k-1", journal.EventType, journal.Batch{JobID: "job-1", DeviceID: device, Attempt: 1, Runner: "runner-a", Entries: []engine.JournalEntry{entry}})
+			wrapped.Subject = topology.JournalSubject("runner-a", "job-1")
 			if err != nil {
 				t.Fatal(err)
 			}
