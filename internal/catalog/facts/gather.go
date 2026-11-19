@@ -144,6 +144,10 @@ func init() {
 		// added: each is the device changing.
 		collection.FactSpec{Key: gatherFamilyFile, Prefix: true, ItemNames: true, Kind: collection.FactStable, Type: collection.FactObject,
 			Description: "One path the task named: state (present, absent, unreadable) and, when present, type, size, owner, mode, sha256 and link target; never the content."},
+		// What a path carries beside its content changing (an extended
+		// attribute, a resource fork, an NTFS stream) is the device changing.
+		collection.FactSpec{Key: gatherFamilyFileAttached, Prefix: true, ItemNames: true, Kind: collection.FactStable, Type: collection.FactObject,
+			Description: "What one named path carries beside its content: kind (xattrs or streams), the names, and one keyed digest over every name and value."},
 		collection.FactSpec{Key: gatherFamilyPort, Prefix: true, ItemNames: true, Kind: collection.FactStable, Type: collection.FactObject,
 			Description: "One listening socket: protocol, address, port and, where the login may see it, the process."},
 		collection.FactSpec{Key: gatherFamilyUser, Prefix: true, ItemNames: true, Kind: collection.FactStable, Type: collection.FactObject,
@@ -209,6 +213,7 @@ func gatherDoc() collection.Doc {
 			{Name: "package.<name>", Type: "map", Returned: "with the packages subset, for each installed package", Description: "One installed package: version, arch and source (dpkg, rpm, apk, pkg, brew, brew-cask, pkgutil or registry). A name a key cannot hold is percent-encoded; a name two packages share takes :arch, then @source, then #2 and on in the order the source lists them. A package its source gives no version has none."},
 			{Name: "service.<name>", Type: "map", Returned: "with the services subset, for each service the service manager lists", Description: "One service by its manager's name for it: enabled, status and source; what it is doing now is service_state.<name>. From systemd (source systemd), status is the unit file's state (enabled, disabled, static, masked, generated, indirect and so on), enabled meaning enabled or enabled-runtime, and a unit that lasts only as long as a login, a connection or a process (a transient unit, a user@ or user-runtime-dir@ instance, one connection's instance of an Accept=yes socket) not listed, a lingering user's user@<uid>.service left out as well by choice though it lasts as long as the host, and a transient unit still listed on systemd before 230, which does not report it as transient; from OpenRC (openrc), status is the runlevels the script is in, or disabled, enabled meaning a runlevel other than shutdown; from FreeBSD's rc, status is enabled or disabled; from launchd, status is enabled or disabled, a daemon launchd has not loaded because it is disabled being listed all the same, and a job launchd starts once per connection or session (a label ending in a UUID, such as com.openssh.sshd.<UUID>) not listed, since a new one comes with every login; from the Windows service control manager (scm), status is the start mode (auto, delayed, manual, disabled, boot, system), enabled meaning it starts with Windows, and a per-user service is listed once by its template's name with per_user true, never by the instance Windows makes for each signed-in user (Template_<LUID>), whose name changes with every sign-in."},
 			{Name: "service_state.<name>", Type: "string", Returned: "with the services subset, for each service its manager says the state of", Description: "What the service service.<name> names is doing, kept as its latest value only and never as drift, since services start and stop on their own (a timer's job, a service started when something asks for it). From systemd, the unit's sub-state (running, exited, dead, failed, inactive and the others systemd reports, such as activating or auto-restart); from OpenRC, running, stopped or OpenRC's own word (crashed, inactive), or unknown before OpenRC has booted; from FreeBSD's rc, running, stopped or unknown (an rc script that is not enabled, or whose status only root may read); from launchd, running or stopped; from Windows, the manager's own word lower-cased (running, stopped, start pending). A per-user service's template has none."},
+			{Name: "file_attached.<path>", Type: "map", Returned: "with the files subset, for each present path the device can list extended attributes or streams of", Description: "What the path carries beside its content, which its sha256 does not cover: kind (xattrs on macOS, FreeBSD and Linux, with a resource fork among them on macOS; streams on Windows), names (at most 256, with names_truncated when there were more) and one digest over every name and value, always keyed (hmac_sha256 and hmac_key), since a value may be private whatever the file's mode. Absent where the device has no tool to list them (Linux without getfattr)."},
 			{Name: "file.<path>", Type: "map", Returned: "with the files subset, for each path in files", Description: "One named path: state (present, absent or unreadable); when present, type (file, directory, link, fifo, socket, char or block), size (not for a directory, nor a file not everyone may read), uid, gid, owner, group and mode as four octal digits on a POSIX device, attributes and owner on Windows, for a regular file world_readable and, when anyone may read it, sha256 and size, or when not, hmac_sha256 and hmac_key (a keyed digest the store can compare and nobody without the key can test guesses against; on a Runner the task's own result holds it sealed to the Controller, as sha256_sealed, and only the stored fact holds it keyed), readable, and link_target for a link. The path is percent-encoded in the key as any item name is."},
 			{Name: "port.<protocol>:<address>:<port>", Type: "map", Returned: "with the ports subset, for each listening socket", Description: "One listening TCP socket, or UDP socket bound with no peer: protocol (tcp or udp), address (0.0.0.0 or :: for any; in brackets in the key when it is IPv6), port, uid on Linux, and process, the owning process's name, where the login may see it (on Linux its own processes, or every one as root; on FreeBSD every one unless security.bsd.see_other_uids is off; every one on macOS; on Windows every one an administrator sees). A socket taking both families is ::."},
 			{Name: "user.<name>", Type: "map", Returned: "with the users subset, for each local account", Description: "One local account: uid, gid, home, shell and source (files from /etc/passwd, dslocal from a Mac's local directory), or on Windows sid, enabled and source sam. Accounts a directory service adds (LDAP, SSSD, a domain) are not local and not listed; the password field is never read."},
@@ -313,11 +318,11 @@ func gatherProbesFor(platform string) []gatherProbe {
 	switch platform {
 	case platformFreeBSD:
 		probes = append(append(bsdHostProbes(platform), freebsdPackageProbes()...), freebsdServiceProbes()...)
-		probes = append(probes, posixFileProbe(statFormatBSD, modeFormatBSD), freebsdPortProbe())
+		probes = append(probes, posixFileProbe(bsdStat), freebsdPortProbe())
 		return append(probes, posixUserProbes()...)
 	case platformDarwin:
 		probes = append(append(bsdHostProbes(platform), darwinPackageProbes()...), darwinServiceProbes()...)
-		probes = append(probes, posixFileProbe(statFormatBSD, modeFormatBSD), darwinPortProbe())
+		probes = append(probes, posixFileProbe(bsdStat), darwinPortProbe())
 		return append(probes, darwinUserProbes()...)
 	case platformWindows:
 		return windowsProbes()
@@ -325,7 +330,7 @@ func gatherProbesFor(platform string) []gatherProbe {
 	probes = gatherHostProbes()
 	probes = append(probes, linuxPackageProbes()...)
 	probes = append(probes, linuxServiceProbes()...)
-	probes = append(probes, posixFileProbe(statFormatGNU, modeFormatGNU))
+	probes = append(probes, posixFileProbe(gnuStat))
 	probes = append(probes, linuxPortProbes()...)
 	return append(probes, posixUserProbes()...)
 }

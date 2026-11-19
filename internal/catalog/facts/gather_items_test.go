@@ -157,8 +157,10 @@ func TestGather_FilesReportDigestsAndNeverCallUnreadableAbsent(t *testing.T) {
 	} else if h["state"] != "unreadable" {
 		t.Errorf("a file in a directory this login cannot search = %v, want unreadable, never absent", h)
 	}
+	// The files subset's two families: a path, and what it carries beside
+	// its content.
 	for k := range rc.facts {
-		if !strings.HasPrefix(k, "file.") {
+		if !strings.HasPrefix(k, "file.") && !strings.HasPrefix(k, "file_attached.") {
 			t.Errorf("subsets !all and !min still gathered %s", k)
 		}
 	}

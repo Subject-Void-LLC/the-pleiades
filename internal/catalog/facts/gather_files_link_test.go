@@ -13,17 +13,9 @@ import (
 )
 
 func TestGather_AFileThroughALinkedDirectoryKeepsNoPlainDigest(t *testing.T) {
-	gatherNeedsLinux(t)
-	// Directly under the system's temporary directory, since t.TempDir's
-	// own parent is private and nothing under it reads as world-readable.
-	root, err := os.MkdirTemp("", "pleiades-link-")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.Chmod(filepath.Join(root, "private"), 0o700); _ = os.RemoveAll(root) })
-	if err := os.Chmod(root, 0o755); err != nil {
-		t.Fatal(err)
-	}
+	gatherNeedsPOSIX(t)
+	root := worldDir(t)
+	t.Cleanup(func() { _ = os.Chmod(filepath.Join(root, "private"), 0o700) })
 	// private (0700) holds open (0755) holds secret (0644): nobody but this
 	// login reaches secret, since private keeps them out.
 	open := filepath.Join(root, "private", "open")
@@ -44,13 +36,6 @@ func TestGather_AFileThroughALinkedDirectoryKeepsNoPlainDigest(t *testing.T) {
 	if err := os.Symlink(open, filepath.Join(pub, "l")); err != nil {
 		t.Fatal(err)
 	}
-	// Every directory above root must let others search for the walk to say
-	// world-readable at all; a TempDir under a private home cannot show it.
-	for d := filepath.Dir(root); d != "/"; d = filepath.Dir(d) {
-		if info, err := os.Stat(d); err != nil || info.Mode().Perm()&0o001 == 0 {
-			t.Skipf("%s keeps others out, so no file under it reads as world-readable", d)
-		}
-	}
 	through := filepath.Join(pub, "l", "secret")
 
 	server := startGatherServer(t)
@@ -67,5 +52,38 @@ func TestGather_AFileThroughALinkedDirectoryKeepsNoPlainDigest(t *testing.T) {
 	}
 	if _, ok := got[collection.RawDigestField]; !ok {
 		t.Fatalf("file.%s = %v, want its digest handed over raw, for the engine to key", through, got)
+	}
+}
+
+// TestGather_AHardLinkedFileKeepsNoPlainDigest: a hard link in a public
+// directory to a file inside a private one is the same file, with the same
+// mode, reached by a path the walk finds public; a file with more than one
+// link may be reached by a path nobody else can, so it is private.
+func TestGather_AHardLinkedFileKeepsNoPlainDigest(t *testing.T) {
+	gatherNeedsPOSIX(t)
+	root := worldDir(t)
+	t.Cleanup(func() { _ = os.Chmod(filepath.Join(root, "private"), 0o700) })
+	if err := os.Mkdir(filepath.Join(root, "pub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	private := filepath.Join(root, "private")
+	if err := os.Mkdir(private, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(private, "secret"), []byte("pin1234\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "pub", "secret")
+	if err := os.Link(filepath.Join(private, "secret"), link); err != nil {
+		t.Skipf("no hard link here: %v", err)
+	}
+	server := startGatherServer(t)
+	rc := newGatherContext(server)
+	if _, err := gatherRun(t, server, rc, map[string]any{"gather_subset": []any{"!all", "!min"}, "files": []any{link}}); err != nil {
+		t.Fatal(err)
+	}
+	got := gatherItem(t, rc, gatherFileKey(link))
+	if got["sha256"] != nil || got["world_readable"] != false || got["readable"] != true {
+		t.Fatalf("file.%s = %v: a file also linked inside a private directory kept a plain digest", link, got)
 	}
 }

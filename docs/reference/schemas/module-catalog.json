@@ -7277,6 +7277,14 @@
         "description": "One path the task named: state (present, absent, unreadable) and, when present, type, size, owner, mode, sha256 and link target; never the content."
       },
       {
+        "key": "file_attached.",
+        "prefix": true,
+        "item_names": true,
+        "kind": "stable",
+        "type": "object",
+        "description": "What one named path carries beside its content: kind (xattrs or streams), the names, and one keyed digest over every name and value."
+      },
+      {
         "key": "port.",
         "prefix": true,
         "item_names": true,
@@ -7471,6 +7479,12 @@
           "type": "string",
           "returned": "with the services subset, for each service its manager says the state of",
           "description": "What the service service.<name> names is doing, kept as its latest value only and never as drift, since services start and stop on their own (a timer's job, a service started when something asks for it). From systemd, the unit's sub-state (running, exited, dead, failed, inactive and the others systemd reports, such as activating or auto-restart); from OpenRC, running, stopped or OpenRC's own word (crashed, inactive), or unknown before OpenRC has booted; from FreeBSD's rc, running, stopped or unknown (an rc script that is not enabled, or whose status only root may read); from launchd, running or stopped; from Windows, the manager's own word lower-cased (running, stopped, start pending). A per-user service's template has none."
+        },
+        {
+          "name": "file_attached.<path>",
+          "type": "map",
+          "returned": "with the files subset, for each present path the device can list extended attributes or streams of",
+          "description": "What the path carries beside its content, which its sha256 does not cover: kind (xattrs on macOS, FreeBSD and Linux, with a resource fork among them on macOS; streams on Windows), names (at most 256, with names_truncated when there were more) and one digest over every name and value, always keyed (hmac_sha256 and hmac_key), since a value may be private whatever the file's mode. Absent where the device has no tool to list them (Linux without getfattr)."
         },
         {
           "name": "file.<path>",

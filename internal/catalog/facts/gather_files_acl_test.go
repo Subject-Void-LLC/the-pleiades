@@ -57,29 +57,55 @@ func gatherNeedsPOSIX(t *testing.T) {
 	}
 }
 
-// worldDir makes a directory every user may search, under the system's own
-// temporary directory with no link on the way (on macOS /tmp is a link to
-// /private/tmp, and a linked directory makes a file private by itself).
+// worldDir makes a directory every user may search, with no link on the way
+// (on macOS /tmp is a link to /private/tmp, and a linked directory makes a
+// file private by itself), under the first of /tmp, the system's temporary
+// directory and the home directory whose every ancestor others may search.
 func worldDir(t *testing.T) string {
 	t.Helper()
-	base, err := filepath.EvalSymlinks("/tmp")
-	if err != nil {
-		t.Skipf("no /tmp: %v", err)
+	return worldDirWhere(t, func(string) bool { return true })
+}
+
+// worldDirWhere is worldDir under the first base ok accepts, given a scratch
+// directory made there (an ACL test asks for one whose file system takes a
+// list: FreeBSD's /tmp is often UFS mounted without acls).
+func worldDirWhere(t *testing.T, ok func(dir string) bool) string {
+	t.Helper()
+	home, _ := os.UserHomeDir()
+	for _, base := range []string{"/tmp", os.TempDir(), home} {
+		real, err := filepath.EvalSymlinks(base)
+		if err != nil || real == "" {
+			continue
+		}
+		if !searchableUp(real) {
+			continue
+		}
+		root, err := os.MkdirTemp(real, "pleiades-world-")
+		if err != nil {
+			continue
+		}
+		t.Cleanup(func() { _ = os.RemoveAll(root) })
+		if err := os.Chmod(root, 0o755); err != nil || !ok(root) {
+			continue
+		}
+		return root
 	}
-	root, err := os.MkdirTemp(base, "pleiades-acl-")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.RemoveAll(root) })
-	if err := os.Chmod(root, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	for d := filepath.Dir(root); d != "/"; d = filepath.Dir(d) {
-		if info, err := os.Stat(d); err != nil || info.Mode().Perm()&0o001 == 0 {
-			t.Skipf("%s keeps others out, so nothing under it reads as world-readable", d)
+	t.Skip("no directory here that others may search to (and that the test's file system needs)")
+	return ""
+}
+
+// searchableUp reports whether dir and every directory above it let others
+// search it.
+func searchableUp(dir string) bool {
+	for d := dir; ; d = filepath.Dir(d) {
+		info, err := os.Stat(d)
+		if err != nil || info.Mode().Perm()&0o001 == 0 {
+			return false
+		}
+		if d == "/" || filepath.Dir(d) == d {
+			return true
 		}
 	}
-	return root
 }
 
 // gatherFile gathers one path's file fact on this machine.
@@ -97,7 +123,11 @@ func TestGather_AnACLThatWithholdsReadMakesAFilePrivate(t *testing.T) {
 	gatherNeedsPOSIX(t)
 	for _, on := range []string{"the file", "its directory"} {
 		t.Run(on, func(t *testing.T) {
-			dir := filepath.Join(worldDir(t), "d")
+			probe := func(root string) bool {
+				f := filepath.Join(root, "probe")
+				return os.WriteFile(f, nil, 0o644) == nil && aclDenies(t, f, "read")
+			}
+			dir := filepath.Join(worldDirWhere(t, probe), "d")
 			if err := os.Mkdir(dir, 0o755); err != nil {
 				t.Fatal(err)
 			}
