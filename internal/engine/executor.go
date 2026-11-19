@@ -654,6 +654,13 @@ type run struct {
 	x   *Executor
 	dag *DAG
 
+	// heldFacts are the facts of a run whose runbook masks a value: stored
+	// only when every masking task has run, guarded by value then (facts.go).
+	// ranOK is the nodes that ran without error, which is how the flush sees
+	// that every masking task did.
+	heldFacts []NodeResult
+	ranOK     map[string]bool
+
 	// runID identifies this one Run call in the run journal
 	// (JournalEntry.RunID). It lives here rather than on Executor for the
 	// same reason everything else in this type does: an identifier hung
@@ -855,6 +862,9 @@ func (x *Executor) RunAs(ctx context.Context, dag *DAG, runID string, sequenceAf
 	// Registered after the deferred cleanup above, so it runs first: a job
 	// nobody collected is waited for and journaled before the run's sequence
 	// and secrets are read, and before Run returns (async.go).
+	// Registered before the drain below, so it runs after it: a drained job's
+	// facts are held first, then flushed (or discarded) with the rest.
+	defer func() { r.flushFacts(context.WithoutCancel(ctx)) }()
 	defer func() {
 		drained := r.drainJobs()
 		if len(drained) == 0 {

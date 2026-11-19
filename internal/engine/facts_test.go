@@ -67,6 +67,13 @@ func registerFactMethods(t *testing.T) {
 				return collection.Result{}, err
 			}
 		}
+		// The same value under another key: a secret_mask naming only
+		// test.login_note does not name this one (FAILURE_PATTERNS 836's shape).
+		if params["alias"] == true {
+			if err := rc.EmitFact("test.alias", "Lattice7Harbor"); err != nil {
+				return collection.Result{}, err
+			}
+		}
 		if params["more"] == true {
 			for key, value := range map[string]any{"test.uptime": 42, "test.undeclared": "x", "test.cores": "four"} {
 				if err := rc.EmitFact(key, value); err != nil {
@@ -91,6 +98,7 @@ func registerFactMethods(t *testing.T) {
 				{Key: "test.banner", Kind: collection.FactStable, Type: collection.FactString, Description: "a banner"},
 				{Key: "test.db_password", Kind: collection.FactStable, Type: collection.FactString, Description: "a password"},
 				{Key: "test.login_note", Kind: collection.FactStable, Type: collection.FactString, Description: "a note a later task marks secret"},
+				{Key: "test.alias", Kind: collection.FactStable, Type: collection.FactString, Description: "the same note under another key"},
 			}}}); err != nil {
 		t.Fatal(err)
 	}
@@ -316,13 +324,10 @@ func TestFacts_ASecretMaskATagSelectionDropsStillKeepsTheFieldOut(t *testing.T) 
 	if _, err := newCheckExecutor(factFleet(), engine.WithFactRecorder(sink)).Run(context.Background(), selected); err != nil {
 		t.Fatal(err)
 	}
-	for _, e := range sink.got["dev-1"] {
-		if e.Key == "test.login_note" {
-			t.Fatalf("the masked field was stored: %+v", e)
-		}
-	}
-	if len(sink.got["dev-1"]) == 0 {
-		t.Fatal("nothing was stored, so this proved nothing")
+	// The masking task was dropped, so it never ran: the value is not known
+	// to be secret, and the run's held facts are not stored at all.
+	if got := sink.got["dev-1"]; len(got) != 0 {
+		t.Fatalf("a run whose masking task never ran stored %+v; want nothing", got)
 	}
 }
 
@@ -338,5 +343,31 @@ func TestFactCaps_AgreeAcrossTheBoundary(t *testing.T) {
 	}
 	if collection.MaxFactKeyBytes != facts.MaxKeyBytes {
 		t.Fatalf("collection says a key may be %d bytes, internal/facts enforces %d", collection.MaxFactKeyBytes, facts.MaxKeyBytes)
+	}
+}
+
+// TestFacts_AMaskedValueIsNotStoredUnderAnotherKey: the value a secret_mask
+// makes secret is refused by value wherever it was observed, not only under the
+// field's own key. A task that observed the same value under test.alias before
+// the mask ran is held until the mask has run, then guarded by value.
+func TestFacts_AMaskedValueIsNotStoredUnderAnotherKey(t *testing.T) {
+	registerFactMethods(t)
+	sink := &factSink{got: map[string][]facts.Entry{}}
+	result, err := newCheckExecutor(factFleet(), engine.WithFactRecorder(sink)).Run(context.Background(), buildDAG(t, `{"id": "facts", "tasks": [
+		{"name": "g", "register": "g", "enginefacts.gather": {"target": "fleet", "note": true, "alias": true}},
+		{"name": "mask", "secret_mask": {"register": "g", "fields": ["test.login_note"]}, "enginefacts.gather": {"target": "fleet"}}
+	]}`))
+	if err != nil || result.HasErrors() {
+		t.Fatalf("run: %v, %+v", err, result)
+	}
+	stored := map[string]bool{}
+	for _, e := range sink.got["dev-1"] {
+		stored[e.Key] = true
+		if e.Value == "Lattice7Harbor" {
+			t.Errorf("the masked value was stored under %s", e.Key)
+		}
+	}
+	if stored["test.alias"] || stored["test.login_note"] || !stored["os.kernel.release"] {
+		t.Errorf("stored %v: want the kernel alone; the masked value under either key is not stored", stored)
 	}
 }
