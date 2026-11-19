@@ -160,12 +160,12 @@ func posixFileProbe(statFormat, modeFormat string) gatherProbe {
 			// in "No such file or directory" or "Not a directory" (the
 			// errno text, which comes last whatever the path holds) is
 			// absent; every other error is unreadable.
-			return `for p in ` + strings.Join(quoted, " ") + `; do echo '` + fileSectionMark + `'; ` +
+			return posixACLRestricts + `for p in ` + strings.Join(quoted, " ") + `; do echo '` + fileSectionMark + `'; ` +
 				`if e=$(LC_ALL=C stat ` + statFormat + ` -- "$p" 2>&1); then printf 'ok:%s\n' "$e"; ` +
 				`if [ -f "$p" ] && [ ! -L "$p" ]; then w=1; q=$p; m=$(LC_ALL=C stat ` + modeFormat + ` -- "$p" 2>/dev/null); ` +
-				`case $m in ''|*[!0-7]*) w=0;; *) [ $((0$m & 4)) -ne 0 ] || w=0;; esac; ` +
+				`case $m in ''|*[!0-7]*) w=0;; *) [ $((0$m & 4)) -ne 0 ] || w=0;; esac; if [ $w = 1 ] && ar "$p" r; then w=0; fi; ` +
 				`while [ $w = 1 ]; do q=${q%/*}; [ -n "$q" ] || break; if [ -L "$q" ]; then w=0; break; fi; a=$(LC_ALL=C stat -L ` + modeFormat + ` -- "$q" 2>/dev/null); ` +
-				`case $a in ''|*[!0-7]*) w=0;; *) [ $((0$a & 1)) -ne 0 ] || w=0;; esac; done; ` +
+				`case $a in ''|*[!0-7]*) w=0;; *) [ $((0$a & 1)) -ne 0 ] || w=0;; esac; if [ $w = 1 ] && ar "$q" x; then w=0; fi; done; ` +
 				`if [ $w = 1 ]; then t=sha; else t=raw; fi; if [ -r "$p" ]; then printf '%s:%s\n' "$t" "$(` + posixSHA256 + ` < "$p")"; else echo "$t-unreadable"; fi; fi; ` +
 				`if [ -L "$p" ]; then printf 'link:%s\n' "$(readlink -- "$p" | od -An -tx1 | tr -d ' \n')"; fi; ` +
 				`else case $e in *': No such file or directory'|*': Not a directory') echo absent;; *) echo unreadable;; esac; fi; done`
@@ -173,6 +173,28 @@ func posixFileProbe(statFormat, modeFormat string) gatherProbe {
 		parse: parseFiles,
 	}
 }
+
+// posixACLRestricts defines ar PATH PERM, which succeeds when an access
+// control list on PATH denies anyone, or withholds PERM (r for the file, x for
+// each directory above it) from a user or group it names: such a file is not
+// readable by everyone, whatever its mode says (owner decision 2026-11-19).
+// Every way of reading it fails closed: a listing or getfacl that fails is a
+// restriction. On macOS an entry is a line after the path's own in ls -le
+// ("0: group:everyone deny read", measured on macOS 27.2.1), and any deny
+// restricts. Elsewhere getfacl reads it: an NFSv4 entry ending in :deny
+// restricts and one ending in :allow does not, and a POSIX.1e entry naming a
+// user or group (user:bob:---), or the mask, restricts when its permissions,
+// the effective ones where getfacl prints them, lack PERM. With no getfacl, a
+// GNU ls that marks an ACL with + after the mode restricts. BusyBox's ls marks
+// none, so on a BusyBox system without getfacl an ACL is not seen.
+const posixACLRestricts = `o=$(uname -s 2>/dev/null); ar(){ ` +
+	`if [ "$o" = Darwin ]; then l=$(LC_ALL=C ls -lde -- "$1" 2>/dev/null) || return 0; ` +
+	`printf '%s\n' "$l" | { read -r _; while IFS= read -r e; do case $e in *' deny '*) exit 3;; esac; done; }; [ $? = 3 ] && return 0; return 1; fi; ` +
+	`if command -v getfacl >/dev/null 2>&1; then l=$(LC_ALL=C getfacl -- "$1" 2>/dev/null) || return 0; ` +
+	`printf '%s\n' "$l" | while IFS= read -r e; do case $e in '#'*|'') ;; *:deny) exit 3;; *:allow) ;; ` +
+	`user:?*:*|group:?*:*|mask:*) case $e in *'#effective:'*) e=${e##*#effective:};; *) e=${e##*:};; esac; e=${e%%[	 ]*}; ` +
+	`case $e in *"$2"*) ;; *) exit 3;; esac;; esac; done; [ $? = 3 ] && return 0; return 1; fi; ` +
+	`case $(LC_ALL=C ls -ld -- "$1" 2>/dev/null) in ??????????+*) return 0;; esac; return 1; }; `
 
 // posixSHA256 hashes stdin with whichever SHA-256 tool the device has:
 // sha256sum (GNU, BusyBox, FreeBSD 15, macOS 27), FreeBSD's sha256 -q, or
