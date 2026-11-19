@@ -26,18 +26,27 @@ pending).**
 
 ### Open
 
-- Phase 41, in dependency order: (1) the post-change reading for `svc.windows.*` and the file methods; (2) the
-  read-back declaration in the manifest of every other write-capable method (read back, or say why not); (3) 41d
-  baselines, drift, as-of reads, events and lineage; (4) 41e the `facts` template root and targets by facts (the
-  first users of #204's read port, which no composition root wires yet); (5) 41f keepalive; (6) 41g undo to a point;
-  (7) 41h's Release Gate, a recorded `make ci` run holding its gates green.
+- Phase 41, in dependency order. Phase 41 itself first, since 41b to 41h depend on it and 41b was ticked ahead of
+  it: (1) wire #204's read port (`WithFactReader` has no caller in any composition root, so no run can read a stored
+  fact); (2) facts at rest (owner decision); (3) identity facts on FreeBSD, macOS and Windows and per-component
+  serials for network gear (lab). Then the items an independent code check re-opened on 2026-11-19: 41b item 2 (the
+  fact-declaration check misses 12 of 20 declaring methods), 41c item 7 (`net.yang.facts` and `cisco_router`'s
+  `netconf: auto` are not built), 41c item 11 (no proof of Linux service facts through `pleiades`; Windows packages
+  drop unreadable keys), 41h item 12 (the rename walk overclaimed). Then 41c's remaining read-backs (`svc.windows.*`,
+  the file methods, and the read-back declaration for every other write-capable method), 41d, 41e, 41f, 41g and 41h's
+  Release Gate.
+- Fixed on this branch (`1368a18d`): #205 read `os.machine_id` and DMI values inside a container, which Phase 41's
+  identity item forbids; each identity read now skips a container (WSL included).
 - Lab-pending: identity facts on FreeBSD, macOS and Windows (Linux only so far); Ansible names for the four identity
   facts (none mapped until a lab comparison measures one); `config.running_digest` has not run on a real device.
-  The tracker also names a defect in #205: inside a container it still records `os.machine_id` and DMI values, which
-  Phase 41's identity item forbids.
-- Owner decisions: `net.frr.facts`' plain `config_sha256` stat (left unchanged in #206; it is a guessing oracle in a
-  register or report); how stored facts are protected at rest (Phase 41's encryption item; owner said on 2026-11-04
-  that Phase 41 decides it).
+- Possible security weaknesses, not yet reproduced: a symlink into a private directory can get a plain file digest;
+  POSIX ACLs are ignored when judging a file world-readable; a local user can fake a Linux port's owning process.
+- Owner decisions: eighteen are open, listed with options, edge cases and dependencies in the session of 2026-11-19
+  (facts at rest, `net.frr.facts`' plain `config_sha256`, identity facts' Ansible names, the fact-declaration check's
+  design, Windows unreadable package keys, symlink and ACL digests, port owner parsing, Walk-tier fact benchmarks,
+  the device response's link to its facts, nested groups' owner (PLAN Section 3, unbuilt and unowned), lock tracing,
+  `kubernetes_cluster` certificate facts, Phase 136a's unbuilt clauses, retired citations, 23 attestation gaps, the
+  VirtualBox README's old fact names, Phase 131's lab scripts, and Phase 127a's archtest sweep).
 - Flake, unexplained: `TestSubscriber_HoldsEachBatchToItsDevicesClaim` (`internal/facts/entstore`) failed once in
   about 35 runs (its log-value check) and not in 30 more. Watch it; no failure pattern until it recurs.
 - FAILURE_PATTERNS 1267 (`internal/api/device_facts_test.go` builds its routes by hand) is still open.
