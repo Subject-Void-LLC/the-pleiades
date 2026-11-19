@@ -1,3 +1,5 @@
+//go:build linux
+
 // Package facts_test: a listening socket's process cannot be forged by a local
 // user (Phase 41c, owner decision 2026-11-19). A file name is any bytes but a
 // slash and NUL, so a path whose directory names hold a newline and a line
