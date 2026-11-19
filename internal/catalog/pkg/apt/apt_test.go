@@ -81,6 +81,7 @@ type pkgState struct {
 	policyHeader       string // when set, apt-cache heads its block with this name instead of the one asked for
 	dpkgStatusOverride string // when set, used verbatim as dpkg-query's Status line, with a successful exit
 	dpkgExit           int    // when set, dpkg-query's exit code for one package's status (2 is its usage error)
+	readbackExit       int    // when set, dpkg-query's exit code for the post-change reading's query alone
 
 	// The installed set dpkg-query -W lists, space-separated: listBefore,
 	// then listAfter once the fake apt-get has run an install (default:
@@ -196,6 +197,15 @@ if [ "$#" = "2" ]; then
   exit 0
 fi
 if [ "$3" != "--" ]; then printf 'dpkg-query: error: no -- before the name\n' >&2; exit 2; fi
+# facts.gather's format (pkg/hostfacts.DpkgFormat), which the post-change
+# reading asks for: a row in that format for an installed package, as real
+# dpkg-query prints one, and none for one it does not hold.
+case "$2" in *binary:Package*)
+  if [ -e "$FAKE_RECORD.installed" ] || [ "$FAKE_STATUS" = "install ok installed" ]; then
+    [ -n "$FAKE_VERSION" ] && printf 'ii\t%s\t%s\tamd64\n' "$4" "$FAKE_VERSION"
+  fi
+  exit "${FAKE_READBACK_EXIT:-0}" ;;
+esac
 printf '%s\t%s' "$FAKE_STATUS" "$FAKE_VERSION"
 exit "$FAKE_DPKG_EXIT"
 `
@@ -232,6 +242,7 @@ exit "${FAKE_CANDIDATE_EXIT:-0}"
 	t.Setenv("FAKE_STATUS", status)
 	t.Setenv("FAKE_VERSION", state.version)
 	t.Setenv("FAKE_DPKG_EXIT", dpkgExit)
+	t.Setenv("FAKE_READBACK_EXIT", strconv.Itoa(state.readbackExit))
 	t.Setenv("FAKE_CANDIDATE", candidate)
 	t.Setenv("FAKE_APT_EXIT", strconv.Itoa(state.aptExit))
 	t.Setenv("FAKE_CANDIDATE_EXIT", strconv.Itoa(state.candidateExit))

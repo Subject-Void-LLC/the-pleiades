@@ -7,10 +7,9 @@ package facts
 
 import (
 	"fmt"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/hostfacts"
 	"sort"
 	"strings"
-	"unicode"
-	"unicode/utf8"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
@@ -256,21 +255,4 @@ func splitServiceState(names gatherNames, f gatherFact) []gatherFact {
 // itself: ranging over the string read each as U+FFFD, a printable rune, so
 // two names differing only there shared a key (FAILURE_PATTERNS 932, a repeat of
 // 328).
-func itemKey(family, name string) string {
-	var b strings.Builder
-	b.WriteString(family)
-	for i := 0; i < len(name); {
-		r, size := utf8.DecodeRuneInString(name[i:])
-		raw := name[i : i+size]
-		i += size
-		if (r == utf8.RuneError && size == 1) || r == '/' || r == '%' || unicode.IsSpace(r) || !unicode.IsPrint(r) {
-			// Every byte of the rune, so one outside ASCII stays exact.
-			for _, c := range []byte(raw) {
-				fmt.Fprintf(&b, "%%%02X", c)
-			}
-			continue
-		}
-		b.WriteString(raw)
-	}
-	return b.String()
-}
+func itemKey(family, name string) string { return hostfacts.ItemKey(family, name) }

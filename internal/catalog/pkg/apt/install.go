@@ -41,6 +41,8 @@ func init() {
 				},
 			},
 			Doc: installDoc(),
+			// What it changed, read back after (Phase 41c, readback.go).
+			Facts: []collection.FactSpec{packageReadBackSpec()},
 		},
 		Invoke: Install,
 		Check:  CheckInstall,
@@ -177,6 +179,11 @@ func install(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 		if after, readErr = queryDpkg(ctx, conn, name); readErr != nil {
 			after = state{installed: true}
 			warnings = append(warnings, fmt.Sprintf("installed %s, but could not read its version back: %v", name, readErr))
+		} else {
+			// What the change left, read back as the package fact the next
+			// gather would store (readback.go). Only after a read that
+			// worked: one that failed is already said, once.
+			warnings = append(warnings, readBack(ctx, rc, conn, name)...)
 		}
 	}
 

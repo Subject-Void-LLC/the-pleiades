@@ -74,6 +74,7 @@ type pkgState struct {
 	installed       bool
 	version         string
 	updateExit      int  // dnf check-update's own exit code: 0 none, 100 available, anything else a real error
+	readbackExit    int  // when set, rpm's exit code for the post-change reading's query alone
 	dnfExit         int  // exit code dnf itself returns for a mutating call, default 0
 	rpmEmptyVersion bool // rpm -q exits 0 (it knows the package) but prints no version at all
 	// rpmError, when set, is what rpm -q writes to stderr before it exits 1
@@ -168,6 +169,12 @@ exit "$exit_code"
 	// French locale (measured on Fedora 42, FAILURE_PATTERNS 1175).
 	rpmScript := `#!/bin/sh
 if [ "$4" != "--" ]; then printf 'rpm: %s: unknown option\n' "$4" >&2; exit 1; fi
+# facts.gather's format (pkg/hostfacts.RPMFormat), which the post-change
+# reading asks for: one row, as real rpm prints it for an installed package.
+case "$3" in *'%{NAME}'*)
+  [ -n "$FAKE_VERSION" ] && printf '%s\t(none)\t%s\tx86_64\n' "$5" "$FAKE_VERSION"
+  exit "${FAKE_READBACK_EXIT:-$FAKE_RPM_EXIT}" ;;
+esac
 if [ -n "$FAKE_RPM_ERROR" ]; then printf '%s\n' "$FAKE_RPM_ERROR" >&2; exit 1; fi
 if [ "$FAKE_RPM_EXIT" = "1" ] && [ "$LC_ALL" != "C" ]; then printf "le paquet %s n'est pas install\303\251\n" "$5"; exit 1; fi
 if [ "$FAKE_RPM_EXIT" = "1" ]; then printf 'package %s is not installed\n' "$5"; exit 1; fi
@@ -181,6 +188,9 @@ exit "$FAKE_RPM_EXIT"
 	t.Setenv("FAKE_RECORD", record)
 	t.Setenv("FAKE_VERSION", version)
 	t.Setenv("FAKE_RPM_EXIT", rpmExit)
+	if state.readbackExit != 0 {
+		t.Setenv("FAKE_READBACK_EXIT", strconv.Itoa(state.readbackExit))
+	}
 	t.Setenv("FAKE_RPM_ERROR", state.rpmError)
 	t.Setenv("FAKE_UPDATE_EXIT", strconv.Itoa(state.updateExit))
 	t.Setenv("FAKE_REPOQUERY", state.repoquery)

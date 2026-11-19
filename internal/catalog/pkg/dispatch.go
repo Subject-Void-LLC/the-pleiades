@@ -49,6 +49,7 @@ package pkg
 import (
 	"context"
 	"fmt"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/hostfacts"
 	"sort"
 	"strings"
 
@@ -210,4 +211,14 @@ func genericManifest(reversibility collection.Reversibility, doc collection.Doc)
 		// every concrete method this namespace dispatches to has one.
 		SupportsCheck: true,
 	}
+}
+
+// withPackageReadBack declares on m the package fact family the concrete
+// methods read back after a change (Phase 41c), as facts.gather declares it, so
+// a package fact a dispatched install or upgrade emits is declared under the
+// method the task names too.
+func withPackageReadBack(m collection.Manifest) collection.Manifest {
+	m.Facts = []collection.FactSpec{{Key: hostfacts.PackageFamily, Prefix: true, ItemNames: true, Kind: collection.FactStable, Type: collection.FactObject,
+		Description: "One installed package as its database holds it after the change: version, arch and source."}}
+	return m
 }

@@ -11,7 +11,7 @@ import (
 func init() {
 	collection.MustRegister(collection.Descriptor{
 		Name: "pkg.install",
-		Manifest: genericManifest(
+		Manifest: withPackageReadBack(genericManifest(
 			collection.Reversibility{
 				Reversible: true,
 				Notes: "The inverse is whatever the concrete method records, so on an APT host a run that installed an " +
@@ -24,7 +24,7 @@ func init() {
 				},
 			},
 			installDoc(),
-		),
+		)),
 		Invoke: Install,
 		Check:  CheckInstall,
 	})

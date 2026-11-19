@@ -11,7 +11,7 @@ import (
 func init() {
 	collection.MustRegister(collection.Descriptor{
 		Name: "pkg.upgrade",
-		Manifest: genericManifest(
+		Manifest: withPackageReadBack(genericManifest(
 			collection.Reversibility{
 				Reversible: false,
 				Notes: "Every concrete upgrade method this resolves to is itself irreversible: downgrading a package " +
@@ -19,7 +19,7 @@ func init() {
 					"and the repository's own metadata, so no method in this namespace can promise a safe undo for it.",
 			},
 			upgradeDoc(),
-		),
+		)),
 		Invoke: Upgrade,
 		Check:  CheckUpgrade,
 	})
