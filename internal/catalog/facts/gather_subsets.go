@@ -193,11 +193,11 @@ func chosenNames(chosen map[string]bool) []string {
 // The families: facts of one key per item, under these prefixes.
 const (
 	gatherFamilyPackage = "package."
-	gatherFamilyService = "service."
+	gatherFamilyService = hostfacts.ServiceFamily
 	// gatherFamilyServiceState is each service's state, split off its
 	// service. fact by splitServiceState, since it moves on its own and the
 	// rest does not.
-	gatherFamilyServiceState = "service_state."
+	gatherFamilyServiceState = hostfacts.ServiceStateFamily
 	gatherFamilyFile         = "file."
 	gatherFamilyPort         = "port."
 	gatherFamilyUser         = "user."
@@ -226,23 +226,13 @@ func familyItems(names gatherNames, f gatherFact) []gatherFact {
 // apart from another of its name. A fact of another family, or a service with
 // no state (a Windows per-user template), is returned as it is.
 func splitServiceState(names gatherNames, f gatherFact) []gatherFact {
-	value, ok := f.value.(map[string]any)
-	name, isService := strings.CutPrefix(f.key, gatherFamilyService)
-	if !ok || !isService {
-		return []gatherFact{f}
-	}
-	state, hasState := value["state"].(string)
-	rest := make(map[string]any, len(value))
-	for k, v := range value {
-		if k != "state" {
-			rest[k] = v
+	split := hostfacts.SplitServiceState(hostfacts.Fact{Key: f.key, Value: f.value})
+	out := make([]gatherFact, 0, len(split))
+	for _, part := range split {
+		if strings.HasPrefix(part.Key, gatherFamilyServiceState) {
+			names[part.Key] = true
 		}
-	}
-	out := []gatherFact{{key: f.key, value: rest}}
-	if hasState && state != "" {
-		key := gatherFamilyServiceState + name
-		names[key] = true
-		out = append(out, gatherFact{key: key, value: state})
+		out = append(out, gatherFact{key: part.Key, value: part.Value})
 	}
 	return out
 }

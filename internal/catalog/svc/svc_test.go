@@ -140,7 +140,9 @@ func (h *harness) verbs(t *testing.T) []string {
 		}
 		if first {
 			first = false
-			if line != "show" {
+			// show reads the unit and a --type= listing is the post-change
+			// reading's: neither acts.
+			if line != "show" && !strings.HasPrefix(line, "--type=") {
 				verbs = append(verbs, line)
 			}
 		}

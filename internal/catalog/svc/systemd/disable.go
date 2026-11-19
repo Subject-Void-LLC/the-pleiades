@@ -3,6 +3,7 @@ package systemd
 import (
 	"context"
 	"fmt"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/hostfacts"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
@@ -35,6 +36,8 @@ func init() {
 			// would be sent, without sending it. See CheckDisable.
 			SupportsCheck: true,
 			Doc:           disableDoc(),
+			// What it changed, read back after (Phase 41c, readback.go).
+			Facts: hostfacts.ServiceFactSpecs(),
 		},
 		Invoke: Disable,
 		Check:  CheckDisable,

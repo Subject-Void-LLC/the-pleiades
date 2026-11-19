@@ -251,10 +251,12 @@
     ],
     "scan.": [],
     "service.": [
-      "facts"
+      "facts",
+      "svc"
     ],
     "service_state.": [
-      "facts"
+      "facts",
+      "svc"
     ],
     "snmp.": [
       "net"

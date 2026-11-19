@@ -2,6 +2,7 @@ package systemd
 
 import (
 	"context"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/hostfacts"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
@@ -32,6 +33,8 @@ func init() {
 			// run would send, without sending it. See CheckRestart.
 			SupportsCheck: true,
 			Doc:           restartDoc(),
+			// What it changed, read back after (Phase 41c, readback.go).
+			Facts: hostfacts.ServiceFactSpecs(),
 		},
 		Invoke: Restart,
 		Check:  CheckRestart,
