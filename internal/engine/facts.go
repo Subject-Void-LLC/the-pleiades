@@ -24,6 +24,7 @@ package engine
 import (
 	"context"
 	"log/slog"
+	"slices"
 	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts"
@@ -81,26 +82,73 @@ func WithFactRecorder(fr FactRecorder) ExecutorOption {
 // its finished tasks saw.
 const factRecordTimeout = 30 * time.Second
 
-// recordFacts stores what the level's real tasks emitted, one Record per
-// task and device.
+// recordFacts takes what the level's real tasks emitted. A run whose runbook
+// masks no value stores each task's facts as it goes. A run whose runbook has
+// any secret_mask holds them instead, until flushFacts can guard them by value
+// (owner decision 2026-11-04, Phase 41b): a value only a masking task makes
+// secret is not yet a known secret when the task that observed it finishes.
 func (r *run) recordFacts(ctx context.Context, results []NodeResult) {
+	r.noteRan(results)
 	if r.x.facts == nil {
 		return
 	}
-	masked := maskedLater(r.dag)
+	if len(maskTasks(r.dag)) > 0 {
+		r.heldFacts = append(r.heldFacts, results...)
+		return
+	}
+	r.storeFacts(ctx, results)
+}
+
+// noteRan records which nodes ran without error, so flushFacts can tell
+// whether every masking task did.
+func (r *run) noteRan(results []NodeResult) {
+	for _, nr := range results {
+		if nr.Err == nil && !nr.Skipped {
+			if r.ranOK == nil {
+				r.ranOK = map[string]bool{}
+			}
+			r.ranOK[nr.NodeID] = true
+		}
+	}
+}
+
+// flushFacts stores the held facts when every masking task ran and succeeded,
+// now that their values are known secrets, and discards them otherwise: a run
+// that ends before a mask runs (cancelled, failed, or filtered by --tags) has
+// not made the value secret, so none of its facts may be stored.
+func (r *run) flushFacts(ctx context.Context) {
+	if len(r.heldFacts) == 0 {
+		return
+	}
+	held := r.heldFacts
+	r.heldFacts = nil
+	if r.x.facts == nil {
+		return
+	}
+	var notRun []string
+	for _, id := range maskTasks(r.dag) {
+		if !r.ranOK[id] {
+			notRun = append(notRun, id)
+		}
+	}
+	if len(notRun) > 0 {
+		slog.Warn("facts held for a secret_mask were not stored: the run ended before every masking task ran successfully", "held_results", len(held), "masking_tasks_not_run", notRun)
+		return
+	}
+	r.storeFacts(ctx, held)
+}
+
+// storeFacts stores what the results' tasks emitted, one Record per task and
+// device. Every value is guarded by value against the run's known secrets,
+// which by the time a held run flushes include every value a secret_mask made
+// secret, whatever key it was stored under.
+func (r *run) storeFacts(ctx context.Context, results []NodeResult) {
 	for _, nr := range results {
 		if len(nr.factKeys) == 0 || nr.Err != nil || nr.Skipped || nr.Device == "" {
 			continue
 		}
 		observed := make(map[string]any, len(nr.factKeys))
 		for _, key := range nr.factKeys {
-			if masked[nr.factRegister][key] {
-				// A secret_mask runs on a later task and reaches back to this
-				// one's register, so the value is not in the run's secrets
-				// yet; the runbook says now that it will be.
-				slog.Warn("a fact was not stored", "node", nr.NodeID, "device", nr.Device, "fact", key, "reason", "a secret_mask in this runbook marks it secret")
-				continue
-			}
 			if v, ok := nr.Stats[key]; ok {
 				observed[key] = v
 			}
@@ -163,33 +211,23 @@ func declaredFacts(method string) func(key string) (facts.Spec, bool) {
 	}
 }
 
-// maskedLater is, for each register, the fields some task's secret_mask in
-// the runbook marks secret. A secret_mask runs on its own, later task, after
-// the facts of the task whose register it names were stored, so the run's
-// known secrets cannot catch them; the runbook says ahead which fields it
-// will mask, and none of them is stored. It reads every task the runbook
-// has, not only those a --tags selection kept: a run that keeps the task
-// registering a value and drops the one masking it has still been told the
-// value is secret.
-func maskedLater(d *DAG) map[string]map[string]bool {
-	out := map[string]map[string]bool{}
+// maskTasks is the IDs of every task in the runbook that is a secret_mask, the
+// whole runbook rather than a --tags selection: a masking task a selection
+// drops still makes its value secret, so it is one the run must see run.
+func maskTasks(d *DAG) []string {
 	if d == nil {
-		return out
+		return nil
 	}
 	tasks := d.Nodes
 	if d.full != nil {
 		tasks = d.full.nodes
 	}
-	for _, task := range tasks {
-		if task == nil || task.SecretMask == nil || task.SecretMask.Register == "" {
-			continue
-		}
-		if out[task.SecretMask.Register] == nil {
-			out[task.SecretMask.Register] = map[string]bool{}
-		}
-		for _, f := range task.SecretMask.Fields {
-			out[task.SecretMask.Register][f] = true
+	var ids []string
+	for id, task := range tasks {
+		if task != nil && task.SecretMask != nil {
+			ids = append(ids, id)
 		}
 	}
-	return out
+	slices.Sort(ids)
+	return ids
 }
