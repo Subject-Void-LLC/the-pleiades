@@ -486,6 +486,8 @@ story, per `.AGENTS/AGENTS.md`.
 451. A real device finds what fixtures cannot: run each new protocol method on one before calling it done, and turn what it shows into a test or a device fact (a refinement of 446 and 322; FAILURE_PATTERNS 1264, 1268 and 1269) (2026-11-17).
 452. After any version or dependency edit, the roadmap tracker's JSON summary must show an empty version_problems list (2026-11-17).
 453. When one session adds many items to one phase, split it into the core its release needs and a catalogue for a later release, and let the owner choose (2026-11-17).
+454. A post-change reading uses the gatherer's own query and parser, moved into one shared package, never a lookalike read; its test fakes answer the gatherer's format, and its tests assert the fact is there (a refinement of 445; FAILURE_PATTERNS 1277 and 1278) (2026-11-19).
+455. A step of the pull-request cycle that lives only in memory gets skipped: put it in the same command as the step it follows (2026-11-19).
 
 Each entry above is the rule only. Full reasoning and the incident that produced it lives in [`LESSONS_LEARNED_ARCHIVE.md`](LESSONS_LEARNED_ARCHIVE.md), same entry numbers. Read an archive entry when its rule is directly relevant to what you're doing and you need the *why*; the rule sentence above is usually enough on its own.
 

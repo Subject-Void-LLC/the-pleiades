@@ -4,61 +4,68 @@ Rewrite the "Current Status" section when stopping mid-task or handing off, per 
 
 ## Current Status (this session)
 
-**2026-11-17. Branch `docs/records-2026-11-17` (records only, from `main` at `88fcb3b4`). Merged since the last handoff:
-#166 to #191; this run's were #183 (SNMP), #184 (TLS key log), #185 (gNMI client certificate and target), #186 (pcapsum
-transport encryption), #187 (NETCONF assurance), #188 (durations guard), #189 (`net.yang.schema`), #190 (brownfield TLS,
-Phase 143), #191 (RESTCONF session cap). Next PR: `chore/cml-vpn-auto-accept`.**
+**2026-11-19. Branch `docs/records-phase41` (records only, from `main` at `decfcbc7`, the #207 merge). Merged since the
+last handoff: #192 to #199 (the CML fixes, already in the previous entry's queue) and this run's Phase 41 work: #200
+(fact fuzzing), #201 (facts batch claims), #202 (broker-enforced Runner identity, breaking for 0.5.0), #203
+(`secret_mask` by value), #204 (fact read port), #205 (Linux identity facts), #206 (keyed running-configuration
+digests), #207 (package read-backs). Open: #208 (systemd read-backs, branch `feat/facts-readback-services`, CI
+pending).**
 
 ### What works
 
-- Before merging, `make pr-check` passed and `make branch-containers` passed the changed container packages for #186
-  (066f1e9e, 6 packages), #187 (45b6c88d, 33), #189 (b4162a15, 36), #190 (f183f412, 39) and #191 (e23e6bf8, 14).
-- On real IOS XE 17.15 (CML Catalyst 8000V): NETCONF and RESTCONF facts, config, re-run and rollback; `net.yang.schema`
-  over NETCONF (676 sources) and over RESTCONF (674 sources, once #191 waited out the session cap; the 673 both protocols list byte-identical). `net.ios.command` on
-  IOL XE 17.15.1 (11 commands on 4 nodes).
-- `TestEveryContainerPackageHasADuration` holds `durations.json` to the container list on every branch (FAILURE_PATTERNS
-  1253).
-- Records: FAILURE_PATTERNS 1253 to 1269, LESSONS 447 to 453.
+- #200 to #207 merged through pull requests, whose required checks the ruleset holds. A CI run on #202 failed the
+  compose upgrade gate (FAILURE_PATTERNS 1273); it was fixed on the branch before the merge.
+- Runner identity: `TestReleaseGate_ARunnerPublishesOnlyUnderItsOwnName` against a real nats-server 2.14.4.
+- Facts: `TestEntJobStore_ClaimBatch_ARaceWritesOneClaim`, `TestFacts_AMaskedValueIsNotStoredUnderAnotherKey`,
+  `TestReadFact_*`, `FuzzNormalize`, and the read-back tests in `internal/catalog/pkg/{apt,dnf}`.
+- Records: FAILURE_PATTERNS 1273 to 1278, LESSONS 454 and 455, CI_LESSONS 34 and 35, seven changelog fragments.
 
 ### Blocker
 
-- None for the queue. NX1 (nxosv9000 in CML) booted four times and never answered on mgmt0; `pleiades` cannot read a
-  non-IOS console, so it waits on the owner's look at its console in the CML UI.
+- None. #208 waits on its CI.
 
 ### Open
 
-- CML defects and gaps, eighteen found on real devices, each for a fix PR (no known inconsistency left open). Recorded
-  as failure patterns only where they repeat one: 1268 (over-masking, a repeat of 640) and 1269 (failed reads taint
-  rollback, a repeat of 650). The rest are work items: ioll2-xe seeding leaves Ethernet0/0 a switchport; a large
-  `virt.cml.capture.stop` fails; the run counter's lock and the run lock refuse parallel adhoc reads and rollback;
-  `net.trace` drops asymmetry and passes an all-`*` path; `net.pcap.summary` lacks DSCP, duration and bytes per flow; a
-  wrong `tls_fingerprint` drops discovered capabilities; a failed onboard stays `onboarding`, and a credential stored
-  before its host stays `unbound`; `is defined` does not compile in `when:`; validate's `literal_secret` warns on `aaa
-  authentication login default group ... local` and on a word after a secret reference; an `always:` cleanup needs
-  `--leave`; `net.ios.config`'s check places a global line inside an interface and cannot see IOL VLANs;
-  `wait.connection` cannot pass a host key that changes every boot; each adhoc command is a fresh SSH login, filling the
-  device's log. Gaps beside them: no controller headroom from `virt.cml.*`, no copy of a stored credential to a second
-  record, no revert-timer apply for `net.ios.config`, no IPFIX/NetFlow decoder (Phase 145), no console read for non-IOS
-  CML nodes, no NX-OS seeding.
-- FAILURE_PATTERNS 1267: `internal/api/device_facts_test.go` still builds its routes by hand.
-- Roadmap: Phase 144 (core, v0.6.0), 145 (QoS, v0.7.0), 146 (health catalogue, v0.7.0); Phase 91 split into 91 (v0.4.0),
-  91b (v0.8.0) and 91c (v0.10.0).
-- Owner decisions: put-back undos journaling device text (NETCONF and SNMP, FAILURE_PATTERNS 1257); `inventory:assert`
-  for first use (built, awaiting his word); DSCP CS3 or CS5 for call signaling; the Groundconfig QoS template findings;
-  Phase 144's question list; NX1's console.
+- Phase 41, in dependency order. Phase 41 itself first, since 41b to 41h depend on it and 41b was ticked ahead of
+  it: (1) wire #204's read port (`WithFactReader` has no caller in any composition root, so no run can read a stored
+  fact); (2) facts at rest (owner decision); (3) identity facts on FreeBSD, macOS and Windows and per-component
+  serials for network gear (lab). Then the items an independent code check re-opened on 2026-11-19: 41b item 2 (the
+  fact-declaration check misses 12 of 20 declaring methods), 41c item 7 (`net.yang.facts` and `cisco_router`'s
+  `netconf: auto` are not built), 41c item 11 (no proof of Linux service facts through `pleiades`; Windows packages
+  drop unreadable keys), 41h item 12 (the rename walk overclaimed). Then 41c's remaining read-backs (`svc.windows.*`,
+  the file methods, and the read-back declaration for every other write-capable method), 41d, 41e, 41f, 41g and 41h's
+  Release Gate.
+- Fixed on this branch (`1368a18d`): #205 read `os.machine_id` and DMI values inside a container, which Phase 41's
+  identity item forbids; each identity read now skips a container (WSL included).
+- Lab-pending: identity facts on FreeBSD, macOS and Windows (Linux only so far); Ansible names for the four identity
+  facts (none mapped until a lab comparison measures one); `config.running_digest` has not run on a real device.
+- Possible security weaknesses, not yet reproduced: a symlink into a private directory can get a plain file digest;
+  POSIX ACLs are ignored when judging a file world-readable; a local user can fake a Linux port's owning process.
+- Owner decisions: eighteen are open, listed with options, edge cases and dependencies in the session of 2026-11-19
+  (facts at rest, `net.frr.facts`' plain `config_sha256`, identity facts' Ansible names, the fact-declaration check's
+  design, Windows unreadable package keys, symlink and ACL digests, port owner parsing, Walk-tier fact benchmarks,
+  the device response's link to its facts, nested groups' owner (PLAN Section 3, unbuilt and unowned), lock tracing,
+  `kubernetes_cluster` certificate facts, Phase 136a's unbuilt clauses, retired citations, 23 attestation gaps, the
+  VirtualBox README's old fact names, Phase 131's lab scripts, and Phase 127a's archtest sweep).
+- Flake, unexplained: `TestSubscriber_HoldsEachBatchToItsDevicesClaim` (`internal/facts/entstore`) failed once in
+  about 35 runs (its log-value check) and not in 30 more. Watch it; no failure pattern until it recurs.
+- FAILURE_PATTERNS 1267 (`internal/api/device_facts_test.go` builds its routes by hand) is still open.
+- #202's residual: a Runner can still report false values under its own name; per-batch signing is Phase 105.
 
 ### Next steps
 
-1. Commit these records, gate and merge them.
-2. PR `chore/cml-vpn-auto-accept`.
-3. Fix PRs for the CML defects, starting with 1269 and 1268, proving each on the CML lab while it is up.
-4. Tear the CML lab down before 2026-11-18 22:00Z.
+1. Merge #208 once its checks pass on its own head commit (CI_LESSONS 35); refresh the local PR log in the same command.
+2. Commit these records, gate and merge them. If they merge before #208, move
+   `changelog/facts-systemd-readback.added.md` onto #208's branch instead.
+3. The `svc.windows.*` and file read-backs, then the manifest declaration for every other write-capable method.
+4. 41d, 41e, 41f, 41g, then 41h's Release Gate.
 
 ### Files changed
 
 `FAILURE_PATTERNS.md`, `FAILURE_PATTERNS_ARCHIVE.md`, `LESSONS_LEARNED.md`, `LESSONS_LEARNED_ARCHIVE.md`,
-`HANDOFF_DOCUMENT.md`, `HANDOFF_ARCHIVE.md`.
+`CI_LESSONS.md`, `HANDOFF_DOCUMENT.md`, `HANDOFF_ARCHIVE.md`, seven new files under `changelog/`, and (git-ignored)
+`.SPECIFICATION/IMPLEMENTATION.md`, `.SPECIFICATION/SECURITY_ATTESTATION.md`.
 
-Lab: the CML lab `pleiades-proofs` is up, with NX1 left running (run `fdeed9a6`) for the owner; tear it down before
-2026-11-18 22:00Z by rolling back `fdeed9a6` and then running the proofs teardown runbook. The local VMs were not part
-of this run.
+Lab: not used by this run's records. The previous entry left the CML lab `pleiades-proofs` up with NX1 (run
+`fdeed9a6`) and a reservation ending about 2026-11-19 00:30Z; whether it was torn down is not recorded here. The local
+VMs were not used.

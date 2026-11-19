@@ -76,8 +76,11 @@ func sameNative(a, b any) bool {
 }
 
 // FuzzToAnsible holds the native-to-Ansible mapping to its own key table: for
-// any native key and value, ToAnsible names only Ansible facts AnsibleNames
-// lists, and never panics on a value of any type.
+// a fuzzed native key and string or integer values under the mapped keys,
+// ToAnsible names only Ansible facts AnsibleNames lists and does not panic. It
+// is close to true by construction (ToAnsible writes only keys from the table
+// AnsibleNames reads), so it catches a table mismatch and a panic on odd
+// values, not a wrong value.
 func FuzzToAnsible(f *testing.F) {
 	f.Add("os.distribution", "ubuntu", int64(12))
 	f.Add("os.family", "debian", int64(0))
@@ -86,16 +89,17 @@ func FuzzToAnsible(f *testing.F) {
 	known := ansiblefacts.AnsibleNames()
 	f.Fuzz(func(t *testing.T, key, value string, n int64) {
 		native := map[string]any{
-			key:                  value,
-			"os.distribution":    value,
-			"os.family":          value,
-			"os.kernel.name":     value,
-			"os.edition":         value,
-			"os.version_major":   n,
-			"hardware.memory_mb": n,
-			"hardware.swap_mb":   n,
-			"os.codename":        value,
-			"os.arch":            value,
+			key:                     value,
+			"os.distribution":       value,
+			"os.family":             value,
+			"os.kernel.name":        value,
+			"os.edition":            value,
+			"os.version_major":      n,
+			"hardware.memory_mb":    n,
+			"hardware.swap_mb":      n,
+			"os.codename":           value,
+			"hardware.architecture": value,
+			"os.version":            value,
 		}
 		for name := range ansiblefacts.ToAnsible(native) {
 			if !slices.Contains(known, name) {

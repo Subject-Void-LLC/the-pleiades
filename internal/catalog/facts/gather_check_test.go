@@ -106,9 +106,10 @@ func withoutFact(facts map[string]any, name string) map[string]any {
 
 // identityReads are the exact read commands of the identity facts, held to
 // their text so the check's whitelist admits no other shell operator.
-var identityReads = map[string]bool{
-	"cat /etc/machine-id 2>/dev/null; true":                                                             true,
-	"cat /sys/class/dmi/id/product_uuid 2>/dev/null; true":                                              true,
-	"cat /sys/class/dmi/id/product_serial 2>/dev/null; true":                                            true,
-	"systemd-detect-virt --vm 2>/dev/null; echo '|'; systemd-detect-virt --container 2>/dev/null; true": true,
-}
+var identityReads = func() map[string]bool {
+	reads := map[string]bool{}
+	for _, c := range facts.IdentityReadCommands {
+		reads[c] = true
+	}
+	return reads
+}()

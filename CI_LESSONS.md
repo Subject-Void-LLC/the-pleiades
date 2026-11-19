@@ -58,6 +58,14 @@ Append a rule when a diagnosis teaches one; name the failure patterns it comes f
     runs only on a miss makes an incomplete entry a permanent hit: a leftover temporary file, or a file only another
     shard fetches, is saved once under the key and never refilled. Keep temporary files out of a cached directory, and
     add the shard to a key when what is saved differs by shard. FAILURE_PATTERNS 1049.
+34. **A schema change is tested against the previous release's database, not only the new one.** The upgrade runs this
+    build's code (the backup and its encrypted-column census) against the old database before migrating it, so every
+    table and column that code names may be absent there. Only `tests/e2e`'s upgrade gate runs that path, and it runs
+    in CI, not in `pr-check`. Give code that runs before migrations a unit test on a database made before the change
+    (`TestOpenExisting_AColumnTheSchemaLacksReadsAsEmpty`). FAILURE_PATTERNS 1273.
+35. **Wait for the runs of the pushed commit, not for the pull request's rollup.** Right after a push the rollup can
+    still list the previous commit's finished checks, and reads green for a commit CI has not run. Filter the runs by
+    the pushed head SHA (`gh run list` with `headSha` in its `--json` fields) and wait until those exist and finish. FAILURE_PATTERNS 1173, 1275.
 
 ## Tests that do not fail by luck
 

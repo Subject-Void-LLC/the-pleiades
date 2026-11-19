@@ -11,6 +11,8 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/forge/playbook"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/ansiblefacts"
+	"go.yaml.in/yaml/v3"
 )
 
 // hostileWhens are conditions an attacker would write into a playbook: a value
@@ -102,4 +104,65 @@ func FuzzFactReads(f *testing.F) {
 			}
 		}
 	})
+}
+
+// whenConditions collects every condition string (when:, when_cel:) anywhere
+// in a converted runbook.
+func whenConditions(node any, out *[]string) {
+	switch v := node.(type) {
+	case map[string]any:
+		for k, child := range v {
+			if strings.HasPrefix(k, "when") {
+				switch c := child.(type) {
+				case string:
+					*out = append(*out, c)
+				case []any:
+					for _, item := range c {
+						if s, ok := item.(string); ok {
+							*out = append(*out, s)
+						}
+					}
+				}
+			}
+			whenConditions(child, out)
+		}
+	case []any:
+		for _, child := range v {
+			whenConditions(child, out)
+		}
+	}
+}
+
+// TestFactReadsQuoteAPassThroughValue covers the one path where a playbook's
+// own text reaches the native condition: a fact whose value the mapping copies
+// unchanged (ansible_hostname). The table cannot refuse such a value, so only
+// the quoting keeps it a string; the condition must hold it as exactly one CEL
+// string literal, the value quoted and nothing of it outside the quotes.
+func TestFactReadsQuoteAPassThroughValue(t *testing.T) {
+	hostile := `x" || true || "`
+	native, ok := ansiblefacts.NativeKey("ansible_hostname")
+	if !ok {
+		t.Fatal("ansible_hostname has no native key, so this proves nothing")
+	}
+	res := convert(t, factPlay(`ansible_hostname == `+strconv.Quote(hostile), "x"))
+	if len(res.Runbooks) != 1 || res.Runbooks[0].Incomplete {
+		t.Fatalf("the play did not convert: %+v; codes %v", res.Runbooks, codesOf(res.Report))
+	}
+	var doc any
+	if err := yaml.Unmarshal(res.Runbooks[0].YAML, &doc); err != nil {
+		t.Fatalf("the runbook does not parse: %v", err)
+	}
+	var whens []string
+	whenConditions(doc, &whens)
+	want := `nodes.gathered_facts[device.id][` + strconv.Quote(native) + `] == ` + strconv.Quote(hostile)
+	// The condition is the comparison inside the absent-fact guard, so it is
+	// held to containing the comparison exactly: with the quoting broken, the
+	// value's escape would stand outside the string and this would not match.
+	for _, w := range whens {
+		if strings.Contains(w, want) {
+			build(t, res.Runbooks[0].YAML)
+			return
+		}
+	}
+	t.Fatalf("no condition holds the value quoted as one string literal:\n got %q\nwant %q", whens, want)
 }

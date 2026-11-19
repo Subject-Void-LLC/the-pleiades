@@ -4,7 +4,10 @@
 // fact rather than a claim it is physical.
 package facts
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestGatherMachineID_OnlyAMachineIDIsStored(t *testing.T) {
 	good := "0123456789abcdef0123456789abcdef\n"
@@ -54,5 +57,16 @@ func TestGatherVirtualization_AnAbsentToolIsNoFactNotPhysical(t *testing.T) {
 	}
 	if got := gatherVirtualization("none\n"); got != nil {
 		t.Errorf("a read without the separator stored %+v, want nothing", got)
+	}
+}
+
+// TestIdentityReads_SkipAContainer holds each identity read to its guard: a
+// container sees its host's DMI values and its image's machine id, so none of
+// the three may be read there (the identity item's rule).
+func TestIdentityReads_SkipAContainer(t *testing.T) {
+	for _, c := range []string{gatherMachineIDCommand, gatherSystemUUIDCommand, gatherSerialCommand} {
+		if !strings.HasPrefix(c, gatherNotInContainer) {
+			t.Errorf("%q reads an identity without skipping a container", c)
+		}
 	}
 }

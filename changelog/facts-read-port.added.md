@@ -1,0 +1,1 @@
+The engine has a port for reading a device's stored facts, each value with its age since it was last confirmed, and an unknown key reads as unknown rather than as an error. Nothing wires it yet, so a run cannot read stored facts in this release: the command-line tool, the Runner, facts in templates and fact-based targeting build on it next.
