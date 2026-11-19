@@ -277,6 +277,30 @@ small secret's digest offline. A Runner seals such a digest to the controller,
 and the controller stores it keyed with HMAC-SHA-256 under its own key, so the same
 unchanged file keeps the same stored value and a change still shows as drift.
 
+"Anyone may read" is decided on the device, and anything that cannot be decided
+counts as private. On macOS, FreeBSD and Linux a file is private unless its mode
+and every directory above it let others in, no directory on its path is a
+symbolic link, it has only one hard link, and no access control list on it or a
+directory above it denies anyone or withholds read from a user or group it names;
+the digest is then read from the very file that was checked, so a path renamed
+between the check and the read is kept keyed. A BusyBox system without `getfacl`
+cannot show an access control list, and there one is not seen. On Windows a file
+is private unless its security descriptor, read from the handle the digest is read
+from, lets Everyone, Authenticated Users or Users read it, denies read to no one,
+holds no conditional entry, mandatory label or central access policy, and no
+directory above it is a junction, symbolic link or mounted volume. A Windows path
+that names a stream or is another name for a file (`f.txt:x`, `f.txt.`, `..`,
+`PROGRA~1`) is refused.
+
+What a path carries beside its content, which its digest does not cover, is a fact
+of its own: `file_attached.<path>` lists its extended attributes (a resource fork
+among them on macOS) or its NTFS streams by name, with one digest over every name
+and value, always keyed, and a `state` saying whether they could be read at all.
+Slack space (the unused end of a file's last cluster) and a volume's unallocated
+space are outside what a file fact proves: nothing that reads a file sees them, so
+an unchanged digest says the file's content is unchanged, not that nothing else on
+the disk is.
+
 That key comes from `PLEIADES_FACTS_DIGEST_KEY`: base64 of 32 random bytes, used
 for nothing else, and the same on every controller replica. Generate one with
 `openssl rand -base64 32`. Without it the controller says so when it starts, and

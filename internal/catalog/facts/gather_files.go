@@ -119,8 +119,54 @@ func gatherFilesFor(paths []string, platform string) error {
 		if (platform == platformWindows) != windowsAbsolute(p) {
 			return fmt.Errorf("%s path %q is not an absolute path on %s", gatherParamFiles, p, platform)
 		}
+		if platform == platformWindows {
+			if why := windowsAlias(p); why != "" {
+				return fmt.Errorf("%s path %q %s; name the file by its one long path (owner decision 2026-11-19), and its streams are recorded under file_attached", gatherParamFiles, p, why)
+			}
+		}
 	}
 	return nil
+}
+
+// windowsAlias says why p, a drive-rooted Windows path, names a stream or is
+// another name for a file than its own, or "" when it is neither. Each would
+// give one file a second fact history, or read a stream as if it were the
+// file: a colon after the drive names a stream (f.txt:x, f.txt::$DATA);
+// Windows drops a trailing dot or space from an element (f.txt. is f.txt);
+// "." and ".." are other names for a directory; and an element shaped like an
+// 8.3 short name (PROGRA~1, up to six characters, a tilde and digits, an
+// extension of up to three) names a long one. The last is decided from the
+// shape alone, so a long name that happens to be shaped so is refused too.
+func windowsAlias(p string) string {
+	if strings.Contains(p[2:], ":") {
+		return "names an NTFS stream (a colon after the drive)"
+	}
+	for _, el := range strings.FieldsFunc(p[2:], func(r rune) bool { return r == '\\' || r == '/' }) {
+		switch {
+		case el == "." || el == "..":
+			return "holds " + el + ", another name for a directory"
+		case strings.HasSuffix(el, ".") || strings.HasSuffix(el, " "):
+			return "ends an element with a dot or a space, which Windows drops"
+		case windowsShortName(el):
+			return "holds an element shaped like an 8.3 short name (" + el + ")"
+		}
+	}
+	return ""
+}
+
+// windowsShortName reports whether el is shaped like an 8.3 short name: one
+// to six characters with no tilde, a tilde and one or more digits, then
+// optionally a dot and up to three characters.
+func windowsShortName(el string) bool {
+	base, ext, dotted := strings.Cut(el, ".")
+	if dotted && (len(ext) > 3 || strings.Contains(ext, ".")) {
+		return false
+	}
+	head, digits, ok := strings.Cut(base, "~")
+	if !ok || head == "" || len(head) > 6 || digits == "" {
+		return false
+	}
+	return strings.Trim(digits, "0123456789") == ""
 }
 
 // posixFileProbe is the files probe of a POSIX platform: statFormat is its
@@ -209,12 +255,14 @@ const posixACLRestricts = `o=$(uname -s 2>/dev/null); ar(){ ` +
 // name a line and xattr -lx prints each with its value in hex; Linux's getfattr
 // -d -m - -e hex (the attr package) prints name=0x... under a "# file:" line;
 // FreeBSD's lsextattr -q user lists the user namespace's names, and
-// getextattr -qx each value. A failed listing never makes a file private: what
+// getextattr -qx each value; neither takes "--" (lsextattr exits 1 on it,
+// measured on FreeBSD 15), and every path here is absolute, so none reads as
+// an option. A failed listing never makes a file private: what
 // it carries beside its content is not who may read it.
 const posixAttachedListing = `ax(){ ` +
 	`if [ "$o" = Darwin ]; then n=$(xattr -- "$1" 2>/dev/null) || { echo xs:unreadable; return; }; ` +
 	`d=$(xattr -lx -- "$1" 2>/dev/null | { ` + posixSHA256 + `; }); ` +
-	`elif [ "$o" = FreeBSD ]; then n=$(lsextattr -q user -- "$1" 2>/dev/null) || { echo xs:unreadable; return; }; ` +
+	`elif [ "$o" = FreeBSD ]; then n=$(lsextattr -q user "$1" 2>/dev/null) || { echo xs:unreadable; return; }; ` +
 	`d=$(for a in $n; do printf '%s\n' "$a"; getextattr -qx user "$a" "$1" 2>/dev/null; done | { ` + posixSHA256 + `; }); ` +
 	`elif command -v getfattr >/dev/null 2>&1; then l=$(getfattr -m - -- "$1" 2>/dev/null) || { echo xs:unreadable; return; }; n=$(printf '%s\n' "$l" | grep -v '^#'); ` +
 	`d=$(getfattr -d -m - -e hex -- "$1" 2>/dev/null | grep -v '^#' | { ` + posixSHA256 + `; }); ` +
@@ -397,6 +445,11 @@ const (
 	attachedNamesField  = "_attached_names"
 	attachedDigestField = "_attached_sha256"
 	attachedKindField   = "_attached_kind"
+	// attachedUnreadField counts streams past the read bounds, digested by
+	// name and length only; attachedTruncatedField says the listing stopped
+	// at its bound. Both say what was not read rather than hide it.
+	attachedUnreadField    = "_attached_unread"
+	attachedTruncatedField = "_attached_truncated"
 
 	attachedListed   = "listed"
 	attachedXattrs   = "xattrs"
@@ -427,7 +480,9 @@ func takeAttached(value map[string]any, kind string) (map[string]any, bool) {
 	case []any:
 		listed = names
 	}
-	for _, f := range []string{attachedStateField, attachedNamesField, attachedDigestField, attachedKindField} {
+	unread, _ := value[attachedUnreadField].(int)
+	truncated, _ := value[attachedTruncatedField].(bool)
+	for _, f := range []string{attachedStateField, attachedNamesField, attachedDigestField, attachedKindField, attachedUnreadField, attachedTruncatedField} {
 		delete(value, f)
 	}
 	if state == "" {
@@ -441,8 +496,14 @@ func takeAttached(value map[string]any, kind string) (map[string]any, bool) {
 		out["state"] = fileStateUnreadable
 		return out, true
 	}
+	if len(listed) > maxAttachedNames || truncated {
+		out["names_truncated"] = true
+	}
 	if len(listed) > maxAttachedNames {
-		listed, out["names_truncated"] = listed[:maxAttachedNames], true
+		listed = listed[:maxAttachedNames]
+	}
+	if unread > 0 {
+		out["unread"] = unread
 	}
 	if listed == nil {
 		listed = []any{}

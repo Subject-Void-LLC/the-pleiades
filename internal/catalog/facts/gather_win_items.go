@@ -62,10 +62,12 @@ $out = @(foreach ($g in @(Get-LocalGroup)) {
 })` + windowsJSONOut
 
 // windowsFilesScript is the files script (every regular file the login can
-// read is hashed; its digest is kept plain, with its size, only when its ACL
-// lets Everyone, Authenticated Users or BUILTIN\Users read it and denies none of
-// them, as posixFileProbe's, and any other's is handed over raw for the engine
-// to key or seal, with no size; a file another process holds open for
+// read is hashed from one open handle; its digest is kept plain, with its
+// size, only when the security descriptor read from that handle is
+// world-readable by Test-WorldReadable and no directory above it is a reparse
+// point, and any other's is handed over raw for the engine to key or seal,
+// with no size; what each path carries beside its content, its named streams,
+// is listed and digested by windowsFileSDHelper; a file another process holds open for
 // writing, such as a log, is still read, sharing it as that process allows,
 // rather than reported unreadable until the writer lets go) for the base64
 // JSON list of paths
@@ -74,6 +76,11 @@ $out = @(foreach ($g in @(Get-LocalGroup)) {
 func windowsFilesScript(b64 string) string {
 	return `$ErrorActionPreference = 'Stop'
 $paths = ConvertFrom-Json ([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('` + b64 + `')))
+$sdOK = $true
+try { if (-not ('PleiadesFileSD' -as [type])) { Add-Type -TypeDefinition @'
+` + windowsFileSDHelper + `
+'@ } } catch { $sdOK = $false }
+` + windowsFileFunctions + `
 $out = @(foreach ($p in @($paths)) {
   $r = [ordered]@{ state = 'unreadable' }
   try { $attr = [IO.File]::GetAttributes($p) } catch {
@@ -93,23 +100,28 @@ $out = @(foreach ($p in @($paths)) {
     $r.type = 'file'
     $world = $false
     try {
-      $allow = $false; $deny = $false
-      foreach ($a in @((Get-Acl -LiteralPath $p).GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier]))) {
-        if (@('S-1-1-0', 'S-1-5-11', 'S-1-5-32-545') -notcontains $a.IdentityReference.Value) { continue }
-        if (($a.FileSystemRights -band [Security.AccessControl.FileSystemRights]::ReadData) -eq 0) { continue }
-        if ([string]$a.AccessControlType -eq 'Deny') { $deny = $true } else { $allow = $true }
-      }
-      $world = $allow -and -not $deny
-    } catch { }
-    $r.world_readable = $world
-    if ($world) { try { $r.size = [int64](New-Object IO.FileInfo($p)).Length } catch { } }
-    try {
       $s = [IO.File]::Open($p, 'Open', 'Read', 'ReadWrite, Delete')
-      try { $h = [Security.Cryptography.SHA256]::Create().ComputeHash($s) } finally { $s.Dispose() }
+      try {
+        if ($sdOK) { try { $world = Test-WorldReadable ([PleiadesFileSD]::Sddl($s.SafeFileHandle)) } catch { $world = $false } }
+        if ($world -and (Test-LinkedAbove $p)) { $world = $false }
+        if ($world) { $r.size = [int64]$s.Length }
+        $h = [Security.Cryptography.SHA256]::Create().ComputeHash($s)
+      } finally { $s.Dispose() }
       $d = -join ($h | ForEach-Object { $_.ToString('x2') })
       if ($world) { $r.sha256 = $d } else { $r.sha256_raw = $d }
       $r.readable = $true
-    } catch { $r.readable = $false }
+    } catch { $r.readable = $false; $world = $false; $r.Remove('size') }
+    $r.world_readable = $world
+  }
+  if ($r.type -ne 'link') {
+    $r._attached_kind = 'streams'
+    if ($sdOK) {
+      try {
+        $x = [PleiadesFileSD]::Streams($p, 64MB, 256MB, 4096)
+        $r._attached_state = [string]$x[0]
+        if ($x[0] -eq 'listed') { $r._attached_names = @($x[1]); $r._attached_sha256 = [string]$x[2]; $r._attached_unread = [int]$x[3]; $r._attached_truncated = [bool]$x[4] }
+      } catch { $r._attached_state = 'unreadable' }
+    } else { $r._attached_state = 'unlisted' }
   }
   try { $r.owner = [string](Get-Acl -LiteralPath $p).Owner } catch { }
   $r
@@ -154,6 +166,14 @@ func parseWindowsFiles(out string) []gatherFact {
 		World      *bool  `json:"world_readable"`
 		Raw        string `json:"sha256_raw"`
 		LinkTarget string `json:"link_target"`
+		// What the path carries beside its content (windowsFileSDHelper's
+		// Streams), moved into its file_attached. fact by filesFacts.
+		AttachedKind      string   `json:"_attached_kind"`
+		AttachedState     string   `json:"_attached_state"`
+		AttachedNames     []string `json:"_attached_names"`
+		AttachedSHA256    string   `json:"_attached_sha256"`
+		AttachedUnread    int      `json:"_attached_unread"`
+		AttachedTruncated bool     `json:"_attached_truncated"`
 	}](out)
 	facts := make([]gatherFact, 0, len(items))
 	for _, it := range items {
@@ -190,6 +210,18 @@ func parseWindowsFiles(out string) []gatherFact {
 			if private {
 				delete(value, "size")
 			}
+		}
+		if it.AttachedState != "" && value["state"] == fileStatePresent {
+			value[attachedKindField], value[attachedStateField] = it.AttachedKind, it.AttachedState
+			names := make([]any, 0, len(it.AttachedNames))
+			for _, n := range it.AttachedNames {
+				names = append(names, n)
+			}
+			value[attachedNamesField] = names
+			if d, ok := windowsDigest(it.AttachedSHA256); ok {
+				value[attachedDigestField] = d
+			}
+			value[attachedUnreadField], value[attachedTruncatedField] = it.AttachedUnread, it.AttachedTruncated
 		}
 		facts = append(facts, gatherFact{value: value})
 	}

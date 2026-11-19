@@ -18,7 +18,26 @@ import (
 )
 
 // gatherWinRM reaches a Windows host; a test swaps it for a model.
-var gatherWinRM = winrmexec.Run
+var gatherWinRM = winrmexec.RunWithStdin
+
+// windowsStdinLoader is what runs in place of a script past cmd.exe's command
+// line (winrmexec.MaxCmdLine, which the files script with its Win32 helper
+// passes for even one path, and which the script without it passed for 64):
+// it reads the script from standard input, which WS-Man carries in Send
+// messages with no such limit, and runs it. The script is this method's own
+// text, the task's paths inside it as base64, so nothing of the task's
+// becomes code.
+const windowsStdinLoader = `$ErrorActionPreference = 'Stop'; & ([scriptblock]::Create([Console]::In.ReadToEnd()))`
+
+// windowsScriptAndStdin is what gatherWinRM sends for script: the script
+// itself when its command line fits, else the loader with the script on
+// standard input.
+func windowsScriptAndStdin(script string, opts winrmexec.Options) (string, string) {
+	if winrmexec.CheckScript(winrmexec.ShellPowerShell, script, opts) == nil {
+		return script, ""
+	}
+	return windowsStdinLoader, script
+}
 
 // gatherRun runs one probe's command and returns what it printed.
 type gatherRun func(ctx context.Context, command string) (string, error)
@@ -40,7 +59,8 @@ func gatherRunner(ctx context.Context, rc sdk.RunbookContext, device inventory.I
 		opts = winrmexec.WithDeviceTLS(opts, devicetls.For(device))
 		target := winrmexec.Target{Host: winrm.WinRMHost(), Port: winrm.WinRMPort()}
 		run := func(ctx context.Context, script string) (string, error) {
-			res, err := gatherWinRM(ctx, target, auth, winrmexec.ShellPowerShell, script, opts)
+			line, stdin := windowsScriptAndStdin(script, opts)
+			res, err := gatherWinRM(ctx, target, auth, winrmexec.ShellPowerShell, line, stdin, opts)
 			if err != nil {
 				return "", err
 			}
