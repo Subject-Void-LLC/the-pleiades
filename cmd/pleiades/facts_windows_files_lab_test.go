@@ -51,7 +51,7 @@ func TestCLI_FactsGatherOnWindowsHoldsACLsLabelsJunctionsAndStreams(t *testing.T
 
 	// The baseline: without a restriction, the host's own digest, plain.
 	digest := strings.ToLower(labPowerShell(t, m, `(Get-FileHash -LiteralPath '`+pub+`' -Algorithm SHA256).Hash`))
-	if f := labItem(t, stats, labWinFileKey("file.", pub)); f["sha256"] != digest || f["world_readable"] != true {
+	if f := labItem(t, stats, labWinFileKey("file.", pub)); f["sha256"] != digest || f["world_readable"] != true || f["acl"] != "listed" {
 		t.Fatalf("%s = %v, want the host's digest %s, plain: without it no private answer below means anything", pub, f, digest)
 	}
 	for path, why := range map[string]string{deny: "a deny of read to Guests", low: "a Low mandatory label", junction: "a junction above it"} {
