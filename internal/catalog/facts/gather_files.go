@@ -134,7 +134,11 @@ func gatherFilesFor(paths []string, platform string) error {
 // the SHA-256 of a small secret (a password or key file) can be guessed
 // offline. So a regular file keeps a plain sha256 only when it is
 // world-readable: its mode lets others read it and every directory above it
-// lets others search it. Any other file's digest is handed over as
+// lets others search it. A directory above it that is a symbolic link makes it
+// private (owner decision 2026-11-19): the walk reads the path as written, so
+// a link leads to directories it never reads, any of which may keep others
+// out, and a plain digest there was an oracle for a file only this login
+// could reach. Any other file's digest is handed over as
 // sha256_raw, which the engine keys or seals before anything keeps or shows it
 // (internal/facts' keyed digests), and its size (a secret's length) is not
 // kept. The test runs on the device, in sh arithmetic over stat's octal
@@ -160,7 +164,7 @@ func posixFileProbe(statFormat, modeFormat string) gatherProbe {
 				`if e=$(LC_ALL=C stat ` + statFormat + ` -- "$p" 2>&1); then printf 'ok:%s\n' "$e"; ` +
 				`if [ -f "$p" ] && [ ! -L "$p" ]; then w=1; q=$p; m=$(LC_ALL=C stat ` + modeFormat + ` -- "$p" 2>/dev/null); ` +
 				`case $m in ''|*[!0-7]*) w=0;; *) [ $((0$m & 4)) -ne 0 ] || w=0;; esac; ` +
-				`while [ $w = 1 ]; do q=${q%/*}; [ -n "$q" ] || break; a=$(LC_ALL=C stat -L ` + modeFormat + ` -- "$q" 2>/dev/null); ` +
+				`while [ $w = 1 ]; do q=${q%/*}; [ -n "$q" ] || break; if [ -L "$q" ]; then w=0; break; fi; a=$(LC_ALL=C stat -L ` + modeFormat + ` -- "$q" 2>/dev/null); ` +
 				`case $a in ''|*[!0-7]*) w=0;; *) [ $((0$a & 1)) -ne 0 ] || w=0;; esac; done; ` +
 				`if [ $w = 1 ]; then t=sha; else t=raw; fi; if [ -r "$p" ]; then printf '%s:%s\n' "$t" "$(` + posixSHA256 + ` < "$p")"; else echo "$t-unreadable"; fi; fi; ` +
 				`if [ -L "$p" ]; then printf 'link:%s\n' "$(readlink -- "$p" | od -An -tx1 | tr -d ' \n')"; fi; ` +

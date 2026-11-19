@@ -1,0 +1,71 @@
+// Package facts_test: a file reached through a symbolic link keeps no plain
+// digest (Phase 41c, owner decision 2026-11-19). The world-readable walk reads
+// the directories of the path as written; a link among them leads to
+// directories the walk never reads, which may keep everyone else out.
+package facts_test
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
+)
+
+func TestGather_AFileThroughALinkedDirectoryKeepsNoPlainDigest(t *testing.T) {
+	gatherNeedsLinux(t)
+	// Directly under the system's temporary directory, since t.TempDir's
+	// own parent is private and nothing under it reads as world-readable.
+	root, err := os.MkdirTemp("", "pleiades-link-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(filepath.Join(root, "private"), 0o700); _ = os.RemoveAll(root) })
+	if err := os.Chmod(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// private (0700) holds open (0755) holds secret (0644): nobody but this
+	// login reaches secret, since private keeps them out.
+	open := filepath.Join(root, "private", "open")
+	if err := os.MkdirAll(open, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(filepath.Join(root, "private"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(open, "secret"), []byte("pin1234\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// pub (0755) holds l, a link to private/open.
+	pub := filepath.Join(root, "pub")
+	if err := os.Mkdir(pub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(open, filepath.Join(pub, "l")); err != nil {
+		t.Fatal(err)
+	}
+	// Every directory above root must let others search for the walk to say
+	// world-readable at all; a TempDir under a private home cannot show it.
+	for d := filepath.Dir(root); d != "/"; d = filepath.Dir(d) {
+		if info, err := os.Stat(d); err != nil || info.Mode().Perm()&0o001 == 0 {
+			t.Skipf("%s keeps others out, so no file under it reads as world-readable", d)
+		}
+	}
+	through := filepath.Join(pub, "l", "secret")
+
+	server := startGatherServer(t)
+	rc := newGatherContext(server)
+	if _, err := gatherRun(t, server, rc, map[string]any{"gather_subset": []any{"!all", "!min"}, "files": []any{through}}); err != nil {
+		t.Fatal(err)
+	}
+	got := gatherItem(t, rc, gatherFileKey(through))
+	if got["sha256"] != nil || got["world_readable"] != false {
+		t.Fatalf("file.%s = %v: a file only this login reaches kept a plain digest", through, got)
+	}
+	if got["readable"] != true {
+		t.Fatalf("file.%s = %v, want it read, its digest only keyed", through, got)
+	}
+	if _, ok := got[collection.RawDigestField]; !ok {
+		t.Fatalf("file.%s = %v, want its digest handed over raw, for the engine to key", through, got)
+	}
+}
