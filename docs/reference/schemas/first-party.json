@@ -101,6 +101,7 @@
     "build",
     "catalyst",
     "cloud",
+    "config",
     "container",
     "db",
     "edge",
@@ -146,6 +147,7 @@
     "build.",
     "catalyst.",
     "cloud.",
+    "config.",
     "container.",
     "db.",
     "edge.",
@@ -193,6 +195,9 @@
       "net"
     ],
     "cloud.": [],
+    "config.": [
+      "net"
+    ],
     "container.": [],
     "db.": [],
     "edge.": [],
