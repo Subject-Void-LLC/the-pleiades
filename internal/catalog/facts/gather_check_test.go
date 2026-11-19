@@ -61,6 +61,12 @@ func TestGatherCheck_OnlyReads(t *testing.T) {
 		if osRelease := facts.Probes("Linux", "min", "/etc/os-release"); len(osRelease) == 1 && strings.ReplaceAll(c, `'\''`, `'`) == osRelease[0].Command {
 			continue
 		}
+		// The identity reads (Phase 41, base) are exact commands too: each reads a
+		// file or runs one tool, and a tool's absence is handled by the read itself,
+		// so none can change the device.
+		if identityReads[strings.ReplaceAll(c, `'\''`, `'`)] {
+			continue
+		}
 		if !strings.HasPrefix(c, "uname ") && !strings.HasPrefix(c, "cat ") || strings.ContainsAny(c, ">|;&`$'") {
 			t.Errorf("the check sent %q, which is not one of the fixed reads", c)
 		}
@@ -96,4 +102,13 @@ func withoutFact(facts map[string]any, name string) map[string]any {
 		}
 	}
 	return out
+}
+
+// identityReads are the exact read commands of the identity facts, held to
+// their text so the check's whitelist admits no other shell operator.
+var identityReads = map[string]bool{
+	"cat /etc/machine-id 2>/dev/null; true":                                                             true,
+	"cat /sys/class/dmi/id/product_uuid 2>/dev/null; true":                                              true,
+	"cat /sys/class/dmi/id/product_serial 2>/dev/null; true":                                            true,
+	"systemd-detect-virt --vm 2>/dev/null; echo '|'; systemd-detect-virt --container 2>/dev/null; true": true,
 }

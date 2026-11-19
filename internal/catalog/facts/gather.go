@@ -193,6 +193,10 @@ func gatherDoc() collection.Doc {
 			{Name: gatherFactMemoryMB, Type: "int", Returned: "when the device reports it", Description: "Total usable memory in whole megabytes, truncated: from MemTotal in /proc/meminfo, hw.physmem on FreeBSD, hw.memsize on macOS and TotalPhysicalMemory on Windows."},
 			{Name: gatherFactCPUSockets, Type: "int", Returned: "when /proc/cpuinfo reports it, or Windows does", Description: "The number of physical processor packages, counted as the distinct physical id values in /proc/cpuinfo (NumberOfProcessors on Windows). An architecture whose /proc/cpuinfo carries no physical id field reports no such fact rather than a guessed 1."},
 			{Name: gatherFactHostUptime, Type: "int", Returned: "when the device reports it", Description: "How long the device has been up, in whole seconds, from the first field of /proc/uptime; from the boot time and the device's own clock on FreeBSD, macOS and Windows."},
+			{Name: gatherFactMachineID, Type: "string", Returned: "when the device has a machine id", Description: "The systemd machine id, 32 lowercase hexadecimal digits, from /etc/machine-id; a file that is not one is left out. Stable: it changes only when the install does."},
+			{Name: gatherFactSystemUUID, Type: "string", Returned: "when the firmware reports a real one and the login may read it", Description: "The hardware UUID the firmware reports, from /sys/class/dmi/id/product_uuid, which only root may read. A placeholder (all zeros, all ones) is left out, never stored. Stable: a change is a change of machine."},
+			{Name: gatherFactSerial, Type: "string", Returned: "when the firmware reports a real one and the login may read it", Description: "The device's serial number as its firmware reports it, from /sys/class/dmi/id/product_serial, which only root may read. A placeholder (To be filled by O.E.M., 0, Not Specified) is left out, never stored. Stable: a change is a change of machine."},
+			{Name: gatherFactVirtualization, Type: "string", Returned: "when systemd-detect-virt is on the device", Description: "What the device is: physical, vm:<hypervisor>, cloud:<provider> for a cloud instance, or container:<engine>, from systemd-detect-virt. Azure and Hyper-V both report microsoft, which reads as vm:microsoft, since the tool cannot tell them apart. Absent when the tool is not on the device, since a missing tool is not evidence the device is physical. Stable: a change of this is a different kind of event for the same identity."},
 			{Name: gatherFactHostNodename, Type: "string", Returned: "when the device reports one", Description: "The full node name uname -n reports, before host.name cuts it at the first dot; on Windows the DNS host name, with the domain when the host is joined to one."},
 			{Name: gatherFactKernelName, Type: "string", Returned: "when the device reports one", Description: "The kernel's name, lowercase: linux, freebsd or darwin, as uname -s reports it, and windows on Windows."},
 			{Name: gatherFactVersionMajor, Type: "int", Returned: "when the device names a version whose first part is a whole number", Description: "The distribution version up to its first dot, as a whole number, such as 24 for 24.04. A version whose first part is not one (Debian testing's forky/sid) reports none."},
@@ -401,6 +405,30 @@ func gatherHostProbes() []gatherProbe {
 			keys:    []string{gatherFactHostUptime},
 			command: "cat /proc/uptime",
 			parse:   gatherUptimeSeconds,
+		},
+		{
+			subset:  gatherSubsetMin,
+			keys:    []string{gatherFactMachineID},
+			command: "cat /etc/machine-id 2>/dev/null; true",
+			parse:   gatherMachineID,
+		},
+		{
+			subset:  gatherSubsetHardware,
+			keys:    []string{gatherFactSystemUUID},
+			command: "cat /sys/class/dmi/id/product_uuid 2>/dev/null; true",
+			parse:   gatherIdentityValue(gatherFactSystemUUID),
+		},
+		{
+			subset:  gatherSubsetHardware,
+			keys:    []string{gatherFactSerial},
+			command: "cat /sys/class/dmi/id/product_serial 2>/dev/null; true",
+			parse:   gatherIdentityValue(gatherFactSerial),
+		},
+		{
+			subset:  gatherSubsetHardware,
+			keys:    []string{gatherFactVirtualization},
+			command: gatherVirtualizationCommand,
+			parse:   gatherVirtualization,
 		},
 	}
 }
