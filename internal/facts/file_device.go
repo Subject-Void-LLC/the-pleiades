@@ -25,23 +25,23 @@ type device struct {
 // reader that is not holding the lock then sees every value an observation
 // it read wrote, and a value written since reads as confirmed by nobody yet,
 // never as confirmed by the run that replaced it (the reviewer's torn read).
-func load(r *os.Root, name string) (device, error) {
-	sf, err := readSeen(r, name)
+func load(r *os.Root, keys *Keys, name string) (device, error) {
+	sf, err := readSeen(r, keys, name)
 	if err != nil {
 		return device{}, err
 	}
-	return loadAfter(r, name, sf)
+	return loadAfter(r, keys, name, sf)
 }
 
 // loadAfter is load with the observations already read: the state and the
 // values are read after them, so whatever was written since is newer than
 // every observation folded.
-func loadAfter(r *os.Root, name string, sf seenFile) (device, error) {
-	st, err := readState(r, name)
+func loadAfter(r *os.Root, keys *Keys, name string, sf seenFile) (device, error) {
+	st, err := readState(r, keys, name)
 	if err != nil {
 		return device{}, err
 	}
-	lines, complete, err := readLines(r, name)
+	lines, complete, err := readLines(r, keys, name)
 	if err != nil {
 		return device{}, err
 	}
@@ -50,12 +50,12 @@ func loadAfter(r *os.Root, name string, sf seenFile) (device, error) {
 	for _, l := range lines {
 		stored = append(stored, Stored{Entry: Entry{Key: l.Key, Value: l.Value, Hash: l.Hash, ObservedAt: l.ObservedAt, Kind: KindStable, By: l.By}, Seq: l.Seq})
 	}
-	keys := make([]string, 0, len(st.Volatile))
+	names := make([]string, 0, len(st.Volatile))
 	for key := range st.Volatile {
-		keys = append(keys, key)
+		names = append(names, key)
 	}
-	sort.Strings(keys)
-	for _, key := range keys {
+	sort.Strings(names)
+	for _, key := range names {
 		v := st.Volatile[key]
 		stored = append(stored, Stored{Entry: Entry{Key: key, Value: v.Value, Hash: v.Hash, ObservedAt: v.ObservedAt, Kind: KindVolatile, By: v.By}, Seq: v.Seq})
 	}

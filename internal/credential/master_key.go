@@ -53,3 +53,15 @@ const masterKeyFileName = "master.key"
 func ResolveMasterKey(dir string) ([]byte, error) {
 	return crypto.ResolveKey(dir, masterKeyEnvVar, filepath.Join(masterKeyDirName, masterKeyFileName))
 }
+
+// ErrNoMasterKey marks a project with no master key: none in the environment
+// and no key file.
+var ErrNoMasterKey = crypto.ErrNoKey
+
+// ExistingMasterKey is the project's master key when it has one, and
+// ErrNoMasterKey when it has none. Unlike ResolveMasterKey it never makes
+// one, so reading what a key sealed cannot leave a new key behind that opens
+// none of it.
+func ExistingMasterKey(dir string) ([]byte, error) {
+	return crypto.ExistingKey(dir, masterKeyEnvVar, filepath.Join(masterKeyDirName, masterKeyFileName))
+}

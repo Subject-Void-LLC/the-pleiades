@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/facts/factstest"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
 
@@ -22,7 +23,7 @@ import (
 func identityStore(t *testing.T) (*facts.FileStore, string) {
 	t.Helper()
 	dir := t.TempDir()
-	store, err := facts.NewFileStore(dir)
+	store, err := facts.NewFileStore(dir, factstest.Keys())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,18 +48,19 @@ func identityStore(t *testing.T) (*facts.FileStore, string) {
 // dev1's files.
 func editGroup(t *testing.T, dir, file string) {
 	t.Helper()
+	// Edited as someone holding the project's key could: opened, changed and
+	// sealed again in place.
 	path := filepath.Join(dir, file)
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
+	lines := factstest.OpenLines(t, factstest.Keys(), path, "dev1", facts.RoleValues)
+	edited := false
+	for i, raw := range lines {
+		lines[i] = bytes.ReplaceAll(raw, []byte(`"group":"facts"`), []byte(`"group":"file"`))
+		edited = edited || !bytes.Equal(lines[i], raw)
 	}
-	edited := bytes.ReplaceAll(raw, []byte(`"group":"facts"`), []byte(`"group":"file"`))
-	if bytes.Equal(edited, raw) {
-		t.Fatalf("%s names no facts group to edit: %s", file, raw)
+	if !edited {
+		t.Fatalf("%s names no facts group to edit: %s", file, lines)
 	}
-	if err := os.WriteFile(path, edited, 0o600); err != nil {
-		t.Fatal(err)
-	}
+	factstest.WriteLines(t, factstest.Keys(), path, "dev1", facts.RoleValues, lines)
 }
 
 // TestFileStore_KeepsTheIdentityItRecorded: each value reads back with the
@@ -102,12 +104,9 @@ func TestFileStore_AnEditedIdentityBreaksTheChainAndReadsAsStored(t *testing.T) 
 func TestFileStore_AStoredIdentityALaterRuleRefusesStillReads(t *testing.T) {
 	store, dir := identityStore(t)
 	path := filepath.Join(dir, "dev1.jsonl")
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
+	raw := factstest.OpenLines(t, factstest.Keys(), path, "dev1", facts.RoleValues)[0]
 	var line map[string]any
-	if err := json.Unmarshal(bytes.TrimSpace(raw), &line); err != nil {
+	if err := json.Unmarshal(raw, &line); err != nil {
 		t.Fatal(err)
 	}
 	var by facts.Provenance
@@ -132,9 +131,7 @@ func TestFileStore_AStoredIdentityALaterRuleRefusesStillReads(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, append(rewritten, '\n'), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	factstest.WriteLines(t, factstest.Keys(), path, "dev1", facts.RoleValues, [][]byte{rewritten})
 	verdict, err := store.Verify(context.Background(), "dev1")
 	if err != nil || verdict.Break != nil || verdict.Values != 1 {
 		t.Fatalf("Verify = %+v, %v; want the one value verifying", verdict, err)

@@ -13,13 +13,14 @@ import (
 	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/facts/factstest"
 )
 
 // TestRunOrdered_TakesATickForEachObservation: the CLI's recorder orders an
 // observation by a tick of the project counter, and says so when it cannot
 // take one.
 func TestRunOrdered_TakesATickForEachObservation(t *testing.T) {
-	store, err := facts.NewFileStore(filepath.Join(t.TempDir(), "facts"))
+	store, err := facts.NewFileStore(filepath.Join(t.TempDir(), "facts"), factstest.Keys())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,7 +45,7 @@ func TestRunOrdered_TakesATickForEachObservation(t *testing.T) {
 func TestFileStore_AnEmptyStateFileIsReadAsNoState(t *testing.T) {
 	ctx := context.Background()
 	dir := filepath.Join(t.TempDir(), "facts")
-	store, err := facts.NewFileStore(dir)
+	store, err := facts.NewFileStore(dir, factstest.Keys())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,8 +73,10 @@ func TestFileStore_AnEmptyStateFileIsReadAsNoState(t *testing.T) {
 	if err := store.Record(ctx, "dev1", next); err != nil {
 		t.Fatalf("Record over an empty state: %v", err)
 	}
-	if raw, err := os.ReadFile(statePath); err != nil || !strings.Contains(string(raw), `"uptime"`) {
-		t.Fatalf("the state was not written whole again: %q, %v", raw, err)
+	if raw, err := os.ReadFile(statePath); err != nil {
+		t.Fatal(err)
+	} else if plain, err := factstest.Keys().OpenLine("dev1", facts.RoleState, 0, raw); err != nil || !strings.Contains(string(plain), `"uptime"`) {
+		t.Fatalf("the state was not written whole again: %q, %v", plain, err)
 	}
 	if v, err := store.Verify(ctx, "dev1"); err != nil || v.Break != nil || v.Values != 2 {
 		t.Errorf("Verify = %+v, %v; want two chained values", v, err)
@@ -92,18 +95,18 @@ func TestFileStore_FailuresAreReportedAndLeaveNoTemporaryFile(t *testing.T) {
 	if err := os.WriteFile(file, []byte("x"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := facts.OpenFileStore(file); err == nil {
+	if _, err := facts.OpenFileStore(file, factstest.Keys()); err == nil {
 		t.Error("a file opened as a store")
 	}
-	if _, err := facts.NewFileStore(filepath.Join(file, "below")); err == nil {
+	if _, err := facts.NewFileStore(filepath.Join(file, "below"), factstest.Keys()); err == nil {
 		t.Error("a store made below a file")
 	}
-	if _, err := facts.OpenFileStore(filepath.Join(t.TempDir(), "missing")); !errors.Is(err, facts.ErrNoStore) {
+	if _, err := facts.OpenFileStore(filepath.Join(t.TempDir(), "missing"), factstest.Keys()); !errors.Is(err, facts.ErrNoStore) {
 		t.Errorf("a missing store: %v, want ErrNoStore", err)
 	}
 
 	dir := filepath.Join(t.TempDir(), "facts")
-	store, err := facts.NewFileStore(dir)
+	store, err := facts.NewFileStore(dir, factstest.Keys())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -129,7 +132,7 @@ func TestFileStore_FailuresAreReportedAndLeaveNoTemporaryFile(t *testing.T) {
 		t.Skip("a read-only directory refuses nothing here")
 	}
 	locked := filepath.Join(t.TempDir(), "facts")
-	ro, err := facts.NewFileStore(locked)
+	ro, err := facts.NewFileStore(locked, factstest.Keys())
 	if err != nil {
 		t.Fatal(err)
 	}

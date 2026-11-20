@@ -13,6 +13,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/facts/factstest"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/recordname"
 )
 
@@ -241,7 +242,7 @@ func TestReadableKey_KeepsItsFixedShape(t *testing.T) {
 // tables and called the whole history corrupt. Record checks no key, as a
 // writer of another build stores what its own ValidKey allowed.
 func TestFileStore_ReadsAKeyThisToolchainCallsUnprintable(t *testing.T) {
-	store, err := facts.NewFileStore(filepath.Join(t.TempDir(), "facts"))
+	store, err := facts.NewFileStore(filepath.Join(t.TempDir(), "facts"), factstest.Keys())
 	if err != nil {
 		t.Fatal(err)
 	}

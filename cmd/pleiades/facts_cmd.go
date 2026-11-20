@@ -1,7 +1,8 @@
 // Package main: `pleiades facts`, which shows what this project's real runs
 // observed about a host (Phase 41): each fact's current value with when it
 // was first observed and last confirmed, or one fact's history, read from
-// .pleiades/facts. A fact is what a method emitted (sdk.EmitFact) during a
+// .pleiades/facts, which is sealed under the project's master key: a read
+// needs that key and says so when the project has none. A fact is what a method emitted (sdk.EmitFact) during a
 // run that changed or read the host; a check keeps none.
 package main
 
@@ -75,7 +76,7 @@ func runFacts(args []string) error {
 	}
 	// A read creates nothing: a project no run has stored a fact in yet has
 	// no fact directory, and its hosts have no facts.
-	store, err := facts.OpenFileStore(factsDir(*dir))
+	store, err := facts.OpenFileStore(factsDir(*dir), factKeysToRead(*dir))
 	switch {
 	case errors.Is(err, facts.ErrNoStore):
 	case err != nil:
@@ -149,7 +150,7 @@ func clockNote(e facts.Entry) string {
 // verifyFacts is --verify: the host's fact chain, checked.
 func verifyFacts(ctx context.Context, dir, host, deviceID string, asJSON bool) error {
 	rep := factChainReport{Host: host, DeviceID: deviceID}
-	store, err := facts.OpenFileStore(factsDir(dir))
+	store, err := facts.OpenFileStore(factsDir(dir), factKeysToRead(dir))
 	switch {
 	case errors.Is(err, facts.ErrNoStore):
 	case err != nil:

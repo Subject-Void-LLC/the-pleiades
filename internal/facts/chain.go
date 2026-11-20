@@ -36,7 +36,9 @@ type Link struct {
 // device it belongs to, the previous value's chain hash and what the chain
 // covers of this one (its key, its fact hash, when it was observed and by
 // which run). Naming the device means one device's history copied to
-// another does not verify there.
+// another does not verify there. The fact hash a store hands it is the keyed
+// one (Keys.Hash), so the chain covers a hash nobody without the store's key
+// can test a guess against.
 func ChainHash(device, prev, key, hash string, observedAt time.Time, by Provenance) (string, error) {
 	canon, err := Canonical([]any{device, prev, key, hash, StoredTime(observedAt).Format(time.RFC3339Nano), by})
 	if err != nil {
@@ -69,7 +71,8 @@ type Verdict struct {
 }
 
 // VerifyChain walks links in the order they were stored and reports the first
-// that fails: a value whose fact hash does not describe it (an edited value),
+// that fails: a value whose keyed fact hash, recomputed under keys, does not
+// describe it (an edited value, or one keyed under another key),
 // one whose Prev is not the chain hash of the value before it (one deleted or
 // moved), or one whose own chain hash does not match what it covers (an
 // edited key, time or provenance). A link with no chain at all is a break
@@ -77,7 +80,7 @@ type Verdict struct {
 // and nothing deployed predates it, so no value is exempt. An exemption for
 // an unchained prefix let anyone who can write the store add rows at the
 // start of a device's history that verified (FAILURE_PATTERNS 921).
-func VerifyChain(device string, links []Link) Verdict {
+func VerifyChain(device string, links []Link, keys *Keys) Verdict {
 	var v Verdict
 	prev := ""
 	for i, l := range links {
@@ -86,7 +89,7 @@ func VerifyChain(device string, links []Link) Verdict {
 			v.Break = &Break{Index: i, Key: l.Key, Reason: reason}
 			return v
 		}
-		hash, err := Hash(l.Key, l.Value)
+		hash, err := keys.Hash(device, l.Key, l.Value)
 		if err != nil || hash != l.Hash {
 			return fail("the stored value is not the one its fact hash describes")
 		}

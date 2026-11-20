@@ -6,6 +6,7 @@ package main_test
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"sort"
@@ -13,7 +14,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/facts/factstest"
 )
 
 // shownEscape is the escape ShownKey writes for a code point given in hex,
@@ -47,7 +50,7 @@ func TestCLI_FactsShowsKeysThatWouldNotShowAsThemselvesEscaped(t *testing.T) {
 		"vol\nkey":                           "vol" + shownEscape("A") + "key",
 		"os.family":                          "os.family",
 	}
-	store, err := facts.NewFileStore(filepath.Join(dir, ".pleiades", "facts"))
+	store, err := facts.NewFileStore(filepath.Join(dir, ".pleiades", "facts"), projectFactKeys(dir))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,7 +134,7 @@ func TestCLI_FactsVerifyEscapesTheBreakReason(t *testing.T) {
 		t.Fatalf("facts --json: %s", out)
 	}
 	factsDir := filepath.Join(dir, ".pleiades", "facts")
-	store, err := facts.NewFileStore(factsDir)
+	store, err := facts.NewFileStore(factsDir, projectFactKeys(dir))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -140,21 +143,79 @@ func TestCLI_FactsVerifyEscapesTheBreakReason(t *testing.T) {
 		t.Fatal(err)
 	}
 	path := filepath.Join(factsDir, empty.DeviceID+".jsonl")
-	data, err := os.ReadFile(path)
-	if err != nil || !strings.Contains(string(data), `"prev":""`) {
-		t.Fatalf("the history line: %v\n%s", err, data)
+	// Edited as someone holding the project's key could: the line opened,
+	// changed and sealed again.
+	lines := factstest.OpenLines(t, projectFactKeys(dir), path, empty.DeviceID, facts.RoleValues)
+	if len(lines) != 1 || !strings.Contains(string(lines[0]), `"prev":""`) {
+		t.Fatalf("the history line: %s", lines)
 	}
 	// JSON's escape for ESC, built in code.
 	esc := string(rune(0x5C)) + "u001b"
-	edited := strings.Replace(string(data), `"prev":""`, `"prev":"`+esc+`[31mzzzzzz"`, 1)
-	if err := os.WriteFile(path, []byte(edited), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	lines[0] = []byte(strings.Replace(string(lines[0]), `"prev":""`, `"prev":"`+esc+`[31mzzzzzz"`, 1))
+	factstest.WriteLines(t, projectFactKeys(dir), path, empty.DeviceID, facts.RoleValues, lines)
 	out, err = runPleiades(t, dir, "facts", "web1", "--verify")
 	if err == nil || !strings.Contains(out, "breaks") {
 		t.Fatalf("--verify over an edited line: %v\n%s", err, out)
 	}
 	if strings.ContainsRune(out, 0x1b) {
 		t.Errorf("the break reason reached the terminal raw:\n%q", out)
+	}
+}
+
+// projectFactKeys is the keys the project in dir seals its facts under, as
+// the CLI derives them from the project's master key.
+func projectFactKeys(dir string) *facts.Keys {
+	return facts.NewLazyKeys(func() ([]byte, error) { return credential.ResolveMasterKey(dir) }, "project")
+}
+
+// TestCLI_FactsWithoutTheMasterKeySaysSo: a project's stored facts are sealed
+// under its master key, so with the key gone `pleiades facts` and its
+// --verify fail naming the key, show nothing, and do not make a new key that
+// would open none of it.
+func TestCLI_FactsWithoutTheMasterKeySaysSo(t *testing.T) {
+	dir := t.TempDir()
+	if out, err := runPleiades(t, dir, "init"); err != nil {
+		t.Fatalf("init: %v\n%s", err, out)
+	}
+	if out, err := runPleiades(t, dir, "add-host", "web1", "--type", "linux_server", "--set", "host=10.0.0.5"); err != nil {
+		t.Fatalf("add-host: %v\n%s", err, out)
+	}
+	out, _ := runPleiades(t, dir, "facts", "web1", "--json")
+	var host struct {
+		DeviceID string `json:"device_id"`
+	}
+	if json.Unmarshal([]byte(out), &host) != nil || host.DeviceID == "" {
+		t.Fatalf("facts --json: %s", out)
+	}
+	store, err := facts.NewFileStore(filepath.Join(dir, ".pleiades", "facts"), projectFactKeys(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries, _, err := facts.Prepare(map[string]any{"package.zq9sealed": "1.2.3-zq9"}, facts.Guard{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Record(t.Context(), host.DeviceID, facts.Observation{Entries: entries, At: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	// The control: with the key, the fact reads.
+	if out, err := runPleiades(t, dir, "facts", "web1"); err != nil || !strings.Contains(out, "package.zq9sealed") {
+		t.Fatalf("facts with the key: %v\n%s", err, out)
+	}
+	keyFile := filepath.Join(dir, ".pleiades", "master.key")
+	if err := os.Remove(keyFile); err != nil {
+		t.Fatalf("the project's key file: %v", err)
+	}
+	for _, args := range [][]string{{"facts", "web1"}, {"facts", "web1", "package.zq9sealed"}, {"facts", "web1", "--verify"}} {
+		out, err := runPleiades(t, dir, args...)
+		if err == nil || !strings.Contains(out+err.Error(), "master key") {
+			t.Errorf("%v with no master key: %v\n%s; want an error naming the master key", args, err, out)
+		}
+		if strings.Contains(out, "zq9") {
+			t.Errorf("%v with no master key showed a fact:\n%s", args, out)
+		}
+	}
+	if _, err := os.Stat(keyFile); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("a read made a new master key: %v", err)
 	}
 }

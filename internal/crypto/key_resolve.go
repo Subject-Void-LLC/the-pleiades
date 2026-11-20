@@ -43,6 +43,22 @@ const keySize = 32
 // envelope encryption KEK) uses this directly with its own distinct
 // envVar/fileName so the two never collide on the same key material.
 func ResolveKey(dir, envVar, fileName string) ([]byte, error) {
+	key, err := ExistingKey(dir, envVar, fileName)
+	if errors.Is(err, ErrNoKey) {
+		return generateAndSaveKey(filepath.Join(dir, fileName))
+	}
+	return key, err
+}
+
+// ErrNoKey marks a key that neither the environment nor a file supplies.
+var ErrNoKey = errors.New("no key is set in the environment or kept in the key file")
+
+// ExistingKey is ResolveKey's first two steps and never its third: the key
+// the environment variable or the file holds, or ErrNoKey when there is
+// neither. It creates nothing, which is what a reader of sealed data wants:
+// a key made on the spot opens nothing already sealed, and leaves a key file
+// behind that says the data's own key is the one in use.
+func ExistingKey(dir, envVar, fileName string) ([]byte, error) {
 	if envVal, ok := os.LookupEnv(envVar); ok {
 		return DecodeKey(envVal, "environment variable "+envVar)
 	}
@@ -61,8 +77,7 @@ func ResolveKey(dir, envVar, fileName string) ([]byte, error) {
 	if !os.IsNotExist(err) {
 		return nil, fmt.Errorf("failed to read key file %s: %w", keyPath, err)
 	}
-
-	return generateAndSaveKey(keyPath)
+	return nil, fmt.Errorf("%w: %s", ErrNoKey, keyPath)
 }
 
 // DecodeKey base64-decodes raw (standard encoding, trimming surrounding

@@ -28,6 +28,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/clireport"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/facts/factstest"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
@@ -310,17 +311,33 @@ func TestCLI_FactsReleaseGate(t *testing.T) {
 	if out, code := g.pleiades(t, "facts", "container1", "--verify"); code != 0 || !strings.Contains(out, "unbroken") {
 		t.Fatalf("--verify of an untouched store: exit %d\n%s", code, out)
 	}
-	raw, err := os.ReadFile(history) // #nosec G304 -- the test's own project
-	if err != nil {
-		t.Fatal(err)
+	// Nothing in the store is plaintext: neither file names the kernel, a
+	// fact's key or a package.
+	for _, path := range []string{history, seenFile} {
+		sealedRaw, err := os.ReadFile(path) // #nosec G304 -- the test's own project
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, plain := range []string{kernel, "os.kernel.release", "package.", "facts.gather"} {
+			if strings.Contains(string(sealedRaw), plain) {
+				t.Errorf("%s holds %q in plaintext", filepath.Base(path), plain)
+			}
+		}
 	}
-	edited := strings.Replace(string(raw), `"`+kernel+`"`, `"0.0.0-edited"`, 1)
-	if edited == string(raw) {
+	// Edited as someone holding the project's key could: each line opened,
+	// the kernel's changed, and all sealed again.
+	projectKeys := projectFactKeys(g.dir)
+	sealedLines := factstest.OpenLines(t, projectKeys, history, first.DeviceID, facts.RoleValues)
+	edited := false
+	for i, l := range sealedLines {
+		if changed := strings.Replace(string(l), `"`+kernel+`"`, `"0.0.0-edited"`, 1); changed != string(l) && !edited {
+			sealedLines[i], edited = []byte(changed), true
+		}
+	}
+	if !edited {
 		t.Fatal("the kernel's value is not in the history file to edit")
 	}
-	if err := os.WriteFile(history, []byte(edited), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	factstest.WriteLines(t, projectKeys, history, first.DeviceID, facts.RoleValues, sealedLines)
 	if out, code := g.pleiades(t, "facts", "container1", "--verify"); code == 0 || !strings.Contains(out, "breaks at value") {
 		t.Errorf("--verify of an edited store: exit %d\n%s", code, out)
 	}

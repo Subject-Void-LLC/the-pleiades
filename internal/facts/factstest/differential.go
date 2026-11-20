@@ -110,7 +110,14 @@ func replaySequence(t *testing.T, newStore NewStore, rng *rand.Rand, seq int) {
 	for n := 0; n < differentialObservations; n++ {
 		obs := randomObservation(t, rng, prefix)
 		replay = append(replay, describe(obs))
-		o.record(obs)
+		// The oracle holds each value under the keyed hash a store keeps it
+		// under (Keys), which is what a store's reads carry.
+		keyed := obs
+		var err error
+		if keyed.Entries, err = Keys().Rekey(dev, obs.Entries); err != nil {
+			t.Fatal(err)
+		}
+		o.record(keyed)
 		if err := s.Record(ctx, dev, obs); err != nil {
 			t.Fatalf("Record: %v", err)
 		}

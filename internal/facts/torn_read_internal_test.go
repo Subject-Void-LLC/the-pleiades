@@ -16,7 +16,7 @@ import (
 // observation folded.
 func TestLoad_ARecordBetweenReadsCreditsNoReplacedValue(t *testing.T) {
 	ctx := context.Background()
-	store, err := NewFileStore(filepath.Join(t.TempDir(), "facts"))
+	store, err := NewFileStore(filepath.Join(t.TempDir(), "facts"), testKeys())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,18 +43,18 @@ func TestLoad_ARecordBetweenReadsCreditsNoReplacedValue(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = r.Close() }()
-	sf, err := readSeen(r, "dev1")
+	sf, err := readSeen(r, testKeys(), "dev1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	staleLines, _, err := readLines(r, "dev1")
+	staleLines, _, err := readLines(r, testKeys(), "dev1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	gather("run2", 2, "6.2", 200)
 	// The order the first version read in, values then observations, to show
 	// the test tells the two apart: run2's observation lands on 6.1.
-	fresh, err := readSeen(r, "dev1")
+	fresh, err := readSeen(r, testKeys(), "dev1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,7 +65,7 @@ func TestLoad_ARecordBetweenReadsCreditsNoReplacedValue(t *testing.T) {
 	if got := Sightings(stale, fresh.seen); len(got) != 1 || got[0].LastBy.Run != "run2" {
 		t.Fatalf("values read before observations: %+v; the test no longer reproduces the torn read", got)
 	}
-	d, err := loadAfter(r, "dev1", sf)
+	d, err := loadAfter(r, testKeys(), "dev1", sf)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -61,14 +61,19 @@ func (s *FileStore) Record(_ context.Context, name string, obs Observation) erro
 	if err := obs.By.CheckCollection(); err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalid, err)
 	}
+	// Each hash keyed before anything is compared or written, and nothing
+	// written when there is no key to do it with.
+	entries, err := s.keys.Rekey(name, obs.Entries)
+	if err != nil {
+		return err
+	}
 	return s.locked(name, func(r *os.Root) error {
-		d, err := load(r, name)
+		d, err := load(r, s.keys, name)
 		if err != nil {
 			return err
 		}
 		seq := d.nextSeq()
 		at, by := StoredTime(obs.At), obs.By
-		entries := append([]Entry(nil), obs.Entries...)
 		sort.Slice(entries, func(i, j int) bool { return entries[i].Key < entries[j].Key })
 		head := chainHead(d.lines)
 		// Each key's values, read once rather than the whole history once per
@@ -79,14 +84,19 @@ func (s *FileStore) Record(_ context.Context, name string, obs Observation) erro
 			byKey[e.Key] = append(byKey[e.Key], e)
 		}
 		var appended []byte
-		// add chains l after the head and appends it.
+		// add chains l after the head and appends it, sealed as the line at
+		// the place it will be written.
 		add := func(l line) error {
 			l.Prev, l.Seq = head, seq
 			var err error
 			if l.Chain, err = ChainHash(name, l.Prev, l.Key, l.Hash, l.ObservedAt, l.By); err != nil {
 				return fmt.Errorf("facts: %w", err)
 			}
-			raw, err := json.Marshal(l)
+			plain, err := json.Marshal(l)
+			if err != nil {
+				return fmt.Errorf("facts: %w", err)
+			}
+			raw, err := s.keys.SealLine(name, RoleValues, d.complete+int64(len(appended)), plain)
 			if err != nil {
 				return fmt.Errorf("facts: %w", err)
 			}
@@ -135,11 +145,11 @@ func (s *FileStore) Record(_ context.Context, name string, obs Observation) erro
 			}
 		}
 		if replaced {
-			if err := writeState(r, name, d.st); err != nil {
+			if err := writeState(r, s.keys, name, d.st); err != nil {
 				return err
 			}
 		}
-		return appendSeen(r, name, d.sf, seq, at, by, CoverageOf(entries))
+		return appendSeen(r, s.keys, name, d.sf, seq, at, by, CoverageOf(entries))
 	})
 }
 
@@ -219,7 +229,7 @@ func (s *FileStore) Verify(_ context.Context, device string) (Verdict, error) {
 		return Verdict{}, err
 	}
 	defer func() { _ = r.Close() }()
-	lines, _, err := readLines(r, device)
+	lines, _, err := readLines(r, s.keys, device)
 	if err != nil {
 		return Verdict{}, err
 	}
@@ -227,7 +237,7 @@ func (s *FileStore) Verify(_ context.Context, device string) (Verdict, error) {
 	for i, l := range lines {
 		links[i] = Link{Key: l.Key, Value: l.Value, Hash: l.Hash, ObservedAt: l.ObservedAt, By: l.By, Prev: l.Prev, Chain: l.Chain}
 	}
-	return VerifyChain(device, links), nil
+	return VerifyChain(device, links, s.keys), nil
 }
 
 // InRunOrder sorts a key's values by when they were first observed, by run
@@ -279,5 +289,5 @@ func (s *FileStore) read(name string) (device, error) {
 		return device{}, err
 	}
 	defer func() { _ = r.Close() }()
-	return load(r, name)
+	return load(r, s.keys, name)
 }
