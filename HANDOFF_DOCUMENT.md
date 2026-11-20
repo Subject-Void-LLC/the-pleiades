@@ -39,7 +39,8 @@ and file and port fact hardening), CI pending.**
   11, 41h item 12), 41c's remaining read-backs, 41d to 41g, and 41h's Release Gate.
 - Carried: Ansible names for the identity facts wait on a lab comparison; `config.running_digest` has not run on a real
   device; FAILURE_PATTERNS 1267 is open; #202's residual (per-batch signing, Phase 105); the one-off
-  `TestSubscriber_HoldsEachBatchToItsDevicesClaim` failure is still unexplained.
+  `TestSubscriber_HoldsEachBatchToItsDevicesClaim` flake is explained (FAILURE_PATTERNS 1291: its no-value check
+  finds `9.6` in slog's timestamp), and its fix is left for later.
 - Practices, not code: commit before any lab leg and read the commit it names (1288); after heavy builds, check WSL's
   page cache before starting a lab VM, and ask the owner to drop it (1289).
 - Owner approvals of 2026-11-19: Samba AD DC as a privileged container, in opt-in lab runs only; a directory harness

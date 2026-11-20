@@ -31548,3 +31548,32 @@ measured before pr-check (744's ask).
 
 **Lesson.** A parser of another system's tool output gets an internal test with a crafted answer for each branch, since
 this machine's tool reaches only its own (CI_LESSONS 37).
+
+## 1291. `TestSubscriber_HoldsEachBatchToItsDevicesClaim` fails about once in a hundred runs because its no-value check searches the log for the fake version `9.6`, which slog's timestamp spells whenever a second ends in 9 and its milliseconds start with 6 (open: cause proven, fix not applied; a repeat of 236)
+
+**Symptom.** `internal/facts/entstore`'s `TestSubscriber_HoldsEachBatchToItsDevicesClaim`, subtest "refused: dropped
+whole, said at warn, acknowledged", failed once in about 35 runs during the Phase 41 claim work (#201 to #208) and
+passed the next 30; the handoffs carried it as an unexplained flake. Reproduced 2026-11-19 with `go test -count=600
+-run 'TestSubscriber_HoldsEachBatchToItsDevicesClaim/refused' ./internal/facts/entstore/`: 6 of 600 failed, each on
+`claims_test.go:80`, "a log line holds a fact's value", with a log line beginning
+`time=2026-11-19T20:07:39.612-05:00 level=WARN msg="dropping a facts batch ..."` (and `39.650`, `39.684`).
+
+**Root cause.** The check is `strings.Contains(log, "web1") || strings.Contains(log, "9.6")`, meant to prove the
+refusal's log line holds no fact value (the batch's facts are `host.name: web1` and `Package.openssh: 9.6`). The
+handler is `slog.NewTextHandler`, which opens every line with the time to the millisecond, and `39.612` contains
+`9.6`. So the test fails whenever the warn line is written in a second ending in 9 with milliseconds 600 to 699, about
+one line in a hundred, and the code under test is right every time. The second subtest's log is one line, so the rate
+measured (1 in 100) and the one seen (about 1 in 35, a small sample) agree.
+
+**Why 236 did not prevent it.** 236's lesson was "prove independence, not absence": a substring check is refuted by any
+text that happens to spell the value. 236 was about an error message, and this check was written as an absence check on
+a log, with a sentinel short and numeric enough to occur in the log's own fields.
+
+**Fix (not applied; the owner asked on 2026-11-19 to log it for later).** Either a sentinel no log field can spell
+(letters and a distinctive word, `openssh-sentinel-qzxv`, never a short number), or the handler's `ReplaceAttr` dropping
+`time` in the test, or 236's differential form (log the refusal for two batches whose values differ and require
+identical lines). A bounded search of the tests (`Contains(<log-like>, "<short number>")`) found no other case:
+`internal/telemetry/telemetry_test.go:164` looks for `1.2.3` as a positive check, which a timestamp cannot spell.
+
+**Lesson.** A sentinel searched for in output must be unable to occur in that output's own fields: never a short number
+or a common word where a timestamp, a UUID or a duration is printed beside it.
