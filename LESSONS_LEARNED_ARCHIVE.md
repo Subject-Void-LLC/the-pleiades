@@ -8394,3 +8394,55 @@ was then kept only in agent memory, not in these records. On 2026-11-19 the owne
 **Rule in practice.** A step that must follow another is chained to it in one command, so it cannot be skipped: the
 merge command ends with the pull, then the log refresh, and the refresh runs right after `gh pr create` too. A rule
 that relies on remembering, missed twice, becomes a command.
+
+## 456. Reproduce a suspected security weakness with a test that fails before the fix, and keep that test as its regression (FAILURE_PATTERNS 1279 to 1282) (2026-11-19)
+
+**Why.** The previous handoff listed possible weaknesses in `facts.gather` that nobody had reproduced: a symbolic link
+into a private directory could keep a plain file digest, ACLs were ignored when judging a file world-readable, and a
+local user could fake a Linux port's owning process. PR #210 wrote a test for each that failed on the old code before
+changing anything, and found a fourth, a hard link, the same way. Each test failed as suspected, and each stays as the
+regression: `TestGather_APortsOwnerCannotBeForgedByAFileName` (it named systemd as the owner),
+`TestGather_AFileThroughALinkedDirectoryKeepsNoPlainDigest`, `TestGather_AHardLinkedFileKeepsNoPlainDigest` and
+`TestGather_AnACLThatWithholdsReadMakesAFilePrivate`. The port case needed a real listener and a crafted file name in a
+real `/proc`; reasoning alone would have left it "suspected".
+
+**What is old and what is new.** The project already says to name a possible weakness out loud, and the owner's rule
+is to prove before calling something out. The new part is the form of the proof: a test that fails before the fix and
+passes after it, so the claim and the fix are checked by the same thing, and the claim cannot quietly return.
+
+**Rule in practice.** For each suspected weakness, write the test that shows it first, through the real path (a real
+`/proc`, a real link, a real ACL). Record that it failed on the old code and how. Then fix, and keep the test. A
+suspicion that cannot be reproduced stays open and says so.
+
+## 457. A fail-closed check's live test asserts a case that must come out open before any case that must come out closed, or a bug in the check reads as the policy working (a refinement of FAILURE_PATTERNS 13 and CI_LESSONS 15; FAILURE_PATTERNS 1283) (2026-11-19)
+
+**Why.** PR #210's Windows files script reads any exception in its ACL loop as "private". On PowerShell 5.1 the loop
+threw on every file (a `-band` over a byte-backed enum), so every file came back private, which is exactly what the
+policy says to do when it cannot tell. Every "must be private" assertion passed. Only the gate's assertion that
+`C:\Windows\win.ini` keeps a plain digest equal to the host's `Get-FileHash` failed, and that is what showed the bug.
+
+**What is old and what is new.** FAILURE_PATTERNS 13 says an empty answer needs a control that shows the query can find
+something. CI_LESSONS 15 says a test of a protection has a control that shows the hazard without it. The new part is
+the direction: a check built to fail closed turns its own bugs into its safe answer, so the control it needs is a case
+that must come out open.
+
+**Rule in practice.** In a live test of a fail-closed check, assert first a case the check must pass (a file anyone
+may read, a host that must answer), compared with the system's own tool, and stop the test when it fails. Only then
+assert the cases that must come out closed.
+
+## 458. Measure a tool's real output on the real system before writing a parser for it, and write the measurement into the code comment (a refinement of 322, 377 and 379; FAILURE_PATTERNS 1283, 1285 and 1286) (2026-11-19)
+
+**Why.** PR #210 read new tools' output on macOS (`ls -le`, `xattr -lx`), Linux (`getfattr`), FreeBSD (`getfacl` on
+ZFS, `lsextattr`) and Windows (PowerShell 5.1's ACL objects). Several differed from what was expected in ways only a
+real run showed: `lsextattr` exits 1 on `--` (1286), an `everyone@` deny on ZFS also rewrote the file's mode (1285), and
+PowerShell 5.1 throws on a `-band` that 7 accepts (1283). The code's comments now name each format and the release it
+was measured on.
+
+**What is old and what is new.** 322 says device wording is measured, never recalled; 377 and 379 say a shell
+primitive is measured on every shell and target before anything rests on it. The new part is the record: the
+measurement goes into the comment beside the parser, with the system and release, so the next reader knows what was
+seen and what was assumed.
+
+**Rule in practice.** Before writing a parser or a probe for a tool, run the tool on each system it will meet and keep
+the output. Write the parser against that output, name the system and release in the comment, and turn an odd case into
+a test fixture.

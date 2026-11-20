@@ -488,6 +488,9 @@ story, per `.AGENTS/AGENTS.md`.
 453. When one session adds many items to one phase, split it into the core its release needs and a catalogue for a later release, and let the owner choose (2026-11-17).
 454. A post-change reading uses the gatherer's own query and parser, moved into one shared package, never a lookalike read; its test fakes answer the gatherer's format, and its tests assert the fact is there (a refinement of 445; FAILURE_PATTERNS 1277 and 1278) (2026-11-19).
 455. A step of the pull-request cycle that lives only in memory gets skipped: put it in the same command as the step it follows (2026-11-19).
+456. Reproduce a suspected security weakness with a test that fails before the fix, and keep that test as its regression (FAILURE_PATTERNS 1279 to 1282) (2026-11-19).
+457. A fail-closed check's live test asserts a case that must come out open before any case that must come out closed, or a bug in the check reads as the policy working (a refinement of FAILURE_PATTERNS 13 and CI_LESSONS 15; FAILURE_PATTERNS 1283) (2026-11-19).
+458. Measure a tool's real output on the real system before writing a parser for it, and write the measurement into the code comment (a refinement of 322, 377 and 379; FAILURE_PATTERNS 1283, 1285 and 1286) (2026-11-19).
 
 Each entry above is the rule only. Full reasoning and the incident that produced it lives in [`LESSONS_LEARNED_ARCHIVE.md`](LESSONS_LEARNED_ARCHIVE.md), same entry numbers. Read an archive entry when its rule is directly relevant to what you're doing and you need the *why*; the rule sentence above is usually enough on its own.
 
