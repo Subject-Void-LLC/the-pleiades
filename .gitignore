@@ -36,6 +36,8 @@ obj/
 # The Mac make mac-check tests on (tools/maccheck): this clone's own, never
 # committed. tests/mac/.env.example shows its one setting.
 /tests/mac/.env
+# tests/gemini-api/.env holds an API key for a local helper; never committed.
+/tests/gemini-api/.env
 # Anthropic API secrets
 /tests/anthropic-api/.env
 # The FreeBSD and Windows machines make bsd-check and win-check test on
