@@ -31577,3 +31577,26 @@ identical lines). A bounded search of the tests (`Contains(<log-like>, "<short n
 
 **Lesson.** A sentinel searched for in output must be unable to occur in that output's own fields: never a short number
 or a common word where a timestamp, a UUID or a duration is printed beside it.
+
+## 1292. `pkg/cml` measured 88.9% against its 89.0% floor in #211's CI (a records-only change) and 89.0% in #210's on the same code, and a steady 89.0% in 24 local runs, so some block is covered only incidentally on the runners (open: block not identified; a repeat of 87)
+
+**Symptom.** 2026-11-20, PR #211 (records only, no Go file changed). CI run 44652479425's `coverage` job failed
+`make coverage-measured`: `pkg/cml: 88.9% dropped below its floor of 89.0%`. The `coverage-fast` artifact of that run
+records 88.9 for `pkg/cml`; the same artifact of #210's run 44645479886, on the same `pkg/cml` code, records 89. Locally,
+24 runs (`-race` and not, all CPUs and `-cpu=2` with `GOMAXPROCS=2`) all measure exactly 89.0%, and a block-by-block
+comparison of their profiles finds no block that varies.
+
+**Root cause (not yet found).** One or more blocks of `pkg/cml` are reached on the runners only some of the time, as in
+87, where race arms were covered incidentally by which way a timing race went. The floor sits exactly on this machine's
+value, so a 0.1-point miss on a runner fails the job. CI uploads each package's percentage (`coverage-fast`'s
+`fast.json`), not its profile, so the block a runner missed cannot be named from the artifacts.
+
+**Why 87 did not prevent it.** 87's fix drove `internal/election`'s race arms on purpose; nothing swept other packages
+for blocks reached only incidentally.
+
+**To settle it.** Upload the coverage profile beside the percentage when a floor is missed, and diff it against a passing
+run's; or run `pkg/cml`'s tests in a container held to a hosted runner's CPU and memory and compare profiles; then give
+the block a test that drives it on purpose (87's fix). Do not lower the floor to pass.
+
+**Lesson.** A floor set to exactly the value one machine measures fails on the first runner that reaches one block
+fewer; a package whose coverage varies has a block no test drives on purpose, and the artifacts should say which.
