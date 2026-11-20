@@ -15,6 +15,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts/entstore"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/facts/factstest"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
 )
 
@@ -36,7 +37,9 @@ func (f *fakeClaims) ClaimBatch(_ context.Context, _, _ string, next facts.Claim
 // is stored; a refused one is dropped whole, said at warn, and not redelivered;
 // a claim store that fails redelivers the batch and stores nothing.
 func TestSubscriber_HoldsEachBatchToItsDevicesClaim(t *testing.T) {
-	observed := map[string]any{"host.name": "web1", "Package.openssh": "9.6"}
+	// Values no timestamp or device ID can hold by chance: "9.6" turned up in
+	// a log line's own time (19.699 seconds) and failed the search below.
+	observed := map[string]any{"host.name": "zq9hostvalue", "Package.openssh": "zq9versionvalue"}
 	batch := func(device string) facts.Batch {
 		return facts.Batch{JobID: "job-1", DeviceID: device, Attempt: 2, ObservedAt: time.Now(),
 			Entries: prepared(t, observed),
@@ -45,7 +48,7 @@ func TestSubscriber_HoldsEachBatchToItsDevicesClaim(t *testing.T) {
 
 	t.Run("accepted: the claim sees the batch's place and the batch is stored", func(t *testing.T) {
 		client, device := open(t)
-		store := entstore.New(client)
+		store := entstore.New(client, factstest.Keys(), factstest.Envelope())
 		claims := &fakeClaims{}
 		sub := entstore.NewSubscriber(store, nil, nil, entstore.WithClaims(claims))
 		if err := handle(t, sub, batch(device)); err != nil {
@@ -62,7 +65,7 @@ func TestSubscriber_HoldsEachBatchToItsDevicesClaim(t *testing.T) {
 
 	t.Run("refused: dropped whole, said at warn, acknowledged", func(t *testing.T) {
 		client, device := open(t)
-		store := entstore.New(client)
+		store := entstore.New(client, factstest.Keys(), factstest.Envelope())
 		claims := &fakeClaims{refusal: "the batch names a Runner other than the one attempt 2's claim holds"}
 		var logged bytes.Buffer
 		sub := entstore.NewSubscriber(store, slog.New(slog.NewTextHandler(&logged, nil)), nil, entstore.WithClaims(claims))
@@ -76,14 +79,14 @@ func TestSubscriber_HoldsEachBatchToItsDevicesClaim(t *testing.T) {
 		if !strings.Contains(log, "level=WARN") || !strings.Contains(log, "runner=runner-a") {
 			t.Errorf("the refusal is not said at warn with its Runner:\n%s", log)
 		}
-		if strings.Contains(log, "web1") || strings.Contains(log, "9.6") {
+		if strings.Contains(log, "zq9hostvalue") || strings.Contains(log, "zq9versionvalue") {
 			t.Errorf("a log line holds a fact's value:\n%s", log)
 		}
 	})
 
 	t.Run("a failing claim store redelivers and stores nothing", func(t *testing.T) {
 		client, device := open(t)
-		store := entstore.New(client)
+		store := entstore.New(client, factstest.Keys(), factstest.Envelope())
 		claims := &fakeClaims{err: errors.New("the database is down")}
 		sub := entstore.NewSubscriber(store, nil, nil, entstore.WithClaims(claims))
 		if err := handle(t, sub, batch(device)); err == nil {
@@ -108,7 +111,7 @@ func TestSubscriber_DropsABatchWhoseSubjectNamesAnotherRunner(t *testing.T) {
 	} {
 		t.Run(fmt.Sprintf("case%d", i), func(t *testing.T) {
 			client, device := open(t)
-			store := entstore.New(client)
+			store := entstore.New(client, factstest.Keys(), factstest.Envelope())
 			claims := &fakeClaims{}
 			sub := entstore.NewSubscriber(store, nil, nil, entstore.WithClaims(claims))
 			batch := facts.Batch{JobID: "job-1", DeviceID: device, Attempt: 1, ObservedAt: time.Now(),

@@ -15,6 +15,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/enttest"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts/entstore"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/facts/factstest"
 )
 
 // sqliteRefusals make SQLite refuse rewriting the history.
@@ -37,7 +38,7 @@ var postgresRefusals = []string{
 func gatherAgainAndAgain(t *testing.T, client *ent.Client, device string, db *sql.DB, refusals []string) {
 	t.Helper()
 	ctx := context.Background()
-	store := entstore.New(client)
+	store := entstore.New(client, factstest.Keys(), factstest.Envelope())
 	t0 := time.Date(2026, 11, 7, 10, 0, 0, 0, time.UTC)
 	gather := func(n int, kernel string, uptime int) {
 		t.Helper()

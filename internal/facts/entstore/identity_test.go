@@ -19,6 +19,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/enttest"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts/entstore"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/facts/factstest"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/journal"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
@@ -59,7 +60,7 @@ func TestSubscriber_KeepsARunnersIdentityAndDropsOneNoBuildWrites(t *testing.T) 
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			client, device := open(t)
-			store := entstore.New(client)
+			store := entstore.New(client, factstest.Keys(), factstest.Envelope())
 			var logged bytes.Buffer
 			sub := entstore.NewSubscriber(store, slog.New(slog.NewTextHandler(&logged, &slog.HandlerOptions{Level: slog.LevelDebug})), admitted)
 			batch := facts.Batch{JobID: "job-1", DeviceID: device, Attempt: 1, ObservedAt: time.Now(),
@@ -107,7 +108,7 @@ func TestSubscriber_KeepsAnIdentityOnlyThisToolchainsTablesRefuse(t *testing.T) 
 		t.Fatal("the fixture needs an identity this build's Valid refuses and the frozen rule keeps")
 	}
 	client, device := open(t)
-	store := entstore.New(client)
+	store := entstore.New(client, factstest.Keys(), factstest.Envelope())
 	var logged bytes.Buffer
 	admitted := func(context.Context, string, string) (journal.Admission, error) { return journal.AdmitDispatched, nil }
 	sub := entstore.NewSubscriber(store, slog.New(slog.NewTextHandler(&logged, &slog.HandlerOptions{Level: slog.LevelDebug})), admitted)
@@ -160,7 +161,7 @@ func TestStore_ARowEditedToAnotherIdentityBreaksTheChain(t *testing.T) {
 			client := enttest.Open(t, "sqlite3", dsn)
 			t.Cleanup(func() { _ = client.Close() })
 			dev := client.Device.Create().SetName("web1").SetType("linux_server").SetProperties(map[string]any{"host": "10.0.0.1"}).SaveX(ctx)
-			store := entstore.New(client)
+			store := entstore.New(client, factstest.Keys(), factstest.Envelope())
 			at := time.Date(2026, 11, 8, 10, 0, 0, 0, time.UTC)
 			by := facts.Provenance{Run: "r", Method: "facts.gather", Collection: gatherIdentity}
 			for i, kernel := range []string{"6.1", "6.2"} {

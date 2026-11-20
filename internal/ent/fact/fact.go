@@ -21,10 +21,14 @@ const (
 	FieldUpdatedAt = "updated_at"
 	// FieldKey holds the string denoting the key field in the database.
 	FieldKey = "key"
+	// FieldKeyToken holds the string denoting the key_token field in the database.
+	FieldKeyToken = "key_token"
 	// FieldPayload holds the string denoting the payload field in the database.
 	FieldPayload = "payload"
 	// FieldHash holds the string denoting the hash field in the database.
 	FieldHash = "hash"
+	// FieldKeyedBy holds the string denoting the keyed_by field in the database.
+	FieldKeyedBy = "keyed_by"
 	// FieldKind holds the string denoting the kind field in the database.
 	FieldKind = "kind"
 	// FieldProvenance holds the string denoting the provenance field in the database.
@@ -58,8 +62,10 @@ var Columns = []string{
 	FieldCreatedAt,
 	FieldUpdatedAt,
 	FieldKey,
+	FieldKeyToken,
 	FieldPayload,
 	FieldHash,
+	FieldKeyedBy,
 	FieldKind,
 	FieldProvenance,
 	FieldLastSeenAt,
@@ -101,8 +107,16 @@ var (
 	DefaultKey string
 	// KeyValidator is a validator for the "key" field. It is called by the builders before save.
 	KeyValidator func(string) error
+	// DefaultKeyToken holds the default value on creation for the "key_token" field.
+	DefaultKeyToken string
+	// KeyTokenValidator is a validator for the "key_token" field. It is called by the builders before save.
+	KeyTokenValidator func(string) error
 	// HashValidator is a validator for the "hash" field. It is called by the builders before save.
 	HashValidator func(string) error
+	// DefaultKeyedBy holds the default value on creation for the "keyed_by" field.
+	DefaultKeyedBy string
+	// KeyedByValidator is a validator for the "keyed_by" field. It is called by the builders before save.
+	KeyedByValidator func(string) error
 	// DefaultObservationSeq holds the default value on creation for the "observation_seq" field.
 	DefaultObservationSeq int64
 	// ObservationSeqValidator is a validator for the "observation_seq" field. It is called by the builders before save.
@@ -158,9 +172,19 @@ func ByKey(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldKey, opts...).ToFunc()
 }
 
+// ByKeyToken orders the results by the key_token field.
+func ByKeyToken(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldKeyToken, opts...).ToFunc()
+}
+
 // ByHash orders the results by the hash field.
 func ByHash(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldHash, opts...).ToFunc()
+}
+
+// ByKeyedBy orders the results by the keyed_by field.
+func ByKeyedBy(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldKeyedBy, opts...).ToFunc()
 }
 
 // ByKind orders the results by the kind field.

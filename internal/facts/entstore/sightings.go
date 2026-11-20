@@ -27,9 +27,9 @@ import (
 func lastSightings(ctx context.Context, tx *ent.Tx, device int, obs facts.Observation, byKey map[string][]*ent.Fact) (map[int]facts.Entry, error) {
 	at := facts.StoredTime(obs.At)
 	last := map[int]facts.Entry{}
-	for _, rows := range byKey {
+	for key, rows := range byKey {
 		for _, row := range rows {
-			last[row.ID] = entry(row)
+			last[row.ID] = meta(row, key)
 		}
 	}
 	var needed []*ent.Fact
@@ -75,16 +75,16 @@ func lastSightings(ctx context.Context, tx *ent.Tx, device int, obs facts.Observ
 	if err != nil {
 		return nil, err
 	}
-	var stored []facts.Stored
-	var ids []int
+	var all []*ent.Fact
+	var entries []facts.Entry
 	for _, rows := range byKey {
 		for _, row := range rows {
-			stored = append(stored, facts.Stored{Entry: last[row.ID], Seq: row.ObservationSeq})
-			ids = append(ids, row.ID)
+			all = append(all, row)
+			entries = append(entries, last[row.ID])
 		}
 	}
-	for i, e := range facts.Sightings(stored, seen) {
-		last[ids[i]] = e
+	for i, e := range sightings(all, entries, seen) {
+		last[all[i].ID] = e
 	}
 	return last, nil
 }
@@ -98,7 +98,7 @@ func valueAt(rows []*ent.Fact, order facts.Order, at time.Time) (*ent.Fact, bool
 		if row.Kind != entfact.KindStable {
 			continue
 		}
-		e := entry(row)
+		e := meta(row, "")
 		if after, _ := facts.Later(e.By.Order, e.ObservedAt, order, at); after {
 			continue
 		}

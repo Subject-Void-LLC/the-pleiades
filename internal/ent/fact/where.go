@@ -70,9 +70,19 @@ func Key(v string) predicate.Fact {
 	return predicate.Fact(sql.FieldEQ(FieldKey, v))
 }
 
+// KeyToken applies equality check predicate on the "key_token" field. It's identical to KeyTokenEQ.
+func KeyToken(v string) predicate.Fact {
+	return predicate.Fact(sql.FieldEQ(FieldKeyToken, v))
+}
+
 // Hash applies equality check predicate on the "hash" field. It's identical to HashEQ.
 func Hash(v string) predicate.Fact {
 	return predicate.Fact(sql.FieldEQ(FieldHash, v))
+}
+
+// KeyedBy applies equality check predicate on the "keyed_by" field. It's identical to KeyedByEQ.
+func KeyedBy(v string) predicate.Fact {
+	return predicate.Fact(sql.FieldEQ(FieldKeyedBy, v))
 }
 
 // LastSeenAt applies equality check predicate on the "last_seen_at" field. It's identical to LastSeenAtEQ.
@@ -240,6 +250,71 @@ func KeyContainsFold(v string) predicate.Fact {
 	return predicate.Fact(sql.FieldContainsFold(FieldKey, v))
 }
 
+// KeyTokenEQ applies the EQ predicate on the "key_token" field.
+func KeyTokenEQ(v string) predicate.Fact {
+	return predicate.Fact(sql.FieldEQ(FieldKeyToken, v))
+}
+
+// KeyTokenNEQ applies the NEQ predicate on the "key_token" field.
+func KeyTokenNEQ(v string) predicate.Fact {
+	return predicate.Fact(sql.FieldNEQ(FieldKeyToken, v))
+}
+
+// KeyTokenIn applies the In predicate on the "key_token" field.
+func KeyTokenIn(vs ...string) predicate.Fact {
+	return predicate.Fact(sql.FieldIn(FieldKeyToken, vs...))
+}
+
+// KeyTokenNotIn applies the NotIn predicate on the "key_token" field.
+func KeyTokenNotIn(vs ...string) predicate.Fact {
+	return predicate.Fact(sql.FieldNotIn(FieldKeyToken, vs...))
+}
+
+// KeyTokenGT applies the GT predicate on the "key_token" field.
+func KeyTokenGT(v string) predicate.Fact {
+	return predicate.Fact(sql.FieldGT(FieldKeyToken, v))
+}
+
+// KeyTokenGTE applies the GTE predicate on the "key_token" field.
+func KeyTokenGTE(v string) predicate.Fact {
+	return predicate.Fact(sql.FieldGTE(FieldKeyToken, v))
+}
+
+// KeyTokenLT applies the LT predicate on the "key_token" field.
+func KeyTokenLT(v string) predicate.Fact {
+	return predicate.Fact(sql.FieldLT(FieldKeyToken, v))
+}
+
+// KeyTokenLTE applies the LTE predicate on the "key_token" field.
+func KeyTokenLTE(v string) predicate.Fact {
+	return predicate.Fact(sql.FieldLTE(FieldKeyToken, v))
+}
+
+// KeyTokenContains applies the Contains predicate on the "key_token" field.
+func KeyTokenContains(v string) predicate.Fact {
+	return predicate.Fact(sql.FieldContains(FieldKeyToken, v))
+}
+
+// KeyTokenHasPrefix applies the HasPrefix predicate on the "key_token" field.
+func KeyTokenHasPrefix(v string) predicate.Fact {
+	return predicate.Fact(sql.FieldHasPrefix(FieldKeyToken, v))
+}
+
+// KeyTokenHasSuffix applies the HasSuffix predicate on the "key_token" field.
+func KeyTokenHasSuffix(v string) predicate.Fact {
+	return predicate.Fact(sql.FieldHasSuffix(FieldKeyToken, v))
+}
+
+// KeyTokenEqualFold applies the EqualFold predicate on the "key_token" field.
+func KeyTokenEqualFold(v string) predicate.Fact {
+	return predicate.Fact(sql.FieldEqualFold(FieldKeyToken, v))
+}
+
+// KeyTokenContainsFold applies the ContainsFold predicate on the "key_token" field.
+func KeyTokenContainsFold(v string) predicate.Fact {
+	return predicate.Fact(sql.FieldContainsFold(FieldKeyToken, v))
+}
+
 // HashEQ applies the EQ predicate on the "hash" field.
 func HashEQ(v string) predicate.Fact {
 	return predicate.Fact(sql.FieldEQ(FieldHash, v))
@@ -303,6 +378,71 @@ func HashEqualFold(v string) predicate.Fact {
 // HashContainsFold applies the ContainsFold predicate on the "hash" field.
 func HashContainsFold(v string) predicate.Fact {
 	return predicate.Fact(sql.FieldContainsFold(FieldHash, v))
+}
+
+// KeyedByEQ applies the EQ predicate on the "keyed_by" field.
+func KeyedByEQ(v string) predicate.Fact {
+	return predicate.Fact(sql.FieldEQ(FieldKeyedBy, v))
+}
+
+// KeyedByNEQ applies the NEQ predicate on the "keyed_by" field.
+func KeyedByNEQ(v string) predicate.Fact {
+	return predicate.Fact(sql.FieldNEQ(FieldKeyedBy, v))
+}
+
+// KeyedByIn applies the In predicate on the "keyed_by" field.
+func KeyedByIn(vs ...string) predicate.Fact {
+	return predicate.Fact(sql.FieldIn(FieldKeyedBy, vs...))
+}
+
+// KeyedByNotIn applies the NotIn predicate on the "keyed_by" field.
+func KeyedByNotIn(vs ...string) predicate.Fact {
+	return predicate.Fact(sql.FieldNotIn(FieldKeyedBy, vs...))
+}
+
+// KeyedByGT applies the GT predicate on the "keyed_by" field.
+func KeyedByGT(v string) predicate.Fact {
+	return predicate.Fact(sql.FieldGT(FieldKeyedBy, v))
+}
+
+// KeyedByGTE applies the GTE predicate on the "keyed_by" field.
+func KeyedByGTE(v string) predicate.Fact {
+	return predicate.Fact(sql.FieldGTE(FieldKeyedBy, v))
+}
+
+// KeyedByLT applies the LT predicate on the "keyed_by" field.
+func KeyedByLT(v string) predicate.Fact {
+	return predicate.Fact(sql.FieldLT(FieldKeyedBy, v))
+}
+
+// KeyedByLTE applies the LTE predicate on the "keyed_by" field.
+func KeyedByLTE(v string) predicate.Fact {
+	return predicate.Fact(sql.FieldLTE(FieldKeyedBy, v))
+}
+
+// KeyedByContains applies the Contains predicate on the "keyed_by" field.
+func KeyedByContains(v string) predicate.Fact {
+	return predicate.Fact(sql.FieldContains(FieldKeyedBy, v))
+}
+
+// KeyedByHasPrefix applies the HasPrefix predicate on the "keyed_by" field.
+func KeyedByHasPrefix(v string) predicate.Fact {
+	return predicate.Fact(sql.FieldHasPrefix(FieldKeyedBy, v))
+}
+
+// KeyedByHasSuffix applies the HasSuffix predicate on the "keyed_by" field.
+func KeyedByHasSuffix(v string) predicate.Fact {
+	return predicate.Fact(sql.FieldHasSuffix(FieldKeyedBy, v))
+}
+
+// KeyedByEqualFold applies the EqualFold predicate on the "keyed_by" field.
+func KeyedByEqualFold(v string) predicate.Fact {
+	return predicate.Fact(sql.FieldEqualFold(FieldKeyedBy, v))
+}
+
+// KeyedByContainsFold applies the ContainsFold predicate on the "keyed_by" field.
+func KeyedByContainsFold(v string) predicate.Fact {
+	return predicate.Fact(sql.FieldContainsFold(FieldKeyedBy, v))
 }
 
 // KindEQ applies the EQ predicate on the "kind" field.

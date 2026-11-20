@@ -5,6 +5,13 @@
 // keys them, so nothing is stored and no replica disagrees. It is not derived
 // from MASTER_ENCRYPTION_KEY, which rotates: a rotation would re-key every
 // digest at once and read as every private file changing.
+//
+// The same secret is what stored facts are tokenized and keyed under
+// (internal/facts' atrest.go): the token a fact's row is found by and its
+// keyed hash, each under a key derived with a label of its own, none of them
+// the digest key. Without the secret the Controller stores no fact at all
+// (loadFactAtRestKeys): the fail-closed choice, since the alternative is a
+// table of plaintext keys and guessable hashes.
 package main
 
 import (
@@ -53,4 +60,30 @@ func factDigestOptions(open *sealed.PrivateKey, keyer *facts.Keyer) ([]dispatch.
 	}
 	return []dispatch.WorkerOption{dispatch.WithFactSealKey(open.Public().String())},
 		[]entstore.SubscriberOption{entstore.WithDigestKeys(open, keyer)}
+}
+
+// loadFactAtRestKeys derives the keys stored facts are tokenized and keyed
+// under from the digest secret. With no secret there are none, and the fact
+// store then stores nothing and reads nothing (facts.ErrNoKeys): every facts
+// batch a Runner publishes is dropped with an error in the log, and the
+// facts routes answer 503. That is said once here, as a warning, so an
+// operator who never set the secret learns what it costs. A secret that will
+// not decode stops the Controller, as it does for the digest keys.
+func loadFactAtRestKeys(logger *slog.Logger) (*facts.Keys, error) {
+	if os.Getenv(factDigestKeyEnv) == "" {
+		logger.Warn("no fact is stored: stored facts are sealed under keys derived from " + factDigestKeyEnv + " (base64 of 32 bytes), and without it this controller keeps none rather than keep them readable; on Compose, `make setup` then `make up` writes one")
+		return nil, nil
+	}
+	secret, err := decodeEnvelopeKey(factDigestKeyEnv)
+	if err != nil {
+		return nil, err
+	}
+	keys, err := entstore.AtRestKeys(secret)
+	if err != nil {
+		return nil, err
+	}
+	// Named by identity, never value: every stored row carries it, and a
+	// replica holding another secret refuses the rows this one wrote.
+	logger.Info("storing facts sealed, found by token and compared by keyed hash", slog.String("keys", keys.ID()))
+	return keys, nil
 }

@@ -125,7 +125,10 @@ func (s *Subscriber) Subscribe(ctx context.Context, bus event.Bus) error {
 // nothing that passes, names a device the database lacks, was never
 // dispatched, or holds a value the database refuses as data is acknowledged
 // and logged: redelivery would never change it. A database failure, or a dispatch not
-// recorded yet, is returned, so the bus redelivers.
+// recorded yet, is returned, so the bus redelivers. A store with no key to
+// seal facts under, or holding another key than the device's history was
+// sealed under, stores nothing: the batch is acknowledged and logged as an
+// error, never stored in plaintext.
 func (s *Subscriber) Handle(evt event.Event) error {
 	// Numbers as written, so a value hashes here as it did on the Runner
 	// (an integer past 2^53 would not survive float64).
@@ -250,6 +253,16 @@ func (s *Subscriber) Handle(evt event.Event) error {
 		if errors.Is(err, ErrUnknownDevice) {
 			s.logger.Error("dropping a facts batch for a device the database does not hold",
 				slog.String("job", termsafe.Quote(batch.JobID)), slog.String("device", termsafe.Quote(batch.DeviceID)))
+			return nil
+		}
+		// No key to seal the facts under, or a facts key other than the one
+		// the device's history was written under: neither changes on a
+		// redelivery, and a fact is never stored unsealed, so the batch is
+		// dropped and said loudly. The device's next gather stores its facts
+		// once the key is set right.
+		if errors.Is(err, facts.ErrNoKeys) || errors.Is(err, ErrKeysChanged) {
+			s.logger.Error("dropping a facts batch this controller cannot store sealed; set PLEIADES_FACTS_DIGEST_KEY to the key its stored facts were sealed under",
+				slog.String("job", termsafe.Quote(batch.JobID)), slog.String("device", termsafe.Quote(batch.DeviceID)), slog.String("reason", err.Error()))
 			return nil
 		}
 		// The server refused a value itself, so storing this batch again

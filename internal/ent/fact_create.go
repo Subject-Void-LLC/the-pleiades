@@ -63,6 +63,20 @@ func (_c *FactCreate) SetNillableKey(v *string) *FactCreate {
 	return _c
 }
 
+// SetKeyToken sets the "key_token" field.
+func (_c *FactCreate) SetKeyToken(v string) *FactCreate {
+	_c.mutation.SetKeyToken(v)
+	return _c
+}
+
+// SetNillableKeyToken sets the "key_token" field if the given value is not nil.
+func (_c *FactCreate) SetNillableKeyToken(v *string) *FactCreate {
+	if v != nil {
+		_c.SetKeyToken(*v)
+	}
+	return _c
+}
+
 // SetPayload sets the "payload" field.
 func (_c *FactCreate) SetPayload(v map[string]interface{}) *FactCreate {
 	_c.mutation.SetPayload(v)
@@ -72,6 +86,20 @@ func (_c *FactCreate) SetPayload(v map[string]interface{}) *FactCreate {
 // SetHash sets the "hash" field.
 func (_c *FactCreate) SetHash(v string) *FactCreate {
 	_c.mutation.SetHash(v)
+	return _c
+}
+
+// SetKeyedBy sets the "keyed_by" field.
+func (_c *FactCreate) SetKeyedBy(v string) *FactCreate {
+	_c.mutation.SetKeyedBy(v)
+	return _c
+}
+
+// SetNillableKeyedBy sets the "keyed_by" field if the given value is not nil.
+func (_c *FactCreate) SetNillableKeyedBy(v *string) *FactCreate {
+	if v != nil {
+		_c.SetKeyedBy(*v)
+	}
 	return _c
 }
 
@@ -215,6 +243,14 @@ func (_c *FactCreate) defaults() {
 		v := fact.DefaultKey
 		_c.mutation.SetKey(v)
 	}
+	if _, ok := _c.mutation.KeyToken(); !ok {
+		v := fact.DefaultKeyToken
+		_c.mutation.SetKeyToken(v)
+	}
+	if _, ok := _c.mutation.KeyedBy(); !ok {
+		v := fact.DefaultKeyedBy
+		_c.mutation.SetKeyedBy(v)
+	}
 	if _, ok := _c.mutation.Kind(); !ok {
 		v := fact.DefaultKind
 		_c.mutation.SetKind(v)
@@ -241,6 +277,14 @@ func (_c *FactCreate) check() error {
 			return &ValidationError{Name: "key", err: fmt.Errorf(`ent: validator failed for field "Fact.key": %w`, err)}
 		}
 	}
+	if _, ok := _c.mutation.KeyToken(); !ok {
+		return &ValidationError{Name: "key_token", err: errors.New(`ent: missing required field "Fact.key_token"`)}
+	}
+	if v, ok := _c.mutation.KeyToken(); ok {
+		if err := fact.KeyTokenValidator(v); err != nil {
+			return &ValidationError{Name: "key_token", err: fmt.Errorf(`ent: validator failed for field "Fact.key_token": %w`, err)}
+		}
+	}
 	if _, ok := _c.mutation.Payload(); !ok {
 		return &ValidationError{Name: "payload", err: errors.New(`ent: missing required field "Fact.payload"`)}
 	}
@@ -250,6 +294,14 @@ func (_c *FactCreate) check() error {
 	if v, ok := _c.mutation.Hash(); ok {
 		if err := fact.HashValidator(v); err != nil {
 			return &ValidationError{Name: "hash", err: fmt.Errorf(`ent: validator failed for field "Fact.hash": %w`, err)}
+		}
+	}
+	if _, ok := _c.mutation.KeyedBy(); !ok {
+		return &ValidationError{Name: "keyed_by", err: errors.New(`ent: missing required field "Fact.keyed_by"`)}
+	}
+	if v, ok := _c.mutation.KeyedBy(); ok {
+		if err := fact.KeyedByValidator(v); err != nil {
+			return &ValidationError{Name: "keyed_by", err: fmt.Errorf(`ent: validator failed for field "Fact.keyed_by": %w`, err)}
 		}
 	}
 	if _, ok := _c.mutation.Kind(); !ok {
@@ -309,6 +361,10 @@ func (_c *FactCreate) createSpec() (*Fact, *sqlgraph.CreateSpec) {
 		_spec.SetField(fact.FieldKey, field.TypeString, value)
 		_node.Key = value
 	}
+	if value, ok := _c.mutation.KeyToken(); ok {
+		_spec.SetField(fact.FieldKeyToken, field.TypeString, value)
+		_node.KeyToken = value
+	}
 	if value, ok := _c.mutation.Payload(); ok {
 		_spec.SetField(fact.FieldPayload, field.TypeJSON, value)
 		_node.Payload = value
@@ -316,6 +372,10 @@ func (_c *FactCreate) createSpec() (*Fact, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.Hash(); ok {
 		_spec.SetField(fact.FieldHash, field.TypeString, value)
 		_node.Hash = value
+	}
+	if value, ok := _c.mutation.KeyedBy(); ok {
+		_spec.SetField(fact.FieldKeyedBy, field.TypeString, value)
+		_node.KeyedBy = value
 	}
 	if value, ok := _c.mutation.Kind(); ok {
 		_spec.SetField(fact.FieldKind, field.TypeEnum, value)

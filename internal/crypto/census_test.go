@@ -53,7 +53,7 @@ func TestTakeCensus_FindsEveryColumnUnderTheKeyThatSealedIt(t *testing.T) {
 		t.Fatalf("TakeCensus() error = %v", err)
 	}
 
-	want := []string{"credentials", "devices", "saved launch configurations", "mesh signing keys", "mesh runner signing keys"}
+	want := []string{"credentials", "devices", "saved launch configurations", "mesh signing keys", "mesh runner signing keys", "facts"}
 	if len(census.Columns) != len(want) {
 		t.Fatalf("census has %d columns, want %d: %+v", len(census.Columns), len(want), census.Columns)
 	}
@@ -65,15 +65,15 @@ func TestTakeCensus_FindsEveryColumnUnderTheKeyThatSealedIt(t *testing.T) {
 			t.Errorf("%s: %+v, want the one sealed row opening under the held key only", col.Noun, col)
 		}
 	}
-	if census.Sealed() != 5 || census.Opens("the key in .env") != 5 || census.Unknown() != 0 {
-		t.Fatalf("totals: sealed %d, opens %d, unknown %d; want 5, 5, 0", census.Sealed(), census.Opens("the key in .env"), census.Unknown())
+	if census.Sealed() != 6 || census.Opens("the key in .env") != 6 || census.Unknown() != 0 {
+		t.Fatalf("totals: sealed %d, opens %d, unknown %d; want 6, 6, 0", census.Sealed(), census.Opens("the key in .env"), census.Unknown())
 	}
 
 	// The tag is not what decided which key opens a row, and it is still
 	// reported, because a controller reads a row only under the key its tag
 	// names. Every row here was written as v7, in every column's shape.
-	if tags := census.TagsUnder("the key in .env"); len(tags) != 1 || tags["v7"] != 5 {
-		t.Fatalf("TagsUnder(the key in .env) = %v, want all four rows under v7", tags)
+	if tags := census.TagsUnder("the key in .env"); len(tags) != 1 || tags["v7"] != 6 {
+		t.Fatalf("TagsUnder(the key in .env) = %v, want all six rows under v7", tags)
 	}
 	if tags := census.TagsUnder("a stranger's key"); len(tags) != 0 {
 		t.Fatalf("TagsUnder(a stranger's key) = %v, want nothing: it opens no row", tags)
@@ -96,8 +96,8 @@ func TestTakeCensus_CountsRowsUnderAKeyItWasNotGivenAsUnknown(t *testing.T) {
 	if err != nil {
 		t.Fatalf("TakeCensus() error = %v", err)
 	}
-	if census.Sealed() != 5 || census.Unknown() != 5 || census.Opens("a fresh key") != 0 {
-		t.Fatalf("census = %+v; want four sealed rows, all under a key the census was not given", census)
+	if census.Sealed() != 6 || census.Unknown() != 6 || census.Opens("a fresh key") != 0 {
+		t.Fatalf("census = %+v; want six sealed rows, all under a key the census was not given", census)
 	}
 }
 
@@ -118,8 +118,8 @@ func TestTakeCensus_CountsADuplicateCandidateOnce(t *testing.T) {
 	if err != nil {
 		t.Fatalf("TakeCensus() error = %v", err)
 	}
-	if census.Opens("current") != 5 || census.Opens("previous") != 0 {
-		t.Fatalf("current opens %d, previous opens %d; want 5 and 0", census.Opens("current"), census.Opens("previous"))
+	if census.Opens("current") != 6 || census.Opens("previous") != 0 {
+		t.Fatalf("current opens %d, previous opens %d; want 6 and 0", census.Opens("current"), census.Opens("previous"))
 	}
 }
 
@@ -130,8 +130,8 @@ func TestTakeCensus_ReadsANeverMigratedDatabaseAsEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatalf("TakeCensus() error = %v", err)
 	}
-	if census.Sealed() != 0 || len(census.Columns) != 5 {
-		t.Fatalf("census = %+v; want four empty columns", census)
+	if census.Sealed() != 0 || len(census.Columns) != 6 {
+		t.Fatalf("census = %+v; want six empty columns", census)
 	}
 }
 

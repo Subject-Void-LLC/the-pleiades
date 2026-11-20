@@ -17,6 +17,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts/entstore"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/facts/factstest"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/journal"
 )
 
@@ -111,7 +112,7 @@ func TestSubscriber_JudgesABatchUnderItsNodesMethod(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			client, device := open(t)
-			store := entstore.New(client)
+			store := entstore.New(client, factstest.Keys(), factstest.Envelope())
 			var logged bytes.Buffer
 			nodes := &fixedNode{node: tc.node}
 			sub := nodeSubscriber(t, store, &logged, nodes.resolve)
@@ -147,7 +148,7 @@ func TestSubscriber_JudgesABatchUnderItsNodesMethod(t *testing.T) {
 // nothing is stored.
 func TestSubscriber_RedeliversWhenTheNodeCannotBeResolvedNow(t *testing.T) {
 	client, device := open(t)
-	store := entstore.New(client)
+	store := entstore.New(client, factstest.Keys(), factstest.Envelope())
 	var logged bytes.Buffer
 	nodes := &fixedNode{err: errors.New("database is locked")}
 	sub := nodeSubscriber(t, store, &logged, nodes.resolve)
@@ -183,7 +184,7 @@ func (f *failingOnce) Record(ctx context.Context, device string, obs facts.Obser
 // once, as the built-in difference note was already said.
 func TestSubscriber_SaysWhatItChangedOnlyOnceStored(t *testing.T) {
 	client, device := open(t)
-	store := &failingOnce{Store: entstore.New(client)}
+	store := &failingOnce{Store: entstore.New(client, factstest.Keys(), factstest.Envelope())}
 	var logged bytes.Buffer
 	nodes := &fixedNode{node: journal.NodeMethod{Resolved: true, Method: "acme.inventory.read"}}
 	sub := nodeSubscriber(t, store, &logged, nodes.resolve)

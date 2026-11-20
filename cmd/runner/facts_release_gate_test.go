@@ -30,6 +30,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts/entstore"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/facts/factstest"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/journal"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/runbook"
@@ -88,7 +89,7 @@ func runFactsWalkGate(t *testing.T, runbookYAML, prepare string, workerOpts []di
 	}
 	t.Cleanup(func() { _ = client.Close() })
 	store := dispatch.NewEntJobStore(client)
-	factStore := entstore.New(client)
+	factStore := entstore.New(client, factstest.Keys(), factstest.Envelope())
 
 	const deviceID, deviceName = factsWalkGateDevice, factsWalkGateName
 	client.Device.Create().SetName(deviceName).SetType("linux_server").SetDeviceID(deviceID).

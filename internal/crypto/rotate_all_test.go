@@ -38,7 +38,7 @@ func TestRotateAll_LeavesNothingThatNeedsThePreviousKey(t *testing.T) {
 		t.Fatalf("RotateAll() error = %v", err)
 	}
 
-	wantTables := []string{"credentials", "devices", "saved launch configurations", "mesh signing keys", "mesh runner signing keys"}
+	wantTables := []string{"credentials", "devices", "saved launch configurations", "mesh signing keys", "mesh runner signing keys", "facts"}
 	if len(results) != len(wantTables) {
 		t.Fatalf("RotateAll() reported %d tables, want %d: %+v", len(results), len(wantTables), results)
 	}
@@ -55,7 +55,7 @@ func TestRotateAll_LeavesNothingThatNeedsThePreviousKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewEnvelopeService(new only) error = %v", err)
 	}
-	for table, readable := range readEveryColumn(t, openEveryColumn(t, dbPath, svcNewOnly), ids) {
+	for table, readable := range readEveryColumn(t, openEveryColumn(t, dbPath, svcNewOnly), svcNewOnly, ids) {
 		if !readable {
 			t.Errorf("%s no longer reads back after removing the previous key: rotation left it on the old key", table)
 		}
@@ -118,7 +118,7 @@ func TestRotateAll_ReportsATableItCouldNotRead(t *testing.T) {
 	if len(results) != 0 {
 		t.Errorf("RotateAll() reported %+v for tables it could not read", results)
 	}
-	for _, table := range []string{"credentials", "devices", "saved launch configurations", "mesh signing keys"} {
+	for _, table := range []string{"credentials", "devices", "saved launch configurations", "mesh signing keys", "facts"} {
 		if !strings.Contains(err.Error(), table+":") {
 			t.Errorf("RotateAll() error %q does not name %q", err, table)
 		}

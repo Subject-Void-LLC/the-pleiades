@@ -120,6 +120,27 @@ type migrationSource struct {
 	// ordinary five-second wait for a writer is shorter than a table rebuild
 	// on a large database can take (see applyOne).
 	waitForWriters bool
+
+	// afterCommit holds, by migration file name, the statements run on a
+	// connection of their own once that migration has committed: what the
+	// dialect refuses inside a transaction (see reclaim).
+	afterCommit map[string][]string
+}
+
+// sqliteAfterCommit is what SQLite runs after a migration commits.
+//
+// 0052 deletes every fact a build before it stored in plaintext. SQLite does
+// not overwrite a deleted row: its bytes stay in the file's free pages, and
+// in the write-ahead log, until something reuses them, so a copy of the file
+// taken after the upgrade would still hold the facts the upgrade was meant to
+// remove. VACUUM rebuilds the file without its free pages, and the
+// checkpoint that follows moves the rebuilt pages into it and empties the
+// log. VACUUM cannot run inside a transaction, which every migration's
+// script does, so it runs here. PostgreSQL needs no counterpart from this
+// package: its dead rows are reclaimed by its own vacuum, and what its files
+// hold until then is the database's storage to protect.
+var sqliteAfterCommit = map[string][]string{
+	"0052_fact_at_rest.sql": {"VACUUM", "PRAGMA wal_checkpoint(TRUNCATE)"},
 }
 
 // migrationSources maps a driver dialect name (entgo.io/ent/dialect's
@@ -140,6 +161,7 @@ var migrationSources = map[string]migrationSource{
 		floorColumnCount:   `SELECT count(*) FROM pragma_table_info('schema_migrations') WHERE name = 'compatible_from'`,
 		suspendForeignKeys: true,
 		waitForWriters:     true,
+		afterCommit:        sqliteAfterCommit,
 	},
 	"postgres": {
 		dialect:           "postgres",
@@ -201,6 +223,12 @@ type Outcome struct {
 	// Floor is the oldest migration a build must know to serve this database,
 	// when Newer is non-empty.
 	Floor string
+
+	// NotReclaimed lists each migration this call applied whose after-commit
+	// statements failed, with the failure. The migration itself is applied
+	// and recorded; what it deleted may still be readable in the database's
+	// file until an operator reclaims it (on SQLite, VACUUM).
+	NotReclaimed []string
 }
 
 // Apply brings db up to the latest schema version for dialectName by
@@ -299,12 +327,42 @@ func applyPending(ctx context.Context, db *sql.DB, src migrationSource, names []
 		switch {
 		case attemptErr == nil:
 			out.Applied = append(out.Applied, name)
+			if err := reclaim(ctx, db, src, name); err != nil {
+				out.NotReclaimed = append(out.NotReclaimed, name+": "+err.Error())
+			}
 		case recorded(history, name):
 			out.AppliedElsewhere = append(out.AppliedElsewhere, name)
 		default:
 			return out, attemptErr
 		}
 	}
+}
+
+// reclaim runs the named migration's after-commit statements, on one
+// connection of their own, after the starter that applied it has committed.
+//
+// It is best effort by design, and says so through Outcome.NotReclaimed
+// rather than by failing the start: the migration is already recorded, so a
+// failure here cannot be retried by starting again, and refusing to start
+// over it would turn a database that is correct into one that is down. A
+// starter that lost the race applies nothing and reclaims nothing; the one
+// that won does.
+func reclaim(ctx context.Context, db *sql.DB, src migrationSource, name string) error {
+	statements := src.afterCommit[name]
+	if len(statements) == 0 {
+		return nil
+	}
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return fmt.Errorf("taking a connection: %w", err)
+	}
+	defer func() { _ = conn.Close() }()
+	for _, statement := range statements {
+		if _, err := conn.ExecContext(ctx, statement); err != nil {
+			return fmt.Errorf("%s: %w", statement, err)
+		}
+	}
+	return nil
 }
 
 // recorded reports whether history holds the named migration. An empty name

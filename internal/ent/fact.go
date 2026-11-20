@@ -25,10 +25,14 @@ type Fact struct {
 	UpdatedAt time.Time `json:"updated_at,omitempty"`
 	// Key holds the value of the "key" field.
 	Key string `json:"key,omitempty"`
+	// KeyToken holds the value of the "key_token" field.
+	KeyToken string `json:"key_token,omitempty"`
 	// Payload holds the value of the "payload" field.
 	Payload map[string]interface{} `json:"payload,omitempty"`
 	// Hash holds the value of the "hash" field.
 	Hash string `json:"hash,omitempty"`
+	// KeyedBy holds the value of the "keyed_by" field.
+	KeyedBy string `json:"keyed_by,omitempty"`
 	// Kind holds the value of the "kind" field.
 	Kind fact.Kind `json:"kind,omitempty"`
 	// Provenance holds the value of the "provenance" field.
@@ -79,7 +83,7 @@ func (*Fact) scanValues(columns []string) ([]any, error) {
 			values[i] = new([]byte)
 		case fact.FieldID, fact.FieldObservationSeq:
 			values[i] = new(sql.NullInt64)
-		case fact.FieldKey, fact.FieldHash, fact.FieldKind, fact.FieldChainPrev, fact.FieldChain:
+		case fact.FieldKey, fact.FieldKeyToken, fact.FieldHash, fact.FieldKeyedBy, fact.FieldKind, fact.FieldChainPrev, fact.FieldChain:
 			values[i] = new(sql.NullString)
 		case fact.FieldCreatedAt, fact.FieldUpdatedAt, fact.FieldLastSeenAt:
 			values[i] = new(sql.NullTime)
@@ -124,6 +128,12 @@ func (_m *Fact) assignValues(columns []string, values []any) error {
 			} else if value.Valid {
 				_m.Key = value.String
 			}
+		case fact.FieldKeyToken:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field key_token", values[i])
+			} else if value.Valid {
+				_m.KeyToken = value.String
+			}
 		case fact.FieldPayload:
 			if value, ok := values[i].(*[]byte); !ok {
 				return fmt.Errorf("unexpected type %T for field payload", values[i])
@@ -137,6 +147,12 @@ func (_m *Fact) assignValues(columns []string, values []any) error {
 				return fmt.Errorf("unexpected type %T for field hash", values[i])
 			} else if value.Valid {
 				_m.Hash = value.String
+			}
+		case fact.FieldKeyedBy:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field keyed_by", values[i])
+			} else if value.Valid {
+				_m.KeyedBy = value.String
 			}
 		case fact.FieldKind:
 			if value, ok := values[i].(*sql.NullString); !ok {
@@ -242,11 +258,17 @@ func (_m *Fact) String() string {
 	builder.WriteString("key=")
 	builder.WriteString(_m.Key)
 	builder.WriteString(", ")
+	builder.WriteString("key_token=")
+	builder.WriteString(_m.KeyToken)
+	builder.WriteString(", ")
 	builder.WriteString("payload=")
 	builder.WriteString(fmt.Sprintf("%v", _m.Payload))
 	builder.WriteString(", ")
 	builder.WriteString("hash=")
 	builder.WriteString(_m.Hash)
+	builder.WriteString(", ")
+	builder.WriteString("keyed_by=")
+	builder.WriteString(_m.KeyedBy)
 	builder.WriteString(", ")
 	builder.WriteString("kind=")
 	builder.WriteString(fmt.Sprintf("%v", _m.Kind))

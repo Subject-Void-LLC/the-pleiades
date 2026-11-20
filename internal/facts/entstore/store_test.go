@@ -48,7 +48,7 @@ func prepared(t *testing.T, observed map[string]any) []facts.Entry {
 
 func TestStore_WritesOnChangeAndKeepsHistory(t *testing.T) {
 	client, device := open(t)
-	store := entstore.New(client)
+	store := entstore.New(client, factstest.Keys(), factstest.Envelope())
 	ctx := context.Background()
 	t0 := time.Date(2026, 11, 2, 10, 0, 0, 0, time.UTC)
 	for i, observed := range []map[string]any{
@@ -81,7 +81,8 @@ func TestStore_WritesOnChangeAndKeepsHistory(t *testing.T) {
 
 // TestFact_TheSchemaRefusesEditingAValue: a stored value is immutable in the
 // schema itself: the generated update has no setter for any of its fields
-// (Phase 41h removed the last two, last_seen_at and last_provenance), and
+// (Phase 41h removed the last two, last_seen_at and last_provenance) but the
+// sealed payload a key rotation seals again, and
 // neither has an observation's or a coverage's, so no caller can build an
 // in-place edit of the history.
 func TestFact_TheSchemaRefusesEditingAValue(t *testing.T) {
@@ -92,6 +93,14 @@ func TestFact_TheSchemaRefusesEditingAValue(t *testing.T) {
 			// UPDATE, which TestStore_AGatherUpdatesNoStoredFact proves the
 			// store never runs.
 			if name == "SetUpdatedAt" {
+				continue
+			}
+			// A fact's sealed payload is set again only when the master key
+			// rotates, and only to the same payload sealed under the new key:
+			// crypto.FactPayloadHook refuses anything else
+			// (TestFactPayloadHook_RefusesAnUpdateThatIsNotSealed), and the
+			// chain covers the key and value it holds.
+			if name == "SetPayload" && update.Elem().Name() == "FactUpdateOne" {
 				continue
 			}
 			if strings.HasPrefix(name, "Set") || strings.HasPrefix(name, "Add") || strings.HasPrefix(name, "Append") || strings.HasPrefix(name, "Clear") {
@@ -124,7 +133,7 @@ func handle(t *testing.T, sub *entstore.Subscriber, batch any) error {
 // recorded yet is asked for again, and a malformed one is acknowledged.
 func TestSubscriber_StoresOnlyWhatPassesAndWasDispatched(t *testing.T) {
 	client, device := open(t)
-	store := entstore.New(client)
+	store := entstore.New(client, factstest.Keys(), factstest.Envelope())
 	ctx := context.Background()
 	entries := prepared(t, map[string]any{"kernel": "6.1", "forged": "x"})
 	for i := range entries {
@@ -168,7 +177,7 @@ func TestSubscriber_StoresOnlyWhatPassesAndWasDispatched(t *testing.T) {
 // same batch stored twice writes its rows once.
 func TestStore_ALateBatchDoesNotReplaceANewerValue(t *testing.T) {
 	client, device := open(t)
-	store := entstore.New(client)
+	store := entstore.New(client, factstest.Keys(), factstest.Envelope())
 	ctx := context.Background()
 	t0 := time.Date(2026, 11, 2, 10, 0, 0, 0, time.UTC)
 	_ = store.Record(ctx, device, facts.Observation{Entries: prepared(t, map[string]any{"k": "A"}), At: t0})
@@ -192,7 +201,7 @@ func TestStore_ALateBatchDoesNotReplaceANewerValue(t *testing.T) {
 // the fact is stored rather than refused as forged.
 func TestSubscriber_ABigIntegerCrossesTheWireWhole(t *testing.T) {
 	client, device := open(t)
-	store := entstore.New(client)
+	store := entstore.New(client, factstest.Keys(), factstest.Envelope())
 	var big any
 	_ = json.Unmarshal([]byte("9007199254740993"), &big) // a float64, as a careless decode would make it
 	dec := json.NewDecoder(strings.NewReader("9007199254740993"))
@@ -214,7 +223,7 @@ func TestSubscriber_ABigIntegerCrossesTheWireWhole(t *testing.T) {
 func TestStore_Conformance(t *testing.T) {
 	factstest.Run(t, func(t *testing.T) (facts.Store, string) {
 		client, device := open(t)
-		return entstore.New(client), device
+		return entstore.New(client, factstest.Keys(), factstest.Envelope()), device
 	})
 }
 
@@ -238,7 +247,7 @@ func TestStore_VerifyFindsADeletedOrRewrittenRow(t *testing.T) {
 			client := enttest.Open(t, "sqlite3", dsn)
 			t.Cleanup(func() { _ = client.Close() })
 			dev := client.Device.Create().SetName("web1").SetType("linux_server").SetProperties(map[string]any{"host": "10.0.0.1"}).SaveX(context.Background())
-			store := entstore.New(client)
+			store := entstore.New(client, factstest.Keys(), factstest.Envelope())
 			at := time.Date(2026, 11, 2, 10, 0, 0, 0, time.UTC)
 			for i, kernel := range []string{"6.1", "6.2", "6.3"} {
 				obs := facts.Observation{Entries: prepared(t, map[string]any{"os.kernel.release": kernel}), At: at.Add(time.Duration(i) * time.Minute),
@@ -270,7 +279,7 @@ func TestStore_VerifyFindsADeletedOrRewrittenRow(t *testing.T) {
 // whose batch the bus then redelivers against the new head.
 func TestStore_TheChainIndexRefusesASecondSuccessor(t *testing.T) {
 	client, device := open(t)
-	store := entstore.New(client)
+	store := entstore.New(client, factstest.Keys(), factstest.Envelope())
 	at := time.Date(2026, 11, 2, 10, 0, 0, 0, time.UTC)
 	if err := store.Record(context.Background(), device, facts.Observation{Entries: prepared(t, map[string]any{"a": "1"}), At: at}); err != nil {
 		t.Fatal(err)
@@ -278,15 +287,15 @@ func TestStore_TheChainIndexRefusesASecondSuccessor(t *testing.T) {
 	head := client.Fact.Query().OnlyX(context.Background())
 	dev := client.Device.Query().OnlyX(context.Background())
 	// A second row naming the same predecessor as the first (the genesis "").
-	err := client.Fact.Create().SetKey("b").SetPayload(map[string]any{"json": `"1"`}).SetHash("h").SetChainPrev("").SetChain("x").SetDevice(dev).Exec(context.Background())
+	err := client.Fact.Create().SetKeyToken("token-b").SetKeyedBy("test").SetPayload(map[string]any{"json": `"1"`}).SetHash("h").SetChainPrev("").SetChain("x").SetDevice(dev).Exec(context.Background())
 	if err == nil || !ent.IsConstraintError(err) {
 		t.Fatalf("a second genesis row: %v, want a constraint error", err)
 	}
-	err = client.Fact.Create().SetKey("c").SetPayload(map[string]any{"json": `"1"`}).SetHash("h").SetChainPrev(head.Chain).SetChain("y").SetDevice(dev).Exec(context.Background())
+	err = client.Fact.Create().SetKeyToken("token-c").SetKeyedBy("test").SetPayload(map[string]any{"json": `"1"`}).SetHash("h").SetChainPrev(head.Chain).SetChain("y").SetDevice(dev).Exec(context.Background())
 	if err != nil {
 		t.Fatalf("the successor: %v", err)
 	}
-	err = client.Fact.Create().SetKey("d").SetPayload(map[string]any{"json": `"1"`}).SetHash("h").SetChainPrev(head.Chain).SetChain("z").SetDevice(dev).Exec(context.Background())
+	err = client.Fact.Create().SetKeyToken("token-d").SetKeyedBy("test").SetPayload(map[string]any{"json": `"1"`}).SetHash("h").SetChainPrev(head.Chain).SetChain("z").SetDevice(dev).Exec(context.Background())
 	if err == nil || !ent.IsConstraintError(err) {
 		t.Fatalf("a second successor: %v, want a constraint error", err)
 	}
@@ -311,7 +320,7 @@ func TestSubscriber_HoldsBatchesToTheEmbeddedCatalog(t *testing.T) {
 		t.Error("a catalog that does not decode was read")
 	}
 	client, device := open(t)
-	store := entstore.New(client)
+	store := entstore.New(client, factstest.Keys(), factstest.Envelope())
 	ctx := context.Background()
 	asVolatile := func(string) (facts.Spec, bool) { return facts.Spec{Kind: facts.KindVolatile}, true }
 	entries, _, _ := facts.Prepare(map[string]any{"os.kernel.release": "6.1", "host.uptime_seconds": 5, "acme_widgets": 3}, facts.Guard{Declared: asVolatile})
@@ -340,7 +349,7 @@ func TestSubscriber_HoldsBatchesToTheEmbeddedCatalog(t *testing.T) {
 // so on every call rather than storing or reading nothing quietly.
 func TestStore_AClosedDatabaseIsReported(t *testing.T) {
 	client, device := open(t)
-	store := entstore.New(client)
+	store := entstore.New(client, factstest.Keys(), factstest.Envelope())
 	_ = client.Close()
 	ctx := context.Background()
 	if err := store.Record(ctx, device, facts.Observation{Entries: prepared(t, map[string]any{"k": "v"}), At: time.Now()}); err == nil {
@@ -362,7 +371,7 @@ func TestStore_AClosedDatabaseIsReported(t *testing.T) {
 // without a new row.
 func TestStore_RecordsAThousandsOfKeysObservation(t *testing.T) {
 	client, device := open(t)
-	store := entstore.New(client)
+	store := entstore.New(client, factstest.Keys(), factstest.Envelope())
 	observed := map[string]any{}
 	for i := range 3000 {
 		observed[fmt.Sprintf("package.lib%04d", i)] = map[string]any{"version": "1"}

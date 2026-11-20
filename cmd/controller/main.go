@@ -739,6 +739,11 @@ func main() {
 	if err != nil {
 		fatal("failed to read the facts digest key", err)
 	}
+	// The keys stored facts are sealed under come from the same secret.
+	factKeys, err := loadFactAtRestKeys(logger)
+	if err != nil {
+		fatal("failed to derive the keys stored facts are sealed under", err)
+	}
 
 	// The drain is read before anything is bound, so a malformed
 	// SHUTDOWN_DRAIN stops the process before it has taken the port.
@@ -1206,7 +1211,10 @@ func main() {
 	// Each batch's facts are held to the built-in methods' declarations,
 	// read from the module catalog this binary serves, since a Controller
 	// links no Collection (Phase 41b).
-	factStore := entstore.New(client)
+	// Sealed at rest (internal/facts' atrest.go): found by token and compared
+	// by keyed hash under factKeys, each key and value sealed under the
+	// master key. With no facts secret the store keeps nothing.
+	factStore := entstore.New(client, factKeys, envelopeSvc)
 	factsOpts = append(factsOpts, entstore.WithNodeResolver(nodes.Resolve))
 	// Each batch is held to the claim its device's dispatch record gives (Phase 41b):
 	// a Runner's later batches cannot change place in the job.
@@ -1997,6 +2005,12 @@ func installCryptoHooks(client *ent.Client, envelopeSvc *crypto.EnvelopeService)
 	client.MeshSigningKey.Intercept(crypto.MeshSigningKeySeedInterceptor(envelopeSvc))
 	client.MeshSigningKey.Use(crypto.MeshRunnerSeedHook(envelopeSvc))
 	client.MeshSigningKey.Intercept(crypto.MeshRunnerSeedInterceptor(envelopeSvc))
+
+	// A stored fact's key and value. The fact store seals and opens them
+	// itself (internal/facts/entstore), so there is no interceptor; the hook
+	// is the second line, sealing anything that reaches the table unsealed
+	// and refusing any update but a rotation's.
+	client.Fact.Use(crypto.FactPayloadHook(envelopeSvc))
 }
 
 // projectRoot is the directory every project's working tree lives under.

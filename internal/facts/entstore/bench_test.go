@@ -14,6 +14,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts/entstore"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/facts/factstest"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
 )
 
@@ -39,7 +40,7 @@ func benchGather(b *testing.B, n int) facts.Observation {
 // match what is stored: one observation, and before 41h one UPDATE per key.
 func BenchmarkStore_UnchangedGather(b *testing.B) {
 	client, device := open(b)
-	store := entstore.New(client)
+	store := entstore.New(client, factstest.Keys(), factstest.Envelope())
 	ctx := context.Background()
 	if err := store.Record(ctx, device, benchGather(b, 1)); err != nil {
 		b.Fatal(err)
@@ -73,7 +74,7 @@ func changedGather(b *testing.B, n int) facts.Observation {
 // row per key, each chained to the one before.
 func BenchmarkStore_ChangedGather(b *testing.B) {
 	client, device := open(b)
-	store := entstore.New(client)
+	store := entstore.New(client, factstest.Keys(), factstest.Envelope())
 	ctx := context.Background()
 	gathers := make([]facts.Observation, b.N)
 	for i := range gathers {
@@ -94,7 +95,7 @@ func BenchmarkStore_ChangedGather(b *testing.B) {
 // (facts.Verify) and storing it, as the durable consumer does.
 func BenchmarkSubscriber_Handle(b *testing.B) {
 	client, device := open(b)
-	sub := entstore.NewSubscriber(entstore.New(client), nil, nil)
+	sub := entstore.NewSubscriber(entstore.New(client, factstest.Keys(), factstest.Envelope()), nil, nil)
 	events := make([]event.Event, b.N)
 	for i := range events {
 		obs := changedGather(b, i+1)
@@ -121,7 +122,7 @@ func BenchmarkStore_Current(b *testing.B) {
 	for _, gathers := range []int{1, 24, 168} {
 		b.Run(fmt.Sprintf("gathers=%d", gathers), func(b *testing.B) {
 			client, device := open(b)
-			store := entstore.New(client)
+			store := entstore.New(client, factstest.Keys(), factstest.Envelope())
 			ctx := context.Background()
 			for n := 1; n <= gathers; n++ {
 				if err := store.Record(ctx, device, benchGather(b, n)); err != nil {

@@ -328,8 +328,10 @@ var (
 		{Name: "created_at", Type: field.TypeTime},
 		{Name: "updated_at", Type: field.TypeTime},
 		{Name: "key", Type: field.TypeString, Size: 256, Default: ""},
+		{Name: "key_token", Type: field.TypeString, Size: 64, Default: ""},
 		{Name: "payload", Type: field.TypeJSON},
 		{Name: "hash", Type: field.TypeString},
+		{Name: "keyed_by", Type: field.TypeString, Size: 128, Default: ""},
 		{Name: "kind", Type: field.TypeEnum, Enums: []string{"stable", "volatile"}, Default: "stable"},
 		{Name: "provenance", Type: field.TypeJSON, Nullable: true},
 		{Name: "last_seen_at", Type: field.TypeTime, Nullable: true},
@@ -347,26 +349,26 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "facts_devices_facts",
-				Columns:    []*schema.Column{FactsColumns[13]},
+				Columns:    []*schema.Column{FactsColumns[15]},
 				RefColumns: []*schema.Column{DevicesColumns[0]},
 				OnDelete:   schema.NoAction,
 			},
 		},
 		Indexes: []*schema.Index{
 			{
-				Name:    "fact_key_device_facts",
+				Name:    "fact_key_token_device_facts",
 				Unique:  false,
-				Columns: []*schema.Column{FactsColumns[3], FactsColumns[13]},
+				Columns: []*schema.Column{FactsColumns[4], FactsColumns[15]},
 			},
 			{
 				Name:    "fact_device_facts",
 				Unique:  false,
-				Columns: []*schema.Column{FactsColumns[13]},
+				Columns: []*schema.Column{FactsColumns[15]},
 			},
 			{
 				Name:    "fact_chain_prev_device_facts",
 				Unique:  true,
-				Columns: []*schema.Column{FactsColumns[11], FactsColumns[13]},
+				Columns: []*schema.Column{FactsColumns[13], FactsColumns[15]},
 			},
 		},
 	}

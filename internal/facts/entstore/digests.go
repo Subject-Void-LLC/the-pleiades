@@ -40,6 +40,13 @@ func DigestKeys(secret []byte) (*sealed.PrivateKey, *facts.Keyer, error) {
 	return open, keyer, nil
 }
 
+// AtRestKeys derives, from the same Controller secret, the keys the store
+// tokenizes fact keys and keys fact hashes under (facts.Keys), each under a
+// label of its own: none is the keyed-digest key or the seal key above.
+func AtRestKeys(secret []byte) (*facts.Keys, error) {
+	return facts.NewKeys(secret, "controller")
+}
+
 // WithDigestKeys opens sealed digests with open and keys them with keyer.
 // Without it every sealed digest is dropped.
 func WithDigestKeys(open *sealed.PrivateKey, keyer *facts.Keyer) SubscriberOption {

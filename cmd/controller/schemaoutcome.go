@@ -16,6 +16,13 @@ import (
 // Every field is a migration file name or a count, never data from a table,
 // so nothing here can carry a secret.
 func logSchemaOutcome(ctx context.Context, logger *slog.Logger, outcome migrate.Outcome) {
+	if len(outcome.NotReclaimed) > 0 {
+		// The migration is applied; what it deleted may still be readable in
+		// the database's file. Each entry is a file name and the database's
+		// own refusal of a fixed statement.
+		logger.WarnContext(ctx, "a migration deleted rows whose bytes could not be removed from the database file; on SQLite, run VACUUM once the controller is stopped",
+			"migrations", outcome.NotReclaimed)
+	}
 	switch {
 	case len(outcome.Newer) > 0:
 		// Serving a database a newer build moved on. Worth saying at warning

@@ -34,6 +34,12 @@ func (_u *FactUpdate) SetUpdatedAt(v time.Time) *FactUpdate {
 	return _u
 }
 
+// SetPayload sets the "payload" field.
+func (_u *FactUpdate) SetPayload(v map[string]interface{}) *FactUpdate {
+	_u.mutation.SetPayload(v)
+	return _u
+}
+
 // Mutation returns the FactMutation object of the builder.
 func (_u *FactUpdate) Mutation() *FactMutation {
 	return _u.mutation
@@ -98,6 +104,9 @@ func (_u *FactUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	if value, ok := _u.mutation.UpdatedAt(); ok {
 		_spec.SetField(fact.FieldUpdatedAt, field.TypeTime, value)
 	}
+	if value, ok := _u.mutation.Payload(); ok {
+		_spec.SetField(fact.FieldPayload, field.TypeJSON, value)
+	}
 	if _u.mutation.ProvenanceCleared() {
 		_spec.ClearField(fact.FieldProvenance, field.TypeJSON)
 	}
@@ -136,6 +145,12 @@ type FactUpdateOne struct {
 // SetUpdatedAt sets the "updated_at" field.
 func (_u *FactUpdateOne) SetUpdatedAt(v time.Time) *FactUpdateOne {
 	_u.mutation.SetUpdatedAt(v)
+	return _u
+}
+
+// SetPayload sets the "payload" field.
+func (_u *FactUpdateOne) SetPayload(v map[string]interface{}) *FactUpdateOne {
+	_u.mutation.SetPayload(v)
 	return _u
 }
 
@@ -232,6 +247,9 @@ func (_u *FactUpdateOne) sqlSave(ctx context.Context) (_node *Fact, err error) {
 	}
 	if value, ok := _u.mutation.UpdatedAt(); ok {
 		_spec.SetField(fact.FieldUpdatedAt, field.TypeTime, value)
+	}
+	if value, ok := _u.mutation.Payload(); ok {
+		_spec.SetField(fact.FieldPayload, field.TypeJSON, value)
 	}
 	if _u.mutation.ProvenanceCleared() {
 		_spec.ClearField(fact.FieldProvenance, field.TypeJSON)

@@ -9,6 +9,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/crypto"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts"
 )
 
@@ -70,4 +71,15 @@ func WriteLines(t testing.TB, keys *facts.Keys, path, device, role string, lines
 	if err := os.WriteFile(path, SealLines(t, keys, device, role, lines), 0o600); err != nil {
 		t.Fatal(err)
 	}
+}
+
+// Envelope is the envelope service a test's Controller store seals each
+// fact's key and value under: one fixed master key, the same on every call.
+func Envelope() *crypto.EnvelopeService {
+	svc, err := crypto.NewEnvelopeService([]byte("facts-at-rest-test-master-32byte"), "v1", nil, "")
+	if err != nil {
+		// A fixed 32-byte key always makes a service.
+		panic(err)
+	}
+	return svc
 }

@@ -23,6 +23,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/api/wellknown"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts/entstore"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/facts/factstest"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/journal"
 )
 
@@ -96,7 +97,7 @@ func TestSubscriber_KeepsBuiltInFactsFromAMethodOutsideTheCatalog(t *testing.T) 
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			client, device := open(t)
-			store := entstore.New(client)
+			store := entstore.New(client, factstest.Keys(), factstest.Envelope())
 			var logged bytes.Buffer
 			sub := noteSubscriber(t, store, &logged)
 			batch := facts.Batch{JobID: "job-1", DeviceID: device, Attempt: 1, ObservedAt: time.Now(),
@@ -138,7 +139,7 @@ func TestSubscriber_KeepsBuiltInFactsFromAMethodOutsideTheCatalog(t *testing.T) 
 // gives their number and names a bounded few.
 func TestSubscriber_BoundsTheBuiltInFactNote(t *testing.T) {
 	client, device := open(t)
-	store := entstore.New(client)
+	store := entstore.New(client, factstest.Keys(), factstest.Envelope())
 	var logged bytes.Buffer
 	sub := noteSubscriber(t, store, &logged)
 	observed := map[string]any{}
@@ -170,7 +171,7 @@ func TestSubscriber_BoundsTheBuiltInFactNote(t *testing.T) {
 // claim is said at warning, and nothing is noted as a release difference.
 func TestCatalogMethodClaimNoLongerWritesBuiltinKeys(t *testing.T) {
 	client, device := open(t)
-	store := entstore.New(client)
+	store := entstore.New(client, factstest.Keys(), factstest.Envelope())
 	var logged bytes.Buffer
 	nodes := &fixedNode{node: journal.NodeMethod{Resolved: true, Method: "acme.facts.read"}}
 	sub := nodeSubscriber(t, store, &logged, nodes.resolve)

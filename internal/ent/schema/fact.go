@@ -25,23 +25,36 @@ func (Fact) Mixin() []ent.Mixin {
 // Fields of the Fact.
 func (Fact) Fields() []ent.Field {
 	return []ent.Field{
-		// payload and hash are .Immutable(): a Fact is a point-in-time
-		// observation, never an in-place edit. Before this, immutability
-		// was only a doc-comment claim ("to verify immutability" on hash)
-		// with nothing in the schema actually enforcing it; a caller could
-		// still build a FactUpdate that rewrote either field.
-		// key is the fact's name as the method emitted it (sdk.EmitFact).
-		// The SQL default only keeps the column an expand migration: a
-		// build from before it, which writes no facts, still serves the
-		// table; NotEmpty refuses an empty key on every write.
-		field.String("key").Default("").NotEmpty().MaxLen(256).Immutable(),
-		// payload holds the value as {"json": <its canonical JSON text>}, so
-		// a number reads back exactly (internal/facts/entstore).
-		field.JSON("payload", map[string]interface{}{}).Immutable(),
-		// hash is SHA-256 over the canonical JSON of key and value
-		// (internal/facts.Hash), which is how a later observation is
-		// compared with this one.
+		// A stored fact names nothing in plaintext (internal/facts' atrest.go,
+		// the owner's decision of 2026-11-19). key is what a build before that
+		// kept the fact's name in; this build writes it empty and reads it
+		// never, and it stays only so an older build can still serve the
+		// schema (the expand-only rule in internal/ent/migrate's compat.go).
+		// The 1.0.0 golden image drops it with the squash.
+		field.String("key").Default("").MaxLen(256).Immutable(),
+		// key_token is what a row is looked up by: HMAC-SHA-256 over the
+		// device's ID, a NUL and the fact's key, under the store's token key
+		// (facts.Keys.Token), so the table names no key and one key on two
+		// devices gives two tokens. The SQL default only keeps the column an
+		// expand migration; NotEmpty refuses an empty token on every write.
+		field.String("key_token").Default("").NotEmpty().MaxLen(64).Immutable(),
+		// payload holds the fact's key and value, sealed: the one entry
+		// crypto.EncryptedKeyMarker names is a bound envelope over the JSON of
+		// {"key": <the key>, "json": <the value's canonical JSON text>}, bound
+		// to the row's device and token (internal/crypto's fact_hook.go). It
+		// is the one field with a setter, and only so a master key rotation
+		// can seal it again under the new key (crypto.RotateFactPayloads); the
+		// hook refuses any other write, and the chain covers what it holds.
+		field.JSON("payload", map[string]interface{}{}),
+		// hash is the fact's keyed hash (facts.Keys.Hash): HMAC-SHA-256 over
+		// the device and the canonical JSON of key and value, which is how a
+		// later observation is compared with this one. A plain hash would let
+		// anyone holding the table test a guess at a short value.
 		field.String("hash").NotEmpty().Immutable(),
+		// keyed_by is the identity of the keys the token and the hash were
+		// made under (facts.Keys.ID). A store refuses a device whose rows
+		// name other keys, rather than start a second history beside them.
+		field.String("keyed_by").Default("").NotEmpty().MaxLen(128).Immutable(),
 		// kind is what the emitting method declared (Phase 41b): a stable
 		// key's rows are its history; a volatile key keeps one row, replaced
 		// when its value changes. A row from before 41b reads as stable.
@@ -78,11 +91,12 @@ func (Fact) Fields() []ent.Field {
 	}
 }
 
-// Indexes of the Fact: one key across devices, every fact of one device
-// (what the device's facts route reads), and one successor per chain link.
+// Indexes of the Fact: one key's token on one device (how a key's rows are
+// found), every fact of one device (what the device's facts route reads), and
+// one successor per chain link.
 func (Fact) Indexes() []ent.Index {
 	return []ent.Index{
-		index.Fields("key").Edges("device"),
+		index.Fields("key_token").Edges("device"),
 		index.Edges("device"),
 		index.Fields("chain_prev").Edges("device").Unique(),
 	}

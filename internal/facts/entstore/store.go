@@ -19,7 +19,13 @@
 // (seq, device) makes two replicas storing for one device at once take turns:
 // the loser's batch is redelivered against the new head. No field of a row
 // has a setter in the generated client but the shared timestamp mixin's
-// updated_at, which nothing calls.
+// updated_at, which nothing calls, and the sealed payload, which only a
+// master key rotation seals again (internal/crypto's fact_hook.go).
+//
+// Nothing a row holds names a fact in plaintext (internal/facts' atrest.go):
+// a row is found by its key's token, its hash is keyed, and its key and value
+// are sealed in its payload (sealed.go). A store with no keys stores nothing
+// and reads nothing.
 package entstore
 
 import (
@@ -28,6 +34,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/crypto"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent"
 	entdevice "github.com/Subject-Void-LLC/the-pleiades/internal/ent/device"
 	entfact "github.com/Subject-Void-LLC/the-pleiades/internal/ent/fact"
@@ -40,10 +47,18 @@ var ErrUnknownDevice = errors.New("facts: no such device")
 // Store is facts.Store over an ent client.
 type Store struct {
 	client *ent.Client
+	// keys tokenizes fact keys and keys fact hashes; envelope seals each
+	// row's key and value (sealed.go). Without both the store fails closed.
+	keys     *facts.Keys
+	envelope *crypto.EnvelopeService
 }
 
-// New returns a store over client.
-func New(client *ent.Client) *Store { return &Store{client: client} }
+// New returns a store over client that tokenizes and keys with keys and
+// seals with envelope. With either missing it stores nothing and reads
+// nothing (facts.ErrNoKeys): plaintext is never the fallback.
+func New(client *ent.Client, keys *facts.Keys, envelope *crypto.EnvelopeService) *Store {
+	return &Store{client: client, keys: keys, envelope: envelope}
+}
 
 var _ facts.Store = (*Store)(nil)
 
@@ -61,11 +76,21 @@ func (s *Store) Record(ctx context.Context, device string, obs facts.Observation
 	if err := obs.By.CheckDeliveredCollection(); err != nil {
 		return fmt.Errorf("%w: %w", facts.ErrInvalid, err)
 	}
+	// Before anything is read or written: no keys, no record. Each hash is
+	// keyed here, so every comparison and every row below holds the keyed one.
+	if err := s.ready(); err != nil {
+		return err
+	}
+	keyed, err := s.keys.Rekey(device, obs.Entries)
+	if err != nil {
+		return err
+	}
+	obs.Entries = keyed
 	tx, err := s.client.Tx(ctx)
 	if err != nil {
 		return fmt.Errorf("facts: %w", err)
 	}
-	if err := record(ctx, tx, device, obs); err != nil {
+	if err := s.record(ctx, tx, device, obs); err != nil {
 		_ = tx.Rollback()
 		return err
 	}
@@ -75,14 +100,17 @@ func (s *Store) Record(ctx context.Context, device string, obs facts.Observation
 	return nil
 }
 
-// record is Record inside tx.
-func record(ctx context.Context, tx *ent.Tx, device string, obs facts.Observation) error {
+// record is Record inside tx, with obs's hashes already keyed.
+func (s *Store) record(ctx context.Context, tx *ent.Tx, device string, obs facts.Observation) error {
 	dev, err := tx.Device.Query().Where(entdevice.DeviceIDEQ(device)).Only(ctx)
 	if ent.IsNotFound(err) {
 		return fmt.Errorf("%w: %s", ErrUnknownDevice, device)
 	}
 	if err != nil {
 		return fmt.Errorf("facts: %w", err)
+	}
+	if err := s.sameKeys(ctx, tx.Fact, dev.ID); err != nil {
+		return err
 	}
 	at := facts.StoredTime(obs.At)
 	by, err := encode(obs.By)
@@ -101,23 +129,31 @@ func record(ctx context.Context, tx *ent.Tx, device string, obs facts.Observatio
 	// host's packages are thousands of keys (Phase 41c), and one query per
 	// key made a batch thousands of round trips. An observation holds each
 	// key once, so what one entry writes is never read by another.
-	keys := make([]string, len(obs.Entries))
+	// Rows are found by token: the table names no key.
+	tokens := make([]string, len(obs.Entries))
+	tokenOf, keyOf := make(map[string]string, len(obs.Entries)), make(map[string]string, len(obs.Entries))
 	for i, e := range obs.Entries {
-		keys[i] = e.Key
+		token, err := s.keys.Token(device, e.Key)
+		if err != nil {
+			return fmt.Errorf("facts: %w", err)
+		}
+		tokens[i], tokenOf[e.Key], keyOf[token] = token, token, e.Key
 	}
 	byKey := map[string][]*ent.Fact{}
-	for _, chunk := range chunked(keys, 500) {
+	for _, chunk := range chunked(tokens, 500) {
 		rows, err := tx.Fact.Query().
-			Where(entfact.KeyIn(chunk...), entfact.HasDeviceWith(entdevice.IDEQ(dev.ID))).
+			Where(entfact.KeyTokenIn(chunk...), entfact.HasDeviceWith(entdevice.IDEQ(dev.ID))).
 			Order(ent.Asc(entfact.FieldID)).
 			All(ctx)
 		if err != nil {
 			return fmt.Errorf("facts: %w", err)
 		}
 		for _, row := range rows {
-			byKey[row.Key] = append(byKey[row.Key], row)
+			key := keyOf[row.KeyToken]
+			byKey[key] = append(byKey[key], row)
 		}
 	}
+	w := writer{store: s, tx: tx, dev: dev, device: device, tokenOf: tokenOf}
 	last, err := lastSightings(ctx, tx, dev.ID, obs, byKey)
 	if err != nil {
 		return err
@@ -125,7 +161,7 @@ func record(ctx context.Context, tx *ent.Tx, device string, obs facts.Observatio
 	for _, e := range obs.Entries {
 		rows := byKey[e.Key]
 		if e.Kind == facts.KindVolatile {
-			if err := recordVolatile(ctx, tx, dev, rows, last, e, obs, seq, by); err != nil {
+			if err := w.recordVolatile(ctx, rows, last, e, obs, seq, by); err != nil {
 				return err
 			}
 			continue
@@ -138,32 +174,52 @@ func record(ctx context.Context, tx *ent.Tx, device string, obs facts.Observatio
 			// A confirmation: the observation written below is all of it.
 			continue
 		}
-		if head, err = chainStable(ctx, tx, dev, device, head, e, at, obs.By, seq); err != nil {
+		if head, err = w.chainStable(ctx, head, e, at, obs.By, seq); err != nil {
 			return err
 		}
 		// A late change keeps the value confirmed after it in the history
 		// (FAILURE_PATTERNS 923).
 		if back, ok := facts.Resumed(prior, facts.Entry{Key: e.Key, Hash: e.Hash, ObservedAt: at, By: obs.By}); ok {
-			if head, err = chainStable(ctx, tx, dev, device, head, back, back.ObservedAt, back.By, seq); err != nil {
+			// The rows were read without their values (sealed.go's meta);
+			// the one value written again is opened now, from a row that
+			// holds it.
+			if back.Value, err = s.valueOf(device, rows, back.Hash); err != nil {
+				return err
+			}
+			if head, err = w.chainStable(ctx, head, back, back.ObservedAt, back.By, seq); err != nil {
 				return err
 			}
 		}
 	}
-	return writeObservation(ctx, tx, dev, seq, obs, by)
+	return w.writeObservation(ctx, seq, obs, by)
+}
+
+// writer is what one record writes rows with: the store's keys, the
+// transaction, the device, and each of the observation's keys' tokens.
+type writer struct {
+	store   *Store
+	tx      *ent.Tx
+	dev     *ent.Device
+	device  string
+	tokenOf map[string]string
 }
 
 // chainStable writes e as a stable row first observed at at by p, written by
 // observation seq and chained after head, and returns the new head.
-func chainStable(ctx context.Context, tx *ent.Tx, dev *ent.Device, device, head string, e facts.Entry, at time.Time, p facts.Provenance, seq int64) (string, error) {
+func (w writer) chainStable(ctx context.Context, head string, e facts.Entry, at time.Time, p facts.Provenance, seq int64) (string, error) {
 	by, err := encode(p)
 	if err != nil {
 		return "", err
 	}
-	chain, err := facts.ChainHash(device, head, e.Key, e.Hash, at, p)
+	chain, err := facts.ChainHash(w.device, head, e.Key, e.Hash, at, p)
 	if err != nil {
 		return "", fmt.Errorf("facts: %w", err)
 	}
-	if err := create(tx, dev, e, at, by, seq).SetKind(entfact.KindStable).SetChainPrev(head).SetChain(chain).Exec(ctx); err != nil {
+	row, err := w.create(e, at, by, seq)
+	if err != nil {
+		return "", err
+	}
+	if err := row.SetKind(entfact.KindStable).SetChainPrev(head).SetChain(chain).Exec(ctx); err != nil {
 		return "", fmt.Errorf("facts: %w", err)
 	}
 	return chain, nil
@@ -173,7 +229,7 @@ func chainStable(ctx context.Context, tx *ent.Tx, dev *ent.Device, device, head 
 // latest observation of it: a value the same as the one held is confirmed by
 // the observation alone, and a different one replaces it; a late observation
 // changes nothing.
-func recordVolatile(ctx context.Context, tx *ent.Tx, dev *ent.Device, rows []*ent.Fact, last map[int]facts.Entry, e facts.Entry, obs facts.Observation, seq int64, by map[string]any) error {
+func (w writer) recordVolatile(ctx context.Context, rows []*ent.Fact, last map[int]facts.Entry, e facts.Entry, obs facts.Observation, seq int64, by map[string]any) error {
 	held := volatileRows(rows)
 	at := facts.StoredTime(obs.At)
 	if len(held) > 0 {
@@ -188,11 +244,15 @@ func recordVolatile(ctx context.Context, tx *ent.Tx, dev *ent.Device, rows []*en
 		for i, row := range held {
 			ids[i] = row.ID
 		}
-		if _, err := tx.Fact.Delete().Where(entfact.IDIn(ids...)).Exec(ctx); err != nil {
+		if _, err := w.tx.Fact.Delete().Where(entfact.IDIn(ids...)).Exec(ctx); err != nil {
 			return fmt.Errorf("facts: %w", err)
 		}
 	}
-	if err := create(tx, dev, e, at, by, seq).SetKind(entfact.KindVolatile).Exec(ctx); err != nil {
+	row, err := w.create(e, at, by, seq)
+	if err != nil {
+		return err
+	}
+	if err := row.SetKind(entfact.KindVolatile).Exec(ctx); err != nil {
 		return fmt.Errorf("facts: %w", err)
 	}
 	return nil
@@ -206,16 +266,28 @@ func lastOf(last map[int]facts.Entry, row *ent.Fact) facts.Entry {
 }
 
 // create starts a row for e, first observed at at by by, written by
-// observation seq.
-func create(tx *ent.Tx, dev *ent.Device, e facts.Entry, at time.Time, by map[string]any, seq int64) *ent.FactCreate {
-	return tx.Fact.Create().
-		SetKey(e.Key).
-		SetPayload(map[string]any{payloadKey: mustCanonical(e.Value)}).
+// observation seq: found by its key's token, its key and value sealed, its
+// hash the keyed one, and named for the keys that made them. The legacy key
+// column is left empty.
+func (w writer) create(e facts.Entry, at time.Time, by map[string]any, seq int64) (*ent.FactCreate, error) {
+	token, ok := w.tokenOf[e.Key]
+	if !ok {
+		// Every entry's token was made before anything was read.
+		return nil, fmt.Errorf("facts: no token for a fact of %s", w.device)
+	}
+	payload, err := w.store.seal(token, e)
+	if err != nil {
+		return nil, err
+	}
+	return w.tx.Fact.Create().
+		SetKeyToken(token).
+		SetPayload(payload).
 		SetHash(e.Hash).
+		SetKeyedBy(w.store.keys.ID()).
 		SetCreatedAt(at).
 		SetProvenance(by).
 		SetObservationSeq(seq).
-		SetDevice(dev)
+		SetDevice(w.dev), nil
 }
 
 // laterThan reports whether a was first observed after b.
@@ -240,7 +312,7 @@ func chainHead(ctx context.Context, tx *ent.Tx, device int) (string, error) {
 	return row.Chain, nil
 }
 
-// chunked splits keys into runs of at most n, so one IN list stays within
+// chunked splits keys (or tokens) into runs of at most n, so one IN list stays within
 // what every dialect accepts as bound parameters.
 func chunked(keys []string, n int) [][]string {
 	var out [][]string

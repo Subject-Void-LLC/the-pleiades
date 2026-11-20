@@ -58,9 +58,15 @@ func orderColumns(o facts.Order) (string, int64) {
 }
 
 // writeObservation stores obs as device's observation number seq, and its
-// coverage when the device has none with the same digest.
-func writeObservation(ctx context.Context, tx *ent.Tx, dev *ent.Device, seq int64, obs facts.Observation, by map[string]any) error {
-	covers := facts.CoverageOf(obs.Entries)
+// coverage when the device has none with the same digest. The coverage lists
+// each key's token, and its digest is over those, so neither names a key.
+func (w writer) writeObservation(ctx context.Context, seq int64, obs facts.Observation, by map[string]any) error {
+	tx, dev := w.tx, w.dev
+	tokens := make([]facts.Entry, len(obs.Entries))
+	for i, e := range obs.Entries {
+		tokens[i] = facts.Entry{Key: w.tokenOf[e.Key], Kind: e.Kind}
+	}
+	covers := facts.CoverageOf(tokens)
 	digest := covers.Digest()
 	known, err := tx.FactCoverage.Query().
 		Where(entcoverage.DigestEQ(digest), entcoverage.HasDeviceWith(entdevice.IDEQ(dev.ID))).

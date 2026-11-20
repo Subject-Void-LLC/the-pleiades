@@ -14,6 +14,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts/entstore"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/facts/factstest"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/sealed"
 )
 
@@ -68,7 +69,7 @@ func storedValues(t *testing.T, store *entstore.Store, device string) map[string
 	for _, e := range current {
 		v, _ := e.Value.(map[string]any)
 		out[e.Key] = v
-		if want, _ := facts.Hash(e.Key, e.Value); want != e.Hash {
+		if want, _ := factstest.Keys().Hash(device, e.Key, e.Value); want != e.Hash {
 			t.Errorf("%s is stored under a hash that is not its value's", e.Key)
 		}
 	}
@@ -92,7 +93,7 @@ func TestDigestKeys_EveryReplicaDerivesTheSameKeys(t *testing.T) {
 
 func TestSubscriber_KeysWhatARunnerSealedAndStoresNothingRaw(t *testing.T) {
 	client, device := open(t)
-	store := entstore.New(client)
+	store := entstore.New(client, factstest.Keys(), factstest.Envelope())
 	open, keyer, err := entstore.DigestKeys(bytes.Repeat([]byte{6}, 32))
 	if err != nil {
 		t.Fatal(err)
@@ -125,7 +126,7 @@ func TestSubscriber_KeysWhatARunnerSealedAndStoresNothingRaw(t *testing.T) {
 
 func TestSubscriber_WithoutKeysStoresTheFactWithoutItsDigest(t *testing.T) {
 	client, device := open(t)
-	store := entstore.New(client)
+	store := entstore.New(client, factstest.Keys(), factstest.Envelope())
 	open, _, _ := entstore.DigestKeys(bytes.Repeat([]byte{6}, 32))
 	entries := runnerEntries(t, map[string]any{
 		"file.x": map[string]any{"state": "present", "sha256_sealed": sealFor(t, open.Public(), device, "file.x")},
@@ -141,7 +142,7 @@ func TestSubscriber_WithoutKeysStoresTheFactWithoutItsDigest(t *testing.T) {
 
 func TestSubscriber_NeverStoresARawDigest(t *testing.T) {
 	client, device := open(t)
-	store := entstore.New(client)
+	store := entstore.New(client, factstest.Keys(), factstest.Envelope())
 	open, keyer, _ := entstore.DigestKeys(bytes.Repeat([]byte{6}, 32))
 	// A Runner that sent a raw digest (an old build, or one tampered with):
 	// its hash covers the raw value, which the Controller strips, so the

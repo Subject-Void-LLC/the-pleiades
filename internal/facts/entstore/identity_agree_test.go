@@ -16,6 +16,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts/entstore"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/facts/factstest"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/journal"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
@@ -52,7 +53,7 @@ func TestStores_KeepTheSameIdentityForOneTask(t *testing.T) {
 				t.Fatalf("the journal subscriber: %v", err)
 			}
 			// The same task's facts.
-			factStore := entstore.New(client)
+			factStore := entstore.New(client, factstest.Keys(), factstest.Envelope())
 			batch := facts.Batch{JobID: "job-1", DeviceID: device, Attempt: 1, ObservedAt: at,
 				Entries: prepared(t, map[string]any{"os.kernel.release": "6.18.33"}),
 				By:      facts.Provenance{Run: "run-1", Node: "tasks[0]", Method: "facts.gather", Runner: "r1", Collection: c.sent}}

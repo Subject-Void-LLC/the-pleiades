@@ -168,6 +168,11 @@ func (k *Keys) load() error {
 	return k.err
 }
 
+// Ready reports whether the keys can be used: nil, or why not (ErrNoKeys).
+func (k *Keys) Ready() error {
+	return k.load()
+}
+
 // ID is the keys' identity as a row records it: where the secret came from
 // and 16 hex characters that say which keys, and nothing of them; empty when
 // there are none.
