@@ -6,12 +6,15 @@ package entstore_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"testing"
 	"time"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts/entstore"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
 )
 
 // benchKeys is a large host's gather: a package family of this many keys.
@@ -47,6 +50,69 @@ func BenchmarkStore_UnchangedGather(b *testing.B) {
 			b.Fatal(err)
 		}
 	}
+}
+
+// changedGather is benchGather with every value new in run n, so each gather
+// writes benchKeys rows and extends the chain by as many.
+func changedGather(b *testing.B, n int) facts.Observation {
+	b.Helper()
+	observed := make(map[string]any, benchKeys)
+	for i := 0; i < benchKeys; i++ {
+		observed[fmt.Sprintf("package.p%04d", i)] = map[string]any{"version": fmt.Sprintf("1.%d", n), "arch": "amd64"}
+	}
+	obs := benchGather(b, n)
+	entries, problems, err := facts.Prepare(observed, facts.Guard{})
+	if err != nil || len(problems) != 0 {
+		b.Fatalf("Prepare: %v, %v", problems, err)
+	}
+	obs.Entries = entries
+	return obs
+}
+
+// BenchmarkStore_ChangedGather stores a gather whose every value changed: a
+// row per key, each chained to the one before.
+func BenchmarkStore_ChangedGather(b *testing.B) {
+	client, device := open(b)
+	store := entstore.New(client)
+	ctx := context.Background()
+	gathers := make([]facts.Observation, b.N)
+	for i := range gathers {
+		gathers[i] = changedGather(b, i+1)
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if err := store.Record(ctx, device, gathers[i]); err != nil {
+			b.Fatal(err)
+		}
+	}
+	b.StopTimer()
+	b.ReportMetric(float64(b.Elapsed().Nanoseconds())/float64(b.N)/benchKeys, "ns/fact")
+}
+
+// BenchmarkSubscriber_Handle is the Controller's whole path for one published
+// batch of benchKeys changed values: decoding it, re-checking every entry
+// (facts.Verify) and storing it, as the durable consumer does.
+func BenchmarkSubscriber_Handle(b *testing.B) {
+	client, device := open(b)
+	sub := entstore.NewSubscriber(entstore.New(client), nil, nil)
+	events := make([]event.Event, b.N)
+	for i := range events {
+		obs := changedGather(b, i+1)
+		batch := facts.Batch{JobID: "job-bench", DeviceID: device, Attempt: 1, ObservedAt: obs.At, Entries: obs.Entries, By: facts.Provenance{Job: "job-bench", Runner: "runner-bench", Attempt: 1, Order: facts.Order{Source: "lease:bench", Token: uint64(i + 1)}}}
+		data, err := json.Marshal(batch)
+		if err != nil {
+			b.Fatal(err)
+		}
+		events[i] = event.Event{ID: fmt.Sprintf("e%d", i), Type: facts.EventType, Data: data, Subject: topology.FactsSubject("runner-bench", "job-bench")}
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if err := sub.Handle(events[i]); err != nil {
+			b.Fatal(err)
+		}
+	}
+	b.StopTimer()
+	b.ReportMetric(float64(b.Elapsed().Nanoseconds())/float64(b.N)/benchKeys, "ns/fact")
 }
 
 // BenchmarkStore_Current reads the current facts of a device with benchKeys

@@ -26,6 +26,11 @@ type affordance struct {
 	// alsoScopes are the route's AlsoScopes: the affordance is offered only
 	// to a caller admitted for its scope and every one of these.
 	alsoScopes []auth.Scope
+
+	// target is, for a route linked from another (Route.LinkedFrom), the
+	// full pattern the link points to; empty for the resource's own routes,
+	// whose href is the request's own.
+	target string
 }
 
 // linkBuilder maps a chi route pattern to every affordance registered on
@@ -39,6 +44,10 @@ type affordance struct {
 // request-scoped value, not here.
 type linkBuilder struct {
 	byPattern map[string][]affordance
+	// linked is, for each pattern, the routes linked from it (a device's
+	// facts from the device): links in its responses, never methods in its
+	// Allow header.
+	linked    map[string][]affordance
 	generator auth.HATEOASGenerator
 	// statics is, for each pattern, the fixed segments the route table
 	// registers beside each of its parameters (staticSiblings).
@@ -50,6 +59,7 @@ type linkBuilder struct {
 // rather than a scan of the whole table.
 func newLinkBuilder(routes []Route, generator auth.HATEOASGenerator) *linkBuilder {
 	byPattern := make(map[string][]affordance, len(routes))
+	linked := map[string][]affordance{}
 	patterns := make([]string, 0, len(routes))
 	for _, route := range routes {
 		full := APIVersionPrefix + route.Pattern
@@ -62,8 +72,18 @@ func newLinkBuilder(routes []Route, generator auth.HATEOASGenerator) *linkBuilde
 			scope:      route.Scope,
 			alsoScopes: route.AlsoScopes,
 		})
+		if route.LinkedFrom != "" {
+			parent := APIVersionPrefix + route.LinkedFrom
+			linked[parent] = append(linked[parent], affordance{
+				rel:        route.LinkedAs,
+				method:     route.Method,
+				scope:      route.Scope,
+				alsoScopes: route.AlsoScopes,
+				target:     full,
+			})
+		}
 	}
-	return &linkBuilder{byPattern: byPattern, generator: generator, statics: staticSiblings(patterns)}
+	return &linkBuilder{byPattern: byPattern, linked: linked, generator: generator, statics: staticSiblings(patterns)}
 }
 
 // routeStatics maps a route pattern to, for each of its parameters by name,
@@ -213,6 +233,32 @@ func (b *linkBuilder) linksFor(r *http.Request, id *auth.Identity, applies func(
 		}
 		if applies != nil && !applies(c.rel) {
 			continue
+		}
+		links = append(links, Link{Rel: c.rel, Href: href, Method: c.method})
+	}
+	return b.appendLinked(r, id, pattern, applies, links)
+}
+
+// appendLinked adds to links the routes linked from pattern that id may
+// call and the resource allows, each with its href built from the request's
+// own parameters (validateLinkedRoutes holds every parameter of its pattern
+// to the parent's).
+func (b *linkBuilder) appendLinked(r *http.Request, id *auth.Identity, pattern string, applies func(auth.LinkRel) bool, links []Link) ([]Link, error) {
+	linked := b.linked[pattern]
+	if len(linked) == 0 {
+		return links, nil
+	}
+	permitted, err := b.permitted(r, id, linked)
+	if err != nil {
+		return nil, fmt.Errorf("computing the links from %s: %w", pattern, err)
+	}
+	for _, c := range linked {
+		if !permitted[c.rel] || (applies != nil && !applies(c.rel)) {
+			continue
+		}
+		href, err := hrefFor(r, c.target, b.statics[c.target])
+		if err != nil {
+			return nil, err
 		}
 		links = append(links, Link{Rel: c.rel, Href: href, Method: c.method})
 	}

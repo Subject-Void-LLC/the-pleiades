@@ -7,6 +7,12 @@
 // file descriptor under /proc/<pid>/fd, so it is known only for the processes
 // this login may look into (its own, or every one as root), and is left out,
 // never guessed, for the rest. The socket's owner (uid) is always known.
+//
+// Each descriptor is read with stat -L, which prints its type and inode beside
+// its own /proc/<pid>/fd/<n> path, never with ls -l, which prints what a
+// descriptor points to: a local user names a file anything but a slash, so a
+// path whose directories hold a newline and a line shaped like a listing
+// made another process (pid 1) the owner of a socket it does not hold.
 package facts
 
 import (
@@ -26,11 +32,11 @@ const portSectionMark = "--pleiades-ports--"
 // little-endian, 0100 big-endian; the kernel prints addresses in that order)
 // with uname -m after it for a device without od, the rows of the four
 // socket tables in state 0A or 07 (the only ones that can listen), every
-// socket descriptor this login can list with each process's directory
-// before them, and each process's name. The rows are narrowed on the device
-// so a server holding hundreds of thousands of connections answers in
-// kilobytes, not past the output limit. Each read is a file, grep or a
-// builtin but the one ls, so thousands of processes cost one command.
+// socket descriptor this login can look into
+// as stat -L reads them, and each process's name. The rows are narrowed on
+// the device so a server holding hundreds of thousands of connections answers
+// in kilobytes, not past the output limit. Each read is a file, grep or a
+// builtin but stat, which xargs runs over every descriptor in a few commands.
 func linuxPortProbes() []gatherProbe {
 	tables := ""
 	for _, t := range []string{"tcp", "tcp6", "udp", "udp6"} {
@@ -44,12 +50,21 @@ func linuxPortProbes() []gatherProbe {
 		// section instead (checkLinuxPorts).
 		present: `[ -r /proc/net/tcp ]`,
 		command: `{ printf '\001\000' | od -An -tx2; uname -m; ` + tables +
-			`echo '` + portSectionMark + ` fd'; ls -l /proc/[0-9]*/fd 2>/dev/null | grep -E '^/proc/|socket:'; ` +
+			`echo '` + portSectionMark + ` fd'; ` + linuxSocketDescriptors + ` ` +
 			`echo '` + portSectionMark + ` comm'; for d in /proc/[0-9]*; do read -r c < "$d/comm" 2>/dev/null && printf '%s\t%s\n' "${d#/proc/}" "$c"; done; }`,
 		parse: parseLinuxPorts,
 		check: checkLinuxPorts,
 	}}
 }
+
+// linuxSocketDescriptors prints "socket <inode> /proc/<pid>/fd/<n>" for every
+// socket descriptor this login may look into: stat -L follows each descriptor
+// to what it is and prints the descriptor's own path, which only the kernel
+// names, so nothing a user can name reaches a line. The paths go through
+// xargs, since a host's descriptors are past one command line; without xargs
+// (a minimal image), one stat per process reads them.
+const linuxSocketDescriptors = `if command -v xargs >/dev/null 2>&1; then printf '%s\n' /proc/[0-9]*/fd/* | xargs stat -L -c '%F %i %n' 2>/dev/null; ` +
+	`else for d in /proc/[0-9]*/fd; do stat -L -c '%F %i %n' "$d"/* 2>/dev/null; done; fi | grep '^socket '; `
 
 // bigEndianMachines are the uname -m answers of Linux machines that store a
 // word most significant byte first, whose /proc/net addresses read in order.
@@ -169,7 +184,7 @@ func procAddress(field string, bigEndian bool) (string, int, bool) {
 	return addr.String(), int(port), true
 }
 
-// socketOwners maps each socket inode ls listed under a process's fd
+// socketOwners maps each socket inode stat found under a process's fd
 // directory to that process's name: the lowest pid's when several hold it
 // (a server's forked workers share its listener), so the answer does not
 // move with which worker the kernel lists first.
@@ -182,15 +197,8 @@ func socketOwners(fds, comms string) map[string]string {
 		}
 	}
 	holders := map[string][]int{}
-	pid := -1
 	for _, line := range strings.Split(fds, "\n") {
-		if dir, ok := strings.CutSuffix(strings.TrimSpace(line), "/fd:"); ok {
-			pid, _ = strconv.Atoi(strings.TrimPrefix(dir, "/proc/"))
-			continue
-		}
-		_, target, ok := strings.Cut(line, "-> socket:[")
-		inode, closed := strings.CutSuffix(strings.TrimSpace(target), "]")
-		if ok && closed && pid > 0 {
+		if inode, pid, ok := socketDescriptor(line); ok {
 			holders[inode] = append(holders[inode], pid)
 		}
 	}
@@ -205,6 +213,42 @@ func socketOwners(fds, comms string) map[string]string {
 		}
 	}
 	return owners
+}
+
+// socketDescriptor reads one line of linuxSocketDescriptors: exactly
+// "socket", an inode in digits and /proc/<pid>/fd/<n> with both numbers in
+// digits, or nothing. A line of any other shape is not a descriptor's.
+func socketDescriptor(line string) (inode string, pid int, ok bool) {
+	f := strings.Split(line, " ")
+	if len(f) != 3 || f[0] != "socket" || !allDigits(f[1]) {
+		return "", 0, false
+	}
+	rest, ok := strings.CutPrefix(f[2], "/proc/")
+	if !ok {
+		return "", 0, false
+	}
+	p, n, ok := strings.Cut(rest, "/fd/")
+	if !ok || !allDigits(p) || !allDigits(n) {
+		return "", 0, false
+	}
+	pid, err := strconv.Atoi(p)
+	if err != nil || pid <= 0 {
+		return "", 0, false
+	}
+	return f[1], pid, true
+}
+
+// allDigits reports whether s is one or more ASCII digits.
+func allDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // checkLinuxPorts refuses an answer missing any of its sections (the byte

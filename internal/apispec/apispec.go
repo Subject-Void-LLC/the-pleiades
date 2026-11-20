@@ -93,6 +93,10 @@ type Endpoint struct {
 	// its resource's; a relaunch the job's and the template's).
 	AlsoScopes []auth.Scope
 	Rel        auth.LinkRel
+	// LinkedFrom and LinkedAs make the parent resource's responses link here
+	// (api.Route.LinkedFrom): a device's response links to its facts.
+	LinkedFrom string
+	LinkedAs   auth.LinkRel
 
 	Summary     string
 	Description string
@@ -123,7 +127,7 @@ type Endpoint struct {
 // connect: nothing here can silently drift, because both come from the
 // same struct fields.
 func (e Endpoint) Route(h http.HandlerFunc) api.Route {
-	return api.Route{Method: e.Method, Pattern: e.Pattern, Scope: e.Scope, AlsoScopes: e.AlsoScopes, Rel: e.Rel, Handler: h}
+	return api.Route{Method: e.Method, Pattern: e.Pattern, Scope: e.Scope, AlsoScopes: e.AlsoScopes, Rel: e.Rel, LinkedFrom: e.LinkedFrom, LinkedAs: e.LinkedAs, Handler: h}
 }
 
 func stringSchema(description string) map[string]any {
@@ -619,7 +623,10 @@ var ListDeviceFacts = Endpoint{
 	Pattern: "/inventory/devices/{name}/facts",
 	Scope:   auth.ScopeInventoryRead,
 	Rel:     auth.RelSelf,
-	Summary: "List a device's facts",
+	// A device's response links to its facts (Phase 41).
+	LinkedFrom: "/inventory/devices/{name}",
+	LinkedAs:   auth.RelFacts,
+	Summary:    "List a device's facts",
 	Description: "The newest value of each fact real runs observed on the device (what a method emitted, such as " +
 		"facts.gather's os.*, host.* and hardware.* keys), with when it was first observed and last confirmed. A value is stored " +
 		"only when it changes, so last_seen_at says how current it still is.",

@@ -173,6 +173,10 @@ const (
 	// inventory:assert: a person vouching for a device's identity, apart
 	// from the onboarding that recorded the pin.
 	RelConfirmPin LinkRel = "confirm_pin"
+
+	// RelFacts links a device to its stored facts, a resource of its own
+	// (api.Route.LinkedFrom). It carries inventory:read.
+	RelFacts LinkRel = "facts"
 )
 
 // Affordance is one candidate action, described purely in authorization

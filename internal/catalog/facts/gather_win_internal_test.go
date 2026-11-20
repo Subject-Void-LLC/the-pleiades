@@ -180,7 +180,10 @@ func answerWindows(t *testing.T, answers map[string]winrmexec.Result) *[]string 
 	t.Helper()
 	var asked []string
 	old := gatherWinRM
-	gatherWinRM = func(_ context.Context, target winrmexec.Target, auth winrmexec.Auth, shell winrmexec.Shell, script string, opts winrmexec.Options) (winrmexec.Result, error) {
+	gatherWinRM = func(_ context.Context, target winrmexec.Target, auth winrmexec.Auth, shell winrmexec.Shell, script, stdin string, opts winrmexec.Options) (winrmexec.Result, error) {
+		if script == windowsStdinLoader {
+			script = stdin
+		}
 		if shell != winrmexec.ShellPowerShell || target.Host != "192.0.2.10" || opts.PowerShellPath != `D:\ps\powershell.exe` || auth.Username != "gate" {
 			t.Errorf("sent to %+v as %v with %+v", target, shell, opts)
 		}
@@ -240,7 +243,7 @@ func TestGather_AFailedWindowsScriptFailsTheTask(t *testing.T) {
 		t.Errorf("err = %v", err)
 	}
 	old := gatherWinRM
-	gatherWinRM = func(context.Context, winrmexec.Target, winrmexec.Auth, winrmexec.Shell, string, winrmexec.Options) (winrmexec.Result, error) {
+	gatherWinRM = func(context.Context, winrmexec.Target, winrmexec.Auth, winrmexec.Shell, string, string, winrmexec.Options) (winrmexec.Result, error) {
 		return winrmexec.Result{}, errors.New("connection refused")
 	}
 	defer func() { gatherWinRM = old }()

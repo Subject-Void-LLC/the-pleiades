@@ -119,8 +119,54 @@ func gatherFilesFor(paths []string, platform string) error {
 		if (platform == platformWindows) != windowsAbsolute(p) {
 			return fmt.Errorf("%s path %q is not an absolute path on %s", gatherParamFiles, p, platform)
 		}
+		if platform == platformWindows {
+			if why := windowsAlias(p); why != "" {
+				return fmt.Errorf("%s path %q %s; name the file by its one long path (owner decision 2026-11-19), and its streams are recorded under file_attached", gatherParamFiles, p, why)
+			}
+		}
 	}
 	return nil
+}
+
+// windowsAlias says why p, a drive-rooted Windows path, names a stream or is
+// another name for a file than its own, or "" when it is neither. Each would
+// give one file a second fact history, or read a stream as if it were the
+// file: a colon after the drive names a stream (f.txt:x, f.txt::$DATA);
+// Windows drops a trailing dot or space from an element (f.txt. is f.txt);
+// "." and ".." are other names for a directory; and an element shaped like an
+// 8.3 short name (PROGRA~1, up to six characters, a tilde and digits, an
+// extension of up to three) names a long one. The last is decided from the
+// shape alone, so a long name that happens to be shaped so is refused too.
+func windowsAlias(p string) string {
+	if strings.Contains(p[2:], ":") {
+		return "names an NTFS stream (a colon after the drive)"
+	}
+	for _, el := range strings.FieldsFunc(p[2:], func(r rune) bool { return r == '\\' || r == '/' }) {
+		switch {
+		case el == "." || el == "..":
+			return "holds " + el + ", another name for a directory"
+		case strings.HasSuffix(el, ".") || strings.HasSuffix(el, " "):
+			return "ends an element with a dot or a space, which Windows drops"
+		case windowsShortName(el):
+			return "holds an element shaped like an 8.3 short name (" + el + ")"
+		}
+	}
+	return ""
+}
+
+// windowsShortName reports whether el is shaped like an 8.3 short name: one
+// to six characters with no tilde, a tilde and one or more digits, then
+// optionally a dot and up to three characters.
+func windowsShortName(el string) bool {
+	base, ext, dotted := strings.Cut(el, ".")
+	if dotted && (len(ext) > 3 || strings.Contains(ext, ".")) {
+		return false
+	}
+	head, digits, ok := strings.Cut(base, "~")
+	if !ok || head == "" || len(head) > 6 || digits == "" {
+		return false
+	}
+	return strings.Trim(digits, "0123456789") == ""
 }
 
 // posixFileProbe is the files probe of a POSIX platform: statFormat is its
@@ -134,13 +180,18 @@ func gatherFilesFor(paths []string, platform string) error {
 // the SHA-256 of a small secret (a password or key file) can be guessed
 // offline. So a regular file keeps a plain sha256 only when it is
 // world-readable: its mode lets others read it and every directory above it
-// lets others search it. Any other file's digest is handed over as
+// lets others search it. A directory above it that is a symbolic link makes it
+// private (owner decision 2026-11-19): the walk reads the path as written, so
+// a link leads to directories it never reads, any of which may keep others
+// out, and a plain digest there was an oracle for a file only this login
+// could reach. Any other file's digest is handed over as
 // sha256_raw, which the engine keys or seals before anything keeps or shows it
 // (internal/facts' keyed digests), and its size (a secret's length) is not
 // kept. The test runs on the device, in sh arithmetic over stat's octal
 // modes, each checked to be octal first so a bad answer counts as private
 // rather than ends the shell.
-func posixFileProbe(statFormat, modeFormat string) gatherProbe {
+func posixFileProbe(f posixStat) gatherProbe {
+	statFormat, modeFormat := f.stat, f.mode
 	return gatherProbe{
 		subset: gatherSubsetFiles,
 		family: gatherFamilyFile,
@@ -156,24 +207,100 @@ func posixFileProbe(statFormat, modeFormat string) gatherProbe {
 			// in "No such file or directory" or "Not a directory" (the
 			// errno text, which comes last whatever the path holds) is
 			// absent; every other error is unreadable.
-			return `for p in ` + strings.Join(quoted, " ") + `; do echo '` + fileSectionMark + `'; ` +
+			return posixACLRestricts + posixAttachedListing + `for p in ` + strings.Join(quoted, " ") + `; do echo '` + fileSectionMark + `'; ` +
 				`if e=$(LC_ALL=C stat ` + statFormat + ` -- "$p" 2>&1); then printf 'ok:%s\n' "$e"; ` +
-				`if [ -f "$p" ] && [ ! -L "$p" ]; then w=1; q=$p; m=$(LC_ALL=C stat ` + modeFormat + ` -- "$p" 2>/dev/null); ` +
-				`case $m in ''|*[!0-7]*) w=0;; *) [ $((0$m & 4)) -ne 0 ] || w=0;; esac; ` +
-				`while [ $w = 1 ]; do q=${q%/*}; [ -n "$q" ] || break; a=$(LC_ALL=C stat -L ` + modeFormat + ` -- "$q" 2>/dev/null); ` +
-				`case $a in ''|*[!0-7]*) w=0;; *) [ $((0$a & 1)) -ne 0 ] || w=0;; esac; done; ` +
-				`if [ $w = 1 ]; then t=sha; else t=raw; fi; if [ -r "$p" ]; then printf '%s:%s\n' "$t" "$(` + posixSHA256 + ` < "$p")"; else echo "$t-unreadable"; fi; fi; ` +
-				`if [ -L "$p" ]; then printf 'link:%s\n' "$(readlink -- "$p" | od -An -tx1 | tr -d ' \n')"; fi; ` +
+				`if [ -f "$p" ] && [ ! -L "$p" ]; then w=1; q=$p; m=$(LC_ALL=C stat ` + modeFormat + ` -- "$p" 2>/dev/null); i=$(LC_ALL=C stat ` + f.id + ` -- "$p" 2>/dev/null); ` +
+				`case $i in *:*:1) ;; *) w=0;; esac; ` +
+				`case $m in ''|*[!0-7]*) w=0;; *) [ $((0$m & 4)) -ne 0 ] || w=0;; esac; if [ $w = 1 ] && ar "$p" r; then w=0; fi; ` +
+				`while [ $w = 1 ]; do q=${q%/*}; [ -n "$q" ] || break; if [ -L "$q" ]; then w=0; break; fi; a=$(LC_ALL=C stat -L ` + modeFormat + ` -- "$q" 2>/dev/null); ` +
+				`case $a in ''|*[!0-7]*) w=0;; *) [ $((0$a & 1)) -ne 0 ] || w=0;; esac; if [ $w = 1 ] && ar "$q" x; then w=0; fi; done; ` +
+				`if [ $w = 1 ]; then t=sha; else t=raw; fi; if [ -r "$p" ]; then { [ "$(` + f.fd + `)" = "${i%:*}" ] || t=raw; printf '%s:%s\n' "$t" "$(` + posixSHA256 + ` <&3)"; } 3<"$p" 2>/dev/null || echo "$t-unreadable"; else echo "$t-unreadable"; fi; fi; ` +
+				`if [ -L "$p" ]; then printf 'link:%s\n' "$(readlink -- "$p" | od -An -tx1 | tr -d ' \n')"; else ax "$p"; fi; ` +
 				`else case $e in *': No such file or directory'|*': Not a directory') echo absent;; *) echo unreadable;; esac; fi; done`
 		},
 		parse: parseFiles,
 	}
 }
 
+// posixACLRestricts defines ar PATH PERM, which succeeds when an access
+// control list on PATH denies anyone, or withholds PERM (r for the file, x for
+// each directory above it) from a user or group it names: such a file is not
+// readable by everyone, whatever its mode says (owner decision 2026-11-19).
+// Every way of reading it fails closed: a listing or getfacl that fails is a
+// restriction. On macOS an entry is a line after the path's own in ls -le
+// ("0: group:everyone deny read", measured on macOS 27.2.1), and any deny
+// restricts. Elsewhere getfacl reads it: an NFSv4 entry ending in :deny
+// restricts and one ending in :allow does not, and a POSIX.1e entry naming a
+// user or group (user:bob:---), or the mask, restricts when its permissions,
+// the effective ones where getfacl prints them, lack PERM. With no getfacl, a
+// GNU ls that marks an ACL with + after the mode restricts. BusyBox's ls marks
+// none, so on a BusyBox system without getfacl an ACL is not seen, and ar says
+// so rather than read as a clean answer (owner decision 2026-11-19): every
+// call prints acl:listed, acl:unreadable or acl:unlisted, and the file's acl
+// field is the worst of its own and its directories' (aclState).
+const posixACLRestricts = `o=$(uname -s 2>/dev/null); ar(){ ` +
+	`if [ "$o" = Darwin ]; then l=$(LC_ALL=C ls -lde -- "$1" 2>/dev/null) || { echo acl:unreadable; return 0; }; echo acl:listed; ` +
+	`printf '%s\n' "$l" | { read -r _; while IFS= read -r e; do case $e in *' deny '*) exit 3;; esac; done; }; [ $? = 3 ] && return 0; return 1; fi; ` +
+	`if command -v getfacl >/dev/null 2>&1; then l=$(LC_ALL=C getfacl -- "$1" 2>/dev/null) || { echo acl:unreadable; return 0; }; echo acl:listed; ` +
+	`printf '%s\n' "$l" | while IFS= read -r e; do case $e in '#'*|'') ;; *:deny) exit 3;; *:allow) ;; ` +
+	`user:?*:*|group:?*:*|mask:*) case $e in *'#effective:'*) e=${e##*#effective:};; *) e=${e##*:};; esac; e=${e%%[	 ]*}; ` +
+	`case $e in *"$2"*) ;; *) exit 3;; esac;; esac; done; [ $? = 3 ] && return 0; return 1; fi; ` +
+	`if LC_ALL=C ls --version >/dev/null 2>&1; then echo acl:listed; case $(LC_ALL=C ls -ld -- "$1" 2>/dev/null) in ??????????+*) return 0;; esac; return 1; fi; ` +
+	`echo acl:unlisted; return 1; }; `
+
+// posixAttachedListing defines ax PATH, which prints what PATH carries beside
+// its content (owner decision 2026-11-19): its extended attributes, among them
+// a resource fork on macOS. One line says what could be read: xs:unlisted when
+// the device has no tool to list them, xs:unreadable when listing failed,
+// else xn: the names as the tool listed them, hex-encoded so no name can break
+// a line, and xd: one SHA-256 over every name and value, the listing piped
+// straight into the digest so no value, however large, crosses the wire or
+// sits in a shell variable. Measured formats: macOS 27.2.1's xattr lists one
+// name a line and xattr -lx prints each with its value in hex; Linux's getfattr
+// -d -m - -e hex (the attr package) prints name=0x... under a "# file:" line;
+// FreeBSD's lsextattr -q user lists the user namespace's names, and
+// getextattr -qx each value; neither takes "--" (lsextattr exits 1 on it,
+// measured on FreeBSD 15), and every path here is absolute, so none reads as
+// an option. A failed listing never makes a file private: what
+// it carries beside its content is not who may read it.
+const posixAttachedListing = `ax(){ ` +
+	`if [ "$o" = Darwin ]; then n=$(xattr -- "$1" 2>/dev/null) || { echo xs:unreadable; return; }; ` +
+	`d=$(xattr -lx -- "$1" 2>/dev/null | { ` + posixSHA256 + `; }); ` +
+	`elif [ "$o" = FreeBSD ]; then n=$(lsextattr -q user "$1" 2>/dev/null) || { echo xs:unreadable; return; }; ` +
+	`d=$(for a in $n; do printf '%s\n' "$a"; getextattr -qx user "$a" "$1" 2>/dev/null; done | { ` + posixSHA256 + `; }); ` +
+	`elif command -v getfattr >/dev/null 2>&1; then l=$(getfattr -m - -- "$1" 2>/dev/null) || { echo xs:unreadable; return; }; n=$(printf '%s\n' "$l" | grep -v '^#'); ` +
+	`d=$(getfattr -d -m - -e hex -- "$1" 2>/dev/null | grep -v '^#' | { ` + posixSHA256 + `; }); ` +
+	`else echo xs:unlisted; return; fi; ` +
+	`printf 'xn:%s\n' "$(printf '%s' "$n" | od -An -tx1 | tr -d ' \n')"; printf 'xd:%s\n' "$d"; }; `
+
 // posixSHA256 hashes stdin with whichever SHA-256 tool the device has:
 // sha256sum (GNU, BusyBox, FreeBSD 15, macOS 27), FreeBSD's sha256 -q, or
 // shasum on an older Mac. Each prints the hex digest first.
 const posixSHA256 = `if command -v sha256sum >/dev/null 2>&1; then sha256sum; elif command -v sha256 >/dev/null 2>&1; then sha256 -q; else shasum -a 256; fi`
+
+// posixStat is one platform's stat formats for the files probe: stat, printing
+// type, size, uid, gid, mode, owner and group; mode, the mode alone; id, the
+// file's device, inode and link count; and fd, a command printing the device
+// and inode of what descriptor 3 holds open.
+//
+// id and fd close two ways round the world-readable walk, which reads the
+// path as written. A file with more than one link may also sit in a directory
+// that keeps others out, which no walk of this path sees, so it is private
+// (the hard link's twin of a linked directory). And the file is opened once,
+// the digest read from that descriptor, and the descriptor must hold the
+// file the walk judged: a path swapped between the check and the read (a
+// rename by someone who may write a directory on it) hands its digest over
+// raw rather than plain.
+type posixStat struct{ stat, mode, id, fd string }
+
+// The two platforms' formats: GNU and BusyBox stat -c, reading the open
+// descriptor through /proc/self/fd, and BSD stat -f (FreeBSD and macOS), whose
+// %Mp%Lp is the four-digit mode with setuid, setgid and sticky and which,
+// given no file, reads its standard input.
+var (
+	gnuStat = posixStat{stat: statFormatGNU, mode: modeFormatGNU, id: `-c '%d:%i:%h'`, fd: `LC_ALL=C stat -L -c '%d:%i' /proc/self/fd/3 2>/dev/null`}
+	bsdStat = posixStat{stat: statFormatBSD, mode: modeFormatBSD, id: `-f '%d:%i:%l'`, fd: `LC_ALL=C stat -f '%d:%i' <&3 2>/dev/null`}
+)
 
 // The stat formats: GNU and BusyBox stat -c, and BSD stat -f (FreeBSD and
 // macOS), whose %Mp%Lp is the four-digit mode with setuid, setgid and sticky.
@@ -264,6 +391,21 @@ func parseFileSection(section string) map[string]any {
 			value["world_readable"] = world
 		case line == "sha-unreadable", line == "raw-unreadable":
 			value["readable"], value["world_readable"] = false, line == "sha-unreadable"
+		case strings.HasPrefix(line, "acl:"):
+			value["acl"] = worseACLState(value["acl"], strings.TrimPrefix(line, "acl:"))
+		case strings.HasPrefix(line, "xs:"):
+			value[attachedStateField] = strings.TrimPrefix(line, "xs:")
+		case strings.HasPrefix(line, "xn:"):
+			if b, err := hex.DecodeString(strings.TrimPrefix(line, "xn:")); err == nil {
+				value[attachedNamesField] = string(b)
+				value[attachedStateField] = attachedListed
+			}
+		case strings.HasPrefix(line, "xd:"):
+			if d := strings.ToLower(gatherFirstField(line[len("xd:"):])); len(d) == 64 {
+				if _, err := hex.DecodeString(d); err == nil {
+					value[attachedDigestField] = d
+				}
+			}
 		case strings.HasPrefix(line, "link:"):
 			if b, err := hex.DecodeString(strings.TrimPrefix(line, "link:")); err == nil {
 				value["link_target"] = strings.TrimSuffix(string(b), "\n")
@@ -279,6 +421,35 @@ func parseFileSection(section string) map[string]any {
 	return value
 }
 
+// aclStates are what the acl field of a file fact says of the access control
+// lists the world-readable check had to read, from best to worst: each was
+// read (listed), one could not be (unreadable, which already made the file
+// private), or the system has no way to show one (unlisted: BusyBox without
+// getfacl). The field is there only for a file whose mode would have let
+// everyone read it, since a list cannot make a private file public.
+var aclStates = []string{"listed", "unreadable", "unlisted"}
+
+// worseACLState is the worse of the acl state value holds so far and next, by
+// aclStates; a word it does not know is unreadable, never listed.
+func worseACLState(so any, next string) string {
+	rank := func(s string) int {
+		for i, w := range aclStates {
+			if w == s {
+				return i
+			}
+		}
+		return 1
+	}
+	cur, _ := so.(string)
+	if cur == "" || rank(next) > rank(cur) {
+		if rank(next) == 1 {
+			return "unreadable"
+		}
+		return next
+	}
+	return cur
+}
+
 // filesFacts names each of the probe's answers by the path at its position.
 // An answer count that does not match the paths is a device that printed
 // something this did not ask for: every path is then unreadable rather than
@@ -292,7 +463,86 @@ func filesFacts(paths []string, answers []gatherFact) []gatherFact {
 				value = v
 			}
 		}
+		attached, ok := takeAttached(value, attachedXattrs)
 		facts[i] = gatherFact{key: itemKey(gatherFamilyFile, p), value: value}
+		if ok {
+			facts = append(facts, gatherFact{key: itemKey(gatherFamilyFileAttached, p), value: attached})
+		}
 	}
 	return facts
+}
+
+// The internal fields a files probe's answer carries what a path holds beside
+// its content in, which takeAttached moves into the path's file_attached.
+// fact, and the words that fact's state and kind take.
+const (
+	attachedStateField  = "_attached_state"
+	attachedNamesField  = "_attached_names"
+	attachedDigestField = "_attached_sha256"
+	attachedKindField   = "_attached_kind"
+	// attachedUnreadField counts streams past the read bounds, digested by
+	// name and length only; attachedTruncatedField says the listing stopped
+	// at its bound. Both say what was not read rather than hide it.
+	attachedUnreadField    = "_attached_unread"
+	attachedTruncatedField = "_attached_truncated"
+
+	attachedListed   = "listed"
+	attachedXattrs   = "xattrs"
+	attachedStreams  = "streams"
+	maxAttachedNames = 256
+)
+
+// takeAttached removes what value says the path carries beside its content
+// and returns it as the file_attached. fact's value, of kind (xattrs, or the
+// kind the answer names itself): state, the names (split on the lines and
+// tabs the tools list them on, or the list a Windows answer gives, at most
+// maxAttachedNames, with names_truncated past that), and the digest under the
+// raw field, so the engine keys it whatever the file's mode, since a value may
+// be private when the file is not. A listed answer without a digest is
+// unreadable: what was not read is never shown as read.
+func takeAttached(value map[string]any, kind string) (map[string]any, bool) {
+	state, _ := value[attachedStateField].(string)
+	digest, _ := value[attachedDigestField].(string)
+	if k, ok := value[attachedKindField].(string); ok && k != "" {
+		kind = k
+	}
+	var listed []any
+	switch names := value[attachedNamesField].(type) {
+	case string:
+		for _, n := range strings.FieldsFunc(names, func(r rune) bool { return r == '\n' || r == '\t' }) {
+			listed = append(listed, n)
+		}
+	case []any:
+		listed = names
+	}
+	unread, _ := value[attachedUnreadField].(int)
+	truncated, _ := value[attachedTruncatedField].(bool)
+	for _, f := range []string{attachedStateField, attachedNamesField, attachedDigestField, attachedKindField, attachedUnreadField, attachedTruncatedField} {
+		delete(value, f)
+	}
+	if state == "" {
+		return nil, false
+	}
+	out := map[string]any{"kind": kind, "state": state}
+	if state != attachedListed {
+		return out, true
+	}
+	if digest == "" {
+		out["state"] = fileStateUnreadable
+		return out, true
+	}
+	if len(listed) > maxAttachedNames || truncated {
+		out["names_truncated"] = true
+	}
+	if len(listed) > maxAttachedNames {
+		listed = listed[:maxAttachedNames]
+	}
+	if unread > 0 {
+		out["unread"] = unread
+	}
+	if listed == nil {
+		listed = []any{}
+	}
+	out["names"], out[collection.RawDigestField] = listed, digest
+	return out, true
 }

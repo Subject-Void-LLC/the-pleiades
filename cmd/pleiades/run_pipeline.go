@@ -653,6 +653,9 @@ func newRunExecutor(opts runOptions, world validate.WorldView, sink engine.Journ
 		opts.forks,
 		engine.WithJournal(sink),
 		engine.WithFactRecorder(recorder),
+		// Every run, a check included, reads the devices' stored facts from
+		// the same store, which a read never creates.
+		engine.WithFactReader(projectFactReader{dir: factsDir(opts.dir)}),
 		engine.WithMode(mode),
 		// run's --extra-vars; the Controller's Runner passes a launch's own
 		// the same way (internal/adapters/native).

@@ -124,7 +124,7 @@ func TestStructureChecks(t *testing.T) {
 		{"linux ports, cut short", checkLinuxPorts, strings.Repeat(portSectionMark+"\n", 3), false},
 		// A file a local user named with the mark shows in a root gather's
 		// descriptor listing; inside a line it is data, not a section.
-		{"linux ports, a mark inside a line", checkLinuxPorts, strings.Repeat(portSectionMark+"\n", 6) + "lrwx 1 u u 64 3 -> /tmp/x" + portSectionMark + "socket:[1]\n", true},
+		{"linux ports, a mark inside a line", checkLinuxPorts, strings.Repeat(portSectionMark+"\n", 6) + "socket 1 /proc/1/fd/3" + portSectionMark + "\n", true},
 	}
 	for _, tc := range cases {
 		if err := tc.check(tc.out); (err == nil) != tc.ok {

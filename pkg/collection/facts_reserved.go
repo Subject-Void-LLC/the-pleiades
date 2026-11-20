@@ -23,14 +23,15 @@ import (
 // (gnmi., with the same yang.; 2026-11-15), the family net.snmp.facts fills
 // (snmp., 2026-11-15), the certificate every facts gatherer reaching a device
 // over TLS fills (tls., 2026-11-16, pkg/tlsfacts), the running-configuration
-// digest every network facts method fills (config., 2026-11-19, pkg/netcfg), and ansible_, because the
+// digest every network facts method fills (config., 2026-11-19, pkg/netcfg), what a
+// gathered path carries beside its content (file_attached., 2026-11-19), and ansible_, because the
 // playbook converter's mapping reads facts by those names. A family is reserved no
 // later than the release in which a built-in first fills it, and in a minor
 // release, since reserving one later would refuse a program the release
 // before loaded, which a patch release may not do (netconf. and yang. were
 // reserved and filled together, for 0.4.0).
 var ReservedFactFamilies = []string{
-	"ansible_", "catalyst.", "config.", "file.", "gnmi.", "group.", "hardware.", "host.", "netconf.", "network.", "os.",
+	"ansible_", "catalyst.", "config.", "file.", "file_attached.", "gnmi.", "group.", "hardware.", "host.", "netconf.", "network.", "os.",
 	"package.", "port.", "restconf.", "service.", "service_state.", "snmp.", "tls.", "user.", "yang.",
 }
 

@@ -199,6 +199,10 @@ const (
 	// rest does not.
 	gatherFamilyServiceState = hostfacts.ServiceStateFamily
 	gatherFamilyFile         = "file."
+	// gatherFamilyFileAttached is what a named path carries beside its
+	// content (filesFacts): extended attributes, a resource fork, an NTFS
+	// stream, as their names and one keyed digest over them all.
+	gatherFamilyFileAttached = "file_attached."
 	gatherFamilyPort         = "port."
 	gatherFamilyUser         = "user."
 	gatherFamilyGroup        = "group."
@@ -207,8 +211,11 @@ const (
 // familiesOf is the families a probe of family emits: a services probe's
 // facts are its services and their states.
 func familiesOf(family string) []string {
-	if family == gatherFamilyService {
+	switch family {
+	case gatherFamilyService:
 		return []string{gatherFamilyService, gatherFamilyServiceState}
+	case gatherFamilyFile:
+		return []string{gatherFamilyFile, gatherFamilyFileAttached}
 	}
 	return []string{family}
 }

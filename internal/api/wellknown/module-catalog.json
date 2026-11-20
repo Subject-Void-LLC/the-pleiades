@@ -7277,6 +7277,14 @@
         "description": "One path the task named: state (present, absent, unreadable) and, when present, type, size, owner, mode, sha256 and link target; never the content."
       },
       {
+        "key": "file_attached.",
+        "prefix": true,
+        "item_names": true,
+        "kind": "stable",
+        "type": "object",
+        "description": "What one named path carries beside its content: kind (xattrs or streams), the names, and one keyed digest over every name and value."
+      },
+      {
         "key": "port.",
         "prefix": true,
         "item_names": true,
@@ -7473,10 +7481,16 @@
           "description": "What the service service.<name> names is doing, kept as its latest value only and never as drift, since services start and stop on their own (a timer's job, a service started when something asks for it). From systemd, the unit's sub-state (running, exited, dead, failed, inactive and the others systemd reports, such as activating or auto-restart); from OpenRC, running, stopped or OpenRC's own word (crashed, inactive), or unknown before OpenRC has booted; from FreeBSD's rc, running, stopped or unknown (an rc script that is not enabled, or whose status only root may read); from launchd, running or stopped; from Windows, the manager's own word lower-cased (running, stopped, start pending). A per-user service's template has none."
         },
         {
+          "name": "file_attached.<path>",
+          "type": "map",
+          "returned": "with the files subset, for each present path the device can list extended attributes or streams of",
+          "description": "What the path carries beside its content, which its sha256 does not cover: kind (xattrs on macOS, FreeBSD and Linux, with a resource fork among them on macOS; streams on Windows), names (at most 256, with names_truncated when there were more) and one digest over every name and value, always keyed (hmac_sha256 and hmac_key), since a value may be private whatever the file's mode. Absent where the device has no tool to list them (Linux without getfattr)."
+        },
+        {
           "name": "file.<path>",
           "type": "map",
           "returned": "with the files subset, for each path in files",
-          "description": "One named path: state (present, absent or unreadable); when present, type (file, directory, link, fifo, socket, char or block), size (not for a directory, nor a file not everyone may read), uid, gid, owner, group and mode as four octal digits on a POSIX device, attributes and owner on Windows, for a regular file world_readable and, when anyone may read it, sha256 and size, or when not, hmac_sha256 and hmac_key (a keyed digest the store can compare and nobody without the key can test guesses against; on a Runner the task's own result holds it sealed to the Controller, as sha256_sealed, and only the stored fact holds it keyed), readable, and link_target for a link. The path is percent-encoded in the key as any item name is."
+          "description": "One named path: state (present, absent or unreadable); when present, type (file, directory, link, fifo, socket, char or block), size (not for a directory, nor a file not everyone may read), uid, gid, owner, group and mode as four octal digits on a POSIX device, attributes and owner on Windows, for a regular file world_readable and, when anyone may read it, sha256 and size, or when not, hmac_sha256 and hmac_key (a keyed digest the store can compare and nobody without the key can test guesses against; on a Runner the task's own result holds it sealed to the Controller, as sha256_sealed, and only the stored fact holds it keyed), readable, and link_target for a link; and acl, for a file whose mode would let everyone read it, saying whether the access control lists that decide it were read (listed), could not be (unreadable, which makes it private) or cannot be shown on this system (unlisted: BusyBox without getfacl, where the mode alone decides). The path is percent-encoded in the key as any item name is."
         },
         {
           "name": "port.<protocol>:<address>:<port>",
