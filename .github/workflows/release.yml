@@ -1,9 +1,10 @@
 name: release
 
 # A tag named vMAJOR.MINOR.PATCH builds the release archives with `make
-# release`, the same target a developer runs, and publishes them with their
-# SHA256SUMS. A manual dispatch is the dry run: it builds everything and
-# publishes nothing. Signing, an SBOM and provenance are Phase 106c's.
+# release`, and build-fips runs in parallel with `make release-fips` (Linux
+# amd64 and arm64 with GOFIPS140=v1.0.0, publishing _fips archives beside
+# SHA256SUMS.fips). A manual dispatch is the dry run: it builds everything
+# and publishes nothing. Signing, an SBOM and provenance are Phase 106c's.
 on:
   push:
     tags:
@@ -57,10 +58,47 @@ jobs:
           path: dist/
           if-no-files-found: error
 
+  build-fips:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/setup-go
+      - name: The tagged commit is on main
+        if: github.ref_type == 'tag'
+        run: git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+      - name: Build every FIPS archive
+        env:
+          VERSION: ${{ github.ref_type == 'tag' && github.ref_name || github.event.inputs.version }}
+          RELEASE_FIPS_DIR: dist-fips
+        run: make release-fips
+      - name: Verify the FIPS checksums
+        run: cd dist-fips && sha256sum -c SHA256SUMS.fips
+      - name: Verify the FIPS binaries
+        run: |
+          set -euo pipefail
+          dir=$(mktemp -d)
+          trap 'rm -rf "$dir"' EXIT
+          archive=$(find dist-fips -maxdepth 1 -name 'the-pleiades_*_linux_amd64_fips.tar.gz' -print -quit)
+          test -n "$archive"
+          tar -xzf "$archive" -C "$dir"
+          for bin in pleiades controller runner; do
+            go version -m "$dir/$bin" | grep -Eq '^[[:space:]]*build[[:space:]]+GOFIPS140=v1\.0\.0(-[0-9a-f]+)?$'
+            "$dir/$bin" version
+            GODEBUG=fips140=only "$dir/$bin" version
+          done
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-archives-fips
+          path: dist-fips/
+          if-no-files-found: error
+
   publish:
     # Only a pushed tag publishes; the manual dry run stops after build.
     if: github.ref_type == 'tag'
-    needs: build
+    needs: [build, build-fips]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -70,6 +108,10 @@ jobs:
         with:
           name: release-archives
           path: dist
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: release-archives-fips
+          path: dist-fips
       - name: Create the release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -81,4 +123,4 @@ jobs:
         run: |
           notes="dist/RELEASE_NOTES.md"
           if [ ! -f "$notes" ]; then echo "no release notes at $notes" >&2; exit 1; fi
-          gh release create "$TAG" dist/*.tar.gz dist/*.zip dist/SHA256SUMS --repo "$REPO" --title "$(cat dist/RELEASE_TITLE)" --notes-file "$notes"
+          gh release create "$TAG" dist/*.tar.gz dist/*.zip dist/SHA256SUMS dist-fips/*.tar.gz dist-fips/SHA256SUMS.fips --repo "$REPO" --title "$(cat dist/RELEASE_TITLE)" --notes-file "$notes"

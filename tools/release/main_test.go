@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"testing"
@@ -51,16 +52,49 @@ func TestParseBinariesRefusesAPath(t *testing.T) {
 	}
 }
 
-// TestNames checks the archive and binary names per platform.
+// TestNames checks the archive, checksum, and binary names per platform and FIPS mode.
 func TestNames(t *testing.T) {
-	if got := archiveName("0.3.0", Platform{"linux", "arm64"}); got != "the-pleiades_0.3.0_linux_arm64.tar.gz" {
+	if got := archiveName("0.3.0", Platform{"linux", "arm64"}, false); got != "the-pleiades_0.3.0_linux_arm64.tar.gz" {
 		t.Errorf("linux archive %q", got)
 	}
-	if got := archiveName("0.3.0", Platform{"windows", "amd64"}); got != "the-pleiades_0.3.0_windows_amd64.zip" {
+	if got := archiveName("0.3.0", Platform{"windows", "amd64"}, false); got != "the-pleiades_0.3.0_windows_amd64.zip" {
 		t.Errorf("windows archive %q", got)
+	}
+	if got := archiveName("0.3.0", Platform{"linux", "amd64"}, true); got != "the-pleiades_0.3.0_linux_amd64_fips.tar.gz" {
+		t.Errorf("linux fips archive %q", got)
+	}
+	if got := archiveName("0.3.0", Platform{"windows", "amd64"}, true); got != "the-pleiades_0.3.0_windows_amd64_fips.zip" {
+		t.Errorf("windows fips archive %q", got)
+	}
+	if checksumFileName(false) != ChecksumFile || checksumFileName(true) != FIPSChecksumFile {
+		t.Errorf("checksum filenames: %q, %q", checksumFileName(false), checksumFileName(true))
 	}
 	if binaryName("runner", Platform{"windows", "arm64"}) != "runner.exe" || binaryName("runner", Platform{"darwin", "arm64"}) != "runner" {
 		t.Error("binary names wrong")
+	}
+}
+
+// TestBuildEnvPinsGOFIPS140 checks that buildEnv overrides any ambient GOFIPS140
+// setting and never mutates its base slice.
+func TestBuildEnvPinsGOFIPS140(t *testing.T) {
+	fipsBase := []string{"GOFIPS140=off"}
+	gotFIPS := buildEnv(fipsBase, Platform{"linux", "amd64"}, true)
+	if len(fipsBase) != 1 || fipsBase[0] != "GOFIPS140=off" {
+		t.Fatalf("buildEnv mutated fipsBase: %v", fipsBase)
+	}
+	wantFIPS := []string{"GOFIPS140=off", "GOOS=linux", "GOARCH=amd64", "CGO_ENABLED=0", "GOFIPS140=" + FIPSModuleVersion}
+	if strings.Join(gotFIPS, "\n") != strings.Join(wantFIPS, "\n") {
+		t.Fatalf("buildEnv(fips=true) = %v, want %v", gotFIPS, wantFIPS)
+	}
+
+	stdBase := []string{"GOFIPS140=" + FIPSModuleVersion}
+	gotStd := buildEnv(stdBase, Platform{"linux", "amd64"}, false)
+	if len(stdBase) != 1 || stdBase[0] != "GOFIPS140="+FIPSModuleVersion {
+		t.Fatalf("buildEnv mutated stdBase: %v", stdBase)
+	}
+	wantStd := []string{"GOFIPS140=" + FIPSModuleVersion, "GOOS=linux", "GOARCH=amd64", "CGO_ENABLED=0", "GOFIPS140=off"}
+	if strings.Join(gotStd, "\n") != strings.Join(wantStd, "\n") {
+		t.Fatalf("buildEnv(fips=false) = %v, want %v", gotStd, wantStd)
 	}
 }
 
@@ -125,7 +159,7 @@ func TestChecksumsMatchSha256sumFormat(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := writeChecksums(dir, []string{"b.zip", "a.tar.gz"}); err != nil {
+	if err := writeChecksums(dir, ChecksumFile, []string{"b.zip", "a.tar.gz"}); err != nil {
 		t.Fatal(err)
 	}
 	raw, _ := os.ReadFile(filepath.Join(dir, ChecksumFile))
@@ -149,6 +183,7 @@ func TestRunRefusesBadUsage(t *testing.T) {
 		{"-version", "dev"},
 		{"-version", "0.3.0", "-platforms", "linux"},
 		{"-version", "0.3.0", "-binaries", "../x"},
+		{"-version", "0.3.0", "-fips", "-notes", "docs/releases/v0.3.0.md", "-repo", "o/r"},
 		{"-version", "0.3.0", "extra"},
 	} {
 		var out, errb bytes.Buffer
@@ -186,7 +221,7 @@ func TestReleaseBuildReportsItsVersion(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit %d: %s", code, stderr.String())
 	}
-	name := archiveName("9.8.7", Platform{runtime.GOOS, runtime.GOARCH})
+	name := archiveName("9.8.7", Platform{runtime.GOOS, runtime.GOARCH}, false)
 	if runtime.GOOS == "windows" {
 		t.Skip("the check below reads a tar")
 	}
@@ -212,6 +247,13 @@ func TestReleaseBuildReportsItsVersion(t *testing.T) {
 		f.Close()
 		break
 	}
+	meta, err := exec.Command("go", "version", "-m", bin).CombinedOutput()
+	if err != nil {
+		t.Fatalf("go version -m: %v\n%s", err, meta)
+	}
+	if strings.Contains(string(meta), "GOFIPS140="+FIPSModuleVersion) {
+		t.Fatalf("standard release build unexpectedly carries GOFIPS140=%s:\n%s", FIPSModuleVersion, meta)
+	}
 	got, err := exec.Command(bin, "version").CombinedOutput()
 	if err != nil || !strings.Contains(string(got), "9.8.7") {
 		t.Fatalf("runner version = %q, %v", got, err)
@@ -227,5 +269,91 @@ func TestReleaseBuildReportsItsVersion(t *testing.T) {
 	}
 	if lines := strings.Split(strings.TrimSpace(string(got)), "\n"); len(lines) != 2 || !strings.HasPrefix(lines[1], "external collection protocols: ") {
 		t.Errorf("an unnamed release printed %q, want its version and then its protocols", got)
+	}
+}
+
+// TestReleaseBuildFIPSStampsModuleVersion builds the real runner with -fips
+// and verifies the archive name, SHA256SUMS.fips, embedded GOFIPS140 build
+// setting, default fips140=on execution, and strict GODEBUG=fips140=only boot.
+func TestReleaseBuildFIPSStampsModuleVersion(t *testing.T) {
+	if testing.Short() {
+		t.Skip("links a real binary")
+	}
+	if m, err := headroom.Read(); err == nil {
+		need.Require(t, "memory", m.AvailableMB-releaseBuildMB >= headroom.FloorMB,
+			fmt.Sprintf("building and linking the runner costs about %d MB, and %.0f MB free would leave this machine under the gate's %d MB memory floor",
+				releaseBuildMB, m.AvailableMB, headroom.FloorMB))
+	}
+	root, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(root)
+	out := t.TempDir()
+	plat := runtime.GOOS + "/" + runtime.GOARCH
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"-version", "9.8.7", "-fips", "-platforms", plat, "-binaries", "runner", "-out", out, "-revision", "0123456789abcdef"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("exit %d: %s", code, stderr.String())
+	}
+	if _, err := os.Stat(filepath.Join(out, FIPSChecksumFile)); err != nil {
+		t.Fatalf("missing %s: %v", FIPSChecksumFile, err)
+	}
+	if _, err := os.Stat(filepath.Join(out, ChecksumFile)); !os.IsNotExist(err) {
+		t.Fatalf("standard %s should not be written in -fips mode (stat err = %v)", ChecksumFile, err)
+	}
+	if p, err := exec.LookPath("sha256sum"); err == nil {
+		cmd := exec.Command(p, "-c", FIPSChecksumFile)
+		cmd.Dir = out
+		if sumOut, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("sha256sum -c %s: %v\n%s", FIPSChecksumFile, err, sumOut)
+		}
+	}
+	name := archiveName("9.8.7", Platform{runtime.GOOS, runtime.GOARCH}, true)
+	if !strings.Contains(name, "_fips.") {
+		t.Fatalf("expected _fips suffix in %q", name)
+	}
+	if runtime.GOOS == "windows" {
+		t.Skip("the check below reads a tar")
+	}
+	raw, err := os.ReadFile(filepath.Join(out, name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	gz, _ := gzip.NewReader(bytes.NewReader(raw))
+	tr := tar.NewReader(gz)
+	bin := filepath.Join(t.TempDir(), "runner")
+	for {
+		h, err := tr.Next()
+		if err != nil {
+			t.Fatal("no runner in the archive")
+		}
+		if h.Name != "runner" {
+			continue
+		}
+		f, _ := os.OpenFile(bin, os.O_CREATE|os.O_WRONLY, 0o755)
+		if _, err := io.Copy(f, tr); err != nil { // #nosec G110 -- an archive this test just built
+			t.Fatal(err)
+		}
+		f.Close()
+		break
+	}
+	meta, err := exec.Command("go", "version", "-m", bin).CombinedOutput()
+	if err != nil {
+		t.Fatalf("go version -m: %v\n%s", err, meta)
+	}
+	fipsSetting := regexp.MustCompile(`(?m)^\s*build\s+GOFIPS140=` + regexp.QuoteMeta(FIPSModuleVersion) + `(-[0-9a-f]+)?$`)
+	if !fipsSetting.Match(meta) {
+		t.Fatalf("FIPS release build missing GOFIPS140=%s in go version -m:\n%s", FIPSModuleVersion, meta)
+	}
+	got, err := exec.Command(bin, "version").CombinedOutput()
+	if err != nil || !strings.Contains(string(got), "9.8.7") {
+		t.Fatalf("runner version (default fips140=on) = %q, %v", got, err)
+	}
+	strictCmd := exec.Command(bin, "version")
+	strictCmd.Env = append(os.Environ(), "GODEBUG=fips140=only")
+	strictGot, err := strictCmd.CombinedOutput()
+	if err != nil || !strings.Contains(string(strictGot), "9.8.7") {
+		t.Fatalf("runner version (GODEBUG=fips140=only) = %q, %v", strictGot, err)
 	}
 }
