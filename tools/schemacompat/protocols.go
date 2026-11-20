@@ -23,8 +23,10 @@ func (c *schemaComparer) compareProtocols(o, n map[string]any) int {
 			c.report("protocol-removal-sooner", at+"/removed_in", both, input)
 		}
 	}
+	// A current that is gone or no longer a number is reported as lowered:
+	// a reader of the old document can no longer learn the version to speak.
 	if oc, okO := o["current"].(float64); okO {
-		if nc, okN := n["current"].(float64); okN && nc < oc {
+		if nc, okN := n["current"].(float64); !okN || nc < oc {
 			c.report("protocol-current-lowered", "/current", both, input)
 		}
 	}

@@ -97,6 +97,49 @@ func TestFollowRefs_RenamedRecursiveDefinitionDoesNotLoop(t *testing.T) {
 	}
 }
 
+// TestFollowRefs_AReferenceWrittenOutInFullIsReadAtEveryLevel proves the cycle
+// guard does not stop a comparison where only one side refers: the new schema
+// writes two levels of a recursive definition out in full and narrows a type
+// at the second, which the guard used to take for the cycle and leave unread.
+func TestFollowRefs_AReferenceWrittenOutInFullIsReadAtEveryLevel(t *testing.T) {
+	old := `{"properties":{"step":{"$ref":"#/$defs/Old"}},"$defs":{"Old":{"type":"object","properties":{"name":{"type":["string","null"]},"next":{"$ref":"#/$defs/Old"}}}}}`
+	inlined := `{"properties":{"step":{"type":"object","properties":{"name":{"type":["string","null"]},"next":{"type":"object","properties":{"name":{"type":"string"}}}}}}}`
+	want := "type-narrowed x.json#/properties/step/properties/next/properties/name/type"
+	got := tokens(t, inputSchema, old, inlined)
+	for _, token := range got {
+		if token == want {
+			return
+		}
+	}
+	t.Errorf("the narrowed second level reported %v, want it to hold %q", got, want)
+}
+
+// TestCompareProtocols_ACurrentGoneOrRetypedIsReported proves a protocols
+// document whose current version is removed or is no longer a number is a
+// finding, not a pass: the reader of the old document can no longer learn it.
+func TestCompareProtocols_ACurrentGoneOrRetypedIsReported(t *testing.T) {
+	old := `{"current":1,"versions":[{"version":1,"status":"supported"}]}`
+	for name, changed := range map[string]string{
+		"null":    `{"current":null,"versions":[{"version":1,"status":"supported"}]}`,
+		"text":    `{"current":"1","versions":[{"version":1,"status":"supported"}]}`,
+		"removed": `{"versions":[{"version":1,"status":"supported"}]}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			findings, err := compareFile("extension-protocols.json", protocols, []byte(old), []byte(changed))
+			if err != nil {
+				t.Fatalf("compareFile: %v", err)
+			}
+			if len(findings) != 1 || !strings.Contains(findings[0].Token(), "protocol-current-lowered") {
+				t.Errorf("findings %v, want one protocol-current-lowered", findings)
+			}
+		})
+	}
+	same, err := compareFile("extension-protocols.json", protocols, []byte(old), []byte(old))
+	if err != nil || len(same) != 0 {
+		t.Errorf("an unchanged document reported %v, %v; want nothing", same, err)
+	}
+}
+
 // TestCompareProtocolsAndFirstParty_SurviveMalformedNonScalarFields proves
 // fuzz-discovered non-float "current" fields and non-comparable slice/map
 // values in first-party metadata return clean errors or findings rather than

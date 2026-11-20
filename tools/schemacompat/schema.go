@@ -195,8 +195,11 @@ func (c *schemaComparer) followRefs(om, nm map[string]any, ptr string, d directi
 	if !oHas && !nHas {
 		return false
 	}
+	// A pair already being compared is a cycle only when both sides refer:
+	// with one side written out in full, each level is its own schema and is
+	// finite, and stopping here would leave a narrowed inner level unread.
 	pair := refPair{oref: oref, nref: nref, d: d}
-	if c.active[pair] {
+	if oHas && nHas && c.active[pair] {
 		return true
 	}
 	key := refKey{oref: oref, nref: nref, d: d}

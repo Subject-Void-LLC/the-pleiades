@@ -81,13 +81,24 @@ jobs:
           set -euo pipefail
           dir=$(mktemp -d)
           trap 'rm -rf "$dir"' EXIT
-          archive=$(find dist-fips -maxdepth 1 -name 'the-pleiades_*_linux_amd64_fips.tar.gz' -print -quit)
-          test -n "$archive"
-          tar -xzf "$archive" -C "$dir"
+          # Every archive's binaries are held to their build stamp, which go reads
+          # for any architecture; only the runner's own architecture is started.
+          for arch in amd64 arm64; do
+            archive=$(find dist-fips -maxdepth 1 -name "the-pleiades_*_linux_${arch}_fips.tar.gz" -print -quit)
+            test -n "$archive"
+            mkdir "$dir/$arch"
+            tar -xzf "$archive" -C "$dir/$arch"
+            for bin in pleiades controller runner; do
+              # Read whole into a variable: grep -q on a pipe can end go early.
+              stamp=$(go version -m "$dir/$arch/$bin")
+              grep -E '^[[:space:]]*build[[:space:]]+GOFIPS140=v1\.0\.0(-[0-9a-f]+)?$' <<<"$stamp" >/dev/null
+              grep -E '^[[:space:]]*build[[:space:]]+DefaultGODEBUG=(.*,)?fips140=on(,.*)?$' <<<"$stamp" >/dev/null
+              grep -E "^[[:space:]]*build[[:space:]]+GOARCH=${arch}\$" <<<"$stamp" >/dev/null
+            done
+          done
           for bin in pleiades controller runner; do
-            go version -m "$dir/$bin" | grep -Eq '^[[:space:]]*build[[:space:]]+GOFIPS140=v1\.0\.0(-[0-9a-f]+)?$'
-            "$dir/$bin" version
-            GODEBUG=fips140=only "$dir/$bin" version
+            "$dir/amd64/$bin" version
+            GODEBUG=fips140=only "$dir/amd64/$bin" version
           done
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:

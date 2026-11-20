@@ -31626,6 +31626,9 @@ Runner, and 1203 fixed silent zero fallback on malformed grant times, but neithe
 **Lesson.** Any optional integer version where absence means version 1 must be read as `json.RawMessage`, so absent is
 distinct from explicit `0`, `-0`, `null`, floats, and overflows, and every decode error must surface by field name.
 
+**Completed by 1297 (2026-11-20).** This fix was held at the decoder only: the Runner still ended a dispatch carrying
+one of these versions with no job result, and 1297 completed it at the caller that reports a decode failure.
+
 ## 1294. tools/schemacompat's parseVersion ignored strconv.Atoi errors and trimmed whitespace before matching, while gitShow passed tags to git without checking them (fixed before push; a repeat in kind of 73)
 
 **Symptom.** `tools/schemacompat/policy.go`'s `parseVersion` discarded all three `strconv.Atoi` errors, so overflowing
@@ -31666,7 +31669,7 @@ guard in `followRefs`, and restricted `resolve` to `#` and `#/...`. Tests:
 **Lesson.** Memoization keys that include the current traversal path do not break cycles; track active
 `(oldRef, newRef, direction)` pairs on the call stack separately.
 
-## 1296. tools/schemacompat/protocols.go used an unchecked .(float64) assertion on current and firstparty.go compared any values with !=, panicking on malformed JSON (fixed before push; a repeat in kind of 2)
+## 1296. tools/schemacompat/protocols.go used an unchecked .(float64) assertion on current and firstparty.go compared any values with !=, panicking on malformed JSON (fixed before push; a repeat in kind of 2; its fix made a missing or retyped current a silent pass, corrected before push on 2026-11-20)
 
 **Symptom.** `FuzzCompareFile` panicked in 4.18 seconds at `tools/schemacompat/protocols.go:26` when comparing protocol
 documents where `"current"` was missing, `null`, or not a JSON number. Review of adjacent code found
@@ -31684,3 +31687,101 @@ uses `!reflect.DeepEqual(...)`. Tests: `TestCompareProtocolsAndFirstParty_Surviv
 
 **Lesson.** Every read from decoded `map[string]any` JSON must use two-value assertions and `reflect.DeepEqual`, and
 every schema reader needs a fuzz target.
+
+**Correction (2026-11-20, found by an independent review of the branch, fixed before push).** The fix above was wrong
+in one place. The two-value assertion on `current` in `tools/schemacompat/protocols.go` reported nothing when the new
+document's `current` was missing or not a number. The panic had failed closed; the fix made the same input a silent
+pass, so a protocol document that dropped or retyped `current` went through the compatibility gate. The branch's own
+test asserted that pass for `"current": null`, so it could not catch it (a test that asserts the defect, as in 751 and
+990). Now, when the old document has a numeric `current` and the new one's is gone or not a number,
+`protocol-current-lowered` is reported. `TestCompareProtocols_ACurrentGoneOrRetypedIsReported` covers null, text and
+removed, with an unchanged-document control. 1298 is the same mistake in 1295's fix. The lesson above stands with one
+addition: when a panic is replaced by a checked read, the not-ok branch must report what the panic used to stop, and
+the test must require that report, not only the absence of a panic.
+
+## 1297. The Runner ended a dispatch whose `payload_version` the new decoder refuses (explicit 0, null, a float, text, a bool, an array, an object, an integer past the int range) with no job result, so its job read "dispatched" until the Reaper republished it into the same refusal, and the branch's test asserted only the terminate (fixed before push; a repeat of 961, its test a repeat in kind of 467 and 1016)
+
+**Symptom.** A dispatch carrying a `payload_version` that `pkg/wire`'s decoder now refuses was terminated by the Runner
+and nothing else happened. No failed result was published, so the job stayed "dispatched" until the Reaper republished
+it, and the republished message met the same refusal. The values are the ones 1293 began refusing: explicit `0`,
+`null`, a float, text, a bool, an array, an object, and an integer past the int range. Found by an independent review
+of the branch on 2026-11-20.
+
+**Root cause.** 1293's fix changed the decoder and not its caller. `internal/runner/agent_version.go`'s
+`newerUndecodable` decides whether an undecodable dispatch gets a failed result. It still read the version into an
+`int` and reported only versions past this build's, so every value the decoder newly refused fell through to a bare
+terminate. The branch's own test, `TestAgent_HandleMessage_HostilePayloadVersionsNeverRun`, had an empty `wantResult`
+for those cases and asserted only the terminate, so it passed with the defect in place.
+
+**Why 961 and 1293 did not prevent it.** 961 is this same symptom for a newer version: its fix made
+`newerUndecodable` report a version past this build's, and nothing else. 1293 then widened what the decoder refuses
+without widening what `newerUndecodable` reports. 1293's lesson says every decode error must surface by field name;
+it was held at the decoder only, not at the one caller that turns a decode failure into a result an operator can see.
+
+**Fix.** `pkg/wire/dispatch_version.go` exports `wire.ParsePayloadVersion`, which makes the same refusals as the
+payload's own decoding. `newerUndecodable` keeps the version as raw JSON and passes it to that function; a refused
+version is reported as a failed result carrying the decoder's reason whenever the job id parses.
+`TestAgent_HandleMessage_HostilePayloadVersionsNeverRun` now requires a failed result naming the reason for every
+case.
+
+**Lesson.** When a decoder starts refusing more, every caller that classifies its failures must be changed in the same
+commit, and the two must share one parser so they cannot drift again. A test of a refusal asserts what the operator
+sees (the job's result), not only that the message was ended.
+
+## 1298. The cycle guard 1295's fix added to tools/schemacompat's followRefs also skipped a pair where only one side had a `$ref`, so a recursive definition the new schema wrote out in full was compared one level deep and a type narrowed below that passed the compatibility gate (fixed before push; a defect in 1295's fix, a repeat in kind of 904 and 1134)
+
+**Symptom.** With the old schema referring to a recursive definition and the new schema writing two levels of it out
+in full, a type narrowed at the second level was not reported. A breaking change passed the compatibility gate (it
+failed open). Found by reading during an independent review of the branch on 2026-11-20, then proven:
+`TestFollowRefs_AReferenceWrittenOutInFullIsReadAtEveryLevel` fails with the guard as it was (it reported only
+`type-narrowed x.json#/properties/step/type`) and passes with the fix.
+
+**Root cause.** The guard keyed its "being compared" set by (old ref, new ref, direction) and returned early whenever
+that pair was active, including when only one side had a `$ref`. The second level of the written-out schema arrived
+as the same pair (Old, "") as the first, so it was taken for a cycle and skipped.
+
+**Why 1295 did not prevent it.** 1295 is where the guard came from. Its fix and its test,
+`TestFollowRefs_RenamedRecursiveDefinitionDoesNotLoop`, covered only the case where both sides refer, which is the
+case that recurses. Nothing compared a schema with one side written out, so a guard that was too wide passed. This is
+the class of 904 and 1134: a first fix with a defect of its own. The correction recorded under 1296 is the same
+mistake in a second place on this branch.
+
+**Fix.** `tools/schemacompat/schema.go`: the guard applies only when both sides refer. A side written out in full is
+finite, so comparing it at every level always ends. Test:
+`TestFollowRefs_AReferenceWrittenOutInFullIsReadAtEveryLevel`.
+
+**Lesson.** A guard added to end a recursion must be scoped to the case that recurses, and its test must include the
+nearest case that must still be compared. In a compatibility gate, anything skipped is a pass, so every early return
+needs a test showing what it still reports.
+
+## 1299. docs/13 said the FIPS archives' binaries accept strict mode and run with `fips140=on` by default, on the proof of `version` alone, which does no cryptography, and the release workflow checked the `GOFIPS140` stamp on the amd64 archive only (docs and workflow fixed before push; open: the `build-fips` job has never run on GitHub; a repeat of 571 and 1041)
+
+**Symptom.** `docs/13-releases-and-stability.md` said the FIPS archives' binaries "accept `GODEBUG=fips140=only` for
+strict mode" and "run with `fips140=on` by default". The only proof was `<binary> version` under `fips140=only`, in
+the release workflow and in one test, and `version` does no cryptography. Nothing checked the `DefaultGODEBUG` stamp.
+The workflow's stamp check also read the amd64 archive only, so the arm64 FIPS archive would have been published with
+no check of its `GOFIPS140` stamp. Found by an independent review of the branch on 2026-11-20.
+
+**Root cause.** The sentences were written from what the build flags are meant to do, not from what a check had
+measured. The workflow's check was written for one archive and one stamp and never extended to the second archive or
+to the default the docs named.
+
+**Why 571 and 1041 did not prevent it.** Those entries, and 976, 994, 1029, 1074 and 1106 after them, are text that
+claimed more than the code did, each fixed where it was found. Their rule is applied by review, and nothing holds a
+sentence in a release document to a named check, so a new document about a new build repeated the class.
+
+**Fix.** The docs now say what is proven: the binaries are built against the certified snapshot, the module's
+self-test passes at start, strict mode was started only for `version`, cryptography outside Go's module (parts of
+SSH, SNMPv3 and WinRM's NTLM) is unchanged, and the product is not FIPS-validated. `.github/workflows/release.yml`
+checks `GOFIPS140`, `DefaultGODEBUG=fips140=on` and `GOARCH` on all three binaries of both archives, and reads
+`go version -m` into a variable rather than piping it to `grep -q` under pipefail. Measured on the local dry-run
+archives on 2026-11-20: `go version -m` shows `build DefaultGODEBUG=fips140=on`, `build GOFIPS140=v1.0.0-c2097c7c`
+and the right `GOARCH` on both the amd64 `pleiades` and the arm64 `runner`.
+
+**Still open.** The release workflow's `build-fips` job has never run on GitHub. It is to be dispatched as a dry run
+on the branch before merge. Until it passes there, the workflow's checks are proven only by the local measurement
+above.
+
+**Lesson.** A sentence about what a release binary does needs a check that exercises that thing: a mode that governs
+cryptography is not proven by a command that does none. A check over release archives must loop over every archive
+and every binary the release publishes, or name the ones it leaves out.

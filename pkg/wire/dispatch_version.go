@@ -67,6 +67,14 @@ func (p DispatchPayload) CheckVersion() error {
 	return nil
 }
 
+// ParsePayloadVersion reads a payload_version as it is written on the wire,
+// for a reader that could not decode the payload around it and still has to
+// say why: an absent key is zero, and every value DispatchPayload's own
+// decoding refuses is refused here with the same error.
+func ParsePayloadVersion(raw json.RawMessage) (int, error) {
+	return decodePayloadVersion(raw)
+}
+
 // decodePayloadVersion parses a raw JSON payload_version token. An absent key
 // returns zero so payloads from before this field existed keep version 1's
 // shape. Explicit null, 0, -0, floats, non-integers, and integer overflows are

@@ -79,8 +79,9 @@ func TestAgent_HandleMessage_ANewerPayloadIsRefusedNeverRun(t *testing.T) {
 }
 
 // TestAgent_HandleMessage_HostilePayloadVersionsNeverRun proves negative, zero,
-// null, huge, and wrong-type payload_version values terminate the message and
-// never reach the execution adapter.
+// null, huge, and wrong-type payload_version values terminate the message,
+// never reach the execution adapter, and are each reported as a failed result
+// naming what was wrong with the version.
 func TestAgent_HandleMessage_HostilePayloadVersionsNeverRun(t *testing.T) {
 	cases := []struct {
 		name       string
@@ -89,15 +90,15 @@ func TestAgent_HandleMessage_HostilePayloadVersionsNeverRun(t *testing.T) {
 	}{
 		{name: "negative one", raw: `-1`, wantResult: "not a payload version"},
 		{name: "min int64", raw: fmt.Sprintf("%d", int64(math.MinInt64)), wantResult: "not a payload version"},
-		{name: "explicit zero", raw: `0`},
-		{name: "null", raw: `null`},
+		{name: "explicit zero", raw: `0`, wantResult: "version 0, which is not a payload version"},
+		{name: "null", raw: `null`, wantResult: "not an integer version"},
 		{name: "max int64", raw: fmt.Sprintf("%d", int64(math.MaxInt64)), wantResult: "dispatch payload is newer"},
-		{name: "huge overflow", raw: `99999999999999999999999999999`},
-		{name: "string", raw: `"3"`},
-		{name: "float", raw: `1.5`},
-		{name: "bool", raw: `true`},
-		{name: "array", raw: `[3]`},
-		{name: "object", raw: `{"v":3}`},
+		{name: "huge overflow", raw: `99999999999999999999999999999`, wantResult: "outside the integer range"},
+		{name: "string", raw: `"3"`, wantResult: "not an integer version"},
+		{name: "float", raw: `1.5`, wantResult: "not an integer version"},
+		{name: "bool", raw: `true`, wantResult: "not an integer version"},
+		{name: "array", raw: `[3]`, wantResult: "not an integer version"},
+		{name: "object", raw: `{"v":3}`, wantResult: "not an integer version"},
 	}
 
 	for _, tc := range cases {
@@ -121,15 +122,15 @@ func TestAgent_HandleMessage_HostilePayloadVersionsNeverRun(t *testing.T) {
 			if !msg.term.Load() || msg.ack.Load() || msg.naked.Load() {
 				t.Errorf("settlement term=%v ack=%v nak=%v, want term only", msg.term.Load(), msg.ack.Load(), msg.naked.Load())
 			}
-			if tc.wantResult != "" {
-				select {
-				case entry := <-received:
-					if entry.Outcome != "failed" || !strings.Contains(entry.Reason, tc.wantResult) {
-						t.Errorf("result %q %q, want failed naming %q", entry.Outcome, entry.Reason, tc.wantResult)
-					}
-				case <-time.After(5 * time.Second):
-					t.Fatalf("expected failed result naming %q", tc.wantResult)
+			// Every refusal is reported: a dispatch dropped with no result
+			// leaves its job reading "dispatched" (FAILURE_PATTERNS 961).
+			select {
+			case entry := <-received:
+				if entry.Outcome != "failed" || !strings.Contains(entry.Reason, tc.wantResult) {
+					t.Errorf("result %q %q, want failed naming %q", entry.Outcome, entry.Reason, tc.wantResult)
 				}
+			case <-time.After(5 * time.Second):
+				t.Fatalf("no failed result naming %q, so the job would read dispatched forever", tc.wantResult)
 			}
 		})
 	}
