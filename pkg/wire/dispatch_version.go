@@ -10,8 +10,11 @@
 package wire
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 )
 
 // DispatchPayloadVersion is the payload version this build writes and the
@@ -62,4 +65,48 @@ func (p DispatchPayload) CheckVersion() error {
 			ErrNewerPayload, p.PayloadVersion, DispatchPayloadVersion)
 	}
 	return nil
+}
+
+// decodePayloadVersion parses a raw JSON payload_version token. An absent key
+// returns zero so payloads from before this field existed keep version 1's
+// shape. Explicit null, 0, -0, floats, non-integers, and integer overflows are
+// refused by name; negative and newer integers decode so CheckVersion reports
+// them through its typed errors.
+func decodePayloadVersion(raw json.RawMessage) (int, error) {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 {
+		return 0, nil
+	}
+	s := string(trimmed)
+	if !isJSONInt(s) {
+		return 0, fmt.Errorf("dispatch payload_version is not an integer version")
+	}
+	v, err := strconv.Atoi(s)
+	if err != nil {
+		return 0, fmt.Errorf("dispatch payload_version is outside the integer range")
+	}
+	if v == 0 {
+		return 0, fmt.Errorf("dispatch payload names version 0, which is not a payload version")
+	}
+	return v, nil
+}
+
+// isJSONInt reports whether s is a base-10 JSON integer with an optional
+// leading minus sign and no fractional point, exponent, or quotes.
+func isJSONInt(s string) bool {
+	if s == "" {
+		return false
+	}
+	if s[0] == '-' {
+		s = s[1:]
+	}
+	if s == "" {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return false
+		}
+	}
+	return true
 }

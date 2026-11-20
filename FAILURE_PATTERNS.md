@@ -1296,6 +1296,10 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 1290. internal/catalog/facts is floored at 100%, and the new parser branches for extended attributes run only where a tool lists them, which this machine's does not, so coverage fell to 98.7% and pr-check stopped (fixed before push; a repeat of 731 and 796)
 1291. `TestSubscriber_HoldsEachBatchToItsDevicesClaim` fails about once in a hundred runs because its no-value check searches the log for the fake version `9.6`, which slog's timestamp spells whenever a second ends in 9 and its milliseconds start with 6 (open: cause proven, fix not applied; a repeat of 236)
 1292. `pkg/cml` measured 88.9% against its 89.0% floor in #211's CI (a records-only change) and 89.0% in #210's on the same code, and a steady 89.0% in 24 local runs, so some block is covered only incidentally on the runners (open: block not identified; a repeat of 87)
+1293. Explicit 0, -0 and null versions in journal lines and dispatch payloads decoded to Go's zero value and silently read as version 1, and peekFormat swallowed decode errors so unknown fields hid bad formats (fixed before push; a repeat in kind of 961 and 1203)
+1294. tools/schemacompat's parseVersion ignored strconv.Atoi errors and trimmed whitespace before matching, while gitShow passed tags to git without checking them (fixed before push; a repeat in kind of 73)
+1295. tools/schemacompat's followRefs keyed renamed $ref pairs by path pointer, so comparing a renamed self-referential $defs cycle grew the path on every step until stack overflow (fixed before push; a repeat in kind of 62)
+1296. tools/schemacompat/protocols.go used an unchecked .(float64) assertion on current and firstparty.go compared any values with !=, panicking on malformed JSON (fixed before push; a repeat in kind of 2)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

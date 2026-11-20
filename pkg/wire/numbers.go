@@ -112,18 +112,27 @@ func (r *ChildResponse) UnmarshalJSON(data []byte) error {
 // as encoding/json always decoded it.
 func (p *DispatchPayload) UnmarshalJSON(data []byte) error {
 	type plain DispatchPayload
-	// The outer ExtraVars shadows plain's, as ChildRequest's Params does.
+	// The outer ExtraVars and PayloadVersion shadow plain's fields so
+	// ExtraVars keeps integer/float types and PayloadVersion rejects null,
+	// explicit 0, floats, non-integers, and integer overflows before *p is
+	// ever assigned.
 	var d struct {
 		plain
-		ExtraVars json.RawMessage `json:"extra_vars"`
+		ExtraVars      json.RawMessage `json:"extra_vars"`
+		PayloadVersion json.RawMessage `json:"payload_version"`
 	}
 	if err := json.Unmarshal(data, &d); err != nil {
+		return err
+	}
+	ver, err := decodePayloadVersion(d.PayloadVersion)
+	if err != nil {
 		return err
 	}
 	vars, err := decodeNumbers(d.ExtraVars)
 	if err != nil {
 		return fmt.Errorf("dispatch extra_vars: %w", err)
 	}
+	d.plain.PayloadVersion = ver
 	d.plain.ExtraVars = vars
 	*p = DispatchPayload(d.plain)
 	return nil

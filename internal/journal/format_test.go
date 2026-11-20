@@ -3,6 +3,8 @@ package journal_test
 
 import (
 	"context"
+	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -166,5 +168,96 @@ func TestReadRunNamesNoRecordedTextUnbounded(t *testing.T) {
 	}
 	if len(err.Error()) > 2048 || strings.Contains(err.Error(), override) {
 		t.Errorf("the refusal of %d bytes repeats the digest: %.300q", len(err.Error()), err.Error())
+	}
+}
+
+// TestReadRun_RefusesHostileFormatValuesByName proves negative, zero, huge,
+// non-integer, and wrong-type "format" values are refused by name rather than
+// defaulting to format 1, masked by an unknown field, or echoing unbounded
+// input, and that a two-line file with a bad format on line 2 is never half
+// read.
+func TestReadRun_RefusesHostileFormatValuesByName(t *testing.T) {
+	store, root := newStore(t)
+	if err := store.Record(context.Background(), []engine.JournalEntry{entry("run-a", 1, "tasks[0]")}); err != nil {
+		t.Fatalf("Record: %v", err)
+	}
+	path := filepath.Join(root, ".pleiades", "journal", "run-a.jsonl")
+	written, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	line := strings.TrimSuffix(string(written), "\n")
+	if !strings.HasPrefix(line, `{"format":4,`) {
+		t.Fatalf("written line does not lead with format 4: %s", line)
+	}
+	withFormat := func(rawVal string) string {
+		return strings.Replace(line, `"format":4,`, `"format":`+rawVal+`,`, 1)
+	}
+	withUnknownFirst := func(rawVal string) string {
+		return `{"a_newer_key":true,` + strings.TrimPrefix(withFormat(rawVal), `{`)
+	}
+	override := string(rune(0x202e))
+	hugeBidi := `"` + strings.Repeat("zq9"+override, 1<<18/6) + `"`
+
+	cases := []struct {
+		name    string
+		content string
+		wantErr string
+		check   func(t *testing.T, err error)
+	}{
+		{name: "negative one", content: withFormat("-1") + "\n", wantErr: "format -1"},
+		{name: "min int64", content: withFormat(fmt.Sprintf("%d", int64(math.MinInt64))) + "\n", wantErr: "format"},
+		{name: "huge negative", content: withFormat("-99999999999999999999999999999") + "\n", wantErr: "format"},
+		{name: "explicit zero", content: withFormat("0") + "\n", wantErr: "format 0"},
+		{name: "negative zero", content: withFormat("-0") + "\n", wantErr: "format 0"},
+		{name: "newer version", content: withFormat(fmt.Sprintf("%d", journal.FormatVersion+1)) + "\n", wantErr: fmt.Sprintf("format %d", journal.FormatVersion+1)},
+		{name: "max int64", content: withFormat(fmt.Sprintf("%d", int64(math.MaxInt64))) + "\n", wantErr: "format"},
+		{name: "huge positive", content: withFormat("99999999999999999999999999999") + "\n", wantErr: "format"},
+		{name: "fractional float", content: withFormat("1.5") + "\n", wantErr: "format"},
+		{name: "whole float", content: withFormat("1.0") + "\n", wantErr: "format"},
+		{name: "scientific notation", content: withFormat("1e30") + "\n", wantErr: "format"},
+		{name: "string format", content: withFormat(`"4"`) + "\n", wantErr: "format"},
+		{name: "boolean format", content: withFormat("true") + "\n", wantErr: "format"},
+		{name: "null format", content: withFormat("null") + "\n", wantErr: "format"},
+		{name: "array format", content: withFormat("[4]") + "\n", wantErr: "format"},
+		{name: "object format", content: withFormat(`{"v":4}`) + "\n", wantErr: "format"},
+		{
+			name:    "huge string with bidi override",
+			content: withFormat(hugeBidi) + "\n",
+			wantErr: "format",
+			check: func(t *testing.T, err error) {
+				t.Helper()
+				if len(err.Error()) > 2048 || strings.Contains(err.Error(), override) {
+					t.Errorf("error of %d bytes is unbounded or repeats bidi override: %.300q", len(err.Error()), err.Error())
+				}
+			},
+		},
+		{name: "unknown key before huge format", content: withUnknownFirst("99999999999999999999999999999") + "\n", wantErr: "format"},
+		{name: "unknown key before string format", content: withUnknownFirst(`"5"`) + "\n", wantErr: "format"},
+		{name: "unknown key before newer format", content: withUnknownFirst("5") + "\n", wantErr: "format 5"},
+		{name: "trailing closing brace", content: line + "}\n", wantErr: "more than one value"},
+		{name: "two lines with second null format not half read", content: line + "\n" + withFormat("null") + "\n", wantErr: "format"},
+		{name: "two lines with second newer format not half read", content: line + "\n" + withFormat("5") + "\n", wantErr: "format 5"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := os.WriteFile(path, []byte(tc.content), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			run, err := journal.ReadRun(root, "run-a")
+			if err == nil {
+				t.Fatalf("ReadRun accepted %s", tc.name)
+			}
+			if !strings.Contains(err.Error(), tc.wantErr) {
+				t.Errorf("error = %v, want substring %q", err, tc.wantErr)
+			}
+			if len(run.Entries) != 0 {
+				t.Errorf("ReadRun returned %d entries on error, want 0 (never half read)", len(run.Entries))
+			}
+			if tc.check != nil {
+				tc.check(t, err)
+			}
+		})
 	}
 }

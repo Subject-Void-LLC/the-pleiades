@@ -4,6 +4,8 @@ package wire_test
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
+	"math"
 	"strings"
 	"testing"
 
@@ -72,5 +74,54 @@ func TestPayloadVersionFor(t *testing.T) {
 	pinned := wire.DispatchPayload{PayloadVersion: wire.PinnedGraphPayloadVersion}
 	if wire.PinnedGraphPayloadVersion <= 1 || wire.PinnedGraphPayloadVersion > wire.DispatchPayloadVersion || pinned.CheckVersion() != nil {
 		t.Errorf("version %d is not past 1 and readable here", wire.PinnedGraphPayloadVersion)
+	}
+}
+
+// TestDispatchPayloadVersion_RefusesHostileValuesByName proves negative, zero,
+// huge, non-integer, and wrong-type payload_version values are refused by name
+// and never half-read into the destination DispatchPayload.
+func TestDispatchPayloadVersion_RefusesHostileValuesByName(t *testing.T) {
+	cases := []struct {
+		name string
+		raw  string
+		want string
+	}{
+		{name: "negative one", raw: `-1`, want: "not a payload version"},
+		{name: "min int64", raw: fmt.Sprintf("%d", int64(math.MinInt64)), want: "not a payload version"},
+		{name: "huge negative", raw: `-99999999999999999999999999999`, want: "payload_version"},
+		{name: "explicit zero", raw: `0`, want: "version 0"},
+		{name: "negative zero", raw: `-0`, want: "version 0"},
+		{name: "newer version", raw: fmt.Sprintf("%d", wire.DispatchPayloadVersion+1), want: "dispatch payload is newer"},
+		{name: "max int64", raw: fmt.Sprintf("%d", int64(math.MaxInt64)), want: "dispatch payload is newer"},
+		{name: "huge positive", raw: `99999999999999999999999999999`, want: "payload_version"},
+		{name: "fractional float", raw: `1.5`, want: "payload_version"},
+		{name: "whole float", raw: `1.0`, want: "payload_version"},
+		{name: "scientific notation", raw: `1e30`, want: "payload_version"},
+		{name: "string", raw: `"2"`, want: "payload_version"},
+		{name: "boolean", raw: `true`, want: "payload_version"},
+		{name: "null", raw: `null`, want: "payload_version"},
+		{name: "array", raw: `[2]`, want: "payload_version"},
+		{name: "object", raw: `{"v":2}`, want: "payload_version"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			body := fmt.Sprintf(`{"payload_version":%s,"job_id":"j-after","runbook_id":"rb","device_id":"d","device_host":"10.0.0.1"}`, tc.raw)
+			p := wire.DispatchPayload{JobID: "sentinel"}
+			err := json.Unmarshal([]byte(body), &p)
+			if err != nil {
+				if !strings.Contains(err.Error(), tc.want) {
+					t.Errorf("Unmarshal error = %v, want %q", err, tc.want)
+				}
+				if p.JobID != "sentinel" {
+					t.Errorf("Unmarshal mutated pre-populated payload on error: JobID = %q", p.JobID)
+				}
+				return
+			}
+			verr := p.CheckVersion()
+			if verr == nil || !strings.Contains(verr.Error(), tc.want) {
+				t.Errorf("CheckVersion = %v, want %q", verr, tc.want)
+			}
+		})
 	}
 }

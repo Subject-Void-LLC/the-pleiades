@@ -31600,3 +31600,87 @@ the block a test that drives it on purpose (87's fix). Do not lower the floor to
 
 **Lesson.** A floor set to exactly the value one machine measures fails on the first runner that reaches one block
 fewer; a package whose coverage varies has a block no test drives on purpose, and the artifacts should say which.
+
+## 1293. Explicit 0, -0 and null versions in journal lines and dispatch payloads decoded to Go's zero value and silently read as version 1, and peekFormat swallowed decode errors so unknown fields hid bad formats (fixed before push; a repeat in kind of 961 and 1203)
+
+**Symptom.** `internal/journal/format.go` (`peekFormat`) and `pkg/wire/dispatch_version.go` (`DispatchPayload`) treated
+explicit `"format": 0`, `"format": -0`, `"format": null`, `"payload_version": 0`, `"payload_version": -0`, and
+`"payload_version": null` as absent (version 1). When a journal line put an unknown key ahead of a huge or non-integer
+`"format"`, `peekFormat` swallowed the unmarshal error and returned `0`, so `DisallowUnknownFields` reported
+`"unknown field"` instead of refusing the bad format by name. `decodeEntry` also used `dec.More()`, missing trailing `}`
+tokens.
+
+**Root cause.** Decoding into an `int` struct field collapsed absent, explicit `0`, `-0`, and `null` onto Go's zero
+value `0`, and discarding `json.Unmarshal` errors in `peekFormat` turned wrong-type or overflowing versions into `0`.
+
+**Why 961 and 1203 did not prevent it.** 961 fixed decoding order for newer integer `payload_version` values in the
+Runner, and 1203 fixed silent zero fallback on malformed grant times, but neither audited `peekFormat` or
+`DispatchPayload` for explicit zero, null, float, or overflowing version tokens.
+
+**Fix.** `internal/journal/format.go` (`peekFormat`, `isJSONInt`), `internal/journal/reader.go` (`decodeEntry` calls
+`peekFormat` first and checks `dec.Token() == io.EOF`), `pkg/wire/dispatch_version.go` (`decodePayloadVersion`,
+`isJSONInt`), and `pkg/wire/numbers.go` (`DispatchPayload.UnmarshalJSON`). Tests:
+`TestReadRun_RefusesHostileFormatValuesByName`, `TestDispatchPayloadVersion_RefusesHostileValuesByName`,
+`TestAgent_HandleMessage_HostilePayloadVersionsNeverRun`, `FuzzReadJournalLine`, `FuzzDispatchPayloadDecode`.
+
+**Lesson.** Any optional integer version where absence means version 1 must be read as `json.RawMessage`, so absent is
+distinct from explicit `0`, `-0`, `null`, floats, and overflows, and every decode error must surface by field name.
+
+## 1294. tools/schemacompat's parseVersion ignored strconv.Atoi errors and trimmed whitespace before matching, while gitShow passed tags to git without checking them (fixed before push; a repeat in kind of 73)
+
+**Symptom.** `tools/schemacompat/policy.go`'s `parseVersion` discarded all three `strconv.Atoi` errors, so overflowing
+numbers like `v999999999999999999999999999.0.0` parsed as `0.0.0`. It also called `strings.TrimSpace` before regex
+matching, accepting padded tags, while `tools/schemacompat/main.go`'s `gitShow.list` and `gitShow.read` passed `tag`
+straight into `git` arguments without checking `parseVersion`.
+
+**Root cause.** Using `_` to discard `strconv.Atoi` errors and normalizing whitespace inside a validator allowed
+unvalidated inputs past the check.
+
+**Why 73 did not prevent it.** 73 warned against discarding errors in authorization checks, not in a standalone
+compatibility tool's tag parser.
+
+**Fix.** `tools/schemacompat/policy.go` removed `strings.TrimSpace` and checks all three `strconv.Atoi` errors;
+`tools/schemacompat/main.go` validates `tag` with `parseVersion` inside `gitShow.list` and `gitShow.read` before calling
+`exec.Command("git", ...)` directly with argv. Tests: `TestRunAndGitShow_RefuseHostileTagsAndNeverInvokeAShell`,
+`FuzzParseVersionAndTokens`.
+
+**Lesson.** Never discard integer-parse errors or trim whitespace inside a tag validator; validate every tag at the
+subprocess boundary too.
+
+## 1295. tools/schemacompat's followRefs keyed renamed $ref pairs by path pointer, so comparing a renamed self-referential $defs cycle grew the path on every step until stack overflow (fixed before push; a repeat in kind of 62)
+
+**Symptom.** Comparing two JSON Schemas where a recursive `$defs` entry was renamed (`#/$defs/Old` to `#/$defs/New`)
+recursed forever in `tools/schemacompat/schema.go`'s `followRefs` until Go aborted with a stack overflow.
+
+**Root cause.** When `oref != nref`, `followRefs` appended `ptr` to its `seen` key. Because `ptr` grew on every
+recursive step (`/properties/next/properties/next/...`), `seen` never hit and the recursion had no cycle guard.
+`resolve` also accepted any `#`-prefixed string rather than strictly `#` or `#/...`.
+
+**Why 62 did not prevent it.** 62 bounded recursion in the DAG builder, and `tools/schemacompat` was written later with
+only a `seen` map and no active-stack cycle set.
+
+**Fix.** `tools/schemacompat/schema.go` added typed `refKey` and `refPair` plus an `active map[refPair]bool` recursion
+guard in `followRefs`, and restricted `resolve` to `#` and `#/...`. Tests:
+`TestFollowRefs_RenamedRecursiveDefinitionDoesNotLoop`, `FuzzCompareFile`.
+
+**Lesson.** Memoization keys that include the current traversal path do not break cycles; track active
+`(oldRef, newRef, direction)` pairs on the call stack separately.
+
+## 1296. tools/schemacompat/protocols.go used an unchecked .(float64) assertion on current and firstparty.go compared any values with !=, panicking on malformed JSON (fixed before push; a repeat in kind of 2)
+
+**Symptom.** `FuzzCompareFile` panicked in 4.18 seconds at `tools/schemacompat/protocols.go:26` when comparing protocol
+documents where `"current"` was missing, `null`, or not a JSON number. Review of adjacent code found
+`tools/schemacompat/firstparty.go` comparing unvalidated `any` values with `!=`, which panics on slice or map values.
+
+**Root cause.** Unchecked type assertion `o["current"].(float64)` and `!=` on raw `map[string]any` entries assumed
+every JSON document matched the happy-path schema.
+
+**Why 2 did not prevent it.** 2 fixed unchecked map assertions on inventory properties, whereas `tools/schemacompat` parsed
+raw `map[string]any` JSON without fuzzing until now.
+
+**Fix.** `tools/schemacompat/protocols.go` uses two-value `.(float64)` assertions; `tools/schemacompat/firstparty.go`
+uses `!reflect.DeepEqual(...)`. Tests: `TestCompareProtocolsAndFirstParty_SurviveMalformedNonScalarFields`,
+`FuzzCompareFile` (30s, 1,065,033 execs, 0 crashes).
+
+**Lesson.** Every read from decoded `map[string]any` JSON must use two-value assertions and `reflect.DeepEqual`, and
+every schema reader needs a fuzz target.

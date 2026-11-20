@@ -8,8 +8,10 @@
 package journal
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"strconv"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
 )
@@ -78,15 +80,56 @@ func checkFormat(format int) error {
 	return nil
 }
 
-// peekFormat reads only a line's "format" key, ignoring every other key, and
-// returns zero when there is none or the line is not an object.
-func peekFormat(line []byte) int {
+// peekFormat reads and validates only a line's "format" key before full
+// decoding. An absent format (when line is not a JSON object or carries no
+// "format" key) returns zero and nil so decodeEntry's strict decoder reports
+// malformed entries and accepts pre-135a lines. An explicit null, 0,
+// negative, newer, overflowing, or non-integer format is refused by name.
+func peekFormat(line []byte) (int, error) {
 	var head struct {
-		// Format is the only key read.
-		Format int `json:"format"`
+		// Format holds the raw JSON token for the "format" key.
+		Format json.RawMessage `json:"format"`
 	}
 	if err := json.Unmarshal(line, &head); err != nil {
-		return 0
+		return 0, nil
 	}
-	return head.Format
+	raw := bytes.TrimSpace(head.Format)
+	if len(raw) == 0 {
+		return 0, nil
+	}
+	s := string(raw)
+	if !isJSONInt(s) {
+		return 0, fmt.Errorf("names a format that is not an integer format version")
+	}
+	v, err := strconv.Atoi(s)
+	if err != nil {
+		return 0, fmt.Errorf("names a format outside the integer range (this build reads formats up to %d)", FormatVersion)
+	}
+	if v == 0 {
+		return 0, fmt.Errorf("names format 0, which is not a format version")
+	}
+	if err := checkFormat(v); err != nil {
+		return 0, err
+	}
+	return v, nil
+}
+
+// isJSONInt reports whether s is a base-10 JSON integer with an optional
+// leading minus sign and no fractional point, exponent, or quotes.
+func isJSONInt(s string) bool {
+	if s == "" {
+		return false
+	}
+	if s[0] == '-' {
+		s = s[1:]
+	}
+	if s == "" {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return false
+		}
+	}
+	return true
 }
