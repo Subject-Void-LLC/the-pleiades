@@ -31283,3 +31283,320 @@ or an old fake given a new question, to the real tool's answer for that question
 
 **Lesson.** A fake answers what it is asked, as the real tool would, or refuses. A test of a reading asserts what was
 read (LESSONS 454).
+
+## 1279. facts.gather's Linux ports probe parsed ls -l of every /proc/<pid>/fd, whose lines carry a descriptor's target path raw, so a file name a local user chose could forge a listing and make pid 1 the owner of that user's listener (fixed; security; the delimiter class of 1064)
+
+**Symptom.** 2026-11-19, PR #210 (branch `feat/facts-read-port`). The previous handoff listed it as suspected; this
+session reproduced it. A local user on a Linux device opened a file at a path whose directory names held a newline, a
+forged `/proc/1/fd:` header and a line ending `-> socket:[N]`, N being the inode of a socket the user listens on.
+`facts.gather`'s ports subset then reported that listener as held by pid 1 (`process: systemd`).
+`TestGather_APortsOwnerCannotBeForgedByAFileName` (`internal/catalog/facts/gather_ports_forge_test.go`) failed that way
+on the old code. Measured.
+
+What it gets an attacker: a login on the device that can listen on a port and create a file can make the port facts
+name another process (pid 1 in the test) as the owner of its listener, so an unexpected listener reads as a system
+one, in the facts and in drift.
+
+**Root cause.** The probe from 875's fix printed `ls -l` of every process's descriptors and kept the lines holding
+`socket:`. `ls -l` prints a descriptor's target path as it is, and a path may hold any byte but a slash and NUL, so the
+listing interleaves text a user named with the kernel's own fields. The parser read it line by line and trusted the
+shape of each line.
+
+**Why 1064 did not prevent it.** 1064 is the same class: a newline in a name someone else chose starts a forged line.
+Its fix quoted names in the CLI's errors, where the reader is a person. Nothing swept the parsers that read a device's
+command output for names the device's own users choose.
+
+**Fix.** `e53da454` (`internal/catalog/facts/gather_ports.go`, `linuxSocketDescriptors`): each descriptor is read with
+`stat -L -c '%F %i %n'` over `/proc/[0-9]*/fd/*`, which prints its type and inode beside its own `/proc` path, and only
+a line of exactly `socket <digits> /proc/<digits>/fd/<digits>` is read. Every field in that line is named by the
+kernel. The test builds on Linux only (1287).
+
+**Lesson.** Never attribute by parsing output that interleaves names a user chose with the fields you need. Ask the
+tool for a format holding only kernel-named fields, and accept only a line of exactly that shape.
+
+**Class.** C1 (delimiter injection; here a forged line read by a parser, not a terminal)
+**Portable.** yes: any agent or scanner that maps sockets to processes by reading `ls -l /proc/*/fd`
+
+## 1280. The files subset's world-readable walk read the path's directories as written, so a file reached through a linked directory into a private one kept a plain SHA-256, the offline oracle 868 withheld (fixed; security; a gap in 868's fix, a repeat in kind of 260 and 321)
+
+**Symptom.** 2026-11-19, PR #210. The previous handoff listed it as suspected; this session reproduced it. With `pub/l`
+a symbolic link to `private/open`, `private` mode 0700 and a 0644 file in `open`, a gather of the file through `pub/l`
+judged it world-readable and stored its plain SHA-256. Only the login could reach the file, so anyone holding
+`inventory:read` could confirm guesses at its content offline (868).
+`TestGather_AFileThroughALinkedDirectoryKeepsNoPlainDigest` (`internal/catalog/facts/gather_files_link_test.go`)
+reproduced the plain digest on the old code. Measured.
+
+**Root cause.** 868's fix decides "world-readable" by walking the directories of the path as the task wrote it: the
+file's mode lets others read, and each directory lets others search. A link sends the real lookup through directories
+the walk never reads. The check judged the path; the read reached an object somewhere else.
+
+**Why 260 and 321 did not prevent it.** Each was a check on a path's text while the filesystem resolved the path
+through a link, and each was fixed in its own reader (`os.Root` for a project's playbook, the runbook's directory for
+`import_tasks`). The facts walk is shell on the device, where no `os.Root` applies, and its design was reviewed as a
+question about modes, not about paths.
+
+**Fix.** `51f0d1d7` (`internal/catalog/facts/gather_files.go`): a linked directory anywhere in the path makes the file
+private, so it gets no plain digest.
+
+**Lesson.** A privacy verdict is about the object, not the path that named it. When a check can see only the path, any
+indirection on it makes the answer the safe one.
+
+**Class.** C7 (secret exposure through output: a plain digest of a file one login may read), shared with 1281 and 1282
+**Portable.** yes: any inventory or compliance tool that publishes hashes only of "public" files and decides public by
+walking the path
+
+## 1281. A hard link in a public directory to a 0644 file inside a 0700 directory has the same inode and mode, so the world-readable walk passed it and kept its plain SHA-256, and a path swapped between the check and the read could hand over another file's digest (fixed; security; 1280's root cause, and the hard link case 618 named for the project guard)
+
+**Symptom.** 2026-11-19, PR #210, found while fixing 1280. A hard link in a directory others may search, to a 0644 file
+inside a 0700 directory, is the same file: same inode, same mode. The walk reads only the path it was given, so it
+judged the file world-readable and kept a plain digest. `TestGather_AHardLinkedFileKeepsNoPlainDigest`
+(`internal/catalog/facts/gather_files_link_test.go`) reproduced it on the old code. Measured. A second gap, reasoned:
+the check and the read each named the path, so a rename between them, by someone who may write a directory on the
+path, could make the check judge one file and the read hash another.
+
+**Root cause.** 1280's: privacy judged by the path, not the object. A file with more than one name can sit, under a
+name no walk of this path sees, in a directory that keeps others out. And a check by path followed by a read by path is
+two decisions (792's shape, on the read side).
+
+**Fix.** `497c2736` (`internal/catalog/facts/gather_files.go`, `posixStat`): a file whose link count is above 1 is
+private. The file is opened once and the digest read from that descriptor, whose device and inode must equal the file
+the check judged; when they differ, the digest is not kept plain.
+
+**Lesson.** As 1280's. The object a check judged and the object a read reads are proved the same (the device and inode
+of one open descriptor), never assumed from one path.
+
+**Class.** C7, with 1280 and 1282
+
+## 1282. The world-readable check read only mode bits, so an access control list that withheld read from someone left a file's plain SHA-256 in the facts, and on Windows only the three world identities' entries counted (fixed; security; a gap in 868's fix)
+
+**Symptom.** 2026-11-19, PR #210. The previous handoff listed it as suspected; this session reproduced it. On POSIX, a
+file every mode bit let others read kept a plain digest even when its access control list, or a list on a directory
+above it, withheld read from someone: POSIX.1e on Linux, NFSv4 on FreeBSD's ZFS, macOS's extended lists. On Windows,
+868's check asked whether Everyone, Authenticated Users or BUILTIN\Users were allowed read with no matching deny, so a
+deny for any other principal did not count. `TestGather_AnACLThatWithholdsReadMakesAFilePrivate`
+(`internal/catalog/facts/gather_files_acl_test.go`) holds the POSIX cases and was measured on macOS and on bsd-check's
+ZFS pool as well as here; `TestCLI_FactsGatherOnWindowsHoldsACLsLabelsJunctionsAndStreams`
+(`cmd/pleiades/facts_windows_files_lab_test.go`) holds the Windows ones on win-check.
+
+**Root cause.** 868's fix modeled "who may read" as the mode bits on POSIX and as three allowed identities on Windows.
+An access control list is a second answer to the same question, and any entry for someone outside the world identities
+narrows "everyone". 811's residual had already named an ACL as something a mode check cannot see.
+
+**Fix.** `8334a4da` (POSIX) and `ee4dc25d` (Windows). POSIX: the probe reads the list on the file and on each
+directory it walks (`ls -le` on macOS, `getfacl` elsewhere, GNU `ls`'s `+` where there is no `getfacl`); any deny, or a
+named user, named group or mask entry lacking the permission, makes the file private, and a list it cannot read counts
+as a restriction. Windows: the script reads the security descriptor (DACL, mandatory label, scoped policy) from the
+handle it hashes, through `GetSecurityInfo` (`internal/catalog/facts/gather_win_files_sd.go`); a deny of read to anyone,
+a conditional entry, a label, a central access policy or a reparse point above the file makes it private. `f42d9111`
+adds `acl` to a file fact (`listed`, `unreadable` or `unlisted`, the worst of the file's and its directories'), so a
+device with no tool to list one (BusyBox without `getfacl`) says the mode alone decided.
+
+**Lesson.** A permission check reads every mechanism the system uses to answer "who may read", fails closed when one
+cannot be read, and says in its result which mechanisms it read.
+
+**Class.** C7, with 1280 and 1281
+
+## 1283. Windows PowerShell 5.1 throws "Specified cast is not valid" on -band over the byte-backed AceFlags enum, and the files script's catch read the exception as "private", so every Windows file came back private (fixed before push; a repeat in kind of 873)
+
+**Symptom.** 2026-11-19, PR #210, the first live run of the new Windows files script on win-check (Windows PowerShell
+5.1.26100). Every file came back private, `C:\Windows\win.ini` included. `TestCLI_FactsGatherOnWindowsMatchesItsOwnTools`
+(`cmd/pleiades/facts_lab_release_gate_test.go`) caught it only because it also asserts a positive baseline: win.ini
+must keep a plain digest equal to the host's own `Get-FileHash`. Every assertion that a file must be private passed.
+Measured.
+
+**Root cause.** The ACE loop tested `$a.AceFlags -band [Security.AccessControl.AceFlags]::InheritOnly`. `AceFlags` is a
+byte-backed flags enum, and PowerShell 5.1 throws "Specified cast is not valid" on that `-band`. The script wraps the
+read in a try/catch that reads any exception as "private", which is the fail-closed design, so a bug in the check read
+as the policy working.
+
+**Why 873 did not prevent it.** 873 had the same symptom (every Windows file withheld) from an interpreter difference
+(`[IO.File]::GetAccessControl` is missing in PowerShell 7). Its lesson, write a script against the oldest and the newest
+interpreter, is a rule for the author, and the new loop was not run on 5.1 before it was wired in. The catch then made
+the failure silent. The live gate on 5.1 found it, which is 873's rule working at the last step. 925 is the wider class:
+an answer that means "could not look" read as a real answer.
+
+**Fix.** `ee4dc25d` (`internal/catalog/facts/gather_win_files_sd.go`): `([int]$a.AceFlags -band 0x08)`, with the
+measurement in the comment. Proven on win-check (PowerShell 5.1). The gate added with it,
+`TestCLI_FactsGatherOnWindowsHoldsACLsLabelsJunctionsAndStreams`, asserts its open case first (a fresh file keeps the
+host's digest, plain) and stops when that fails, since no private answer after it means anything.
+
+**Lesson.** A fail-closed check hides its own bugs as policy. Its live test asserts a case that must come out open
+before any case that must come out closed (LESSONS 457).
+
+## 1284. The Windows files script passed cmd.exe's 8191-character command line at 64 paths before this branch, and with the new Win32 helper even at one path, because the fit test held only the fixed probes (fixed; a repeat of 509)
+
+**Symptom.** 2026-11-19, PR #210. With the Win32 security descriptor helper added (1282), the files script came to
+20789 characters at one path, past `winrmexec.MaxCmdLine` (8191). The script on main already passed the limit at the
+largest input it accepts (`gatherMaxFiles`, 64 long paths): 16517 characters. A gather that large would have been
+refused on every Windows host. `TestWindowsScripts_FitTheCommandLineAndCarryNoUnicodeEscape` passed throughout. Measured
+by building the line.
+
+**Root cause.** The fit test held only the probes whose command is fixed. A probe built from its input (`commandFor`)
+grows with the paths, and no test built it at its largest.
+
+**Why 509 did not prevent it.** 509's fix held win.schtask's constant script to the real line, and its lesson names a
+constant. The files script grows with its input, so a test of it at a small input says nothing about the limit.
+
+**Fix.** `ee4dc25d` (`internal/catalog/facts/gather_transport.go`): a script that does not fit goes on standard input
+behind a short loader, `& ([scriptblock]::Create([Console]::In.ReadToEnd()))`, and `gatherWinRM` is
+`winrmexec.RunWithStdin`. `TestWindowsFilesScript_FitsTheCommandLineAtItsLargest`
+(`internal/catalog/facts/gather_win_files_size_internal_test.go`) builds the line for `gatherMaxFiles` long paths.
+
+**Lesson.** A size limit is tested at the largest input the code accepts, not at the input a fixture happens to use.
+
+## 1285. ACL test fixtures denied everyone on macOS and everyone@ on FreeBSD's ZFS, which include the login itself, so the file read as unreadable instead of private, twice in one session on two systems (fixed before push; a repeat in kind of 827)
+
+**Symptom.** 2026-11-19, PR #210, `TestGather_AnACLThatWithholdsReadMakesAFilePrivate`. On macOS the fixture denied
+read to `everyone` (`chmod +a`); on bsd-check's ZFS pool it denied `everyone@` (`setfacl -a 0`). Each principal
+includes the login running the test, which then could not read the file at all, so it came back unreadable rather than
+present and private. On ZFS the `everyone@` deny also recomputed the file's mode to 0200. Measured on both.
+
+**Root cause.** "Someone else" was spelled as a set that contains the login. The fixture did not make the case it was
+for.
+
+**Why 827 did not prevent it.** 827's lesson says a fixture is checked to make its case, by the call the code makes,
+before a test relies on it. It was written about an unreadable fixture on Windows. Here the fixture was meant to stay
+readable to the login, and the macOS correction did not carry to the FreeBSD case written the same day.
+
+**Fix.** `22121844` (macOS) and `7b138c07` (FreeBSD NFSv4): deny the user `nobody`, a principal that is not the login.
+
+**Lesson.** A fixture that restricts someone else names a principal that cannot be the test's own login, and is checked
+to leave the login its access before the test relies on it.
+
+## 1286. FreeBSD's lsextattr exits 1 on "--", so listing a file's extended attributes failed for every FreeBSD file (fixed before push; a repeat in kind of 1174's dnf5 case)
+
+**Symptom.** 2026-11-19, PR #210, the new `file_attached.<path>` fact (`497c2736`). On FreeBSD 15, `lsextattr` exits 1
+when given `--` (measured), and the probe reads a failed listing as unreadable, so every FreeBSD file's attributes would
+have read as unreadable. `getextattr` takes no `--` either.
+
+**Root cause.** The probe put `--` before each path, by the project's rule for a path that could begin with a dash
+(569, 1174). Not every tool accepts it, and FreeBSD's extattr tools are among those that do not.
+
+**Why 1174 did not prevent it.** 1174 measured dnf5 refusing `--` and guarded names another way there. That was
+recorded as one tool's quirk; the rule that adds `--` does not say to measure each tool first.
+
+**Fix.** `ee4dc25d` (`internal/catalog/facts/gather_files.go`, `posixAttachedListing`): no `--` for `lsextattr` or
+`getextattr`. Every path the probe sends is absolute, so none reads as an option. The measurement is in the comment.
+
+**Lesson.** End-of-options is a fact about each tool, measured on that tool, not a habit applied to every command
+(LESSONS 458).
+
+## 1287. A Linux-only test used syscall.Stat_t, which Windows lacks, and pr-check's Windows vet refused the package (fixed before push; a repeat of 185)
+
+**Symptom.** 2026-11-19, PR #210. `TestGather_APortsOwnerCannotBeForgedByAFileName` (1279) reads `/proc` and takes a
+socket's inode through `syscall.Fstat` into a `syscall.Stat_t`. `make pr-check`'s vet for Windows (`GOOS=windows`)
+could not type-check `internal/catalog/facts`. Nothing was wrong on Linux.
+
+**Root cause.** 185's: `syscall.Stat_t` does not exist on Windows, so a file using it needs a build constraint. The
+test's runtime guard (`gatherNeedsLinux`) cannot stop a compile error.
+
+**Why 185 did not prevent it.** 185's fix was a build-tagged helper pair in `internal/catalog/file`. A new test in
+another package wrote the assertion afresh. The check 185 relies on, a vet for Windows, did its job before push.
+
+**Fix.** `5678b552`: `//go:build linux` on `internal/catalog/facts/gather_ports_forge_test.go`.
+
+**Lesson.** As 185's: only a build line can say an identifier does not exist on a GOOS. A test that reads `/proc` or
+`syscall.Stat_t` starts with `//go:build linux` when it is written (CI_LESSONS 36).
+
+## 1288. A Mac leg run before committing tested the last commit, not the working tree, so its pass proved nothing about the edit it was run for (open, as a practice)
+
+**Symptom.** 2026-11-19, PR #210. `tools/maccheck` was run to test a change that was not yet committed. It shipped the
+last commit and passed. Its "at <sha>" line named the commit before the edit, which is how the mistake was seen.
+`tools/bsdcheck` behaves the same way.
+
+**Root cause.** The machine legs ship a commit, by design (`tools/internal/oscheck/flow.go`: the tree of `-commit`,
+HEAD by default), since a pr-check receipt needs every leg at one commit (CI_LESSONS 4 and 12). On a dirty tree the tool
+prints a warning that it tests the committed tree without the changes, then goes on.
+
+**Fix.** None in code. Commit before any lab leg, and read the sha it reports.
+
+**Lesson.** A machine leg's result is about the commit it names. Commit first, then check that the sha in its output is
+the commit you meant.
+
+## 1289. virt.vbox.vm.start refused bsd-check for lack of free memory with no lab VM running, because WSL held about 10 GB as page cache from the day's builds, which Windows counts as used (cleared by dropping the page cache; open, as a practice)
+
+**Symptom.** 2026-11-19, before a bsd-check run for PR #210. `virt.vbox.vm.start` refused: "needs 4096 MB and the host
+has 4354 MB free, of which it keeps 1024 MB". No lab VM was running. WSL held about 10 GB as page cache from the day's
+builds. A `sudo` started from an agent's shell cannot prompt for a password, so the owner ran
+`sudo sh -c 'sync; echo 1 > /proc/sys/vm/drop_caches'` in their own shell, and free memory went from 1.1 GB to 9.2 GB.
+
+**Root cause.** `fitsNow` (`internal/catalog/virt/vbox/vm/size.go`) reads the Windows host's available memory. The WSL
+VM's page cache is memory the Windows host counts as used, so a day of builds inside WSL leaves the host short with
+nothing else running. The check is right to refuse on what the host reports.
+
+**Fix.** The caches were dropped. No code change.
+
+**Lesson.** Before a lab VM run after heavy builds, read the buff/cache column of `free -m` inside WSL, and when it is
+large, ask the owner to drop the caches; an agent cannot run a `sudo` that prompts.
+
+## 1290. internal/catalog/facts is floored at 100%, and the new parser branches for extended attributes run only where a tool lists them, which this machine's does not, so coverage fell to 98.7% and pr-check stopped (fixed before push; a repeat of 731 and 796)
+
+**Symptom.** 2026-11-19, PR #210. `make pr-check` at `5678b552` failed its coverage-fast step: `internal/catalog/facts`
+measured 98.7% against its 100% floor.
+
+**Root cause.** The parser branches for `file_attached` (bad hex, a digest that is not one, the 256-name bound) and the
+`acl` ranking run only on answers a tool prints where it lists extended attributes, or on malformed answers. Neither
+happens on this machine, so the new code's tests reached only the branches this host's tools take.
+
+**Why 731 and 796 did not prevent it.** Both say new branches get their tests in the same sitting, measured against
+the floor before the gate. The tests were written, but against the live tools on this host, and the floor was not
+measured before pr-check (744's ask).
+
+**Fix.** `daf0739e`: `internal/catalog/facts/gather_files_attached_internal_test.go` feeds the parser crafted sections
+(`TestParseFiles_ReadsWhatAPathCarriesBesideItsContent`, `TestTakeAttached_KeepsTheKindTheAnswerNames`,
+`TestParseFiles_ACLIsTheWorstAnswer`, `TestSocketDescriptor_RefusesAnEmptyNumber`). pr-check passed at `daf0739e`.
+
+**Lesson.** A parser of another system's tool output gets an internal test with a crafted answer for each branch, since
+this machine's tool reaches only its own (CI_LESSONS 37).
+
+## 1291. `TestSubscriber_HoldsEachBatchToItsDevicesClaim` fails about once in a hundred runs because its no-value check searches the log for the fake version `9.6`, which slog's timestamp spells whenever a second ends in 9 and its milliseconds start with 6 (open: cause proven, fix not applied; a repeat of 236)
+
+**Symptom.** `internal/facts/entstore`'s `TestSubscriber_HoldsEachBatchToItsDevicesClaim`, subtest "refused: dropped
+whole, said at warn, acknowledged", failed once in about 35 runs during the Phase 41 claim work (#201 to #208) and
+passed the next 30; the handoffs carried it as an unexplained flake. Reproduced 2026-11-19 with `go test -count=600
+-run 'TestSubscriber_HoldsEachBatchToItsDevicesClaim/refused' ./internal/facts/entstore/`: 6 of 600 failed, each on
+`claims_test.go:80`, "a log line holds a fact's value", with a log line beginning
+`time=2026-11-19T20:07:39.612-05:00 level=WARN msg="dropping a facts batch ..."` (and `39.650`, `39.684`).
+
+**Root cause.** The check is `strings.Contains(log, "web1") || strings.Contains(log, "9.6")`, meant to prove the
+refusal's log line holds no fact value (the batch's facts are `host.name: web1` and `Package.openssh: 9.6`). The
+handler is `slog.NewTextHandler`, which opens every line with the time to the millisecond, and `39.612` contains
+`9.6`. So the test fails whenever the warn line is written in a second ending in 9 with milliseconds 600 to 699, about
+one line in a hundred, and the code under test is right every time. The second subtest's log is one line, so the rate
+measured (1 in 100) and the one seen (about 1 in 35, a small sample) agree.
+
+**Why 236 did not prevent it.** 236's lesson was "prove independence, not absence": a substring check is refuted by any
+text that happens to spell the value. 236 was about an error message, and this check was written as an absence check on
+a log, with a sentinel short and numeric enough to occur in the log's own fields.
+
+**Fix (not applied; the owner asked on 2026-11-19 to log it for later).** Either a sentinel no log field can spell
+(letters and a distinctive word, `openssh-sentinel-qzxv`, never a short number), or the handler's `ReplaceAttr` dropping
+`time` in the test, or 236's differential form (log the refusal for two batches whose values differ and require
+identical lines). A bounded search of the tests (`Contains(<log-like>, "<short number>")`) found no other case:
+`internal/telemetry/telemetry_test.go:164` looks for `1.2.3` as a positive check, which a timestamp cannot spell.
+
+**Lesson.** A sentinel searched for in output must be unable to occur in that output's own fields: never a short number
+or a common word where a timestamp, a UUID or a duration is printed beside it.
+
+## 1292. `pkg/cml` measured 88.9% against its 89.0% floor in #211's CI (a records-only change) and 89.0% in #210's on the same code, and a steady 89.0% in 24 local runs, so some block is covered only incidentally on the runners (open: block not identified; a repeat of 87)
+
+**Symptom.** 2026-11-20, PR #211 (records only, no Go file changed). CI run 44652479425's `coverage` job failed
+`make coverage-measured`: `pkg/cml: 88.9% dropped below its floor of 89.0%`. The `coverage-fast` artifact of that run
+records 88.9 for `pkg/cml`; the same artifact of #210's run 44645479886, on the same `pkg/cml` code, records 89. Locally,
+24 runs (`-race` and not, all CPUs and `-cpu=2` with `GOMAXPROCS=2`) all measure exactly 89.0%, and a block-by-block
+comparison of their profiles finds no block that varies.
+
+**Root cause (not yet found).** One or more blocks of `pkg/cml` are reached on the runners only some of the time, as in
+87, where race arms were covered incidentally by which way a timing race went. The floor sits exactly on this machine's
+value, so a 0.1-point miss on a runner fails the job. CI uploads each package's percentage (`coverage-fast`'s
+`fast.json`), not its profile, so the block a runner missed cannot be named from the artifacts.
+
+**Why 87 did not prevent it.** 87's fix drove `internal/election`'s race arms on purpose; nothing swept other packages
+for blocks reached only incidentally.
+
+**To settle it.** Upload the coverage profile beside the percentage when a floor is missed, and diff it against a passing
+run's; or run `pkg/cml`'s tests in a container held to a hosted runner's CPU and memory and compare profiles; then give
+the block a test that drives it on purpose (87's fix). Do not lower the floor to pass.
+
+**Lesson.** A floor set to exactly the value one machine measures fails on the first runner that reaches one block
+fewer; a package whose coverage varies has a block no test drives on purpose, and the artifacts should say which.

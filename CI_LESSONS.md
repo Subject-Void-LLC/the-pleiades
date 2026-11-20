@@ -66,6 +66,14 @@ Append a rule when a diagnosis teaches one; name the failure patterns it comes f
 35. **Wait for the runs of the pushed commit, not for the pull request's rollup.** Right after a push the rollup can
     still list the previous commit's finished checks, and reads green for a commit CI has not run. Filter the runs by
     the pushed head SHA (`gh run list` with `headSha` in its `--json` fields) and wait until those exist and finish. FAILURE_PATTERNS 1173, 1275.
+36. **A test that names an identifier one OS lacks carries that OS's build line from its first commit.** `syscall.Stat_t`
+    does not exist on Windows, so a runtime skip beside it cannot stop the compile error, and the package fails
+    pr-check's Windows vet. Start a test that reads `/proc` or `syscall.Stat_t` with `//go:build linux`, or put the
+    identifier behind a build-tagged helper pair. FAILURE_PATTERNS 185, 1287.
+37. **A parser of another system's tool output gets an internal test that feeds it crafted answers.** The tools on this
+    machine reach only the branches their own output takes (no extended attributes listed here, no malformed answers),
+    so a package floored at 100% falls under its floor at pr-check's coverage step. Cover each branch with a crafted
+    answer, and measure the package against its floor before the gate. FAILURE_PATTERNS 731, 796, 1290.
 
 ## Tests that do not fail by luck
 
