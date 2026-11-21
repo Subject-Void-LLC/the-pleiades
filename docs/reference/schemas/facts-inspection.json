@@ -1,0 +1,317 @@
+{
+  "$defs": {
+    "Device": {
+      "description": "Device is what an inspection found of one device.",
+      "properties": {
+        "advice": {
+          "description": "Advice says what the operator can do, in a sentence or two.",
+          "type": "string"
+        },
+        "coverages": {
+          "description": "Coverages and Observations count its other stored rows: the sets of facts its gathers covered, and its gathers.",
+          "type": "integer"
+        },
+        "device": {
+          "description": "Device is the device's inventory name.",
+          "type": "string"
+        },
+        "id": {
+          "description": "ID is the device's ID, which the controller's log names.",
+          "type": "string"
+        },
+        "keyed_by": {
+          "description": "KeyedBy is each key identity its rows name, with how many name it, at most eight.",
+          "items": {
+            "$ref": "#/$defs/KeyedRows"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "keyed_by_more": {
+          "description": "KeyedByMore counts the rows under key identities past the eight named, which only an edited database holds.",
+          "type": "integer"
+        },
+        "observations": {
+          "description": "Coverages and Observations count its other stored rows: the sets of facts its gathers covered, and its gathers.",
+          "type": "integer"
+        },
+        "repairs": {
+          "description": "Repairs names the repairs that apply: discard, truncate. Empty when there is nothing to repair.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "rows": {
+          "$ref": "#/$defs/Rows",
+          "description": "Rows counts its stored facts."
+        },
+        "state": {
+          "description": "State is how its stored history stands. Known values: empty, healthy, rekey_pending, refused, broken, mixed_keys, other_keys. A newer producer may add others, and a reader treats one it does not know as not a pass.",
+          "examples": [
+            "empty",
+            "healthy",
+            "rekey_pending",
+            "refused",
+            "broken",
+            "mixed_keys",
+            "other_keys"
+          ],
+          "type": "string"
+        },
+        "truncate_from": {
+          "description": "TruncateFrom is the gather a truncate would cut the history at: the one that wrote its first stable row that fails. Absent when no stable row fails, or no truncate applies.",
+          "type": "integer"
+        },
+        "under": {
+          "description": "Under is the history checked under each key the inspection was given, current first.",
+          "items": {
+            "$ref": "#/$defs/KeyCheck"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "device",
+        "id",
+        "state",
+        "rows",
+        "coverages",
+        "observations",
+        "keyed_by",
+        "under",
+        "repairs",
+        "advice"
+      ],
+      "type": "object"
+    },
+    "KeyCheck": {
+      "description": "KeyCheck is a device's history checked under one set of keys.",
+      "properties": {
+        "checked": {
+          "description": "Checked is how many rows, in the order they were stored, passed before the first that failed: all of them when none did.",
+          "type": "integer"
+        },
+        "failed": {
+          "description": "Opened and Failed count the rows that open as the device's own under these keys and the ones that do not, each row checked on its own.",
+          "type": "integer"
+        },
+        "failure": {
+          "$ref": "#/$defs/RowFailure",
+          "description": "Failure is the first row that fails, absent when none does."
+        },
+        "key_id": {
+          "description": "KeyID is the identity of the keys.",
+          "type": "string"
+        },
+        "opened": {
+          "description": "Opened and Failed count the rows that open as the device's own under these keys and the ones that do not, each row checked on its own.",
+          "type": "integer"
+        },
+        "role": {
+          "description": "Role is current or previous. Known values: current, previous. A newer producer may add others, and a reader treats one it does not know as not a pass.",
+          "examples": [
+            "current",
+            "previous"
+          ],
+          "type": "string"
+        },
+        "verifies": {
+          "description": "Verifies is true when every row opens as the device's own under these keys and the chain over its stable rows is whole.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "role",
+        "key_id",
+        "verifies",
+        "checked",
+        "opened",
+        "failed"
+      ],
+      "type": "object"
+    },
+    "KeyedRows": {
+      "description": "KeyedRows is one key identity a device's rows name.",
+      "properties": {
+        "key_id": {
+          "description": "KeyID is the identity, as the rows name it: never the key.",
+          "type": "string"
+        },
+        "role": {
+          "description": "Role is current, previous or other. Known values: current, previous, other. A newer producer may add others, and a reader treats one it does not know as not a pass.",
+          "examples": [
+            "current",
+            "previous",
+            "other"
+          ],
+          "type": "string"
+        },
+        "rows": {
+          "description": "Rows is how many rows name it.",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "key_id",
+        "role",
+        "rows"
+      ],
+      "type": "object"
+    },
+    "Keys": {
+      "description": "Keys names the facts keys an inspection or a repair read with.",
+      "properties": {
+        "current": {
+          "description": "Current is the identity of PLEIADES_FACTS_DIGEST_KEY's keys, absent when it was not set.",
+          "type": "string"
+        },
+        "previous": {
+          "description": "Previous is the identity of PLEIADES_FACTS_DIGEST_KEY_PREVIOUS's keys, absent when it was not set.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "RowFailure": {
+      "description": "RowFailure is one stored row that fails a check.",
+      "properties": {
+        "chain_index": {
+          "description": "ChainIndex is its place among the device's stable rows, from 0, as the fact chain route numbers a break; absent for a volatile row.",
+          "type": "integer"
+        },
+        "fact": {
+          "description": "Fact is the fact the row holds, given only with --show-fact-names and only when its payload opens.",
+          "type": "string"
+        },
+        "key_id": {
+          "description": "KeyID is the key identity the row names.",
+          "type": "string"
+        },
+        "kind": {
+          "description": "Kind is why it fails. Known values: unsealed, does_not_open, token_mismatch, hash_mismatch, chain_missing, chain_link_mismatch, chain_hash_mismatch. A newer producer may add others, and a reader treats one it does not know as not a pass.",
+          "examples": [
+            "unsealed",
+            "does_not_open",
+            "token_mismatch",
+            "hash_mismatch",
+            "chain_missing",
+            "chain_link_mismatch",
+            "chain_hash_mismatch"
+          ],
+          "type": "string"
+        },
+        "observation": {
+          "description": "Observation is the number of the device's gather that wrote it.",
+          "type": "integer"
+        },
+        "observed_at": {
+          "description": "ObservedAt is when the value it holds was first observed.",
+          "format": "date-time",
+          "type": "string"
+        },
+        "position": {
+          "description": "Position is its place among the device's rows, from 0, in the order they were stored.",
+          "type": "integer"
+        },
+        "row": {
+          "description": "Row is the row's ID in the facts table.",
+          "type": "integer"
+        },
+        "stable": {
+          "description": "Stable is true for a stable row, false for a volatile one.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "row",
+        "position",
+        "kind",
+        "stable",
+        "key_id",
+        "observed_at",
+        "observation"
+      ],
+      "type": "object"
+    },
+    "Rows": {
+      "description": "Rows counts a device's stored facts.",
+      "properties": {
+        "stable": {
+          "description": "Total is every row; Stable and Volatile split it by kind.",
+          "type": "integer"
+        },
+        "total": {
+          "description": "Total is every row; Stable and Volatile split it by kind.",
+          "type": "integer"
+        },
+        "volatile": {
+          "description": "Total is every row; Stable and Volatile split it by kind.",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "total",
+        "stable",
+        "volatile"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Report is what one inspection found: the keys it read with, and each device it reports. Printed by controller facts inspect --json. schema_version is the major version: it goes up only for a change an existing reader could misread, a field removed or renamed or given another type or meaning. Within a major version a newer producer may add fields, and new values to the open sets (a state, a failure kind, a role, a repair). So a reader ignores a field it does not know, treats a state it does not know as needing repair, and refuses a major version it does not know.",
+  "properties": {
+    "devices": {
+      "description": "Devices are the devices reported: the one asked for, or in a fleet inspection every device whose state is not empty or healthy (all of them with --all), in the order of their database IDs.",
+      "items": {
+        "$ref": "#/$defs/Device"
+      },
+      "type": [
+        "array",
+        "null"
+      ]
+    },
+    "keys": {
+      "$ref": "#/$defs/Keys",
+      "description": "Keys are the identities of the facts keys the inspection read with, never the keys themselves."
+    },
+    "needs_repair": {
+      "description": "NeedsRepair is how many of them hold a history no controller with these keys can serve (State.NeedsRepair).",
+      "type": "integer"
+    },
+    "scanned": {
+      "description": "Scanned is how many devices were read.",
+      "type": "integer"
+    },
+    "schema_version": {
+      "description": "SchemaVersion is this document's major version.",
+      "type": "integer"
+    },
+    "scope": {
+      "description": "Scope is device when one device was asked for, fleet when every device holding stored facts was read. Known values: device, fleet. A newer producer may add others, and a reader treats one it does not know as not a pass.",
+      "examples": [
+        "device",
+        "fleet"
+      ],
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "keys",
+    "scope",
+    "scanned",
+    "needs_repair",
+    "devices"
+  ],
+  "title": "Pleiades facts inspection",
+  "type": "object"
+}

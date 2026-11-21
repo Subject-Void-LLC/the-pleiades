@@ -83,7 +83,7 @@ func TestRunFactsRekey_SaysWhetherThePreviousKeyIsStillNeeded(t *testing.T) {
 		{"complete", countingRekeyer{count: entstore.RekeyCount{Devices: 3, Facts: 21}},
 			[]string{"devices=3", "facts=21", "no stored fact needs " + factDigestKeyPreviousEnv + " any more", "once every replica runs with the new"}, "keep " + factDigestKeyPreviousEnv},
 		{"a device left", countingRekeyer{count: entstore.RekeyCount{Devices: 2, Refused: 1, RefusedDevices: []string{"dev-9"}, Remaining: 1}},
-			[]string{"refused=1", "dev-9", "keep " + factDigestKeyPreviousEnv + " set"}, "rotation complete"},
+			[]string{"refused=1", "dev-9", "keep " + factDigestKeyPreviousEnv + " set", "controller facts inspect", "controller facts truncate"}, "rotation complete"},
 		{"a pass that failed", countingRekeyer{count: entstore.RekeyCount{Devices: 1}, err: errors.New("database gone")},
 			[]string{"level=ERROR", "database gone", "keep " + factDigestKeyPreviousEnv + " set"}, "rotation complete"},
 		// A refused ID is the database's text: named bounded and escaped, as

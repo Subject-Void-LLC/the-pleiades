@@ -94,6 +94,13 @@ const (
 	// has one, so its entries carry the id 1 and name the database and the
 	// backup it was restored from.
 	KindDatabase = "database"
+
+	// KindDeviceFacts is one device's stored fact history, repaired by
+	// `controller facts discard` or `truncate` (internal/facts/entstore's
+	// repair.go). Its entries carry the device's database id and name the
+	// device, what was removed by count, and a keyed digest of the removed
+	// rows: never a fact's name or value.
+	KindDeviceFacts = "device facts"
 )
 
 // Entry is one recorded change.

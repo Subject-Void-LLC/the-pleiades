@@ -9,3 +9,10 @@ package entstore
 func SetBeforeRewrite(s *Store, hook func()) {
 	s.beforeRewrite = hook
 }
+
+// SetBeforeRemove has s call hook in each repair once it holds its device
+// and has inspected it, before it removes anything (Store's beforeRemove):
+// how a test races a gather against a repair.
+func SetBeforeRemove(s *Store, hook func()) {
+	s.beforeRemove = hook
+}

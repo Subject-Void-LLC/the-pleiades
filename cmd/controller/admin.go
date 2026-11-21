@@ -170,6 +170,16 @@ make target, since they need PostgreSQL's own pg_dump and pg_restore:
   decommission                        confirm removing the deployment
                                       (make decom); removes nothing itself
 
+For a device whose stored fact history no controller can serve, such as one a
+change of the facts key refused to re-key (controller facts -h):
+
+  facts inspect   [--device <name>]   report what state a device's stored
+                                      facts are in, and why; changes nothing
+  facts discard   --device <name>     remove its stored facts, so its next
+                                      gather starts a new history
+  facts truncate  --device <name>     keep its history before the first
+                                      failure and remove the rest
+
 One operational command, which touches no database at all:
 
   healthcheck                         ask this controller's own /readyz on

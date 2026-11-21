@@ -38,8 +38,9 @@
 //     byte offset, so a line moved to another device, another file or
 //     another place fails to open.
 //
-// Each key (hash, token, chain, line) is derived from the store's one secret
-// under a label of its own (HMAC-SHA-256 of the label under the secret), and
+// Each key (hash, token, chain, line, and the removal key a repair digests
+// what it removes with) is derived from the store's one secret under a label
+// of its own (HMAC-SHA-256 of the label under the secret), and
 // none is the keyed-digest key (keyed.go) or the Runner seal key (entstore's
 // digests.go), which have labels of their own. The Controller's secret is PLEIADES_FACTS_DIGEST_KEY;
 // the CLI's is the project's master key. A store with no Keys stores
@@ -72,6 +73,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"hash"
 	"strconv"
 	"sync"
 )
@@ -86,6 +88,9 @@ const (
 	atRestChainLabel  = "pleiades/facts/at-rest/chain/v1"
 	atRestLineLabel   = "pleiades/facts/at-rest/line/v1/aes-256-gcm"
 	atRestIDLabel     = "pleiades/facts/at-rest/key-id"
+	// atRestRemovalLabel is the label of the key that digests what a repair
+	// removes from a device's stored history (RemovalMAC).
+	atRestRemovalLabel = "pleiades/facts/at-rest/removal-digest/v1"
 )
 
 // linePrefix opens every sealed line, and names its format.
@@ -131,6 +136,7 @@ type Keys struct {
 	hash    []byte
 	token   []byte
 	chain   []byte
+	removal []byte
 	line    cipher.AEAD
 	id      string
 	err     error
@@ -177,7 +183,7 @@ func (k *Keys) load() error {
 			return
 		}
 		k.hash, k.token = derive(secret, atRestHashLabel), derive(secret, atRestLookupLabel)
-		k.chain = derive(secret, atRestChainLabel)
+		k.chain, k.removal = derive(secret, atRestChainLabel), derive(secret, atRestRemovalLabel)
 		// A 32-byte key always makes an AES-256 cipher, and GCM over it.
 		block, err := aes.NewCipher(derive(secret, atRestLineLabel))
 		if err == nil {
@@ -239,6 +245,19 @@ func (k *Keys) Hash(device, key string, value any) (string, error) {
 	mac.Write([]byte{0})
 	mac.Write(canon)
 	return hex.EncodeToString(mac.Sum(nil)), nil
+}
+
+// RemovalMAC is a new HMAC-SHA-256 under the removal key, derived from the
+// store's secret under a label of its own: what a repair of a device's
+// stored history digests the rows it removes with, so the record of the
+// repair can say which rows went without holding any of them. Whoever holds
+// the secret and a backup taken before the repair can digest the backup's
+// rows the same way and compare; nobody else can test a guess against it.
+func (k *Keys) RemovalMAC() (hash.Hash, error) {
+	if err := k.load(); err != nil {
+		return nil, err
+	}
+	return hmac.New(sha256.New, k.removal), nil
 }
 
 // Token is the token a store looks a device's key up by: HMAC-SHA-256,

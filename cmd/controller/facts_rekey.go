@@ -49,7 +49,9 @@ func runFactsRekey(ctx context.Context, store factsRekeyer, logger *slog.Logger)
 		for i, id := range count.RefusedDevices {
 			first[i] = termsafe.Quote(id)
 		}
-		logger.Warn("facts key rotation refused devices whose stored facts do not verify under the previous key; they keep it and are served nothing",
+		logger.Warn("facts key rotation refused devices whose stored facts do not verify under the previous key; they keep it and are served nothing. "+
+			"Run `controller facts inspect` on this host, with both keys set, to see where each breaks, and `controller facts truncate` or `discard` to repair one; "+
+			"removing the previous key first leaves them unreadable for good",
 			slog.Int("devices", count.Refused), slog.Any("first", first))
 	}
 	if err != nil {
