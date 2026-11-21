@@ -32,11 +32,6 @@ const (
 	FactStoreNoKey
 )
 
-// ErrNoFactsOnRunner is how a Runner, and the Controller before it, refuse a
-// runbook that reads stored facts, after naming the task.
-const ErrNoFactsOnRunner = "and a Runner cannot read stored facts in this release, so nothing ran on any device; " +
-	"pleiades run reads them on the command line, and on this tier a run can gather in an earlier task and read that task's registered result (register:, then result.<name>[\"<key>\"])"
-
 // FactsRule refuses a task whose condition reads stored facts that the run
 // cannot answer, before any task runs:
 //
@@ -71,7 +66,7 @@ func FactsRule(world WorldView) []Finding {
 			// (owner decision 2026-11-21), checked where the fetch is served,
 			// since a condition is otherwise a yes or no answer about a fact
 			// to an author holding only runbook:execute.
-			add(read.Node, fmt.Sprintf("task %s reads stored facts (%s), %s", read.Label, keys, ErrNoFactsOnRunner))
+			add(read.Node, fmt.Sprintf("task %s reads stored facts (%s), %s", read.Label, keys, engine.ErrNoFactsOnRunner))
 			continue
 		case FactStoreNoKey:
 			for _, key := range read.Keys {

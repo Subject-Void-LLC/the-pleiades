@@ -57,6 +57,11 @@ type PreparedDefinition struct {
 	// False for a playbook, which no SNMP method runs in.
 	ReadsSNMP bool
 
+	// FactReads are the tasks whose condition reads their device's stored
+	// facts (runbook.Runbook.FactReads), which admission refuses on every
+	// job but a rollback (RefuseFactReads). Nil for a playbook.
+	FactReads []engine.FactRead
+
 	// Graph is the compiled runbook's version and what each of its nodes
 	// runs, from one compilation, pinned on the job by its first fan-out
 	// (JobStore.PinGraph). Nil for a playbook, which the platform never
@@ -116,7 +121,7 @@ func (s runbookDefinitionSource) Prepare(ctx context.Context, definition string)
 		return PreparedDefinition{}, err.Error(), err
 	}
 	return PreparedDefinition{Required: rb.Required, Methods: rb.Methods, Calls: rb.Calls, Interruptible: rb.Interruptible, Serial: rb.Serial,
-		Collections: collectionIdentities(rb.AllMethods), ReadsSNMP: readsSNMP(rb.AllMethods), Graph: &NodeGraph{Version: rb.Version, Scheme: runbook.GraphScheme, Digest: rb.GraphDigest, Nodes: rb.Nodes}}, "", nil
+		Collections: collectionIdentities(rb.AllMethods), ReadsSNMP: readsSNMP(rb.AllMethods), FactReads: rb.FactReads, Graph: &NodeGraph{Version: rb.Version, Scheme: runbook.GraphScheme, Digest: rb.GraphDigest, Nodes: rb.Nodes}}, "", nil
 }
 
 // PlaybookGetter is the slice of internal/playbook.Source fan-out needs:

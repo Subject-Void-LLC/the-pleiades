@@ -55,6 +55,12 @@ const (
 // only thing a run takes from it in this release is whether a condition held.
 const ErrParamReadsFacts = "an expression reads facts, and a parameter may not: a stored fact is read only in a task's when, when_or or when_cel, so no fact's value reaches a method, a set_fact, a rollback step, the journal or a report; decide with a condition, or gather in an earlier task and read its registered result (result.<register>[\"<key>\"])"
 
+// ErrNoFactsOnRunner is how a Runner, and the Controller before it, refuse a
+// runbook that reads stored facts, after naming the task: a Runner holds no
+// store and is handed no fact.
+const ErrNoFactsOnRunner = "and a Runner cannot read stored facts in this release, so nothing ran on any device; " +
+	"pleiades run reads them on the command line, and on this tier a run can gather in an earlier task and read that task's registered result (register:, then result.<name>[\"<key>\"])"
+
 // factsParseEnv parses conditions with the syntax they compile with, the
 // optional field and index (.? and [?]) included, which the shared parseEnv
 // does not enable.
