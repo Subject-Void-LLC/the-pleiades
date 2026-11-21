@@ -64,6 +64,16 @@ type fleet struct {
 // membership. It runs after the database is migrated, so the build's head is
 // known, and before any sync can be claimed, so no sync this controller owns
 // can ever exist without its heartbeat.
+//
+// Once the heartbeat is recorded it reads the schema again, and refuses, with
+// its heartbeat removed, a database this build cannot serve. The gate that
+// opened the database read the history before the heartbeat existed, so a
+// contract a newer build was applying just then commits unseen by that gate,
+// and the newer build's guard (internal/ent/migrate's guard.go) cannot see the
+// heartbeat either: its locks hold the heartbeat back until the contract has
+// committed. Reading again after the heartbeat means one of the two always
+// sees the other: the guard sees the heartbeat and refuses the contract, or
+// this read sees the contract and this controller never serves.
 func joinFleet(ctx context.Context, client *ent.Client, logger *slog.Logger) (*fleet, error) {
 	plan, err := client.InspectSchema(ctx)
 	if err != nil {
@@ -90,6 +100,16 @@ func joinFleet(ctx context.Context, client *ent.Client, logger *slog.Logger) (*f
 	}
 	if err := client.Heartbeat(ctx, f.beat); err != nil {
 		return nil, err
+	}
+	// The read that decides, after the heartbeat (this function's doc).
+	plan, err = client.InspectSchema(ctx)
+	if err != nil {
+		f.leave(ctx)
+		return nil, fmt.Errorf("reading the schema again after this controller's first heartbeat: %w", err)
+	}
+	if !plan.Serves() {
+		f.leave(ctx)
+		return nil, fmt.Errorf("the database moved past what this build can serve while it started (%s): %s", plan.Verdict, plan.Refusal)
 	}
 	return f, nil
 }

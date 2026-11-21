@@ -207,6 +207,93 @@ func TestFleet_StopsWhenTheDatabaseMovesPastIt(t *testing.T) {
 	}
 }
 
+// plantContract records a migration one past this build's newest whose floor
+// is itself, as a newer build's contract leaves the history, through db (a
+// transaction or the pool), and returns its name.
+func plantContract(t *testing.T, client *ent.Client, db interface {
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
+}) string {
+	t.Helper()
+	contract := nextMigration(t, client)
+	if _, err := db.ExecContext(context.Background(), `INSERT INTO schema_migrations (version, applied_at, compatible_from) VALUES (?, ?, ?)`,
+		contract, time.Now().UTC(), contract); err != nil {
+		t.Fatal(err)
+	}
+	return contract
+}
+
+// requireNoHeartbeat fails unless no controller's heartbeat is recorded.
+func requireNoHeartbeat(t *testing.T, client *ent.Client) {
+	t.Helper()
+	instances, err := client.Instances(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(instances) != 0 {
+		t.Errorf("%d heartbeat(s) recorded after joinFleet refused; want its own removed", len(instances))
+	}
+}
+
+// TestFleet_RefusesToJoinADatabaseContractedPastIt: a newer build's contract
+// committed after this build's gate opened the database and before its first
+// heartbeat. joinFleet refuses, naming the contract, and removes the heartbeat
+// it recorded, so the controller never serves and no guard counts it running.
+func TestFleet_RefusesToJoinADatabaseContractedPastIt(t *testing.T) {
+	client, dsn := openMigrated(t)
+	contract := plantContract(t, client, rawSQLite(t, dsn))
+	members, err := joinFleet(context.Background(), client, quietLogger())
+	if members != nil || err == nil || !strings.Contains(err.Error(), contract) || !strings.Contains(err.Error(), "moved past what this build can serve") {
+		t.Fatalf("joinFleet() joined: %t, error %v; want it refused, naming %s", members != nil, err, contract)
+	}
+	requireNoHeartbeat(t, client)
+}
+
+// TestFleet_AHeartbeatHeldByAContractStillSeesIt is the race the guard's
+// header names (internal/ent/migrate's guard.go): this build starts while a
+// newer build's contract is being applied. The contract's transaction holds
+// SQLite's write lock, so this build's first heartbeat waits for it, and the
+// contract commits without having seen the heartbeat. The schema read after
+// the heartbeat sees the contract, and joinFleet refuses.
+func TestFleet_AHeartbeatHeldByAContractStillSeesIt(t *testing.T) {
+	client, dsn := openMigrated(t)
+	ctx := context.Background()
+	conn, err := rawSQLite(t, dsn).Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = conn.Close() }()
+	// The newer build's contract, applied and not yet committed.
+	if _, err := conn.ExecContext(ctx, `BEGIN IMMEDIATE`); err != nil {
+		t.Fatal(err)
+	}
+	contract := plantContract(t, client, conn)
+
+	type joined struct {
+		members *fleet
+		err     error
+	}
+	result := make(chan joined, 1)
+	go func() {
+		members, err := joinFleet(ctx, client, quietLogger())
+		result <- joined{members, err}
+	}()
+	// The heartbeat waits for the contract's lock (the busy timeout is five
+	// seconds), so joinFleet cannot have returned yet.
+	select {
+	case got := <-result:
+		t.Fatalf("joinFleet() returned while the contract held the write lock: joined %t, error %v", got.members != nil, got.err)
+	case <-time.After(500 * time.Millisecond):
+	}
+	if _, err := conn.ExecContext(ctx, `COMMIT`); err != nil {
+		t.Fatal(err)
+	}
+	got := <-result
+	if got.members != nil || got.err == nil || !strings.Contains(got.err.Error(), contract) {
+		t.Fatalf("joinFleet() joined: %t, error %v; want it refused once its heartbeat landed after %s", got.members != nil, got.err, contract)
+	}
+	requireNoHeartbeat(t, client)
+}
+
 // TestRunMigrate_ReportsEveryVerdict drives `controller migrate --plan`
 // against real SQLite databases in each state, through both views, and checks
 // the exit code a script would act on.

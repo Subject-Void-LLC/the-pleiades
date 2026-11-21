@@ -849,10 +849,12 @@ func main() {
 
 	// Heartbeat before anything can claim a sync: every sync this controller
 	// owns must have a live heartbeat behind it from the moment it exists,
-	// or another controller's sweep would take it for abandoned.
+	// or another controller's sweep would take it for abandoned. It is also
+	// the last check that this build can serve the database (joinFleet's doc),
+	// so it comes before anything else uses the client.
 	members, err := joinFleet(ctx, client, logger)
 	if err != nil {
-		fatal("failed to record this controller's heartbeat", err)
+		fatal("failed to join the controllers serving this database", err)
 	}
 
 	// Envelope encryption is installed before the client is used for
