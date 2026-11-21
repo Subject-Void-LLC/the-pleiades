@@ -279,9 +279,15 @@ directories 0700 and files 0600:
 .IGNORE/ci/monitor/runs/<run id>/report.json   a copy of report.json
 .IGNORE/ci/monitor/runs/<run id>/<leg>.txt     a copy of each leg's log
 .IGNORE/ci/monitor/actions.json                the newest 3000 Actions runs, with jobs (the page's cache)
+.IGNORE/ci/monitor/actions.json.lock           held while one writer merges into actions.json
 ```
 
 Each file is written through a `.tmp` file beside it, renamed into place.
+`actions.json` is written compact and only when a poll or a backfill
+changed a run: about 4.9 KB a run, so about 15 MB at the 3000-run cap. The
+daemon keeps it parsed (about 41 MB at the cap) and reads the file again
+only when its inode, size or modification time changed, since a watch
+server or an older `monitor.py run` may write it too.
 pr-check deletes `.coverage/pr` when it starts, so these copies are the only
 lasting record of a run's report. Before any line is stored or served, the
 value of every environment variable whose name contains TOKEN, SECRET,

@@ -23,8 +23,9 @@ import os
 import re
 import threading
 import time
-from typing import Dict, List, Mapping, Optional, TextIO, TypedDict, Union
+from typing import Dict, List, Mapping, Optional, TextIO, Tuple, TypedDict, Union
 
+import locks
 from jsonutil import JSONObject, JSONValue, as_object, get_float, get_objects, get_str, loads
 
 # RUN_ID is what a run id must look like. It also keeps a requested id from
@@ -33,8 +34,17 @@ RUN_ID = re.compile(r"^[0-9]{8}T[0-9]{6}Z(?:-[0-9a-f]{1,12})?(?:-[0-9]+)?$")
 # HISTORY_FILE is what a file saved beside run.json must be called.
 HISTORY_FILE = re.compile(r"^[a-z0-9_-]+\.(?:txt|json)$")
 # MAX_ACTIONS_RUNS bounds actions.json, the page's cache of runs; the
-# daemon's timeline keeps every run and job state for good.
+# daemon's timeline keeps every run and job state for good. A run with its
+# jobs is about 4.9 KB written compact (measured 2026-11-21: 300 runs and
+# 4,720 jobs in 1.46 MB, 4.1 MB once parsed), so at the cap the file is
+# about 15 MB and its parsed copy, which HistoryStore keeps, about 41 MB.
+# The file is rewritten only when a poll or a backfill changed a run, which
+# happens about once a minute while a workflow runs and not at all between.
 MAX_ACTIONS_RUNS = 3000
+
+# StatKey is what tells a cached actions.json from a changed one: inode,
+# size and modification time in nanoseconds.
+StatKey = Tuple[int, int, int]
 
 
 class RunSummary(TypedDict):
@@ -73,18 +83,22 @@ def ensure_private_dir(path: str) -> None:
     os.chmod(path, 0o700)
 
 
-def write_private(path: str, data: Union[str, bytes]) -> None:
+def write_private(path: str, data: Union[str, bytes], tmp: Optional[str] = None) -> None:
     """Writes a file as mode 0600, through a temp file renamed over it.
 
     Args:
         path: The file.
         data: Its contents; text is written as UTF-8.
+        tmp: The temp file's name; <path>.tmp by default.
     """
     raw = data.encode("utf-8") if isinstance(data, str) else data
-    tmp = path + ".tmp"
+    tmp = tmp or path + ".tmp"
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     try:
-        os.write(fd, raw)
+        # One write may take only part of a large buffer; keep writing the rest.
+        view = memoryview(raw)
+        while view:
+            view = view[os.write(fd, view):]
     finally:
         os.close(fd)
     os.chmod(tmp, 0o600)
@@ -155,12 +169,18 @@ class HistoryStore:
     Attributes:
         root: The history directory.
         runs_dir: Its runs/ subdirectory.
-        actions_lock: Serializes merges into actions.json.
+        actions_lock: Serializes merges into actions.json, and guards actions_cache.
+        actions_cache: actions.json as last read or written, with the StatKey
+            it had; another writer (a watch server, an older monitor.py run)
+            changes the key, and the file is read again.
+        actions_writes: How many times actions.json was written.
     """
 
     root: str
     runs_dir: str
     actions_lock: threading.Lock
+    actions_cache: Optional[Tuple[StatKey, Dict[str, JSONObject]]]
+    actions_writes: int
 
     def __init__(self, root: str) -> None:
         """Opens a history directory, creating it 0700.
@@ -171,6 +191,8 @@ class HistoryStore:
         self.root = root
         self.runs_dir = os.path.join(root, "runs")
         self.actions_lock = threading.Lock()
+        self.actions_cache = None
+        self.actions_writes = 0
         ensure_private_dir(root)
         ensure_private_dir(self.runs_dir)
 
@@ -317,26 +339,52 @@ class HistoryStore:
         return os.path.join(self.root, "actions.json")
 
     def load_actions(self) -> Dict[str, JSONObject]:
-        """Loads every Actions run seen.
+        """Loads every Actions run seen, parsing the file only when it changed.
 
         Returns:
-            Each run by its id (as a string).
+            Each run by its id (as a string), a mapping of the caller's own;
+            the runs in it are shared and must not be changed.
         """
-        doc = as_object(read_json(self.actions_path()))
-        if doc is None:
+        with self.actions_lock:
+            return dict(self.read_actions())
+
+    def read_actions(self) -> Dict[str, JSONObject]:
+        """Returns actions.json, from the cache while the file's StatKey is the same. The caller holds actions_lock.
+
+        Returns:
+            The cached mapping itself.
+        """
+        try:
+            with open(self.actions_path(), encoding="utf-8") as f:
+                # The key comes from the open file, so it and the text read are one version.
+                st = os.fstat(f.fileno())
+                key: StatKey = (st.st_ino, st.st_size, st.st_mtime_ns)
+                if self.actions_cache is not None and self.actions_cache[0] == key:
+                    return self.actions_cache[1]
+                text = f.read()
+        except OSError:
+            self.actions_cache = None
             return {}
+        try:
+            doc = as_object(loads(text))
+        except ValueError:
+            doc = None
         out: Dict[str, JSONObject] = {}
-        for key, value in doc.items():
+        for rid, value in (doc or {}).items():
             run = as_object(value)
             if run is not None:
-                out[key] = run
+                out[rid] = run
+        self.actions_cache = (key, out)
         return out
 
     def save_actions(self, runs: List[JSONObject]) -> Dict[str, JSONObject]:
-        """Merges runs into actions.json.
+        """Merges runs into actions.json, writing only when that changed it.
 
         A newer sighting of a run replaces the older one; only the newest
-        MAX_ACTIONS_RUNS runs are kept.
+        MAX_ACTIONS_RUNS runs are kept. The merge starts from the file as it
+        is now, so runs another writer added are kept, and an flock on
+        actions.json.lock keeps two writers of this code from interleaving
+        (an older monitor takes no such lock).
 
         Args:
             runs: Runs with their jobs (actions.ActionsRun, as JSON).
@@ -347,10 +395,27 @@ class HistoryStore:
         # The daemon's poll and its backfill both merge here; the lock keeps
         # one from writing over the other's runs.
         with self.actions_lock:
-            seen = self.load_actions()
-            for run in runs:
-                seen[str(run.get("id"))] = run
-            keep = sorted(seen.values(), key=lambda r: get_str(r, "created"), reverse=True)[:MAX_ACTIONS_RUNS]
-            doc = {str(r.get("id")): r for r in keep}
-            write_json(self.actions_path(), doc)
-            return doc
+            guard = os.open(self.actions_path() + ".lock", os.O_RDWR | os.O_CREAT, 0o600)
+            try:
+                # Past 30 seconds the merge goes ahead unlocked: a poll's runs are
+                # worth more than the rare overlap with another writer.
+                locks.take(guard, 30.0)
+                seen = dict(self.read_actions())
+                for run in runs:
+                    seen[str(run.get("id"))] = run
+                keep = sorted(seen.values(), key=lambda r: get_str(r, "created"), reverse=True)[:MAX_ACTIONS_RUNS]
+                doc = {str(r.get("id")): r for r in keep}
+                if self.actions_cache is not None and doc == self.actions_cache[1]:
+                    return doc  # an unchanged poll writes nothing
+                path = self.actions_path()
+                # Compact, and through a temp name of this process's own, since an
+                # older monitor writing the same file uses <path>.tmp.
+                write_private(path, json.dumps(doc, sort_keys=True, separators=(",", ":")) + "\n",
+                              tmp="%s.%d.tmp" % (path, os.getpid()))
+                self.actions_writes += 1
+                st = os.stat(path)
+                self.actions_cache = ((st.st_ino, st.st_size, st.st_mtime_ns), doc)
+                return doc
+            finally:
+                # Closing the descriptor lets the flock go, held or not.
+                os.close(guard)

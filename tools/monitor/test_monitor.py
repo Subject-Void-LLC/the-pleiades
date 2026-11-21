@@ -24,7 +24,8 @@ import tempfile  # noqa: E402
 import threading  # noqa: E402
 import time  # noqa: E402
 import unittest  # noqa: E402
-from typing import Dict, List, Mapping, Optional, Tuple  # noqa: E402
+import unittest.mock  # noqa: E402
+from typing import Dict, List, Mapping, Optional, Tuple, Union  # noqa: E402
 
 import actions  # noqa: E402
 import binsize  # noqa: E402
@@ -561,6 +562,46 @@ class HistoryTest(unittest.TestCase):
                                       for i in range(history.MAX_ACTIONS_RUNS + 20)]
             self.assertEqual(len(store.save_actions(many)), history.MAX_ACTIONS_RUNS)
             self.assertEqual(stat.S_IMODE(os.stat(store.actions_path()).st_mode), 0o600)
+
+    def test_actions_written_only_when_changed(self) -> None:
+        """A poll that changes nothing writes nothing; a changed one writes
+        once; a file another writer changed is read again and its runs kept."""
+        writes: List[str] = []
+        real = history.write_private
+
+        def counting(path: str, data: Union[str, bytes], tmp: Optional[str] = None) -> None:
+            """Counts each write, then writes."""
+            writes.append(os.path.basename(path))
+            if tmp is None:
+                real(path, data)
+            else:
+                real(path, data, tmp)
+
+        with tempfile.TemporaryDirectory() as d, unittest.mock.patch.object(history, "write_private", counting):
+            store = history.HistoryStore(d)
+            branch_runs, err = actions.poll("feat/lab-importers", store.load_actions(), FakeApi())
+            self.assertIsNone(err)
+            docs = [actions.run_to_json(r) for r in branch_runs]
+            store.save_actions(docs)
+            first = os.stat(store.actions_path())
+            # The next minute's poll: the same runs, read again.
+            again, _ = actions.poll("feat/lab-importers", store.load_actions(), FakeApi())
+            store.save_actions([actions.run_to_json(r) for r in again])
+            later = os.stat(store.actions_path())
+            self.assertEqual((later.st_ino, later.st_mtime_ns), (first.st_ino, first.st_mtime_ns))
+            self.assertEqual(writes, ["actions.json"])
+            # A run that moved on is written, once.
+            moved = dict(docs[0], status="in_progress")
+            store.save_actions([moved])
+            self.assertEqual(writes, ["actions.json", "actions.json"])
+            # An older monitor rewrites the file with a run of its own.
+            on_disk = json.load(open(store.actions_path(), encoding="utf-8"))
+            on_disk["77"] = {"id": 77, "created": "2026-10-25T00:00:00Z", "status": "completed"}
+            with open(store.actions_path(), "w", encoding="utf-8") as f:
+                json.dump(on_disk, f, indent=1)
+            self.assertIn("77", store.load_actions())
+            store.save_actions([dict(moved, status="completed")])
+            self.assertIn("77", json.load(open(store.actions_path(), encoding="utf-8")))
 
 
 class BinsizeTest(unittest.TestCase):
