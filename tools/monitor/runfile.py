@@ -23,6 +23,7 @@ from __future__ import annotations
 import fcntl
 import json
 import os
+import subprocess
 import threading
 import time
 from typing import Dict, List, Optional
@@ -79,6 +80,66 @@ def process_alive(pid: int, marker: str = "monitor.py") -> bool:
             return marker.encode() in f.read()
     except OSError:
         return True  # no /proc (macOS): trust kill(0)
+
+
+# PROC is where a process's command line is read; a test points it elsewhere
+# to take the path a machine without /proc takes.
+PROC = "/proc"
+# DAEMON_COMMANDS are the monitor.py subcommands that run the status daemon.
+DAEMON_COMMANDS = ("daemon", "serve")
+
+
+def process_cmdline(pid: int) -> Optional[List[str]]:
+    """Reads a process's command line.
+
+    Linux has it in /proc/<pid>/cmdline, one argument per NUL. A machine
+    without /proc (macOS, the BSDs) is asked through ps, which prints the
+    whole line as one string, here split on spaces.
+
+    Args:
+        pid: The process.
+
+    Returns:
+        Its arguments, or None when it does not exist or cannot be read.
+    """
+    if pid <= 0:
+        return None
+    try:
+        with open(os.path.join(PROC, str(pid), "cmdline"), "rb") as f:
+            raw = f.read()
+        return [a.decode("utf-8", errors="replace") for a in raw.split(b"\0") if a]
+    except FileNotFoundError:
+        if os.path.isdir(os.path.join(PROC, "self")):
+            return None  # /proc exists, so the process does not
+    except OSError:
+        return None
+    try:
+        out = subprocess.run(["ps", "-o", "command=", "-p", str(pid)], capture_output=True, text=True, timeout=5,
+                             stdin=subprocess.DEVNULL)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    line = out.stdout.strip()
+    return line.split() if out.returncode == 0 and line else None
+
+
+def is_status_daemon(pid: int) -> bool:
+    """Reports whether pid runs the status daemon: monitor.py daemon (or serve).
+
+    A pid read from a file can be stale: after a reboot it may name any
+    process at all. Only a process whose own command line runs the daemon
+    passes, so nothing else is ever signalled as one.
+
+    Args:
+        pid: The process.
+
+    Returns:
+        True when an argument named monitor.py is followed by daemon or serve.
+    """
+    args = process_cmdline(pid)
+    if not args:
+        return False
+    return any(os.path.basename(a) == "monitor.py" and args[i + 1] in DAEMON_COMMANDS
+               for i, a in enumerate(args[:-1]))
 
 
 class GateLock:

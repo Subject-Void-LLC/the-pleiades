@@ -47,7 +47,12 @@ not this machine's loopback.
   worktree shares the one page and the one history.
 - **ensure** leaves a running daemon alone when its `PROTOCOL` is the same or
   newer, and replaces it when the protocol is older or its source directory
-  was removed with its worktree, but never while a gate runs.
+  was removed with its worktree, but never while a gate runs. The pid in the
+  lock file is only a hint: ensure signals it only once that process answers
+  `/healthz` on the lock's port with the same pid and this state directory and
+  its own command line runs `monitor.py daemon`, and never a pid of 0 or 1.
+  One ensure at a time holds `statusd.ensure.lock`, so two sessions starting
+  together start one daemon.
 - **It never touches a gate.** A gate is its own process (`run`) and hands
   itself over through files: `gate.lock` (one gate at a time on this
   machine), the manifest `live.json`, and the run's `events.jsonl` and
@@ -241,6 +246,7 @@ directories 0700 and files 0600:
 
 ```
 .IGNORE/ci/monitor/statusd.lock                the daemon's lock: pid, port, protocol, source
+.IGNORE/ci/monitor/statusd.ensure.lock         held by one ensure while it decides and starts
 .IGNORE/ci/monitor/statusd.log                 the daemon's output
 .IGNORE/ci/monitor/gate.lock                   held by the one gate run
 .IGNORE/ci/monitor/live.json                   that run's manifest, removed when it ends

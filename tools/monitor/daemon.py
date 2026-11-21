@@ -8,7 +8,10 @@ The daemon holds statusd.lock (an flock) for its whole life, so a second
 one exits at once; the lock file also says its pid, port and PROTOCOL, which
 is how ensure decides whether to leave a running daemon alone (the same or a
 newer protocol) or replace it (an older one, or one whose source directory
-was removed with its worktree; only while no gate runs).
+was removed with its worktree; only while no gate runs). The file is only a
+hint: ensure signals the pid it names only once that process answers
+/healthz on the lock's port with the same pid and runs monitor.py daemon
+(prove_daemon), and never a pid of 0 or 1.
 
 It serves what monitor.py run used to serve itself, plus the roadmap and the
 timeline:
@@ -26,7 +29,6 @@ a run in progress.
 
 from __future__ import annotations
 
-import fcntl
 import json
 import os
 import signal
@@ -44,6 +46,7 @@ import binsize
 import events
 import githistory
 import history
+import locks
 import memwatch
 import paths
 import prstate as ps
@@ -53,7 +56,7 @@ import runfile
 import security
 import server
 import timeline
-from jsonutil import JSONObject, as_object, get_float, get_int, get_list, get_objects, get_str, loads
+from jsonutil import JSONObject, JSONValue, as_object, get_float, get_int, get_list, get_objects, get_str, loads
 
 # PROTOCOL rises whenever what the daemon serves or reads changes in a way an
 # older daemon would get wrong. ensure replaces a daemon with a lower one.
@@ -79,6 +82,8 @@ MAX_APP_MEMORY = 8640
 CAPPED = os.path.expanduser("~/.local/bin/capped")
 # DAEMON_CAP is the memory the daemon and its roadmap runs may use together.
 DAEMON_CAP = "400M"
+# STOP_SECONDS is how long ensure waits for a replaced daemon to let go of its lock.
+STOP_SECONDS = 10.0
 
 
 class DaemonApp:
@@ -472,44 +477,67 @@ class DaemonApp:
 def read_lock_info(state_dir: str) -> Optional[JSONObject]:
     """Reads what the daemon wrote into its lock file.
 
+    The file is only a hint: a pid in it can be stale, so nothing acts on
+    it without prove_daemon. The first JSON value is read, so a reader that
+    lands between write_lock_info's write and its truncate still gets the
+    new document whole.
+
     Args:
         state_dir: The state directory.
 
     Returns:
-        Its pid, port and protocol, or None.
+        Its pid, port and protocol, or None when it holds no JSON object.
     """
     try:
         with open(paths.daemon_lock(state_dir), encoding="utf-8") as f:
-            return as_object(loads(f.read() or "null"))
-    except (OSError, ValueError):
+            text = f.read().strip()
+    except OSError:
         return None
+    if not text:
+        return None
+    try:
+        value: JSONValue = json.JSONDecoder().raw_decode(text)[0]
+    except ValueError:
+        return None
+    return as_object(value)
+
+
+def write_lock_info(fd: int, info: JSONObject) -> None:
+    """Writes who holds the lock into the lock file, which is never left empty.
+
+    The lock is an flock on this very file, so the content cannot be renamed
+    into place: a new file would carry no lock. It is written over the old
+    content from the start and only then cut to its length, so a reader sees
+    the old document, the new one, or the new one followed by the old one's
+    tail (which read_lock_info ignores), never an empty file.
+
+    Args:
+        fd: The lock file, held.
+        info: Its pid, port, protocol, start and source.
+    """
+    raw = (json.dumps(info, sort_keys=True) + "\n").encode("utf-8")
+    os.pwrite(fd, raw, 0)
+    os.ftruncate(fd, len(raw))
 
 
 def lock_held(state_dir: str) -> bool:
-    """Reports whether a daemon holds the lock, without keeping it.
+    """Reports whether a daemon holds the lock, without looking like one to another probe.
 
     Args:
         state_dir: The state directory.
 
     Returns:
-        True when another process holds it.
+        True when some process holds it.
     """
-    path = paths.daemon_lock(state_dir)
-    try:
-        fd = os.open(path, os.O_RDONLY)
-    except OSError:
-        return False
-    try:
-        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except OSError:
-        return True
-    finally:
-        os.close(fd)
-    return False
+    return locks.held(paths.daemon_lock(state_dir))
 
 
 def take_lock(state_dir: str, port: int) -> Optional[int]:
     """Takes the daemon lock and writes who holds it.
+
+    A probe (lock_held, in an ensure) holds the lock shared for an instant,
+    so the lock is tried for locks.TAKE_SECONDS before it counts as another
+    daemon's: a starting daemon must not lose to a probe and exit.
 
     Args:
         state_dir: The state directory.
@@ -520,15 +548,11 @@ def take_lock(state_dir: str, port: int) -> Optional[int]:
     """
     history.ensure_private_dir(state_dir)
     fd = os.open(paths.daemon_lock(state_dir), os.O_RDWR | os.O_CREAT, 0o600)
-    try:
-        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except OSError:
+    if not locks.take(fd):
         os.close(fd)
         return None
-    info = {"pid": os.getpid(), "port": port, "protocol": PROTOCOL, "started": time.time(), "source": paths.HERE}
-    os.ftruncate(fd, 0)
-    os.lseek(fd, 0, os.SEEK_SET)
-    os.write(fd, (json.dumps(info) + "\n").encode("utf-8"))
+    write_lock_info(fd, {"pid": os.getpid(), "port": port, "protocol": PROTOCOL, "started": time.time(),
+                         "source": paths.HERE})
     return fd
 
 
@@ -687,38 +711,142 @@ def healthz(port: int, timeout: float = 2.0) -> Optional[JSONObject]:
         return None
 
 
-def spawn(port: int, state: str) -> None:
+def spawn(port: int, state: str, no_actions: bool = False) -> "subprocess.Popen[bytes]":
     """Starts a daemon detached from the caller: its own session, its own log.
 
     Args:
         port: Its port.
         state: The state directory.
+        no_actions: Start it without GitHub Actions polling (tests).
+
+    Returns:
+        The started process (capped execs, so it is the daemon itself).
     """
     history.ensure_private_dir(state)
     cmd = [sys.executable, "-B", os.path.join(paths.HERE, "monitor.py"), "daemon", "--port", str(port),
            "--state-dir", state]
+    if no_actions:
+        cmd.append("--no-actions")
     if os.access(CAPPED, os.X_OK):
         cmd = [CAPPED, DAEMON_CAP] + cmd
     log = os.open(paths.daemon_log(state), os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
     try:
-        subprocess.Popen(cmd, cwd=paths.main_root(), stdin=subprocess.DEVNULL, stdout=log, stderr=log,
-                         start_new_session=True, close_fds=True)
+        return subprocess.Popen(cmd, cwd=paths.main_root(), stdin=subprocess.DEVNULL, stdout=log, stderr=log,
+                                start_new_session=True, close_fds=True)
     finally:
         os.close(log)
 
 
+def same_dir(a: str, b: str) -> bool:
+    """Reports whether two paths name the same directory.
+
+    Args:
+        a: One path.
+        b: The other.
+
+    Returns:
+        True when both are set and resolve to one place.
+    """
+    return bool(a) and bool(b) and os.path.realpath(a) == os.path.realpath(b)
+
+
+def prove_daemon(state: str, info: Optional[JSONObject], health: Optional[JSONObject]) -> Optional[str]:
+    """Decides whether the lock's pid is proven to be this state directory's daemon.
+
+    Only a proven daemon is ever signalled. A pid of 0 or 1 is refused
+    outright (kill(0) signals the caller's whole process group); the process
+    must answer /healthz on the lock's port with that same pid and this state
+    directory; and its own command line must run monitor.py daemon, so a
+    pid reused after a reboot never passes.
+
+    Args:
+        state: The state directory.
+        info: The lock file's content, or None.
+        health: What /healthz answered on the lock's port, or None.
+
+    Returns:
+        None when proven, else why not.
+    """
+    pid = get_int(info, "pid") or 0
+    if pid <= 1:
+        return "the lock names no process that may be signalled (pid %d)" % pid
+    if pid == os.getpid():
+        return "the lock names this process"
+    if health is None:
+        return "nothing answers as a status daemon on port %s" % get_int(info, "port")
+    if get_int(health, "pid") != pid:
+        return "port %s is answered by pid %s, not the lock's pid %d" % (get_int(info, "port"), health.get("pid"), pid)
+    if not same_dir(get_str(health, "state_dir"), state):
+        return "pid %d serves another state directory" % pid
+    if not runfile.is_status_daemon(pid):
+        return "pid %d does not run monitor.py daemon" % pid
+    return None
+
+
+def await_daemon(state: str, port: int, wait: float,
+                 proc: Optional["subprocess.Popen[bytes]"] = None) -> Tuple[Optional[Tuple[int, JSONObject]], str]:
+    """Waits for the lock's holder to be proven the daemon (it may still be starting).
+
+    Args:
+        state: The state directory.
+        port: The port to ask when the lock names none.
+        wait: Seconds to keep trying.
+        proc: A daemon just started, whose early exit ends the wait.
+
+    Returns:
+        ((its pid, its /healthz), "") once proven, else (None, why not).
+    """
+    deadline = time.monotonic() + wait
+    while True:
+        info = read_lock_info(state)
+        dport = get_int(info, "port") or port
+        health = healthz(dport, 1.0) if dport > 0 else None
+        why = prove_daemon(state, info, health)
+        if why is None and health is not None:
+            return (get_int(info, "pid") or 0, health), ""
+        if proc is not None and proc.poll() is not None and not lock_held(state):
+            return None, "it exited with status %s" % proc.returncode
+        if time.monotonic() >= deadline:
+            return None, why or "it did not answer"
+        time.sleep(0.1)
+
+
+def replace_reason(health: JSONObject) -> Optional[str]:
+    """Decides whether a proven daemon should be replaced by this one.
+
+    Args:
+        health: Its /healthz.
+
+    Returns:
+        Why it should be, or None to leave it running.
+    """
+    source = get_str(health, "source")
+    if source and not os.path.isfile(os.path.join(source, "dashboard.html")):
+        return "its source %s is gone" % source
+    proto = get_int(health, "protocol") or 0
+    if proto < PROTOCOL:
+        return "protocol %d is older than %d" % (proto, PROTOCOL)
+    return None
+
+
 def ensure(port: int = DEFAULT_PORT, quiet: bool = False, state_dir: Optional[str] = None,
-           wait: float = 10.0) -> int:
+           wait: float = 10.0, no_actions: bool = False) -> int:
     """Makes sure one daemon of this protocol or newer is running.
+
+    One ensure at a time holds statusd.ensure.lock while it decides and
+    starts, so two sessions starting together start one daemon. A daemon is
+    replaced only once prove_daemon shows the lock's pid is that daemon.
 
     Args:
         port: The port it should serve.
         quiet: Print only problems.
         state_dir: The state directory; the main clone's by default.
-        wait: Seconds to wait for a started daemon to answer.
+        wait: Seconds to wait for a daemon to answer.
+        no_actions: Start it without GitHub Actions polling (tests).
 
     Returns:
-        0 when a daemon runs (or was left alone on purpose), 1 when one could not be started.
+        0 when a daemon runs (or was left alone on purpose), 1 when one could
+        not be started or the lock's holder could not be identified.
     """
     state = state_dir or paths.state_dir()
 
@@ -731,37 +859,60 @@ def ensure(port: int = DEFAULT_PORT, quiet: bool = False, state_dir: Optional[st
         if not quiet:
             print("statusd: " + text, flush=True)
 
+    history.ensure_private_dir(state)
+    guard = os.open(paths.ensure_lock(state), os.O_RDWR | os.O_CREAT, 0o600)
+    try:
+        # Long enough for another ensure to stop an old daemon and start a new one.
+        if not locks.take(guard, STOP_SECONDS + 2 * wait):
+            print("statusd: another ensure did not finish; nothing was started", file=sys.stderr)
+            return 1
+        return ensure_held(port, state, say, wait, no_actions)
+    finally:
+        os.close(guard)
+
+
+def ensure_held(port: int, state: str, say: Callable[[str], None], wait: float, no_actions: bool) -> int:
+    """ensure's work, once it holds statusd.ensure.lock.
+
+    Args:
+        port: The port a started daemon serves.
+        state: The state directory.
+        say: Prints a line unless quiet.
+        wait: Seconds to wait for a daemon to answer.
+        no_actions: Start it without GitHub Actions polling.
+
+    Returns:
+        ensure's status.
+    """
     if lock_held(state):
-        info = read_lock_info(state) or {}
-        proto = get_int(info, "protocol") or 0
-        pid = get_int(info, "pid") or 0
-        source = get_str(info, "source")
-        gone = bool(source) and not os.path.isfile(os.path.join(source, "dashboard.html"))
-        if proto >= PROTOCOL and not gone:
-            say("running (pid %d, port %s, protocol %d)" % (pid, info.get("port"), proto))
+        found, why = await_daemon(state, port, wait)
+        if found is None:
+            print("statusd: the daemon lock is held, but %s; nothing was signalled" % why, file=sys.stderr)
+            return 1
+        pid, health = found
+        reason = replace_reason(health)
+        if reason is None:
+            say("running (pid %d, port %s, protocol %s)" % (pid, health.get("port"), health.get("protocol")))
             return 0
         if runfile.read_manifest(state) is not None:
-            say("the running daemon (protocol %d) is kept while a gate runs" % proto)
+            say("the running daemon (pid %d) is kept while a gate runs, though %s" % (pid, reason))
             return 0
-        why = "its source %s is gone" % source if gone else "protocol %d is older" % proto
-        say("replacing the running daemon (pid %d): %s" % (pid, why))
+        say("replacing the running daemon (pid %d): %s" % (pid, reason))
         try:
             os.kill(pid, signal.SIGTERM)
         except OSError:
             pass
-        deadline = time.monotonic() + 10
+        deadline = time.monotonic() + STOP_SECONDS
         while lock_held(state) and time.monotonic() < deadline:
-            time.sleep(0.2)
+            time.sleep(0.1)
         if lock_held(state):
             print("statusd: the older daemon (pid %d) did not stop" % pid, file=sys.stderr)
             return 1
-    spawn(port, state)
-    deadline = time.monotonic() + wait
-    while time.monotonic() < deadline:
-        time.sleep(0.2)
-        if lock_held(state):
-            say("started (port %d, log %s)" % (port, paths.daemon_log(state)))
-            return 0
-    print("statusd: the daemon did not start; see %s" % paths.daemon_log(state), file=sys.stderr)
-    return 1
+    proc = spawn(port, state, no_actions)
+    found, why = await_daemon(state, port, wait, proc)
+    if found is None:
+        print("statusd: the daemon did not start (%s); see %s" % (why, paths.daemon_log(state)), file=sys.stderr)
+        return 1
+    say("started (pid %d, port %s, log %s)" % (found[0], found[1].get("port"), paths.daemon_log(state)))
+    return 0
 

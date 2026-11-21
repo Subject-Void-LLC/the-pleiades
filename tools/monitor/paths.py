@@ -8,6 +8,7 @@ monitor outside any repository falls back to the tree it sits in.
 
     .IGNORE/ci/monitor/
         statusd.lock        held by the daemon for its life; its pid, port, protocol
+        statusd.ensure.lock held by one ensure while it decides and starts
         statusd.log         the daemon's own output
         gate.lock           held by the one gate run in progress
         live.json           that run's manifest, removed when it ends
@@ -69,6 +70,18 @@ def daemon_lock(state: str) -> str:
         Its path.
     """
     return os.path.join(state, "statusd.lock")
+
+
+def ensure_lock(state: str) -> str:
+    """Names the lock one ensure holds while it decides and starts, so two at once start one daemon.
+
+    Args:
+        state: The state directory.
+
+    Returns:
+        Its path.
+    """
+    return os.path.join(state, "statusd.ensure.lock")
 
 
 def daemon_log(state: str) -> str:

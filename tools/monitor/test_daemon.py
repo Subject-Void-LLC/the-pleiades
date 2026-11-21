@@ -23,6 +23,8 @@ import tempfile  # noqa: E402
 import threading  # noqa: E402
 import time  # noqa: E402
 import unittest  # noqa: E402
+import unittest.mock  # noqa: E402
+import warnings  # noqa: E402
 from typing import Dict, List, Optional, Tuple  # noqa: E402
 
 import daemon  # noqa: E402
@@ -299,7 +301,8 @@ class SingleInstanceTest(unittest.TestCase):
             monitor = os.path.join(HERE, "monitor.py")
             base = [sys.executable, "-B", monitor]
             try:
-                r = subprocess.run(base + ["ensure", "--port", str(port), "--state-dir", d, "--quiet"], timeout=30)
+                r = subprocess.run(base + ["ensure", "--port", str(port), "--state-dir", d, "--quiet", "--no-actions"],
+                                   timeout=30)
                 self.assertEqual(r.returncode, 0)
                 deadline = time.monotonic() + 10
                 health = None
@@ -309,7 +312,7 @@ class SingleInstanceTest(unittest.TestCase):
                 assert health is not None
                 self.assertEqual(health.get("state_dir"), d)
                 pid = health.get("pid")
-                again = subprocess.run(base + ["ensure", "--port", str(port), "--state-dir", d],
+                again = subprocess.run(base + ["ensure", "--port", str(port), "--state-dir", d, "--no-actions"],
                                        capture_output=True, text=True, timeout=30)
                 self.assertIn("running", again.stdout)
                 second = subprocess.run(base + ["daemon", "--port", str(port), "--state-dir", d, "--no-actions"],
@@ -328,6 +331,276 @@ class SingleInstanceTest(unittest.TestCase):
             events_seen = [(x.get("data") or {}) for x in timeline.read(paths.timeline_dir(d), kinds=["daemon"])]
             words = [get_str(as_object(e) or {}, "event") for e in events_seen]
             self.assertEqual(words[:1] + words[-1:], ["start", "stop"])
+
+
+def runs_daemon(pid: int) -> bool:
+    """Reports whether pid's own command line runs monitor.py daemon, read here
+    rather than through the code under test, so cleanup never signals another process.
+
+    Args:
+        pid: The process.
+
+    Returns:
+        True for a status daemon.
+    """
+    try:
+        with open("/proc/%d/cmdline" % pid, "rb") as f:
+            args = [a.decode() for a in f.read().split(b"\0") if a]
+    except OSError:
+        return False
+    return any(a.endswith("monitor.py") and args[i + 1] == "daemon" for i, a in enumerate(args[:-1]))
+
+
+def stop_daemon(d: str) -> None:
+    """Stops the daemon a test started in state directory d, and only it.
+
+    Args:
+        d: The state directory.
+    """
+    pid = (daemon.read_lock_info(d) or {}).get("pid")
+    if isinstance(pid, int) and pid > 1 and runs_daemon(pid):
+        os.kill(pid, 15)
+        deadline = time.monotonic() + 10
+        while daemon.lock_held(d) and time.monotonic() < deadline:
+            time.sleep(0.1)
+
+
+def daemon_log(d: str) -> str:
+    """Reads the log of the daemons a test started, for a failure message.
+
+    Args:
+        d: The state directory.
+
+    Returns:
+        The log, or a note that there is none.
+    """
+    try:
+        with open(paths.daemon_log(d), encoding="utf-8", errors="replace") as f:
+            return f.read()
+    except OSError:
+        return "(no daemon log)"
+
+
+def copy_monitor(dest: str, protocol: Optional[int] = None) -> str:
+    """Copies the monitor's files, optionally as an older protocol, to start a daemon from them.
+
+    Args:
+        dest: The directory to create.
+        protocol: The PROTOCOL the copy's daemon.py declares, or None to keep it.
+
+    Returns:
+        dest.
+    """
+    os.makedirs(dest)
+    for name in os.listdir(HERE):
+        if name.endswith((".py", ".html", ".js")) and not name.startswith("test_"):
+            with open(os.path.join(HERE, name), "rb") as src, open(os.path.join(dest, name), "wb") as out:
+                out.write(src.read())
+    if protocol is not None:
+        path = os.path.join(dest, "daemon.py")
+        with open(path, encoding="utf-8") as f:
+            text = f.read()
+        old = "PROTOCOL = %d\n" % daemon.PROTOCOL
+        assert old in text
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(text.replace(old, "PROTOCOL = %d\n" % protocol, 1))
+    return dest
+
+
+def start_copy(src: str, d: str, port: int) -> "subprocess.Popen[bytes]":
+    """Starts a daemon from a copy of the monitor and waits until it answers.
+
+    Args:
+        src: The copy.
+        d: The state directory.
+        port: Its port.
+
+    Returns:
+        The daemon's process.
+    """
+    os.makedirs(d, exist_ok=True)
+    with open(paths.daemon_log(d), "ab") as log:
+        proc = subprocess.Popen([sys.executable, "-B", os.path.join(src, "monitor.py"), "daemon", "--port", str(port),
+                                 "--state-dir", d, "--no-actions"], stdout=log, stderr=log, stdin=subprocess.DEVNULL)
+    deadline = time.monotonic() + 20
+    while time.monotonic() < deadline:
+        health = daemon.healthz(port, 0.5)
+        if health is not None and health.get("pid") == proc.pid:
+            return proc
+        time.sleep(0.1)
+    proc.kill()
+    raise AssertionError("the copied daemon did not answer:\n" + daemon_log(d))
+
+
+class Signals:
+    """Stands in for os.kill: records every real signal and delivers only to allowed pids.
+
+    Attributes:
+        sent: Each (pid, signal) asked for, signal 0 left out.
+        allow: The pids a signal is really delivered to.
+        real: The real os.kill.
+    """
+
+    sent: List[Tuple[int, int]]
+    allow: List[int]
+
+    def __init__(self, allow: Optional[List[int]] = None) -> None:
+        """Prepares the stand-in.
+
+        Args:
+            allow: The pids a signal is really delivered to.
+        """
+        self.sent = []
+        self.allow = list(allow or [])
+        self.real = os.kill
+
+    def __call__(self, pid: int, sig: int) -> None:
+        """Records a signal, and delivers it only when allowed (signal 0 always).
+
+        Args:
+            pid: The target.
+            sig: The signal.
+        """
+        if sig == 0:
+            self.real(pid, sig)
+            return
+        self.sent.append((pid, sig))
+        if pid in self.allow:
+            self.real(pid, sig)
+
+
+class FakeHealthApp(daemon.DaemonApp):
+    """A backend whose /healthz claims any pid, as an older daemon of this state directory.
+
+    Attributes:
+        fake_pid: The pid /healthz reports.
+    """
+
+    fake_pid: int = 0
+
+    def health(self) -> object:
+        """Claims to be an older daemon with fake_pid.
+
+        Returns:
+            The /healthz document.
+        """
+        return {"ok": True, "protocol": 0, "pid": self.fake_pid, "port": self.port, "state_dir": self.state_dir,
+                "source": HERE}
+
+
+class EnsureSafetyTest(unittest.TestCase):
+    """ensure signals only a process proven to be the daemon, and starts exactly one."""
+
+    def test_unprovable_lock_holders_are_never_signalled(self) -> None:
+        """With the lock held and /healthz agreeing with the lock file, a pid of
+        0, 1, an unrelated live process, a dead process, this test process, or
+        an empty lock file each get no signal and start nothing."""
+        import fcntl
+        sleeper = subprocess.Popen(["sleep", "60"])
+        dead = subprocess.Popen(["true"])
+        dead.wait()
+        try:
+            for label, pid in (("pid 0", 0), ("pid 1", 1), ("unrelated", sleeper.pid), ("dead", dead.pid),
+                               ("this process", os.getpid()), ("empty", None)):
+                with self.subTest(label), tempfile.TemporaryDirectory() as d:
+                    port = free_port()
+                    app = FakeHealthApp(d, d, port, redact.Redactor([]))
+                    app.fake_pid = pid or 0
+                    httpd = server.start_server(app, port)
+                    fd = os.open(paths.daemon_lock(d), os.O_RDWR | os.O_CREAT, 0o600)
+                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    if pid is not None:
+                        os.write(fd, json.dumps({"pid": pid, "port": port, "protocol": 0, "source": HERE}).encode())
+                    signals = Signals()
+                    try:
+                        with unittest.mock.patch("os.kill", signals):
+                            code = daemon.ensure(port, quiet=True, state_dir=d, wait=0.5)
+                    finally:
+                        os.close(fd)
+                        httpd.shutdown()
+                        httpd.server_close()
+                    self.assertEqual(signals.sent, [])
+                    self.assertEqual(code, 1)
+                    self.assertFalse(os.path.exists(paths.daemon_log(d)), "ensure started a daemon")
+        finally:
+            sleeper.kill()
+            sleeper.wait()
+
+    def test_an_older_daemon_is_replaced_and_only_it_is_signalled(self) -> None:
+        """A proven daemon of an older protocol gets one SIGTERM, and a daemon of
+        this protocol, from these files, takes its place on the same port."""
+        with tempfile.TemporaryDirectory() as root:
+            d = os.path.join(root, "state")
+            port = free_port()
+            old = start_copy(copy_monitor(os.path.join(root, "old"), protocol=0), d, port)
+            signals = Signals(allow=[old.pid])
+            try:
+                # The daemon ensure starts outlives the call by design; its Popen is dropped running.
+                with unittest.mock.patch("os.kill", signals), warnings.catch_warnings():
+                    warnings.simplefilter("ignore", ResourceWarning)
+                    code = daemon.ensure(port, quiet=True, state_dir=d, no_actions=True)
+                self.assertEqual(code, 0, daemon_log(d))
+                self.assertEqual(signals.sent, [(old.pid, 15)])
+                self.assertEqual(old.wait(10), 0)
+                health = daemon.healthz(port) or {}
+                self.assertEqual((health.get("protocol"), health.get("source")), (daemon.PROTOCOL, HERE))
+                self.assertNotEqual(health.get("pid"), old.pid)
+            finally:
+                if old.poll() is None:
+                    old.kill()
+                stop_daemon(d)
+
+    def test_two_ensures_at_once_start_one_daemon(self) -> None:
+        """Two ensure processes started together both succeed, and exactly one
+        daemon ever runs: none starts only to find the lock taken."""
+        with tempfile.TemporaryDirectory() as d:
+            port = free_port()
+            cmd = [sys.executable, "-B", os.path.join(HERE, "monitor.py"), "ensure", "--port", str(port), "--state-dir", d,
+                   "--no-actions", "--quiet"]
+            try:
+                procs = [subprocess.Popen(cmd) for _ in range(2)]
+                codes = [p.wait(60) for p in procs]
+                self.assertEqual(codes, [0, 0], daemon_log(d))
+                log = daemon_log(d)
+                self.assertEqual(log.count("statusd: serving"), 1, log)
+                self.assertNotIn("already running", log)
+            finally:
+                stop_daemon(d)
+
+    def test_a_probe_never_looks_like_a_holder(self) -> None:
+        """A probe in progress (a shared lock) neither looks like a daemon to
+        another probe nor makes a starting daemon give up; a real holder does."""
+        import fcntl
+        with tempfile.TemporaryDirectory() as d:
+            history.ensure_private_dir(d)
+            probe = os.open(paths.daemon_lock(d), os.O_RDWR | os.O_CREAT, 0o600)
+            fcntl.flock(probe, fcntl.LOCK_SH | fcntl.LOCK_NB)
+            self.assertFalse(daemon.lock_held(d))
+            timer = threading.Timer(0.3, os.close, args=(probe,))
+            timer.start()
+            fd = daemon.take_lock(d, 1234)
+            timer.join()
+            self.assertIsNotNone(fd)
+            assert fd is not None
+            try:
+                self.assertTrue(daemon.lock_held(d))
+                self.assertEqual((daemon.read_lock_info(d) or {}).get("pid"), os.getpid())
+            finally:
+                os.close(fd)
+
+    def test_the_lock_file_reads_whole_while_it_is_rewritten(self) -> None:
+        """A reader that lands between the rewrite and the truncate still reads
+        the new document, not an error, and the file is never empty."""
+        with tempfile.TemporaryDirectory() as d:
+            path = paths.daemon_lock(d)
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(json.dumps({"pid": 99999, "port": 1, "source": "/a/much/longer/path/than/the/next/one"}) + "\n")
+            fd = os.open(path, os.O_RDWR)
+            try:
+                os.pwrite(fd, (json.dumps({"pid": 4242, "port": 2}) + "\n").encode(), 0)
+                self.assertEqual((daemon.read_lock_info(d) or {}).get("pid"), 4242)
+            finally:
+                os.close(fd)
 
 
 class RoadmapPanelTest(unittest.TestCase):

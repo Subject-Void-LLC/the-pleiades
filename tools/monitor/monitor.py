@@ -794,7 +794,7 @@ def cmd_ensure(opts: Options) -> int:
     Returns:
         0 when one runs, 1 when it could not be started.
     """
-    return daemon.ensure(opts.port, opts.quiet, opts.state_dir)
+    return daemon.ensure(opts.port, opts.quiet, opts.state_dir, no_actions=opts.no_actions)
 
 
 def parse_args(argv: Sequence[str]) -> Options:
