@@ -13,8 +13,15 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/clireport"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/hostfacts"
 )
 
+// TestCLI_FactsDriftReleaseGate gathers a real sshd container's packages
+// through the real binary, takes a baseline of them, changes one package's
+// version in the container's own package database, gathers again, and holds
+// `pleiades facts drift` to naming that one key as changed, with both
+// versions, exit 3, and nothing unconfirmed; its --json fits the published
+// schema and says the same.
 func TestCLI_FactsDriftReleaseGate(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping the facts drift Release Gate container test in short mode")
@@ -36,17 +43,16 @@ func TestCLI_FactsDriftReleaseGate(t *testing.T) {
 	}
 
 	// One package's version changed in the device's own package database,
-	// which apk lists from, and put back afterwards: the container is shared.
-	pkg := asRoot(t, container, `sed -n 's/^P://p' /lib/apk/db/installed | head -n 1`)
-	asRoot(t, container, "cp /lib/apk/db/installed /tmp/installed.drift-gate")
-	t.Cleanup(func() { asRoot(t, container, "cp /tmp/installed.drift-gate /lib/apk/db/installed") })
+	// which apk lists from. The container is this test's own and is removed
+	// with it, so nothing is put back.
+	pkg := plainPackage(t, asRoot(t, container, `sed -n 's/^P://p' /lib/apk/db/installed`))
 	asRoot(t, container, `awk -v p='`+pkg+`' '/^P:/{cur=substr($0,3)} /^V:/ && cur==p {print "V:99.0-r0"; next} {print}' /lib/apk/db/installed > /tmp/installed.new && cat /tmp/installed.new > /lib/apk/db/installed`)
 	if listed := asRoot(t, container, "apk list --installed "+pkg+" 2>/dev/null"); !strings.Contains(listed, pkg+"-99.0-r0") {
 		t.Fatalf("the package database edit did not take: %s", listed)
 	}
 	gather()
 
-	key := "package." + pkg
+	key := hostfacts.PackageKey(hostfacts.Package{Name: pkg})
 	out, code := g.pleiades(t, "facts", "drift", "container1")
 	if code != 3 || !strings.Contains(out, "container1: drifted") || !strings.Contains(out, "changed "+key+":") || !strings.Contains(out, "99.0-r0") {
 		t.Fatalf("drift after the change: exit %d\n%s", code, out)
@@ -86,4 +92,23 @@ func TestCLI_FactsDriftReleaseGate(t *testing.T) {
 	if v, _ := d.Changes[0].BaselineValue.(map[string]any); v["version"] == nil || v["version"] == "99.0-r0" {
 		t.Errorf("the baseline value = %v, want the version before the change", d.Changes[0].BaselineValue)
 	}
+}
+
+// plainPackage is the first package of listed, apk's package names one per
+// line, whose name the gatherer writes into its fact key unchanged (no byte
+// percent-encoded) and that a shell's single quotes hold as written, so the
+// key the drift names is "package." and the name itself. The choice is made
+// and asserted rather than assumed of whichever package apk lists first.
+func plainPackage(t *testing.T, listed string) string {
+	t.Helper()
+	for _, name := range strings.Fields(listed) {
+		if strings.Trim(name, "abcdefghijklmnopqrstuvwxyz0123456789._+-") != "" {
+			continue
+		}
+		if hostfacts.PackageKey(hostfacts.Package{Name: name}) == hostfacts.PackageFamily+name {
+			return name
+		}
+	}
+	t.Fatalf("no installed package has a name its fact key holds unchanged:\n%s", listed)
+	return ""
 }
