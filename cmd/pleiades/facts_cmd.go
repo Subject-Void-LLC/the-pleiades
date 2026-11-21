@@ -15,13 +15,18 @@ import (
 	"os"
 	"time"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/clispec"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts"
 	inv "github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/termsafe"
 )
 
-// factsUsage is the command's usage.
-const factsUsage = "usage: pleiades facts <host> [<key>] [--verify] [--dir DIR] [--json]"
+// factsUsage is the command's usage. baseline and drift, as the first word,
+// are subcommands; a host named either is read after "--".
+const factsUsage = "usage: pleiades facts <host> [<key>] [--verify] [--dir DIR] [--json] | " +
+	"pleiades facts baseline <hosts> --name NAME --reason TEXT [--from HOST] [--keys KEYS] [--dir DIR] | " +
+	"pleiades facts drift [<hosts>] [--baseline NAME] [--dir DIR] [--json]\n" +
+	"(baseline and drift as the first word are subcommands; read a host named either with pleiades facts -- <host>)"
 
 // factsReport is `pleiades facts`' model: the host, and either its current
 // facts or one key's history.
@@ -44,8 +49,18 @@ type factChainReport struct {
 // tell an intact chain from a broken one by the exit status alone.
 var errFactChainBroken = errors.New("the host's fact chain is broken")
 
-// runFacts is `pleiades facts <host> [<key>]`.
+// runFacts is `pleiades facts <host> [<key>]`, and its subcommands baseline
+// and drift when the first word names one: a subcommand wins over a host of
+// the same name, which is read after "--".
 func runFacts(args []string) error {
+	if len(args) > 0 {
+		switch args[0] {
+		case "baseline":
+			return runFactsBaseline(args[1:])
+		case "drift":
+			return runFactsDrift(args[1:])
+		}
+	}
 	if len(args) == 0 || asksHelp(args[:1]) {
 		return fmt.Errorf("%s: %w", factsUsage, errMissingPositional)
 	}
@@ -56,7 +71,9 @@ func runFacts(args []string) error {
 	verify := fs.Bool("verify", false, "check the host's fact chain instead of showing its facts")
 	positionals, err := parseArgs(fs, args)
 	if err != nil {
-		return err
+		// A subcommand's flags (--name) on a misspelled subcommand fail here,
+		// before any host is read.
+		return misspeltFactsSubcommand(args[0], err)
 	}
 	if len(positionals) < 1 || len(positionals) > 2 || *verify && len(positionals) != 1 {
 		return fmt.Errorf("%s: %w", factsUsage, errMissingPositional)
@@ -65,7 +82,7 @@ func runFacts(args []string) error {
 	repo := inv.NewFileRepository(inventoryFile(*dir), inv.NewItemFactory())
 	item, err := repo.GetByName(ctx, positionals[0])
 	if err != nil {
-		return fmt.Errorf("host %q: %w", positionals[0], err)
+		return misspeltFactsSubcommand(positionals[0], fmt.Errorf("host %q: %w", positionals[0], err))
 	}
 	if *verify {
 		return verifyFacts(ctx, *dir, item.Name(), string(item.ID()), *asJSON)
@@ -107,6 +124,21 @@ func runFacts(args []string) error {
 	}
 	printFacts(rep)
 	return nil
+}
+
+// misspeltFactsSubcommand is err, a failure to read the first word as a
+// host, saying which subcommand the word is one edit from when it is one:
+// `pleiades facts baselin` was meant as baseline, not a host of that name.
+// A host that has such a name is read before this is reached.
+func misspeltFactsSubcommand(word string, err error) error {
+	spec, ok := clispec.Find(clispec.Root, "facts")
+	if !ok {
+		return err
+	}
+	if sub, near := clispec.NearSubcommand(spec, word); near {
+		return fmt.Errorf("%w; did you mean the subcommand: pleiades facts %s", err, sub)
+	}
+	return err
 }
 
 // printFacts is the text view of rep: one line per value, its device text

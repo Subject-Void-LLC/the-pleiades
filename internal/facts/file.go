@@ -191,10 +191,26 @@ func appendTo(r *os.Root, name string, complete int64, appended []byte) error {
 func openStored(keys *Keys, device, role string, offset int64, raw []byte) ([]byte, error) {
 	plaintext, err := keys.OpenLine(device, role, offset, bytes.TrimSuffix(raw, []byte("\n")))
 	if errors.Is(err, ErrSealed) && bytes.HasPrefix(raw, []byte("{")) {
-		return nil, fmt.Errorf("%w: it was written before stored facts were sealed; remove the device's files under .pleiades/facts to start a sealed history", ErrSealed)
+		return nil, errWrittenBeforeSealing
 	}
 	return plaintext, err
 }
+
+// unsealedError is ErrUnsealed in other words: a line the CLI's store reads
+// that was written before facts were sealed. errors.Is finds ErrUnsealed,
+// and through it ErrSealed, so a caller can tell it from a line that does not
+// open for any other reason.
+type unsealedError struct{ msg string }
+
+// Error implements error.
+func (e *unsealedError) Error() string { return e.msg }
+
+// Unwrap is ErrUnsealed.
+func (e *unsealedError) Unwrap() error { return ErrUnsealed }
+
+// errWrittenBeforeSealing is openStored's refusal of a plaintext line,
+// naming what to remove.
+var errWrittenBeforeSealing error = &unsealedError{msg: ErrSealed.Error() + ": it was written before stored facts were sealed; remove the device's files under .pleiades/facts to start a sealed history"}
 
 // readLines reads device's history, and how many bytes of it are whole
 // lines (readJSONL). Each line must open under keys as this device's line

@@ -32236,3 +32236,227 @@ consumer cannot open (`TestSubscriber_DropsSealedEntriesItCannotOpenAsTheirBatch
 
 **Lesson.** As 208. A change that adds an error a store can return also decides, in the same change, what each
 consumer of that store does with it: acknowledge and report, or retry.
+
+## 1322. A branch added a published schema, `docs/reference/schemas/facts-drift.json`, without classifying it in `tools/schemacompat`'s contracts table, so `make pr-check` failed at its schema-compat step (fixed before push; process; a repeat in kind of 661 and 1311; the gate 960 added)
+
+Numbers 1315 to 1321 are not missing: they are held by pull request #216 (branch `feat/status-daemon`), which was
+open when this entry was written.
+
+**Symptom.** 2026-11-21, branch `feat/41d-crawl-baselines-drift`, before push. `make pr-check` stopped at
+schema-compat. `tools/schemacompat` refuses any file under `docs/reference/schemas` that its `contracts` table does
+not name, with "is not classified: add it to tools/schemacompat's contracts table". The branch's first commit
+(`40cba629`) published the facts drift document's schema and did not add it to the table.
+
+**Root cause.** The branch was built by a subagent. It ran the tools it was told to run, and `tools/schemacompat` was
+not among them. The check that classifies a new schema lives in a tool, not in a package the change touches, so
+running the changed packages whole does not reach it.
+
+**Why 661 and 1311 did not prevent it.** 661 is a commit made without running `tools/gendocs`' tests, and 1311 is
+work handed on after only its own tests ran. LESSONS 462, written from 1311 on the same day, says to run every
+package the change touches and all of `internal/archtest`. `tools/schemacompat` is neither: the change did not touch
+it until the fix did. The rule named packages, and this checker is reached by a make target.
+
+**Fix.** `7eb08dee` adds `"facts-drift.json": outputSchema` to the table. `c2e20c2e` adds the drift document to the
+table of versioned contracts in `docs/13-releases-and-stability.md`. No ledger entry was annotated: the local
+pr-check ledger holds no record at any of this branch's commits.
+
+**Lesson.** A new published schema, a generated file and a new CLI command are each classified by a checker of
+their own (`tools/schemacompat`, `make docs-gen-check`, the help golden). A subagent's brief names each one that the
+work will meet, since the gate runs them all (LESSONS 465; CI_LESSONS 39).
+
+## 1323. `pleiades facts drift` reported a host `in_sync` when no key of its baseline had been compared: a golden baseline whose pairs were all `not_comparable`, or whose keys are all volatile now, passed forever (fixed before push; a repeat in kind of 13, 436 and 1302)
+
+**Symptom.** 2026-11-21, branch `feat/41d-crawl-baselines-drift`, before push. A golden baseline (`--from`) marks a
+pair whose value holds a digest keyed for its source device as `not_comparable`. A baseline made only of such pairs,
+or one whose keys had all become volatile since it was taken, compared nothing. The host read `in_sync`, exit 0, and
+would have read so whatever changed on it.
+
+**Root cause.** `in_sync` was defined as "no difference found". With nothing compared there is no difference, so the
+empty comparison and the clean one gave the same answer.
+
+**Why 13, 436 and 1302 did not prevent it.** 13's lesson is that a tool that can return nothing needs proof that it
+looked, 436 is two checks that passed with nothing found, and 1302 is an audit that passed when it found no method
+to audit. Each was fixed where it was found. The rule is not held by any shared check, so new code that reports
+"nothing differs" has to count what it compared, and this code did not.
+
+**Fix.** `642d5daa`. A baseline with no comparable pair is refused when it is taken, naming how many pairs were not
+comparable (`TestCLI_FactsGoldenBaselineOfNothingComparableIsRefused`). A drift that compared no key of its baseline
+is `unknown` with the reason (`TestCLI_FactsDriftThatComparedNothingIsUnknown`). The docs define `in_sync` as "no
+confirmed difference, and at least one key compared".
+
+**Lesson.** As 13 and 436. A state that means "checked and clean" needs a count of what was checked, and zero is a
+state of its own.
+
+## 1324. `pleiades facts baseline` over several hosts was not all-or-nothing: the pre-check covered the name and "was gathered" only, so a later host could be refused after earlier hosts were written, and the name was spent on those (fixed before push; in kind of 11; the claim that it was all-or-nothing is 1327)
+
+**Symptom.** 2026-11-21, branch `feat/41d-crawl-baselines-drift`, before push. A baseline's name is never retaken on
+a host. With a list of hosts, the command checked each host's name and then wrote host by host. A host that failed
+at its write stopped the command after the hosts before it already held the baseline, and the name was spent on
+those hosts.
+
+**Root cause.** The checks that can refuse a baseline lived in the function that writes it. Only two of them had a
+copy that ran ahead of the first write. The first repair, `d6406ff8`, added one more condition to that pre-check
+("was gathered", for every host and the `--from` host) rather than moving all of them, so the gap stayed open for
+every other refusal.
+
+**Why 11 did not prevent it.** 11 is a check that covered part of its input and let the rest through as if checked.
+Its fix was to the validation rules it named. Nothing carries the idea to a command that writes to many hosts, and
+the code comment, the docs and a commit message already said the command was all-or-nothing (1327), so nobody looked
+for the case.
+
+**Fix.** `642d5daa`. Every host is planned whole by `PlanBaseline`, which makes every refusal and writes nothing,
+before `StoreBaseline` writes the first. Tests: `TestCLI_FactsBaselineOverHostsIsAllOrNothing`,
+`TestBaseline_APlanWritesNothing`, `TestCLI_FactsBaselineRefusesAPatternMatchingNothingOrItsOwnSource`.
+
+**Not covered.** The plan and the writes are not one transaction. A write that fails for a reason no plan can see (a
+full disk, a file changed between the plan and the write) can still leave earlier hosts written. The branch's facts
+give no test of that case.
+
+**Lesson.** A command that writes to many targets and cannot undo a write decides every refusal for every target
+before the first write. Adding one condition to a pre-check is not that: split the function into a plan that
+refuses and a store that writes.
+
+## 1325. The drift state `unknown` for "a baseline under other keys" could not be reached through the binary, its only test called the pure function, and one host whose files did not open aborted `pleiades facts drift` for every host with no report (fixed before push; a repeat in kind of 52; the claim is 1327)
+
+**Symptom.** 2026-11-21, branch `feat/41d-crawl-baselines-drift`, before push. (a) `Drift` had a branch that
+answered `unknown` for a baseline hashed under other keys, and the docs listed it. Through `pleiades facts drift` it
+never ran: the key that seals a baseline's line and the key that hashes its values come from one secret, so a
+baseline under other keys fails to open before any comparison. The branch's only test of it called the pure function
+with values no file could hold. (b) When one host's facts or baselines did not open, the command returned that error
+and printed nothing for any host.
+
+**Root cause.** The pure function was written and tested apart from the store that feeds it. The state was designed
+from the function's inputs, and nobody asked which inputs the store can produce. The command treated a host's read
+error as its own error, not as that host's result.
+
+**Why 52 did not prevent it.** 52 is code that compiled and passed its own tests while the real binary could not
+reach it, and its fix was specific to Collection registration. LESSONS 238 asks for an end-to-end test through the
+real path. The branch had real-binary tests, but none for this state, and a unit test of a pure function passes on
+any input it is handed.
+
+**Fix.** `642d5daa` and `5a997c61`. A host whose facts or baselines do not open is that host's own `unknown` report
+with the reason; the other hosts are still compared, the document is printed and the command exits 1
+(`TestCLI_FactsDriftOverHostsWhoseFilesDoNotOpen`). The keys-id branch of `Drift` and its test are removed. The docs
+say such a baseline does not open at all.
+
+**Lesson.** As 52. A state a report can show needs one test that reaches it through the binary, from files the
+binary wrote. When no such test can be written, the state does not exist: remove the branch. A report over many
+hosts gives each host's failure as that host's result.
+
+## 1326. A key the store still held counted as present in a drift, so a host that had uninstalled a package the golden host lacks stayed `drifted`, exit 3, forever, and a test asserted exactly that (fixed before push; in kind of 925; open: the store records no absence, so a removal is never reported as removed, and a fact gathered on its own can read unconfirmed while current; owner decision pending)
+
+**Symptom.** 2026-11-21, branch `feat/41d-crawl-baselines-drift`, before push. The fact store never drops a key. A
+host had a package its golden host lacks, and the drift listed it as `added`. After the package was uninstalled and
+the host gathered again, the key was still in the store with its last value, the drift still listed it as `added`,
+and the host stayed `drifted`. A test on the branch asserted that result.
+
+**Root cause.** The drift read "the store holds a value for this key" as "the host has this fact now". The store
+records values and never their absence, so a key a later gather stopped reporting looks the same as one it
+confirmed. The rule that holds a key to the latest gather did not cover `added` and `changed` keys, which were
+taken from the store as they stood.
+
+**Why 925 did not prevent it.** 925 is a source that could not be read being stored as an empty set, and its lesson
+is to tell "absent" from "could not read". This is the mirror case, "no longer reported" read as "present", in a
+reader of the store and not in a gatherer. 925's fix was in `facts.gather`'s probes and could not reach it.
+
+**Fix.** `642d5daa`. Every key, whether it would be added, changed or matching, is held to the latest gather of its
+family (the key up to its first dot). A key that gather did not confirm is listed as unconfirmed with what it would
+have been, and is not drift. `removed` is reported only for a golden baseline's key the host never reported. Tests:
+`TestCLI_FactsDriftHoldsEveryDifferenceToTheLatestGather`, `TestDrift_AKeyTheLatestGatherDidNotConfirmIsNotDrift`.
+
+**Still open (owner decision pending on both).**
+
+- The store records no absence. A package uninstalled since a host's own baseline shows as unconfirmed, never as
+  `removed`, and unconfirmed is not drift, so that removal does not move the host to `drifted`. Reporting a true
+  removal needs a "complete listing" declaration on `collection.FactSpec`, so that a gather can say a family's list
+  was whole. It is not built.
+- The confirmation rule goes by family. A fact gathered on its own (one file's `file.` fact) that the latest gather
+  of its family did not include reads unconfirmed while it is current. A real change to such a fact is then not
+  counted as drift: a possible missed drift.
+
+Both limits are stated in `docs/04-writing-runbooks.md` and the changelog fragment.
+
+**Lesson.** A store that keeps the last value of every key cannot answer "is it there now". A reader that needs
+presence asks when the key was last confirmed and by which gather, and says "unconfirmed" when it cannot tell.
+
+## 1327. Text the branch wrote claimed more than the code did: a baseline over several hosts "all or nothing" (a code comment, the docs and a commit message), a drift state for "a baseline under other keys" that no file could reach, and "removed" in the changelog, the drift synopsis and a comment with no word of its limit (fixed before push; a repeat of 1312, and of 228, 571, 1029 and 1041; LESSONS 206)
+
+**Symptom.** 2026-11-21, branch `feat/41d-crawl-baselines-drift`, before push. Three claims were false as written.
+(a) A code comment, `docs/04-writing-runbooks.md` and a commit message said a baseline over several hosts writes
+every host or none; it did not (1324). (b) The docs and the commit message of `40cba629` said a baseline under other
+keys reads `unknown`; such a baseline does not open at all (1325). (c) The changelog fragment, the `facts drift`
+synopsis (and so the CLI reference and the help golden) and a comment said a drift reports each key removed. The
+store records no absence, so a key a host stopped reporting is never `removed` (1326).
+
+**Root cause.** Each sentence was written from the design, in the same sitting as the code, and none was held to a
+run of the binary on the case it described.
+
+**Why 1312 did not hold.** 1312 was recorded on the same day for the branch before this one, and its lesson is
+LESSONS 206: write from the code and prove each surprising claim. The rule is still applied by a reviewer after the
+text exists. Nothing made the author of this branch's first commits list the evidence for "all or nothing" or
+"removed" while writing them, and the rule was not in the instructions those commits were built from.
+
+**Fix.** (a) was made true: `642d5daa` plans every host before any write (1324). (b) `642d5daa` removes the branch
+and `5a997c61` corrects the docs. (c) `c2e20c2e` rewrites the changelog fragment, the synopsis and the docs to say
+what `removed` and unconfirmed mean, with the generated CLI reference and the help golden regenerated beside them.
+Commit messages are not rewritten: `40cba629` and `058f2df3` still carry the earlier wording, and the later
+commits' messages say what changed.
+
+**Lesson.** As 1312 and LESSONS 206. "All or nothing", "each key removed" and a state listed in a table are claims
+of completeness: each needs the test name that makes it true before it is written into a comment, a synopsis or a
+changelog fragment.
+
+## 1328. A drift compared a key that one of its current entries called volatile, because a key held both volatile and stable in one set of entries was compared through its stable entry (fixed before push; found by `FuzzDrift` on its first run)
+
+**Symptom.** 2026-11-21, branch `feat/41d-crawl-baselines-drift`, before push. Volatile keys are never compared in a
+drift. `FuzzDrift`, on its first run, produced a set of current entries in which one key appeared both as volatile
+and as stable. The drift compared it through the stable entry.
+
+**Root cause.** The drift decided "is this key stable" from the entry it happened to read for the key, not from
+every entry of that key.
+
+**Earlier entries.** A search of the archive for a volatile fact compared or kept as stable found 1252 (a volatile
+content-id kept in a stable fact), which is a different cause. This entry is not marked as a repeat.
+
+**Fix.** `09f872ca`: a key that any current entry calls volatile is never compared. The fuzz input is kept as a seed
+(`internal/facts/testdata/fuzz/FuzzDrift/2ef826815c8c4f0c`), and `TestDrift_AVolatileKeyNeverDrifts` holds the rule.
+`642d5daa` adds that a key stable on one side and volatile on the other is counted in `kind_changed`, and a key
+volatile when the baseline was taken is never `added` (`TestCLI_FactsDriftCountsAKeyWhoseKindChanged`).
+
+**Lesson.** A rule stated over keys ("volatile keys are never compared") is decided over every entry of the key. A
+fuzz target whose property is the rule itself found on its first run what the hand-written cases had not.
+
+## 1329. `pleiades facts drift` and `facts baseline` listed hosts in the order of their random device IDs, so a test asserting "web2, web3" passed or failed by a coin flip: it passed `make pr-check` here and failed on the hosted runners (fixed on this branch before the pull request; a repeat in kind of 972 and 962, and of 264)
+
+**Symptom.** 2026-11-21, branch `feat/41d-crawl-baselines-drift`, commit `d953b3af`. `make branch-containers` failed
+on the hosted runners (run 44906375264, shard 1, job 136852874957) in
+`TestCLI_FactsDriftOverHostsWhoseFilesDoNotOpen` (`cmd/pleiades/facts_drift_states_test.go:140`). The test expected
+the summary "could not be compared with a baseline: web2, web3" and got "web3, web2". testgate re-ran the test alone
+and it failed again, so it was not contention. Every host's state and reason was correct; only the order differed.
+`make pr-check` had passed here at the same commit, and the test's author had run it and seen it pass.
+
+**Root cause.** Both commands walked hosts in the inventory's order, which is the order of each host's randomly
+generated device ID. The test's project makes fresh UUIDs on every run, so which of the two hosts came first was a
+coin flip, and the test asserted one order. A re-run alone is a new flip, which is why it could pass here and fail
+twice there. The same cause is a product defect: the text, the summary line and the `--json` document's `devices`
+array listed hosts in an order that says nothing to a reader and differs between two projects holding the same
+hosts.
+
+**Why earlier entries did not prevent it.** 962 was Go's map order deciding a plan in product code, and its fix made
+one sort total. 972 was a test that passed only in one map order, and its lesson is about a test that iterates a
+map. Both name map order, so neither was read as covering a slice whose order comes from random IDs: nothing here
+ranges over a map. 264 was random job IDs under a list that orders by ID, fixed by making those IDs time ordered,
+which says nothing about a list of devices. No entry stated the general rule, that output listing things has an
+order somebody must choose. The review of this branch (seven findings fixed, 1322 to 1328) read the code for
+correctness and did not ask what order the output is in. One passing run, by the author and then by `make
+pr-check`, was taken as proof.
+
+**Fix.** Both commands sort their hosts by name before reporting (`hostsByName`,
+`cmd/pleiades/facts_baseline_cmd.go`), so the text, the summary line and the JSON array are in name order. The
+three order-sensitive CLI tests were then run five times each with fresh random IDs and passed every time. The fix
+was in the working tree, not yet committed, when this entry was written.
+
+**Lesson.** Output that lists things has an order somebody chose; choose it in the product. A test that depends on
+an order must fail every time when the order is wrong, not half the time. A test over randomly generated
+identifiers is run several times before it is believed. A sweep for this class searches by shape (a list printed
+or serialized in the order a store or inventory returned it), not for the word "map".
