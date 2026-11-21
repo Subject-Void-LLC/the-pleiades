@@ -154,3 +154,13 @@ tasks:
 		t.Errorf("a real run's warnings %v, want none", real)
 	}
 }
+
+// TestFactsRule_AnUnusableKeyIsNamedNotCalledMissing: a project whose key is
+// there and cannot be used is refused naming why, not told to set a key.
+func TestFactsRule_AnUnusableKeyIsNamedNotCalledMissing(t *testing.T) {
+	findings := validate.FactsRule(validate.WorldView{Items: factsItems(), DAG: buildYAML(t, gatherThenReadFacts),
+		StoredFacts: validate.FactStoreKeyUnreadable, StoredFactsReason: "key file .pleiades/master.key may be read by other accounts"})
+	if len(findings) != 1 || !strings.Contains(findings[0].Message, "cannot be used: key file .pleiades/master.key may be read by other accounts") {
+		t.Fatalf("findings %v, want the key's own refusal named", findings)
+	}
+}

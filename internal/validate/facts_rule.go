@@ -30,6 +30,11 @@ const (
 	// which has no stored facts it can read: none was ever stored, or what
 	// was is sealed under a key that is gone.
 	FactStoreNoKey
+	// FactStoreKeyUnreadable is the command line in a project whose master
+	// key is there and cannot be used (a key file another account may read
+	// or replace, a value that is not a key): nothing can be stored or read
+	// until it is fixed, and WorldView.StoredFactsReason says why.
+	FactStoreKeyUnreadable
 )
 
 // FactsRule refuses a task whose condition reads stored facts that the run
@@ -67,6 +72,10 @@ func FactsRule(world WorldView) []Finding {
 			// since a condition is otherwise a yes or no answer about a fact
 			// to an author holding only runbook:execute.
 			add(read.Node, fmt.Sprintf("task %s reads stored facts (%s), %s", read.Label, keys, engine.ErrNoFactsOnRunner))
+			continue
+		case FactStoreKeyUnreadable:
+			add(read.Node, fmt.Sprintf("task %s reads %s, and this project's master key, which its stored facts are sealed under, cannot be used: %s; fix the key file or PLEIADES_MASTER_KEY, since no fact can be read or stored until then",
+				read.Label, keys, world.StoredFactsReason))
 			continue
 		case FactStoreNoKey:
 			for _, key := range read.Keys {

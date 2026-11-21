@@ -65,6 +65,9 @@ type WorldView struct {
 	// caller that does not say refuses such a runbook; the command line
 	// says whether its project has the key its facts are sealed under.
 	StoredFacts FactStore
+	// StoredFactsReason says why the project's key cannot be used, for
+	// FactStoreKeyUnreadable; it names a file or a variable, never a key.
+	StoredFactsReason string
 
 	// resolveCache memoizes Resolve by target string. Unexported and
 	// unset by every caller that builds a WorldView directly (Resolve is

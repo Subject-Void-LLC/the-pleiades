@@ -183,10 +183,10 @@ func carryOut(opts runOptions, src runSource) (*runReport, error) {
 	// reading one nobody gave is refused now, before any device is
 	// contacted, rather than at its task. The advice names --extra-vars only
 	// for the command that takes it.
-	world := validate.WorldView{Items: items, DAG: dag, Mode: mode, Variables: opts.variables, VariablesKnown: true, VariablesFlag: opts.variablesFlag,
-		// What a condition reading facts can be answered from: the project's
-		// store, when it has the key its facts are sealed under.
-		StoredFacts: projectFactStore(opts.dir)}
+	world := validate.WorldView{Items: items, DAG: dag, Mode: mode, Variables: opts.variables, VariablesKnown: true, VariablesFlag: opts.variablesFlag}
+	// What a condition reading facts can be answered from: the project's
+	// store, when it has the key its facts are sealed under.
+	world.StoredFacts, world.StoredFactsReason = projectFactStore(opts.dir)
 	// --limit narrows every target the run resolves, before validation, so
 	// what is checked, planned and run are the same devices (run_limit.go).
 	if world, err = applyLimit(world, dag, opts.limit, opts.limitText); err != nil {
