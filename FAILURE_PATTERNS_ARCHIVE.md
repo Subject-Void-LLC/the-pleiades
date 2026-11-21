@@ -32236,3 +32236,206 @@ consumer cannot open (`TestSubscriber_DropsSealedEntriesItCannotOpenAsTheirBatch
 
 **Lesson.** As 208. A change that adds an error a store can return also decides, in the same change, what each
 consumer of that store does with it: acknowledge and report, or retry.
+
+## 1315. The status daemon's `ensure` sent SIGTERM to whatever pid its lock file held, with no proof it was the daemon, and two sessions starting together could read an empty lock and signal pid 0, the caller's whole process group (fixed before push; caught in independent review; a repeat of 907 and 909; LESSONS 327, 362 and 398)
+
+**Symptom.** 2026-11-21, branch `feat/status-daemon`, before push, found by an independent review. `ensure`
+(`tools/monitor/daemon.py`), which a SessionStart hook runs in every session, replaces an older daemon by sending
+SIGTERM to the pid read from the daemon's lock file. Nothing proved that pid was the daemon. The tests written for the
+fix, run against the old code, sent SIGTERM to pid 0, to pid 1, to an unrelated live process and to the test runner
+itself.
+
+**Root cause.** Three things together.
+
+1. The signal had no guard: no `pid > 1` check, no look at the process's command line, and no comparison with the
+   pid `/healthz` reports. A pid left in the file across a reboot can belong to any process by then.
+2. The probe that asked "is the lock held" took an exclusive lock itself, so a session that was only looking could
+   make another session's probe or the daemon's own take fail.
+3. `take_lock` truncated the file and then wrote it, so the file was empty in between. Two sessions starting together
+   could read `{}`, get pid 0 from it, and call `os.kill(0, SIGTERM)`, which signals the caller's whole process group.
+
+**Why 907 and 909 did not prevent it.** 907 is the same defect in the product's detached stop script (a pid read from
+a file and signalled; pid 1 killed the user session twice), and 909 is a pid signalled after it may have been reused.
+Their fixes are in `pkg/remoteexec`'s shell script. LESSONS 327 and 362 speak of stopping a process by hand, and 398
+of a test harness on this machine. None of them is a check, and none names Python tooling under `tools/`, which
+another session wrote from 2026-11-11 without those entries in view. No gate runs this directory's tests either
+(1320), so nothing but a review could have found it.
+
+**Fix.** `cfd1dc4d`: `prove_daemon` allows a signal only to a pid above 1 that is not the caller, that answers
+`/healthz` on the lock's port with that same pid and this state directory, and whose command line runs
+`monitor.py daemon` (`runfile.is_status_daemon`). Probes take a shared lock. The lock file is never empty to a reader
+(`write_lock_info`). `ensure` itself runs under an ensure lock, so two sessions do not replace a daemon at once.
+Tests in `tools/monitor/test_daemon.py`: `test_unprovable_lock_holders_are_never_signalled`,
+`test_an_older_daemon_is_replaced_and_only_it_is_signalled`, `test_the_lock_file_reads_whole_while_it_is_rewritten`.
+
+**Lesson.** As 907 and LESSONS 327. A pid read from a file is a claim, not a process. Before a signal, prove it three
+ways: the number is above 1, the live process answers as the thing meant with that same pid, and its command line
+agrees. A file other processes read is replaced whole, never truncated and then written. A probe takes a shared
+lock, so that looking does not change what others see.
+
+## 1316. The status MCP server handed a model third-party GitHub text (workflow, job and branch names, run titles) and test output as plain JSON on a pre-approved server, and its backfill read every run on every branch, fork pull requests included, whose author chooses that text (fixed before push; security; caught in independent review; a repeat in kind of 257, the family of 256; LESSONS 266)
+
+**Symptom.** 2026-11-21, branch `feat/status-daemon`, before push, found by an independent review. The MCP server
+`status` (`tools/monitor/mcp_status.py`) is pre-approved in `.claude/settings.json`, so a session calls it with no
+prompt. Its tools returned workflow names, job names, run titles and branch names from GitHub, and test output, as
+ordinary JSON fields beside the daemon's own. The backfill (`tools/monitor/actions.py`) read every run on every
+branch. A pull request from a fork runs workflows too, and the fork's author chooses the branch name, the title and
+the workflow's and jobs' names. Text an outsider wrote would have reached a model as if the tool had said it. A
+docstring also claimed the daemon masks what it serves; it masks only by the value of its own secret-named
+environment variables.
+
+**Root cause.** The text was treated as data about a run. Nobody asked who writes it, or what the reader does with
+it: a model acts on text, where a page only shows it.
+
+**Why 256 and 257 did not prevent it.** 257's fix (`internal/termsafe`) is for a terminal: it escapes the characters
+a terminal acts on, in Go, on the paths an external Collection's text takes. 256 is about invisible characters
+reaching source. LESSONS 266 lists "an error, a log or a terminal" as the places remote text reaches. A model is a
+fourth reader none of them names, and escaping control characters does not make a sentence safe for it. The same
+class was reported on 2026-11-01 as the vuln-corpus C1 (CWE-74) finding; that record is outside this repository.
+
+**Fix.** `165a7362`: only a run whose head repository is this repository is kept (`actions.from_this_repository`; a
+fork's `pull_request` run has `head_repository.full_name` set to the fork, and a run with a null head repository is
+dropped). Each string loses its control characters and is cut to `TEXT_MAX` (`actions.clean_text`). An MCP result
+puts such text inside an object named `untrusted` (`mcp_status.untrusted_run`, `untrusted_job`), every tool's
+description says what that object is, and titles are sent only on request. The docstring now says what is masked.
+Test: `test_forks_are_dropped_text_is_cut_and_labeled`.
+
+**Open.** A label is advice to the reader, not a control. Text from this repository's own branches is still shown,
+and anyone who can push a branch here can write it.
+
+**Lesson.** As 257, with one more reader. Text a third party chose is input wherever it goes, and a model is a
+reader that follows what it reads. Keep such text out where it can be kept out (drop the fork's runs), bound and
+clean the rest, and hand it over marked as text from outside, in a field of its own, on every tool that returns it.
+
+## 1317. The status daemon rewrote `actions.json` whole on every 60 second poll while the branch raised its cap from 300 runs to 3000, about 18 MB a minute at the cap (fixed before push; caught in independent review; open: a running workflow still rewrites about 15 MB a minute at the cap)
+
+**Symptom.** 2026-11-21, branch `feat/status-daemon`, before push, found by an independent review. The Actions
+poller wrote its whole store to `actions.json` after every poll, changed or not. The branch had raised the store's
+cap from 300 runs to 3000 for the history backfill, which makes the file about 18 MB at the cap. An always-on daemon
+would have written that every minute, for as long as the machine is up.
+
+**Root cause.** Writing the whole file each poll cost nothing at 300 runs and was never revisited when the cap grew
+tenfold. The write and the cap were changed in different commits.
+
+**Why it matters here.** The owner's rule is no bulk writes to the machine's SSDs for no purpose, and the daemon
+runs under a 400 MB memory cap (`DAEMON_CAP`) that a whole-file serialize each minute also presses on.
+
+**Fix.** `c247b816`: the file is cached by its inode, size and mtime, written only when a poll changed something,
+and written under a lock. Test: `test_unchanged_values_are_written_once_across_restarts`.
+
+**Open.** While a workflow runs, each poll does change the store, so at the cap the daemon still rewrites about 15 MB
+a minute for the length of the run. A store that appends, or one file per run, would end that. Not built.
+
+**Lesson.** A write sized by a cap is re-priced when the cap moves. For anything a long-lived process writes on a
+timer, work out bytes per day at the largest size the code allows, and write only on change.
+
+## 1318. The status daemon's protocol number never changed across ten days of work on it, so `ensure` would never replace a daemon started from an earlier state of the code, and a smoke test probably exercised a day-old process serving the new page (fixed before push; caught in independent review; related to 747; LESSONS 123)
+
+**Symptom.** 2026-11-21, branch `feat/status-daemon`, before push, found by an independent review. `ensure` replaces
+a running daemon only when its `/healthz` reports an older protocol number. The number stayed the same through every
+change made between 2026-11-11 and 2026-11-20. A daemon started on an earlier day kept running the Python it had
+loaded then, and every later `ensure` found it current. The page is read from disk on each request, so the old
+process served the new page over old server code. The smoke test the first takeover agent ran on 2026-11-21 was
+probably answered by such a process. That is not proven: the process was not examined at the time.
+
+**Root cause.** The version a running process reports was a number a person has to remember to raise. Nothing tied
+it to the code the process had actually loaded.
+
+**Why 747 did not prevent it.** 747 (and LESSONS 362) is the monitor of a finished run answering for the next run:
+a stale process read as a live one. Its lesson binds a wait to a run id. An always-on daemon has no run id, and the
+question "is this process running today's code" was not asked. LESSONS 123 gives the answer for a stored object
+(stamp it with a fingerprint of what made it); it had not been applied to a process.
+
+**Fix.** `4a813edc`: the protocol is 2, and `/healthz` carries a fingerprint of the source files the daemon loaded
+(`daemon.source_fingerprint` over `loaded_sources`). `ensure` replaces a daemon whose fingerprint differs from the
+files on disk (`replace_reason`), and only one it has proven (1315).
+
+**Lesson.** As LESSONS 123, for a process. A long-lived process reports what code it loaded, computed from the
+files, and the starter compares that to the disk. A hand-raised number is forgotten on the first change that needs
+it. Before trusting a smoke test of a daemon, read its start time and fingerprint, or start a fresh one on another
+port and state directory.
+
+## 1319. Six smaller defects in the status daemon: cross-site GETs accepted, a test port found free and then released, "a gate runs" read from a manifest a killed gate leaves behind, a log with no bound, `import fcntl` at module top, and a comment claiming the repository names no internal document (fixed before push; caught in independent review; the port a repeat of 123, 177, 183 and 478; the comment a repeat of 228 and 571)
+
+**Symptom.** 2026-11-21, branch `feat/status-daemon`, before push, found by an independent review.
+
+1. The server answered a GET from any site. A page in the owner's browser could make the request. It could not read
+   the answer, and no GET changes state, so the exposure was load and open streams, not data.
+2. `free_port` in `tools/monitor/test_daemon.py` listened on port 0, closed the socket and returned the number, for
+   a daemon to bind later.
+3. `ensure` decided "a gate is running" from the gate's manifest file. A gate that is killed leaves the file behind,
+   so the answer stayed yes with no gate running.
+4. The daemon's log grew without bound, with a traceback for every client that hung up mid-answer.
+5. `import fcntl` at the top of a module made every `monitor.py` command fail on Windows, not only the daemon's.
+6. A comment claimed the repository names no internal document, while two files on the branch did.
+
+**Root cause.** Each is a known shape that nothing checks in this directory (1320). For 2, the archtest that refuses
+a released port reads Go only. For 6, the comment was written from intent and not checked against the tree.
+
+**Why the earlier entries did not prevent 2 and 6.** 123, 177, 183 and 478 are the released port, and 756 added
+`internal/archtest` to what pr-check always runs so the pattern is refused in a minute. That check does not read
+Python. 228 and 571 are a comment claiming more than the code does; their remedy is to prove each such sentence, and
+this one was not.
+
+**Fix.** `a97658a4`: a request from another site or origin is refused, and open streams are bounded
+(`test_other_sites_and_origins_are_refused`). `0ac3286b`: the tests bind port 0 and keep it. `a613bc65`: a gate is
+running while its flock is held, whatever files exist
+(`test_a_gate_runs_while_its_lock_is_held_not_while_its_manifest_is_left`). `b4249247`: the log is cut to its tail
+past 5 MB (`cap_log`, `test_the_log_is_capped_to_its_tail`), and timeline reads are bounded. `3bbd9db6`: `fcntl` is
+loaded where it is used (`locks.load_fcntl`), the daemon says it is not supported where flock is missing
+(`test_a_platform_without_flock`), and `PLEIADES_NO_STATUS_DAEMON` turns it off. `c4457386`: the two files name no
+internal document, and the comment is true.
+
+**Lesson.** A file is evidence that something started, never that it is still running: ask the lock. A local server
+is reachable from every page the browser has open, so it checks the site and origin of each request even when it
+only reads. An import a platform lacks goes where it is used. And a rule held by a Go test holds for Go only (1320).
+
+## 1320. No Makefile target and no CI job runs `tools/monitor`'s Python tests or pyright, so `make pr-check` passed on `feat/status-daemon` in five minutes having tested none of the branch's code (open; a gap in the gate, not fixed on this branch; a sibling of 631 and 755)
+
+**Symptom.** 2026-11-21, branch `feat/status-daemon`. Every file the branch changes is Python, JavaScript, HTML or
+settings under `tools/monitor` and `.claude`. `make pr-check` selected no Go package, ran its static checks and
+passed in about five minutes. Its receipt lets the branch be pushed. None of 1315 to 1319 could have failed it. A
+search of the `Makefile` and `.github/workflows` for the directory's test files finds nothing.
+
+**Root cause.** pr-check picks what to test from the Go packages a branch changes (`tools/prscope`), and every CI
+test job runs `tools/testgate`, which runs `go test`. `tools/monitor` grew from one script into a daemon, a server
+and an MCP server with two test files (`test_monitor.py`, `test_daemon.py`), and no step was added for them.
+
+**Why 631 and 755 did not prevent it.** Both are a pr-check pass that did not cover what failed later (a package
+that only imports a changed one; a container test on a native engine), and both were closed by widening what pr-check
+selects among Go packages. Neither asked what the gate does with code that is not Go.
+
+**What covered the branch instead.** 95 unittest cases and pyright in strict mode, run by hand in this session.
+The pull request has to say so, since its green checks say nothing about this code (LESSONS 464).
+
+**Fix.** None. Open. What would close it: a make target that runs `tools/monitor`'s unittest suite and pyright,
+called by pr-check when a branch changes that directory and by a CI job, with the tools pinned as `gosec` is. Not
+built, and not this branch's to build without the owner's word, since it adds a Python dependency to the gate.
+
+**Lesson.** A gate tests the languages it was built for. When a branch's diff is in another one, a pass is silence,
+not a result. Read what the gate selected before reading its verdict.
+
+## 1321. A test daemon started by a subagent's timed-out test run outlived the run by about three hours on a temporary state directory, and was noticed only by chance (process; open: pid 2187623 left for the owner; a repeat in kind of 340; the family of 747)
+
+**Symptom.** 2026-11-21, branch `feat/status-daemon`. A subagent ran `tools/monitor/test_daemon.py`, and the run hit
+its outside time limit and was killed. One of the daemons the tests start (pid 2187623, on a temporary state
+directory) kept running. It was about three hours old when the orchestrating session noticed it. The session's
+`kill` was refused by the permission check, so the process was reported to the owner with its pid and left alone.
+
+**Root cause.** `daemon.spawn` starts the daemon in its own session (`start_new_session=True`), which is right for
+the real one and means a test's daemon does not die with the test runner. The tests stop their daemons in cleanup
+code, and a runner that is killed runs no cleanup.
+
+**Why 340 did not prevent it.** 340 is the same event with a kind cluster: an outside timeout killed the suite and
+what it had created stayed up. Its lesson is to give such a suite the time it needs and to check for leftovers after
+an interrupted run. It was never made a numbered lesson, the subagent's instructions did not carry it, and nobody
+looked for leftovers after the timeout.
+
+**Fix.** None in code on this branch. The leftover is the owner's to stop, by its exact pid.
+
+**Open.** A test daemon that ends by itself when its test runner is gone (a parent-death signal, or a deadline of
+its own on a temporary state directory) would close this for a killed runner too. Not built.
+
+**Lesson.** LESSONS 463. A test that starts a detached process owns it on every way out, a kill of the runner
+included. After any test run that was cut short, list what it may have started before doing anything else. A
+leftover that cannot be stopped within the session's permissions is reported with its pid, not worked around.

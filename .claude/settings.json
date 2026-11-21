@@ -1,6 +1,25 @@
 {
-  "enabledMcpjsonServers": ["gopls"],
+  "enabledMcpjsonServers": [
+    "gopls",
+    "status"
+  ],
   "permissions": {
-    "allow": ["mcp__gopls"]
+    "allow": [
+      "mcp__gopls",
+      "mcp__status"
+    ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "timeout": 30,
+            "command": "python3 -B \"$CLAUDE_PROJECT_DIR/tools/monitor/monitor.py\" ensure --quiet || true"
+          }
+        ]
+      }
+    ]
   }
 }

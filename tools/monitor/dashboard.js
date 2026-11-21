@@ -1,4 +1,4 @@
-// dashboard.js draws the pr-check monitor's page from monitor.py's JSON.
+// dashboard.js draws the status page's Gate view from the daemon's JSON.
 //
 // It polls /state every two seconds (the live run, the Actions poll and
 // memory), /history every twenty, and /actions-history and /binsize every
@@ -237,7 +237,63 @@ function drawLegend() {
     sw.style.background = statusColor(s);
     node.appendChild(el('span', {}, sw, LABELS[s]));
   }
-  node.appendChild(el('span', { text: 'Outlined bars take their times from pr-check\'s records.' }));
+}
+
+// VERDICT_WORDS turns a run's verdict into the hero's word and its color class.
+const VERDICT_WORDS = { pass: ['Passed', 'good'], fail: ['Failed', 'bad'], stopped: ['Stopped', 'bad'], running: ['Running', 'run'],
+  interrupted: ['Interrupted', 'bad'], lost: ['Lost', 'bad'] };
+
+// renderGateHero writes the Gate view's big answer and its tiles.
+function renderGateHero(run, now, memory) {
+  const big = document.getElementById('verdict-big');
+  const kicker = document.getElementById('g-kicker');
+  const tiles = document.getElementById('g-tiles');
+  clear(tiles);
+  const gate = liveState && liveState.gate;
+  const saved = viewId !== 'live';
+  kicker.textContent = (saved ? 'Saved gate' : gate && gate.live ? 'Gate running' : 'Latest gate') +
+    (!saved && gate && gate.branch ? ' · ' + gate.branch : '');
+  if (!run) {
+    big.textContent = 'No gate yet';
+    big.className = 'big mid';
+    tile(tiles, 'Start one', 'monitor.py run', 'the page follows it from any worktree');
+    tile(tiles, 'Wait for it', '/wait', 'curl /wait?for=fail,end, or the MCP tool gate_wait');
+    tile(tiles, 'Saved runs', historyRuns.length, 'pick one above to view it');
+    return;
+  }
+  const v = run.verdict || 'running';
+  const [word, cls] = VERDICT_WORDS[v] || [v.charAt(0).toUpperCase() + v.slice(1), ''];
+  big.textContent = word;
+  big.className = 'big ' + cls;
+  const stages = run.stages || [];
+  const ran = stages.filter((x) => !['pending', 'skipped'].includes(x.status));
+  const passed = ran.filter((x) => x.status === 'pass').length;
+  const failed = ran.filter((x) => x.status === 'fail' || x.status === 'stopped');
+  const totals = run.totals || {};
+  const mem = (memory || run.memory || []).map((m) => m[1]);
+  const passLen = (name) => {
+    const st = stages.find((x) => x.name === name);
+    return st && st.start ? fmtDur((st.end || now) - st.start) : '-';
+  };
+  const typ = (name) => { const t = typical(name); return t ? 'typical ' + fmtDur(t) : 'no history yet'; };
+  tile(tiles, 'Stages passed', passed, 'of ' + ran.length + ' that ran' + (failed.length ? '; failed: ' + failed.map((x) => x.name).join(', ') : ''));
+  tile(tiles, 'Packages', (totals.fast || 0) + ' + ' + (totals.docker || 0), 'container-free + container');
+  tile(tiles, 'Lowest memory', mem.length ? Math.round(Math.min(...mem)).toLocaleString() + ' MB' : '-', 'watchdog floor ' + (liveState ? liveState.memory_floor_mb : 700) + ' MB');
+  tile(tiles, 'Fast pass', passLen('fast'), typ('fast'));
+  tile(tiles, 'Containers pass', passLen('docker'), typ('docker'));
+  tile(tiles, 'Length', run.started ? fmtDur((run.ended || now) - run.started) : '-', run.commit ? 'commit ' + run.commit : '');
+}
+
+// tile appends one labelled value to a <dl class="tiles">: a hint line, and a bar when done and total are given.
+function tile(dl, label, value, hint, done, total) {
+  const box = el('div', {}, el('dt', { text: label }), el('dd', { text: value === undefined || value === null ? '' : value }));
+  if (hint) box.appendChild(el('span', { cls: 'hint', text: hint }));
+  if (total) {
+    const b = el('progress', { max: total, value: done || 0, 'aria-label': label + ': ' + (done || 0) + ' of ' + total });
+    b.style.setProperty('--bar', statusColor(done >= total ? 'pass' : 'running'));
+    box.appendChild(b);
+  }
+  dl.appendChild(box);
 }
 
 // renderRun draws a run (live or saved) into the stage, pass, leg and memory views.
@@ -246,10 +302,11 @@ function renderRun(run, now, memory, floor) {
   const meta = document.getElementById('meta');
   const notes = document.getElementById('notes');
   clear(notes);
+  renderGateHero(run, now, memory);
   if (!run) {
     verdict.textContent = 'no run';
     verdict.style.setProperty('--chip', statusColor('pending'));
-    meta.textContent = 'Nothing is running under this monitor. Pick a saved run to view it.';
+    meta.textContent = 'No gate has run since the daemon started. Pick a saved run to view it.';
     drawGantt('gantt', [], now);
     clear(document.getElementById('progress'));
     clear(document.getElementById('legs'));
@@ -264,12 +321,14 @@ function renderRun(run, now, memory, floor) {
     if (run.base) parts.push('against ' + run.base);
     if (begun) parts.push('began ' + fmtTime(begun));
     if (begun) parts.push((run.ended ? 'took ' : 'running for ') + fmtDur((run.ended || now) - begun));
-    parts.push(run.trace ? 'stage starts from make --trace' : 'no --trace lines: static checks inferred from their commands');
-    parts.push('times in ' + TIME_ZONE);
-    meta.textContent = parts.join(' | ');
+    meta.textContent = parts.join(' · ');
     const allNotes = (run.notes || []).slice();
-    allNotes.push('Times are when the monitor read each line; the log has no timestamps of its own.');
-    for (const n of allNotes) notes.appendChild(el('p', { cls: 'note', text: n }));
+    if (!run.trace) allNotes.push('No make --trace lines: the static checks are inferred from their commands.');
+    if (allNotes.length) {
+      const box = el('div', { cls: 'warnbox' });
+      for (const n of allNotes) box.appendChild(el('span', { text: n }));
+      notes.appendChild(box);
+    }
     const stages = run.stages || [];
     drawGantt('gantt', stages.map((s) => ({ label: s.name, status: s.status, start: s.start, end: s.end, detail: s.detail, source: s.source })), now);
     renderStageTable(stages, now);
@@ -435,11 +494,26 @@ function jobWord(status, conclusion) {
 // renderActions draws the Actions panel from the latest poll.
 function renderActions(acts, now) {
   const status = document.getElementById('actions-status');
-  const runs = (acts && acts.runs) || [];
+  const live = (acts && acts.runs) || [];
+  // Every run recorded (the backfill reads every branch), with the live poll's newer copies on top.
+  const byRunId = new Map();
+  for (const r of actionsHistory) byRunId.set(String(r.id), r);
+  for (const r of live) byRunId.set(String(r.id), r);
+  const all = Array.from(byRunId.values()).sort((a, b) => String(b.created || '').localeCompare(String(a.created || '')));
+  actionsAll = all;
+  const branches = [];
+  for (const r of all) if (r.branch && !branches.includes(r.branch)) branches.push(r.branch);
+  if (actionsBranch !== '*' && !branches.includes(actionsBranch)) actionsBranch = (acts && acts.branch && branches.includes(acts.branch)) ? acts.branch : '*';
+  renderBranchRail(all, branches, acts);
+  const branch = actionsBranch;
+  const runs = (branch === '*' ? all : all.filter((r) => r.branch === branch)).slice(0, 200);
+  actionsRuns = runs;
+  document.getElementById('actions-runs-title').textContent = branch === '*' ? 'Runs on every branch' : 'Runs on ' + branch;
   if (acts && acts.error) {
     status.textContent = 'Actions unavailable: ' + acts.error + '. Everything else keeps working.';
   } else if (acts && acts.polled) {
-    status.textContent = 'Branch ' + (acts.branch || '?') + ', ' + runs.length + ' run(s), read ' + fmtTime(acts.polled) + ' (every 60s).';
+    status.textContent = all.length + ' run(s) recorded across ' + branches.length + ' branch(es). ' + (acts.branch || '?') +
+      ' is polled every minute (last ' + fmtTime(acts.polled) + '); every branch every six hours.';
   } else {
     status.textContent = 'Reading Actions...';
   }
@@ -447,9 +521,12 @@ function renderActions(acts, now) {
   const keep = pick.value;
   clear(pick);
   for (const r of runs) {
-    pick.appendChild(el('option', { value: r.id, text: '#' + r.number + ' ' + r.name + ' (' + (r.conclusion || r.status) + ') ' + r.sha.slice(0, 8) }));
+    pick.appendChild(el('option', { value: r.id, text: '#' + r.number + ' ' + r.name + ' (' + (r.conclusion || r.status) + ') ' +
+      (branch === '*' ? r.branch + ' ' : '') + String(r.sha || '').slice(0, 8) }));
   }
   if (runs.some((r) => String(r.id) === keep)) pick.value = keep;
+  renderActionsHero(runs.find((r) => String(r.id) === pick.value) || runs[0], now, all);
+  renderFailures(branch === '*' ? all : all.filter((r) => r.branch === branch));
   const run = runs.find((r) => String(r.id) === pick.value) || runs[0];
   const failed = document.getElementById('actions-failed');
   clear(failed);
@@ -476,6 +553,105 @@ function renderActions(acts, now) {
   }
   renderJobsTable(run ? run.jobs || [] : [], now);
   renderActionsTable(runs, now);
+}
+
+// actionsBranch is the branch the Actions view shows ('*' for every branch);
+// actionsAll and actionsRuns are every run recorded and the shown branch's.
+let actionsBranch = '*';
+let actionsAll = [];
+let actionsRuns = [];
+
+// setText writes text into the element with id, when it exists.
+function setText(id, text) {
+  const node = document.getElementById(id);
+  if (node) node.textContent = text;
+}
+
+// branchStatus returns the stage status of a branch's newest run.
+function branchStatus(runs) {
+  return runs.length ? jobStatus(runs[0].status, runs[0].conclusion) : 'pending';
+}
+
+// renderBranchRail lists every branch, newest run first, filtered by the search box.
+function renderBranchRail(all, branches, acts) {
+  const rail = document.getElementById('actions-branches');
+  const words = document.getElementById('actions-branch-search').value.trim().toLowerCase();
+  clear(rail);
+  const button = (value, label, runs, extra) => {
+    const b = el('button', { type: 'button', cls: 'br', 'aria-pressed': String(actionsBranch === value) },
+      el('span', { cls: 'dot' }), el('span', { text: label, title: label }), el('span', { cls: 'n', text: runs.length + (extra || '') }));
+    b.firstChild.style.setProperty('--chip', statusColor(value === '*' ? 'running' : branchStatus(runs)));
+    b.addEventListener('click', () => { actionsBranch = value; document.getElementById('actions-run').value = ''; draw(); renderActionsHistory(); });
+    rail.appendChild(b);
+  };
+  button('*', 'All branches', all);
+  for (const b of branches) {
+    if (words && !b.toLowerCase().includes(words)) continue;
+    button(b, b, all.filter((r) => r.branch === b), acts && b === acts.branch ? ' · in use' : '');
+  }
+}
+
+// renderActionsHero writes the picked run as the Actions view's big answer, with its tiles.
+function renderActionsHero(run, now, all) {
+  const tiles = document.getElementById('actions-tiles');
+  clear(tiles);
+  const hero = document.getElementById('actions-hero');
+  clear(hero);
+  if (!run) {
+    setText('actions-kicker', 'No run recorded yet');
+    setText('actions-hero-meta', '');
+    return;
+  }
+  setText('actions-kicker', (run.branch || '') + ' · run #' + run.number + ' · ' + (run.event || ''));
+  const st = jobStatus(run.status, run.conclusion);
+  const word = run.status !== 'completed' ? (run.status === 'queued' ? 'queued' : 'running') : (run.conclusion || 'completed');
+  const tone = { pass: 'good', fail: 'bad', running: 'run' }[st] || '';
+  hero.appendChild(document.createTextNode((run.name || 'workflow') + ' '));
+  hero.appendChild(el('span', { cls: 'big ' + tone, style: 'font-size: inherit', text: word }));
+  const meta = document.getElementById('actions-hero-meta');
+  clear(meta);
+  meta.appendChild(document.createTextNode('Commit ' + String(run.sha || '').slice(0, 8) + ' · began ' + fmtTime(run.start) + ' · '));
+  const url = safeUrl(run.url);
+  if (url) meta.appendChild(el('a', { href: url, rel: 'noreferrer', target: '_blank', text: 'open on GitHub' }));
+  const jobs = run.jobs || [];
+  const ranJobs = jobs.filter((j) => j.conclusion !== 'skipped');
+  const slow = ranJobs.filter((j) => j.start && j.end).sort((a, b) => (b.end - b.start) - (a.end - a.start))[0];
+  const same = all.filter((r) => r.name === run.name && r.status === 'completed' && r.start && r.end).map((r) => r.end - r.start).sort((a, b) => a - b);
+  const median = same.length ? same[Math.floor(same.length / 2)] : null;
+  tile(tiles, 'Length', run.start ? fmtDur((run.end || now) - run.start) : '-', median ? 'typical ' + fmtDur(median) + ' for ' + run.name : '');
+  tile(tiles, 'Jobs', jobs.length, ranJobs.length + ' ran, ' + (jobs.length - ranJobs.length) + ' skipped');
+  tile(tiles, 'Slowest job', slow ? fmtDur(slow.end - slow.start) : '-', slow ? slow.name : '');
+  const bad = jobs.filter((j) => j.failed);
+  tile(tiles, 'Failed jobs', bad.length, bad.length ? bad.map((j) => j.name).join(', ') : 'none this run');
+}
+
+// renderFailures counts, for each job, how often it failed over the last thirty days of the shown runs.
+function renderFailures(runs) {
+  const since = Date.now() / 1000 - 30 * 86400;
+  const counts = new Map();
+  for (const r of runs) {
+    if (!r.start || r.start < since) continue;
+    for (const j of r.jobs || []) {
+      if (j.status !== 'completed' || j.conclusion === 'skipped' || j.conclusion === 'cancelled') continue;
+      const c = counts.get(j.name) || { runs: 0, failed: 0 };
+      c.runs += 1;
+      if (j.failed) c.failed += 1;
+      counts.set(j.name, c);
+    }
+  }
+  const rows = Array.from(counts.entries()).filter(([, c]) => c.failed).sort((a, b) => b[1].failed / b[1].runs - a[1].failed / a[1].runs).slice(0, 12);
+  setText('actions-failures-note', 'last 30 days, ' + (actionsBranch === '*' ? 'every branch' : actionsBranch) + '; cancelled and skipped jobs left out');
+  const table = document.getElementById('actions-failures');
+  clear(table);
+  table.appendChild(el('thead', {}, el('tr', {}, el('th', { scope: 'col', text: 'Job' }), el('th', { scope: 'col', cls: 'num', text: 'Ran' }),
+    el('th', { scope: 'col', cls: 'num', text: 'Failed' }), el('th', { scope: 'col', cls: 'num', text: 'Rate' }))));
+  const body = el('tbody');
+  for (const [name, c] of rows) {
+    body.appendChild(el('tr', {}, el('th', { scope: 'row', text: name }), el('td', { cls: 'num', text: c.runs }),
+      el('td', { cls: 'num failed-job', text: c.failed }), el('td', { cls: 'num', text: (100 * c.failed / c.runs).toFixed(1) + '%' })));
+  }
+  if (!rows.length) body.appendChild(el('tr', {}, el('td', { colspan: 4, text: 'No job failed in these runs.' })));
+  table.appendChild(body);
 }
 
 // renderJobsTable lists the selected run's jobs, each with its steps bar.
@@ -506,17 +682,17 @@ function jobsBar(r) {
     el('span', { cls: 'note', text: ' ' + done + ' of ' + jobs.length }));
 }
 
-// renderActionsTable lists the branch's newest runs.
+// renderActionsTable lists the chosen branch's newest runs.
 function renderActionsTable(runs, now) {
   const table = document.getElementById('actions-runs');
   clear(table);
-  table.appendChild(el('tr', {}, el('th', { text: 'Run' }), el('th', { text: 'Workflow' }), el('th', { text: 'Event' }),
+  table.appendChild(el('tr', {}, el('th', { text: 'Run' }), el('th', { text: 'Workflow' }), el('th', { text: 'Branch' }), el('th', { text: 'Event' }),
     el('th', { text: 'Result' }), el('th', { text: 'Jobs done' }), el('th', { text: 'Commit' }), el('th', { text: 'Started' }),
     el('th', { cls: 'num', text: 'Length' })));
-  for (const r of runs) {
+  for (const r of runs.slice(0, 60)) {
     const url = safeUrl(r.url);
     const name = url ? el('a', { href: url, rel: 'noreferrer', target: '_blank', text: '#' + r.number }) : el('span', { text: '#' + r.number });
-    table.appendChild(el('tr', {}, el('td', {}, name), el('td', { text: r.name }), el('td', { text: r.event }),
+    table.appendChild(el('tr', {}, el('td', {}, name), el('td', { text: r.name }), el('td', { text: r.branch || '' }), el('td', { text: r.event }),
       el('td', {}, chip(jobStatus(r.status, r.conclusion), r.conclusion || r.status)),
       el('td', {}, jobsBar(r)),
       el('td', { text: r.sha.slice(0, 8) }),
@@ -530,21 +706,31 @@ function renderHistory() {
   clear(table);
   table.appendChild(el('tr', {}, el('th', { text: 'Began' }), el('th', { text: 'Commit' }), el('th', { text: 'Verdict' }),
     el('th', { cls: 'num', text: 'Length' }), el('th', { text: 'How' }), el('th', { text: '' })));
-  for (const r of historyRuns) {
-    const btn = el('button', { type: 'button', text: 'View', 'aria-label': 'View the run that began ' + fmtTime(r.started) });
+  let day = null;
+  for (const r of historyRuns.slice(0, 200)) {
+    const d = r.started ? new Date(r.started * 1000).toDateString() : '';
+    if (d !== day) {
+      day = d;
+      const label = d === new Date().toDateString() ? 'Today' : d === new Date(Date.now() - 86400000).toDateString() ? 'Yesterday' : d;
+      table.appendChild(el('tr', { cls: 'sect' }, el('td', { colspan: 6, text: label })));
+    }
+    const btn = el('button', { type: 'button', cls: 'btn', text: 'View', 'aria-label': 'View the run that began ' + fmtTime(r.started) });
     btn.addEventListener('click', () => { selectView(r.id); window.scrollTo(0, 0); });
     const v = r.verdict || (r.ended ? 'unknown' : 'running');
     const vs = { pass: 'pass', fail: 'fail', stopped: 'stopped', running: 'running' }[v] || 'ended';
-    table.appendChild(el('tr', {}, el('td', { text: fmtTime(r.started) }), el('td', { text: r.commit || '' }),
-      el('td', {}, chip(vs, v)),
+    table.appendChild(el('tr', {}, el('td', { text: r.started ? new Date(r.started * 1000).toLocaleTimeString() : '' }),
+      el('td', { cls: 'mono', text: r.commit || '' }), el('td', {}, chip(vs, v)),
       el('td', { cls: 'num', text: fmtDur(r.seconds) }), el('td', { text: (r.mode || '') + (r.stopped_by ? ', stopped by ' + r.stopped_by : '') }),
-      el('td', {}, btn)));
+      el('td', { cls: 'num' }, btn)));
   }
   if (!historyRuns.length) table.appendChild(el('tr', {}, el('td', { colspan: 6, text: 'No saved runs yet.' })));
   const view = document.getElementById('view');
   const keep = viewId;
   clear(view);
-  view.appendChild(el('option', { value: 'live', text: liveState && liveState.run ? 'Live (' + liveState.mode + ')' : 'Live (no run)' }));
+  const latest = liveState && liveState.mode === 'daemon'
+    ? (liveState.gate ? (liveState.gate.live ? 'Running now' : 'Latest run') + (liveState.gate.branch ? ' (' + liveState.gate.branch + ')' : '') : 'No run yet')
+    : (liveState && liveState.run ? 'Live (' + liveState.mode + ')' : 'Live (no run)');
+  view.appendChild(el('option', { value: 'live', text: latest }));
   for (const r of historyRuns) view.appendChild(el('option', { value: r.id, text: fmtTime(r.started) + ' ' + (r.verdict || (r.ended ? '' : 'running')) }));
   view.value = keep;
   drawDurationChart('history-chart', 'stage-pick', historyRuns.slice().reverse().map((r) => ({
@@ -587,7 +773,8 @@ function drawDurationChart(chartId, pickId, runs) {
 
 // renderActionsHistory charts Actions job durations over every run seen.
 function renderActionsHistory() {
-  const runs = actionsHistory.filter((r) => r.status === 'completed').slice().reverse().map((r) => {
+  const shown = actionsBranch === '*' ? actionsHistory : actionsHistory.filter((r) => r.branch === actionsBranch);
+  const runs = shown.filter((r) => r.status === 'completed').slice(0, 120).reverse().map((r) => {
     const parts = {};
     for (const j of r.jobs || []) if (j.start && j.end) parts[j.name] = j.end - j.start;
     return { label: '#' + r.number + ' ' + r.name, total: r.start && r.end ? r.end - r.start : null, parts: parts };
@@ -678,6 +865,23 @@ function draw() {
     renderRun(viewRun, viewRun.ended || liveState.now, viewRun.memory, liveState.memory_floor_mb);
   }
   renderActions(liveState.actions, liveState.now);
+  renderHeader();
+}
+
+// renderHeader writes the header's memory pill and the time of the last read.
+function renderHeader() {
+  const mem = liveState.memory || [];
+  const last = mem.length ? mem[mem.length - 1][1] : null;
+  const pill = document.getElementById('mem-pill');
+  pill.textContent = last === null ? 'Memory not read yet' : 'Memory ' + Math.round(last).toLocaleString() + ' MB free';
+  pill.style.setProperty('--chip', statusColor(last === null ? 'pending' : last < 2 * liveState.memory_floor_mb ? 'fail' : last < 2500 ? 'not-run' : 'pass'));
+  setText('updated', 'updated ' + new Date(liveState.now * 1000).toLocaleTimeString());
+}
+
+// readHealth names the daemon in the header once.
+async function readHealth() {
+  const h = await getJson('/healthz');
+  if (h && h.pid) setText('host-line', location.host + ' · daemon pid ' + h.pid + ' · protocol ' + h.protocol);
 }
 
 // getJson fetches path as JSON, or returns null.
@@ -736,7 +940,7 @@ async function pollHistory() {
 // pollActionsHistory refreshes every Actions run seen.
 async function pollActionsHistory() {
   const a = await getJson('/actions-history');
-  if (a) { actionsHistory = a.runs || []; renderActionsHistory(); }
+  if (a) { actionsHistory = a.runs || []; renderActionsHistory(); if (liveState) renderActions(liveState.actions, liveState.now); }
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -747,6 +951,8 @@ document.addEventListener('DOMContentLoaded', () => {
   drawLegend();
   document.getElementById('view').addEventListener('change', (e) => selectView(e.target.value));
   document.getElementById('actions-run').addEventListener('change', draw);
+  document.getElementById('actions-branch-search').addEventListener('input', draw);
+  readHealth();
   document.getElementById('stage-pick').addEventListener('change', renderHistory);
   document.getElementById('job-pick').addEventListener('change', renderActionsHistory);
   document.getElementById('size-group').addEventListener('change', renderBinsize);

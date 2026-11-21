@@ -8527,3 +8527,43 @@ package you changed, whole, and `internal/archtest`, one package at a time under
 the commands and their results. The orchestrating session does the same before each of its own commits. A change to
 what shared code logs, warns about or refuses is treated as a change to every test in the packages that use it.
 `make pr-check` would catch both cases, but only at the gate, after other work has been stacked on top.
+
+## 463. A test that starts a detached process reaps it on every exit path, a kill of the test runner included; after a run that was cut short, look for what it left, and report a leftover with its pid when it cannot be stopped within the session's permissions (a repeat in kind of FAILURE_PATTERNS 340; FAILURE_PATTERNS 1321) (2026-11-21)
+
+**Why.** On `feat/status-daemon` a subagent's run of `tools/monitor/test_daemon.py` was killed at its time limit. A
+daemon one of the tests had started (pid 2187623, on a temporary state directory) ran on for about three hours
+before the orchestrating session saw it (FAILURE_PATTERNS 1321). The daemon is started in its own session on
+purpose, so it does not die with its parent, and the tests' cleanup code never ran because the runner was killed.
+The session's `kill` was refused by the permission check. The process was reported to the owner and left.
+
+**What is old and what is new.** FAILURE_PATTERNS 340 saw the same thing with a kind cluster and said to check for
+leftovers after an interrupted run; that stayed a sentence in one archive entry. LESSONS 327 and 362 are about
+stopping a process that is known. LESSONS 385 is about a daemon inside a container. The new parts are that cleanup
+code is not an exit path a kill takes, so the process itself must notice its runner is gone, and that a refused
+`kill` ends the attempt.
+
+**Rule in practice.** (1) A test daemon gets a way to end by itself: a parent-death signal, a deadline, or a watch on
+the test's temporary directory. Cleanup in the test is the fast path, not the only one. (2) Give a suite that starts
+processes a time limit of its own that is shorter than any outside one, so the runner ends by returning. (3) The
+instruction handed to a subagent that runs such a suite says: when the run is cut short, list the processes it may
+have started (by state directory or port, never `pgrep -f` with a pattern in your own command line) and report them.
+(4) When the permission check refuses a signal, do not find another way to send it. Report the pid, its start time,
+its command line and what it holds, and leave it for the owner.
+
+## 464. A gate that skips a language tests nothing written in it: when a branch's change is outside what the gate runs, the pull request says what covered it instead, with the commands and the counts (FAILURE_PATTERNS 1320; a sibling of LESSONS 271 and 365) (2026-11-21)
+
+**Why.** `make pr-check` passed on `feat/status-daemon` in about five minutes. The branch is Python and JavaScript
+under `tools/monitor`; pr-check selects Go packages, and no Makefile target or CI job runs that directory's tests or
+a type checker over it (FAILURE_PATTERNS 1320). The independent review then found the defects in FAILURE_PATTERNS
+1315 to 1319, one of which could signal the caller's whole process group. The green gate was true and empty.
+
+**What is old and what is new.** LESSONS 271 says to run pr-check before every push, and 365 says to run a
+feature's tests where CI runs them. Both assume the gate runs the tests. Here it ran none, and the pass looked the
+same as any other.
+
+**Rule in practice.** Before reading a gate's verdict on a branch, read what it selected. When the diff is in a
+language or a directory the gate does not test, (1) run that code's own tests and checks by hand (here 95 unittest
+cases and pyright in strict mode), (2) write in the pull request what was run, the counts, and that the required
+checks do not cover the change, and (3) get the change reviewed independently, since the gate will not catch what
+the author missed. The lasting fix is a gate step for that code; until it exists the gap is stated each time, not
+assumed known.

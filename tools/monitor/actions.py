@@ -8,16 +8,25 @@ the same job, since it never falls back to the current directory's remote.
 It never asks gh for a token and never prints one. When gh is missing or
 logged out, poll returns the reason and the rest of the monitor goes on
 without Actions.
+
+The repository is public, so a fork's pull request runs here too, and its
+author chooses its title, its branch name and (through the workflow file in
+the pull request) its job names. Only runs whose head repository is REPO
+are kept: the branch filter alone also matches a fork's branch of the same
+name. Every free-text field that is kept is cut to TEXT_MAX characters and
+loses its control characters before it is stored.
 """
 
 from __future__ import annotations
 
 import calendar
 import os
+import unicodedata
 import subprocess
 import threading
 import time
 import urllib.parse
+from concurrent.futures import ThreadPoolExecutor
 from typing import Callable, Dict, List, Optional, Protocol, Tuple, TypedDict
 
 from jsonutil import (JSONObject, JSONValue, as_object, get_float, get_int, get_objects, get_str, loads)
@@ -28,8 +37,17 @@ REPO = "Subject-Void-LLC/the-pleiades"
 POLL_SECONDS = 60
 # RUNS_WITH_JOBS is how many of the newest runs get their jobs read.
 RUNS_WITH_JOBS = 5
+# BACKFILL_PAGE is how many runs one page of the backfill lists (GitHub's most).
+BACKFILL_PAGE = 100
+# BACKFILL_MAX_PAGES bounds one backfill: 100 pages is 10,000 runs.
+BACKFILL_MAX_PAGES = 100
+# BACKFILL_WORKERS is how many job lists the backfill reads at once.
+BACKFILL_WORKERS = 4
 # FAILED_CONCLUSIONS are the job conclusions the page marks as failed.
 FAILED_CONCLUSIONS = ("failure", "timed_out", "startup_failure")
+# TEXT_MAX bounds every free-text field read from GitHub (workflow, job and
+# branch names, run titles), in characters.
+TEXT_MAX = 200
 
 # ApiCall reads one API path: (decoded JSON, None) or (None, reason).
 ApiCall = Callable[[str], Tuple[JSONValue, Optional[str]]]
@@ -117,6 +135,18 @@ def runs_path(branch: str) -> str:
     return "repos/%s/actions/runs?branch=%s&per_page=10" % (REPO, urllib.parse.quote(branch, safe=""))
 
 
+def all_runs_path(page: int) -> str:
+    """Builds the API path listing one page of every branch's workflow runs.
+
+    Args:
+        page: The page, from 1.
+
+    Returns:
+        The path for gh api.
+    """
+    return "repos/%s/actions/runs?per_page=%d&page=%d" % (REPO, BACKFILL_PAGE, int(page))
+
+
 def jobs_path(run_id: int) -> str:
     """Builds the API path listing a run's jobs.
 
@@ -146,24 +176,63 @@ def parse_time(text: str) -> Optional[float]:
         return None
 
 
+def clean_text(text: str, limit: int = TEXT_MAX) -> str:
+    """Makes text from GitHub safe to keep: no control or format characters, and short.
+
+    A control character (a newline, an escape) becomes a space; a format
+    character (a zero-width space, a bidirectional override) is dropped.
+
+    Args:
+        text: The text.
+        limit: The most characters kept.
+
+    Returns:
+        The text, ending in "..." when it was cut.
+    """
+    kept: List[str] = []
+    for ch in text:
+        cat = unicodedata.category(ch)
+        if cat == "Cc":
+            kept.append(" ")
+        elif cat != "Cf":
+            kept.append(ch)
+    out = "".join(kept)
+    return out if len(out) <= limit else out[: limit - 3] + "..."
+
+
+def from_this_repository(run: JSONObject) -> bool:
+    """Reports whether a run's head is this repository rather than a fork.
+
+    A fork's pull request run reports the fork as head_repository.full_name
+    (and fork: true); a run whose head repository was deleted reports none.
+
+    Args:
+        run: One run as the API lists it.
+
+    Returns:
+        True only when head_repository.full_name is REPO.
+    """
+    return get_str(as_object(run.get("head_repository")), "full_name") == REPO
+
+
 def parse_runs(doc: JSONValue) -> List[ActionsRun]:
-    """Reads the workflow runs in a runs API response.
+    """Reads the workflow runs in a runs API response, this repository's only.
 
     Args:
         doc: The decoded response.
 
     Returns:
-        Each run, its jobs empty.
+        Each run headed by REPO, its jobs empty; a fork's runs are left out.
     """
     out: List[ActionsRun] = []
     for r in get_objects(as_object(doc), "workflow_runs"):
         run_id = get_int(r, "id")
-        if run_id is None:
+        if run_id is None or not from_this_repository(r):
             continue
         status = get_str(r, "status")
         out.append(ActionsRun(
-            id=run_id, name=get_str(r, "name"), title=get_str(r, "display_title"),
-            branch=get_str(r, "head_branch"), sha=get_str(r, "head_sha")[:12], status=status,
+            id=run_id, name=clean_text(get_str(r, "name")), title=clean_text(get_str(r, "display_title")),
+            branch=clean_text(get_str(r, "head_branch")), sha=get_str(r, "head_sha")[:12], status=status,
             conclusion=get_str(r, "conclusion"), event=get_str(r, "event"),
             number=get_int(r, "run_number") or 0, attempt=get_int(r, "run_attempt") or 0,
             url=get_str(r, "html_url"), created=get_str(r, "created_at"),
@@ -205,7 +274,7 @@ def job_from_json(j: JSONObject) -> ActionsJob:
         # A job saved by the monitor keeps only the counts.
         steps_total = get_int(j, "steps_total") or 0
         steps_done = get_int(j, "steps_done") or 0
-    return ActionsJob(id=get_int(j, "id") or 0, name=get_str(j, "name"), status=status,
+    return ActionsJob(id=get_int(j, "id") or 0, name=clean_text(get_str(j, "name")), status=status,
                       conclusion=conclusion, start=start, end=end, url=get_str(j, "html_url") or get_str(j, "url"),
                       failed=conclusion in FAILED_CONCLUSIONS, steps_done=steps_done, steps_total=steps_total)
 
@@ -353,6 +422,71 @@ def poll(branch: str, cache: Dict[str, JSONObject], api: ApiCall = gh_api) -> Tu
     return runs, None
 
 
+def backfill(cache: Dict[str, JSONObject], api: ApiCall = gh_api, pause: Callable[[float], None] = time.sleep,
+             save: Optional[Callable[[List[ActionsRun]], None]] = None, every: int = 25,
+             gap: float = 0.5) -> Tuple[List[ActionsRun], Optional[str]]:
+    """Reads every workflow run on every branch, with the jobs of each.
+
+    A completed run whose jobs are already cached is not read again, so a
+    second backfill costs one call a page. Jobs are read BACKFILL_WORKERS
+    runs at a time, each reader pausing gap seconds between calls, and save
+    is called with each batch of `every` runs, so the page fills in while a
+    first backfill works through hundreds of runs.
+
+    Args:
+        cache: Runs read before, by id (actions.json).
+        api: gh_api, or a stand-in.
+        pause: time.sleep, or a stand-in.
+        save: Called with the runs completed so far, or None.
+        every: How many runs between saves.
+        gap: Seconds between job reads.
+
+    Returns:
+        (every run, newest first, None), or (the runs read, a reason) when a page failed.
+    """
+    runs: List[ActionsRun] = []
+    err: Optional[str] = None
+    for page in range(1, BACKFILL_MAX_PAGES + 1):
+        doc, err = api(all_runs_path(page))
+        if err:
+            break
+        got = parse_runs(doc)
+        runs += got
+        if len(got) < BACKFILL_PAGE:
+            break
+    def read_jobs(run: ActionsRun) -> ActionsRun:
+        """Fills one run's jobs, from the cache when it was already complete.
+
+        Args:
+            run: The run.
+
+        Returns:
+            The same run.
+        """
+        old = cache.get(str(run["id"]))
+        old_jobs = [job_from_json(j) for j in get_objects(old, "jobs")]
+        if old_jobs and get_str(old, "status") == "completed" and run["status"] == "completed":
+            run["jobs"] = old_jobs
+            return run
+        jdoc, jerr = api(jobs_path(run["id"]))
+        if jerr:
+            run["jobs_error"] = jerr
+            run["jobs"] = old_jobs
+        else:
+            run["jobs"] = parse_jobs(jdoc)
+        pause(gap)
+        return run
+
+    # A few readers at once: each gh call is a process start and a round trip,
+    # and one at a time took most of an hour for five hundred runs.
+    with ThreadPoolExecutor(max_workers=BACKFILL_WORKERS) as pool:
+        for start in range(0, len(runs), every):
+            batch = list(pool.map(read_jobs, runs[start:start + every]))
+            if save is not None:
+                save(batch)
+    return runs, err
+
+
 class ActionsStore(Protocol):
     """The part of history.HistoryStore the poller uses.
 
@@ -391,9 +525,12 @@ class ActionsPoller:
         lock: Guards state.
         state: The latest poll: branch, runs, error and when.
         stop: Set to end the polling thread.
+        root_fn: Names the checkout whose branch to poll, when set; the
+            daemon follows whichever worktree the latest gate ran in.
     """
 
     repo_root: str
+    root_fn: Optional[Callable[[], str]]
     store: Optional[ActionsStore]
     redactor: Redactor
     api: ApiCall
@@ -402,7 +539,7 @@ class ActionsPoller:
     stop: threading.Event
 
     def __init__(self, repo_root: str, store: Optional[ActionsStore], redactor: Redactor,
-                 api: ApiCall = gh_api) -> None:
+                 api: ApiCall = gh_api, root_fn: Optional[Callable[[], str]] = None) -> None:
         """Prepares a poller; start() begins polling.
 
         Args:
@@ -410,8 +547,10 @@ class ActionsPoller:
             store: Where runs seen are saved, or None.
             redactor: Masks every string before it is kept.
             api: gh_api, or a stand-in.
+            root_fn: Names the checkout to poll instead of repo_root, when set.
         """
         self.repo_root = repo_root
+        self.root_fn = root_fn
         self.store = store
         self.redactor = redactor
         self.api = api
@@ -421,7 +560,7 @@ class ActionsPoller:
 
     def poll_once(self) -> None:
         """Polls once and keeps the result."""
-        branch = current_branch(self.repo_root)
+        branch = current_branch(self.root_fn() if self.root_fn is not None else self.repo_root)
         runs: List[ActionsRun] = []
         err: Optional[str]
         if branch is None:

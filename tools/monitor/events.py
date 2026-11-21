@@ -18,9 +18,12 @@ from __future__ import annotations
 
 import threading
 import time
-from typing import Dict, Iterable, List, Optional
+from typing import Callable, Dict, Iterable, List, Optional
 
 Event = Dict[str, object]
+# Listener is told each event as it is published, and None once the broker
+# closes: how a gate run copies its events to a file the daemon reads.
+Listener = Callable[[Optional[Event]], None]
 
 # MAX_EVENTS bounds what the broker keeps; a run has a few hundred at most.
 MAX_EVENTS = 5000
@@ -37,12 +40,14 @@ class Broker:
         events: The events kept, oldest first.
         next_seq: The seq the next event gets.
         closed: Whether the run ended; nothing more is published.
+        listeners: Told every event in order, then None at close.
     """
 
     cond: threading.Condition
     events: List[Event]
     next_seq: int
     closed: bool
+    listeners: List[Listener]
 
     def __init__(self) -> None:
         """Starts with no events."""
@@ -50,6 +55,17 @@ class Broker:
         self.events = []
         self.next_seq = 1
         self.closed = False
+        self.listeners = []
+
+    def listen(self, listener: Listener) -> None:
+        """Adds a listener, told each later event in order (under the lock,
+        so two publishes never reach it out of order).
+
+        Args:
+            listener: The callable.
+        """
+        with self.cond:
+            self.listeners.append(listener)
 
     def publish(self, kind: str, fields: Dict[str, object], now: Optional[float] = None) -> Optional[Event]:
         """Publishes one event and wakes every waiter.
@@ -71,13 +87,19 @@ class Broker:
             self.events.append(event)
             del self.events[: max(0, len(self.events) - MAX_EVENTS)]
             self.cond.notify_all()
+            for listener in self.listeners:
+                listener(event)
             return event
 
     def close(self) -> None:
         """Ends the stream: waiters wake, and nothing more is published."""
         with self.cond:
+            if self.closed:
+                return
             self.closed = True
             self.cond.notify_all()
+            for listener in self.listeners:
+                listener(None)
 
     def since(self, seq: int) -> List[Event]:
         """Returns the events after seq.

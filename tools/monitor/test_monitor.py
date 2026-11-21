@@ -19,13 +19,13 @@ sys.dont_write_bytecode = True
 import http.client  # noqa: E402
 import json  # noqa: E402
 import os  # noqa: E402
-import socket  # noqa: E402
 import stat  # noqa: E402
 import tempfile  # noqa: E402
 import threading  # noqa: E402
 import time  # noqa: E402
 import unittest  # noqa: E402
-from typing import Dict, List, Mapping, Optional, Tuple  # noqa: E402
+import unittest.mock  # noqa: E402
+from typing import Dict, List, Mapping, Optional, Tuple, Union  # noqa: E402
 
 import actions  # noqa: E402
 import binsize  # noqa: E402
@@ -563,6 +563,46 @@ class HistoryTest(unittest.TestCase):
             self.assertEqual(len(store.save_actions(many)), history.MAX_ACTIONS_RUNS)
             self.assertEqual(stat.S_IMODE(os.stat(store.actions_path()).st_mode), 0o600)
 
+    def test_actions_written_only_when_changed(self) -> None:
+        """A poll that changes nothing writes nothing; a changed one writes
+        once; a file another writer changed is read again and its runs kept."""
+        writes: List[str] = []
+        real = history.write_private
+
+        def counting(path: str, data: Union[str, bytes], tmp: Optional[str] = None) -> None:
+            """Counts each write, then writes."""
+            writes.append(os.path.basename(path))
+            if tmp is None:
+                real(path, data)
+            else:
+                real(path, data, tmp)
+
+        with tempfile.TemporaryDirectory() as d, unittest.mock.patch.object(history, "write_private", counting):
+            store = history.HistoryStore(d)
+            branch_runs, err = actions.poll("feat/lab-importers", store.load_actions(), FakeApi())
+            self.assertIsNone(err)
+            docs = [actions.run_to_json(r) for r in branch_runs]
+            store.save_actions(docs)
+            first = os.stat(store.actions_path())
+            # The next minute's poll: the same runs, read again.
+            again, _ = actions.poll("feat/lab-importers", store.load_actions(), FakeApi())
+            store.save_actions([actions.run_to_json(r) for r in again])
+            later = os.stat(store.actions_path())
+            self.assertEqual((later.st_ino, later.st_mtime_ns), (first.st_ino, first.st_mtime_ns))
+            self.assertEqual(writes, ["actions.json"])
+            # A run that moved on is written, once.
+            moved = dict(docs[0], status="in_progress")
+            store.save_actions([moved])
+            self.assertEqual(writes, ["actions.json", "actions.json"])
+            # An older monitor rewrites the file with a run of its own.
+            on_disk = json.load(open(store.actions_path(), encoding="utf-8"))
+            on_disk["77"] = {"id": 77, "created": "2026-10-25T00:00:00Z", "status": "completed"}
+            with open(store.actions_path(), "w", encoding="utf-8") as f:
+                json.dump(on_disk, f, indent=1)
+            self.assertIn("77", store.load_actions())
+            store.save_actions([dict(moved, status="completed")])
+            self.assertIn("77", json.load(open(store.actions_path(), encoding="utf-8")))
+
 
 class BinsizeTest(unittest.TestCase):
     """The binary size ledger reader."""
@@ -768,16 +808,18 @@ class RedactTest(unittest.TestCase):
         self.assertEqual(run.state.stage("mac").last_line, "maccheck: token [REDACTED] leaked")
 
 
-def free_port() -> int:
-    """Finds a free port on 127.0.0.1.
+def serve(app: server.Backend) -> Tuple[server.ThreadingHTTPServer, int]:
+    """Serves a backend on a port the kernel picks as it binds, so no port
+    found free can be taken before the server binds it.
+
+    Args:
+        app: The backend.
 
     Returns:
-        The port.
+        (the running server, its port).
     """
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        port: int = s.getsockname()[1]
-        return port
+    httpd = server.start_server(app, 0)
+    return httpd, httpd.server_port
 
 
 class ServerTest(unittest.TestCase):
@@ -810,8 +852,7 @@ class ServerTest(unittest.TestCase):
             for line in fixture("prcheck-run.txt").splitlines():
                 run.feed_main(line)
             app = monitor.App("watch", store, run, "20261024T134930Z-ae89f745ba1c")
-            port = free_port()
-            httpd = server.start_server(app, port)
+            httpd, port = serve(app)
             try:
                 code, headers, body = self.get(port, "/")
                 self.assertEqual(code, 200)
@@ -885,8 +926,7 @@ class ObserverTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             store = history.HistoryStore(d)
             run = live.LiveRun(redact.Redactor([]), d)
-            port = free_port()
-            httpd = server.start_server(monitor.App("run", store, run, "r1"), port)
+            httpd, port = serve(monitor.App("run", store, run, "r1"))
             try:
                 def later() -> None:
                     time.sleep(0.3)
@@ -912,8 +952,7 @@ class ObserverTest(unittest.TestCase):
             finally:
                 httpd.shutdown()
                 httpd.server_close()
-            port = free_port()
-            httpd = server.start_server(monitor.App("serve", store), port)
+            httpd, port = serve(monitor.App("serve", store))
             try:
                 self.assertEqual(ServerTest().get(port, "/wait")[0], 404)
                 self.assertEqual(ServerTest().get(port, "/events")[0], 404)
@@ -950,7 +989,7 @@ class CommandLineTest(unittest.TestCase):
     def test_parse_args(self) -> None:
         """Reads each command's options with their defaults."""
         run = monitor.parse_args(["run"])
-        self.assertEqual((run.command, run.cap, run.parallelism, run.port, run.linger), ("run", "4500M", 1, 8765, 120))
+        self.assertEqual((run.command, run.cap, run.parallelism, run.port, run.linger), ("run", "4500M", 1, 8765, 0))
         watch = monitor.parse_args(["watch", "--log", "x.txt", "--pace", "0.5", "--no-save"])
         self.assertEqual((watch.log, watch.pace, watch.no_save, watch.pr_dir), ("x.txt", 0.5, True, None))
         self.assertEqual(monitor.parse_args(["serve", "--port", "9000"]).port, 9000)

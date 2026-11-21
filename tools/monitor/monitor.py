@@ -1,17 +1,21 @@
 #!/usr/bin/env python3
 # pyright: strict
-"""A live dashboard of make pr-check, every stage, and the branch's GitHub Actions.
+"""A live dashboard of make pr-check, every stage, GitHub Actions and the roadmap.
 
-    monitor.py run   [--cap 4500M] [--parallelism 1] [--port 8765] [--linger 120]
-    monitor.py watch [--log FILE] [--pr-dir DIR] [--pace SECONDS] [--no-save]
-    monitor.py serve [--port 8765]
+    monitor.py ensure [--port 8765] [--quiet]
+    monitor.py daemon [--port 8765] [--no-actions]
+    monitor.py run    [--cap 4500M] [--parallelism 1] [--port 8765]
+    monitor.py watch  [--log FILE] [--pr-dir DIR] [--pace SECONDS] [--no-save] [--port 8767]
 
-run starts `make --trace pr-check` itself (under ~/.local/bin/capped, in its
-own process group), serves the dashboard at http://127.0.0.1:<port>/, stops
-the run if MemAvailable drops under 700 MB, saves the run to history and
-exits with pr-check's status. watch follows a log something else is writing
-(or replays a finished one) plus .coverage/pr. serve shows only history and
-Actions. Every file it writes is under .IGNORE/ci/monitor/ (see history.py).
+The page is one always-on daemon per machine (daemon.py): ensure starts it
+when it is not running, and is what the session hook calls. run starts
+`make --trace pr-check` itself (under ~/.local/bin/capped, in its own process
+group), refuses while another gate runs on this machine, stops the run if
+MemAvailable drops under 700 MB, saves the run to history, hands it to the
+daemon through files (runfile.py) and exits with pr-check's status. watch
+follows a log something else is writing (or replays a finished one) on a
+server of its own. serve is the old name of daemon. Every file is under the
+main clone's .IGNORE/ci/monitor/ (paths.py).
 
 Python 3 standard library only. Nothing in the Makefile or CI calls this.
 """
@@ -32,24 +36,27 @@ import threading  # noqa: E402
 import time  # noqa: E402
 from dataclasses import dataclass  # noqa: E402
 from types import FrameType  # noqa: E402
-from typing import Callable, List, Mapping, Optional, Sequence, TextIO, TypedDict  # noqa: E402
+from typing import Callable, Iterator, List, Mapping, Optional, Sequence, TextIO, Tuple, TypedDict  # noqa: E402
 
 import actions  # noqa: E402
 import binsize  # noqa: E402
+import daemon  # noqa: E402
 import events  # noqa: E402
 import history  # noqa: E402
 import live  # noqa: E402
+import paths  # noqa: E402
 import prstate as ps  # noqa: E402
 import redact  # noqa: E402
 import server  # noqa: E402
 import memwatch  # noqa: E402
+import runfile  # noqa: E402
 from jsonutil import JSONObject, get_str  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-# REPO_ROOT is two levels above tools/monitor.
-REPO_ROOT = os.path.dirname(os.path.dirname(HERE))
-# HISTORY_DIR is the one directory the monitor writes to.
-HISTORY_DIR = os.path.join(REPO_ROOT, ".IGNORE", "ci", "monitor")
+# REPO_ROOT is the checkout this copy sits in (a worktree, perhaps): where pr-check runs.
+REPO_ROOT = paths.TREE_ROOT
+# HISTORY_DIR is the one directory the monitor writes to, shared by every worktree.
+HISTORY_DIR = paths.state_dir()
 PR_DIR = os.path.join(REPO_ROOT, ".coverage", "pr")
 # BINSIZE_LEDGER is tools/binsize's ledger, which the monitor only reads.
 BINSIZE_LEDGER = os.path.join(REPO_ROOT, ".IGNORE", "ci", "binsize.jsonl")
@@ -67,16 +74,18 @@ class Options:
     """The command line, typed.
 
     Attributes:
-        command: run, watch or serve.
+        command: ensure, daemon, serve, run or watch.
         port: The port on 127.0.0.1.
         no_actions: Whether to skip polling GitHub Actions.
         cap: run: the memory cap handed to capped.
         parallelism: run: PR_CHECK_PARALLELISM.
-        linger: run: seconds to keep serving after the run.
+        linger: run: ignored, kept so old command lines still parse.
         log: watch: the log to follow.
         pr_dir: watch: the .coverage/pr directory to read.
         pace: watch: seconds between lines already in the log.
         no_save: watch: whether to skip saving the run.
+        quiet: ensure: print only problems.
+        state_dir: ensure, daemon: the state directory, for tests.
     """
 
     command: str
@@ -84,11 +93,13 @@ class Options:
     no_actions: bool = False
     cap: str = "4500M"
     parallelism: int = 1
-    linger: int = 120
+    linger: int = 0
     log: Optional[str] = None
     pr_dir: Optional[str] = None
     pace: float = 0.0
     no_save: bool = False
+    quiet: bool = False
+    state_dir: Optional[str] = None
 
 
 class StateDoc(TypedDict):
@@ -188,6 +199,68 @@ class App:
             What /events and /wait subscribe to.
         """
         return self.live_run.broker if self.live_run is not None else None
+
+    def select_broker(self, run_id: Optional[str], deadline: float) -> Tuple[Optional[events.Broker], Optional[str]]:
+        """Returns the one run this server watches, whatever run_id says.
+
+        Args:
+            run_id: Unused: watch serves one run.
+            deadline: Unused.
+
+        Returns:
+            (its broker, its id), or (None, None).
+        """
+        b = self.broker()
+        return (b, self.run_id) if b is not None else (None, None)
+
+    def waits_for_runs(self) -> bool:
+        """Reports that this server watches one run and waits for no other.
+
+        Returns:
+            False.
+        """
+        return False
+
+    def health(self) -> object:
+        """Builds the /healthz document.
+
+        Returns:
+            That this is a watch server, not the daemon.
+        """
+        return {"ok": True, "protocol": 0, "mode": self.mode, "pid": os.getpid(), "run_id": self.run_id}
+
+    def timeline_lines(self, since: float, kinds: Optional[List[str]], src: Optional[str]) -> Iterator[JSONObject]:
+        """Returns no timeline: only the daemon keeps one.
+
+        Args:
+            since: Unused.
+            kinds: Unused.
+            src: Unused.
+
+        Returns:
+            An empty iterator.
+        """
+        return iter([])
+
+    def roadmap(self, phases: Sequence[str], details: bool) -> object:
+        """Returns no roadmap: only the daemon serves one.
+
+        Args:
+            phases: Unused.
+            details: Unused.
+
+        Returns:
+            Why there is none.
+        """
+        return {"error": "the roadmap is served by the daemon (monitor.py ensure), not by watch"}
+
+    def security(self) -> object:
+        """Returns no security model: only the daemon serves one.
+
+        Returns:
+            Why there is none.
+        """
+        return {"error": "the security tab is served by the daemon (monitor.py ensure), not by watch"}
 
     def history(self) -> Mapping[str, object]:
         """Builds the /history document.
@@ -477,14 +550,31 @@ def cmd_run(opts: Options) -> int:
     if refusal:
         print("monitor: " + refusal, file=sys.stderr)
         return 2
+    gate = runfile.GateLock(paths.gate_lock(HISTORY_DIR))
+    if not gate.acquire():
+        holder = runfile.read_manifest(HISTORY_DIR) or {}
+        print("monitor: another gate is running on this machine (run %s in %s, pid %s); one at a time"
+              % (get_str(holder, "run_id") or "?", get_str(holder, "root") or "?", holder.get("pid")), file=sys.stderr)
+        return 2
+    if daemon.ensure(opts.port, quiet=True) != 0:
+        print("monitor: the status page is not running; the gate runs anyway and is saved to history",
+              file=sys.stderr)
     redactor = redact.Redactor.from_environment()
     live_run = live.LiveRun(redactor, PR_DIR)
     commit = git_head(REPO_ROOT)
     live_run.state.commit = commit[:12]
     store = history.HistoryStore(HISTORY_DIR)
     run_id = store.unique_run_id(time.time(), commit)
-    app, httpd = start_common(opts, "run", store, redactor, live_run, run_id)
-    meta: Mapping[str, object] = {"mode": "run", "cap": opts.cap, "parallelism": opts.parallelism}
+    app = App("run", store, live_run, run_id)
+    meta: Mapping[str, object] = {"mode": "run", "cap": opts.cap, "parallelism": opts.parallelism,
+                                  "root": REPO_ROOT}
+    publisher = runfile.RunPublisher(HISTORY_DIR, store, run_id, live_run, {
+        "root": REPO_ROOT, "branch": actions.current_branch(REPO_ROOT) or "", "commit": commit,
+        "cap": opts.cap, "parallelism": opts.parallelism})
+    publisher.start()
+    print("monitor: run %s; dashboard at http://127.0.0.1:%d/" % (run_id, opts.port), flush=True)
+    print("monitor: wait with: curl -s 'http://127.0.0.1:%d/wait?for=fail,end&run=%s&timeout=21600'"
+          % (opts.port, run_id), flush=True)
 
     log = store.open_log(run_id)
     swap_baseline = memwatch.read_swap_used_mb()
@@ -565,12 +655,10 @@ def cmd_run(opts: Options) -> int:
         rc = 128 - rc  # killed by signal -rc, as a shell reports it
     finish_run(live_run, store, run_id, meta, rc, log)
     stop.set()
+    publisher.finish()
+    gate.release()
     print("monitor: pr-check ended, verdict %s, exit %d; saved as %s"
           % (live_run.snapshot()["verdict"], rc, run_id), flush=True)
-    if opts.linger > 0:
-        print("monitor: the dashboard stays up %ds more (Ctrl-C ends it now)" % opts.linger, flush=True)
-        wait_for_ctrl_c(opts.linger)
-    httpd.shutdown()
     return rc
 
 
@@ -685,23 +773,28 @@ def cmd_watch(opts: Options) -> int:
     return 0
 
 
-def cmd_serve(opts: Options) -> int:
-    """Serves history and Actions only.
+def cmd_daemon(opts: Options) -> int:
+    """Runs the status daemon in the foreground (serve is its old name).
 
     Args:
         opts: The command line.
 
     Returns:
-        0 after Ctrl-C.
+        0 after SIGTERM or Ctrl-C, or when one already runs.
     """
-    store = history.HistoryStore(HISTORY_DIR)
-    app, httpd = start_common(opts, "serve", store, redact.Redactor.from_environment())
-    stop = threading.Event()
-    start_thread(lambda: memory_loop(app, None, stop), "memory")
-    wait_for_ctrl_c()
-    stop.set()
-    httpd.shutdown()
-    return 0
+    return daemon.run_daemon(opts.port, opts.no_actions, opts.state_dir)
+
+
+def cmd_ensure(opts: Options) -> int:
+    """Starts the status daemon unless one of this protocol or newer runs.
+
+    Args:
+        opts: The command line.
+
+    Returns:
+        0 when one runs, 1 when it could not be started.
+    """
+    return daemon.ensure(opts.port, opts.quiet, opts.state_dir, no_actions=opts.no_actions)
 
 
 def parse_args(argv: Sequence[str]) -> Options:
@@ -713,18 +806,27 @@ def parse_args(argv: Sequence[str]) -> Options:
     Returns:
         The options.
     """
-    p = argparse.ArgumentParser(prog="monitor.py", description="Live dashboard of make pr-check and GitHub Actions.")
+    p = argparse.ArgumentParser(prog="monitor.py", description="Live status page: pr-check, GitHub Actions, roadmap.")
     sub = p.add_subparsers(dest="command", required=True)
-    for name, helptext in (("run", "run make --trace pr-check and watch it"),
-                           ("watch", "watch a run something else started, or replay a log"),
-                           ("serve", "serve history and Actions only")):
+    for name, helptext in (("ensure", "start the status daemon unless it runs (the session hook calls this)"),
+                           ("daemon", "run the status daemon in the foreground"),
+                           ("serve", "the old name of daemon"),
+                           ("run", "run make --trace pr-check and hand it to the daemon"),
+                           ("watch", "watch a run something else started, or replay a log, on its own server")):
         sp = sub.add_parser(name, help=helptext)
-        sp.add_argument("--port", type=int, default=8765, help="port on 127.0.0.1 (default 8765)")
+        default_port = 8767 if name == "watch" else daemon.DEFAULT_PORT
+        sp.add_argument("--port", type=int, default=default_port,
+                        help="port on 127.0.0.1 (default %d)" % default_port)
         sp.add_argument("--no-actions", action="store_true", help="do not poll GitHub Actions")
+        if name in ("ensure", "daemon", "serve"):
+            sp.add_argument("--state-dir", help="the state directory (default the main clone's .IGNORE/ci/monitor; for tests)")
+        if name == "ensure":
+            sp.add_argument("--quiet", action="store_true", help="print only problems")
         if name == "run":
             sp.add_argument("--cap", default="4500M", help="memory cap for capped (default 4500M)")
             sp.add_argument("--parallelism", type=int, default=1, help="PR_CHECK_PARALLELISM (default 1)")
-            sp.add_argument("--linger", type=int, default=120, help="seconds to keep serving after the run (default 120)")
+            sp.add_argument("--linger", type=int, default=0,
+                            help="ignored: the daemon keeps the page up after the run")
         if name == "watch":
             sp.add_argument("--log", help="the make output to follow (make --trace pr-check 2>&1 | tee FILE)")
             sp.add_argument("--pr-dir", help="the .coverage/pr directory to read (default the repository's)")
@@ -734,9 +836,10 @@ def parse_args(argv: Sequence[str]) -> Options:
     return Options(
         command=str(ns["command"]), port=int(ns["port"]), no_actions=bool(ns["no_actions"]),
         cap=str(ns.get("cap", "4500M")), parallelism=int(ns.get("parallelism", 1)),
-        linger=int(ns.get("linger", 120)), log=str(ns["log"]) if ns.get("log") else None,
+        linger=int(ns.get("linger", 0)), log=str(ns["log"]) if ns.get("log") else None,
         pr_dir=str(ns["pr_dir"]) if ns.get("pr_dir") else None, pace=float(ns.get("pace", 0.0)),
-        no_save=bool(ns.get("no_save", False)),
+        no_save=bool(ns.get("no_save", False)), quiet=bool(ns.get("quiet", False)),
+        state_dir=str(ns["state_dir"]) if ns.get("state_dir") else None,
     )
 
 
@@ -750,7 +853,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         The exit status.
     """
     opts = parse_args(sys.argv[1:] if argv is None else argv)
-    commands = {"run": cmd_run, "watch": cmd_watch, "serve": cmd_serve}
+    commands = {"run": cmd_run, "watch": cmd_watch, "serve": cmd_daemon, "daemon": cmd_daemon,
+                "ensure": cmd_ensure}
     return commands[opts.command](opts)
 
 
