@@ -12,9 +12,18 @@
 // the digest key. Without the secret the Controller stores no fact at all
 // (loadFactAtRestKeys): the fail-closed choice, since the alternative is a
 // table of plaintext keys and guessable hashes.
+//
+// Changing the secret is a rotation with both keys live: the new one in
+// PLEIADES_FACTS_DIGEST_KEY and the old one in
+// PLEIADES_FACTS_DIGEST_KEY_PREVIOUS. The store re-keys each device's facts
+// from the old keys to the new ones the first time it reads or writes the
+// device, and runFactsRekey does the rest in one pass at start
+// (facts_rekey.go).
 package main
 
 import (
+	"crypto/subtle"
+	"fmt"
 	"log/slog"
 	"os"
 
@@ -26,6 +35,11 @@ import (
 
 // factDigestKeyEnv names the Controller's digest secret.
 const factDigestKeyEnv = "PLEIADES_FACTS_DIGEST_KEY"
+
+// factDigestKeyPreviousEnv names the digest secret a change of it moves away
+// from, kept while the facts stored under it are re-keyed (entstore's
+// rekey.go).
+const factDigestKeyPreviousEnv = "PLEIADES_FACTS_DIGEST_KEY_PREVIOUS"
 
 // loadFactDigestKeys reads the digest secret: with none, no keys and a
 // warning, so every restricted digest is dropped rather than kept; a secret
@@ -63,27 +77,66 @@ func factDigestOptions(open *sealed.PrivateKey, keyer *facts.Keyer) ([]dispatch.
 }
 
 // loadFactAtRestKeys derives the keys stored facts are tokenized and keyed
-// under from the digest secret. With no secret there are none, and the fact
-// store then stores nothing and reads nothing (facts.ErrNoKeys): every facts
-// batch a Runner publishes is dropped with an error in the log, and the
-// facts routes answer 503. That is said once here, as a warning, so an
-// operator who never set the secret learns what it costs. A secret that will
-// not decode stops the Controller, as it does for the digest keys.
-func loadFactAtRestKeys(logger *slog.Logger) (*facts.Keys, error) {
+// under from the digest secret, and the previous keys from
+// PLEIADES_FACTS_DIGEST_KEY_PREVIOUS when it is set (loadPreviousFactKeys).
+// With no secret there are none, and the fact store then stores nothing and
+// reads nothing (facts.ErrNoKeys): every facts batch a Runner publishes is
+// dropped with an error in the log, and the facts routes answer 503. That is
+// said once here, as a warning, so an operator who never set the secret
+// learns what it costs. A secret that will not decode stops the Controller,
+// as it does for the digest keys.
+func loadFactAtRestKeys(logger *slog.Logger) (*facts.Keys, *facts.Keys, error) {
 	if os.Getenv(factDigestKeyEnv) == "" {
+		if os.Getenv(factDigestKeyPreviousEnv) != "" {
+			return nil, nil, fmt.Errorf("%s is set but %s is not: the previous facts key is kept only beside a new one, to re-key the facts stored under it", factDigestKeyPreviousEnv, factDigestKeyEnv)
+		}
 		logger.Warn("no fact is stored: stored facts are sealed under keys derived from " + factDigestKeyEnv + " (base64 of 32 bytes), and without it this controller keeps none rather than keep them readable; on Compose, `make setup` then `make up` writes one")
-		return nil, nil
+		return nil, nil, nil
 	}
 	secret, err := decodeEnvelopeKey(factDigestKeyEnv)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	keys, err := entstore.AtRestKeys(secret)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	// Named by identity, never value: every stored row carries it, and a
 	// replica holding another secret refuses the rows this one wrote.
 	logger.Info("storing facts sealed, found by token and compared by keyed hash", slog.String("keys", keys.ID()))
-	return keys, nil
+	previous, err := loadPreviousFactKeys(logger, secret)
+	if err != nil {
+		return nil, nil, err
+	}
+	return keys, previous, nil
+}
+
+// loadPreviousFactKeys derives the previous at-rest keys from
+// PLEIADES_FACTS_DIGEST_KEY_PREVIOUS, the facts key a rotation moves away
+// from, or none when it is not set. It is held to the same rule as the
+// current one (base64 of 32 bytes) and refused when it is the current
+// secret, current, since keeping one key twice re-keys nothing and an
+// operator who set it meant another. Only the at-rest keys are derived from
+// it. The digest keys (loadFactDigestKeys) are the new secret's alone, so a
+// batch or a digest a Runner sealed to the previous secret's public half (a
+// job dispatched before the change) does not open here, and is dropped and
+// logged as one sealed to another key.
+func loadPreviousFactKeys(logger *slog.Logger, current []byte) (*facts.Keys, error) {
+	if os.Getenv(factDigestKeyPreviousEnv) == "" {
+		return nil, nil
+	}
+	secret, err := decodeEnvelopeKey(factDigestKeyPreviousEnv)
+	if err != nil {
+		return nil, err
+	}
+	if subtle.ConstantTimeCompare(secret, current) == 1 {
+		return nil, fmt.Errorf("%s is the same key as %s: set it to the key the stored facts were sealed under before the change, or unset it", factDigestKeyPreviousEnv, factDigestKeyEnv)
+	}
+	previous, err := entstore.AtRestKeys(secret)
+	if err != nil {
+		return nil, err
+	}
+	logger.Info("re-keying facts stored under the previous facts key as each device is read or written, and in one pass at start",
+		slog.String("keys", previous.ID()))
+	return previous, nil
 }

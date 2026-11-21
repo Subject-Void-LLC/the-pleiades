@@ -739,8 +739,9 @@ func main() {
 	if err != nil {
 		fatal("failed to read the facts digest key", err)
 	}
-	// The keys stored facts are sealed under come from the same secret.
-	factKeys, err := loadFactAtRestKeys(logger)
+	// The keys stored facts are sealed under come from the same secret, and
+	// during a change of it the previous keys from the previous secret.
+	factKeys, previousFactKeys, err := loadFactAtRestKeys(logger)
 	if err != nil {
 		fatal("failed to derive the keys stored facts are sealed under", err)
 	}
@@ -1213,8 +1214,10 @@ func main() {
 	// links no Collection (Phase 41b).
 	// Sealed at rest (internal/facts' atrest.go): found by token and compared
 	// by keyed hash under factKeys, each key and value sealed under the
-	// master key. With no facts secret the store keeps nothing.
-	factStore := entstore.New(client, factKeys, envelopeSvc)
+	// master key. With no facts secret the store keeps nothing. With a
+	// previous facts secret, a device still under it is re-keyed the first
+	// time it is read or written (entstore's rekey.go).
+	factStore := entstore.New(client, factKeys, envelopeSvc, entstore.WithPreviousKeys(previousFactKeys))
 	factsOpts = append(factsOpts, entstore.WithNodeResolver(nodes.Resolve))
 	// Each batch is held to the claim its device's dispatch record gives (Phase 41b):
 	// a Runner's later batches cannot change place in the job.
@@ -1866,6 +1869,13 @@ func main() {
 	// slot), not a reason to tear down an already-serving process.
 	if rotateKeys {
 		go runKeyRotation(ctx, client, envelopeSvc, slog.Default())
+	}
+	// A change of the facts key is finished the same way, concurrently with
+	// serving: a device not yet re-keyed is re-keyed on its first read or
+	// write anyway, so this pass only saves the previous key from waiting on
+	// devices nothing touches.
+	if previousFactKeys != nil {
+		go runFactsRekey(ctx, factStore, slog.Default())
 	}
 
 	sig := make(chan os.Signal, 1)
