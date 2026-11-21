@@ -8,12 +8,12 @@
 //
 // A stamped version is used only when it reads as a release (Release), so
 // a build argument left at "unknown" or "dev" cannot pass for one. Every
-// other build is a development build and reports 0.0.0-dev+<commit>: the
-// stamped revision, or the version control stamp the Go toolchain embeds
-// (with .dirty for uncommitted changes), or plain 0.0.0-dev when there is
-// neither, as under go run and go test. The CLI, the Runner and the
-// scaffold all read Version, so they cannot disagree about which build
-// they are.
+// other build is a development build and reports <CurrentRelease>-dev+<commit>
+// (for example 0.4.0-dev+<commit>): the stamped revision, or the version
+// control stamp the Go toolchain embeds (with .dirty for uncommitted changes),
+// or plain <CurrentRelease>-dev when there is neither, as under go run and go
+// test. The CLI, the Runner and the scaffold all read Version, so they cannot
+// disagree about which build they are.
 package buildinfo
 
 import (
@@ -30,9 +30,6 @@ var (
 	revision string
 )
 
-// developmentBase is the version of every build nobody stamped.
-const developmentBase = "0.0.0-dev"
-
 // CurrentRelease is the release line this source tree is on: the version a
 // release build cut from it would carry, and therefore the newest engine a
 // method shipped inside it may require.
@@ -45,6 +42,12 @@ const developmentBase = "0.0.0-dev"
 // constraint in internal/loader), so a value set ahead of the work makes
 // every method carrying it unloadable on the very first real release.
 const CurrentRelease = "0.4.0"
+
+// developmentBase is the version of every build nobody stamped. It tracks
+// CurrentRelease with a -dev pre-release suffix so unstamped binaries and
+// tests show which release line they come from while still being treated as
+// development builds.
+const developmentBase = CurrentRelease + "-dev"
 
 // Version is this build's version: the stamped one, or a development
 // version. See the package documentation.
@@ -107,7 +110,7 @@ func isRevision(s string) bool {
 // with an optional leading "v", optionally followed by a prerelease such
 // as -rc1 and build metadata. A release candidate is a release here,
 // since it is built to be run by somebody. A version whose prerelease
-// starts with "dev", such as 0.0.0-dev+abc or 1.3.0-dev, is not: it is a
+// starts with "dev", such as 0.4.0-dev+abc or 1.3.0-dev, is not: it is a
 // development build that happens to carry numbers. Neither is anything
 // that is not a version at all ("dev", empty).
 //

@@ -16,7 +16,7 @@ import (
 // It exists because the value used to be ">=1.0.0" on all 75 built-in
 // manifests while the roadmap's next release was 0.2.0. Nothing noticed,
 // because no build is a release build yet: every development build reports
-// 0.0.0-dev, and checkEngineVersion cannot compare against that, so it
+// 0.4.0-dev, and checkEngineVersion cannot compare against a -dev build, so it
 // loads the method and only warns. The first stamped release would have
 // refused the entire catalog. This test runs the real comparison against a
 // stamped release rather than against the running build, which is the only

@@ -1208,12 +1208,15 @@ release-notes:
 	@test -n "$$VERSION" -a -n "$$REPO" || { echo "make release-notes: set VERSION and REPO, such as make release-notes VERSION=0.3.0 REPO=owner/name" >&2; exit 2; }
 	v="$${VERSION#v}"; go run ./tools/release -version "$$v" -notes "docs/releases/v$$v.md" -repo "$$REPO" -out "$(RELEASE_DIR)"
 
-# release-dry-run is release for a throwaway version into a throwaway
-# directory under .IGNORE, then checks the list with sha256sum: the whole
-# build with nothing left where a tag could pick it up.
+# release-dry-run is release for the current release line with a -dryrun
+# pre-release suffix into a throwaway directory under .IGNORE, then checks the
+# list with sha256sum: the whole build with nothing left where a tag could pick
+# it up.
+CURRENT_RELEASE := $(shell sed -n 's/^const CurrentRelease = "\([^"]*\)"/\1/p' internal/buildinfo/buildinfo.go | tr -d '\r')
 release-dry-run:
+	@test -n "$(CURRENT_RELEASE)" || { echo "could not read CurrentRelease from internal/buildinfo/buildinfo.go" >&2; exit 2; }
 	rm -rf .IGNORE/release-dry-run
-	VERSION=0.0.0-dryrun $(MAKE) release RELEASE_DIR=.IGNORE/release-dry-run
+	VERSION="$(CURRENT_RELEASE)-dryrun" $(MAKE) release RELEASE_DIR=.IGNORE/release-dry-run
 	cd .IGNORE/release-dry-run && sha256sum -c SHA256SUMS
 
 # release-fips builds the Linux amd64/arm64 FIPS 140-3 archives (_fips.tar.gz)
@@ -1224,8 +1227,9 @@ release-fips:
 	go run ./tools/release -fips -version "$$VERSION" -out "$(RELEASE_FIPS_DIR)"
 
 release-fips-dry-run:
+	@test -n "$(CURRENT_RELEASE)" || { echo "could not read CurrentRelease from internal/buildinfo/buildinfo.go" >&2; exit 2; }
 	rm -rf .IGNORE/release-fips-dry-run
-	VERSION=0.0.0-dryrun $(MAKE) release-fips RELEASE_FIPS_DIR=.IGNORE/release-fips-dry-run
+	VERSION="$(CURRENT_RELEASE)-dryrun" $(MAKE) release-fips RELEASE_FIPS_DIR=.IGNORE/release-fips-dry-run
 	cd .IGNORE/release-fips-dry-run && sha256sum -c SHA256SUMS.fips
 
 # doctor says what this machine can and cannot verify, and how to fix each

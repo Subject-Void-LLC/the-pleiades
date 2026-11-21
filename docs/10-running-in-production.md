@@ -60,7 +60,7 @@ docker build -f Dockerfile.runner     --build-arg VCS_REF="$VCS_REF" -t pleiades
 ```
 
 `VCS_REF` is the commit, and it reaches both the image's labels and the binaries,
-which report themselves as `0.0.0-dev+<commit>` (`docker run --rm pleiades/runner:dev
+which report themselves as `0.4.0-dev+<commit>` (`docker run --rm pleiades/runner:dev
 /app/runner version`). A release is built the same way with `--build-arg VERSION=<release>` as
 well; the binaries then report that release, and the Runner refuses an external
 Collection program that states it needs a newer one. A `VERSION` that is not a release

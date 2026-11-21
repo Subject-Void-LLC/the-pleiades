@@ -19,7 +19,7 @@ type VersionReport struct {
 	SchemaVersion int `json:"schema_version"`
 	// Program is the binary that printed it: pleiades or runner.
 	Program string `json:"program"`
-	// Version is the build's version: a release, or 0.0.0-dev+<commit>.
+	// Version is the build's version: a release, or <release>-dev+<commit> (e.g. 0.4.0-dev+<commit>).
 	Version string `json:"version"`
 	// Codename is the release's name, absent for a development build.
 	Codename string `json:"codename,omitempty"`

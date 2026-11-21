@@ -12,9 +12,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Version to build, such as 0.3.0-dryrun (nothing is published)"
+        description: "Version to build, such as 0.4.0-dryrun (nothing is published)"
         required: true
-        default: "0.0.0-dryrun"
+        default: "0.4.0-dryrun"
 
 permissions:
   contents: read

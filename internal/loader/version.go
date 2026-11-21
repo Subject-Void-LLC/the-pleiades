@@ -85,8 +85,8 @@ func parseConstraint(c string) (minimum version, ok bool, err error) {
 // A malformed constraint is refused on every build, since that is
 // knowable without a version. On a release build (buildinfo.Release), a
 // constraint the build does not meet is refused, naming both versions.
-// On a development build it cannot be meaningfully compared (every
-// development build reports 0.0.0), so the method loads and unchecked is
+// On a development build it cannot be meaningfully compared (it carries a
+// -dev pre-release suffix on the current release line), so the method loads and unchecked is
 // set, for Load to warn once per program. A release candidate is compared
 // as the release it is for, so 1.0.0-rc1 meets >=1.0.0: the grammar has no
 // way to name a prerelease, and strict ordering would lock a release

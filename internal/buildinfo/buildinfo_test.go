@@ -10,25 +10,28 @@ import (
 // the loader enforcing a constraint and the scaffold writing one.
 func TestRelease(t *testing.T) {
 	for v, want := range map[string]string{
-		"1.2.0":                        "1.2.0",
-		"v1.2.0":                       "1.2.0",
-		"1.0.0-rc1":                    "1.0.0",
-		"1.2.3-rc1+build7":             "1.2.3",
-		"1.2.0+meta":                   "1.2.0",
-		"v1.2.0-3-gabc1234-dirty":      "1.2.0",
-		"0.0.0-dev":                    "",
-		"0.0.0-dev+abc123def456":       "",
-		"0.0.0-dev+abc123def456.dirty": "",
-		"1.3.0-dev":                    "",
-		"1.3.0-devel.2":                "",
-		"dev":                          "",
-		"":                             "",
-		"unknown":                      "",
-		"1.2":                          "",
-		"1.02.0":                       "",
-		"1.2.0.4":                      "",
-		"-1.2.0":                       "",
-		"1.2.x":                        "",
+		"1.2.0":                              "1.2.0",
+		"v1.2.0":                             "1.2.0",
+		"1.0.0-rc1":                          "1.0.0",
+		"1.2.3-rc1+build7":                   "1.2.3",
+		"1.2.0+meta":                         "1.2.0",
+		"v1.2.0-3-gabc1234-dirty":            "1.2.0",
+		"0.0.0-dev":                          "",
+		"0.0.0-dev+abc123def456":             "",
+		"0.0.0-dev+abc123def456.dirty":       "",
+		CurrentRelease + "-dev":              "",
+		CurrentRelease + "-dev+abc123def456": "",
+		CurrentRelease + "-dev+abc123def456.dirty": "",
+		"1.3.0-dev":     "",
+		"1.3.0-devel.2": "",
+		"dev":           "",
+		"":              "",
+		"unknown":       "",
+		"1.2":           "",
+		"1.02.0":        "",
+		"1.2.0.4":       "",
+		"-1.2.0":        "",
+		"1.2.x":         "",
 	} {
 		got, ok := Release(v)
 		if ok != (want != "") || got != want {
@@ -40,7 +43,8 @@ func TestRelease(t *testing.T) {
 // TestResolve covers where a version comes from: a stamped release wins;
 // a stamped value that is not a release is never reported as a version;
 // a development build names the commit, stamped or from the toolchain,
-// marking an uncommitted tree; and a build with neither says 0.0.0-dev.
+// marking an uncommitted tree; and a build with neither says developmentBase
+// (CurrentRelease with a -dev suffix).
 func TestResolve(t *testing.T) {
 	toolchain := func(rev string, modified bool) *debug.BuildInfo {
 		m := "false"
@@ -58,15 +62,15 @@ func TestResolve(t *testing.T) {
 		{"a stamped release", "1.4.0", sha, toolchain(sha, true), "1.4.0"},
 		{"a stamped release candidate", "1.4.0-rc2", "", nil, "1.4.0-rc2"},
 		{"a git describe off a tag", "v1.4.0-3-gcb509f7-dirty", sha, nil, "v1.4.0-3-gcb509f7-dirty"},
-		{"a build argument left at unknown", "unknown", "unknown", nil, "0.0.0-dev"},
-		{"unknown version with a stamped commit", "unknown", sha, nil, "0.0.0-dev+cb509f7d1e2a"},
-		{"a stamped dev version is still development", "1.3.0-dev", sha, nil, "0.0.0-dev+cb509f7d1e2a"},
-		{"nothing stamped, a clean toolchain stamp", "", "", toolchain(sha, false), "0.0.0-dev+cb509f7d1e2a"},
-		{"nothing stamped, uncommitted changes", "", "", toolchain(sha, true), "0.0.0-dev+cb509f7d1e2a.dirty"},
-		{"a stamped revision wins over the toolchain's", "", "abcdef0", toolchain(sha, true), "0.0.0-dev+abcdef0"},
-		{"a revision that is not a commit", "", "main; rm -rf /", nil, "0.0.0-dev"},
-		{"nothing at all, as under go test", "", "", &debug.BuildInfo{}, "0.0.0-dev"},
-		{"no build information", "", "", nil, "0.0.0-dev"},
+		{"a build argument left at unknown", "unknown", "unknown", nil, developmentBase},
+		{"unknown version with a stamped commit", "unknown", sha, nil, developmentBase + "+cb509f7d1e2a"},
+		{"a stamped dev version is still development", "1.3.0-dev", sha, nil, developmentBase + "+cb509f7d1e2a"},
+		{"nothing stamped, a clean toolchain stamp", "", "", toolchain(sha, false), developmentBase + "+cb509f7d1e2a"},
+		{"nothing stamped, uncommitted changes", "", "", toolchain(sha, true), developmentBase + "+cb509f7d1e2a.dirty"},
+		{"a stamped revision wins over the toolchain's", "", "abcdef0", toolchain(sha, true), developmentBase + "+abcdef0"},
+		{"a revision that is not a commit", "", "main; rm -rf /", nil, developmentBase},
+		{"nothing at all, as under go test", "", "", &debug.BuildInfo{}, developmentBase},
+		{"no build information", "", "", nil, developmentBase},
 	} {
 		if got := resolve(tc.version, tc.revision, tc.info); got != tc.want {
 			t.Errorf("%s: resolve = %q, want %q", tc.name, got, tc.want)

@@ -12,7 +12,7 @@ import (
 )
 
 // version is this build's version, from internal/buildinfo: the release
-// version a release build is stamped with, or 0.0.0-dev+<commit> for a
+// version a release build is stamped with, or <release>-dev+<commit> for a
 // development build. The Runner reports the same value, and both hand it
 // to the external Collection loader, so the CLI and a Runner cannot
 // disagree about whether a program's engine version constraint is met.

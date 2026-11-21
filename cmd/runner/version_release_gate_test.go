@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/buildinfo"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/loader"
 )
 
@@ -53,8 +54,8 @@ func run(t *testing.T, env []string, bin string, args ...string) (string, error)
 // Runner and of the CLI both print the stamped version, and both hand it
 // to the loader: each refuses a program that needs a newer engine, the
 // Runner before it touches the network, naming both versions. A
-// development build prints 0.0.0-dev+<commit> from both, and loads the
-// same program with one warning.
+// development build prints <CurrentRelease>-dev+<commit> from both, and loads
+// the same program with one warning.
 func TestVersionReleaseGate_OneVersionAcrossBothBinaries(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping the version Release Gate, which builds both binaries twice, in short mode")
@@ -97,8 +98,9 @@ func TestVersionReleaseGate_OneVersionAcrossBothBinaries(t *testing.T) {
 	}
 
 	// A development build: the default the image build arguments leave.
+	wantDev := buildinfo.CurrentRelease + "-dev+abcdef012345"
 	runner, cli = buildStamped(t, "-X "+buildinfoPackage+".version=unknown -X "+buildinfoPackage+".revision=abcdef0123456")
-	for bin, want := range map[string]string{runner: "runner 0.0.0-dev+abcdef012345", cli: "pleiades 0.0.0-dev+abcdef012345"} {
+	for bin, want := range map[string]string{runner: "runner " + wantDev, cli: "pleiades " + wantDev} {
 		// The first line is the version a script reads; the protocols the
 		// build speaks follow it (Phase 135b).
 		if out, err := run(t, nil, bin, "version"); err != nil || firstLine(out) != want || !strings.Contains(out, "\nexternal collection protocols: ") {
@@ -116,7 +118,7 @@ func TestVersionReleaseGate_OneVersionAcrossBothBinaries(t *testing.T) {
 		t.Errorf("a development CLI did not list the program's method:\n%s", out)
 	}
 	out, err = run(t, env, cli, "doc", "gatefixture.future.run")
-	if err != nil || !strings.Contains(out, ">=99.0.0 (not checked: 0.0.0-dev+abcdef012345 is a development build)") {
+	if err != nil || !strings.Contains(out, ">=99.0.0 (not checked: "+wantDev+" is a development build)") {
 		t.Errorf("doc on a development build does not say the constraint went unchecked: %v\n%s", err, out)
 	}
 }

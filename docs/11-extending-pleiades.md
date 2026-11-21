@@ -1180,7 +1180,7 @@ What this does not give you yet, stated plainly:
   (`">=1.2.0"`) is enforced by a release build, which refuses a program stating a newer
   release than itself; a release candidate counts as the release it is for. Every build
   says which it is: `pleiades version` and `runner version` print the same string, the
-  release on a release build and `0.0.0-dev+<commit>` otherwise. A development build,
+  release on a release build and `<release>-dev+<commit>` otherwise. A development build,
   which is every build until the first release, cannot compare and loads the method,
   warning once per program, and `pleiades doc` marks the constraint "not checked".
   `forge new-external` writes the generating release as the program's constraint on a
