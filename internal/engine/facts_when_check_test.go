@@ -240,3 +240,28 @@ tasks:
 		}
 	}
 }
+
+// TestFactsCheck_AKeyAnObservingGatherDidNotFindIsAbsent: a checked task
+// reading a key the read-only gather declares and did not find on the device
+// reads it as absent, as a real run would after that gather.
+func TestFactsCheck_AKeyAnObservingGatherDidNotFindIsAbsent(t *testing.T) {
+	registerFactsRead(t)
+	result, err := newCheckExecutor(factsFleet(), engine.WithFactReader(&fakeReader{}), engine.WithMode(collection.ModeCheck)).Run(context.Background(), factsDAG(t, `
+id: observed-absent
+hosts: fleet
+tasks:
+  - name: gather
+    tfx.gather: {}
+  - name: no codename
+    when: facts["tfx.codename"] is not defined
+    tfx.probe: {}
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for device, n := range resultsOf(result, "tasks[1]") {
+		if n.Skipped || n.Unchecked || n.Err != nil {
+			t.Errorf("on %s: %s, want it checked, the codename absent", device, describe(n))
+		}
+	}
+}

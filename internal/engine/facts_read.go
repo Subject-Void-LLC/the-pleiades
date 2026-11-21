@@ -35,18 +35,6 @@ const (
 	FactPresent
 )
 
-// String names s for a message.
-func (s FactState) String() string {
-	switch s {
-	case FactAbsent:
-		return "absent"
-	case FactPresent:
-		return "present"
-	default:
-		return "unknown"
-	}
-}
-
 // FactAnswer is a store's answer for one key of one device.
 type FactAnswer struct {
 	State FactState
