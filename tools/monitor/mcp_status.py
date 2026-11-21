@@ -46,6 +46,7 @@ import urllib.request  # noqa: E402
 from typing import Callable, Dict, List, Optional, Tuple  # noqa: E402
 
 import daemon  # noqa: E402
+import locks  # noqa: E402
 from jsonutil import JSONObject, JSONValue, as_object, get_float, get_int, get_list, get_objects, get_str, loads  # noqa: E402
 
 SERVER_NAME = "pleiades-status"
@@ -537,6 +538,19 @@ TOOLS: Dict[str, Tuple[Tool, str, JSONObject]] = {
 }
 
 
+def unavailable() -> Optional[str]:
+    """Says why no tool can answer here, if one cannot.
+
+    Returns:
+        The reason (switched off, or a platform without flock), or None.
+    """
+    if daemon.switched_off():
+        return "the status daemon is switched off: %s is set, so nothing is started or read" % daemon.OPT_OUT
+    if not locks.SUPPORTED:
+        return "not available on this platform: " + locks.UNSUPPORTED
+    return None
+
+
 def handle(c: DaemonClient, msg: JSONObject) -> Optional[JSONObject]:
     """Answers one JSON-RPC message.
 
@@ -573,6 +587,9 @@ def handle(c: DaemonClient, msg: JSONObject) -> Optional[JSONObject]:
         args = as_object(params.get("arguments")) or {}
         if name not in TOOLS:
             return {"jsonrpc": "2.0", "id": mid, "error": {"code": -32602, "message": "unknown tool: %s" % name}}
+        off = unavailable()
+        if off is not None:
+            return {"jsonrpc": "2.0", "id": mid, "result": dict(text({"error": off}), isError=True)}
         try:
             result = text(TOOLS[name][0](c, args))
         except OSError as exc:

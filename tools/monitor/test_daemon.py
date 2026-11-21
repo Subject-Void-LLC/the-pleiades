@@ -39,6 +39,10 @@ import timeline  # noqa: E402
 from jsonutil import JSONObject, JSONValue, as_object, get_int, get_list, get_objects, get_str, loads  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+MONITOR = os.path.join(HERE, "monitor.py")
+MCP = os.path.join(HERE, "mcp_status.py")
+# A developer who switched the daemon off still runs these tests, which start their own.
+os.environ.pop("PLEIADES_NO_STATUS_DAEMON", None)
 # R1 and R2 are run ids in the form history.py gives them.
 R1 = "20261111T120000Z-aaaaaaaaaaaa"
 R2 = "20261111T130000Z-bbbbbbbbbbbb"
@@ -1143,6 +1147,88 @@ class UntrustedTextTest(unittest.TestCase):
                         for part in where.strip("/").split("/"):
                             node = node[int(part)] if isinstance(node, list) else (as_object(node) or {})[part]
                         self.assertLessEqual(len(str(node)), mcp_status.TEXT_MAX)
+
+
+def without_fcntl(script: str, args: List[str], stdin: str = "",
+                  env: Optional[Dict[str, str]] = None) -> "subprocess.CompletedProcess[str]":
+    """Runs a monitor script in a Python that cannot import fcntl, as on Windows.
+
+    Args:
+        script: monitor.py or mcp_status.py.
+        args: Its arguments.
+        stdin: Its input.
+        env: Its environment; this one by default.
+
+    Returns:
+        The finished process.
+    """
+    code = ("import sys; sys.modules['fcntl'] = None; sys.path.insert(0, %r); sys.argv = [%r] + %r; "
+            "import runpy; runpy.run_path(%r, run_name='__main__')") % (HERE, script, args, script)
+    return subprocess.run([sys.executable, "-B", "-c", code], input=stdin, capture_output=True, text=True,
+                          timeout=60, env=env)
+
+
+def mcp_session(name: str) -> str:
+    """Builds an MCP session: initialize, list the tools, call one.
+
+    Args:
+        name: The tool to call.
+
+    Returns:
+        The messages, one a line.
+    """
+    msgs: List[JSONObject] = [{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
+                              {"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
+                              {"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": name, "arguments": {}}}]
+    return "".join(json.dumps(m) + "\n" for m in msgs)
+
+
+class SwitchedOffTest(unittest.TestCase):
+    """Without flock (Windows), or with PLEIADES_NO_STATUS_DAEMON set, nothing
+    starts, and each command and tool says why instead of failing."""
+
+    def test_a_platform_without_flock(self) -> None:
+        """ensure and daemon exit 0 with one line, and the MCP server starts,
+        lists its tools and answers each call that the daemon is not available."""
+        import locks
+        with tempfile.TemporaryDirectory() as d:
+            for args in (["ensure", "--quiet", "--port", "0", "--state-dir", d],
+                         ["daemon", "--port", "0", "--state-dir", d, "--no-actions"]):
+                out = without_fcntl(MONITOR, args)
+                self.assertEqual((out.returncode, out.stdout.splitlines()), (0, ["statusd: " + locks.UNSUPPORTED]),
+                                 out.stderr)
+            self.assertEqual(os.listdir(d), [])
+            out = without_fcntl(MCP, [], mcp_session("status"),
+                                dict(os.environ, STATUS_PORT="9", STATUS_STATE_DIR=d))
+            replies = [json.loads(x) for x in out.stdout.splitlines()]
+            self.assertEqual([r["id"] for r in replies], [1, 2, 3], out.stderr)
+            self.assertEqual(len(replies[1]["result"]["tools"]), 8)
+            self.assertTrue(replies[2]["result"]["isError"])
+            self.assertIn("not available on this platform", replies[2]["result"]["content"][0]["text"])
+            self.assertEqual(os.listdir(d), [])
+
+    def test_the_opt_out(self) -> None:
+        """With PLEIADES_NO_STATUS_DAEMON set, ensure starts nothing and says so,
+        and the MCP server answers that the daemon is switched off; set empty,
+        it switches nothing off."""
+        with tempfile.TemporaryDirectory() as d:
+            env = dict(os.environ, PLEIADES_NO_STATUS_DAEMON="1")
+            try:
+                out = subprocess.run([sys.executable, "-B", MONITOR, "ensure", "--quiet", "--port", "0", "--state-dir", d,
+                                      "--no-actions"], capture_output=True, text=True, timeout=60, env=env)
+                self.assertEqual(out.returncode, 0, out.stderr)
+                self.assertIn("switched off by PLEIADES_NO_STATUS_DAEMON", out.stdout)
+                self.assertFalse(daemon.lock_held(d))
+                self.assertEqual(os.listdir(d), [])
+                mcp = subprocess.run([sys.executable, "-B", MCP], input=mcp_session("status"), capture_output=True,
+                                     text=True, timeout=60, env=dict(env, STATUS_PORT="9", STATUS_STATE_DIR=d))
+                reply = json.loads(mcp.stdout.splitlines()[-1])
+                self.assertTrue(reply["result"]["isError"])
+                self.assertIn("switched off", reply["result"]["content"][0]["text"])
+            finally:
+                stop_daemon(d)
+            with unittest.mock.patch.dict(os.environ, {"PLEIADES_NO_STATUS_DAEMON": ""}):
+                self.assertFalse(daemon.switched_off())
 
 
 if __name__ == "__main__":

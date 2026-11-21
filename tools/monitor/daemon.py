@@ -90,6 +90,18 @@ CAPPED = os.path.expanduser("~/.local/bin/capped")
 DAEMON_CAP = "400M"
 # STOP_SECONDS is how long ensure waits for a replaced daemon to let go of its lock.
 STOP_SECONDS = 10.0
+# OPT_OUT names the environment variable that switches the daemon off: set to
+# anything but the empty string, ensure starts nothing and the MCP server says so.
+OPT_OUT = "PLEIADES_NO_STATUS_DAEMON"
+
+
+def switched_off() -> bool:
+    """Reports whether this user switched the daemon off.
+
+    Returns:
+        True when OPT_OUT is set and not empty.
+    """
+    return bool(os.environ.get(OPT_OUT))
 # SOURCE_NAME is what a fingerprinted file's name must look like, so a name
 # read back from /healthz never reaches outside the monitor's directory.
 SOURCE_NAME = re.compile(r"^[A-Za-z0-9_]+\.py$")
@@ -692,6 +704,9 @@ def run_daemon(port: int = DEFAULT_PORT, no_actions: bool = False, state_dir: Op
     Returns:
         0, also when another daemon already runs.
     """
+    if not locks.SUPPORTED:
+        print("statusd: " + locks.UNSUPPORTED, flush=True)
+        return 0
     state = state_dir or paths.state_dir()
     started = time.time()
     fd = take_lock(state, port, started)
@@ -928,9 +943,17 @@ def ensure(port: int = DEFAULT_PORT, quiet: bool = False, state_dir: Optional[st
         no_actions: Start it without GitHub Actions polling (tests).
 
     Returns:
-        0 when a daemon runs (or was left alone on purpose), 1 when one could
-        not be started or the lock's holder could not be identified.
+        0 when a daemon runs (or was left alone on purpose, or is switched
+        off, or this platform cannot run one), 1 when one could not be
+        started or the lock's holder could not be identified.
     """
+    # Both lines print even when quiet: they say why nothing runs.
+    if switched_off():
+        print("statusd: switched off by %s; nothing was started" % OPT_OUT, flush=True)
+        return 0
+    if not locks.SUPPORTED:
+        print("statusd: " + locks.UNSUPPORTED, flush=True)
+        return 0
     state = state_dir or paths.state_dir()
 
     def say(text: str) -> None:

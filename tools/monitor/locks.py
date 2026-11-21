@@ -11,18 +11,62 @@ A probe still holds its shared lock for an instant, and a process taking the
 lock for real in that instant is refused. take() therefore retries for
 TAKE_SECONDS before it decides the lock belongs to someone else: a probe
 lets go within microseconds, and a real holder never does.
+
+Windows has no fcntl. The import is guarded so every module still loads
+there; SUPPORTED is False, the daemon and ensure say UNSUPPORTED and stop,
+and a lock is then always taken and never held, which leaves a gate run
+without its one-at-a-time rule (it needs capped, which Windows lacks too).
 """
 
 from __future__ import annotations
 
-import fcntl
+import importlib
 import os
+import sys
 import time
+from typing import Optional, Protocol, cast
 
 # TAKE_SECONDS is how long take() keeps trying before it gives up.
 TAKE_SECONDS = 1.0
 # TAKE_STEP is the pause between two tries.
 TAKE_STEP = 0.02
+
+
+class Fcntl(Protocol):
+    """The part of the fcntl module used here.
+
+    Attributes:
+        LOCK_EX: An exclusive lock.
+        LOCK_SH: A shared lock.
+        LOCK_NB: Do not wait.
+    """
+
+    LOCK_EX: int
+    LOCK_SH: int
+    LOCK_NB: int
+
+    def flock(self, fd: int, operation: int, /) -> None:
+        """Takes or drops a lock on fd."""
+        ...
+
+
+def load_fcntl() -> Optional[Fcntl]:
+    """Imports fcntl where the platform has it.
+
+    Returns:
+        The module, or None (Windows).
+    """
+    try:
+        return cast(Fcntl, importlib.import_module("fcntl"))
+    except ImportError:
+        return None
+
+
+FCNTL = load_fcntl()
+# SUPPORTED says whether this platform has flock, which the daemon needs.
+SUPPORTED = FCNTL is not None
+# UNSUPPORTED is the one line said where it does not.
+UNSUPPORTED = "the status daemon is not supported on this platform (%s has no fcntl flock)" % sys.platform
 
 
 def try_flock(fd: int, shared: bool = False) -> bool:
@@ -35,9 +79,11 @@ def try_flock(fd: int, shared: bool = False) -> bool:
     Returns:
         True when this descriptor now holds the lock.
     """
-    op = (fcntl.LOCK_SH if shared else fcntl.LOCK_EX) | fcntl.LOCK_NB
+    if FCNTL is None:
+        return True  # no flock here: nothing is ever held
+    op = (FCNTL.LOCK_SH if shared else FCNTL.LOCK_EX) | FCNTL.LOCK_NB
     try:
-        fcntl.flock(fd, op)
+        FCNTL.flock(fd, op)
     except OSError:
         # EWOULDBLOCK means another holder; any other error is treated the
         # same way, so a lock that cannot be checked is never taken for free.

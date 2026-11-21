@@ -12,6 +12,23 @@ The page is a daemon. Claude Code sessions in this repository start it
 through the `SessionStart` hook in `.claude/settings.json`, and the `status`
 MCP server starts it on its first call; by hand:
 
+What the hook does on every session: unless one already runs, it starts a
+detached daemon on 127.0.0.1:8765 that outlives the session. The daemon calls
+`gh api` with your own gh login every 60 seconds for the branch in use, and
+reads every workflow run of the repository every six hours. It keeps its
+history under the main clone's `.IGNORE/ci/monitor/`, and never deletes it.
+When you open the page, your browser loads ECharts from jsDelivr and two
+typefaces from Google Fonts. To turn all of this off, set
+`PLEIADES_NO_STATUS_DAEMON` to any non-empty value in the environment your
+sessions start from: `monitor.py ensure` then starts nothing and says so, the
+hook does nothing, and the MCP tools answer that the daemon is switched off.
+A daemon already running keeps running until you stop it
+(`kill -TERM <pid>`, the pid in `statusd.lock` and on `/healthz`).
+
+On a platform without `fcntl` (Windows), `ensure` and `daemon` print one
+line saying the daemon is not supported there and exit 0, and the MCP server
+starts and answers each call that it is not available.
+
 ```bash
 python3 -B tools/monitor/monitor.py ensure          # start it unless it runs (safe to repeat)
 python3 -B tools/monitor/monitor.py daemon          # or run it in the foreground (serve is the old name)
