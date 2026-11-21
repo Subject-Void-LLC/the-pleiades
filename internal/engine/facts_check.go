@@ -54,7 +54,9 @@ type FactTaint struct {
 // plan-time statement of the rule: the executor decides with it which tasks
 // it reports unchecked, and validation warns with it, so the two cannot
 // disagree. Earlier means in an earlier level of the walk; a task's own level
-// runs at once and is not read (facts_overlay.go).
+// runs at once and is not read (facts_overlay.go). A block's rescue and
+// always tasks follow its own tasks on the walk, and a handler follows the
+// section it was notified in, so each is placed after what it can follow.
 func CheckedFactReads(runMode collection.Mode, dag *DAG) map[string][]FactTaint {
 	reads := FactReadsOf(dag)
 	if len(reads) == 0 {
@@ -70,7 +72,10 @@ func CheckedFactReads(runMode collection.Mode, dag *DAG) map[string][]FactTaint 
 	for _, read := range reads {
 		reader := dag.Nodes[read.Node]
 		at, placed := levels[read.Node]
-		if !placed || TaskMode(runMode, dag, reader) != collection.ModeCheck {
+		// A rescue task in a check is not predicted at all (it runs only if
+		// its block fails, which a check does not foresee), so it is no gap
+		// in the check whatever it reads.
+		if !placed || TaskMode(runMode, dag, reader) != collection.ModeCheck || InPart(dag.Scopes[read.Node], PartRescue) {
 			continue
 		}
 		for _, id := range emitters {

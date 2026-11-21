@@ -164,3 +164,40 @@ func TestFactsRule_AnUnusableKeyIsNamedNotCalledMissing(t *testing.T) {
 		t.Fatalf("findings %v, want the key's own refusal named", findings)
 	}
 }
+
+// TestFactsRule_NoKeyAllowsAnAlwaysRescueOrHandlerAfterAGather: with no key,
+// a block's always and rescue tasks and a handler reading what a gather
+// before them emits are allowed, and an always task reading what only a later
+// task gathers is refused.
+func TestFactsRule_NoKeyAllowsAnAlwaysRescueOrHandlerAfterAGather(t *testing.T) {
+	after := `id: facts
+hosts: web1
+tasks:
+  - name: gather
+    facts.gather: {}
+    notify: on debian
+  - name: guarded
+    block:
+      - name: inner
+        noop: {}
+    rescue:
+      - name: rescue on debian
+        when: facts["os.family"] == "debian"
+        noop: {}
+    always:
+      - name: always on debian
+        when: facts["os.family"] == "debian"
+        noop: {}
+handlers:
+  - name: on debian
+    when: facts["os.family"] == "debian"
+    noop: {}
+`
+	if f := factFindings(t, after, validate.FactStoreNoKey); len(f) != 0 {
+		t.Errorf("readers after the gather: %v, want none refused", f)
+	}
+	before := "id: facts\nhosts: web1\ntasks:\n  - name: guarded\n    block:\n      - name: inner\n        noop: {}\n    always:\n      - name: always on debian\n        when: facts[\"os.family\"] == \"debian\"\n        noop: {}\n  - name: gather\n    facts.gather: {}\n"
+	if f := factFindings(t, before, validate.FactStoreNoKey); len(f) != 1 {
+		t.Errorf("an always task before the gather: %v, want it refused", f)
+	}
+}
