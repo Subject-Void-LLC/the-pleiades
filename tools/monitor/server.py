@@ -55,6 +55,7 @@ import json
 import os
 import re
 import socket
+import socketserver
 import sys
 import threading
 import time
@@ -500,6 +501,20 @@ class QuietServer(ThreadingHTTPServer):
         if isinstance(exc, (ConnectionError, TimeoutError)):
             return
         super().handle_error(request, client_address)
+
+    def server_bind(self) -> None:
+        """Binds as HTTPServer does, without its reverse DNS lookup of its own address.
+
+        HTTPServer.server_bind names the server with socket.getfqdn(host), a
+        reverse lookup of 127.0.0.1. Where that resolver is slow (inferred from
+        the first macOS CI run, in which a daemon took its lock and printed
+        nothing before the line it prints once bound, for over 20 seconds) the
+        daemon cannot answer for that long. The name is never used here.
+        """
+        socketserver.TCPServer.server_bind(self)
+        address = self.server_address
+        self.server_name = str(address[0])
+        self.server_port = int(address[1])
 
 
 def start_server(app: Backend, port: int, streams: int = STREAMS_MAX) -> ThreadingHTTPServer:

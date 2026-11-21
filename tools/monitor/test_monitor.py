@@ -891,6 +891,26 @@ def serve(app: server.Backend) -> Tuple[server.ThreadingHTTPServer, int]:
 class ServerTest(unittest.TestCase):
     """The HTTP server, on a real socket."""
 
+    def test_binding_does_no_reverse_lookup(self) -> None:
+        """Starting the server never calls socket.getfqdn, the reverse DNS
+        lookup HTTPServer.server_bind makes, which a slow resolver (as on the
+        first macOS CI run, inferred) turns into a daemon that cannot answer;
+        forced here by a getfqdn that fails the test if called."""
+        import socket
+
+        def refuse(name: str = "") -> str:
+            """Stands in for socket.getfqdn and fails the test if called."""
+            raise AssertionError("socket.getfqdn(%r) was called" % name)
+
+        with tempfile.TemporaryDirectory() as d, unittest.mock.patch.object(socket, "getfqdn", refuse):
+            httpd = server.start_server(monitor.App("serve", history.HistoryStore(d)), 0)
+            try:
+                self.assertEqual(self.get(httpd.server_port, "/healthz")[0], 200)
+                self.assertEqual(httpd.server_name, "127.0.0.1")
+            finally:
+                httpd.shutdown()
+                httpd.server_close()
+
     def get(self, port: int, path: str, host: Optional[str] = None) -> Tuple[int, Mapping[str, str], bytes]:
         """Makes one GET.
 
