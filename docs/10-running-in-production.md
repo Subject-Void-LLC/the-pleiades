@@ -347,13 +347,22 @@ decides more than file digests:
   the facts key with the master key in your backups.
 
 A consequence to plan for: nobody can look a fact up by name, or check a device's
-history, without the facts key. A copy of the database alone shows how many facts a
-device has and when each changed, and nothing about what they are.
+history, without the facts key.
+
+What a copy of the database still shows, without any key: how many facts a device
+has, when each was first seen, changed and last confirmed, whether each is stable or
+volatile, and roughly how long each name and value are together. It also shows each
+fact's provenance in plaintext: the job, the run, the task that observed it, the
+method it ran, the Runner and the Collection's identity. A task named after the one
+thing it reads therefore says what that fact is about. Name tasks with that in mind
+where it matters. The controller's own log names facts too (never their values) in
+the warnings that say a fact was dropped or stored without its digest.
 
 Between a Runner and the controller, each batch of facts is sealed to the
 controller's public key, which every dispatch carries, before it is published, so
-the message stream holds no fact either. That hides the facts from a reader of the
-stream; it does not prove which Runner sent them, which the Runner's own broker
+the message stream holds no fact's name or value either. Each batch still says, in
+plaintext, which job, device, attempt, task and method it came from and when. That
+hides the facts from a reader of the stream; it does not prove which Runner sent them, which the Runner's own broker
 credential and the job's record still decide. A Runner of an earlier release
 publishes its facts unsealed; the controller stores them and logs a warning naming
 the Runner, so upgrade Runners with the controller.
@@ -375,7 +384,8 @@ carries.
    key and re-keying stored facts, and ends a pass with its counts. A device is
    re-keyed whole, in one transaction, the first time it is read or written or when
    the pass reaches it: its history, order and times are kept, and nothing reads as
-   changed.
+   changed. A request that only reads a device's facts can therefore start that
+   device's re-key, once; while it runs, a change to the device's own record waits.
 3. Jobs dispatched before the change still seal to the old key. The controller
    opens those with the previous key and stores them under the new one, logging
    each batch it opens that way.
@@ -393,8 +403,13 @@ such a device.
 
 The upgrade deletes every fact stored before it, with the observations that named
 them, because no key can turn a plaintext row into a sealed one. Each device's next
-gather stores its facts again. On SQLite the freed pages are then overwritten by a
-`VACUUM` at the same start.
+gather stores its facts again. On SQLite the freed pages are then rewritten by a
+`VACUUM` at the same start, and the controller tries again at each later start until
+one succeeds, saying so in its log each time; until then the deleted rows' bytes are
+still in the file. On PostgreSQL the deleted rows stay in the table's pages until
+vacuum reuses them, and in every WAL archive, replica and base backup taken before
+the upgrade; expire those on your own schedule. The backup this upgrade asks for
+holds every fact in plaintext too: keep it only as long as going back is an option.
 
 That upgrade is one an older controller cannot run beside. A controller from before
 this release would store facts in plaintext again, so the new one refuses to change
