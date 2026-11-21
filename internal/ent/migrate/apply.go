@@ -16,6 +16,8 @@
 //   - compat.go: which migrations break the build before them (the policy).
 //   - guard.go: refusing to apply one of those while an older controller runs.
 //   - plan.go: answering what an upgrade would do, without doing it.
+//   - reclaim.go: running what a migration owes once it has committed, at
+//     every start until it has run.
 //
 // # Many controllers, one database
 //
@@ -128,6 +130,13 @@ type migrationSource struct {
 	// dialect refuses inside a transaction (see reclaim).
 	afterCommit map[string][]string
 
+	// reclaimedMark reads, and markReclaimed (a format taking one integer)
+	// writes, the number of the newest migration whose after-commit
+	// statements have run to completion since it committed (reclaimOwed).
+	// Empty for a dialect with no after-commit statements.
+	reclaimedMark string
+	markReclaimed string
+
 	// controllerTableCount counts tables named controller_instances, asked
 	// of the catalog so that a missing table is an answer rather than an
 	// error, which on PostgreSQL would abort the contract's transaction.
@@ -164,6 +173,15 @@ func liveControllersSQL(clock string) string {
 // script does, so it runs here. PostgreSQL needs no counterpart from this
 // package: its dead rows are reclaimed by its own vacuum, and what its files
 // hold until then is the database's storage to protect.
+//
+// It is owed from the moment the migration commits until it has run, and a
+// start that died between the two would leave the plaintext in the file for
+// good, so whether it has run is recorded and every start runs what is still
+// owed (reclaimOwed). The record is SQLite's PRAGMA user_version, an integer
+// in the database file's own header that nothing else in this project
+// writes: the number of the newest migration whose statements here ran to
+// completion after it committed. A VACUUM reclaims every page that is free
+// when it runs, so one run after a migration covers each migration before it.
 var sqliteAfterCommit = map[string][]string{
 	"0052_fact_at_rest.sql": {"VACUUM", "PRAGMA wal_checkpoint(TRUNCATE)"},
 }
@@ -187,6 +205,8 @@ var migrationSources = map[string]migrationSource{
 		suspendForeignKeys: true,
 		waitForWriters:     true,
 		afterCommit:        sqliteAfterCommit,
+		reclaimedMark:      `PRAGMA user_version`,
+		markReclaimed:      `PRAGMA user_version = %d`,
 
 		controllerTableCount: `SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'controller_instances'`,
 		liveControllers:      liveControllersSQL(SQLiteClockSQL),
@@ -259,10 +279,16 @@ type Outcome struct {
 	// when Newer is non-empty.
 	Floor string
 
-	// NotReclaimed lists each migration this call applied whose after-commit
-	// statements failed, with the failure. The migration itself is applied
-	// and recorded; what it deleted may still be readable in the database's
-	// file until an operator reclaims it (on SQLite, VACUUM).
+	// Reclaimed lists each migration whose after-commit statements this call
+	// ran to completion: one it applied, or one an earlier start applied and
+	// did not finish reclaiming after (reclaimOwed).
+	Reclaimed []string
+
+	// NotReclaimed lists each migration whose after-commit statements are
+	// owed and failed in this call, with the failure. The migration itself is
+	// applied and recorded; what it deleted may still be readable in the
+	// database's file until the next start reclaims it, or an operator does
+	// (on SQLite, VACUUM).
 	NotReclaimed []string
 
 	// Contracts lists the migrations this call applied that are declared
@@ -349,6 +375,10 @@ func applyPending(ctx context.Context, db *sql.DB, src migrationSource, names []
 		}
 		out.Newer, out.Floor = gate.newer, gate.floor
 		if len(gate.pending) == 0 || recorded(history, stopAfter) {
+			// Once nothing is left to apply: whatever reclamation is owed,
+			// from this call's migrations or an earlier start's, is run
+			// now, and never fails the start.
+			reclaimOwed(ctx, db, src, history, &out)
 			return out, nil
 		}
 
@@ -393,42 +423,12 @@ func applyPending(ctx context.Context, db *sql.DB, src migrationSource, names []
 			if guard != nil {
 				out.Contracts = append(out.Contracts, name)
 			}
-			if err := reclaim(ctx, db, src, name); err != nil {
-				out.NotReclaimed = append(out.NotReclaimed, name+": "+err.Error())
-			}
 		case recorded(history, name):
 			out.AppliedElsewhere = append(out.AppliedElsewhere, name)
 		default:
 			return out, attemptErr
 		}
 	}
-}
-
-// reclaim runs the named migration's after-commit statements, on one
-// connection of their own, after the starter that applied it has committed.
-//
-// It is best effort by design, and says so through Outcome.NotReclaimed
-// rather than by failing the start: the migration is already recorded, so a
-// failure here cannot be retried by starting again, and refusing to start
-// over it would turn a database that is correct into one that is down. A
-// starter that lost the race applies nothing and reclaims nothing; the one
-// that won does.
-func reclaim(ctx context.Context, db *sql.DB, src migrationSource, name string) error {
-	statements := src.afterCommit[name]
-	if len(statements) == 0 {
-		return nil
-	}
-	conn, err := db.Conn(ctx)
-	if err != nil {
-		return fmt.Errorf("taking a connection: %w", err)
-	}
-	defer func() { _ = conn.Close() }()
-	for _, statement := range statements {
-		if _, err := conn.ExecContext(ctx, statement); err != nil {
-			return fmt.Errorf("%s: %w", statement, err)
-		}
-	}
-	return nil
 }
 
 // recorded reports whether history holds the named migration. An empty name

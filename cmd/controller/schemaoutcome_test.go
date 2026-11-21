@@ -61,3 +61,31 @@ func TestLogSchemaOutcome_SaysWhenAContractWasApplied(t *testing.T) {
 		})
 	}
 }
+
+// TestLogSchemaOutcome_SaysEachReclamationsOutcome: a reclamation this start
+// ran is said at info, one that failed at warning with the next start's
+// retry named, and an outcome with neither says nothing of either.
+func TestLogSchemaOutcome_SaysEachReclamationsOutcome(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		outcome migrate.Outcome
+		want    []string
+	}{
+		{"reclaimed", migrate.Outcome{Reclaimed: []string{"0052_fact_at_rest.sql"}}, []string{`"level":"INFO"`, "removed the bytes", "0052_fact_at_rest.sql"}},
+		{"not reclaimed", migrate.Outcome{NotReclaimed: []string{"0052_fact_at_rest.sql: VACUUM: database is locked"}}, []string{`"level":"WARN"`, "the next start tries again", "database is locked"}},
+		{"neither", migrate.Outcome{}, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			logSchemaOutcome(context.Background(), slog.New(slog.NewJSONHandler(&buf, nil)), tc.outcome)
+			for _, want := range tc.want {
+				if !strings.Contains(buf.String(), want) {
+					t.Errorf("the log does not say %q:\n%s", want, buf.String())
+				}
+			}
+			if tc.want == nil && (strings.Contains(buf.String(), "removed the bytes") || strings.Contains(buf.String(), "could not be removed")) {
+				t.Errorf("an outcome with no reclamation logged one:\n%s", buf.String())
+			}
+		})
+	}
+}

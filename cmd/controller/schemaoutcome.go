@@ -16,11 +16,19 @@ import (
 // Every field is a migration file name or a count, never data from a table,
 // so nothing here can carry a secret.
 func logSchemaOutcome(ctx context.Context, logger *slog.Logger, outcome migrate.Outcome) {
+	if len(outcome.Reclaimed) > 0 {
+		// Each entry is a file name: the migration whose deleted rows' bytes
+		// this start removed from the file, its own or one an earlier start
+		// left owed.
+		logger.InfoContext(ctx, "removed the bytes of rows a migration deleted from the database file",
+			"migrations", outcome.Reclaimed)
+	}
 	if len(outcome.NotReclaimed) > 0 {
 		// The migration is applied; what it deleted may still be readable in
 		// the database's file. Each entry is a file name and the database's
-		// own refusal of a fixed statement.
-		logger.WarnContext(ctx, "a migration deleted rows whose bytes could not be removed from the database file; on SQLite, run VACUUM once the controller is stopped",
+		// own refusal of a fixed statement. It stays owed, so every start
+		// tries it again.
+		logger.WarnContext(ctx, "a migration deleted rows whose bytes could not be removed from the database file; the next start tries again, or on SQLite run VACUUM once the controller is stopped",
 			"migrations", outcome.NotReclaimed)
 	}
 	if len(outcome.Contracts) > 0 {

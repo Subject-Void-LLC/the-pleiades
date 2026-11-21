@@ -97,25 +97,7 @@ func TestApply_TheFactAtRestMigrationLeavesNoPlaintextInTheSQLiteFile(t *testing
 		t.Fatal(err)
 	}
 	seedPlaintextFact(t, db, func(int) string { return "?" })
-	holds := func() []string {
-		t.Helper()
-		var found []string
-		for _, file := range []string{path, path + "-wal"} {
-			raw, err := os.ReadFile(file) // #nosec G304 -- the test's own database
-			if os.IsNotExist(err) {
-				continue
-			}
-			if err != nil {
-				t.Fatal(err)
-			}
-			for _, plain := range []string{"zq9plainkey", "zq9plainvalue", "zq9plainhash"} {
-				if bytes.Contains(raw, []byte(plain)) {
-					found = append(found, filepath.Base(file)+" holds "+plain)
-				}
-			}
-		}
-		return found
-	}
+	holds := plaintextIn(t, path)
 	if before := holds(); len(before) == 0 {
 		t.Fatal("the control failed: the seeded plaintext fact is not in the database's files to find")
 	}
@@ -151,10 +133,102 @@ func TestReclaim_AFailureIsReportedAndNeverFailsTheStart(t *testing.T) {
 	if !recorded(historyOf(t, db, "sqlite3"), steps[1]) {
 		t.Error("the migration is not recorded")
 	}
-	// A database that is closed cannot give the connection either.
+	// A database that is closed cannot give the connection either, and says
+	// so rather than failing anything.
 	closed := freshDB(t, "sqlite3")
 	_ = closed.Close()
-	if err := reclaim(ctx, closed, src, steps[1]); err == nil {
-		t.Error("reclaim on a closed database reported nothing")
+	var shut Outcome
+	reclaimOwed(ctx, closed, src, []appliedRow{{version: steps[1]}}, &shut)
+	if len(shut.NotReclaimed) != 1 || !strings.Contains(shut.NotReclaimed[0], "taking a connection") || len(shut.Reclaimed) != 0 {
+		t.Errorf("reclaiming on a closed database: %+v, want the connection's failure named", shut)
+	}
+}
+
+// reclaimedMark is the number SQLite's header records as reclaimed through.
+func reclaimedMark(t *testing.T, db *sql.DB) int {
+	t.Helper()
+	var mark int
+	if err := db.QueryRow(`PRAGMA user_version`).Scan(&mark); err != nil {
+		t.Fatal(err)
+	}
+	return mark
+}
+
+// TestReclaim_AStartThatFindsItOwedRunsItAndOneThatFindsItDoneDoesNot: a
+// start that died between the migration's commit and its VACUUM (here, one
+// whose VACUUM failed) leaves the plaintext in the file and the reclamation
+// owed. The next start, with nothing left to apply, runs it: the file holds
+// no plaintext afterwards, the outcome says so, and the record says it is
+// done. A start after that finds it done and runs nothing, which a statement
+// that would fail shows, since it is never tried.
+func TestReclaim_AStartThatFindsItOwedRunsItAndOneThatFindsItDoneDoesNot(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "controller.db")
+	db := openDSN(t, "sqlite3", sqliteDSN(path))
+	src := migrationSources["sqlite3"]
+	names := namesOf(t, "sqlite3")
+	steps := factAtRest["sqlite3"]
+	if _, err := applyPending(ctx, db, src, names, steps[0], gateStrict); err != nil {
+		t.Fatal(err)
+	}
+	seedPlaintextFact(t, db, func(int) string { return "?" })
+	holds := plaintextIn(t, path)
+	// The start that dies: the migration commits and its reclamation fails.
+	failing := src
+	failing.afterCommit = map[string][]string{steps[1]: {"NOT A STATEMENT"}}
+	out, err := applyPending(ctx, db, failing, names, steps[1], gateStrict)
+	if err != nil || len(out.Applied) != 1 || len(out.NotReclaimed) != 1 || len(out.Reclaimed) != 0 {
+		t.Fatalf("the start whose reclamation failed: %+v, %v", out, err)
+	}
+	if len(holds()) == 0 {
+		t.Fatal("the control failed: the plaintext is not in the file after a migration whose VACUUM never ran")
+	}
+	if mark := reclaimedMark(t, db); mark != 0 {
+		t.Fatalf("the record says reclaimed through %d, though nothing was", mark)
+	}
+	// The next start: nothing to apply, the reclamation owed.
+	out, err = applyPending(ctx, db, src, names, steps[1], gateStrict)
+	if err != nil || len(out.Applied) != 0 || len(out.NotReclaimed) != 0 || len(out.Reclaimed) != 1 || out.Reclaimed[0] != steps[1] {
+		t.Fatalf("the start that finds it owed: %+v, %v; want %s reclaimed", out, err, steps[1])
+	}
+	if after := holds(); len(after) != 0 {
+		t.Errorf("after the owed reclamation: %s", strings.Join(after, "; "))
+	}
+	if mark := reclaimedMark(t, db); mark != 52 {
+		t.Errorf("the record says reclaimed through %d, want 52", mark)
+	}
+	// The start after: done, so not tried, even with a statement that fails.
+	out, err = applyPending(ctx, db, failing, names, steps[1], gateStrict)
+	if err != nil || len(out.Reclaimed) != 0 || len(out.NotReclaimed) != 0 {
+		t.Errorf("the start that finds it done: %+v, %v; want nothing run", out, err)
+	}
+	// And through the public entry, migrating the rest of the way.
+	whole, err := ApplyWith(ctx, "sqlite3", db, Options{})
+	if err != nil || len(whole.Reclaimed) != 0 || len(whole.NotReclaimed) != 0 {
+		t.Errorf("ApplyWith after it was done: %+v, %v", whole, err)
+	}
+}
+
+// plaintextIn is a check that lists what of seedPlaintextFact's plaintext
+// the database file at path and its write-ahead log hold.
+func plaintextIn(t *testing.T, path string) func() []string {
+	return func() []string {
+		t.Helper()
+		var found []string
+		for _, file := range []string{path, path + "-wal"} {
+			raw, err := os.ReadFile(file) // #nosec G304 -- the test's own database
+			if os.IsNotExist(err) {
+				continue
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, plain := range []string{"zq9plainkey", "zq9plainvalue", "zq9plainhash"} {
+				if bytes.Contains(raw, []byte(plain)) {
+					found = append(found, filepath.Base(file)+" holds "+plain)
+				}
+			}
+		}
+		return found
 	}
 }
