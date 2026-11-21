@@ -42,6 +42,7 @@ from typing import Callable, Dict, Iterator, List, Optional, Sequence, Tuple
 import actions
 import binsize
 import events
+import githistory
 import history
 import memwatch
 import paths
@@ -67,6 +68,8 @@ MANIFEST_SECONDS = 0.5
 MEMORY_TIMELINE_SECONDS = 60.0
 ACTIONS_TIMELINE_SECONDS = 20.0
 ROADMAP_SECONDS = 60.0
+# GIT_SECONDS is how often the main line is looked at for new commits.
+GIT_SECONDS = 300.0
 # SECURITY_SECONDS bounds how stale /security.json may be.
 SECURITY_SECONDS = 30.0
 # BACKFILL_SECONDS is how often every branch's Actions runs are read again,
@@ -96,6 +99,8 @@ class DaemonApp:
         started: When the daemon started.
         alive: Whether a run's process (by pid) still runs; a stand-in in tests.
         security_cache: The last /security.json and when it was built.
+        git_seen: The main line's commit when its history was last recorded.
+        git_catalog: The module catalog's counts already read, by commit.
     """
 
     state_dir: str
@@ -112,6 +117,8 @@ class DaemonApp:
     started: float
     alive: Callable[[int], bool]
     security_cache: Optional[Tuple[float, JSONObject]]
+    git_seen: str
+    git_catalog: Dict[str, Optional[Tuple[int, int]]]
 
     def __init__(self, state_dir: str, root: str, port: int, redactor: redact.Redactor,
                  poller: Optional[actions.ActionsPoller] = None) -> None:
@@ -132,6 +139,8 @@ class DaemonApp:
         self.panel = roadmap.RoadmapPanel(paths.panels(state_dir))
         self.poller = poller
         self.cond = threading.Condition()
+        self.git_seen = ""
+        self.git_catalog = {}
         self.views = {}
         self.current = None
         self.memory = []
@@ -396,6 +405,20 @@ class DaemonApp:
             self.timeline.record_if_changed("security.control", get_str(c, "id"), {
                 k: c.get(k) for k in ("state", "statements_done", "statements_total", "review_due", "signed_on")})
 
+    def record_git(self) -> None:
+        """Writes the main line's history, a value a day, when it has moved.
+
+        Every day is dated by its last commit, so the first call fills the
+        timeline back to the first commit and a later one writes only the
+        days that changed.
+        """
+        found = githistory.resolve(self.root)
+        if found is None or found[1] == self.git_seen:
+            return
+        for day, when, value in githistory.days(self.root, found[0], self.git_catalog):
+            self.timeline.record_if_changed("git.day", day, value, when)
+        self.git_seen = found[1]
+
     def record_actions(self) -> None:
         """Writes each Actions run and job, of the latest poll, whose status or conclusion changed."""
         if self.poller is None:
@@ -626,6 +649,7 @@ def run_daemon(port: int = DEFAULT_PORT, no_actions: bool = False, state_dir: Op
     start_loop(stop, memwatch.SAMPLE_SECONDS, sample, "memory")
     start_loop(stop, ACTIONS_TIMELINE_SECONDS, app.record_actions, "actions-timeline")
     start_loop(stop, ROADMAP_SECONDS, app.record_roadmap, "roadmap-timeline")
+    start_loop(stop, GIT_SECONDS, app.record_git, "git-timeline")
     start_loop(stop, BACKFILL_SECONDS, app.backfill_actions, "actions-backfill")
     httpd = bind(app, port, stop)
     if httpd is not None:

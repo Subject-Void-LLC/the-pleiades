@@ -26,6 +26,7 @@ import unittest  # noqa: E402
 from typing import Dict, List, Optional, Tuple  # noqa: E402
 
 import daemon  # noqa: E402
+import githistory  # noqa: E402
 import history  # noqa: E402
 import live  # noqa: E402
 import paths  # noqa: E402
@@ -444,6 +445,87 @@ class ActionsBackfillTest(unittest.TestCase):
             lines = list(timeline.read(paths.timeline_dir(d), kinds=["actions."]))
             self.assertEqual(len(lines), 4)
             self.assertLess(float(str(lines[0]["t"])), time.time() - 86400)
+
+
+class GitHistoryTest(unittest.TestCase):
+    """The main line's history, against a real repository made for the test."""
+
+    def commit(self, repo: str, when: str, subject: str, catalog: Optional[JSONObject] = None) -> None:
+        """Makes one commit dated when, changing the catalog when one is given.
+
+        Args:
+            repo: The repository.
+            when: The commit's date, ISO 8601.
+            subject: Its subject.
+            catalog: The module catalog to write, or None for an empty commit.
+        """
+        if catalog is not None:
+            path = os.path.join(repo, githistory.CATALOG)
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(catalog, f)
+            subprocess.run(["git", "add", "-A"], cwd=repo, check=True, capture_output=True)
+        env = dict(os.environ, GIT_AUTHOR_DATE=when, GIT_COMMITTER_DATE=when, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t",
+                   GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@t", GIT_CONFIG_GLOBAL=os.devnull,
+                   GIT_CONFIG_SYSTEM=os.devnull)
+        subprocess.run(["git", "commit", "-q", "--allow-empty", "--no-verify", "-m", subject], cwd=repo, env=env,
+                       check=True, capture_output=True)
+
+    def test_days_totals_catalog_and_one_write_a_value(self) -> None:
+        """Counts commits and merged pull requests by UTC day, carries the
+        catalog's counts forward from the day it changed, dates each line by
+        the day's last commit, and writes a day again only when it changed."""
+        with tempfile.TemporaryDirectory() as d:
+            repo = os.path.join(d, "repo")
+            os.makedirs(repo)
+            subprocess.run(["git", "init", "-q", "-b", "main", repo], check=True, capture_output=True)
+            self.commit(repo, "2026-08-01T10:00:00Z", "feat: the first")
+            self.commit(repo, "2026-08-01T12:00:00Z", "Merge pull request #1 from x/y")
+            self.commit(repo, "2026-08-03T09:00:00Z", "feat: a catalog",
+                        {"a.b": {"status": "implemented"}, "a.c": {"status": "declared"}})
+            self.commit(repo, "2026-08-03T11:00:00Z", "feat: implement a.c",
+                        {"a.b": {"status": "implemented"}, "a.c": {"status": "implemented"}})
+            self.commit(repo, "2026-08-05T09:00:00Z", "Merge pull request #2 from x/z")
+
+            found = githistory.resolve(repo)
+            assert found is not None
+            self.assertEqual(found[0], "main")
+            got = githistory.days(repo, found[0])
+            self.assertEqual([g[0] for g in got], ["2026-08-01", "2026-08-03", "2026-08-05"])
+            self.assertEqual(got[0][2], {"commits": 2, "commits_total": 2, "merged_prs_total": 1, "methods": None,
+                                         "methods_implemented": None})
+            self.assertEqual(got[1][2], {"commits": 2, "commits_total": 4, "merged_prs_total": 1, "methods": 2,
+                                         "methods_implemented": 2})
+            self.assertEqual(got[2][2]["merged_prs_total"], 2)
+            self.assertEqual(got[2][2]["methods_implemented"], 2)
+            self.assertEqual(time.strftime("%Y-%m-%dT%H", time.gmtime(got[1][1])), "2026-08-03T11")
+
+            state = os.path.join(d, "state")
+            app = make_app(state, free_port())
+            app.root = repo
+            app.record_git()
+            app.record_git()
+            lines = list(timeline.read(paths.timeline_dir(state), kinds=["git.day"]))
+            self.assertEqual([get_str(ln, "src") for ln in lines], ["2026-08-01", "2026-08-03", "2026-08-05"])
+            self.assertTrue(os.path.exists(os.path.join(paths.timeline_dir(state), "history-2026-08.jsonl")))
+
+            self.commit(repo, "2026-08-05T10:00:00Z", "fix: one more")
+            app.record_git()
+            lines = list(timeline.read(paths.timeline_dir(state), kinds=["git.day"], src="2026-08-05"))
+            self.assertEqual([(as_object(ln.get("data")) or {}).get("commits") for ln in lines], [1, 2])
+            self.assertEqual(len(list(timeline.read(paths.timeline_dir(state), kinds=["git.day"]))), 4)
+
+    def test_outside_a_repository_nothing_is_written(self) -> None:
+        """A root git does not know writes no line and raises nothing."""
+        with tempfile.TemporaryDirectory() as d:
+            self.assertIsNone(githistory.count_methods("not json"))
+            env_dir = os.path.join(d, "plain")
+            os.makedirs(env_dir)
+            app = make_app(os.path.join(d, "state"), free_port())
+            app.root = env_dir
+            if githistory.resolve(env_dir) is None:
+                app.record_git()
+                self.assertEqual(list(timeline.read(paths.timeline_dir(os.path.join(d, "state")), kinds=["git.day"])), [])
 
 
 class SecurityTest(unittest.TestCase):

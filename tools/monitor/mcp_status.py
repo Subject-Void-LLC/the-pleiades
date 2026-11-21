@@ -357,7 +357,8 @@ TOOLS: Dict[str, Tuple[Tool, str, JSONObject]] = {
                 "(phase=\"41d\") with its items, and their full text with details=true.",
                 {"type": "object", "properties": {"phase": {"type": "string"}, "details": {"type": "boolean"}}}),
     "timeline": (t_timeline, "Every past value the status page recorded (JSONL history): kind is one or a comma list of "
-                 "daemon, gate.stage, gate.run, actions.run, actions.job, roadmap.summary, roadmap.phase, memory "
+                 "daemon, gate.stage, gate.run, actions.run, actions.job, roadmap.summary, roadmap.phase, git.day, "
+                 "memory "
                  "(a kind ending in '.' is a family); src narrows to one run id, phase id or Actions run; since is "
                  "epoch seconds; limit keeps the newest (default 200).",
                  {"type": "object", "properties": {"kind": {"type": "string"}, "src": {"type": "string"},

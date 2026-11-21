@@ -43,6 +43,7 @@ KINDS = (
     "roadmap.phase",   # one phase's state or counts changed
     "security.summary", # the attestation totals, pending count, waivers or unreleased changes changed
     "security.control", # one control's state, statement counts or review date changed
+    "git.day",         # the main line at the end of one day: commits, merged pull requests, catalog methods
     "memory",          # MemAvailable and swap in use, one sample a minute
 )
 

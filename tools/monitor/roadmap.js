@@ -2,7 +2,8 @@
 //
 // It reads /roadmap.json (the roadmap model, without item details) once a
 // minute, one phase's details on request (/roadmap.json?phase=ID&details=1),
-// and the recorded totals from /timeline?kind=roadmap.summary. Like
+// and the recorded totals from /timeline?kind=roadmap.summary, with the main
+// line's own history from /timeline?kind=git.day beneath them. Like
 // dashboard.js, whose helpers (el, clear, chip, css, chart, fmtTime,
 // axisStyle, tooltipStyle, timeAxis) it uses, it builds every node itself:
 // roadmap text is Markdown source, and only its bold and code spans are
@@ -19,6 +20,8 @@ const CLAMP_CHARS = 700;
 let roadmapDoc = null;
 let roadmapPhase = null;
 let roadmapTrend = [];
+// gitDays holds the newest git.day line of each day, oldest day first.
+let gitDays = [];
 // byId maps a phase id to its phase; up maps a phase to the ids it depends on; down the reverse.
 let byId = new Map();
 let up = new Map();
@@ -508,6 +511,50 @@ function renderTrend() {
   });
 }
 
+// renderGitTrend draws what git holds for every day since the first commit:
+// the roadmap's totals start when the daemon began recording, git does not.
+function renderGitTrend() {
+  const note = document.getElementById('rm-git-note');
+  const rows = gitDays.map((l) => Object.assign({ t: l.t, day: l.src }, l.data || {}));
+  const last = rows[rows.length - 1];
+  note.textContent = rows.length
+    ? rows.length + ' day(s) with a commit since ' + rows[0].day + ': ' + last.commits_total + ' commits, ' + last.merged_prs_total + ' merged pull requests'
+      + (last.methods != null ? ', ' + last.methods_implemented + ' of ' + last.methods + ' catalog methods implemented' : '') + ', as of this clone\'s last fetch.'
+    : 'Nothing recorded yet: the daemon reads the main line\'s history when it starts.';
+  const table = document.getElementById('rm-git-table');
+  clear(table);
+  table.appendChild(el('thead', {}, el('tr', {}, el('th', { scope: 'col', text: 'Day (UTC)' }), el('th', { scope: 'col', cls: 'num', text: 'Commits' }),
+    el('th', { scope: 'col', cls: 'num', text: 'Commits so far' }), el('th', { scope: 'col', cls: 'num', text: 'Merged pull requests' }),
+    el('th', { scope: 'col', cls: 'num', text: 'Methods implemented' }), el('th', { scope: 'col', cls: 'num', text: 'Methods listed' }))));
+  const body = el('tbody');
+  for (const r of rows.slice().reverse()) {
+    body.appendChild(el('tr', {}, el('td', { text: r.day }), el('td', { cls: 'num', text: r.commits }), el('td', { cls: 'num', text: r.commits_total }),
+      el('td', { cls: 'num', text: r.merged_prs_total }), el('td', { cls: 'num', text: r.methods_implemented == null ? '' : r.methods_implemented }),
+      el('td', { cls: 'num', text: r.methods == null ? '' : r.methods })));
+  }
+  table.appendChild(body);
+  const c = chart('rm-git');
+  if (!c || !rows.length) return;
+  const axis = axisStyle();
+  const day = (v) => new Date(v).toLocaleDateString([], { month: 'short', day: 'numeric' });
+  const line = (name, key, color, symbol, yAxisIndex) => ({ name, type: 'line', symbol, symbolSize: 5, showSymbol: rows.length < 40, yAxisIndex,
+    data: rows.filter((r) => r[key] != null).map((r) => [r.t * 1000, r[key]]), color: css(color) });
+  c.setOption({
+    animation: false,
+    grid: { left: 56, right: 56, top: 28, bottom: 32 },
+    tooltip: tooltipStyle({ trigger: 'axis' }),
+    legend: { top: 0, textStyle: { color: css('--text-secondary') } },
+    xAxis: Object.assign(timeAxis('rm-git', rows[0].t * 1000, Math.max(Date.now(), last.t * 1000)),
+      { axisLabel: { color: css('--text-secondary'), hideOverlap: true, formatter: day } }),
+    yAxis: [Object.assign({ type: 'value', name: 'commits' }, axis), Object.assign({ type: 'value', name: 'pull requests, methods', nameTextStyle: { align: 'right' } }, axis, { splitLine: { show: false } })],
+    series: [
+      line('Commits', 'commits_total', '--cat-1', 'circle', 0),
+      line('Merged pull requests', 'merged_prs_total', '--cat-2', 'triangle', 1),
+      line('Methods implemented', 'methods_implemented', '--cat-3', 'rect', 1),
+    ],
+  });
+}
+
 // pollRoadmap rereads the model; the server caches it until a file changes.
 async function pollRoadmap() {
   // Read the body on a 404 too: it says why there is no roadmap and how to configure one.
@@ -524,7 +571,15 @@ async function pollTrend() {
     const text = res.ok ? await res.text() : '';
     roadmapTrend = text.split('\n').filter(Boolean).map((l) => { try { return JSON.parse(l); } catch (e) { return null; } }).filter(Boolean);
   } catch (e) { roadmapTrend = []; }
-  if (!document.getElementById('view-roadmap').hidden) renderTrend();
+  try {
+    const res = await fetch('/timeline?kind=git.day&limit=5000', { cache: 'no-store' });
+    const text = res.ok ? await res.text() : '';
+    // A day still gaining commits is written again: keep each day's last line.
+    const byDay = new Map();
+    for (const l of text.split('\n').filter(Boolean)) { try { const o = JSON.parse(l); byDay.set(o.src, o); } catch (e) { /* a truncated line */ } }
+    gitDays = Array.from(byDay.values()).sort((a, b) => (a.src < b.src ? -1 : 1));
+  } catch (e) { gitDays = []; }
+  if (!document.getElementById('view-roadmap').hidden) { renderTrend(); renderGitTrend(); }
 }
 
 // showView shows one view, marks its link current and, when asked, moves focus to it.
@@ -539,7 +594,7 @@ function showView(name, focus) {
   document.title = views[name] + ' - Status page';
   const title = document.getElementById('view-title');
   title.textContent = views[name];
-  if (name === 'roadmap') { renderTrend(); drawDepLines(); }
+  if (name === 'roadmap') { renderTrend(); renderGitTrend(); drawDepLines(); }
   if (name === 'actions' && typeof renderActionsHistory === 'function') renderActionsHistory();
   if (name === 'security' && typeof renderSecurityTrend === 'function') renderSecurityTrend();
   Object.values(charts).forEach((c) => c.resize());

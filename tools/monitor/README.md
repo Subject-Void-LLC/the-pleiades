@@ -95,8 +95,13 @@ Kinds: `daemon` (start, stop, attach, backfill), `gate.stage` and
 state and review date), `actions.run` and
 `actions.job` (each status or conclusion change; backfilled lines are dated
 when the run or job ended), `roadmap.summary` and `roadmap.phase` (each
-change of the totals, or of a phase's state or counts), `memory` (one
-sample a minute). A value is written only when it changed, and the daemon
+change of the totals, or of a phase's state or counts), `git.day` (the
+main line at the end of each day with a commit, back to the first one:
+that day's commits, the running totals of commits and merged pull requests,
+and how many methods the module catalog listed and marked implemented; its
+`src` is the UTC day, and a day still gaining commits is written again, so
+a reader keeps the last line of each `src`), `memory` (one sample a
+minute). A value is written only when it changed, and the daemon
 reads the files when it starts, so a restart writes nothing twice. Each
 line is one `write` on a file opened `O_APPEND`, masked like everything
 else; a truncated last line is skipped. Read it at `/timeline?kind=...&src=...&since=...&limit=...`
