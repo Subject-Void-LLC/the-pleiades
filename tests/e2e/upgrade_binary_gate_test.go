@@ -535,6 +535,11 @@ func (s upgradeStack) upgradeAcrossContracts(t *testing.T, prev previousBuild, p
 			t.Fatalf("this build's refusal to upgrade beside the previous one does not say %q:\n%s", want, out)
 		}
 	}
+	// The guard refuses within about a second, so the refusal alone is too
+	// short a window to say the previous build went on serving: the balancer
+	// keeps asking it for a few readiness polls more, which is also the claim
+	// that matters, that it serves on after this build has come and gone.
+	time.Sleep(4 * readinessPoll)
 	probes, failures := overlap.finish()
 	if probes < 10 {
 		t.Fatalf("only %d requests reached the previous build while this one was refused; the overlap was not exercised", probes)
