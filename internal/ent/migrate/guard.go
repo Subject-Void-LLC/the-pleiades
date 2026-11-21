@@ -42,26 +42,40 @@
 //
 // # What it cannot see
 //
-// A controller is visible here only through its heartbeat, and a build that
-// already shipped cannot be changed to announce itself sooner. Two cases stay
-// open, and are said rather than hidden:
+// A controller is visible here only through its heartbeat. Two cases get past
+// that, each closed or left open as said here rather than hidden:
 //
 //   - An older controller starting at the moment of the upgrade. Its own gate
 //     reads the history before the contract commits and finds nothing to
 //     refuse; its first heartbeat then waits for the contract's transaction
-//     (the locks above) and lands after it, so this check never saw it. It
-//     serves until its first heartbeat tick, ControllerHeartbeatInterval later,
-//     reads the new floor and stops it. The window is any older start whose
-//     gate read falls inside the contract's transaction, or just before it.
+//     (the locks above) and lands after it, so this check never saw it. When
+//     that controller is of this build or a later one (so the contract is a
+//     later build's), it reads the schema again once its first heartbeat is
+//     recorded and refuses to serve, before anything else uses the database
+//     (cmd/controller's joinFleet): either this check sees its heartbeat, or
+//     that read sees the contract. A build from before that read, which every
+//     build older than 0052 is, cannot be changed, and serves until its first
+//     heartbeat tick, ControllerHeartbeatInterval later, reads the new floor
+//     and stops it.
 //   - An older controller that looks gone and is not: cut off from the
 //     database, paused, or failing its heartbeats for longer than
 //     ControllerLiveWithin. The guard counts it gone, the contract applies, and
-//     when it reaches the database again it serves until its next tick.
+//     when it reaches the database again it serves until its next tick. This
+//     is open for every build, this one included: no read made at start can
+//     see it, and no check made here can.
 //
-// What either writes in that window is at rest. For 0052, that is a plaintext
-// fact, which this build's fact store then refuses for that device
-// (internal/facts/entstore's errPlaintextRows). Closing these needs the
-// database itself to refuse an older build's writes; no check made here can.
+// What a controller writes in either window is at rest, so a contract whose
+// older build would write what the contract exists to stop has to make the
+// schema itself refuse those writes. 0052 (PostgreSQL 0049) does: it drops
+// facts.key, which every statement the build before it sends to the facts
+// table names, so its first one is refused and its transaction, which writes
+// the coverage and observation that name its keys only after its facts, rolls
+// back; and its fact_keyed check refuses a fact row naming no token or keys,
+// which is what any writer from before sealing inserts. Neither window can
+// store a plaintext fact any more. In either, an older controller can still
+// serve requests and write every other table until its next tick; each later
+// contract has to judge what that means for the tables it changes, and make
+// the schema refuse what must not be written.
 package migrate
 
 import (
