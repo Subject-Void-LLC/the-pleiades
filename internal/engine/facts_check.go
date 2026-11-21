@@ -122,8 +122,10 @@ func DeclaredBefore(dag *DAG, nodeID, key string) bool {
 
 // emitterTaints is each of keys that task (node id) declares it emits.
 func emitterTaints(id string, task *Task, keys []string) []FactTaint {
-	d, registered := collection.Lookup(task.FQCN)
-	if !registered {
+	// The registry, or on a Controller, which registers no Collection, the
+	// module catalog it installed.
+	m, known := collection.ManifestOf(task.FQCN)
+	if !known {
 		return nil
 	}
 	observes := observesInCheck(task.FQCN)
@@ -132,7 +134,7 @@ func emitterTaints(id string, task *Task, keys []string) []FactTaint {
 	}
 	var out []FactTaint
 	for _, key := range keys {
-		spec, ok := collection.FactFor(d.Manifest.Facts, key)
+		spec, ok := collection.FactFor(m.Facts, key)
 		if !ok {
 			continue
 		}
@@ -150,8 +152,8 @@ func emitterTaints(id string, task *Task, keys []string) []FactTaint {
 // third-party code whose declaration nothing holds it to) whose manifest says
 // it only reads.
 func observesInCheck(method string) bool {
-	d, ok := collection.Lookup(method)
-	return ok && d.Provider == nil && d.Manifest.Reversibility.ReadOnly
+	m, builtin := collection.BuiltinManifest(method)
+	return builtin && m.Reversibility.ReadOnly
 }
 
 // Reason is why t leaves its reader unchecked, for the check's ledger: the
