@@ -498,6 +498,9 @@ story, per `.AGENTS/AGENTS.md`.
 463. A test that starts a detached process reaps it on every exit path, a kill of the test runner included; after a run that was cut short, look for what it left, and report a leftover with its pid when it cannot be stopped within the session's permissions (a repeat in kind of FAILURE_PATTERNS 340; FAILURE_PATTERNS 1321) (2026-11-21)
 464. A gate that skips a language tests nothing written in it: when a branch's change is outside what the gate runs, the pull request says what covered it instead, with the commands and the counts (FAILURE_PATTERNS 1320; a sibling of LESSONS 271 and 365) (2026-11-21)
 465. When a subagent's work adds a published schema, a generated file or a new CLI command, its brief names every checker that classifies such things (tools/schemacompat, make docs-gen-check, the help golden), since the gate will run them all (a widening of 462; FAILURE_PATTERNS 1322, in kind of 661 and 1311) (2026-11-21).
+466. A tool that deletes proves its own keys and database are the right ones before it reads anything as damage (FAILURE_PATTERNS 1330 and 1332; beside LESSONS 321) (2026-11-21)
+467. A symlink or temporary path in front of a Go build changes the build cache key: never put a per-run path in front of `go list` or `go build` (FAILURE_PATTERNS 1337; beside FAILURE_PATTERNS 997) (2026-11-21)
+468. A wait-for-no-process loop must not be able to see itself: put it in a script file or wait on a pid (FAILURE_PATTERNS 1338; a limit on LESSONS 448; a repeat of FAILURE_PATTERNS 153, 689 and 1067) (2026-11-21)
 
 Each entry above is the rule only. Full reasoning and the incident that produced it lives in [`LESSONS_LEARNED_ARCHIVE.md`](LESSONS_LEARNED_ARCHIVE.md), same entry numbers. Read an archive entry when its rule is directly relevant to what you're doing and you need the *why*; the rule sentence above is usually enough on its own.
 

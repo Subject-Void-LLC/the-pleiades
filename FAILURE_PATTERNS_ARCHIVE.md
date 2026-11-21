@@ -28494,6 +28494,14 @@ any `.claude` directory. Related to 26, the reverse case (worktrees under `.clau
 
 **Lesson.** Pending. LESSONS 441 applies: this is a defect to reproduce, not an environment to note.
 
+**Root cause found, 2026-11-21 (FAILURE_PATTERNS 1337).** The cause is the length of the checkout's path, not the
+`.claude` directory. gosec hands a package to go/packages as absolute file paths, go/packages splits a list over
+16,383 characters into separate `go list` calls, and each part is type-checked alone. `internal/ent`'s 180 files
+came to 17,685 characters from `.claude/worktrees/agent-<16 hex>`, 15,885 from the other worktrees and 9,945 from the
+main clone. This entry's own worktree path was not recorded, so that it was over the limit is consistent with the
+cause and not measured. Still open: the workaround is a short path, and the rule above (run outside any `.claude`
+directory) is replaced by that. The "Root cause. Not found." paragraph is kept as written.
+
 ## 1158. Under an allowed span key (url.path, pleiades.device.name), a value with no secret shape is exported as is, and the exporter's "<METHOD> <route pattern>" shape check accepts any API-scope span name shaped like a path (open: a limit of the telemetry boundary)
 
 **Symptom.** Found on this branch, 2026-11-10, in review of 1148's fix. The masking exporter masks kept strings by shape
@@ -32129,6 +32137,15 @@ inspect or repair it; the docs say so.
 insert. Lock the row that owns the set, in the weakest mode that still excludes the conflicting writer, and prove it
 on PostgreSQL, where writers really run side by side.
 
+**Resolved in part, 2026-11-21, on branch `feat/facts-history-inspect-repair` (not merged when this was written).**
+The "Open" paragraph's missing tool now exists: `controller facts inspect` reports where a refused device's history
+fails, `controller facts truncate` keeps and re-keys what verifies before the failure, and `controller facts discard`
+removes the history so the next gather starts again (`TestFactsInspect_ReportsARefusedDevice`,
+`TestFactsRepair_ShowsThenTruncatesAndRecordsIt`, `TestTruncate_KeepsTheVerifiedPrefixAndRekeysIt`,
+`TestDiscard_RemovesExactlyThatDevicesHistory`). Both repairs remove history; nothing makes a history that does not
+verify verify again. The defects found in the tool before push are 1330 to 1336. The "Open" paragraph is kept as
+written.
+
 ## 1311. Two changes on the branch were handed on after only their own tests had run: the re-key took a PostgreSQL advisory lock that `TestNothingTakesAnAdvisoryLock` forbids, and the batch-sealing commit's new warning broke four tests that assert the consumer warns about nothing (fixed before push; process; a repeat of 865, in kind of 661)
 
 **Symptom.** 2026-11-20 and 2026-11-21, branch `feat/facts-at-rest`, before push. (a) The re-key's first PostgreSQL
@@ -32687,3 +32704,254 @@ was in the working tree, not yet committed, when this entry was written.
 an order must fail every time when the order is wrong, not half the time. A test over randomly generated
 identifiers is run several times before it is believed. A sweep for this class searches by shape (a list printed
 or serialized in the order a store or inventory returned it), not for the word "map".
+
+## 1330. `controller facts` read a wrong key as damage and offered to delete an intact history: a stale MASTER_ENCRYPTION_KEY made every device read `broken` with `truncate --confirm` cutting at the first gather, and a wrong facts key made every device `other_keys` with `discard --confirm` needing no second flag (fixed before push; security; caught in review)
+
+**Numbering.** Failure patterns 1322 to 1329 and LESSONS 465 are held by pull request #217, which was open when this
+branch's records were written. This branch numbers from 1330 and from LESSONS 466 so the two cannot collide.
+
+**Symptom.** 2026-11-21, branch `feat/facts-history-inspect-repair`, found in review before any pull request. The new
+`controller facts inspect|discard|truncate` was run with a `MASTER_ENCRYPTION_KEY` that was not the database's. No
+stored payload opened, so every device read `broken`, the advice said no key would help, and `truncate --confirm` cut
+at the first gather: it would have removed a history that was intact. With a wrong facts key every device read
+`other_keys`, and `discard --confirm` removed the history with no second flag.
+
+**Root cause.** The inspection classified what it could not open or verify as a fault in the stored rows. It never
+asked first whether the keys it had been given were the database's own. A wrong key and real damage produce the same
+reading row by row, and the tool that reads them can delete.
+
+**Search.** No earlier entry has this class (searched the index and archive for a wrong or stale key read as damage,
+and for a repair offered on a misconfiguration). LESSONS 321 asks of each new destructive device command what its
+argument could name; it does not ask what the command's own configuration could be.
+
+**Fix.** `85c63c9e`. (1) The command refuses a master key the database's key registry does not record
+(`TestFacts_RefusesAMasterKeyTheRegistryDoesNotRecord`). (2) Where the registry records no key, it warns, and a
+device no stored fact of which opens is a state of its own, `unopened`
+(`TestFacts_AWrongMasterKeyWithNoRegistryReadsAsUnopened`): its advice is to check the master key, and `truncate` is
+refused for it. (3) `discard` needs `--discard-unverifiable-history` for `other_keys`, `mixed_keys` and `unopened`
+(`TestDiscard_AnUnverifiableHistoryTakesItsFlag`). (4) The fleet summary says when every device fails the same way,
+which is what a wrong key looks like (`TestInspectAll_SaysWhenEveryDeviceIsWrongTheSameWay`,
+`TestFactsInspect_SaysWhenEveryDeviceIsUnderAnotherKey`).
+
+**Lesson.** LESSONS 466. A tool that can delete must be unable to mistake its own wrong configuration for damage in
+the data.
+
+## 1331. `controller facts truncate` cut at the gather where the chain first failed, so a row deleted at a gather boundary left the earlier gather's observation and coverage in place, showing an old value as confirmed by a gather that had seen a newer one (fixed before push; caught in review; a repeat in kind of 973)
+
+**Symptom.** 2026-11-21, branch `feat/facts-history-inspect-repair`, found in review before any pull request. A row
+was deleted at the end of one gather. The next gather's first row then failed with `chain_link_mismatch`, so the cut
+landed at that later gather. The earlier gather, whose write was the missing one, was kept with its observation and
+coverage. A read of the kept history showed the old value as confirmed by a gather that had in fact seen a newer one.
+The kept prefix verified, so the repair's soundness re-check did not fire.
+
+**Root cause.** The cut was placed where the failure was reported. A missing row is reported by the row after it,
+and that row can belong to a later gather than the one that lost the write. Observations and coverages are not part
+of the value chain, so a gather with a write missing still looks whole.
+
+**Why 973 did not prevent it.** 973 is the same wrong answer (a gather credited with confirming a value it replaced)
+from a different cause, two reads straddling a write, and its fix was the read order. Nothing in it speaks to a
+repair, which builds the same derived answer by choosing which gathers to keep.
+
+**Fix.** `85c63c9e`. For every failure kind, truncate cuts at the gather of the last stable row that verified and
+removes that gather whole, with everything after it (`TestTruncate_KeepsNoGatherWhoseWritesAreMissing` and its
+PostgreSQL twin). With nothing verified before the failure, truncate is not offered
+(`TestTruncate_RefusesWhatItCannotMakeSound`).
+
+**Limit, stated in the docs.** Gather numbers themselves are not protected by the chain.
+
+**Lesson.** A failure a chain reports at one row was caused at or before the row ahead of it. A repair that keeps a
+prefix cuts before the last thing it can prove, not at the first thing it cannot.
+
+## 1332. The read-only `controller facts inspect` opened the database through `ent.OpenDatabase`, which creates and migrates a new one and runs owed reclamation, so a wrong DB_PATH answered "every device's history can be served" and exit 0 on a database it had just made (fixed before push; caught in review; a repeat in kind of 284)
+
+**Symptom.** 2026-11-21, branch `feat/facts-history-inspect-repair`, found in review before any pull request.
+`controller facts inspect` with a `DB_PATH` that named no existing database created one, migrated it, and reported
+that every device's history can be served, with exit 0.
+
+**Root cause.** The command reused the server's opener. `ent.OpenDatabase` is built for a Controller starting up: it
+creates a missing database, applies migrations and runs an owed reclamation. A command documented as changing
+nothing took all three.
+
+**Why the earlier entries did not prevent it.** 284 is the nearest in kind: a mode that reads as harmless (`make -n
+up`) acted, and its lesson is to make such a mode refuse. It is about a Makefile and was not read as a rule for a new
+subcommand. The caller named 58 as the entry repeated; 58 is the reverse case (a read-only guard that refused too
+loudly for a dry run), so it is cited here as related, not as the same failure.
+
+**Fix.** `85c63c9e`. `ent.OpenExisting` (`internal/ent/open_existing.go`) opens without creating or migrating, and
+the command refuses a database that does not exist, has no migration history or is short of its build
+(`TestFacts_RefusesADatabaseItWouldHaveToCreateOrMigrate`).
+
+**Lesson.** LESSONS 466. A command that says it changes nothing gets an opener that can change nothing; the server's
+opener is not that. A healthy answer from an empty database is the worst wrong answer an inspection can give.
+
+## 1333. The docs said a device's facts routes answer 503 when a stored row under the current key does not open as its own (`ErrNotThisDevices`); the route answered 500 (fixed before push by making it a 503 that names the inspect command; caught in review; a repeat of 1312)
+
+**Symptom.** 2026-11-21, branch `feat/facts-history-inspect-repair`, found in review before any pull request.
+`docs/10-running-in-production.md` listed three states in which a device's facts routes answer 503. For the third,
+a row under the current key that does not open as the device's own, the route answered 500.
+
+**Root cause.** `entstore.Unavailable` did not cover `ErrNotThisDevices`, and the sentence was written from the
+design, not from a request against the route.
+
+**Why 1312 did not prevent it.** 1312, one day earlier, includes this exact claim (a comment saying the facts routes
+answer 503 when they answered 500) and its fix made the 503 true for the states it knew. Its rule (LESSONS 206: prove
+each surprising claim) is applied by a reviewer after the fact, and this branch added a new state to the same
+sentence without a test for that state.
+
+**Fix.** `85c63c9e`. `entstore.Unavailable` covers `ErrNotThisDevices`, and the 503 names the inspect command
+(`TestDeviceFacts_ARowThatDoesNotOpenAnswers503`, `TestUnavailable_NamesTheInspectCommand`,
+`TestUnavailable_NamesOnlyStatesThatLast`).
+
+**Lesson.** As 1312 and LESSONS 206. A sentence that lists the cases in which a route gives a status needs one test
+per case, written with the sentence.
+
+## 1334. The start-up rotation log named refused devices by ID, and `controller facts` took only the inventory name, so the log's advice could not be followed from the log (fixed before push; caught in review)
+
+**Symptom.** 2026-11-21, branch `feat/facts-history-inspect-repair`, found in review before any pull request. The
+Controller's start-up log lists the devices a facts key change refused, by device ID. The command it pointed to
+accepted `--device <name>` only.
+
+**Root cause.** The log line and the command were written from two sides: the re-key works on IDs, and the command
+was designed around what an operator types. Nobody walked from the log line to the command with only what the log
+printed.
+
+**Search.** No earlier entry has this class (searched for a message naming a thing in a form the suggested command
+does not take).
+
+**Fix.** `85c63c9e`, tests in `e2fa63d2`. `--device-id` on all three commands (`TestFacts_NamesADeviceByItsID`,
+`TestNameOf_ResolvesTheIDTheLogNames`), and the log line says the values are IDs and spells the command with
+`--device-id`.
+
+**Lesson.** A message that tells an operator to run a command gives its arguments in the form that command takes.
+Follow the advice once, with only the message in hand, before shipping it.
+
+## 1335. A device name reached the terminal unescaped in the repair's "Recorded:" line, while the file's comment said every name was escaped (fixed before push; caught in review; a repeat in kind of 1063 and 1163)
+
+**Symptom.** 2026-11-21, branch `feat/facts-history-inspect-repair`, found in review before any pull request. The
+text view of a repair (`cmd/controller/facts_repair_text.go`) printed its "Recorded:" line, which carries the
+device's name, as it was. The file's own comment said every name it prints is escaped.
+
+**Root cause.** The name reached that line inside a string built elsewhere, so the print site did not look like one
+that prints a name.
+
+**Why 1063 and 1163 did not prevent it.** Both are the same shape: an escape applied to the sites that visibly print
+a name, with one path left where the name travels inside another value. Their fixes were local to their commands,
+and no check holds a new command's print sites to the rule.
+
+**Fix.** `85c63c9e`. The line is printed through `termsafe.EscapeLine`. No test naming this line was found by the
+records pass; the caller's account is the evidence.
+
+**Lesson.** As 1063. Escape at the print, for every value that is not a constant, not only for the ones known to
+hold a name. A comment that says "every" is a claim to check line by line.
+
+## 1336. The repair's removal digest covered sealed payloads and row IDs, so a master key rotation or a SQLite table rebuild would have made it impossible to check against a backup (fixed before push; caught in review; no checker ships)
+
+**Symptom.** 2026-11-21, branch `feat/facts-history-inspect-repair`, found in review before any pull request. A
+repair records a keyed digest of the rows it removed, so that the removal can later be held against a backup taken
+before it. The first digest included each row's sealed payload and database ID.
+
+**Root cause.** Both change without the history changing. A master key rotation seals every payload again, and a
+table rebuild can renumber rows. The digest was built from the row as stored, not from what stays the same for as
+long as a backup is worth checking.
+
+**Search.** No earlier entry has this class (searched for a digest or receipt over fields that a later maintenance
+step rewrites). LESSONS 460 is about what a derived value leaks, not what it survives.
+
+**Fix.** `85c63c9e`. The digest covers the lookup tokens, keyed hashes, chain values, time, kind, gather and
+provenance, in stored order, and leaves out the sealed value and the ID (`internal/facts/entstore/repair_remove.go`).
+No test for the digest holding across a master key rotation was found by the records pass.
+
+**Open, stated in the docs.** This release ships no tool that recomputes the digest over a backup.
+
+**Lesson.** A digest kept as evidence covers only what no later routine operation rewrites. List the operations
+(rotation, rebuild, restore) before choosing the fields.
+
+## 1337. gosec could not type-check `internal/ent` from a checkout at a long path, because go/packages splits a file list over 16,383 characters into separate `go list` calls and each part is type-checked alone (open; worked around by a short path; a repeat of 1157, whose cause this is; a first fix hung the gate for 27 minutes and is not merged)
+
+**Symptom.** 2026-11-21, branch `feat/facts-history-inspect-repair`. `make pr-check`'s gosec step reported "gosec
+could not type-check 1 file(s)" with errors such as `undefined: Template` under `# command-line-arguments`. The
+branch's code built and passed its tests.
+
+**Root cause.** gosec hands a package to go/packages as a list of absolute file paths. go/packages splits a list
+longer than 16,383 characters into separate `go list` calls, and each part is then type-checked as a package of its
+own, so a file in one part cannot see a type declared in another. `internal/ent` has 180 files. Their paths come to
+17,685 characters from a worktree named `.claude/worktrees/agent-<16 hex>`, 15,885 from the other worktrees and 9,945
+from the main clone. Only the first is over the limit.
+
+**Why 1157 did not prevent it.** 1157 recorded the same symptom on 2026-11-10 with "Root cause. Not found", and its
+workaround was to run gosec from outside any `.claude` directory. That rule named the wrong property: the directory
+is not the cause, the length of the path is, so a short-named worktree under `.claude/worktrees/` passes and a long
+path anywhere else would fail. LESSONS 441 had said to reproduce it and not to note it as an environment; it was not
+reproduced until it stopped a gate again. 1157's own worktree path was not recorded, so that it was over the limit is
+consistent with this cause and not measured.
+
+**Workaround used.** The worktree was moved to a short path, and the gate's gosec step passed there.
+
+**A first fix that failed.** `tools/gosec-check` was changed to run gosec through a temporary symlink with a fresh
+name on each run. The gosec stage then hung for 27 minutes with swap full. The explanation is inferred from the
+symptoms and was not measured: a path that is new on every run misses the Go build cache, so the module was compiled
+again by many compilers at once under the gate's memory cap. Stopping the gate left 18 orphaned `go list` processes
+and their compilers holding about 5 GB, the leftover 997 describes. The commit is kept on the local branch
+`wip/gosec-shortpath` and is not merged.
+
+**Status.** Open. A real fix needs a short path that is the same on every run, or one gosec invocation per package.
+
+**Lesson.** LESSONS 467 and CI_LESSONS 41. An "undefined" type error under `# command-line-arguments`, on code that
+builds, means the tool was handed part of a package: measure the file list before reading the code.
+
+## 1338. Two background waiters each looped until `ps -eo args | rg '[m]onitor.py run --cap'` found nothing, each waiter's command line held text the pattern matched, and each waited on the other for half an hour with no gate running (process; worked around with a script file; a repeat of 153, 689 and 1067, in a form LESSONS 448's bracket rule does not cover)
+
+**Symptom.** 2026-11-21, branch `feat/facts-history-inspect-repair`. Two background shells were each told to wait
+until no gate was running and then go on. Both waited about half an hour. No gate was running in that time.
+
+**Root cause.** Each waiter listed every process's arguments and searched them for the monitor's command line. Each
+waiter's own command line held text the pattern matched, so each found the other. Which part of the command line
+matched was not recorded; the bracket in the pattern keeps the pattern itself from matching, so the likely text is
+the gate command each waiter went on to run, which is an inference.
+
+**Why 153, 689, 1067 and LESSONS 448 did not prevent it.** They are the same loop, and LESSONS 448's rule, the
+bracket form, was followed. The bracket form protects one thing: the pattern's own text. It does nothing for a
+second waiter, or for a command line that names the awaited program for another reason, such as starting it next.
+
+**Fix used.** A script file that runs the gates in sequence. The pattern is then on no process's command line, and
+nothing waits on a search at all. No guard enforces it.
+
+**Lesson.** LESSONS 468. A wait for "no such process" must be unable to see itself or its twin: keep the text out of
+every command line by putting the loop in a script file, or wait on a pid.
+
+## 1339. An agent-created worktree was removed when its subagent first finished, so the same subagent, resumed for a second task, had no working directory and built nothing (process; no code fix; practice stated)
+
+**Symptom.** 2026-11-21, branch `feat/facts-history-inspect-repair`. A subagent that had worked in an isolated
+worktree was resumed for a second task. Its worktree no longer existed, and the second task produced nothing.
+
+**Root cause.** The harness removes an isolated worktree that holds no change when its agent first finishes. The
+first task had left the worktree unchanged, so it was cleaned up, and the resume assumed it was still there.
+
+**Search.** No earlier entry has this class. 26, 157, 433 and 1306 are about worktrees polluting tools, moving a
+branch, or a gate started on the wrong one; none is about a worktree's lifetime.
+
+**Fix.** None in code. The practice: a subagent that may be resumed creates its worktree by hand under
+`.claude/worktrees/<name>`, or makes a commit before it reports, so the worktree is not unchanged.
+
+**Lesson.** A working directory someone else cleans up is held only while it has something in it. Before resuming an
+agent, check that its directory still exists.
+
+## 1340. pr-check's memory floor stopped a gate at 694 MB available (floor 700) that was started seconds after a thrashing process was killed, with a cold build cache from a moved worktree; the rerun passed (process; a repeat in kind of 732)
+
+**Symptom.** 2026-11-21, branch `feat/facts-history-inspect-repair`. A `make pr-check` run was stopped by testgate's
+headroom policy: memory available 694 MB, under the 700 MB floor. No test failed. The same gate, run again, passed.
+
+**Root cause.** Two things at once. The gate was started seconds after the hung gosec stage of 1337 was killed,
+before the memory its processes held had come back. And the worktree had just been moved to a short path, so its
+builds were cold.
+
+**Why 732 did not prevent it.** 732 is the same stop from the same kind of cause (a cold build costing far more than
+the warm numbers the run was packed by), on a lab VM, and its fix fed the manifest that machine's numbers. Nothing
+tells a local gate that this run's cache is cold, and nothing checks memory before the gate starts beyond the
+sampler that stopped it.
+
+**Fix.** None. The policy did what it is for. The rerun, started with memory free, passed.
+
+**Lesson.** After killing a run that filled memory or swap, read `free` and look for leftover `go list` and compile
+processes (997) before starting a gate. A gate on a moved or new checkout builds cold: give it the machine to
+itself.
