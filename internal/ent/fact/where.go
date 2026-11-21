@@ -65,11 +65,6 @@ func UpdatedAt(v time.Time) predicate.Fact {
 	return predicate.Fact(sql.FieldEQ(FieldUpdatedAt, v))
 }
 
-// Key applies equality check predicate on the "key" field. It's identical to KeyEQ.
-func Key(v string) predicate.Fact {
-	return predicate.Fact(sql.FieldEQ(FieldKey, v))
-}
-
 // KeyToken applies equality check predicate on the "key_token" field. It's identical to KeyTokenEQ.
 func KeyToken(v string) predicate.Fact {
 	return predicate.Fact(sql.FieldEQ(FieldKeyToken, v))
@@ -183,71 +178,6 @@ func UpdatedAtLT(v time.Time) predicate.Fact {
 // UpdatedAtLTE applies the LTE predicate on the "updated_at" field.
 func UpdatedAtLTE(v time.Time) predicate.Fact {
 	return predicate.Fact(sql.FieldLTE(FieldUpdatedAt, v))
-}
-
-// KeyEQ applies the EQ predicate on the "key" field.
-func KeyEQ(v string) predicate.Fact {
-	return predicate.Fact(sql.FieldEQ(FieldKey, v))
-}
-
-// KeyNEQ applies the NEQ predicate on the "key" field.
-func KeyNEQ(v string) predicate.Fact {
-	return predicate.Fact(sql.FieldNEQ(FieldKey, v))
-}
-
-// KeyIn applies the In predicate on the "key" field.
-func KeyIn(vs ...string) predicate.Fact {
-	return predicate.Fact(sql.FieldIn(FieldKey, vs...))
-}
-
-// KeyNotIn applies the NotIn predicate on the "key" field.
-func KeyNotIn(vs ...string) predicate.Fact {
-	return predicate.Fact(sql.FieldNotIn(FieldKey, vs...))
-}
-
-// KeyGT applies the GT predicate on the "key" field.
-func KeyGT(v string) predicate.Fact {
-	return predicate.Fact(sql.FieldGT(FieldKey, v))
-}
-
-// KeyGTE applies the GTE predicate on the "key" field.
-func KeyGTE(v string) predicate.Fact {
-	return predicate.Fact(sql.FieldGTE(FieldKey, v))
-}
-
-// KeyLT applies the LT predicate on the "key" field.
-func KeyLT(v string) predicate.Fact {
-	return predicate.Fact(sql.FieldLT(FieldKey, v))
-}
-
-// KeyLTE applies the LTE predicate on the "key" field.
-func KeyLTE(v string) predicate.Fact {
-	return predicate.Fact(sql.FieldLTE(FieldKey, v))
-}
-
-// KeyContains applies the Contains predicate on the "key" field.
-func KeyContains(v string) predicate.Fact {
-	return predicate.Fact(sql.FieldContains(FieldKey, v))
-}
-
-// KeyHasPrefix applies the HasPrefix predicate on the "key" field.
-func KeyHasPrefix(v string) predicate.Fact {
-	return predicate.Fact(sql.FieldHasPrefix(FieldKey, v))
-}
-
-// KeyHasSuffix applies the HasSuffix predicate on the "key" field.
-func KeyHasSuffix(v string) predicate.Fact {
-	return predicate.Fact(sql.FieldHasSuffix(FieldKey, v))
-}
-
-// KeyEqualFold applies the EqualFold predicate on the "key" field.
-func KeyEqualFold(v string) predicate.Fact {
-	return predicate.Fact(sql.FieldEqualFold(FieldKey, v))
-}
-
-// KeyContainsFold applies the ContainsFold predicate on the "key" field.
-func KeyContainsFold(v string) predicate.Fact {
-	return predicate.Fact(sql.FieldContainsFold(FieldKey, v))
 }
 
 // KeyTokenEQ applies the EQ predicate on the "key_token" field.

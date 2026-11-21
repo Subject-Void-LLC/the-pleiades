@@ -8545,7 +8545,6 @@ type FactMutation struct {
 	id                 *int
 	created_at         *time.Time
 	updated_at         *time.Time
-	key                *string
 	key_token          *string
 	payload            *map[string]interface{}
 	hash               *string
@@ -8734,42 +8733,6 @@ func (m *FactMutation) OldUpdatedAt(ctx context.Context) (v time.Time, err error
 // ResetUpdatedAt resets all changes to the "updated_at" field.
 func (m *FactMutation) ResetUpdatedAt() {
 	m.updated_at = nil
-}
-
-// SetKey sets the "key" field.
-func (m *FactMutation) SetKey(s string) {
-	m.key = &s
-}
-
-// Key returns the value of the "key" field in the mutation.
-func (m *FactMutation) Key() (r string, exists bool) {
-	v := m.key
-	if v == nil {
-		return
-	}
-	return *v, true
-}
-
-// OldKey returns the old "key" field's value of the Fact entity.
-// If the Fact object wasn't provided to the builder, the object is fetched from the database.
-// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
-func (m *FactMutation) OldKey(ctx context.Context) (v string, err error) {
-	if !m.op.Is(OpUpdateOne) {
-		return v, errors.New("OldKey is only allowed on UpdateOne operations")
-	}
-	if m.id == nil || m.oldValue == nil {
-		return v, errors.New("OldKey requires an ID field in the mutation")
-	}
-	oldValue, err := m.oldValue(ctx)
-	if err != nil {
-		return v, fmt.Errorf("querying old value for OldKey: %w", err)
-	}
-	return oldValue.Key, nil
-}
-
-// ResetKey resets all changes to the "key" field.
-func (m *FactMutation) ResetKey() {
-	m.key = nil
 }
 
 // SetKeyToken sets the "key_token" field.
@@ -9326,15 +9289,12 @@ func (m *FactMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *FactMutation) Fields() []string {
-	fields := make([]string, 0, 14)
+	fields := make([]string, 0, 13)
 	if m.created_at != nil {
 		fields = append(fields, fact.FieldCreatedAt)
 	}
 	if m.updated_at != nil {
 		fields = append(fields, fact.FieldUpdatedAt)
-	}
-	if m.key != nil {
-		fields = append(fields, fact.FieldKey)
 	}
 	if m.key_token != nil {
 		fields = append(fields, fact.FieldKeyToken)
@@ -9381,8 +9341,6 @@ func (m *FactMutation) Field(name string) (ent.Value, bool) {
 		return m.CreatedAt()
 	case fact.FieldUpdatedAt:
 		return m.UpdatedAt()
-	case fact.FieldKey:
-		return m.Key()
 	case fact.FieldKeyToken:
 		return m.KeyToken()
 	case fact.FieldPayload:
@@ -9418,8 +9376,6 @@ func (m *FactMutation) OldField(ctx context.Context, name string) (ent.Value, er
 		return m.OldCreatedAt(ctx)
 	case fact.FieldUpdatedAt:
 		return m.OldUpdatedAt(ctx)
-	case fact.FieldKey:
-		return m.OldKey(ctx)
 	case fact.FieldKeyToken:
 		return m.OldKeyToken(ctx)
 	case fact.FieldPayload:
@@ -9464,13 +9420,6 @@ func (m *FactMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetUpdatedAt(v)
-		return nil
-	case fact.FieldKey:
-		v, ok := value.(string)
-		if !ok {
-			return fmt.Errorf("unexpected type %T for field %s", value, name)
-		}
-		m.SetKey(v)
 		return nil
 	case fact.FieldKeyToken:
 		v, ok := value.(string)
@@ -9651,9 +9600,6 @@ func (m *FactMutation) ResetField(name string) error {
 		return nil
 	case fact.FieldUpdatedAt:
 		m.ResetUpdatedAt()
-		return nil
-	case fact.FieldKey:
-		m.ResetKey()
 		return nil
 	case fact.FieldKeyToken:
 		m.ResetKeyToken()

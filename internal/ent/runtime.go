@@ -333,14 +333,8 @@ func init() {
 	fact.DefaultUpdatedAt = factDescUpdatedAt.Default.(func() time.Time)
 	// fact.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
 	fact.UpdateDefaultUpdatedAt = factDescUpdatedAt.UpdateDefault.(func() time.Time)
-	// factDescKey is the schema descriptor for key field.
-	factDescKey := factFields[0].Descriptor()
-	// fact.DefaultKey holds the default value on creation for the key field.
-	fact.DefaultKey = factDescKey.Default.(string)
-	// fact.KeyValidator is a validator for the "key" field. It is called by the builders before save.
-	fact.KeyValidator = factDescKey.Validators[0].(func(string) error)
 	// factDescKeyToken is the schema descriptor for key_token field.
-	factDescKeyToken := factFields[1].Descriptor()
+	factDescKeyToken := factFields[0].Descriptor()
 	// fact.DefaultKeyToken holds the default value on creation for the key_token field.
 	fact.DefaultKeyToken = factDescKeyToken.Default.(string)
 	// fact.KeyTokenValidator is a validator for the "key_token" field. It is called by the builders before save.
@@ -360,11 +354,11 @@ func init() {
 		}
 	}()
 	// factDescHash is the schema descriptor for hash field.
-	factDescHash := factFields[3].Descriptor()
+	factDescHash := factFields[2].Descriptor()
 	// fact.HashValidator is a validator for the "hash" field. It is called by the builders before save.
 	fact.HashValidator = factDescHash.Validators[0].(func(string) error)
 	// factDescKeyedBy is the schema descriptor for keyed_by field.
-	factDescKeyedBy := factFields[4].Descriptor()
+	factDescKeyedBy := factFields[3].Descriptor()
 	// fact.DefaultKeyedBy holds the default value on creation for the keyed_by field.
 	fact.DefaultKeyedBy = factDescKeyedBy.Default.(string)
 	// fact.KeyedByValidator is a validator for the "keyed_by" field. It is called by the builders before save.
@@ -384,7 +378,7 @@ func init() {
 		}
 	}()
 	// factDescObservationSeq is the schema descriptor for observation_seq field.
-	factDescObservationSeq := factFields[9].Descriptor()
+	factDescObservationSeq := factFields[8].Descriptor()
 	// fact.DefaultObservationSeq holds the default value on creation for the observation_seq field.
 	fact.DefaultObservationSeq = factDescObservationSeq.Default.(int64)
 	// fact.ObservationSeqValidator is a validator for the "observation_seq" field. It is called by the builders before save.

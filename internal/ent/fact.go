@@ -23,8 +23,6 @@ type Fact struct {
 	CreatedAt time.Time `json:"created_at,omitempty"`
 	// UpdatedAt holds the value of the "updated_at" field.
 	UpdatedAt time.Time `json:"updated_at,omitempty"`
-	// Key holds the value of the "key" field.
-	Key string `json:"key,omitempty"`
 	// KeyToken holds the value of the "key_token" field.
 	KeyToken string `json:"key_token,omitempty"`
 	// Payload holds the value of the "payload" field.
@@ -83,7 +81,7 @@ func (*Fact) scanValues(columns []string) ([]any, error) {
 			values[i] = new([]byte)
 		case fact.FieldID, fact.FieldObservationSeq:
 			values[i] = new(sql.NullInt64)
-		case fact.FieldKey, fact.FieldKeyToken, fact.FieldHash, fact.FieldKeyedBy, fact.FieldKind, fact.FieldChainPrev, fact.FieldChain:
+		case fact.FieldKeyToken, fact.FieldHash, fact.FieldKeyedBy, fact.FieldKind, fact.FieldChainPrev, fact.FieldChain:
 			values[i] = new(sql.NullString)
 		case fact.FieldCreatedAt, fact.FieldUpdatedAt, fact.FieldLastSeenAt:
 			values[i] = new(sql.NullTime)
@@ -121,12 +119,6 @@ func (_m *Fact) assignValues(columns []string, values []any) error {
 				return fmt.Errorf("unexpected type %T for field updated_at", values[i])
 			} else if value.Valid {
 				_m.UpdatedAt = value.Time
-			}
-		case fact.FieldKey:
-			if value, ok := values[i].(*sql.NullString); !ok {
-				return fmt.Errorf("unexpected type %T for field key", values[i])
-			} else if value.Valid {
-				_m.Key = value.String
 			}
 		case fact.FieldKeyToken:
 			if value, ok := values[i].(*sql.NullString); !ok {
@@ -254,9 +246,6 @@ func (_m *Fact) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("updated_at=")
 	builder.WriteString(_m.UpdatedAt.Format(time.ANSIC))
-	builder.WriteString(", ")
-	builder.WriteString("key=")
-	builder.WriteString(_m.Key)
 	builder.WriteString(", ")
 	builder.WriteString("key_token=")
 	builder.WriteString(_m.KeyToken)

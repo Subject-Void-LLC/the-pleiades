@@ -211,7 +211,7 @@ func aMovedRowDoesNotOpen(t *testing.T, client *ent.Client, device string, db *s
 	store := entstore.New(client, factstest.Keys(), factstest.Envelope())
 	gatherThrice(t, store, device)
 	other := client.Device.Create().SetName("web2").SetType("linux_server").SetProperties(map[string]any{"host": "10.0.0.2"}).SaveX(ctx)
-	columns := "created_at, updated_at, key, key_token, payload, hash, keyed_by, kind, provenance, observation_seq, chain"
+	columns := "created_at, updated_at, key_token, payload, hash, keyed_by, kind, provenance, observation_seq, chain"
 	move := "INSERT INTO facts (" + columns + ", device_facts) SELECT " + columns + ", " + placeholder(1) +
 		" FROM facts WHERE id = (SELECT min(id) FROM facts WHERE kind = 'stable')"
 	if _, err := db.ExecContext(ctx, move, other.ID); err != nil {

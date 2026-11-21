@@ -7,7 +7,9 @@
 //
 // Its first run is also its own evidence: the classifier must flag exactly the
 // six migrations already known to break the build before them, and nothing
-// else in either dialect's history. A classifier that flagged more would make
+// else in either dialect's history. Facts at rest (SQLite 0052, PostgreSQL
+// 0049) is the one contract declared since, and it is flagged for the key
+// column it drops. A classifier that flagged more would make
 // the policy impossible to follow; one that flagged fewer would miss the
 // failures that shipped.
 package migrate

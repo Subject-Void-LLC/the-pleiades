@@ -31,7 +31,8 @@
 //     at its next heartbeat.
 //
 // What none of them can see, and review must: a column whose MEANING changes
-// while its shape does not (declare it with semantic set), NATS stream and
+// while its shape does not (declare it with semantic set), a CHECK constraint
+// added to an existing table (the shape test reads no checks), NATS stream and
 // wire formats, and a new value of an enum stored as text. One more is seen
 // and deliberately allowed: a NEW table's foreign key onto an existing one.
 // Its rows are written only by the newer build, but while they exist an older
@@ -97,7 +98,6 @@ var contracts = map[string]map[string]contract{
 		},
 		"0052_fact_at_rest.sql": {
 			compatibleFrom: "0052_fact_at_rest.sql",
-			semantic:       true,
 			reason:         factAtRestReason,
 		},
 	},
@@ -114,18 +114,18 @@ var contracts = map[string]map[string]contract{
 		},
 		"0049_fact_at_rest.sql": {
 			compatibleFrom: "0049_fact_at_rest.sql",
-			semantic:       true,
 			reason:         factAtRestReason,
 		},
 	},
 }
 
-// factAtRestReason is why the facts at rest migration is a contract although
-// its shape only expands: the table keeps every column a build before it
-// writes, so that build would go on writing, and what it writes is the
-// plaintext the migration deleted. Only the floor, and the guard while one
-// still runs (guard.go), keep it from doing so.
-const factAtRestReason = "seals stored facts, and the build before it would store a fact's key and value in plaintext again, which this build refuses to read"
+// factAtRestReason is why the facts at rest migration is a contract: what a
+// build before it stores is the plaintext the migration deleted, so the
+// migration makes the schema refuse that build's writes outright (it drops the
+// key column every one of them names, and its fact_keyed check refuses a row
+// with no token or keys), and the floor and the guard keep that build from
+// running against the schema at all.
+const factAtRestReason = "seals stored facts and drops facts.key, which the build before it reads and writes, so that build can no longer store a fact's key and value in plaintext"
 
 // floorAfter returns the compatibility floor a database of this dialect has
 // once the named migration is applied: the highest compatibleFrom among the

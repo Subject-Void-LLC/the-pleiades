@@ -2,6 +2,8 @@ package schema
 
 import (
 	"entgo.io/ent"
+	"entgo.io/ent/dialect/entsql"
+	"entgo.io/ent/schema"
 	"entgo.io/ent/schema/edge"
 	"entgo.io/ent/schema/field"
 	"entgo.io/ent/schema/index"
@@ -30,17 +32,18 @@ func (Fact) Mixin() []ent.Mixin {
 func (Fact) Fields() []ent.Field {
 	return []ent.Field{
 		// A stored fact names nothing in plaintext (internal/facts' atrest.go,
-		// the owner's decision of 2026-11-19). key is what a build before that
-		// kept the fact's name in; this build writes it empty and reads it
-		// never, and it stays only so an older build can still serve the
-		// schema (the expand-only rule in internal/ent/migrate's compat.go).
-		// The 1.0.0 golden image drops it with the squash.
-		field.String("key").Default("").MaxLen(256).Immutable(),
+		// the owner's decision of 2026-11-19). A build before that kept the
+		// fact's name in a key column, which the facts at rest migration
+		// dropped (SQLite 0052, PostgreSQL 0049), so every statement such a
+		// build sends to this table names a column that is not there and is
+		// refused (Annotations below has the rest of that).
+		//
 		// key_token is what a row is looked up by: HMAC-SHA-256 over the
 		// device's ID, a NUL and the fact's key, under the store's token key
 		// (facts.Keys.Token), so the table names no key and one key on two
-		// devices gives two tokens. The SQL default only keeps the column an
-		// expand migration; NotEmpty refuses an empty token on every write
+		// devices gives two tokens. The SQL default is there only because
+		// SQLite adds a NOT NULL column only with one; the fact_keyed check
+		// refuses it, and NotEmpty refuses an empty token on every write
 		// through the generated client, to which it is immutable. The one
 		// other write is a change of the facts key, which rewrites it with
 		// hash, keyed_by and the chain link (internal/ent's fact_rekey.go).
@@ -68,9 +71,9 @@ func (Fact) Fields() []ent.Field {
 		// them, except a device under the previous keys of a change of the
 		// facts key (PLEIADES_FACTS_DIGEST_KEY_PREVIOUS): it re-keys that
 		// device's rows, rewriting this column with the token, the hash and
-		// the chain link through fact_rekey.go. Empty, the SQL default, is a
-		// row a build from before facts were sealed wrote in plaintext, which
-		// no key re-keys and the store refuses with its own reason.
+		// the chain link through fact_rekey.go. Its SQL default is there for
+		// the same reason as key_token's and is refused the same way, so no
+		// row names no keys.
 		field.String("keyed_by").Default("").NotEmpty().MaxLen(128).Immutable(),
 		// kind is what the emitting method declared (Phase 41b): a stable
 		// key's rows are its history; a volatile key keeps one row, replaced
@@ -83,13 +86,12 @@ func (Fact) Fields() []ent.Field {
 		// last_seen_at and last_provenance are what a build before 41h kept
 		// here and moved on every confirmation. This build writes neither
 		// and reads neither (it reads FactObservation), and both are
-		// immutable, so it cannot move them. They stay only so a build from
-		// before 41h can still serve this schema (the expand-only rule in
-		// internal/ent/migrate's compat.go); the 1.0.0 golden image drops
-		// them with the squash. A build from before 41h can serve the
-		// schema, but what it writes this build reads as observed once and
-		// never confirmed (its rows carry observation_seq 0); nothing that
-		// old is deployed (pre-1.0, forward only).
+		// immutable, so it cannot move them. They stayed so a build from
+		// before 41h could still serve the schema (the expand-only rule in
+		// internal/ent/migrate's compat.go). No build from before facts at
+		// rest serves it now, since that migration is a contract, so they
+		// hold nothing anyone reads; the 1.0.0 golden image drops them with
+		// the squash.
 		field.Time("last_seen_at").Optional().Immutable(),
 		field.JSON("last_provenance", map[string]interface{}{}).Optional().Immutable(),
 		// observation_seq is the device's FactObservation that wrote this
@@ -117,6 +119,25 @@ func (Fact) Indexes() []ent.Index {
 		index.Fields("key_token").Edges("device"),
 		index.Edges("device"),
 		index.Fields("chain_prev").Edges("device").Unique(),
+	}
+}
+
+// Annotations of the Fact.
+//
+// The check, fact_keyed, refuses a row with an empty key_token or keyed_by,
+// which is every row a build from before facts were sealed would write: such
+// a build knows neither column, so its insert leaves both at their empty
+// default. The dropped key column already refuses every statement the build
+// just before sealing sends here (each names it). The check also refuses a
+// writer that names neither column, such as a build from before the key
+// column existed, so no writer that predates sealing can store a row in any
+// shape, and every row there is names the keys it is read under. The
+// expression is plain SQL both dialects read the same way.
+func (Fact) Annotations() []schema.Annotation {
+	return []schema.Annotation{
+		entsql.Checks(map[string]string{
+			"fact_keyed": "key_token <> '' AND keyed_by <> ''",
+		}),
 	}
 }
 

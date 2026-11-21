@@ -19,8 +19,6 @@ const (
 	FieldCreatedAt = "created_at"
 	// FieldUpdatedAt holds the string denoting the updated_at field in the database.
 	FieldUpdatedAt = "updated_at"
-	// FieldKey holds the string denoting the key field in the database.
-	FieldKey = "key"
 	// FieldKeyToken holds the string denoting the key_token field in the database.
 	FieldKeyToken = "key_token"
 	// FieldPayload holds the string denoting the payload field in the database.
@@ -61,7 +59,6 @@ var Columns = []string{
 	FieldID,
 	FieldCreatedAt,
 	FieldUpdatedAt,
-	FieldKey,
 	FieldKeyToken,
 	FieldPayload,
 	FieldHash,
@@ -103,10 +100,6 @@ var (
 	DefaultUpdatedAt func() time.Time
 	// UpdateDefaultUpdatedAt holds the default value on update for the "updated_at" field.
 	UpdateDefaultUpdatedAt func() time.Time
-	// DefaultKey holds the default value on creation for the "key" field.
-	DefaultKey string
-	// KeyValidator is a validator for the "key" field. It is called by the builders before save.
-	KeyValidator func(string) error
 	// DefaultKeyToken holds the default value on creation for the "key_token" field.
 	DefaultKeyToken string
 	// KeyTokenValidator is a validator for the "key_token" field. It is called by the builders before save.
@@ -165,11 +158,6 @@ func ByCreatedAt(opts ...sql.OrderTermOption) OrderOption {
 // ByUpdatedAt orders the results by the updated_at field.
 func ByUpdatedAt(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldUpdatedAt, opts...).ToFunc()
-}
-
-// ByKey orders the results by the key field.
-func ByKey(opts ...sql.OrderTermOption) OrderOption {
-	return sql.OrderByField(FieldKey, opts...).ToFunc()
 }
 
 // ByKeyToken orders the results by the key_token field.

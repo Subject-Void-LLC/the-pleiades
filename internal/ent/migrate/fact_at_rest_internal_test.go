@@ -40,7 +40,7 @@ func seedPlaintextFact(t *testing.T, db *sql.DB, placeholder func(n int) string)
 
 // TestApply_TheFactAtRestMigrationRemovesEveryPlaintextFact: on both
 // dialects, a database holding plaintext facts comes out of the migration
-// with none, the device kept, the new columns there and the old index gone.
+// with none, the device kept, the new columns there and the key column gone.
 func TestApply_TheFactAtRestMigrationRemovesEveryPlaintextFact(t *testing.T) {
 	forEachDialect(t, func(t *testing.T, dialectName string) {
 		ctx := context.Background()
@@ -68,13 +68,15 @@ func TestApply_TheFactAtRestMigrationRemovesEveryPlaintextFact(t *testing.T) {
 		if n := countRows(t, db, "devices"); n != 1 {
 			t.Errorf("devices holds %d row(s), want the one device kept", n)
 		}
-		// The new columns take a row, and the old index is gone.
+		// The new columns are there, and the plaintext key column is gone
+		// with its index (what that leaves an older build is
+		// fact_at_rest_refusal_internal_test.go's).
 		if _, err := db.Exec(`SELECT key_token, keyed_by FROM facts`); err != nil {
 			t.Errorf("the new columns: %v", err)
 		}
 		model := readModel(t, dialectName, db)
-		if _, ok := model.tables["facts"].columns["key"]; !ok {
-			t.Error("the migration dropped facts.key, which an older build still reads")
+		if _, ok := model.tables["facts"].columns["key"]; ok {
+			t.Error("facts.key is still there, so the build before facts at rest can still store a fact's key in plaintext")
 		}
 	})
 }

@@ -186,10 +186,6 @@ func (s *Store) rekey(ctx context.Context, tx *ent.Tx, dev int, device string) (
 	under := 0
 	for _, row := range rows {
 		switch {
-		case row.KeyedBy == "":
-			// keyState refused such a row before this transaction began;
-			// here only for one an older Controller wrote since then.
-			return rekeyed{}, errPlaintextRows
 		case previous != "" && row.KeyedBy == previous:
 			under++
 		case row.KeyedBy != current:

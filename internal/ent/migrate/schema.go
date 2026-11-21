@@ -327,7 +327,6 @@ var (
 		{Name: "id", Type: field.TypeInt, Increment: true},
 		{Name: "created_at", Type: field.TypeTime},
 		{Name: "updated_at", Type: field.TypeTime},
-		{Name: "key", Type: field.TypeString, Size: 256, Default: ""},
 		{Name: "key_token", Type: field.TypeString, Size: 64, Default: ""},
 		{Name: "payload", Type: field.TypeJSON},
 		{Name: "hash", Type: field.TypeString},
@@ -349,7 +348,7 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "facts_devices_facts",
-				Columns:    []*schema.Column{FactsColumns[15]},
+				Columns:    []*schema.Column{FactsColumns[14]},
 				RefColumns: []*schema.Column{DevicesColumns[0]},
 				OnDelete:   schema.NoAction,
 			},
@@ -358,17 +357,17 @@ var (
 			{
 				Name:    "fact_key_token_device_facts",
 				Unique:  false,
-				Columns: []*schema.Column{FactsColumns[4], FactsColumns[15]},
+				Columns: []*schema.Column{FactsColumns[3], FactsColumns[14]},
 			},
 			{
 				Name:    "fact_device_facts",
 				Unique:  false,
-				Columns: []*schema.Column{FactsColumns[15]},
+				Columns: []*schema.Column{FactsColumns[14]},
 			},
 			{
 				Name:    "fact_chain_prev_device_facts",
 				Unique:  true,
-				Columns: []*schema.Column{FactsColumns[13], FactsColumns[15]},
+				Columns: []*schema.Column{FactsColumns[12], FactsColumns[14]},
 			},
 		},
 	}
@@ -1442,6 +1441,10 @@ func init() {
 	DevicesTable.ForeignKeys[0].RefTable = DevicesTable
 	DevicesTable.ForeignKeys[1].RefTable = OrganizationsTable
 	FactsTable.ForeignKeys[0].RefTable = DevicesTable
+	FactsTable.Annotation = &entsql.Annotation{}
+	FactsTable.Annotation.Checks = map[string]string{
+		"fact_keyed": "key_token <> '' AND keyed_by <> ''",
+	}
 	FactCoveragesTable.ForeignKeys[0].RefTable = DevicesTable
 	FactObservationsTable.ForeignKeys[0].RefTable = DevicesTable
 	InventoriesTable.ForeignKeys[0].RefTable = OrganizationsTable
