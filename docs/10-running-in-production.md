@@ -438,8 +438,10 @@ under `.pleiades/facts` and gather its facts again.
 
 Sealing covers what is stored, not what a run shows. `pleiades run --json`, a task's
 `register`, `pleiades facts` and the facts routes return values to whoever is allowed
-to ask, by design, and the run journal keeps the names of the results a method
-declares, never a fact's own name or value.
+to ask, by design. The run journal keeps the names of the results a method
+declares, some of which are also fixed fact names (`host.name`, `os.kernel.release`).
+It never keeps a name that comes from the device, such as `package.<name>` or
+`user.<name>`, and never a value.
 
 ### What the chart refuses to install
 
