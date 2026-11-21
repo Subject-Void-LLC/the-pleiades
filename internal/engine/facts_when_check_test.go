@@ -12,6 +12,8 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
 
 // installThenRead installs a package, then probes where its fact says so.
@@ -262,6 +264,46 @@ tasks:
 	for device, n := range resultsOf(result, "tasks[1]") {
 		if n.Skipped || n.Unchecked || n.Err != nil {
 			t.Errorf("on %s: %s, want it checked, the codename absent", device, describe(n))
+		}
+	}
+}
+
+// TestFactsCheck_AReadOnlyMethodWhoseCheckIsNotItsRunDoesNotObserve: a
+// read-only method whose Check is another function than its Invoke predicts
+// rather than reads, so what it emits during a check is no observation, and
+// a checked task reading it is unchecked.
+func TestFactsCheck_AReadOnlyMethodWhoseCheckIsNotItsRunDoesNotObserve(t *testing.T) {
+	registerFactsRead(t)
+	emit := func(context.Context, sdk.RunbookContext, inventory.InventoryItem, map[string]any) (collection.Result, error) {
+		return collection.Result{}, nil
+	}
+	predict := func(_ context.Context, rc sdk.RunbookContext, _ inventory.InventoryItem, _ map[string]any) (collection.Result, error) {
+		return collection.Result{}, rc.EmitFact("tfx.kernel", "6.1")
+	}
+	if err := collection.Register(collection.Descriptor{Name: "tfx.peek", Invoke: emit, Check: predict,
+		Manifest: collection.Manifest{Status: collection.StatusImplemented, SupportsCheck: true, Reversibility: collection.Reversibility{ReadOnly: true, Notes: "a fixture"},
+			Facts: []collection.FactSpec{{Key: "tfx.kernel", Kind: collection.FactStable, Type: collection.FactString, Description: "the kernel"}}}}); err != nil {
+		t.Fatal(err)
+	}
+	if engine.ObservesInCheck("tfx.peek") || !engine.ObservesInCheck("tfx.gather") {
+		t.Fatal("ObservesInCheck does not tell a Check that is its run from one that is not")
+	}
+	result, err := newCheckExecutor(factsFleet(), engine.WithFactReader(&fakeReader{}), engine.WithMode(collection.ModeCheck)).Run(context.Background(), factsDAG(t, `
+id: peek
+hosts: fleet
+tasks:
+  - name: peek
+    tfx.peek: {}
+  - name: read
+    when: facts["tfx.kernel"] == "6.1"
+    tfx.probe: {}
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for device, n := range resultsOf(result, "tasks[1]") {
+		if !n.Unchecked {
+			t.Errorf("on %s: %s, want it unchecked", device, describe(n))
 		}
 	}
 }

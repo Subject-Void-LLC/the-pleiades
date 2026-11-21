@@ -25,6 +25,7 @@ package engine
 
 import (
 	"fmt"
+	"reflect"
 	"sort"
 	"strconv"
 
@@ -133,7 +134,7 @@ func emitterTaints(id string, task *Task, keys []string) []FactTaint {
 	if !known {
 		return nil
 	}
-	observes := observesInCheck(task.FQCN)
+	observes := ObservesInCheck(task.FQCN)
 	if observes {
 		observes, _ = Checkable(task.FQCN, task.Params)
 	}
@@ -152,13 +153,20 @@ func emitterTaints(id string, task *Task, keys []string) []FactTaint {
 	return out
 }
 
-// observesInCheck reports whether method reads the device when checked, so
-// what it emits then is an observation: a built-in (a program's methods are
-// third-party code whose declaration nothing holds it to) whose manifest says
-// it only reads.
-func observesInCheck(method string) bool {
-	m, builtin := collection.BuiltinManifest(method)
-	return builtin && m.Reversibility.ReadOnly
+// ObservesInCheck reports whether method reads the device when checked, so
+// what it emits then is an observation a later checked task may read: a
+// built-in (a program's methods are third-party code whose declaration
+// nothing holds it to) whose manifest says it only reads and whose Check is
+// its own Invoke, so the check runs the very body a real run does. A
+// read-only method whose Check is another function (one that predicts, or
+// reads less) is not one, by that rule rather than by name, and its readers
+// in a check are unchecked. Where nothing is registered (a Controller) it is
+// false, the side that leaves a check incomplete rather than wrong.
+// internal/archtest holds the rule against the catalog.
+func ObservesInCheck(method string) bool {
+	d, ok := collection.Lookup(method)
+	return ok && d.Provider == nil && d.Manifest.Reversibility.ReadOnly && d.Check != nil && d.Invoke != nil &&
+		reflect.ValueOf(d.Check).Pointer() == reflect.ValueOf(d.Invoke).Pointer()
 }
 
 // Reason is why t leaves its reader unchecked, for the check's ledger: the

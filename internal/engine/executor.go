@@ -1578,7 +1578,7 @@ func (r *run) runAction(ctx context.Context, cmd nodeExecution, result NodeResul
 		}
 		// What a read-only built-in emitted while checked is what it read off
 		// the device, which later checked tasks read (facts_check.go).
-		if mode == collection.ModeCheck && err == nil && observesInCheck(cmd.Task.FQCN) {
+		if mode == collection.ModeCheck && err == nil && ObservesInCheck(cmd.Task.FQCN) {
 			if keys, perr := sdk.ParseFactKeys(v); perr == nil {
 				result.observedKeys, result.factMethod = keys, cmd.Task.FQCN
 			}
