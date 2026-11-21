@@ -21,24 +21,39 @@ type Options struct {
 	// here can make emit, with why and which real-device gate makes it emit
 	// instead. An entry that no longer names such a method, or names one a
 	// test here made emit, fails the audit, so the table cannot outlive its
-	// reason.
+	// reason. A method another package's tests drive and audit (through Of)
+	// belongs in DrivenBy instead, which names that package.
 	Exempt map[string]string
+	// DrivenBy names each fact-declaring built-in of the package that no test
+	// here makes emit because another package's tests do, against a real
+	// device, and audit it there: the value is that package's import path,
+	// whose TestMain passes this package's import path as Of
+	// (internal/archtest holds both ends). An entry is held as an Exempt one
+	// is: it must name such a method, and no test here may make it emit.
+	DrivenBy map[string]string
 	// Unavailable, when not empty, says why this machine cannot run the tests
 	// that make the package's methods emit (no /bin/sh for an in-process SSH
 	// server): the audit then reports which methods went undriven rather than
-	// failing on them. Every fact a test did emit is still checked.
+	// failing on them. Every fact a test did emit is still checked. It is one
+	// of the two helpers internal/archtest allows here,
+	// need.POSIXShellMissing() and testsupport.DockerMissing(), so the reason
+	// is the same one that skips those tests.
 	Unavailable string
 	// Of is the import path of the package whose methods these tests make
 	// emit, for a test package that drives another's against a real device
 	// (pkg/snmp/snmplive drives internal/catalog/net/snmp's). Empty means the
-	// package whose TestMain calls Main.
+	// package whose TestMain calls Main. A package that holds methods of its
+	// own may not name another (internal/archtest).
 	Of string
 }
 
 // Main runs m's tests, audits what they emitted against the declarations of
-// the fact-declaring built-ins of the package whose TestMain calls it, writes
-// the audit to standard error, and returns the exit code: m's, or 1 when m
-// passed and the audit failed. A TestMain passes the code to os.Exit.
+// the fact-declaring built-ins of the package whose TestMain calls it (or of
+// Options.Of), writes the audit to standard error, and returns the exit code:
+// m's, or 1 when m passed and the audit failed. A TestMain passes the code to
+// os.Exit. An audited package that holds no fact-declaring built-in fails the
+// audit: a wrong Of, a renamed package or a misread caller would otherwise
+// audit nothing and pass.
 func Main(m *testing.M, opts Options) int {
 	pkg := opts.Of
 	if pkg == "" {
@@ -86,10 +101,10 @@ func partialRun() string {
 // Audit compares what Observe recorded with the declarations of pkg's
 // fact-declaring built-ins (those whose Invoke or Check pkg declares). It
 // returns the failures (a fact refused by its method's declaration, a method
-// no test made emit, an exemption that no longer holds) and the notes (a
-// declared fact no test emitted, facts emitted outside any method, and why
-// the coverage was not enforced). partial, when not empty, is why this run
-// cannot judge coverage.
+// no test made emit, an exemption that no longer holds, and a pkg holding no
+// fact-declaring built-in at all) and the notes (a declared fact no test
+// emitted, facts emitted outside any method, and why the coverage was not
+// enforced). partial, when not empty, is why this run cannot judge coverage.
 func Audit(pkg string, opts Options, partial string) (failures, notes []string) {
 	ledger.Lock()
 	defer ledger.Unlock()
@@ -97,12 +112,29 @@ func Audit(pkg string, opts Options, partial string) (failures, notes []string) 
 		failures = append(failures, r.String())
 	}
 	methods := DeclaringMethods(pkg)
-	for _, name := range sortedKeys(opts.Exempt) {
-		switch _, ok := methods[name]; {
-		case !ok:
-			failures = append(failures, fmt.Sprintf("Options.Exempt names %s, which is not a fact-declaring built-in of %s: remove the entry", name, pkg))
-		case len(ledger.emitted[name]) > 0:
-			failures = append(failures, fmt.Sprintf("Options.Exempt names %s, and a test here made it emit: remove the exemption", name))
+	if len(methods) == 0 {
+		failures = append(failures, fmt.Sprintf("the audit found no fact-declaring built-in whose Invoke or Check %q declares, so it held nothing: "+
+			"Options.Of names the wrong package, the package was renamed, or its methods stopped declaring facts (then drop facttest.Main here)", pkg))
+	}
+	for _, table := range []struct {
+		field   string
+		entries map[string]string
+	}{{"Exempt", opts.Exempt}, {"DrivenBy", opts.DrivenBy}} {
+		for _, name := range sortedKeys(table.entries) {
+			switch _, ok := methods[name]; {
+			case !ok:
+				failures = append(failures, fmt.Sprintf("Options.%s names %s, which is not a fact-declaring built-in of %s: remove the entry", table.field, name, pkg))
+			case len(ledger.emitted[name]) > 0:
+				failures = append(failures, fmt.Sprintf("Options.%s names %s, and a test here made it emit: remove the entry", table.field, name))
+			}
+		}
+	}
+	for _, name := range sortedKeys(opts.DrivenBy) {
+		if other := opts.DrivenBy[name]; other == "" || other == pkg {
+			failures = append(failures, fmt.Sprintf("Options.DrivenBy names %s, driven by %q: name the other package whose TestMain passes Of: %q", name, other, pkg))
+		}
+		if hasKey(opts.Exempt, name) {
+			failures = append(failures, fmt.Sprintf("Options.Exempt and Options.DrivenBy both name %s: keep one", name))
 		}
 	}
 	why := partial
@@ -112,6 +144,9 @@ func Audit(pkg string, opts Options, partial string) (failures, notes []string) 
 	for _, name := range sortedKeys(methods) {
 		emitted := ledger.emitted[name]
 		if _, exempt := opts.Exempt[name]; exempt {
+			continue
+		}
+		if _, elsewhere := opts.DrivenBy[name]; elsewhere {
 			continue
 		}
 		if len(emitted) == 0 {
@@ -158,6 +193,12 @@ func DeclaringMethods(pkg string) map[string][]collection.FactSpec {
 		}
 	}
 	return out
+}
+
+// hasKey reports whether m holds key.
+func hasKey[V any](m map[string]V, key string) bool {
+	_, ok := m[key]
+	return ok
 }
 
 // anyMatches reports whether one of keys is the fact spec declares.

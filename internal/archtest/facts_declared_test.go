@@ -142,20 +142,104 @@ func TestEveryFactEmittingPackageAuditsItsTests(t *testing.T) {
 	}
 	sort.Strings(names)
 	t.Logf("%d packages hold fact-emitting methods: %s", len(names), strings.Join(names, ", "))
+	audits := factAudits(t)
 	for _, pkg := range names {
 		rel, ok := strings.CutPrefix(pkg, modulePath+"/")
 		if !ok {
 			t.Errorf("%s holds a fact-emitting method and is outside this module", pkg)
 			continue
 		}
-		mains, observes := auditWiring(t, filepath.Join(root, filepath.FromSlash(rel)))
-		if !mains {
+		if _, ok := audits[pkg]; !ok {
 			t.Errorf("%s holds fact-emitting methods %v, and no TestMain of its tests calls facttest.Main", pkg, packages[pkg])
 		}
-		if !observes {
+		if !observes(t, filepath.Join(root, filepath.FromSlash(rel))) {
 			t.Errorf("%s holds fact-emitting methods %v, and no fake RunbookContext of its tests calls facttest.Observe", pkg, packages[pkg])
 		}
 	}
+}
+
+// TestEveryFactAuditSaysWhatIsTrue: each facttest.Main call's Options is a
+// literal this test can read, and what it says holds. Of names a package
+// holding fact-declaring built-ins, from a package that holds no registered
+// method of its own (one that does audits its own methods, and an Of there
+// would leave them unaudited). Unavailable is one of the two helpers whose
+// reason is the one the guarded tests skip for. Each DrivenBy entry names a
+// package whose audit names this one through Of, so a method left to
+// another package's tests is held there, and a method whose own package
+// leaves it to such a package says so in DrivenBy rather than in an Exempt
+// reason. facttest.Main itself fails an audit that finds no method.
+func TestEveryFactAuditSaysWhatIsTrue(t *testing.T) {
+	declaring := map[string]bool{}
+	holding := map[string]bool{}
+	for _, d := range facttest.Builtins() {
+		for _, fn := range []collection.Method{d.Invoke, d.Check} {
+			if name := facttest.FunctionName(fn); name != "" {
+				holding[facttest.PackageOf(name)] = true
+				if len(d.Manifest.Facts) > 0 {
+					declaring[facttest.PackageOf(name)] = true
+				}
+			}
+		}
+	}
+	audits := factAudits(t)
+	// The control: the walk found the audits this branch wired, including
+	// the one that names another package and the two kinds of Unavailable.
+	kinds := map[string]int{}
+	for _, a := range audits {
+		if a.of != "" {
+			kinds["of"]++
+		}
+		if len(a.drivenBy) > 0 {
+			kinds["drivenBy"]++
+		}
+		if a.unavailable != "" {
+			kinds[a.unavailable]++
+		}
+	}
+	if len(audits) < 14 || kinds["of"] == 0 || kinds["drivenBy"] == 0 || kinds["need.POSIXShellMissing"] == 0 || kinds["testsupport.DockerMissing"] == 0 {
+		t.Fatalf("found %d fact audits (%v), want at least 14 with an Of, a DrivenBy and each Unavailable helper: the source walk stopped finding them", len(audits), kinds)
+	}
+	for _, pkg := range sortedAuditKeys(audits) {
+		a := audits[pkg]
+		for _, p := range a.problems {
+			t.Errorf("%s: %s", a.file, p)
+		}
+		if a.of != "" {
+			if holding[pkg] {
+				t.Errorf("%s: Options.Of names %s, and %s holds registered methods of its own, which Main would then not audit", a.file, a.of, pkg)
+			}
+			if !declaring[a.of] {
+				t.Errorf("%s: Options.Of names %s, which holds no fact-declaring built-in", a.file, a.of)
+			}
+		}
+		for _, method := range sortedAuditKeys(a.drivenBy) {
+			other := a.drivenBy[method]
+			if b, ok := audits[other]; !ok || b.of != a.audited() {
+				t.Errorf("%s: Options.DrivenBy says %s drives %s, and no TestMain there passes facttest.Options{Of: %q}", a.file, other, method, a.audited())
+			}
+		}
+		for _, b := range audits {
+			if b.of != a.audited() || b.of == "" {
+				continue
+			}
+			rel := strings.TrimPrefix(b.pkg, modulePath+"/")
+			for method, reason := range a.exempt {
+				if strings.Contains(reason, rel) {
+					t.Errorf("%s: Options.Exempt says %s drives %s; name it in Options.DrivenBy, which this test holds to %s's Of", a.file, rel, method, rel)
+				}
+			}
+		}
+	}
+}
+
+// sortedAuditKeys returns m's keys in order.
+func sortedAuditKeys[V any](m map[string]V) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 // TestEveryBuiltinIsInAFactAuditGroup: facttest finds the built-ins through
@@ -207,9 +291,9 @@ func TestFactTypeRuleIsTheStores(t *testing.T) {
 	}
 }
 
-// auditWiring reports whether the package in dir has a TestMain calling
-// facttest.Main, and a test file calling facttest.Observe.
-func auditWiring(t *testing.T, dir string) (mains, observes bool) {
+// observes reports whether a test file of the package in dir calls
+// facttest.Observe.
+func observes(t *testing.T, dir string) bool {
 	t.Helper()
 	paths, err := filepath.Glob(filepath.Join(dir, "*_test.go"))
 	if err != nil {
@@ -226,19 +310,12 @@ func auditWiring(t *testing.T, dir string) (mains, observes bool) {
 			continue
 		}
 		for _, decl := range f.Decls {
-			fn, ok := decl.(*ast.FuncDecl)
-			if !ok || fn.Body == nil {
-				continue
-			}
-			if fn.Recv == nil && fn.Name.Name == "TestMain" && callsSelector(fn.Body, local, "Main") {
-				mains = true
-			}
-			if callsSelector(fn.Body, local, "Observe") {
-				observes = true
+			if fn, ok := decl.(*ast.FuncDecl); ok && fn.Body != nil && callsSelector(fn.Body, local, "Observe") {
+				return true
 			}
 		}
 	}
-	return mains, observes
+	return false
 }
 
 // callsSelector reports whether body calls pkg.name.

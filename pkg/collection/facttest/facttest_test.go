@@ -276,3 +276,48 @@ func TestBuiltins_FindsTheRegisteredMethodsByGroup(t *testing.T) {
 		t.Errorf("DeclaringMethods(this package) = %v, want the three probes", got)
 	}
 }
+
+func TestAudit_APackageHoldingNoDeclaringMethodFails(t *testing.T) {
+	fixture(t)
+	run(t, "facts.facttest_probe", emitParams{"facttest.name": "web1"})
+	// A partial run and an unavailable one too: a wrong package is wrong
+	// whatever ran.
+	for _, partial := range []string{"", "-run chose only some tests"} {
+		failures, _ := Audit("example.com/not/the/package", Options{Unavailable: "no /bin/sh"}, partial)
+		if !hasLine(failures, `"example.com/not/the/package"`, "found no fact-declaring built-in") {
+			t.Errorf("partial %q: failures = %q, want the empty audit refused", partial, failures)
+		}
+	}
+}
+
+func TestAudit_DrivenByIsHeldAsAnExemptionIs(t *testing.T) {
+	fixture(t)
+	run(t, "facts.facttest_probe", emitParams{"facttest.name": "web1"})
+	elsewhere := "example.com/x/live"
+	failures, _ := audit(Options{
+		Exempt: map[string]string{"facts.facttest_dispatch": "a test fixture"},
+		DrivenBy: map[string]string{
+			"facts.facttest_silent": elsewhere,
+			"facts.facttest_probe":  elsewhere,
+			"facts.facttest_gone":   elsewhere,
+		},
+	}, "")
+	for _, want := range [][]string{
+		{"DrivenBy names facts.facttest_probe", "made it emit"},
+		{"DrivenBy names facts.facttest_gone", "not a fact-declaring built-in"},
+	} {
+		if !hasLine(failures, want...) {
+			t.Errorf("failures = %q, want %q", failures, want)
+		}
+	}
+	if len(failures) != 2 {
+		t.Errorf("failures = %q, want exactly those two: facts.facttest_silent is driven elsewhere", failures)
+	}
+	failures, _ = audit(Options{
+		Exempt:   map[string]string{"facts.facttest_dispatch": "a test fixture", "facts.facttest_silent": "x"},
+		DrivenBy: map[string]string{"facts.facttest_silent": thisPackage},
+	}, "")
+	if !hasLine(failures, "DrivenBy names facts.facttest_silent", "name the other package") || !hasLine(failures, "both name facts.facttest_silent") {
+		t.Errorf("failures = %q, want a DrivenBy naming its own package and one beside an Exempt entry refused", failures)
+	}
+}
