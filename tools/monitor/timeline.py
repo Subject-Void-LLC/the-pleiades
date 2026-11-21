@@ -17,6 +17,11 @@ worst one truncated last line, which every reader skips.
 Values that did not change are not written again: record_if_changed keeps
 the last value of each (kind, src) and the daemon seeds it from the files
 when it starts, so a restart writes nothing it already holds.
+
+The files only grow, so the daemon's Reader remembers, for each query and
+file, how far it has parsed and what matched, and on the next call parses
+only the bytes appended since: an open page's three calls a minute cost the
+new lines, not every line back to the first month.
 """
 
 from __future__ import annotations
@@ -25,6 +30,7 @@ import json
 import os
 import threading
 import time
+from collections import OrderedDict
 from typing import Dict, Iterable, Iterator, List, Mapping, Optional, Tuple
 
 from history import ensure_private_dir
@@ -98,6 +104,35 @@ def parse_line(raw: str) -> Optional[JSONObject]:
     return obj
 
 
+def matches(obj: JSONObject, wanted: Optional[Iterable[str]], src: Optional[str]) -> bool:
+    """Reports whether a line is of a wanted kind and src.
+
+    Args:
+        obj: The line.
+        wanted: Kinds (one ending in "." names a family), or None for all.
+        src: The src, or None for all.
+
+    Returns:
+        True when it matches both.
+    """
+    kind = get_str(obj, "kind")
+    if wanted is not None and not any(kind == w or (w.endswith(".") and kind.startswith(w)) for w in wanted):
+        return False
+    return src is None or get_str(obj, "src") == src
+
+
+def first_file(since: float) -> str:
+    """Names the earliest month file a query from since can need.
+
+    Args:
+        since: Epoch seconds, or 0 for all.
+
+    Returns:
+        Its base name, or "" for every file.
+    """
+    return time.strftime("history-%Y-%m.jsonl", time.gmtime(since)) if since > 0 else ""
+
+
 def read(directory: str, since: float = 0.0, kinds: Optional[Iterable[str]] = None,
          src: Optional[str] = None) -> Iterator[JSONObject]:
     """Reads the timeline in order.
@@ -112,7 +147,7 @@ def read(directory: str, since: float = 0.0, kinds: Optional[Iterable[str]] = No
         Each matching line's object.
     """
     wanted = list(kinds) if kinds is not None else None
-    first_month = time.strftime("history-%Y-%m.jsonl", time.gmtime(since)) if since > 0 else ""
+    first_month = first_file(since)
     for path in files(directory):
         if os.path.basename(path) < first_month:
             continue
@@ -123,17 +158,130 @@ def read(directory: str, since: float = 0.0, kinds: Optional[Iterable[str]] = No
                     if obj is None:
                         continue
                     t = obj.get("t")
-                    if not isinstance(t, (int, float)) or t <= since:
-                        continue
-                    kind = get_str(obj, "kind")
-                    if wanted is not None and not any(kind == w or (w.endswith(".") and kind.startswith(w))
-                                                      for w in wanted):
-                        continue
-                    if src is not None and get_str(obj, "src") != src:
+                    if not isinstance(t, (int, float)) or t <= since or not matches(obj, wanted, src):
                         continue
                     yield obj
         except OSError:
             continue
+
+
+# READER_ENTRIES bounds how many (query, file) results a Reader keeps.
+READER_ENTRIES = 64
+# READER_LINES bounds one kept result; a query matching more (every memory
+# sample of a month) is answered by parsing again rather than kept.
+READER_LINES = 20000
+
+
+class ReadEntry:
+    """What one query matched in one file, and how far the file was parsed.
+
+    Attributes:
+        inode: The file's inode when parsing began; another inode starts over.
+        offset: The bytes parsed, always ending at a whole line.
+        lines: The lines that matched, in order.
+    """
+
+    inode: int
+    offset: int
+    lines: List[JSONObject]
+
+    def __init__(self, inode: int) -> None:
+        """Starts an entry at a file's beginning.
+
+        Args:
+            inode: The file's inode.
+        """
+        self.inode = inode
+        self.offset = 0
+        self.lines = []
+
+
+class Reader:
+    """Reads the timeline as read() does, parsing each file's new bytes only.
+
+    Attributes:
+        directory: The timeline directory.
+        lock: Serializes reads and guards entries.
+        entries: Each (file, kinds, src) query's entry, least recently used first.
+        parsed_bytes: How many bytes have been parsed in all (for tests and the curious).
+    """
+
+    directory: str
+    lock: threading.Lock
+    entries: "OrderedDict[Tuple[str, Optional[Tuple[str, ...]], Optional[str]], ReadEntry]"
+    parsed_bytes: int
+
+    def __init__(self, directory: str) -> None:
+        """Prepares a reader.
+
+        Args:
+            directory: The timeline directory.
+        """
+        self.directory = directory
+        self.lock = threading.Lock()
+        self.entries = OrderedDict()
+        self.parsed_bytes = 0
+
+    def read(self, since: float = 0.0, kinds: Optional[Iterable[str]] = None,
+             src: Optional[str] = None) -> List[JSONObject]:
+        """Reads the timeline in order, as read() would.
+
+        Args:
+            since: Only lines with t greater than this.
+            kinds: Only these kinds (a kind ending in "." names a family); all when None.
+            src: Only this src; all when None.
+
+        Returns:
+            Each matching line's object.
+        """
+        wanted = tuple(sorted(set(kinds))) if kinds is not None else None
+        first_month = first_file(since)
+        out: List[JSONObject] = []
+        with self.lock:
+            for path in files(self.directory):
+                if os.path.basename(path) < first_month:
+                    continue
+                for obj in self.file_lines(path, wanted, src):
+                    t = obj.get("t")
+                    if isinstance(t, (int, float)) and t > since:
+                        out.append(obj)
+        return out
+
+    def file_lines(self, path: str, wanted: Optional[Tuple[str, ...]], src: Optional[str]) -> List[JSONObject]:
+        """Returns one file's matching lines, parsing only what was appended since the last call. The caller holds lock.
+
+        Args:
+            path: The file.
+            wanted: The kinds, or None.
+            src: The src, or None.
+
+        Returns:
+            The lines, in order.
+        """
+        key = (path, wanted, src)
+        entry = self.entries.pop(key, None)
+        try:
+            with open(path, "rb") as f:
+                st = os.fstat(f.fileno())
+                if entry is None or entry.inode != st.st_ino or st.st_size < entry.offset:
+                    entry = ReadEntry(st.st_ino)  # new, replaced or cut short: start over
+                if st.st_size > entry.offset:
+                    f.seek(entry.offset)
+                    chunk = f.read(st.st_size - entry.offset)
+                    end = chunk.rfind(b"\n") + 1  # a last line still being written waits for the next call
+                    for raw in chunk[:end].split(b"\n"):
+                        obj = parse_line(raw.decode("utf-8", errors="replace"))
+                        if obj is not None and matches(obj, wanted, src):
+                            entry.lines.append(obj)
+                    entry.offset += end
+                    self.parsed_bytes += end
+        except OSError:
+            return []
+        if len(entry.lines) <= READER_LINES:
+            self.entries[key] = entry
+            while len(self.entries) > READER_ENTRIES:
+                self.entries.popitem(last=False)
+        return list(entry.lines)
 
 
 def fingerprint(data: JSONValue) -> str:

@@ -53,11 +53,13 @@ from __future__ import annotations
 import json
 import os
 import re
+import socket
+import sys
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from collections import deque
-from typing import Deque, Dict, Iterable, List, Mapping, Optional, Protocol, Sequence, Tuple, Type
+from typing import Deque, Dict, Iterable, List, Mapping, Optional, Protocol, Sequence, Tuple, Type, Union
 from urllib.parse import parse_qs
 
 import events
@@ -477,6 +479,28 @@ def make_handler(app: Backend, port: int, streams: int = STREAMS_MAX) -> Type[Ba
     return Handler
 
 
+class QuietServer(ThreadingHTTPServer):
+    """A ThreadingHTTPServer that says nothing when a client hangs up.
+
+    socketserver prints a traceback for every exception a request raises,
+    and a client that closes its connection early (a page reloaded, a curl
+    stopped) raises BrokenPipeError or ConnectionResetError. The daemon's
+    output is its log, which grew a traceback per hang-up.
+    """
+
+    def handle_error(self, request: Union[socket.socket, Tuple[bytes, socket.socket]], client_address: object) -> None:
+        """Drops a hang-up or a timeout quietly; reports anything else as before.
+
+        Args:
+            request: The request's socket.
+            client_address: Who sent it.
+        """
+        exc = sys.exc_info()[1]
+        if isinstance(exc, (ConnectionError, TimeoutError)):
+            return
+        super().handle_error(request, client_address)
+
+
 def start_server(app: Backend, port: int, streams: int = STREAMS_MAX) -> ThreadingHTTPServer:
     """Serves the dashboard on 127.0.0.1 in a daemon thread.
 
@@ -492,7 +516,7 @@ def start_server(app: Backend, port: int, streams: int = STREAMS_MAX) -> Threadi
         OSError: The port cannot be bound.
     """
     handler = make_handler(app, port, streams)
-    httpd = ThreadingHTTPServer(("127.0.0.1", port), handler)
+    httpd = QuietServer(("127.0.0.1", port), handler)
     # Port 0 binds a free port chosen by the kernel; the Host check needs the real one.
     setattr(handler, "port", httpd.server_port)
     httpd.daemon_threads = True

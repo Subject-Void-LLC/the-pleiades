@@ -90,6 +90,13 @@ CAPPED = os.path.expanduser("~/.local/bin/capped")
 DAEMON_CAP = "400M"
 # STOP_SECONDS is how long ensure waits for a replaced daemon to let go of its lock.
 STOP_SECONDS = 10.0
+# LOG_MAX is how large statusd.log may grow before its tail is kept aside and
+# it starts again; LOG_KEEP is how much of the tail is kept, in
+# statusd.log.1. Together they hold the log under LOG_MAX + LOG_KEEP.
+LOG_MAX = 5 * 1024 * 1024
+LOG_KEEP = 1024 * 1024
+# LOG_SECONDS is how often the daemon checks its own log's size.
+LOG_SECONDS = 600.0
 # OPT_OUT names the environment variable that switches the daemon off: set to
 # anything but the empty string, ensure starts nothing and the MCP server says so.
 OPT_OUT = "PLEIADES_NO_STATUS_DAEMON"
@@ -156,6 +163,7 @@ class DaemonApp:
         port: The port served.
         store: The run history.
         timeline: The JSONL history.
+        reader: Reads it for /timeline, parsing only what was appended.
         panel: The roadmap panel.
         poller: The Actions poller, or None.
         cond: Guards views, current and memory, and wakes /wait callers when a run appears.
@@ -176,6 +184,7 @@ class DaemonApp:
     port: int
     store: history.HistoryStore
     timeline: timeline.Timeline
+    reader: timeline.Reader
     panel: roadmap.RoadmapPanel
     poller: Optional[actions.ActionsPoller]
     cond: threading.Condition
@@ -206,6 +215,7 @@ class DaemonApp:
         self.port = port
         self.store = history.HistoryStore(state_dir)
         self.timeline = timeline.Timeline(paths.timeline_dir(state_dir), redactor)
+        self.reader = timeline.Reader(paths.timeline_dir(state_dir))
         self.panel = roadmap.RoadmapPanel(paths.panels(state_dir))
         self.poller = poller
         self.cond = threading.Condition()
@@ -427,7 +437,7 @@ class DaemonApp:
         Returns:
             The lines, oldest first.
         """
-        return timeline.read(self.timeline.directory, since, kinds, src)
+        return iter(self.reader.read(since, kinds, src))
 
     def roadmap(self, phases: Sequence[str], details: bool) -> object:
         """Returns the roadmap model.
@@ -761,6 +771,18 @@ def run_daemon(port: int = DEFAULT_PORT, no_actions: bool = False, state_dir: Op
     start_loop(stop, ROADMAP_SECONDS, app.record_roadmap, "roadmap-timeline")
     start_loop(stop, GIT_SECONDS, app.record_git, "git-timeline")
     start_loop(stop, BACKFILL_SECONDS, app.backfill_actions, "actions-backfill")
+
+    def trim_log() -> None:
+        """Caps the log, when it is the one this process writes (spawn's, not a terminal)."""
+        log = paths.daemon_log(state)
+        try:
+            mine, there = os.fstat(sys.stderr.fileno()), os.stat(log)
+        except (OSError, ValueError):
+            return
+        if (mine.st_dev, mine.st_ino) == (there.st_dev, there.st_ino):
+            cap_log(log)
+
+    start_loop(stop, LOG_SECONDS, trim_log, "log")
     httpd = bind(app, port, stop)
     if httpd is not None:
         # Port 0 asks for any free port (tests): name the one bound, here and
@@ -802,6 +824,37 @@ def healthz(port: int, timeout: float = 2.0) -> Optional[JSONObject]:
         return None
 
 
+def cap_log(path: str, max_bytes: int = LOG_MAX, keep: int = LOG_KEEP) -> bool:
+    """Keeps a log under max_bytes: past it, its last keep bytes go to <path>.1 and it starts empty.
+
+    The daemon writes the log through a descriptor opened O_APPEND (spawn),
+    so after the truncate its next write lands at the new end, not past a
+    hole. The kept tail starts at a whole line.
+
+    Args:
+        path: The log.
+        max_bytes: The size that sets it off.
+        keep: How much of the tail to keep.
+
+    Returns:
+        Whether the log was cut.
+    """
+    try:
+        size = os.stat(path).st_size
+    except OSError:
+        return False
+    if size <= max_bytes:
+        return False
+    with open(path, "rb") as f:
+        f.seek(max(0, size - keep))
+        tail = f.read(keep)
+    if size > keep:
+        tail = tail[tail.find(b"\n") + 1:]  # drop the part line the cut landed in
+    history.write_private(path + ".1", tail)
+    os.truncate(path, 0)
+    return True
+
+
 def spawn(port: int, state: str, no_actions: bool = False) -> "subprocess.Popen[bytes]":
     """Starts a daemon detached from the caller: its own session, its own log.
 
@@ -820,6 +873,7 @@ def spawn(port: int, state: str, no_actions: bool = False) -> "subprocess.Popen[
         cmd.append("--no-actions")
     if os.access(CAPPED, os.X_OK):
         cmd = [CAPPED, DAEMON_CAP] + cmd
+    cap_log(paths.daemon_log(state))
     log = os.open(paths.daemon_log(state), os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
     try:
         return subprocess.Popen(cmd, cwd=paths.main_root(), stdin=subprocess.DEVNULL, stdout=log, stderr=log,

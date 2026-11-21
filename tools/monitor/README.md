@@ -140,7 +140,11 @@ minute). A value is written only when it changed, and the daemon
 reads the files when it starts, so a restart writes nothing twice. Each
 line is one `write` on a file opened `O_APPEND`, masked like everything
 else; a truncated last line is skipped. Read it at `/timeline?kind=...&src=...&since=...&limit=...`
-(JSONL), through the MCP `timeline` tool, or with any JSONL reader.
+(JSONL), through the MCP `timeline` tool, or with any JSONL reader. The
+files only grow, so the daemon remembers for each query how far it has
+parsed each file and what matched, and a repeated query (an open page asks
+three a minute) parses only the bytes appended since; a query matching more
+than 20,000 lines of one file is parsed again each time instead of kept.
 
 ### The MCP server
 
@@ -289,7 +293,8 @@ directories 0700 and files 0600:
 ```
 .IGNORE/ci/monitor/statusd.lock                the daemon's lock: pid, port, protocol, source
 .IGNORE/ci/monitor/statusd.ensure.lock         held by one ensure while it decides and starts
-.IGNORE/ci/monitor/statusd.log                 the daemon's output
+.IGNORE/ci/monitor/statusd.log                 the daemon's output, cut at 5 MB
+.IGNORE/ci/monitor/statusd.log.1               the last 1 MB of it before the cut
 .IGNORE/ci/monitor/gate.lock                   held by the one gate run
 .IGNORE/ci/monitor/live.json                   that run's manifest, removed when it ends
 .IGNORE/ci/monitor/panels.json                 hand-written, optional: the roadmap script

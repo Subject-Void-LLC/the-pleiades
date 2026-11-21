@@ -164,6 +164,106 @@ class TimelineTest(unittest.TestCase):
                 self.assertNotIn("hunter2-secret-value", f.read())
 
 
+class ReaderTest(unittest.TestCase):
+    """The daemon's timeline reader answers as read() does, parsing only appended bytes."""
+
+    def test_only_what_was_appended_is_parsed(self) -> None:
+        """Repeated queries parse nothing new; an appended line costs its own
+        bytes; a line still being written waits; a replaced file starts over."""
+        with tempfile.TemporaryDirectory() as d:
+            tl = timeline.Timeline(d, redact.Redactor([]))
+            oct_t = time.mktime((2026, 10, 15, 12, 0, 0, 0, 0, -1))
+            nov_t = time.mktime((2026, 11, 15, 12, 0, 0, 0, 0, -1))
+            for base, done in ((oct_t, 1), (nov_t, 2)):
+                for i in range(50):
+                    tl.append("memory", "machine", {"available_mb": i}, base + i)
+                tl.append("roadmap.summary", "roadmap", {"done": done}, base + 100)
+            reader = timeline.Reader(d)
+            # Each query is (since, kinds, src).
+            queries: List[Tuple[float, Optional[List[str]], Optional[str]]] = [
+                (0.0, None, None), (0.0, ["roadmap.summary"], None), (nov_t + 10, ["memory"], None),
+                (0.0, None, "roadmap"), (0.0, ["roadmap."], None)]
+
+            def both(q: Tuple[float, Optional[List[str]], Optional[str]]) -> Tuple[List[JSONObject], List[JSONObject]]:
+                """Answers q through the reader and through read()."""
+                return reader.read(*q), list(timeline.read(d, *q))
+
+            for q in queries:
+                got, want = both(q)
+                self.assertEqual(got, want, q)
+            first = reader.parsed_bytes
+            for q in queries:
+                both(q)
+            self.assertEqual(reader.parsed_bytes, first)
+            nov_file = timeline.month_file(d, nov_t)
+            size = os.path.getsize(nov_file)
+            tl.append("roadmap.summary", "roadmap", {"done": 3}, nov_t + 200)
+            grown = os.path.getsize(nov_file) - size
+            got = reader.read(0.0, ["roadmap.summary"], None)
+            self.assertEqual([(as_object(x.get("data")) or {}).get("done") for x in got], [1, 2, 3])
+            self.assertEqual(reader.parsed_bytes - first, grown)
+            with open(nov_file, "ab") as f:
+                f.write(b'{"v": 1, "t": 17')  # a line still being written
+            before = reader.parsed_bytes
+            self.assertEqual(len(reader.read(0.0, ["roadmap.summary"], None)), 3)
+            self.assertEqual(reader.parsed_bytes, before)
+            history.write_private(nov_file, b"")
+            self.assertEqual(len(reader.read(0.0, ["roadmap.summary"], None)), 1)
+
+
+class LogTest(unittest.TestCase):
+    """The daemon's own output stays bounded and free of hang-up tracebacks."""
+
+    def test_the_log_is_capped_to_its_tail(self) -> None:
+        """Past the limit, the log's last whole lines move to statusd.log.1 and
+        the log starts empty; a writer holding it O_APPEND writes at the new start."""
+        with tempfile.TemporaryDirectory() as d:
+            log = paths.daemon_log(d)
+            with open(log, "w", encoding="utf-8") as f:
+                for i in range(60000):
+                    f.write("statusd: line %06d of the log\n" % i)
+            fd = os.open(log, os.O_WRONLY | os.O_APPEND)
+            try:
+                self.assertFalse(daemon.cap_log(log, max_bytes=10 * 1024 * 1024))
+                self.assertTrue(daemon.cap_log(log, max_bytes=1024 * 1024, keep=256 * 1024))
+                self.assertEqual(os.path.getsize(log), 0)
+                with open(log + ".1", encoding="utf-8") as f:
+                    kept = f.read().splitlines()
+                self.assertLessEqual(os.path.getsize(log + ".1"), 256 * 1024)
+                self.assertEqual(kept[-1], "statusd: line 059999 of the log")
+                self.assertRegex(kept[0], r"^statusd: line \d{6} of the log$")
+                os.write(fd, b"statusd: after\n")
+                with open(log, "rb") as f:
+                    self.assertEqual(f.read(), b"statusd: after\n")
+            finally:
+                os.close(fd)
+
+    def test_a_hang_up_writes_no_traceback(self) -> None:
+        """A client that resets its connection mid-request leaves nothing on stderr."""
+        import contextlib
+        import io
+        import socket
+        import struct
+        with tempfile.TemporaryDirectory() as d:
+            httpd, port = serve(make_app(d, 0))
+            caught = io.StringIO()
+            try:
+                with contextlib.redirect_stderr(caught):
+                    for request in (b"GET /sta", b"GET /app.js HTTP/1.1\r\nHost: 127.0.0.1:%d\r\n\r\n" % port):
+                        conn = socket.create_connection(("127.0.0.1", port))
+                        conn.sendall(request)
+                        # SO_LINGER with a zero timeout: close sends a reset, as a killed client does.
+                        conn.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0))
+                        conn.close()
+                    time.sleep(0.5)
+                    self.assertEqual(get(port, "/healthz")[0], 200)
+            finally:
+                httpd.shutdown()
+                httpd.server_close()
+            self.assertNotIn("Traceback", caught.getvalue())
+            self.assertNotIn("Exception occurred", caught.getvalue())
+
+
 class HandOffTest(unittest.TestCase):
     """A run publishes through files; the daemon's view republishes the same events."""
 
