@@ -13,6 +13,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -289,7 +290,9 @@ func TestBaseline_ATornLastLineIsIgnoredThenCut(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	torn := append(append([]byte{}, whole...), []byte("v1.AAAAtorn")...)
+	// Longer than the line the next writer appends, so only cutting it off,
+	// not writing over it, leaves none of it behind.
+	torn := append(append([]byte{}, whole...), []byte("v1."+strings.Repeat("A", 8000)+"torn")...)
 	if err := os.WriteFile(path, torn, 0o600); err != nil {
 		t.Fatal(err)
 	}
