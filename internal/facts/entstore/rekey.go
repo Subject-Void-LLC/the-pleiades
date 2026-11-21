@@ -51,8 +51,8 @@
 // That is not enough on PostgreSQL (READ COMMITTED): rows are read without
 // locks, and a gather only inserts, so nothing it writes meets the re-key's
 // compare-and-swap. So every record holds the device's facts shared and a
-// re-key holds them exclusively (ent.Tx.LockFactsOfDevice, a transaction
-// advisory lock), each before reading anything of them: a re-key waits for
+// re-key holds them exclusively (ent.Tx.LockFactsOfDevice, a row lock on the
+// device's own row), each before reading anything of them: a re-key waits for
 // the records already writing and then reads what they committed, and a
 // record waits for the re-key and then finds the device under the current
 // keys. SQLite has one writer at a time, and in WAL mode (the Controller's)

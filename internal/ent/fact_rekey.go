@@ -30,6 +30,7 @@ import (
 	"entgo.io/ent/dialect"
 	entsql "entgo.io/ent/dialect/sql"
 
+	entdevice "github.com/Subject-Void-LLC/the-pleiades/internal/ent/device"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/fact"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/factcoverage"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/factobservation"
@@ -129,12 +130,6 @@ func (tx *Tx) RekeyFactObservations(ctx context.Context, device int, wasDigest, 
 	return n, nil
 }
 
-// factsLockClass is the first of the two keys of the PostgreSQL advisory
-// lock a device's facts are held under ("FACT"), so the lock shares no key
-// with another use of the two-key form. PostgreSQL keeps the two-key and the
-// one-key forms apart, so it cannot meet a lock taken by the one-key form.
-const factsLockClass = 0x46414354
-
 // LockFactsOfDevice holds the facts of the device whose database ID is
 // device for the rest of tx: exclusively for a re-key, shared for a gather.
 // A re-key then never runs beside a gather of the same device, which would
@@ -142,9 +137,15 @@ const factsLockClass = 0x46414354
 // still run beside each other as before. Taken before anything of the
 // device is read, so what the holder reads is what is committed.
 //
-// On PostgreSQL it is a transaction advisory lock, released at commit or
-// rollback; the device ID is folded into a 32-bit key in the statement, and
-// two devices that fold alike only wait for each other.
+// On PostgreSQL it is a row lock on the device's own row, released at commit
+// or rollback: FOR SHARE for a gather, FOR NO KEY UPDATE for a re-key. The two
+// conflict with each other and a re-key's conflicts with another re-key's,
+// while two gathers' do not. It is a row lock and not an advisory lock, which
+// this module does not take (internal/archtest), and it is the device's own
+// row, so two devices never wait for each other. FOR NO KEY UPDATE rather
+// than FOR UPDATE, so a row another table inserts with a foreign key to the
+// device is not held up by a re-key. A change to the device's own row waits
+// for either hold, for as long as one batch or one re-key takes.
 //
 // SQLite has one writer at a time for the whole database, and in WAL mode it
 // refuses a write from a transaction whose read another commit overtook, so
@@ -159,9 +160,9 @@ func (tx *Tx) LockFactsOfDevice(ctx context.Context, device int, exclusive bool)
 	var args []any
 	switch {
 	case tx.driver.Dialect() == dialect.Postgres && exclusive:
-		query, args = "SELECT pg_advisory_xact_lock($1, CAST(CAST($2 AS bigint) % 2147483647 AS integer))", []any{factsLockClass, int64(device)}
+		query, args = `SELECT 1 FROM "`+entdevice.Table+`" WHERE "`+entdevice.FieldID+`" = $1 FOR NO KEY UPDATE`, []any{device}
 	case tx.driver.Dialect() == dialect.Postgres:
-		query, args = "SELECT pg_advisory_xact_lock_shared($1, CAST(CAST($2 AS bigint) % 2147483647 AS integer))", []any{factsLockClass, int64(device)}
+		query, args = `SELECT 1 FROM "`+entdevice.Table+`" WHERE "`+entdevice.FieldID+`" = $1 FOR SHARE`, []any{device}
 	case exclusive:
 		// No row has a negative id, so nothing is written.
 		query, args = "UPDATE "+fact.Table+" SET "+fact.FieldID+" = "+fact.FieldID+" WHERE "+fact.FieldID+" < 0", []any{}
