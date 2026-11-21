@@ -52,8 +52,8 @@ func runFactsBaseline(args []string) error {
 	dir := fs.String("dir", ".", "project directory")
 	name := fs.String("name", "", "the baseline's name, unique per host (letters, digits, '.', '_' and '-')")
 	reason := fs.String("reason", "", "why the baseline is taken, recorded with it")
-	from := fs.String("from", "", "a host to take the facts from (a golden host), hashed again for each host")
-	keysFlag := fs.String("keys", "", "the facts to take, comma-separated: a key, or a prefix ending in * (package.*); every stable fact when unset")
+	from := fs.String("from", "", "a host to take the facts from (a golden host), hashed again for each host; never one of the hosts")
+	keysFlag := fs.String("keys", "", "the facts to take, comma-separated: a key, or a prefix ending in * (package.*); every stable fact when unset, and a pattern matching none is refused")
 	positionals, err := parseArgs(fs, args)
 	if err != nil {
 		return err

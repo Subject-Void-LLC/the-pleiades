@@ -90,6 +90,7 @@ than guessing.
 | Module catalog (methods, parameters, returns, facts) | holds within a minor | the release | the schema check |
 | Facts | holds within a minor | the release | the schema check, over the catalog's fact declarations |
 | Run report (`--json`) | holds within a minor | `schema_version` | the schema check |
+| Facts drift report (`facts drift --json`) | holds within a minor | `schema_version` | the schema check |
 | API | holds within a minor | the release | the schema check, over the OpenAPI document |
 | Rollback planning | holds within a minor | the release | golden tests |
 | Template and variable semantics | holds within a minor | the release | golden tests |
@@ -133,6 +134,15 @@ refuses a `schema_version` it does not know.
 field given another type or meaning, or a value added to a closed set (an `enum`).
 `schema_version` rises with any of these; a reviewer holds a change to that rule, since
 the schema check finds the break but not the missing bump.
+
+### Facts drift report
+
+The `--json` document `pleiades facts drift` prints, published as
+`docs/reference/schemas/facts-drift.json`. It holds to the run report's rules above: new
+fields and new values in its open sets (a host's `state`, a key's `change`, an
+unconfirmed key's `would_be`) are compatible, a reader treats a state it does not know as
+not in sync and refuses a `schema_version` it does not know, and a field removed,
+renamed, made optional or given another type or meaning raises `schema_version`.
 
 ### API
 

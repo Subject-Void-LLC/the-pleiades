@@ -270,19 +270,24 @@ A **baseline** is a named record of a host's stable facts at one moment, kept so
 later read can say what has changed since. Take one with `pleiades facts baseline
 <hosts> --name NAME --reason TEXT`, where `<hosts>` is a host, a tag or a
 comma-separated list, as in a runbook's `hosts:`. `--keys` narrows it to some facts
-(`--keys 'package.*,os.kernel.release'`: a key, or a prefix ending in `*`). Volatile
-facts are never part of one.
+(`--keys 'package.*,os.kernel.release'`: a key, or a prefix ending in `*`); a pattern
+that matches no stable fact is refused by name, so a misspelled one is not quietly
+left out. Volatile facts are never part of one.
 
 - A baseline records who took it (the operating system user), when and why. It is
-  never changed or replaced: a name a host already has is refused. The whole command
-  is refused, before any host is written, when any host it names already has that
-  name or was never gathered, or the `--from` host was never gathered. A host's
-  newest baseline is its active one.
+  never changed or replaced: a name a host already has is refused. Every host is
+  checked before any is written, and the whole command is refused, leaving every host
+  as it was, when any host already has that name, was never gathered, has no stable
+  fact a `--keys` pattern matches or nothing selected that could be compared, or the
+  baseline would be too large, or when the `--from` host was never gathered or is one
+  of the hosts. A host's newest baseline is its active one.
 - It is sealed like the facts: each baseline is one line of
   `.pleiades/facts/<device>.baselines.jsonl`, encrypted under the project's master
   key and bound to its host and its place in the file, so a line copied to another
   host or moved does not open. Neither command runs without the master key, and
-  neither makes one.
+  neither makes one. Lines cut off the end of the file, or an older copy of the file
+  put back, are not detected: the same limit `pleiades facts <host> --verify` prints
+  for the facts' own chain.
 - A baseline holds a keyed hash of each value, and the value itself, so a drift can
   say what a value was.
 - A **golden** baseline, `--from <host>`, takes the other host's current facts as
@@ -291,24 +296,44 @@ facts are never part of one.
   (`hmac_sha256`: a private file's digest, `config.running_digest`) differs on every
   host even when the file or configuration is the same, so it is recorded **not
   comparable**, counted in the report, and never reported as drift. On its own host
-  the same value is compared like any other.
+  the same value is compared like any other. A golden baseline of nothing but such
+  values is refused, since it would read in sync whatever changed.
+- Name the facts a golden baseline covers with `--keys` (`--keys 'package.*'`): facts
+  that belong to one host, such as its addresses or its machine ID, always differ
+  from another host's.
 
 `pleiades facts drift [<hosts>]` compares each host (every host in the inventory
 when none is named) with its newest baseline, or the one `--baseline NAME` names.
-Each host is `in_sync`, `drifted`, `unknown` (its facts were never gathered, or the
-baseline was taken under other keys) or `no_baseline`; a host is never `in_sync`
-when it could not be compared. Each key that differs is `added`, `removed` or
-`changed`, with its keyed hashes, when its current value was first observed and last
-confirmed, and how long ago that was. A value holding a digest is named as changed,
-never shown. `--json` prints one document, described by
+Each host is one of:
+
+| State | When | Exit status it gives |
+|---|---|---|
+| `in_sync` | no confirmed difference, and at least one key compared | 0 |
+| `drifted` | at least one confirmed key `added`, `changed` or `removed` | 3 |
+| `unknown` | never gathered, its stored facts or baselines do not open (sealed under another master key, edited, moved, or written before facts were sealed), or no key of the baseline could be compared; the reason says which | 1 |
+| `no_baseline` | no baseline, or none of the name asked | 1 when the host was named on the command line, else none |
+
+One `unknown` host does not stop the others: each is still compared and the report
+is printed. Each key that differs is `added`, `removed` or `changed`, with its keyed
+hashes, when its current value was first observed and last confirmed, and how long
+ago that was. A value holding a digest field (`sha256`, `hmac_sha256`), or a fact
+whose name ends in `_digest` or `.digest` (`config.running_digest`,
+`yang.modules_digest`), is named as changed, never shown. A key stable on one side
+and volatile on the other is counted as not compared (`kind_changed`), never as a
+change. `--json` prints one document, described by
 [the facts drift schema](reference/schemas/facts-drift.json).
 
 A fact a later gather no longer reports keeps its last value: the store records
-values, not their absence. So `removed` means a key the baseline has that this host
-has never reported, as with a golden baseline, and a key whose value the host's latest
-gather of its family (the key up to its first dot, `package.`) did not confirm is
-listed as not confirmed, which is how an uninstalled package shows. That list is not
-drift.
+values, not their absence. So every difference, and every match, is held to the
+host's latest gather of the key's family (the key up to its first dot, `package.`):
+a key that gather did not confirm is listed as **unconfirmed**, with what it would
+have been (`added`, `changed` or `matching`), and is not drift. A host whose only
+differences are unconfirmed is `in_sync`, with the unconfirmed count beside its
+state. This is how a package uninstalled since a host's own baseline shows: as
+unconfirmed, not as `removed`. `removed` is reported only against a golden
+baseline's keys the host has never reported. The rule goes by family, so a fact
+gathered on its own (one path's `file.` fact) and missing from the latest gather of
+its family is unconfirmed too, even when it is current.
 
 The exit status is 0 when every host compared is in sync, 3 when any host drifted,
 and 1 when none drifted but a host could not be compared, or a host named on the
@@ -316,7 +341,9 @@ command line has no baseline. A host not named that has no baseline is listed an
 does not fail the command.
 
 `baseline` and `drift`, as the first word after `facts`, are these commands: read the
-facts of a host named either with `pleiades facts -- <host>`.
+facts of a host named either with `pleiades facts -- <host>`. A first word one edit
+from either (a letter added, dropped or changed, or two swapped: `baselin`, `drfit`)
+that no host has is refused, naming the subcommand.
 
 Not covered in this release: drift over secrets (a credential's value against what a
 device holds), baselines and drift on the Controller, and drift checked on a

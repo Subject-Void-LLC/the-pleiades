@@ -167,7 +167,7 @@
   "facts baseline web1 -h": {
     "code": 0,
     "stdout": "",
-    "stderr": "Usage of facts baseline:\n  -dir string\n    \tproject directory (default \".\")\n  -from string\n    \ta host to take the facts from (a golden host), hashed again for each host\n  -inventory value\n    \tinventory file to read and write, in place of --dir's inventory.yaml; group_vars/ and host_vars/ are read beside it\n  -keys string\n    \tthe facts to take, comma-separated: a key, or a prefix ending in * (package.*); every stable fact when unset\n  -name string\n    \tthe baseline's name, unique per host (letters, digits, '.', '_' and '-')\n  -reason string\n    \twhy the baseline is taken, recorded with it\n"
+    "stderr": "Usage of facts baseline:\n  -dir string\n    \tproject directory (default \".\")\n  -from string\n    \ta host to take the facts from (a golden host), hashed again for each host; never one of the hosts\n  -inventory value\n    \tinventory file to read and write, in place of --dir's inventory.yaml; group_vars/ and host_vars/ are read beside it\n  -keys string\n    \tthe facts to take, comma-separated: a key, or a prefix ending in * (package.*); every stable fact when unset, and a pattern matching none is refused\n  -name string\n    \tthe baseline's name, unique per host (letters, digits, '.', '_' and '-')\n  -reason string\n    \twhy the baseline is taken, recorded with it\n"
   },
   "facts drift -h": {
     "code": 0,
