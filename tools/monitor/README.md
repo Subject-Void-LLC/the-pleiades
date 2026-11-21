@@ -73,9 +73,12 @@ requests are open at once; the next is answered 503.
   ensure and they changed since it started (`/healthz` reports a SHA-256
   `fingerprint` of the `source_files` it loaded), but never while a gate runs.
   Every change to what the daemon serves or stores (a route, a field of an
-  answer, a file it writes) must raise `PROTOCOL` in `daemon.py`; the
+  answer, a file it writes) must raise `PROTOCOL` in `daemonconf.py`; the
   fingerprint catches a forgotten raise only from the tree the daemon runs
-  from, so two trees of one protocol never take turns replacing it. The pid in the
+  from, so two trees of one protocol never take turns replacing it. The
+  fingerprint's file list is never kept by hand: it is every module the
+  daemon imported from this directory (`fingerprint.loaded_sources`), and a
+  test fails when a module the daemon can import is missing from it. The pid in the
   lock file is only a hint: ensure signals it only once that process answers
   `/healthz` on the lock's port with the same pid and this state directory and
   its own command line runs `monitor.py daemon`, and never a pid of 0 or 1.
@@ -97,6 +100,36 @@ requests are open at once; the next is answered 503.
 - A `monitor.py run` from a branch older than the daemon still opens its
   own server on 8765 and so cannot start while the daemon holds the port;
   rebase it, or pass that run another `--port`.
+
+### Where the code is
+
+Each module keeps to about 300 lines, one responsibility each. A name a
+caller has always read from `daemon`, `monitor`, `mcp_status`, `actions` or
+`prlog` is still imported there and listed in its `__all__`.
+
+| Module | Holds |
+|---|---|
+| `monitor.py` | the command line's entry point (`monitorcli.py` parses it) |
+| `gaterun.py`, `watchlog.py` | `run` and `watch`; `runloops.py` the threads both share, `watchapp.py` their server's backend, `monitorconf.py` their paths |
+| `daemon.py` | the daemon's process: its periodic jobs and the server |
+| `daemonconf.py` | `PROTOCOL`, the port, every interval and bound, the opt-out |
+| `daemonlock.py` | `statusd.lock`, and the proof that its pid is the daemon |
+| `daemonensure.py` | `ensure`: start, keep or replace a daemon |
+| `daemonstate.py`, `daemonserve.py`, `daemonapp.py` | the daemon's backend: what it holds, what it serves, what it records |
+| `fingerprint.py` | the source fingerprint `/healthz` reports |
+| `mcp_status.py` | the MCP server; `mcptools.py` its tools, `mcpanswers.py` the shape of their answers |
+| `actions.py` | the Actions poller and backfill; `actionsjson.py` runs and jobs as JSON, `ghapi.py` `gh api` |
+| `prlog.py` | the pr-check log parser; `prpatterns.py` its patterns, `prstages.py` and `prsteps.py` its handlers, `prrecords.py` the records |
+
+Some files are still past the cap and were left as they are: `server.py`
+(525 lines, most of it one request handler class built inside
+`make_handler`, which a move cannot split), `prstate.py` (520, most of it
+the one `RunState` class), `history.py`, `timeline.py` and `runfile.py`
+(about 420 each, one store or follower apiece), and `security.py` and
+`live.py`, a few lines over. `dashboard.js` (968) and
+`roadmap.js` (646) were left too: a new script file is a new route in
+`server.STATIC`, which is a change to what the daemon serves (a `PROTOCOL`
+raise), not a move, and no test runs the page's JavaScript.
 
 ### The roadmap panel
 

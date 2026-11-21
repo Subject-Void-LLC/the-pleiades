@@ -505,7 +505,7 @@ def copy_monitor(dest: str, protocol: Optional[int] = None) -> str:
 
     Args:
         dest: The directory to create.
-        protocol: The PROTOCOL the copy's daemon.py declares, or None to keep it.
+        protocol: The PROTOCOL the copy's daemonconf.py declares, or None to keep it.
 
     Returns:
         dest.
@@ -516,7 +516,7 @@ def copy_monitor(dest: str, protocol: Optional[int] = None) -> str:
             with open(os.path.join(HERE, name), "rb") as src, open(os.path.join(dest, name), "wb") as out:
                 out.write(src.read())
     if protocol is not None:
-        path = os.path.join(dest, "daemon.py")
+        path = os.path.join(dest, "daemonconf.py")
         with open(path, encoding="utf-8") as f:
             text = f.read()
         old = "PROTOCOL = %d\n" % daemon.PROTOCOL
@@ -815,6 +815,61 @@ class EnsureSafetyTest(unittest.TestCase):
                 self.assertEqual((daemon.read_lock_info(d) or {}).get("pid"), 4242)
             finally:
                 os.close(fd)
+
+
+def monitor_imports(directory: str, start: str = "monitor.py") -> List[str]:
+    """Names every module of the monitor that start can import, read from the source.
+
+    Every import statement counts, at the top of a file or inside a function,
+    so a module imported only later, when a function first runs, is listed too.
+
+    Args:
+        directory: The monitor's directory.
+        start: The file the daemon's process runs.
+
+    Returns:
+        The file names, start included, sorted.
+    """
+    import ast
+    seen: List[str] = []
+    todo = [start]
+    while todo:
+        name = todo.pop()
+        if name in seen:
+            continue
+        seen.append(name)
+        with open(os.path.join(directory, name), encoding="utf-8") as f:
+            tree = ast.parse(f.read(), name)
+        for node in ast.walk(tree):
+            mods: List[str] = []
+            if isinstance(node, ast.Import):
+                mods = [a.name for a in node.names]
+            elif isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
+                mods = [node.module]
+            for mod in mods:
+                if os.path.isfile(os.path.join(directory, mod + ".py")):
+                    todo.append(mod + ".py")
+    return sorted(seen)
+
+
+class FingerprintTest(unittest.TestCase):
+    """The fingerprint /healthz reports covers every module the daemon can run."""
+
+    def test_every_module_the_daemon_imports_is_fingerprinted(self) -> None:
+        """A real daemon's source_files are exactly the monitor modules its
+        entry point can import, so a change to any of them is seen."""
+        with tempfile.TemporaryDirectory() as d:
+            proc, port = start_copy(HERE, d)
+            try:
+                health = daemon.healthz(port) or {}
+            finally:
+                proc.terminate()
+                proc.wait(10)
+            files = sorted(str(n) for n in get_list(health, "source_files"))
+            self.assertEqual(files, monitor_imports(HERE))
+            for name in ("daemonconf.py", "daemonlock.py", "daemonensure.py", "daemonapp.py", "fingerprint.py"):
+                self.assertIn(name, files)
+            self.assertEqual(health.get("fingerprint"), daemon.source_fingerprint(HERE, files))
 
 
 class RoadmapPanelTest(unittest.TestCase):

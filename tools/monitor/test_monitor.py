@@ -20,6 +20,7 @@ import http.client  # noqa: E402
 import json  # noqa: E402
 import os  # noqa: E402
 import stat  # noqa: E402
+import subprocess  # noqa: E402
 import tempfile  # noqa: E402
 import threading  # noqa: E402
 import time  # noqa: E402
@@ -736,7 +737,7 @@ class ActionsTest(unittest.TestCase):
 
     def test_gh_missing(self) -> None:
         """Says gh is not installed when it cannot be run."""
-        def missing(*args: object, **kwargs: object) -> "actions.subprocess.CompletedProcess[str]":
+        def missing(*args: object, **kwargs: object) -> "subprocess.CompletedProcess[str]":
             """Raises as subprocess.run does for a missing program."""
             raise FileNotFoundError("gh")
         self.assertEqual(actions.gh_api("repos/x", run=missing), (None, "gh is not installed"))
