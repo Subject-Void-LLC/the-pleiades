@@ -183,3 +183,6 @@ See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the development workflow, and
 ## License
 
 [GNU GPLv3](LICENSE).
+
+The Pleiades uses cryptography. See the
+[export notice](docs/13-releases-and-stability.md#export-notice) before you use or redistribute it.
