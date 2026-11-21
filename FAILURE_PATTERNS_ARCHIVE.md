@@ -32955,3 +32955,48 @@ sampler that stopped it.
 **Lesson.** After killing a run that filled memory or swap, read `free` and look for leftover `go list` and compile
 processes (997) before starting a gate. A gate on a moved or new checkout builds cold: give it the machine to
 itself.
+
+## 1341. A partial master key set read as device damage: the key check proved one key was known, not that every key the rows need was given (fixed before push; security; found by an independent refutation pass after the first review's fix; a repeat of 1330)
+
+**Symptom.** 2026-11-21, branch `feat/facts-history-inspect-repair`, after 1330's fix. An independent refutation pass
+reasoned out two inputs that fix let through, and tests then showed both. (a) A database partway through a master
+key rotation, before `ROTATE_ENCRYPTION_KEYS` has sealed it again: the older gathers sealed as `v1` under key A, the
+newer as `v2` under key B. Run with the environment from before the rotation (`MASTER_ENCRYPTION_KEY` A as `v1`, no
+previous key), A is a key the registry records, so nothing refused it. The `v2` rows failed in `resolveKEK` as an
+unknown key version and read `does_not_open`, the `v1` rows verified, and the device read `broken` with truncate
+offered. `truncate --confirm` cut at the last `v1` gather and removed it and every `v2` gather, all intact, with no
+second flag, and its after-check passed. (b) The mirror, B as `v2` with the previous key left out: the oldest rows
+failed first, so truncate was refused, but the device still read `broken`, and `discard --confirm` removed a whole
+intact history with no flag. The `unopened` state caught neither: one row that opens made the device `broken`.
+
+**Root cause.** 1330's fix answered "is this the database's master key?" with "the registry records it". That proves
+one key was known, not that every key the rows need was given: it did not look at the key version,
+`MASTER_ENCRYPTION_KEY_PREVIOUS`, or which key seals facts now. And the inspection still read a row that does not
+open as a fault in that row whenever some other row opened, though nothing in a failed open tells a row sealed under
+a key the command was not given from a damaged one.
+
+**Why 1330 did not hold.** 1330 treated a wrong master key as all or nothing: wrong, so no row opens (`unopened`), or
+right, so any row that fails is damaged. A rotation makes it partial, a case that fix never built: no test sealed one
+device's rows under two master keys. Its guard keyed on a state name, `unopened`, that the partial case never
+reaches.
+
+**Search.** The index and the archive for a wrong, stale or partial key read as damage, and for master key rotation:
+1330 is this class; 233, 1309 and 1310 are rotation defects of other kinds.
+
+**Fix.** `b6b71d2e`. A row that does not open is never, by itself, proof of damage. A device with some such rows is
+the new state `partly_unopened`, never `broken` or `refused`; any such row, in any state, makes the history
+`unverifiable`, read from the count of such rows rather than from the state's name; and both repairs then need a
+named flag, `--discard-unverifiable-history` or the new `--truncate-unverifiable-history`
+(`TestRepair_AStaleMasterKeyIsNotProofOfDamage`, `TestRepair_AMissingPreviousMasterKeyIsNotProofOfDamage` and their
+PostgreSQL twins; `TestFacts_AStaleMasterKeyIsNotDeviceDamage` and `TestFacts_AMissingPreviousMasterKeyIsNotDeviceDamage`
+through the command). Each device's report names the master key versions its rows are sealed as and whether the
+command holds a key for each (`crypto.FactPayloadVersion` reads the version from the envelope's head without opening
+it; a version is a label stored in the clear, not part of a key), and the fleet summary names the versions not given
+(`TestInspectAll_NamesTheMasterKeyVersionsNotGiven`). Before reading anything the command warns when the registry
+records a newer key than the ones given, a key under another version than it was given as, or no record of the
+previous key (`TestFacts_WarnsOfMasterKeySettingsTheRegistryContradicts`). Those warnings are advice; the flag is the
+guard.
+
+**Lesson.** A row that does not open is never, by itself, proof of damage, because the tool cannot tell a row sealed
+under a key it was not given from a corrupted one: any history with such a row is unverifiable however the keys are
+set. A check that a command's configuration is right must cover every key the data may need, not one of them.

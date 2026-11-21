@@ -1344,6 +1344,7 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 1338. Two background waiters each looped until `ps -eo args | rg '[m]onitor.py run --cap'` found nothing, each waiter's command line held text the pattern matched, and each waited on the other for half an hour with no gate running (process; worked around with a script file; a repeat of 153, 689 and 1067, in a form LESSONS 448's bracket rule does not cover)
 1339. An agent-created worktree was removed when its subagent first finished, so the same subagent, resumed for a second task, had no working directory and built nothing (process; no code fix; practice stated)
 1340. pr-check's memory floor stopped a gate at 694 MB available (floor 700) that was started seconds after a thrashing process was killed, with a cold build cache from a moved worktree; the rerun passed (process; a repeat in kind of 732)
+1341. A partial master key set read as device damage: the key check proved one key was known, not that every key the rows need was given (fixed before push; security; found by an independent refutation pass after the first review's fix; a repeat of 1330)
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 
