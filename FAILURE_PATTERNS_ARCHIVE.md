@@ -32000,3 +32000,239 @@ and starting the gate are separate commands.
 
 **Lesson.** A gate's start asserts what it is gating. A chained shell line carries on past a failed switch, and the
 gate then checks whatever happens to be checked out.
+
+## 1307. The stored facts' history chain was an unkeyed SHA-256 over the fact's plaintext key, with every other input readable in the same row, so a database copy confirmed a guessed fact name with one hash per guess; the branch's "no plaintext" tests searched for substrings and could not see it (fixed before push; security; caught in independent review; a repeat of 868, its test a repeat in kind of 236; LESSONS 222)
+
+**Symptom.** 2026-11-21, branch `feat/facts-at-rest`, before push, found by an independent review. Security. The
+branch sealed each fact's name and value and keyed its hash, and its tests (`TestStore_NothingStoredIsPlaintext`,
+`TestFileStore_NothingStoredIsPlaintext`) passed. Each row's history chain link was still a plain SHA-256 over the
+device, the link before, the fact's key, its keyed hash, the time and the provenance. Every input but the key sits in
+the same row in the clear. Anyone holding a copy of the Controller's database could confirm a guessed fact name
+(`package.openssh`, `user.alice`) with one SHA-256 per guess. Reasoned and then reproduced by a test, not measured
+against an attacker.
+
+**Root cause.** The design keyed the hash and the row token and left the chain as it was, because the chain "covers
+the keyed hash". Nobody listed the chain's other inputs and asked which of them a database copy already holds. The
+tests looked for known substrings and for the old plain value hash. A recomputable link is neither: the plaintext
+is not in the store, the store only answers yes or no to a guess.
+
+**Why 868 did not prevent it.** 868 (and 1280, the gap in its fix) is the same class: a stored, unkeyed digest of a
+small input is an offline guessing oracle. Its fix and its lesson were applied to file digests, and this branch
+applied them to the fact hash and the row token. The chain link is a third digest in the same row that no list named.
+LESSONS 222 (an absence assertion over an encrypted store must be structural, not a substring search) and 236's
+lesson were on record and the new tests were substring searches all the same.
+
+**Fix.** `4f728796`: each link is HMAC-SHA-256 under a chain key derived from the store's secret under the label
+`pleiades/facts/at-rest/chain/v1`, separate from the hash key and the token key, on both tiers through one function
+(`(*Keys).ChainHash`). The bytes a link covers are unchanged. `ff39c0ac`: both dialects' tests now read each stable
+row with plain SQL, recompute the old unkeyed link for every key the gathers stored and require that none equals the
+row's chain, with a control that the keyed link recomputed from the same columns matches exactly once
+(`TestStore_NothingStoredIsPlaintext`, `TestStore_NothingStoredIsPlaintextOnPostgres`, `TestKeys_ChainHashIsKeyed`,
+`TestChainHashIsFrozen`). The commit says the new check fails on every stable row against the code before the fix.
+
+**Lesson.** When a store is sealed, list every value derived from the sealed input that stays in the clear (a hash, a
+token, a chain link, a digest over a list) and key each one. Test it as the attacker would: recompute each derived
+value from the clear columns and a guess, and require no match, with a control that the keyed form does match
+(LESSONS 460).
+
+## 1308. The migration that sealed stored facts was written as expand-only, so a Controller from before sealing could still serve the migrated schema and write plaintext facts during a rolling upgrade or after a binary rollback (fixed before push; security; caught by a subagent reading the migration policy; the class of 1098, 1103 and 1144; 389, 833 and 971's lesson pointed the wrong way; open: a controller that looked dead for over 45 seconds)
+
+**Symptom.** 2026-11-20, branch `feat/facts-at-rest`, before push, found by a subagent reading the migration policy
+against the new migration. Security. The facts at rest migration (SQLite 0052, PostgreSQL 0049) deleted the plaintext
+rows and added the new columns, and kept the old plaintext `key` column so that it classified as an expand. Under the
+expand policy the previous build may keep serving during a rolling upgrade and after a binary rollback. That build
+knows nothing of sealing, so it would have stored facts in plaintext beside the sealed ones. An interim commit
+(`abc8a10f`) even gave such rows their own refusal text and said so in its message.
+
+**Root cause.** The migration was shaped to pass the compatibility classifier. The classifier asks whether an old
+build still works against the new schema. Here the old build working is the defect: the migration exists to remove
+plaintext, and a build that writes plaintext undoes it.
+
+**Why the earlier entries did not prevent it.** 389, 833 and 971 each end with "design schema changes as expand-only",
+and 971 says a column no longer used stays until the squash. Followed here, that rule produced the hole. 1098, 1103
+and 1144 are the mixed-version class (an older build writing during the window), and LESSONS 422 and 437 are its
+rules, but they are about release data and tokens, and nobody read them against a migration whose purpose is a
+security property.
+
+**Fix.** Three layers. (1) `f5a976b4` declares the migration a contract in `internal/ent/migrate/compat.go`, and
+`bd3425dd` adds the apply-time guard (`guard.go`): a contract is refused while an older controller's heartbeat is
+live (a 45 second window; on PostgreSQL a SHARE lock on `controller_instances` so no heartbeat lands between the
+check and the commit). Tests: `TestApply_AnOlderControllerRunningKeepsTheContractOut`,
+`TestApply_TheContractAppliesWhenNoOlderControllerRuns`, `TestApply_TheFloorKeepsAnOlderBuildOut`,
+`TestApplyOne_NoHeartbeatIsWrittenWhileAContractApplies`, `TestEveryNewContractIsGuarded`. (2) `a52337cc` makes the
+database refuse the old build's writes: the plaintext `key` column is dropped and a CHECK (`fact_keyed`) refuses a row
+with no `key_token` or `keyed_by`. The old build's real statements were captured and replayed
+(`TestApply_TheBuildBeforeFactsAtRestStoresNothingAfterIt`, `TestApply_FactsAtRestRefusesEveryPlaintextFactRow`):
+SQLite answers "no such column: facts.key" and PostgreSQL 42703. (3) `4b4d94e6`: `joinFleet` reads the schema again
+after its first heartbeat (`TestFleet_AHeartbeatHeldByAContractStillSeesIt`,
+`TestFleet_RefusesToJoinADatabaseContractedPastIt`). `5c44e429` changes the e2e upgrade gate to cross a contract only
+once the previous build has stopped; `tests/e2e` was not run locally on this branch, so that part rests on CI.
+
+**Open.** A controller of any build that looked dead for more than 45 seconds and then returns can serve requests
+and write tables other than `facts` until its next tick; the database's own refusal covers `facts` only
+(`186ed22f` says so in the code). PostgreSQL keeps the deleted plaintext rows in dead tuples, WAL archives, replicas
+and old backups; the docs tell the operator to expire them, and nothing in the product does.
+
+**Lesson.** Expand-only is the default for a schema change, not for a migration that removes something for a security
+reason. Ask what the previous build would write into the migrated schema. If that write undoes the protection,
+declare a contract and make the database itself refuse the write (LESSONS 461).
+
+## 1309. `RotateFactPayloads`, the master-key rotation of stored fact payloads, rewrote a payload with no compare-and-swap, so a re-key landing between its read and its write got a payload sealed for the old token put back (fixed before push; caught by the rotation subagent; a repeat of 45; LESSONS 46)
+
+**Symptom.** 2026-11-20, branch `feat/facts-at-rest`, found by the subagent building facts key rotation, before its
+commit. `internal/crypto`'s `RotateFactPayloads` read a page of fact rows, re-sealed each payload under the new
+master key and wrote it back by row id alone. A fact's payload is sealed with its `key_token` as associated data. A
+per-device re-key that changed the token between the rotation's read and its write then had its new payload replaced
+by one sealed for the old token, which no longer opens for that row.
+
+**Root cause.** The rotation write was added earlier on the branch (`7aaea715`), before the re-key existed, when
+nothing else rewrote a payload, so an unconditional update looked safe. The re-key made the payload's meaning depend
+on a second column.
+
+**Why 45 did not prevent it.** 45 is the same defect in `RotateDeviceProperties`, and LESSONS 46 states the rule (a
+rotation write honors the resource's compare-and-swap). A fact row has no `version` column, and its payload could
+not be rewritten at all before this branch, so there was no existing compare-and-swap to copy and the rule was not
+asked of a column that had never been updated.
+
+**Fix.** In `9de18b07` with `b0f8e8f3`: the rotation's write is conditioned on the row still holding what was read,
+and a row that lost is left for the next pass. `TestRotateFactPayloads_LeavesARowReKeyedSinceItWasRead`,
+`TestRekeyFact_IsACompareAndSwap`; `internal/archtest`'s `TestOnlyTheRekeyRewritesFactKeys` keeps the hand-written
+re-key writes to one place.
+
+**Lesson.** As 45 and LESSONS 46. When a column that was never rewritten gains a second writer, every existing
+maintenance write to it is reviewed again in the same change: "nothing else writes this" has just stopped being true.
+
+## 1310. On PostgreSQL a gather stored by a replica still on the old facts key committed beside a re-key and left the device's facts under both keys, refused from then on (fixed before push; caught by the rotation subagent's race test; open: a refused device has no repair tool)
+
+**Symptom.** 2026-11-20, branch `feat/facts-at-rest`, found by the rotation subagent's own race test before its
+commit. During a facts key rotation one replica re-keyed a device's rows in one transaction while another replica,
+still holding only the old key, recorded a gather for the same device. On PostgreSQL both committed. The device then
+held rows under two keys, and the store refuses such a device on every later read and write.
+
+**Root cause.** The re-key's per-row compare-and-swap protects rows that exist when it reads them. Under READ
+COMMITTED a row another transaction inserts under the old key is not seen by the re-key and conflicts with none of
+its writes. The invariant is over the set of a device's rows (all under one key), and no row in the set can guard it.
+SQLite did not show it because its writers are serialized.
+
+**Fix.** `9de18b07`, then `01944223`: a lock on the device's own row. A record takes it FOR SHARE and a re-key FOR NO
+KEY UPDATE, so gathers do not wait for each other, two devices never wait for each other, and a foreign-key insert
+is not held up. Tests: `TestRekey_AGatherUnderTheOldKeyDuringARekeyOnPostgres`,
+`TestRekey_TwoReplicasWithDifferentKeysAtOnceOnPostgres`, `TestRekey_TwoReplicasWithTheSameKeyAtOnceOnPostgres`,
+`TestRekey_AnInterruptedRekeyLeavesTheOldKeysOnPostgres`, and their SQLite twins. The first form of the lock was a
+transaction advisory lock, which this module forbids (1311).
+
+**Open.** A device whose stored history does not verify under the old key is not re-keyed
+(`TestRekey_AHistoryThatDoesNotVerifyIsNotRekeyed`). It is refused under the new key, and this release has no tool to
+inspect or repair it; the docs say so.
+
+**Lesson.** A compare-and-swap on each row cannot hold an invariant over a set of rows, because it never sees an
+insert. Lock the row that owns the set, in the weakest mode that still excludes the conflicting writer, and prove it
+on PostgreSQL, where writers really run side by side.
+
+## 1311. Two changes on the branch were handed on after only their own tests had run: the re-key took a PostgreSQL advisory lock that `TestNothingTakesAnAdvisoryLock` forbids, and the batch-sealing commit's new warning broke four tests that assert the consumer warns about nothing (fixed before push; process; a repeat of 865, in kind of 661)
+
+**Symptom.** 2026-11-20 and 2026-11-21, branch `feat/facts-at-rest`, before push. (a) The re-key's first PostgreSQL
+hold was a transaction advisory lock. `internal/archtest`'s `TestNothingTakesAnAdvisoryLock` refuses one anywhere
+outside a single benchmark. The subagent that wrote it ran its own package's tests and not `internal/archtest`, and
+the failure stayed unseen until a later subagent ran the whole archtest package. (b) The orchestrating session's
+batch-sealing commit (`a696e8d2`) made the Controller's facts consumer warn about every unsealed batch. Two
+`internal/facts/entstore` subscriber tests and two `cmd/controller` tests assert that nothing is warned about, and
+published plaintext batches. All four failed at the branch's tip. Only targeted tests had been run after the commit;
+later subagents running whole packages found them.
+
+**Root cause.** In both cases the tests run were the ones the change added or named. A rule held elsewhere (an
+archtest, a "no warnings" assertion in a sibling test) is only consulted by running the package that holds it.
+
+**Why 865 did not hold.** 865 is the same event: an import that an existing archtest forbids, unseen because only the
+branch's new archtest was run. Its lesson is narrow ("after adding an import, run all of `internal/archtest`"), and
+neither change here added an import: one added a SQL call and one added a log line. 661 is the same kind for
+`tools/gendocs`. The rule also lived only in the records, not in the instructions a subagent is handed.
+
+**Fix.** `01944223` replaces the advisory lock with a row lock on the device's row (1310). `9fff9810` and `22861893`
+make the four tests deliver sealed batches, as a Runner of this release does
+(`TestSubscriber_OpensABatchARunnerSealedAndStoresItsFacts` holds the sealed path itself;
+`TestSubscriber_StoresAnEarlierRunnersUnsealedBatch` holds the warning). No guard was added to the repository;
+`make pr-check` runs whole packages and `internal/archtest` always, so both would have stopped at the gate.
+
+**Lesson.** Before work is handed back or committed, run the whole of every package the change touches and all of
+`internal/archtest`, whatever kind of change it was. A change to what shared code logs or refuses is a change to
+every test that asserts on its silence (LESSONS 462).
+
+## 1312. Text the branch wrote claimed more than the code did: "a copy of the database shows nothing about what they are", "the message stream holds no fact", "freed pages are overwritten by a VACUUM", a comment saying the facts routes answer 503 when they answered 500, and a sentence about a refused device's next gather that rested on nothing (fixed before push; caught in independent review; a repeat of 228, 571, 1029 and 1041; LESSONS 206)
+
+**Symptom.** 2026-11-21, branch `feat/facts-at-rest`, before push. An independent review held
+`docs/10-running-in-production.md` and the code comments to the code and found four claims that were false as
+written. (a) "A copy of the database shows ... nothing about what they are": each fact's provenance (job, run, node,
+method, Runner) and its kind are stored in plaintext. (b) "The message stream holds no fact": a sealed batch still
+carries its job, device, node and method in plaintext. (c) "Freed pages are overwritten by a VACUUM": the VACUUM ran
+once, best effort, in the process that applied the migration, and was never retried. (d) A code comment said the
+facts routes answer 503 when the store refuses as configured; they answered 500. Separately, the orchestrating
+session wrote a sentence about a refused device ("its next gather starts a new history only after those rows are
+removed") with no test or code behind it, and removed it in the next commit (`b06857fd`, then `13685aa9`).
+
+**Root cause.** The sentences were written from the design's intent, in the same sitting as the code, and none was
+checked against a query of the stored row, a capture of the published message or a failed VACUUM.
+
+**Why the earlier entries did not prevent it.** 228, 571, 1029 and 1041 are the same class, and LESSONS 206 is the
+rule (write from the code and prove each surprising claim). The rule is applied by a reviewer after the fact. Nothing
+on this branch made the author list each claim's evidence when writing it, and a claim of absence ("shows nothing",
+"holds no") reads as safe to the person who just built the sealing.
+
+**Fix.** `5f23d183` rewrites the docs to say what a database copy and the stream still show, including that a task
+named after what it reads says what the fact is about. Two of the claims were made true instead of weakened:
+`af8ddddc` records an owed VACUUM in SQLite's `PRAGMA user_version` and retries it at every start until it runs
+(`TestReclaim_AStartThatFindsItOwedRunsItAndOneThatFindsItDoneDoesNot`,
+`TestReclaim_AFailureIsReportedAndNeverFailsTheStart`,
+`TestApply_TheFactAtRestMigrationLeavesNoPlaintextInTheSQLiteFile`), and `ac1c4081` makes the routes answer 503 with
+a fixed cause (`TestDeviceFacts_AStoreRefusingAsConfiguredAnswers503`,
+`TestUnavailable_NamesOnlyConfigurationStates`). The unsupported sentence was replaced by "this release has no tool
+to inspect or repair such a device".
+
+**Lesson.** As 228 and LESSONS 206. A claim that something is absent or always happens ("shows nothing", "holds no",
+"is overwritten") is the kind to prove before it is written: name the column, message field or retry that makes it
+true. When the code falls short of a sentence worth keeping, build the code.
+
+## 1313. The stream idempotency key for a `job.facts` batch was changed to a digest of the sealed batch, which is fresh on every seal, so a `Record` retried after a partial publish could not be deduplicated and the Controller stored duplicate observations (fixed before push; a repeat of 85, in kind of 29; LESSONS 31 and 87)
+
+**Symptom.** 2026-11-21, branch `feat/facts-at-rest`, before push. When the Runner began sealing each fact batch to
+the Controller's public key, the batch's idempotency key was taken from a digest of the sealed bytes. Sealing draws
+fresh randomness, so the same observation sealed twice has two keys. A `Record` its caller retried after a partial
+publish sent batches the broker could not tell from new ones.
+
+**Root cause.** The key had been a digest of the batch's content. Sealing made the content ciphertext, and the
+digest was moved to the ciphertext without asking whether it was still stable across a retry.
+
+**Why 85 and 29 did not prevent it.** 85 is a key minted fresh on every attempt, and 29 a key derived from content
+that hid real events; LESSONS 31 and 87 say to derive the key from the operation's identity. The existing key was
+already a content digest (the shape 29 warns about) that happened to be stable, so no retry test failed until
+sealing made it random.
+
+**Fix.** `74fd6337`: the key is the batch's identity: job, device, attempt, the node and which run of it observed
+the facts (`Observation.Iteration`, handed down by the engine, never stored or chained), the observation's time, and
+the batch's index and count. Nothing of the entries is in it. Tests:
+`TestFacts_EachRunOfALoopedTaskIsItsOwnObservation` and the publisher's tests in
+`internal/adapters/native/facts_test.go`.
+
+**Lesson.** As LESSONS 31 and 87. Sealing or encrypting a message turns every content-derived key into a random
+one. When a payload becomes ciphertext, re-derive each key, digest and dedup value that was computed from it.
+
+## 1314. A fact batch whose stored row does not open (moved, edited, or sealed under another master key) returned an error the consumer did not acknowledge, so the bus redelivered the batch until its delivery budget ran out (fixed before push; a repeat of 208, and of 919 and 924)
+
+**Symptom.** 2026-11-21, branch `feat/facts-at-rest`, before push. A record that resumes a stored value opens the row
+holding it. A row that does not open as the device's own failed the record with `ErrNotThisDevices`. The Controller's
+facts consumer returned that error, and the bus redelivered the batch to the end of its budget, though no redelivery
+changes the database.
+
+**Root cause.** Sealing added a new way for a write to fail for good, and the consumer's list of failures it
+acknowledges was not extended with it.
+
+**Why 208 did not prevent it.** 208's lesson is to split "retry" from "give up" by whether a retry can change the
+outcome. 919 and 924 applied it to a NUL in an identifier. The split is a list in the consumer, and each new
+permanent failure has to be added to it by whoever introduces the failure.
+
+**Fix.** `7b11927c`: the batch is acknowledged and reported at error level with the store's reason and a pointer to
+the device's fact chain. `TestSubscriber_DropsABatchWhoseResumedRowDoesNotOpen`. The same holds for sealed entries the
+consumer cannot open (`TestSubscriber_DropsSealedEntriesItCannotOpenAsTheirBatchs`).
+
+**Lesson.** As 208. A change that adds an error a store can return also decides, in the same change, what each
+consumer of that store does with it: acknowledge and report, or retry.

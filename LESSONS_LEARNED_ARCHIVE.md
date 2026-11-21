@@ -8465,3 +8465,65 @@ hold for stats or an undo), record what the method really does in the tests' own
 method, and compare it with the declaration when the test binary ends. Fail for anything undeclared, for anything
 declared and never seen, and for an audit that found nothing to check (FAILURE_PATTERNS 1302). Test the part that
 fails the binary as a whole process (1303). Keep the source-reading check only as a backstop for code no test reaches.
+
+## 460. A test that sealed storage leaks nothing recomputes every derived value an attacker could: each digest, token and chain link from the columns left in the clear plus a guess, with a control that the keyed form matches (a refinement of 222, 195 and 172; FAILURE_PATTERNS 1307, 868 and 1280) (2026-11-21)
+
+**Why.** `feat/facts-at-rest` sealed each stored fact's name and value and keyed its hash. Its "nothing stored is
+plaintext" tests searched the raw rows and files for known substrings and for the old plain hash, and passed. The
+history chain link was still an unkeyed SHA-256 over the fact's name and values that sit in the same row in the
+clear, so a database copy confirmed a guessed name with one hash per guess (FAILURE_PATTERNS 1307). An independent
+review found it. No substring search could have, because the leak is a yes or no answer to a guess, not a stored
+string.
+
+**What is old and what is new.** LESSONS 222 says an absence assertion over an encrypted store must be structural.
+195 says to prove a message does not depend on a secret. 172 gives a substring assertion its control. FAILURE_PATTERNS
+868 says a digest of a small input is as sensitive as the input. The new part is the test's method: act as the holder
+of the database copy. For each value the store derives from a sealed input, recompute it from the clear columns and
+each known input, and require no match.
+
+**Rule in practice.** When sealing a store, list every derived value that stays readable: hashes, lookup tokens,
+chain links, digests over lists. For each one, the test reads the raw row with plain SQL (or the raw file), recomputes
+the unkeyed form for every input the test stored, and fails on any match. Beside it, a control recomputes the keyed
+form from the same columns and requires exactly one match, so a test that reads the wrong column cannot pass. Run it
+on both dialects. Check that it fails against the code before the fix (LESSONS 213 and 456).
+
+## 461. A migration that removes something for a security reason is a contract whatever its statements look like: ask what the previous build would write into the migrated schema, and when that write undoes the protection, declare the contract and make the database refuse the write (a refinement of 422 and 437, and a limit on FAILURE_PATTERNS 389, 833 and 971's "expand only"; FAILURE_PATTERNS 1308) (2026-11-21)
+
+**Why.** The facts at rest migration deleted plaintext rows and added sealed columns. It was first written to pass the
+compatibility classifier as an expand, by keeping the old plaintext column. Under the expand policy the previous
+Controller build may keep serving during a rolling upgrade and after a binary rollback, and that build would have
+stored plaintext facts again (FAILURE_PATTERNS 1308). Three earlier entries (389, 833, 971) end with "design schema
+changes as expand-only", and following them produced the hole.
+
+**What is old and what is new.** LESSONS 422 and 437 cover an older build writing during a mixed-version window.
+The classifier answers "does the old build still work". The new part is that for a security migration the old build
+working is the failure, so the classifier's green answer is the wrong question, and that an apply-time guard alone is
+not enough because a controller is visible to it only through its heartbeat.
+
+**Rule in practice.** For a migration whose purpose is to remove or protect data: (1) write down what the previous
+build's statements would do against the migrated schema; (2) if any of them undoes the protection, declare the
+migration a contract and guard its apply; (3) shape the schema so the database refuses those statements itself (drop
+the column, add a CHECK), and prove it by capturing the previous build's real statements and replaying them on both
+dialects; (4) have a starting process read the schema again after its first heartbeat; (5) write the upgrade
+procedure, because a rolling update no longer works. Say plainly what the guard cannot see. Here that is a controller
+that looked dead for longer than the liveness window and returns, which can still write other tables until its next
+tick.
+
+## 462. Before work is handed back or committed, by a subagent or by the orchestrating session, run the whole of every package the change touches and all of internal/archtest; the tests a change adds prove only what it meant to do (a repeat of FAILURE_PATTERNS 865 and 661, widening 865's lesson; FAILURE_PATTERNS 1311) (2026-11-21)
+
+**Why.** Twice on `feat/facts-at-rest` a change was handed on after only its own tests ran (FAILURE_PATTERNS 1311). A
+subagent's re-key took a PostgreSQL advisory lock, which `TestNothingTakesAnAdvisoryLock` forbids; nobody ran
+`internal/archtest` until a later subagent did. The orchestrating session's batch-sealing commit added a warning for
+unsealed batches, and four existing tests that assert the consumer warns about nothing failed at the tip; later
+subagents running whole packages found them.
+
+**What is old and what is new.** FAILURE_PATTERNS 865's lesson is "after adding an import, run all of
+`internal/archtest`". Neither change here added an import, so the lesson as written did not apply. The new part is
+that the trigger is any change, and that the rule binds the orchestrating session's own commits as much as a
+subagent's.
+
+**Rule in practice.** The instruction handed to a code-writing subagent says it: before reporting back, run every
+package you changed, whole, and `internal/archtest`, one package at a time under the machine's memory cap, and report
+the commands and their results. The orchestrating session does the same before each of its own commits. A change to
+what shared code logs, warns about or refuses is treated as a change to every test in the packages that use it.
+`make pr-check` would catch both cases, but only at the gate, after other work has been stacked on top.
