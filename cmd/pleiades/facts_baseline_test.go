@@ -131,6 +131,13 @@ func TestCLI_FactsDriftNamesTheChangedKey(t *testing.T) {
 	if out, err := runPleiades(t, dir, "facts", "baseline", "--name", "x", "--reason", "r", "--", "drift"); err == nil || !strings.Contains(out, "never gathered") {
 		t.Errorf("a baseline of a host never gathered: %v\n%s", err, out)
 	}
+	// Nor of a list holding one: refused before the first host is written.
+	if out, err := runPleiades(t, dir, "facts", "baseline", "web1,drift", "--name", "partial", "--reason", "r"); err == nil || !strings.Contains(out, "never gathered") {
+		t.Errorf("a list holding a host never gathered: %v\n%s", err, out)
+	}
+	if after, _ := os.ReadFile(path); string(after) != string(before) {
+		t.Error("a refused list wrote a baseline of its first host")
+	}
 	out, err = runPleiades(t, dir, "facts", "drift")
 	if exitCode(t, err) != 3 || !strings.Contains(out, "drift: no_baseline") || !strings.Contains(out, "web1: drifted") {
 		t.Errorf("drift over every host: %v\n%s", err, out)

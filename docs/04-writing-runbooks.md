@@ -274,9 +274,10 @@ comma-separated list, as in a runbook's `hosts:`. `--keys` narrows it to some fa
 facts are never part of one.
 
 - A baseline records who took it (the operating system user), when and why. It is
-  never changed or replaced: a name a host already has is refused, and so is the whole
-  command when any host it names has that name. A host's newest baseline is its
-  active one.
+  never changed or replaced: a name a host already has is refused. The whole command
+  is refused, before any host is written, when any host it names already has that
+  name or was never gathered, or the `--from` host was never gathered. A host's
+  newest baseline is its active one.
 - It is sealed like the facts: each baseline is one line of
   `.pleiades/facts/<device>.baselines.jsonl`, encrypted under the project's master
   key and bound to its host and its place in the file, so a line copied to another

@@ -96,13 +96,26 @@ func runFactsBaseline(args []string) error {
 		return err
 	}
 	ctx := context.Background()
-	// Every host checked before any baseline is written, so a name one host
-	// already has refuses the whole command rather than half of it.
+	// Every host, and the source, checked before any baseline is written, so
+	// a name one host already has, or a host never gathered, refuses the
+	// whole command rather than half of it.
+	if source != nil {
+		if current, err := store.Current(ctx, string(source.ID())); err != nil {
+			return fmt.Errorf("--from %q: %w", source.Name(), err)
+		} else if len(current) == 0 {
+			return fmt.Errorf("--from %q: its facts were never gathered: run facts.gather on it first", source.Name())
+		}
+	}
 	for _, h := range hosts {
 		if _, err := store.Baseline(ctx, string(h.ID()), *name); err == nil {
 			return fmt.Errorf("host %q: %w: %q", h.Name(), facts.ErrBaselineExists, *name)
 		} else if !errors.Is(err, facts.ErrNoBaseline) {
 			return fmt.Errorf("host %q: %w", h.Name(), err)
+		}
+		if current, err := store.Current(ctx, string(h.ID())); err != nil {
+			return fmt.Errorf("host %q: %w", h.Name(), err)
+		} else if len(current) == 0 {
+			return fmt.Errorf("host %q: its facts were never gathered: run facts.gather on it first", h.Name())
 		}
 	}
 	req := facts.BaselineRequest{Name: *name, Reason: *reason, By: osUser(), Keys: sel, At: time.Now()}
