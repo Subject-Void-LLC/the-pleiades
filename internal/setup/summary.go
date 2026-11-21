@@ -20,7 +20,9 @@ func composeFileNote() []string {
 		"this deployment stores. Back this file up somewhere that is not this machine.",
 		"Change that key by rotating it, never by editing it: see the production guide.",
 		"Back up PLEIADES_FACTS_DIGEST_KEY with it, and keep it the same on a restore:",
-		"a new one makes every private file's stored digest read as changed once.",
+		"stored facts are sealed under it, and a new one alone leaves them unreadable.",
+		"Change it by moving the old one to PLEIADES_FACTS_DIGEST_KEY_PREVIOUS beside",
+		"the new one; each private file's stored digest then reads as changed once.",
 	}
 }
 

@@ -508,10 +508,16 @@ services:
       - MASTER_ENCRYPTION_KEY_PREVIOUS=${MASTER_ENCRYPTION_KEY_PREVIOUS:-}
       - MASTER_ENCRYPTION_KEY_PREVIOUS_VERSION=${MASTER_ENCRYPTION_KEY_PREVIOUS_VERSION:-}
       - ROTATE_ENCRYPTION_KEYS=${ROTATE_ENCRYPTION_KEYS:-}
-      # The key the controller keeps digests of private files under (the
-      # production guide's "Digests of files only some may read"). Empty
+      # The facts key: stored facts are sealed under keys derived from it, and
+      # digests of private files are kept under it (the production guide's
+      # "Digests of files only some may read"). Empty stores no fact and
       # keeps no such digest, and the controller says so when it starts.
       - PLEIADES_FACTS_DIGEST_KEY=${PLEIADES_FACTS_DIGEST_KEY:-}
+      # A change of the facts key, empty unless .env sets it: move the old
+      # key here and put the new one above. The controller re-keys the facts
+      # stored under the old one and opens what Runners sealed to it, and
+      # refuses it without PLEIADES_FACTS_DIGEST_KEY or equal to it.
+      - PLEIADES_FACTS_DIGEST_KEY_PREVIOUS=${PLEIADES_FACTS_DIGEST_KEY_PREVIOUS:-}
       - RUNBOOK_DIR=/app/runbooks
       # There is deliberately no TLS_CERT_FILE and no TLS_KEY_FILE here,
       # and that absence is the whole configuration. It is a real decision

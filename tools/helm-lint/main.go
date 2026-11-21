@@ -109,6 +109,7 @@ func run() error {
 		findings = append(findings, requirePodDisruptionBudgets(p.name, objects, p.wantDisruptionBudgets)...)
 		findings = append(findings, checkRetainedDataStamp(p.name, objects)...)
 		findings = append(findings, checkTokenSource(p.name, objects, p.jwksURL)...)
+		findings = append(findings, checkSecretKeys(p.name, objects, p.controllerReads)...)
 		if len(p.values) == 0 {
 			// The defaults profile renders the inline-password path, which is
 			// where the chart's own fingerprint formula runs.
