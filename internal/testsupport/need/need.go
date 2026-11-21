@@ -118,8 +118,12 @@ const posixShellWhy = "the test runs its commands through " + ShellPath + ", as 
 // POSIXShellMissing is why the tests POSIXShell guards skip on this machine,
 // "" when it has ShellPath, for a TestMain that must know whether they ran
 // (pkg/collection/facttest's Options.Unavailable).
-func POSIXShellMissing() string {
-	if _, err := os.Stat(ShellPath); err != nil {
+func POSIXShellMissing() string { return shellMissing(ShellPath) }
+
+// shellMissing is POSIXShellMissing for a shell at path, so a test can ask
+// it about a path that is not there.
+func shellMissing(path string) string {
+	if _, err := os.Stat(path); err != nil {
 		return "needs " + PosixShell + ": " + posixShellWhy
 	}
 	return ""

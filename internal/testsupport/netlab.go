@@ -100,7 +100,7 @@ type NetLab struct {
 // repeat a no-op).
 func buildNetLabImage(tb testing.TB, dir, base, tag string) {
 	tb.Helper()
-	if _, err := exec.LookPath("docker"); err != nil {
+	if DockerMissing() != "" {
 		tb.Skip("docker not found on PATH")
 	}
 	src := filepath.Join(RepoRoot(tb), "internal", "testsupport", "testdata", "netlab", dir)
