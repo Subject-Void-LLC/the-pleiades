@@ -396,6 +396,24 @@ them, because no key can turn a plaintext row into a sealed one. Each device's n
 gather stores its facts again. On SQLite the freed pages are then overwritten by a
 `VACUUM` at the same start.
 
+That upgrade is one an older controller cannot run beside. A controller from before
+this release would store facts in plaintext again, so the new one refuses to change
+the database while an older controller is still running against it, and once it has,
+an older controller refuses to start. Rolling the controllers one at a time does not
+work for this upgrade:
+
+1. Run the new build's `controller migrate --plan`. A pending migration marked
+   `contract` means every controller must stop first. Take a backup; `make up` does.
+2. Stop every older controller cleanly: scale the deployment to zero, or use a
+   `Recreate` strategy. One that was killed still counts as running for 45 seconds.
+3. Start the new build. If it refuses, its message names each older controller it
+   still sees; stop those and start it again. It never waits for them.
+4. From then on an older build refuses this database. Going back means restoring
+   the backup.
+
+With the Helm chart's default rolling update the new pod restarts until the old pods
+are gone; scale to zero first.
+
 On the command line, each line of a device's files under `.pleiades/facts` is sealed
 under a key derived from the project's master key, bound to the device, the file and
 the line's place, and the fact hashes are keyed the same way. A project with no
