@@ -148,3 +148,29 @@ func TestSubscriber_StoresAnEarlierRunnersUnsealedBatch(t *testing.T) {
 		t.Errorf("stored %v, want the one fact", keys)
 	}
 }
+
+// testSealKeys is one Controller's seal keys for the tests that deliver a
+// batch as a Runner of this release publishes it (handleSealed).
+func testSealKeys(t *testing.T) (*sealed.PrivateKey, *facts.Keyer) {
+	t.Helper()
+	priv, keyer, err := entstore.DigestKeys(bytes.Repeat([]byte{9}, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return priv, keyer
+}
+
+// withTestSealKeys gives a subscriber the keys handleSealed seals to.
+func withTestSealKeys(t *testing.T) entstore.SubscriberOption {
+	t.Helper()
+	return entstore.WithDigestKeys(testSealKeys(t))
+}
+
+// handleSealed delivers batch with its entries sealed to testSealKeys, as a
+// Runner of this release publishes it. A test that reads the log for
+// warnings uses it: an unsealed batch is itself warned about.
+func handleSealed(t *testing.T, sub *entstore.Subscriber, batch facts.Batch) error {
+	t.Helper()
+	priv, _ := testSealKeys(t)
+	return handle(t, sub, sealBatch(t, priv.Public(), sealed.PurposeFactBatch, batch))
+}

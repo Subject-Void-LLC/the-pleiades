@@ -50,7 +50,7 @@ func nodeSubscriber(t *testing.T, store facts.Store, logged *bytes.Buffer, resol
 	admitted := func(context.Context, string, string) (journal.Admission, error) { return journal.AdmitDispatched, nil }
 	logger := slog.New(slog.NewTextHandler(logged, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	return entstore.NewSubscriber(store, logger, admitted, entstore.WithDeclarations(index), entstore.WithBuiltinProvenance(builtins),
-		entstore.WithNodeResolver(resolve))
+		entstore.WithNodeResolver(resolve), withTestSealKeys(t))
 }
 
 // storedMethods is the method each of device's current facts was stored
@@ -118,7 +118,7 @@ func TestSubscriber_JudgesABatchUnderItsNodesMethod(t *testing.T) {
 			sub := nodeSubscriber(t, store, &logged, nodes.resolve)
 			batch := facts.Batch{JobID: "job-1", DeviceID: device, Attempt: 1, ObservedAt: time.Now(),
 				Entries: prepared(t, observed), By: facts.Provenance{Node: "tasks[3]", Method: tc.claim}}
-			if err := handle(t, sub, batch); err != nil {
+			if err := handleSealed(t, sub, batch); err != nil {
 				t.Fatal(err)
 			}
 			if got := storedMethods(t, store, device); !reflect.DeepEqual(got, tc.stored) {

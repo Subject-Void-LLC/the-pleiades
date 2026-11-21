@@ -45,7 +45,7 @@ func noteSubscriber(t *testing.T, store facts.Store, logged *bytes.Buffer) *ents
 	}
 	admitted := func(context.Context, string, string) (journal.Admission, error) { return journal.AdmitDispatched, nil }
 	logger := slog.New(slog.NewTextHandler(logged, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	return entstore.NewSubscriber(store, logger, admitted, entstore.WithDeclarations(index), entstore.WithBuiltinProvenance(builtins))
+	return entstore.NewSubscriber(store, logger, admitted, entstore.WithDeclarations(index), entstore.WithBuiltinProvenance(builtins), withTestSealKeys(t))
 }
 
 // storedKeys is device's current keys, sorted.
@@ -102,7 +102,7 @@ func TestSubscriber_KeepsBuiltInFactsFromAMethodOutsideTheCatalog(t *testing.T) 
 			sub := noteSubscriber(t, store, &logged)
 			batch := facts.Batch{JobID: "job-1", DeviceID: device, Attempt: 1, ObservedAt: time.Now(),
 				Entries: prepared(t, observed), By: facts.Provenance{Method: tc.method}}
-			if err := handle(t, sub, batch); err != nil {
+			if err := handleSealed(t, sub, batch); err != nil {
 				t.Fatal(err)
 			}
 			if got := storedKeys(t, store, device); !reflect.DeepEqual(got, all) {
