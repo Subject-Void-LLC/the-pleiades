@@ -3,6 +3,7 @@ package buildinfo
 
 import (
 	"runtime/debug"
+	"strings"
 	"testing"
 )
 
@@ -10,25 +11,28 @@ import (
 // the loader enforcing a constraint and the scaffold writing one.
 func TestRelease(t *testing.T) {
 	for v, want := range map[string]string{
-		"1.2.0":                        "1.2.0",
-		"v1.2.0":                       "1.2.0",
-		"1.0.0-rc1":                    "1.0.0",
-		"1.2.3-rc1+build7":             "1.2.3",
-		"1.2.0+meta":                   "1.2.0",
-		"v1.2.0-3-gabc1234-dirty":      "1.2.0",
-		"0.0.0-dev":                    "",
-		"0.0.0-dev+abc123def456":       "",
-		"0.0.0-dev+abc123def456.dirty": "",
-		"1.3.0-dev":                    "",
-		"1.3.0-devel.2":                "",
-		"dev":                          "",
-		"":                             "",
-		"unknown":                      "",
-		"1.2":                          "",
-		"1.02.0":                       "",
-		"1.2.0.4":                      "",
-		"-1.2.0":                       "",
-		"1.2.x":                        "",
+		"1.2.0":                              "1.2.0",
+		"v1.2.0":                             "1.2.0",
+		"1.0.0-rc1":                          "1.0.0",
+		"1.2.3-rc1+build7":                   "1.2.3",
+		"1.2.0+meta":                         "1.2.0",
+		"v1.2.0-3-gabc1234-dirty":            "1.2.0",
+		"0.0.0-dev":                          "",
+		"0.0.0-dev+abc123def456":             "",
+		"0.0.0-dev+abc123def456.dirty":       "",
+		CurrentRelease + "-dev":              "",
+		CurrentRelease + "-dev+abc123def456": "",
+		CurrentRelease + "-dev+abc123def456.dirty": "",
+		"1.3.0-dev":     "",
+		"1.3.0-devel.2": "",
+		"dev":           "",
+		"":              "",
+		"unknown":       "",
+		"1.2":           "",
+		"1.02.0":        "",
+		"1.2.0.4":       "",
+		"-1.2.0":        "",
+		"1.2.x":         "",
 	} {
 		got, ok := Release(v)
 		if ok != (want != "") || got != want {
@@ -40,7 +44,8 @@ func TestRelease(t *testing.T) {
 // TestResolve covers where a version comes from: a stamped release wins;
 // a stamped value that is not a release is never reported as a version;
 // a development build names the commit, stamped or from the toolchain,
-// marking an uncommitted tree; and a build with neither says 0.0.0-dev.
+// marking an uncommitted tree; and a build with neither says
+// <CurrentRelease>-dev.
 func TestResolve(t *testing.T) {
 	toolchain := func(rev string, modified bool) *debug.BuildInfo {
 		m := "false"
@@ -49,6 +54,9 @@ func TestResolve(t *testing.T) {
 		}
 		return &debug.BuildInfo{Settings: []debug.BuildSetting{{Key: "vcs.revision", Value: rev}, {Key: "vcs.modified", Value: m}}}
 	}
+	// dev is spelled out rather than read from developmentBase, so the test
+	// pins the shape every unstamped build reports.
+	dev := CurrentRelease + "-dev"
 	const sha = "cb509f7d1e2a3b4c5d6e7f8091a2b3c4d5e6f708"
 	for _, tc := range []struct {
 		name, version, revision string
@@ -58,15 +66,15 @@ func TestResolve(t *testing.T) {
 		{"a stamped release", "1.4.0", sha, toolchain(sha, true), "1.4.0"},
 		{"a stamped release candidate", "1.4.0-rc2", "", nil, "1.4.0-rc2"},
 		{"a git describe off a tag", "v1.4.0-3-gcb509f7-dirty", sha, nil, "v1.4.0-3-gcb509f7-dirty"},
-		{"a build argument left at unknown", "unknown", "unknown", nil, "0.0.0-dev"},
-		{"unknown version with a stamped commit", "unknown", sha, nil, "0.0.0-dev+cb509f7d1e2a"},
-		{"a stamped dev version is still development", "1.3.0-dev", sha, nil, "0.0.0-dev+cb509f7d1e2a"},
-		{"nothing stamped, a clean toolchain stamp", "", "", toolchain(sha, false), "0.0.0-dev+cb509f7d1e2a"},
-		{"nothing stamped, uncommitted changes", "", "", toolchain(sha, true), "0.0.0-dev+cb509f7d1e2a.dirty"},
-		{"a stamped revision wins over the toolchain's", "", "abcdef0", toolchain(sha, true), "0.0.0-dev+abcdef0"},
-		{"a revision that is not a commit", "", "main; rm -rf /", nil, "0.0.0-dev"},
-		{"nothing at all, as under go test", "", "", &debug.BuildInfo{}, "0.0.0-dev"},
-		{"no build information", "", "", nil, "0.0.0-dev"},
+		{"a build argument left at unknown", "unknown", "unknown", nil, dev},
+		{"unknown version with a stamped commit", "unknown", sha, nil, dev + "+cb509f7d1e2a"},
+		{"a stamped dev version is still development", "1.3.0-dev", sha, nil, dev + "+cb509f7d1e2a"},
+		{"nothing stamped, a clean toolchain stamp", "", "", toolchain(sha, false), dev + "+cb509f7d1e2a"},
+		{"nothing stamped, uncommitted changes", "", "", toolchain(sha, true), dev + "+cb509f7d1e2a.dirty"},
+		{"a stamped revision wins over the toolchain's", "", "abcdef0", toolchain(sha, true), dev + "+abcdef0"},
+		{"a revision that is not a commit", "", "main; rm -rf /", nil, dev},
+		{"nothing at all, as under go test", "", "", &debug.BuildInfo{}, dev},
+		{"no build information", "", "", nil, dev},
 	} {
 		if got := resolve(tc.version, tc.revision, tc.info); got != tc.want {
 			t.Errorf("%s: resolve = %q, want %q", tc.name, got, tc.want)
@@ -75,14 +83,16 @@ func TestResolve(t *testing.T) {
 }
 
 // TestVersion_IsADevelopmentBuildUnderTest pins what this very test binary
-// reports, unstamped: a development version, never a release, so nothing
-// run from a test ever enforces a constraint by accident.
+// reports, unstamped: a development version of this tree's release line,
+// <CurrentRelease>-dev with a commit only when the toolchain embedded one,
+// never a release, so nothing run from a test ever enforces a constraint by
+// accident.
 func TestVersion_IsADevelopmentBuildUnderTest(t *testing.T) {
 	v := Version()
 	if _, ok := Release(v); ok {
 		t.Errorf("an unstamped test binary reports a release, %q", v)
 	}
-	if len(v) < len(developmentBase) || v[:len(developmentBase)] != developmentBase {
-		t.Errorf("Version() = %q, want it to start with %q", v, developmentBase)
+	if dev := CurrentRelease + "-dev"; v != dev && !strings.HasPrefix(v, dev+"+") {
+		t.Errorf("Version() = %q, want %s or %s+<commit>", v, dev, dev)
 	}
 }

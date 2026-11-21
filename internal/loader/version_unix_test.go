@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/buildinfo"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/external"
 )
@@ -29,7 +30,8 @@ func TestLoad_OneVersionWarningPerProgram(t *testing.T) {
 
 	t.Cleanup(collection.SnapshotForTest())
 	opts := testOptions()
-	opts.EngineVersion = "0.0.0-dev+abc123def456"
+	// The version an unstamped build of this tree reports (buildinfo).
+	opts.EngineVersion = buildinfo.CurrentRelease + "-dev+abc123def456"
 	set, err := Load(t.Context(), dir, opts)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
@@ -38,7 +40,7 @@ func TestLoad_OneVersionWarningPerProgram(t *testing.T) {
 	if len(warnings) != 1 {
 		t.Fatalf("warnings = %q, want exactly one, for the program that states a version", warnings)
 	}
-	for _, want := range []string{"development build (0.0.0-dev+abc123def456)", "loadertest.versioned.one (>=1.0.0)", "loadertest.versioned.two (>=1.0.0)"} {
+	for _, want := range []string{"development build (" + opts.EngineVersion + ")", "loadertest.versioned.one (>=1.0.0)", "loadertest.versioned.two (>=1.0.0)"} {
 		if !strings.Contains(warnings[0], want) {
 			t.Errorf("warning %q does not say %q", warnings[0], want)
 		}

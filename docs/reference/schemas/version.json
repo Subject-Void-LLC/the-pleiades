@@ -75,7 +75,7 @@
       "type": "integer"
     },
     "version": {
-      "description": "Version is the build's version: a release, or 0.0.0-dev+<commit>.",
+      "description": "Version is the build's version: a release, or <release>-dev+<commit> for a development build of that release line, such as 0.4.0-dev+<commit>.",
       "type": "string"
     }
   },

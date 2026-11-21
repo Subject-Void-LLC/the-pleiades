@@ -52,7 +52,7 @@ type CollectionIdentity struct {
 	Group string `json:"group,omitempty"`
 
 	// Version is the core build a built-in group was linked into, as the
-	// build reports it ("0.4.0", or "0.0.0-dev+<rev>" for a development
+	// build reports it ("0.4.0", or "0.4.0-dev+<rev>" for a development
 	// build). It is printed for a person and never parsed for order: two
 	// development builds of different trees can share one. It is empty for
 	// an external program, whose own version would be text the program sent.

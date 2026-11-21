@@ -17,8 +17,13 @@ func TestNewVersionReportNamesTheProtocolWindow(t *testing.T) {
 	if r.ExtensionProtocols.Current != external.ProtocolVersion || !reflect.DeepEqual(r.ExtensionProtocols.Versions, external.Protocols) {
 		t.Errorf("protocols %+v, want external.Protocols", r.ExtensionProtocols)
 	}
-	if dev := clireport.NewVersionReport("pleiades", "0.0.0-dev+abc"); dev.Codename != "" {
-		t.Errorf("a development build has codename %q", dev.Codename)
+	// A development build of a named line (0.3.0, Paranoid Porpoise) carries
+	// the line's numbers and still has no name; so does an older build's
+	// 0.0.0-dev.
+	for _, v := range []string{"0.3.0-dev+abcdef0", "0.3.0-dev", "0.0.0-dev+abc"} {
+		if dev := clireport.NewVersionReport("pleiades", v); dev.Codename != "" || dev.Version != v {
+			t.Errorf("a development build %s has version %q and codename %q", v, dev.Version, dev.Codename)
+		}
 	}
 	if _, err := clireport.VersionSchema.Build("../.."); err != nil {
 		t.Errorf("the version schema does not build: %v", err)

@@ -15,6 +15,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/buildinfo"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/clireport"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport/gooverlay"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/external"
@@ -627,5 +628,12 @@ func TestCLI_VersionJSONAdvertisesTheProtocolWindow(t *testing.T) {
 		r.ExtensionProtocols.Current != external.ProtocolVersion ||
 		!reflect.DeepEqual(r.ExtensionProtocols.Versions, external.Protocols) {
 		t.Errorf("report %+v, want the build's version and external.Protocols", r)
+	}
+	// TestMain builds the binary unstamped, as `go build` does for anyone, so
+	// it is a development build of this tree's release line, with the commit
+	// the toolchain embedded when it could read one, and has no codename.
+	dev := buildinfo.CurrentRelease + "-dev"
+	if (r.Version != dev && !strings.HasPrefix(r.Version, dev+"+")) || r.Codename != "" {
+		t.Errorf("an unstamped binary reports version %q and codename %q, want %s[+<commit>] and none", r.Version, r.Codename, dev)
 	}
 }

@@ -878,7 +878,7 @@ Runner loads external Collections before telemetry or any broker connection, so 
 directory stops it at once, and it routes a method in process exactly when its descriptor
 has a `Provider`. A method's engine version constraint is enforced only by a release
 build: every binary reports one version from `internal/buildinfo` (stamped through
-`-ldflags -X`, honored only when it reads as a release, else `0.0.0-dev+<commit>`; `pleiades
+`-ldflags -X`, honored only when it reads as a release, else `<CurrentRelease>-dev+<commit>`; `pleiades
 version` and `runner version` print it), the Runner and the CLI both hand it to the loader,
 and a development build loads a constrained method with one warning per program. Text from a program (descriptions, error messages, stat values) is
 third-party input: `internal/termsafe` refuses or escapes whatever a terminal acts on,

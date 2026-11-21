@@ -9,9 +9,11 @@ import (
 
 // TestCheckEngineVersion is the whole decision table for a method's engine
 // constraint against the running build (IMPLEMENTATION.md Phase 42's
-// engine version decision): a development build (dev, empty, a stamped
-// 0.0.0-dev+<commit>, anything with a dev prerelease or no version at all)
-// loads a constrained method unchecked; a release, a release candidate
+// engine version decision): a development build (dev, empty, the
+// 0.4.0-dev+<commit> an unstamped build of the 0.4.0 line reports, the
+// 0.0.0-dev+<commit> an older one reported, anything with a dev prerelease
+// or no version at all) loads a constrained method unchecked, even one
+// naming the release its numbers carry; a release, a release candidate
 // included, enforces it; a malformed constraint is refused on every build.
 func TestCheckEngineVersion(t *testing.T) {
 	cases := []struct {
@@ -29,6 +31,10 @@ func TestCheckEngineVersion(t *testing.T) {
 		{constraint: ">=1.0.0", running: "0.0.0-dev+abc123def456.dirty", wantUnchecked: true},
 		{constraint: ">=1.0.0", running: "0.0.0-dev", wantUnchecked: true},
 		{constraint: ">=1.0.0", running: "1.3.0-dev", wantUnchecked: true},
+		{constraint: ">=0.4.0", running: "0.4.0-dev+abc123def456", wantUnchecked: true},
+		{constraint: ">=0.4.0", running: "0.4.0-dev+abc123def456.dirty", wantUnchecked: true},
+		{constraint: ">=0.3.0", running: "0.4.0-dev", wantUnchecked: true},
+		{constraint: ">=0.5.0", running: "0.4.0-dev+abc123def456", wantUnchecked: true},
 		{constraint: ">=1.2.3", running: "nightly", wantUnchecked: true},
 
 		// Releases enforce.
@@ -41,6 +47,9 @@ func TestCheckEngineVersion(t *testing.T) {
 		{constraint: ">= v1.2.3", running: "2.0.0"},
 		{constraint: ">=1.2.3", running: "1.2.3-rc1+build7"},
 		{constraint: ">=2.0.0", running: "1.99.99", wantErr: "this build is 1.99.99"},
+		// A dry-run release (make release-dry-run) is the release it rehearses.
+		{constraint: ">=0.4.0", running: "0.4.0-dryrun"},
+		{constraint: ">=0.5.0", running: "0.4.0-dryrun", wantErr: "this build is 0.4.0"},
 
 		// Malformed constraints are refused whatever the build.
 		{constraint: ">=banana", running: "0.0.0-dev+abc", wantErr: "unsupported engine version constraint"},

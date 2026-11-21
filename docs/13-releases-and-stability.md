@@ -28,7 +28,15 @@ fragment names it.
 
 Releases are numbered `MAJOR.MINOR.PATCH`. Every binary reports its own
 (`pleiades version`, `runner version`, `controller version`): a release build's
-version, stamped by `make release`, or `0.0.0-dev+<commit>` for any other build.
+version, as `make release` stamps it, or for a build nobody stamped with a release version
+`<release>-dev+<commit>`, a development build of the release line the source tree is on
+(such as `0.4.0-dev+<commit>`). The `-dev` names the line, not an order: between a release's
+tag and the tree moving to the next line, a development build still carries the number just
+released. A development build is never compared as a release, even though it carries one's
+numbers: an external Collection's engine version constraint goes unchecked on it, and it has
+no codename. A dry run (`make release-dry-run`, or the release workflow dispatched by hand)
+is stamped `<release>-dryrun` and is treated as the release it rehearses, so an engine
+version constraint is checked on it as on that release.
 
 Beside the standard archives, `make release-fips` (run in CI as part of the release workflow)
 builds Linux (`linux/amd64` and `linux/arm64`) archives ending in `_fips.tar.gz` with

@@ -17,6 +17,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/buildinfo"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport/need"
 	"github.com/Subject-Void-LLC/the-pleiades/tools/internal/headroom"
 )
@@ -181,6 +182,9 @@ func TestRunRefusesBadUsage(t *testing.T) {
 	for _, args := range [][]string{
 		{},
 		{"-version", "dev"},
+		// What an unstamped build reports is never a release to cut.
+		{"-version", buildinfo.CurrentRelease + "-dev"},
+		{"-version", buildinfo.CurrentRelease + "-dev+0123456789ab"},
 		{"-version", "0.3.0", "-platforms", "linux"},
 		{"-version", "0.3.0", "-binaries", "../x"},
 		{"-version", "0.3.0", "-fips", "-notes", "docs/releases/v0.3.0.md", "-repo", "o/r"},
@@ -189,6 +193,23 @@ func TestRunRefusesBadUsage(t *testing.T) {
 		var out, errb bytes.Buffer
 		if code := run(args, &out, &errb); code != 2 {
 			t.Errorf("run(%v) = %d, want 2; stderr %q", args, code, errb.String())
+		}
+	}
+}
+
+// TestRunAcceptsTheDryRunVersion proves the version make release-dry-run
+// and the release workflow's manual dispatch stamp (<CurrentRelease>-dryrun)
+// passes the command's version check: the run gets as far as the platform
+// list, which is made bad on purpose so that nothing is built.
+func TestRunAcceptsTheDryRunVersion(t *testing.T) {
+	for _, fips := range []bool{false, true} {
+		args := []string{"-version", buildinfo.CurrentRelease + "-dryrun", "-platforms", "linux"}
+		if fips {
+			args = append(args, "-fips")
+		}
+		var out, errb bytes.Buffer
+		if code := run(args, &out, &errb); code != 2 || strings.Contains(errb.String(), "is not a release") || !strings.Contains(errb.String(), "linux") {
+			t.Errorf("run(%v) = %d, stderr %q; want the version accepted and the platform refused", args, code, errb.String())
 		}
 	}
 }

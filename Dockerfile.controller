@@ -88,7 +88,7 @@ RUN mkdir -p /staging/app/runbooks /staging/data
 # internal/buildinfo, so `controller version` and the external Collection
 # loader know which build this is. The binary decides what they mean: a
 # VERSION that is not a release (the default "unknown", a branch name)
-# makes it a development build, 0.0.0-dev+<VCS_REF>. Both are checked to
+# makes it a development build, <CurrentRelease>-dev+<VCS_REF>. Both are checked to
 # hold only characters a version or a commit can, since they are spliced
 # into the linker's flags and a space would start a flag of its own.
 ARG VERSION=unknown
