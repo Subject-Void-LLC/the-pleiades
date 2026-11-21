@@ -341,10 +341,10 @@ decides more than file digests:
   drops, and it sends Runners no key, so they publish none.
 - Rotating `MASTER_ENCRYPTION_KEY` re-seals every stored fact and leaves the tokens
   and hashes as they are.
-- Changing `PLEIADES_FACTS_DIGEST_KEY` is not a rotation this release performs: a
-  device whose facts were stored under another key is refused, with an error that
-  names the cause, until the key is put back. Keep it with the master key in your
-  backups.
+- Changing `PLEIADES_FACTS_DIGEST_KEY` is a rotation with a procedure of its own,
+  below. A device whose facts were stored under a key the controller was not given
+  is refused, with an error that names the cause, until that key is supplied. Keep
+  the facts key with the master key in your backups.
 
 A consequence to plan for: nobody can look a fact up by name, or check a device's
 history, without the facts key. A copy of the database alone shows how many facts a
@@ -357,6 +357,39 @@ stream; it does not prove which Runner sent them, which the Runner's own broker
 credential and the job's record still decide. A Runner of an earlier release
 publishes its facts unsealed; the controller stores them and logs a warning naming
 the Runner, so upgrade Runners with the controller.
+
+#### Changing the facts key
+
+The controller re-keys what it stored when it is given both keys: the new one as
+`PLEIADES_FACTS_DIGEST_KEY` and the old one as `PLEIADES_FACTS_DIGEST_KEY_PREVIOUS`
+(for Helm, `secrets.factsDigestKeyPrevious`, or a key of that name in your own
+Secret with `secrets.existingSecretHasFactsDigestKeyPrevious: true`; for Compose, in
+`.env`). Runners need nothing: they seal to whichever public key their dispatch
+carries.
+
+1. Set both variables on every controller replica and restart them. A replica that
+   still holds only the old key drops batches sealed to the new one and refuses
+   devices already re-keyed, so stop every replica for the change, or run one while
+   it happens. Whatever is dropped comes back with the device's next gather.
+2. At start each replica says it is opening what Runners sealed to the previous
+   key and re-keying stored facts, and ends a pass with its counts. A device is
+   re-keyed whole, in one transaction, the first time it is read or written or when
+   the pass reaches it: its history, order and times are kept, and nothing reads as
+   changed.
+3. Jobs dispatched before the change still seal to the old key. The controller
+   opens those with the previous key and stores them under the new one, logging
+   each batch it opens that way.
+4. Remove the previous key only when a pass that started after the last old-key
+   replica stopped logs that the rotation is complete, and no job dispatched before
+   the change is still queued or running. Then unset it everywhere and restart.
+
+Two things a rotation does not carry over. A private file's keyed digest
+(`hmac_sha256`) cannot be re-keyed, because the raw digest is never stored, so each
+such file reads as changed once, with a new `hmac_key` beside it. And a device whose
+stored history does not verify under the old key is not re-keyed: it is refused
+under the new key and named in the log, and removing the previous key leaves its
+stored facts unreadable for good. Its next gather starts a new history only after
+those rows are removed.
 
 The upgrade deletes every fact stored before it, with the observations that named
 them, because no key can turn a plaintext row into a sealed one. Each device's next
