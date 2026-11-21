@@ -1,0 +1,283 @@
+{
+  "$defs": {
+    "BaselineSummary": {
+      "description": "BaselineSummary is a baseline as a drift names it: everything but its pairs, and how many there are.",
+      "properties": {
+        "by": {
+          "description": "By is who took it.",
+          "type": "string"
+        },
+        "from": {
+          "description": "From is the device it was taken from when golden, by its ID.",
+          "type": "string"
+        },
+        "from_name": {
+          "description": "FromName is that device's inventory name when it was taken.",
+          "type": "string"
+        },
+        "keys": {
+          "description": "Keys are the key patterns it was taken over; empty is every stable key.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "keys_id": {
+          "description": "KeysID is the identity of the keys its hashes were keyed under.",
+          "type": "string"
+        },
+        "name": {
+          "description": "Name is the baseline's name.",
+          "type": "string"
+        },
+        "pairs": {
+          "description": "Pairs is how many keys it holds.",
+          "type": "integer"
+        },
+        "reason": {
+          "description": "Reason is why.",
+          "type": "string"
+        },
+        "taken_at": {
+          "description": "TakenAt is when it was taken.",
+          "format": "date-time",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "taken_at",
+        "by",
+        "reason",
+        "keys_id",
+        "pairs"
+      ],
+      "type": "object"
+    },
+    "DriftReport": {
+      "description": "DriftReport is one device's drift against one baseline.",
+      "properties": {
+        "baseline": {
+          "$ref": "#/$defs/BaselineSummary",
+          "description": "Baseline is the baseline compared against, absent with no_baseline."
+        },
+        "changes": {
+          "description": "Changes are the confirmed keys that differ, in key order.",
+          "items": {
+            "$ref": "#/$defs/KeyDrift"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "compared": {
+          "description": "Compared is how many of the baseline's keys were compared: each one matching, changed, removed or unconfirmed.",
+          "type": "integer"
+        },
+        "device": {
+          "description": "Device is the device's ID.",
+          "type": "string"
+        },
+        "facts_age_seconds": {
+          "description": "FactsAgeSeconds is how long before the report that was, in seconds.",
+          "type": "integer"
+        },
+        "facts_last_seen_at": {
+          "description": "FactsLastSeenAt is when the device's facts were last confirmed, absent when it has none.",
+          "format": "date-time",
+          "type": "string"
+        },
+        "host": {
+          "description": "Host is the device's inventory name, as the caller asked for it.",
+          "type": "string"
+        },
+        "kind_changed": {
+          "description": "KindChanged are the keys stable on one side and volatile on the other: held by the baseline and volatile now, or volatile when it was taken and stable now. None is compared or counted as drift.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "matching": {
+          "description": "Matching is how many of those match, confirmed by the latest gather of their family.",
+          "type": "integer"
+        },
+        "not_comparable": {
+          "description": "NotComparable are the baseline's keys that could not be compared: a golden value carrying a digest keyed for its source device.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "reason": {
+          "description": "Reason says why the state is unknown or no_baseline.",
+          "type": "string"
+        },
+        "state": {
+          "description": "State is what was found. Known values: in_sync, drifted, unknown, no_baseline. A newer producer may add others, and a reader treats one it does not know as not a pass.",
+          "examples": [
+            "in_sync",
+            "drifted",
+            "unknown",
+            "no_baseline"
+          ],
+          "type": "string"
+        },
+        "unconfirmed": {
+          "description": "Unconfirmed are the keys whose current value the device's latest gather of their family (the key up to its first dot) did not confirm, in key order, each with what it would have been. A store keeps no absence: a fact a gather stops reporting keeps its last value, so an item removed from the device (a package uninstalled) shows here, not as removed. None is drift, so a device whose only differences are here is in sync.",
+          "items": {
+            "$ref": "#/$defs/UnconfirmedKey"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "host",
+        "device",
+        "state",
+        "compared",
+        "matching",
+        "not_comparable",
+        "kind_changed",
+        "changes",
+        "unconfirmed"
+      ],
+      "type": "object"
+    },
+    "KeyDrift": {
+      "description": "KeyDrift is one key that differs from its baseline.",
+      "properties": {
+        "age_seconds": {
+          "description": "AgeSeconds is how long before the report that was, in seconds.",
+          "type": "integer"
+        },
+        "baseline_hash": {
+          "description": "BaselineHash is the baseline's keyed hash, absent for an added key.",
+          "type": "string"
+        },
+        "baseline_value": {
+          "description": "BaselineValue is the baseline's value, when there is one and it is not a digest."
+        },
+        "change": {
+          "description": "Change is how it differs. Known values: added, removed, changed. A newer producer may add others, and a reader treats one it does not know as not a pass.",
+          "examples": [
+            "added",
+            "removed",
+            "changed"
+          ],
+          "type": "string"
+        },
+        "current_hash": {
+          "description": "CurrentHash is the current value's keyed hash, absent for a removed key.",
+          "type": "string"
+        },
+        "current_value": {
+          "description": "CurrentValue is the current value, when there is one and it is not a digest."
+        },
+        "digest": {
+          "description": "Digest says a value holds a digest (a digest field at any depth, or a key whose name ends in _digest or .digest), so neither value is shown: the key and that it changed are.",
+          "type": "boolean"
+        },
+        "key": {
+          "description": "Key is the fact's key.",
+          "type": "string"
+        },
+        "last_seen_at": {
+          "description": "LastSeenAt is when it was last confirmed.",
+          "format": "date-time",
+          "type": "string"
+        },
+        "observed_at": {
+          "description": "ObservedAt is when the current value was first observed.",
+          "format": "date-time",
+          "type": "string"
+        }
+      },
+      "required": [
+        "key",
+        "change",
+        "digest"
+      ],
+      "type": "object"
+    },
+    "UnconfirmedKey": {
+      "description": "UnconfirmedKey is one key the latest gather of its family did not confirm.",
+      "properties": {
+        "age_seconds": {
+          "description": "AgeSeconds is how long before the report that was, in seconds.",
+          "type": "integer"
+        },
+        "key": {
+          "description": "Key is the fact's key.",
+          "type": "string"
+        },
+        "last_seen_at": {
+          "description": "LastSeenAt is when its value was last confirmed.",
+          "format": "date-time",
+          "type": "string"
+        },
+        "would_be": {
+          "description": "WouldBe is what the key would be were its value confirmed: added, changed or matching. Known values: added, changed, matching. A newer producer may add others, and a reader treats one it does not know as not a pass.",
+          "examples": [
+            "added",
+            "changed",
+            "matching"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "key",
+        "would_be"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "FactsDriftReport is each device's stable facts against its baseline, as the project's store holds them: which keys were added, removed or changed, which the latest gather did not confirm, with each value's times and keyed hashes, and a value shown only where it is not a digest. A store records no absence, so a key a host stopped reporting is unconfirmed rather than removed: removed is reported only for a golden baseline's key the host never reported. Printed by pleiades facts drift --json. schema_version is the major version: it goes up only for a change an existing reader could misread, a field removed or renamed or given another type or meaning. Within a major version a newer producer may add fields, and new values to the open sets. So a reader ignores a field it does not know, treats a status or kind it does not know as not a pass, and refuses a major version it does not know.",
+  "properties": {
+    "at": {
+      "description": "At is when the drift was read, which every age is measured from.",
+      "format": "date-time",
+      "type": "string"
+    },
+    "baseline": {
+      "description": "Baseline is the baseline name asked for, absent when each device's newest, its active baseline, was compared.",
+      "type": "string"
+    },
+    "devices": {
+      "description": "Devices is each device's drift, in the order asked.",
+      "items": {
+        "$ref": "#/$defs/DriftReport"
+      },
+      "type": [
+        "array",
+        "null"
+      ]
+    },
+    "schema_version": {
+      "description": "SchemaVersion is this document's major version.",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "schema_version",
+    "at",
+    "devices"
+  ],
+  "title": "Pleiades facts drift",
+  "type": "object"
+}

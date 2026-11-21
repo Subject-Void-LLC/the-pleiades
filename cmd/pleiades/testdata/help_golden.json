@@ -152,12 +152,32 @@
   "facts --help": {
     "code": 0,
     "stdout": "",
-    "stderr": "usage: pleiades facts \u003chost\u003e [\u003ckey\u003e] [--verify] [--dir DIR] [--json]\n"
+    "stderr": "usage: pleiades facts \u003chost\u003e [\u003ckey\u003e] [--verify] [--dir DIR] [--json] | pleiades facts baseline \u003chosts\u003e --name NAME --reason TEXT [--from HOST] [--keys KEYS] [--dir DIR] | pleiades facts drift [\u003chosts\u003e] [--baseline NAME] [--dir DIR] [--json]\n(baseline and drift as the first word are subcommands; read a host named either with pleiades facts -- \u003chost\u003e)\n"
   },
   "facts -h": {
     "code": 0,
     "stdout": "",
-    "stderr": "usage: pleiades facts \u003chost\u003e [\u003ckey\u003e] [--verify] [--dir DIR] [--json]\n"
+    "stderr": "usage: pleiades facts \u003chost\u003e [\u003ckey\u003e] [--verify] [--dir DIR] [--json] | pleiades facts baseline \u003chosts\u003e --name NAME --reason TEXT [--from HOST] [--keys KEYS] [--dir DIR] | pleiades facts drift [\u003chosts\u003e] [--baseline NAME] [--dir DIR] [--json]\n(baseline and drift as the first word are subcommands; read a host named either with pleiades facts -- \u003chost\u003e)\n"
+  },
+  "facts baseline --help": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "usage: pleiades facts baseline \u003chosts\u003e --name NAME --reason TEXT [--from HOST] [--keys KEYS] [--dir DIR]\n"
+  },
+  "facts baseline web1 -h": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "Usage of facts baseline:\n  -dir string\n    \tproject directory (default \".\")\n  -from string\n    \ta host to take the facts from (a golden host), hashed again for each host; never one of the hosts\n  -inventory value\n    \tinventory file to read and write, in place of --dir's inventory.yaml; group_vars/ and host_vars/ are read beside it\n  -keys string\n    \tthe facts to take, comma-separated: a key, or a prefix ending in * (package.*); every stable fact when unset, and a pattern matching none is refused\n  -name string\n    \tthe baseline's name, unique per host (letters, digits, '.', '_' and '-')\n  -reason string\n    \twhy the baseline is taken, recorded with it\n"
+  },
+  "facts drift -h": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "usage: pleiades facts drift [\u003chosts\u003e] [--baseline NAME] [--dir DIR] [--json]\n"
+  },
+  "facts drift web1 --help": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "Usage of facts drift:\n  -baseline string\n    \tthe baseline to compare against, by name; each host's newest when unset\n  -dir string\n    \tproject directory (default \".\")\n  -inventory value\n    \tinventory file to read and write, in place of --dir's inventory.yaml; group_vars/ and host_vars/ are read beside it\n  -json\n    \tprint one JSON document instead of text\n"
   },
   "facts web1 --help": {
     "code": 0,

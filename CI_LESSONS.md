@@ -74,6 +74,12 @@ Append a rule when a diagnosis teaches one; name the failure patterns it comes f
     machine reach only the branches their own output takes (no extended attributes listed here, no malformed answers),
     so a package floored at 100% falls under its floor at pr-check's coverage step. Cover each branch with a crafted
     answer, and measure the package against its floor before the gate. FAILURE_PATTERNS 731, 796, 1290.
+39. **A new published schema, generated page or CLI command has a checker of its own, outside the packages it
+    changes.** A file added under `docs/reference/schemas` needs a row in `tools/schemacompat`'s contracts table
+    (`make schema-compat` names an unclassified file); anything the reference pages are generated from needs `make
+    docs-gen-check`; a command or help text needs the help golden. Running the changed packages whole reaches none of
+    the first two, so run each before `pr-check`, and name each in the brief of whoever builds the change.
+    FAILURE_PATTERNS 661, 1311, 1322; LESSONS_LEARNED 462, 465.
 
 ## Tests that do not fail by luck
 
@@ -121,6 +127,12 @@ Append a rule when a diagnosis teaches one; name the failure patterns it comes f
     resolved set (`pip list` in a verified image) with exact versions, raise it on purpose, and when a test fails in a
     package the branch does not touch, compare the fresh image's package versions with the cached one's first.
     FAILURE_PATTERNS 917, 1300.
+40. **A test that asserts an order asserts one the product chose, and a test over random IDs is run several times
+    before it is believed.** A list printed in the order a store or inventory returns it is in the order of its
+    random IDs: a test naming two hosts in one order passes half the time, passes the local gate, and fails in the
+    pull request, and a re-run alone is only another flip. Sort in the product (by name, or whatever a reader would
+    look for), so a wrong order fails every time; a test that iterates a map passes in every order. FAILURE_PATTERNS
+    962, 972, 1329.
 
 ## Docker Desktop on this machine
 
