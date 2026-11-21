@@ -234,7 +234,8 @@ class LogTest(unittest.TestCase):
             with open(log, "w", encoding="utf-8", newline="\n") as f:
                 for i in range(60000):
                     f.write("statusd: line %06d of the log\n" % i)
-            fd = os.open(log, os.O_WRONLY | os.O_APPEND)
+            # Binary, as spawn opens it: a text-mode descriptor on Windows writes CRLF.
+            fd = os.open(log, os.O_WRONLY | os.O_APPEND | history.BINARY)
             try:
                 self.assertFalse(daemon.cap_log(log, max_bytes=10 * 1024 * 1024))
                 self.assertTrue(daemon.cap_log(log, max_bytes=1024 * 1024, keep=256 * 1024))
