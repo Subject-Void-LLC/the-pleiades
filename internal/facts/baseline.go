@@ -66,7 +66,9 @@ type Baseline struct {
 	// Reason is why it was taken, as its taker wrote it.
 	Reason string `json:"reason"`
 	// KeysID is the identity of the keys its hashes were keyed under
-	// (Keys.ID): a baseline under other keys cannot be compared.
+	// (Keys.ID), recorded so a report can name them. Its line is sealed
+	// under a key from the same secret, so under other keys it does not
+	// open at all, and the device reads unknown (Unreadable).
 	KeysID string `json:"keys_id"`
 	// Keys are the key patterns it was taken over (KeySelector); empty means
 	// every stable key.
