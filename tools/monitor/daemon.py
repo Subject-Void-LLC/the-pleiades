@@ -29,7 +29,9 @@ a run in progress.
 
 from __future__ import annotations
 
+import faulthandler
 import os
+import platform
 import signal
 import sys
 import threading
@@ -112,6 +114,35 @@ def bind(app: DaemonApp, port: int, stop: threading.Event) -> Optional[server.Th
     return None
 
 
+def start_trace(started: float) -> Callable[[str], None]:
+    """Makes the start-up trace: one log line a step, with the seconds since start.
+
+    A daemon that takes its lock and never answers then shows in its log the
+    last step it reached. Where the platform has SIGUSR1, the trace also
+    arms faulthandler on it, so `kill -USR1 <pid>` writes every thread's
+    stack to the log (the test helpers do, when a daemon does not answer).
+
+    Args:
+        started: When the daemon started.
+
+    Returns:
+        trace(step), which prints the line.
+    """
+    usr1 = getattr(signal, "SIGUSR1", None)
+    if usr1 is not None:
+        faulthandler.register(usr1, file=sys.stderr, all_threads=True)
+
+    def trace(step: str) -> None:
+        """Prints one start-up step.
+
+        Args:
+            step: What was reached.
+        """
+        print("statusd: start-up %.2fs: %s" % (time.time() - started, step), file=sys.stderr, flush=True)
+
+    return trace
+
+
 def run_daemon(port: int = DEFAULT_PORT, no_actions: bool = False, state_dir: Optional[str] = None) -> int:
     """Runs the daemon until SIGTERM or Ctrl-C.
 
@@ -133,9 +164,12 @@ def run_daemon(port: int = DEFAULT_PORT, no_actions: bool = False, state_dir: Op
         info = read_lock_info(state) or {}
         print("statusd: already running (pid %s, port %s)" % (info.get("pid"), info.get("port")), flush=True)
         return 0
+    trace = start_trace(started)
+    trace("lock taken (pid %d, Python %s, %s)" % (os.getpid(), platform.python_version(), platform.platform()))
     redactor = redact.Redactor.from_environment()
     root = paths.main_root()
     app = DaemonApp(state, root, port, redactor)
+    trace("backend built (root %s)" % root)
     if not no_actions:
         app.poller = actions.ActionsPoller(root, app.store, redactor, root_fn=app.current_root)
         app.poller.start()
@@ -204,6 +238,7 @@ def run_daemon(port: int = DEFAULT_PORT, no_actions: bool = False, state_dir: Op
                 stop.set()
 
         start_loop(stop, OWNER_SECONDS, watch_owner, "owner")
+    trace("binding 127.0.0.1:%d" % port)
     httpd = bind(app, port, stop)
     if httpd is not None:
         # Port 0 asks for any free port (tests): name the one bound, here and

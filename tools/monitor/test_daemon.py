@@ -437,8 +437,8 @@ class SingleInstanceTest(unittest.TestCase):
             try:
                 # Port 0: the daemon binds any free port and names it in its lock.
                 r = subprocess.run(base + ["ensure", "--port", "0", "--state-dir", d, "--quiet", "--no-actions"],
-                                   timeout=60)
-                self.assertEqual(r.returncode, 0, daemon_log(d))
+                                   capture_output=True, text=True, timeout=60)
+                self.assertEqual(r.returncode, 0, diagnose(d, ("ensure", r.returncode, r.stdout, r.stderr)))
                 # ensure returns only once its daemon answers /healthz: no polling here.
                 port = lock_port(d)
                 health = daemon.healthz(port)
@@ -502,6 +502,71 @@ def stop_daemon(d: str) -> None:
         deadline = time.monotonic() + 10
         while daemon.lock_held(d) and time.monotonic() < deadline:
             time.sleep(0.1)
+
+
+# Child is what diagnose shows of one process a test started: (what it was,
+# its exit status or None while it runs, its stdout, its stderr).
+Child = Tuple[str, Optional[int], str, str]
+
+
+def diagnose(d: str, *children: Child) -> str:
+    """Says everything known about a daemon that did not start or answer, for a failure message.
+
+    Each child's status and output, the platform and Python, the lock file,
+    whether the lock's pid still runs monitor.py daemon (when it does, it is
+    sent SIGUSR1 first, so its log holds every thread's stack), and the log,
+    told apart from an empty one and from none at all.
+
+    Args:
+        d: The state directory.
+        children: The processes the test started.
+
+    Returns:
+        The text.
+    """
+    import platform
+    lines = ["platform %s; Python %s at %s" % (platform.platform(), platform.python_version(), sys.executable)]
+    for label, status, out, err in children:
+        lines.append("%s: %s" % (label, "still running" if status is None else "exit status %d" % status))
+        lines += ["%s stdout: %s" % (label, x) for x in out.splitlines()] or ["%s stdout: (empty)" % label]
+        lines += ["%s stderr: %s" % (label, x) for x in err.splitlines()] or ["%s stderr: (empty)" % label]
+    try:
+        with open(paths.daemon_lock(d), encoding="utf-8", errors="replace") as f:
+            lines.append("lock file: " + (f.read().strip() or "(empty)"))
+    except OSError:
+        lines.append("lock file: (none)")
+    pid = (daemon.read_lock_info(d) or {}).get("pid")
+    if isinstance(pid, int) and pid > 1 and runs_daemon(pid):
+        usr1 = getattr(__import__("signal"), "SIGUSR1", None)
+        if usr1 is not None:
+            os.kill(pid, usr1)
+            time.sleep(1.0)  # faulthandler writes the stacks from the daemon's own signal handler
+        lines.append("pid %d still runs monitor.py daemon; its thread stacks are in the log below" % pid)
+    elif isinstance(pid, int):
+        lines.append("pid %d does not run monitor.py daemon now (it exited, or never was one)" % pid)
+    if not os.path.exists(paths.daemon_log(d)):
+        lines.append("daemon log: (none: the daemon never opened it, or died first)")
+    else:
+        log = daemon_log(d)
+        lines.append("daemon log: " + ("(empty)" if not log else "\n" + log))
+    return "\n".join(lines)
+
+
+def ensure_here(d: str) -> Tuple[int, str]:
+    """Runs ensure in this process for state directory d, keeping what it prints.
+
+    Args:
+        d: The state directory.
+
+    Returns:
+        (its status, diagnose's text for a failure message).
+    """
+    import contextlib
+    import io
+    out, err = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        code = daemon.ensure(0, quiet=True, state_dir=d, no_actions=True)
+    return code, diagnose(d, ("ensure, in this process", code, out.getvalue(), err.getvalue())) if code else ""
 
 
 def daemon_log(d: str) -> str:
@@ -571,8 +636,11 @@ def start_copy(src: str, d: str) -> Tuple["subprocess.Popen[bytes]", int]:
         if health is not None and health.get("pid") == proc.pid:
             return proc, port
         time.sleep(0.1)
+    # Its output goes to the log, which diagnose shows; it is asked for its stacks before it is killed.
+    why = diagnose(d, ("daemon", proc.poll(), "", ""))
     proc.kill()
-    raise AssertionError("the copied daemon did not answer:\n" + daemon_log(d))
+    proc.wait(10)
+    raise AssertionError("the copied daemon did not answer:\n" + why)
 
 
 class Signals:
@@ -680,8 +748,8 @@ class EnsureSafetyTest(unittest.TestCase):
                 # The daemon ensure starts outlives the call by design; its Popen is dropped running.
                 with unittest.mock.patch("os.kill", signals), warnings.catch_warnings():
                     warnings.simplefilter("ignore", ResourceWarning)
-                    code = daemon.ensure(0, quiet=True, state_dir=d, no_actions=True)
-                self.assertEqual(code, 0, daemon_log(d))
+                    code, why = ensure_here(d)
+                self.assertEqual(code, 0, why)
                 self.assertEqual(signals.sent, [(old.pid, 15)])
                 self.assertEqual(old.wait(10), 0)
                 health = daemon.healthz(lock_port(d)) or {}
@@ -699,9 +767,12 @@ class EnsureSafetyTest(unittest.TestCase):
             cmd = [sys.executable, "-B", os.path.join(HERE, "monitor.py"), "ensure", "--port", "0", "--state-dir", d,
                    "--no-actions", "--quiet"]
             try:
-                procs = [subprocess.Popen(cmd) for _ in range(2)]
-                codes = [p.wait(60) for p in procs]
-                self.assertEqual(codes, [0, 0], daemon_log(d))
+                procs = [subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                         for _ in range(2)]
+                outs = [p.communicate(timeout=60) for p in procs]
+                codes = [p.returncode for p in procs]
+                self.assertEqual(codes, [0, 0], diagnose(d, *[("ensure %d" % i, p.returncode, o, e)
+                                                              for i, (p, (o, e)) in enumerate(zip(procs, outs))]))
                 log = daemon_log(d)
                 self.assertEqual(log.count("statusd: serving"), 1, log)
                 self.assertNotIn("already running", log)
@@ -718,7 +789,8 @@ class EnsureSafetyTest(unittest.TestCase):
             ensure = [sys.executable, "-B", os.path.join(copy, "monitor.py"), "ensure", "--port", "0", "--state-dir", d,
                       "--no-actions"]
             try:
-                self.assertEqual(subprocess.run(ensure + ["--quiet"], timeout=60).returncode, 0, daemon_log(d))
+                r = subprocess.run(ensure + ["--quiet"], capture_output=True, text=True, timeout=60)
+                self.assertEqual(r.returncode, 0, diagnose(d, ("ensure", r.returncode, r.stdout, r.stderr)))
                 first = daemon.healthz(lock_port(d)) or {}
                 self.assertEqual(first.get("source"), copy)
                 self.assertEqual(first.get("fingerprint"),
@@ -731,10 +803,12 @@ class EnsureSafetyTest(unittest.TestCase):
                 # An ensure from this tree, not the daemon's, judges only by protocol.
                 with warnings.catch_warnings():
                     warnings.simplefilter("ignore", ResourceWarning)
-                    self.assertEqual(daemon.ensure(0, quiet=True, state_dir=d, no_actions=True), 0)
+                    code, why = ensure_here(d)
+                    self.assertEqual(code, 0, why)
                 self.assertEqual((daemon.healthz(lock_port(d)) or {}).get("pid"), first.get("pid"))
                 replaced = subprocess.run(ensure, capture_output=True, text=True, timeout=60)
-                self.assertEqual(replaced.returncode, 0, replaced.stderr + daemon_log(d))
+                self.assertEqual(replaced.returncode, 0,
+                                 diagnose(d, ("ensure", replaced.returncode, replaced.stdout, replaced.stderr)))
                 self.assertIn("its files changed", replaced.stdout)
                 second = daemon.healthz(lock_port(d)) or {}
                 self.assertNotEqual(second.get("pid"), first.get("pid"))
@@ -759,7 +833,8 @@ class EnsureSafetyTest(unittest.TestCase):
                                                        "started": time.time()})
                 with warnings.catch_warnings():
                     warnings.simplefilter("ignore", ResourceWarning)
-                    self.assertEqual(daemon.ensure(0, quiet=True, state_dir=d, no_actions=True), 0, daemon_log(d))
+                    code, why = ensure_here(d)
+                    self.assertEqual(code, 0, why)
                 self.assertEqual((daemon.healthz(lock_port(d)) or {}).get("protocol"), daemon.PROTOCOL)
                 self.assertEqual(old.wait(10), 0)
                 stop_daemon(d)
@@ -895,6 +970,35 @@ class FingerprintTest(unittest.TestCase):
 
 
 @needs_flock
+class DiagnoseTest(unittest.TestCase):
+    """A daemon that fails to start or answer explains itself in the failure message."""
+
+    def test_a_running_daemon_gives_its_stacks_and_none_says_so(self) -> None:
+        """For a daemon still running, diagnose names its pid as running and the
+        log it shows holds every thread's stack and the start-up trace; with no
+        daemon and no log, it says there is none rather than nothing."""
+        with tempfile.TemporaryDirectory() as d:
+            proc, _ = start_copy(HERE, d)
+            try:
+                why = diagnose(d, ("daemon", proc.poll(), "", ""))
+            finally:
+                proc.terminate()
+                proc.wait(10)
+            self.assertIn("Python %s" % sys.version.split()[0], why)
+            self.assertIn("daemon: still running", why)
+            self.assertIn("pid %d still runs monitor.py daemon" % proc.pid, why)
+            self.assertIn("statusd: start-up", why)
+            self.assertIn("binding 127.0.0.1:0", why)
+            self.assertIn("most recent call first", why)
+        with tempfile.TemporaryDirectory() as d:
+            why = diagnose(d, ("ensure", 1, "", "statusd: the daemon did not start"))
+            self.assertIn("ensure: exit status 1", why)
+            self.assertIn("ensure stderr: statusd: the daemon did not start", why)
+            self.assertIn("lock file: (none)", why)
+            self.assertIn("daemon log: (none", why)
+
+
+@needs_flock
 class OwnerTest(unittest.TestCase):
     """A daemon a test suite started does not outlive the suite (FAILURE_PATTERNS 1321)."""
 
@@ -908,11 +1012,15 @@ class OwnerTest(unittest.TestCase):
                     "code = daemon.ensure(0, quiet=True, state_dir=%r, no_actions=True); "
                     "print((daemon.read_lock_info(%r) or {}).get('pid') if code == 0 else 'failed', flush=True); "
                     "time.sleep(60)") % (HERE, d, d)
-            suite = subprocess.Popen([sys.executable, "-B", "-c", code], stdout=subprocess.PIPE, text=True)
+            suite = subprocess.Popen([sys.executable, "-B", "-c", code], stdout=subprocess.PIPE,
+                                     stderr=subprocess.PIPE, text=True)
             try:
                 assert suite.stdout is not None
                 line = suite.stdout.readline().strip()
-                self.assertTrue(line.isdigit(), line + daemon_log(d))
+                if not line.isdigit():
+                    suite.kill()
+                    out, err = suite.communicate(timeout=10)
+                    self.fail(diagnose(d, ("suite", suite.returncode, line + "\n" + out, err)))
                 pid = int(line)
                 self.assertTrue(runs_daemon(pid))
                 suite.kill()

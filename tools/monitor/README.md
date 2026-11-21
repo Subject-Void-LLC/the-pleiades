@@ -112,6 +112,12 @@ requests are open at once; the next is answered 503.
   its own command line runs `monitor.py daemon`, and never a pid of 0 or 1.
   One ensure at a time holds `statusd.ensure.lock`, so two sessions starting
   together start one daemon.
+- **It says how far it got.** Each start writes a start-up trace to
+  `statusd.log` (lock taken, with the pid, Python and platform; backend
+  built; binding), so a daemon that holds its lock and never answers shows
+  the last step it reached. `kill -USR1 <pid>` makes it write every
+  thread's stack there (faulthandler), and the tests do so before they give
+  up on a daemon, then show its log, the lock file and each child's output.
 - **It never touches a gate.** A gate is its own process (`run`) and hands
   itself over through files: `gate.lock` (one gate at a time on this
   machine), the manifest `live.json`, and the run's `events.jsonl` and
