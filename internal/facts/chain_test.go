@@ -5,6 +5,9 @@ package facts_test
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -27,7 +30,7 @@ func chained(t *testing.T, n int) []facts.Link {
 			t.Fatal(err)
 		}
 		by := facts.Provenance{Run: "r", Order: facts.Order{Source: facts.ClockSource, Token: uint64(i + 1)}}
-		chain, err := facts.ChainHash("dev1", prev, key, hash, at, by)
+		chain, err := factstest.Keys().ChainHash("dev1", prev, key, hash, at, by)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -82,6 +85,67 @@ func TestVerifyChain_FindsTheFirstEditDeletionOrMove(t *testing.T) {
 	stripped[0].Chain, stripped[0].Prev = "", ""
 	if v := facts.VerifyChain("dev1", stripped, factstest.Keys()); v.Break == nil || v.Break.Index != 0 {
 		t.Errorf("a stripped chain with provenance verified: %+v", v)
+	}
+}
+
+// TestKeys_ChainHashIsKeyed: a link is not the unkeyed SHA-256 of what it
+// covers, which anyone holding a copy of the store could recompute from a
+// guessed key and the row's other columns; it differs under another key and
+// on another device, is the same on every call, needs keys, and a chain
+// linked under one key does not verify under another.
+func TestKeys_ChainHashIsKeyed(t *testing.T) {
+	keys := factstest.Keys()
+	other, err := facts.NewKeys(bytes.Repeat([]byte{7}, 32), "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := time.Date(2026, 11, 2, 10, 0, 0, 0, time.UTC)
+	by := facts.Provenance{Run: "r", Order: facts.Order{Source: facts.ClockSource, Token: 1}}
+	hash, err := keys.Hash("dev1", "package.openssh-server", "9.6")
+	if err != nil {
+		t.Fatal(err)
+	}
+	link, err := keys.ChainHash("dev1", "", "package.openssh-server", hash, at, by)
+	if err != nil || len(link) != 64 {
+		t.Fatalf("ChainHash = %q, %v; want 64 hex characters", link, err)
+	}
+	canon, err := facts.Canonical([]any{"dev1", "", "package.openssh-server", hash, facts.StoredTime(at).Format(time.RFC3339Nano), by})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unkeyed := sha256.Sum256(canon); hex.EncodeToString(unkeyed[:]) == link {
+		t.Error("the link is the unkeyed SHA-256 of what it covers: a guessed key confirms itself")
+	}
+	if again, _ := factstest.Keys().ChainHash("dev1", "", "package.openssh-server", hash, at, by); again != link {
+		t.Error("one link differs between Keys of one secret")
+	}
+	if l, _ := other.ChainHash("dev1", "", "package.openssh-server", hash, at, by); l == link {
+		t.Error("two keys give one link")
+	}
+	if l, _ := keys.ChainHash("dev2", "", "package.openssh-server", hash, at, by); l == link {
+		t.Error("one link on two devices")
+	}
+	if _, err := (*facts.Keys)(nil).ChainHash("dev1", "", "k", hash, at, by); !errors.Is(err, facts.ErrNoKeys) {
+		t.Errorf("ChainHash with no keys = %v, want ErrNoKeys", err)
+	}
+	// A link whose fact hash is other's but which was linked under keys: the
+	// hash verifies under other, so the break is the link's own.
+	otherHash, err := other.Hash("dev1", "package.openssh-server", "9.6")
+	if err != nil {
+		t.Fatal(err)
+	}
+	crossed, err := keys.ChainHash("dev1", "", "package.openssh-server", otherHash, at, by)
+	if err != nil {
+		t.Fatal(err)
+	}
+	links := []facts.Link{{Key: "package.openssh-server", Value: "9.6", Hash: otherHash, ObservedAt: at, By: by, Chain: crossed}}
+	if v := facts.VerifyChain("dev1", links, other); v.Break == nil || v.Break.Index != 0 || !strings.Contains(v.Break.Reason, "chain hash") {
+		t.Errorf("a link made under one key verified under another: %+v", v)
+	}
+	// The control: linked under other, the same value verifies under it.
+	links[0].Chain, _ = other.ChainHash("dev1", "", "package.openssh-server", otherHash, at, by)
+	if v := facts.VerifyChain("dev1", links, other); v.Break != nil {
+		t.Errorf("the control failed: a link made under other does not verify under it: %+v", v)
 	}
 }
 

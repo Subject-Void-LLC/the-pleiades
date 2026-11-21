@@ -122,7 +122,7 @@ func TestFileStore_AStoredIdentityALaterRuleRefusesStillReads(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	chain, err := facts.ChainHash("dev1", "", line["key"].(string), line["hash"].(string), observed, by)
+	chain, err := factstest.Keys().ChainHash("dev1", "", line["key"].(string), line["hash"].(string), observed, by)
 	if err != nil {
 		t.Fatal(err)
 	}

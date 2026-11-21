@@ -1,15 +1,18 @@
-// Tests that the Collection identity on a provenance (Phase 136b) leaves
-// every chain stored before it verifying, and is covered by the chain once
-// it is set.
+// Tests that the Collection identity on a provenance (Phase 136b) leaves what
+// a chain link covers unchanged when it is zero, and is covered by the chain
+// once it is set; and that the keyed link itself does not move.
 package facts_test
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/facts/factstest"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
 
@@ -27,31 +30,56 @@ func goldenProvenance() facts.Provenance {
 	}
 }
 
-// goldenChainHash computes the chain hash of one fixed value under by.
-func goldenChainHash(t *testing.T, by facts.Provenance) string {
+// goldenAt is the fixed time the golden links cover.
+var goldenAt = time.Date(2026, 11, 8, 9, 30, 15, 123456789, time.UTC)
+
+// goldenHash is the fact hash of the one fixed value the golden links cover.
+func goldenHash(t *testing.T) string {
 	t.Helper()
-	at := time.Date(2026, 11, 8, 9, 30, 15, 123456789, time.UTC)
 	hash, err := facts.Hash("os.kernel.release", "6.18.33")
 	if err != nil {
 		t.Fatal(err)
 	}
-	chain, err := facts.ChainHash("edge-1", "9f2c0e6b1a7d", "os.kernel.release", hash, at, by)
+	return hash
+}
+
+// goldenChainHash computes the chain hash of one fixed value under by, keyed
+// under factstest's secret.
+func goldenChainHash(t *testing.T, by facts.Provenance) string {
+	t.Helper()
+	chain, err := factstest.Keys().ChainHash("edge-1", "9f2c0e6b1a7d", "os.kernel.release", goldenHash(t), goldenAt, by)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return chain
 }
 
-// TestChainHashUnchangedByZeroIdentity: a provenance with no Collection
-// identity hashes exactly as it did before the field existed. The literal
-// was computed on the commit before Phase 136b's facts change (9d031fe0),
-// so every chain a 0.4.0 store holds from before it still verifies. It fails
-// if the identity's key is ever written for a zero identity.
-func TestChainHashUnchangedByZeroIdentity(t *testing.T) {
-	got := goldenChainHash(t, goldenProvenance())
+// TestChainInputUnchangedByZeroIdentity: a provenance with no Collection
+// identity is covered exactly as it was before the field existed. The literal
+// is the unkeyed chain hash computed on the commit before Phase 136b's facts
+// change (9d031fe0), which was SHA-256 over exactly the bytes a link is now
+// keyed over (chainInput), so it still pins them. It fails if the identity's
+// key is ever written for a zero identity, or the input's encoding moves.
+func TestChainInputUnchangedByZeroIdentity(t *testing.T) {
+	input, err := facts.ChainInput("edge-1", "9f2c0e6b1a7d", "os.kernel.release", goldenHash(t), goldenAt, goldenProvenance())
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(input)
 	const want = "8eb767393059943064bd18c1a1b054bb336f2b554531ad2ab93fd3ae6242dce4"
-	if got != want {
-		t.Fatalf("a provenance with no Collection identity hashes to %s, and before Phase 136b it hashed to %s: every stored chain would break", got, want)
+	if got := hex.EncodeToString(sum[:]); got != want {
+		t.Fatalf("what a link covers for a provenance with no Collection identity hashes to %s, and before Phase 136b it hashed to %s: its encoding moved", got, want)
+	}
+}
+
+// TestChainHashIsFrozen: the keyed link of one fixed value under factstest's
+// secret is a literal, computed when the chain was first keyed. It fails if
+// the chain key's label or derivation, or the MAC over the input, ever moves:
+// every chain a store holds would then break, on both tiers.
+func TestChainHashIsFrozen(t *testing.T) {
+	const want = "b9ebfb900ec2ec7050e6c1c99cd34ce5a0737e44990f937e97b61323b9e87198"
+	if got := goldenChainHash(t, goldenProvenance()); got != want {
+		t.Fatalf("the golden link is %s, want %s: every stored chain would break", got, want)
 	}
 }
 

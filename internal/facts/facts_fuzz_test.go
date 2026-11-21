@@ -167,11 +167,11 @@ func FuzzVerifyChain(f *testing.F) {
 		if v := facts.VerifyChain("dev1", forged, factstest.Keys()); v.Break != nil && (v.Break.Index < 0 || v.Break.Index >= len(forged)) {
 			t.Fatalf("a break at %d of %d links", v.Break.Index, len(forged))
 		}
-		real, err := facts.ChainHash("dev1", "", key, hash, at, by)
+		real, err := factstest.Keys().ChainHash("dev1", "", key, hash, at, by)
 		if err != nil {
 			return
 		}
-		next, _ := facts.ChainHash("dev1", real, key, hash, at.Add(time.Second), by)
+		next, _ := factstest.Keys().ChainHash("dev1", real, key, hash, at.Add(time.Second), by)
 		intact := []facts.Link{
 			{Key: key, Value: value, Hash: hash, ObservedAt: at, By: by, Chain: real},
 			{Key: key, Value: value, Hash: hash, ObservedAt: at.Add(time.Second), By: by, Prev: real, Chain: next},

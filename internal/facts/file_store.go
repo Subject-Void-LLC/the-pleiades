@@ -89,7 +89,7 @@ func (s *FileStore) Record(_ context.Context, name string, obs Observation) erro
 		add := func(l line) error {
 			l.Prev, l.Seq = head, seq
 			var err error
-			if l.Chain, err = ChainHash(name, l.Prev, l.Key, l.Hash, l.ObservedAt, l.By); err != nil {
+			if l.Chain, err = s.keys.ChainHash(name, l.Prev, l.Key, l.Hash, l.ObservedAt, l.By); err != nil {
 				return fmt.Errorf("facts: %w", err)
 			}
 			plain, err := json.Marshal(l)

@@ -265,8 +265,9 @@ func (s *Store) planRekey(device string, rows []*ent.Fact) ([]rekeyRow, map[stri
 			}
 			links = append(links, link)
 			// The new link covers the new keyed hash, from the same time and
-			// provenance, after the new link before it.
-			chain, err := facts.ChainHash(device, head, e.Key, hash, e.ObservedAt, e.By)
+			// provenance, after the new link before it, keyed under the
+			// current chain key.
+			chain, err := s.keys.ChainHash(device, head, e.Key, hash, e.ObservedAt, e.By)
 			if err != nil {
 				return nil, nil, fmt.Errorf("facts: %w", err)
 			}

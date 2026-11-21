@@ -271,7 +271,7 @@ func (w writer) chainStable(ctx context.Context, head string, e facts.Entry, at 
 	if err != nil {
 		return "", err
 	}
-	chain, err := facts.ChainHash(w.device, head, e.Key, e.Hash, at, p)
+	chain, err := w.store.keys.ChainHash(w.device, head, e.Key, e.Hash, at, p)
 	if err != nil {
 		return "", fmt.Errorf("facts: %w", err)
 	}

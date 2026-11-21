@@ -15,8 +15,15 @@
 //     so an unchanged value still compares equal and a changed one still
 //     writes a new row; without the key no guess can be tested against it.
 //     The device is bound in, so one value on two devices does not show as
-//     the same hash. The per-device chain (chain.go) covers this keyed hash,
-//     and VerifyChain recomputes it with the same Keys.
+//     the same hash.
+//   - The per-device chain (chain.go) is keyed too: each link is
+//     HMAC-SHA-256 under a chain key of its own. Its other inputs (the
+//     device, the link before, the keyed hash, the time, the provenance) sit
+//     beside it in the same row in the clear, so an unkeyed link would let
+//     anyone holding a copy of the store confirm a guessed fact name (a
+//     package, a user, a service, a port) with one SHA-256 per guess, and
+//     learn what each device has and when it changed. VerifyChain
+//     recomputes each link with the same Keys.
 //   - The key is looked up by a token: HMAC-SHA-256 over the device, a NUL
 //     and the key, under a token key. The Controller's table indexes the
 //     token, and a coverage lists tokens, so the database names no key. One
@@ -31,10 +38,10 @@
 //     byte offset, so a line moved to another device, another file or
 //     another place fails to open.
 //
-// Each key is derived from the store's one secret under a label of its own
-// (HMAC-SHA-256 of the label under the secret), and none is the keyed-digest
-// key (keyed.go) or the Runner seal key (entstore's digests.go), which have
-// labels of their own. The Controller's secret is PLEIADES_FACTS_DIGEST_KEY;
+// Each key (hash, token, chain, line) is derived from the store's one secret
+// under a label of its own (HMAC-SHA-256 of the label under the secret), and
+// none is the keyed-digest key (keyed.go) or the Runner seal key (entstore's
+// digests.go), which have labels of their own. The Controller's secret is PLEIADES_FACTS_DIGEST_KEY;
 // the CLI's is the project's master key. A store with no Keys stores
 // nothing and reads nothing (ErrNoKeys): plaintext is never the fallback.
 //
@@ -73,6 +80,7 @@ import (
 const (
 	atRestHashLabel  = "pleiades/facts/at-rest/hash/v1"
 	atRestTokenLabel = "pleiades/facts/at-rest/token/v1"
+	atRestChainLabel = "pleiades/facts/at-rest/chain/v1"
 	atRestLineLabel  = "pleiades/facts/at-rest/line/v1/aes-256-gcm"
 	atRestIDLabel    = "pleiades/facts/at-rest/key-id"
 )
@@ -106,16 +114,18 @@ var ErrSealed = errors.New("facts: a stored fact does not open under this store'
 var ErrUnsealed = fmt.Errorf("%w: it is plaintext, written by a release before facts were sealed at rest; remove the device's fact files and gather its facts again", ErrSealed)
 
 // Keys is one store's at-rest keys: the key that keys fact hashes, the key
-// that tokenizes fact keys, and the key the CLI seals its lines under, each
-// derived from the store's one secret. Build one with NewKeys, or with
-// NewLazyKeys to read the secret only when a fact is stored or read. A nil
-// *Keys answers every call with ErrNoKeys.
+// that tokenizes fact keys, the key that keys the history chain's links, and
+// the key the CLI seals its lines under, each derived from the store's one
+// secret. Build one with NewKeys, or with NewLazyKeys to read the secret only
+// when a fact is stored or read. A nil *Keys answers every call with
+// ErrNoKeys.
 type Keys struct {
 	once    sync.Once
 	resolve func() ([]byte, error)
 	source  string
 	hash    []byte
 	token   []byte
+	chain   []byte
 	line    cipher.AEAD
 	id      string
 	err     error
@@ -162,6 +172,7 @@ func (k *Keys) load() error {
 			return
 		}
 		k.hash, k.token = derive(secret, atRestHashLabel), derive(secret, atRestTokenLabel)
+		k.chain = derive(secret, atRestChainLabel)
 		// A 32-byte key always makes an AES-256 cipher, and GCM over it.
 		block, err := aes.NewCipher(derive(secret, atRestLineLabel))
 		if err == nil {
@@ -171,10 +182,22 @@ func (k *Keys) load() error {
 			k.err = fmt.Errorf("%w: %w", ErrNoKeys, err)
 			return
 		}
-		id := sha256.Sum256(append(append([]byte(atRestIDLabel), k.hash...), k.token...))
-		k.id = k.source + ":" + hex.EncodeToString(id[:8])
+		k.id = keyID(k.source, k.hash, k.token, k.chain)
 	})
 	return k.err
+}
+
+// keyID is the identity of the keys hash, token and chain, led by source:
+// 16 hex characters of a SHA-256 over the three, which say which keys and
+// nothing of them. It covers every key a Controller row is written under (its
+// token, its keyed hash, its chain link), so rows under any other of them are
+// told apart. Each key is a fixed 32 bytes, so their concatenation is
+// unambiguous.
+func keyID(source string, hash, token, chain []byte) string {
+	material := append([]byte(atRestIDLabel), hash...)
+	material = append(append(material, token...), chain...)
+	id := sha256.Sum256(material)
+	return source + ":" + hex.EncodeToString(id[:8])
 }
 
 // Ready reports whether the keys can be used: nil, or why not (ErrNoKeys).
