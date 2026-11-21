@@ -350,10 +350,89 @@ device holds), baselines and drift on the Controller, and drift checked on a
 schedule. Drift is read when the command runs, from the facts as they were last
 gathered; it does not gather them.
 
-A runbook does not read stored facts yet: a value from an earlier run can be
-stale, and reading one waits for a way to say how fresh it must be. A task reads
-facts gathered in the same run through `register:`. A fact's name holds dots, so a
-condition reads it by index, `result.gathered["os.kernel.name"]`:
+### Reading a stored fact in a condition
+
+A task's `when`, `when_or` or `when_cel` can read the stored facts of the device the
+task runs on, through the `facts` root, by a key written in the runbook. A fact's
+name holds dots, so a condition reads it by index:
+
+```yaml
+# Turns on automatic security updates on Debian 12 hosts only.
+# Blast radius: the web servers whose facts say Debian 12.
+# Changes: installs one package on those hosts.
+# Undo: remove the package; pleiades rollback does it.
+id: debian-auto-updates
+hosts: web
+tasks:
+  - name: Gather
+    facts.gather: {}
+  - name: Install unattended-upgrades on Debian 12
+    when:
+      - facts["os.distribution"] == "debian"
+      - facts["os.version_major"] == 12
+    pkg.apt.install:
+      name: unattended-upgrades
+```
+
+- **What a condition reads.** The device's stored facts, read once, when the first
+  condition of the run reads them, with what this run's own earlier tasks emitted on
+  the device on top. So a gather followed by a condition in the same run reads the
+  gathered value, also when the run holds its facts back for a `secret_mask` and when
+  the store could not be written. A task sees what tasks in earlier steps emitted; a
+  task beside it in the same step (a `parallel` group) is not seen. A value reads as
+  the store keeps it, so a number compares as a number in the run that gathered it
+  and in every run after.
+- **Testing for a fact.** `facts["os.codename"] is defined` (or `is not defined`)
+  asks whether the device has it; in `when_cel` so do `has(facts.name)`,
+  `"os.codename" in facts` and `facts[?"os.codename"]`. A name with no dot can also
+  be read as `facts.name`.
+- **Present, absent or unknown.** A key is absent when a method that emits it has
+  looked at the device and stored no value for it (`facts.gather` on a host with no
+  codename); a test for it answers false. It is unknown when no method that emits it
+  has observed the device, in this run or one before, or when the device's stored
+  facts cannot be read. An unknown key fails the task, naming the task and the key,
+  whatever the condition would have come to: `is defined`, `has()`,
+  `facts[?"key"].orValue(...)` and a `true || ...` that never needed it do not turn it
+  into an answer. Gather it first, in an earlier task or an earlier run.
+- **A project with no master key** has no stored facts it can read, since every
+  stored fact is sealed under that key. `pleiades validate` and `pleiades run` refuse a
+  condition reading a fact that no earlier task of the run gathers, naming
+  `PLEIADES_MASTER_KEY` and `.pleiades/master.key`; a gather then a read in one run
+  needs no key. A project that stored facts and has lost its key cannot read any
+  device's, so every task reading one fails, the same way for every device.
+- **What is refused, and why.** A fact is text the device sent. The only thing a run
+  takes from it is whether a condition held, so no fact's value reaches a method, a
+  variable, the journal, a report or a log, and when a condition fails to evaluate on
+  a fact's value, CEL's own message (which could quote the value) is not shown. When
+  the runbook is built, these are refused, each saying what is allowed: the root used
+  as a value (`size(facts)`, comparing it, looping over it, handing it to a function),
+  a key computed while the run goes (`facts[item]`, `facts[vars.key]`), another
+  device's facts (`hostvars`), and `facts` in `until`, `changed_when`, `failed_when`,
+  an assert's `that` or a loop label. A parameter that reads `facts`, a `set_fact`
+  value and a `rollback:` step's parameter included, is refused by `validate` and
+  again when the task runs. To use a gathered value in a parameter, register the
+  gather and read `result.<name>["<key>"]`.
+- **A stored value can be old.** It is what the device said the last time it was
+  gathered, and this release does not refuse an old one. Gather in the same run when
+  the value must be fresh.
+- **In a check.** A check stores nothing. A checked task whose condition reads a fact
+  that an earlier checked task would emit (its method declares the fact, by name or
+  by family such as `package.`) is reported unchecked with that reason, and the check
+  exits 3; this holds even when the earlier task predicts no change, since a real run
+  would still store the fact. `pleiades validate` and `pleiades run --mode check` warn
+  about each such task. The exception is a built-in method that only reads, such as
+  `facts.gather`: its check reads the device, so what it emits during the check is
+  read by later checked tasks. Those values are never stored and never read by a real
+  task. A real task reads the store and what real tasks emitted, whatever was checked
+  before it.
+- **On the Controller.** A Runner cannot read stored facts in this release, and no
+  fact rides a dispatch. The Controller refuses a job whose runbook reads one before
+  it dispatches anything, naming the task, and a Runner refuses one again before its
+  first task. There, gather in the same run and read the registered result. A
+  rollback job is never refused for this: its steps read no fact.
+
+A task can also read facts gathered in the same run through `register:`. A fact's
+name holds dots, so a condition reads it by index, `result.gathered["os.kernel.name"]`:
 
 ```yaml
 # Gathers a host's facts, which this run reads and the project keeps.
