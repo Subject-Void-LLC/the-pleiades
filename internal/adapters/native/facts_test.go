@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -343,5 +344,87 @@ func TestFactsPublisher_SplitsALargeObservationIntoBrokerSizedBatches(t *testing
 	}
 	if len(distinct) != first {
 		t.Errorf("%d batches of one observation share %d keys, want one each", first, len(distinct))
+	}
+}
+
+// TestFactsPublisher_ARetriedRecordIsDeduplicatedOnTheStream: an observation
+// large enough to go as several batches, recorded twice, publishes keys that
+// repeat pairwise and in order, each batch's its own, so the broker drops the
+// whole retry; a publisher built again for the same delivery repeats them
+// too. The same observation at another iteration of its node, a nanosecond
+// later, by another node, or in another attempt shares no key with it at
+// all, so none of its batches is dropped as a repeat of the first's.
+func TestFactsPublisher_ARetriedRecordIsDeduplicatedOnTheStream(t *testing.T) {
+	observed := map[string]any{}
+	for i := range 3000 {
+		observed[fmt.Sprintf("package.lib%04d", i)] = map[string]any{"version": "1.2.3-4ubuntu0.1", "arch": "amd64", "source": "apt"}
+	}
+	entries, _, err := facts.Prepare(observed, facts.Guard{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, pub := factSealPair(t)
+	at := time.Date(2026, 11, 2, 10, 0, 0, 0, time.UTC)
+	base := facts.Observation{Entries: entries, At: at, By: facts.Provenance{Node: "tasks[0]"}, Iteration: ".item[0]"}
+
+	// keysOf records each observation through a publisher of the given
+	// attempt and returns the keys of the batches each one published.
+	keysOf := func(attempt int, observations ...facts.Observation) [][]string {
+		t.Helper()
+		bus := &mockBus{}
+		p := newFactsPublisher(journal.WithAttempt(context.Background(), attempt), bus, nil, "job-1", "device-1", "runner-1", pub)
+		var out [][]string
+		for _, obs := range observations {
+			before := len(bus.published)
+			if err := p.Record(context.Background(), "device-1", obs); err != nil {
+				t.Fatal(err)
+			}
+			var keys []string
+			for _, published := range bus.published[before:] {
+				keys = append(keys, published.evt.ID)
+			}
+			out = append(out, keys)
+		}
+		return out
+	}
+
+	recorded := keysOf(1, base, base)
+	first, retry := recorded[0], recorded[1]
+	if len(first) < 2 {
+		t.Fatalf("the observation went as %d batch(es); the test needs it split", len(first))
+	}
+	// Pairwise and in order: batch i of the retry has batch i's key.
+	if !slices.Equal(first, retry) {
+		t.Errorf("the retry's keys %q are not the first record's %q, pairwise and in order", retry, first)
+	}
+	if again := keysOf(1, base)[0]; !slices.Equal(first, again) {
+		t.Errorf("a publisher built again for the same delivery gave keys %q, want the first record's %q", again, first)
+	}
+	// Each batch of the observation has a key of its own.
+	held := map[string]bool{}
+	for _, key := range first {
+		held[key] = true
+	}
+	if len(held) != len(first) {
+		t.Errorf("%d batches of one observation share %d keys, want one each: %q", len(first), len(held), first)
+	}
+
+	otherIteration := base
+	otherIteration.Iteration = ".item[1]"
+	later := base
+	later.At = at.Add(time.Nanosecond)
+	otherNode := base
+	otherNode.By.Node = "tasks[1]"
+	variants := keysOf(1, otherIteration, later, otherNode)
+	variants = append(variants, keysOf(2, base)...)
+	for i, name := range []string{"another iteration", "a nanosecond later", "another node", "another attempt"} {
+		if len(variants[i]) != len(first) {
+			t.Errorf("%s went as %d batches, the first as %d", name, len(variants[i]), len(first))
+		}
+		for j, key := range variants[i] {
+			if held[key] {
+				t.Errorf("%s: batch %d has key %q, which the first observation's batches already used", name, j, key)
+			}
+		}
 	}
 }
