@@ -502,3 +502,23 @@ to link here yet.
 
 None published. `CHANGELOG.md`'s `Unreleased` section is the closest thing to a
 running account of what has landed recently.
+
+## Export notice
+
+The Pleiades is software that uses cryptography. It protects connections and stored data
+with published, standard algorithms (TLS, SSH, AES-256-GCM, HMAC-SHA-256, HPKE with
+ML-KEM-768 and X25519, argon2id, and the algorithms SNMPv3 and WinRM define) through Go's
+standard library and open-source libraries. It is built to manage devices over those
+protocols. Its source is public, and any release archive built from it, the FIPS 140-3
+builds among them, is offered without charge.
+
+The country you are in, and the country you send or carry the software to, may restrict
+the import, possession, use or re-export of software that contains or uses encryption.
+Before you use The Pleiades, or pass on its source or its binaries, check the laws,
+regulations and policies that apply to you. You are responsible for complying with them,
+including any that restrict dealings with particular countries, organizations or people.
+
+This notice is information, not legal advice, and it states no export classification. The
+release archives are not FIPS-validated products; see
+[Versioning and deprecation policy](#versioning-and-deprecation-policy) for what the FIPS
+builds are and are not.
