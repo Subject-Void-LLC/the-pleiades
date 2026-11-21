@@ -59,84 +59,6 @@ type BaselineRequest struct {
 // baselinesFile is the name of device's baselines file.
 func baselinesFile(device string) string { return device + ".baselines.jsonl" }
 
-// TakeBaseline takes and stores a baseline of device, under the device's
-// lock, and returns it. It is refused before anything is written when the
-// store has no keys (ErrNoKeys), the request is invalid, the device or the
-// source was never gathered (ErrNeverGathered), no stable key is selected, or
-// the device already has a baseline of the name (ErrBaselineExists).
-func (s *FileStore) TakeBaseline(ctx context.Context, device string, req BaselineRequest) (Baseline, error) {
-	if err := s.keys.Ready(); err != nil {
-		return Baseline{}, err
-	}
-	if err := checkBaselineName(req.Name); err != nil {
-		return Baseline{}, err
-	}
-	if err := checkBaselineText("reason", req.Reason, MaxBaselineReasonBytes); err != nil {
-		return Baseline{}, err
-	}
-	if err := checkBaselineText("taker", req.By, MaxBaselineByBytes); err != nil {
-		return Baseline{}, err
-	}
-	target, err := s.Current(ctx, device)
-	if err != nil {
-		return Baseline{}, err
-	}
-	if len(target) == 0 {
-		return Baseline{}, fmt.Errorf("%w: %s", ErrNeverGathered, device)
-	}
-	golden := req.From != "" && req.From != device
-	source := target
-	if golden {
-		if source, err = s.Current(ctx, req.From); err != nil {
-			return Baseline{}, err
-		}
-		if len(source) == 0 {
-			return Baseline{}, fmt.Errorf("%w %s", ErrSourceNeverGathered, req.From)
-		}
-	}
-	pairs, err := BaselinePairs(s.keys, device, golden, source, req.Keys)
-	if err != nil {
-		return Baseline{}, err
-	}
-	switch {
-	case len(pairs) == 0:
-		return Baseline{}, fmt.Errorf("%w: no stable fact of the source matches the keys asked for", ErrInvalid)
-	case len(pairs) > MaxBaselinePairs:
-		return Baseline{}, fmt.Errorf("%w: %d keys, more than a baseline holds (%d)", ErrInvalid, len(pairs), MaxBaselinePairs)
-	}
-	b := Baseline{Name: req.Name, Device: device, TakenAt: StoredTime(req.At), By: req.By, Reason: req.Reason, KeysID: s.keys.ID(), Keys: req.Keys, Pairs: pairs}
-	if golden {
-		b.From, b.FromName = req.From, req.FromName
-	}
-	plain, err := json.Marshal(b)
-	if err != nil {
-		return Baseline{}, fmt.Errorf("facts: %w", err)
-	}
-	if len(plain) > maxBaselinePlainBytes {
-		return Baseline{}, fmt.Errorf("%w: the baseline is %d bytes, more than %d", ErrInvalid, len(plain), maxBaselinePlainBytes)
-	}
-	err = s.locked(device, func(r *os.Root) error {
-		existing, complete, err := readBaselines(r, s.keys, device)
-		if err != nil {
-			return err
-		}
-		for _, e := range existing {
-			if e.Name == b.Name {
-				return fmt.Errorf("%w: %q", ErrBaselineExists, b.Name)
-			}
-		}
-		raw, err := s.keys.SealLine(device, RoleBaseline, complete, plain)
-		if err != nil {
-			return fmt.Errorf("facts: %w", err)
-		}
-		return appendTo(r, baselinesFile(device), complete, append(raw, '\n'))
-	})
-	if err != nil {
-		return Baseline{}, err
-	}
-	return b, nil
-}
-
 // Baselines is every baseline of device, oldest first. A store with no keys
 // reads nothing (ErrNoKeys).
 func (s *FileStore) Baselines(_ context.Context, device string) ([]Baseline, error) {
@@ -174,24 +96,36 @@ func (s *FileStore) Baseline(ctx context.Context, device, name string) (Baseline
 }
 
 // DriftOf is device's drift against its baseline named name (its newest when
-// empty) at time at: a report with no_baseline when it has none.
+// empty) at time at: a report with no_baseline when it has none. A failure
+// to read the device's baselines or its facts (a line that does not open, a
+// plaintext file from before sealing, a file that cannot be read) is that
+// device's unknown state with the reason, never an error, so one damaged
+// device does not stop a drift over others. Only ErrNoKeys, which no
+// device's report could change, is returned.
 func (s *FileStore) DriftOf(ctx context.Context, device, name string, at time.Time) (DriftReport, error) {
 	b, err := s.Baseline(ctx, device, name)
-	if errors.Is(err, ErrNoBaseline) {
+	switch {
+	case errors.Is(err, ErrNoBaseline):
 		reason := "no baseline was taken of it"
 		if name != "" {
 			reason = fmt.Sprintf("it has no baseline named %q", name)
 		}
 		return NoBaseline(device, reason), nil
-	}
-	if err != nil {
+	case errors.Is(err, ErrNoKeys):
 		return DriftReport{}, err
+	case err != nil:
+		return Unreadable(device, "its baselines", err), nil
 	}
 	current, err := s.Current(ctx, device)
-	if err != nil {
+	switch {
+	case errors.Is(err, ErrNoKeys):
 		return DriftReport{}, err
+	case err != nil:
+		rep := Unreadable(device, "its facts", err)
+		rep.Baseline = b.Summary()
+		return rep, nil
 	}
-	return Drift(b, s.keys.ID(), current, at), nil
+	return Drift(b, current, at), nil
 }
 
 // readBaselines reads device's baselines and how many bytes of the file are
@@ -237,6 +171,11 @@ func DecodeBaselineLine(keys *Keys, device string, offset int64, sealed []byte) 
 	}
 	for _, p := range b.Pairs {
 		if !wellFormedKey(p.Key) || p.Hash == "" && !p.NotComparable {
+			return Baseline{}, errNotABaseline
+		}
+	}
+	for _, key := range b.Volatile {
+		if !wellFormedKey(key) {
 			return Baseline{}, errNotABaseline
 		}
 	}

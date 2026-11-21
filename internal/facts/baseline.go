@@ -16,12 +16,12 @@
 //
 // Drift here is computed on read, from Current: the Crawl CLI keeps no
 // projection. A store keeps no absence, so a fact a later gather no longer
-// reports keeps its last value in Current: removed is a key the baseline has
-// that the device has never reported (a golden key), and a key whose value
-// the device's latest gather of its family did not confirm is listed as
-// unconfirmed, not as drift. A device never gathered reads unknown, never in sync, and so
-// does a baseline taken under other keys, whose hashes say nothing under
-// these.
+// reports keeps its last value in Current: removed is only a key the baseline
+// has that the device has never reported (a golden key), and a key whose
+// value the device's latest gather of its family did not confirm is listed as
+// unconfirmed, with what it would have been, and is not drift. A device never
+// gathered, one whose stored facts or baselines do not open, and one none of
+// whose baseline's keys could be compared all read unknown, never in sync.
 package facts
 
 import (
@@ -73,6 +73,10 @@ type Baseline struct {
 	Keys KeySelector `json:"keys,omitempty"`
 	// Pairs are its keys, in key order.
 	Pairs []BaselinePair `json:"pairs"`
+	// Volatile are the keys the selector covered that were volatile when it
+	// was taken, in key order: never compared, and so never reported as
+	// added should one of them be stable later.
+	Volatile []string `json:"volatile,omitempty"`
 }
 
 // BaselinePair is one key of a baseline.
@@ -127,15 +131,21 @@ func (s KeySelector) Matches(key string) bool {
 		return true
 	}
 	for _, p := range s {
-		if prefix, ok := strings.CutSuffix(p, "*"); ok {
-			if strings.HasPrefix(key, prefix) {
-				return true
-			}
-		} else if key == p {
+		if patternMatches(p, key) {
 			return true
 		}
 	}
 	return false
+}
+
+// patternMatches reports whether the one pattern p covers key: key itself,
+// or, for a pattern ending in "*", any key that starts with what comes
+// before it.
+func patternMatches(p, key string) bool {
+	if prefix, ok := strings.CutSuffix(p, "*"); ok {
+		return strings.HasPrefix(key, prefix)
+	}
+	return key == p
 }
 
 // checkBaselineName refuses a name that is empty, too long, or holds anything
@@ -206,18 +216,40 @@ func HoldsDigest(value any) bool {
 	return holdsField(value, KeyedDigestField, PlainDigestField, RawDigestField, SealedDigestField)
 }
 
+// DigestKey reports whether key names a fact whose whole value is a digest
+// (config.running_digest, yang.modules_digest, gnmi.models_digest): its name
+// ends in "_digest" or ".digest". A drift names such a key without showing
+// its value, as it does a value holding a digest field.
+func DigestKey(key string) bool {
+	return strings.HasSuffix(key, "_digest") || strings.HasSuffix(key, ".digest")
+}
+
 // BaselinePairs is the pairs of a baseline for target, taken from source's
 // current entries (target's own when golden is false): each stable key the
-// selector covers, in key order, hashed for target under keys. Under golden a
-// device-bound value is recorded not comparable, with neither hash nor value.
-func BaselinePairs(keys *Keys, target string, golden bool, source []Entry, sel KeySelector) ([]BaselinePair, error) {
+// selector covers, in key order, hashed for target under keys, and the keys
+// it covers that are volatile, in key order. Under golden a device-bound
+// value is recorded not comparable, with neither hash nor value. A pattern
+// that covers no stable key of source is refused, naming it, so a misspelled
+// pattern among good ones is not quietly taken as asked.
+func BaselinePairs(keys *Keys, target string, golden bool, source []Entry, sel KeySelector) ([]BaselinePair, []string, error) {
 	var pairs []BaselinePair
-	seen := map[string]bool{}
+	var volatile []string
+	seen, matched := map[string]bool{}, map[string]bool{}
 	for _, e := range source {
-		if e.Kind == KindVolatile || seen[e.Key] || !sel.Matches(e.Key) {
+		if seen[e.Key] || !sel.Matches(e.Key) {
 			continue
 		}
 		seen[e.Key] = true
+		if e.Kind == KindVolatile {
+			volatile = append(volatile, e.Key)
+			continue
+		}
+		// Which patterns covered a stable key, for the refusal below.
+		for _, p := range sel {
+			if patternMatches(p, e.Key) {
+				matched[p] = true
+			}
+		}
 		if golden && DeviceBound(e.Value) {
 			pairs = append(pairs, BaselinePair{Key: e.Key, NotComparable: true})
 			continue
@@ -226,10 +258,16 @@ func BaselinePairs(keys *Keys, target string, golden bool, source []Entry, sel K
 		// device, so the source's hash would never equal the target's.
 		hash, err := keys.Hash(target, e.Key, e.Value)
 		if err != nil {
-			return nil, fmt.Errorf("facts: keying %s for the baseline: %w", ShownKey(e.Key), err)
+			return nil, nil, fmt.Errorf("facts: keying %s for the baseline: %w", ShownKey(e.Key), err)
 		}
 		pairs = append(pairs, BaselinePair{Key: e.Key, Hash: hash, Value: e.Value})
 	}
+	for _, p := range sel {
+		if !matched[p] {
+			return nil, nil, fmt.Errorf("%w: key pattern %q matches no stable fact", ErrInvalid, p)
+		}
+	}
 	sort.Slice(pairs, func(i, j int) bool { return pairs[i].Key < pairs[j].Key })
-	return pairs, nil
+	sort.Strings(volatile)
+	return pairs, volatile, nil
 }

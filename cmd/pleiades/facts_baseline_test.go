@@ -11,6 +11,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -44,8 +45,9 @@ func baselineProject(t *testing.T, hosts ...string) (string, map[string]string) 
 	return dir, ids
 }
 
-// recordFacts stores observed as device's facts, as a real run would.
-func recordFacts(t *testing.T, dir, device string, at time.Time, observed map[string]any) {
+// recordFacts stores observed as device's facts, as a real run would, each
+// key stable unless named in volatile.
+func recordFacts(t *testing.T, dir, device string, at time.Time, observed map[string]any, volatile ...string) {
 	t.Helper()
 	store, err := facts.NewFileStore(filepath.Join(dir, ".pleiades", "facts"), projectFactKeys(dir))
 	if err != nil {
@@ -54,6 +56,11 @@ func recordFacts(t *testing.T, dir, device string, at time.Time, observed map[st
 	entries, problems, err := facts.Prepare(observed, facts.Guard{})
 	if err != nil || len(problems) != 0 {
 		t.Fatalf("Prepare: %v %v", problems, err)
+	}
+	for i := range entries {
+		if slices.Contains(volatile, entries[i].Key) {
+			entries[i].Kind = facts.KindVolatile
+		}
 	}
 	if err := store.Record(t.Context(), device, facts.Observation{Entries: entries, At: at}); err != nil {
 		t.Fatal(err)

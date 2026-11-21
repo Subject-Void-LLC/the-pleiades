@@ -87,6 +87,11 @@ func runFactsBaseline(args []string) error {
 		if source = itemNamed(items, *from); source == nil {
 			return fmt.Errorf("--from %q is not a host in the inventory", *from)
 		}
+		for _, h := range hosts {
+			if h.ID() == source.ID() {
+				return fmt.Errorf("--from %q is also a host the baseline is taken of: a host cannot be its own golden source; leave it out of the hosts, or drop --from to take its own facts", source.Name())
+			}
+		}
 	}
 	store, err := facts.OpenFileStore(factsDir(*dir), keys)
 	if errors.Is(err, facts.ErrNoStore) {
@@ -96,9 +101,6 @@ func runFactsBaseline(args []string) error {
 		return err
 	}
 	ctx := context.Background()
-	// Every host, and the source, checked before any baseline is written, so
-	// a name one host already has, or a host never gathered, refuses the
-	// whole command rather than half of it.
 	if source != nil {
 		if current, err := store.Current(ctx, string(source.ID())); err != nil {
 			return fmt.Errorf("--from %q: %w", source.Name(), err)
@@ -106,35 +108,44 @@ func runFactsBaseline(args []string) error {
 			return fmt.Errorf("--from %q: its facts were never gathered: run facts.gather on it first", source.Name())
 		}
 	}
-	for _, h := range hosts {
-		if _, err := store.Baseline(ctx, string(h.ID()), *name); err == nil {
-			return fmt.Errorf("host %q: %w: %q", h.Name(), facts.ErrBaselineExists, *name)
-		} else if !errors.Is(err, facts.ErrNoBaseline) {
-			return fmt.Errorf("host %q: %w", h.Name(), err)
-		}
-		if current, err := store.Current(ctx, string(h.ID())); err != nil {
-			return fmt.Errorf("host %q: %w", h.Name(), err)
-		} else if len(current) == 0 {
-			return fmt.Errorf("host %q: its facts were never gathered: run facts.gather on it first", h.Name())
-		}
-	}
 	req := facts.BaselineRequest{Name: *name, Reason: *reason, By: osUser(), Keys: sel, At: time.Now()}
 	if source != nil {
 		req.From, req.FromName = string(source.ID()), source.Name()
 	}
+	// Every host's baseline is made, and every refusal storing it could make
+	// is made, before any is written, so one host's refusal (a name it
+	// already has, a host never gathered, a key pattern matching none of its
+	// facts, nothing comparable, too large) leaves every host as it was.
+	plans := make([]facts.PlannedBaseline, 0, len(hosts))
 	for _, h := range hosts {
-		b, err := store.TakeBaseline(ctx, string(h.ID()), req)
-		switch {
-		case errors.Is(err, facts.ErrSourceNeverGathered):
-			return fmt.Errorf("--from %q: its facts were never gathered: run facts.gather on it first", source.Name())
-		case errors.Is(err, facts.ErrNeverGathered):
-			return fmt.Errorf("host %q: its facts were never gathered: run facts.gather on it first", h.Name())
-		case err != nil:
-			return fmt.Errorf("host %q: %w", h.Name(), err)
+		p, err := store.PlanBaseline(ctx, string(h.ID()), req)
+		if err != nil {
+			return baselineRefusal(h, source, err)
 		}
-		printBaselineTaken(h.Name(), b)
+		plans = append(plans, p)
+	}
+	for i, p := range plans {
+		// Only another taker writing the same name since the plan can
+		// refuse a write now; say which hosts were written before it.
+		if err := store.StoreBaseline(ctx, p); err != nil {
+			return fmt.Errorf("%w (written before it: %d of %d host(s))", baselineRefusal(hosts[i], source, err), i, len(plans))
+		}
+		printBaselineTaken(hosts[i].Name(), p.Baseline)
 	}
 	return nil
+}
+
+// baselineRefusal is err, a refusal to take h's baseline, as the command
+// says it: a host or source never gathered named with what to do, anything
+// else with the host it refused.
+func baselineRefusal(h, source pkginventory.InventoryItem, err error) error {
+	switch {
+	case errors.Is(err, facts.ErrSourceNeverGathered) && source != nil:
+		return fmt.Errorf("--from %q: its facts were never gathered: run facts.gather on it first", source.Name())
+	case errors.Is(err, facts.ErrNeverGathered):
+		return fmt.Errorf("host %q: its facts were never gathered: run facts.gather on it first", h.Name())
+	}
+	return fmt.Errorf("host %q: %w", h.Name(), err)
 }
 
 // runFactsDrift is `pleiades facts drift [<hosts>]`.
@@ -176,6 +187,9 @@ func runFactsDrift(args []string) error {
 	for _, h := range hosts {
 		rep := facts.NoBaseline(string(h.ID()), "no host's facts have been gathered in this project yet")
 		if store != nil {
+			// A host whose files do not open is its own unknown report;
+			// only a store with no keys at all, which no host's report could
+			// change, stops the command.
 			if rep, err = store.DriftOf(context.Background(), string(h.ID()), *baseline, doc.At); err != nil {
 				return fmt.Errorf("host %q: %w", h.Name(), err)
 			}
@@ -223,7 +237,10 @@ func shownDrift(rep facts.DriftReport) facts.DriftReport {
 	for i := range rep.Changes {
 		rep.Changes[i].Key = facts.ShownKey(rep.Changes[i].Key)
 	}
-	for _, list := range [][]string{rep.NotComparable, rep.Unconfirmed} {
+	for i := range rep.Unconfirmed {
+		rep.Unconfirmed[i].Key = facts.ShownKey(rep.Unconfirmed[i].Key)
+	}
+	for _, list := range [][]string{rep.NotComparable, rep.KindChanged} {
 		for i := range list {
 			list[i] = facts.ShownKey(list[i])
 		}

@@ -14,8 +14,11 @@ const FactsDriftVersion = 1
 
 // FactsDriftReport is each device's stable facts against its baseline, as
 // the project's store holds them: which keys were added, removed or changed,
-// with each value's times and keyed hashes, and a value shown only where it
-// is not a digest.
+// which the latest gather did not confirm, with each value's times and keyed
+// hashes, and a value shown only where it is not a digest. A store records no
+// absence, so a key a host stopped reporting is unconfirmed rather than
+// removed: removed is reported only for a golden baseline's key the host
+// never reported.
 type FactsDriftReport struct {
 	// SchemaVersion is this document's major version.
 	SchemaVersion int `json:"schema_version"`
@@ -33,8 +36,9 @@ var FactsDriftSchema = Schema{
 	File: "facts-drift.json", Command: "pleiades facts drift --json", Title: "Pleiades facts drift",
 	Model: reflect.TypeFor[FactsDriftReport](),
 	Known: map[string][]string{
-		"DriftReport.State": {string(facts.DriftInSync), string(facts.DriftDrifted), string(facts.DriftUnknown), string(facts.DriftNoBaseline)},
-		"KeyDrift.Change":   {string(facts.ChangeAdded), string(facts.ChangeRemoved), string(facts.ChangeChanged)},
+		"DriftReport.State":      {string(facts.DriftInSync), string(facts.DriftDrifted), string(facts.DriftUnknown), string(facts.DriftNoBaseline)},
+		"KeyDrift.Change":        {string(facts.ChangeAdded), string(facts.ChangeRemoved), string(facts.ChangeChanged)},
+		"UnconfirmedKey.WouldBe": {string(facts.ChangeAdded), string(facts.ChangeChanged), string(facts.ChangeMatching)},
 	},
-	ModelFiles: []string{"internal/clireport/facts_drift.go", "internal/facts/drift.go"},
+	ModelFiles: []string{"internal/clireport/facts_drift.go", "internal/facts/drift_report.go"},
 }

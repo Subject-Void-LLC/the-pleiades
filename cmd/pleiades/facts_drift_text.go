@@ -48,9 +48,18 @@ func printDrift(doc clireport.FactsDriftReport) {
 			fmt.Printf("%s: %s: %s\n", host, d.State, termsafe.EscapeLine(d.Reason))
 			continue
 		}
-		fmt.Printf("%s: %s against %s; %d compared, %d match", host, d.State, baselineLine(d.Baseline), d.Compared, d.Matching)
+		fmt.Printf("%s: %s", host, d.State)
+		// The unconfirmed count beside the state, where it cannot be missed:
+		// an in_sync host may still have keys no gather has confirmed.
+		if n := len(d.Unconfirmed); n > 0 {
+			fmt.Printf(" (%d unconfirmed)", n)
+		}
+		fmt.Printf(" against %s; %d compared, %d match", baselineLine(d.Baseline), d.Compared, d.Matching)
 		if n := len(d.NotComparable); n > 0 {
 			fmt.Printf(", %d not comparable", n)
+		}
+		if n := len(d.KindChanged); n > 0 {
+			fmt.Printf(", %d not compared (stable on one side, volatile on the other)", n)
 		}
 		if d.FactsAgeSeconds != nil {
 			fmt.Printf("; facts last seen %s ago", age(*d.FactsAgeSeconds))
@@ -59,13 +68,29 @@ func printDrift(doc clireport.FactsDriftReport) {
 		for _, c := range d.Changes {
 			fmt.Printf("  %s %s%s%s\n", c.Change, termsafe.EscapeLine(c.Key), changeText(c), whenText(c))
 		}
-		if len(d.Unconfirmed) > 0 {
-			keys := make([]string, len(d.Unconfirmed))
-			for i, k := range d.Unconfirmed {
-				keys[i] = termsafe.EscapeLine(k)
-			}
-			fmt.Printf("  not confirmed by the latest gather of their family, which a removed item would be (not drift): %s\n", strings.Join(keys, ", "))
+		printUnconfirmed(d)
+	}
+}
+
+// printUnconfirmed lists d's unconfirmed keys, each with what it would be,
+// and the keys whose kind changed.
+func printUnconfirmed(d facts.DriftReport) {
+	if len(d.Unconfirmed) > 0 {
+		fmt.Println("  not confirmed by the latest gather of their family, as an item removed from the host shows (not drift):")
+	}
+	for _, u := range d.Unconfirmed {
+		seen := ""
+		if u.AgeSeconds != nil {
+			seen = ", last seen " + age(*u.AgeSeconds) + " ago"
 		}
+		fmt.Printf("  unconfirmed %s (would be %s%s)\n", termsafe.EscapeLine(u.Key), u.WouldBe, seen)
+	}
+	if len(d.KindChanged) > 0 {
+		keys := make([]string, len(d.KindChanged))
+		for i, k := range d.KindChanged {
+			keys[i] = termsafe.EscapeLine(k)
+		}
+		fmt.Printf("  not compared, stable on one side and volatile on the other: %s\n", strings.Join(keys, ", "))
 	}
 }
 

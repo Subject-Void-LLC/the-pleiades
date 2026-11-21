@@ -15,27 +15,30 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts/factstest"
 )
 
-// driftInput is what FuzzDrift decodes: a baseline's pairs and selector, the
-// keys identity it names, and a device's current entries.
+// driftInput is what FuzzDrift decodes: a baseline's pairs, the keys it
+// recorded volatile and its selector, and a device's current entries.
 type driftInput struct {
-	Pairs   []facts.BaselinePair `json:"pairs"`
-	Keys    []string             `json:"keys"`
-	KeysID  string               `json:"keys_id"`
-	Current []facts.Entry        `json:"current"`
+	Pairs    []facts.BaselinePair `json:"pairs"`
+	Volatile []string             `json:"volatile"`
+	Keys     []string             `json:"keys"`
+	Current  []facts.Entry        `json:"current"`
 }
 
 // FuzzDrift holds Drift to its rules over arbitrary input: no panic; a
-// device with no entries, or a baseline under other keys, is unknown; a
-// volatile key is never a change; each change is one key, in key order;
-// drifted exactly when there is a change; every compared key matches or
-// changed; and no value is shown beside a digest.
+// device with no entries, or none of whose baseline's keys was compared and
+// with no change, is unknown; a volatile key is never a change and never
+// unconfirmed; each change and each unconfirmed key is one key, in key
+// order, and no key is both; drifted exactly when there is a change; every
+// compared key matches, changed, was removed or is unconfirmed; and no value
+// is shown beside a digest.
 func FuzzDrift(f *testing.F) {
 	for _, seed := range []string{
-		`{"pairs":[{"key":"a","hash":"1","value":"x"}],"keys_id":"k","current":[{"key":"a","hash":"1","value":"x","kind":"stable"}]}`,
-		`{"pairs":[{"key":"a","hash":"1"},{"key":"a","hash":"2"}],"keys_id":"k","current":[{"key":"a","hash":"2","kind":"volatile"},{"key":"b","hash":"3"}]}`,
-		`{"pairs":[{"key":"f","not_comparable":true},{"key":"g","hash":"9","value":{"hmac_sha256":"ab"}}],"keys":["g*"],"keys_id":"k","current":[{"key":"g","hash":"8","value":{"x":[{"sha256":"1"}]}}]}`,
-		`{"pairs":[],"keys_id":"","current":[]}`,
-		`{"pairs":[{"key":"p.a","hash":"1"}],"keys_id":"k","current":[{"key":"p.a","hash":"1","last_seen_at":"2026-01-01T00:00:00Z"},{"key":"p.b","hash":"2","last_seen_at":"2026-02-01T00:00:00Z"}]}`,
+		`{"pairs":[{"key":"a","hash":"1","value":"x"}],"current":[{"key":"a","hash":"1","value":"x","kind":"stable"}]}`,
+		`{"pairs":[{"key":"a","hash":"1"},{"key":"a","hash":"2"}],"current":[{"key":"a","hash":"2","kind":"volatile"},{"key":"b","hash":"3"}]}`,
+		`{"pairs":[{"key":"f","not_comparable":true},{"key":"g","hash":"9","value":{"hmac_sha256":"ab"}}],"keys":["g*"],"current":[{"key":"g","hash":"8","value":{"x":[{"sha256":"1"}]}}]}`,
+		`{"pairs":[],"current":[]}`,
+		`{"pairs":[{"key":"p.a","hash":"1"}],"current":[{"key":"p.a","hash":"1","last_seen_at":"2026-01-01T00:00:00Z"},{"key":"p.b","hash":"2","last_seen_at":"2026-02-01T00:00:00Z"}]}`,
+		`{"pairs":[{"key":"p.a","hash":"1"}],"volatile":["p.c"],"current":[{"key":"p.a","hash":"2","last_seen_at":"2026-01-01T00:00:00Z"},{"key":"p.c","hash":"2","last_seen_at":"2026-02-01T00:00:00Z"},{"key":"c.x_digest","hash":"5","value":"ab"}]}`,
 	} {
 		f.Add(seed)
 	}
@@ -47,12 +50,12 @@ func FuzzDrift(f *testing.F) {
 		if err := dec.Decode(&in); err != nil {
 			return
 		}
-		b := facts.Baseline{Name: "b", Device: "d", KeysID: "k", Keys: in.Keys, Pairs: in.Pairs}
-		rep := facts.Drift(b, in.KeysID, in.Current, at)
+		b := facts.Baseline{Name: "b", Device: "d", KeysID: "k", Keys: in.Keys, Pairs: in.Pairs, Volatile: in.Volatile}
+		rep := facts.Drift(b, in.Current, at)
 		switch {
-		case in.KeysID != "k" || len(in.Current) == 0:
-			if rep.State != facts.DriftUnknown {
-				t.Fatalf("state %s, want unknown", rep.State)
+		case len(in.Current) == 0 || rep.Compared == 0 && len(rep.Changes) == 0:
+			if rep.State != facts.DriftUnknown || rep.Reason == "" {
+				t.Fatalf("state %s (%q), want unknown with a reason", rep.State, rep.Reason)
 			}
 			return
 		case rep.State != facts.DriftInSync && rep.State != facts.DriftDrifted:
@@ -60,13 +63,17 @@ func FuzzDrift(f *testing.F) {
 		case (rep.State == facts.DriftDrifted) != (len(rep.Changes) > 0):
 			t.Fatalf("state %s with %d changes", rep.State, len(rep.Changes))
 		}
-		volatile := map[string]bool{}
+		volatile, inBaseline := map[string]bool{}, map[string]bool{}
 		for _, e := range in.Current {
 			if e.Kind == facts.KindVolatile {
 				volatile[e.Key] = true
 			}
 		}
-		changedOrRemoved := 0
+		for _, p := range in.Pairs {
+			inBaseline[p.Key] = true
+		}
+		listed := map[string]bool{}
+		fromBaseline := 0
 		for i, c := range rep.Changes {
 			if volatile[c.Key] {
 				t.Fatalf("volatile key %q is a change", c.Key)
@@ -77,14 +84,31 @@ func FuzzDrift(f *testing.F) {
 			if c.Digest && (c.BaselineValue != nil || c.CurrentValue != nil) {
 				t.Fatalf("%q holds a digest and shows a value", c.Key)
 			}
+			if facts.DigestKey(c.Key) && !c.Digest {
+				t.Fatalf("%q names a digest and is not hidden", c.Key)
+			}
 			if c.Change != facts.ChangeAdded {
-				changedOrRemoved++
+				fromBaseline++
+			}
+			listed[c.Key] = true
+		}
+		for i, u := range rep.Unconfirmed {
+			if volatile[u.Key] || listed[u.Key] {
+				t.Fatalf("unconfirmed key %q is volatile or also a change", u.Key)
+			}
+			if i > 0 && rep.Unconfirmed[i-1].Key >= u.Key {
+				t.Fatalf("unconfirmed out of order or repeated: %q then %q", rep.Unconfirmed[i-1].Key, u.Key)
+			}
+			if inBaseline[u.Key] {
+				fromBaseline++
+			} else if u.WouldBe != facts.ChangeAdded {
+				t.Fatalf("unconfirmed %q is no baseline key and would be %s", u.Key, u.WouldBe)
 			}
 		}
-		if rep.Compared != rep.Matching+changedOrRemoved {
-			t.Fatalf("compared %d, matching %d, changed or removed %d", rep.Compared, rep.Matching, changedOrRemoved)
+		if rep.Compared != rep.Matching+fromBaseline {
+			t.Fatalf("compared %d, matching %d, changed, removed or unconfirmed %d", rep.Compared, rep.Matching, fromBaseline)
 		}
-		if !sort.StringsAreSorted(rep.NotComparable) || !sort.StringsAreSorted(rep.Unconfirmed) {
+		if !sort.StringsAreSorted(rep.NotComparable) || !sort.StringsAreSorted(rep.KindChanged) {
 			t.Fatal("a key list is out of order")
 		}
 	})
@@ -134,6 +158,11 @@ func FuzzDecodeBaselineLine(f *testing.F) {
 		for _, p := range b.Pairs {
 			if !facts.ReadableKey(p.Key) || p.Hash == "" && !p.NotComparable {
 				t.Fatalf("decoded a pair %+v", p)
+			}
+		}
+		for _, key := range b.Volatile {
+			if !facts.ReadableKey(key) {
+				t.Fatalf("decoded a volatile key %q", key)
 			}
 		}
 	})
