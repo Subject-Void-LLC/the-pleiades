@@ -370,6 +370,11 @@ master key stores and reads no facts. Files an earlier release wrote there are
 plaintext and are refused with an error that says so: remove that device's files
 under `.pleiades/facts` and gather its facts again.
 
+Sealing covers what is stored, not what a run shows. `pleiades run --json`, a task's
+`register`, `pleiades facts` and the facts routes return values to whoever is allowed
+to ask, by design, and the run journal keeps the names of the results a method
+declares, never a fact's own name or value.
+
 ### What the chart refuses to install
 
 Some configurations are refused at render time, with the reason in the error,
