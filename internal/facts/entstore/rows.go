@@ -26,7 +26,7 @@ func (s *Store) Current(ctx context.Context, device string) ([]facts.Entry, erro
 		return nil, err
 	}
 	rows, err := s.client.Fact.Query().
-		Where(entfact.HasDeviceWith(entdevice.DeviceIDEQ(device))).
+		Where(entfact.HasDeviceWith(entdevice.IDEQ(dev))).
 		Order(ent.Asc(entfact.FieldID)).
 		All(ctx)
 	if err != nil {
@@ -71,7 +71,7 @@ func (s *Store) History(ctx context.Context, device, key string) ([]facts.Entry,
 		return nil, err
 	}
 	rows, err := s.client.Fact.Query().
-		Where(entfact.KeyTokenEQ(token), entfact.HasDeviceWith(entdevice.DeviceIDEQ(device))).
+		Where(entfact.KeyTokenEQ(token), entfact.HasDeviceWith(entdevice.IDEQ(dev))).
 		Order(ent.Asc(entfact.FieldID)).
 		All(ctx)
 	if err != nil {
@@ -151,11 +151,14 @@ func (s *Store) Verify(ctx context.Context, device string) (facts.Verdict, error
 	if err := s.ready(); err != nil {
 		return facts.Verdict{}, err
 	}
-	if _, _, err := s.bound(ctx, device); err != nil {
+	// The device's database ID, as Current and History filter by: a filter on
+	// its name joins the devices table for every fact row.
+	dev, _, err := s.bound(ctx, device)
+	if err != nil {
 		return facts.Verdict{}, err
 	}
 	rows, err := s.client.Fact.Query().
-		Where(entfact.HasDeviceWith(entdevice.DeviceIDEQ(device)), entfact.KindEQ(entfact.KindStable)).
+		Where(entfact.HasDeviceWith(entdevice.IDEQ(dev)), entfact.KindEQ(entfact.KindStable)).
 		Order(ent.Asc(entfact.FieldID)).
 		All(ctx)
 	if err != nil {
