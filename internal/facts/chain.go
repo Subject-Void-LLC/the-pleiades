@@ -19,6 +19,7 @@ package facts
 import (
 	"crypto/hmac"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/hex"
 	"fmt"
 	"time"
@@ -67,6 +68,14 @@ func chainInput(device, prev, key, hash string, observedAt time.Time, by Provena
 	return Canonical([]any{device, prev, key, hash, StoredTime(observedAt).Format(time.RFC3339Nano), by})
 }
 
+// SameMAC reports whether a and b, two MACs as text (a keyed hash, a chain
+// link, a token), are the same, in time that does not depend on where they
+// first differ, so how long a check takes says nothing of how much of a
+// forged MAC was right.
+func SameMAC(a, b string) bool {
+	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
+}
+
 // Break is where a device's chain first fails to verify.
 type Break struct {
 	// Index is the position of the value, from 0, in the order the store
@@ -110,7 +119,7 @@ func VerifyChain(device string, links []Link, keys *Keys) Verdict {
 			return v
 		}
 		hash, err := keys.Hash(device, l.Key, l.Value)
-		if err != nil || hash != l.Hash {
+		if err != nil || !SameMAC(hash, l.Hash) {
 			return fail("the stored value is not the one its fact hash describes")
 		}
 		// Before the link to the value before it, so a row with no chain is
@@ -122,7 +131,7 @@ func VerifyChain(device string, links []Link, keys *Keys) Verdict {
 			return fail(fmt.Sprintf("it names %s as the value stored before it, and the value stored before it is %s", short(l.Prev), short(prev)))
 		}
 		want, err := keys.ChainHash(device, l.Prev, l.Key, l.Hash, l.ObservedAt, l.By)
-		if err != nil || want != l.Chain {
+		if err != nil || !SameMAC(want, l.Chain) {
 			return fail("its chain hash does not match its device, key, time or provenance")
 		}
 		prev = l.Chain

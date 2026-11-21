@@ -9,6 +9,7 @@ import (
 	"log/slog"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts/entstore"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/termsafe"
 )
 
 // factsRekeyer is what runFactsRekey needs of the fact store.
@@ -41,9 +42,15 @@ func runFactsRekey(ctx context.Context, store factsRekeyer, logger *slog.Logger)
 	}
 	if count.Refused > 0 {
 		// Named so an operator can look at them; their facts do not verify
-		// under the previous key, and removing it loses them for good.
+		// under the previous key, and removing it loses them for good. Each
+		// ID is the database's text, so each is named bounded and escaped,
+		// as RekeyAll names one it refuses.
+		first := make([]string, len(count.RefusedDevices))
+		for i, id := range count.RefusedDevices {
+			first[i] = termsafe.Quote(id)
+		}
 		logger.Warn("facts key rotation refused devices whose stored facts do not verify under the previous key; they keep it and are served nothing",
-			slog.Int("devices", count.Refused), slog.Any("first", count.RefusedDevices))
+			slog.Int("devices", count.Refused), slog.Any("first", first))
 	}
 	if err != nil {
 		logger.Error("facts key rotation could not finish its pass; keep "+factDigestKeyPreviousEnv+" set, and restart for another pass",

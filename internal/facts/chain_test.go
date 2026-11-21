@@ -149,6 +149,25 @@ func TestKeys_ChainHashIsKeyed(t *testing.T) {
 	}
 }
 
+// TestSameMAC: two MACs are the same only when every byte and the length
+// agree.
+func TestSameMAC(t *testing.T) {
+	for _, c := range []struct {
+		a, b string
+		same bool
+	}{
+		{"ab12", "ab12", true},
+		{"", "", true},
+		{"ab12", "ab13", false},
+		{"ab12", "ab1", false},
+		{"ab12", "", false},
+	} {
+		if got := facts.SameMAC(c.a, c.b); got != c.same {
+			t.Errorf("SameMAC(%q, %q) = %v, want %v", c.a, c.b, got, c.same)
+		}
+	}
+}
+
 // TestVerifyChain_AnUnchainedValueAtTheStartIsABreak: a row with no chain and
 // no provenance, put in front of a real chain by someone who can write the
 // store, is found rather than passed over as an older value

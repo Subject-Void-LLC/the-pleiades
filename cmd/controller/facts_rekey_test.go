@@ -86,6 +86,11 @@ func TestRunFactsRekey_SaysWhetherThePreviousKeyIsStillNeeded(t *testing.T) {
 			[]string{"refused=1", "dev-9", "keep " + factDigestKeyPreviousEnv + " set"}, "rotation complete"},
 		{"a pass that failed", countingRekeyer{count: entstore.RekeyCount{Devices: 1}, err: errors.New("database gone")},
 			[]string{"level=ERROR", "database gone", "keep " + factDigestKeyPreviousEnv + " set"}, "rotation complete"},
+		// A refused ID is the database's text: named bounded and escaped, as
+		// RekeyAll names it, so a long one is cut and a letter outside ASCII
+		// is escaped rather than written raw.
+		{"a refused ID that is not a plain name", countingRekeyer{count: entstore.RekeyCount{Refused: 2, RefusedDevices: []string{"café-" + strings.Repeat("z", 200), "dev-é"}, Remaining: 2}},
+			[]string{"refused=2", "(cut from 206 bytes)", `dev-\\u00e9`}, "z" + strings.Repeat("z", 150)},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var logs bytes.Buffer

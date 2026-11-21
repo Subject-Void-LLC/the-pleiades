@@ -126,7 +126,7 @@ func (s *Store) openUnder(keys *facts.Keys, device string, row *ent.Fact) (facts
 	}
 	key, _ := opened[payloadFactKey].(string)
 	token, err := keys.Token(device, key)
-	if err != nil || token != row.KeyToken {
+	if err != nil || !facts.SameMAC(token, row.KeyToken) {
 		return facts.Entry{}, nil, fmt.Errorf("%w: it holds a key whose token is not the row's", ErrNotThisDevices)
 	}
 	e := meta(row, key)
@@ -140,7 +140,7 @@ func (s *Store) openUnder(keys *facts.Keys, device string, row *ent.Fact) (facts
 	// The value is the one the row's keyed hash describes: a payload taken
 	// from another row of the same key (an older value put back as the
 	// newest) carries the right token and opens, and is refused here.
-	if hash, err := keys.Hash(device, key, e.Value); err != nil || hash != row.Hash {
+	if hash, err := keys.Hash(device, key, e.Value); err != nil || !facts.SameMAC(hash, row.Hash) {
 		return facts.Entry{}, nil, fmt.Errorf("%w: it holds a value its keyed hash does not describe", ErrNotThisDevices)
 	}
 	return e, opened, nil
