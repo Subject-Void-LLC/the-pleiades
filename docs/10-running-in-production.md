@@ -65,7 +65,9 @@ which report themselves as a development build of the release line the tree is o
 /app/runner version`). A release is built the same way with `--build-arg VERSION=<release>` as
 well; the binaries then report that release, and the Runner refuses an external
 Collection program that states it needs a newer one. A `VERSION` that is not a release
-number is ignored, so a build argument left at its default cannot pass for one.
+number is ignored, so a build argument left at its default cannot pass for one. A
+`VERSION` taken from `git describe` reads as the last tag's release (`v0.3.0-12-gabc` is
+release 0.3.0), whatever line the tree has moved to since: stamp the release you mean.
 
 `pleiades/controller:dev` and `pleiades/runner:dev` are the names the chart asks
 for by default, and they are exactly what `docker compose build` produces, so a

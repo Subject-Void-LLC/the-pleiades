@@ -63,3 +63,24 @@ func TestReleaseLineFilesFollowCurrentRelease(t *testing.T) {
 		t.Errorf("Release(%q) = %q, %v; a dry run must read as the release it rehearses", dryRun, got, ok)
 	}
 }
+
+// TestTheMakefileReadsCurrentReleaseFromThisSource holds the Makefile's own
+// read of the release line, which no Go code runs: its sed pattern, applied
+// as written to buildinfo.go, must yield CurrentRelease. Moving the constant
+// into a const block, or reformatting its line, would leave both dry-run
+// targets refusing for want of a version, and only a person running one would
+// find out; this fails instead.
+func TestTheMakefileReadsCurrentReleaseFromThisSource(t *testing.T) {
+	const makefile = "Makefile"
+	// The Makefile doubles a dollar to pass one to the shell.
+	const sedPattern = `s/^const CurrentRelease = "\([0-9][0-9.]*\)"\r\{0,1\}$$/\1/p`
+	if !strings.Contains(repoFile(t, makefile), sedPattern+"' internal/buildinfo/buildinfo.go") {
+		t.Fatalf("%s no longer reads CurrentRelease with %s; hold the new pattern here", makefile, sedPattern)
+	}
+	// The same pattern in Go's syntax: sed's \( \) and \{0,1\} are ( ) and ?.
+	const source = "internal/buildinfo/buildinfo.go"
+	got := onlyMatch(t, source, repoFile(t, source), regexp.MustCompile(`(?m)^const CurrentRelease = "([0-9][0-9.]*)"\r?$`))
+	if got != CurrentRelease {
+		t.Errorf("%s: the Makefile's pattern reads %q, and CurrentRelease is %q", source, got, CurrentRelease)
+	}
+}

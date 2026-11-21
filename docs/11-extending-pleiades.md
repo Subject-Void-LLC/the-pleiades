@@ -1182,7 +1182,7 @@ What this does not give you yet, stated plainly:
   says which it is: `pleiades version` and `runner version` print the same string, the
   release on a release build and `<release>-dev+<commit>` otherwise, where `<release>` is
   the release line the source tree is on (`0.4.0-dev+<commit>`, say). A development
-  build, which is any build not cut by `make release`, is not compared even though it
+  build, which is any build not stamped with a release version, is not compared even though it
   carries a release's numbers: it loads the method, warning once per program, and
   `pleiades doc` marks the constraint "not checked".
   `forge new-external` writes the generating release as the program's constraint on a

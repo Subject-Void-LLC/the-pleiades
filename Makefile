@@ -1211,7 +1211,7 @@ release-notes:
 # CURRENT_RELEASE is the release line this tree is on, read from
 # internal/buildinfo's CurrentRelease constant, which is where the binaries
 # read it. It is read only by the targets that use it ("=", not ":=").
-CURRENT_RELEASE = $(shell sed -n 's/^const CurrentRelease = "\([0-9][0-9.]*\)"$$/\1/p' internal/buildinfo/buildinfo.go | tr -d '\r')
+CURRENT_RELEASE = $(shell sed -n 's/^const CurrentRelease = "\([0-9][0-9.]*\)"\r\{0,1\}$$/\1/p' internal/buildinfo/buildinfo.go)
 
 # release-dry-run is release stamped <CurrentRelease>-dryrun into a throwaway
 # directory under .IGNORE, then checks the list with sha256sum: the whole
