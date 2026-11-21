@@ -2,7 +2,12 @@
 // store (Phase 41), as internal/journal's Batch is for the journal.
 package facts
 
-import "time"
+import (
+	"bytes"
+	"encoding/json"
+	"errors"
+	"time"
+)
 
 // EventType names a published Batch.
 const EventType = "job.facts"
@@ -13,7 +18,14 @@ type Batch struct {
 	DeviceID   string    `json:"device_id"`
 	Attempt    int       `json:"attempt"`
 	ObservedAt time.Time `json:"observed_at"`
-	Entries    []Entry   `json:"entries"`
+	// Entries are the facts, in plaintext: what a Runner of an earlier
+	// release published, and what the Controller holds once it has opened
+	// Sealed. A Runner of this release publishes none here.
+	Entries []Entry `json:"entries,omitempty"`
+	// Sealed is the entries sealed to the Controller's public key (the
+	// dispatch's fact seal key), as SealPlaintextOf made them: the stream
+	// between a Runner and the Controller then holds no fact's key or value.
+	Sealed string `json:"sealed,omitempty"`
 	// By is the run, task and Runner that observed the entries, and the
 	// run's order (Phase 41b). The Controller holds its job and attempt to
 	// the batch's own.
@@ -71,4 +83,44 @@ func Verify(entries []Entry, guard Guard) ([]Entry, int, error) {
 		out = append(out, e)
 	}
 	return out, refused, nil
+}
+
+// sealedBatch is what a Runner seals for one batch: the entries, and the
+// batch they belong to, so the Controller refuses sealed entries moved into
+// another batch (another job, device, attempt or Runner, or another time).
+type sealedBatch struct {
+	JobID      string    `json:"job_id"`
+	DeviceID   string    `json:"device_id"`
+	Attempt    int       `json:"attempt"`
+	Runner     string    `json:"runner"`
+	ObservedAt time.Time `json:"observed_at"`
+	Entries    []Entry   `json:"entries"`
+}
+
+// SealPlaintextOf is the plaintext a Runner seals for b: b's entries bound to
+// b's own job, device, attempt, Runner and time.
+func SealPlaintextOf(b Batch) ([]byte, error) {
+	return json.Marshal(sealedBatch{JobID: b.JobID, DeviceID: b.DeviceID, Attempt: b.Attempt,
+		Runner: b.By.Runner, ObservedAt: b.ObservedAt.UTC(), Entries: b.Entries})
+}
+
+// ErrSealedElsewhere reports sealed entries that open, and name another batch
+// than the one that carries them.
+var ErrSealedElsewhere = errors.New("facts: the sealed entries name another job, device, attempt, runner or time than their batch")
+
+// OpenSealedEntries is the entries plaintext holds, when it was sealed for b.
+// Numbers are kept as written, so a value hashes as it did on the Runner.
+func OpenSealedEntries(plaintext []byte, b Batch) ([]Entry, error) {
+	var opened sealedBatch
+	dec := json.NewDecoder(bytes.NewReader(plaintext))
+	dec.UseNumber()
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&opened); err != nil {
+		return nil, errors.New("facts: the sealed entries do not decode")
+	}
+	if opened.JobID != b.JobID || opened.DeviceID != b.DeviceID || opened.Attempt != b.Attempt ||
+		opened.Runner != b.By.Runner || !opened.ObservedAt.Equal(b.ObservedAt) {
+		return nil, ErrSealedElsewhere
+	}
+	return opened.Entries, nil
 }

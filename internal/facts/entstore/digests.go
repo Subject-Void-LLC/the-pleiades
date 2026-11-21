@@ -11,6 +11,7 @@ package entstore
 import (
 	"crypto/hmac"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts"
@@ -117,4 +118,23 @@ func (s *Subscriber) openDigest(jobID, deviceID, key, sealedText string) (string
 	}
 	keyed, err := s.digestKeyer.Seal(deviceID, key, raw)
 	return keyed, err == nil
+}
+
+// openBatch is the entries batch's Runner sealed to this controller: the
+// sealed file must be a fact batch, open with the controller's key, and name
+// the batch that carries it. Every refusal is fixed text, naming no byte the
+// batch delivered.
+func (s *Subscriber) openBatch(batch facts.Batch) ([]facts.Entry, error) {
+	if s.digestOpen == nil {
+		return nil, errors.New("this controller has no key to open sealed facts with (PLEIADES_FACTS_DIGEST_KEY is not set)")
+	}
+	file, err := sealed.Parse([]byte(batch.Sealed))
+	if err != nil || file.Purpose != sealed.PurposeFactBatch {
+		return nil, errors.New("the sealed entries are not a sealed fact batch")
+	}
+	plaintext, err := file.OpenWithKey(s.digestOpen)
+	if err != nil {
+		return nil, errors.New("the sealed entries do not open with this controller's key")
+	}
+	return facts.OpenSealedEntries(plaintext, batch)
 }

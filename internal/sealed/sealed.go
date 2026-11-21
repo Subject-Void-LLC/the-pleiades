@@ -56,12 +56,20 @@ const (
 	// Controller, which keys it before storing (internal/facts' keyed
 	// digests). Nothing opens one as a password.
 	PurposeFactDigest = "fact-digest"
+	// PurposeFactBatch is the facts one task observed, which a Runner seals to
+	// the Controller before publishing them, so the stream between the two
+	// holds no fact's key or value in plaintext (internal/facts' Batch).
+	PurposeFactBatch = "fact-batch"
 	// MaxFileSize bounds a sealed file read from disk, far above any secret
 	// this package seals, so a wrong path naming a large file is refused
 	// rather than read.
 	MaxFileSize = 1 << 20
 	// MaxSecretSize bounds the secret a file may hold.
 	MaxSecretSize = 64 << 10
+	// MaxFactBatchSize bounds a PurposeFactBatch file's plaintext instead: a
+	// batch holds many facts, and one fact's value alone may be as large as
+	// MaxSecretSize. Sealed and encoded it stays well under MaxFileSize.
+	MaxFactBatchSize = 256 << 10
 )
 
 // Header names. Every one present is bound into the encryption.
@@ -75,7 +83,7 @@ const (
 )
 
 // purposes are the kinds of secret a file may say it holds.
-var purposes = []string{PurposePassword, PurposeFactDigest}
+var purposes = []string{PurposePassword, PurposeFactDigest, PurposeFactBatch}
 
 var (
 	// ErrNotSealed reports data that is not a sealed file at all, such as a
@@ -170,8 +178,12 @@ func checkSecret(purpose string, secret []byte) error {
 	if len(secret) == 0 {
 		return fmt.Errorf("an empty secret is not allowed")
 	}
-	if len(secret) > MaxSecretSize {
-		return fmt.Errorf("a secret of %d bytes is larger than the %d a sealed file holds", len(secret), MaxSecretSize)
+	limit := MaxSecretSize
+	if purpose == PurposeFactBatch {
+		limit = MaxFactBatchSize
+	}
+	if len(secret) > limit {
+		return fmt.Errorf("a secret of %d bytes is larger than the %d a sealed file holds", len(secret), limit)
 	}
 	return nil
 }

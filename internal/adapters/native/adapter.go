@@ -312,7 +312,7 @@ func (a *Adapter) Execute(ctx context.Context, payload wire.DispatchPayload) (wi
 	// (fact_seal.go).
 	sealActions, sealRun, sealErr := factSealing(payload)
 	if sealErr != nil {
-		a.logger.Warn("the dispatch's fact seal key does not parse; no digest of a private file is kept for this job",
+		a.logger.Warn("the dispatch's fact seal key does not parse; no fact is published for this job",
 			slog.String("job", payload.JobID), slog.Any("error", sealErr))
 	}
 	actions := engine.NewCollectionActionExecutor(
@@ -365,7 +365,7 @@ func (a *Adapter) Execute(ctx context.Context, payload wire.DispatchPayload) (wi
 	var journalSink engine.Journal = newJournalPublisher(ctx, a.bus, a.logger, payload.JobID, payload.DeviceID, a.runnerID)
 	// The facts its tasks observe (Phase 41), published for the Controller
 	// to store; declared as the interface for the journal's typed-nil reason.
-	var factSink engine.FactRecorder = newFactsPublisher(ctx, a.bus, payload.JobID, payload.DeviceID, a.runnerID)
+	var factSink engine.FactRecorder = newFactsPublisher(ctx, a.bus, a.logger, payload.JobID, payload.DeviceID, a.runnerID, factSealKey(payload.FactSealKey))
 
 	executor := engine.NewExecutor(
 		singleDeviceResolver{device: device},

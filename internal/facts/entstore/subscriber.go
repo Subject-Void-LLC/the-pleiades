@@ -155,6 +155,26 @@ func (s *Subscriber) Handle(evt event.Event) error {
 			slog.String("runner", termsafe.Quote(batch.By.Runner)), slog.String("subject", termsafe.Quote(evt.Subject)))
 		return nil
 	}
+	// A Runner seals a batch's entries to this controller's key; they are
+	// opened here, held to the batch that carries them, and from then on are
+	// the batch's entries. A batch that will not open is dropped: redelivery
+	// would not change it.
+	if batch.Sealed != "" {
+		entries, err := s.openBatch(batch)
+		if err != nil {
+			s.logger.Error("dropping a facts batch whose sealed entries this controller cannot open as that batch's",
+				slog.String("job", termsafe.Quote(batch.JobID)), slog.String("device", termsafe.Quote(batch.DeviceID)),
+				slog.String("runner", termsafe.Quote(batch.By.Runner)), slog.String("reason", err.Error()))
+			return nil
+		}
+		batch.Entries = entries
+	} else if len(batch.Entries) > 0 {
+		// A Runner of an earlier release: its facts already crossed the
+		// stream in plaintext, so dropping them here would hide nothing.
+		s.logger.Warn("a Runner published facts unsealed, so they crossed the stream in plaintext; upgrade the Runner to this controller's release",
+			slog.String("job", termsafe.Quote(batch.JobID)), slog.String("device", termsafe.Quote(batch.DeviceID)),
+			slog.String("runner", termsafe.Quote(batch.By.Runner)))
+	}
 	// The run that observed them, held to the batch's own job and attempt
 	// rather than trusting a second copy of each.
 	by := batch.By

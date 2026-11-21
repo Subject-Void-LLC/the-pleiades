@@ -39,7 +39,8 @@ func BenchmarkFactsPublisher_LargeGatherOverJetStream(b *testing.B) {
 		b.Fatalf("Prepare: %v, %v", problems, err)
 	}
 	dispatch := lock.WithFence(journal.WithAttempt(ctx, 1), lock.NewFence(1, "bench"))
-	p := newFactsPublisher(dispatch, bus, "job-bench", "device-bench", "runner-bench")
+	_, sealKey := factSealPair(b)
+	p := newFactsPublisher(dispatch, bus, nil, "job-bench", "device-bench", "runner-bench", sealKey)
 	t0 := time.Date(2026, 11, 19, 0, 0, 0, 0, time.UTC)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
