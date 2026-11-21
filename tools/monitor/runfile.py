@@ -20,7 +20,6 @@ the daemon, and a daemon that is down costs the run nothing.
 
 from __future__ import annotations
 
-import fcntl
 import json
 import os
 import subprocess
@@ -30,6 +29,7 @@ from typing import Dict, List, Optional
 
 import events
 import live
+import locks
 from history import RUN_ID, HistoryStore, read_json, write_json
 from jsonutil import JSONObject, as_object, get_float, get_int, get_str, loads
 import paths
@@ -142,6 +142,21 @@ def is_status_daemon(pid: int) -> bool:
                for i, a in enumerate(args[:-1]))
 
 
+def gate_running(state: str) -> bool:
+    """Reports whether a gate runs on this machine: whether a process holds gate.lock.
+
+    The manifest is no answer: a gate killed with SIGKILL never removes it,
+    while the kernel drops a dead process's flock at once.
+
+    Args:
+        state: The state directory.
+
+    Returns:
+        True while a gate holds the lock.
+    """
+    return locks.held(paths.gate_lock(state))
+
+
 class GateLock:
     """The one-gate-at-a-time lock, an flock held for the process's life.
 
@@ -163,16 +178,14 @@ class GateLock:
         self.fd = None
 
     def acquire(self) -> bool:
-        """Takes the lock without waiting.
+        """Takes the lock, waiting only out a probe (gate_running) that holds it for an instant.
 
         Returns:
             True when this process now holds it.
         """
         os.makedirs(os.path.dirname(self.path), mode=0o700, exist_ok=True)
         fd = os.open(self.path, os.O_RDWR | os.O_CREAT, 0o600)
-        try:
-            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except OSError:
+        if not locks.take(fd):
             os.close(fd)
             return False
         self.fd = fd

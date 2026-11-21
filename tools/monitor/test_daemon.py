@@ -617,6 +617,66 @@ class EnsureSafetyTest(unittest.TestCase):
             finally:
                 stop_daemon(d)
 
+    def test_a_gate_runs_while_its_lock_is_held_not_while_its_manifest_is_left(self) -> None:
+        """A manifest a SIGKILLed gate left behind does not keep an older daemon;
+        a gate that holds gate.lock does, manifest or not."""
+        with tempfile.TemporaryDirectory() as root:
+            d = os.path.join(root, "state")
+            old_copy = copy_monitor(os.path.join(root, "old"), protocol=0)
+            dead = subprocess.Popen(["true"])
+            dead.wait()
+            gate = None
+            old = None
+            try:
+                # A gate killed with SIGKILL: its manifest stays, its flock is gone.
+                old, _ = start_copy(old_copy, d)
+                history.write_json(paths.manifest(d), {"v": runfile.MANIFEST_VERSION, "run_id": R1, "pid": dead.pid,
+                                                       "started": time.time()})
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore", ResourceWarning)
+                    self.assertEqual(daemon.ensure(0, quiet=True, state_dir=d, no_actions=True), 0, daemon_log(d))
+                self.assertEqual((daemon.healthz(lock_port(d)) or {}).get("protocol"), daemon.PROTOCOL)
+                self.assertEqual(old.wait(10), 0)
+                stop_daemon(d)
+                # A live gate holds gate.lock, with no manifest at all.
+                os.remove(paths.manifest(d))
+                code = ("import sys, time; sys.path.insert(0, %r); import runfile, paths; "
+                        "lock = runfile.GateLock(paths.gate_lock(%r)); print(lock.acquire(), flush=True); "
+                        "time.sleep(60)") % (HERE, d)
+                gate = subprocess.Popen([sys.executable, "-B", "-c", code], stdout=subprocess.PIPE, text=True)
+                assert gate.stdout is not None
+                self.assertEqual(gate.stdout.readline().strip(), "True")
+                old, _ = start_copy(old_copy, d)
+                kept = subprocess.run([sys.executable, "-B", os.path.join(HERE, "monitor.py"), "ensure", "--port", "0",
+                                       "--state-dir", d, "--no-actions"], capture_output=True, text=True, timeout=60)
+                self.assertIn("kept while a gate runs", kept.stdout, kept.stderr)
+                self.assertEqual((daemon.healthz(lock_port(d)) or {}).get("pid"), old.pid)
+            finally:
+                if gate is not None:
+                    gate.kill()
+                    gate.wait()
+                if old is not None and old.poll() is None:
+                    old.terminate()
+                    old.wait(10)
+                stop_daemon(d)
+
+    def test_a_probe_does_not_refuse_a_gate(self) -> None:
+        """A probe holding gate.lock for an instant neither stops a gate from
+        taking it nor counts as a gate itself."""
+        import fcntl
+        with tempfile.TemporaryDirectory() as d:
+            probe = os.open(paths.gate_lock(d), os.O_RDWR | os.O_CREAT, 0o600)
+            fcntl.flock(probe, fcntl.LOCK_SH | fcntl.LOCK_NB)
+            timer = threading.Timer(0.3, os.close, args=(probe,))
+            timer.start()
+            lock = runfile.GateLock(paths.gate_lock(d))
+            try:
+                self.assertTrue(lock.acquire())
+                timer.join()
+                self.assertTrue(runfile.gate_running(d))
+            finally:
+                lock.release()
+
     def test_a_probe_never_looks_like_a_holder(self) -> None:
         """A probe in progress (a shared lock) neither looks like a daemon to
         another probe nor makes a starting daemon give up; a real holder does."""

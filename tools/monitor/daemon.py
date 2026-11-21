@@ -977,7 +977,7 @@ def ensure_held(port: int, state: str, say: Callable[[str], None], wait: float, 
         if reason is None:
             say("running (pid %d, port %s, protocol %s)" % (pid, health.get("port"), health.get("protocol")))
             return 0
-        if runfile.read_manifest(state) is not None:
+        if runfile.gate_running(state):
             say("the running daemon (pid %d) is kept while a gate runs, though %s" % (pid, reason))
             return 0
         say("replacing the running daemon (pid %d): %s" % (pid, reason))

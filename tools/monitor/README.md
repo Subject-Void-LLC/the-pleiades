@@ -64,7 +64,9 @@ not this machine's loopback.
   machine), the manifest `live.json`, and the run's `events.jsonl` and
   `live.json` snapshot. A daemon restarted mid-run catches up from the start
   of the event file; a run whose process died without closing its events is
-  ended as `lost`.
+  ended as `lost`. ensure decides that a gate runs from whether a process
+  holds `gate.lock`, not from `live.json`, which a gate killed with SIGKILL
+  leaves behind.
 - **Actions** follow the branch the latest gate ran on (the main clone's
   branch before any), polled every minute. Every six hours, and when it
   starts, the daemon also reads every workflow run on every branch with its
