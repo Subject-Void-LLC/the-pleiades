@@ -151,17 +151,41 @@ func TestTruncate_UnderTheCurrentKey(t *testing.T) {
 }
 
 // TestTruncate_RemovesAFailingVolatileRowAlone: a volatile row is not
-// chained, so one that fails is removed by itself and the whole stable
-// history is kept and re-keyed.
+// chained, so one that fails is removed by itself, its gather's observation
+// and coverage kept, and the whole stable history is kept and re-keyed. One
+// whose payload was never sealed is damage; one whose payload does not open
+// may be sealed under a key the command was not given, so it goes only with
+// the flag that names an unverifiable history.
 func TestTruncate_RemovesAFailingVolatileRowAlone(t *testing.T) {
 	ctx := context.Background()
-	h := newHistory(t, onSQLite)
-	h.copyPayload(h.stable(0), h.ids("volatile")[0])
-	done, err := h.store("").Truncate(ctx, "web1", entstore.RepairOptions{Confirm: true, Actor: repairActor})
-	if err != nil || done.Facts != 1 || done.Observations != 0 || done.Coverages != 0 || done.Kept != 6 || done.Rekeyed != 6 {
-		t.Fatalf("the truncate = %+v, %v; want the volatile row alone removed", done, err)
+	for _, c := range []struct {
+		name string
+		edit func(h *history)
+		flag bool
+	}{
+		{"never sealed", func(h *history) {
+			h.exec(`UPDATE facts SET payload = '{"json":"1"}' WHERE id = ?`, h.ids("volatile")[0])
+		}, false},
+		{"does not open", func(h *history) { h.copyPayload(h.stable(0), h.ids("volatile")[0]) }, true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			h := newHistory(t, onSQLite)
+			c.edit(h)
+			confirm := entstore.RepairOptions{Confirm: true, Actor: repairActor}
+			if c.flag {
+				raw := rawFactTables(t, h.db)
+				if _, err := h.store("").Truncate(ctx, "web1", confirm); !errors.Is(err, entstore.ErrUnverifiable) || rawFactTables(t, h.db) != raw {
+					t.Fatalf("without the flag: %v, want ErrUnverifiable and nothing changed", err)
+				}
+				confirm.TruncateUnverifiable = true
+			}
+			done, err := h.store("").Truncate(ctx, "web1", confirm)
+			if err != nil || done.Facts != 1 || done.Observations != 0 || done.Coverages != 0 || done.Kept != 6 || done.Rekeyed != 6 {
+				t.Fatalf("the truncate = %+v, %v; want the volatile row alone removed", done, err)
+			}
+			h.startsAgain(h.store(""), 8)
+		})
 	}
-	h.startsAgain(h.store(""), 8)
 }
 
 // TestTruncate_IsNotOfferedWhenItWouldKeepNothing: a history whose first

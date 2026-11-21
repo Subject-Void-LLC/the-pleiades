@@ -26,11 +26,13 @@ var ErrNothingToRepair = errors.New("facts: the device's stored facts need no re
 // the error says which repair does.
 var ErrRepairDoesNotApply = errors.New("facts: this repair does not apply to the device's stored facts")
 
-// ErrUnverifiable marks a discard refused because nothing the command was
-// given can say whether the history is broken: no row of it opens (a
-// MASTER_ENCRYPTION_KEY other than the one it was sealed under looks just
-// so), or its rows name a facts key the command was not given, or both
-// facts keys at once. Discarding it takes the flag that names it.
+// ErrUnverifiable marks a repair refused because nothing the command was
+// given can say whether the history is damaged (factsreport.Device's
+// Unverifiable): some row of it does not open, which a row sealed under a
+// MASTER_ENCRYPTION_KEY or key version the command was not given does just
+// as a damaged one does, or its rows name a facts key the command was not
+// given, or both facts keys at once. Each repair of it takes the flag that
+// names it.
 var ErrUnverifiable = errors.New("facts: the device's stored facts cannot be verified with the keys this command was given")
 
 // RepairOptions says how a repair runs.
@@ -43,10 +45,14 @@ type RepairOptions struct {
 	// re-key is pending for. Truncate never removes one.
 	DiscardVerified bool
 	// DiscardUnverifiable has discard remove a history the keys given
-	// cannot verify either way (ErrUnverifiable): one no row of which opens,
-	// or one under another facts key or under both. Truncate never removes
-	// one.
+	// cannot verify either way (ErrUnverifiable): one with a row that does
+	// not open, or one under another facts key or under both.
 	DiscardUnverifiable bool
+	// TruncateUnverifiable has truncate cut a history with a row that does
+	// not open (ErrUnverifiable), which it otherwise refuses. A history
+	// under another facts key, under both, or with no row that opens is
+	// never truncated.
+	TruncateUnverifiable bool
 	// Actor is who the activity stream records the repair as.
 	Actor string
 }
@@ -88,10 +94,9 @@ func (s *Store) Discard(ctx context.Context, name string, opts RepairOptions) (R
 			if !opts.DiscardVerified {
 				return fmt.Errorf("%w: its history verifies (%s); discarding a history that verifies takes a second flag that names it", ErrNothingToRepair, st)
 			}
-		case factsreport.StateUnopened, factsreport.StateOtherKeys, factsreport.StateMixedKeys:
-			if !opts.DiscardUnverifiable {
-				return fmt.Errorf("%w (%s): set the keys the server runs with first; discarding a history no key given can verify takes a second flag that names it", ErrUnverifiable, st)
-			}
+		}
+		if r.before.report.Unverifiable && !opts.DiscardUnverifiable {
+			return unverifiable(r.before.report, "--discard-unverifiable-history")
 		}
 		if err := r.removeFacts(ctx, nil, nil); err != nil {
 			return err
@@ -101,6 +106,22 @@ func (s *Store) Discard(ctx context.Context, name string, opts RepairOptions) (R
 		}
 		return r.removeCoverages(ctx, false)
 	})
+}
+
+// unverifiable is ErrUnverifiable for the device found as in, saying what to
+// check first, and that the repair takes flag anyway.
+func unverifiable(in factsreport.Device, flag string) error {
+	why := "set the facts keys the server runs with first"
+	if in.Rows.Unopened > 0 {
+		// Rows that do not open point at the master key settings, whatever
+		// facts keys the rows name.
+		why = fmt.Sprintf("%d of its rows do not open, and a row sealed under a master key or key version this command was not given fails just as a damaged one does; ", in.Rows.Unopened)
+		if missing := versionsNotGiven(in.SealedUnder); len(missing) > 0 {
+			why += notGivenClause(missing) + "; "
+		}
+		why += "set MASTER_ENCRYPTION_KEY, MASTER_ENCRYPTION_KEY_VERSION, MASTER_ENCRYPTION_KEY_PREVIOUS and MASTER_ENCRYPTION_KEY_PREVIOUS_VERSION as the server runs with them first"
+	}
+	return fmt.Errorf("%w (%s): %s; repairing a history no key given can verify takes %s", ErrUnverifiable, in.State, why, flag)
 }
 
 // removal is one repair under way: its transaction, its device, what it

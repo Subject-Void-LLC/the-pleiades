@@ -38,7 +38,7 @@
           "type": "integer"
         },
         "repairs": {
-          "description": "Repairs names the repairs that apply: discard, truncate. Empty when there is nothing to repair. Truncate is named only when it would keep some of the history.",
+          "description": "Repairs names the repairs that apply: discard, truncate. Empty when there is nothing to repair. Truncate is named only when it would keep some of the history. With Unverifiable, each takes its flag.",
           "items": {
             "type": "string"
           },
@@ -51,8 +51,22 @@
           "$ref": "#/$defs/Rows",
           "description": "Rows counts its stored facts."
         },
+        "sealed_under": {
+          "description": "SealedUnder is each master key version its sealed rows' payloads name, with how many name it and whether the inspection was given a key for it, at most eight. A row under a version it was not given cannot open.",
+          "items": {
+            "$ref": "#/$defs/SealedRows"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "sealed_under_more": {
+          "description": "SealedUnderMore counts the sealed rows under versions past the eight named, which only an edited database holds.",
+          "type": "integer"
+        },
         "state": {
-          "description": "State is how its stored history stands. Known values: empty, healthy, rekey_pending, refused, broken, mixed_keys, other_keys, unopened. A newer producer may add others, and a reader treats one it does not know as not a pass.",
+          "description": "State is how its stored history stands. Known values: empty, healthy, rekey_pending, refused, broken, mixed_keys, other_keys, unopened, partly_unopened. A newer producer may add others, and a reader treats one it does not know as not a pass.",
           "examples": [
             "empty",
             "healthy",
@@ -61,7 +75,8 @@
             "broken",
             "mixed_keys",
             "other_keys",
-            "unopened"
+            "unopened",
+            "partly_unopened"
           ],
           "type": "string"
         },
@@ -78,6 +93,10 @@
             "array",
             "null"
           ]
+        },
+        "unverifiable": {
+          "description": "Unverifiable is true when nothing the inspection was given can tell whether the history is damaged: some row does not open (unopened, partly_unopened, or such a row in any other state), or its rows name another facts key or both (other_keys, mixed_keys). Each repair of such a history takes the flag that names it: discard's --discard-unverifiable-history, truncate's --truncate-unverifiable-history.",
+          "type": "boolean"
         }
       },
       "required": [
@@ -88,7 +107,9 @@
         "coverages",
         "observations",
         "keyed_by",
+        "sealed_under",
         "under",
+        "unverifiable",
         "repairs",
         "advice"
       ],
@@ -227,6 +248,10 @@
           "description": "Row is the row's ID in the facts table.",
           "type": "integer"
         },
+        "sealed_version": {
+          "description": "SealedVersion is the master key version the row's payload names, absent when it is not sealed.",
+          "type": "string"
+        },
         "stable": {
           "description": "Stable is true for a stable row, false for a volatile one.",
           "type": "boolean"
@@ -254,6 +279,10 @@
           "description": "Total is every row; Stable and Volatile split it by kind.",
           "type": "integer"
         },
+        "unopened": {
+          "description": "Unopened counts the rows whose sealed payload does not open under the master keys the inspection was given, whatever facts key they name.",
+          "type": "integer"
+        },
         "volatile": {
           "description": "Total is every row; Stable and Volatile split it by kind.",
           "type": "integer"
@@ -262,7 +291,36 @@
       "required": [
         "total",
         "stable",
-        "volatile"
+        "volatile",
+        "unopened"
+      ],
+      "type": "object"
+    },
+    "SealedRows": {
+      "description": "SealedRows is one master key version a device's sealed rows name.",
+      "properties": {
+        "role": {
+          "description": "Role is current when it is the inspection's MASTER_ENCRYPTION_KEY_VERSION, previous when it is its MASTER_ENCRYPTION_KEY_PREVIOUS_VERSION, and other when the inspection was given no key for it, so that none of these rows opens. Known values: current, previous, other. A newer producer may add others, and a reader treats one it does not know as not a pass.",
+          "examples": [
+            "current",
+            "previous",
+            "other"
+          ],
+          "type": "string"
+        },
+        "rows": {
+          "description": "Rows is how many rows name it.",
+          "type": "integer"
+        },
+        "version": {
+          "description": "Version is the version tag the rows' envelopes carry, as MASTER_ENCRYPTION_KEY_VERSION named it when they were sealed: an identifier stored in the clear, never part of a key.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "version",
+        "role",
+        "rows"
       ],
       "type": "object"
     }
@@ -271,7 +329,7 @@
   "description": "Report is what one inspection found: the keys it read with, and each device it reports. Printed by controller facts inspect --json. schema_version is the major version: it goes up only for a change an existing reader could misread, a field removed or renamed or given another type or meaning. Within a major version a newer producer may add fields, and new values to the open sets (a state, a failure kind, a role, a repair). So a reader ignores a field it does not know, treats a state it does not know as needing repair, and refuses a major version it does not know.",
   "properties": {
     "advice": {
-      "description": "Advice is said of the fleet as a whole when every device read is in one state that points at the command's own settings rather than at any device: every one under another facts key, or every one with no row that opens. Absent otherwise.",
+      "description": "Advice is said of the fleet as a whole when what it found points at the command's own settings rather than at any device: every device read under another facts key, every one with no row that opens, or any one holding rows that do not open (naming the master key versions they are sealed under that the command was not given). Absent otherwise.",
       "type": "string"
     },
     "devices": {

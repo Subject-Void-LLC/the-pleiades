@@ -36,10 +36,11 @@ type Report struct {
 	// NeedsRepair is how many of them hold a history no controller with
 	// these keys can serve (State.NeedsRepair).
 	NeedsRepair int `json:"needs_repair"`
-	// Advice is said of the fleet as a whole when every device read is in
-	// one state that points at the command's own settings rather than at
-	// any device: every one under another facts key, or every one with no
-	// row that opens. Absent otherwise.
+	// Advice is said of the fleet as a whole when what it found points at
+	// the command's own settings rather than at any device: every device
+	// read under another facts key, every one with no row that opens, or any
+	// one holding rows that do not open (naming the master key versions they
+	// are sealed under that the command was not given). Absent otherwise.
 	Advice string `json:"advice,omitempty"`
 	// Devices are the devices reported: the one asked for, or in a fleet
 	// inspection every device whose state is not empty or healthy (all of
@@ -80,13 +81,13 @@ const (
 	// under it; a controller holding the new key with this one as previous
 	// re-keys it at its next read or start.
 	StateRekeyPending State = "rekey_pending"
-	// StateRefused: every row is under the previous key and the history
-	// does not verify under it, so a controller refuses to re-key it and
-	// serves none of it.
+	// StateRefused: every row is under the previous key, every row's
+	// payload opens, and the history does not verify under it, so a
+	// controller refuses to re-key it and serves none of it.
 	StateRefused State = "refused"
-	// StateBroken: every row is under the current key and the history does
-	// not verify: a row that does not open as the device's own, or a chain
-	// that breaks.
+	// StateBroken: every row is under the current key, every row's payload
+	// opens, and the history does not verify: a row that is not sealed or
+	// does not hold the device's own fact or value, or a chain that breaks.
 	StateBroken State = "broken"
 	// StateMixedKeys: some rows are under the current key and the rest
 	// under the previous one, which no build of this release writes.
@@ -99,11 +100,20 @@ const (
 	// under looks like; it takes precedence over every state the keys alone
 	// would give, since none of them can be judged.
 	StateUnopened State = "unopened"
+	// StatePartlyUnopened: some stored rows' payloads do not open and the
+	// rest do, and every row is under one facts key the inspection was
+	// given, so the history would otherwise read as broken or refused. It
+	// cannot be called either: a row sealed under a master key, or a master
+	// key version, the inspection was not given (one rotation's older or
+	// newer rows) does not open just as a damaged row does, and nothing tells
+	// the two apart. The master key settings are what to check first.
+	StatePartlyUnopened State = "partly_unopened"
 )
 
 // KnownStates are every state this release reports, for the schema.
 var KnownStates = []string{string(StateEmpty), string(StateHealthy), string(StateRekeyPending),
-	string(StateRefused), string(StateBroken), string(StateMixedKeys), string(StateOtherKeys), string(StateUnopened)}
+	string(StateRefused), string(StateBroken), string(StateMixedKeys), string(StateOtherKeys), string(StateUnopened),
+	string(StatePartlyUnopened)}
 
 // NeedsRepair reports whether no controller holding the inspection's keys
 // can serve the device: every state but empty, healthy and rekey_pending.
@@ -122,7 +132,9 @@ const (
 	FaultUnsealed FailureKind = "unsealed"
 	// FaultDoesNotOpen: the payload is sealed but does not open bound to
 	// the row's token: another row's payload, an edited one, or one sealed
-	// under a MASTER_ENCRYPTION_KEY this controller does not hold.
+	// under a MASTER_ENCRYPTION_KEY, or a key version, the inspection was not
+	// given. Nothing tells the last from the others, so a row that does not
+	// open is never by itself proof of damage (StatePartlyUnopened).
 	FaultDoesNotOpen FailureKind = "does_not_open"
 	// FaultTokenMismatch: the payload opens, but under these keys the fact
 	// it holds has another token for this device than the row carries: a
@@ -147,13 +159,16 @@ const (
 var KnownFailureKinds = []string{string(FaultUnsealed), string(FaultDoesNotOpen), string(FaultTokenMismatch),
 	string(FaultHashMismatch), string(FaultChainMissing), string(FaultChainLink), string(FaultChainHash)}
 
-// The roles a key identity can have for an inspection.
+// The roles a key identity, or a master key version, can have for an
+// inspection.
 const (
-	// RoleCurrent is PLEIADES_FACTS_DIGEST_KEY's keys.
+	// RoleCurrent is PLEIADES_FACTS_DIGEST_KEY's keys, or for a sealed
+	// version MASTER_ENCRYPTION_KEY_VERSION's.
 	RoleCurrent = "current"
-	// RolePrevious is PLEIADES_FACTS_DIGEST_KEY_PREVIOUS's keys.
+	// RolePrevious is PLEIADES_FACTS_DIGEST_KEY_PREVIOUS's keys, or for a
+	// sealed version MASTER_ENCRYPTION_KEY_PREVIOUS_VERSION's.
 	RolePrevious = "previous"
-	// RoleOther is a key the inspection was not given.
+	// RoleOther is a key, or a version, the inspection was not given.
 	RoleOther = "other"
 )
 
@@ -186,9 +201,24 @@ type Device struct {
 	// KeyedByMore counts the rows under key identities past the eight
 	// named, which only an edited database holds.
 	KeyedByMore int `json:"keyed_by_more,omitempty"`
+	// SealedUnder is each master key version its sealed rows' payloads name,
+	// with how many name it and whether the inspection was given a key for
+	// it, at most eight. A row under a version it was not given cannot open.
+	SealedUnder []SealedRows `json:"sealed_under"`
+	// SealedUnderMore counts the sealed rows under versions past the eight
+	// named, which only an edited database holds.
+	SealedUnderMore int `json:"sealed_under_more,omitempty"`
 	// Under is the history checked under each key the inspection was given,
 	// current first.
 	Under []KeyCheck `json:"under"`
+	// Unverifiable is true when nothing the inspection was given can tell
+	// whether the history is damaged: some row does not open (unopened,
+	// partly_unopened, or such a row in any other state), or its rows name
+	// another facts key or both (other_keys, mixed_keys). Each repair of such
+	// a history takes the flag that names it: discard's
+	// --discard-unverifiable-history, truncate's
+	// --truncate-unverifiable-history.
+	Unverifiable bool `json:"unverifiable"`
 	// TruncateFrom is the gather a truncate would cut the history at: the
 	// one that wrote the last stable row that verifies before the first
 	// that fails. That gather and every later one are removed whole, since a
@@ -198,7 +228,7 @@ type Device struct {
 	TruncateFrom int64 `json:"truncate_from,omitempty"`
 	// Repairs names the repairs that apply: discard, truncate. Empty when
 	// there is nothing to repair. Truncate is named only when it would keep
-	// some of the history.
+	// some of the history. With Unverifiable, each takes its flag.
 	Repairs []string `json:"repairs"`
 	// Advice says what the operator can do, in a sentence or two.
 	Advice string `json:"advice"`
@@ -210,6 +240,24 @@ type Rows struct {
 	Total    int `json:"total"`
 	Stable   int `json:"stable"`
 	Volatile int `json:"volatile"`
+	// Unopened counts the rows whose sealed payload does not open under the
+	// master keys the inspection was given, whatever facts key they name.
+	Unopened int `json:"unopened"`
+}
+
+// SealedRows is one master key version a device's sealed rows name.
+type SealedRows struct {
+	// Version is the version tag the rows' envelopes carry, as
+	// MASTER_ENCRYPTION_KEY_VERSION named it when they were sealed: an
+	// identifier stored in the clear, never part of a key.
+	Version string `json:"version"`
+	// Role is current when it is the inspection's
+	// MASTER_ENCRYPTION_KEY_VERSION, previous when it is its
+	// MASTER_ENCRYPTION_KEY_PREVIOUS_VERSION, and other when the inspection
+	// was given no key for it, so that none of these rows opens.
+	Role string `json:"role"`
+	// Rows is how many rows name it.
+	Rows int `json:"rows"`
 }
 
 // KeyedRows is one key identity a device's rows name.
@@ -258,6 +306,9 @@ type RowFailure struct {
 	Stable bool `json:"stable"`
 	// KeyID is the key identity the row names.
 	KeyID string `json:"key_id"`
+	// SealedVersion is the master key version the row's payload names,
+	// absent when it is not sealed.
+	SealedVersion string `json:"sealed_version,omitempty"`
 	// ObservedAt is when the value it holds was first observed.
 	ObservedAt time.Time `json:"observed_at"`
 	// Observation is the number of the device's gather that wrote it.

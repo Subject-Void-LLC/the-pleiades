@@ -193,7 +193,9 @@ var inspectCases = []inspectCase{
 			h.exec("UPDATE facts SET created_at = "+h.d.ph(1)+" WHERE id = "+h.d.ph(2), rotationT0.Add(-time.Hour), id)
 			return id
 		}},
-	{name: "another row's payload", role: factsreport.RolePrevious, kind: factsreport.FaultDoesNotOpen, state: factsreport.StateRefused,
+	// A payload that does not open is never by itself proof of damage: the
+	// history is partly unopened, not refused.
+	{name: "another row's payload", role: factsreport.RolePrevious, kind: factsreport.FaultDoesNotOpen, state: factsreport.StatePartlyUnopened,
 		edit: func(h *history) int { h.copyPayload(h.stable(0), h.stable(1)); return h.stable(1) }},
 	{name: "a payload never sealed", role: factsreport.RolePrevious, kind: factsreport.FaultUnsealed, state: factsreport.StateRefused,
 		edit: func(h *history) int {
@@ -229,7 +231,7 @@ var inspectCases = []inspectCase{
 			h.exec("UPDATE facts SET chain = '' WHERE id = "+h.d.ph(1), id)
 			return id
 		}},
-	{name: "a volatile row that does not open", role: factsreport.RolePrevious, kind: factsreport.FaultDoesNotOpen, state: factsreport.StateRefused,
+	{name: "a volatile row that does not open", role: factsreport.RolePrevious, kind: factsreport.FaultDoesNotOpen, state: factsreport.StatePartlyUnopened,
 		edit: func(h *history) int { v := h.ids("volatile")[0]; h.copyPayload(h.stable(0), v); return v }},
 	{name: "both keys", state: factsreport.StateMixedKeys,
 		edit: func(h *history) int {
@@ -290,6 +292,26 @@ func checkInspection(t *testing.T, h *history, got factsreport.Device, tc inspec
 	if tc.state.NeedsRepair() != slices.Contains(got.Repairs, factsreport.RepairDiscard) {
 		t.Errorf("state %s offers repairs %v", got.State, got.Repairs)
 	}
+	// Every sealed row names the one master key version the history was
+	// sealed as; only a payload never sealed names none.
+	var sealed int
+	for _, v := range got.SealedUnder {
+		sealed += v.Rows
+		if v.Version != "v1" || v.Role != factsreport.RoleCurrent {
+			t.Errorf("sealed under %+v, want v1, the current version", v)
+		}
+	}
+	if want := got.Rows.Total - boolCount(tc.kind == factsreport.FaultUnsealed); sealed != want {
+		t.Errorf("%d rows counted by the version they are sealed as, want %d", sealed, want)
+	}
+	// Rows that do not open are counted, and make the history unverifiable
+	// whatever its state.
+	if (got.Rows.Unopened > 0) != (tc.kind == factsreport.FaultDoesNotOpen) {
+		t.Errorf("%d rows counted as not opening, for a failure of kind %q", got.Rows.Unopened, tc.kind)
+	}
+	if want := got.Rows.Unopened > 0 || got.State == factsreport.StateOtherKeys || got.State == factsreport.StateMixedKeys; got.Unverifiable != want {
+		t.Errorf("unverifiable %v in state %s with %d rows that do not open", got.Unverifiable, got.State, got.Rows.Unopened)
+	}
 	if tc.role != "" {
 		i := slices.IndexFunc(got.Under, func(c factsreport.KeyCheck) bool { return c.Role == tc.role })
 		if i < 0 || got.Under[i].Verifies || got.Under[i].Failure == nil {
@@ -316,6 +338,14 @@ func checkInspection(t *testing.T, h *history, got factsreport.Device, tc inspec
 			t.Errorf("the inspection names %q: %s", plain, encoded)
 		}
 	}
+}
+
+// boolCount is 1 for true and 0 for false.
+func boolCount(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
 }
 
 // nonHexPlaintexts is plaintexts without the plain hash, which is hex: an

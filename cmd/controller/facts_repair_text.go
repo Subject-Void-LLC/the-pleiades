@@ -58,6 +58,15 @@ func writeDeviceText(w io.Writer, d factsreport.Device) {
 	if d.KeyedByMore > 0 {
 		fmt.Fprintf(w, "  Keyed by:   %d more rows under other key identities\n", d.KeyedByMore)
 	}
+	for _, v := range d.SealedUnder {
+		fmt.Fprintf(w, "  Sealed as:  master key version %s (%s), %d rows\n", v.Version, sealedRoleText(v.Role), v.Rows)
+	}
+	if d.SealedUnderMore > 0 {
+		fmt.Fprintf(w, "  Sealed as:  %d more rows under other master key versions\n", d.SealedUnderMore)
+	}
+	if d.Rows.Unopened > 0 {
+		fmt.Fprintf(w, "  Unopened:   %s under the master keys given, which is never by itself proof of damage\n", howMany(d.Rows.Unopened, "row does not open", "rows do not open"))
+	}
 	for _, c := range d.Under {
 		fmt.Fprintf(w, "  Under the %s key %s: %s\n", c.Role, c.KeyID, keyCheckText(c, d.Rows.Total))
 	}
@@ -65,9 +74,25 @@ func writeDeviceText(w io.Writer, d factsreport.Device) {
 		fmt.Fprintf(w, "  Truncate:   would cut at gather %d, removing it and every later one\n", d.TruncateFrom)
 	}
 	if len(d.Repairs) > 0 {
-		fmt.Fprintf(w, "  Repairs:    %s\n", strings.Join(d.Repairs, ", "))
+		repairs := strings.Join(d.Repairs, ", ")
+		if d.Unverifiable {
+			repairs += ", each only with the flag that names an unverifiable history"
+		}
+		fmt.Fprintf(w, "  Repairs:    %s\n", repairs)
 	}
 	fmt.Fprintf(w, "  %s\n", d.Advice)
+}
+
+// sealedRoleText says which master key setting a sealed version's role
+// names, or that the command was given no key for it.
+func sealedRoleText(role string) string {
+	switch role {
+	case factsreport.RoleCurrent:
+		return "MASTER_ENCRYPTION_KEY_VERSION"
+	case factsreport.RolePrevious:
+		return "MASTER_ENCRYPTION_KEY_PREVIOUS_VERSION"
+	}
+	return "not given"
 }
 
 // howMany is n with the noun for one or for more.
@@ -91,6 +116,9 @@ func keyCheckText(c factsreport.KeyCheck, rows int) string {
 		where += ", volatile"
 	}
 	where += fmt.Sprintf(", gather %d, first observed %s, keyed by %s", f.Observation, f.ObservedAt.Format(time.RFC3339), f.KeyID)
+	if f.SealedVersion != "" {
+		where += ", sealed as master key version " + f.SealedVersion
+	}
 	if f.Fact != "" {
 		where += ", fact " + f.Fact
 	}

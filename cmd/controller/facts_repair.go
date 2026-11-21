@@ -9,7 +9,8 @@
 // never creates, migrates or reclaims a database (facts_repair_open.go): it
 // reads its flags and its facts keys first, then refuses a database that is
 // missing, has no migration history, or is short of this build, and a master
-// key the database's key registry does not record. It reads
+// key the database's key registry does not record, warning of master key
+// settings the registry says will leave some facts unopened. It reads
 // PLEIADES_FACTS_DIGEST_KEY, PLEIADES_FACTS_DIGEST_KEY_PREVIOUS, or both,
 // unlike the server, which refuses a previous key with no current one: a
 // history can be inspected under the old key alone. Its exit code is its
@@ -56,6 +57,7 @@ const factsUsage = `Usage:
   controller facts discard (--device <name> | --device-id <id>) [--confirm]
                            [--discard-verified-history] [--discard-unverifiable-history]
   controller facts truncate (--device <name> | --device-id <id>) [--confirm]
+                            [--truncate-unverifiable-history]
 
 --device takes the device's inventory name; --device-id takes its ID, which
 is how the controller's log names a device.
@@ -70,14 +72,19 @@ when a device does.
 discard removes the device's stored facts, coverages and observations, so
 its next gather starts a new history under the current key. It refuses a
 history that verifies unless --discard-verified-history is given, and one
-no key given can verify (no row opens, or its rows name another facts key)
-unless --discard-unverifiable-history is given.
+no key given can verify (a row does not open, or its rows name another
+facts key) unless --discard-unverifiable-history is given.
 
 truncate keeps the device's history before the gather that wrote the last
 value that verifies, removes that gather and everything after it, removes
 a failing volatile value alone, and re-keys what it keeps under the current
 key when it was under the previous one. It is not offered when it would
-keep nothing.
+keep nothing, and it refuses a history with a row that does not open unless
+--truncate-unverifiable-history is given.
+
+A row that does not open is never by itself proof of damage: a row sealed
+under a master key, or a key version, this command was not given looks just
+the same. Check the master key settings before repairing such a history.
 
 Both repairs print what they would do and change nothing without --confirm,
 though the preview holds the device as the repair does. What they remove
@@ -88,7 +95,8 @@ Run it with the server's settings: the same database (DB_DSN or DB_PATH),
 MASTER_ENCRYPTION_KEY and MASTER_ENCRYPTION_KEY_PREVIOUS with their
 versions, and PLEIADES_FACTS_DIGEST_KEY, PLEIADES_FACTS_DIGEST_KEY_PREVIOUS,
 or both. It refuses a database it would have to create or upgrade, and a
-master key the database's key registry does not record.
+master key the database's key registry does not record, and it warns when
+the registry records a newer master key, or another version for a key given.
 `
 
 // isFactsCommand reports whether args ask for this file's subcommand.
@@ -98,8 +106,8 @@ func isFactsCommand(args []string) bool {
 
 // factsRequest is a parsed command line.
 type factsRequest struct {
-	action, device, deviceID                                     string
-	all, asJSON, showNames, confirm, discardGood, discardUnknown bool
+	action, device, deviceID                                                   string
+	all, asJSON, showNames, confirm, discardGood, discardUnknown, truncUnknown bool
 }
 
 // parseFactsArgs reads args (the subcommand name first). A request for help
@@ -128,6 +136,9 @@ func parseFactsArgs(args []string, stderr io.Writer) (factsRequest, error) {
 	if req.action == "discard" {
 		fs.BoolVar(&req.discardGood, "discard-verified-history", false, "discard even a history that verifies")
 		fs.BoolVar(&req.discardUnknown, "discard-unverifiable-history", false, "discard even a history no key given can verify")
+	}
+	if req.action == "truncate" {
+		fs.BoolVar(&req.truncUnknown, "truncate-unverifiable-history", false, "truncate even a history with a row that does not open")
 	}
 	if err := fs.Parse(args[2:]); err != nil {
 		return factsRequest{}, err
@@ -223,7 +234,8 @@ func runFactsInspect(ctx context.Context, store *entstore.Store, req factsReques
 // runFactsRepair runs a discard or a truncate and prints what it did, or
 // without --confirm what it would do.
 func runFactsRepair(ctx context.Context, store *entstore.Store, req factsRequest, stdout, stderr io.Writer) int {
-	opts := entstore.RepairOptions{Confirm: req.confirm, DiscardVerified: req.discardGood, DiscardUnverifiable: req.discardUnknown, Actor: factsActor}
+	opts := entstore.RepairOptions{Confirm: req.confirm, DiscardVerified: req.discardGood, DiscardUnverifiable: req.discardUnknown,
+		TruncateUnverifiable: req.truncUnknown, Actor: factsActor}
 	repair := store.Discard
 	if req.action == "truncate" {
 		repair = store.Truncate

@@ -1,12 +1,13 @@
 // Package entstore: one inspection's check of a device's rows under one set
-// of keys, what it advises, and an inspection of every device (inspect.go).
+// of keys, the state it adds up to, and an inspection of every device
+// (inspect.go; inspect_advice.go has what each state advises).
 package entstore
 
 import (
 	"context"
 	"fmt"
-	"slices"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/crypto"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent"
 	entdevice "github.com/Subject-Void-LLC/the-pleiades/internal/ent/device"
 	entfact "github.com/Subject-Void-LLC/the-pleiades/internal/ent/fact"
@@ -113,6 +114,11 @@ func (c *underCheck) fail(row *ent.Fact, position, index int, kind factsreport.F
 	}
 	f := &factsreport.RowFailure{Row: row.ID, Position: position, Kind: kind, Stable: stable, KeyID: termsafe.Quote(row.KeyedBy),
 		ObservedAt: row.CreatedAt.UTC(), Observation: row.ObservationSeq}
+	// Which master key version it names: for a row that does not open, the
+	// first thing to hold to the keys the command was given.
+	if version, ok := crypto.FactPayloadVersion(row.Payload); ok {
+		f.SealedVersion = termsafe.Quote(version)
+	}
 	if stable {
 		at := index
 		f.ChainIndex = &at
@@ -128,61 +134,6 @@ func (c *underCheck) fail(row *ent.Fact, position, index int, kind factsreport.F
 	}
 }
 
-// keepsNothingAdvice is what a device's advice says when a truncate would
-// keep none of its history (underCheck.keeps).
-const keepsNothingAdvice = "Every value that verifies before the first failure was written by the gather a truncate removes, or none does, so a truncate would keep none of it: only `controller facts discard` repairs it, and the next gather starts a new history."
-
-// advise fills in's repairs, the gather a truncate would cut at, and what
-// the operator can do, from its state and its checks. haveCurrent says
-// whether the current keys were given, which a truncate of a history under
-// the previous keys re-keys into.
-func advise(in *factsreport.Device, checks inspected, haveCurrent bool) {
-	both := []string{factsreport.RepairTruncate, factsreport.RepairDiscard}
-	// by is the check a truncate would cut by, nil when none applies.
-	var by *underCheck
-	switch in.State {
-	case factsreport.StateEmpty:
-		in.Advice = "Nothing is stored for this device; there is nothing to repair."
-	case factsreport.StateHealthy:
-		in.Advice = "Every stored fact opens as this device's and its chain verifies under the current key; there is nothing to repair."
-	case factsreport.StateRekeyPending:
-		in.Advice = "Every stored fact verifies under the previous key. A controller given the new key as PLEIADES_FACTS_DIGEST_KEY and this one as PLEIADES_FACTS_DIGEST_KEY_PREVIOUS re-keys it at its next read or start; there is nothing to repair."
-	case factsreport.StateBroken:
-		in.Repairs, by = []string{factsreport.RepairDiscard}, checks.current
-		in.Advice = "Its stored facts are under the current key and do not verify, and no key makes them verify again. "
-		if by.keeps(in.Rows.Total) {
-			in.Repairs = both
-			in.Advice += "`controller facts truncate` keeps the history before the gather that wrote the last value that verifies; `controller facts discard` removes it all, and the next gather starts a new history."
-		} else {
-			in.Advice += keepsNothingAdvice
-		}
-	case factsreport.StateRefused:
-		in.Repairs = []string{factsreport.RepairDiscard}
-		in.Advice = "Its stored facts are under the previous key and do not verify under it, so the controller refuses to re-key them and serves none of them. Nothing makes them verify again; the backup taken before the change of key still holds them. "
-		switch {
-		case !checks.previous.keeps(in.Rows.Total):
-			in.Advice += keepsNothingAdvice
-		case haveCurrent:
-			in.Repairs, by = both, checks.previous
-			in.Advice += "`controller facts truncate` keeps the history before the gather that wrote the last value that verifies and re-keys it under the current key; `controller facts discard` removes it all, and the next gather starts a new history."
-		default:
-			in.Advice += "`controller facts discard` removes it all; `controller facts truncate`, which keeps the history before the gather that wrote the last value that verifies, needs the new key as PLEIADES_FACTS_DIGEST_KEY too, to re-key what it keeps."
-		}
-	case factsreport.StateMixedKeys:
-		in.Repairs = []string{factsreport.RepairDiscard}
-		in.Advice = "Its rows name the current key and the previous one at once, which no build of this release writes: the database was edited or restored in part. Only `controller facts discard --discard-unverifiable-history` repairs it; the backup taken before the change of key still holds the history."
-	case factsreport.StateUnopened:
-		in.Repairs = []string{factsreport.RepairDiscard}
-		in.Advice = "No stored row of it opens, whatever key it names. That is what a MASTER_ENCRYPTION_KEY other than the one its facts were sealed under looks like: run this with the server's MASTER_ENCRYPTION_KEY, MASTER_ENCRYPTION_KEY_PREVIOUS and their versions first. Only if that key is lost does `controller facts discard --discard-unverifiable-history` repair it."
-	default:
-		in.Repairs = []string{factsreport.RepairDiscard}
-		in.Advice = "Some of its rows name a facts key this command was not given. If you still hold the key they were stored under, run this again with it as PLEIADES_FACTS_DIGEST_KEY_PREVIOUS; if not, only `controller facts discard --discard-unverifiable-history` repairs it."
-	}
-	if by != nil && by.cut != nil && by.haveGood && slices.Contains(in.Repairs, factsreport.RepairTruncate) {
-		in.TruncateFrom = by.lastGood
-	}
-}
-
 // roleOf is the role the key identity id has for the store.
 func (s *Store) roleOf(id string) string {
 	switch {
@@ -192,6 +143,43 @@ func (s *Store) roleOf(id string) string {
 		return factsreport.RolePrevious
 	}
 	return factsreport.RoleOther
+}
+
+// sealedRole is the role the master key version version has for the store's
+// envelope service: current, previous, or other when it holds no key for it.
+func (s *Store) sealedRole(version string) string {
+	switch {
+	case s.envelope == nil:
+		return factsreport.RoleOther
+	case version == s.envelope.CurrentVersion():
+		return factsreport.RoleCurrent
+	case version != "" && version == s.envelope.PreviousVersion():
+		return factsreport.RolePrevious
+	}
+	return factsreport.RoleOther
+}
+
+// tally counts distinct names (key identities, master key versions) in the
+// order first seen, naming at most maxKeyIDs and counting the rest as more.
+type tally struct {
+	counts map[string]int
+	order  []string
+	more   int
+}
+
+// add counts one row naming name.
+func (t *tally) add(name string) {
+	if t.counts == nil {
+		t.counts = map[string]int{}
+	}
+	if _, ok := t.counts[name]; !ok && len(t.counts) >= maxKeyIDs {
+		t.more++
+		return
+	}
+	if _, ok := t.counts[name]; !ok {
+		t.order = append(t.order, name)
+	}
+	t.counts[name]++
 }
 
 // stateOf is the state rows rows add up to, split by the role of the keys
@@ -227,8 +215,12 @@ const fleetPage = 200
 // with opts.All.
 func (s *Store) InspectAll(ctx context.Context, opts InspectOptions) (factsreport.Report, error) {
 	report := factsreport.Report{SchemaVersion: factsreport.Version, Keys: s.Keys(), Scope: factsreport.ScopeFleet, Devices: []factsreport.Device{}}
-	// byState counts the devices read in each state, for the fleet's advice.
+	// byState counts the devices read in each state, unopened those holding
+	// a row that does not open, and notGiven the master key versions such
+	// rows name that the store holds no key for: the fleet's advice.
 	byState := map[factsreport.State]int{}
+	unopened := 0
+	var notGiven tally
 	after := 0
 	for {
 		ids, err := s.client.Device.Query().
@@ -252,6 +244,12 @@ func (s *Store) InspectAll(ctx context.Context, opts InspectOptions) (factsrepor
 			}
 			report.Scanned++
 			byState[found.State]++
+			if found.Rows.Unopened > 0 {
+				unopened++
+				for _, version := range versionsNotGiven(found.SealedUnder) {
+					notGiven.add(version)
+				}
+			}
 			if found.State.NeedsRepair() {
 				report.NeedsRepair++
 			}
@@ -260,24 +258,8 @@ func (s *Store) InspectAll(ctx context.Context, opts InspectOptions) (factsrepor
 			}
 		}
 		if len(ids) < fleetPage {
-			report.Advice = fleetAdvice(report.Scanned, byState)
+			report.Advice = fleetAdvice(report.Scanned, byState, unopened, notGiven.order)
 			return report, nil
 		}
 	}
-}
-
-// fleetAdvice is what a fleet inspection says of the fleet as a whole: when
-// every one of the scanned devices is under a facts key the command was not
-// given, or has no row that opens, the fault is far likelier the command's
-// own keys than every device's history. "" otherwise.
-func fleetAdvice(scanned int, byState map[factsreport.State]int) string {
-	switch {
-	case scanned == 0:
-		return ""
-	case byState[factsreport.StateOtherKeys] == scanned:
-		return "Every device's stored facts name a facts key this command was not given. That is what a wrong PLEIADES_FACTS_DIGEST_KEY looks like: run this with the keys the server runs with before repairing anything."
-	case byState[factsreport.StateUnopened] == scanned:
-		return "No device has a stored fact that opens. That is what a wrong MASTER_ENCRYPTION_KEY looks like: run this with the server's MASTER_ENCRYPTION_KEY, MASTER_ENCRYPTION_KEY_PREVIOUS and their versions before repairing anything."
-	}
-	return ""
 }

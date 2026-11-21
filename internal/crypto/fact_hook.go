@@ -88,6 +88,21 @@ func sealedFactEnvelope(payload map[string]interface{}) (string, bool) {
 	return envelope, true
 }
 
+// FactPayloadVersion is the version tag of the master key a sealed fact
+// payload names, read from its envelope's head without opening it: the
+// version a service must hold a key for to open it (resolveKEK). It is false
+// for a payload that is not the sealed form. The tag is an identifier, stored
+// in the clear, never part of a key.
+func FactPayloadVersion(payload map[string]interface{}) (string, bool) {
+	envelope, ok := sealedFactEnvelope(payload)
+	if !ok {
+		return "", false
+	}
+	// A bound envelope has four $-separated fields, the version first.
+	version, _, _ := strings.Cut(envelope, "$")
+	return version, true
+}
+
 // SealFactPayload seals a fact's payload (its key and its value's canonical
 // JSON) for the row keyToken names, as the one-entry object the column holds.
 func SealFactPayload(svc *EnvelopeService, keyToken string, payload map[string]interface{}) (map[string]interface{}, error) {

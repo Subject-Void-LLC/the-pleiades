@@ -16,12 +16,27 @@
 // verifies would defeat what the chain is for. So the tool reads and says,
 // and its repairs remove history rather than rewrite it.
 //
-// One state is not a device's fault at all: a master key other than the one
-// the facts were sealed under, under which no row's payload opens. The
-// command refuses a MASTER_ENCRYPTION_KEY the database's key registry does
-// not record (cmd/controller's facts_repair_open.go), and a device no row of
-// which opens is its own state (factsreport.StateUnopened), whose advice is
-// to check the master key and which truncate refuses.
+// A row that does not open is never, by itself, proof of damage. Its
+// payload is sealed under MASTER_ENCRYPTION_KEY, and a row sealed under a
+// master key, or a key version, the command was not given fails just as an
+// edited or moved one does: nothing tells the two apart. One rotation of the
+// master key leaves older rows under the old key and newer ones under the
+// new, so the environment from before it, or a previous key left out, opens
+// part of a history, and the part that opens verifies. So a device with no
+// row that opens is factsreport.StateUnopened and one with some is
+// StatePartlyUnopened, never broken or refused; any row that does not open,
+// in any state, makes the history Unverifiable, as rows under another facts
+// key or under both do; and each repair of an unverifiable history takes a
+// flag that names it (RepairOptions' DiscardUnverifiable and
+// TruncateUnverifiable). The guard reads the count of rows that do not open,
+// not the state's name, so it holds however the keys are set. The command
+// also refuses a MASTER_ENCRYPTION_KEY the database's key registry does not
+// record and warns of what the registry says the other settings leave
+// unopened (cmd/controller's facts_repair_open.go), and each device's report
+// names the master key versions its rows are sealed as and whether the
+// command was given a key for each (crypto.FactPayloadVersion reads it from
+// the envelope's head, unopened; a version is a label stored in the clear,
+// not part of a key). That is advice; the flag is the guard.
 //
 // Inspect (InspectDevice, InspectAll) is read-only. Each device is read in a
 // transaction of its own that is read-only and REPEATABLE READ (PostgreSQL
@@ -49,9 +64,9 @@
 // one device in one transaction, so its next gather starts a new history
 // under the current keys. It refuses a device that verifies (nothing to
 // repair) unless told to discard a verified history by name, and one the
-// keys given cannot verify either way (no row opens, rows under another
-// facts key or under both) unless told to discard an unverifiable history
-// by name: those point first at the command's own settings.
+// keys given cannot verify either way (a row that does not open, rows under
+// another facts key or under both) unless told to discard an unverifiable
+// history by name: those point first at the command's own settings.
 //
 // Truncate (truncate.go) keeps a prefix of the history that verifies and
 // removes the rest, then re-keys what it keeps when that is under the
@@ -87,8 +102,9 @@
 // actor who can write the database can edit either so that nothing here
 // notices; this tool does not defend against one, and neither does the
 // chain. It applies only to a history wholly under one key it was given
-// (broken, or refused with the current key given too to re-key into) that it
-// would keep some of; every other state can only be discarded.
+// (broken, or refused with the current key given too to re-key into, or
+// either partly unopened) that it would keep some of; every other state can
+// only be discarded.
 //
 // Each repair holds the device's facts exclusively for its whole
 // transaction (ent.Tx.LockFactsOfDevice, as a re-key does), so a gather of
@@ -124,6 +140,7 @@ import (
 	"database/sql"
 	"fmt"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/crypto"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent"
 	entdevice "github.com/Subject-Void-LLC/the-pleiades/internal/ent/device"
 	entfact "github.com/Subject-Void-LLC/the-pleiades/internal/ent/fact"
@@ -209,11 +226,16 @@ type inspected struct {
 	current *underCheck
 	// previous is nil when the store holds no previous keys.
 	previous *underCheck
+	// keyState is the state the rows' facts keys and the checks alone give,
+	// before rows that do not open make it unopened or partly_unopened: the
+	// one a truncate reads which check to cut by from.
+	keyState factsreport.State
 }
 
 // inspectTx inspects dev inside tx, a page of rows at a time.
 func (s *Store) inspectTx(ctx context.Context, tx *ent.Tx, dev *ent.Device, opts InspectOptions) (inspected, error) {
-	out := inspected{report: factsreport.Device{Device: termsafe.Quote(dev.Name), ID: termsafe.Quote(dev.DeviceID), KeyedBy: []factsreport.KeyedRows{}, Under: []factsreport.KeyCheck{}, Repairs: []string{}}}
+	out := inspected{report: factsreport.Device{Device: termsafe.Quote(dev.Name), ID: termsafe.Quote(dev.DeviceID), KeyedBy: []factsreport.KeyedRows{},
+		SealedUnder: []factsreport.SealedRows{}, Under: []factsreport.KeyCheck{}, Repairs: []string{}}}
 	if s.keys.ID() != "" {
 		out.current = newUnderCheck(factsreport.RoleCurrent, s.keys, dev.DeviceID, opts.ShowFactNames)
 	}
@@ -221,35 +243,29 @@ func (s *Store) inspectTx(ctx context.Context, tx *ent.Tx, dev *ent.Device, opts
 		out.previous = newUnderCheck(factsreport.RolePrevious, s.previous, dev.DeviceID, opts.ShowFactNames)
 	}
 	in := &out.report
-	keyed := map[string]int{}
-	order := []string{}
+	var keyed, sealed tally
 	byRole := map[string]int{}
-	// sealedElsewhere counts the rows whose sealed payload does not open at
-	// all, which no facts key changes (FaultDoesNotOpen).
-	sealedElsewhere := 0
 	err := pageFacts(ctx, tx, dev.ID, nil, func(row *ent.Fact, position int) error {
-		// Every row is counted, by kind and by the keys it names.
+		// Every row is counted, by kind, by the facts keys it names and by
+		// the master key version its payload names.
 		in.Rows.Total++
 		if row.Kind == entfact.KindStable {
 			in.Rows.Stable++
 		} else {
 			in.Rows.Volatile++
 		}
-		role := s.roleOf(row.KeyedBy)
-		byRole[role]++
-		if _, ok := keyed[row.KeyedBy]; ok || len(keyed) < maxKeyIDs {
-			if !ok {
-				order = append(order, row.KeyedBy)
-			}
-			keyed[row.KeyedBy]++
-		} else {
-			in.KeyedByMore++
+		byRole[s.roleOf(row.KeyedBy)]++
+		keyed.add(row.KeyedBy)
+		if version, ok := crypto.FactPayloadVersion(row.Payload); ok {
+			sealed.add(version)
 		}
 		// One opening serves every set of keys: the payload does not depend
 		// on the facts key.
 		opened, openErr := s.openPayload(row)
 		if kind, _ := faultKind(openErr); kind == factsreport.FaultDoesNotOpen {
-			sealedElsewhere++
+			// No facts key changes this: the payload is sealed under a
+			// master key, or a version, the store was not given, or damaged.
+			in.Rows.Unopened++
 		}
 		for _, c := range out.checks() {
 			c.see(row, position, opened, openErr)
@@ -259,9 +275,14 @@ func (s *Store) inspectTx(ctx context.Context, tx *ent.Tx, dev *ent.Device, opts
 	if err != nil {
 		return inspected{}, err
 	}
-	for _, id := range order {
-		in.KeyedBy = append(in.KeyedBy, factsreport.KeyedRows{KeyID: termsafe.Quote(id), Role: s.roleOf(id), Rows: keyed[id]})
+	for _, id := range keyed.order {
+		in.KeyedBy = append(in.KeyedBy, factsreport.KeyedRows{KeyID: termsafe.Quote(id), Role: s.roleOf(id), Rows: keyed.counts[id]})
 	}
+	in.KeyedByMore = keyed.more
+	for _, version := range sealed.order {
+		in.SealedUnder = append(in.SealedUnder, factsreport.SealedRows{Version: termsafe.Quote(version), Role: s.sealedRole(version), Rows: sealed.counts[version]})
+	}
+	in.SealedUnderMore = sealed.more
 	if in.Coverages, err = tx.FactCoverage.Query().Where(entcoverage.HasDeviceWith(entdevice.IDEQ(dev.ID))).Count(ctx); err != nil {
 		return inspected{}, fmt.Errorf("facts: %w", err)
 	}
@@ -272,12 +293,23 @@ func (s *Store) inspectTx(ctx context.Context, tx *ent.Tx, dev *ent.Device, opts
 		c.report.Verifies = c.report.Failure == nil
 		in.Under = append(in.Under, c.report)
 	}
-	in.State = stateOf(in.Rows.Total, byRole, out.current, out.previous)
-	if in.Rows.Total > 0 && sealedElsewhere == in.Rows.Total {
+	out.keyState = stateOf(in.Rows.Total, byRole, out.current, out.previous)
+	in.State = out.keyState
+	switch {
+	case in.Rows.Total > 0 && in.Rows.Unopened == in.Rows.Total:
 		// No row opens, whatever keys it names: none of the states the keys
 		// give can be judged, and the master key is what to check first.
 		in.State = factsreport.StateUnopened
+	case in.Rows.Unopened > 0 && (in.State == factsreport.StateBroken || in.State == factsreport.StateRefused):
+		// Some rows open and some do not. A row sealed under a master key
+		// the store was not given fails just as a damaged one does, so the
+		// history cannot be called broken or refused.
+		in.State = factsreport.StatePartlyUnopened
 	}
+	// A row that does not open is never by itself proof of damage, in any
+	// state: it is read from the count, not from the state's name, so the
+	// repairs' guard holds whatever state the keys give.
+	in.Unverifiable = in.Rows.Unopened > 0 || in.State == factsreport.StateOtherKeys || in.State == factsreport.StateMixedKeys
 	advise(in, out, s.keys.ID() != "")
 	return out, nil
 }

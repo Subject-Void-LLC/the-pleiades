@@ -41,6 +41,7 @@ func Schema(root string) (map[string]any, error) {
 			"Report.Scope":    {ScopeDevice, ScopeFleet},
 			"Device.State":    KnownStates,
 			"KeyedRows.Role":  {RoleCurrent, RolePrevious, RoleOther},
+			"SealedRows.Role": {RoleCurrent, RolePrevious, RoleOther},
 			"KeyCheck.Role":   {RoleCurrent, RolePrevious},
 			"RowFailure.Kind": KnownFailureKinds,
 		}}

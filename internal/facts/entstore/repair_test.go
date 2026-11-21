@@ -170,8 +170,9 @@ func TestDiscard_RefusesWhatNeedsNoRepair(t *testing.T) {
 }
 
 // TestDiscard_AnUnverifiableHistoryTakesItsFlag: a history under both keys,
-// under a facts key not given, or with no row that opens is discarded only
-// with the flag that names it, and then removed whole.
+// under a facts key not given, with no row that opens, or with one row that
+// does not open is discarded only with the flag that names it, and then
+// removed whole.
 func TestDiscard_AnUnverifiableHistoryTakesItsFlag(t *testing.T) {
 	ctx := context.Background()
 	for _, c := range []struct {
@@ -186,6 +187,9 @@ func TestDiscard_AnUnverifiableHistoryTakesItsFlag(t *testing.T) {
 		}},
 		{"a facts key not given", "third", func(*history) {}},
 		{"no row that opens", "other master key", func(*history) {}},
+		// One row that does not open, the rest verifying: a history partly
+		// sealed under a key the command was not given looks just so.
+		{"a row that does not open", "", func(h *history) { h.copyPayload(h.stable(0), h.stable(1)) }},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			h := newHistory(t, onSQLite)

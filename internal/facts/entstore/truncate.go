@@ -6,7 +6,6 @@ package entstore
 import (
 	"context"
 	"errors"
-	"fmt"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent"
 	entfact "github.com/Subject-Void-LLC/the-pleiades/internal/ent/fact"
@@ -26,16 +25,23 @@ var ErrTruncateUnsound = errors.New("facts: what a truncate would keep does not 
 // volatile row that fails on its own, alone, its gather kept. A history
 // under the previous key is then re-keyed under the current one, by the
 // re-key itself. It applies to a history wholly under one key the store
-// holds (StateBroken, or StateRefused when the store holds the current key
-// too) that it would keep some of (underCheck.keeps); a device it does not
-// apply to is
-// ErrNothingToRepair or ErrRepairDoesNotApply, and one whose kept part does
-// not verify is ErrTruncateUnsound, each changing nothing.
+// holds (StateBroken, StateRefused when the store holds the current key
+// too, or StatePartlyUnopened over either) that it would keep some of
+// (truncateBy); a device it does not apply to is ErrNothingToRepair or
+// ErrRepairDoesNotApply, one with a row that does not open is ErrUnverifiable
+// unless opts.TruncateUnverifiable, and one whose kept part does not verify
+// is ErrTruncateUnsound, each changing nothing.
 func (s *Store) Truncate(ctx context.Context, name string, opts RepairOptions) (Removal, error) {
 	return s.repair(ctx, name, factsreport.RepairTruncate, opts, func(ctx context.Context, r *removal) error {
-		check, rekey, err := s.truncateCheck(r.before)
+		check, rekey, err := truncateBy(r.before, s.keys.ID() != "")
 		if err != nil {
 			return err
+		}
+		// A row that does not open is never by itself proof of damage: it
+		// may be sealed under a key this command was not given, and what the
+		// cut removes after it may be intact.
+		if r.before.report.Unverifiable && !opts.TruncateUnverifiable {
+			return unverifiable(r.before.report, "--truncate-unverifiable-history")
 		}
 		if check.cut != nil {
 			// The gather that wrote the last stable row that verified, and
@@ -82,33 +88,6 @@ func (s *Store) Truncate(ctx context.Context, name string, opts RepairOptions) (
 		}
 		return nil
 	})
-}
-
-// truncateCheck is the check a truncate of a device found as before cuts
-// by: the current keys' for a broken history, the previous keys' for a
-// refused one, which is then to be re-keyed. Any other state is refused.
-func (s *Store) truncateCheck(before inspected) (*underCheck, bool, error) {
-	var check *underCheck
-	rekey := false
-	switch before.report.State {
-	case factsreport.StateBroken:
-		check = before.current
-	case factsreport.StateRefused:
-		if s.keys.ID() == "" {
-			return nil, false, fmt.Errorf("%w: its history is under the previous key, and what a truncate keeps is re-keyed under the current one, so it needs PLEIADES_FACTS_DIGEST_KEY too", ErrRepairDoesNotApply)
-		}
-		check, rekey = before.previous, true
-	case factsreport.StateEmpty, factsreport.StateHealthy, factsreport.StateRekeyPending:
-		return nil, false, fmt.Errorf("%w: it is %s", ErrNothingToRepair, before.report.State)
-	case factsreport.StateUnopened:
-		return nil, false, fmt.Errorf("%w: no stored row of it opens, which is what a MASTER_ENCRYPTION_KEY other than the one its facts were sealed under looks like; run this with the server's master key settings", ErrRepairDoesNotApply)
-	default:
-		return nil, false, fmt.Errorf("%w: its rows are %s, so no prefix of them verifies under one key; only discard repairs it", ErrRepairDoesNotApply, before.report.State)
-	}
-	if !check.keeps(before.report.Rows.Total) {
-		return nil, false, fmt.Errorf("%w: a truncate would keep none of its history, since no value verifies before its first failure except in the gather the cut removes; only discard repairs it", ErrRepairDoesNotApply)
-	}
-	return check, rekey, nil
 }
 
 // holds reports whether row opens as the device's own under check's keys,

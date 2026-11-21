@@ -428,7 +428,27 @@ not exist, has no migration history, or is short of its build. It also refuses a
 `MASTER_ENCRYPTION_KEY` the database's key registry does not record, since under the
 wrong master key no stored fact opens and every device would look broken; when the
 registry records no key at all it warns and goes on, and a device no row of which
-opens reads as `unopened`, whose advice is to check the master key.
+opens reads as `unopened`, whose advice is to check the master key. Before it reads
+any device it also warns when the registry says the other master key settings will
+leave some facts unopened: a key given as another version than the registry records
+it under, a `MASTER_ENCRYPTION_KEY_PREVIOUS` the registry does not record, or a
+recorded key newer than the ones given, which is what the environment from before a
+rotation looks like.
+
+A row that does not open is never, by itself, proof of damage. Partway through a
+master key rotation the older rows are sealed under the old key and the newer ones
+under the new, so the command run with only one of them opens part of a history, and
+the part that opens verifies. A row sealed under a key the command was not given
+fails just as an edited one does, and nothing tells the two apart. So a device with
+some rows that do not open reads as `partly_unopened`, never `broken` or `refused`.
+Its report names each master key version its rows are sealed as and whether the
+command was given a key for it (`Sealed as:`, and `sealed_under` in `--json`; a
+version is the label `MASTER_ENCRYPTION_KEY_VERSION` set, stored in the clear, not
+part of a key), counts the rows that do not open, and marks the device unverifiable.
+Check `MASTER_ENCRYPTION_KEY`, `MASTER_ENCRYPTION_KEY_VERSION`,
+`MASTER_ENCRYPTION_KEY_PREVIOUS` and `MASTER_ENCRYPTION_KEY_PREVIOUS_VERSION` against
+the server's before you believe the rows are damaged. Each repair of a device with any
+row that does not open takes a second flag that names an unverifiable history.
 
 Inspection changes nothing and takes no lock a gather waits for, so it is safe
 against a running controller. For each device it says which keys its rows name (by
@@ -440,9 +460,10 @@ gap or a reordering), or a chain hash that does not match its time or provenance
 names no fact; `--show-fact-names` names the one a failing row holds, when that row
 opens. It exits 3 when a device needs repair. When every device it reads is under a
 facts key it was not given, or has no row that opens, it says that is what a wrong
-facts key or master key looks like.
+facts key or master key looks like; when any device holds rows that do not open, it
+names the master key versions they are sealed as that it was not given.
 
-Nothing makes such a history verify again, so the two repairs remove history and
+Nothing makes a damaged history verify again, so the two repairs remove history and
 never rewrite it. Each takes the device by name or ID, prints what it would do and
 changes nothing until you add `--confirm`, holds the device so a gather lands wholly
 before or after it, and is recorded in the activity stream with what it removed and a
@@ -464,12 +485,13 @@ runs, and a controller write that waits more than five seconds for it fails.
   under the new one, so it needs both keys. It is not offered, and refuses, when it
   would keep nothing: when no value verifies before the first failure, or every one
   that does was written by the gather it removes; use discard then. It refuses a
-  history no row of which opens.
+  history no row of which opens, and one with any row that does not open unless you
+  add `--truncate-unverifiable-history`.
 - `controller facts discard --device web1` removes every stored fact, gather and
   coverage of the device. It refuses a history that verifies unless you add
   `--discard-verified-history`, and one the keys it was given cannot verify either
-  way (no row opens, or its rows name another facts key or both) unless you add
-  `--discard-unverifiable-history`; check the keys before you do. It is the only
+  way (a row does not open, or its rows name another facts key or both) unless you
+  add `--discard-unverifiable-history`; check the keys before you do. It is the only
   repair for rows under both keys or under a key you no longer hold.
 
 After it cuts, truncate checks what it keeps again and refuses, changing nothing, if
