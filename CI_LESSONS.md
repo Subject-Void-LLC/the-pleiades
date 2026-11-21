@@ -127,6 +127,12 @@ Append a rule when a diagnosis teaches one; name the failure patterns it comes f
     resolved set (`pip list` in a verified image) with exact versions, raise it on purpose, and when a test fails in a
     package the branch does not touch, compare the fresh image's package versions with the cached one's first.
     FAILURE_PATTERNS 917, 1300.
+40. **A test that asserts an order asserts one the product chose, and a test over random IDs is run several times
+    before it is believed.** A list printed in the order a store or inventory returns it is in the order of its
+    random IDs: a test naming two hosts in one order passes half the time, passes the local gate, and fails in the
+    pull request, and a re-run alone is only another flip. Sort in the product (by name, or whatever a reader would
+    look for), so a wrong order fails every time; a test that iterates a map passes in every order. FAILURE_PATTERNS
+    962, 972, 1329.
 
 ## Docker Desktop on this machine
 

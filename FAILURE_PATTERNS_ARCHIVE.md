@@ -32652,3 +32652,38 @@ volatile when the baseline was taken is never `added` (`TestCLI_FactsDriftCounts
 
 **Lesson.** A rule stated over keys ("volatile keys are never compared") is decided over every entry of the key. A
 fuzz target whose property is the rule itself found on its first run what the hand-written cases had not.
+
+## 1329. `pleiades facts drift` and `facts baseline` listed hosts in the order of their random device IDs, so a test asserting "web2, web3" passed or failed by a coin flip: it passed `make pr-check` here and failed on the hosted runners (fixed on this branch before the pull request; a repeat in kind of 972 and 962, and of 264)
+
+**Symptom.** 2026-11-21, branch `feat/41d-crawl-baselines-drift`, commit `d953b3af`. `make branch-containers` failed
+on the hosted runners (run 44906375264, shard 1, job 136852874957) in
+`TestCLI_FactsDriftOverHostsWhoseFilesDoNotOpen` (`cmd/pleiades/facts_drift_states_test.go:140`). The test expected
+the summary "could not be compared with a baseline: web2, web3" and got "web3, web2". testgate re-ran the test alone
+and it failed again, so it was not contention. Every host's state and reason was correct; only the order differed.
+`make pr-check` had passed here at the same commit, and the test's author had run it and seen it pass.
+
+**Root cause.** Both commands walked hosts in the inventory's order, which is the order of each host's randomly
+generated device ID. The test's project makes fresh UUIDs on every run, so which of the two hosts came first was a
+coin flip, and the test asserted one order. A re-run alone is a new flip, which is why it could pass here and fail
+twice there. The same cause is a product defect: the text, the summary line and the `--json` document's `devices`
+array listed hosts in an order that says nothing to a reader and differs between two projects holding the same
+hosts.
+
+**Why earlier entries did not prevent it.** 962 was Go's map order deciding a plan in product code, and its fix made
+one sort total. 972 was a test that passed only in one map order, and its lesson is about a test that iterates a
+map. Both name map order, so neither was read as covering a slice whose order comes from random IDs: nothing here
+ranges over a map. 264 was random job IDs under a list that orders by ID, fixed by making those IDs time ordered,
+which says nothing about a list of devices. No entry stated the general rule, that output listing things has an
+order somebody must choose. The review of this branch (seven findings fixed, 1322 to 1328) read the code for
+correctness and did not ask what order the output is in. One passing run, by the author and then by `make
+pr-check`, was taken as proof.
+
+**Fix.** Both commands sort their hosts by name before reporting (`hostsByName`,
+`cmd/pleiades/facts_baseline_cmd.go`), so the text, the summary line and the JSON array are in name order. The
+three order-sensitive CLI tests were then run five times each with fresh random IDs and passed every time. The fix
+was in the working tree, not yet committed, when this entry was written.
+
+**Lesson.** Output that lists things has an order somebody chose; choose it in the product. A test that depends on
+an order must fail every time when the order is wrong, not half the time. A test over randomly generated
+identifiers is run several times before it is believed. A sweep for this class searches by shape (a list printed
+or serialized in the order a store or inventory returned it), not for the word "map".

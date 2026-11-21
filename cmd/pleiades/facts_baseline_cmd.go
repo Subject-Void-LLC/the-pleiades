@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"os"
 	"os/user"
+	"slices"
 	"strings"
 	"time"
 
@@ -82,6 +83,7 @@ func runFactsBaseline(args []string) error {
 	if err != nil {
 		return err
 	}
+	hosts = hostsByName(hosts)
 	var source pkginventory.InventoryItem
 	if *from != "" {
 		if source = itemNamed(items, *from); source == nil {
@@ -179,6 +181,7 @@ func runFactsDrift(args []string) error {
 			return err
 		}
 	}
+	hosts = hostsByName(hosts)
 	store, err := facts.OpenFileStore(factsDir(*dir), keys)
 	if err != nil && !errors.Is(err, facts.ErrNoStore) {
 		return err
@@ -284,4 +287,16 @@ func osUser() string {
 		}
 	}
 	return "unknown"
+}
+
+// hostsByName is hosts in name order, as a new slice. An inventory lists
+// hosts in the order of their generated IDs, which says nothing to a reader
+// and differs between two projects holding the same hosts; a report and its
+// summary name them in the order a person would look for them.
+func hostsByName(hosts []pkginventory.InventoryItem) []pkginventory.InventoryItem {
+	sorted := slices.Clone(hosts)
+	slices.SortStableFunc(sorted, func(a, b pkginventory.InventoryItem) int {
+		return strings.Compare(a.Name(), b.Name())
+	})
+	return sorted
 }
