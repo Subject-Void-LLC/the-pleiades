@@ -76,7 +76,7 @@ def spawn(port: int, state: str, no_actions: bool = False) -> "subprocess.Popen[
     if os.access(CAPPED, os.X_OK):
         cmd = [CAPPED, DAEMON_CAP] + cmd
     cap_log(paths.daemon_log(state))
-    log = os.open(paths.daemon_log(state), os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+    log = os.open(paths.daemon_log(state), os.O_WRONLY | os.O_CREAT | os.O_APPEND | history.BINARY, 0o600)
     try:
         return subprocess.Popen(cmd, cwd=paths.main_root(), stdin=subprocess.DEVNULL, stdout=log, stderr=log,
                                 start_new_session=True, close_fds=True)
@@ -148,7 +148,7 @@ def ensure(port: int = DEFAULT_PORT, quiet: bool = False, state_dir: Optional[st
             print("statusd: " + text, flush=True)
 
     history.ensure_private_dir(state)
-    guard = os.open(paths.ensure_lock(state), os.O_RDWR | os.O_CREAT, 0o600)
+    guard = os.open(paths.ensure_lock(state), os.O_RDWR | os.O_CREAT | history.BINARY, 0o600)
     try:
         # Long enough for another ensure to stop an old daemon and start a new one.
         if not locks.take(guard, STOP_SECONDS + 2 * wait):

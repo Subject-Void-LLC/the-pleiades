@@ -83,6 +83,11 @@ def ensure_private_dir(path: str) -> None:
     os.chmod(path, 0o700)
 
 
+# BINARY is os.O_BINARY where it exists (Windows), so os.write never turns \n
+# into \r\n there and a size or offset counts the bytes on disk; 0 elsewhere.
+BINARY: int = getattr(os, "O_BINARY", 0)
+
+
 def write_private(path: str, data: Union[str, bytes], tmp: Optional[str] = None) -> None:
     """Writes a file as mode 0600, through a temp file renamed over it.
 
@@ -93,7 +98,7 @@ def write_private(path: str, data: Union[str, bytes], tmp: Optional[str] = None)
     """
     raw = data.encode("utf-8") if isinstance(data, str) else data
     tmp = tmp or path + ".tmp"
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | BINARY, 0o600)
     try:
         # One write may take only part of a large buffer; keep writing the rest.
         view = memoryview(raw)
@@ -252,9 +257,9 @@ class HistoryStore:
             The open file.
         """
         path = os.path.join(self.create_run(run_id), "log.txt")
-        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND | BINARY, 0o600)
         os.chmod(path, 0o600)
-        return os.fdopen(fd, "w", encoding="utf-8", buffering=1)
+        return os.fdopen(fd, "w", encoding="utf-8", buffering=1, newline="\n")
 
     def save_run(self, run_id: str, run: Mapping[str, object], meta: Mapping[str, object]) -> None:
         """Saves a run's state as run.json.
@@ -395,7 +400,7 @@ class HistoryStore:
         # The daemon's poll and its backfill both merge here; the lock keeps
         # one from writing over the other's runs.
         with self.actions_lock:
-            guard = os.open(self.actions_path() + ".lock", os.O_RDWR | os.O_CREAT, 0o600)
+            guard = os.open(self.actions_path() + ".lock", os.O_RDWR | os.O_CREAT | BINARY, 0o600)
             try:
                 # Past 30 seconds the merge goes ahead unlocked: a poll's runs are
                 # worth more than the rare overlap with another writer.

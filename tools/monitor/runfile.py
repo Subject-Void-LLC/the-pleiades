@@ -30,7 +30,7 @@ from typing import Dict, List, Optional
 import events
 import live
 import locks
-from history import RUN_ID, HistoryStore, read_json, write_json
+from history import BINARY, RUN_ID, HistoryStore, read_json, write_json
 from jsonutil import JSONObject, as_object, get_float, get_int, get_str, loads
 import paths
 
@@ -190,7 +190,7 @@ class GateLock:
             True when this process now holds it.
         """
         os.makedirs(os.path.dirname(self.path), mode=0o700, exist_ok=True)
-        fd = os.open(self.path, os.O_RDWR | os.O_CREAT, 0o600)
+        fd = os.open(self.path, os.O_RDWR | os.O_CREAT | BINARY, 0o600)
         if not locks.take(fd):
             os.close(fd)
             return False
@@ -263,7 +263,8 @@ class RunPublisher:
         line = event if event is not None else {"type": "closed", "at": time.time()}
         raw = (json.dumps(line, sort_keys=True) + "\n").encode("utf-8")
         with self.lock:
-            fd = os.open(os.path.join(self.run_dir, EVENTS_NAME), os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+            fd = os.open(os.path.join(self.run_dir, EVENTS_NAME), os.O_WRONLY | os.O_CREAT | os.O_APPEND | BINARY,
+                         0o600)
             try:
                 os.write(fd, raw)
             finally:

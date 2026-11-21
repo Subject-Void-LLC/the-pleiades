@@ -526,16 +526,49 @@ class FileTailTest(unittest.TestCase):
             path = os.path.join(d, "mac.log")
             tail = live.FileTail(path)
             self.assertEqual(tail.read_lines(), [])
-            with open(path, "w", encoding="utf-8") as f:
+            # newline="\n" writes these bytes on every platform; the CRLF case is written as bytes below.
+            with open(path, "w", encoding="utf-8", newline="\n") as f:
                 f.write("one\ntw")
             self.assertEqual(tail.read_lines(), ["one"])
-            with open(path, "a", encoding="utf-8") as f:
+            with open(path, "a", encoding="utf-8", newline="\n") as f:
                 f.write("o\n")
             self.assertEqual(tail.read_lines(), ["two"])
             os.remove(path)
-            with open(path, "w", encoding="utf-8") as f:
+            with open(path, "w", encoding="utf-8", newline="\n") as f:
                 f.write("fresh\n")
             self.assertEqual(tail.read_lines(), ["fresh"])
+
+    def test_every_file_written_through_os_open_is_binary(self) -> None:
+        """Each os.open that writes (O_WRONLY or O_RDWR) adds history.BINARY:
+        on Windows os.write would otherwise turn each \\n into \\r\\n, so a size
+        cap or an offset would count characters, not the bytes on disk."""
+        import ast
+        for name in sorted(os.listdir(HERE)):
+            if not name.endswith(".py") or name.startswith("test_"):
+                continue
+            with open(os.path.join(HERE, name), encoding="utf-8") as f:
+                tree = ast.parse(f.read(), name)
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "open" and \
+                        isinstance(node.func.value, ast.Name) and node.func.value.id == "os" and len(node.args) > 1:
+                    flags = {x.attr if isinstance(x, ast.Attribute) else x.id
+                             for x in ast.walk(node.args[1]) if isinstance(x, (ast.Attribute, ast.Name))}
+                    if flags & {"O_WRONLY", "O_RDWR"}:
+                        with self.subTest("%s:%d" % (name, node.lineno)):
+                            self.assertIn("BINARY", flags)
+
+    def test_windows_line_ends(self) -> None:
+        """A log with \r\n line ends, as a Windows gate writes, reads as the
+        same lines, also when a read ends between the \r and the \n."""
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "win.log")
+            tail = live.FileTail(path)
+            with open(path, "wb") as f:
+                f.write(b"one\r\ntwo\r")
+            self.assertEqual(tail.read_lines(), ["one"])
+            with open(path, "ab") as f:
+                f.write(b"\nthree\r\n")
+            self.assertEqual(tail.read_lines(), ["two", "three"])
 
 
 class HistoryTest(unittest.TestCase):

@@ -230,7 +230,8 @@ class LogTest(unittest.TestCase):
         the log starts empty; a writer holding it O_APPEND writes at the new start."""
         with tempfile.TemporaryDirectory() as d:
             log = paths.daemon_log(d)
-            with open(log, "w", encoding="utf-8") as f:
+            # newline="\n": the same bytes on every platform; cap_log's bound is in bytes on disk.
+            with open(log, "w", encoding="utf-8", newline="\n") as f:
                 for i in range(60000):
                     f.write("statusd: line %06d of the log\n" % i)
             fd = os.open(log, os.O_WRONLY | os.O_APPEND)
@@ -1395,8 +1396,52 @@ class SlowDaemonTest(unittest.TestCase):
         result = as_object(reply.get("result")) or {}
         self.assertTrue(result.get("isError"))
         self.assertIn("is running but did not answer in time", json.dumps(result))
+        # Windows retries a refused SYN for about two seconds before it reports
+        # the refusal, so the wait is longer than that.
         with self.assertRaises(mcpclient.NoDaemon):
-            mcpclient.DaemonClient(9).get("/state", timeout=2)
+            mcpclient.DaemonClient(9).get("/state", timeout=10)
+
+    def test_every_timeout_shape_is_slow_and_a_refusal_is_none(self) -> None:
+        """Each way a timeout reaches get (socket.timeout or TimeoutError from a
+        read, or a URLError holding either, as a connect raises it) is retried
+        once and called slow; a refusal, bare or wrapped, is no daemon; a
+        broken answer is an OSError, not an escape. No socket is opened."""
+        import http.client
+        import socket
+        import urllib.error
+        import urllib.request
+        import mcpclient
+
+        def opener_raising(exc: BaseException) -> Tuple[List[int], mcpclient.Opener]:
+            """Builds a stand-in for urlopen that raises exc and counts its calls."""
+            calls: List[int] = []
+
+            def opener(url: urllib.request.Request, *, timeout: float) -> http.client.HTTPResponse:
+                """Raises the shape under test."""
+                calls.append(1)
+                raise exc
+
+            return calls, opener
+
+        slow: List[BaseException] = [socket.timeout("timed out"), TimeoutError("timed out"),
+                                     urllib.error.URLError(socket.timeout("timed out")),
+                                     urllib.error.URLError(TimeoutError("timed out"))]
+        for exc in slow:
+            with self.subTest(repr(exc)):
+                calls, opener = opener_raising(exc)
+                with self.assertRaises(mcpclient.DaemonSlow):
+                    mcpclient.DaemonClient(9, opener).get("/state", timeout=1)
+                self.assertEqual(len(calls), 2)
+        for exc in (ConnectionRefusedError(10061, "refused"), urllib.error.URLError(ConnectionRefusedError(111, "x"))):
+            with self.subTest(repr(exc)):
+                calls, opener = opener_raising(exc)
+                with self.assertRaises(mcpclient.NoDaemon):
+                    mcpclient.DaemonClient(9, opener).get("/state", timeout=1)
+                self.assertEqual(len(calls), 1)
+        _, opener = opener_raising(http.client.IncompleteRead(b"partial"))
+        with self.assertRaises(OSError) as caught:
+            mcpclient.DaemonClient(9, opener).get("/state", timeout=1)
+        self.assertNotIsInstance(caught.exception, (mcpclient.NoDaemon, mcpclient.DaemonSlow))
 
 
 class CommittedSettingsTest(unittest.TestCase):

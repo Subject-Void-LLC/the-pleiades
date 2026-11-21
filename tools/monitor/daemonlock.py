@@ -9,11 +9,11 @@ monitor.py daemon.
 
 from __future__ import annotations
 
+import http.client
 import json
 import os
 import subprocess
 import time
-import urllib.error
 import urllib.request
 from typing import Optional, Tuple
 
@@ -112,7 +112,7 @@ def take_lock(state_dir: str, port: int, started: Optional[float] = None) -> Opt
         The descriptor, held for the process's life, or None when another daemon holds it.
     """
     history.ensure_private_dir(state_dir)
-    fd = os.open(paths.daemon_lock(state_dir), os.O_RDWR | os.O_CREAT, 0o600)
+    fd = os.open(paths.daemon_lock(state_dir), os.O_RDWR | os.O_CREAT | history.BINARY, 0o600)
     if not locks.take(fd):
         os.close(fd)
         return None
@@ -135,7 +135,7 @@ def healthz(port: int, timeout: float = 2.0) -> Optional[JSONObject]:
         with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310 (loopback only)
             raw: bytes = resp.read()
             return as_object(loads(raw.decode("utf-8")))
-    except (OSError, ValueError, urllib.error.URLError):
+    except (OSError, ValueError, http.client.HTTPException):  # URLError is an OSError
         return None
 
 

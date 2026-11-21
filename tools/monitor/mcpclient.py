@@ -1,17 +1,38 @@
 # pyright: strict
 """The MCP server's client of the status daemon: loopback HTTP to a daemon that already runs.
 
-It tells a refused connection (no daemon) from a timeout (a busy one).
+It tells a refused connection (no daemon) from a timeout (a busy one),
+whatever shape the timeout takes: socket.timeout or TimeoutError raised by a
+read, or a URLError whose reason is one, as urlopen raises for a connect
+that times out (as a refused connect on Windows can, since Windows retries
+a refused SYN for about two seconds before it reports the refusal).
 """
 
 from __future__ import annotations
 
+import http.client
 import socket
 import urllib.error
 import urllib.request
-from typing import List, Tuple
+from typing import List, Protocol, Tuple
 
 from jsonutil import JSONValue, loads
+
+
+class Opener(Protocol):
+    """urlopen's shape, so a test can stand in for it."""
+
+    def __call__(self, url: urllib.request.Request, *, timeout: float) -> http.client.HTTPResponse:
+        """Opens url.
+
+        Args:
+            url: The request.
+            timeout: Seconds to wait.
+
+        Returns:
+            The response.
+        """
+        ...
 
 
 class NoDaemon(OSError):
@@ -61,14 +82,17 @@ class DaemonClient:
     """
 
     port: int
+    opener: Opener
 
-    def __init__(self, port: int) -> None:
+    def __init__(self, port: int, opener: Opener = urllib.request.urlopen) -> None:
         """Prepares a client.
 
         Args:
             port: The daemon's port.
+            opener: urlopen, or a stand-in.
         """
         self.port = port
+        self.opener = opener
 
     def get(self, path: str, timeout: float = 15.0) -> Tuple[int, bytes]:
         """GETs a path from the running daemon.
@@ -83,18 +107,21 @@ class DaemonClient:
         Raises:
             NoDaemon: The connection was refused.
             DaemonSlow: The daemon timed out twice.
-            OSError: Anything else that stopped the request.
+            OSError: Anything else that stopped the request, a broken answer included.
         """
         url = "http://127.0.0.1:%d%s" % (self.port, path)
         for attempt in range(2):
             try:
                 req = urllib.request.Request(url, headers={"Host": "127.0.0.1:%d" % self.port})
-                with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310 (loopback only)
+                with self.opener(req, timeout=timeout) as resp:  # noqa: S310 (loopback only)
                     body: bytes = resp.read()
                     return int(resp.status), body
             except urllib.error.HTTPError as exc:
                 body = exc.read()
                 return int(exc.code), body
+            except http.client.HTTPException as exc:
+                # A broken answer (IncompleteRead, BadStatusLine) is no OSError; say it as one.
+                raise OSError("the daemon's answer broke off: %s" % exc) from exc
             except OSError as exc:
                 if timed_out(exc):
                     if attempt == 0:
