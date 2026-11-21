@@ -54,7 +54,12 @@ reviews, controls awaiting sign-off, open controls, reviews due within 30
 days, unproven implementations, stale waivers, unreleased fixes). The page loads Hanken Grotesk and IBM Plex Mono from
 Google Fonts and falls back to system fonts without them.
 The server binds 127.0.0.1 only and refuses a request whose Host header is
-not this machine's loopback.
+not this machine's loopback. It also refuses what a page on another site can
+make a browser send: a request marked `Sec-Fetch-Site: cross-site` or
+`same-site` (a link that opens the page itself is still followed), and one
+whose `Origin` is not the server's own. A `/roadmap.json?phase=` value must be
+1 to 12 letters, digits or dots, and at most 32 `/wait` and `/events`
+requests are open at once; the next is answered 503.
 
 ### The daemon
 

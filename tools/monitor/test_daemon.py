@@ -24,7 +24,7 @@ import time  # noqa: E402
 import unittest  # noqa: E402
 import unittest.mock  # noqa: E402
 import warnings  # noqa: E402
-from typing import Dict, List, Optional, Tuple  # noqa: E402
+from typing import Dict, List, Optional, Sequence, Tuple  # noqa: E402
 
 import daemon  # noqa: E402
 import githistory  # noqa: E402
@@ -1147,6 +1147,137 @@ class UntrustedTextTest(unittest.TestCase):
                         for part in where.strip("/").split("/"):
                             node = node[int(part)] if isinstance(node, list) else (as_object(node) or {})[part]
                         self.assertLessEqual(len(str(node)), mcp_status.TEXT_MAX)
+
+
+def status_of(port: int, path: str, headers: Dict[str, str]) -> int:
+    """GETs a path with the given headers and returns only the status.
+
+    Args:
+        port: The port.
+        path: The path and query.
+        headers: Extra request headers.
+
+    Returns:
+        The HTTP status.
+    """
+    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=30)
+    try:
+        conn.request("GET", path, headers=headers)
+        resp = conn.getresponse()
+        resp.read()
+        return resp.status
+    finally:
+        conn.close()
+
+
+class RecordingRoadmapApp(daemon.DaemonApp):
+    """A daemon backend that records each request reaching the roadmap panel.
+
+    Attributes:
+        asked: The phases of each request, in order.
+    """
+
+    asked: List[List[str]]
+
+    def __init__(self, state_dir: str, root: str, port: int, redactor: redact.Redactor) -> None:
+        """Builds it.
+
+        Args:
+            state_dir: The state directory.
+            root: The repository.
+            port: Its port.
+            redactor: The redactor.
+        """
+        super().__init__(state_dir, root, port, redactor)
+        self.asked = []
+
+    def roadmap(self, phases: Sequence[str], details: bool) -> object:
+        """Records the phases, then answers as the daemon does.
+
+        Args:
+            phases: The phases asked for.
+            details: Whether items keep their details.
+
+        Returns:
+            The panel's answer.
+        """
+        self.asked.append(list(phases))
+        return super().roadmap(phases, details)
+
+
+class CrossSiteTest(unittest.TestCase):
+    """A page on another site cannot make the browser spend this server's work."""
+
+    def test_other_sites_and_origins_are_refused(self) -> None:
+        """Sec-Fetch-Site cross-site or same-site, or a foreign Origin, is
+        refused; the page's own requests, a typed URL, a client that is not a
+        browser and a link that opens the page itself are answered."""
+        with tempfile.TemporaryDirectory() as d:
+            app = make_app(d, 0)
+            httpd, port = serve(app)
+            try:
+                own = "http://127.0.0.1:%d" % port
+                for headers, want in (
+                        ({}, 200),
+                        ({"Sec-Fetch-Site": "same-origin", "Sec-Fetch-Mode": "cors"}, 200),
+                        ({"Sec-Fetch-Site": "none", "Sec-Fetch-Mode": "navigate"}, 200),
+                        ({"Sec-Fetch-Site": "cross-site", "Sec-Fetch-Mode": "no-cors", "Sec-Fetch-Dest": "image"}, 403),
+                        ({"Sec-Fetch-Site": "same-site", "Sec-Fetch-Mode": "no-cors"}, 403),
+                        ({"Origin": "https://evil.example"}, 403),
+                        ({"Origin": "null"}, 403),
+                        ({"Origin": own}, 200),
+                        ({"Origin": "http://localhost:%d" % port}, 200)):
+                    with self.subTest(**headers):
+                        self.assertEqual(status_of(port, "/state", headers), want)
+                link = {"Sec-Fetch-Site": "cross-site", "Sec-Fetch-Mode": "navigate", "Sec-Fetch-Dest": "document"}
+                self.assertEqual(status_of(port, "/", link), 200)
+                self.assertEqual(status_of(port, "/healthz", link), 403)
+                script = {"Sec-Fetch-Site": "cross-site", "Sec-Fetch-Mode": "no-cors", "Sec-Fetch-Dest": "script"}
+                self.assertEqual(status_of(port, "/app.js", script), 403)
+                self.assertEqual(status_of(port, "/roadmap.json?phase=41d", script), 403)
+            finally:
+                httpd.shutdown()
+                httpd.server_close()
+
+    def test_a_phase_must_look_like_one(self) -> None:
+        """?phase= reaches the roadmap script's argv only as letters, digits and dots, 1 to 12 of them."""
+        with tempfile.TemporaryDirectory() as d:
+            app = RecordingRoadmapApp(d, d, 0, redact.Redactor([]))
+            asked = app.asked
+            httpd, port = serve(app)
+            try:
+                for q in ("-x", "--details", "a%20b", "1234567890123", "41d,-y", "x%00"):
+                    with self.subTest(q):
+                        self.assertEqual(status_of(port, "/roadmap.json?phase=" + q, {}), 400)
+                self.assertEqual(asked, [])
+                self.assertEqual(status_of(port, "/roadmap.json?phase=41d&phase=W3,96a.1", {}), 404)
+                self.assertEqual(asked, [["41d", "W3", "96a.1"]])
+            finally:
+                httpd.shutdown()
+                httpd.server_close()
+
+    def test_open_streams_are_bounded(self) -> None:
+        """Past the bound, /wait and /events answer 503 at once; a slot freed is used again."""
+        with tempfile.TemporaryDirectory() as d:
+            app = make_app(d, 0)
+            httpd = server.start_server(app, 0, streams=1)
+            port = httpd.server_port
+            first: List[int] = []
+            holder = threading.Thread(target=lambda: first.append(status_of(port, "/wait?timeout=3", {})))
+            try:
+                holder.start()
+                # Probe only once the holder's request has the one slot, or a probe could take it first.
+                deadline = time.monotonic() + 10
+                while getattr(httpd.RequestHandlerClass, "streams_open") != 1 and time.monotonic() < deadline:
+                    time.sleep(0.01)
+                self.assertEqual(status_of(port, "/wait?timeout=1", {}), 503)
+                self.assertEqual(status_of(port, "/events", {}), 503)
+                holder.join(10)
+                self.assertEqual(first, [200])
+                self.assertEqual(status_of(port, "/wait?timeout=1", {}), 200)
+            finally:
+                httpd.shutdown()
+                httpd.server_close()
 
 
 def without_fcntl(script: str, args: List[str], stdin: str = "",

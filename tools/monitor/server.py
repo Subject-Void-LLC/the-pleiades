@@ -36,7 +36,16 @@ is told, instead of polling /state. Each event carries a seq, so a
 subscriber that reconnects passes the last one it saw and misses nothing.
 
 A request whose Host header is not this machine's loopback is refused, so a
-page on another site cannot read the dashboard through DNS rebinding.
+page on another site cannot read the dashboard through DNS rebinding. A
+page on another site can still make a browser send a GET it cannot read the
+answer to (an image, a script tag, a fetch in no-cors mode), and some GETs
+cost something here: /roadmap.json runs a script, /wait and /events hold a
+thread. So a request a browser marks as coming from another site
+(Sec-Fetch-Site other than same-origin or none) is refused, except a
+top-level navigation to the page itself; so is one whose Origin is not this
+server's; a ?phase= must look like a phase id before it reaches the
+script's argv; and at most STREAMS_MAX /wait and /events requests are open
+at once, the next answered 503.
 """
 
 from __future__ import annotations
@@ -48,7 +57,7 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from collections import deque
-from typing import Deque, Dict, Iterable, List, Optional, Protocol, Sequence, Tuple, Type
+from typing import Deque, Dict, Iterable, List, Mapping, Optional, Protocol, Sequence, Tuple, Type
 from urllib.parse import parse_qs
 
 import events
@@ -82,6 +91,15 @@ KEEPALIVE = 15.0
 WAIT_KINDS = ("fail", "end", "stage", "any")
 # TIMELINE_LIMIT bounds the lines one /timeline answer holds.
 TIMELINE_LIMIT = 100000
+# FETCH_SITES are the Sec-Fetch-Site values answered: the page's own requests
+# (same-origin) and one a person made (none: typed, a bookmark). A client
+# that is not a browser sends no such header and is answered.
+FETCH_SITES = ("same-origin", "none")
+# PHASE is what one ?phase= value of /roadmap.json must look like, since it
+# reaches the roadmap script's argv after --phase.
+PHASE = re.compile(r"^[0-9A-Za-z.]{1,12}$")
+# STREAMS_MAX bounds how many /wait and /events requests may be open at once.
+STREAMS_MAX = 32
 
 
 class Backend(Protocol):
@@ -185,27 +203,60 @@ def allowed_host(host: str, port: int) -> bool:
     return host in ("127.0.0.1:%d" % port, "localhost:%d" % port)
 
 
-def make_handler(app: Backend, port: int) -> Type[BaseHTTPRequestHandler]:
+# SITE_HEADERS are the request headers cross_site reads.
+SITE_HEADERS = ("Sec-Fetch-Site", "Sec-Fetch-Mode", "Sec-Fetch-Dest", "Origin")
+
+
+def cross_site(headers: Mapping[str, Optional[str]], port: int, path: str) -> Optional[str]:
+    """Decides whether a request came from a page of another site or origin.
+
+    Args:
+        headers: The request's SITE_HEADERS, None for one it lacks.
+        port: The port served.
+        path: The request path, without its query.
+
+    Returns:
+        Why it is refused, or None to answer it.
+    """
+    site = headers.get("Sec-Fetch-Site") or ""
+    if site and site not in FETCH_SITES:
+        # A link from elsewhere may open the page itself: it holds no data,
+        # and everything it reads next is a same-origin request.
+        navigate = headers.get("Sec-Fetch-Mode") == "navigate" and headers.get("Sec-Fetch-Dest") == "document"
+        if not (path == "/" and navigate):
+            return "refused: a request from another site (Sec-Fetch-Site: %s)" % site[:40]
+    origin = headers.get("Origin")
+    if origin is not None and origin not in ("http://127.0.0.1:%d" % port, "http://localhost:%d" % port):
+        return "refused: a request from another origin"
+    return None
+
+
+def make_handler(app: Backend, port: int, streams: int = STREAMS_MAX) -> Type[BaseHTTPRequestHandler]:
     """Builds the request handler class.
 
     Args:
         app: Where answers come from.
         port: The port served, which the Host header must name; start_server
             replaces it with the port really bound when 0 was asked for.
+        streams: How many /wait and /events requests may be open at once.
 
     Returns:
         A BaseHTTPRequestHandler subclass.
     """
+    # Guards Handler.streams_open, which every request this server answers shares.
+    count_lock = threading.Lock()
 
     class Handler(BaseHTTPRequestHandler):
         """Answers the dashboard's GET requests.
 
         Attributes:
             port: The port served, which the Host header must name.
+            streams_open: How many /wait and /events requests are open now.
         """
 
         server_version = "pr-check-monitor"
         port: int = 0
+        streams_open: int = 0
 
         def log_message(self, format: str, *args: object) -> None:
             """Keeps request lines out of the terminal pr-check prints to.
@@ -249,13 +300,29 @@ def make_handler(app: Backend, port: int) -> Type[BaseHTTPRequestHandler]:
                 self.send_body(403, b"forbidden\n", "text/plain")
                 return
             path = self.path.split("?", 1)[0]
+            # The message's get is case-insensitive, as header names are.
+            refusal = cross_site({h: self.headers.get(h) for h in SITE_HEADERS}, self.port, path)
+            if refusal is not None:
+                self.send_body(403, (refusal + "\n").encode("utf-8"), "text/plain")
+                return
             if path in STATIC:
                 name, ctype = STATIC[path]
                 with open(os.path.join(HERE, name), "rb") as f:
                     self.send_body(200, f.read(), ctype)
                 return
             if path in ("/events", "/wait"):
-                self.serve_events(path)
+                with count_lock:
+                    full = Handler.streams_open >= streams
+                    if not full:
+                        Handler.streams_open += 1
+                if full:
+                    self.send_json({"error": "%d /wait and /events requests are open already; try again" % streams}, 503)
+                    return
+                try:
+                    self.serve_events(path)
+                finally:
+                    with count_lock:
+                        Handler.streams_open -= 1
             elif path == "/state":
                 self.send_json(app.state())
             elif path == "/history":
@@ -273,6 +340,9 @@ def make_handler(app: Backend, port: int) -> Type[BaseHTTPRequestHandler]:
             elif path == "/roadmap.json":
                 q = query(self.path)
                 phases = [p for v in q.get("phase", []) for p in v.split(",") if p][:20]
+                if not all(PHASE.match(p) for p in phases):
+                    self.send_json({"error": "a phase is 1 to 12 letters, digits or dots"}, 400)
+                    return
                 doc = app.roadmap(phases, q.get("details") == ["1"])
                 self.send_json(doc, 404 if isinstance(doc, dict) and "error" in doc else 200)
             else:
@@ -407,12 +477,13 @@ def make_handler(app: Backend, port: int) -> Type[BaseHTTPRequestHandler]:
     return Handler
 
 
-def start_server(app: Backend, port: int) -> ThreadingHTTPServer:
+def start_server(app: Backend, port: int, streams: int = STREAMS_MAX) -> ThreadingHTTPServer:
     """Serves the dashboard on 127.0.0.1 in a daemon thread.
 
     Args:
         app: Where answers come from.
         port: The port, or 0 for any free one (read it from server_port).
+        streams: How many /wait and /events requests may be open at once.
 
     Returns:
         The running server; call shutdown() to stop it.
@@ -420,7 +491,7 @@ def start_server(app: Backend, port: int) -> ThreadingHTTPServer:
     Raises:
         OSError: The port cannot be bound.
     """
-    handler = make_handler(app, port)
+    handler = make_handler(app, port, streams)
     httpd = ThreadingHTTPServer(("127.0.0.1", port), handler)
     # Port 0 binds a free port chosen by the kernel; the Host check needs the real one.
     setattr(handler, "port", httpd.server_port)
