@@ -16503,6 +16503,10 @@ aliases, and neither fix left a shared helper or test the new reader could reuse
 **Lesson.** Every reader of YAML in the project follows the same expansion, through one function, and refuses what the
 readers that matter disagree on.
 
+**Note, 2026-11-20 (see 1300).** "PyYAML takes the last" is true only of PyYAML up to 6.0.3. PyYAML 6.0.4 resolves two
+merge keys in one mapping first-wins. This entry's fix, refusing two merge keys in one mapping, does not depend on the
+order and still holds.
+
 ## 659. net.pcap.summary's cleartext 0 read as "nothing in the clear" while frames it never examined (no IP, MPLS, unread link types) were counted nowhere (fixed before push)
 
 **Symptom.** Review by the fp-reviewer agent of `80d0da4d..7e941028` (its F10), 2026-10-26, reasoned from the code.
@@ -31600,3 +31604,237 @@ the block a test that drives it on purpose (87's fix). Do not lower the floor to
 
 **Lesson.** A floor set to exactly the value one machine measures fails on the first runner that reaches one block
 fewer; a package whose coverage varies has a block no test drives on purpose, and the artifacts should say which.
+
+## 1293. Explicit 0, -0 and null versions in journal lines and dispatch payloads decoded to Go's zero value and silently read as version 1, and peekFormat swallowed decode errors so unknown fields hid bad formats (fixed before push; a repeat in kind of 961 and 1203)
+
+**Symptom.** `internal/journal/format.go` (`peekFormat`) and `pkg/wire/dispatch_version.go` (`DispatchPayload`) treated
+explicit `"format": 0`, `"format": -0`, `"format": null`, `"payload_version": 0`, `"payload_version": -0`, and
+`"payload_version": null` as absent (version 1). When a journal line put an unknown key ahead of a huge or non-integer
+`"format"`, `peekFormat` swallowed the unmarshal error and returned `0`, so `DisallowUnknownFields` reported
+`"unknown field"` instead of refusing the bad format by name. `decodeEntry` also used `dec.More()`, missing trailing `}`
+tokens.
+
+**Root cause.** Decoding into an `int` struct field collapsed absent, explicit `0`, `-0`, and `null` onto Go's zero
+value `0`, and discarding `json.Unmarshal` errors in `peekFormat` turned wrong-type or overflowing versions into `0`.
+
+**Why 961 and 1203 did not prevent it.** 961 fixed decoding order for newer integer `payload_version` values in the
+Runner, and 1203 fixed silent zero fallback on malformed grant times, but neither audited `peekFormat` or
+`DispatchPayload` for explicit zero, null, float, or overflowing version tokens.
+
+**Fix.** `internal/journal/format.go` (`peekFormat`, `isJSONInt`), `internal/journal/reader.go` (`decodeEntry` calls
+`peekFormat` first and checks `dec.Token() == io.EOF`), `pkg/wire/dispatch_version.go` (`decodePayloadVersion`,
+`isJSONInt`), and `pkg/wire/numbers.go` (`DispatchPayload.UnmarshalJSON`). Tests:
+`TestReadRun_RefusesHostileFormatValuesByName`, `TestDispatchPayloadVersion_RefusesHostileValuesByName`,
+`TestAgent_HandleMessage_HostilePayloadVersionsNeverRun`, `FuzzReadJournalLine`, `FuzzDispatchPayloadDecode`.
+
+**Lesson.** Any optional integer version where absence means version 1 must be read as `json.RawMessage`, so absent is
+distinct from explicit `0`, `-0`, `null`, floats, and overflows, and every decode error must surface by field name.
+
+**Completed by 1297 (2026-11-20).** This fix was held at the decoder only: the Runner still ended a dispatch carrying
+one of these versions with no job result, and 1297 completed it at the caller that reports a decode failure.
+
+## 1294. tools/schemacompat's parseVersion ignored strconv.Atoi errors and trimmed whitespace before matching, while gitShow passed tags to git without checking them (fixed before push; a repeat in kind of 73)
+
+**Symptom.** `tools/schemacompat/policy.go`'s `parseVersion` discarded all three `strconv.Atoi` errors, so overflowing
+numbers like `v999999999999999999999999999.0.0` parsed as `0.0.0`. It also called `strings.TrimSpace` before regex
+matching, accepting padded tags, while `tools/schemacompat/main.go`'s `gitShow.list` and `gitShow.read` passed `tag`
+straight into `git` arguments without checking `parseVersion`.
+
+**Root cause.** Using `_` to discard `strconv.Atoi` errors and normalizing whitespace inside a validator allowed
+unvalidated inputs past the check.
+
+**Why 73 did not prevent it.** 73 warned against discarding errors in authorization checks, not in a standalone
+compatibility tool's tag parser.
+
+**Fix.** `tools/schemacompat/policy.go` removed `strings.TrimSpace` and checks all three `strconv.Atoi` errors;
+`tools/schemacompat/main.go` validates `tag` with `parseVersion` inside `gitShow.list` and `gitShow.read` before calling
+`exec.Command("git", ...)` directly with argv. Tests: `TestRunAndGitShow_RefuseHostileTagsAndNeverInvokeAShell`,
+`FuzzParseVersionAndTokens`.
+
+**Lesson.** Never discard integer-parse errors or trim whitespace inside a tag validator; validate every tag at the
+subprocess boundary too.
+
+## 1295. tools/schemacompat's followRefs keyed renamed $ref pairs by path pointer, so comparing a renamed self-referential $defs cycle grew the path on every step until stack overflow (fixed before push; a repeat in kind of 62)
+
+**Symptom.** Comparing two JSON Schemas where a recursive `$defs` entry was renamed (`#/$defs/Old` to `#/$defs/New`)
+recursed forever in `tools/schemacompat/schema.go`'s `followRefs` until Go aborted with a stack overflow.
+
+**Root cause.** When `oref != nref`, `followRefs` appended `ptr` to its `seen` key. Because `ptr` grew on every
+recursive step (`/properties/next/properties/next/...`), `seen` never hit and the recursion had no cycle guard.
+`resolve` also accepted any `#`-prefixed string rather than strictly `#` or `#/...`.
+
+**Why 62 did not prevent it.** 62 bounded recursion in the DAG builder, and `tools/schemacompat` was written later with
+only a `seen` map and no active-stack cycle set.
+
+**Fix.** `tools/schemacompat/schema.go` added typed `refKey` and `refPair` plus an `active map[refPair]bool` recursion
+guard in `followRefs`, and restricted `resolve` to `#` and `#/...`. Tests:
+`TestFollowRefs_RenamedRecursiveDefinitionDoesNotLoop`, `FuzzCompareFile`.
+
+**Lesson.** Memoization keys that include the current traversal path do not break cycles; track active
+`(oldRef, newRef, direction)` pairs on the call stack separately.
+
+## 1296. tools/schemacompat/protocols.go used an unchecked .(float64) assertion on current and firstparty.go compared any values with !=, panicking on malformed JSON (fixed before push; a repeat in kind of 2; its fix made a missing or retyped current a silent pass, corrected before push on 2026-11-20)
+
+**Symptom.** `FuzzCompareFile` panicked in 4.18 seconds at `tools/schemacompat/protocols.go:26` when comparing protocol
+documents where `"current"` was missing, `null`, or not a JSON number. Review of adjacent code found
+`tools/schemacompat/firstparty.go` comparing unvalidated `any` values with `!=`, which panics on slice or map values.
+
+**Root cause.** Unchecked type assertion `o["current"].(float64)` and `!=` on raw `map[string]any` entries assumed
+every JSON document matched the happy-path schema.
+
+**Why 2 did not prevent it.** 2 fixed unchecked map assertions on inventory properties, whereas `tools/schemacompat` parsed
+raw `map[string]any` JSON without fuzzing until now.
+
+**Fix.** `tools/schemacompat/protocols.go` uses two-value `.(float64)` assertions; `tools/schemacompat/firstparty.go`
+uses `!reflect.DeepEqual(...)`. Tests: `TestCompareProtocolsAndFirstParty_SurviveMalformedNonScalarFields`,
+`FuzzCompareFile` (30s, 1,065,033 execs, 0 crashes).
+
+**Lesson.** Every read from decoded `map[string]any` JSON must use two-value assertions and `reflect.DeepEqual`, and
+every schema reader needs a fuzz target.
+
+**Correction (2026-11-20, found by an independent review of the branch, fixed before push).** The fix above was wrong
+in one place. The two-value assertion on `current` in `tools/schemacompat/protocols.go` reported nothing when the new
+document's `current` was missing or not a number. The panic had failed closed; the fix made the same input a silent
+pass, so a protocol document that dropped or retyped `current` went through the compatibility gate. The branch's own
+test asserted that pass for `"current": null`, so it could not catch it (a test that asserts the defect, as in 751 and
+990). Now, when the old document has a numeric `current` and the new one's is gone or not a number,
+`protocol-current-lowered` is reported. `TestCompareProtocols_ACurrentGoneOrRetypedIsReported` covers null, text and
+removed, with an unchanged-document control. 1298 is the same mistake in 1295's fix. The lesson above stands with one
+addition: when a panic is replaced by a checked read, the not-ok branch must report what the panic used to stop, and
+the test must require that report, not only the absence of a panic.
+
+## 1297. The Runner ended a dispatch whose `payload_version` the new decoder refuses (explicit 0, null, a float, text, a bool, an array, an object, an integer past the int range) with no job result, so its job read "dispatched" until the Reaper republished it into the same refusal, and the branch's test asserted only the terminate (fixed before push; a repeat of 961, its test a repeat in kind of 467 and 1016)
+
+**Symptom.** A dispatch carrying a `payload_version` that `pkg/wire`'s decoder now refuses was terminated by the Runner
+and nothing else happened. No failed result was published, so the job stayed "dispatched" until the Reaper republished
+it, and the republished message met the same refusal. The values are the ones 1293 began refusing: explicit `0`,
+`null`, a float, text, a bool, an array, an object, and an integer past the int range. Found by an independent review
+of the branch on 2026-11-20.
+
+**Root cause.** 1293's fix changed the decoder and not its caller. `internal/runner/agent_version.go`'s
+`newerUndecodable` decides whether an undecodable dispatch gets a failed result. It still read the version into an
+`int` and reported only versions past this build's, so every value the decoder newly refused fell through to a bare
+terminate. The branch's own test, `TestAgent_HandleMessage_HostilePayloadVersionsNeverRun`, had an empty `wantResult`
+for those cases and asserted only the terminate, so it passed with the defect in place.
+
+**Why 961 and 1293 did not prevent it.** 961 is this same symptom for a newer version: its fix made
+`newerUndecodable` report a version past this build's, and nothing else. 1293 then widened what the decoder refuses
+without widening what `newerUndecodable` reports. 1293's lesson says every decode error must surface by field name;
+it was held at the decoder only, not at the one caller that turns a decode failure into a result an operator can see.
+
+**Fix.** `pkg/wire/dispatch_version.go` exports `wire.ParsePayloadVersion`, which makes the same refusals as the
+payload's own decoding. `newerUndecodable` keeps the version as raw JSON and passes it to that function; a refused
+version is reported as a failed result carrying the decoder's reason whenever the job id parses.
+`TestAgent_HandleMessage_HostilePayloadVersionsNeverRun` now requires a failed result naming the reason for every
+case.
+
+**Lesson.** When a decoder starts refusing more, every caller that classifies its failures must be changed in the same
+commit, and the two must share one parser so they cannot drift again. A test of a refusal asserts what the operator
+sees (the job's result), not only that the message was ended.
+
+## 1298. The cycle guard 1295's fix added to tools/schemacompat's followRefs also skipped a pair where only one side had a `$ref`, so a recursive definition the new schema wrote out in full was compared one level deep and a type narrowed below that passed the compatibility gate (fixed before push; a defect in 1295's fix, a repeat in kind of 904 and 1134)
+
+**Symptom.** With the old schema referring to a recursive definition and the new schema writing two levels of it out
+in full, a type narrowed at the second level was not reported. A breaking change passed the compatibility gate (it
+failed open). Found by reading during an independent review of the branch on 2026-11-20, then proven:
+`TestFollowRefs_AReferenceWrittenOutInFullIsReadAtEveryLevel` fails with the guard as it was (it reported only
+`type-narrowed x.json#/properties/step/type`) and passes with the fix.
+
+**Root cause.** The guard keyed its "being compared" set by (old ref, new ref, direction) and returned early whenever
+that pair was active, including when only one side had a `$ref`. The second level of the written-out schema arrived
+as the same pair (Old, "") as the first, so it was taken for a cycle and skipped.
+
+**Why 1295 did not prevent it.** 1295 is where the guard came from. Its fix and its test,
+`TestFollowRefs_RenamedRecursiveDefinitionDoesNotLoop`, covered only the case where both sides refer, which is the
+case that recurses. Nothing compared a schema with one side written out, so a guard that was too wide passed. This is
+the class of 904 and 1134: a first fix with a defect of its own. The correction recorded under 1296 is the same
+mistake in a second place on this branch.
+
+**Fix.** `tools/schemacompat/schema.go`: the guard applies only when both sides refer. A side written out in full is
+finite, so comparing it at every level always ends. Test:
+`TestFollowRefs_AReferenceWrittenOutInFullIsReadAtEveryLevel`.
+
+**Lesson.** A guard added to end a recursion must be scoped to the case that recurses, and its test must include the
+nearest case that must still be compared. In a compatibility gate, anything skipped is a pass, so every early return
+needs a test showing what it still reports.
+
+## 1299. docs/13 said the FIPS archives' binaries accept strict mode and run with `fips140=on` by default, on the proof of `version` alone, which does no cryptography, and the release workflow checked the `GOFIPS140` stamp on the amd64 archive only (docs and workflow fixed before push; the `build-fips` job passed on GitHub in dry run 44841904822 on 2026-11-20; a repeat of 571 and 1041)
+
+**Symptom.** `docs/13-releases-and-stability.md` said the FIPS archives' binaries "accept `GODEBUG=fips140=only` for
+strict mode" and "run with `fips140=on` by default". The only proof was `<binary> version` under `fips140=only`, in
+the release workflow and in one test, and `version` does no cryptography. Nothing checked the `DefaultGODEBUG` stamp.
+The workflow's stamp check also read the amd64 archive only, so the arm64 FIPS archive would have been published with
+no check of its `GOFIPS140` stamp. Found by an independent review of the branch on 2026-11-20.
+
+**Root cause.** The sentences were written from what the build flags are meant to do, not from what a check had
+measured. The workflow's check was written for one archive and one stamp and never extended to the second archive or
+to the default the docs named.
+
+**Why 571 and 1041 did not prevent it.** Those entries, and 976, 994, 1029, 1074 and 1106 after them, are text that
+claimed more than the code did, each fixed where it was found. Their rule is applied by review, and nothing holds a
+sentence in a release document to a named check, so a new document about a new build repeated the class.
+
+**Fix.** The docs now say what is proven: the binaries are built against the certified snapshot, the module's
+self-test passes at start, strict mode was started only for `version`, cryptography outside Go's module (parts of
+SSH, SNMPv3 and WinRM's NTLM) is unchanged, and the product is not FIPS-validated. `.github/workflows/release.yml`
+checks `GOFIPS140`, `DefaultGODEBUG=fips140=on` and `GOARCH` on all three binaries of both archives, and reads
+`go version -m` into a variable rather than piping it to `grep -q` under pipefail. Measured on the local dry-run
+archives on 2026-11-20: `go version -m` shows `build DefaultGODEBUG=fips140=on`, `build GOFIPS140=v1.0.0-c2097c7c`
+and the right `GOARCH` on both the amd64 `pleiades` and the arm64 `runner`.
+
+**Still open.** The release workflow's `build-fips` job has never run on GitHub. It is to be dispatched as a dry run
+on the branch before merge. Until it passes there, the workflow's checks are proven only by the local measurement
+above.
+
+**Resolved, 2026-11-20.** The `build-fips` job has now run on GitHub: `release.yml` was dispatched as a dry run on the
+branch (run 44841904822), where `build` and `build-fips` passed and `publish` was skipped as designed. The note above
+is kept as written; it no longer describes the present state.
+
+**Lesson.** A sentence about what a release binary does needs a check that exercises that thing: a mode that governs
+cryptography is not proven by a command that does none. A check over release archives must loop over every archive
+and every binary the release publishes, or name the ones it leaves out.
+
+## 1300. `Dockerfile.legacy-ansible-runner` pinned `ansible-core` and none of the packages it brings, so the image took PyYAML 6.0.4 the day it was released, which resolves two merge keys first-wins, and `TestMergeKeys_MatchAnsible` failed in the required `fast` job of a pull request that does not touch the converter (image fixed, not yet pushed; open: which merge-key order the converter follows, and no check for a newer release of a pinned package; a repeat of 917, beside 332 and 658)
+
+**Symptom.** 2026-11-20, pull request #212 (`fix/contracts-135a-fips`): the required `fast` job failed (run
+44845152075, job 136662912307) on `TestMergeKeys_MatchAnsible` in `internal/forge/playbook`, a package the branch does
+not touch. testgate re-ran the test alone and it failed again, so it was not contention. The document was
+`a: &a {x: 1, y: 1}`, `b: &b {y: 2, z: 2}`, and `m:` with `<<: *a` then `<<: *b`. The converter gave
+`m: {x: 1, y: 2, z: 2}` and the image's Ansible loader gave `m: {x: 1, y: 1, z: 2}`. `make pr-check` had passed here
+at the same commit: pr-check leaves container packages to CI, and this machine's cached image was built five days
+earlier.
+
+**Root cause.** `Dockerfile.legacy-ansible-runner` pinned `ansible-core==2.19.11` and nothing ansible-core depends on,
+so pip resolved PyYAML to the newest release on the day of each build. PyYAML 6.0.4 was uploaded to PyPI on
+2026-11-20, and it resolves two merge keys in one mapping first-wins; 6.0.3 took the last. Proven directly in
+`python:3.12-alpine3.20`: `yaml.safe_load` of that document gives `y: 2` under 6.0.3 and `y: 1` under 6.0.4. The
+hosted runner builds the image fresh, so it got 6.0.4 the day it was released. The cached local image had PyYAML 6.0.3
+(`pip list`: ansible-core 2.19.11, PyYAML 6.0.3, Jinja2 3.1.6, MarkupSafe 3.0.3, cryptography 50.0.1, cffi 2.1.1,
+pycparser 3.0, packaging 26.3, resolvelib 1.2.1).
+
+**Why 917 did not hold, and why the pinning rule did not prevent it.** 917 is the same class: a Dockerfile on a pinned
+base installed a package from a live index, a warm local image hid the change, and CI's fresh build showed it in runs
+unrelated to the branch. Its fix and its lesson covered that one fixture's `apk add` and one package family. Nothing
+looked for the other images that install from an index at build time, so this one stayed as it was. The Dockerfile's
+own comment cites the rule that every image and dependency is pinned to an exact version, never latest, and applied it
+to the one package it names, not to that package's dependencies. 125's guard reads image tags, not what a `pip
+install` resolves.
+
+**What this changes in 332, 486 and 658.** Those entries rest on "PyYAML takes the last" of two merge keys in one
+mapping (332 for the playbook converter, 486 for the build-file reader, 658 for the runbook reader). That statement is
+now true only of PyYAML up to 6.0.3. From 6.0.4 the first wins. 658's fix (the runbook reader refuses two merge keys
+in one mapping) does not depend on the order and still holds. 332's fix (the converter takes the last) matches only an
+Ansible on PyYAML 6.0.3 or earlier.
+
+**Fix.** Every package ansible-core brings is pinned in the Dockerfile to the set the image was last verified with
+(the list above). A fresh build shows PyYAML 6.0.3, `pip check` reports no broken requirements, and
+`go test -tags integration -run TestMergeKeys_MatchAnsible ./internal/forge/playbook/` passes against it. The change
+is in the working tree and is not yet committed or run in CI.
+
+**Still open.** Which merge-key order the playbook converter should follow, now that Ansible on PyYAML 6.0.4 or later
+reads first-wins, is undecided; it is the owner's call. The pin makes the image reproducible and does not answer it.
+No check yet says when a pinned package has a newer release or a security fix, so the pinned set will age silently
+until someone raises it.
+
+**Lesson.** Pin what a pinned package resolves, not only the package. An image that installs from an index at build
+time is otherwise a different image each day, and the first sign is an unrelated pull request failing.

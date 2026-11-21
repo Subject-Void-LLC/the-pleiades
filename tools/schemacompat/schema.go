@@ -75,6 +75,21 @@ var annotations = map[string]bool{
 	"deprecated": true, "readOnly": true, "writeOnly": true, "$schema": true, "$id": true,
 }
 
+// refKey identifies a pair of $ref references already compared in a
+// direction, scoped by pointer when the reference names differ.
+type refKey struct {
+	oref, nref string
+	d          direction
+	ptr        string
+}
+
+// refPair identifies an active ($ref, $ref, direction) pair on the current
+// comparison stack so cyclic renamed definitions terminate cleanly.
+type refPair struct {
+	oref, nref string
+	d          direction
+}
+
 // schemaComparer compares one file's old and new schemas.
 type schemaComparer struct {
 	// file is the schema's file name, the prefix of every finding's path.
@@ -83,14 +98,23 @@ type schemaComparer struct {
 	oldRoot, newRoot any
 	// seen holds the reference pairs already compared, so a schema that
 	// refers to itself (a runbook task's block) is compared once.
-	seen map[string]bool
+	seen map[refKey]bool
+	// active holds reference pairs currently on the recursion stack so renamed
+	// self-referential definitions terminate instead of overflowing the stack.
+	active map[refPair]bool
 	// findings collects what was found, in walk order.
 	findings []Finding
 }
 
 // newSchemaComparer starts a comparison of one file.
 func newSchemaComparer(file string, oldRoot, newRoot any) *schemaComparer {
-	return &schemaComparer{file: file, oldRoot: oldRoot, newRoot: newRoot, seen: map[string]bool{}}
+	return &schemaComparer{
+		file:    file,
+		oldRoot: oldRoot,
+		newRoot: newRoot,
+		seen:    map[refKey]bool{},
+		active:  map[refPair]bool{},
+	}
 }
 
 // report records a finding when the change breaks a schema of direction d.
@@ -171,14 +195,23 @@ func (c *schemaComparer) followRefs(om, nm map[string]any, ptr string, d directi
 	if !oHas && !nHas {
 		return false
 	}
-	key := oref + "|" + nref + "|" + d.String()
+	// A pair already being compared is a cycle only when both sides refer:
+	// with one side written out in full, each level is its own schema and is
+	// finite, and stopping here would leave a narrowed inner level unread.
+	pair := refPair{oref: oref, nref: nref, d: d}
+	if oHas && nHas && c.active[pair] {
+		return true
+	}
+	key := refKey{oref: oref, nref: nref, d: d}
 	if oref != nref {
-		key += "|" + ptr
+		key.ptr = ptr
 	}
 	if c.seen[key] {
 		return true
 	}
 	c.seen[key] = true
+	c.active[pair] = true
+	defer delete(c.active, pair)
 	var o, n any = om, nm
 	at := ptr
 	if oHas {
@@ -211,14 +244,18 @@ func siblings(m map[string]any) map[string]any {
 	return out
 }
 
-// resolve follows a local reference ("#/$defs/task") in root, returning nil
-// for one it cannot follow, which then compares as a changed schema.
+// resolve follows a local JSON Pointer reference ("#" or "#/$defs/task") in
+// root, returning nil for remote or non-pointer references, which then
+// compare as a changed schema.
 func resolve(root any, ref string) any {
-	if !strings.HasPrefix(ref, "#") {
+	if ref == "#" {
+		return root
+	}
+	if !strings.HasPrefix(ref, "#/") {
 		return nil
 	}
 	cur := root
-	for _, tok := range strings.Split(strings.TrimPrefix(ref, "#"), "/")[1:] {
+	for _, tok := range strings.Split(ref[2:], "/") {
 		m, ok := cur.(map[string]any)
 		if !ok {
 			return nil

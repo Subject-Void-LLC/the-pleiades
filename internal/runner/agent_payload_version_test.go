@@ -4,6 +4,7 @@ package runner_test
 import (
 	"fmt"
 	"log/slog"
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -72,6 +73,64 @@ func TestAgent_HandleMessage_ANewerPayloadIsRefusedNeverRun(t *testing.T) {
 				}
 			case <-time.After(5 * time.Second):
 				t.Fatal("no failed result was published, so the job would read dispatched forever")
+			}
+		})
+	}
+}
+
+// TestAgent_HandleMessage_HostilePayloadVersionsNeverRun proves negative, zero,
+// null, huge, and wrong-type payload_version values terminate the message,
+// never reach the execution adapter, and are each reported as a failed result
+// naming what was wrong with the version.
+func TestAgent_HandleMessage_HostilePayloadVersionsNeverRun(t *testing.T) {
+	cases := []struct {
+		name       string
+		raw        string
+		wantResult string
+	}{
+		{name: "negative one", raw: `-1`, wantResult: "not a payload version"},
+		{name: "min int64", raw: fmt.Sprintf("%d", int64(math.MinInt64)), wantResult: "not a payload version"},
+		{name: "explicit zero", raw: `0`, wantResult: "version 0, which is not a payload version"},
+		{name: "null", raw: `null`, wantResult: "not an integer version"},
+		{name: "max int64", raw: fmt.Sprintf("%d", int64(math.MaxInt64)), wantResult: "dispatch payload is newer"},
+		{name: "huge overflow", raw: `99999999999999999999999999999`, wantResult: "outside the integer range"},
+		{name: "string", raw: `"3"`, wantResult: "not an integer version"},
+		{name: "float", raw: `1.5`, wantResult: "not an integer version"},
+		{name: "bool", raw: `true`, wantResult: "not an integer version"},
+		{name: "array", raw: `[3]`, wantResult: "not an integer version"},
+		{name: "object", raw: `{"v":3}`, wantResult: "not an integer version"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			body := fmt.Sprintf(`{"payload_version":%s,"job_id":%q,"runbook_id":"pb-1","device_id":"device-1","device_name":"router-1","device_host":"10.0.0.1","interruptible":true}`,
+				tc.raw, testJobID)
+			bus := event.NewInProcessBus()
+			defer bus.Close()
+			received := subscribeResultEntries(t, bus, testJobID)
+			msg := &nakTrackingMsg{MockMsg: &MockMsg{data: wireWrapDispatchPayload(body)}}
+			consumer := &MockConsumer{PayloadMsgs: []jetstream.Msg{msg}}
+			adapter := newCountingAdapter()
+			agent := runner.NewAgent(consumer, adapter, nil, lock.NewInProcessManager(), 5, slog.Default(), nil,
+				runner.WithResultReporting(bus))
+
+			runAgentUntil(t, agent, msg.term.Load, agentSettleTimeout)
+
+			if adapter.total() != 0 {
+				t.Fatalf("adapter ran %d times on hostile payload_version %s", adapter.total(), tc.raw)
+			}
+			if !msg.term.Load() || msg.ack.Load() || msg.naked.Load() {
+				t.Errorf("settlement term=%v ack=%v nak=%v, want term only", msg.term.Load(), msg.ack.Load(), msg.naked.Load())
+			}
+			// Every refusal is reported: a dispatch dropped with no result
+			// leaves its job reading "dispatched" (FAILURE_PATTERNS 961).
+			select {
+			case entry := <-received:
+				if entry.Outcome != "failed" || !strings.Contains(entry.Reason, tc.wantResult) {
+					t.Errorf("result %q %q, want failed naming %q", entry.Outcome, entry.Reason, tc.wantResult)
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatalf("no failed result naming %q, so the job would read dispatched forever", tc.wantResult)
 			}
 		})
 	}

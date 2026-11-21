@@ -14,6 +14,8 @@
 // neither is a break.
 package main
 
+import "reflect"
+
 // compareFirstParty compares two first-party documents; patch says the tree
 // is on a patch line, where the lists may not grow. It returns how many groups
 // the base lists, so a document of another shape compares as nothing.
@@ -25,7 +27,7 @@ func (c *schemaComparer) compareFirstParty(o, n map[string]any, patch bool) int 
 		switch {
 		case !still:
 			c.report("first-party-group-removed", at, both, input)
-		case oldGroups[name]["core"] != ng["core"]:
+		case !reflect.DeepEqual(oldGroups[name]["core"], ng["core"]):
 			c.report("first-party-group-core-changed", at+"/core", both, input)
 		}
 	}
@@ -44,7 +46,7 @@ func (c *schemaComparer) compareFirstParty(o, n map[string]any, patch bool) int 
 	oldMethods, _ := o["methods"].(map[string]any)
 	newMethods, _ := n["methods"].(map[string]any)
 	for _, fqcn := range sortedKeys(oldMethods) {
-		if g, still := newMethods[fqcn]; still && g != oldMethods[fqcn] {
+		if g, still := newMethods[fqcn]; still && !reflect.DeepEqual(g, oldMethods[fqcn]) {
 			c.report("first-party-method-moved", "/methods/"+escape(fqcn), both, input)
 		}
 	}

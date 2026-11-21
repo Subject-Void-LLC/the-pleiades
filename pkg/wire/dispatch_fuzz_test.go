@@ -17,7 +17,9 @@
 package wire_test
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -57,6 +59,26 @@ func FuzzDispatchPayloadDecode(f *testing.F) {
 	f.Add(`{"job_id":"j","runbook_id":"rb","kind":"terraform","device_id":"d"}`)
 	f.Add(`{"job_id":"j","runbook_id":"rb","kind":"../../etc/passwd","device_id":"d"}`)
 	f.Add(`{"job_id":"j","runbook_id":"rb","kind":"pleiades.jobs.>","device_id":"d"}`)
+
+	// Payload version seeds: current, previous, newer, negative, zero, null,
+	// integer overflows, floats, and wrong JSON types.
+	f.Add(`{"payload_version":1,"job_id":"j"}`)
+	f.Add(`{"payload_version":2,"job_id":"j","graph_scheme":"graph/1","graph_digest":"sha256:00"}`)
+	f.Add(`{"payload_version":3,"job_id":"j"}`)
+	f.Add(`{"payload_version":3,"job_id":"j","a_field_this_build_does_not_know":{"nested":1}}`)
+	f.Add(`{"payload_version":-1,"job_id":"j"}`)
+	f.Add(`{"payload_version":-9223372036854775808,"job_id":"j"}`)
+	f.Add(`{"payload_version":9223372036854775807,"job_id":"j"}`)
+	f.Add(`{"payload_version":0,"job_id":"j"}`)
+	f.Add(`{"payload_version":null,"job_id":"j"}`)
+	f.Add(`{"payload_version":99999999999999999999999999999,"job_id":"j"}`)
+	f.Add(`{"payload_version":-99999999999999999999999999999,"job_id":"j"}`)
+	f.Add(`{"payload_version":1.5,"job_id":"j"}`)
+	f.Add(`{"payload_version":1e30,"job_id":"j"}`)
+	f.Add(`{"payload_version":"2","job_id":"j"}`)
+	f.Add(`{"payload_version":true,"job_id":"j"}`)
+	f.Add(`{"payload_version":[2],"job_id":"j"}`)
+	f.Add(`{"payload_version":{"v":2},"job_id":"j"}`)
 
 	f.Add("")
 	f.Add("{}")
@@ -108,6 +130,34 @@ func FuzzDispatchPayloadDecode(f *testing.F) {
 		_ = len(decoded.Capabilities)
 		_ = len(decoded.Secrets)
 		_ = len(decoded.Tags)
+
+		// Version contract: an explicit payload_version never decodes as zero,
+		// negative versions fail without ErrNewerPayload, versions past
+		// DispatchPayloadVersion wrap ErrNewerPayload, and 0..DispatchPayloadVersion
+		// pass CheckVersion.
+		var probe struct {
+			PayloadVersion json.RawMessage `json:"payload_version"`
+		}
+		if err := json.Unmarshal([]byte(payload), &probe); err == nil && len(bytes.TrimSpace(probe.PayloadVersion)) > 0 {
+			if decoded.PayloadVersion == 0 {
+				t.Fatalf("explicit payload_version %s decoded as zero", probe.PayloadVersion)
+			}
+		}
+		verr := decoded.CheckVersion()
+		switch {
+		case decoded.PayloadVersion < 0:
+			if verr == nil || errors.Is(verr, wire.ErrNewerPayload) {
+				t.Fatalf("negative version %d CheckVersion = %v", decoded.PayloadVersion, verr)
+			}
+		case decoded.PayloadVersion > wire.DispatchPayloadVersion:
+			if !errors.Is(verr, wire.ErrNewerPayload) {
+				t.Fatalf("newer version %d CheckVersion = %v, want ErrNewerPayload", decoded.PayloadVersion, verr)
+			}
+		default:
+			if verr != nil {
+				t.Fatalf("supported version %d CheckVersion = %v, want nil", decoded.PayloadVersion, verr)
+			}
+		}
 
 		// Round trip: encoding a decoded value and decoding it again must
 		// land on the same value.

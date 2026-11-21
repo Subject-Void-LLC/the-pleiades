@@ -264,12 +264,18 @@ func (gitShow) tags() ([]string, error) {
 
 // list implements tree.
 func (gitShow) list(tag, dir string) ([]string, error) {
+	if _, ok := parseVersion(tag); !ok {
+		return nil, fmt.Errorf("%q is not a release tag", tag)
+	}
 	out, err := git("ls-tree", "--name-only", tag+":"+dir)
 	return strings.Fields(out), err
 }
 
 // read implements tree.
 func (gitShow) read(tag, path string) ([]byte, error) {
+	if _, ok := parseVersion(tag); !ok {
+		return nil, fmt.Errorf("%q is not a release tag", tag)
+	}
 	out, err := git("show", tag+":"+path)
 	return []byte(out), err
 }

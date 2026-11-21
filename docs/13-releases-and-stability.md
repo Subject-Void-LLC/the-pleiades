@@ -30,6 +30,18 @@ Releases are numbered `MAJOR.MINOR.PATCH`. Every binary reports its own
 (`pleiades version`, `runner version`, `controller version`): a release build's
 version, stamped by `make release`, or `0.0.0-dev+<commit>` for any other build.
 
+Beside the standard archives, `make release-fips` (run in CI as part of the release workflow)
+builds Linux (`linux/amd64` and `linux/arm64`) archives ending in `_fips.tar.gz` with
+`SHA256SUMS.fips` using Go's certified FIPS 140-3 module snapshot (`GOFIPS140=v1.0.0`). Those
+binaries are stamped to run with `fips140=on` by default, which the release workflow checks on
+every one. What that proves is narrow: the binary was built against the certified snapshot and
+its start-up self-test passes. Under `GODEBUG=fips140=only` the workflow starts each binary and
+asks only for its `version`, which uses no cryptography, so strict mode is not proven for a
+run: an algorithm outside the module's approved set is refused when it is first used. Code
+that does its own cryptography outside Go's module (parts of SSH, SNMPv3, WinRM's NTLM) is in
+these archives unchanged. The product is not FIPS-validated, and will not be described as such
+until the full cryptographic audit is complete.
+
 **`main` is on the 0.4.0 line.** 0.4.0 changes values 0.3.0 shipped (the facts
 `facts.gather` records, for one), so it is a minor release, not a patch. A 0.3.x
 patch release, if one is needed, branches from the `v0.3.0` tag and takes fixes only.

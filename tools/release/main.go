@@ -38,6 +38,14 @@ const buildinfoPath = "github.com/Subject-Void-LLC/the-pleiades/internal/buildin
 // operating systems on both architectures.
 const DefaultPlatforms = "linux/amd64,linux/arm64,darwin/amd64,darwin/arm64,windows/amd64,windows/arm64"
 
+// DefaultFIPSPlatforms are the GOOS/GOARCH pairs for FIPS 140-3 release builds.
+const DefaultFIPSPlatforms = "linux/amd64,linux/arm64"
+
+// FIPSModuleVersion pins Go's certified FIPS 140-3 module snapshot (resolved
+// to v1.0.0-c2097c7c in Go 1.27's certified.txt). Binaries default to
+// fips140=on at startup and support strict opt-in via GODEBUG=fips140=only.
+const FIPSModuleVersion = "v1.0.0"
+
 // DefaultBinaries are the programs a release ships, each a package under
 // ./cmd.
 const DefaultBinaries = "pleiades,controller,runner"
@@ -48,6 +56,11 @@ const TitleFile = "RELEASE_TITLE"
 
 // ChecksumFile is the name of the checksum list written beside the archives.
 const ChecksumFile = "SHA256SUMS"
+
+// FIPSChecksumFile is the checksum list written beside FIPS release archives so
+// standard and FIPS builds can share an output directory without overwriting
+// each other's checksums.
+const FIPSChecksumFile = "SHA256SUMS.fips"
 
 // Platform is one operating system and architecture a release is built for.
 type Platform struct {
@@ -62,13 +75,27 @@ func (p Platform) String() string { return p.OS + "/" + p.Arch }
 
 // archiveName returns the file name of the archive holding every binary built
 // for p at version v: a zip on Windows, where it is the usual form, and a
-// gzipped tar elsewhere.
-func archiveName(v string, p Platform) string {
+// gzipped tar elsewhere. FIPS archives carry a _fips suffix before the file
+// extension.
+func archiveName(v string, p Platform, fips bool) string {
 	ext := ".tar.gz"
 	if p.OS == "windows" {
 		ext = ".zip"
 	}
-	return fmt.Sprintf("the-pleiades_%s_%s_%s%s", v, p.OS, p.Arch, ext)
+	suffix := ""
+	if fips {
+		suffix = "_fips"
+	}
+	return fmt.Sprintf("the-pleiades_%s_%s_%s%s%s", v, p.OS, p.Arch, suffix, ext)
+}
+
+// checksumFileName returns the checksum manifest filename for a standard or
+// FIPS release build.
+func checksumFileName(fips bool) string {
+	if fips {
+		return FIPSChecksumFile
+	}
+	return ChecksumFile
 }
 
 // binaryName returns the file name of the program name on p.
@@ -130,15 +157,29 @@ func ldflags(version, revision string) string {
 	return fmt.Sprintf("-s -w -X %s.version=%s -X %s.revision=%s", buildinfoPath, version, buildinfoPath, revision)
 }
 
+// buildEnv returns a child environment with GOOS, GOARCH, CGO_ENABLED=0, and
+// an explicit GOFIPS140 value appended without mutating base, so an ambient
+// host GOFIPS140 setting never leaks into a standard release or overrides the
+// certified FIPS module version.
+func buildEnv(base []string, p Platform, fips bool) []string {
+	gofips := "off"
+	if fips {
+		gofips = FIPSModuleVersion
+	}
+	env := make([]string, 0, len(base)+4)
+	env = append(env, base...)
+	return append(env, "GOOS="+p.OS, "GOARCH="+p.Arch, "CGO_ENABLED=0", "GOFIPS140="+gofips)
+}
+
 // build compiles ./cmd/<name> for p into dir and returns the file written.
 // Cgo is off, as a static release binary is built. -tags= is explicit, since a
 // flag on the command line wins over GOFLAGS: a release environment carrying
 // GOFLAGS=-tags=nocatalog would otherwise ship a pleiades with no built-in
 // method (cmd/pleiades/catalog_builtins.go).
-func build(name string, p Platform, version, revision, dir string) (string, error) {
+func build(name string, p Platform, version, revision, dir string, fips bool) (string, error) {
 	out := filepath.Join(dir, binaryName(name, p))
 	cmd := exec.Command("go", "build", "-trimpath", "-tags=", "-ldflags="+ldflags(version, revision), "-o", out, "./cmd/"+name) // #nosec G204 -- fixed flags; name is checked by parseBinaries and the platform by parsePlatforms
-	cmd.Env = append(os.Environ(), "GOOS="+p.OS, "GOARCH="+p.Arch, "CGO_ENABLED=0")
+	cmd.Env = buildEnv(os.Environ(), p, fips)
 	if msg, err := cmd.CombinedOutput(); err != nil {
 		return "", fmt.Errorf("build %s for %s: %v\n%s", name, p, err, msg)
 	}
@@ -238,9 +279,9 @@ func checksum(path string) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
-// writeChecksums writes the SHA256SUMS file for the archives named, in the
+// writeChecksums writes the checksum list file for the archives named, in the
 // format sha256sum -c reads: the digest, two spaces, the file name.
-func writeChecksums(dir string, archives []string) error {
+func writeChecksums(dir, filename string, archives []string) error {
 	sort.Strings(archives)
 	var b strings.Builder
 	for _, a := range archives {
@@ -250,7 +291,7 @@ func writeChecksums(dir string, archives []string) error {
 		}
 		fmt.Fprintf(&b, "%s  %s\n", sum, a)
 	}
-	return os.WriteFile(filepath.Join(dir, ChecksumFile), []byte(b.String()), 0o644) // #nosec G306 -- a public checksum list
+	return os.WriteFile(filepath.Join(dir, filename), []byte(b.String()), 0o644) // #nosec G306 -- a public checksum list
 }
 
 // main runs the command and exits with its status.
@@ -264,17 +305,22 @@ func run(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("release", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	version := fs.String("version", "", "the release to build, MAJOR.MINOR.PATCH with an optional prerelease (required)")
-	platforms := fs.String("platforms", DefaultPlatforms, "comma-separated GOOS/GOARCH pairs to build for")
+	platforms := fs.String("platforms", "", "comma-separated GOOS/GOARCH pairs to build for (default: "+DefaultPlatforms+"; with -fips: "+DefaultFIPSPlatforms+")")
 	binaries := fs.String("binaries", DefaultBinaries, "comma-separated programs under ./cmd to build")
-	out := fs.String("out", "dist", "the directory the archives and "+ChecksumFile+" are written to")
+	out := fs.String("out", "dist", "the directory the archives and checksum file are written to")
 	revision := fs.String("revision", "", "the commit stamped into the build (default: HEAD, read with git)")
 	notes := fs.String("notes", "", "write this release notes file, links made absolute for the release page, as "+NotesFile+" in -out, and build nothing (needs -repo)")
 	repo := fs.String("repo", "", "the GitHub repository OWNER/NAME the notes' links point into (with -notes)")
+	fips := fs.Bool("fips", false, "build with Go's certified FIPS 140-3 module ("+FIPSModuleVersion+"); defaults -platforms to "+DefaultFIPSPlatforms+" and writes "+FIPSChecksumFile)
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
 	if fs.NArg() != 0 {
 		fmt.Fprintf(stderr, "release: unexpected argument %q\n", fs.Arg(0))
+		return 2
+	}
+	if *notes != "" && *fips {
+		fmt.Fprintf(stderr, "release: -fips cannot be combined with -notes\n")
 		return 2
 	}
 	v := strings.TrimPrefix(*version, "v")
@@ -286,7 +332,15 @@ func run(args []string, stdout, stderr io.Writer) int {
 	if *notes != "" {
 		return runNotes(*notes, *repo, v, *out, stdout, stderr)
 	}
-	plats, err := parsePlatforms(*platforms)
+	platList := *platforms
+	if platList == "" {
+		if *fips {
+			platList = DefaultFIPSPlatforms
+		} else {
+			platList = DefaultPlatforms
+		}
+	}
+	plats, err := parsePlatforms(platList)
 	if err != nil {
 		fmt.Fprintf(stderr, "release: %v\n", err)
 		return 2
@@ -325,14 +379,14 @@ func run(args []string, stdout, stderr io.Writer) int {
 		}
 		members := []member{{name: "LICENSE", path: "LICENSE", mode: 0o644}}
 		for _, b := range bins {
-			path, err := build(b, p, v, rev, dir)
+			path, err := build(b, p, v, rev, dir, *fips)
 			if err != nil {
 				fmt.Fprintf(stderr, "release: %v\n", err)
 				return 1
 			}
 			members = append(members, member{name: binaryName(b, p), path: path, mode: 0o755})
 		}
-		name := archiveName(v, p)
+		name := archiveName(v, p, *fips)
 		if err := writeArchive(filepath.Join(*out, name), members); err != nil {
 			fmt.Fprintf(stderr, "release: write %s: %v\n", name, err)
 			return 1
@@ -348,10 +402,11 @@ func run(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "release: %v\n", err)
 		return 1
 	}
-	if err := writeChecksums(*out, archives); err != nil {
+	sumFile := checksumFileName(*fips)
+	if err := writeChecksums(*out, sumFile, archives); err != nil {
 		fmt.Fprintf(stderr, "release: %v\n", err)
 		return 1
 	}
-	fmt.Fprintf(stdout, "wrote %s for %d archives in %s; nothing was published\n", ChecksumFile, len(archives), *out)
+	fmt.Fprintf(stdout, "wrote %s for %d archives in %s; nothing was published\n", sumFile, len(archives), *out)
 	return 0
 }

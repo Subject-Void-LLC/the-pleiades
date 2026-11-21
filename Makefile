@@ -1,4 +1,4 @@
-.PHONY: resources-record up up-plan setup setup-env-check down backup restore decom build devtools vet fmt fmt-fix tidy-check test test-race test-no-docker test-repeat test-integration gosec govulncheck arch coverage docs-lint docs-gen-check schema-compat helm-lint templ-gen templ-gen-check tools hooks lsp commitgate sweep sweep-dry sweep-timer sweep-timer-off dev-cert ui-dev ui-stop break-glass image-tools image-scan ci ci-remote push-gate test-full push-gate-full coverage-measured ci-fast ci-containers pr-check pr-check-vet mac-check bsd-check win-check ci-images ci-branch-plan branch-containers workflow-lint doctor test-clean-room release release-notes release-dry-run
+.PHONY: resources-record up up-plan setup setup-env-check down backup restore decom build devtools vet fmt fmt-fix tidy-check test test-race test-no-docker test-repeat test-integration gosec govulncheck arch coverage docs-lint docs-gen-check schema-compat helm-lint templ-gen templ-gen-check tools hooks lsp commitgate sweep sweep-dry sweep-timer sweep-timer-off dev-cert ui-dev ui-stop break-glass image-tools image-scan ci ci-remote push-gate test-full push-gate-full coverage-measured ci-fast ci-containers pr-check pr-check-vet mac-check bsd-check win-check ci-images ci-branch-plan branch-containers workflow-lint doctor test-clean-room release release-notes release-dry-run release-fips release-fips-dry-run
 
 # Every go command a recipe runs, and every one the programs it starts run
 # (tools/testgate, the scanners' builds), uses the release go.mod's
@@ -1215,6 +1215,18 @@ release-dry-run:
 	rm -rf .IGNORE/release-dry-run
 	VERSION=0.0.0-dryrun $(MAKE) release RELEASE_DIR=.IGNORE/release-dry-run
 	cd .IGNORE/release-dry-run && sha256sum -c SHA256SUMS
+
+# release-fips builds the Linux amd64/arm64 FIPS 140-3 archives (_fips.tar.gz)
+# using Go's certified GOFIPS140=v1.0.0 module snapshot beside SHA256SUMS.fips.
+RELEASE_FIPS_DIR ?= $(RELEASE_DIR)
+release-fips:
+	@test -n "$$VERSION" || { echo "make release-fips: set VERSION, such as make release-fips VERSION=0.3.0" >&2; exit 2; }
+	go run ./tools/release -fips -version "$$VERSION" -out "$(RELEASE_FIPS_DIR)"
+
+release-fips-dry-run:
+	rm -rf .IGNORE/release-fips-dry-run
+	VERSION=0.0.0-dryrun $(MAKE) release-fips RELEASE_FIPS_DIR=.IGNORE/release-fips-dry-run
+	cd .IGNORE/release-fips-dry-run && sha256sum -c SHA256SUMS.fips
 
 # doctor says what this machine can and cannot verify, and how to fix each
 # gap: the Go toolchain, Docker, the pinned tools, the hooks, and which

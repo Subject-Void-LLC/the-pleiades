@@ -32,12 +32,12 @@ func (c *schemaComparer) compareCatalog(o, n map[string]any) int {
 		c.compareParams(docList(om, "params"), docList(nm, "params"), at+"/params")
 		c.compareNamed(docList(om, "returns"), docList(nm, "returns"), at+"/returns", "return")
 		c.compareNamed(keyedList(om["facts"]), keyedList(nm["facts"]), at+"/facts", "fact")
-		for k := range stringSet(nm["requiredCapabilities"]) {
+		for _, k := range sortedKeys(stringSet(nm["requiredCapabilities"])) {
 			if !stringSet(om["requiredCapabilities"])[k] {
 				c.report("capability-required", at+"/requiredCapabilities/"+escape(k), both, input)
 			}
 		}
-		for k := range stringSet(om["supportedTransports"]) {
+		for _, k := range sortedKeys(stringSet(om["supportedTransports"])) {
 			if !stringSet(nm["supportedTransports"])[k] {
 				c.report("transport-removed", at+"/supportedTransports/"+escape(k), both, input)
 			}

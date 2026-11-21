@@ -17,7 +17,6 @@ import (
 	"regexp"
 	"sort"
 	"strconv"
-	"strings"
 )
 
 // version is a release version's three numbers.
@@ -26,18 +25,20 @@ type version struct{ major, minor, patch int }
 // releasePattern matches a release version with no pre-release suffix.
 var releasePattern = regexp.MustCompile(`^v?(\d+)\.(\d+)\.(\d+)$`)
 
-// parseVersion reads "0.4.0" or "v0.4.0"; a pre-release or other name is not
-// a release.
+// parseVersion reads "0.4.0" or "v0.4.0"; a pre-release, padded string,
+// overflowing number, or other name is not a release.
 func parseVersion(s string) (version, bool) {
-	m := releasePattern.FindStringSubmatch(strings.TrimSpace(s))
+	m := releasePattern.FindStringSubmatch(s)
 	if m == nil {
 		return version{}, false
 	}
-	var v version
-	v.major, _ = strconv.Atoi(m[1])
-	v.minor, _ = strconv.Atoi(m[2])
-	v.patch, _ = strconv.Atoi(m[3])
-	return v, true
+	maj, err1 := strconv.Atoi(m[1])
+	minV, err2 := strconv.Atoi(m[2])
+	pat, err3 := strconv.Atoi(m[3])
+	if err1 != nil || err2 != nil || err3 != nil {
+		return version{}, false
+	}
+	return version{major: maj, minor: minV, patch: pat}, true
 }
 
 // less orders versions.

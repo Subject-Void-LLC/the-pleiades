@@ -3,11 +3,14 @@
 package journal_test
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -133,11 +136,32 @@ func TestReadRun_RefusesWhatNoRunWrote(t *testing.T) {
 }
 
 // FuzzReadJournalLine throws arbitrary lines at the reader: it never
-// panics, and anything it accepts names this run and a graph node.
+// panics, and anything it accepts names this run, a graph node, and either
+// an absent format or an integer format in [1, journal.FormatVersion].
 func FuzzReadJournalLine(f *testing.F) {
 	f.Add(`{"run_id":"` + readerRun + `","node_id":"tasks[0]","outcome":"ran"}`)
+	f.Add(`{"format":1,"run_id":"` + readerRun + `","node_id":"tasks[0]","outcome":"ran"}`)
+	f.Add(`{"format":2,"run_id":"` + readerRun + `","node_id":"tasks[0]","outcome":"ran"}`)
+	f.Add(`{"format":3,"run_id":"` + readerRun + `","node_id":"tasks[0]","outcome":"ran"}`)
+	f.Add(`{"format":4,"run_id":"` + readerRun + `","node_id":"tasks[0]","outcome":"ran"}`)
+	f.Add(`{"format":4,"run_id":"` + readerRun + `","node_id":"tasks.handlers[0]","outcome":"ran"}`)
+	f.Add(`{"format":5,"run_id":"` + readerRun + `","node_id":"tasks[0]","outcome":"ran"}`)
+	f.Add(`{"format":5,"a_newer_key":true,"run_id":"` + readerRun + `","node_id":"tasks[0]","outcome":"ran"}`)
+	f.Add(`{"format":-1,"run_id":"` + readerRun + `","node_id":"tasks[0]","outcome":"ran"}`)
+	f.Add(`{"format":-9223372036854775808,"run_id":"` + readerRun + `","node_id":"tasks[0]","outcome":"ran"}`)
+	f.Add(`{"format":0,"run_id":"` + readerRun + `","node_id":"tasks[0]","outcome":"ran"}`)
+	f.Add(`{"format":null,"run_id":"` + readerRun + `","node_id":"tasks[0]","outcome":"ran"}`)
+	f.Add(`{"format":9223372036854775807,"run_id":"` + readerRun + `","node_id":"tasks[0]","outcome":"ran"}`)
+	f.Add(`{"format":99999999999999999999999999999,"run_id":"` + readerRun + `","node_id":"tasks[0]","outcome":"ran"}`)
+	f.Add(`{"format":"4","run_id":"` + readerRun + `","node_id":"tasks[0]","outcome":"ran"}`)
+	f.Add(`{"format":1.5,"run_id":"` + readerRun + `","node_id":"tasks[0]","outcome":"ran"}`)
+	f.Add(`{"format":true,"run_id":"` + readerRun + `","node_id":"tasks[0]","outcome":"ran"}`)
+	f.Add(`{"format":[4],"run_id":"` + readerRun + `","node_id":"tasks[0]","outcome":"ran"}`)
+	f.Add(`{"format":{"v":4},"run_id":"` + readerRun + `","node_id":"tasks[0]","outcome":"ran"}`)
+	f.Add(`{"format":4,"run_id":"` + readerRun + `","node_id":"tasks[0]","outcome":"ran"}` + "\n" + `{"format":null,"run_id":"` + readerRun + `","node_id":"tasks[0]","outcome":"ran"}`)
 	f.Add(`{"run_id":"` + readerRun + `","node_id":"tasks[0]","outcome":"changed","inverse_params":[{"key":"name","text":"x"}]}`)
 	f.Add(`{}`)
+	f.Add(`[]`)
 	f.Add(`not json`)
 	root := writtenRun(f)
 	f.Fuzz(func(t *testing.T, line string) {
@@ -149,8 +173,30 @@ func FuzzReadJournalLine(f *testing.F) {
 			return
 		}
 		for _, e := range run.Entries {
-			if e.RunID != readerRun || !strings.HasPrefix(e.NodeID, "tasks[") && !strings.HasPrefix(e.NodeID, "pretasks[") && !strings.HasPrefix(e.NodeID, "posttasks[") {
+			validNode := strings.HasPrefix(e.NodeID, "tasks[") ||
+				strings.HasPrefix(e.NodeID, "pretasks[") ||
+				strings.HasPrefix(e.NodeID, "posttasks[") ||
+				strings.HasPrefix(e.NodeID, "tasks.handlers[") ||
+				strings.HasPrefix(e.NodeID, "pretasks.handlers[") ||
+				strings.HasPrefix(e.NodeID, "posttasks.handlers[")
+			if e.RunID != readerRun || !validNode {
 				t.Fatalf("accepted an entry naming run %q node %q", e.RunID, e.NodeID)
+			}
+		}
+		for _, rawLine := range strings.Split(strings.ReplaceAll(line, "\r\n", "\n"), "\n") {
+			var probe struct {
+				Format json.RawMessage `json:"format"`
+			}
+			if err := json.Unmarshal([]byte(rawLine), &probe); err != nil {
+				t.Fatalf("accepted a line that fails raw probe: %v", err)
+			}
+			raw := bytes.TrimSpace(probe.Format)
+			if len(raw) == 0 {
+				continue
+			}
+			v, err := strconv.Atoi(string(raw))
+			if err != nil || v < 1 || v > journal.FormatVersion {
+				t.Fatalf("accepted entry with hostile raw format %s", raw)
 			}
 		}
 	})

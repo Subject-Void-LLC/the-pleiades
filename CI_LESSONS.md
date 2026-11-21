@@ -115,6 +115,12 @@ Append a rule when a diagnosis teaches one; name the failure patterns it comes f
     one that starts after the snapshot reads as the test's leak. Order the snapshot after a call the far side answers
     only once it is set up, rather than ignoring its goroutine by name. Reproduce by delaying the far side's goroutine,
     as in 7. FAILURE_PATTERNS 169, 1046.
+38. **An image a test builds pins every package it installs, the ones a pinned package brings included.** A pinned
+    package's own dependencies resolve to the newest release on the day of the build, so a runner's fresh image and a
+    cached local one are different images, and a new upstream release fails an unrelated pull request. List the whole
+    resolved set (`pip list` in a verified image) with exact versions, raise it on purpose, and when a test fails in a
+    package the branch does not touch, compare the fresh image's package versions with the cached one's first.
+    FAILURE_PATTERNS 917, 1300.
 
 ## Docker Desktop on this machine
 

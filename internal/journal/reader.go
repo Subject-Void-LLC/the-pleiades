@@ -150,24 +150,21 @@ func readJournalFile(path, runID string) ([]engine.JournalEntry, error) {
 // decodeEntry decodes one line, refusing anything the writer could not
 // have produced.
 func decodeEntry(line []byte, runID string) (engine.JournalEntry, error) {
+	// Validate the line's format version before full decoding so a newer
+	// format's unknown keys or retyped fields are refused by version name
+	// rather than masked by DisallowUnknownFields or half read.
+	if _, ferr := peekFormat(line); ferr != nil {
+		return engine.JournalEntry{}, ferr
+	}
 	dec := json.NewDecoder(bytes.NewReader(line))
 	dec.DisallowUnknownFields()
 	var l fileLine
 	if err := dec.Decode(&l); err != nil {
-		// A line from a newer build may hold a key this build does not
-		// know, and the unknown key would be all the error said. Read the
-		// format alone first, so such a line is refused for its version.
-		if ferr := checkFormat(peekFormat(line)); ferr != nil {
-			return l.JournalEntry, ferr
-		}
-		return l.JournalEntry, fmt.Errorf("not a journal entry: %w", err)
+		return engine.JournalEntry{}, fmt.Errorf("not a journal entry: %w", err)
 	}
 	e := l.JournalEntry
-	if dec.More() {
-		return e, errors.New("more than one value on the line")
-	}
-	if err := checkFormat(l.Format); err != nil {
-		return e, err
+	if _, err := dec.Token(); err != io.EOF {
+		return engine.JournalEntry{}, errors.New("more than one value on the line")
 	}
 	switch {
 	case e.RunID != runID:
