@@ -403,49 +403,81 @@ previous key, as below.
 
 #### Inspecting and repairing a device the controller refuses
 
-A device's stored facts stop being served (its facts routes answer 503, its batches
-are dropped) when they name the old key and do not verify under it, which is what
-a change of key leaves behind for a history someone edited; when they name a key
-the controller was not given; or when they are under the current key and a row no
-longer opens as the device's own or its chain breaks. The start-up log names the
-refused devices. On the controller's host, with the same environment the server
-reads (both facts keys, or only one of them):
+A device's stored facts stop being served (its facts routes answer 503 naming the
+command below) when they name the old key and do not verify under it, which is what
+a change of key leaves behind for a history someone edited; when they name a key the
+controller was not given; or when a row under the current key no longer opens as
+the device's own. A batch gathered for a device in either of the first two states is
+logged and dropped, never retried. In the third, gathers still store, since storing
+reads no stored value, except one that must write an older value again, which is
+logged and dropped the same way. A history under the current key whose rows all open but whose
+chain breaks is still served: the fact chain route reports the break, and the
+command below calls the device broken. The start-up log names refused devices by
+ID. On the controller's host, with the server's own settings (the same database,
+`MASTER_ENCRYPTION_KEY` and `MASTER_ENCRYPTION_KEY_PREVIOUS` with their versions,
+and both facts keys or only one of them):
 
 ```bash
-controller facts inspect                 # every device whose history cannot be served
-controller facts inspect --device web1   # one device; --json for a script
+controller facts inspect                       # every device whose history cannot be served
+controller facts inspect --device web1         # one device by name; --json for a script
+controller facts inspect --device-id <id>      # one device by the ID the log names
 ```
 
-It changes nothing and takes no lock a gather waits for, so it is safe against a
-running controller. For each device it says which keys its rows name (by identity,
-never the key), how many rows, gathers and coverages it holds, whether the history
-verifies under each key it was given, and where it first fails and why: a payload
-that is not sealed or does not open, a row whose fact belongs to another device, a
-value its hash does not describe, a missing or mismatched chain link (a gap or a
-reordering), or a chain hash that does not match its time or provenance. It names
-no fact; `--show-fact-names` names the one a failing row holds, when that row opens.
-It exits 3 when a device needs repair.
+The command never creates, migrates or vacuums a database: it refuses one that does
+not exist, has no migration history, or is short of its build. It also refuses a
+`MASTER_ENCRYPTION_KEY` the database's key registry does not record, since under the
+wrong master key no stored fact opens and every device would look broken; when the
+registry records no key at all it warns and goes on, and a device no row of which
+opens reads as `unopened`, whose advice is to check the master key.
+
+Inspection changes nothing and takes no lock a gather waits for, so it is safe
+against a running controller. For each device it says which keys its rows name (by
+identity, never the key), how many rows, gathers and coverages it holds, whether the
+history verifies under each key it was given, and where it first fails and why: a
+payload that is not sealed or does not open, a row whose fact belongs to another
+device, a value its hash does not describe, a missing or mismatched chain link (a
+gap or a reordering), or a chain hash that does not match its time or provenance. It
+names no fact; `--show-fact-names` names the one a failing row holds, when that row
+opens. It exits 3 when a device needs repair. When every device it reads is under a
+facts key it was not given, or has no row that opens, it says that is what a wrong
+facts key or master key looks like.
 
 Nothing makes such a history verify again, so the two repairs remove history and
-never rewrite it. Each takes the device by name, prints what it would do and changes
-nothing until you add `--confirm`, holds the device so a gather lands wholly before
-or after it, and is recorded in the activity stream with what it removed and a keyed
-digest of the removed rows (never a value):
+never rewrite it. Each takes the device by name or ID, prints what it would do and
+changes nothing until you add `--confirm`, holds the device so a gather lands wholly
+before or after it, and is recorded in the activity stream with what it removed and a
+keyed digest of the removed rows (never a value). The preview takes the same hold as
+the repair: on SQLite that is the whole database's write lock for as long as it
+runs, and a controller write that waits more than five seconds for it fails.
 
 - `controller facts truncate --device web1` keeps the history before the gather
-  that wrote the first value that fails, and removes that gather and everything
-  after it, including later values that would verify on their own, since they
-  chain onto the failing one. What it keeps under the old key is re-keyed under the
-  new one, so it needs both keys.
+  that wrote the last value that verifies, and removes that gather whole and
+  everything after it, including later values that would verify on their own,
+  since they chain onto the failing one. It cuts that far back because a value
+  missing just before the first failure could belong to any of those gathers, and
+  keeping one of them would confirm a value it never saw. It does not bring back a
+  volatile value (an uptime, a load) as it stood at the cut: such a fact holds no
+  value until the next gather. What it keeps under the old key is re-keyed under the
+  new one, so it needs both keys. It refuses a history with no value that verifies
+  before the first failure, and one no row of which opens.
 - `controller facts discard --device web1` removes every stored fact, gather and
   coverage of the device. It refuses a history that verifies unless you add
-  `--discard-verified-history`. It is the only repair for rows under both keys or
-  under a key you no longer hold.
+  `--discard-verified-history`, and one the keys it was given cannot verify either
+  way (no row opens, or its rows name another facts key or both) unless you add
+  `--discard-unverifiable-history`; check the keys before you do. It is the only
+  repair for rows under both keys or under a key you no longer hold.
 
 Either way the device's next gather stores its facts under the current key. What a
 repair removes cannot be recovered from the database: the backup taken before the
-change of key still holds it, and the digest in the activity stream identifies
-exactly which rows went.
+change of key still holds it. The digest in the activity stream is an HMAC, under a
+key derived from the facts key it names, over what that key made of each removed
+row (its lookup token, keyed hash and chain link), its time, kind, gather and
+provenance, in the order the rows were stored. It leaves out each row's sealed
+value, so a master key rotation since does not change it, and its database ID.
+Whoever holds that facts key can recompute it over the same device's rows in a
+backup taken before the repair, to show the repair removed exactly those; nobody
+without the key can check it or learn anything from it. This release ships no tool
+that recomputes it.
 
 The upgrade deletes every fact stored before it, with the observations that named
 them, because no key can turn a plaintext row into a sealed one. Each device's next
