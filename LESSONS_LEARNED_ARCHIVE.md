@@ -8446,3 +8446,22 @@ seen and what was assumed.
 **Rule in practice.** Before writing a parser or a probe for a tool, run the tool on each system it will meet and keep
 the output. Write the parser against that output, name the system and release in the comment, and turn an odd case into
 a test fixture.
+
+## 459. A check that reads source can prove a declaration exists, never that the code does what it declares: hold declared behavior at run time, through the fakes and fixtures the tests already use (a refinement of 388; FAILURE_PATTERNS 1301) (2026-11-20)
+
+**Why.** Phase 41b held fact declarations with `TestEveryFactEmitterDeclaresItsFacts`, which reads source and
+attributes an `EmitFact` call to the file holding `Invoke`. It passed while seven generic dispatcher
+methods declared facts no test had ever made them emit, and while `net.frr.facts` emitted only into a fake that
+recorded nothing (FAILURE_PATTERNS 1301). The owner re-opened the item on 2026-11-19 and asked for a check based on
+the registry. `pkg/collection/facttest` found all eight.
+
+**What is old and what is new.** LESSONS 388 says a property a fixture neutralizes is tested by running the suite, not
+by reading code. LESSONS 155 says to ask a registry question from both ends. The new part is where the run-time check
+lives: in the fake every Collection test already hands its method, so each existing test becomes evidence, and a
+method no test drives is itself a failure.
+
+**Rule in practice.** When a manifest declares what a method does at run time (the facts it emits, and the same would
+hold for stats or an undo), record what the method really does in the tests' own fake, attribute it to the registered
+method, and compare it with the declaration when the test binary ends. Fail for anything undeclared, for anything
+declared and never seen, and for an audit that found nothing to check (FAILURE_PATTERNS 1302). Test the part that
+fails the binary as a whole process (1303). Keep the source-reading check only as a backstop for code no test reaches.
