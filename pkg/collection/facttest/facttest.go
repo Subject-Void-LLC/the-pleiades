@@ -10,12 +10,19 @@
 // it stores a fact. The package's TestMain runs its tests through Main, which
 // then fails the test binary for every fact a method emitted that it does not
 // declare, every value of another type, and every fact-declaring built-in of
-// the package that no test made emit, and reports each declared fact no test
-// emitted.
+// the package that no test made emit, and writes a note for each declared
+// fact no test emitted. Failures and notes alike go to the test binary's
+// standard error, which go test shows with -v, or for a package that fails.
 //
 // The engine already refuses an undeclared fact at run time; this moves the
 // finding to the method's own tests, where a mistake costs a commit rather
 // than a fact lost in a run's log.
+//
+// It is test support, and it imports testing, so internal/archtest keeps
+// every production build from importing it. It lives under pkg/ rather than
+// beside internal/testsupport because a Collection may import only pkg/, and
+// the first-party Collections are planned to move into programs of their own,
+// whose tests must still reach it.
 package facttest
 
 import (

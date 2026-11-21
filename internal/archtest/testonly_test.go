@@ -2,7 +2,8 @@
 // exists to serve tests must never end up in a production build.
 //
 // Two packages are covered, for two different reasons that happen to have
-// the same fix.
+// the same fix. A third, pkg/collection/facttest, is covered at the end of
+// the file, for the second package's reason.
 //
 // internal/auth/authtest is a real token issuer, built so a test can obtain
 // a token AuthMiddleware actually validates instead of fabricating an
@@ -109,4 +110,16 @@ func TestAuthtestNeverImportedByProductionCode(t *testing.T) {
 func TestTestsupportNeverImportedByProductionCode(t *testing.T) {
 	assertNotImportedByProductionCode(t, testsupportImportPath,
 		"internal/testsupport imports testing, so a production import links the testing package into a shipped binary; move the logic into an ordinary package (internal/tlscert is the precedent) and have internal/testsupport call it instead")
+}
+
+// TestFacttestNeverImportedByProductionCode keeps pkg/collection/facttest,
+// the audit a Collection's tests hold its emitted facts to, out of every
+// production build. It sits under pkg/ only so a Collection's tests can reach
+// it (a Collection may import only pkg/, and first-party Collections are to
+// become programs of their own), which also puts it within reach of a
+// Collection's own code; it imports testing, and its Observe keeps a
+// process-wide ledger no run should hold.
+func TestFacttestNeverImportedByProductionCode(t *testing.T) {
+	assertNotImportedByProductionCode(t, facttestImport,
+		"pkg/collection/facttest is test support (it imports testing and keeps a process-wide ledger of every fact it is handed); call it only from _test.go files")
 }
