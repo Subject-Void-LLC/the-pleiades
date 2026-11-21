@@ -524,6 +524,8 @@ func main() {
 		os.Exit(runVersion(os.Stdout))
 	case routeMigrate:
 		os.Exit(runMigrateMain(args))
+	case routeFacts:
+		os.Exit(runFactsMain(args))
 	case routeAdmin:
 		os.Exit(runAdmin(args))
 	case routeServer:

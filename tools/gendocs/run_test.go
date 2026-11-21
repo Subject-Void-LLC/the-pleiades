@@ -9,6 +9,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/clireport"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/coverageledger"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/facts/factsreport"
 )
 
 // TestRun_Idempotent runs the full generator twice into a scratch working
@@ -30,6 +31,7 @@ func TestRun_Idempotent(t *testing.T) {
 	// from source at the repository-relative paths the generator is run
 	// from; the scratch root gets those inputs.
 	models := append([]string{reportModelFile}, prReportModelFiles...)
+	models = append(models, factsreport.ModelFiles...)
 	for _, s := range clireport.Schemas {
 		models = append(models, s.ModelFiles...)
 	}

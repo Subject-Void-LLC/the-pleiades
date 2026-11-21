@@ -8594,3 +8594,61 @@ kind into the brief with its command:
 
 The brief asks for each command and its result in the report. When a new kind of generated or classified file is
 added to the repository, its checker joins this list.
+
+## 466. A tool that deletes proves its own keys and database are the right ones before it reads anything as damage (FAILURE_PATTERNS 1330 and 1332; beside LESSONS 321) (2026-11-21)
+
+**Numbering.** LESSONS 465 is held by pull request #217, which was open when this entry was written, so this branch
+numbers from 466.
+
+**Why.** `controller facts inspect|discard|truncate` was built to repair a device whose stored fact history fails
+verification. In review, before any pull request, it was run with the wrong settings three ways. With a stale
+`MASTER_ENCRYPTION_KEY` no payload opened, every device read `broken`, and `truncate --confirm` would have cut an
+intact history at its first gather. With a wrong facts key every device read `other_keys` and `discard --confirm`
+needed nothing more (FAILURE_PATTERNS 1330). With a wrong `DB_PATH` the read-only `inspect` created and migrated a
+new database and reported every device healthy (FAILURE_PATTERNS 1332). In each case the tool's reading was correct
+row by row and wrong as a whole, because the fault was in what the tool had been given.
+
+**What is old and what is new.** LESSONS 321 asks of a destructive command what its argument could name. This asks
+what its configuration could be: a repair tool is run exactly when something is already wrong, often by someone
+restoring from notes, and a wrong key or path is the likely mistake.
+
+**Rule in practice.** (1) Before classifying any row, check the keys against something the database itself records
+(here the key registry), and refuse on a mismatch. (2) Where that check is not possible, give "nothing opens" a
+state of its own whose advice is to check the key, and refuse the repair that needs a verified starting point.
+(3) Ask for a second, named flag before deleting what the keys given cannot verify. (4) When every device fails the
+same way, say that this is what a wrong key looks like. (5) Open the database with an opener that cannot create or
+migrate, and refuse a missing or unmigrated one. (6) Test each: the wrong master key, the wrong data key and the
+wrong path are three test cases every such tool has.
+
+## 467. A symlink or temporary path in front of a Go build changes the build cache key: never put a per-run path in front of `go list` or `go build` (FAILURE_PATTERNS 1337; beside FAILURE_PATTERNS 997) (2026-11-21)
+
+**Why.** gosec could not type-check `internal/ent` from a long checkout path (FAILURE_PATTERNS 1337). The first fix
+ran gosec through a temporary symlink with a new name on each run, to shorten the path. The gate's gosec stage then
+hung for 27 minutes with swap full, and stopping it left 18 orphaned `go list` processes and their compilers holding
+about 5 GB. The explanation is inferred from the symptoms, not measured: the build cache keys on the paths it is
+given, a new path on every run misses it every time, and the whole module was compiled again by many compilers at
+once under the gate's memory cap.
+
+**What is old and what is new.** FAILURE_PATTERNS 997 already says a tool that starts the Go toolchain has children
+that outlive a kill. The new part is the cause of the load: a fix for a path problem that makes the path different on
+every run turns a warm build into a cold one on a machine that cannot afford it.
+
+**Rule in practice.** (1) A path placed in front of the Go toolchain is the same on every run, or it is not used.
+(2) Before gating a change to how a tool is invoked, run the tool twice and compare the second run's time with the
+first; a second run as slow as the first is a cache miss. (3) After stopping such a run, look for `go list` and
+compile processes before starting anything else.
+
+## 468. A wait-for-no-process loop must not be able to see itself: put it in a script file or wait on a pid (FAILURE_PATTERNS 1338; a limit on LESSONS 448; a repeat of FAILURE_PATTERNS 153, 689 and 1067) (2026-11-21)
+
+**Why.** Two background waiters each looped until `ps -eo args | rg '[m]onitor.py run --cap'` found nothing. Each
+waiter's command line held text the pattern matched, each found the other, and both waited half an hour with no gate
+running (FAILURE_PATTERNS 1338).
+
+**What is old and what is new.** LESSONS 448 says to write the bracket form, and it was written. The bracket form
+keeps the pattern from matching its own text and nothing more. It does not cover a second waiter, or a command line
+that names the awaited program for another reason, such as starting it next.
+
+**Rule in practice.** (1) Put the wait, and what follows it, in a script file and run the file: the text is then on
+no command line. (2) Or wait on a pid, read once when the process is started, not on a search. (3) Or do not wait on
+a search at all: run the steps in sequence from one script. (4) One waiter at a time. The bracket form stays the
+minimum for a one-line wait, and is not enough for anything that also launches the program it waited for.

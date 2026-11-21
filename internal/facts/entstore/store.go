@@ -66,6 +66,10 @@ type Store struct {
 	// checked a device and before it writes anything: a test's way to line
 	// two re-keys up. Nil in every store but a test's.
 	beforeRewrite func()
+	// beforeRemove, when set, is called by a repair (repair.go) once it holds
+	// the device and has inspected it, before it removes anything: a test's
+	// way to race a gather against it. Nil in every store but a test's.
+	beforeRemove func()
 }
 
 // Option configures a Store.

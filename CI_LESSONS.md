@@ -196,3 +196,11 @@ Append a rule when a diagnosis teaches one; name the failure patterns it comes f
     version. A `container.prune` check failed in CI on Docker Engine 28.0.4 from a bug fixed in 28.3.0, and 300 runs on
     29.8.0 here could never fail; a TFTP timeout came from the macOS kernel's port choice, which no Linux run could
     show. FAILURE_PATTERNS 448, 560; LESSONS_LEARNED 406.
+41. **A gosec "could not type-check" with `undefined:` errors under `# command-line-arguments`, on code that builds,
+    is the checkout's path, not the branch.** gosec hands a package to go/packages as absolute file paths, and a
+    list over 16,383 characters is split and each part type-checked alone; `internal/ent`'s 180 files pass that
+    from a worktree with a long name. Run the gate from a checkout with a short path, and do not shorten the path
+    with a symlink or temporary directory named afresh on each run: that misses the build cache every time and can
+    fill the machine's memory. After a gate is stopped, look for leftover `go list` and compile processes and read
+    the free memory before starting the next one, or the memory floor stops it. Open until gosec-check has a real
+    fix. (39 and 40 are in pull request #217.) FAILURE_PATTERNS 997, 1157, 1337, 1340; LESSONS 467.

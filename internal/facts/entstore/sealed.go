@@ -16,6 +16,7 @@ import (
 	entdevice "github.com/Subject-Void-LLC/the-pleiades/internal/ent/device"
 	entfact "github.com/Subject-Void-LLC/the-pleiades/internal/ent/fact"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/facts/factsreport"
 )
 
 // payloadFactKey is where an opened payload holds the fact's key, beside its
@@ -40,20 +41,32 @@ var ErrNotThisDevices = errors.New("facts: a stored fact does not open as this d
 // facts key to read with (facts.ErrNoKeys), a device's facts stored under
 // other keys than the store holds (ErrKeysChanged), or a device whose facts
 // could not be re-keyed under new ones (ErrRekeyRefused). None of these
-// changes until an operator changes the configuration. Any other error is
-// "", false. The cause is fixed text: it names no fact, no key's identity
-// and nothing the error itself says.
+// changes until an operator changes the configuration. So is a stored row
+// that does not open as the device's own (ErrNotThisDevices): it was moved,
+// edited, or sealed under a master key this controller does not hold, and
+// it stays so until the key is set right or the history repaired, so every
+// read of the device's facts is refused the same way until then. Any other
+// error is "", false. The cause is fixed text: it names no fact, no key's
+// identity and nothing the error itself says. The ones only an operator on
+// the controller's host can look into name the command that does
+// (InspectCommand).
 func Unavailable(err error) (string, bool) {
 	switch {
 	case errors.Is(err, facts.ErrNoKeys):
 		return "facts are unavailable: this controller holds no facts key; set PLEIADES_FACTS_DIGEST_KEY", true
 	case errors.Is(err, ErrKeysChanged):
-		return "facts are unavailable: the device's facts were stored under another facts key than this controller holds; keep that key as PLEIADES_FACTS_DIGEST_KEY_PREVIOUS beside the new one", true
+		return "facts are unavailable: the device's facts were stored under another facts key than this controller holds; keep that key as PLEIADES_FACTS_DIGEST_KEY_PREVIOUS beside the new one, or run " + InspectCommand + " on the controller's host to see which keys they name", true
 	case errors.Is(err, ErrRekeyRefused):
-		return "facts are unavailable: the device's facts could not be re-keyed under the new facts key, since they do not verify under the previous one", true
+		return "facts are unavailable: the device's facts could not be re-keyed under the new facts key, since they do not verify under the previous one; run " + InspectCommand + " on the controller's host to see where, and how to repair them", true
+	case errors.Is(err, ErrNotThisDevices):
+		return "facts are unavailable: one of the device's stored facts does not open as its own: it was moved or edited, or MASTER_ENCRYPTION_KEY is not the key it was sealed under; run " + InspectCommand + " on the controller's host to see which, and how to repair it", true
 	}
 	return "", false
 }
+
+// InspectCommand is the command that inspects one device's stored history,
+// as a refusal names it.
+const InspectCommand = "`controller facts inspect --device <name>`"
 
 // ready reports whether the store can seal and open: it has an envelope
 // service and usable keys. Without both it does nothing (facts.ErrNoKeys).
@@ -133,21 +146,50 @@ func (s *Store) open(device string, row *ent.Fact) (facts.Entry, error) {
 }
 
 // openUnder is row opened under keys, as an entry, with its payload as it
-// opened. The payload must open as the row's own, the key it holds must be
-// the one whose token for device under keys the row carries (a row copied
-// from another device opens, since its token came with it, and is refused
-// here), and the value it holds must be the one the row's keyed hash under
-// keys describes.
+// opened (openPayload, then heldUnder).
 func (s *Store) openUnder(keys *facts.Keys, device string, row *ent.Fact) (facts.Entry, map[string]any, error) {
+	opened, err := s.openPayload(row)
+	if err != nil {
+		return facts.Entry{}, nil, err
+	}
+	e, err := heldUnder(keys, device, row, opened)
+	if err != nil {
+		return facts.Entry{}, nil, err
+	}
+	return e, opened, nil
+}
+
+// openPayload is row's sealed payload opened as the row's own: the key and
+// value it holds. It does not depend on the facts key (the payload is
+// sealed under MASTER_ENCRYPTION_KEY and bound to the row's token), so one
+// opening serves a check under each set of keys. A payload that is not
+// sealed is FaultUnsealed; one that does not open bound to the row's token
+// (another row's, edited, or sealed under a master key this controller does
+// not hold) is FaultDoesNotOpen.
+func (s *Store) openPayload(row *ent.Fact) (map[string]any, error) {
 	opened, err := crypto.OpenFactPayload(s.envelope, row.KeyToken, row.Payload)
 	if err != nil {
+		kind := factsreport.FaultDoesNotOpen
+		if errors.Is(err, crypto.ErrFactNotSealed) {
+			kind = factsreport.FaultUnsealed
+		}
 		// The reason is the envelope's, which names no stored byte.
-		return facts.Entry{}, nil, fmt.Errorf("%w: %w", ErrNotThisDevices, err)
+		return nil, &rowFault{kind: kind, err: err}
 	}
+	return opened, nil
+}
+
+// heldUnder is row as an entry, from its opened payload, held to keys: the
+// key it holds must be the one whose token for device under keys the row
+// carries (a row copied from another device opens, since its token came
+// with it, and is refused here: FaultTokenMismatch), and the value it holds
+// must be the one the row's keyed hash under keys describes
+// (FaultHashMismatch).
+func heldUnder(keys *facts.Keys, device string, row *ent.Fact, opened map[string]any) (facts.Entry, error) {
 	key, _ := opened[payloadFactKey].(string)
 	token, err := keys.Token(device, key)
 	if err != nil || !facts.SameMAC(token, row.KeyToken) {
-		return facts.Entry{}, nil, fmt.Errorf("%w: it holds a key whose token is not the row's", ErrNotThisDevices)
+		return facts.Entry{}, &rowFault{kind: factsreport.FaultTokenMismatch, err: errors.New("it holds a key whose token is not the row's")}
 	}
 	e := meta(row, key)
 	if text, ok := opened[payloadKey].(string); ok {
@@ -161,9 +203,32 @@ func (s *Store) openUnder(keys *facts.Keys, device string, row *ent.Fact) (facts
 	// from another row of the same key (an older value put back as the
 	// newest) carries the right token and opens, and is refused here.
 	if hash, err := keys.Hash(device, key, e.Value); err != nil || !facts.SameMAC(hash, row.Hash) {
-		return facts.Entry{}, nil, fmt.Errorf("%w: it holds a value its keyed hash does not describe", ErrNotThisDevices)
+		return facts.Entry{}, &rowFault{kind: factsreport.FaultHashMismatch, err: errors.New("it holds a value its keyed hash does not describe")}
 	}
-	return e, opened, nil
+	return e, nil
+}
+
+// rowFault is why one stored row does not open as the device's own: an
+// ErrNotThisDevices that names its kind, for the inspection that tells the
+// kinds apart. Its text is the store's own and names no stored byte.
+type rowFault struct {
+	kind factsreport.FailureKind
+	err  error
+}
+
+// Error implements error.
+func (f *rowFault) Error() string { return ErrNotThisDevices.Error() + ": " + f.err.Error() }
+
+// Unwrap makes a rowFault both ErrNotThisDevices and what caused it.
+func (f *rowFault) Unwrap() []error { return []error{ErrNotThisDevices, f.err} }
+
+// faultKind is the kind err names, when it is a rowFault.
+func faultKind(err error) (factsreport.FailureKind, bool) {
+	var f *rowFault
+	if errors.As(err, &f) {
+		return f.kind, true
+	}
+	return "", false
 }
 
 // openAll is rows as entries, in order (open).

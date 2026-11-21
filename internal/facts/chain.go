@@ -76,6 +76,27 @@ func SameMAC(a, b string) bool {
 	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
 }
 
+// BreakKind names what a chain check found wrong with one link, for a
+// caller that tells breaks apart (the Controller's inspection of a device's
+// stored history, internal/facts/entstore's inspect.go). Break.Reason says
+// the same in words.
+type BreakKind string
+
+// The ways one link fails, in the order VerifyChain checks them.
+const (
+	// BreakValue: the stored value is not the one its keyed fact hash
+	// describes (an edited value, or one keyed under another key).
+	BreakValue BreakKind = "hash_mismatch"
+	// BreakUnchained: the value carries no chain link at all.
+	BreakUnchained BreakKind = "chain_missing"
+	// BreakLink: its link names another value than the one stored before it:
+	// a value deleted, inserted or moved, a gap or a reordering.
+	BreakLink BreakKind = "chain_link_mismatch"
+	// BreakChainHash: its chain hash does not match its device, key, time or
+	// provenance: one of those edited, or a link made under another key.
+	BreakChainHash BreakKind = "chain_hash_mismatch"
+)
+
 // Break is where a device's chain first fails to verify.
 type Break struct {
 	// Index is the position of the value, from 0, in the order the store
@@ -85,6 +106,10 @@ type Break struct {
 	Key string `json:"key"`
 	// Reason says what did not match.
 	Reason string `json:"reason"`
+	// Kind is what did not match, as a name a program tells apart. It is
+	// not part of any document this package's callers publish (the fact
+	// chain route and `pleiades facts verify` print Index, Key and Reason).
+	Kind BreakKind `json:"-"`
 }
 
 // Verdict is what VerifyChain found.
@@ -110,33 +135,73 @@ type Verdict struct {
 // an unchained prefix let anyone who can write the store add rows at the
 // start of a device's history that verified (FAILURE_PATTERNS 921).
 func VerifyChain(device string, links []Link, keys *Keys) Verdict {
-	var v Verdict
-	prev := ""
-	for i, l := range links {
-		v.Values++
-		fail := func(reason string) Verdict {
-			v.Break = &Break{Index: i, Key: l.Key, Reason: reason}
-			return v
+	w := NewChainWalk(device, keys)
+	for _, l := range links {
+		if w.Next(l) != nil {
+			break
 		}
-		hash, err := keys.Hash(device, l.Key, l.Value)
-		if err != nil || !SameMAC(hash, l.Hash) {
-			return fail("the stored value is not the one its fact hash describes")
-		}
-		// Before the link to the value before it, so a row with no chain is
-		// named for that rather than for the link it also lacks (FAILURE_PATTERNS 921).
-		if l.Chain == "" {
-			return fail("it carries no chain, though every stored value is chained")
-		}
-		if l.Prev != prev {
-			return fail(fmt.Sprintf("it names %s as the value stored before it, and the value stored before it is %s", short(l.Prev), short(prev)))
-		}
-		want, err := keys.ChainHash(device, l.Prev, l.Key, l.Hash, l.ObservedAt, l.By)
-		if err != nil || !SameMAC(want, l.Chain) {
-			return fail("its chain hash does not match its device, key, time or provenance")
-		}
-		prev = l.Chain
 	}
-	v.Head = prev
+	return w.Verdict()
+}
+
+// ChainWalk is VerifyChain one link at a time, for a caller that reads a
+// device's history in pages and holds one page at a time: the same checks,
+// in the same order, with the same verdict.
+type ChainWalk struct {
+	device string
+	keys   *Keys
+	// v is the verdict so far; prev is the chain hash of the last link that
+	// verified, "" before the first.
+	v    Verdict
+	prev string
+}
+
+// NewChainWalk starts a walk over device's chain, checked under keys.
+func NewChainWalk(device string, keys *Keys) *ChainWalk {
+	return &ChainWalk{device: device, keys: keys}
+}
+
+// Next checks l, the next link in the order the store wrote them, and
+// returns the walk's break: nil while every link so far verifies. Once one
+// fails, Next checks nothing more and returns that break again.
+func (w *ChainWalk) Next(l Link) *Break {
+	if w.v.Break != nil {
+		return w.v.Break
+	}
+	i := w.v.Values
+	w.v.Values++
+	fail := func(kind BreakKind, reason string) *Break {
+		w.v.Break = &Break{Index: i, Key: l.Key, Reason: reason, Kind: kind}
+		return w.v.Break
+	}
+	hash, err := w.keys.Hash(w.device, l.Key, l.Value)
+	if err != nil || !SameMAC(hash, l.Hash) {
+		return fail(BreakValue, "the stored value is not the one its fact hash describes")
+	}
+	// Before the link to the value before it, so a row with no chain is
+	// named for that rather than for the link it also lacks (FAILURE_PATTERNS 921).
+	if l.Chain == "" {
+		return fail(BreakUnchained, "it carries no chain, though every stored value is chained")
+	}
+	if l.Prev != w.prev {
+		return fail(BreakLink, fmt.Sprintf("it names %s as the value stored before it, and the value stored before it is %s", short(l.Prev), short(w.prev)))
+	}
+	want, err := w.keys.ChainHash(w.device, l.Prev, l.Key, l.Hash, l.ObservedAt, l.By)
+	if err != nil || !SameMAC(want, l.Chain) {
+		return fail(BreakChainHash, "its chain hash does not match its device, key, time or provenance")
+	}
+	w.prev = l.Chain
+	return nil
+}
+
+// Verdict is what the walk has found: how many links it checked, the break
+// when one failed, and the head (the last link's chain hash) only when none
+// did, as VerifyChain reports.
+func (w *ChainWalk) Verdict() Verdict {
+	v := w.v
+	if v.Break == nil {
+		v.Head = w.prev
+	}
 	return v
 }
 

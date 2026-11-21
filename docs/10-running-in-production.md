@@ -398,8 +398,121 @@ Two things a rotation does not carry over. A private file's keyed digest
 such file reads as changed once, with a new `hmac_key` beside it. And a device whose
 stored history does not verify under the old key is not re-keyed: it is refused
 under the new key and named in the log, and removing the previous key leaves its
-stored facts unreadable for good. This release has no tool to inspect or repair
-such a device.
+stored facts unreadable for good. Look at such a device before you remove the
+previous key, as below.
+
+#### Inspecting and repairing a device the controller refuses
+
+A device's stored facts stop being served (its facts routes answer 503 naming the
+command below) when they name the old key and do not verify under it, which is what
+a change of key leaves behind for a history someone edited; when they name a key the
+controller was not given; or when a row under the current key no longer opens as
+the device's own. A batch gathered for a device in either of the first two states is
+logged and dropped, never retried. In the third, gathers still store, since storing
+reads no stored value, except one that must write an older value again, which is
+logged and dropped the same way. A history under the current key whose rows all open but whose
+chain breaks is still served: the fact chain route reports the break, and the
+command below calls the device broken. The start-up log names refused devices by
+ID. On the controller's host, with the server's own settings (the same database,
+`MASTER_ENCRYPTION_KEY` and `MASTER_ENCRYPTION_KEY_PREVIOUS` with their versions,
+and both facts keys or only one of them):
+
+```bash
+controller facts inspect                       # every device whose history cannot be served
+controller facts inspect --device web1         # one device by name; --json for a script
+controller facts inspect --device-id <id>      # one device by the ID the log names
+```
+
+The command never creates, migrates or vacuums a database: it refuses one that does
+not exist, has no migration history, or is short of its build. It also refuses a
+`MASTER_ENCRYPTION_KEY` the database's key registry does not record, since under the
+wrong master key no stored fact opens and every device would look broken; when the
+registry records no key at all it warns and goes on, and a device no row of which
+opens reads as `unopened`, whose advice is to check the master key. Before it reads
+any device it also warns when the registry says the other master key settings will
+leave some facts unopened: a key given as another version than the registry records
+it under, a `MASTER_ENCRYPTION_KEY_PREVIOUS` the registry does not record, or a
+recorded key newer than the ones given, which is what the environment from before a
+rotation looks like.
+
+A row that does not open is never, by itself, proof of damage. Partway through a
+master key rotation the older rows are sealed under the old key and the newer ones
+under the new, so the command run with only one of them opens part of a history, and
+the part that opens verifies. A row sealed under a key the command was not given
+fails just as an edited one does, and nothing tells the two apart. So a device with
+some rows that do not open reads as `partly_unopened`, never `broken` or `refused`.
+Its report names each master key version its rows are sealed as and whether the
+command was given a key for it (`Sealed as:`, and `sealed_under` in `--json`; a
+version is the label `MASTER_ENCRYPTION_KEY_VERSION` set, stored in the clear, not
+part of a key), counts the rows that do not open, and marks the device unverifiable.
+Check `MASTER_ENCRYPTION_KEY`, `MASTER_ENCRYPTION_KEY_VERSION`,
+`MASTER_ENCRYPTION_KEY_PREVIOUS` and `MASTER_ENCRYPTION_KEY_PREVIOUS_VERSION` against
+the server's before you believe the rows are damaged. Each repair of a device with any
+row that does not open takes a second flag that names an unverifiable history.
+
+Inspection changes nothing and takes no lock a gather waits for, so it is safe
+against a running controller. For each device it says which keys its rows name (by
+identity, never the key), how many rows, gathers and coverages it holds, whether the
+history verifies under each key it was given, and where it first fails and why: a
+payload that is not sealed or does not open, a row whose fact belongs to another
+device, a value its hash does not describe, a missing or mismatched chain link (a
+gap or a reordering), or a chain hash that does not match its time or provenance. It
+names no fact; `--show-fact-names` names the one a failing row holds, when that row
+opens. It exits 3 when a device needs repair. When every device it reads is under a
+facts key it was not given, or has no row that opens, it says that is what a wrong
+facts key or master key looks like; when any device holds rows that do not open, it
+names the master key versions they are sealed as that it was not given.
+
+Nothing makes a damaged history verify again, so the two repairs remove history and
+never rewrite it. Each takes the device by name or ID, prints what it would do and
+changes nothing until you add `--confirm`, holds the device so a gather lands wholly
+before or after it, and is recorded in the activity stream with what it removed and a
+keyed digest of the removed rows (never a value). The preview takes the same hold as
+the repair: on SQLite that is the whole database's write lock for as long as it
+runs, and a controller write that waits more than five seconds for it fails.
+
+- `controller facts truncate --device web1` keeps the history before the gather
+  that wrote the last value that verifies, and removes that gather whole and
+  everything after it, including later values that would verify on their own,
+  since they chain onto the failing one. It cuts that far back because a value
+  missing just before the first failure could belong to any of those gathers, and
+  keeping one of them would confirm a value it never saw. A volatile value (an
+  uptime, a load) is not chained, so one that fails on its own is removed alone and
+  its gather is kept: a volatile fact holds one value, which the next change
+  replaces, so no older value is left for that gather to confirm in its place. It
+  does not bring back a volatile value as it stood at the cut either: such a fact
+  holds no value until the next gather. What it keeps under the old key is re-keyed
+  under the new one, so it needs both keys. It is not offered, and refuses, when it
+  would keep nothing: when no value verifies before the first failure, or every one
+  that does was written by the gather it removes; use discard then. It refuses a
+  history no row of which opens, and one with any row that does not open unless you
+  add `--truncate-unverifiable-history`.
+- `controller facts discard --device web1` removes every stored fact, gather and
+  coverage of the device. It refuses a history that verifies unless you add
+  `--discard-verified-history`, and one the keys it was given cannot verify either
+  way (a row does not open, or its rows name another facts key or both) unless you
+  add `--discard-unverifiable-history`; check the keys before you do. It is the only
+  repair for rows under both keys or under a key you no longer hold.
+
+After it cuts, truncate checks what it keeps again and refuses, changing nothing, if
+that does not verify. That check has two limits. The gather number each value
+carries is not covered by the chain, so an edit of it alone is not seen, as the fact
+chain route does not see it either. And the gathers and coverages it keeps are
+counted, not checked against the values it keeps, since nothing chains them. Someone
+who can write the database can change either without this command noticing: it does
+not defend against such a person, and neither does the chain.
+
+Either way the device's next gather stores its facts under the current key. What a
+repair removes cannot be recovered from the database: the backup taken before the
+change of key still holds it. The digest in the activity stream is an HMAC, under a
+key derived from the facts key it names, over what that key made of each removed
+row (its lookup token, keyed hash and chain link), its time, kind, gather and
+provenance, in the order the rows were stored. It leaves out each row's sealed
+value, so a master key rotation since does not change it, and its database ID.
+Whoever holds that facts key can recompute it over the same device's rows in a
+backup taken before the repair, to show the repair removed exactly those; nobody
+without the key can check it or learn anything from it. This release ships no tool
+that recomputes it.
 
 The upgrade deletes every fact stored before it, with the observations that named
 them, because no key can turn a plaintext row into a sealed one. Each device's next

@@ -76,6 +76,7 @@ func run() error {
 		{"migration report schema", generateMigrationReportSchema},
 		{"pr-check report schema", generatePRReportSchema},
 		{"pleiades --json schemas", generateCLIReportSchemas},
+		{"facts inspection schema", generateFactsInspectionSchema},
 		{"openapi", generateOpenAPI},
 		{"collection coverage", generateCoverage},
 		{"extension protocols", generateExtensionProtocols},
@@ -130,6 +131,7 @@ silence. They are still the one place on these pages where a human wrote the dat
 - [Template filters JSON Schema](schemas/doc-filters.json) (` + "`pleiades doc filters --json`" + `)
 - [Conditions JSON Schema](schemas/doc-conditions.json) (` + "`pleiades doc conditions --json`" + `)
 - [Facts drift JSON Schema](schemas/facts-drift.json) (` + "`pleiades facts drift --json`" + `)
+- [Facts inspection JSON Schema](schemas/facts-inspection.json) (` + "`controller facts inspect --json`" + `)
 - [Collection coverage data](schemas/collection-coverage.json) (data, not a schema: the coverage pages as JSON)
 - [OpenAPI document](schemas/openapi.json) (also served live at ` + "`/api/v1/openapi.json`" + `)
 - [External Collection protocols](schemas/extension-protocols.json) (data, not a schema: the protocol versions this release speaks, also served at ` + "`/.well-known/pleiades/extension-protocols.json`" + `)

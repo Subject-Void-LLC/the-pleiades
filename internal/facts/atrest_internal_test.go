@@ -8,9 +8,9 @@ import (
 )
 
 // TestKeys_AreNotTheDigestKeyersKey: from one secret, the hash key, the token
-// key, the chain key, the line key and the keyed-digest key are five
-// different keys, so nothing keyed for one purpose can be tested against
-// another; and the keys' identity covers the chain key.
+// key, the chain key, the line key, the removal key and the keyed-digest key
+// are six different keys, so nothing keyed for one purpose can be tested
+// against another; and the keys' identity covers the chain key.
 func TestKeys_AreNotTheDigestKeyersKey(t *testing.T) {
 	secret := []byte("facts-at-rest-test-secret-32byte")
 	keys := testKeys()
@@ -22,7 +22,7 @@ func TestKeys_AreNotTheDigestKeyersKey(t *testing.T) {
 		t.Fatal(err)
 	}
 	line := derive(secret, atRestLineLabel)
-	all := map[string][]byte{"hash": keys.hash, "token": keys.token, "chain": keys.chain, "line": line, "digest": keyer.key}
+	all := map[string][]byte{"hash": keys.hash, "token": keys.token, "chain": keys.chain, "line": line, "removal": keys.removal, "digest": keyer.key}
 	for a, ka := range all {
 		if len(ka) != 32 || bytes.Equal(ka, secret) {
 			t.Errorf("the %s key is %d bytes, or the secret itself", a, len(ka))

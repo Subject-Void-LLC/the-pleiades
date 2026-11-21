@@ -135,10 +135,11 @@ func (h *DeviceHandler) FactChain(w http.ResponseWriter, r *http.Request) {
 	Respond(w, r, http.StatusOK, &dto)
 }
 
-// factsFailed answers a facts route whose store refused. A refusal that is
-// the store's configuration (entstore.Unavailable: no facts key, a device's
-// facts under another key, or a device that could not be re-keyed) is a 503
-// with the store's fixed cause, and a warning: it is an operator's to fix,
+// factsFailed answers a facts route whose store refused. A refusal that
+// lasts until an operator acts (entstore.Unavailable: no facts key, a
+// device's facts under another key, a device that could not be re-keyed, or
+// a stored row that does not open as the device's own) is a 503 with the
+// store's fixed cause, and a warning: it is an operator's to fix,
 // it repeats on every request until one does, and the package has no way to
 // say a state once. Anything else is a fault: a 500 with the fixed text
 // answer, and an error in the log. Neither body repeats the store's own

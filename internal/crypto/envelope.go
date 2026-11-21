@@ -146,6 +146,17 @@ func (s *EnvelopeService) CurrentVersion() string {
 	return s.currentVersion
 }
 
+// PreviousVersion reports the version tag of the previous key Decrypt also
+// accepts, "" when the service holds no previous key. A version tag is the
+// label MASTER_ENCRYPTION_KEY_VERSION names, stored in the clear at the head
+// of every envelope: an identifier, never part of a key.
+func (s *EnvelopeService) PreviousVersion() string {
+	if !s.hasPrevious {
+		return ""
+	}
+	return s.previousVersion
+}
+
 // Encrypt seals plaintext under a freshly generated, single-use Data
 // Encryption Key, seals that DEK under the service's current Key
 // Encryption Key, and returns the result as a

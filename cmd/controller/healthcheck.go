@@ -123,6 +123,13 @@ const (
 	// migrates it: the one command that exists to ask before upgrading would
 	// then perform the upgrade.
 	routeMigrate
+
+	// routeFacts is `controller facts inspect|discard|truncate`
+	// (facts_repair.go). It opens the database as the admin route does, but
+	// reads its flags and the facts keys first, so a usage error or a missing
+	// key stops it before the database is opened, and its exit code says
+	// whether a device needs repair.
+	routeFacts
 )
 
 // routeFor resolves an argument vector to exactly one route.
@@ -163,6 +170,11 @@ func routeFor(args []string) commandRoute {
 	}
 	if isMigrateCommand(args) {
 		return routeMigrate
+	}
+	// Before the admin guard, which matches it too and would open the
+	// database before reading the command's flags.
+	if isFactsCommand(args) {
+		return routeFacts
 	}
 	if isAdminCommand(args) {
 		return routeAdmin

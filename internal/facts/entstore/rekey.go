@@ -302,7 +302,7 @@ func (s *Store) planRekey(device string, rows []*ent.Fact) ([]rekeyRow, map[stri
 		tokens[row.KeyToken] = token
 	}
 	if v := facts.VerifyChain(device, links, s.previous); v.Break != nil {
-		return nil, nil, fmt.Errorf("%w: under the previous key its chain breaks at stored value %d: %s", ErrRekeyRefused, v.Break.Index, v.Break.Reason)
+		return nil, nil, fmt.Errorf("%w: under the previous key its chain breaks at chain index %d: %s", ErrRekeyRefused, v.Break.Index, v.Break.Reason)
 	}
 	return plan, tokens, nil
 }

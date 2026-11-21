@@ -521,6 +521,13 @@ func TestRouteFor(t *testing.T) {
 			want: routeVersion,
 		},
 		{
+			// The admin guard matches this too, and would open the database
+			// before the command read its flags or its facts keys.
+			name: "facts wins over the admin guard that also matches it",
+			args: []string{factsCommand, "inspect", "--json"},
+			want: routeFacts,
+		},
+		{
 			name: "no arguments runs the server",
 			args: nil,
 			want: routeServer,
