@@ -145,6 +145,15 @@ type Observation struct {
 	At time.Time
 	// By is the run and task that observed them.
 	By Provenance
+	// Iteration is which run of its node on the device this observation is,
+	// when the node ran more than once there (the engine's
+	// NodeResult.Iteration: ".item[2]" for a loop's third item,
+	// ".attempt[1]" for an until task's second try), and empty for a node
+	// that ran once. It is neither stored nor chained. It tells two
+	// observations of one node apart where their times can be equal, which
+	// the Walk tier's stream idempotency key needs (internal/adapters/
+	// native's facts.go).
+	Iteration string
 }
 
 // Later reports whether an observation (order a, time ta) came after one

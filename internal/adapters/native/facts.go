@@ -98,7 +98,8 @@ func (p *factsPublisher) Record(ctx context.Context, device string, obs facts.Ob
 	// far past one broker message, so it goes as several batches, each
 	// under maxBatchBytes; the Controller stores each as it comes, all with
 	// the same run's provenance and order.
-	for _, entries := range batchesOf(obs.Entries, maxBatchBytes) {
+	batches := batchesOf(obs.Entries, maxBatchBytes)
+	for i, entries := range batches {
 		batch := facts.Batch{JobID: p.jobID, DeviceID: p.deviceID, Attempt: p.attempt, ObservedAt: obs.At.UTC(), Entries: entries, By: by}
 		plaintext, err := facts.SealPlaintextOf(batch)
 		if err != nil {
@@ -109,7 +110,7 @@ func (p *factsPublisher) Record(ctx context.Context, device string, obs facts.Ob
 			return fmt.Errorf("failed to seal a facts batch for job %s: %w", p.jobID, err)
 		}
 		batch.Entries, batch.Sealed = nil, string(file)
-		key := p.idempotencyKey(batch)
+		key := p.idempotencyKey(obs, i, len(batches))
 		wrapped, err := event.WrapPayload(key, facts.EventType, batch)
 		if err != nil {
 			return fmt.Errorf("failed to wrap a facts batch for job %s: %w", p.jobID, err)
@@ -159,11 +160,22 @@ func entrySize(e facts.Entry) int {
 	return len(raw)
 }
 
-// idempotencyKey names this batch so a publish the bus retries reproduces
-// it: the dispatch, the attempt, and a digest of the sealed entries. It is a
-// digest of ciphertext, never of the keys and hashes inside: those would let
-// a reader of the stream confirm a guess at a small fact.
-func (p *factsPublisher) idempotencyKey(b facts.Batch) string {
-	sum := sha256.Sum256([]byte(b.Sealed))
-	return fmt.Sprintf("facts:%s:%s:%d:%s", p.jobID, p.deviceID, p.attempt, hex.EncodeToString(sum[:12]))
+// idempotencyKey names batch index of the count obs was split into, by
+// identity and never by content, so a Record its caller retries after a
+// partial publish repeats every key it published before, and the broker drops
+// those repeats rather than store the same observation twice. The identity is
+// the dispatch (job, device, attempt), the task that observed it (its node,
+// and which run of the node: a loop's item or an until task's try), when it
+// was observed to the nanosecond, and the batch's place among the
+// observation's batches. It is never a digest of the sealed bytes, which are
+// fresh on every seal, and never of the keys or hashes inside, which would let
+// a reader of the stream confirm a guess at a small fact. The node and its run
+// are runbook text, so they are hashed into the key, bounding its length and
+// what characters it holds.
+func (p *factsPublisher) idempotencyKey(obs facts.Observation, index, count int) string {
+	// The node's length leads, so where it ends is never in doubt: no node
+	// and run split another way give the same bytes.
+	sum := sha256.Sum256(fmt.Appendf(nil, "%d:%s%s", len(obs.By.Node), obs.By.Node, obs.Iteration))
+	return fmt.Sprintf("facts:%s:%s:%d:%s:%d:%d/%d", p.jobID, p.deviceID, p.attempt,
+		hex.EncodeToString(sum[:12]), obs.At.UnixNano(), index, count)
 }
