@@ -264,6 +264,64 @@ the run:
   `/inventory/devices/{name}/facts/{key}`, and the chain is checked through
   `GET /inventory/devices/{name}/fact-chain`.
 
+### Baselines and drift
+
+A **baseline** is a named record of a host's stable facts at one moment, kept so a
+later read can say what has changed since. Take one with `pleiades facts baseline
+<hosts> --name NAME --reason TEXT`, where `<hosts>` is a host, a tag or a
+comma-separated list, as in a runbook's `hosts:`. `--keys` narrows it to some facts
+(`--keys 'package.*,os.kernel.release'`: a key, or a prefix ending in `*`). Volatile
+facts are never part of one.
+
+- A baseline records who took it (the operating system user), when and why. It is
+  never changed or replaced: a name a host already has is refused, and so is the whole
+  command when any host it names has that name. A host's newest baseline is its
+  active one.
+- It is sealed like the facts: each baseline is one line of
+  `.pleiades/facts/<device>.baselines.jsonl`, encrypted under the project's master
+  key and bound to its host and its place in the file, so a line copied to another
+  host or moved does not open. Neither command runs without the master key, and
+  neither makes one.
+- A baseline holds a keyed hash of each value, and the value itself, so a drift can
+  say what a value was.
+- A **golden** baseline, `--from <host>`, takes the other host's current facts as
+  what this one should match. A keyed hash covers its host, so each value is hashed
+  again for the host the baseline is of. A value holding a digest keyed for one host
+  (`hmac_sha256`: a private file's digest, `config.running_digest`) differs on every
+  host even when the file or configuration is the same, so it is recorded **not
+  comparable**, counted in the report, and never reported as drift. On its own host
+  the same value is compared like any other.
+
+`pleiades facts drift [<hosts>]` compares each host (every host in the inventory
+when none is named) with its newest baseline, or the one `--baseline NAME` names.
+Each host is `in_sync`, `drifted`, `unknown` (its facts were never gathered, or the
+baseline was taken under other keys) or `no_baseline`; a host is never `in_sync`
+when it could not be compared. Each key that differs is `added`, `removed` or
+`changed`, with its keyed hashes, when its current value was first observed and last
+confirmed, and how long ago that was. A value holding a digest is named as changed,
+never shown. `--json` prints one document, described by
+[the facts drift schema](reference/schemas/facts-drift.json).
+
+A fact a later gather no longer reports keeps its last value: the store records
+values, not their absence. So `removed` means a key the baseline has that this host
+has never reported, as with a golden baseline, and a key whose value the host's latest
+gather of its family (the key up to its first dot, `package.`) did not confirm is
+listed as not confirmed, which is how an uninstalled package shows. That list is not
+drift.
+
+The exit status is 0 when every host compared is in sync, 3 when any host drifted,
+and 1 when none drifted but a host could not be compared, or a host named on the
+command line has no baseline. A host not named that has no baseline is listed and
+does not fail the command.
+
+`baseline` and `drift`, as the first word after `facts`, are these commands: read the
+facts of a host named either with `pleiades facts -- <host>`.
+
+Not covered in this release: drift over secrets (a credential's value against what a
+device holds), baselines and drift on the Controller, and drift checked on a
+schedule. Drift is read when the command runs, from the facts as they were last
+gathered; it does not gather them.
+
 A runbook does not read stored facts yet: a value from an earlier run can be
 stale, and reading one waits for a way to say how fresh it must be. A task reads
 facts gathered in the same run through `register:`. A fact's name holds dots, so a
