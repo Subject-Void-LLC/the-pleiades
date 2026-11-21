@@ -50,6 +50,22 @@ func registerFactsRead(t *testing.T) *factsRead {
 		if s, ok := params["note"]; ok {
 			emits["tfx.note"] = s
 		}
+		// services adds a family's item; only narrows what is emitted to
+		// the keys it lists, as a gather's filter does.
+		if params["services"] == true {
+			emits["tfx.svc.sshd"] = map[string]any{"state": "running"}
+		}
+		if only, ok := params["only"].([]any); ok {
+			kept := map[string]any{}
+			for _, k := range only {
+				if key, ok := k.(string); ok {
+					if v, ok := emits[key]; ok {
+						kept[key] = v
+					}
+				}
+			}
+			emits = kept
+		}
 		for k, v := range emits {
 			if err := rc.EmitFact(k, v); err != nil {
 				return collection.Result{}, err
@@ -74,6 +90,7 @@ func registerFactsRead(t *testing.T) *factsRead {
 				{Key: "tfx.load", Kind: collection.FactVolatile, Type: collection.FactNumber, Description: "the load"},
 				{Key: "tfx.codename", Kind: collection.FactStable, Type: collection.FactString, Description: "the codename"},
 				{Key: "tfx.note", Kind: collection.FactStable, Type: collection.FactString, Description: "a note"},
+				{Key: "tfx.svc.", Prefix: true, ItemNames: true, Kind: collection.FactStable, Type: collection.FactObject, Description: "a service"},
 			}}},
 		{Name: "tfx.install", Invoke: install,
 			Check: func(context.Context, sdk.RunbookContext, inventory.InventoryItem, map[string]any) (collection.Result, error) {
@@ -133,7 +150,7 @@ func (s storeReader) ReadFacts(ctx context.Context, device string, keys []string
 	if err != nil {
 		return nil, err
 	}
-	return engine.AnswerFacts(keys, l.Current, l.Observers, time.Now()), nil
+	return engine.AnswerFacts(keys, l.Current, time.Now()), nil
 }
 
 // sealedFactStore is a real file store in a test directory, sealed under a key

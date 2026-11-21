@@ -23,13 +23,16 @@ import (
 type FactState int
 
 const (
-	// FactUnknown says the store cannot answer: no method that emits the key
-	// has observed the device (it has never been gathered for it), or what
-	// the store kept cannot say. It is the zero value, so a key a reader
-	// leaves out of its answer is unknown, never absent.
+	// FactUnknown says the store cannot answer: no observation of the device
+	// holds the key, so whether the device has it is not known (never
+	// gathered, gathered by a narrowed call, or a family's item nobody
+	// listed). It is the zero value, so a key a reader leaves out of its
+	// answer is unknown, never absent.
 	FactUnknown FactState = iota
-	// FactAbsent says a method that emits the key has observed the device
-	// and the store holds no value for it.
+	// FactAbsent says an observation known to have looked for the key found
+	// none: this run's own call of a method declaring the key by name, with
+	// nothing narrowing it (facts_overlay.go). A store answers it only once
+	// it keeps what an observation looked for, which none does yet.
 	FactAbsent
 	// FactPresent says the store holds a value.
 	FactPresent
@@ -102,19 +105,18 @@ func (x *Executor) ReadFact(ctx context.Context, device, key string, now time.Ti
 	return StoredFact{Key: key, Value: a.Value, Age: now.Sub(a.SeenAt), Known: true, State: FactPresent}, nil
 }
 
-// AnswerFacts is a store's answer for keys of one device, from what it holds
-// of them (current: each key it holds, at its current value) and the methods
-// whose observations of the device it keeps (observers). A key current holds
-// is present. One it does not hold is absent when some observer's manifest
-// declares it (that method looked at the device and stored no value for it)
-// and unknown otherwise: a device only a package gatherer has observed has
-// not been asked its operating system. A composition root's reader builds
-// its answer here, so every tier draws the line in one place.
-//
-// What an observation looked for is the method's declaration, not its call:
-// a gather narrowed by a filter still counts as looking for every key its
-// method declares.
-func AnswerFacts(keys []string, current map[string]facts.Entry, observers []string, now time.Time) map[string]FactAnswer {
+// AnswerFacts is a store's answer for keys of one device from what it holds
+// of them (current: each key it holds, at its current value). A key current
+// holds is present; every other key is unknown, never absent: a store keeps
+// what each observation emitted, not what it looked for, so nothing it holds
+// says a key was asked about and not found. A gather narrowed by a filter, a
+// family's item nobody listed (package.nginx after a gather of the defaults)
+// and a key only another subset gathers all leave a key out without the
+// device lacking it. Absent needs a record of what an observation covered,
+// which no store keeps yet; a run's own observations can say it
+// (facts_overlay.go). A composition root's reader builds its answer here, so
+// every tier draws the line in one place.
+func AnswerFacts(keys []string, current map[string]facts.Entry, now time.Time) map[string]FactAnswer {
 	out := make(map[string]FactAnswer, len(keys))
 	for _, key := range keys {
 		if e, ok := current[key]; ok {
@@ -123,13 +125,6 @@ func AnswerFacts(keys []string, current map[string]facts.Entry, observers []stri
 				seen = now
 			}
 			out[key] = FactAnswer{State: FactPresent, Value: e.Value, SeenAt: seen, Kind: e.Kind}
-			continue
-		}
-		for _, method := range observers {
-			if methodDeclaresFact(method, key) {
-				out[key] = FactAnswer{State: FactAbsent}
-				break
-			}
 		}
 	}
 	return out
@@ -145,4 +140,21 @@ func methodDeclaresFact(method, key string) bool {
 	}
 	_, declared := collection.FactFor(m.Facts, key)
 	return declared
+}
+
+// methodDeclaresExactly reports whether method declares key by name, never
+// only as an item of a family: a call that emitted a family's items says
+// nothing of an item it did not emit, since what it listed was the device's
+// answer, or a narrowed part of it.
+func methodDeclaresExactly(method, key string) bool {
+	m, ok := collection.ManifestOf(method)
+	if !ok {
+		return false
+	}
+	for _, spec := range m.Facts {
+		if !spec.Prefix && spec.Key == key {
+			return true
+		}
+	}
+	return false
 }

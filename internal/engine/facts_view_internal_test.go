@@ -97,7 +97,7 @@ func TestFactsView_EachReadWithNoAnswerSaysWhy(t *testing.T) {
 		"a key not named":     {viewOver(nilReader{}, "dev-1"), "a.b", "does not name it"},
 		"no device":           {viewOver(nilReader{}, "", "a.b"), "a.b", "the task has no device"},
 		"no reader":           {viewOver(nil, "dev-1", "a.b"), "a.b", "no store of facts"},
-		"a reader of nothing": {viewOver(nilReader{}, "dev-1", "a.b"), "a.b", "no method that emits it has observed this device"},
+		"a reader of nothing": {viewOver(nilReader{}, "dev-1", "a.b"), "a.b", "says whether the device has it"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if val := tc.view.Get(types.String(tc.key)); !types.IsError(val) {
@@ -166,7 +166,7 @@ func TestFactReads_WhatABuilderDidNotParseIsReadAgain(t *testing.T) {
 // the catalog do not hold declares nothing.
 func TestAnswerFacts_AValueNeverConfirmedIsSeenNow(t *testing.T) {
 	now := time.Date(2026, 11, 21, 0, 0, 0, 0, time.UTC)
-	got := AnswerFacts([]string{"a.b", "c.d"}, map[string]facts.Entry{"a.b": {Key: "a.b", Value: "x"}}, []string{"no.such.method"}, now)
+	got := AnswerFacts([]string{"a.b", "c.d"}, map[string]facts.Entry{"a.b": {Key: "a.b", Value: "x"}}, now)
 	if got["a.b"].SeenAt != now || got["c.d"].State != FactUnknown {
 		t.Errorf("AnswerFacts = %+v", got)
 	}

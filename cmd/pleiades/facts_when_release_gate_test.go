@@ -54,7 +54,7 @@ func TestCLI_FactsInConditionsReleaseGate(t *testing.T) {
 		t.Fatalf("validate of a read in a project with its key: exit %d\n%s", code, out)
 	}
 	out, code := g.pleiades(t, "run", never)
-	if code == 0 || !strings.Contains(out, `facts["os.kernel.name"]`) || !strings.Contains(out, "no method that emits it has observed this device") {
+	if code == 0 || !strings.Contains(out, `facts["os.kernel.name"]`) || !strings.Contains(out, "says whether the device has it") {
 		t.Fatalf("a read on a device never gathered: exit %d\n%s", code, out)
 	}
 	if exists("fw-never") {

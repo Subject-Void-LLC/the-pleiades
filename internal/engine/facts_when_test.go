@@ -117,18 +117,19 @@ tasks:
 func TestFactsRoot_TheOverlayValueEqualsTheStoredValueOnTheNextRun(t *testing.T) {
 	registerFactsRead(t)
 	store := sealedFactStore(t)
-	// A number compares as a number, and a value of the wrong type for its
-	// declaration (an integer note, declared a string) is not there, as
-	// the store would not keep it.
+	// A number compares as a number in both runs. A value of the wrong type
+	// for its declaration (an integer note, declared a string) is kept in
+	// neither, so a read of it fails in both: the store does not keep it,
+	// and the run that gathered it withholds it.
 	compare := `
   - name: big
     when:
       - facts["tfx.mem_mb"] > 4000
       - facts["tfx.mem_mb"] == 4096
       - facts["tfx.load"] > 0.5
-      - '!("tfx.note" in facts)'
     tfx.probe: {}
 `
+	note := "  - name: note\n    when: '\"tfx.note\" in facts'\n    tfx.probe: {}\n"
 	x := func() *engine.Executor {
 		return newCheckExecutor(factsFleet(), engine.WithFactReader(storeReader{store}), engine.WithFactRecorder(store))
 	}
@@ -143,25 +144,32 @@ tasks:
 `+compare+`  - name: mask
     secret_mask: {register: g, fields: [tfx.codename]}
     tfx.probe: {}
-`))
+`+note))
 	if err != nil {
 		t.Fatal(err)
-	}
-	if first.HasErrors() {
-		t.Fatalf("the gathering run failed: %+v", first.Nodes)
 	}
 	for device, n := range resultsOf(first, "tasks[1]") {
 		if n.Skipped || n.Err != nil {
 			t.Errorf("the gathering run on %s: %s", device, describe(n))
 		}
 	}
-	second, err := x().Run(context.Background(), factsDAG(t, "id: second\nhosts: fleet\ntasks:"+compare))
+	for device, n := range resultsOf(first, "tasks[3]") {
+		if n.Err == nil {
+			t.Errorf("the gathering run's read of a note of the wrong type on %s: %s, want it failed", device, describe(n))
+		}
+	}
+	second, err := x().Run(context.Background(), factsDAG(t, "id: second\nhosts: fleet\ntasks:"+compare+note))
 	if err != nil {
 		t.Fatal(err)
 	}
 	for device, n := range resultsOf(second, "tasks[0]") {
 		if n.Skipped || n.Err != nil {
 			t.Errorf("the next run on %s: %s", device, describe(n))
+		}
+	}
+	for device, n := range resultsOf(second, "tasks[1]") {
+		if n.Err == nil {
+			t.Errorf("the next run's read of the note on %s: %s, want it failed as in the gathering run", device, describe(n))
 		}
 	}
 }
@@ -368,9 +376,10 @@ func TestFactsRoot_EveryPathThatDecidesATaskReadsWhatTheRunGathered(t *testing.T
 }
 
 // TestFactsRoot_TheRunsSecretsGuardWhatAConditionReads: a value holding one
-// of the run's known secrets is never read, whether this run gathered it
-// (it is not overlaid, as it would not be stored) or the store held it (it
-// is withheld, failing the task that reads it).
+// of the run's known secrets is never read, whether this run gathered it (it
+// is not overlaid, as it would not be stored) or the store held it: either
+// way it is withheld, failing the task that reads it, and never reads absent,
+// since the device does have it.
 func TestFactsRoot_TheRunsSecretsGuardWhatAConditionReads(t *testing.T) {
 	m := registerFactsRead(t)
 	const secret = "Pelican-Vault-Forty"
@@ -388,8 +397,8 @@ tasks:
 		t.Fatal(err)
 	}
 	for device, n := range resultsOf(gathered, "tasks[1]") {
-		if !n.Skipped || n.Err != nil {
-			t.Errorf("a gathered secret on %s: %s, want it not there to read", device, describe(n))
+		if n.Err == nil || !strings.Contains(n.Err.Error(), "withheld") || strings.Contains(n.Err.Error(), secret) {
+			t.Errorf("a gathered secret on %s: %s, want it withheld, failing the task, never named", device, describe(n))
 		}
 	}
 	stored := &fakeReader{answers: map[string]map[string]engine.FactAnswer{
@@ -407,7 +416,7 @@ tasks:
 		t.Fatal(err)
 	}
 	for device, n := range resultsOf(held, "tasks[0]") {
-		if n.Err == nil || !strings.Contains(n.Err.Error(), "holds a secret this run knows") || strings.Contains(n.Err.Error(), secret) {
+		if n.Err == nil || !strings.Contains(n.Err.Error(), "withheld") || strings.Contains(n.Err.Error(), secret) {
 			t.Errorf("a stored secret on %s: %s, want it withheld, naming why and not the value", device, describe(n))
 		}
 	}

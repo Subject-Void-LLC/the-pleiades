@@ -80,9 +80,11 @@ func TestRunExecutor_AStoreThatCannotBeReadIsAnError(t *testing.T) {
 }
 
 // TestProjectFactReader_AnswersOnlyTheNamedKeysAsTheEngineReadsThem: a read
-// names keys and gets each one's current value; a key the device's observer
-// (facts.gather) declares and never stored is absent, one nothing that
-// observed it declares is unknown; a store that is a file is an error.
+// names keys and gets each one's current value. The store keeps what each
+// observation emitted, never what it looked for, so no key it lacks reads as
+// absent: not one facts.gather declares exactly (a filter may have left it
+// out), not a package after a gather or after one pkg.install, not a file
+// after a gather of another path, and not one nothing declares.
 func TestProjectFactReader_AnswersOnlyTheNamedKeysAsTheEngineReadsThem(t *testing.T) {
 	dir := t.TempDir()
 	r := projectFactReader{dir: factsDir(dir), keys: factKeysToRead(dir)}
@@ -93,25 +95,28 @@ func TestProjectFactReader_AnswersOnlyTheNamedKeysAsTheEngineReadsThem(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, v := range []string{"debian", "redhat"} {
-		entries, _, _ := facts.Prepare(map[string]any{"os.family": v}, facts.Guard{})
-		obs := facts.Observation{Entries: entries, At: time.Now(), By: facts.Provenance{Method: "facts.gather"}}
-		if err := store.Record(context.Background(), "web1", obs); err != nil {
+	record := func(method string, observed map[string]any) {
+		t.Helper()
+		entries, _, _ := facts.Prepare(observed, facts.Guard{})
+		if err := store.Record(context.Background(), "web1", facts.Observation{Entries: entries, At: time.Now(), By: facts.Provenance{Method: method}}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	got, err := r.ReadFacts(context.Background(), "web1", []string{"os.family", "os.codename", "acme.widget"})
+	record("facts.gather", map[string]any{"os.family": "debian"})
+	record("facts.gather", map[string]any{"os.family": "redhat", "file./etc/hosts": map[string]any{"exists": true}})
+	record("pkg.install", map[string]any{"package.curl": map[string]any{"version": "8.5"}})
+	keys := []string{"os.family", "os.codename", "package.nginx", "file./etc/passwd", "acme.widget"}
+	got, err := r.ReadFacts(context.Background(), "web1", keys)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if a := got["os.family"]; a.State != engine.FactPresent || a.Value != "redhat" {
 		t.Errorf("os.family = %+v, want its current value, redhat", a)
 	}
-	if a := got["os.codename"]; a.State != engine.FactAbsent {
-		t.Errorf("os.codename, which facts.gather declares and did not store = %+v, want absent", a)
-	}
-	if a := got["acme.widget"]; a.State != engine.FactUnknown {
-		t.Errorf("acme.widget, which nothing that observed web1 declares = %+v, want unknown", a)
+	for _, key := range keys[1:] {
+		if a := got[key]; a.State != engine.FactUnknown {
+			t.Errorf("%s, which no stored record says was looked for = %+v, want unknown", key, a)
+		}
 	}
 	if err := os.RemoveAll(factsDir(dir)); err != nil {
 		t.Fatal(err)

@@ -18,7 +18,7 @@ import (
 // is inside its seal (internal/facts' Lookup says what it costs).
 //
 // A project no fact was ever stored in (no directory, or one a run made and
-// never wrote) has devices no method has observed: each key is unknown. A
+// never wrote) has no stored facts: each key is unknown. A
 // project that stored facts and has lost its key gives every device of a run
 // one answer: none can be read, a device with no files of its own included,
 // since what the project knew of it may be sealed under the key that is gone.
@@ -58,12 +58,12 @@ func (r projectFactReader) ReadFacts(ctx context.Context, device string, keys []
 			return nil, keyErr
 		}
 		// Nothing was ever stored, so nothing is sealed under a key that is
-		// gone: every device is one no method has observed.
+		// gone: every key of every device is unknown.
 		return nil, nil
 	}
 	lookup, err := store.Lookup(ctx, device, keys)
 	if err != nil {
 		return nil, err
 	}
-	return engine.AnswerFacts(keys, lookup.Current, lookup.Observers, time.Now()), nil
+	return engine.AnswerFacts(keys, lookup.Current, time.Now()), nil
 }

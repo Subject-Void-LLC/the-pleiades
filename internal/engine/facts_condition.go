@@ -47,7 +47,7 @@ func (v *factsView) failure(nodeID string, task *Task, deviceName string) error 
 func missReason(err error) string {
 	switch {
 	case err == nil:
-		return "no method that emits it has observed this device, in this run or a run before it: gather it in an earlier task of this run (pleiades doc <method> lists the facts a method emits), or run a gather first"
+		return "nothing this run or the store holds says whether the device has it: it was never gathered, or a narrowed gather or a family's other items left it out, and the store keeps what a gather found, not what it looked for; gather it in an earlier task of this run, with nothing narrowing the call (pleiades doc <method> lists the facts a method emits)"
 	case errors.Is(err, ErrNoFactReader):
 		return "this run has no store of facts to read (a Runner cannot read stored facts in this release); gather it in an earlier task of the same run and read that task's registered result instead (register:, then result.<name>[\"<key>\"])"
 	case errors.Is(err, errNoFactDevice):

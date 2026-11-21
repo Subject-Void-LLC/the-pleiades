@@ -92,25 +92,19 @@ func TestReadFact_AnUnwiredExecutorRefusesToAnswer(t *testing.T) {
 	}
 }
 
-// TestAnswerFacts_AbsentOnlyWhereAMethodThatEmitsTheKeyLooked: a key the
-// store holds is present; one it lacks is absent only when an observer
-// declares it, and unknown when no observer does or none has observed.
-func TestAnswerFacts_AbsentOnlyWhereAMethodThatEmitsTheKeyLooked(t *testing.T) {
-	registerFactMethods(t)
+// TestAnswerFacts_AStoreAnswersPresentOrUnknownNeverAbsent: a key the store
+// holds is present; every other key is unknown, whatever observed the device,
+// since a store keeps what was emitted and not what was looked for.
+func TestAnswerFacts_AStoreAnswersPresentOrUnknownNeverAbsent(t *testing.T) {
 	now := time.Now()
 	current := map[string]facts.Entry{"os.kernel.release": {Key: "os.kernel.release", Value: "6.1", LastSeenAt: now.Add(-time.Minute), Kind: facts.KindStable}}
-	keys := []string{"os.kernel.release", "test.uptime", "undeclared.key"}
-	got := engine.AnswerFacts(keys, current, []string{"enginefacts.gather"}, now)
+	got := engine.AnswerFacts([]string{"os.kernel.release", "test.uptime", "undeclared.key"}, current, now)
 	if got["os.kernel.release"].State != engine.FactPresent || got["os.kernel.release"].Value != "6.1" {
 		t.Errorf("a held key = %+v, want present", got["os.kernel.release"])
 	}
-	if got["test.uptime"].State != engine.FactAbsent {
-		t.Errorf("a key the observer declares and the store lacks = %+v, want absent", got["test.uptime"])
-	}
-	if got["undeclared.key"].State != engine.FactUnknown {
-		t.Errorf("a key no observer declares = %+v, want unknown", got["undeclared.key"])
-	}
-	if none := engine.AnswerFacts(keys, nil, nil, now); none["test.uptime"].State != engine.FactUnknown {
-		t.Errorf("a device nothing observed = %+v, want unknown", none["test.uptime"])
+	for _, key := range []string{"test.uptime", "undeclared.key"} {
+		if got[key].State != engine.FactUnknown {
+			t.Errorf("%s, which the store does not hold = %+v, want unknown", key, got[key])
+		}
 	}
 }

@@ -21,7 +21,6 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	"sort"
 	"strings"
 )
 
@@ -29,18 +28,15 @@ import (
 type Lookup struct {
 	// Current is each named key the device holds, at its current value (the
 	// one Current would return for it). A named key it does not hold is not
-	// here.
+	// here, and nothing here says whether any observation looked for it: the
+	// store records what each observation emitted (its Coverage), never what
+	// it was asked for.
 	Current map[string]Entry
-	// Observers are the methods whose observations of the device the store
-	// holds, sorted, so a reader can say which keys some method looked for
-	// and did not find. A value stored before observations were kept names
-	// its method too.
-	Observers []string
 }
 
-// Lookup reads keys of device: their current values and the methods that
-// have observed it. A device the store holds nothing for has an empty Lookup
-// and no error. What it costs is the package's design note above.
+// Lookup reads keys of device: their current values. A device the store holds
+// nothing for has an empty Lookup and no error. What it costs is the
+// package's design note above.
 func (s *FileStore) Lookup(_ context.Context, name string, keys []string) (Lookup, error) {
 	d, err := s.read(name)
 	if err != nil {
@@ -50,23 +46,7 @@ func (s *FileStore) Lookup(_ context.Context, name string, keys []string) (Looku
 	for _, k := range keys {
 		want[k] = true
 	}
-	out := Lookup{Current: currentOf(d, func(key string) bool { return want[key] })}
-	methods := map[string]bool{}
-	for _, o := range d.sf.seen {
-		if o.By.Method != "" {
-			methods[o.By.Method] = true
-		}
-	}
-	for _, e := range d.written() {
-		if e.By.Method != "" {
-			methods[e.By.Method] = true
-		}
-	}
-	for m := range methods {
-		out.Observers = append(out.Observers, m)
-	}
-	sort.Strings(out.Observers)
-	return out, nil
+	return Lookup{Current: currentOf(d, func(key string) bool { return want[key] })}, nil
 }
 
 // currentOf is, for each of d's keys keep accepts, the value most recently

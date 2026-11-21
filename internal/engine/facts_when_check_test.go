@@ -121,7 +121,7 @@ func TestFactsCheck_AnObservedGatherIsReadableByCheckedTasksOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	for device, n := range resultsOf(real, "tasks[1]") {
-		if n.Err == nil || !strings.Contains(n.Err.Error(), "no method that emits it has observed this device") {
+		if n.Err == nil || !strings.Contains(n.Err.Error(), "says whether the device has it") {
 			t.Errorf("the real reader after a checked gather on %s: %s, want it failed as unknown", device, describe(n))
 		}
 	}
