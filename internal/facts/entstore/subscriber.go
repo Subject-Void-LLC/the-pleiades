@@ -132,7 +132,8 @@ func (s *Subscriber) Subscribe(ctx context.Context, bus event.Bus) error {
 // recorded yet, is returned, so the bus redelivers. A store with no key to
 // seal facts under, or holding another key than the device's history was
 // sealed under, stores nothing: the batch is acknowledged and logged as an
-// error, never stored in plaintext.
+// error, never stored in plaintext. So is a batch whose record meets a
+// stored row that does not open as the device's own (ErrNotThisDevices).
 func (s *Subscriber) Handle(evt event.Event) error {
 	// Numbers as written, so a value hashes here as it did on the Runner
 	// (an integer past 2^53 would not survive float64).
@@ -302,6 +303,18 @@ func (s *Subscriber) Handle(evt event.Event) error {
 		// once the key is set right.
 		if errors.Is(err, facts.ErrNoKeys) || errors.Is(err, ErrKeysChanged) || errors.Is(err, ErrRekeyRefused) {
 			s.logger.Error("dropping a facts batch this controller cannot store sealed; set PLEIADES_FACTS_DIGEST_KEY to the key its stored facts were sealed under, or keep that key as PLEIADES_FACTS_DIGEST_KEY_PREVIOUS beside a new one",
+				slog.String("job", termsafe.Quote(batch.JobID)), slog.String("device", termsafe.Quote(batch.DeviceID)), slog.String("reason", err.Error()))
+			return nil
+		}
+		// A stored row the record had to open (a late change writing a value
+		// again) does not open as the device's own: it was moved, edited, or
+		// sealed under another master key. That is in the database, and no
+		// redelivery changes it, so the batch is dropped and said loudly
+		// rather than spend its delivery budget and hold up the batches behind
+		// it. The reason is the store's, which names no stored byte; the
+		// device's chain check says where its history breaks.
+		if errors.Is(err, ErrNotThisDevices) {
+			s.logger.Error("dropping a facts batch: one of the device's stored facts does not open as its own (moved, edited, or sealed under another MASTER_ENCRYPTION_KEY); check the device's fact chain",
 				slog.String("job", termsafe.Quote(batch.JobID)), slog.String("device", termsafe.Quote(batch.DeviceID)), slog.String("reason", err.Error()))
 			return nil
 		}

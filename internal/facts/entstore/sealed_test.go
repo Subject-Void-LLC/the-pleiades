@@ -487,6 +487,57 @@ func TestStore_RefusesADeviceSealedUnderOtherKeys(t *testing.T) {
 	}
 }
 
+// TestSubscriber_DropsABatchWhoseResumedRowDoesNotOpen: a late change makes
+// the record open the value it writes again (facts.Resumed), and that row's
+// payload was edited in the database, so the record fails with
+// ErrNotThisDevices. No redelivery changes the database, so the consumer
+// acknowledges the batch, says why at error, and stores none of it, rather
+// than return the error and spend the batch's delivery budget.
+func TestSubscriber_DropsABatchWhoseResumedRowDoesNotOpen(t *testing.T) {
+	ctx := context.Background()
+	client, device, db, _ := sqliteClientDB(t)
+	store := entstore.New(client, factstest.Keys(), factstest.Envelope())
+	t0 := time.Date(2026, 11, 19, 10, 0, 0, 0, time.UTC)
+	a := map[string]any{"shell": "/bin/zq9sh"}
+	for _, token := range []uint64{1, 11} {
+		obs := facts.Observation{Entries: prepared(t, map[string]any{"user.zq9operator": a}), At: t0.Add(time.Duration(token) * time.Hour),
+			By: facts.Provenance{Run: fmt.Sprintf("run%d", token), Order: facts.Order{Source: facts.ClockSource, Token: token}}}
+		if err := store.Record(ctx, device, obs); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// The one stored row's payload, replaced with plain SQL by text that is
+	// not sealed, as a writer with no seal would leave it.
+	if _, err := db.ExecContext(ctx, `UPDATE facts SET payload = ?`, `{"key":"user.zq9operator","json":"\"plain\""}`); err != nil {
+		t.Fatal(err)
+	}
+	_, factsBefore := rawRows(t, db, "facts")
+	_, observationsBefore := rawRows(t, db, "fact_observations")
+	// Observed between the two gathers, stored after them: the record writes
+	// it and then the confirmed value again, which it must open.
+	late := facts.Batch{JobID: "job-1", DeviceID: device, Attempt: 1, ObservedAt: t0.Add(5 * time.Hour),
+		Entries: prepared(t, map[string]any{"user.zq9operator": map[string]any{"shell": "/bin/other"}}),
+		By:      facts.Provenance{Run: "run10", Order: facts.Order{Source: facts.ClockSource, Token: 10}}}
+	// The control: the record itself fails on the row it opens.
+	if err := store.Record(ctx, device, facts.Observation{Entries: late.Entries, At: late.ObservedAt, By: late.By}); !errors.Is(err, entstore.ErrNotThisDevices) {
+		t.Fatalf("the control failed: the late record = %v, want ErrNotThisDevices", err)
+	}
+	var logged bytes.Buffer
+	sub := entstore.NewSubscriber(store, slog.New(slog.NewTextHandler(&logged, nil)), nil)
+	if err := handle(t, sub, late); err != nil {
+		t.Errorf("the consumer returned %v, want the batch acknowledged: a redelivery meets the same row", err)
+	}
+	if !strings.Contains(logged.String(), "level=ERROR") || !strings.Contains(logged.String(), "does not open as its own") {
+		t.Errorf("the consumer did not say what it dropped and why:\n%s", logged.String())
+	}
+	if _, n := rawRows(t, db, "facts"); n != factsBefore {
+		t.Errorf("facts went from %d to %d rows: a dropped batch stored something", factsBefore, n)
+	}
+	if _, n := rawRows(t, db, "fact_observations"); n != observationsBefore {
+		t.Errorf("observations went from %d to %d: a dropped batch stored something", observationsBefore, n)
+	}
+}
+
 // TestStore_ALateChangeOpensOnlyTheValueItResumes: a record compares rows
 // without opening them, and opens one only to write a resumed value again
 // (FAILURE_PATTERNS 923): the value comes back whole through the seal.
