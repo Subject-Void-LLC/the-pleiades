@@ -24,11 +24,16 @@ var everyColumnSecret = map[string]string{
 	"saved launch configurations": "survey-secret-value",
 	"mesh signing keys":           "SAMESHSEEDFORTESTINGONLYNOTAREALKEY",
 	"mesh runner signing keys":    "SAMERUNNERSEEDFORTESTINGONLYNOTAREALKEY",
+	"facts":                       "fact-secret-value",
 }
+
+// everyColumnFactToken is the seeded fact's key token, which its payload is
+// bound to.
+const everyColumnFactToken = "0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f"
 
 // everyColumnIDs holds the id of each seeded row.
 type everyColumnIDs struct {
-	credential, device, launchConfig, meshKey int
+	credential, device, launchConfig, meshKey, fact int
 }
 
 // installEveryHook wires all four hook and interceptor pairs, the same set
@@ -44,6 +49,9 @@ func installEveryHook(client *ent.Client, svc *crypto.EnvelopeService) {
 	client.MeshSigningKey.Intercept(crypto.MeshSigningKeySeedInterceptor(svc))
 	client.MeshSigningKey.Use(crypto.MeshRunnerSeedHook(svc))
 	client.MeshSigningKey.Intercept(crypto.MeshRunnerSeedInterceptor(svc))
+	// A fact's payload has no interceptor: its store opens it itself
+	// (crypto.OpenFactPayload), as readEveryColumn does.
+	client.Fact.Use(crypto.FactPayloadHook(svc))
 }
 
 // openEveryColumn opens dbPath with every hook installed under svc.
@@ -100,12 +108,19 @@ func seedEveryColumn(t *testing.T, svc *crypto.EnvelopeService) (string, everyCo
 		SetSeed(everyColumnSecret["mesh signing keys"]).
 		SetRunnerSeed(everyColumnSecret["mesh runner signing keys"]).
 		SaveX(ctx).ID
+	// Written unsealed, as the other columns are, so the hook is what seals it.
+	ids.fact = client.Fact.Create().
+		SetKeyToken(everyColumnFactToken).SetKeyedBy("test:0000000000000000").SetHash("h").
+		SetPayload(map[string]any{"key": "package.openssh", "json": everyColumnSecret["facts"]}).
+		SetDeviceID(ids.device).
+		SaveX(ctx).ID
 	return dbPath, ids
 }
 
 // readEveryColumn reads each seeded row back through client and reports,
-// per table, whether it decrypted to the plaintext it was seeded with.
-func readEveryColumn(t *testing.T, client *ent.Client, ids everyColumnIDs) map[string]bool {
+// per table, whether it decrypted to the plaintext it was seeded with. svc is
+// the service client's hooks were built on, which opens the fact.
+func readEveryColumn(t *testing.T, client *ent.Client, svc *crypto.EnvelopeService, ids everyColumnIDs) map[string]bool {
 	t.Helper()
 	ctx := context.Background()
 	ok := map[string]bool{}
@@ -134,6 +149,15 @@ func readEveryColumn(t *testing.T, client *ent.Client, ids everyColumnIDs) map[s
 	}
 	ok["mesh signing keys"] = key.Seed == everyColumnSecret["mesh signing keys"]
 	ok["mesh runner signing keys"] = key.RunnerSeed == everyColumnSecret["mesh runner signing keys"]
+
+	// The store's own read: the row as stored, opened with the service the
+	// client's hooks were built on.
+	row, err := client.Fact.Get(ctx, ids.fact)
+	if err != nil {
+		t.Fatalf("Fact.Get() error = %v", err)
+	}
+	opened, err := crypto.OpenFactPayload(svc, row.KeyToken, row.Payload)
+	ok["facts"] = err == nil && opened["json"] == everyColumnSecret["facts"] && opened["key"] == "package.openssh"
 
 	return ok
 }

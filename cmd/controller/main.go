@@ -735,9 +735,15 @@ func main() {
 	}
 	// The facts digest key likewise, before anything is bound or migrated: a
 	// malformed one stops the controller having changed nothing.
-	digestOpen, digestKeyer, err := loadFactDigestKeys(logger)
+	digestKeys, err := loadFactDigestKeys(logger)
 	if err != nil {
 		fatal("failed to read the facts digest key", err)
+	}
+	// The keys stored facts are sealed under come from the same secret, and
+	// during a change of it the previous keys from the previous secret.
+	factKeys, previousFactKeys, err := loadFactAtRestKeys(logger)
+	if err != nil {
+		fatal("failed to derive the keys stored facts are sealed under", err)
 	}
 
 	// The drain is read before anything is bound, so a malformed
@@ -843,10 +849,12 @@ func main() {
 
 	// Heartbeat before anything can claim a sync: every sync this controller
 	// owns must have a live heartbeat behind it from the moment it exists,
-	// or another controller's sweep would take it for abandoned.
+	// or another controller's sweep would take it for abandoned. It is also
+	// the last check that this build can serve the database (joinFleet's doc),
+	// so it comes before anything else uses the client.
 	members, err := joinFleet(ctx, client, logger)
 	if err != nil {
-		fatal("failed to record this controller's heartbeat", err)
+		fatal("failed to join the controllers serving this database", err)
 	}
 
 	// Envelope encryption is installed before the client is used for
@@ -1153,8 +1161,9 @@ func main() {
 	// The key Runners seal digests of files not everyone may read to, and
 	// the key this Controller keys them with (fact_digest_keys.go, read with
 	// the envelope key above): its public half rides every dispatch, and the
-	// facts consumer below opens and keys what Runners send.
-	digestWorker, factsOpts := factDigestOptions(digestOpen, digestKeyer)
+	// facts consumer below opens and keys what Runners send, during a change
+	// of the facts key with the previous key pair as well.
+	digestWorker, factsOpts := factDigestOptions(digestKeys)
 	workerOpts = append(workerOpts, digestWorker...)
 	workerOpts = append(workerOpts,
 		dispatch.WithDefinitionSource("playbook", dispatch.NewPlaybookDefinitionSource(playbooks)))
@@ -1206,7 +1215,12 @@ func main() {
 	// Each batch's facts are held to the built-in methods' declarations,
 	// read from the module catalog this binary serves, since a Controller
 	// links no Collection (Phase 41b).
-	factStore := entstore.New(client)
+	// Sealed at rest (internal/facts' atrest.go): found by token and compared
+	// by keyed hash under factKeys, each key and value sealed under the
+	// master key. With no facts secret the store keeps nothing. With a
+	// previous facts secret, a device still under it is re-keyed the first
+	// time it is read or written (entstore's rekey.go).
+	factStore := entstore.New(client, factKeys, envelopeSvc, entstore.WithPreviousKeys(previousFactKeys))
 	factsOpts = append(factsOpts, entstore.WithNodeResolver(nodes.Resolve))
 	// Each batch is held to the claim its device's dispatch record gives (Phase 41b):
 	// a Runner's later batches cannot change place in the job.
@@ -1859,6 +1873,13 @@ func main() {
 	if rotateKeys {
 		go runKeyRotation(ctx, client, envelopeSvc, slog.Default())
 	}
+	// A change of the facts key is finished the same way, concurrently with
+	// serving: a device not yet re-keyed is re-keyed on its first read or
+	// write anyway, so this pass only saves the previous key from waiting on
+	// devices nothing touches.
+	if previousFactKeys != nil {
+		go runFactsRekey(ctx, factStore, slog.Default())
+	}
 
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
@@ -1997,6 +2018,12 @@ func installCryptoHooks(client *ent.Client, envelopeSvc *crypto.EnvelopeService)
 	client.MeshSigningKey.Intercept(crypto.MeshSigningKeySeedInterceptor(envelopeSvc))
 	client.MeshSigningKey.Use(crypto.MeshRunnerSeedHook(envelopeSvc))
 	client.MeshSigningKey.Intercept(crypto.MeshRunnerSeedInterceptor(envelopeSvc))
+
+	// A stored fact's key and value. The fact store seals and opens them
+	// itself (internal/facts/entstore), so there is no interceptor; the hook
+	// is the second line, sealing anything that reaches the table unsealed
+	// and refusing any update but a rotation's.
+	client.Fact.Use(crypto.FactPayloadHook(envelopeSvc))
 }
 
 // projectRoot is the directory every project's working tree lives under.

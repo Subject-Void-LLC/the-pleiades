@@ -27,6 +27,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts/entstore"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/facts/factstest"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/journal"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/runbook"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
@@ -254,7 +255,7 @@ func TestNodeConsumers_StoreEachBatchUnderItsNodesMethod(t *testing.T) {
 	nodes := newNodeResolver(f.jobs)
 	var logged bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&logged, nil))
-	factStore := entstore.New(f.client)
+	factStore := entstore.New(f.client, factstest.Keys(), factstest.Envelope())
 	factsSub, err := newFactsSubscriber(factStore, logger, journalAdmission(f.jobs), entstore.WithNodeResolver(nodes.Resolve))
 	if err != nil {
 		t.Fatal(err)
@@ -401,7 +402,7 @@ func TestNodeConsumers_JudgeIdentityAndSkewAlike(t *testing.T) {
 	nodes := newNodeResolver(f.jobs)
 	var logged bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&logged, nil))
-	factStore := entstore.New(f.client)
+	factStore := entstore.New(f.client, factstest.Keys(), factstest.Envelope())
 	factsSub, err := newFactsSubscriber(factStore, logger, journalAdmission(f.jobs), entstore.WithNodeResolver(nodes.Resolve))
 	if err != nil {
 		t.Fatal(err)

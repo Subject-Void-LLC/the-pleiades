@@ -23,6 +23,10 @@
 //     previous build then creates, reads, changes and deletes every kind it
 //     writes, and syncs its project again; this build reads what the previous
 //     one wrote and uses it (launches its template, syncs its project).
+//     Across a declared contract, which the previous build cannot serve, this
+//     build started beside it is refused instead, applies nothing, and the
+//     previous one serves on; this build migrates once the previous one has
+//     stopped, and then reads and uses what it wrote.
 //  4. A second controller of this build starts, and the first one is stopped
 //     behind a client that routes by readiness, the way a load balancer
 //     does: not one request fails, which is the shutdown drain's promise.
@@ -444,7 +448,120 @@ func TestUpgradeGate_ThePreviousBuildKeepsServingWhileThisOneMigrates(t *testing
 		}
 	}
 
-	// 3. This build migrates while the previous one is running, and the
+	// 3. This build migrates: beside the previous one when every crossed
+	// migration is an expand, and only once the previous one has stopped when
+	// one is a contract.
+	var current *upgradeController
+	if len(prev.contracts) > 0 {
+		current = stack.upgradeAcrossContracts(t, prev, previousCtl)
+	} else {
+		current = stack.upgradeBesideThePreviousBuild(t, previousCtl, before, repo)
+	}
+	if code, verdict, _ := stack.runPlan(t); code != 0 || verdict != "current" {
+		t.Fatalf("after this build started, migrate --plan = exit %d, %s; want 0, current", code, verdict)
+	}
+
+	// And this build reads and uses what the previous one wrote.
+	readAll(t, current, stack.token, before)
+	syncAndWait(t, current, stack.token, before.project)
+	current.must(t, stack.token, http.MethodPost, fmt.Sprintf("/templates/%s/launch", before.template), map[string]any{})
+
+	// 4. The previous build goes, a second controller of this build comes,
+	// and the first of this build drains behind a readiness-routed client.
+	// Across a contract the previous build stopped in step 3 already, and
+	// stopping it again is a no-op.
+	previousCtl.proc.stop(t)
+	second := stack.start(t, "current-2", controllerBinPath)
+	second.waitReady(t)
+	lb := startBalancer(t, stack.token, current, second)
+	// Halfway between two readiness polls, not on one. The balancer and
+	// this sleep start together, so stopping at a whole number of polls
+	// stops at the very moment the balancer looks, and a controller that
+	// did not drain would then never be sent a request it could fail: the
+	// control run with the drain switched off passed that way.
+	time.Sleep(2*readinessPoll + readinessPoll/2)
+	current.proc.stop(t)
+	time.Sleep(2 * readinessPoll)
+	probes, failures := lb.finish()
+	if probes < 20 {
+		t.Fatalf("the balancer sent only %d requests; the drain was not exercised", probes)
+	}
+	if len(failures) > 0 {
+		t.Fatalf("%d of %d requests failed while a controller drained and stopped: %v", len(failures), probes, failures)
+	}
+	t.Logf("%d requests through a drain and a stop, none failed", probes)
+
+	// 5. The previous build, started again. Inside the compatibility window
+	// (the floor is a migration it knows, as it stays across expand-only
+	// migrations), it serves again: that is the rollback path. Past the
+	// window, it is refused and says why: a build with the window names the
+	// floor it does not reach, and one without it the migration it does not
+	// recognize.
+	again := stack.start(t, "previous-again", prev.controller)
+	if floor != "" && !slices.Contains(prev.crossed, floor) {
+		again.waitReady(t)
+		t.Logf("the previous build started again inside the compatibility window (floor %s) and serves", floor)
+		return
+	}
+	select {
+	case <-again.proc.done:
+	case <-time.After(time.Minute * raceTimeScale):
+		t.Fatalf("the previous build started against a database migrated past it and kept running\n%s", again.proc.output())
+	}
+	if out := again.proc.output(); len(prev.crossed) > 0 && !strings.Contains(out, "recognize") && !strings.Contains(out, "needs a build that knows at least") {
+		t.Fatalf("the previous build's refusal does not say why:\n%s", out)
+	}
+}
+
+// upgradeAcrossContracts is step 3 when this build crosses a declared
+// contract (internal/ent/migrate's compat.go): the previous build cannot serve
+// the schema this one leaves, so the overlap the expand case measures must not
+// happen. Started while the previous build runs, this build is refused by the
+// contract guard, says what to do, and applies nothing, while the previous one
+// serves on undisturbed. Once the previous build has stopped, which removes
+// its heartbeat, this build starts and migrates.
+func (s upgradeStack) upgradeAcrossContracts(t *testing.T, prev previousBuild, previousCtl *upgradeController) *upgradeController {
+	t.Helper()
+	overlap := startBalancer(t, s.token, previousCtl)
+	refused := s.start(t, "current-refused", controllerBinPath)
+	select {
+	case <-refused.proc.done:
+	case <-time.After(2 * time.Minute * raceTimeScale):
+		t.Fatalf("this build kept running against a database it may not upgrade while the previous build %s runs\n%s", prev.ref, refused.proc.output())
+	}
+	out := refused.proc.output()
+	for _, want := range []string{"a controller of an older build is still running", "Nothing was applied", "Stop every controller older than"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("this build's refusal to upgrade beside the previous one does not say %q:\n%s", want, out)
+		}
+	}
+	// The guard refuses within about a second, so the refusal alone is too
+	// short a window to say the previous build went on serving: the balancer
+	// keeps asking it for a few readiness polls more, which is also the claim
+	// that matters, that it serves on after this build has come and gone.
+	time.Sleep(4 * readinessPoll)
+	probes, failures := overlap.finish()
+	if probes < 10 {
+		t.Fatalf("only %d requests reached the previous build while this one was refused; the overlap was not exercised", probes)
+	}
+	if len(failures) > 0 {
+		t.Fatalf("%d of %d requests to the previous build failed while this build was refused: %v", len(failures), probes, failures)
+	}
+	if code, verdict, pending := s.runPlan(t); code != 3 || verdict != "pending" || strings.Join(pending, ",") != strings.Join(prev.crossed, ",") {
+		t.Fatalf("after the refused start, migrate --plan = exit %d, %s, %v; want the whole upgrade still pending, %v", code, verdict, pending, prev.crossed)
+	}
+	t.Logf("across %v this build refused to migrate while the previous build ran, and %d requests to the previous build saw nothing of it", prev.contracts, probes)
+
+	previousCtl.proc.stop(t)
+	current := s.start(t, "current", controllerBinPath)
+	current.waitReady(t)
+	return current
+}
+
+// upgradeBesideThePreviousBuild is step 3 across expand migrations only.
+func (s upgradeStack) upgradeBesideThePreviousBuild(t *testing.T, previousCtl *upgradeController, before seeded, repo string) *upgradeController {
+	t.Helper()
+	// This build migrates while the previous one is running, and the
 	// previous one is asked something the whole time, through a client that
 	// routes by readiness and never retries. A request that fails, or finds
 	// the previous build not ready, while this build starts and migrates is
@@ -462,9 +579,9 @@ func TestUpgradeGate_ThePreviousBuildKeepsServingWhileThisOneMigrates(t *testing
 	// the previous build serves touches that table. While it is held, this
 	// build must be up and not ready, which is the migration phase observed
 	// directly rather than inferred.
-	releaseMigrations := holdMigrations(t, stack.dsn)
-	overlap := startBalancer(t, stack.token, previousCtl)
-	current := stack.start(t, "current", controllerBinPath)
+	releaseMigrations := holdMigrations(t, s.dsn)
+	overlap := startBalancer(t, s.token, previousCtl)
+	current := s.start(t, "current", controllerBinPath)
 	current.requireMigrating(t)
 	time.Sleep(migrationHold)
 	// Still not ready at the end of the hold: the window above was this
@@ -481,63 +598,14 @@ func TestUpgradeGate_ThePreviousBuildKeepsServingWhileThisOneMigrates(t *testing
 		t.Fatalf("%d of %d requests to the previous build failed while this build migrated: %v", len(failures), probes, failures)
 	}
 	t.Logf("%d requests to the previous build while this one started and migrated, none failed", probes)
-	if code, verdict, _ := stack.runPlan(t); code != 0 || verdict != "current" {
-		t.Fatalf("after this build started, migrate --plan = exit %d, %s; want 0, current", code, verdict)
-	}
 
 	// The previous build keeps doing its ordinary work on the new schema.
 	previousCtl.waitReady(t)
-	readAll(t, previousCtl, stack.token, before)
-	syncAndWait(t, previousCtl, stack.token, before.project)
-	after := seedEveryKind(t, previousCtl, stack.token, "after", repo)
-	changeAndDelete(t, previousCtl, stack.token, after)
-
-	// And this build reads and uses what the previous one wrote.
-	readAll(t, current, stack.token, before)
-	syncAndWait(t, current, stack.token, before.project)
-	current.must(t, stack.token, http.MethodPost, fmt.Sprintf("/templates/%s/launch", before.template), map[string]any{})
-
-	// 4. The previous build goes, a second controller of this build comes,
-	// and the first of this build drains behind a readiness-routed client.
-	previousCtl.proc.stop(t)
-	second := stack.start(t, "current-2", controllerBinPath)
-	second.waitReady(t)
-	lb := startBalancer(t, stack.token, current, second)
-	// Halfway between two readiness polls, not on one. The balancer and
-	// this sleep start together, so stopping at a whole number of polls
-	// stops at the very moment the balancer looks, and a controller that
-	// did not drain would then never be sent a request it could fail: the
-	// control run with the drain switched off passed that way.
-	time.Sleep(2*readinessPoll + readinessPoll/2)
-	current.proc.stop(t)
-	time.Sleep(2 * readinessPoll)
-	probes, failures = lb.finish()
-	if probes < 20 {
-		t.Fatalf("the balancer sent only %d requests; the drain was not exercised", probes)
-	}
-	if len(failures) > 0 {
-		t.Fatalf("%d of %d requests failed while a controller drained and stopped: %v", len(failures), probes, failures)
-	}
-	t.Logf("%d requests through a drain and a stop, none failed", probes)
-
-	// 5. The previous build, started again. Inside the compatibility window
-	// (the floor is a migration it knows, as it stays across expand-only
-	// migrations), it serves again: that is the rollback path. Past the
-	// window, it is refused and says why.
-	again := stack.start(t, "previous-again", prev.controller)
-	if floor != "" && !slices.Contains(prev.crossed, floor) {
-		again.waitReady(t)
-		t.Logf("the previous build started again inside the compatibility window (floor %s) and serves", floor)
-		return
-	}
-	select {
-	case <-again.proc.done:
-	case <-time.After(time.Minute * raceTimeScale):
-		t.Fatalf("the previous build started against a database migrated past it and kept running\n%s", again.proc.output())
-	}
-	if len(prev.crossed) > 0 && !strings.Contains(again.proc.output(), "recognize") {
-		t.Fatalf("the previous build's refusal does not say why:\n%s", again.proc.output())
-	}
+	readAll(t, previousCtl, s.token, before)
+	syncAndWait(t, previousCtl, s.token, before.project)
+	after := seedEveryKind(t, previousCtl, s.token, "after", repo)
+	changeAndDelete(t, previousCtl, s.token, after)
+	return current
 }
 
 // migrationHold is how long the gate holds this build's migration at its

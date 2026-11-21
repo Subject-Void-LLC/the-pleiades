@@ -24,7 +24,8 @@ func (FactCoverage) Fields() []ent.Field {
 	return []ent.Field{
 		// digest is facts.Coverage.Digest of the two lists.
 		field.String("digest").NotEmpty().MaxLen(64).Immutable(),
-		// stable and volatile are the keys covered, by kind, each sorted.
+		// stable and volatile are the tokens (Fact.key_token) of the keys
+		// covered, by kind, each sorted: a coverage names no key in plaintext.
 		field.Strings("stable").Optional().Immutable(),
 		field.Strings("volatile").Optional().Immutable(),
 	}

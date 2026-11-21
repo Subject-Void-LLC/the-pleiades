@@ -30,7 +30,7 @@ func runExecutorFor(t *testing.T, dir string, mode collection.Mode) *engine.Exec
 
 func TestRunExecutor_ReadsWhatAnEarlierRunStored(t *testing.T) {
 	dir := t.TempDir()
-	store, err := facts.NewFileStore(factsDir(dir))
+	store, err := facts.NewFileStore(factsDir(dir), factKeysToWrite(dir))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,11 +79,11 @@ func TestRunExecutor_AStoreThatCannotBeReadIsAnError(t *testing.T) {
 
 func TestProjectFactReader_History(t *testing.T) {
 	dir := t.TempDir()
-	r := projectFactReader{dir: factsDir(dir)}
+	r := projectFactReader{dir: factsDir(dir), keys: factKeysToRead(dir)}
 	if h, err := r.History(context.Background(), "web1", "os.family"); err != nil || len(h) != 0 {
 		t.Fatalf("History with no store = %v, %v", h, err)
 	}
-	store, err := facts.NewFileStore(factsDir(dir))
+	store, err := facts.NewFileStore(factsDir(dir), factKeysToWrite(dir))
 	if err != nil {
 		t.Fatal(err)
 	}

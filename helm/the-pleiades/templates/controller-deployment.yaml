@@ -218,14 +218,24 @@ spec:
                   key: JWT_SECRET
             {{- end }}
             {{- /* Only where the Secret holds one: without it the controller
-                 keeps no digest of a file only some may read, and says so at
-                 start. */}}
+                 stores no fact and keeps no digest of a file only some may
+                 read, and says so at start. */}}
             {{- if or .Values.secrets.factsDigestKey .Values.secrets.existingSecretHasFactsDigestKey }}
             - name: PLEIADES_FACTS_DIGEST_KEY
               valueFrom:
                 secretKeyRef:
                   name: {{ include "the-pleiades.secretName" . }}
                   key: PLEIADES_FACTS_DIGEST_KEY
+            {{- end }}
+            {{- /* Only while the facts key changes, and only where the Secret
+                 holds it; the chart refuses it without the current key, as
+                 the controller does. */}}
+            {{- if or .Values.secrets.factsDigestKeyPrevious .Values.secrets.existingSecretHasFactsDigestKeyPrevious }}
+            - name: PLEIADES_FACTS_DIGEST_KEY_PREVIOUS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "the-pleiades.secretName" . }}
+                  key: PLEIADES_FACTS_DIGEST_KEY_PREVIOUS
             {{- end }}
             {{- if eq .Values.controller.tls.mode "upstream" }}
             {{- /* The only configuration in which this process serves plain

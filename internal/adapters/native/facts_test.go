@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -13,6 +14,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/journal"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/lock"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/sealed"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
@@ -55,55 +57,162 @@ func factEntries(t *testing.T) []facts.Entry {
 	return entries
 }
 
+// factSealPair is a Controller's key pair for one test: the public half a
+// dispatch would carry, and the private half to open what was published.
+func factSealPair(t testing.TB) (*sealed.PrivateKey, *sealed.PublicKey) {
+	t.Helper()
+	priv, err := sealed.GenerateKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	pub := priv.Public()
+	return priv, &pub
+}
+
+// openPublished decodes one published batch and opens its sealed entries as
+// the Controller does, failing the test when the batch holds any entry in
+// plaintext or its sealed entries are not that batch's.
+func openPublished(t *testing.T, priv *sealed.PrivateKey, data []byte) facts.Batch {
+	t.Helper()
+	var batch facts.Batch
+	if err := json.Unmarshal(data, &batch); err != nil {
+		t.Fatal(err)
+	}
+	if len(batch.Entries) != 0 || batch.Sealed == "" {
+		t.Fatalf("a published batch holds %d plaintext entries and sealed text of %d bytes; want none and some", len(batch.Entries), len(batch.Sealed))
+	}
+	file, err := sealed.Parse([]byte(batch.Sealed))
+	if err != nil || file.Purpose != sealed.PurposeFactBatch {
+		t.Fatalf("the sealed entries parse as %+v, %v; want a fact batch", file, err)
+	}
+	plaintext, err := file.OpenWithKey(priv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	batch.Entries, err = facts.OpenSealedEntries(plaintext, batch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return batch
+}
+
 // TestFactsPublisher_PublishesTheDispatchsBatchOnItsJobsSubject: the batch
 // names the dispatch's job, device and attempt, rides the job's own facts
-// subject, and a retried publish reproduces its key while another
-// observation does not.
+// subject with its entries sealed to the dispatch's key, and holds no fact's
+// key or value in plaintext. Its key names the observation by identity, never
+// by content: the same observation recorded again (a caller's retry) repeats
+// it, though its sealed bytes are fresh, so the broker drops the repeat; an
+// observation at another time, by another node or by another run of the same
+// node does not.
 func TestFactsPublisher_PublishesTheDispatchsBatchOnItsJobsSubject(t *testing.T) {
 	bus := &mockBus{}
 	ctx := lock.WithFence(journal.WithAttempt(context.Background(), 3), lock.NewFence(7, "epoch-a"))
-	p := newFactsPublisher(ctx, bus, "job-1", "device-1", "runner-1")
+	priv, pub := factSealPair(t)
+	p := newFactsPublisher(ctx, bus, nil, "job-1", "device-1", "runner-1", pub)
 	at := time.Date(2026, 11, 2, 10, 0, 0, 0, time.UTC)
-	for range 2 {
-		if err := p.Record(context.Background(), "device-1", facts.Observation{Entries: factEntries(t), At: at}); err != nil {
+	observation := facts.Observation{Entries: factEntries(t), At: at, By: facts.Provenance{Node: "tasks[0]"}}
+	later := observation
+	later.At = at.Add(time.Nanosecond)
+	otherNode := observation
+	otherNode.By.Node = "tasks[1]"
+	otherRun := observation
+	otherRun.Iteration = ".item[1]"
+	for _, obs := range []facts.Observation{observation, observation, later, otherNode, otherRun} {
+		if err := p.Record(context.Background(), "device-1", obs); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if err := p.Record(context.Background(), "device-1", facts.Observation{Entries: factEntries(t), At: at.Add(time.Second)}); err != nil {
-		t.Fatal(err)
-	}
-	if len(bus.published) != 3 || bus.published[0].topic != topology.FactsSubject("runner-1", "job-1") {
+	if len(bus.published) != 5 || bus.published[0].topic != topology.FactsSubject("runner-1", "job-1") {
 		t.Fatalf("published %+v", bus.published)
 	}
-	var batch facts.Batch
-	if err := json.Unmarshal(bus.published[0].evt.Data, &batch); err != nil {
-		t.Fatal(err)
+	for _, pub := range bus.published {
+		for _, plain := range []string{"os.kernel.release", `"6.1"`} {
+			if strings.Contains(string(pub.evt.Data), plain) {
+				t.Errorf("a published batch holds %s in plaintext", plain)
+			}
+		}
 	}
+	batch := openPublished(t, priv, bus.published[0].evt.Data)
 	if batch.JobID != "job-1" || batch.DeviceID != "device-1" || batch.Attempt != 3 || len(batch.Entries) != 1 || !batch.ObservedAt.Equal(at) {
 		t.Errorf("batch = %+v", batch)
 	}
 	// Phase 41b: the batch says which job, attempt and Runner observed it,
 	// and the run's order is the device lease's fencing token.
-	want := facts.Provenance{Job: "job-1", Attempt: 3, Runner: "runner-1", Order: facts.Order{Source: "lease:epoch-a", Token: 7}}
+	want := facts.Provenance{Job: "job-1", Node: "tasks[0]", Attempt: 3, Runner: "runner-1", Order: facts.Order{Source: "lease:epoch-a", Token: 7}}
 	if batch.By != want {
 		t.Errorf("provenance = %+v, want %+v", batch.By, want)
 	}
-	if bus.published[0].evt.ID != bus.published[1].evt.ID || bus.published[1].evt.ID == bus.published[2].evt.ID {
-		t.Errorf("keys %q, %q, %q: want a retry to repeat and a new observation to differ",
-			bus.published[0].evt.ID, bus.published[1].evt.ID, bus.published[2].evt.ID)
+	keys := make([]string, len(bus.published))
+	for i, published := range bus.published {
+		keys[i] = published.evt.ID
+	}
+	// The control: the retry's sealed bytes differ, so a digest of them
+	// would not have repeated.
+	if string(bus.published[0].evt.Data) == string(bus.published[1].evt.Data) {
+		t.Fatal("the control failed: one observation sealed twice gave the same bytes")
+	}
+	if keys[0] != keys[1] {
+		t.Errorf("the same observation recorded again has keys %q and %q, want the first repeated", keys[0], keys[1])
+	}
+	for i, name := range map[int]string{2: "a nanosecond later", 3: "by another node", 4: "by another run of the node"} {
+		if keys[i] == keys[0] {
+			t.Errorf("an observation %s has the first's key %q", name, keys[0])
+		}
+	}
+	for _, key := range keys {
+		for _, plain := range []string{"os.kernel.release", "6.1", "tasks["} {
+			if strings.Contains(key, plain) {
+				t.Errorf("the key %q holds %q", key, plain)
+			}
+		}
+	}
+	// Sealed entries moved into another batch are refused when opened.
+	moved := batch
+	moved.JobID = "job-2"
+	file, err := sealed.Parse([]byte(batch.Sealed))
+	if err != nil {
+		t.Fatal(err)
+	}
+	plaintext, err := file.OpenWithKey(priv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := facts.OpenSealedEntries(plaintext, moved); err == nil {
+		t.Error("sealed entries opened as another job's batch")
+	}
+}
+
+// TestFactsPublisher_PublishesNothingWithoutAKey: a dispatch that carried no
+// key to seal to, or one that does not parse, publishes no fact at all rather
+// than one in plaintext, and the run goes on.
+func TestFactsPublisher_PublishesNothingWithoutAKey(t *testing.T) {
+	for name, key := range map[string]*sealed.PublicKey{"no key": factSealKey(""), "a key that does not parse": factSealKey("not a key")} {
+		t.Run(name, func(t *testing.T) {
+			bus := &mockBus{}
+			p := newFactsPublisher(context.Background(), bus, nil, "job-1", "device-1", "runner-1", key)
+			for range 2 {
+				if err := p.Record(context.Background(), "device-1", facts.Observation{Entries: factEntries(t), At: time.Now()}); err != nil {
+					t.Fatalf("Record: %v", err)
+				}
+			}
+			if len(bus.published) != 0 {
+				t.Errorf("published %d batch(es) with no key to seal to", len(bus.published))
+			}
+		})
 	}
 }
 
 func TestFactsPublisher_RefusesWhatItCannotPublish(t *testing.T) {
 	bus := &mockBus{}
-	p := newFactsPublisher(context.Background(), bus, "job-1", "device-1", "runner-1")
+	_, pub := factSealPair(t)
+	p := newFactsPublisher(context.Background(), bus, nil, "job-1", "device-1", "runner-1", pub)
 	if err := p.Record(context.Background(), "device-1", facts.Observation{Entries: nil, At: time.Now()}); err != nil || len(bus.published) != 0 {
 		t.Errorf("no facts: %v, published %d", err, len(bus.published))
 	}
 	if err := p.Record(context.Background(), "device-2", facts.Observation{Entries: factEntries(t), At: time.Now()}); err == nil || len(bus.published) != 0 {
 		t.Errorf("another device's facts: %v, published %d", err, len(bus.published))
 	}
-	failing := newFactsPublisher(context.Background(), failingBus{}, "job-1", "device-1", "runner-1")
+	failing := newFactsPublisher(context.Background(), failingBus{}, nil, "job-1", "device-1", "runner-1", pub)
 	if err := failing.Record(context.Background(), "device-1", facts.Observation{Entries: factEntries(t), At: time.Now()}); err == nil {
 		t.Error("a failed publish was not reported")
 	}
@@ -138,10 +247,12 @@ func TestExecute_PublishesNoFactHoldingTheDispatchsSecret(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	priv, pub := factSealPair(t)
 	payload := wire.DispatchPayload{
 		JobID: "11111111-2222-3333-4444-666666666666", RunbookID: "facts-echo",
 		DeviceID: "device-1", DeviceName: "router1", DeviceHost: "10.0.0.1",
-		Secrets: map[string]string{"username": "admin", "password": password},
+		Secrets:     map[string]string{"username": "admin", "password": password},
+		FactSealKey: pub.String(),
 	}
 	if _, err := adapter.Execute(context.Background(), payload); err != nil {
 		t.Fatalf("Execute: %v", err)
@@ -151,12 +262,14 @@ func TestExecute_PublishesNoFactHoldingTheDispatchsSecret(t *testing.T) {
 		if p.topic != topology.FactsSubject("runner-test", payload.JobID) {
 			continue
 		}
-		var batch facts.Batch
-		if err := json.Unmarshal(p.evt.Data, &batch); err != nil {
-			t.Fatal(err)
-		}
+		batch := openPublished(t, priv, p.evt.Data)
 		for _, e := range batch.Entries {
 			stored[e.Key] = e.Value
+			// The entries are sealed, so the password is looked for in what
+			// they open to, not only in the published bytes.
+			if raw, err := json.Marshal(e); err != nil || strings.Contains(string(raw), password) {
+				t.Errorf("a published fact holds the dispatch's password (%v): %s", err, e.Key)
+			}
 		}
 		if strings.Contains(string(p.evt.Data), password) {
 			t.Errorf("a published facts batch holds the dispatch's password: %s", p.evt.Data)
@@ -184,8 +297,10 @@ func TestFactsPublisher_SplitsALargeObservationIntoBrokerSizedBatches(t *testing
 		t.Fatal(err)
 	}
 	bus := &mockBus{}
-	p := newFactsPublisher(journal.WithAttempt(context.Background(), 1), bus, "job-1", "device-1", "runner-1")
-	if err := p.Record(context.Background(), "device-1", facts.Observation{Entries: entries, At: time.Now()}); err != nil {
+	priv, pub := factSealPair(t)
+	p := newFactsPublisher(journal.WithAttempt(context.Background(), 1), bus, nil, "job-1", "device-1", "runner-1", pub)
+	observation := facts.Observation{Entries: entries, At: time.Now(), By: facts.Provenance{Node: "tasks[0]"}}
+	if err := p.Record(context.Background(), "device-1", observation); err != nil {
 		t.Fatal(err)
 	}
 	if len(bus.published) < 2 {
@@ -196,10 +311,7 @@ func TestFactsPublisher_SplitsALargeObservationIntoBrokerSizedBatches(t *testing
 		if len(pub.evt.Data) > 1<<20 {
 			t.Errorf("a batch is %d bytes, past the broker's 1 MiB", len(pub.evt.Data))
 		}
-		var batch facts.Batch
-		if err := json.Unmarshal(pub.evt.Data, &batch); err != nil {
-			t.Fatal(err)
-		}
+		batch := openPublished(t, priv, pub.evt.Data)
 		if batch.By.Runner != "runner-1" || batch.JobID != "job-1" {
 			t.Errorf("a batch lost its provenance: %+v", batch.By)
 		}
@@ -212,5 +324,107 @@ func TestFactsPublisher_SplitsALargeObservationIntoBrokerSizedBatches(t *testing
 	}
 	if len(seen) != 3000 {
 		t.Errorf("%d entries published, want 3000", len(seen))
+	}
+	// Each batch of the one observation has a key of its own, and the
+	// observation recorded again repeats every one of them, in order.
+	first := len(bus.published)
+	if err := p.Record(context.Background(), "device-1", observation); err != nil {
+		t.Fatal(err)
+	}
+	if len(bus.published) != 2*first {
+		t.Fatalf("the retry published %d batches, the first record %d", len(bus.published)-first, first)
+	}
+	distinct := map[string]bool{}
+	for i := range first {
+		key := bus.published[i].evt.ID
+		distinct[key] = true
+		if again := bus.published[first+i].evt.ID; again != key {
+			t.Errorf("batch %d: the retry's key %q is not the first's %q", i, again, key)
+		}
+	}
+	if len(distinct) != first {
+		t.Errorf("%d batches of one observation share %d keys, want one each", first, len(distinct))
+	}
+}
+
+// TestFactsPublisher_ARetriedRecordIsDeduplicatedOnTheStream: an observation
+// large enough to go as several batches, recorded twice, publishes keys that
+// repeat pairwise and in order, each batch's its own, so the broker drops the
+// whole retry; a publisher built again for the same delivery repeats them
+// too. The same observation at another iteration of its node, a nanosecond
+// later, by another node, or in another attempt shares no key with it at
+// all, so none of its batches is dropped as a repeat of the first's.
+func TestFactsPublisher_ARetriedRecordIsDeduplicatedOnTheStream(t *testing.T) {
+	observed := map[string]any{}
+	for i := range 3000 {
+		observed[fmt.Sprintf("package.lib%04d", i)] = map[string]any{"version": "1.2.3-4ubuntu0.1", "arch": "amd64", "source": "apt"}
+	}
+	entries, _, err := facts.Prepare(observed, facts.Guard{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, pub := factSealPair(t)
+	at := time.Date(2026, 11, 2, 10, 0, 0, 0, time.UTC)
+	base := facts.Observation{Entries: entries, At: at, By: facts.Provenance{Node: "tasks[0]"}, Iteration: ".item[0]"}
+
+	// keysOf records each observation through a publisher of the given
+	// attempt and returns the keys of the batches each one published.
+	keysOf := func(attempt int, observations ...facts.Observation) [][]string {
+		t.Helper()
+		bus := &mockBus{}
+		p := newFactsPublisher(journal.WithAttempt(context.Background(), attempt), bus, nil, "job-1", "device-1", "runner-1", pub)
+		var out [][]string
+		for _, obs := range observations {
+			before := len(bus.published)
+			if err := p.Record(context.Background(), "device-1", obs); err != nil {
+				t.Fatal(err)
+			}
+			var keys []string
+			for _, published := range bus.published[before:] {
+				keys = append(keys, published.evt.ID)
+			}
+			out = append(out, keys)
+		}
+		return out
+	}
+
+	recorded := keysOf(1, base, base)
+	first, retry := recorded[0], recorded[1]
+	if len(first) < 2 {
+		t.Fatalf("the observation went as %d batch(es); the test needs it split", len(first))
+	}
+	// Pairwise and in order: batch i of the retry has batch i's key.
+	if !slices.Equal(first, retry) {
+		t.Errorf("the retry's keys %q are not the first record's %q, pairwise and in order", retry, first)
+	}
+	if again := keysOf(1, base)[0]; !slices.Equal(first, again) {
+		t.Errorf("a publisher built again for the same delivery gave keys %q, want the first record's %q", again, first)
+	}
+	// Each batch of the observation has a key of its own.
+	held := map[string]bool{}
+	for _, key := range first {
+		held[key] = true
+	}
+	if len(held) != len(first) {
+		t.Errorf("%d batches of one observation share %d keys, want one each: %q", len(first), len(held), first)
+	}
+
+	otherIteration := base
+	otherIteration.Iteration = ".item[1]"
+	later := base
+	later.At = at.Add(time.Nanosecond)
+	otherNode := base
+	otherNode.By.Node = "tasks[1]"
+	variants := keysOf(1, otherIteration, later, otherNode)
+	variants = append(variants, keysOf(2, base)...)
+	for i, name := range []string{"another iteration", "a nanosecond later", "another node", "another attempt"} {
+		if len(variants[i]) != len(first) {
+			t.Errorf("%s went as %d batches, the first as %d", name, len(variants[i]), len(first))
+		}
+		for j, key := range variants[i] {
+			if held[key] {
+				t.Errorf("%s: batch %d has key %q, which the first observation's batches already used", name, j, key)
+			}
+		}
 	}
 }

@@ -13,7 +13,10 @@
 //     the chart upgrades with RollingUpdate. What it has to prove is the
 //     overlap: a pod of the previous build is still Ready while a pod of
 //     this build exists and migrates, and the rollout converges with every
-//     pod on this build and the data intact. That requests do not fail
+//     pod on this build and the data intact. Across a declared contract,
+//     which the previous build cannot serve, the previous controllers are
+//     scaled to zero first, as an operator must, and that overlap is then what
+//     must not happen. That requests do not fail
 //     through the overlap is proven at the binary level, with a client that
 //     routes by readiness (upgrade_binary_gate_test.go); a kubectl
 //     port-forward pins one pod and cannot stand in for a Service.
@@ -287,6 +290,27 @@ func TestUpgradeReleaseGate_HelmUpgrade(t *testing.T) {
 		rollingOrg := seedCredential(t, call, "kept-through-rolling")
 		stop()
 
+		// Across a declared contract the previous build cannot serve what
+		// this one leaves, and this build refuses to migrate while one of its
+		// controllers runs, so a rolling update would stall by design: the
+		// new pod refused and restarting, the old ones serving. The operator
+		// stops the previous controllers first, and so does this gate; the
+		// overlap below is then the one thing that must not happen.
+		selector := "app.kubernetes.io/component=controller,app.kubernetes.io/instance=" + r.name
+		acrossContract := len(prev.contracts) > 0
+		if acrossContract {
+			r.kubectl(t, "scale", "deployment", r.name+"-controller", "--replicas=0")
+			// Polled rather than `kubectl wait --for=delete`, which fails when
+			// the pods are already gone by the time it looks.
+			for deadline := time.Now().Add(kindInstallTimeout); strings.TrimSpace(r.kubectl(t, "get", "pods", "-l", selector, "-o", "name")) != ""; {
+				if time.Now().After(deadline) {
+					t.Fatalf("the previous controllers did not stop within %s", kindInstallTimeout)
+				}
+				time.Sleep(time.Second)
+			}
+			t.Logf("across %v the previous controllers were stopped before the upgrade", prev.contracts)
+		}
+
 		// Watch the controller pods through the upgrade, and record whether
 		// a previous-build pod was ever Ready while a pod of this build
 		// existed: that is the overlap the compatibility window exists for.
@@ -332,7 +356,10 @@ func TestUpgradeReleaseGate_HelmUpgrade(t *testing.T) {
 		}()
 		r.helm(t, append([]string{"upgrade", r.name, currentChart}, r.sets("dev")...)...)
 		stopWatching()
-		if !<-overlap {
+		switch overlapped := <-overlap; {
+		case acrossContract && overlapped:
+			t.Error("a previous-build controller was Ready while this build's pod existed, across a contract it cannot serve")
+		case !acrossContract && !overlapped:
 			t.Error("no previous-build controller was Ready while this build's pod existed; the rollout did not overlap")
 		}
 

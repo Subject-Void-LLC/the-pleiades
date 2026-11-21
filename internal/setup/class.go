@@ -45,9 +45,15 @@ const (
 	// VarMaxOutage is the longest link outage the mesh must survive.
 	VarMaxOutage = "PLEIADES_MAX_OUTAGE"
 
-	// VarFactsDigestKey keys the stored digests of files not everyone may
-	// read, and seals them on their way from a Runner.
+	// VarFactsDigestKey is the facts secret: stored facts are sealed under
+	// keys derived from it, the digests of files not everyone may read are
+	// keyed under it, and Runners seal both to it on their way from them.
 	VarFactsDigestKey = "PLEIADES_FACTS_DIGEST_KEY"
+
+	// VarFactsDigestKeyPrevious is the facts secret a change of it moves
+	// away from, kept beside the new one while stored facts are re-keyed and
+	// jobs dispatched before the change still seal to it.
+	VarFactsDigestKeyPrevious = "PLEIADES_FACTS_DIGEST_KEY_PREVIOUS"
 )
 
 // Class is how much it costs to get a field wrong, which decides the guard
@@ -133,10 +139,17 @@ var Fields = []Field{
 	{Name: VarJWTSecret, Class: Reissue, Written: true},
 	{Name: VarJWKSURL, Class: Reissue, Written: true},
 	{Name: "DB_DSN", Class: Repoint},
-	// A new digest key reads as every private file having changed once, and
-	// drops digests still sealed to the old one on the broker; putting the
-	// old one back makes stored digests match again.
+	// A new facts key reads as every private file having changed once, since
+	// its digest is keyed anew. Without the old key beside it as
+	// VarFactsDigestKeyPrevious, every device's stored facts are refused and
+	// what Runners sealed to the old key is dropped; putting the old key back
+	// makes them readable again.
 	{Name: VarFactsDigestKey, Class: Repoint, Written: true},
+	// Removing the previous facts key before the controller logs the
+	// rotation complete leaves the devices still under it refused, and drops
+	// what jobs dispatched before the change seal to it; putting it back
+	// makes them readable again. This command only reads it.
+	{Name: VarFactsDigestKeyPrevious, Class: Repoint},
 	{Name: "POSTGRES_PASSWORD", Class: Repoint, Written: true},
 	{Name: "TLS_CERT_FILE", Class: SelfHealing},
 }
@@ -161,6 +174,7 @@ func ComposeVariables() []string {
 	return []string{
 		VarMasterKey, VarMasterKeyVersion,
 		VarPreviousKey, VarPreviousKeyVersion,
-		VarRotate, VarJWTSecret, VarJWKSURL, VarMaxOutage, VarFactsDigestKey,
+		VarRotate, VarJWTSecret, VarJWKSURL, VarMaxOutage,
+		VarFactsDigestKey, VarFactsDigestKeyPrevious,
 	}
 }

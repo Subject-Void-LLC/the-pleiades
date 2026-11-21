@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/facts/factstest"
 )
 
 // FuzzPrepare decodes arbitrary JSON as one observed value and holds Prepare
@@ -81,7 +82,7 @@ func BenchmarkPrepare(b *testing.B) {
 // BenchmarkFileStoreRecord writes one task's facts to a device whose history
 // already holds a thousand values, the write a run makes per task.
 func BenchmarkFileStoreRecord(b *testing.B) {
-	store, err := facts.NewFileStore(filepath.Join(b.TempDir(), "facts"))
+	store, err := facts.NewFileStore(filepath.Join(b.TempDir(), "facts"), factstest.Keys())
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -161,21 +162,21 @@ func FuzzVerifyChain(f *testing.F) {
 	f.Fuzz(func(t *testing.T, key, value, prev, chain string, token uint64) {
 		at := time.Date(2026, 11, 2, 10, 0, 0, 0, time.UTC)
 		by := facts.Provenance{Run: "r", Order: facts.Order{Source: facts.ClockSource, Token: token}}
-		hash, _ := facts.Hash(key, value)
+		hash, _ := factstest.Keys().Hash("dev1", key, value)
 		forged := []facts.Link{{Key: key, Value: value, Hash: hash, ObservedAt: at, By: by, Prev: prev, Chain: chain}}
-		if v := facts.VerifyChain("dev1", forged); v.Break != nil && (v.Break.Index < 0 || v.Break.Index >= len(forged)) {
+		if v := facts.VerifyChain("dev1", forged, factstest.Keys()); v.Break != nil && (v.Break.Index < 0 || v.Break.Index >= len(forged)) {
 			t.Fatalf("a break at %d of %d links", v.Break.Index, len(forged))
 		}
-		real, err := facts.ChainHash("dev1", "", key, hash, at, by)
+		real, err := factstest.Keys().ChainHash("dev1", "", key, hash, at, by)
 		if err != nil {
 			return
 		}
-		next, _ := facts.ChainHash("dev1", real, key, hash, at.Add(time.Second), by)
+		next, _ := factstest.Keys().ChainHash("dev1", real, key, hash, at.Add(time.Second), by)
 		intact := []facts.Link{
 			{Key: key, Value: value, Hash: hash, ObservedAt: at, By: by, Chain: real},
 			{Key: key, Value: value, Hash: hash, ObservedAt: at.Add(time.Second), By: by, Prev: real, Chain: next},
 		}
-		if v := facts.VerifyChain("dev1", intact); v.Break != nil || v.Values != 2 || v.Head != next {
+		if v := facts.VerifyChain("dev1", intact, factstest.Keys()); v.Break != nil || v.Values != 2 || v.Head != next {
 			t.Fatalf("an intact chain: %+v", v)
 		}
 	})
@@ -185,7 +186,7 @@ func FuzzVerifyChain(f *testing.F) {
 // state already holds a hundred of them: the write facts.gather's uptime
 // makes on every run.
 func BenchmarkFileStoreRecordVolatile(b *testing.B) {
-	store, err := facts.NewFileStore(filepath.Join(b.TempDir(), "facts"))
+	store, err := facts.NewFileStore(filepath.Join(b.TempDir(), "facts"), factstest.Keys())
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -215,7 +216,7 @@ func BenchmarkFileStoreRecordVolatile(b *testing.B) {
 // BenchmarkFileStoreVerify checks the chain of a device holding a thousand
 // stored values.
 func BenchmarkFileStoreVerify(b *testing.B) {
-	store, err := facts.NewFileStore(filepath.Join(b.TempDir(), "facts"))
+	store, err := facts.NewFileStore(filepath.Join(b.TempDir(), "facts"), factstest.Keys())
 	if err != nil {
 		b.Fatal(err)
 	}

@@ -23,6 +23,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/api/wellknown"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts/entstore"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/facts/factstest"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/journal"
 )
 
@@ -44,7 +45,7 @@ func noteSubscriber(t *testing.T, store facts.Store, logged *bytes.Buffer) *ents
 	}
 	admitted := func(context.Context, string, string) (journal.Admission, error) { return journal.AdmitDispatched, nil }
 	logger := slog.New(slog.NewTextHandler(logged, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	return entstore.NewSubscriber(store, logger, admitted, entstore.WithDeclarations(index), entstore.WithBuiltinProvenance(builtins))
+	return entstore.NewSubscriber(store, logger, admitted, entstore.WithDeclarations(index), entstore.WithBuiltinProvenance(builtins), withTestSealKeys(t))
 }
 
 // storedKeys is device's current keys, sorted.
@@ -96,12 +97,12 @@ func TestSubscriber_KeepsBuiltInFactsFromAMethodOutsideTheCatalog(t *testing.T) 
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			client, device := open(t)
-			store := entstore.New(client)
+			store := entstore.New(client, factstest.Keys(), factstest.Envelope())
 			var logged bytes.Buffer
 			sub := noteSubscriber(t, store, &logged)
 			batch := facts.Batch{JobID: "job-1", DeviceID: device, Attempt: 1, ObservedAt: time.Now(),
 				Entries: prepared(t, observed), By: facts.Provenance{Method: tc.method}}
-			if err := handle(t, sub, batch); err != nil {
+			if err := handleSealed(t, sub, batch); err != nil {
 				t.Fatal(err)
 			}
 			if got := storedKeys(t, store, device); !reflect.DeepEqual(got, all) {
@@ -138,7 +139,7 @@ func TestSubscriber_KeepsBuiltInFactsFromAMethodOutsideTheCatalog(t *testing.T) 
 // gives their number and names a bounded few.
 func TestSubscriber_BoundsTheBuiltInFactNote(t *testing.T) {
 	client, device := open(t)
-	store := entstore.New(client)
+	store := entstore.New(client, factstest.Keys(), factstest.Envelope())
 	var logged bytes.Buffer
 	sub := noteSubscriber(t, store, &logged)
 	observed := map[string]any{}
@@ -170,7 +171,7 @@ func TestSubscriber_BoundsTheBuiltInFactNote(t *testing.T) {
 // claim is said at warning, and nothing is noted as a release difference.
 func TestCatalogMethodClaimNoLongerWritesBuiltinKeys(t *testing.T) {
 	client, device := open(t)
-	store := entstore.New(client)
+	store := entstore.New(client, factstest.Keys(), factstest.Envelope())
 	var logged bytes.Buffer
 	nodes := &fixedNode{node: journal.NodeMethod{Resolved: true, Method: "acme.facts.read"}}
 	sub := nodeSubscriber(t, store, &logged, nodes.resolve)

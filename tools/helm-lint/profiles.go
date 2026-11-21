@@ -68,6 +68,9 @@ type profile struct {
 	// since the chart refuses both, and checkTokenSource holds every render
 	// to whichever one its profile chose.
 	jwksURL string
+	// controllerReads names the keys of the chart's own Secret this profile
+	// sets that the controller must read (checkSecretKeys).
+	controllerReads []string
 }
 
 // profiles is deliberately more than one. A chart with three TLS modes, two
@@ -249,6 +252,20 @@ var profiles = []profile{
 		probeScheme:           "HTTPS",
 		wantDisruptionBudgets: 1,
 	},
+	{
+		// A change of the facts key: the new key and the one it replaces,
+		// both in the chart's Secret, and both read by the controller. Every
+		// other profile sets neither, so checkSecretKeys there proves the
+		// controller reads neither from a Secret that lacks it.
+		name: "a change of the facts key, both keys in the chart's Secret",
+		values: []string{
+			"--set", "secrets.factsDigestKey=bmV3LWZhY3RzLWtleS1yZW5kZXItb25seS0zMmJ5dGU=",
+			"--set", "secrets.factsDigestKeyPrevious=b2xkLWZhY3RzLWtleS1yZW5kZXItb25seS0zMmJ5dGU=",
+		},
+		probeScheme:           "HTTPS",
+		wantDisruptionBudgets: 1,
+		controllerReads:       []string{"PLEIADES_FACTS_DIGEST_KEY", "PLEIADES_FACTS_DIGEST_KEY_PREVIOUS"},
+	},
 }
 
 // refusal is a configuration the chart must NOT render, and the words its
@@ -283,6 +300,48 @@ var refusals = []refusal{
 			"--set", "secrets.existingSecretHasFactsDigestKey=true",
 		},
 		wantMessage: "secrets.existingSecretHasFactsDigestKey is true but secrets.existingSecret is not set",
+	},
+	// The previous facts key, mirroring the two refusals above, and the two
+	// the controller itself makes at start, so none installs a controller
+	// that then refuses to start.
+	{
+		name: "a previous facts key value with the operator's own Secret",
+		values: []string{
+			"--set", "secrets.existingSecret=pleiades-mine",
+			"--set", "secrets.existingSecretHasFactsDigestKey=true",
+			"--set", "secrets.factsDigestKeyPrevious=cmVuZGVyLW9ubHk=",
+		},
+		wantMessage: "secrets.factsDigestKeyPrevious is set together with secrets.existingSecret",
+	},
+	{
+		name: "a previous facts key said to be in a Secret the chart does not name",
+		values: []string{
+			"--set", "secrets.existingSecretHasFactsDigestKeyPrevious=true",
+		},
+		wantMessage: "secrets.existingSecretHasFactsDigestKeyPrevious is true but secrets.existingSecret is not set",
+	},
+	{
+		name: "a previous facts key with no current one",
+		values: []string{
+			"--set", "secrets.factsDigestKeyPrevious=b2xkLWZhY3RzLWtleS1yZW5kZXItb25seS0zMmJ5dGU=",
+		},
+		wantMessage: "secrets.factsDigestKeyPrevious is set but secrets.factsDigestKey is not",
+	},
+	{
+		name: "a previous facts key the same as the current one",
+		values: []string{
+			"--set", "secrets.factsDigestKey=b2xkLWZhY3RzLWtleS1yZW5kZXItb25seS0zMmJ5dGU=",
+			"--set", "secrets.factsDigestKeyPrevious=b2xkLWZhY3RzLWtleS1yZW5kZXItb25seS0zMmJ5dGU=",
+		},
+		wantMessage: "secrets.factsDigestKeyPrevious is the same key as secrets.factsDigestKey",
+	},
+	{
+		name: "a previous facts key in the operator's Secret with no current one",
+		values: []string{
+			"--set", "secrets.existingSecret=pleiades-mine",
+			"--set", "secrets.existingSecretHasFactsDigestKeyPrevious=true",
+		},
+		wantMessage: "secrets.existingSecretHasFactsDigestKeyPrevious is true but secrets.existingSecretHasFactsDigestKey is not",
 	},
 	{
 		// The combination that installs cleanly and produces a broker

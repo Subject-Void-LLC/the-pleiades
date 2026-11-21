@@ -51,6 +51,7 @@ func TestParseEnvFile_AgreesWithDockerCompose(t *testing.T) {
 		"OTHER=\"double \\\" escaped\"\nJWT_SECRET=" + jwt + "\n",
 		"PLEIADES_MAX_OUTAGE=20m\nMASTER_ENCRYPTION_KEY_VERSION=v2\nROTATE_ENCRYPTION_KEYS=true\n",
 		"MASTER_ENCRYPTION_KEY_PREVIOUS=" + key + "\nMASTER_ENCRYPTION_KEY_PREVIOUS_VERSION=v1\n",
+		"PLEIADES_FACTS_DIGEST_KEY=" + jwt + "\nPLEIADES_FACTS_DIGEST_KEY_PREVIOUS=" + key + "\n",
 		// Shapes the parser refuses; compose's reading of each is logged so
 		// the reason for refusing it stays visible.
 		"MASTER_ENCRYPTION_KEY=\"" + key + "\"\n",

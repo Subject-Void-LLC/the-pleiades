@@ -75,9 +75,12 @@ func TestGraphTraversal(t *testing.T) {
 		t.Fatalf("failed creating access switch: %v", err)
 	}
 
-	// 3. Create an immutable Fact for the child device
+	// 3. Create an immutable Fact for the child device. A row names its
+	// key's token and the keys it was made under, never the key itself; the
+	// schema refuses one that names neither (the fact_keyed check).
 	_, err = client.Fact.Create().
-		SetKey("firmware").
+		SetKeyToken("token-of-firmware").
+		SetKeyedBy("test-keys").
 		SetPayload(map[string]interface{}{"value": "v1.2"}).
 		SetHash("sha256:abcd1234efgh5678").
 		SetDevice(accessSwitch).

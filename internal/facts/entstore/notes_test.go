@@ -12,6 +12,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts/entstore"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/facts/factstest"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
 
@@ -29,7 +30,7 @@ func TestSubscriber_NotesRepeatNoMethodUnbounded(t *testing.T) {
 	for name, id := range map[string]wire.CollectionIdentity{"cleared": tagged, "not made here": unassigned, "routed otherwise": routed} {
 		t.Run(name, func(t *testing.T) {
 			client, device := open(t)
-			store := entstore.New(client)
+			store := entstore.New(client, factstest.Keys(), factstest.Envelope())
 			var logged bytes.Buffer
 			sub := noteSubscriber(t, store, &logged)
 			batch := facts.Batch{JobID: "job-1", DeviceID: device, Attempt: 1, ObservedAt: time.Now(),
@@ -56,7 +57,7 @@ func TestSubscriber_NotesRepeatNoMethodUnbounded(t *testing.T) {
 // it says once the store takes the batch.
 func TestSubscriber_SaysNothingOfABatchItDidNotStore(t *testing.T) {
 	client, device := open(t)
-	store := entstore.New(client)
+	store := entstore.New(client, factstest.Keys(), factstest.Envelope())
 	var logged bytes.Buffer
 	sub := noteSubscriber(t, store, &logged)
 	tagged := wire.CollectionIdentity{Group: "acme" + string(rune(0xE0041)), Program: true, Manifests: gatherIdentity.Manifests}

@@ -248,6 +248,12 @@
         },
         "existingSecretHasFactsDigestKey": {
           "type": "boolean"
+        },
+        "factsDigestKeyPrevious": {
+          "type": "string"
+        },
+        "existingSecretHasFactsDigestKeyPrevious": {
+          "type": "boolean"
         }
       }
     },

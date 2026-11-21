@@ -14,7 +14,10 @@
 //   - history.go: the schema_migrations table itself.
 //   - gate.go: deciding from a database's history whether this build may use it.
 //   - compat.go: which migrations break the build before them (the policy).
+//   - guard.go: refusing to apply one of those while an older controller runs.
 //   - plan.go: answering what an upgrade would do, without doing it.
+//   - reclaim.go: running what a migration owes once it has committed, at
+//     every start until it has run.
 //
 // # Many controllers, one database
 //
@@ -46,6 +49,7 @@ import (
 	"fmt"
 	"io/fs"
 	"sort"
+	"strings"
 )
 
 // sqliteMigrations embeds every committed SQLite migration file so the
@@ -120,6 +124,66 @@ type migrationSource struct {
 	// ordinary five-second wait for a writer is shorter than a table rebuild
 	// on a large database can take (see applyOne).
 	waitForWriters bool
+
+	// afterCommit holds, by migration file name, the statements run on a
+	// connection of their own once that migration has committed: what the
+	// dialect refuses inside a transaction (see reclaim).
+	afterCommit map[string][]string
+
+	// reclaimedMark reads, and markReclaimed (a format taking one integer)
+	// writes, the number of the newest migration whose after-commit
+	// statements have run to completion since it committed (reclaimOwed).
+	// Empty for a dialect with no after-commit statements.
+	reclaimedMark string
+	markReclaimed string
+
+	// controllerTableCount counts tables named controller_instances, asked
+	// of the catalog so that a missing table is an answer rather than an
+	// error, which on PostgreSQL would abort the contract's transaction.
+	controllerTableCount string
+
+	// lockControllers is run inside a contract's transaction before the
+	// guard reads who is running, so no heartbeat is written from that read
+	// to the commit (guard.go). Empty for SQLite, whose claim already holds
+	// the database's one write lock.
+	lockControllers string
+
+	// liveControllers lists every controller_instances row written within a
+	// number of seconds, its one parameter, on the database's own clock.
+	liveControllers string
+}
+
+// liveControllersSQL is the guard's read of who is running, with the clock
+// expression of the dialect it is built for and "?" for its one parameter.
+func liveControllersSQL(clock string) string {
+	return `SELECT instance_id, version, migration_head, host, ` + clock + ` - last_seen_unix
+		FROM controller_instances WHERE last_seen_unix >= ` + clock + ` - ?
+		ORDER BY started_unix, instance_id`
+}
+
+// sqliteAfterCommit is what SQLite runs after a migration commits.
+//
+// 0052 deletes every fact a build before it stored in plaintext. SQLite does
+// not overwrite a deleted row: its bytes stay in the file's free pages, and
+// in the write-ahead log, until something reuses them, so a copy of the file
+// taken after the upgrade would still hold the facts the upgrade was meant to
+// remove. VACUUM rebuilds the file without its free pages, and the
+// checkpoint that follows moves the rebuilt pages into it and empties the
+// log. VACUUM cannot run inside a transaction, which every migration's
+// script does, so it runs here. PostgreSQL needs no counterpart from this
+// package: its dead rows are reclaimed by its own vacuum, and what its files
+// hold until then is the database's storage to protect.
+//
+// It is owed from the moment the migration commits until it has run, and a
+// start that died between the two would leave the plaintext in the file for
+// good, so whether it has run is recorded and every start runs what is still
+// owed (reclaimOwed). The record is SQLite's PRAGMA user_version, an integer
+// in the database file's own header that nothing else in this project
+// writes: the number of the newest migration whose statements here ran to
+// completion after it committed. A VACUUM reclaims every page that is free
+// when it runs, so one run after a migration covers each migration before it.
+var sqliteAfterCommit = map[string][]string{
+	"0052_fact_at_rest.sql": {"VACUUM", "PRAGMA wal_checkpoint(TRUNCATE)"},
 }
 
 // migrationSources maps a driver dialect name (entgo.io/ent/dialect's
@@ -140,6 +204,12 @@ var migrationSources = map[string]migrationSource{
 		floorColumnCount:   `SELECT count(*) FROM pragma_table_info('schema_migrations') WHERE name = 'compatible_from'`,
 		suspendForeignKeys: true,
 		waitForWriters:     true,
+		afterCommit:        sqliteAfterCommit,
+		reclaimedMark:      `PRAGMA user_version`,
+		markReclaimed:      `PRAGMA user_version = %d`,
+
+		controllerTableCount: `SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'controller_instances'`,
+		liveControllers:      liveControllersSQL(SQLiteClockSQL),
 	},
 	"postgres": {
 		dialect:           "postgres",
@@ -159,6 +229,13 @@ var migrationSources = map[string]migrationSource{
 			AND attnum > 0 AND NOT attisdropped`,
 		claimPrelude: postgresClaimPrelude,
 		prelude:      postgresPrelude,
+
+		controllerTableCount: `SELECT count(*) FROM pg_catalog.pg_class WHERE oid = to_regclass('controller_instances')`,
+		// SHARE conflicts with the ROW EXCLUSIVE every INSERT, UPDATE and
+		// DELETE takes, and with nothing a read takes: heartbeats wait for the
+		// contract's transaction, and readers of the table do not.
+		lockControllers: `LOCK TABLE controller_instances IN SHARE MODE`,
+		liveControllers: strings.Replace(liveControllersSQL(PostgresClockSQL), "?", "$1", 1),
 	},
 }
 
@@ -201,6 +278,28 @@ type Outcome struct {
 	// Floor is the oldest migration a build must know to serve this database,
 	// when Newer is non-empty.
 	Floor string
+
+	// Reclaimed lists each migration whose after-commit statements this call
+	// ran to completion: one it applied, or one an earlier start applied and
+	// did not finish reclaiming after (reclaimOwed).
+	Reclaimed []string
+
+	// NotReclaimed lists each migration whose after-commit statements are
+	// owed and failed in this call, with the failure. The migration itself is
+	// applied and recorded; what it deleted may still be readable in the
+	// database's file until the next start reclaims it, or an operator does
+	// (on SQLite, VACUUM).
+	NotReclaimed []string
+
+	// Contracts lists the migrations this call applied that are declared
+	// contracts (compat.go). Once one is applied, a build older than
+	// AppliedFloor refuses this database, and going back past it means
+	// restoring the backup taken before the upgrade.
+	Contracts []string
+
+	// AppliedFloor is the compatibility floor the last migration this call
+	// applied recorded, when it applied any.
+	AppliedFloor string
 }
 
 // Apply brings db up to the latest schema version for dialectName by
@@ -268,6 +367,7 @@ func applyPending(ctx context.Context, db *sql.DB, src migrationSource, names []
 	if err != nil {
 		return out, err
 	}
+	foreseen := false
 	for {
 		gate, err := checkGate(names, history, mode)
 		if err != nil {
@@ -275,7 +375,25 @@ func applyPending(ctx context.Context, db *sql.DB, src migrationSource, names []
 		}
 		out.Newer, out.Floor = gate.newer, gate.floor
 		if len(gate.pending) == 0 || recorded(history, stopAfter) {
+			// Once nothing is left to apply: whatever reclamation is owed,
+			// from this call's migrations or an earlier start's, is run
+			// now, and never fails the start.
+			reclaimOwed(ctx, db, src, history, &out)
 			return out, nil
+		}
+
+		// Once, before anything is applied: when a pending contract would
+		// be refused (guard.go), refuse now, so not even the expand
+		// migrations ahead of it are applied. The check inside the
+		// contract's own transaction is the one that decides; this one only
+		// spares a database a half-done upgrade.
+		if !foreseen {
+			foreseen = true
+			if g := strictestGuard(src.dialect, names, gate.pending, stopAfter); g != nil {
+				if err := g.check(ctx, db, src, false, "Nothing was applied."); err != nil {
+					return out, err
+				}
+			}
 		}
 
 		name := gate.pending[0]
@@ -283,7 +401,9 @@ func applyPending(ctx context.Context, db *sql.DB, src migrationSource, names []
 		if err != nil {
 			return out, fmt.Errorf("migrate: reading %s: %w", name, err)
 		}
-		attemptErr := applyOne(ctx, db, src, name, string(script), floorAfter(src.dialect, names, name))
+		guard := guardFor(src.dialect, names, name)
+		floor := floorAfter(src.dialect, names, name)
+		attemptErr := applyOne(ctx, db, src, name, string(script), floor, guard)
 
 		// Load again, whatever happened. After a success this is what the
 		// next pass decides from; after a failure it is the only way to
@@ -299,6 +419,10 @@ func applyPending(ctx context.Context, db *sql.DB, src migrationSource, names []
 		switch {
 		case attemptErr == nil:
 			out.Applied = append(out.Applied, name)
+			out.AppliedFloor = floor
+			if guard != nil {
+				out.Contracts = append(out.Contracts, name)
+			}
 		case recorded(history, name):
 			out.AppliedElsewhere = append(out.AppliedElsewhere, name)
 		default:

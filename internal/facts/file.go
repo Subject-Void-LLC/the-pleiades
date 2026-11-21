@@ -13,6 +13,11 @@
 // lock rather than exclude each other, so each device's files are written
 // under a lock of their own (<device>.lock, flock or LockFileEx), and a line a
 // crash left unfinished is ignored by readers and cut off by the next writer.
+//
+// Nothing in those files is plaintext (atrest.go): each line of the two
+// append-only files, and the state file whole, is sealed under a key derived
+// from the project's master key, bound to the device, the file and the line's
+// place in it. A store with no key writes nothing and reads nothing.
 package facts
 
 import (
@@ -38,12 +43,12 @@ const (
 )
 
 // maxLineBytes bounds one history line read back: a value's bound plus room
-// for the key, hash and times. maxSeenLineBytes bounds one observation line,
-// which may list every key an observation may hold, each escaped as JSON may
-// write it.
-const (
-	maxLineBytes     = MaxValueBytes + 4<<10
-	maxSeenLineBytes = MaxFactsPerObservation*(6*MaxKeyBytes+3) + 4<<10
+// for the key, hash and times, as a sealed line holds them. maxSeenLineBytes
+// bounds one observation line, which may list every key an observation may
+// hold, each escaped as JSON may write it.
+var (
+	maxLineBytes     = SealedLineBytes(MaxValueBytes + 4<<10)
+	maxSeenLineBytes = SealedLineBytes(MaxFactsPerObservation*(6*MaxKeyBytes+3) + 4<<10)
 )
 
 // deviceName is what a device's files are named after: its ID, a UUID or a
@@ -57,11 +62,15 @@ var ErrNoStore = errors.New("facts: no fact store in this project yet")
 // FileStore is the Crawl CLI's Store over a directory.
 type FileStore struct {
 	dir string
+	// keys seals every line and keys every hash (atrest.go). Nil stores and
+	// reads nothing (ErrNoKeys).
+	keys *Keys
 }
 
 // NewFileStore returns a store over dir, made owner-only when missing or
-// looser, and refused when it is a symbolic link.
-func NewFileStore(dir string) (*FileStore, error) {
+// looser, and refused when it is a symbolic link. keys seals what it keeps;
+// with none it keeps nothing.
+func NewFileStore(dir string, keys *Keys) (*FileStore, error) {
 	if info, err := os.Lstat(dir); err == nil && info.Mode()&os.ModeSymlink != 0 {
 		return nil, fmt.Errorf("facts: %s is a symbolic link, not a directory", dir)
 	}
@@ -71,12 +80,13 @@ func NewFileStore(dir string) (*FileStore, error) {
 	if err := os.Chmod(dir, dirMode); err != nil { // #nosec G302 -- 0o700 is a directory permission (owner rwx), as the journal's
 		return nil, fmt.Errorf("facts: %w", err)
 	}
-	return &FileStore{dir: dir}, nil
+	return &FileStore{dir: dir, keys: keys}, nil
 }
 
 // OpenFileStore returns a store over dir for reading, creating nothing: a
-// missing directory is ErrNoStore, and a link is refused.
-func OpenFileStore(dir string) (*FileStore, error) {
+// missing directory is ErrNoStore, and a link is refused. keys opens what it
+// reads; with none every read is ErrNoKeys.
+func OpenFileStore(dir string, keys *Keys) (*FileStore, error) {
 	info, err := os.Lstat(dir)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
@@ -86,7 +96,7 @@ func OpenFileStore(dir string) (*FileStore, error) {
 	case !info.IsDir():
 		return nil, fmt.Errorf("facts: %s is not a directory", dir)
 	}
-	return &FileStore{dir: dir}, nil
+	return &FileStore{dir: dir, keys: keys}, nil
 }
 
 // lockOpenAttempts bounds how often openLock tries again; lockOpenRetries
@@ -175,11 +185,27 @@ func appendTo(r *os.Root, name string, complete int64, appended []byte) error {
 	return nil
 }
 
+// openStored opens one stored line (without its newline) of device's file of
+// the given role at offset. A line that reads as the JSON a build from before
+// facts were sealed wrote is named as that, since no key opens it.
+func openStored(keys *Keys, device, role string, offset int64, raw []byte) ([]byte, error) {
+	plaintext, err := keys.OpenLine(device, role, offset, bytes.TrimSuffix(raw, []byte("\n")))
+	if errors.Is(err, ErrSealed) && bytes.HasPrefix(raw, []byte("{")) {
+		return nil, fmt.Errorf("%w: it was written before stored facts were sealed; remove the device's files under .pleiades/facts to start a sealed history", ErrSealed)
+	}
+	return plaintext, err
+}
+
 // readLines reads device's history, and how many bytes of it are whole
-// lines (readJSONL).
-func readLines(r *os.Root, device string) ([]line, int64, error) {
+// lines (readJSONL). Each line must open under keys as this device's line
+// at its place: one that does not is an error, never skipped.
+func readLines(r *os.Root, keys *Keys, device string) ([]line, int64, error) {
 	var lines []line
-	complete, err := readJSONL(r, device+".jsonl", maxLineBytes, func(n int, raw []byte) error {
+	complete, err := readJSONL(r, device+".jsonl", maxLineBytes, func(n int, offset int64, sealed []byte) error {
+		raw, err := openStored(keys, device, RoleValues, offset, sealed)
+		if err != nil {
+			return fmt.Errorf("facts: %s.jsonl line %d: %w", device, n, err)
+		}
 		var l line
 		dec := json.NewDecoder(bytes.NewReader(raw))
 		dec.UseNumber()
@@ -201,12 +227,12 @@ func readLines(r *os.Root, device string) ([]line, int64, error) {
 	return lines, complete, nil
 }
 
-// readJSONL hands each whole line of the append-only file name to each, and
-// returns how many bytes are whole lines. A missing file has none; a final
+// readJSONL hands each whole line of the append-only file name to each, with
+// the byte offset it starts at, and returns how many bytes are whole lines. A missing file has none; a final
 // line with no newline (a write a crash cut short) is left out; a line longer
 // than any stored line can be, or one each refuses, is an error, never
 // skipped.
-func readJSONL(r *os.Root, name string, maxBytes int, each func(n int, raw []byte) error) (int64, error) {
+func readJSONL(r *os.Root, name string, maxBytes int, each func(n int, offset int64, raw []byte) error) (int64, error) {
 	f, err := r.Open(name)
 	if errors.Is(err, fs.ErrNotExist) {
 		return 0, nil
@@ -228,7 +254,7 @@ func readJSONL(r *os.Root, name string, maxBytes int, each func(n int, raw []byt
 		if len(raw) > maxBytes {
 			return 0, fmt.Errorf("facts: %s line %d is longer than a stored line can be", name, n)
 		}
-		if err := each(n, raw); err != nil {
+		if err := each(n, complete, raw); err != nil {
 			return 0, err
 		}
 		complete += int64(len(raw))
@@ -243,7 +269,10 @@ func readJSONL(r *os.Root, name string, maxBytes int, each func(n int, raw []byt
 // synced (FAILURE_PATTERNS 922). Refusing it refused the device's
 // facts forever; what it held is the volatile values, which the next run
 // observes again, while the history itself is in <device>.jsonl.
-func readState(r *os.Root, device string) (state, error) {
+//
+// What is there otherwise must open under keys as this device's state: a
+// state copied from another device, or edited, is an error.
+func readState(r *os.Root, keys *Keys, device string) (state, error) {
 	st := state{Volatile: map[string]volatileValue{}}
 	f, err := r.Open(device + ".state.json")
 	if errors.Is(err, fs.ErrNotExist) {
@@ -260,6 +289,9 @@ func readState(r *os.Root, device string) (state, error) {
 	if len(bytes.Trim(raw, "\x00")) == 0 {
 		return st, nil
 	}
+	if raw, err = openStored(keys, device, RoleState, 0, raw); err != nil {
+		return state{}, fmt.Errorf("facts: %s.state.json: %w", device, err)
+	}
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.UseNumber()
 	if err := dec.Decode(&st); err != nil {
@@ -275,9 +307,13 @@ func readState(r *os.Root, device string) (state, error) {
 // name and a rename, so a reader never meets half of one. The temporary file
 // is synced before the rename: without it a crash could leave the rename on
 // disk and the data not, an empty state file (FAILURE_PATTERNS 922, a repeat
-// of 566).
-func writeState(r *os.Root, device string, st state) error {
-	raw, err := json.Marshal(st)
+// of 566). The state is sealed whole under keys, as this device's.
+func writeState(r *os.Root, keys *Keys, device string, st state) error {
+	plain, err := json.Marshal(st)
+	if err != nil {
+		return fmt.Errorf("facts: %w", err)
+	}
+	raw, err := keys.SealLine(device, RoleState, 0, plain)
 	if err != nil {
 		return fmt.Errorf("facts: %w", err)
 	}

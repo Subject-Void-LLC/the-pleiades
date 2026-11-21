@@ -17,17 +17,22 @@
 // applies it records that floor, and older builds refuse the database, or
 // stop serving it, instead of guessing.
 //
-// Three things enforce this, because a policy nothing enforces is a sentence:
+// Four things enforce this, because a policy nothing enforces is a sentence:
 //
 //   - compat_shape_internal_test.go captures each dialect's schema after
 //     every migration and fails when an undeclared migration contracts.
 //   - tests/e2e's upgrade gate runs the previous build's real binary against
-//     the newly migrated schema and requires it to keep serving.
+//     the newly migrated schema and requires it to keep serving, or, across
+//     a declared contract, to be refused and to block the upgrade.
 //   - checkGate refuses, at every start and every heartbeat, a database whose
 //     recorded floor this build does not reach.
+//   - guard.go refuses to apply a contract while a controller older than its
+//     floor is still running, since the floor alone stops a running one only
+//     at its next heartbeat.
 //
 // What none of them can see, and review must: a column whose MEANING changes
-// while its shape does not (declare it with semantic set), NATS stream and
+// while its shape does not (declare it with semantic set), a CHECK constraint
+// added to an existing table (the shape test reads no checks), NATS stream and
 // wire formats, and a new value of an enum stored as text. One more is seen
 // and deliberately allowed: a NEW table's foreign key onto an existing one.
 // Its rows are written only by the newer build, but while they exist an older
@@ -50,10 +55,11 @@ type contract struct {
 	// nothing, so it requires this flag to accept such a declaration.
 	semantic bool
 
-	// grandfathered marks a contract that shipped before this policy existed.
-	// Only those may appear today: a new contract needs the apply-time guard
-	// that refuses to contract while an older controller is still running,
-	// and that guard is not built yet (TestANewContractNeedsTheGuard).
+	// grandfathered marks a contract that shipped before this policy and its
+	// guard existed. Each applies before controller_instances does, so the
+	// guard has no controller to see then and passes it; every other
+	// contract comes after that table, and is applied only once the guard
+	// finds no older controller running (TestEveryNewContractIsGuarded).
 	grandfathered bool
 
 	// reason says, in a sentence, what the build before it would do wrong.
@@ -65,9 +71,9 @@ type contract struct {
 // three files longer), so a declaration names each dialect's own file, and
 // the shape test checks that the two dialects declare the same changes.
 //
-// Every entry below is grandfathered history, and goes when the 1.0.0 golden
-// image squashes the migrations it names into one baseline. The table and the
-// rules around it stay.
+// The grandfathered entries below are history, and go when the 1.0.0 golden
+// image squashes the migrations they name into one baseline, as does the facts
+// at rest one. The table and the rules around it stay.
 var contracts = map[string]map[string]contract{
 	"sqlite3": {
 		"0002_add_device_type.sql": {
@@ -90,6 +96,10 @@ var contracts = map[string]map[string]contract{
 			grandfathered:  true,
 			reason:         "drops schedules.template_schedules for a required launchable_schedules the build before it never writes",
 		},
+		"0052_fact_at_rest.sql": {
+			compatibleFrom: "0052_fact_at_rest.sql",
+			reason:         factAtRestReason,
+		},
 	},
 	"postgres": {
 		"0028_add_sync_run_origin.sql": {
@@ -102,8 +112,20 @@ var contracts = map[string]map[string]contract{
 			grandfathered:  true,
 			reason:         "drops schedules.template_schedules for a required launchable_schedules the build before it never writes",
 		},
+		"0049_fact_at_rest.sql": {
+			compatibleFrom: "0049_fact_at_rest.sql",
+			reason:         factAtRestReason,
+		},
 	},
 }
+
+// factAtRestReason is why the facts at rest migration is a contract: what a
+// build before it stores is the plaintext the migration deleted, so the
+// migration makes the schema refuse that build's writes outright (it drops the
+// key column every one of them names, and its fact_keyed check refuses a row
+// with no token or keys), and the floor and the guard keep that build from
+// running against the schema at all.
+const factAtRestReason = "seals stored facts and drops facts.key, which the build before it reads and writes, so that build can no longer store a fact's key and value in plaintext"
 
 // floorAfter returns the compatibility floor a database of this dialect has
 // once the named migration is applied: the highest compatibleFrom among the

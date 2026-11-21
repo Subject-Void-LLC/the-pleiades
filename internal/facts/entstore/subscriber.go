@@ -41,6 +41,10 @@ type Subscriber struct {
 	// dropped.
 	digestOpen  *sealed.PrivateKey
 	digestKeyer *facts.Keyer
+	// digestOpenPrevious opens what a Runner sealed to the previous facts
+	// secret's key during a change of it (WithPreviousDigestKey); nil opens
+	// nothing more.
+	digestOpenPrevious *sealed.PrivateKey
 	// builtins names the built-in methods (WithBuiltinProvenance); a fact a
 	// built-in holds from any other method is stored and noted at info. Nil
 	// notes nothing.
@@ -125,7 +129,11 @@ func (s *Subscriber) Subscribe(ctx context.Context, bus event.Bus) error {
 // nothing that passes, names a device the database lacks, was never
 // dispatched, or holds a value the database refuses as data is acknowledged
 // and logged: redelivery would never change it. A database failure, or a dispatch not
-// recorded yet, is returned, so the bus redelivers.
+// recorded yet, is returned, so the bus redelivers. A store with no key to
+// seal facts under, or holding another key than the device's history was
+// sealed under, stores nothing: the batch is acknowledged and logged as an
+// error, never stored in plaintext. So is a batch whose record meets a
+// stored row that does not open as the device's own (ErrNotThisDevices).
 func (s *Subscriber) Handle(evt event.Event) error {
 	// Numbers as written, so a value hashes here as it did on the Runner
 	// (an integer past 2^53 would not survive float64).
@@ -152,6 +160,33 @@ func (s *Subscriber) Handle(evt event.Event) error {
 			slog.String("runner", termsafe.Quote(batch.By.Runner)), slog.String("subject", termsafe.Quote(evt.Subject)))
 		return nil
 	}
+	// How many of the batch's sealed files the previous seal key opened
+	// (WithPreviousDigestKey), said once below: a job dispatched under the
+	// previous facts secret still needs it.
+	underPrevious := 0
+	// A Runner seals a batch's entries to this controller's key; they are
+	// opened here, held to the batch that carries them, and from then on are
+	// the batch's entries. A batch that will not open is dropped: redelivery
+	// would not change it.
+	if batch.Sealed != "" {
+		entries, previous, err := s.openBatch(batch)
+		if err != nil {
+			s.logger.Error("dropping a facts batch whose sealed entries this controller cannot open as that batch's",
+				slog.String("job", termsafe.Quote(batch.JobID)), slog.String("device", termsafe.Quote(batch.DeviceID)),
+				slog.String("runner", termsafe.Quote(batch.By.Runner)), slog.String("reason", err.Error()))
+			return nil
+		}
+		batch.Entries = entries
+		if previous {
+			underPrevious++
+		}
+	} else if len(batch.Entries) > 0 {
+		// A Runner of an earlier release: its facts already crossed the
+		// stream in plaintext, so dropping them here would hide nothing.
+		s.logger.Warn("a Runner published facts unsealed, so they crossed the stream in plaintext; upgrade the Runner to this controller's release",
+			slog.String("job", termsafe.Quote(batch.JobID)), slog.String("device", termsafe.Quote(batch.DeviceID)),
+			slog.String("runner", termsafe.Quote(batch.By.Runner)))
+	}
 	// The run that observed them, held to the batch's own job and attempt
 	// rather than trusting a second copy of each.
 	by := batch.By
@@ -160,7 +195,15 @@ func (s *Subscriber) Handle(evt event.Event) error {
 	// keyed (or dropped) before anything is written.
 	guard := facts.Guard{Shaped: redact.SecretShaped, SecretName: redact.SecretName, Declared: s.declared, AllowSealed: true}
 	entries, refused, err := facts.Verify(batch.Entries, guard)
-	entries, lost := s.keyDigests(batch.JobID, batch.DeviceID, entries)
+	entries, lost, previousDigests := s.keyDigests(batch.JobID, batch.DeviceID, entries)
+	if underPrevious += previousDigests; underPrevious > 0 {
+		// Said at info, not as a fault: it is what a change of the facts key
+		// expects while jobs dispatched before it finish. It is how an
+		// operator sees the previous key is still in use.
+		s.logger.Info("opened facts a Runner sealed to the previous facts key, for a job dispatched under it; keep PLEIADES_FACTS_DIGEST_KEY_PREVIOUS set until no such job runs",
+			slog.String("job", termsafe.Quote(batch.JobID)), slog.String("device", termsafe.Quote(batch.DeviceID)),
+			slog.String("runner", termsafe.Quote(batch.By.Runner)), slog.Int("sealed", underPrevious))
+	}
 	if len(lost) > 0 {
 		// Named by fact, never by value: a Controller without the digest
 		// key, a Runner sealing to another key, or a sealed digest from
@@ -250,6 +293,29 @@ func (s *Subscriber) Handle(evt event.Event) error {
 		if errors.Is(err, ErrUnknownDevice) {
 			s.logger.Error("dropping a facts batch for a device the database does not hold",
 				slog.String("job", termsafe.Quote(batch.JobID)), slog.String("device", termsafe.Quote(batch.DeviceID)))
+			return nil
+		}
+		// No key to seal the facts under, a facts key other than the ones
+		// the device's history was written under, or a history under the
+		// previous key that does not verify under it: none changes on a
+		// redelivery, and a fact is never stored unsealed, so the batch is
+		// dropped and said loudly. The device's next gather stores its facts
+		// once the key is set right.
+		if errors.Is(err, facts.ErrNoKeys) || errors.Is(err, ErrKeysChanged) || errors.Is(err, ErrRekeyRefused) {
+			s.logger.Error("dropping a facts batch this controller cannot store sealed; set PLEIADES_FACTS_DIGEST_KEY to the key its stored facts were sealed under, or keep that key as PLEIADES_FACTS_DIGEST_KEY_PREVIOUS beside a new one",
+				slog.String("job", termsafe.Quote(batch.JobID)), slog.String("device", termsafe.Quote(batch.DeviceID)), slog.String("reason", err.Error()))
+			return nil
+		}
+		// A stored row the record had to open (a late change writing a value
+		// again) does not open as the device's own: it was moved, edited, or
+		// sealed under another master key. That is in the database, and no
+		// redelivery changes it, so the batch is dropped and said loudly
+		// rather than spend its delivery budget and hold up the batches behind
+		// it. The reason is the store's, which names no stored byte; the
+		// device's chain check says where its history breaks.
+		if errors.Is(err, ErrNotThisDevices) {
+			s.logger.Error("dropping a facts batch: one of the device's stored facts does not open as its own (moved, edited, or sealed under another MASTER_ENCRYPTION_KEY); check the device's fact chain",
+				slog.String("job", termsafe.Quote(batch.JobID)), slog.String("device", termsafe.Quote(batch.DeviceID)), slog.String("reason", err.Error()))
 			return nil
 		}
 		// The server refused a value itself, so storing this batch again

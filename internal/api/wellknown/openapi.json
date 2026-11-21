@@ -6693,7 +6693,7 @@
     },
     "/inventory/devices/{name}/fact-chain": {
       "get": {
-        "description": "Walks the device's stored stable facts in the order they were written and reports the first that was edited, deleted or moved. It is tamper-evident, not tamper-proof: whoever can write the database can rewrite the chain from an edit onward, and values cut off the end leave a shorter chain that still verifies, which comparing head with a copy kept elsewhere notices. Volatile facts are not chained.",
+        "description": "Walks the device's stored stable facts in the order they were written and reports the first that was edited, deleted or moved. It is tamper-evident, not tamper-proof: whoever can write the database and holds the facts key can rewrite the chain from an edit onward, and values cut off the end leave a shorter chain that still verifies, which comparing head with a copy kept elsewhere notices. Volatile facts are not chained.",
         "operationId": "verify_device_fact_chain",
         "parameters": [
           {
@@ -6776,6 +6776,38 @@
               }
             },
             "description": "No device with that name exists."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The fact store could not be read."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The device's facts cannot be read as this controller is configured: it holds no facts key (PLEIADES_FACTS_DIGEST_KEY), the device's facts were stored under another facts key than it holds, or they could not be re-keyed under a new one. The body says which; it names no fact."
           }
         },
         "security": [
@@ -7028,6 +7060,38 @@
               }
             },
             "description": "No device with that name exists."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The fact store could not be read."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The device's facts cannot be read as this controller is configured: it holds no facts key (PLEIADES_FACTS_DIGEST_KEY), the device's facts were stored under another facts key than it holds, or they could not be re-keyed under a new one. The body says which; it names no fact."
           }
         },
         "security": [
@@ -7289,6 +7353,38 @@
               }
             },
             "description": "No device with that name exists."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The fact store could not be read."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The device's facts cannot be read as this controller is configured: it holds no facts key (PLEIADES_FACTS_DIGEST_KEY), the device's facts were stored under another facts key than it holds, or they could not be re-keyed under a new one. The body says which; it names no fact."
           }
         },
         "security": [

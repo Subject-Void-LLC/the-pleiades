@@ -8,6 +8,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/credential"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/device"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/fact"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/meshsigningkey"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/savedlaunchconfig"
 )
@@ -72,5 +73,10 @@ var encryptedColumns = []encryptedColumn{
 		table: meshsigningkey.Table, column: meshsigningkey.FieldRunnerSeed,
 		bare:   true,
 		rotate: RotateMeshRunnerSeeds,
+	},
+	{
+		noun: "facts", hook: "FactPayloadHook",
+		table: fact.Table, column: fact.FieldPayload,
+		rotate: RotateFactPayloads,
 	},
 }

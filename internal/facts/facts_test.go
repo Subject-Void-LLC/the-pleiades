@@ -104,7 +104,7 @@ func prepared(t *testing.T, observed map[string]any) []facts.Entry {
 // current value is the newest line, and history is every value in order.
 func TestFileStore_WritesOnChangeAndKeepsHistory(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "facts")
-	store, err := facts.NewFileStore(dir)
+	store, err := facts.NewFileStore(dir, factstest.Keys())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -167,7 +167,7 @@ func TestFileStore_WritesOnChangeAndKeepsHistory(t *testing.T) {
 // fact are errors, never written through or skipped.
 func TestFileStore_RefusesWhatItCannotTrust(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "facts")
-	store, err := facts.NewFileStore(dir)
+	store, err := facts.NewFileStore(dir, factstest.Keys())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -194,11 +194,25 @@ func TestFileStore_RefusesWhatItCannotTrust(t *testing.T) {
 	if raw, _ := os.ReadFile(outside); len(raw) != 0 { // #nosec G304 -- the test's own file
 		t.Errorf("the file outside was written: %q", raw)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "corrupt.jsonl"), []byte("{\"key\":\"k\",\"hash\":\"h\"}\nnot json\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	// A line that opens and is not a stored fact, behind one that is.
+	factstest.WriteLines(t, factstest.Keys(), filepath.Join(dir, "corrupt.jsonl"), "corrupt", facts.RoleValues, [][]byte{[]byte(`{"key":"k","hash":"h"}`), []byte("not json")})
 	if _, err := store.Current(ctx, "corrupt"); err == nil || !strings.Contains(err.Error(), "line 2") {
 		t.Errorf("a corrupt history: %v, want line 2 named", err)
+	}
+	// A line that does not open at all, and one a build from before facts
+	// were sealed wrote: each an error naming it, never a skipped line.
+	sealed := factstest.SealLines(t, factstest.Keys(), "corrupt", facts.RoleValues, [][]byte{[]byte(`{"key":"k","hash":"h"}`)})
+	for name, second := range map[string]string{"is not sealed": "not sealed\n", "was written before": `{"key":"k","value":"v","hash":"h"}` + "\n"} {
+		if err := os.WriteFile(filepath.Join(dir, "corrupt.jsonl"), append(append([]byte{}, sealed...), second...), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		_, err := store.Current(ctx, "corrupt")
+		if !errors.Is(err, facts.ErrSealed) || !strings.Contains(err.Error(), "line 2") {
+			t.Errorf("a line that %s: %v, want ErrSealed naming line 2", name, err)
+		}
+		if name == "was written before" && !strings.Contains(err.Error(), "before stored facts were sealed") {
+			t.Errorf("a plaintext line: %v, want it named as written before facts were sealed", err)
+		}
 	}
 }
 
@@ -236,7 +250,7 @@ func TestVerify_RechecksWhatARunnerPublished(t *testing.T) {
 // without becoming current, and the history goes on to the value confirmed
 // after it rather than ending at the late one (FAILURE_PATTERNS 923).
 func TestFileStore_ALateObservationDoesNotReplaceANewerOne(t *testing.T) {
-	store, err := facts.NewFileStore(filepath.Join(t.TempDir(), "facts"))
+	store, err := facts.NewFileStore(filepath.Join(t.TempDir(), "facts"), factstest.Keys())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -262,7 +276,7 @@ func TestFileStore_ALateObservationDoesNotReplaceANewerOne(t *testing.T) {
 // the next writer cuts off rather than refusing the file forever.
 func TestFileStore_AnUnfinishedLineIsIgnoredAndCutOff(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "facts")
-	store, err := facts.NewFileStore(dir)
+	store, err := facts.NewFileStore(dir, factstest.Keys())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -283,15 +297,15 @@ func TestFileStore_AnUnfinishedLineIsIgnoredAndCutOff(t *testing.T) {
 	if err := store.Record(ctx, "dev", facts.Observation{Entries: prepared(t, map[string]any{"k": "C"}), At: time.Now().Add(time.Second)}); err != nil {
 		t.Fatal(err)
 	}
-	raw, _ := os.ReadFile(path) // #nosec G304 -- the test's own file
-	lines := strings.Split(strings.TrimSuffix(string(raw), "\n"), "\n")
+	// Every line left opens at its place and is whole JSON.
+	lines := factstest.OpenLines(t, factstest.Keys(), path, "dev", facts.RoleValues)
 	for _, l := range lines {
-		if !json.Valid([]byte(l)) {
+		if !json.Valid(l) {
 			t.Errorf("a line that is not whole JSON survived: %q", l)
 		}
 	}
 	if len(lines) != 2 {
-		t.Errorf("%d lines, want A and C: %q", len(lines), raw)
+		t.Errorf("%d lines, want A and C: %q", len(lines), lines)
 	}
 }
 
@@ -305,7 +319,7 @@ func TestFileStore_ConcurrentWritersTakeTurns(t *testing.T) {
 	done := make(chan error, 2)
 	for w := range 2 {
 		go func() {
-			store, err := facts.NewFileStore(dir)
+			store, err := facts.NewFileStore(dir, factstest.Keys())
 			if err != nil {
 				done <- err
 				return
@@ -325,7 +339,7 @@ func TestFileStore_ConcurrentWritersTakeTurns(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	store, _ := facts.NewFileStore(dir)
+	store, _ := facts.NewFileStore(dir, factstest.Keys())
 	current, err := store.Current(ctx, "dev")
 	if err != nil || len(current) != 100 {
 		t.Fatalf("after two writers: %d facts, %v; want 100", len(current), err)
@@ -344,7 +358,7 @@ func TestFileStore_ConcurrentWritersTakeTurns(t *testing.T) {
 // store tries that again, and the note says how often it had to here.
 func TestFileStore_ManyStoresCreateOneDevicesFilesAtOnce(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "facts")
-	if _, err := facts.NewFileStore(dir); err != nil {
+	if _, err := facts.NewFileStore(dir, factstest.Keys()); err != nil {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
@@ -355,7 +369,7 @@ func TestFileStore_ManyStoresCreateOneDevicesFilesAtOnce(t *testing.T) {
 	errs := make(chan error, stores)
 	for w := range stores {
 		go func() {
-			store, err := facts.NewFileStore(dir)
+			store, err := facts.NewFileStore(dir, factstest.Keys())
 			if err != nil {
 				errs <- err
 				return
@@ -379,7 +393,7 @@ func TestFileStore_ManyStoresCreateOneDevicesFilesAtOnce(t *testing.T) {
 	// A "note: " line reaches testgate's output and a CI job's summary
 	// even when the test passes (flakegate.Notes).
 	t.Logf("note: lock opens tried again on %s/%s: %d", runtime.GOOS, runtime.GOARCH, facts.LockOpenRetries()-before)
-	store, _ := facts.NewFileStore(dir)
+	store, _ := facts.NewFileStore(dir, factstest.Keys())
 	for d := range devices {
 		current, err := store.Current(ctx, fmt.Sprintf("dev%d", d))
 		if err != nil || len(current) != stores {
@@ -423,7 +437,7 @@ func TestOpenLock_ADirectoryThatIsGoneFailsAtOnce(t *testing.T) {
 // directory that is a link is refused for writing and reading alike.
 func TestFileStore_ReadingCreatesNothingAndRefusesALink(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "facts")
-	if _, err := facts.OpenFileStore(dir); !errors.Is(err, facts.ErrNoStore) {
+	if _, err := facts.OpenFileStore(dir, factstest.Keys()); !errors.Is(err, facts.ErrNoStore) {
 		t.Errorf("a missing store: %v, want ErrNoStore", err)
 	}
 	if _, err := os.Stat(dir); !os.IsNotExist(err) {
@@ -436,10 +450,10 @@ func TestFileStore_ReadingCreatesNothingAndRefusesALink(t *testing.T) {
 	if err := os.Symlink(elsewhere, dir); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := facts.NewFileStore(dir); err == nil {
+	if _, err := facts.NewFileStore(dir, factstest.Keys()); err == nil {
 		t.Error("a linked directory was accepted for writing")
 	}
-	if _, err := facts.OpenFileStore(dir); err == nil {
+	if _, err := facts.OpenFileStore(dir, factstest.Keys()); err == nil {
 		t.Error("a linked directory was accepted for reading")
 	}
 }
@@ -448,7 +462,7 @@ func TestFileStore_ReadingCreatesNothingAndRefusesALink(t *testing.T) {
 // stores keep (factstest).
 func TestFileStore_Conformance(t *testing.T) {
 	factstest.Run(t, func(t *testing.T) (facts.Store, string) {
-		store, err := facts.NewFileStore(filepath.Join(t.TempDir(), "facts"))
+		store, err := facts.NewFileStore(filepath.Join(t.TempDir(), "facts"), factstest.Keys())
 		if err != nil {
 			t.Fatal(err)
 		}

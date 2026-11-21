@@ -632,7 +632,9 @@ func newRunExecutor(opts runOptions, world validate.WorldView, sink engine.Journ
 	// store, as it opens no journal.
 	var recorder engine.FactRecorder
 	if mode == collection.ModeExecute {
-		store, err := facts.NewFileStore(factsDir(opts.dir))
+		// Sealed under keys derived from the project's master key (internal/
+		// facts' atrest.go); a run that cannot read that key stores no fact.
+		store, err := facts.NewFileStore(factsDir(opts.dir), factKeysToWrite(opts.dir))
 		if err != nil {
 			closeAll()
 			return nil, nil, fmt.Errorf("opening the project's fact store: %w", err)
@@ -655,7 +657,7 @@ func newRunExecutor(opts runOptions, world validate.WorldView, sink engine.Journ
 		engine.WithFactRecorder(recorder),
 		// Every run, a check included, reads the devices' stored facts from
 		// the same store, which a read never creates.
-		engine.WithFactReader(projectFactReader{dir: factsDir(opts.dir)}),
+		engine.WithFactReader(projectFactReader{dir: factsDir(opts.dir), keys: factKeysToRead(opts.dir)}),
 		engine.WithMode(mode),
 		// run's --extra-vars; the Controller's Runner passes a launch's own
 		// the same way (internal/adapters/native).

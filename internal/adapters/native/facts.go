@@ -11,13 +11,14 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"strings"
-	"time"
+	"log/slog"
+	"sync"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/journal"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/lock"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/sealed"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
 )
 
@@ -34,13 +35,41 @@ type factsPublisher struct {
 	// journal publisher reads it: the run's order on this device (Phase
 	// 41b). A shared lease, or one lost, gives no order.
 	fence *lock.Fence
+	// seal is the Controller's public key the dispatch carried
+	// (wire.DispatchPayload.FactSealKey), which every batch is sealed to
+	// before it is published. Nil, for a dispatch with no key or one that
+	// does not parse, and nothing is published: a fact never rides the
+	// stream in plaintext.
+	seal *sealed.PublicKey
+	// logger says once per dispatch (unsealed) that facts were dropped for
+	// want of a key.
+	logger   *slog.Logger
+	unsealed sync.Once
 }
 
 // newFactsPublisher builds the sink for one dispatch; the attempt and the
 // lease's fence come from the delivery's context, as the journal's do.
-func newFactsPublisher(ctx context.Context, bus event.Bus, jobID, deviceID, runnerID string) *factsPublisher {
+// seal is the dispatch's fact seal key, or nil when it carried none that parses.
+func newFactsPublisher(ctx context.Context, bus event.Bus, logger *slog.Logger, jobID, deviceID, runnerID string, seal *sealed.PublicKey) *factsPublisher {
 	attempt, _ := journal.AttemptFrom(ctx)
-	return &factsPublisher{bus: bus, jobID: jobID, deviceID: deviceID, attempt: attempt, runnerID: runnerID, fence: lock.FenceFrom(ctx)}
+	if logger == nil {
+		logger = slog.Default()
+	}
+	return &factsPublisher{bus: bus, jobID: jobID, deviceID: deviceID, attempt: attempt, runnerID: runnerID,
+		fence: lock.FenceFrom(ctx), seal: seal, logger: logger}
+}
+
+// factSealKey is the public key payloadKey holds, or nil when it is empty or
+// does not parse (factSealing reports the parse failure).
+func factSealKey(payloadKey string) *sealed.PublicKey {
+	if payloadKey == "" {
+		return nil
+	}
+	pub, err := sealed.ParsePublicKey(payloadKey)
+	if err != nil {
+		return nil
+	}
+	return &pub
 }
 
 // Record implements engine.FactRecorder. The device is always the one the
@@ -53,6 +82,13 @@ func (p *factsPublisher) Record(ctx context.Context, device string, obs facts.Ob
 	if device != p.deviceID {
 		return fmt.Errorf("facts for device %s in a dispatch for device %s", device, p.deviceID)
 	}
+	if p.seal == nil {
+		p.unsealed.Do(func() {
+			p.logger.Warn("facts observed in this dispatch are not published: it carries no key to seal them to, and a fact is never published in plaintext; set PLEIADES_FACTS_DIGEST_KEY on the controller",
+				slog.String("job", p.jobID), slog.String("device", p.deviceID))
+		})
+		return nil
+	}
 	by := obs.By
 	by.Job, by.Attempt, by.Runner = p.jobID, p.attempt, p.runnerID
 	if revision, epoch, ok := p.fence.Token(); ok {
@@ -62,9 +98,19 @@ func (p *factsPublisher) Record(ctx context.Context, device string, obs facts.Ob
 	// far past one broker message, so it goes as several batches, each
 	// under maxBatchBytes; the Controller stores each as it comes, all with
 	// the same run's provenance and order.
-	for _, entries := range batchesOf(obs.Entries, maxBatchBytes) {
+	batches := batchesOf(obs.Entries, maxBatchBytes)
+	for i, entries := range batches {
 		batch := facts.Batch{JobID: p.jobID, DeviceID: p.deviceID, Attempt: p.attempt, ObservedAt: obs.At.UTC(), Entries: entries, By: by}
-		key := p.idempotencyKey(batch)
+		plaintext, err := facts.SealPlaintextOf(batch)
+		if err != nil {
+			return fmt.Errorf("failed to encode a facts batch for job %s: %w", p.jobID, err)
+		}
+		file, err := sealed.SealToKey(*p.seal, sealed.PurposeFactBatch, plaintext)
+		if err != nil {
+			return fmt.Errorf("failed to seal a facts batch for job %s: %w", p.jobID, err)
+		}
+		batch.Entries, batch.Sealed = nil, string(file)
+		key := p.idempotencyKey(obs, i, len(batches))
 		wrapped, err := event.WrapPayload(key, facts.EventType, batch)
 		if err != nil {
 			return fmt.Errorf("failed to wrap a facts batch for job %s: %w", p.jobID, err)
@@ -76,10 +122,11 @@ func (p *factsPublisher) Record(ctx context.Context, device string, obs facts.Ob
 	return nil
 }
 
-// maxBatchBytes bounds one published batch's entries, encoded, well under
-// the broker's default 1 MiB message limit, with room for the envelope and
-// provenance.
-const maxBatchBytes = 512 << 10
+// maxBatchBytes bounds one published batch's entries, encoded: under what
+// one sealed file holds (sealed.MaxFactBatchSize) with room for the batch's
+// own binding and for one entry of the largest value, and so, sealed and
+// encoded, well under the broker's default 1 MiB message limit.
+const maxBatchBytes = 160 << 10
 
 // batchesOf splits entries into runs whose encoded size stays under max,
 // in their order; an entry larger than max on its own (a value is bounded
@@ -113,14 +160,22 @@ func entrySize(e facts.Entry) int {
 	return len(raw)
 }
 
-// idempotencyKey names this batch so a retried publish reproduces it: the
-// dispatch, the attempt, and a digest of what it holds (each key's hash, and
-// when it was observed).
-func (p *factsPublisher) idempotencyKey(b facts.Batch) string {
-	var parts []string
-	for _, e := range b.Entries {
-		parts = append(parts, e.Key+"="+e.Hash)
-	}
-	sum := sha256.Sum256([]byte(strings.Join(parts, "\n") + "\n" + b.ObservedAt.Format(time.RFC3339Nano)))
-	return fmt.Sprintf("facts:%s:%s:%d:%s", p.jobID, p.deviceID, p.attempt, hex.EncodeToString(sum[:12]))
+// idempotencyKey names batch index of the count obs was split into, by
+// identity and never by content, so a Record its caller retries after a
+// partial publish repeats every key it published before, and the broker drops
+// those repeats rather than store the same observation twice. The identity is
+// the dispatch (job, device, attempt), the task that observed it (its node,
+// and which run of the node: a loop's item or an until task's try), when it
+// was observed to the nanosecond, and the batch's place among the
+// observation's batches. It is never a digest of the sealed bytes, which are
+// fresh on every seal, and never of the keys or hashes inside, which would let
+// a reader of the stream confirm a guess at a small fact. The node and its run
+// are runbook text, so they are hashed into the key, bounding its length and
+// what characters it holds.
+func (p *factsPublisher) idempotencyKey(obs facts.Observation, index, count int) string {
+	// The node's length leads, so where it ends is never in doubt: no node
+	// and run split another way give the same bytes.
+	sum := sha256.Sum256(fmt.Appendf(nil, "%d:%s%s", len(obs.By.Node), obs.By.Node, obs.Iteration))
+	return fmt.Sprintf("facts:%s:%s:%d:%s:%d:%d/%d", p.jobID, p.deviceID, p.attempt,
+		hex.EncodeToString(sum[:12]), obs.At.UnixNano(), index, count)
 }

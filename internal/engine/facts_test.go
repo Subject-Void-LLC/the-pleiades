@@ -17,10 +17,11 @@ import (
 
 // factSink keeps what a run handed it, or fails when told to.
 type factSink struct {
-	mu   sync.Mutex
-	got  map[string][]facts.Entry
-	by   []facts.Provenance
-	fail error
+	mu         sync.Mutex
+	got        map[string][]facts.Entry
+	by         []facts.Provenance
+	iterations []string
+	fail       error
 }
 
 func (s *factSink) Record(_ context.Context, device string, obs facts.Observation) error {
@@ -31,7 +32,30 @@ func (s *factSink) Record(_ context.Context, device string, obs facts.Observatio
 	}
 	s.got[device] = append(s.got[device], obs.Entries...)
 	s.by = append(s.by, obs.By)
+	s.iterations = append(s.iterations, obs.Iteration)
 	return nil
+}
+
+// TestFacts_EachRunOfALoopedTaskIsItsOwnObservation: a task looping over two
+// items records two observations of one node, each naming which run of the
+// node it is, so a recorder can tell them apart where their times are equal
+// (the Walk tier's idempotency key); a task that ran once names none.
+func TestFacts_EachRunOfALoopedTaskIsItsOwnObservation(t *testing.T) {
+	registerFactMethods(t)
+	sink := &factSink{got: map[string][]facts.Entry{}}
+	if _, err := newCheckExecutor(factFleet(), engine.WithFactRecorder(sink)).Run(context.Background(),
+		buildDAG(t, `{"id": "facts", "tasks": [{"name": "g", "loop": ["a", "b"], "enginefacts.gather": {"target": "fleet"}}, {"name": "once", "enginefacts.gather": {"target": "fleet"}}]}`)); err != nil {
+		t.Fatal(err)
+	}
+	if len(sink.by) != 3 {
+		t.Fatalf("%d observations, want one per item and one for the task that ran once", len(sink.by))
+	}
+	if sink.by[0].Node != sink.by[1].Node || sink.iterations[0] != ".item[0]" || sink.iterations[1] != ".item[1]" {
+		t.Errorf("the loop's observations: nodes %q, %q, iterations %q; want one node, each item named", sink.by[0].Node, sink.by[1].Node, sink.iterations[:2])
+	}
+	if sink.by[2].Node == sink.by[0].Node || sink.iterations[2] != "" {
+		t.Errorf("the task that ran once: node %q, iteration %q; want its own node and none", sink.by[2].Node, sink.iterations[2])
+	}
 }
 
 // registerFactMethods registers enginefacts.gather, which emits a fact, a

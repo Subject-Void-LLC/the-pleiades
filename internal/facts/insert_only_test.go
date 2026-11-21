@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/facts/factstest"
 )
 
 // snapshot is every file in dir but the lock, by name.
@@ -44,7 +45,7 @@ func snapshot(t *testing.T, dir string) map[string][]byte {
 func TestFileStore_AGatherOnlyAppends(t *testing.T) {
 	ctx := context.Background()
 	dir := filepath.Join(t.TempDir(), "facts")
-	store, err := facts.NewFileStore(dir)
+	store, err := facts.NewFileStore(dir, factstest.Keys())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,7 +107,7 @@ func TestFileStore_AGatherOnlyAppends(t *testing.T) {
 func TestFileStore_ADamagedObservationLineCostsOnlyConfirmations(t *testing.T) {
 	ctx := context.Background()
 	dir := filepath.Join(t.TempDir(), "facts")
-	store, err := facts.NewFileStore(dir)
+	store, err := facts.NewFileStore(dir, factstest.Keys())
 	if err != nil {
 		t.Fatal(err)
 	}

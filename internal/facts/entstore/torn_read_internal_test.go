@@ -17,6 +17,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/enttest"
 	entfact "github.com/Subject-Void-LLC/the-pleiades/internal/ent/fact"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/facts/factstest"
 )
 
 // TestSighted_ARecordBetweenReadsCreditsNoReplacedValue: Current takes its
@@ -30,7 +31,7 @@ func TestSighted_ARecordBetweenReadsCreditsNoReplacedValue(t *testing.T) {
 	client := enttest.Open(t, "sqlite3", dsn)
 	t.Cleanup(func() { _ = client.Close() })
 	device := client.Device.Create().SetName("web1").SetType("linux_server").SetProperties(map[string]any{"host": "10.0.0.1"}).SaveX(ctx).DeviceID
-	s := New(client)
+	s := New(client, factstest.Keys(), factstest.Envelope())
 	t0 := time.Date(2026, 11, 7, 10, 0, 0, 0, time.UTC)
 	gather := func(run string, token uint64, kernel string) {
 		t.Helper()
@@ -52,7 +53,7 @@ func TestSighted_ARecordBetweenReadsCreditsNoReplacedValue(t *testing.T) {
 	gather("run2", 2, "6.2")
 	credited := func(upTo int64) string {
 		t.Helper()
-		got, err := s.sighted(ctx, dev, upTo, rows)
+		got, err := s.sighted(ctx, device, dev, upTo, rows)
 		if err != nil || len(got) != 1 {
 			t.Fatalf("sighted = %+v, %v", got, err)
 		}

@@ -20,6 +20,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts/entstore"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/journal"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/sealed"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/tlsfacts"
 )
@@ -64,8 +65,12 @@ func olderCatalog(t *testing.T) []byte {
 // one net.gnmi.facts read: a gNMI fact its method has always declared, and
 // the certificate's facts as tlsfacts.Record writes them, for a real
 // certificate (pkg/devicetls's OpenSSL vector), so the values are the shapes
-// a secret guard sees in a real batch.
-func certificateBatch(t *testing.T) ([]byte, int) {
+// a secret guard sees in a real batch. Its entries are sealed to the key pair
+// a fixed facts secret derives, as a Runner of this release seals them, and
+// the option returned opens them as a Controller holding that secret does: a
+// batch published in plaintext is warned about, which is not the skew under
+// test.
+func certificateBatch(t *testing.T) ([]byte, int, entstore.SubscriberOption) {
 	t.Helper()
 	data, err := os.ReadFile("../../pkg/devicetls/testdata/spki-vector.pem")
 	if err != nil {
@@ -91,12 +96,35 @@ func certificateBatch(t *testing.T) ([]byte, int) {
 	if err != nil || len(problems) != 0 {
 		t.Fatalf("preparing the batch: %v, %+v", err, problems)
 	}
-	batch, err := json.Marshal(facts.Batch{JobID: "job-1", DeviceID: "dev-1", Attempt: 1, ObservedAt: time.Now(), Entries: entries,
+	batch, opens := sealedFactsBatch(t, facts.Batch{JobID: "job-1", DeviceID: "dev-1", Attempt: 1, ObservedAt: time.Now(), Entries: entries,
 		By: facts.Provenance{Method: "net.gnmi.facts", Node: "tasks[0]"}})
+	return batch, len(observed), opens
+}
+
+// sealedFactsBatch is b as a Runner of this release publishes it, encoded:
+// its entries sealed to the key pair a fixed facts secret derives, none in
+// plaintext. The option returned opens them as a Controller holding that
+// secret does.
+func sealedFactsBatch(t *testing.T, b facts.Batch) ([]byte, entstore.SubscriberOption) {
+	t.Helper()
+	open, keyer, err := entstore.DigestKeys(bytes.Repeat([]byte{4}, 32))
 	if err != nil {
 		t.Fatal(err)
 	}
-	return batch, len(observed)
+	plaintext, err := facts.SealPlaintextOf(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	file, err := sealed.SealToKey(open.Public(), sealed.PurposeFactBatch, plaintext)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.Entries, b.Sealed = nil, string(file)
+	data, err := json.Marshal(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data, entstore.WithDigestKeys(open, keyer)
 }
 
 // gnmiFactsNode resolves every node to net.gnmi.facts, as main's resolver
@@ -125,12 +153,12 @@ func TestFactsSkew_AnOlderControllerKeepsTheCertificateFacts(t *testing.T) {
 	if err != nil || !builtins["net.gnmi.facts"] {
 		t.Fatalf("the older catalog does not name net.gnmi.facts: %v", err)
 	}
-	batch, want := certificateBatch(t)
+	batch, want, opens := certificateBatch(t)
 
 	store := &recordingStore{}
 	var logged bytes.Buffer
 	sub := entstore.NewSubscriber(store, slog.New(slog.NewTextHandler(&logged, nil)), nil,
-		entstore.WithDeclarations(index), entstore.WithBuiltinProvenance(builtins), entstore.WithNodeResolver(gnmiFactsNode))
+		entstore.WithDeclarations(index), entstore.WithBuiltinProvenance(builtins), entstore.WithNodeResolver(gnmiFactsNode), opens)
 	if err := sub.Handle(factsEventFromJSON(t, "e1", batch)); err != nil {
 		t.Fatal(err)
 	}
@@ -145,7 +173,7 @@ func TestFactsSkew_AnOlderControllerKeepsTheCertificateFacts(t *testing.T) {
 
 	current := &recordingStore{}
 	logged.Reset()
-	sub, err = newFactsSubscriber(current, slog.New(slog.NewTextHandler(&logged, nil)), nil, entstore.WithNodeResolver(gnmiFactsNode))
+	sub, err = newFactsSubscriber(current, slog.New(slog.NewTextHandler(&logged, nil)), nil, entstore.WithNodeResolver(gnmiFactsNode), opens)
 	if err != nil {
 		t.Fatal(err)
 	}

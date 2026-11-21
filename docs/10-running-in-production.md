@@ -326,6 +326,123 @@ a Runner a task's own result (what `register` reads) holds the digest sealed to 
 controller, not keyed, so a condition on `hmac_sha256` works in a `pleiades run`
 and not in a controller job; the stored fact has it on both.
 
+### Facts at rest
+
+A stored fact names nothing in plaintext. On the controller each fact's row is found
+by a keyed token of its name (an HMAC bound to the device), its name and value are
+sealed together under `MASTER_ENCRYPTION_KEY` and bound to that row, so a sealed
+value moved to another row does not open, and the hash that detects a change and
+links the history is keyed as well. The lists of names each observation covered hold
+the same tokens. The token and hash keys are derived from
+`PLEIADES_FACTS_DIGEST_KEY`, each under a label of its own, so the facts key now
+decides more than file digests:
+
+- Without it the controller stores no facts at all and says so for every batch it
+  drops, and it sends Runners no key, so they publish none.
+- Rotating `MASTER_ENCRYPTION_KEY` re-seals every stored fact and leaves the tokens
+  and hashes as they are.
+- Changing `PLEIADES_FACTS_DIGEST_KEY` is a rotation with a procedure of its own,
+  below. A device whose facts were stored under a key the controller was not given
+  is refused, with an error that names the cause, until that key is supplied. Keep
+  the facts key with the master key in your backups.
+
+A consequence to plan for: nobody can look a fact up by name, or check a device's
+history, without the facts key.
+
+What a copy of the database still shows, without any key: how many facts a device
+has, when each was first seen, changed and last confirmed, whether each is stable or
+volatile, and roughly how long each name and value are together. It also shows each
+fact's provenance in plaintext: the job, the run, the task that observed it, the
+method it ran, the Runner and the Collection's identity. A task named after the one
+thing it reads therefore says what that fact is about. Name tasks with that in mind
+where it matters. The controller's own log names facts too (never their values) in
+the warnings that say a fact was dropped or stored without its digest.
+
+Between a Runner and the controller, each batch of facts is sealed to the
+controller's public key, which every dispatch carries, before it is published, so
+the message stream holds no fact's name or value either. Each batch still says, in
+plaintext, which job, device, attempt, task and method it came from and when. That
+hides the facts from a reader of the stream; it does not prove which Runner sent them, which the Runner's own broker
+credential and the job's record still decide. A Runner of an earlier release
+publishes its facts unsealed; the controller stores them and logs a warning naming
+the Runner, so upgrade Runners with the controller.
+
+#### Changing the facts key
+
+The controller re-keys what it stored when it is given both keys: the new one as
+`PLEIADES_FACTS_DIGEST_KEY` and the old one as `PLEIADES_FACTS_DIGEST_KEY_PREVIOUS`
+(for Helm, `secrets.factsDigestKeyPrevious`, or a key of that name in your own
+Secret with `secrets.existingSecretHasFactsDigestKeyPrevious: true`; for Compose, in
+`.env`). Runners need nothing: they seal to whichever public key their dispatch
+carries.
+
+1. Set both variables on every controller replica and restart them. A replica that
+   still holds only the old key drops batches sealed to the new one and refuses
+   devices already re-keyed, so stop every replica for the change, or run one while
+   it happens. Whatever is dropped comes back with the device's next gather.
+2. At start each replica says it is opening what Runners sealed to the previous
+   key and re-keying stored facts, and ends a pass with its counts. A device is
+   re-keyed whole, in one transaction, the first time it is read or written or when
+   the pass reaches it: its history, order and times are kept, and nothing reads as
+   changed. A request that only reads a device's facts can therefore start that
+   device's re-key, once; while it runs, a change to the device's own record waits.
+3. Jobs dispatched before the change still seal to the old key. The controller
+   opens those with the previous key and stores them under the new one, logging
+   each batch it opens that way.
+4. Remove the previous key only when a pass that started after the last old-key
+   replica stopped logs that the rotation is complete, and no job dispatched before
+   the change is still queued or running. Then unset it everywhere and restart.
+
+Two things a rotation does not carry over. A private file's keyed digest
+(`hmac_sha256`) cannot be re-keyed, because the raw digest is never stored, so each
+such file reads as changed once, with a new `hmac_key` beside it. And a device whose
+stored history does not verify under the old key is not re-keyed: it is refused
+under the new key and named in the log, and removing the previous key leaves its
+stored facts unreadable for good. This release has no tool to inspect or repair
+such a device.
+
+The upgrade deletes every fact stored before it, with the observations that named
+them, because no key can turn a plaintext row into a sealed one. Each device's next
+gather stores its facts again. On SQLite the freed pages are then rewritten by a
+`VACUUM` at the same start, and the controller tries again at each later start until
+one succeeds, saying so in its log each time; until then the deleted rows' bytes are
+still in the file. On PostgreSQL the deleted rows stay in the table's pages until
+vacuum reuses them, and in every WAL archive, replica and base backup taken before
+the upgrade; expire those on your own schedule. The backup this upgrade asks for
+holds every fact in plaintext too: keep it only as long as going back is an option.
+
+That upgrade is one an older controller cannot run beside. A controller from before
+this release would store facts in plaintext again, so the new one refuses to change
+the database while an older controller is still running against it, and once it has,
+an older controller refuses to start. Rolling the controllers one at a time does not
+work for this upgrade:
+
+1. Run the new build's `controller migrate --plan`. A pending migration marked
+   `contract` means every controller must stop first. Take a backup; `make up` does.
+2. Stop every older controller cleanly: scale the deployment to zero, or use a
+   `Recreate` strategy. One that was killed still counts as running for 45 seconds.
+3. Start the new build. If it refuses, its message names each older controller it
+   still sees; stop those and start it again. It never waits for them.
+4. From then on an older build refuses this database. Going back means restoring
+   the backup.
+
+With the Helm chart's default rolling update the new pod restarts until the old pods
+are gone; scale to zero first.
+
+On the command line, each line of a device's files under `.pleiades/facts` is sealed
+under a key derived from the project's master key, bound to the device, the file and
+the line's place, and the fact hashes are keyed the same way. A project with no
+master key stores and reads no facts. Files an earlier release wrote there are
+plaintext and are refused with an error that says so: remove that device's files
+under `.pleiades/facts` and gather its facts again.
+
+Sealing covers what is stored, not what a run shows. `pleiades run --json`, a task's
+`register`, `pleiades facts` and the facts routes return values to whoever is allowed
+to ask, by design. The run journal keeps the names of the results a method
+declares, some of which are also fixed fact names (`host.name`, `os.kernel.release`).
+It never keeps a name that comes from the device, such as `package.<name>` or
+`user.<name>`, and never a value.
+
 ### What the chart refuses to install
 
 Some configurations are refused at render time, with the reason in the error,

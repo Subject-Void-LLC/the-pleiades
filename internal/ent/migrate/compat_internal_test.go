@@ -1,11 +1,14 @@
 // These tests keep the contract table honest as data: every declaration names
 // a real migration, both dialects declare the same changes, the floor rises
-// the way the gate assumes it does, and no new contract can be declared
-// before the guard it needs exists. Whether a migration's SHAPE agrees with
-// its declaration is compat_shape_internal_test.go's question.
+// the way the gate assumes it does, and every new contract is refused by the
+// guard while an older controller runs. Whether a migration's SHAPE agrees
+// with its declaration is compat_shape_internal_test.go's question.
 package migrate
 
 import (
+	"context"
+	"errors"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -106,23 +109,79 @@ func TestFloorAfter_OnlyRises(t *testing.T) {
 	if got := floorAfter("postgres", names, "0029_add_launchables.sql"); got != "0029_add_launchables.sql" {
 		t.Errorf("postgres floor after the launchables contract = %s; want itself", got)
 	}
-}
-
-// TestANewContractNeedsTheGuard is a tripwire, not a test of today's
-// behavior. A contract declared from now on must be refused while an older
-// controller that cannot serve it is still running, and the guard that would
-// do that (reading controller_instances inside the contract's own
-// transaction) is deliberately unbuilt: it cannot be tested against a real
-// contract until one exists. So declaring the first new contract fails here,
-// and the message says what to build alongside it.
-func TestANewContractNeedsTheGuard(t *testing.T) {
-	for dialectName, declared := range contracts {
-		for name, c := range declared {
-			if !c.grandfathered {
-				t.Errorf("%s: %s is a new contract. Build the apply-time contract guard with it (refuse, never wait, while a live controller_instances row reports a head below %s), and test it against this real migration, before removing this check", dialectName, name, c.compatibleFrom)
-			}
+	// The facts at rest contract: no build from before sealing serves after it.
+	for dialectName, steps := range factAtRest {
+		all := namesOf(t, dialectName)
+		if got := floorAfter(dialectName, all, steps[0]); got >= steps[1] {
+			t.Errorf("%s floor before facts at rest = %s; want one an unsealed build reaches", dialectName, got)
+		}
+		if got := floorAfter(dialectName, all, steps[1]); got != steps[1] {
+			t.Errorf("%s floor after facts at rest = %s; want itself", dialectName, got)
 		}
 	}
+}
+
+// heartbeatTable names, by dialect, the migration that creates
+// controller_instances: the table the contract guard reads.
+var heartbeatTable = map[string]string{
+	"sqlite3":  "0033_add_controller_instances.sql",
+	"postgres": "0030_add_controller_instances.sql",
+}
+
+// TestEveryNewContractIsGuarded holds every declared contract to the guard
+// (guard.go), against a real database of each dialect: with a controller
+// whose build ends just below the contract's floor still running, applying
+// through the contract is refused and leaves it unrecorded.
+//
+// It replaces a tripwire that failed on the first contract declared without
+// the guard. That purpose stays: a contract the guard does not cover fails
+// here. And grandfathered is held to what it means, a contract applied before
+// the heartbeat table existed, so it cannot be used to excuse a new one.
+func TestEveryNewContractIsGuarded(t *testing.T) {
+	forEachDialect(t, func(t *testing.T, dialectName string) {
+		names := namesOf(t, dialectName)
+		table := heartbeatTable[dialectName]
+		if !slices.Contains(names, table) {
+			t.Fatalf("%s has no migration %s; the heartbeat table moved and this test needs its new name", dialectName, table)
+		}
+		checked := 0
+		for name, c := range contracts[dialectName] {
+			if c.grandfathered {
+				if name >= table {
+					t.Errorf("%s: %s is marked grandfathered but applies after %s, so the guard can see who is running when it applies; only a contract from before the heartbeat table may be grandfathered", dialectName, name, table)
+				}
+				continue
+			}
+			if name <= table {
+				t.Errorf("%s: %s is a new contract that applies before %s, where no guard can see who is running", dialectName, name, table)
+				continue
+			}
+			checked++
+			t.Run(name, func(t *testing.T) {
+				ctx := context.Background()
+				db := freshDB(t, dialectName)
+				src := migrationSources[dialectName]
+				at := slices.Index(names, name)
+				if _, err := applyPending(ctx, db, src, names, names[at-1], gateStrict); err != nil {
+					t.Fatalf("applying through %s: %v", names[at-1], err)
+				}
+				// The newest build the floor leaves out.
+				justBelow := names[slices.Index(names, c.compatibleFrom)-1]
+				seedController(t, dialectName, db, "guard-probe", justBelow, 5)
+
+				_, err := applyPending(ctx, db, src, names, name, gateStrict)
+				if !errors.Is(err, ErrOlderControllersRunning) {
+					t.Fatalf("applying %s with a controller at %s running = %v; want the guard's refusal", name, justBelow, err)
+				}
+				if recorded(historyOf(t, db, dialectName), name) {
+					t.Errorf("%s is recorded although the guard refused it", name)
+				}
+			})
+		}
+		if checked == 0 {
+			t.Logf("%s declares no contract newer than the heartbeat table; nothing for the guard to refuse", dialectName)
+		}
+	})
 }
 
 // TestEverySourceNamesItsOwnDialect proves each migration source carries the

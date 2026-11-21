@@ -90,6 +90,9 @@ func TestRefusalsNameTheCountsAndTheWayOut(t *testing.T) {
 		"replace without a count": {"no database is configured", "does not replace a key without counting first"},
 		"already set up":          {"/srv/.env", "irreversible", "--destroy-existing-encryption-key"},
 		"confirmation prompt":     {`"destroy `, "every backup of this database", "This cannot be undone", "3 encrypted items"},
+		// The way to change the facts key, as the master key's line names
+		// its rotation.
+		"compose note": {"PLEIADES_FACTS_DIGEST_KEY_PREVIOUS", "leaves them unreadable"},
 	}
 	for name, wants := range checks {
 		for _, want := range wants {

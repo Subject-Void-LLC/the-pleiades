@@ -21,6 +21,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/enttest"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts/entstore"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/facts/factstest"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
 	pkginventory "github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	inventorytest "github.com/Subject-Void-LLC/the-pleiades/pkg/inventory/inventorytest"
@@ -52,7 +53,13 @@ func (r *factReader) Verify(_ context.Context, device string) (facts.Verdict, er
 
 func factsRouter(t *testing.T, repo *stubDeviceRepo, reader api.FactReader) http.Handler {
 	t.Helper()
-	handler := api.NewDeviceHandler(repo, inventory.NewItemFactory(), slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	return factsRouterLogging(t, repo, reader, io.Discard)
+}
+
+// factsRouterLogging is factsRouter with the handler's log written to logs.
+func factsRouterLogging(t *testing.T, repo *stubDeviceRepo, reader api.FactReader, logs io.Writer) http.Handler {
+	t.Helper()
+	handler := api.NewDeviceHandler(repo, inventory.NewItemFactory(), slog.New(slog.NewJSONHandler(logs, nil)))
 	if reader != nil {
 		handler.WithFacts(reader)
 	}
@@ -154,7 +161,7 @@ func TestDeviceFactHistory_ReadsAKeyANewFactMayNotTake(t *testing.T) {
 // TestDeviceFactHistory_ReadsAStoredKeyFromTheControllersStore.
 func TestDeviceFactHistory_NamesBackOnlyAKeyThatShowsAsItself(t *testing.T) {
 	item := &inventorytest.Stub{StubID: "8d1e3c2c-0670-40cc-a914-e1194ff5857e", StubName: "web1"}
-	store, err := facts.NewFileStore(t.TempDir())
+	store, err := facts.NewFileStore(t.TempDir(), factstest.Keys())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -174,7 +181,7 @@ func TestDeviceFactHistory_ReadsAStoredKeyFromTheControllersStore(t *testing.T) 
 	t.Cleanup(func() { _ = client.Close() })
 	dev := client.Device.Create().SetName("web1").SetType("linux_server").SetProperties(map[string]any{"host": "10.0.0.1"}).SaveX(context.Background())
 	item := &inventorytest.Stub{StubID: pkginventory.DeviceID(dev.DeviceID), StubName: "web1"}
-	store := entstore.New(client)
+	store := entstore.New(client, factstest.Keys(), factstest.Envelope())
 	stored := "pkg.a" + string(rune(0x2028)) + "b"
 	recordKey(t, store, dev.DeviceID, stored)
 	router := factsRouter(t, &stubDeviceRepo{item: item}, store)

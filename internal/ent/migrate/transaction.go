@@ -82,8 +82,9 @@ const migrationBusyTimeout = 30 * 60 * 1000
 // src supplies the dialect's own version-record statement (see
 // migrationSource), because its placeholder spelling is the one part of this
 // function that is not portable across dialects. floor is the compatibility
-// floor recorded with it (compat.go). src also decides whether this dialect
-// needs the foreign-key dance and the longer busy wait below.
+// floor recorded with it (compat.go). guard is the check a contract migration
+// is applied under (guard.go), nil for any other. src also decides whether
+// this dialect needs the foreign-key dance and the longer busy wait below.
 //
 // # Why one pinned connection, and why the pragmas are set out here
 //
@@ -108,7 +109,7 @@ const migrationBusyTimeout = 30 * 60 * 1000
 // multi-statement script in a single zero-argument ExecContext: SQLite
 // natively, and lib/pq through the simple query protocol, which it
 // selects precisely because no arguments are bound here.
-func applyOne(ctx context.Context, db *sql.DB, src migrationSource, name, script, floor string) error {
+func applyOne(ctx context.Context, db *sql.DB, src migrationSource, name, script, floor string, guard *contractGuard) error {
 	conn, err := db.Conn(ctx)
 	if err != nil {
 		return fmt.Errorf("migrate: taking a connection for %s: %w", name, err)
@@ -152,7 +153,7 @@ func applyOne(ctx context.Context, db *sql.DB, src migrationSource, name, script
 		}()
 	}
 
-	return applyOneOn(ctx, conn, src, name, script, floor)
+	return applyOneOn(ctx, conn, src, name, script, floor, guard)
 }
 
 // applyOneOn runs one migration's transaction on an already-prepared
@@ -168,7 +169,14 @@ func applyOne(ctx context.Context, db *sql.DB, src migrationSource, name, script
 // the record last, the second starter would run the script first and could
 // fail on this one's DDL, or deadlock with it over a foreign key's parent
 // table, and neither of those failures says who won.
-func applyOneOn(ctx context.Context, conn *sql.Conn, src migrationSource, name, script, floor string) error {
+//
+// A contract's guard runs after the claim and before the script. After the
+// claim, because only the starter holding it may decide, and because on SQLite
+// the claim is what took the write lock that keeps every heartbeat out until
+// the commit. Before the script, because a refusal then rolls back a
+// transaction that has changed nothing and taken no lock an older controller
+// still serving would wait on.
+func applyOneOn(ctx context.Context, conn *sql.Conn, src migrationSource, name, script, floor string, guard *contractGuard) error {
 	tx, err := conn.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("migrate: beginning transaction for %s: %w", name, err)
@@ -193,6 +201,11 @@ func applyOneOn(ctx context.Context, conn *sql.Conn, src migrationSource, name, 
 	for _, statement := range src.prelude {
 		if _, err := tx.ExecContext(ctx, statement); err != nil {
 			return fmt.Errorf("migrate: preparing the transaction for %s: %w", name, err)
+		}
+	}
+	if guard != nil {
+		if err := guard.check(ctx, tx, src, true, name+" and every migration after it were not applied."); err != nil {
+			return err
 		}
 	}
 	if _, err := tx.ExecContext(ctx, script); err != nil {

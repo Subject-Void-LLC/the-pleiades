@@ -16,6 +16,8 @@ import (
 
 	"entgo.io/ent/dialect"
 	entsql "entgo.io/ent/dialect/sql"
+
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/migrate"
 )
 
 // InstanceBeat describes the controller a heartbeat is for.
@@ -164,10 +166,12 @@ func (c *Client) rawDB() (*stdsql.DB, string, error) {
 // The database server's clock in whole Unix seconds, as a SQL expression, in
 // each dialect. Constants, and every query below is assembled from them at
 // compile time, so no statement this file sends is built from anything at run
-// time but its bound parameters.
+// time but its bound parameters. They are the migration runner's own, since
+// its contract guard reads these rows on the same clock (internal/ent/migrate's
+// guard.go).
 const (
-	postgresNow = `CAST(EXTRACT(EPOCH FROM now()) AS BIGINT)`
-	sqliteNow   = `CAST(strftime('%s', 'now') AS INTEGER)`
+	postgresNow = migrate.PostgresClockSQL
+	sqliteNow   = migrate.SQLiteClockSQL
 )
 
 // instanceQueries is the heartbeat's statements in one dialect, written with

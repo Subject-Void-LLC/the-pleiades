@@ -14,16 +14,19 @@ import (
 // read and creating nothing, so a check (which stores nothing) reads what
 // earlier runs stored and a project no run has stored a fact in yet reads as
 // devices with no facts. A store that is there but cannot be read is an
-// error, never an empty answer.
+// error, never an empty answer, and so is a store whose key the project no
+// longer has: what is stored is sealed under it (factKeysToRead).
 type projectFactReader struct {
 	dir string
+	// keys opens what the store holds.
+	keys *facts.Keys
 }
 
 var _ engine.FactReader = projectFactReader{}
 
 // open is the store, or nil when no run has made one yet.
 func (r projectFactReader) open() (*facts.FileStore, error) {
-	store, err := facts.OpenFileStore(r.dir)
+	store, err := facts.OpenFileStore(r.dir, r.keys)
 	if errors.Is(err, facts.ErrNoStore) {
 		return nil, nil
 	}

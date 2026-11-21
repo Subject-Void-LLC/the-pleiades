@@ -40,7 +40,7 @@ var (
 func postgresStore(t *testing.T) (facts.Store, string) {
 	t.Helper()
 	client, device := postgresClient(t)
-	return entstore.New(client), device
+	return entstore.New(client, factstest.Keys(), factstest.Envelope()), device
 }
 
 // postgresClient returns a client over a fresh database migrated the way the

@@ -55,6 +55,9 @@ var validators = map[string]func(string) error{
 	VarJWKSURL:            validateJWKSURL,
 	VarMaxOutage:          validateMaxOutage,
 	VarFactsDigestKey:     validateKey,
+	// Held to the current one's rule; the controller also refuses it equal
+	// to the current one, or without one.
+	VarFactsDigestKeyPrevious: validateKey,
 }
 
 // ParseEnvFile reads data as a compose env file.

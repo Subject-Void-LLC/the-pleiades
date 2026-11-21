@@ -17,6 +17,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts/entstore"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/facts/factstest"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/journal"
 )
 
@@ -49,7 +50,7 @@ func nodeSubscriber(t *testing.T, store facts.Store, logged *bytes.Buffer, resol
 	admitted := func(context.Context, string, string) (journal.Admission, error) { return journal.AdmitDispatched, nil }
 	logger := slog.New(slog.NewTextHandler(logged, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	return entstore.NewSubscriber(store, logger, admitted, entstore.WithDeclarations(index), entstore.WithBuiltinProvenance(builtins),
-		entstore.WithNodeResolver(resolve))
+		entstore.WithNodeResolver(resolve), withTestSealKeys(t))
 }
 
 // storedMethods is the method each of device's current facts was stored
@@ -111,13 +112,13 @@ func TestSubscriber_JudgesABatchUnderItsNodesMethod(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			client, device := open(t)
-			store := entstore.New(client)
+			store := entstore.New(client, factstest.Keys(), factstest.Envelope())
 			var logged bytes.Buffer
 			nodes := &fixedNode{node: tc.node}
 			sub := nodeSubscriber(t, store, &logged, nodes.resolve)
 			batch := facts.Batch{JobID: "job-1", DeviceID: device, Attempt: 1, ObservedAt: time.Now(),
 				Entries: prepared(t, observed), By: facts.Provenance{Node: "tasks[3]", Method: tc.claim}}
-			if err := handle(t, sub, batch); err != nil {
+			if err := handleSealed(t, sub, batch); err != nil {
 				t.Fatal(err)
 			}
 			if got := storedMethods(t, store, device); !reflect.DeepEqual(got, tc.stored) {
@@ -147,7 +148,7 @@ func TestSubscriber_JudgesABatchUnderItsNodesMethod(t *testing.T) {
 // nothing is stored.
 func TestSubscriber_RedeliversWhenTheNodeCannotBeResolvedNow(t *testing.T) {
 	client, device := open(t)
-	store := entstore.New(client)
+	store := entstore.New(client, factstest.Keys(), factstest.Envelope())
 	var logged bytes.Buffer
 	nodes := &fixedNode{err: errors.New("database is locked")}
 	sub := nodeSubscriber(t, store, &logged, nodes.resolve)
@@ -183,7 +184,7 @@ func (f *failingOnce) Record(ctx context.Context, device string, obs facts.Obser
 // once, as the built-in difference note was already said.
 func TestSubscriber_SaysWhatItChangedOnlyOnceStored(t *testing.T) {
 	client, device := open(t)
-	store := &failingOnce{Store: entstore.New(client)}
+	store := &failingOnce{Store: entstore.New(client, factstest.Keys(), factstest.Envelope())}
 	var logged bytes.Buffer
 	nodes := &fixedNode{node: journal.NodeMethod{Resolved: true, Method: "acme.inventory.read"}}
 	sub := nodeSubscriber(t, store, &logged, nodes.resolve)

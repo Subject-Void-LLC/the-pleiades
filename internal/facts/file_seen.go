@@ -3,12 +3,15 @@
 // <device>.seen.jsonl is append-only: one line per observation the store
 // recorded, naming its sequence number, when and by which run it was made, and
 // the digest of what it covered. The first line naming a digest also lists
-// its keys, so a coverage the device's gathers repeat is written once.
+// its keys, so a coverage the device's gathers repeat is written once. Each
+// line is sealed (atrest.go), so the keys it lists are not readable in the
+// file.
 package facts
 
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"time"
@@ -44,11 +47,21 @@ type seenFile struct {
 // device's facts, as a damaged state file once did (FAILURE_PATTERNS 922).
 // Leaving one out can only make a value read as confirmed less recently: an
 // observation never says a value changed. A line longer than any observation
-// can be is still an error.
-func readSeen(r *os.Root, device string) (seenFile, error) {
+// can be is still an error. A line that does not open under keys is damaged
+// like any other and left out; having no keys at all is an error, since it
+// would leave every line out and read as nothing ever confirmed.
+func readSeen(r *os.Root, keys *Keys, device string) (seenFile, error) {
 	sf := seenFile{covers: map[string]*Coverage{}}
 	name := device + ".seen.jsonl"
-	complete, err := readJSONL(r, name, maxSeenLineBytes, func(_ int, raw []byte) error {
+	complete, err := readJSONL(r, name, maxSeenLineBytes, func(_ int, offset int64, sealed []byte) error {
+		raw, err := openStored(keys, device, RoleSeen, offset, sealed)
+		if errors.Is(err, ErrNoKeys) {
+			return fmt.Errorf("facts: %s: %w", name, err)
+		}
+		if err != nil {
+			sf.skipped++
+			return nil
+		}
 		var l seenLine
 		dec := json.NewDecoder(bytes.NewReader(raw))
 		dec.UseNumber()
@@ -80,14 +93,18 @@ func readSeen(r *os.Root, device string) (seenFile, error) {
 }
 
 // appendSeen appends one observation, listing its coverage's keys when no
-// line before it does.
-func appendSeen(r *os.Root, device string, sf seenFile, seq int64, at time.Time, by Provenance, covers Coverage) error {
+// line before it does, sealed as the line at the file's end.
+func appendSeen(r *os.Root, keys *Keys, device string, sf seenFile, seq int64, at time.Time, by Provenance, covers Coverage) error {
 	digest := covers.Digest()
 	l := seenLine{Seq: seq, At: at, By: by, Coverage: digest}
 	if _, ok := sf.covers[digest]; !ok {
 		l.Keys = &covers
 	}
-	raw, err := json.Marshal(l)
+	plain, err := json.Marshal(l)
+	if err != nil {
+		return fmt.Errorf("facts: %w", err)
+	}
+	raw, err := keys.SealLine(device, RoleSeen, sf.complete, plain)
 	if err != nil {
 		return fmt.Errorf("facts: %w", err)
 	}

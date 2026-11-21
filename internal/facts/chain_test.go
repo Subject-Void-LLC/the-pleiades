@@ -5,13 +5,16 @@ package facts_test
 import (
 	"bytes"
 	"context"
-	"os"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/facts/factstest"
 )
 
 // chained builds n links of a valid chain.
@@ -22,12 +25,12 @@ func chained(t *testing.T, n int) []facts.Link {
 	at := time.Date(2026, 11, 2, 10, 0, 0, 0, time.UTC)
 	for i := range n {
 		key, value := "k", any(string(rune('a'+i)))
-		hash, err := facts.Hash(key, value)
+		hash, err := factstest.Keys().Hash("dev1", key, value)
 		if err != nil {
 			t.Fatal(err)
 		}
 		by := facts.Provenance{Run: "r", Order: facts.Order{Source: facts.ClockSource, Token: uint64(i + 1)}}
-		chain, err := facts.ChainHash("dev1", prev, key, hash, at, by)
+		chain, err := factstest.Keys().ChainHash("dev1", prev, key, hash, at, by)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -41,7 +44,7 @@ func chained(t *testing.T, n int) []facts.Link {
 // found at the value it broke, and only unchained values at the start are
 // passed over.
 func TestVerifyChain_FindsTheFirstEditDeletionOrMove(t *testing.T) {
-	if v := facts.VerifyChain("dev1", chained(t, 3)); v.Break != nil || v.Values != 3 || v.Head == "" {
+	if v := facts.VerifyChain("dev1", chained(t, 3), factstest.Keys()); v.Break != nil || v.Values != 3 || v.Head == "" {
 		t.Fatalf("an intact chain: %+v", v)
 	}
 	cases := map[string]struct {
@@ -52,7 +55,7 @@ func TestVerifyChain_FindsTheFirstEditDeletionOrMove(t *testing.T) {
 		"an edited value": {func(l []facts.Link) []facts.Link { l[1].Value = "z"; return l }, 1, "fact hash"},
 		"an edited value and its hash": {func(l []facts.Link) []facts.Link {
 			l[1].Value = "z"
-			l[1].Hash, _ = facts.Hash("k", "z")
+			l[1].Hash, _ = factstest.Keys().Hash("dev1", "k", "z")
 			return l
 		}, 1, "chain hash"},
 		"an edited provenance":                         {func(l []facts.Link) []facts.Link { l[2].By.Run = "other"; return l }, 2, "chain hash"},
@@ -66,22 +69,102 @@ func TestVerifyChain_FindsTheFirstEditDeletionOrMove(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			v := facts.VerifyChain("dev1", tc.tamper(chained(t, 3)))
+			v := facts.VerifyChain("dev1", tc.tamper(chained(t, 3)), factstest.Keys())
 			if v.Break == nil || v.Break.Index != tc.index || !strings.Contains(v.Break.Reason, tc.reason) {
 				t.Fatalf("verdict = %+v, want a break at %d naming %q", v, tc.index, tc.reason)
 			}
 		})
 	}
 	// One device's history does not verify as another's.
-	if v := facts.VerifyChain("dev2", chained(t, 2)); v.Break == nil || v.Break.Index != 0 {
+	if v := facts.VerifyChain("dev2", chained(t, 2), factstest.Keys()); v.Break == nil || v.Break.Index != 0 {
 		t.Errorf("another device's chain verified: %+v", v)
 	}
 	// A value naming its run was stored after the chain existed, so one
 	// whose chain was removed is a break, not an older value.
 	stripped := chained(t, 2)
 	stripped[0].Chain, stripped[0].Prev = "", ""
-	if v := facts.VerifyChain("dev1", stripped); v.Break == nil || v.Break.Index != 0 {
+	if v := facts.VerifyChain("dev1", stripped, factstest.Keys()); v.Break == nil || v.Break.Index != 0 {
 		t.Errorf("a stripped chain with provenance verified: %+v", v)
+	}
+}
+
+// TestKeys_ChainHashIsKeyed: a link is not the unkeyed SHA-256 of what it
+// covers, which anyone holding a copy of the store could recompute from a
+// guessed key and the row's other columns; it differs under another key and
+// on another device, is the same on every call, needs keys, and a chain
+// linked under one key does not verify under another.
+func TestKeys_ChainHashIsKeyed(t *testing.T) {
+	keys := factstest.Keys()
+	other, err := facts.NewKeys(bytes.Repeat([]byte{7}, 32), "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := time.Date(2026, 11, 2, 10, 0, 0, 0, time.UTC)
+	by := facts.Provenance{Run: "r", Order: facts.Order{Source: facts.ClockSource, Token: 1}}
+	hash, err := keys.Hash("dev1", "package.openssh-server", "9.6")
+	if err != nil {
+		t.Fatal(err)
+	}
+	link, err := keys.ChainHash("dev1", "", "package.openssh-server", hash, at, by)
+	if err != nil || len(link) != 64 {
+		t.Fatalf("ChainHash = %q, %v; want 64 hex characters", link, err)
+	}
+	canon, err := facts.Canonical([]any{"dev1", "", "package.openssh-server", hash, facts.StoredTime(at).Format(time.RFC3339Nano), by})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unkeyed := sha256.Sum256(canon); hex.EncodeToString(unkeyed[:]) == link {
+		t.Error("the link is the unkeyed SHA-256 of what it covers: a guessed key confirms itself")
+	}
+	if again, _ := factstest.Keys().ChainHash("dev1", "", "package.openssh-server", hash, at, by); again != link {
+		t.Error("one link differs between Keys of one secret")
+	}
+	if l, _ := other.ChainHash("dev1", "", "package.openssh-server", hash, at, by); l == link {
+		t.Error("two keys give one link")
+	}
+	if l, _ := keys.ChainHash("dev2", "", "package.openssh-server", hash, at, by); l == link {
+		t.Error("one link on two devices")
+	}
+	if _, err := (*facts.Keys)(nil).ChainHash("dev1", "", "k", hash, at, by); !errors.Is(err, facts.ErrNoKeys) {
+		t.Errorf("ChainHash with no keys = %v, want ErrNoKeys", err)
+	}
+	// A link whose fact hash is other's but which was linked under keys: the
+	// hash verifies under other, so the break is the link's own.
+	otherHash, err := other.Hash("dev1", "package.openssh-server", "9.6")
+	if err != nil {
+		t.Fatal(err)
+	}
+	crossed, err := keys.ChainHash("dev1", "", "package.openssh-server", otherHash, at, by)
+	if err != nil {
+		t.Fatal(err)
+	}
+	links := []facts.Link{{Key: "package.openssh-server", Value: "9.6", Hash: otherHash, ObservedAt: at, By: by, Chain: crossed}}
+	if v := facts.VerifyChain("dev1", links, other); v.Break == nil || v.Break.Index != 0 || !strings.Contains(v.Break.Reason, "chain hash") {
+		t.Errorf("a link made under one key verified under another: %+v", v)
+	}
+	// The control: linked under other, the same value verifies under it.
+	links[0].Chain, _ = other.ChainHash("dev1", "", "package.openssh-server", otherHash, at, by)
+	if v := facts.VerifyChain("dev1", links, other); v.Break != nil {
+		t.Errorf("the control failed: a link made under other does not verify under it: %+v", v)
+	}
+}
+
+// TestSameMAC: two MACs are the same only when every byte and the length
+// agree.
+func TestSameMAC(t *testing.T) {
+	for _, c := range []struct {
+		a, b string
+		same bool
+	}{
+		{"ab12", "ab12", true},
+		{"", "", true},
+		{"ab12", "ab13", false},
+		{"ab12", "ab1", false},
+		{"ab12", "", false},
+	} {
+		if got := facts.SameMAC(c.a, c.b); got != c.same {
+			t.Errorf("SameMAC(%q, %q) = %v, want %v", c.a, c.b, got, c.same)
+		}
 	}
 }
 
@@ -91,7 +174,7 @@ func TestVerifyChain_FindsTheFirstEditDeletionOrMove(t *testing.T) {
 // (FAILURE_PATTERNS 921). Its hash describes its value, so only the missing
 // chain can give it away.
 func TestVerifyChain_AnUnchainedValueAtTheStartIsABreak(t *testing.T) {
-	hash, err := facts.Hash("ansible_kernel", "forged")
+	hash, err := factstest.Keys().Hash("dev1", "ansible_kernel", "forged")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -102,14 +185,14 @@ func TestVerifyChain_AnUnchainedValueAtTheStartIsABreak(t *testing.T) {
 		"two before a real one": append(append(append([]facts.Link{}, forged...), forged...), chained(t, 1)...),
 	} {
 		t.Run(name, func(t *testing.T) {
-			v := facts.VerifyChain("dev1", links)
+			v := facts.VerifyChain("dev1", links, factstest.Keys())
 			if v.Break == nil || v.Break.Index != 0 || !strings.Contains(v.Break.Reason, "carries no chain") {
 				t.Fatalf("verdict = %+v, want a break at the forged value", v)
 			}
 		})
 	}
 	// The control: the same chain without the forged row verifies.
-	if v := facts.VerifyChain("dev1", chained(t, 2)); v.Break != nil {
+	if v := facts.VerifyChain("dev1", chained(t, 2), factstest.Keys()); v.Break != nil {
 		t.Fatalf("the real chain alone: %+v", v)
 	}
 }
@@ -126,7 +209,7 @@ func TestFileStore_VerifyFindsAnEditedOrDeletedLine(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			dir := filepath.Join(t.TempDir(), "facts")
-			store, err := facts.NewFileStore(dir)
+			store, err := facts.NewFileStore(dir, factstest.Keys())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -141,23 +224,14 @@ func TestFileStore_VerifyFindsAnEditedOrDeletedLine(t *testing.T) {
 			if v, err := store.Verify(context.Background(), "dev1"); err != nil || v.Break != nil || v.Values != 3 {
 				t.Fatalf("before tampering: %+v, %v", v, err)
 			}
+			// Edited by someone holding the project's key, who can open and
+			// seal lines again: the chain is what finds them.
 			path := filepath.Join(dir, "dev1.jsonl")
-			raw, err := os.ReadFile(path)
-			if err != nil {
-				t.Fatal(err)
-			}
-			lines := bytes.SplitAfter(bytes.TrimSuffix(raw, []byte("\n")), []byte("\n"))
+			lines := factstest.OpenLines(t, factstest.Keys(), path, "dev1", facts.RoleValues)
 			if len(lines) != 3 {
 				t.Fatalf("%d lines", len(lines))
 			}
-			lines = tamper(lines)
-			out := bytes.Join(lines, nil)
-			if !bytes.HasSuffix(out, []byte("\n")) {
-				out = append(out, '\n')
-			}
-			if err := os.WriteFile(path, out, 0o600); err != nil {
-				t.Fatal(err)
-			}
+			factstest.WriteLines(t, factstest.Keys(), path, "dev1", facts.RoleValues, tamper(lines))
 			v, err := store.Verify(context.Background(), "dev1")
 			if err != nil || v.Break == nil || v.Break.Index != 1 {
 				t.Fatalf("after tampering: %+v, %v; want a break at the second value", v, err)

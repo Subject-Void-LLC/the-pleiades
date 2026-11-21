@@ -258,7 +258,7 @@ func TestApplyOne_RefusesAMigrationThatLeavesARowReferencingNothing(t *testing.T
 	exec(t, db, `INSERT INTO parents (id) VALUES (1)`)
 	exec(t, db, `INSERT INTO children (parent_id) VALUES (1)`)
 
-	err := applyOne(ctx, db, src, "0999_breaks_a_reference.sql", "DELETE FROM parents;", "0001_initial.sql")
+	err := applyOne(ctx, db, src, "0999_breaks_a_reference.sql", "DELETE FROM parents;", "0001_initial.sql", nil)
 	if err == nil {
 		t.Fatal("a migration that orphaned a row was accepted")
 	}
@@ -506,7 +506,7 @@ func TestApplyOne_AClosedDatabaseIsReported(t *testing.T) {
 	}
 
 	err := applyOne(context.Background(), db, migrationSources["sqlite3"],
-		"0999_never_applied.sql", "SELECT 1;", "0001_initial.sql")
+		"0999_never_applied.sql", "SELECT 1;", "0001_initial.sql", nil)
 	if err == nil {
 		t.Fatal("applying a migration to a closed database was accepted")
 	}

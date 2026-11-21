@@ -171,7 +171,9 @@ func (r *run) storeFacts(ctx context.Context, results []NodeResult) {
 		}
 		wctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), factRecordTimeout)
 		by := r.factProvenance(nr)
-		obs := facts.Observation{Entries: entries, At: at, By: by}
+		// Each run of a looped or retried node is its own observation, told
+		// apart by its iteration where two could finish at one instant.
+		obs := facts.Observation{Entries: entries, At: at, By: by, Iteration: nr.Iteration}
 		if err := r.x.facts.Record(wctx, nr.Device, obs); err != nil {
 			r.factFailures++
 			slog.Error("storing a task's facts failed; the run goes on", "node", nr.NodeID, "device", nr.Device, "error", err, "failures_this_run", r.factFailures)

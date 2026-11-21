@@ -30,6 +30,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts/entstore"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/facts/factstest"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/journal"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/runbook"
@@ -88,7 +89,7 @@ func runFactsWalkGate(t *testing.T, runbookYAML, prepare string, workerOpts []di
 	}
 	t.Cleanup(func() { _ = client.Close() })
 	store := dispatch.NewEntJobStore(client)
-	factStore := entstore.New(client)
+	factStore := entstore.New(client, factstest.Keys(), factstest.Envelope())
 
 	const deviceID, deviceName = factsWalkGateDevice, factsWalkGateName
 	client.Device.Create().SetName(deviceName).SetType("linux_server").SetDeviceID(deviceID).
@@ -151,7 +152,16 @@ func TestFactsReleaseGate_AControllerJobStoresWhatItsTaskObserved(t *testing.T) 
 	if testing.Short() {
 		t.Skip("skipping Release Gate container test in short mode")
 	}
-	g := runFactsWalkGate(t, factsWalkRunbook, "", nil, nil)
+	// A Controller that stores facts sends Runners its seal key, and a Runner
+	// publishes no fact without one, so the gate wires both ends as
+	// cmd/controller does.
+	open, keyer, err := entstore.DigestKeys([]byte("a 32-byte facts digest secret!!!"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	g := runFactsWalkGate(t, factsWalkRunbook, "",
+		[]dispatch.WorkerOption{dispatch.WithFactSealKey(open.Public().String())},
+		[]entstore.SubscriberOption{entstore.WithDigestKeys(open, keyer)})
 	h, client, factStore, job, quiet, ctx := g.h, g.client, g.factStore, g.job, g.quiet, context.Background()
 	const deviceName = factsWalkGateName
 
@@ -197,10 +207,17 @@ func TestFactsReleaseGate_AControllerJobStoresWhatItsTaskObserved(t *testing.T) 
 		t.Errorf("%d rows for %d current facts after one gather", n, len(body.Facts))
 	}
 	update := reflect.TypeOf(&ent.FactUpdateOne{})
-	for _, setter := range []string{"SetKey", "SetPayload", "SetHash"} {
+	// What names a fact and what links its history cannot be edited in place.
+	// The payload alone has a setter, for re-sealing under a new key, and a
+	// hook refuses any payload that is not sealed for its own row
+	// (internal/crypto's fact hook and its tests).
+	for _, setter := range []string{"SetKey", "SetKeyToken", "SetKeyedBy", "SetHash", "SetChain", "SetChainPrev", "SetKind"} {
 		if _, ok := update.MethodByName(setter); ok {
 			t.Errorf("a stored fact can be edited in place through %s", setter)
 		}
+	}
+	if _, ok := update.MethodByName("SetPayload"); !ok {
+		t.Error("a stored fact's payload has no setter, so a key rotation could not re-seal it")
 	}
 	if strings.TrimSpace(kernel) == "" {
 		t.Error("no kernel was stored")

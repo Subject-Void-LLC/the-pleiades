@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/facts/factstest"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/recordname"
 )
 
@@ -60,7 +61,7 @@ func TestPrepare_DoesNotStoreADotKey(t *testing.T) {
 // key; Prepare did not refuse it then) and reads it back. A reader held to
 // ValidKey would call the whole history corrupt.
 func TestFileStore_StillReadsADotKeyAnEarlierReleaseStored(t *testing.T) {
-	store, err := facts.NewFileStore(filepath.Join(t.TempDir(), "facts"))
+	store, err := facts.NewFileStore(filepath.Join(t.TempDir(), "facts"), factstest.Keys())
 	if err != nil {
 		t.Fatal(err)
 	}

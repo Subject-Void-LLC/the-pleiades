@@ -124,9 +124,29 @@ generates one, because "required" without that is a puzzle.
 {{- if .Values.secrets.existingSecretHasFactsDigestKey -}}
 {{- include "the-pleiades.refuse" "secrets.existingSecretHasFactsDigestKey is true but secrets.existingSecret is not set, so the controller would read PLEIADES_FACTS_DIGEST_KEY from this chart's own Secret, which holds it only when secrets.factsDigestKey is set. Set secrets.factsDigestKey instead, or name your own Secret in secrets.existingSecret." -}}
 {{- end -}}
+{{- if .Values.secrets.existingSecretHasFactsDigestKeyPrevious -}}
+{{- include "the-pleiades.refuse" "secrets.existingSecretHasFactsDigestKeyPrevious is true but secrets.existingSecret is not set, so the controller would read PLEIADES_FACTS_DIGEST_KEY_PREVIOUS from this chart's own Secret, which holds it only when secrets.factsDigestKeyPrevious is set. Set secrets.factsDigestKeyPrevious instead, or name your own Secret in secrets.existingSecret." -}}
+{{- end -}}
+{{- /* The controller's own refusals at start (cmd/controller's
+       fact_digest_keys.go), made here so a release never installs a
+       controller that then refuses to start. The same key twice is caught
+       only as the same text; two spellings of one key's bytes reach the
+       controller, which refuses them by value. */ -}}
+{{- if and .Values.secrets.factsDigestKeyPrevious (not .Values.secrets.factsDigestKey) -}}
+{{- include "the-pleiades.refuse" "secrets.factsDigestKeyPrevious is set but secrets.factsDigestKey is not, and the controller refuses to start that way: the previous facts key is kept only beside a new one, to re-key the facts stored under it. Set secrets.factsDigestKey to the new key, or unset secrets.factsDigestKeyPrevious." -}}
+{{- end -}}
+{{- if and .Values.secrets.factsDigestKeyPrevious (eq .Values.secrets.factsDigestKeyPrevious .Values.secrets.factsDigestKey) -}}
+{{- include "the-pleiades.refuse" "secrets.factsDigestKeyPrevious is the same key as secrets.factsDigestKey, and the controller refuses to start that way. Set it to the key the stored facts were sealed under before the change, or unset it." -}}
+{{- end -}}
 {{- else -}}
 {{- if .Values.secrets.factsDigestKey -}}
 {{- include "the-pleiades.refuse" "secrets.factsDigestKey is set together with secrets.existingSecret, which this chart does not write to, so the value would never reach the controller and its pod would not start. Put the key in your Secret as PLEIADES_FACTS_DIGEST_KEY and set secrets.existingSecretHasFactsDigestKey: true instead." -}}
+{{- end -}}
+{{- if .Values.secrets.factsDigestKeyPrevious -}}
+{{- include "the-pleiades.refuse" "secrets.factsDigestKeyPrevious is set together with secrets.existingSecret, which this chart does not write to, so the value would never reach the controller and its pod would not start. Put the key in your Secret as PLEIADES_FACTS_DIGEST_KEY_PREVIOUS and set secrets.existingSecretHasFactsDigestKeyPrevious: true instead." -}}
+{{- end -}}
+{{- if and .Values.secrets.existingSecretHasFactsDigestKeyPrevious (not .Values.secrets.existingSecretHasFactsDigestKey) -}}
+{{- include "the-pleiades.refuse" "secrets.existingSecretHasFactsDigestKeyPrevious is true but secrets.existingSecretHasFactsDigestKey is not, and the controller refuses to start with the previous facts key and no current one. Put the new key in your Secret as PLEIADES_FACTS_DIGEST_KEY and set secrets.existingSecretHasFactsDigestKey: true." -}}
 {{- end -}}
 {{- end -}}
 {{- end }}
