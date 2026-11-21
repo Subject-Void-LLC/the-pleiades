@@ -47,8 +47,8 @@ import server
 # daemon.<name> is imported here and listed in __all__.
 from daemonapp import DaemonApp
 from daemonconf import (ACTIONS_TIMELINE_SECONDS, BACKFILL_SECONDS, DEFAULT_PORT, GIT_SECONDS, LOG_SECONDS,
-                        MANIFEST_SECONDS, MEMORY_TIMELINE_SECONDS, OPT_OUT, PROTOCOL, RECENT_SECONDS, ROADMAP_SECONDS,
-                        switched_off)
+                        MANIFEST_SECONDS, MEMORY_TIMELINE_SECONDS, OPT_OUT, OWNER_SECONDS, PROTOCOL, RECENT_SECONDS,
+                        ROADMAP_SECONDS, owner_alive, owner_pid, switched_off)
 from daemonensure import cap_log, ensure
 from daemonlock import healthz, lock_held, lock_info, read_lock_info, take_lock, write_lock_info
 from fingerprint import source_fingerprint
@@ -191,6 +191,16 @@ def run_daemon(port: int = DEFAULT_PORT, no_actions: bool = False, state_dir: Op
             cap_log(log)
 
     start_loop(stop, LOG_SECONDS, trim_log, "log")
+    owner = owner_pid()
+    if owner:
+
+        def watch_owner() -> None:
+            """Stops the daemon once the process that owns it (a test suite) is gone."""
+            if not owner_alive(owner):
+                print("statusd: owner pid %d is gone; stopping" % owner, flush=True)
+                stop.set()
+
+        start_loop(stop, OWNER_SECONDS, watch_owner, "owner")
     httpd = bind(app, port, stop)
     if httpd is not None:
         # Port 0 asks for any free port (tests): name the one bound, here and

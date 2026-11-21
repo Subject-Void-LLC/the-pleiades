@@ -4,7 +4,8 @@ One always-on page per machine for development work: the `make pr-check`
 gate (every stage, whichever worktree runs it), GitHub Actions, memory, the
 implementation roadmap when this machine has one, and a JSONL history of
 every value it has seen. It draws with Apache ECharts and runs on the Python
-3 standard library alone. Nothing in the Makefile or CI calls it.
+3 standard library alone (3.8 or newer). Nothing in the Makefile or CI runs
+it; `make monitor-test` runs its tests, in pr-check and on every pull request.
 
 ## Run it
 
@@ -362,9 +363,36 @@ PASSWORD, PASS, KEY or CREDENTIAL (six characters or longer) is replaced with
 ## Tests
 
 ```bash
-cd tools/monitor && ../../.venv/bin/python -B -m unittest -v     # test_monitor and test_daemon
-~/.local/bin/pyright tools/monitor     # every file is checked in strict mode
+make monitor-test                                         # what pr-check and CI run
+cd tools/monitor && python3 -B -m unittest -v             # one run, test_monitor and test_daemon
+pyright tools/monitor                                     # by hand: every file is strict
 ```
+
+`make monitor-test` (`runtests.py`) needs a Python 3.8 or newer interpreter
+and nothing else: no virtual environment and no package, since every import
+is the standard library's or a sibling module's (`PYTHON3=python3.12 make
+monitor-test` picks another). It runs the suite twice. The second run hides
+`fcntl` from every Python it starts, through a `sitecustomize` on
+`PYTHONPATH`, as on Windows: the tests of the daemon and of the MCP server
+reading one skip, saying `needs fcntl flock`, and the rest must pass.
+`OldestPythonTest` parses every file with Python 3.8's grammar; a library
+call newer than 3.8 is caught only by running on 3.8.
+`make ci-remote` runs it on Linux and `.github/workflows/ci.yml`'s `ci` job
+runs it on macOS and Windows too; pr-check's monitor shows it as the
+`monitor-test` stage. pyright is a third-party tool, so no gate runs it:
+install it (`npm install -g pyright`, or `pip install pyright` outside the
+repository) and run it on `tools/monitor` before a push that changes this
+directory; it must report 0 errors.
+
+Every daemon a test starts stops itself once the test process is gone:
+`test_daemon` sets `PLEIADES_STATUS_DAEMON_OWNER` to its own pid, every
+child inherits it, and a daemon started with it checks every second that
+the pid still exists. A suite killed by a timeout, which runs no cleanup,
+so leaves nothing behind. `runtests.py` gives each run its own `TMPDIR`,
+under which every test's state directory is made, and when the run ends by
+any path (a pass, a failure, its 600-second limit or Ctrl-C) it looks for a
+status daemon whose command line names that directory, stops it, and fails.
+Never set the variable for a daemon you want to keep.
 
 The fixtures in `testdata/` come from a real pr-check run, with hosts
 replaced by documentation addresses (`someone@192.0.2.10`).

@@ -17,7 +17,8 @@ follows a log something else is writing (or replays a finished one) on a
 server of its own. serve is the old name of daemon. Every file is under the
 main clone's .IGNORE/ci/monitor/ (paths.py).
 
-Python 3 standard library only. Nothing in the Makefile or CI calls this.
+Python 3.8 or newer, standard library only. Nothing in the Makefile or CI runs
+it; make monitor-test runs its tests.
 """
 
 from __future__ import annotations

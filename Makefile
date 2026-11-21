@@ -1,4 +1,4 @@
-.PHONY: resources-record up up-plan setup setup-env-check down backup restore decom build devtools vet fmt fmt-fix tidy-check test test-race test-no-docker test-repeat test-integration gosec govulncheck arch coverage docs-lint docs-gen-check schema-compat helm-lint templ-gen templ-gen-check tools hooks lsp commitgate sweep sweep-dry sweep-timer sweep-timer-off dev-cert ui-dev ui-stop break-glass image-tools image-scan ci ci-remote push-gate test-full push-gate-full coverage-measured ci-fast ci-containers pr-check pr-check-vet mac-check bsd-check win-check ci-images ci-branch-plan branch-containers workflow-lint doctor test-clean-room release release-notes release-dry-run release-fips release-fips-dry-run
+.PHONY: resources-record up up-plan setup setup-env-check down backup restore decom build devtools vet fmt fmt-fix tidy-check test test-race test-no-docker test-repeat test-integration gosec govulncheck arch coverage docs-lint docs-gen-check schema-compat helm-lint templ-gen templ-gen-check tools hooks lsp commitgate sweep sweep-dry sweep-timer sweep-timer-off dev-cert ui-dev ui-stop break-glass image-tools image-scan ci ci-remote push-gate test-full push-gate-full coverage-measured ci-fast ci-containers pr-check pr-check-vet mac-check bsd-check win-check ci-images ci-branch-plan branch-containers workflow-lint monitor-test doctor test-clean-room release release-notes release-dry-run release-fips release-fips-dry-run
 
 # Every go command a recipe runs, and every one the programs it starts run
 # (tools/testgate, the scanners' builds), uses the release go.mod's
@@ -896,7 +896,7 @@ PR_BASE ?= origin/main
 # which this machine's memory cannot spare beside the rest, and `make ci`
 # and CI's ci job run it on every pull request within minutes. It is
 # defined here because a prerequisite list is read when its rule is.
-CI_REMOTE_STATIC := build devtools vet fmt tidy-check gosec docs-lint docs-gen-check schema-compat helm-lint templ-gen-check workflow-lint
+CI_REMOTE_STATIC := build devtools vet fmt tidy-check gosec docs-lint docs-gen-check schema-compat helm-lint templ-gen-check workflow-lint monitor-test
 PR_CHECK_PARALLELISM ?= 0
 # PR_CHECK_CONTAINERS says whether pr-check runs the container pass. It does
 # not by default (owner, 2026-10-31): that pass took 104 minutes serial, and a
@@ -1184,6 +1184,18 @@ ci-images:
 workflow-lint: tools
 	actionlint
 
+# monitor-test runs tools/monitor's unit tests (the status page, its daemon
+# and its MCP server) through tools/monitor/runtests.py: once as they are,
+# and once with fcntl hidden from every Python it starts, as on Windows,
+# where the daemon's own tests skip and say why. Either run fails when it
+# leaves a status daemon running. It needs only a Python 3.8 or newer
+# interpreter (PYTHON3) and its standard library: no virtual environment and
+# no package. pyright is a third-party tool and is not run here;
+# tools/monitor/README.md says how to run it by hand.
+PYTHON3 ?= python3
+monitor-test:
+	$(PYTHON3) -B tools/monitor/runtests.py
+
 # release builds the archives a release ships (pleiades, controller and
 # runner for linux, darwin and windows on amd64 and arm64) into dist/, each
 # platform's as one archive, with SHA256SUMS beside them and the version
@@ -1399,7 +1411,7 @@ GATE_START_COMMIT := $(shell git rev-parse HEAD 2>/dev/null)
 GATE_START_CLEAN := $(shell test -z "$$(git status --porcelain 2>/dev/null)" && echo yes || echo no)
 endif
 
-ci: build devtools vet fmt tidy-check test-full test-repeat gosec govulncheck coverage-measured docs-lint docs-gen-check schema-compat helm-lint templ-gen-check workflow-lint
+ci: build devtools vet fmt tidy-check test-full test-repeat gosec govulncheck coverage-measured docs-lint docs-gen-check schema-compat helm-lint templ-gen-check workflow-lint monitor-test
 	@echo "ci: all checks passed"
 	@go run ./tools/gatereceipt write --target ci --started-at "$(GATE_START_COMMIT)" --started-clean "$(GATE_START_CLEAN)"
 
@@ -1417,9 +1429,11 @@ ci: build devtools vet fmt tidy-check test-full test-repeat gosec govulncheck co
 # or a generator over the checked-out tree.
 #
 # What this does not prove, stated here as well as in the workflow because
-# this is the line someone will read first: ci-remote does not run one
+# this is the line someone will read first: ci-remote does not run one Go
 # test. A change that compiles, vets, formats, scans and regenerates
-# cleanly passes it while breaking any behavior in this repository. Since
+# cleanly passes it while breaking any behavior in this repository. Its one
+# test target is monitor-test, tools/monitor's Python suite, which takes
+# seconds and reaches no container, so it runs with the static checks. Since
 # Phase 118 the tests run in the workflow's other jobs (ci-fast,
 # ci-containers, coverage-measured, and test-full nightly); ci-remote is
 # only the static half.
@@ -1433,7 +1447,7 @@ ci: build devtools vet fmt tidy-check test-full test-repeat gosec govulncheck co
 # Its list but govulncheck is CI_REMOTE_STATIC, defined above pr-check,
 # which shares it rather than copying it.
 ci-remote: $(CI_REMOTE_STATIC) govulncheck
-	@echo "ci-remote: all checks passed (no tests were run; see this target's comment)"
+	@echo "ci-remote: all checks passed (no Go tests were run; see this target's comment)"
 
 # push-gate is every check ci runs, in the same order, with test-full
 # swapped for push-gate-full: the same one pass without -strict, so a
@@ -1443,7 +1457,7 @@ ci-remote: $(CI_REMOTE_STATIC) govulncheck
 # tools/gatereceipt, which .githooks/pre-push verifies; the hook does not
 # run the gate itself (CLAUDE.md says why). The pull-request CI jobs apply
 # the same rule; ci and the nightly job do not.
-push-gate: build devtools vet fmt tidy-check push-gate-full test-repeat gosec govulncheck coverage-measured docs-lint docs-gen-check schema-compat helm-lint templ-gen-check workflow-lint
+push-gate: build devtools vet fmt tidy-check push-gate-full test-repeat gosec govulncheck coverage-measured docs-lint docs-gen-check schema-compat helm-lint templ-gen-check workflow-lint monitor-test
 	@echo "push-gate: all checks passed (a failure listed above as passing when re-run alone was tolerated as contention; one that recurs run after run is not contention)"
 	@go run ./tools/gatereceipt write --target push-gate --started-at "$(GATE_START_COMMIT)" --started-clean "$(GATE_START_CLEAN)"
 

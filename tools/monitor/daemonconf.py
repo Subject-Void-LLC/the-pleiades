@@ -52,6 +52,15 @@ LOG_SECONDS = 600.0
 OPT_OUT = "PLEIADES_NO_STATUS_DAEMON"
 
 
+# OWNER names the environment variable a test suite sets to its own pid: a
+# daemon started with it set (it passes to every child) stops itself once
+# that process is gone, so a suite killed by a timeout leaves no daemon
+# behind. A session's own daemon is never started with it.
+OWNER = "PLEIADES_STATUS_DAEMON_OWNER"
+# OWNER_SECONDS is how often a daemon with an owner checks that it still runs.
+OWNER_SECONDS = 1.0
+
+
 def switched_off() -> bool:
     """Reports whether this user switched the daemon off.
 
@@ -59,3 +68,34 @@ def switched_off() -> bool:
         True when OPT_OUT is set and not empty.
     """
     return bool(os.environ.get(OPT_OUT))
+
+
+def owner_pid() -> int:
+    """Reads the pid of the process this daemon must not outlive, from OWNER.
+
+    Returns:
+        The pid, or 0 when OWNER is unset or names no process that could be one
+        (not a number, or 0 or 1).
+    """
+    raw = os.environ.get(OWNER, "")
+    pid = int(raw) if raw.isdigit() else 0
+    return pid if pid > 1 else 0
+
+
+def owner_alive(pid: int) -> bool:
+    """Reports whether the owner still exists.
+
+    Args:
+        pid: The owner's pid.
+
+    Returns:
+        False once no process has that pid; True while one does, also one
+        this user may not signal.
+    """
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True

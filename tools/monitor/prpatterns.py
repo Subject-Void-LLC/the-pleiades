@@ -30,6 +30,7 @@ COMMANDS: Dict[str, str] = {
     "go run ./tools/helm-lint": "helm-lint",
     "go tool templ generate ./internal/ui/render": "templ-gen-check",
     "actionlint": "workflow-lint",
+    "python3 -B tools/monitor/runtests.py": "monitor-test",
     "GOOS=darwin go vet -tags integration ./...": "pr-check-vet",
 }
 SCOPE_COUNT = re.compile(r"^pr-check: (\d+) container-free and (\d+) container package\(s\) against ([^\s,]+)")

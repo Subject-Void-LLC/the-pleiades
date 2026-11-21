@@ -2,7 +2,8 @@
 """Tests of the status daemon: the timeline, the run hand-off, the single
 instance, run selection for /wait, and the roadmap panel.
 
-    cd tools/monitor && ../../.venv/bin/python -B -m unittest -v test_daemon
+    cd tools/monitor && python3 -B -m unittest -v test_daemon
+    make monitor-test            (every test file, with and without fcntl)
 
 Every test works in its own temporary state directory and port; none
 touches the real one or port 8765.
@@ -27,9 +28,11 @@ import warnings  # noqa: E402
 from typing import Dict, List, Optional, Sequence, Tuple  # noqa: E402
 
 import daemon  # noqa: E402
+import daemonconf  # noqa: E402
 import githistory  # noqa: E402
 import history  # noqa: E402
 import live  # noqa: E402
+import locks  # noqa: E402
 import paths  # noqa: E402
 import redact  # noqa: E402
 import roadmap  # noqa: E402
@@ -43,6 +46,13 @@ MONITOR = os.path.join(HERE, "monitor.py")
 MCP = os.path.join(HERE, "mcp_status.py")
 # A developer who switched the daemon off still runs these tests, which start their own.
 os.environ.pop("PLEIADES_NO_STATUS_DAEMON", None)
+# Every daemon these tests start inherits this, and stops itself once this
+# process is gone, even when a timeout kills it before any cleanup runs.
+os.environ[daemonconf.OWNER] = str(os.getpid())
+# needs_flock skips a test of the daemon, or of the MCP server reading one,
+# where the platform has no flock (Windows): neither runs there, and
+# SwitchedOffTest holds what each says instead.
+needs_flock = unittest.skipUnless(locks.SUPPORTED, "needs fcntl flock; " + locks.UNSUPPORTED)
 # R1 and R2 are run ids in the form history.py gives them.
 R1 = "20261111T120000Z-aaaaaaaaaaaa"
 R2 = "20261111T130000Z-bbbbbbbbbbbb"
@@ -135,8 +145,9 @@ class TimelineTest(unittest.TestCase):
             self.assertEqual([get_str(x, "kind") for x in timeline.read(d, kinds=["gate."])], ["gate.stage", "gate.run"])
             self.assertEqual(len(list(timeline.read(d, since=oct_t))), 2)
             self.assertEqual(len(list(timeline.read(d, src="machine"))), 1)
-            mode = os.stat(os.path.join(d, names[0])).st_mode & 0o777
-            self.assertEqual(mode, 0o600)
+            if os.name == "posix":  # Windows has no POSIX file modes
+                mode = os.stat(os.path.join(d, names[0])).st_mode & 0o777
+                self.assertEqual(mode, 0o600)
 
     def test_unchanged_values_are_written_once_across_restarts(self) -> None:
         """record_if_changed skips a repeat, and a new writer seeded from the
@@ -310,6 +321,7 @@ class HandOffTest(unittest.TestCase):
             self.assertTrue(view.broker.is_closed())
             pub.stop.set()
 
+    @needs_flock
     def test_one_gate_at_a_time(self) -> None:
         """A second holder of the gate lock is refused, in another process too."""
         with tempfile.TemporaryDirectory() as d:
@@ -409,6 +421,7 @@ class WaitSelectionTest(unittest.TestCase):
                 httpd.server_close()
 
 
+@needs_flock
 class SingleInstanceTest(unittest.TestCase):
     """One daemon per state directory, started by ensure."""
 
@@ -466,7 +479,12 @@ def runs_daemon(pid: int) -> bool:
         with open("/proc/%d/cmdline" % pid, "rb") as f:
             args = [a.decode() for a in f.read().split(b"\0") if a]
     except OSError:
-        return False
+        # No /proc (macOS): ask ps, which prints the line as one string.
+        try:
+            out = subprocess.run(["ps", "-o", "command=", "-p", str(pid)], capture_output=True, text=True, timeout=5)
+        except (OSError, subprocess.TimeoutExpired):
+            return False
+        args = out.stdout.split()
     return any(a.endswith("monitor.py") and args[i + 1] == "daemon" for i, a in enumerate(args[:-1]))
 
 
@@ -611,6 +629,7 @@ class FakeHealthApp(daemon.DaemonApp):
                 "source": HERE}
 
 
+@needs_flock
 class EnsureSafetyTest(unittest.TestCase):
     """ensure signals only a process proven to be the daemon, and starts exactly one."""
 
@@ -852,6 +871,7 @@ def monitor_imports(directory: str, start: str = "monitor.py") -> List[str]:
     return sorted(seen)
 
 
+@needs_flock
 class FingerprintTest(unittest.TestCase):
     """The fingerprint /healthz reports covers every module the daemon can run."""
 
@@ -870,6 +890,51 @@ class FingerprintTest(unittest.TestCase):
             for name in ("daemonconf.py", "daemonlock.py", "daemonensure.py", "daemonapp.py", "fingerprint.py"):
                 self.assertIn(name, files)
             self.assertEqual(health.get("fingerprint"), daemon.source_fingerprint(HERE, files))
+
+
+@needs_flock
+class OwnerTest(unittest.TestCase):
+    """A daemon a test suite started does not outlive the suite (FAILURE_PATTERNS 1321)."""
+
+    def test_a_killed_suite_leaves_no_daemon(self) -> None:
+        """A suite that starts a detached daemon through ensure and is then
+        killed with SIGKILL, so none of its cleanup runs, leaves no daemon:
+        the daemon sees its owner gone and stops within seconds."""
+        with tempfile.TemporaryDirectory() as d:
+            code = ("import os, sys, time, warnings; sys.path.insert(0, %r); import daemon, daemonconf; "
+                    "os.environ[daemonconf.OWNER] = str(os.getpid()); warnings.simplefilter('ignore'); "
+                    "code = daemon.ensure(0, quiet=True, state_dir=%r, no_actions=True); "
+                    "print((daemon.read_lock_info(%r) or {}).get('pid') if code == 0 else 'failed', flush=True); "
+                    "time.sleep(60)") % (HERE, d, d)
+            suite = subprocess.Popen([sys.executable, "-B", "-c", code], stdout=subprocess.PIPE, text=True)
+            try:
+                assert suite.stdout is not None
+                line = suite.stdout.readline().strip()
+                self.assertTrue(line.isdigit(), line + daemon_log(d))
+                pid = int(line)
+                self.assertTrue(runs_daemon(pid))
+                suite.kill()
+                suite.wait(10)
+                deadline = time.monotonic() + 15
+                while daemon.lock_held(d) and time.monotonic() < deadline:
+                    time.sleep(0.1)
+                self.assertFalse(daemon.lock_held(d), daemon_log(d))
+                self.assertIn("owner pid %d is gone; stopping" % suite.pid, daemon_log(d))
+            finally:
+                if suite.poll() is None:
+                    suite.kill()
+                    suite.wait(10)
+                stop_daemon(d)
+
+    def test_an_owner_is_read_only_when_it_could_be_one(self) -> None:
+        """OWNER is a pid above 1, or nothing; a gone pid is not alive."""
+        for value, want in (("", 0), ("0", 0), ("1", 0), ("x1", 0), ("-5", 0), ("4242", 4242)):
+            with unittest.mock.patch.dict(os.environ, {daemonconf.OWNER: value}):
+                self.assertEqual(daemonconf.owner_pid(), want, value)
+        dead = subprocess.Popen([sys.executable, "-B", "-c", "pass"])
+        dead.wait()
+        self.assertFalse(daemonconf.owner_alive(dead.pid))
+        self.assertTrue(daemonconf.owner_alive(os.getpid()))
 
 
 class RoadmapPanelTest(unittest.TestCase):
@@ -1114,6 +1179,7 @@ class SecurityTest(unittest.TestCase):
             self.assertEqual(get_str(get_objects(doc, "unreleased")[0], "summary"), "Pins every base image by digest.")
 
 
+@needs_flock
 class McpTest(unittest.TestCase):
     """The MCP server, as a real child process talking to a real daemon backend."""
 
@@ -1200,6 +1266,7 @@ def untrusted_paths(value: JSONValue, word: str, path: str = "") -> List[str]:
     return out
 
 
+@needs_flock
 class UntrustedTextTest(unittest.TestCase):
     """Text a fork's author or a test chooses reaches no answer, or reaches it labeled."""
 
@@ -1440,6 +1507,7 @@ class CrossSiteTest(unittest.TestCase):
 class NoRoadmapTest(unittest.TestCase):
     """A clone without the git-ignored tracker files shows empty tabs, not errors."""
 
+    @needs_flock
     def test_a_clone_without_the_tracker_files(self) -> None:
         """With no panels.json, no Makefile, no waivers, no changelog and no git,
         /roadmap.json and /security.json answer 200 without an error, the MCP

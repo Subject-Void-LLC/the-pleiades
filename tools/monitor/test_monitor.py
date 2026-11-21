@@ -45,6 +45,21 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 TESTDATA = os.path.join(HERE, "testdata")
 
 
+def assert_mode(test: unittest.TestCase, path: str, mode: int, msg: str = "") -> None:
+    """Asserts a file's permission bits where the platform has POSIX modes.
+
+    Windows keeps only a read-only bit, so there the check is left out.
+
+    Args:
+        test: The test asserting.
+        path: The file or directory.
+        mode: The bits it must have, such as 0o600.
+        msg: Said on a failure.
+    """
+    if os.name == "posix":
+        test.assertEqual(stat.S_IMODE(os.stat(path).st_mode), mode, msg or None)
+
+
 def fixture(name: str) -> str:
     """Reads a fixture file.
 
@@ -208,6 +223,23 @@ class TraceLogTest(unittest.TestCase):
         self.assertIsNotNone(b)
         self.assertEqual(a.group(2) if a else None, "build")
         self.assertEqual(b.group(1) if b else None, "gosec")
+
+    def test_every_static_check_is_a_stage_in_make_order(self) -> None:
+        """Each check the Makefile's CI_REMOTE_STATIC lists is a stage, in its
+        order, and monitor-test is seen by its trace line and by its command."""
+        with open(os.path.join(HERE, "..", "..", "Makefile"), encoding="utf-8") as f:
+            line = next(x for x in f if x.startswith("CI_REMOTE_STATIC :="))
+        listed = line.split(":=", 1)[1].split()
+        self.assertEqual([n for n in ps.STATIC_TARGETS if n in listed], listed)
+        state = ps.RunState(0.0)
+        feed(state, ["Makefile:1188: target 'workflow-lint' does not exist", "actionlint",
+                     "Makefile:1201: target 'monitor-test' does not exist", "python3 -B tools/monitor/runtests.py",
+                     "Makefile:1140: target 'pr-check-vet' does not exist"])
+        self.assertEqual(statuses(state)["monitor-test"], ps.PASS)
+        state = ps.RunState(0.0)
+        feed(state, ["actionlint", "python3 -B tools/monitor/runtests.py"])
+        self.assertEqual(state.main, "monitor-test")
+        self.assertEqual(statuses(state)["workflow-lint"], ps.PASS)
 
     def test_backslash_lines_are_skipped(self) -> None:
         """Skips a continued recipe line and the line after it."""
@@ -514,7 +546,7 @@ class HistoryTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             root = os.path.join(d, "monitor")
             store = history.HistoryStore(root)
-            self.assertEqual(stat.S_IMODE(os.stat(root).st_mode), 0o700)
+            assert_mode(self, root, 0o700)
             state = replay("prcheck-run.txt")
             state.started, state.ended = 100.0, 200.0
             old = store.unique_run_id(1000.0, "ae89f745ba1c3948")
@@ -527,9 +559,9 @@ class HistoryTest(unittest.TestCase):
             with store.open_log(new) as log:
                 log.write("a line\n")
             run_dir = store.run_dir(new)
-            self.assertEqual(stat.S_IMODE(os.stat(run_dir).st_mode), 0o700)
+            assert_mode(self, run_dir, 0o700)
             for name in ("run.json", "report.json", "log.txt"):
-                self.assertEqual(stat.S_IMODE(os.stat(os.path.join(run_dir, name)).st_mode), 0o600, name)
+                assert_mode(self, os.path.join(run_dir, name), 0o600, name)
             runs = store.list_runs()
             self.assertEqual([r["id"] for r in runs], [new, old])
             self.assertEqual(runs[0]["seconds"], 150.0)
@@ -562,7 +594,7 @@ class HistoryTest(unittest.TestCase):
             many: List[JSONObject] = [{"id": i, "created": "2026-10-%02dT%02d:00:00Z" % (1 + i // 24, i % 24)}
                                       for i in range(history.MAX_ACTIONS_RUNS + 20)]
             self.assertEqual(len(store.save_actions(many)), history.MAX_ACTIONS_RUNS)
-            self.assertEqual(stat.S_IMODE(os.stat(store.actions_path()).st_mode), 0o600)
+            assert_mode(self, store.actions_path(), 0o600)
 
     def test_actions_written_only_when_changed(self) -> None:
         """A poll that changes nothing writes nothing; a changed one writes
@@ -982,6 +1014,22 @@ class PageTest(unittest.TestCase):
                 if name.endswith((".py", ".js", ".html", ".md", ".txt", ".json")):
                     with open(os.path.join(root, name), encoding="utf-8") as f:
                         self.assertNotIn(dash, f.read(), name)
+
+
+class OldestPythonTest(unittest.TestCase):
+    """The monitor runs on Python 3.8, the oldest the README and runtests.py name."""
+
+    def test_every_file_parses_as_python_3_8(self) -> None:
+        """No file uses syntax newer than 3.8 (a match statement, a
+        parenthesized with, an except star): its grammar is checked here.
+        A newer library call is not; that needs a run on 3.8 itself."""
+        import ast
+        for name in sorted(os.listdir(HERE)):
+            if name.endswith(".py"):
+                with open(os.path.join(HERE, name), encoding="utf-8") as f:
+                    source = f.read()
+                with self.subTest(name):
+                    ast.parse(source, name, feature_version=(3, 8))
 
 
 class CommandLineTest(unittest.TestCase):
