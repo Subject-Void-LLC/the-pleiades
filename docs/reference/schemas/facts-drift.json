@@ -65,7 +65,7 @@
           "description": "Baseline is the baseline compared against, absent with no_baseline."
         },
         "changes": {
-          "description": "Changes are the keys that differ, in key order.",
+          "description": "Changes are the confirmed keys that differ, in key order.",
           "items": {
             "$ref": "#/$defs/KeyDrift"
           },
@@ -75,7 +75,7 @@
           ]
         },
         "compared": {
-          "description": "Compared is how many of the baseline's keys were compared.",
+          "description": "Compared is how many of the baseline's keys were compared: each one matching, changed, removed or unconfirmed.",
           "type": "integer"
         },
         "device": {
@@ -95,8 +95,18 @@
           "description": "Host is the device's inventory name, as the caller asked for it.",
           "type": "string"
         },
+        "kind_changed": {
+          "description": "KindChanged are the keys stable on one side and volatile on the other: held by the baseline and volatile now, or volatile when it was taken and stable now. None is compared or counted as drift.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
         "matching": {
-          "description": "Matching is how many of those match.",
+          "description": "Matching is how many of those match, confirmed by the latest gather of their family.",
           "type": "integer"
         },
         "not_comparable": {
@@ -124,9 +134,9 @@
           "type": "string"
         },
         "unconfirmed": {
-          "description": "Unconfirmed are the baseline's keys that match it but whose value the device's latest gather of their family (the key up to its first dot) did not confirm. A store keeps no absence: a fact a gather stops reporting keeps its last value, so an item removed from the device (a package uninstalled) is listed here rather than as removed. It is not drift.",
+          "description": "Unconfirmed are the keys whose current value the device's latest gather of their family (the key up to its first dot) did not confirm, in key order, each with what it would have been. A store keeps no absence: a fact a gather stops reporting keeps its last value, so an item removed from the device (a package uninstalled) shows here, not as removed. None is drift, so a device whose only differences are here is in sync.",
           "items": {
-            "type": "string"
+            "$ref": "#/$defs/UnconfirmedKey"
           },
           "type": [
             "array",
@@ -141,6 +151,7 @@
         "compared",
         "matching",
         "not_comparable",
+        "kind_changed",
         "changes",
         "unconfirmed"
       ],
@@ -177,7 +188,7 @@
           "description": "CurrentValue is the current value, when there is one and it is not a digest."
         },
         "digest": {
-          "description": "Digest says a value holds a digest, so neither value is shown: the key and that it changed are.",
+          "description": "Digest says a value holds a digest (a digest field at any depth, or a key whose name ends in _digest or .digest), so neither value is shown: the key and that it changed are.",
           "type": "boolean"
         },
         "key": {
@@ -201,10 +212,42 @@
         "digest"
       ],
       "type": "object"
+    },
+    "UnconfirmedKey": {
+      "description": "UnconfirmedKey is one key the latest gather of its family did not confirm.",
+      "properties": {
+        "age_seconds": {
+          "description": "AgeSeconds is how long before the report that was, in seconds.",
+          "type": "integer"
+        },
+        "key": {
+          "description": "Key is the fact's key.",
+          "type": "string"
+        },
+        "last_seen_at": {
+          "description": "LastSeenAt is when its value was last confirmed.",
+          "format": "date-time",
+          "type": "string"
+        },
+        "would_be": {
+          "description": "WouldBe is what the key would be were its value confirmed: added, changed or matching. Known values: added, changed, matching. A newer producer may add others, and a reader treats one it does not know as not a pass.",
+          "examples": [
+            "added",
+            "changed",
+            "matching"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "key",
+        "would_be"
+      ],
+      "type": "object"
     }
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "description": "FactsDriftReport is each device's stable facts against its baseline, as the project's store holds them: which keys were added, removed or changed, with each value's times and keyed hashes, and a value shown only where it is not a digest. Printed by pleiades facts drift --json. schema_version is the major version: it goes up only for a change an existing reader could misread, a field removed or renamed or given another type or meaning. Within a major version a newer producer may add fields, and new values to the open sets. So a reader ignores a field it does not know, treats a status or kind it does not know as not a pass, and refuses a major version it does not know.",
+  "description": "FactsDriftReport is each device's stable facts against its baseline, as the project's store holds them: which keys were added, removed or changed, which the latest gather did not confirm, with each value's times and keyed hashes, and a value shown only where it is not a digest. A store records no absence, so a key a host stopped reporting is unconfirmed rather than removed: removed is reported only for a golden baseline's key the host never reported. Printed by pleiades facts drift --json. schema_version is the major version: it goes up only for a change an existing reader could misread, a field removed or renamed or given another type or meaning. Within a major version a newer producer may add fields, and new values to the open sets. So a reader ignores a field it does not know, treats a status or kind it does not know as not a pass, and refuses a major version it does not know.",
   "properties": {
     "at": {
       "description": "At is when the drift was read, which every age is measured from.",

@@ -18,7 +18,8 @@ func TestFactsDriftSchema_FitsAFullReport(t *testing.T) {
 		Devices: []facts.DriftReport{{
 			Host: "web1", Device: "id-1", State: facts.DriftDrifted, Reason: "why",
 			Baseline: &facts.BaselineSummary{Name: "pre-change", TakenAt: at, By: "ops", Reason: "before the upgrade", From: "id-0", FromName: "golden", KeysID: "project:0011223344556677", Keys: []string{"package.*"}, Pairs: 3},
-			Compared: 3, Matching: 2, NotComparable: []string{"file.x"}, Unconfirmed: []string{"package.b"},
+			Compared: 3, Matching: 1, NotComparable: []string{"file.x"}, KindChanged: []string{"host.uptime"},
+			Unconfirmed:     []facts.UnconfirmedKey{{Key: "package.b", WouldBe: facts.ChangeAdded, LastSeenAt: &at, AgeSeconds: &age}},
 			Changes:         []facts.KeyDrift{{Key: "package.a", Change: facts.ChangeChanged, BaselineHash: "aa", CurrentHash: "bb", Digest: false, BaselineValue: "1", CurrentValue: "2", ObservedAt: &at, LastSeenAt: &at, AgeSeconds: &age}},
 			FactsLastSeenAt: &at, FactsAgeSeconds: &age,
 		}},

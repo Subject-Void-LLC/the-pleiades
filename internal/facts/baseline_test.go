@@ -1,15 +1,13 @@
-// Tests of baselines and drift over the Crawl CLI's file store (Phase 41d):
-// a baseline line is bound to its device and place, a golden baseline is
-// hashed again for its target, a value keyed for one device is not
-// comparable across devices, a volatile key never drifts, a device that
-// cannot be compared is unknown, and a baseline is never replaced.
+// Tests of the Crawl CLI's baselines file (Phase 41d): a baseline line is
+// bound to its device and place, the file holds sealed lines and nothing
+// else, a store with no keys takes and reads none, a baseline is never
+// replaced, and a torn last line is ignored and then cut off. The shared
+// helpers of the baseline and drift tests are here too.
 package facts_test
 
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"os"
 	"path/filepath"
@@ -116,107 +114,6 @@ func TestBaseline_ALineMovedToAnotherDeviceOrPlaceDoesNotOpen(t *testing.T) {
 	}
 }
 
-// TestBaseline_GoldenIsHashedForItsTarget: two devices with the same values
-// read in sync against a baseline of one taken from the other, because each
-// pair is hashed again for the target; the source's own hashes differ from
-// the target's, so a copy of them would read every key changed.
-func TestBaseline_GoldenIsHashedForItsTarget(t *testing.T) {
-	store, _ := baselineStore(t)
-	same := map[string]any{"os.kernel.release": "6.1", "package.busybox": map[string]any{"version": "1.36", "source": "apk"}}
-	observe(t, store, "golden", baselineAt, same)
-	observe(t, store, "web1", baselineAt, same)
-	b := take(t, store, "web1", "gold", "golden")
-	if b.From != "golden" || b.Device != "web1" || len(b.Pairs) != 2 {
-		t.Fatalf("golden baseline = %+v", b)
-	}
-	if rep := driftOf(t, store, "web1"); rep.State != facts.DriftInSync || rep.Matching != 2 || len(rep.Changes) != 0 {
-		t.Fatalf("equal values against a golden baseline: %+v", rep)
-	}
-	// What a copy of the source's hashes would have held: never the target's.
-	src, err := store.Current(context.Background(), "golden")
-	if err != nil {
-		t.Fatal(err)
-	}
-	for i, e := range src {
-		if facts.SameMAC(e.Hash, b.Pairs[i].Hash) {
-			t.Errorf("%s: the golden pair holds the source's own hash", e.Key)
-		}
-	}
-	// And a real difference still drifts.
-	observe(t, store, "web1", baselineAt.Add(time.Minute), map[string]any{"os.kernel.release": "6.2", "package.busybox": same["package.busybox"]})
-	rep := driftOf(t, store, "web1")
-	if rep.State != facts.DriftDrifted || len(rep.Changes) != 1 || rep.Changes[0].Key != "os.kernel.release" || rep.Changes[0].Change != facts.ChangeChanged {
-		t.Fatalf("a changed kernel against the golden baseline: %+v", rep)
-	}
-	if c := rep.Changes[0]; c.BaselineValue != "6.1" || c.CurrentValue != "6.2" || c.Digest || c.AgeSeconds == nil {
-		t.Errorf("the change = %+v, want 6.1 to 6.2 shown with its age", c)
-	}
-}
-
-// TestDrift_AVolatileKeyNeverDrifts: a volatile key that changes, or one that
-// is volatile now and stable in the baseline, is never compared.
-func TestDrift_AVolatileKeyNeverDrifts(t *testing.T) {
-	store, _ := baselineStore(t)
-	observe(t, store, "dev1", baselineAt, map[string]any{"os.kernel.release": "6.1", "host.uptime_seconds": 10}, "host.uptime_seconds")
-	b := take(t, store, "dev1", "base", "")
-	for _, p := range b.Pairs {
-		if p.Key == "host.uptime_seconds" {
-			t.Errorf("the baseline holds a volatile key: %+v", p)
-		}
-	}
-	observe(t, store, "dev1", baselineAt.Add(time.Minute), map[string]any{"os.kernel.release": "6.1", "host.uptime_seconds": 70}, "host.uptime_seconds")
-	if rep := driftOf(t, store, "dev1"); rep.State != facts.DriftInSync || len(rep.Changes) != 0 {
-		t.Fatalf("a moved uptime drifted: %+v", rep)
-	}
-	// A baseline that holds the key as stable, against a device that now
-	// reports it volatile: still not compared.
-	b.Pairs = append(b.Pairs, facts.BaselinePair{Key: "host.uptime_seconds", Hash: "00"})
-	current, err := store.Current(context.Background(), "dev1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if rep := facts.Drift(b, factstest.Keys().ID(), current, baselineAt); rep.State != facts.DriftInSync || rep.Compared != 1 {
-		t.Errorf("a key volatile now was compared: %+v", rep)
-	}
-}
-
-// TestDrift_ADeviceThatCannotBeComparedIsUnknown: a device never gathered,
-// and a baseline taken under other keys, are unknown, never in sync.
-func TestDrift_ADeviceThatCannotBeComparedIsUnknown(t *testing.T) {
-	store, _ := baselineStore(t)
-	observe(t, store, "dev1", baselineAt, map[string]any{"os.kernel.release": "6.1"})
-	b := take(t, store, "dev1", "base", "")
-	if rep := facts.Drift(b, factstest.Keys().ID(), nil, baselineAt); rep.State != facts.DriftUnknown {
-		t.Errorf("never gathered: %+v, want unknown", rep)
-	}
-	current, err := store.Current(context.Background(), "dev1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	other, err := facts.NewKeys(bytes.Repeat([]byte{7}, 32), "test")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if rep := facts.Drift(b, other.ID(), current, baselineAt); rep.State != facts.DriftUnknown {
-		t.Errorf("a baseline under other keys: %+v, want unknown", rep)
-	}
-	if rep := facts.Drift(b, factstest.Keys().ID(), current, baselineAt); rep.State != facts.DriftInSync {
-		t.Errorf("the control: %+v, want in_sync", rep)
-	}
-	// A device with no baseline at all says so.
-	observe(t, store, "dev2", baselineAt, map[string]any{"os.kernel.release": "6.1"})
-	if rep := driftOf(t, store, "dev2"); rep.State != facts.DriftNoBaseline {
-		t.Errorf("no baseline: %+v", rep)
-	}
-	// Neither can be taken of a device never gathered.
-	if _, err := store.TakeBaseline(context.Background(), "dev3", facts.BaselineRequest{Name: "b", Reason: "r", By: "u", At: baselineAt}); !errors.Is(err, facts.ErrNeverGathered) {
-		t.Errorf("a baseline of a device never gathered: %v", err)
-	}
-	if _, err := store.TakeBaseline(context.Background(), "dev1", facts.BaselineRequest{Name: "b", Reason: "r", By: "u", From: "dev3", At: baselineAt}); !errors.Is(err, facts.ErrNeverGathered) {
-		t.Errorf("a baseline from a source never gathered: %v", err)
-	}
-}
-
 // TestBaseline_HoldsNoPlaintextAndNeedsKeys: the baselines file names no key
 // and no value in the clear, and a store with no keys takes and reads none
 // and creates no file.
@@ -245,10 +142,65 @@ func TestBaseline_HoldsNoPlaintextAndNeedsKeys(t *testing.T) {
 	if _, err := keyless.Baselines(context.Background(), "dev2"); !errors.Is(err, facts.ErrNoKeys) {
 		t.Errorf("Baselines with no keys: %v", err)
 	}
+	if _, err := keyless.DriftOf(context.Background(), "dev1", "", baselineAt); !errors.Is(err, facts.ErrNoKeys) {
+		t.Errorf("DriftOf with no keys: %v, want ErrNoKeys rather than a report", err)
+	}
 	for _, name := range []string{"dev2.baselines.jsonl", "dev2.lock"} {
 		if _, err := os.Stat(filepath.Join(dir, name)); !errors.Is(err, os.ErrNotExist) {
 			t.Errorf("a keyless store made %s: %v", name, err)
 		}
+	}
+}
+
+// TestBaseline_EveryLineOpensWhereItIsAndNothingElseIsThere: each line of a
+// baselines file opens with OpenLine as its device's baseline line at its
+// own byte offset and decodes as the baseline taken, in order, and the file
+// holds those lines and nothing else: no header, no line that is not a
+// baseline, no byte after the last newline.
+func TestBaseline_EveryLineOpensWhereItIsAndNothingElseIsThere(t *testing.T) {
+	store, dir := baselineStore(t)
+	observe(t, store, "dev1", baselineAt, map[string]any{"os.kernel.release": "6.1", "package.a": "1"})
+	names := []string{"first", "second", "third"}
+	for _, n := range names {
+		take(t, store, "dev1", n, "")
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, "dev1.baselines.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(raw) == 0 || raw[len(raw)-1] != '\n' {
+		t.Fatalf("the file does not end with a whole line: %q", raw[max(0, len(raw)-16):])
+	}
+	lines := bytes.SplitAfter(raw, []byte("\n"))
+	// SplitAfter leaves an empty last element after the final newline, and
+	// nothing else may follow it.
+	if last := lines[len(lines)-1]; len(last) != 0 {
+		t.Fatalf("%d byte(s) after the last line", len(last))
+	}
+	lines = lines[:len(lines)-1]
+	if len(lines) != len(names) {
+		t.Fatalf("%d line(s), want one per baseline (%d): the file holds something else", len(lines), len(names))
+	}
+	var offset int64
+	for i, line := range lines {
+		body := bytes.TrimSuffix(line, []byte("\n"))
+		if bytes.ContainsAny(body, "\n\r") || len(body) == 0 {
+			t.Fatalf("line %d is not one sealed line", i+1)
+		}
+		plain, err := factstest.Keys().OpenLine("dev1", facts.RoleBaseline, offset, body)
+		if err != nil {
+			t.Fatalf("line %d does not open at offset %d: %v", i+1, offset, err)
+		}
+		if !bytes.Contains(plain, []byte(`"name":"`+names[i]+`"`)) {
+			t.Errorf("line %d opens as %s, want baseline %q", i+1, plain, names[i])
+		}
+		if b, err := facts.DecodeBaselineLine(factstest.Keys(), "dev1", offset, line); err != nil || b.Name != names[i] {
+			t.Errorf("line %d decodes as %q, %v", i+1, b.Name, err)
+		}
+		offset += int64(len(line))
+	}
+	if offset != int64(len(raw)) {
+		t.Errorf("the lines cover %d of the file's %d bytes", offset, len(raw))
 	}
 }
 
@@ -312,102 +264,6 @@ func TestBaseline_ATornLastLineIsIgnoredThenCut(t *testing.T) {
 	}
 	if b, err := store.Baseline(context.Background(), "dev1", ""); err != nil || b.Name != "second" {
 		t.Errorf("the active baseline = %q, %v; want the newest", b.Name, err)
-	}
-}
-
-// keyedFile is a file fact's value with its digest keyed for device, as the
-// engine keys a private file's digest.
-func keyedFile(t *testing.T, device, key, content string) map[string]any {
-	t.Helper()
-	keyer, err := facts.NewKeyer(factstest.Secret, "test")
-	if err != nil {
-		t.Fatal(err)
-	}
-	sum := sha256.Sum256([]byte(content))
-	v := keyer.KeyRaw(device, key, map[string]any{"state": "present", "world_readable": false, facts.RawDigestField: hex.EncodeToString(sum[:])})
-	obj, _ := v.(map[string]any)
-	if obj[facts.KeyedDigestField] == nil {
-		t.Fatalf("no keyed digest in %v", v)
-	}
-	return obj
-}
-
-// TestBaseline_AKeyedDigestIsNotComparableAcrossDevices: the same private
-// file on two devices carries two digests, each keyed for its device, so a
-// golden baseline records it not comparable and never reports it as drift;
-// on its own device it is compared, and a change to it drifts with its value
-// not shown.
-func TestBaseline_AKeyedDigestIsNotComparableAcrossDevices(t *testing.T) {
-	store, _ := baselineStore(t)
-	const key = "file.%2Fetc%2Fshadow"
-	observe(t, store, "golden", baselineAt, map[string]any{key: keyedFile(t, "golden", key, "s3cret"), "os.family": "alpine"})
-	observe(t, store, "web1", baselineAt, map[string]any{key: keyedFile(t, "web1", key, "s3cret"), "os.family": "alpine"})
-	take(t, store, "web1", "gold", "golden")
-	rep := driftOf(t, store, "web1")
-	if rep.State != facts.DriftInSync || len(rep.NotComparable) != 1 || rep.NotComparable[0] != key || rep.Compared != 1 {
-		t.Fatalf("a keyed digest under a golden baseline: %+v", rep)
-	}
-	// On its own device the same value is compared, and a change shows as
-	// changed with neither value shown.
-	take(t, store, "web1", "own", "")
-	if rep := driftOf(t, store, "web1"); rep.State != facts.DriftInSync || rep.Compared != 2 || len(rep.NotComparable) != 0 {
-		t.Fatalf("its own device's baseline: %+v", rep)
-	}
-	observe(t, store, "web1", baselineAt.Add(time.Minute), map[string]any{key: keyedFile(t, "web1", key, "changed"), "os.family": "alpine"})
-	rep = driftOf(t, store, "web1")
-	if rep.State != facts.DriftDrifted || len(rep.Changes) != 1 {
-		t.Fatalf("a changed private file: %+v", rep)
-	}
-	if c := rep.Changes[0]; c.Key != key || !c.Digest || c.BaselineValue != nil || c.CurrentValue != nil || c.BaselineHash == "" || c.CurrentHash == "" {
-		t.Errorf("the digest's change = %+v, want the key and its hashes with no value", c)
-	}
-}
-
-// TestBaseline_KeysSelectWhatIsTakenAndCompared: --keys takes only the keys
-// it names, and an added key it does not cover is not drift.
-func TestBaseline_KeysSelectWhatIsTakenAndCompared(t *testing.T) {
-	store, _ := baselineStore(t)
-	observe(t, store, "dev1", baselineAt, map[string]any{"package.a": "1", "package.b": "2", "os.family": "alpine"})
-	sel, err := facts.ParseKeySelector("package.*")
-	if err != nil {
-		t.Fatal(err)
-	}
-	b, err := store.TakeBaseline(context.Background(), "dev1", facts.BaselineRequest{Name: "pkgs", Reason: "r", By: "u", Keys: sel, At: baselineAt})
-	if err != nil || len(b.Pairs) != 2 {
-		t.Fatalf("a package baseline = %+v, %v", b, err)
-	}
-	observe(t, store, "dev1", baselineAt.Add(time.Minute), map[string]any{"package.a": "1", "package.c": "3", "os.family": "alpine", "os.kernel.release": "6.1"})
-	rep := driftOf(t, store, "dev1")
-	var got []string
-	for _, c := range rep.Changes {
-		got = append(got, string(c.Change)+" "+c.Key)
-	}
-	// package.b, which the second gather did not report, keeps its last value
-	// (a store keeps no absence), so it is unconfirmed rather than removed.
-	if len(got) != 1 || got[0] != "added package.c" || len(rep.Unconfirmed) != 1 || rep.Unconfirmed[0] != "package.b" {
-		t.Errorf("changes = %v, unconfirmed %v; want package.c added and package.b unconfirmed", got, rep.Unconfirmed)
-	}
-	// A golden key the target has never reported is removed.
-	observe(t, store, "golden", baselineAt, map[string]any{"package.a": "1", "package.z": "9"})
-	b, err = store.TakeBaseline(context.Background(), "dev1", facts.BaselineRequest{Name: "gold", Reason: "r", By: "u", From: "golden", Keys: sel, At: baselineAt})
-	if err != nil {
-		t.Fatal(err)
-	}
-	rep = driftOf(t, store, "dev1")
-	got = nil
-	for _, c := range rep.Changes {
-		got = append(got, string(c.Change)+" "+c.Key)
-	}
-	if len(got) != 3 || got[0] != "added package.b" || got[1] != "added package.c" || got[2] != "removed package.z" {
-		t.Errorf("against the golden baseline: %v", got)
-	}
-	if c := rep.Changes[2]; c.BaselineValue != "9" || c.CurrentValue != nil || c.LastSeenAt != nil {
-		t.Errorf("the removed key = %+v", c)
-	}
-	for _, bad := range []string{"", "a,,b", "pa*ck", "a b"} {
-		if _, err := facts.ParseKeySelector(bad); bad != "" && err == nil {
-			t.Errorf("ParseKeySelector(%q) accepted", bad)
-		}
 	}
 }
 
