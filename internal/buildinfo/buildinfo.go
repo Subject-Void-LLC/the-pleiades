@@ -43,10 +43,14 @@ var (
 // every method carrying it unloadable on the very first real release.
 const CurrentRelease = "0.4.0"
 
-// developmentBase is the version of every build nobody stamped. It tracks
-// CurrentRelease with a -dev pre-release suffix so unstamped binaries and
-// tests show which release line they come from while still being treated as
-// development builds.
+// developmentBase is the version of every build nobody stamped:
+// CurrentRelease with a -dev prerelease, so an unstamped binary says which
+// release line it comes from while Release still reads it as a development
+// build. Nothing orders it against a release. Under semantic versioning it
+// sorts before CurrentRelease, which is wrong for a commit made after that
+// release was tagged and before CurrentRelease moved; it is printed for a
+// person, and every comparison (the loader's engine constraint, the scaffold,
+// the codename) goes through Release, which refuses it.
 const developmentBase = CurrentRelease + "-dev"
 
 // Version is this build's version: the stamped one, or a development

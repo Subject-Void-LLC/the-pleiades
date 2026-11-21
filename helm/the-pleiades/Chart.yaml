@@ -11,8 +11,11 @@ type: application
 # It is not the application's version and never tracks it.
 version: 0.1.0
 
-# The version of The Pleiades this chart deploys, carrying the current release
-# line with a -dev pre-release suffix.
+# The version of The Pleiades this chart deploys: the release line this tree
+# is on (internal/buildinfo's CurrentRelease) with -dev, the same version an
+# unstamped build of the tree reports, since the images it names (tag dev)
+# are development builds. A test in internal/buildinfo holds it equal to
+# CurrentRelease, so moving the release line without it fails.
 #
 # Nothing derives an image tag from this value, deliberately. The stock chart
 # left image.tag empty and fell back to .Chart.AppVersion, which is exactly how

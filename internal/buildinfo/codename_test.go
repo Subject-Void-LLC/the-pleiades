@@ -50,10 +50,13 @@ func TestCodename_ReadsThisBuildsStampedVersion(t *testing.T) {
 }
 
 // TestCodenameFor reads the name of each spelling of a release, and none for
-// an unnamed release or a development version.
+// an unnamed release or a development version, including a development build
+// of a named release's own line (0.3.0-dev+<commit>, the shape an unstamped
+// build reports once its line is named).
 func TestCodenameFor(t *testing.T) {
 	for v, want := range map[string]string{
 		"0.3.0": "Paranoid Porpoise", "v0.3.0": "Paranoid Porpoise", "0.3.0-rc1": "Paranoid Porpoise",
+		"0.3.0-dev": "", "0.3.0-dev+abc1234": "", "0.3.0-dev+abc1234.dirty": "",
 		"0.2.0": "", "0.0.0-dev+abc1234": "", "dev": "", "": "",
 	} {
 		if got := CodenameFor(v); got != want {

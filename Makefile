@@ -1208,11 +1208,15 @@ release-notes:
 	@test -n "$$VERSION" -a -n "$$REPO" || { echo "make release-notes: set VERSION and REPO, such as make release-notes VERSION=0.3.0 REPO=owner/name" >&2; exit 2; }
 	v="$${VERSION#v}"; go run ./tools/release -version "$$v" -notes "docs/releases/v$$v.md" -repo "$$REPO" -out "$(RELEASE_DIR)"
 
-# release-dry-run is release for the current release line with a -dryrun
-# pre-release suffix into a throwaway directory under .IGNORE, then checks the
-# list with sha256sum: the whole build with nothing left where a tag could pick
-# it up.
-CURRENT_RELEASE := $(shell sed -n 's/^const CurrentRelease = "\([^"]*\)"/\1/p' internal/buildinfo/buildinfo.go | tr -d '\r')
+# CURRENT_RELEASE is the release line this tree is on, read from
+# internal/buildinfo's CurrentRelease constant, which is where the binaries
+# read it. It is read only by the targets that use it ("=", not ":=").
+CURRENT_RELEASE = $(shell sed -n 's/^const CurrentRelease = "\([0-9][0-9.]*\)"$$/\1/p' internal/buildinfo/buildinfo.go | tr -d '\r')
+
+# release-dry-run is release stamped <CurrentRelease>-dryrun into a throwaway
+# directory under .IGNORE, then checks the list with sha256sum: the whole
+# build with nothing left where a tag could pick it up. The binaries read the
+# stamp as the release it rehearses (internal/buildinfo.Release).
 release-dry-run:
 	@test -n "$(CURRENT_RELEASE)" || { echo "could not read CurrentRelease from internal/buildinfo/buildinfo.go" >&2; exit 2; }
 	rm -rf .IGNORE/release-dry-run
