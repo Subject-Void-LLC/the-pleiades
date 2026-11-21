@@ -10,10 +10,13 @@
 -- to facts names, and the fact_keyed check refuses a row whose key_token or
 -- keyed_by is empty, which is every row a writer knowing neither column
 -- inserts. Its coverage and observation rows are written only after those,
--- in the same transaction, so they are never stored either.
+-- in the same transaction, so they are never stored either. The keyed_by
+-- index is what a change of the facts key lists the devices still under the
+-- previous key by.
 DELETE FROM "fact_observations";
 DELETE FROM "fact_coverages";
 DELETE FROM "facts";
 DROP INDEX "fact_key_device_facts";
 ALTER TABLE "facts" DROP COLUMN "key", ADD COLUMN "key_token" character varying NOT NULL DEFAULT '', ADD COLUMN "keyed_by" character varying NOT NULL DEFAULT '', ADD CONSTRAINT "fact_keyed" CHECK (key_token <> '' AND keyed_by <> '');
 CREATE INDEX "fact_key_token_device_facts" ON "facts" ("key_token", "device_facts");
+CREATE INDEX "fact_keyed_by_device_facts" ON "facts" ("keyed_by", "device_facts");

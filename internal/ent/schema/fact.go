@@ -101,8 +101,9 @@ func (Fact) Fields() []ent.Field {
 		// chain_prev and chain are the device's hash chain over its stable
 		// rows (internal/facts' chain.go): chain_prev is the chain hash of
 		// the device's stable row stored before this one ("" for the first),
-		// chain this row's. Both are null on a volatile row and on a row from
-		// before 41b. The unique index below keeps the chain a line: a second
+		// chain this row's. Each link is keyed under the store's chain key,
+		// so the row's other columns cannot confirm a guessed fact key. Both
+		// are null on a volatile row and on a row from before 41b. The unique index below keeps the chain a line: a second
 		// writer naming the same predecessor fails, and its batch is
 		// redelivered against the new head. A change of the facts key
 		// recomputes both for every stable row (fact_rekey.go).
@@ -112,12 +113,18 @@ func (Fact) Fields() []ent.Field {
 }
 
 // Indexes of the Fact: one key's token on one device (how a key's rows are
-// found), every fact of one device (what the device's facts route reads), and
-// one successor per chain link.
+// found), every fact of one device (what the device's facts route reads, and
+// what keyState reads a device's keys from), the devices holding a row under
+// one set of keys (keyed_by, then the device: what RekeyAll lists and counts
+// during a change of the facts key, through its rows alone), and one
+// successor per chain link. An index's fields come before its edges, so the
+// keys index leads with keyed_by, which RekeyAll seeks; keyState's
+// keyed_by <> current seeks in neither order, and reads the device index.
 func (Fact) Indexes() []ent.Index {
 	return []ent.Index{
 		index.Fields("key_token").Edges("device"),
 		index.Edges("device"),
+		index.Fields("keyed_by").Edges("device"),
 		index.Fields("chain_prev").Edges("device").Unique(),
 	}
 }

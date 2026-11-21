@@ -365,6 +365,11 @@ var (
 				Columns: []*schema.Column{FactsColumns[14]},
 			},
 			{
+				Name:    "fact_keyed_by_device_facts",
+				Unique:  false,
+				Columns: []*schema.Column{FactsColumns[6], FactsColumns[14]},
+			},
+			{
 				Name:    "fact_chain_prev_device_facts",
 				Unique:  true,
 				Columns: []*schema.Column{FactsColumns[12], FactsColumns[14]},

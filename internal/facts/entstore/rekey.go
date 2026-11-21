@@ -123,6 +123,24 @@ const rekeyAttempts = 2
 // found its row changed, or SQLite refusing a write from a read another
 // commit overtook), the device is read again: under the current keys now,
 // that is success, and still under the previous ones it is tried again.
+//
+// Every read calls it (Current, History and Verify, through bound), not
+// only a write, so a caller holding only inventory:read, a GET of the
+// device's facts or its fact chain, is what performs a device's one-time
+// re-key after a change of the facts key, and waits for it. While it runs
+// it holds the device's facts exclusively (ent.Tx.LockFactsOfDevice: on
+// PostgreSQL the device's own row, FOR NO KEY UPDATE; on SQLite the
+// database's one write lock), so every record of the device waits for it,
+// and on SQLite every write to the database does too; its transaction
+// rewrites every row, coverage and observation of the device. A second read
+// of the device meanwhile finds it still under the previous keys and waits
+// to re-key it in turn, then finds nothing left to do; reads of other
+// devices go on beside it. That is by design: a read under the new keys
+// cannot find a row under the previous ones, whose token differs, so it
+// re-keys the device first or would serve nothing, and the re-key happens
+// once per device per change of the key, which RekeyAll does at start for
+// every device anyway. When there is nothing to do, settle costs keyState
+// alone: one query over the device's rows through the device index.
 func (s *Store) settle(ctx context.Context, dev int, device string) (rekeyed, error) {
 	state, err := s.keyState(ctx, s.client.Fact, dev)
 	if err != nil || state == keysCurrent {

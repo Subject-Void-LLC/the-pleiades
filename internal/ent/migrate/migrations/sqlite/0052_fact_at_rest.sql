@@ -14,7 +14,8 @@
 -- inserts. Its coverage and observation rows are written only after those,
 -- in the same transaction, so they are never stored either.
 -- Written as ALTER TABLE, not a table rebuild, so the table's
--- sqlite_sequence survives.
+-- sqlite_sequence survives. The keyed_by index is what a change of the facts
+-- key lists the devices still under the previous key by.
 DELETE FROM `fact_observations`;
 DELETE FROM `fact_coverages`;
 DELETE FROM `facts`;
@@ -23,3 +24,4 @@ ALTER TABLE `facts` ADD COLUMN `keyed_by` text NOT NULL DEFAULT ('') CONSTRAINT 
 DROP INDEX `fact_key_device_facts`;
 ALTER TABLE `facts` DROP COLUMN `key`;
 CREATE INDEX `fact_key_token_device_facts` ON `facts` (`key_token`, `device_facts`);
+CREATE INDEX `fact_keyed_by_device_facts` ON `facts` (`keyed_by`, `device_facts`);
