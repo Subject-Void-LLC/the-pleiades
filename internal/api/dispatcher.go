@@ -505,10 +505,11 @@ func (d *Dispatcher) respondLaunchError(w http.ResponseWriter, r *http.Request, 
 		RespondError(w, r, http.StatusUnprocessableEntity, ErrWindowedPrompt.Error())
 	case errors.Is(err, ErrSerialPrompt):
 		RespondError(w, r, http.StatusUnprocessableEntity, ErrSerialPrompt.Error())
-	case errors.Is(err, dispatch.ErrSeededLogin):
-		// The message names the runbook, its task, the method and the device
-		// whose login the task would seed, all from the runbook's own text,
-		// and no secret: none has been read.
+	case errors.Is(err, dispatch.ErrSeededLogin), errors.Is(err, dispatch.ErrFactReads):
+		// The message names the runbook's task and what it does (the method
+		// and the device whose login it would seed, or the facts its
+		// condition reads), all from the runbook's own text, and no secret
+		// or fact value: none has been read.
 		RespondError(w, r, http.StatusUnprocessableEntity, err.Error())
 	case errors.Is(err, launch.ErrUnknownKind):
 		// The template names a kind this Controller no longer registers,
@@ -590,6 +591,13 @@ func (d *Dispatcher) LaunchTemplate(ctx context.Context, actor string, templateI
 			// Refused before the job exists, so nothing is published: a seed
 			// reaches a Runner only through the claim-time credential fetch.
 			if err := dispatch.RefuseSeededLogins(rb); err != nil {
+				return "", ignored, err
+			}
+			// So is a runbook whose condition reads a stored fact, which no
+			// Runner can read: refused here rather than by admission on every
+			// device after the job was accepted (admission still refuses it, for
+			// a job some other path made).
+			if err := dispatch.RefuseFactReads(rb.FactReads); err != nil {
 				return "", ignored, err
 			}
 		}

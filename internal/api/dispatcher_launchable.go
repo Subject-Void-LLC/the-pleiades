@@ -97,14 +97,25 @@ func (d *Dispatcher) unattended(ctx context.Context, req launchable.Request) (la
 		}
 	}
 
-	// A runbook that seeds a device's login is refused on every launch
-	// (LaunchTemplate), so it is refused at the schedule's write too, rather
-	// than at every firing: the same RefuseSeededLogins, naming the task, the
-	// method and the device. A runbook that cannot be resolved is left to the
-	// launch, as LaunchTemplate leaves it.
+	// A runbook that seeds a device's login, or whose condition reads a
+	// stored fact, is refused on every launch (LaunchTemplate), so it is
+	// refused at the schedule's write too, rather than at every firing: the
+	// same RefuseSeededLogins and RefuseFactReads, naming the task. A runbook
+	// that cannot be resolved is left to the launch, as LaunchTemplate leaves
+	// it.
 	if d.runbooks != nil && launch.ResolveKind(tmpl.KindName) == launch.DefaultKind {
 		if rb, err := d.runbooks.Get(ctx, tmpl.Definition); err == nil {
 			if err := dispatch.RefuseSeededLogins(rb); err != nil {
+				return launch.Template{}, launch.Config{}, launchable.Refusal{
+					Field:   launchable.TargetField,
+					Message: err.Error(),
+					Err:     err,
+				}
+			}
+			// A runbook reading a stored fact, which no Runner can read, is
+			// refused at the write too, by the one RefuseFactReads every
+			// launch uses.
+			if err := dispatch.RefuseFactReads(rb.FactReads); err != nil {
 				return launch.Template{}, launch.Config{}, launchable.Refusal{
 					Field:   launchable.TargetField,
 					Message: err.Error(),
