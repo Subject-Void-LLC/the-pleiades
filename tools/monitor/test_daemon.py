@@ -792,7 +792,8 @@ class EnsureSafetyTest(unittest.TestCase):
                 r = subprocess.run(ensure + ["--quiet"], capture_output=True, text=True, timeout=60)
                 self.assertEqual(r.returncode, 0, diagnose(d, ("ensure", r.returncode, r.stdout, r.stderr)))
                 first = daemon.healthz(lock_port(d)) or {}
-                self.assertEqual(first.get("source"), copy)
+                # The daemon reports its resolved directory: macOS temp paths are symlinks.
+                self.assertEqual(first.get("source"), os.path.realpath(copy))
                 self.assertEqual(first.get("fingerprint"),
                                  daemon.source_fingerprint(copy, [str(n) for n in get_list(first, "source_files")]))
                 self.assertIn("daemon.py", get_list(first, "source_files"))
