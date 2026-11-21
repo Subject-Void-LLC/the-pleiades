@@ -52,6 +52,7 @@
 package facts
 
 import (
+	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/hmac"
@@ -95,6 +96,11 @@ var ErrNoKeys = errors.New("facts: no key to seal stored facts with")
 // another key, belongs to another device, file or place, was edited, or was
 // written before facts were sealed.
 var ErrSealed = errors.New("facts: a stored fact does not open under this store's key")
+
+// ErrUnsealed is the ErrSealed of a line that was never sealed: plaintext a
+// release before this one wrote. No key turns it into a sealed line with a
+// keyed hash, so it says what to do instead of only that it does not open.
+var ErrUnsealed = fmt.Errorf("%w: it is plaintext, written by a release before facts were sealed at rest; remove the device's fact files and gather its facts again", ErrSealed)
 
 // Keys is one store's at-rest keys: the key that keys fact hashes, the key
 // that tokenizes fact keys, and the key the CLI seals its lines under, each
@@ -270,6 +276,11 @@ func (k *Keys) OpenLine(device, role string, offset int64, line []byte) ([]byte,
 		return nil, err
 	}
 	if len(line) < len(linePrefix) || string(line[:len(linePrefix)]) != linePrefix {
+		// A JSON object where a sealed line belongs is what an earlier
+		// release stored.
+		if trimmed := bytes.TrimSpace(line); len(trimmed) > 0 && trimmed[0] == '{' {
+			return nil, ErrUnsealed
+		}
 		return nil, ErrSealed
 	}
 	sealed, err := base64.RawStdEncoding.DecodeString(string(line[len(linePrefix):]))

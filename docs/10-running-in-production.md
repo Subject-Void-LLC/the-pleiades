@@ -326,6 +326,50 @@ a Runner a task's own result (what `register` reads) holds the digest sealed to 
 controller, not keyed, so a condition on `hmac_sha256` works in a `pleiades run`
 and not in a controller job; the stored fact has it on both.
 
+### Facts at rest
+
+A stored fact names nothing in plaintext. On the controller each fact's row is found
+by a keyed token of its name (an HMAC bound to the device), its name and value are
+sealed together under `MASTER_ENCRYPTION_KEY` and bound to that row, so a sealed
+value moved to another row does not open, and the hash that detects a change and
+links the history is keyed as well. The lists of names each observation covered hold
+the same tokens. The token and hash keys are derived from
+`PLEIADES_FACTS_DIGEST_KEY`, each under a label of its own, so the facts key now
+decides more than file digests:
+
+- Without it the controller stores no facts at all and says so for every batch it
+  drops, and it sends Runners no key, so they publish none.
+- Rotating `MASTER_ENCRYPTION_KEY` re-seals every stored fact and leaves the tokens
+  and hashes as they are.
+- Changing `PLEIADES_FACTS_DIGEST_KEY` is not a rotation this release performs: a
+  device whose facts were stored under another key is refused, with an error that
+  names the cause, until the key is put back. Keep it with the master key in your
+  backups.
+
+A consequence to plan for: nobody can look a fact up by name, or check a device's
+history, without the facts key. A copy of the database alone shows how many facts a
+device has and when each changed, and nothing about what they are.
+
+Between a Runner and the controller, each batch of facts is sealed to the
+controller's public key, which every dispatch carries, before it is published, so
+the message stream holds no fact either. That hides the facts from a reader of the
+stream; it does not prove which Runner sent them, which the Runner's own broker
+credential and the job's record still decide. A Runner of an earlier release
+publishes its facts unsealed; the controller stores them and logs a warning naming
+the Runner, so upgrade Runners with the controller.
+
+The upgrade deletes every fact stored before it, with the observations that named
+them, because no key can turn a plaintext row into a sealed one. Each device's next
+gather stores its facts again. On SQLite the freed pages are then overwritten by a
+`VACUUM` at the same start.
+
+On the command line, each line of a device's files under `.pleiades/facts` is sealed
+under a key derived from the project's master key, bound to the device, the file and
+the line's place, and the fact hashes are keyed the same way. A project with no
+master key stores and reads no facts. Files an earlier release wrote there are
+plaintext and are refused with an error that says so: remove that device's files
+under `.pleiades/facts` and gather its facts again.
+
 ### What the chart refuses to install
 
 Some configurations are refused at render time, with the reason in the error,

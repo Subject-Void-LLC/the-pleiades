@@ -143,8 +143,14 @@ func TestKeys_ASealedLineOpensOnlyWhereItWasSealed(t *testing.T) {
 		"too short":      func() ([]byte, error) { return keys.OpenLine("dev1", facts.RoleValues, 128, []byte("v1.AAAA")) },
 		"nothing":        func() ([]byte, error) { return keys.OpenLine("dev1", facts.RoleValues, 128, nil) },
 	} {
-		if got, err := open(); !errors.Is(err, facts.ErrSealed) {
+		got, err := open()
+		if !errors.Is(err, facts.ErrSealed) {
 			t.Errorf("%s opened: %q, %v", name, got, err)
+		}
+		// Only a line an earlier release wrote in plaintext says so, with
+		// what to do about it; nothing else is told it is one.
+		if errors.Is(err, facts.ErrUnsealed) != (name == "plaintext") {
+			t.Errorf("%s: says it was written before sealing = %v", name, errors.Is(err, facts.ErrUnsealed))
 		}
 	}
 }
