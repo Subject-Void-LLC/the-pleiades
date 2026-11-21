@@ -16,6 +16,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/onboard"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection/facttest"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/gnmi"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
@@ -48,8 +49,10 @@ func (r *recorder) SetStat(key string, value any) error {
 	return nil
 }
 
-// EmitFact implements sdk.RunbookContext.
+// EmitFact implements sdk.RunbookContext, holding the fact to the emitting
+// method's declaration (facttest.Observe) before keeping it.
 func (r *recorder) EmitFact(key string, value any) error {
+	facttest.Observe(key, value)
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.facts[key] = value

@@ -144,7 +144,7 @@ func snmpdConfig(a *SNMPD) string {
 // when tb ends.
 func StartSNMPD(tb testing.TB) *SNMPD {
 	tb.Helper()
-	if _, err := exec.LookPath("docker"); err != nil {
+	if DockerMissing() != "" {
 		tb.Skip("docker not found on PATH")
 	}
 	src := filepath.Join(RepoRoot(tb), "internal", "testsupport", "testdata", "snmpd")

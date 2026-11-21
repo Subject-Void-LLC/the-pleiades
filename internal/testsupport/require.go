@@ -25,6 +25,18 @@ func Require(t testing.TB, what string, available bool, why string) {
 	need.Require(t, what, available, why)
 }
 
+// DockerMissing is why a test that starts a container skips on this machine,
+// "" when the docker command is on PATH, for a TestMain that must know
+// whether such tests ran (pkg/collection/facttest's Options.Unavailable). A
+// docker command whose engine is down fails those tests rather than skipping
+// them, so it is not missing here either.
+func DockerMissing() string {
+	if _, err := exec.LookPath("docker"); err != nil {
+		return "needs " + need.Docker + ": the docker command is not on PATH"
+	}
+	return ""
+}
+
 // LocalStackEnv names the variable holding the auth token the AWS
 // tests start their LocalStack container with.
 const LocalStackEnv = "LOCALSTACK_AUTH_TOKEN"

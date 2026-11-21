@@ -8,6 +8,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection/facttest"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	inventorytest "github.com/Subject-Void-LLC/the-pleiades/pkg/inventory/inventorytest"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
@@ -44,7 +45,13 @@ type dispatchTestRC struct{ stats map[string]any }
 
 func (c *dispatchTestRC) InjectSecrets() map[string]string { return map[string]string{} }
 func (c *dispatchTestRC) SetStat(k string, v any) error    { c.stats[k] = v; return nil }
-func (c *dispatchTestRC) EmitFact(k string, v any) error   { return c.SetStat(k, v) }
+
+// EmitFact holds the fact to the emitting method's declaration
+// (facttest.Observe), then keeps it as a stat.
+func (c *dispatchTestRC) EmitFact(k string, v any) error {
+	facttest.Observe(k, v)
+	return c.SetStat(k, v)
+}
 
 type dispatchTestDevice struct{ *inventorytest.Stub }
 

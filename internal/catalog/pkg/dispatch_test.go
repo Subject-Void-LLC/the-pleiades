@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -19,6 +20,8 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport/need"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection/facttest"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/hostfacts"
 	inventorytest "github.com/Subject-Void-LLC/the-pleiades/pkg/inventory/inventorytest"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec/remoteexectest"
 )
@@ -35,7 +38,10 @@ func (c *ctxStub) SetStat(key string, value any) error {
 	c.stats[key] = value
 	return nil
 }
-func (c *ctxStub) EmitFact(key string, value any) error { return c.SetStat(key, value) }
+func (c *ctxStub) EmitFact(key string, value any) error {
+	facttest.Observe(key, value)
+	return c.SetStat(key, value)
+}
 
 // device is a target that reports a package manager by name and is
 // reachable over SSH. manager is what PackageManagerName returns, which
@@ -111,12 +117,19 @@ func writeFakeAptGet(t *testing.T, dir, record string, state fakeAptState) {
 	script := `#!/bin/sh
 for arg in "$@"; do printf '%s\n' "$arg" >> "$FAKE_RECORD"; done
 printf -- '---\n' >> "$FAKE_RECORD"
+case " $* " in *" install "*) : > "$FAKE_RECORD.installed" ;; esac
 exit 0
 `
 	// Two arguments is apt's listing of the installed set, which these
-	// dispatch tests leave empty.
+	// dispatch tests leave empty. A query in facts.gather's format
+	// (pkg/hostfacts.DpkgFormat) is the concrete method's post-change
+	// reading, answered with the package once apt-get has installed it.
 	dpkgScript := `#!/bin/sh
 [ "$#" = "2" ] && exit 0
+case "$2" in *binary:Package*)
+  [ -e "$FAKE_RECORD.installed" ] && printf 'ii\t%s\t1.0\tamd64\n' "$4"
+  exit 0 ;;
+esac
 printf '` + status + `\t` + version + `'
 exit ` + boolExit(state.installed) + `
 `
@@ -301,6 +314,34 @@ func TestDispatch_InstallResolvesToAptAndRuns(t *testing.T) {
 	if rc.stats["name"] != "curl" {
 		t.Errorf(`stats["name"] = %v, want "curl"`, rc.stats["name"])
 	}
+	// The concrete method's post-change reading reaches the task as the
+	// generic method's own fact, which it declares.
+	assertReadBack(t, rc)
+}
+
+// installedRow is the row the fake dpkg-query prints in facts.gather's
+// format for curl once the fake apt-get has installed it (its printf in
+// writeFakeAptGet); before that it prints none.
+const installedRow = "ii\tcurl\t1.0\tamd64\n"
+
+// assertReadBack holds the package.curl fact a change emitted to what the
+// gatherer's parser makes of installedRow: curl installed, at its version and
+// arch. A reading taken before the change finds no row and emits no fact, so
+// it fails here, as does a value built any other way.
+func assertReadBack(t *testing.T, rc *ctxStub) {
+	t.Helper()
+	want := hostfacts.ParseDpkg(installedRow)
+	if len(want) != 1 {
+		t.Fatalf("the reference row did not parse: %+v", want)
+	}
+	key := hostfacts.PackageKey(want[0])
+	got, ok := rc.stats[key].(map[string]any)
+	if !ok {
+		t.Fatalf("no %s fact was emitted: %#v", key, rc.stats[key])
+	}
+	if !reflect.DeepEqual(got, hostfacts.PackageValue(want[0])) {
+		t.Errorf("%s = %v, want the gatherer's %v", key, got, hostfacts.PackageValue(want[0]))
+	}
 }
 
 func TestDispatch_RemoveResolvesToAptAndRuns(t *testing.T) {
@@ -339,4 +380,5 @@ func TestDispatch_UpgradeIsNotReversible(t *testing.T) {
 	if _, recorded := rc.stats["inverse"]; recorded {
 		t.Error("pkg.upgrade recorded an inverse, but its manifest says Reversible: false")
 	}
+	assertReadBack(t, rc)
 }

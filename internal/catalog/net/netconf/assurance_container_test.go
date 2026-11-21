@@ -21,6 +21,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection/facttest"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	inventorytest "github.com/Subject-Void-LLC/the-pleiades/pkg/inventory/inventorytest"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/netconf"
@@ -77,9 +78,12 @@ var (
 	assurancePort      int
 )
 
-// TestMain tears the shared server down once every test has run.
+// TestMain tears the shared server down once every test has run, and holds
+// every fact this package's methods emitted in the tests to their
+// declarations (pkg/collection/facttest), failing the binary for a fact a
+// method does not declare and for a fact-declaring method no test drove.
 func TestMain(m *testing.M) {
-	code := m.Run()
+	code := facttest.Main(m, facttest.Options{})
 	if assuranceContainer != nil {
 		_ = assuranceContainer.Terminate(context.Background())
 	}

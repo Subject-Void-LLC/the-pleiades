@@ -21,6 +21,7 @@ import (
 
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/net/gnmi"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection/facttest"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/devicetls"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/gnmi/gnmitest"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
@@ -60,6 +61,7 @@ func (r *recorder) SetStat(key string, value any) error {
 
 // EmitFact implements sdk.RunbookContext.
 func (r *recorder) EmitFact(key string, value any) error {
+	facttest.Observe(key, value)
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.facts[key] = value

@@ -31794,7 +31794,7 @@ is kept as written; it no longer describes the present state.
 cryptography is not proven by a command that does none. A check over release archives must loop over every archive
 and every binary the release publishes, or name the ones it leaves out.
 
-## 1300. `Dockerfile.legacy-ansible-runner` pinned `ansible-core` and none of the packages it brings, so the image took PyYAML 6.0.4 the day it was released, which resolves two merge keys first-wins, and `TestMergeKeys_MatchAnsible` failed in the required `fast` job of a pull request that does not touch the converter (image fixed, not yet pushed; open: which merge-key order the converter follows, and no check for a newer release of a pinned package; a repeat of 917, beside 332 and 658)
+## 1300. `Dockerfile.legacy-ansible-runner` pinned `ansible-core` and none of the packages it brings, so the image took PyYAML 6.0.4 the day it was released, which resolves two merge keys first-wins, and `TestMergeKeys_MatchAnsible` failed in the required `fast` job of a pull request that does not touch the converter (fixed; open: which merge-key order the converter follows, and no check for a newer release of a pinned package; a repeat of 917, beside 332 and 658)
 
 **Symptom.** 2026-11-20, pull request #212 (`fix/contracts-135a-fips`): the required `fast` job failed (run
 44845152075, job 136662912307) on `TestMergeKeys_MatchAnsible` in `internal/forge/playbook`, a package the branch does
@@ -31836,5 +31836,167 @@ reads first-wins, is undecided; it is the owner's call. The pin makes the image 
 No check yet says when a pinned package has a newer release or a security fix, so the pinned set will age silently
 until someone raises it.
 
+**Resolved, 2026-11-20.** The pin merged to `main` in pull request #212 as `f49b70bd`, and that pull request's checks
+passed. The "not yet committed or run in CI" sentence above is kept as written; it no longer describes the present
+state. The two items under "Still open" are still open.
+
 **Lesson.** Pin what a pinned package resolves, not only the package. An image that installs from an index at build
 time is otherwise a different image each day, and the first sign is an unrelated pull request failing.
+
+## 1301. Seven generic dispatcher methods (`svc.start`, `svc.stop`, `svc.restart`, `svc.enable`, `svc.disable`, `pkg.install`, `pkg.upgrade`) declared post-change facts no test had ever made them emit, and `net.frr.facts` emitted only in a container test whose fake recorded nothing, because the only check of fact declarations read source (fixed before push; found by the new run-time audit; no earlier entry of this class found)
+
+**Symptom.** 2026-11-20, branch `feat/41b-fact-declaration-registry`, before push. The new run-time audit
+(`pkg/collection/facttest`, called from each fact-emitting package's `TestMain`) failed for eight built-in
+methods. Seven generic dispatchers (`svc.start`, `svc.stop`, `svc.restart`, `svc.enable`, `svc.disable`,
+`pkg.install`, `pkg.upgrade`) declare post-change facts, and no test in their packages had ever made one of them emit
+a fact. `net.frr.facts` did emit, but only in a container test whose fake `RunbookContext` recorded nothing, under a
+comment saying "these methods emit none". The audit found no undeclared key and no value of the wrong type.
+
+**Root cause.** The only check of fact declarations was `TestEveryFactEmitterDeclaresItsFacts` in `internal/archtest`.
+It reads source and attributes an `EmitFact` call to the file that holds `Invoke`. That proves a method whose file
+emits a fact has a declaration. It cannot prove that a declared fact is ever emitted, or that the key emitted at run
+time is the key declared. The dispatchers' tests were written before the read-back facts and asserted the dispatch,
+not the facts. The fake in the FRR container test was written when the comment above it was true and was not
+revisited when `net.frr.facts` came to emit.
+
+**Search for earlier entries.** The archive was searched by symptom (a declared fact never emitted, a fake that
+records nothing) and by cause (a check that reads source). No earlier entry names
+`TestEveryFactEmitterDeclaresItsFacts` or this gap. The nearest are 1190 (a check over call sites that read the
+spelling, not the value) and LESSONS 388 (a property is tested by running, not by reading code). Neither is the same
+defect, so this is not marked a repeat.
+
+**Fix.** Phase 41b item 2, re-opened by the owner on 2026-11-19 (decision 4). `facttest.Observe` is called from each
+Collection package's fake `RunbookContext.EmitFact`. It attributes a fact to the outermost registered built-in
+`Invoke` or `Check` on the call stack, and holds the key to that method's declaration and the value to the declared
+JSON type. `facttest.Main` in each package's `TestMain` fails the test binary for an undeclared key, a wrong type, or
+a fact-declaring method no test drove. Tests now drive all 30 fact-declaring built-ins: the seven dispatchers in
+`internal/catalog/svc/svc_test.go` and `internal/catalog/pkg/dispatch_test.go`, and `net.frr.facts` through a fake
+that reports (`internal/catalog/net/frr/frr_live_test.go`). `net.snmp.facts` is driven from `pkg/snmp/snmplive`, which
+its own package's audit names through `Options.DrivenBy`. `net.restconf.*` are exempt in `pkg/restconf/restconflive`
+only (the test server answers over plain HTTP and those methods keep facts only over https); the unit tests in
+`internal/catalog/net/restconf` drive them. The source-reading test stays as a backstop for an emitter no test drives.
+
+**Lesson.** A check that reads source can prove a declaration exists. It cannot prove the code does what is declared.
+Hold declared behavior at run time, through the fakes the tests already use (LESSONS 459).
+
+## 1302. The first version of `pkg/collection/facttest`'s audit passed when it found no fact-declaring method, so a stale `Options.Of` import path or a renamed package checked nothing, and `net.snmp.facts` was enforced only through such a path (fixed before push; caught in review; a repeat in kind of 13, 436 and 1082; LESSONS 354)
+
+**Symptom.** 2026-11-20, branch `feat/41b-fact-declaration-registry`, before push, found by an independent review of
+the first version of the audit in 1301. `Audit` looped over the package's fact-declaring methods and failed nothing
+when that set was empty. A stale `Options.Of` import path, or a package renamed after the audit was written, gave an
+empty set and a pass. `net.snmp.facts` was enforced only through such a path: its facts are emitted in
+`pkg/snmp/snmplive`, whose audit named `internal/catalog/net/snmp` by a string.
+
+**Root cause.** The audit asked "did every method in this set emit what it declares" and never asked "is there a
+set". Nothing tied the string in `Options.Of` to a package that exists and declares facts, and nothing tied the
+package that declares to the package that drives.
+
+**Why 13, 436 and 1082 did not prevent it.** Each says the same thing: a check that can find nothing must prove that
+it looked (13 for a query, 436 for a file check with a canary, 1082 for a `go test -run` that matches no test). Each
+fix was local to its own tool. LESSONS 354 states the rule for an audit, and it is applied by review, which is where
+this was caught. Nothing makes a new audit fail on an empty scope by construction.
+
+**Fix.** Commit `83cf2b3e`: an audit that finds no fact-declaring method fails. `Options.DrivenBy` names the package
+that drives a method on another package's behalf, and `TestEveryFactAuditSaysWhatIsTrue`
+(`internal/archtest/facts_declared_test.go`) holds the two ends to each other. `TestEveryBuiltinIsInAFactAuditGroup`
+holds every built-in to an audit group, and `TestEveryFactEmittingPackageAuditsItsTests` holds every fact-emitting
+package to an audit in its `TestMain`.
+
+**Lesson.** An audit over a set fails when the set is empty. A scope named by a string is held to the thing it names
+by a second check.
+
+## 1303. `facttest.Main`'s enforcing half (its exit code, its partial-run detection and its caller-package detection) had no test, so changing a failed audit to exit 0 passed every test on the branch (fixed before push; caught in review; a repeat in kind of 1048, and of 1016 and 1039; LESSONS 213)
+
+**Symptom.** 2026-11-20, branch `feat/41b-fact-declaration-registry`, before push, found by the same review as 1302.
+`facttest.Main` decides whether a test binary fails: it turns the audit's findings into the exit code, it detects a
+partial run (a `-run` filter, where "no test drove this method" proves nothing), and it works out which package
+called it. None of the three had a test. Changing a failed audit to exit 0 left every test on the branch green.
+
+**Root cause.** The tests were written against `Observe` and `Audit`, the functions that do the work. The decision a
+developer sees, a failed binary, sits in `Main`, and `Main` needs a whole test binary to run in, so it was left
+without a test.
+
+**Why 1048, 1016, 1039 and LESSONS 213 did not prevent it.** 1048 is the same shape: `testsupport.Download`'s verdict
+had no test while the function under it had six. Its lesson (a test of a verdict calls the function that reaches the
+verdict) and LESSONS 213 (run the test with the protection removed) are applied by hand. They were not applied to
+`Main` before review.
+
+**Fix.** Commit `33abc1f2`. `TestMain_AuditsAWholeTestBinary` (`pkg/collection/facttest/main_test.go`) builds the
+package in `pkg/collection/facttest/testdata/auditee` as a real test binary and runs 11 cases against it. Six edits,
+each removing one behavior of `Main`, were made one at a time, and each failed its cases. Commit `a0ff6f1b` also
+refuses one function shared by several methods, since the call stack cannot say which of them emitted.
+
+**Lesson.** As 1048: the part of a gate that turns findings into a failure is tested as a whole process, and each of
+its behaviors is removed once to see the test fail.
+
+## 1304. The new `svc` read-back test asserted that a fact was present against a fake `systemctl` that answered from fixed variables and never changed state, so a method that read the unit back before changing it passed (fixed before push; caught in review; a repeat of 1278)
+
+**Symptom.** 2026-11-20, branch `feat/41b-fact-declaration-registry`, before push, found by the same review as 1302.
+The new test that drives the `svc` dispatchers (written to close 1301) asserted only that a read-back fact was
+present. Its fake `systemctl` answered from fixed variables and never changed state when asked to start, stop,
+enable or disable a unit. A method that read the unit back before changing it would have emitted the old state and
+passed.
+
+**Root cause.** The fake was built to answer the listing, not to stand for a service manager whose answer changes
+after a change. With a fake that cannot change, a presence check is the most the test can assert.
+
+**Why 1278 did not hold.** 1278 is the same defect in the same area one day earlier: the `dpkg-query`, `rpm` and
+`systemctl` fakes printed a fixed answer, and the read-back tests could pass without the fact being read. Its fix
+made the three concrete packages' fakes answer the gatherer's format and compare values (LESSONS 454). The generic
+dispatchers in `internal/catalog/svc` and `internal/catalog/pkg` have fakes of their own, which that fix did not
+reach, and nothing holds a new fake to the rule.
+
+**Fix.** Commit `9e426c7d`. The fake `systemctl` in `internal/catalog/svc/svc_test.go` keeps state. Each case starts
+from a state that lists differently from the state after the change, and the emitted facts are compared by value.
+`internal/catalog/pkg/dispatch_test.go` compares `package.curl` with the value the gatherer gives for the same row.
+
+**Lesson.** As 1278. A read-back test starts from a state that reads differently from the state after the change,
+and asserts the value. A fake that cannot change state cannot test a reading taken after a change.
+
+## 1305. Three test fakes drove audited methods without reporting their facts to the audit (`gnmilive` and `restconflive` against real devices, and a second fake in `svc`), unseen by an archtest that one `Observe` call per package satisfied (fixed before push; caught in review; a repeat in kind of 1190; LESSONS 155)
+
+**Symptom.** 2026-11-20, branch `feat/41b-fact-declaration-registry`, before push, found by the same review as 1302.
+Three test fakes drove audited methods and never passed their facts to `facttest.Observe`: one in
+`pkg/gnmi/gnmilive` and one in `pkg/restconf/restconflive`, both against real devices, and a second fake in
+`internal/catalog/svc`. Facts those tests emitted were never held to a declaration. No check saw it.
+
+**Root cause.** The archtest that held a package to the audit was satisfied by one `Observe` call anywhere in the
+package's tests. A package with two fakes passed with one of them reporting.
+
+**Why 1190 did not prevent it.** 1190 is the same kind: `need.Require`'s registry check read only literal names, so
+calls through a variable passed. Its fix resolved that one check through the type checker. LESSONS 155 asks the
+question this needed (a guard is checked against every producer of the class, not one), and it is a rule applied when
+a guard is written. This guard was written for the first fake found in each package.
+
+**Fix.** Commit `0d54bf71`. `TestEveryFakeInAnAuditedPackageReportsItsFacts`
+(`internal/archtest/facts_declared_test.go`, with its support in `facts_audit_wiring_test.go`) finds every type that
+implements `EmitFact` in an audited package's tests and requires it to call `Observe` or to delegate to a fake that
+does. It found 19 fakes; all now report.
+
+**Lesson.** A guard that asks "does this package do X" is met by one site. When every site must do X, the guard
+lists the sites and holds each one.
+
+## 1306. `make pr-check` was started in one shell line after a worktree removal and a `git switch` that both failed, so the gate began on `feat/facts-at-rest`, the branch that was checked out, not the branch it was meant for (fixed before push; process; nothing pushed; a repeat in kind of 769; LESSONS 100 and 192)
+
+**Symptom.** 2026-11-20, the orchestrating session, before any push of `feat/41b-fact-declaration-registry`.
+`make pr-check` was started as the last part of one shell line, after a worktree removal and a `git switch` to the
+branch. Both of those failed: the subagent's worktree was still locked, so the removal was refused and the branch was
+"already checked out" there. The line carried on, and the gate started on `feat/facts-at-rest`, the branch the main
+clone had checked out. It was noticed within a minute, because the gate's run id named the wrong commit. The run was
+stopped. Nothing was pushed and no receipt was written.
+
+**Root cause.** The shell line did not stop at the first failure, and the gate's start asserted nothing about what it
+was about to check. `make pr-check` gates whatever is checked out, so a failed switch is silent to it.
+
+**Why 769 and LESSONS 100 and 192 did not prevent it.** They are about a compound command hiding the status of the
+step that mattered, and they are applied to reading a gate's result. Here the hidden status belonged to a step
+before the gate, and the gate's own result would have been honest about the wrong tree. Had the run finished, its
+receipt would have named `feat/facts-at-rest`'s commit, and the pre-push hook would have refused the intended branch,
+so the cost was time and memory on this machine, not an ungated push.
+
+**Fix.** A practice, not a guard in the repository. The gate is started only behind a check that the current branch
+is the expected one and the tree is clean, written so that a failed check ends the command. Preparing the checkout
+and starting the gate are separate commands.
+
+**Lesson.** A gate's start asserts what it is gating. A chained shell line carries on past a failed switch, and the
+gate then checks whatever happens to be checked out.
