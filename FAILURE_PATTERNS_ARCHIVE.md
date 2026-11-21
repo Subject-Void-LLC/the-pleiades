@@ -16503,6 +16503,10 @@ aliases, and neither fix left a shared helper or test the new reader could reuse
 **Lesson.** Every reader of YAML in the project follows the same expansion, through one function, and refuses what the
 readers that matter disagree on.
 
+**Note, 2026-11-20 (see 1300).** "PyYAML takes the last" is true only of PyYAML up to 6.0.3. PyYAML 6.0.4 resolves two
+merge keys in one mapping first-wins. This entry's fix, refusing two merge keys in one mapping, does not depend on the
+order and still holds.
+
 ## 659. net.pcap.summary's cleartext 0 read as "nothing in the clear" while frames it never examined (no IP, MPLS, unread link types) were counted nowhere (fixed before push)
 
 **Symptom.** Review by the fp-reviewer agent of `80d0da4d..7e941028` (its F10), 2026-10-26, reasoned from the code.
@@ -31754,7 +31758,7 @@ finite, so comparing it at every level always ends. Test:
 nearest case that must still be compared. In a compatibility gate, anything skipped is a pass, so every early return
 needs a test showing what it still reports.
 
-## 1299. docs/13 said the FIPS archives' binaries accept strict mode and run with `fips140=on` by default, on the proof of `version` alone, which does no cryptography, and the release workflow checked the `GOFIPS140` stamp on the amd64 archive only (docs and workflow fixed before push; open: the `build-fips` job has never run on GitHub; a repeat of 571 and 1041)
+## 1299. docs/13 said the FIPS archives' binaries accept strict mode and run with `fips140=on` by default, on the proof of `version` alone, which does no cryptography, and the release workflow checked the `GOFIPS140` stamp on the amd64 archive only (docs and workflow fixed before push; the `build-fips` job passed on GitHub in dry run 44841904822 on 2026-11-20; a repeat of 571 and 1041)
 
 **Symptom.** `docs/13-releases-and-stability.md` said the FIPS archives' binaries "accept `GODEBUG=fips140=only` for
 strict mode" and "run with `fips140=on` by default". The only proof was `<binary> version` under `fips140=only`, in
@@ -31782,6 +31786,55 @@ and the right `GOARCH` on both the amd64 `pleiades` and the arm64 `runner`.
 on the branch before merge. Until it passes there, the workflow's checks are proven only by the local measurement
 above.
 
+**Resolved, 2026-11-20.** The `build-fips` job has now run on GitHub: `release.yml` was dispatched as a dry run on the
+branch (run 44841904822), where `build` and `build-fips` passed and `publish` was skipped as designed. The note above
+is kept as written; it no longer describes the present state.
+
 **Lesson.** A sentence about what a release binary does needs a check that exercises that thing: a mode that governs
 cryptography is not proven by a command that does none. A check over release archives must loop over every archive
 and every binary the release publishes, or name the ones it leaves out.
+
+## 1300. `Dockerfile.legacy-ansible-runner` pinned `ansible-core` and none of the packages it brings, so the image took PyYAML 6.0.4 the day it was released, which resolves two merge keys first-wins, and `TestMergeKeys_MatchAnsible` failed in the required `fast` job of a pull request that does not touch the converter (image fixed, not yet pushed; open: which merge-key order the converter follows, and no check for a newer release of a pinned package; a repeat of 917, beside 332 and 658)
+
+**Symptom.** 2026-11-20, pull request #212 (`fix/contracts-135a-fips`): the required `fast` job failed (run
+44845152075, job 136662912307) on `TestMergeKeys_MatchAnsible` in `internal/forge/playbook`, a package the branch does
+not touch. testgate re-ran the test alone and it failed again, so it was not contention. The document was
+`a: &a {x: 1, y: 1}`, `b: &b {y: 2, z: 2}`, and `m:` with `<<: *a` then `<<: *b`. The converter gave
+`m: {x: 1, y: 2, z: 2}` and the image's Ansible loader gave `m: {x: 1, y: 1, z: 2}`. `make pr-check` had passed here
+at the same commit: pr-check leaves container packages to CI, and this machine's cached image was built five days
+earlier.
+
+**Root cause.** `Dockerfile.legacy-ansible-runner` pinned `ansible-core==2.19.11` and nothing ansible-core depends on,
+so pip resolved PyYAML to the newest release on the day of each build. PyYAML 6.0.4 was uploaded to PyPI on
+2026-11-20, and it resolves two merge keys in one mapping first-wins; 6.0.3 took the last. Proven directly in
+`python:3.12-alpine3.20`: `yaml.safe_load` of that document gives `y: 2` under 6.0.3 and `y: 1` under 6.0.4. The
+hosted runner builds the image fresh, so it got 6.0.4 the day it was released. The cached local image had PyYAML 6.0.3
+(`pip list`: ansible-core 2.19.11, PyYAML 6.0.3, Jinja2 3.1.6, MarkupSafe 3.0.3, cryptography 50.0.1, cffi 2.1.1,
+pycparser 3.0, packaging 26.3, resolvelib 1.2.1).
+
+**Why 917 did not hold, and why the pinning rule did not prevent it.** 917 is the same class: a Dockerfile on a pinned
+base installed a package from a live index, a warm local image hid the change, and CI's fresh build showed it in runs
+unrelated to the branch. Its fix and its lesson covered that one fixture's `apk add` and one package family. Nothing
+looked for the other images that install from an index at build time, so this one stayed as it was. The Dockerfile's
+own comment cites the rule that every image and dependency is pinned to an exact version, never latest, and applied it
+to the one package it names, not to that package's dependencies. 125's guard reads image tags, not what a `pip
+install` resolves.
+
+**What this changes in 332, 486 and 658.** Those entries rest on "PyYAML takes the last" of two merge keys in one
+mapping (332 for the playbook converter, 486 for the build-file reader, 658 for the runbook reader). That statement is
+now true only of PyYAML up to 6.0.3. From 6.0.4 the first wins. 658's fix (the runbook reader refuses two merge keys
+in one mapping) does not depend on the order and still holds. 332's fix (the converter takes the last) matches only an
+Ansible on PyYAML 6.0.3 or earlier.
+
+**Fix.** Every package ansible-core brings is pinned in the Dockerfile to the set the image was last verified with
+(the list above). A fresh build shows PyYAML 6.0.3, `pip check` reports no broken requirements, and
+`go test -tags integration -run TestMergeKeys_MatchAnsible ./internal/forge/playbook/` passes against it. The change
+is in the working tree and is not yet committed or run in CI.
+
+**Still open.** Which merge-key order the playbook converter should follow, now that Ansible on PyYAML 6.0.4 or later
+reads first-wins, is undecided; it is the owner's call. The pin makes the image reproducible and does not answer it.
+No check yet says when a pinned package has a newer release or a security fix, so the pinned set will age silently
+until someone raises it.
+
+**Lesson.** Pin what a pinned package resolves, not only the package. An image that installs from an index at build
+time is otherwise a different image each day, and the first sign is an unrelated pull request failing.
