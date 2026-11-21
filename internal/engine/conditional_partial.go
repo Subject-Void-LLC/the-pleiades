@@ -28,7 +28,7 @@ func (cp *ConditionProgram) EvalPartial(vars map[string]interface{}, unknown []U
 			if sawUnknown {
 				return ConditionResult{}, false, nil
 			}
-			return ConditionResult{}, true, fmt.Errorf("failed to evaluate %s expression %d (`%s`): %w", cp.keyword, i+1, item.expr, err)
+			return ConditionResult{}, true, &conditionItemError{keyword: cp.keyword, ordinal: i + 1, expr: item.expr, err: err}
 		case !known:
 			sawUnknown = true
 		case cp.or && value:

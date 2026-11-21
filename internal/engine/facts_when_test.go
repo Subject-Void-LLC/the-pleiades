@@ -424,3 +424,33 @@ tasks:
 		t.Errorf("a task reading a secret ran %d times", m.probeRuns.Load())
 	}
 }
+
+// TestFactsRoot_AFailureElsewhereInAConditionIsNotBlamedOnAFact: a condition
+// that read a fact and then failed on another root names the item that failed
+// and says the cause may be anywhere in it, never that the fact is missing;
+// a read of the absent fact itself names the fact and how to test for it.
+func TestFactsRoot_AFailureElsewhereInAConditionIsNotBlamedOnAFact(t *testing.T) {
+	registerFactsRead(t)
+	reader := &fakeReader{answers: map[string]map[string]engine.FactAnswer{
+		"dev-1": {"tfx.codename": {State: engine.FactAbsent}}, "dev-2": {"tfx.codename": {State: engine.FactAbsent}},
+	}}
+	for name, tc := range map[string]struct {
+		cond, want, never string
+	}{
+		"a typo beside a fact test": {`when_cel: '!("tfx.codename" in facts) && vars.typo == 1'`, "when_cel expression 1", "which the device does not have"},
+		"the absent fact itself":    {"when:\n      - \"true\"\n      - facts[\"tfx.codename\"] == \"bookworm\"", "when expression 2", "cause may be any part"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			result, err := newCheckExecutor(factsFleet(), engine.WithFactReader(reader)).Run(context.Background(),
+				factsDAG(t, "id: blame\nhosts: fleet\ntasks:\n  - name: read\n    "+tc.cond+"\n    tfx.probe: {}\n"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			for device, n := range resultsOf(result, "tasks[0]") {
+				if n.Err == nil || !strings.Contains(n.Err.Error(), tc.want) || strings.Contains(n.Err.Error(), tc.never) {
+					t.Errorf("on %s: %s, want it to say %q and never %q", device, describe(n), tc.want, tc.never)
+				}
+			}
+		})
+	}
+}

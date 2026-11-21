@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 )
 
@@ -21,7 +22,7 @@ var errNoFactDevice = errors.New("the task has no device")
 
 // factsWithheldError is what replaces CEL's message for a condition that read
 // a stored value and then failed to evaluate.
-const factsWithheldError = "evaluating it failed on a stored fact's value; CEL's own message is not shown, since it can quote the value"
+const factsWithheldError = "CEL's own message is not shown, since the condition read a stored fact and the message could quote its value; the cause may be any part of the expression, a fact or another root"
 
 // factsUndecided is the undecided reason of a checked task whose condition
 // read a stored fact, in place of one quoting CEL's message.
@@ -59,18 +60,32 @@ func missReason(err error) string {
 }
 
 // sanitize is err, an evaluation error of a condition that read the facts
-// root, with nothing in it CEL took from a value: it names an absent key the
-// condition read without testing for it, or withholds CEL's message. An
-// error of a condition that read no fact is returned as it is.
+// root, with nothing in it CEL took from a value. It keeps which item of the
+// condition failed (its keyword, ordinal and text, all runbook text) and
+// drops CEL's own message, which can quote a fact's value. Only when CEL's
+// error is the read of an absent fact itself does it name that fact and say
+// how to test for it; otherwise it says the cause may be anywhere in the
+// expression, since a fact read and a mistake elsewhere look alike once the
+// message is gone. An error of a condition that read no fact is returned as
+// it is.
 func (v *factsView) sanitize(err error) error {
 	if err == nil || !v.used() {
 		return err
 	}
-	if len(v.absent) > 0 {
-		return fmt.Errorf("it reads %s, which the device does not have; test for it first with has(), \"<key>\" in facts or facts[?\"<key>\"]",
-			QuotedFactKeys(uniqueSorted(v.absent)))
+	where := "evaluating it failed"
+	var item *conditionItemError
+	if errors.As(err, &item) {
+		where = fmt.Sprintf("failed to evaluate %s expression %d (`%s`)", item.keyword, item.ordinal, item.expr)
 	}
-	return errors.New(factsWithheldError)
+	for _, key := range uniqueSorted(v.absent) {
+		// CEL's missing-key error names the key it was asked for, which the
+		// condition wrote; a value is never in it.
+		if strings.Contains(err.Error(), "no such key: "+key) {
+			return fmt.Errorf("%s: it reads %s, which the device does not have; test for it first with has(), \"<key>\" in facts or facts[?\"<key>\"].hasValue()",
+				where, QuotedFactKeys([]string{key}))
+		}
+	}
+	return fmt.Errorf("%s: %s", where, factsWithheldError)
 }
 
 // uncheckedOn is the result of a checked task the check cannot answer on

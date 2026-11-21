@@ -194,7 +194,7 @@ func (cp *ConditionProgram) evalAnd(vars map[string]interface{}) (ConditionResul
 	for i, item := range cp.items {
 		ok, err := item.prg.Eval(vars)
 		if err != nil {
-			return ConditionResult{}, fmt.Errorf("failed to evaluate %s expression %d (`%s`): %w", cp.keyword, i+1, item.expr, err)
+			return ConditionResult{}, &conditionItemError{keyword: cp.keyword, ordinal: i + 1, expr: item.expr, err: err}
 		}
 		if !ok {
 			return cp.andSkip(i), nil
@@ -229,7 +229,7 @@ func (cp *ConditionProgram) evalOr(vars map[string]interface{}) (ConditionResult
 	for i, item := range cp.items {
 		ok, err := item.prg.Eval(vars)
 		if err != nil {
-			return ConditionResult{}, fmt.Errorf("failed to evaluate %s expression %d (`%s`): %w", cp.keyword, i+1, item.expr, err)
+			return ConditionResult{}, &conditionItemError{keyword: cp.keyword, ordinal: i + 1, expr: item.expr, err: err}
 		}
 		if ok {
 			return ConditionResult{OK: true}, nil
@@ -294,3 +294,22 @@ func (c Conditional) Compile(cel Evaluator) (*ConditionProgram, error) {
 		return compileItems(cel, "when_cel", false, []string{c.WhenCEL})
 	}
 }
+
+// conditionItemError is the failure to evaluate one item of a condition
+// list: which keyword, which item (from 1), its text as the author wrote it,
+// and CEL's own error, which a caller may withhold (facts_condition.go) while
+// keeping the rest.
+type conditionItemError struct {
+	keyword string
+	ordinal int
+	expr    string
+	err     error
+}
+
+// Error is the item and CEL's message.
+func (e *conditionItemError) Error() string {
+	return fmt.Sprintf("failed to evaluate %s expression %d (`%s`): %v", e.keyword, e.ordinal, e.expr, e.err)
+}
+
+// Unwrap is CEL's error.
+func (e *conditionItemError) Unwrap() error { return e.err }
