@@ -43,12 +43,15 @@
 // published hash describes its value. A store keys the hash as it records
 // (Keys.Rekey), so an Entry read back from a store carries the keyed hash.
 //
-// A change of the secret is not a rotation this build performs. Every keyed
-// hash, token and chain link would have to be rewritten, and the history is
-// insert-only. Each Controller row names the Keys it was written under, and
-// a store refuses a device whose rows name other Keys rather than start a
-// second, unlinked history beside the first. The CLI's lines simply do not
-// open under another key, which reads as an error naming the key.
+// Each Controller row names the Keys it was written under. A change of the
+// Controller's secret is a rotation with both keys live: given the previous
+// secret beside the new one, the store re-keys each device whose rows name
+// the previous Keys, its every token, keyed hash and chain link rewritten
+// under the current Keys in one transaction, before it reads or writes the
+// device (internal/facts/entstore's rekey.go). A device whose rows name any
+// other Keys is refused rather than given a second, unlinked history beside
+// the first. The CLI has no rotation: its lines simply do not open under
+// another key, which reads as an error naming the key.
 package facts
 
 import (

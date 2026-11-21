@@ -23,12 +23,11 @@ import (
 const payloadFactKey = "key"
 
 // ErrKeysChanged marks a device whose stored facts were tokenized and keyed
-// under other keys than the store holds. Changing the facts secret is not a
-// rotation this build performs: every token, keyed hash and chain link would
-// have to be rewritten, and the history is insert-only. The store refuses
-// the device rather than start a second history beside the first that no
-// lookup would join to it.
-var ErrKeysChanged = errors.New("facts: the device's stored facts were sealed under another facts key than this controller holds; restore the earlier PLEIADES_FACTS_DIGEST_KEY, since a change of it is not a rotation this build performs")
+// under other keys than the store holds, current or previous. The store
+// refuses the device rather than start a second history beside the first
+// that no lookup would join to it. A device under the previous keys is not
+// refused: it is re-keyed (rekey.go).
+var ErrKeysChanged = errors.New("facts: the device's stored facts were sealed under another facts key than this controller holds; set PLEIADES_FACTS_DIGEST_KEY_PREVIOUS to the key they were sealed under, beside the new PLEIADES_FACTS_DIGEST_KEY, so they are re-keyed")
 
 // ErrNotThisDevices marks a row that does not open as the device's own: its
 // payload was sealed for another row, was edited, was never sealed, or holds
@@ -50,19 +49,47 @@ type factQuerier interface {
 	Query() *ent.FactQuery
 }
 
-// sameKeys refuses device (its database ID) when any of its rows was written
-// under other keys than the store's (ErrKeysChanged).
-func (s *Store) sameKeys(ctx context.Context, rows factQuerier, device int) error {
-	other, err := rows.Query().
+// keyState is how a device's stored rows stand against the store's keys.
+type keyState int
+
+const (
+	// keysCurrent: every row was written under the current keys, or there is
+	// no row.
+	keysCurrent keyState = iota
+	// keysPrevious: some row names the previous keys and none names any
+	// other but the current ones; the device is to be re-keyed (rekey.go).
+	keysPrevious
+)
+
+// keyState reads which keys device's rows (device is its database ID) name:
+// the current keys alone, or the previous ones too. A row naming any other
+// keys is ErrKeysChanged, as is one naming the previous keys when the store
+// holds none.
+func (s *Store) keyState(ctx context.Context, rows factQuerier, device int) (keyState, error) {
+	others, err := rows.Query().
 		Where(entfact.HasDeviceWith(entdevice.IDEQ(device)), entfact.KeyedByNEQ(s.keys.ID())).
-		Exist(ctx)
+		Unique(true).
+		Select(entfact.FieldKeyedBy).
+		Strings(ctx)
 	if err != nil {
-		return fmt.Errorf("facts: %w", err)
+		return 0, fmt.Errorf("facts: %w", err)
 	}
-	if other {
-		return ErrKeysChanged
+	if len(others) == 0 {
+		return keysCurrent, nil
 	}
-	return nil
+	if previous := s.previousID(); previous != "" && len(others) == 1 && others[0] == previous {
+		return keysPrevious, nil
+	}
+	return 0, ErrKeysChanged
+}
+
+// previousID is the identity of the store's previous keys, "" when it holds
+// none usable: then no row is ever taken to be under them.
+func (s *Store) previousID() string {
+	if s.previous == nil || s.previous.Ready() != nil {
+		return ""
+	}
+	return s.previous.ID()
 }
 
 // seal is e's key and value as the row token names holds them: sealed, bound
@@ -76,21 +103,29 @@ func (s *Store) seal(token string, e facts.Entry) (map[string]any, error) {
 }
 
 // open is row as a facts.Entry with its key and value, last confirmed when
-// it was first observed (sighted reads its later confirmations). The payload
-// must open as the row's own, the key it holds must be the one whose token
-// for device the row carries (a row copied from another device opens, since
-// its token came with it, and is refused here), and the value it holds must
-// be the one the row's keyed hash describes.
+// it was first observed (sighted reads its later confirmations), under the
+// store's current keys (openUnder).
 func (s *Store) open(device string, row *ent.Fact) (facts.Entry, error) {
+	e, _, err := s.openUnder(s.keys, device, row)
+	return e, err
+}
+
+// openUnder is row opened under keys, as an entry, with its payload as it
+// opened. The payload must open as the row's own, the key it holds must be
+// the one whose token for device under keys the row carries (a row copied
+// from another device opens, since its token came with it, and is refused
+// here), and the value it holds must be the one the row's keyed hash under
+// keys describes.
+func (s *Store) openUnder(keys *facts.Keys, device string, row *ent.Fact) (facts.Entry, map[string]any, error) {
 	opened, err := crypto.OpenFactPayload(s.envelope, row.KeyToken, row.Payload)
 	if err != nil {
 		// The reason is the envelope's, which names no stored byte.
-		return facts.Entry{}, fmt.Errorf("%w: %w", ErrNotThisDevices, err)
+		return facts.Entry{}, nil, fmt.Errorf("%w: %w", ErrNotThisDevices, err)
 	}
 	key, _ := opened[payloadFactKey].(string)
-	token, err := s.keys.Token(device, key)
+	token, err := keys.Token(device, key)
 	if err != nil || token != row.KeyToken {
-		return facts.Entry{}, fmt.Errorf("%w: it holds a key whose token is not the row's", ErrNotThisDevices)
+		return facts.Entry{}, nil, fmt.Errorf("%w: it holds a key whose token is not the row's", ErrNotThisDevices)
 	}
 	e := meta(row, key)
 	if text, ok := opened[payloadKey].(string); ok {
@@ -103,10 +138,10 @@ func (s *Store) open(device string, row *ent.Fact) (facts.Entry, error) {
 	// The value is the one the row's keyed hash describes: a payload taken
 	// from another row of the same key (an older value put back as the
 	// newest) carries the right token and opens, and is refused here.
-	if hash, err := s.keys.Hash(device, key, e.Value); err != nil || hash != row.Hash {
-		return facts.Entry{}, fmt.Errorf("%w: it holds a value its keyed hash does not describe", ErrNotThisDevices)
+	if hash, err := keys.Hash(device, key, e.Value); err != nil || hash != row.Hash {
+		return facts.Entry{}, nil, fmt.Errorf("%w: it holds a value its keyed hash does not describe", ErrNotThisDevices)
 	}
-	return e, nil
+	return e, opened, nil
 }
 
 // openAll is rows as entries, in order (open).

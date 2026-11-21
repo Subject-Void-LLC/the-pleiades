@@ -275,13 +275,14 @@ func (s *Subscriber) Handle(evt event.Event) error {
 				slog.String("job", termsafe.Quote(batch.JobID)), slog.String("device", termsafe.Quote(batch.DeviceID)))
 			return nil
 		}
-		// No key to seal the facts under, or a facts key other than the one
-		// the device's history was written under: neither changes on a
+		// No key to seal the facts under, a facts key other than the ones
+		// the device's history was written under, or a history under the
+		// previous key that does not verify under it: none changes on a
 		// redelivery, and a fact is never stored unsealed, so the batch is
 		// dropped and said loudly. The device's next gather stores its facts
 		// once the key is set right.
-		if errors.Is(err, facts.ErrNoKeys) || errors.Is(err, ErrKeysChanged) {
-			s.logger.Error("dropping a facts batch this controller cannot store sealed; set PLEIADES_FACTS_DIGEST_KEY to the key its stored facts were sealed under",
+		if errors.Is(err, facts.ErrNoKeys) || errors.Is(err, ErrKeysChanged) || errors.Is(err, ErrRekeyRefused) {
+			s.logger.Error("dropping a facts batch this controller cannot store sealed; set PLEIADES_FACTS_DIGEST_KEY to the key its stored facts were sealed under, or keep that key as PLEIADES_FACTS_DIGEST_KEY_PREVIOUS beside a new one",
 				slog.String("job", termsafe.Quote(batch.JobID)), slog.String("device", termsafe.Quote(batch.DeviceID)), slog.String("reason", err.Error()))
 			return nil
 		}

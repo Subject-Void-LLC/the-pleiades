@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/hook"
 )
 
 // factService is an envelope service over one repeated key byte.
@@ -231,5 +232,66 @@ func TestRotateFactPayloads_RotatesEveryPageAndThenWritesNothing(t *testing.T) {
 	_ = after.Close()
 	if _, err := RotateFactPayloads(ctx, after, newOnly); err == nil {
 		t.Error("a rotation over a closed database reported a count")
+	}
+}
+
+// TestRotateFactPayloads_LeavesARowReKeyedSinceItWasRead: a change of the
+// facts key (internal/facts/entstore's rekey.go) gives a row a new token and
+// a payload sealed for it between this rotation's read of the row and its
+// write. The rotation's payload, sealed for the old token, must not replace
+// it: the row is skipped for a later pass, and still opens as its own.
+func TestRotateFactPayloads_LeavesARowReKeyedSinceItWasRead(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "facts.db")
+	content := map[string]any{"key": "package.openssh", "json": `"9.6"`}
+	func() {
+		client, dev := factClient(t, path, factService(t, 'o', "v1", 0, ""))
+		newFact(client, dev, "token-a", content).SaveX(ctx)
+		_ = client.Close()
+	}()
+	rotating := factService(t, 'n', "v2", 'o', "v1")
+	client, dev := factClient(t, path, rotating)
+	rekeyed := false
+	client.Fact.Use(func(next ent.Mutator) ent.Mutator {
+		return hook.FactFunc(func(ctx context.Context, m *ent.FactMutation) (ent.Value, error) {
+			id, ok := m.ID()
+			if !m.Op().Is(ent.OpUpdateOne) || !ok || rekeyed {
+				return next.Mutate(ctx, m)
+			}
+			rekeyed = true
+			// What a re-key commits between the rotation's read and its write.
+			tx, err := client.Tx(ctx)
+			if err != nil {
+				return nil, err
+			}
+			was := ent.FactKeyed{KeyToken: "token-a", Hash: "h", KeyedBy: "test:0"}
+			if err := tx.RekeyFact(ctx, id, dev, was, ent.FactKeyed{KeyToken: "token-b", Hash: "h2", KeyedBy: "test:1"}); err != nil {
+				_ = tx.Rollback()
+				return nil, err
+			}
+			sealed, err := SealFactPayload(rotating, "token-b", content)
+			if err == nil {
+				err = tx.Fact.UpdateOneID(id).SetPayload(sealed).Exec(ctx)
+			}
+			if err != nil {
+				_ = tx.Rollback()
+				return nil, err
+			}
+			if err := tx.Commit(); err != nil {
+				return nil, err
+			}
+			return next.Mutate(ctx, m)
+		})
+	})
+	count, err := RotateFactPayloads(ctx, client, rotating)
+	if err != nil || !rekeyed || count != (RotationCount{Skipped: 1}) {
+		t.Fatalf("the pass = %+v, %v (re-keyed between: %v); want the row skipped", count, err, rekeyed)
+	}
+	row := client.Fact.Query().OnlyX(ctx)
+	if got, err := OpenFactPayload(rotating, row.KeyToken, row.Payload); row.KeyToken != "token-b" || err != nil || got["json"] != `"9.6"` {
+		t.Errorf("the re-keyed row holds token %q and opens as %v, %v; want its own payload kept", row.KeyToken, got, err)
+	}
+	if again, err := RotateFactPayloads(ctx, client, rotating); err != nil || again != (RotationCount{}) {
+		t.Errorf("a later pass = %+v, %v; want the row already under the current key", again, err)
 	}
 }

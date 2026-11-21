@@ -19,13 +19,20 @@
 // (seq, device) makes two replicas storing for one device at once take turns:
 // the loser's batch is redelivered against the new head. No field of a row
 // has a setter in the generated client but the shared timestamp mixin's
-// updated_at, which nothing calls, and the sealed payload, which only a
-// master key rotation seals again (internal/crypto's fact_hook.go).
+// updated_at, which nothing calls, and the sealed payload, which a master key
+// rotation seals again (internal/crypto's fact_hook.go).
 //
 // Nothing a row holds names a fact in plaintext (internal/facts' atrest.go):
 // a row is found by its key's token, its hash is keyed, and its key and value
 // are sealed in its payload (sealed.go). A store with no keys stores nothing
 // and reads nothing.
+//
+// One operation rewrites stored rows in place: a change of the facts key
+// with both keys live (rekey.go), which moves a device's every token, keyed
+// hash and chain link from the previous keys to the current ones, through
+// internal/ent's fact_rekey.go, the one writer of those columns. It changes
+// no value, time or provenance and adds no row, and a device is re-keyed at
+// most once per change of the key.
 package entstore
 
 import (
@@ -51,13 +58,37 @@ type Store struct {
 	// row's key and value (sealed.go). Without both the store fails closed.
 	keys     *facts.Keys
 	envelope *crypto.EnvelopeService
+	// previous is the keys a change of the facts key moves away from
+	// (WithPreviousKeys): a device whose rows name them is re-keyed under
+	// keys before it is read or written (rekey.go). Nil re-keys nothing.
+	previous *facts.Keys
+	// beforeRewrite, when set, is called by a re-key after it has read and
+	// checked a device and before it writes anything: a test's way to line
+	// two re-keys up. Nil in every store but a test's.
+	beforeRewrite func()
+}
+
+// Option configures a Store.
+type Option func(*Store)
+
+// WithPreviousKeys has the store hold previous beside its keys, for a change
+// of the facts key with both keys live: a device whose rows name previous is
+// re-keyed under the store's keys, whole and in one transaction, the first
+// time it is read or written (and by RekeyAll), and a device under any third
+// keys is still refused (ErrKeysChanged). A nil previous holds none.
+func WithPreviousKeys(previous *facts.Keys) Option {
+	return func(s *Store) { s.previous = previous }
 }
 
 // New returns a store over client that tokenizes and keys with keys and
 // seals with envelope. With either missing it stores nothing and reads
 // nothing (facts.ErrNoKeys): plaintext is never the fallback.
-func New(client *ent.Client, keys *facts.Keys, envelope *crypto.EnvelopeService) *Store {
-	return &Store{client: client, keys: keys, envelope: envelope}
+func New(client *ent.Client, keys *facts.Keys, envelope *crypto.EnvelopeService, opts ...Option) *Store {
+	s := &Store{client: client, keys: keys, envelope: envelope}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
 }
 
 var _ facts.Store = (*Store)(nil)
@@ -86,6 +117,24 @@ func (s *Store) Record(ctx context.Context, device string, obs facts.Observation
 		return err
 	}
 	obs.Entries = keyed
+	for attempt := 1; ; attempt++ {
+		err = s.recordOnce(ctx, device, obs)
+		// A device under the previous keys is re-keyed in a transaction of
+		// its own, holding it exclusively (rekey.go), and the record tried
+		// again: the record's own transaction holds it shared, and cannot
+		// take it exclusively without waiting on every other record.
+		var first *needsRekey
+		if !errors.As(err, &first) || attempt == rekeyAttempts {
+			return err
+		}
+		if _, err := s.settle(ctx, first.dev, device); err != nil {
+			return err
+		}
+	}
+}
+
+// recordOnce is Record's one transaction, with obs's hashes already keyed.
+func (s *Store) recordOnce(ctx context.Context, device string, obs facts.Observation) error {
 	tx, err := s.client.Tx(ctx)
 	if err != nil {
 		return fmt.Errorf("facts: %w", err)
@@ -100,7 +149,11 @@ func (s *Store) Record(ctx context.Context, device string, obs facts.Observation
 	return nil
 }
 
-// record is Record inside tx, with obs's hashes already keyed.
+// record is Record inside tx, with obs's hashes already keyed. The device's
+// facts are held shared before anything of them is read
+// (ent.Tx.LockFactsOfDevice), so a re-key of the device never runs beside
+// this record; a device whose rows name the previous keys is not written
+// here but answered with needsRekey, before any row is read.
 func (s *Store) record(ctx context.Context, tx *ent.Tx, device string, obs facts.Observation) error {
 	dev, err := tx.Device.Query().Where(entdevice.DeviceIDEQ(device)).Only(ctx)
 	if ent.IsNotFound(err) {
@@ -109,8 +162,15 @@ func (s *Store) record(ctx context.Context, tx *ent.Tx, device string, obs facts
 	if err != nil {
 		return fmt.Errorf("facts: %w", err)
 	}
-	if err := s.sameKeys(ctx, tx.Fact, dev.ID); err != nil {
+	if err := tx.LockFactsOfDevice(ctx, dev.ID, false); err != nil {
+		return fmt.Errorf("facts: %w", err)
+	}
+	state, err := s.keyState(ctx, tx.Fact, dev.ID)
+	if err != nil {
 		return err
+	}
+	if state == keysPrevious {
+		return &needsRekey{dev: dev.ID}
 	}
 	at := facts.StoredTime(obs.At)
 	by, err := encode(obs.By)

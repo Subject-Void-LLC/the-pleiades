@@ -28,10 +28,14 @@
 //
 // A fact row is insert-only, and every other field of it is immutable in the
 // schema. Rotating MASTER_ENCRYPTION_KEY has to seal each payload again under
-// the new key, and nothing else may: RotateFactPayloads is the one writer,
-// the hook refuses an update whose payload is not a sealed envelope, and the
-// device's hash chain covers the key and value the payload holds, so a
-// payload replaced by another sealed one is found by a chain check.
+// the new key, and a change of the facts key has to seal it again for the
+// row's new token (internal/facts/entstore's rekey.go, which rewrites the
+// token itself through internal/ent's fact_rekey.go): RotateFactPayloads and
+// that re-key are the two writers, the hook refuses an update whose payload
+// is not a sealed envelope, and the device's hash chain covers the key and
+// value the payload holds, so a payload replaced by another sealed one is
+// found by a chain check. RotateFactPayloads writes only while the row keeps
+// the token it read, so the two cannot undo each other.
 package crypto
 
 import (
@@ -194,7 +198,12 @@ func RotateFactPayloads(ctx context.Context, client *ent.Client, svc *EnvelopeSe
 			}
 			sealed, err := SealFactPayload(svc, row.KeyToken, opened)
 			if err == nil {
-				err = client.Fact.UpdateOneID(row.ID).SetPayload(sealed).Exec(ctx)
+				// Only while the row still has the token the payload was
+				// sealed for: a change of the facts key (internal/facts/
+				// entstore's rekey.go) may re-key the row between the read
+				// and this write, and its payload, sealed for the new token,
+				// must not be replaced by one sealed for the old.
+				err = client.Fact.UpdateOneID(row.ID).Where(fact.KeyTokenEQ(row.KeyToken)).SetPayload(sealed).Exec(ctx)
 			}
 			if err != nil {
 				count.Skipped++

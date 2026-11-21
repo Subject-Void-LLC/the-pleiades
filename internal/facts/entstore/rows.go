@@ -99,9 +99,10 @@ func (s *Store) History(ctx context.Context, device, key string) ([]facts.Entry,
 // observations is a read of one consistent moment. A value written after the
 // bound reads as first observed and confirmed by no later run yet, never as
 // confirmed by the run that replaced it (the reviewer's torn read). A device
-// with no record of its own has no rows to fold. A device whose rows were
-// written under other keys is refused here (ErrKeysChanged), before any row
-// is read.
+// with no record of its own has no rows to fold. A device whose rows name
+// the previous keys is re-keyed here, in a transaction of its own, before
+// any row is read (settle); one whose rows were written under any other keys
+// is refused (ErrKeysChanged).
 func (s *Store) bound(ctx context.Context, device string) (int, int64, error) {
 	dev, err := s.client.Device.Query().Where(entdevice.DeviceIDEQ(device)).OnlyID(ctx)
 	if ent.IsNotFound(err) {
@@ -110,7 +111,7 @@ func (s *Store) bound(ctx context.Context, device string) (int, int64, error) {
 	if err != nil {
 		return 0, 0, fmt.Errorf("facts: %w", err)
 	}
-	if err := s.sameKeys(ctx, s.client.Fact, dev); err != nil {
+	if _, err := s.settle(ctx, dev, device); err != nil {
 		return 0, 0, err
 	}
 	upTo, err := newestSeq(ctx, storeClient{s.client}, dev)

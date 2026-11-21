@@ -332,10 +332,10 @@ func TestStore_WithoutItsKeysStoresAndReadsNothing(t *testing.T) {
 }
 
 // TestStore_RefusesADeviceSealedUnderOtherKeys: a change of the facts secret
-// is not a rotation. A store holding other keys than a device's rows were
-// written under refuses the device, read and write, and writes nothing
-// beside the history it cannot join; the consumer drops the batch. A device
-// with no rows yet is served.
+// with no previous key kept beside it (rekey.go) is refused. A store holding
+// other keys than a device's rows were written under refuses the device,
+// read and write, and writes nothing beside the history it cannot join; the
+// consumer drops the batch. A device with no rows yet is served.
 func TestStore_RefusesADeviceSealedUnderOtherKeys(t *testing.T) {
 	ctx := context.Background()
 	client, device, db, _ := sqliteClientDB(t)
