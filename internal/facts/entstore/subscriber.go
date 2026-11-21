@@ -41,6 +41,10 @@ type Subscriber struct {
 	// dropped.
 	digestOpen  *sealed.PrivateKey
 	digestKeyer *facts.Keyer
+	// digestOpenPrevious opens what a Runner sealed to the previous facts
+	// secret's key during a change of it (WithPreviousDigestKey); nil opens
+	// nothing more.
+	digestOpenPrevious *sealed.PrivateKey
 	// builtins names the built-in methods (WithBuiltinProvenance); a fact a
 	// built-in holds from any other method is stored and noted at info. Nil
 	// notes nothing.
@@ -155,12 +159,16 @@ func (s *Subscriber) Handle(evt event.Event) error {
 			slog.String("runner", termsafe.Quote(batch.By.Runner)), slog.String("subject", termsafe.Quote(evt.Subject)))
 		return nil
 	}
+	// How many of the batch's sealed files the previous seal key opened
+	// (WithPreviousDigestKey), said once below: a job dispatched under the
+	// previous facts secret still needs it.
+	underPrevious := 0
 	// A Runner seals a batch's entries to this controller's key; they are
 	// opened here, held to the batch that carries them, and from then on are
 	// the batch's entries. A batch that will not open is dropped: redelivery
 	// would not change it.
 	if batch.Sealed != "" {
-		entries, err := s.openBatch(batch)
+		entries, previous, err := s.openBatch(batch)
 		if err != nil {
 			s.logger.Error("dropping a facts batch whose sealed entries this controller cannot open as that batch's",
 				slog.String("job", termsafe.Quote(batch.JobID)), slog.String("device", termsafe.Quote(batch.DeviceID)),
@@ -168,6 +176,9 @@ func (s *Subscriber) Handle(evt event.Event) error {
 			return nil
 		}
 		batch.Entries = entries
+		if previous {
+			underPrevious++
+		}
 	} else if len(batch.Entries) > 0 {
 		// A Runner of an earlier release: its facts already crossed the
 		// stream in plaintext, so dropping them here would hide nothing.
@@ -183,7 +194,15 @@ func (s *Subscriber) Handle(evt event.Event) error {
 	// keyed (or dropped) before anything is written.
 	guard := facts.Guard{Shaped: redact.SecretShaped, SecretName: redact.SecretName, Declared: s.declared, AllowSealed: true}
 	entries, refused, err := facts.Verify(batch.Entries, guard)
-	entries, lost := s.keyDigests(batch.JobID, batch.DeviceID, entries)
+	entries, lost, previousDigests := s.keyDigests(batch.JobID, batch.DeviceID, entries)
+	if underPrevious += previousDigests; underPrevious > 0 {
+		// Said at info, not as a fault: it is what a change of the facts key
+		// expects while jobs dispatched before it finish. It is how an
+		// operator sees the previous key is still in use.
+		s.logger.Info("opened facts a Runner sealed to the previous facts key, for a job dispatched under it; keep PLEIADES_FACTS_DIGEST_KEY_PREVIOUS set until no such job runs",
+			slog.String("job", termsafe.Quote(batch.JobID)), slog.String("device", termsafe.Quote(batch.DeviceID)),
+			slog.String("runner", termsafe.Quote(batch.By.Runner)), slog.Int("sealed", underPrevious))
+	}
 	if len(lost) > 0 {
 		// Named by fact, never by value: a Controller without the digest
 		// key, a Runner sealing to another key, or a sealed digest from

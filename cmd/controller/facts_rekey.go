@@ -22,7 +22,9 @@ type factsRekeyer interface {
 // whether the previous key is still needed: it may be unset only once a
 // pass reports no device remaining and every replica runs with the new key,
 // since a replica still holding only the old key can store a gather under
-// it until it restarts.
+// it until it restarts, and once no job dispatched before that is still
+// running, since its Runner seals the job's facts to the old key, which only
+// the previous key opens (entstore's WithPreviousDigestKey).
 func runFactsRekey(ctx context.Context, store factsRekeyer, logger *slog.Logger) {
 	count, err := store.RekeyAll(ctx)
 	logger.Info("facts key rotation pass finished",
@@ -52,5 +54,5 @@ func runFactsRekey(ctx context.Context, store factsRekeyer, logger *slog.Logger)
 		logger.Warn("facts key rotation is incomplete: some devices still hold facts under the previous key; keep " + factDigestKeyPreviousEnv + " set and restart for another pass")
 		return
 	}
-	logger.Info("facts key rotation complete: no stored fact needs " + factDigestKeyPreviousEnv + " any more; once every replica runs with the new " + factDigestKeyEnv + ", unset it")
+	logger.Info("facts key rotation complete: no stored fact needs " + factDigestKeyPreviousEnv + " any more; unset it once every replica runs with the new " + factDigestKeyEnv + " and no job dispatched before then is still running, since a Runner seals such a job's facts to the previous key")
 }

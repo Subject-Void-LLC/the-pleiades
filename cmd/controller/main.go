@@ -735,7 +735,7 @@ func main() {
 	}
 	// The facts digest key likewise, before anything is bound or migrated: a
 	// malformed one stops the controller having changed nothing.
-	digestOpen, digestKeyer, err := loadFactDigestKeys(logger)
+	digestKeys, err := loadFactDigestKeys(logger)
 	if err != nil {
 		fatal("failed to read the facts digest key", err)
 	}
@@ -1159,8 +1159,9 @@ func main() {
 	// The key Runners seal digests of files not everyone may read to, and
 	// the key this Controller keys them with (fact_digest_keys.go, read with
 	// the envelope key above): its public half rides every dispatch, and the
-	// facts consumer below opens and keys what Runners send.
-	digestWorker, factsOpts := factDigestOptions(digestOpen, digestKeyer)
+	// facts consumer below opens and keys what Runners send, during a change
+	// of the facts key with the previous key pair as well.
+	digestWorker, factsOpts := factDigestOptions(digestKeys)
 	workerOpts = append(workerOpts, digestWorker...)
 	workerOpts = append(workerOpts,
 		dispatch.WithDefinitionSource("playbook", dispatch.NewPlaybookDefinitionSource(playbooks)))
