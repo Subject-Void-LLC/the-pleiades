@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -115,6 +116,20 @@ func Audit(pkg string, opts Options, partial string) (failures, notes []string) 
 	if len(methods) == 0 {
 		failures = append(failures, fmt.Sprintf("the audit found no fact-declaring built-in whose Invoke or Check %q declares, so it held nothing: "+
 			"Options.Of names the wrong package, the package was renamed, or its methods stopped declaring facts (then drop facttest.Main here)", pkg))
+	}
+	// A function serving several methods, one of them a fact-declaring
+	// method of pkg, is refused whether or not a test ran it. Observe refuses
+	// each fact such a function emits, naming the test, and the same message
+	// is not repeated here.
+	index := functionIndex()
+	for _, function := range sortedKeys(index) {
+		names := index[function]
+		if len(names) < 2 || PackageOf(function) != pkg || !slices.ContainsFunc(names, func(n string) bool { return hasKey(methods, n) }) {
+			continue
+		}
+		if msg := sharedFunction(function, names); !hasKey(ledger.seen, msg) {
+			failures = append(failures, msg)
+		}
 	}
 	for _, table := range []struct {
 		field   string

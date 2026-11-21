@@ -321,3 +321,41 @@ func TestAudit_DrivenByIsHeldAsAnExemptionIs(t *testing.T) {
 		t.Errorf("failures = %q, want a DrivenBy naming its own package and one beside an Exempt entry refused", failures)
 	}
 }
+
+// twinInvoke stands in for one function registered as two methods' Invoke.
+func twinInvoke(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return probeInvoke(ctx, rc, device, params)
+}
+
+func TestObserve_RefusesAFunctionSeveralMethodsShare(t *testing.T) {
+	fixture(t)
+	spec := collection.FactSpec{Key: "facttest.name", Kind: collection.FactStable, Type: collection.FactString, Description: "a name"}
+	register(t, "facts.facttest_twin_a", twinInvoke, spec)
+	register(t, "facts.facttest_twin_b", twinInvoke, spec)
+	exempt := Options{Exempt: map[string]string{"facts.facttest_silent": "x", "facts.facttest_probe": "x", "facts.facttest_dispatch": "x"}}
+
+	// Before any test runs either, the audit refuses the sharing itself.
+	failures, _ := audit(exempt, "-run chose only some tests")
+	if !hasLine(failures, "twinInvoke is the Invoke or Check of facts.facttest_twin_a, facts.facttest_twin_b", "give each method its own function") {
+		t.Errorf("failures = %q, want the shared function refused before it ran", failures)
+	}
+
+	run(t, "facts.facttest_twin_a", emitParams{"facttest.name": "web1"})
+	failures, notes := audit(exempt, "")
+	if !hasLine(failures, "twinInvoke is the Invoke or Check of facts.facttest_twin_a, facts.facttest_twin_b", "credits none", "TestObserve_RefusesAFunctionSeveralMethodsShare") {
+		t.Errorf("failures = %q, want the fact the shared function emitted refused", failures)
+	}
+	// Neither method is credited, so each is undriven, and no line counts the
+	// fact as a twin's.
+	for _, name := range []string{"facts.facttest_twin_a", "facts.facttest_twin_b"} {
+		if !hasLine(failures, name+" declares facts, and no test") {
+			t.Errorf("failures = %q, want %s left undriven", failures, name)
+		}
+		if hasLine(notes, name+" (") {
+			t.Errorf("notes = %q, want %s credited with nothing", notes, name)
+		}
+	}
+	if got := strings.Count(strings.Join(failures, "\n"), "is the Invoke or Check of"); got != 1 {
+		t.Errorf("failures = %q, want the sharing named once", failures)
+	}
+}

@@ -39,7 +39,10 @@ import (
 )
 
 // ledger is what every Observe call in this test binary saw.
-var ledger = struct {
+var ledger = &ledgerState{emitted: map[string]map[string]bool{}, seen: map[string]int{}}
+
+// ledgerState is the type of ledger.
+type ledgerState struct {
 	sync.Mutex
 	// emitted is each method's emitted keys.
 	emitted map[string]map[string]bool
@@ -52,7 +55,7 @@ var ledger = struct {
 	// goroutine of its own), with a few of their keys for the report.
 	unattributed     int
 	unattributedKeys []string
-}{emitted: map[string]map[string]bool{}, seen: map[string]int{}}
+}
 
 // refusal is one fact a method's declaration refused: the message, the first
 // test that emitted it, and how many times it was emitted.
@@ -77,30 +80,51 @@ const maxReportedKeys = 5
 // declaration of the method that emitted it, and records it for Main. A fake
 // calls it from its EmitFact and goes on recording the fact as it did.
 func Observe(key string, value any) {
-	methods, test := attribute()
+	function, methods, test := attribute()
 	ledger.Lock()
 	defer ledger.Unlock()
-	if len(methods) == 0 {
+	switch len(methods) {
+	case 0:
 		ledger.unattributed++
 		if len(ledger.unattributedKeys) < maxReportedKeys {
 			ledger.unattributedKeys = append(ledger.unattributedKeys, key)
 		}
 		return
+	case 1:
+	default:
+		// Crediting every method the function serves would pass a method on
+		// another's run, and refusing the fact for each would blame methods
+		// that never ran; neither is the method a task named.
+		ledger.refuse(sharedFunction(function, methods), test)
+		return
 	}
-	for _, name := range methods {
-		if p := problem(name, key, value); p != "" {
-			if i, ok := ledger.seen[p]; ok {
-				ledger.problems[i].count++
-			} else {
-				ledger.seen[p] = len(ledger.problems)
-				ledger.problems = append(ledger.problems, refusal{message: p, test: test, count: 1})
-			}
-		}
-		if ledger.emitted[name] == nil {
-			ledger.emitted[name] = map[string]bool{}
-		}
-		ledger.emitted[name][key] = true
+	name := methods[0]
+	if p := problem(name, key, value); p != "" {
+		ledger.refuse(p, test)
 	}
+	if ledger.emitted[name] == nil {
+		ledger.emitted[name] = map[string]bool{}
+	}
+	ledger.emitted[name][key] = true
+}
+
+// refuse records one refusal, counting a message already seen. The caller
+// holds the ledger's lock.
+func (l *ledgerState) refuse(message, test string) {
+	if i, ok := l.seen[message]; ok {
+		l.problems[i].count++
+		return
+	}
+	l.seen[message] = len(l.problems)
+	l.problems = append(l.problems, refusal{message: message, test: test, count: 1})
+}
+
+// sharedFunction is the refusal of a function that is the Invoke or Check of
+// more than one registered built-in.
+func sharedFunction(function string, methods []string) string {
+	return fmt.Sprintf("%s is the Invoke or Check of %s, so the audit cannot tell which of them a fact it emits belongs to and credits none: "+
+		"give each method its own function (a one-line wrapper will do), or teach pkg/collection/facttest which method a call belongs to",
+		function, strings.Join(methods, ", "))
 }
 
 // problem is why method's declaration refuses the fact key with value, or ""
@@ -169,15 +193,16 @@ func jsonType(v any) collection.FactType {
 	return ""
 }
 
-// attribute returns the methods whose Invoke or Check is the outermost
-// registered built-in function on the calling goroutine's stack (several when
-// one function serves several methods), and the test that called it, for the
-// report.
-func attribute() ([]string, string) {
+// attribute returns the outermost registered built-in function on the
+// calling goroutine's stack, the methods whose Invoke or Check it is (several
+// when one function serves several methods, which Observe refuses), and the
+// test that called it, for the report.
+func attribute() (string, []string, string) {
 	index := functionIndex()
 	pcs := make([]uintptr, 512)
 	n := runtime.Callers(3, pcs)
 	frames := runtime.CallersFrames(pcs[:n])
+	var function string
 	var methods []string
 	test := "an unnamed test"
 	for {
@@ -185,7 +210,7 @@ func attribute() ([]string, string) {
 		// Callers lists the innermost frame first, so the last match is the
 		// outermost: the method a task named, not one it dispatched to.
 		if names, ok := index[frame.Function]; ok {
-			methods = names
+			function, methods = frame.Function, names
 		}
 		if name, ok := testName(frame.Function); ok {
 			test = name
@@ -194,7 +219,7 @@ func attribute() ([]string, string) {
 			break
 		}
 	}
-	return methods, test
+	return function, methods, test
 }
 
 // testName is the top-level test a function name belongs to
