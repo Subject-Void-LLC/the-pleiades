@@ -65,7 +65,8 @@ var ErrFactNotSealed = errors.New("crypto: a stored fact's payload is not sealed
 
 // ErrFactPayloadUpdate is returned when an update would replace a fact's
 // payload with something that is not a sealed envelope. Only a master key
-// rotation writes a payload again, and it writes it sealed.
+// rotation and a change of the facts key write a payload again, and each
+// writes it sealed.
 var ErrFactPayloadUpdate = errors.New("crypto: a stored fact's payload can only be replaced by the same payload sealed again")
 
 // factBinding is the associated data of the payload of the row keyToken

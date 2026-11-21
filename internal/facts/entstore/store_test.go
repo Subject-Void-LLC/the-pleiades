@@ -82,9 +82,10 @@ func TestStore_WritesOnChangeAndKeepsHistory(t *testing.T) {
 // TestFact_TheSchemaRefusesEditingAValue: a stored value is immutable in the
 // schema itself: the generated update has no setter for any of its fields
 // (Phase 41h removed the last two, last_seen_at and last_provenance) but the
-// sealed payload a key rotation seals again, and
+// sealed payload a key rotation or a change of the facts key seals again, and
 // neither has an observation's or a coverage's, so no caller can build an
-// in-place edit of the history.
+// in-place edit of the history. The re-key's keyed columns are written by
+// hand (internal/ent's fact_rekey.go), never through a generated setter.
 func TestFact_TheSchemaRefusesEditingAValue(t *testing.T) {
 	for _, update := range []reflect.Type{reflect.TypeOf(&ent.FactUpdateOne{}), reflect.TypeOf(&ent.FactObservationUpdateOne{}), reflect.TypeOf(&ent.FactCoverageUpdateOne{})} {
 		for i := 0; i < update.NumMethod(); i++ {
@@ -96,8 +97,8 @@ func TestFact_TheSchemaRefusesEditingAValue(t *testing.T) {
 				continue
 			}
 			// A fact's sealed payload is set again only when the master key
-			// rotates, and only to the same payload sealed under the new key:
-			// crypto.FactPayloadHook refuses anything else
+			// rotates or the facts key changes, and only to the same payload
+			// sealed again: crypto.FactPayloadHook refuses anything else
 			// (TestFactPayloadHook_RefusesAnUpdateThatIsNotSealed), and the
 			// chain covers the key and value it holds.
 			if name == "SetPayload" && update.Elem().Name() == "FactUpdateOne" {
@@ -110,8 +111,8 @@ func TestFact_TheSchemaRefusesEditingAValue(t *testing.T) {
 	}
 }
 
-// bus is an event.Bus that keeps nothing: the consumer's Handle is called
-// directly.
+// handle delivers batch to sub as one event, calling the consumer's Handle
+// directly with no bus between them.
 func handle(t *testing.T, sub *entstore.Subscriber, batch any) error {
 	t.Helper()
 	data, err := json.Marshal(batch)

@@ -10,9 +10,13 @@ import (
 // Fact holds the schema definition for the Fact entity: one observed value of
 // one key on one device (Phase 41). A row is written only when a key's value
 // changes, so a device's rows for a key are the history of that value, and
-// the newest is its current value. A row is never updated (Phase 41h): when
-// a value was last confirmed is read from the device's FactObservation rows,
-// and observation_seq names the observation that wrote this one.
+// the newest is its current value. A row is never updated to record a
+// sighting (Phase 41h): when a value was last confirmed is read from the
+// device's FactObservation rows, and observation_seq names the observation
+// that wrote this one. What a row holds never changes either; only how it is
+// sealed and keyed does, by a master key rotation (payload) and by a change
+// of the facts key (the keyed columns and payload, internal/ent's
+// fact_rekey.go and internal/facts/entstore's rekey.go).
 type Fact struct {
 	ent.Schema
 }
@@ -36,24 +40,37 @@ func (Fact) Fields() []ent.Field {
 		// device's ID, a NUL and the fact's key, under the store's token key
 		// (facts.Keys.Token), so the table names no key and one key on two
 		// devices gives two tokens. The SQL default only keeps the column an
-		// expand migration; NotEmpty refuses an empty token on every write.
+		// expand migration; NotEmpty refuses an empty token on every write
+		// through the generated client, to which it is immutable. The one
+		// other write is a change of the facts key, which rewrites it with
+		// hash, keyed_by and the chain link (internal/ent's fact_rekey.go).
 		field.String("key_token").Default("").NotEmpty().MaxLen(64).Immutable(),
 		// payload holds the fact's key and value, sealed: the one entry
 		// crypto.EncryptedKeyMarker names is a bound envelope over the JSON of
 		// {"key": <the key>, "json": <the value's canonical JSON text>}, bound
 		// to the row's device and token (internal/crypto's fact_hook.go). It
-		// is the one field with a setter, and only so a master key rotation
-		// can seal it again under the new key (crypto.RotateFactPayloads); the
-		// hook refuses any other write, and the chain covers what it holds.
+		// is the one field with a setter, which two writers use: a master key
+		// rotation seals it again under the new master key
+		// (crypto.RotateFactPayloads), and a change of the facts key seals it
+		// again for the row's new token (internal/facts/entstore's rekey.go).
+		// The hook refuses any write of it that is not a sealed envelope, and
+		// the chain covers what it holds.
 		field.JSON("payload", map[string]interface{}{}),
 		// hash is the fact's keyed hash (facts.Keys.Hash): HMAC-SHA-256 over
 		// the device and the canonical JSON of key and value, which is how a
 		// later observation is compared with this one. A plain hash would let
-		// anyone holding the table test a guess at a short value.
+		// anyone holding the table test a guess at a short value. A change of
+		// the facts key rewrites it (fact_rekey.go).
 		field.String("hash").NotEmpty().Immutable(),
 		// keyed_by is the identity of the keys the token and the hash were
-		// made under (facts.Keys.ID). A store refuses a device whose rows
-		// name other keys, rather than start a second history beside them.
+		// made under (facts.Keys.ID). A store refuses a device whose rows name
+		// keys other than its own, rather than start a second history beside
+		// them, except a device under the previous keys of a change of the
+		// facts key (PLEIADES_FACTS_DIGEST_KEY_PREVIOUS): it re-keys that
+		// device's rows, rewriting this column with the token, the hash and
+		// the chain link through fact_rekey.go. Empty, the SQL default, is a
+		// row a build from before facts were sealed wrote in plaintext, which
+		// no key re-keys and the store refuses with its own reason.
 		field.String("keyed_by").Default("").NotEmpty().MaxLen(128).Immutable(),
 		// kind is what the emitting method declared (Phase 41b): a stable
 		// key's rows are its history; a volatile key keeps one row, replaced
@@ -85,7 +102,8 @@ func (Fact) Fields() []ent.Field {
 		// chain this row's. Both are null on a volatile row and on a row from
 		// before 41b. The unique index below keeps the chain a line: a second
 		// writer naming the same predecessor fails, and its batch is
-		// redelivered against the new head.
+		// redelivered against the new head. A change of the facts key
+		// recomputes both for every stable row (fact_rekey.go).
 		field.String("chain_prev").Optional().Nillable().Immutable(),
 		field.String("chain").Optional().Immutable(),
 	}
