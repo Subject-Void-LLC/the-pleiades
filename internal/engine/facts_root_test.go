@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	"cel.dev/cel-go/cel"
+
 	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/render"
 )
@@ -84,6 +86,30 @@ func TestFactsRoot_EveryAllowedSpellingReadsItsLiteralKey(t *testing.T) {
 		}
 		if !slices.Equal(got, want) {
 			t.Errorf("%s reads %v, want %v", cond, got, want)
+		}
+	}
+}
+
+// TestFactsRoot_ABuildWithoutTheRootRefusesARunbookReadingIt: a build from
+// before the facts root (a Runner of an earlier release) declares no facts
+// variable, and CEL's checker refuses an undeclared name, so such a build
+// fails to compile every spelling of a fact read rather than reading it as
+// missing: it refuses the dispatch when it resolves the runbook, before any
+// task, and no payload version is needed to make it fail closed. The
+// variables are the earlier release's, written out here.
+func TestFactsRoot_ABuildWithoutTheRootRefusesARunbookReadingIt(t *testing.T) {
+	var before []cel.EnvOption
+	for _, name := range []string{"stat", "nodes", "vars", "result", "error", "device", "loop"} {
+		before = append(before, cel.Variable(name, cel.MapType(cel.StringType, cel.DynType)))
+	}
+	before = append(append(before, cel.Variable("item", cel.DynType)), engine.CELLibraryOptions()...)
+	env, err := cel.NewEnv(before...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, src := range []string{`facts["os.version"] == "17.3"`, `has(facts.uptime)`, `"os.version" in facts`, `facts[?"os.version"].hasValue()`, `!("os.version" in facts)`} {
+		if _, iss := env.Compile(src); iss == nil || iss.Err() == nil || !strings.Contains(iss.Err().Error(), "undeclared reference to 'facts'") {
+			t.Errorf("%s compiled in a build without the root (%v)", src, iss.Err())
 		}
 	}
 }

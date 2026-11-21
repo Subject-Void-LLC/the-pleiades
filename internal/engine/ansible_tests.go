@@ -32,9 +32,10 @@ var factReference = regexp.MustCompile(`^facts(?:\.([A-Za-z_][A-Za-z0-9_]*)|\[\s
 // ansibleTest returns the CEL a when:, when_or:, until:, changed_when:,
 // failed_when: or that: item means: an item that is wholly "vars.<name> is
 // defined" (or "is not undefined") is has(vars.<name>), one that is
-// "vars.<name> is not defined" (or "is undefined") is !has(vars.<name>), and
-// any other item is its own CEL, returned as written. when_cel: is never read
-// here: it is CEL as written.
+// "vars.<name> is not defined" (or "is undefined") is !has(vars.<name>), one
+// asking it of a stored fact (facts["<key>"], facts.<name>) is "<key>" in
+// facts or its negation, and any other item is its own CEL, returned as
+// written. when_cel: is never read here: it is CEL as written.
 //
 // The test is asked only of a run variable, where has() answers as Ansible
 // does. Every other root is refused when the runbook is built, rather than

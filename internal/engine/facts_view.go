@@ -6,10 +6,12 @@
 // read, a run with no store) is an outcome, never a value: the map answers it
 // as missing, so the expression evaluates as CEL would, and the condition's
 // evaluation is then failed whatever it came to (factsView.failure). Nothing
-// in the expression can turn it into an answer: has(), "k" in facts, the
-// is defined test, facts[?"k"].orValue(...) and a short-circuiting || or &&
-// that never needed the value all touch the key, and a touch is what fails
-// the task. An absent key, on a device a method that emits it has observed,
+// in the expression can turn it into an answer: has(), "k" in facts, the is
+// defined test and facts[?"k"].orValue(...) all touch the key, and once CEL
+// is done every key the condition names and did not reach (a
+// short-circuiting || or &&, a later item of a when list) is asked too
+// (settle), so an unknown key fails the task whether or not the evaluation
+// needed it. An absent key, on a device a method that emits it has observed,
 // is missing in the ordinary way, so a test for it is honest.
 //
 // The map is consulted only through the methods CEL calls on a map value

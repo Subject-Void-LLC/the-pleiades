@@ -340,3 +340,78 @@ tasks:
 		}
 	}
 }
+
+// TestFactsRoot_EveryPathThatDecidesATaskReadsWhatTheRunGathered: a task
+// reading a gathered fact inside a block with a rescue, in a loop and in an
+// until retry is decided on the gathered value, as a top-level task is.
+func TestFactsRoot_EveryPathThatDecidesATaskReadsWhatTheRunGathered(t *testing.T) {
+	for name, reader := range map[string]string{
+		"in a block with a rescue": "  - name: guarded\n    block:\n      - name: read\n        when: facts[\"tfx.kernel\"] == \"6.1\"\n        tfx.probe: {}\n    rescue:\n      - name: answer\n        noop: {}\n",
+		"in a loop":                "  - name: read\n    loop: [a, b]\n    when: facts[\"tfx.kernel\"] == \"6.1\"\n    tfx.probe: {}\n",
+		"in an until retry":        "  - name: read\n    register: r\n    until: \"true\"\n    retries: 1\n    delay: 0\n    when: facts[\"tfx.kernel\"] == \"6.1\"\n    tfx.probe: {}\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			m := registerFactsRead(t)
+			result, err := newCheckExecutor(factsFleet(), engine.WithFactReader(&fakeReader{})).Run(context.Background(),
+				factsDAG(t, "id: paths\nhosts: fleet\ntasks:\n  - name: gather\n    tfx.gather: {}\n"+reader))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.HasErrors() {
+				t.Fatalf("the run failed: %+v", result.Nodes)
+			}
+			if m.probeRuns.Load() < 2 {
+				t.Errorf("the reader ran %d times, want at least once on each device", m.probeRuns.Load())
+			}
+		})
+	}
+}
+
+// TestFactsRoot_TheRunsSecretsGuardWhatAConditionReads: a value holding one
+// of the run's known secrets is never read, whether this run gathered it
+// (it is not overlaid, as it would not be stored) or the store held it (it
+// is withheld, failing the task that reads it).
+func TestFactsRoot_TheRunsSecretsGuardWhatAConditionReads(t *testing.T) {
+	m := registerFactsRead(t)
+	const secret = "Pelican-Vault-Forty"
+	gathered, err := newCheckExecutor(factsFleet(), engine.WithFactReader(&fakeReader{}), engine.WithKnownSecrets([]string{secret})).Run(context.Background(), factsDAG(t, `
+id: secret-overlay
+hosts: fleet
+tasks:
+  - name: gather
+    tfx.gather: {note: `+secret+`}
+  - name: read
+    when: facts["tfx.note"] is defined
+    tfx.probe: {}
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for device, n := range resultsOf(gathered, "tasks[1]") {
+		if !n.Skipped || n.Err != nil {
+			t.Errorf("a gathered secret on %s: %s, want it not there to read", device, describe(n))
+		}
+	}
+	stored := &fakeReader{answers: map[string]map[string]engine.FactAnswer{
+		"dev-1": {"tfx.note": {State: engine.FactPresent, Value: secret}}, "dev-2": {"tfx.note": {State: engine.FactPresent, Value: secret}},
+	}}
+	held, err := newCheckExecutor(factsFleet(), engine.WithFactReader(stored), engine.WithKnownSecrets([]string{secret})).Run(context.Background(), factsDAG(t, `
+id: secret-stored
+hosts: fleet
+tasks:
+  - name: read
+    when: facts["tfx.note"] is defined
+    tfx.probe: {}
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for device, n := range resultsOf(held, "tasks[0]") {
+		if n.Err == nil || !strings.Contains(n.Err.Error(), "holds a secret this run knows") || strings.Contains(n.Err.Error(), secret) {
+			t.Errorf("a stored secret on %s: %s, want it withheld, naming why and not the value", device, describe(n))
+		}
+	}
+	if m.probeRuns.Load() != 0 {
+		t.Errorf("a task reading a secret ran %d times", m.probeRuns.Load())
+	}
+}
