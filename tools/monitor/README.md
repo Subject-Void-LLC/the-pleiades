@@ -100,8 +100,12 @@ requests are open at once; the next is answered 503.
 
 ### The roadmap panel
 
-The repository names no internal document, so the roadmap is configured on
-the machine that has one, in `.IGNORE/ci/monitor/panels.json`:
+The roadmap and its security attestation live in git-ignored files that
+only some clones have. The tool reads them when they exist, but no path to
+them is written in this repository: the machine that has them names its
+roadmap script in `.IGNORE/ci/monitor/panels.json`, and a clone without one
+shows an empty Roadmap tab and a Security tab with no attestation, never an
+error (`/roadmap.json` answers `{"configured": false, ...}`):
 
 ```json
 {"roadmap": {"script": "/abs/path/to/the/roadmap/script.py"}}

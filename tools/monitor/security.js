@@ -54,7 +54,7 @@ function renderSecurity() {
   clear(tiles);
   if (!att) {
     hero.textContent = 'No attestation';
-    document.getElementById('sec-hero-sub').textContent = 'Configure the roadmap panel to read SECURITY_ATTESTATION.md.';
+    document.getElementById('sec-hero-sub').textContent = 'No attestation is configured on this machine; the roadmap panel (panels.json) reads it where one is.';
   } else {
     hero.textContent = (sum.attested || 0) + ' of ' + (sum.controls || 0);
     const next = att.next_review;

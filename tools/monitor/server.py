@@ -28,8 +28,9 @@ Routes (GET only):
                       in "." is a family: gate.), ?src=<src>, ?limit=<n>
                       (the newest n; default and most 100000)
     /roadmap.json     the roadmap model: ?phase=<id> (repeatable),
-                      ?details=1; {"error": ...} with 404 when none is
-                      configured
+                      ?details=1; {"configured": false, ...} when this
+                      machine has none, {"error": ...} with 404 when the
+                      configured script fails
 
 /events and /wait are the observer side: a page or a script subscribes and
 is told, instead of polling /state. Each event carries a seq, so a

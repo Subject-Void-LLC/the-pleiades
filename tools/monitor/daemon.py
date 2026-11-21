@@ -465,7 +465,7 @@ class DaemonApp:
         runs = list(self.store.load_actions().values())
         if self.poller is not None:
             runs += get_objects(self.poller.snapshot(), "runs")
-        doc = security.build(self.root, None if "error" in model else model, runs)
+        doc = security.build(self.root, model if roadmap.usable(model) else None, runs)
         with self.cond:
             self.security_cache = (time.time(), doc)
         return doc
@@ -475,7 +475,7 @@ class DaemonApp:
     def record_roadmap(self) -> None:
         """Writes the roadmap's totals and each phase that changed."""
         model = self.panel.model()
-        if "error" in model:
+        if not roadmap.usable(model):
             return
         self.timeline.record_if_changed("roadmap.summary", "roadmap", roadmap.summary_value(model))
         for pid, value in roadmap.phase_values(model).items():

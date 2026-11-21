@@ -86,10 +86,15 @@ function richText(text) {
   return box;
 }
 
+// roadmapReady says whether roadmapDoc holds a roadmap: read, configured, and without error.
+function roadmapReady() {
+  return Boolean(roadmapDoc) && !roadmapDoc.error && roadmapDoc.configured !== false;
+}
+
 // renderStrip writes the header line shown in every view.
 function renderStrip() {
   const strip = document.getElementById('strip');
-  if (!roadmapDoc || roadmapDoc.error) { strip.textContent = ''; return; }
+  if (!roadmapReady()) { strip.textContent = ''; return; }
   const s = roadmapDoc.summary || {};
   const rel = s.current_release || {};
   const next = s.next_item || {};
@@ -134,6 +139,12 @@ function renderRoadmap() {
   const tiles = document.getElementById('rm-tiles');
   clear(tiles);
   if (!roadmapDoc) { status.textContent = 'Loading the roadmap.'; return; }
+  if (roadmapDoc.configured === false) {
+    // A clone without the roadmap: an empty tab, not an error.
+    document.getElementById('rm-hero').textContent = 'No roadmap';
+    status.textContent = roadmapDoc.note + (roadmapDoc.configure ? ' Its shape: ' + roadmapDoc.configure : '');
+    return;
+  }
   if (roadmapDoc.error) {
     document.getElementById('rm-hero').textContent = 'No roadmap';
     status.textContent = roadmapDoc.error + (roadmapDoc.configure ? ' Write panels.json as ' + roadmapDoc.configure : '');
@@ -235,7 +246,7 @@ function renderPhaseFilters() {
 
 // renderPhases draws the phase table, filtered by state, release and text.
 function renderPhases() {
-  if (!roadmapDoc || roadmapDoc.error) return;
+  if (!roadmapReady()) return;
   const state = document.getElementById('rm-state').value;
   const version = document.getElementById('rm-version').value;
   const words = document.getElementById('rm-search').value.trim().toLowerCase();

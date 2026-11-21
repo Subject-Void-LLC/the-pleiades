@@ -338,6 +338,8 @@ def roadmap_summary(doc: Optional[JSONObject]) -> JSONObject:
         return {"error": "no roadmap"}
     if "error" in doc:
         return {"error": doc.get("error")}
+    if doc.get("configured") is False:
+        return {"configured": False, "note": doc.get("note")}
     s = as_object(doc.get("summary")) or {}
     out: JSONObject = {k: s[k] for k in ("work_items", "work_items_done", "percent_done", "open_items",
                                          "current_release", "release_line", "items_citing_missing_tests",
@@ -440,6 +442,8 @@ def t_roadmap(c: DaemonClient, args: JSONObject) -> JSONValue:
     doc = as_object(c.json("/roadmap.json?" + q, timeout=90)) or {}
     if "error" in doc:
         return {"error": doc.get("error")}
+    if doc.get("configured") is False:
+        return {"configured": False, "note": doc.get("note")}
     phases = [p for p in get_objects(doc, "phases") if get_str(p, "id") == phase]
     return phases[0] if phases else {"error": "no phase %s" % phase}
 

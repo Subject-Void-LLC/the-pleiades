@@ -1,10 +1,15 @@
 # pyright: strict
 """The roadmap panel: a git-ignored roadmap's --json model, read on demand.
 
-The repository names no internal document, so the panel is configured on
-the machine that has one, in the state directory's panels.json:
+The roadmap and the security attestation it carries live in git-ignored
+files that only some clones have, and this tool reads them when they exist.
+No path to them is written here: the machine that has them names its
+roadmap script in the state directory's panels.json,
 
     {"roadmap": {"script": "/abs/path/to/the/roadmap/script.py"}}
+
+and a clone without one gets NOT_CONFIGURED, an empty model that is not an
+error, so its Roadmap and Security tabs are empty rather than broken.
 
 The script is run as `python3 <script> --json [--phase ID ...] [--details]`,
 the read contract it already offers, and its output is cached until any
@@ -32,6 +37,11 @@ CACHE_SECONDS = 300.0
 RUN_TIMEOUT = 60.0
 # MAX_PHASES bounds how many phases one request may name.
 MAX_PHASES = 20
+# NOT_CONFIGURED is what a clone without a roadmap script says.
+NOT_CONFIGURED = ("No roadmap is configured on this machine. A clone that has the roadmap names its script in "
+                  "panels.json in the monitor's state directory.")
+# CONFIGURE shows panels.json's shape.
+CONFIGURE = '{"roadmap": {"script": "/abs/path/to/the/roadmap/script.py"}}'
 
 
 def load_config(panels_path: str) -> Optional[str]:
@@ -70,6 +80,18 @@ def watched_mtimes(script: str) -> Tuple[float, ...]:
         except OSError:
             continue
     return tuple(out)
+
+
+def usable(model: JSONObject) -> bool:
+    """Reports whether a model holds a roadmap: configured, and read without error.
+
+    Args:
+        model: What RoadmapPanel.model returned.
+
+    Returns:
+        True when it has phases and totals to read.
+    """
+    return "error" not in model and model.get("configured") is not False
 
 
 def compact(model: JSONObject) -> JSONObject:
@@ -170,12 +192,13 @@ class RoadmapPanel:
             details: Whether items keep their details; the overview drops them.
 
         Returns:
-            The model, or {"error": why} when there is none.
+            The model; {"configured": False, "note": ...} on a machine with
+            no roadmap, which is not an error; {"error": why} when the
+            configured script fails.
         """
         script = load_config(self.panels_path)
         if script is None:
-            return {"error": "no roadmap panel: panels.json in the monitor's state directory names no script",
-                    "configure": '{"roadmap": {"script": "/abs/path/implementation.py"}}'}
+            return {"configured": False, "note": NOT_CONFIGURED, "configure": CONFIGURE, "phases": [], "summary": {}}
         wanted = sorted(set(phases or []))[:MAX_PHASES]
         key = "%s|%s|%d" % (script, ",".join(wanted), int(details))
         mtimes = watched_mtimes(script)

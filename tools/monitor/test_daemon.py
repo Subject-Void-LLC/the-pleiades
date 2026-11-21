@@ -402,7 +402,7 @@ class WaitSelectionTest(unittest.TestCase):
                 health = get_json(port, "/healthz")
                 self.assertEqual((health.get("protocol"), health.get("roadmap")), (daemon.PROTOCOL, False))
                 code, _, body = get(port, "/roadmap.json")
-                self.assertEqual(code, 404)
+                self.assertEqual(code, 200)
                 self.assertIn(b"panels.json", body)
             finally:
                 httpd.shutdown()
@@ -1091,7 +1091,8 @@ class McpTest(unittest.TestCase):
                 self.assertTrue(all(t["annotations"]["readOnlyHint"] for t in replies[1]["result"]["tools"]))
                 status = json.loads(replies[2]["result"]["content"][0]["text"])
                 self.assertEqual(status["daemon"]["protocol"], daemon.PROTOCOL)
-                self.assertIn("panels.json", status["roadmap"]["error"])
+                self.assertEqual(status["roadmap"]["configured"], False)
+                self.assertIn("panels.json", status["roadmap"]["note"])
                 lines = json.loads(replies[3]["result"]["content"][0]["text"])
                 self.assertEqual(lines[0]["data"]["available_mb"], 4321)
                 self.assertEqual(replies[4]["error"]["code"], -32602)
@@ -1350,7 +1351,8 @@ class CrossSiteTest(unittest.TestCase):
                     with self.subTest(q):
                         self.assertEqual(status_of(port, "/roadmap.json?phase=" + q, {}), 400)
                 self.assertEqual(asked, [])
-                self.assertEqual(status_of(port, "/roadmap.json?phase=41d&phase=W3,96a.1", {}), 404)
+                # Valid phases reach the panel, which answers that no roadmap is configured here.
+                self.assertEqual(status_of(port, "/roadmap.json?phase=41d&phase=W3,96a.1", {}), 200)
                 self.assertEqual(asked, [["41d", "W3", "96a.1"]])
             finally:
                 httpd.shutdown()
@@ -1378,6 +1380,57 @@ class CrossSiteTest(unittest.TestCase):
             finally:
                 httpd.shutdown()
                 httpd.server_close()
+
+
+class NoRoadmapTest(unittest.TestCase):
+    """A clone without the git-ignored tracker files shows empty tabs, not errors."""
+
+    def test_a_clone_without_the_tracker_files(self) -> None:
+        """With no panels.json, no Makefile, no waivers, no changelog and no git,
+        /roadmap.json and /security.json answer 200 without an error, the MCP
+        tools answer without one, and nothing is recorded."""
+        with tempfile.TemporaryDirectory() as d:
+            root = os.path.join(d, "clone")
+            os.makedirs(root)
+            state = os.path.join(d, "state")
+            app = daemon.DaemonApp(state, root, 0, redact.Redactor([]))
+            app.record_roadmap()
+            self.assertEqual(list(timeline.read(paths.timeline_dir(state), kinds=["roadmap.", "security."])), [])
+            httpd, port = serve(app)
+            try:
+                code, _, body = get(port, "/roadmap.json")
+                doc = as_object(loads(body.decode("utf-8"))) or {}
+                self.assertEqual((code, doc.get("configured"), "error" in doc), (200, False, False))
+                code, _, body = get(port, "/security.json")
+                sec = as_object(loads(body.decode("utf-8"))) or {}
+                self.assertEqual((code, sec.get("attestation"), "error" in sec), (200, None, False))
+                self.assertEqual((sec.get("waivers"), sec.get("unreleased")), ([], []))
+                msgs = "".join(json.dumps({"jsonrpc": "2.0", "id": i, "method": "tools/call",
+                                           "params": {"name": n, "arguments": {}}}) + "\n"
+                               for i, n in enumerate(("roadmap", "security")))
+                out = subprocess.run([sys.executable, "-B", MCP], input=msgs, capture_output=True, text=True, timeout=60,
+                                     env=dict(os.environ, STATUS_PORT=str(port), STATUS_STATE_DIR=state))
+            finally:
+                httpd.shutdown()
+                httpd.server_close()
+            replies = [json.loads(x) for x in out.stdout.splitlines()]
+            self.assertEqual(len(replies), 2, out.stderr)
+            for reply in replies:
+                self.assertFalse(reply["result"].get("isError"))
+                self.assertNotIn("error", json.loads(reply["result"]["content"][0]["text"]))
+
+    def test_no_shipped_file_names_an_internal_document(self) -> None:
+        """The monitor reads git-ignored tracker files where they exist, but its
+        own files name none of them."""
+        internal = ("SECURITY_ATTESTATION", "IMPLEMENTATION.md", "implementation.py", ".SPECIFICATION", "PLAN.md",
+                    "HANDOFF", "LESSONS_LEARNED", "FAILURE_PATTERNS", ".AGENTS")
+        for name in sorted(os.listdir(HERE)):
+            if name.startswith("test_") or not name.endswith((".py", ".js", ".html", ".md")):
+                continue
+            with open(os.path.join(HERE, name), encoding="utf-8") as f:
+                text = f.read()
+            for word in internal:
+                self.assertFalse(word in text, "%s names %s" % (name, word))
 
 
 def without_fcntl(script: str, args: List[str], stdin: str = "",
