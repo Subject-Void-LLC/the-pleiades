@@ -105,17 +105,60 @@ func TestDeviceFacts_AStoreRefusingAsConfiguredAnswers503(t *testing.T) {
 	}
 }
 
-// TestUnavailable_NamesOnlyConfigurationStates: the store's three
-// configuration refusals have a fixed cause, wrapped or not, and every other
-// error, its row refusals included, has none.
-func TestUnavailable_NamesOnlyConfigurationStates(t *testing.T) {
+// TestDeviceFacts_ARowThatDoesNotOpenAnswers503: a device whose stored row
+// holds another row's payload, which does not open bound to its own token,
+// answers its facts and history routes 503, naming the command that shows
+// which row, and never the fact; its chain route still answers, with the
+// break at that row.
+func TestDeviceFacts_ARowThatDoesNotOpenAnswers503(t *testing.T) {
+	ctx := context.Background()
+	dsn := fmt.Sprintf("file:%s?_journal_mode=WAL&_busy_timeout=10000&_fk=1", filepath.Join(t.TempDir(), "facts.db"))
+	client := enttest.Open(t, "sqlite3", dsn)
+	t.Cleanup(func() { _ = client.Close() })
+	db, err := sql.Open("sqlite3", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	dev := client.Device.Create().SetName("web1").SetType("linux_server").SetProperties(map[string]any{"host": "10.0.0.1"}).SaveX(ctx)
+	item := &inventorytest.Stub{StubID: pkginventory.DeviceID(dev.DeviceID), StubName: "web1"}
+	store := entstore.New(client, factstest.Keys(), factstest.Envelope())
+	recordKey(t, store, dev.DeviceID, unavailableKey)
+	recordKey(t, store, dev.DeviceID, "package.zq9otherpkg")
+	if _, err := db.ExecContext(ctx, "UPDATE facts SET payload = (SELECT payload FROM facts ORDER BY id LIMIT 1) WHERE id = (SELECT max(id) FROM facts)"); err != nil {
+		t.Fatal(err)
+	}
+	// The history of the key whose row was overwritten: another key's rows
+	// open, and its history is served.
+	for _, path := range []string{"/inventory/devices/web1/facts", "/inventory/devices/web1/facts/package.zq9otherpkg"} {
+		var logs bytes.Buffer
+		rr := factsGet(factsRouterLogging(t, &stubDeviceRepo{item: item}, store, &logs), path)
+		body := rr.Body.String()
+		if rr.Code != http.StatusServiceUnavailable || !strings.Contains(body, "does not open as its own") || !strings.Contains(body, "controller facts inspect") || strings.Contains(body, "zq9") {
+			t.Errorf("%s: %d %s; want 503 naming the inspect command and no fact", path, rr.Code, body)
+		}
+		if strings.Contains(logs.String(), `"level":"ERROR"`) {
+			t.Errorf("%s: logged an error for a state that lasts until a repair: %s", path, logs.String())
+		}
+	}
+	rr := factsGet(factsRouter(t, &stubDeviceRepo{item: item}, store), "/inventory/devices/web1/fact-chain")
+	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), `"break"`) {
+		t.Errorf("the chain route: %d %s; want the break reported", rr.Code, rr.Body.String())
+	}
+}
+
+// TestUnavailable_NamesOnlyStatesThatLast: the store's three configuration
+// refusals and a stored row that does not open as the device's own, which
+// lasts until a key is set right or the history is repaired, have a fixed
+// cause, wrapped or not, and every other error has none.
+func TestUnavailable_NamesOnlyStatesThatLast(t *testing.T) {
 	for err, want := range map[error]bool{
 		facts.ErrNoKeys: true,
-		fmt.Errorf("facts: %w", entstore.ErrKeysChanged):     true,
-		fmt.Errorf("%w: at row 3", entstore.ErrRekeyRefused): true,
-		entstore.ErrNotThisDevices:                           false,
-		entstore.ErrUnknownDevice:                            false,
-		fmt.Errorf("database is locked"):                     false,
+		fmt.Errorf("facts: %w", entstore.ErrKeysChanged):            true,
+		fmt.Errorf("%w: at row 3", entstore.ErrRekeyRefused):        true,
+		fmt.Errorf("%w: it was edited", entstore.ErrNotThisDevices): true,
+		entstore.ErrUnknownDevice:                                   false,
+		fmt.Errorf("database is locked"):                            false,
 	} {
 		cause, ok := entstore.Unavailable(err)
 		if ok != want || (cause == "") == want {

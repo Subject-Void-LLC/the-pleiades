@@ -620,7 +620,7 @@ var factsResponseSchema = map[string]any{
 // controller is configured, whose body names the cause and never a fact.
 var (
 	factsFault       = Response{Status: http.StatusInternalServerError, Description: "The fact store could not be read.", Schema: errorSchema("")}
-	factsUnavailable = Response{Status: http.StatusServiceUnavailable, Description: "The device's facts cannot be read as this controller is configured: it holds no facts key (PLEIADES_FACTS_DIGEST_KEY), the device's facts were stored under another facts key than it holds, or they could not be re-keyed under a new one. The body says which; it names no fact.", Schema: errorSchema("")}
+	factsUnavailable = Response{Status: http.StatusServiceUnavailable, Description: "The device's facts cannot be read as this controller is configured or as they are stored: it holds no facts key (PLEIADES_FACTS_DIGEST_KEY), the device's facts were stored under another facts key than it holds, they could not be re-keyed under a new one, or one of them does not open as the device's own. The body says which, and when the cause is the device's own history names the command that inspects it on the controller's host; it names no fact.", Schema: errorSchema("")}
 )
 
 // ListDeviceFacts is GET /inventory/devices/{name}/facts: a device's current

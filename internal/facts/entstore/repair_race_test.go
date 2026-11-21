@@ -1,7 +1,6 @@
 // A gather of a device while a repair of it runs (repair.go): the repair
 // holds the device's facts exclusively from before it reads them, so the
-// gather lands wholly after it, or on SQLite fails and is delivered again,
-// never beside it.
+// gather lands wholly after it, never beside it.
 package entstore_test
 
 import (
@@ -19,11 +18,9 @@ import (
 // after it has read and inspected the device and before it removes
 // anything, for a second, long enough for a gather nothing holds back to
 // commit, while a gather of the device runs. The discard then removes
-// exactly what was stored before the gather began. landedAfter says whether
-// the gather's error is one its dialect gives for a gather that waited and
-// stored after (nil on PostgreSQL), and refused whether it is the error of
-// one refused without writing (SQLite's lock, which a transaction that has
-// read cannot wait for).
+// exactly what was stored before the gather began, and the gather stores
+// after it. refused says whether a gather error is one its dialect may give
+// for a gather refused without writing, which a later delivery retries.
 func aGatherDuringARepair(t *testing.T, d database, refused func(error) bool) {
 	t.Helper()
 	ctx := context.Background()
@@ -89,9 +86,14 @@ func TestRepair_AGatherLandsWhollyAfterOnPostgres(t *testing.T) {
 	aGatherDuringARepair(t, onPostgres, func(error) bool { return false })
 }
 
-// TestRepair_AGatherIsRefusedOrLandsAfterOnSQLite: on SQLite the gather has
-// read before it meets the discard's write lock, so it fails without
-// writing, and its batch is delivered again.
+// TestRepair_AGatherIsRefusedOrLandsAfterOnSQLite: on SQLite the gather
+// finds the device under the previous key and re-keys it first, in a
+// transaction of its own whose first statement waits for the discard's
+// write lock; it then finds nothing left to re-key, and the gather stores a
+// new history after the discard, which is what a run here shows. A gather
+// whose wait outlasted the busy timeout would fail with "database is locked"
+// having written nothing, and its batch would come again; that is accepted
+// too.
 func TestRepair_AGatherIsRefusedOrLandsAfterOnSQLite(t *testing.T) {
 	aGatherDuringARepair(t, onSQLite, func(err error) bool { return strings.Contains(err.Error(), "database is locked") })
 }

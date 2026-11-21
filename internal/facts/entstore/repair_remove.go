@@ -1,5 +1,5 @@
 // Package entstore: how a repair removes rows (repair.go): each row digested
-// as it was stored, then deleted by ID a page at a time, inside the repair's
+// (digestFact says by what), then deleted by ID a page at a time, inside the repair's
 // transaction, which holds the device's facts exclusively, so every count
 // is checked against what was read.
 package entstore
@@ -23,6 +23,30 @@ import (
 // were read, which the repair's hold on the device's facts should make
 // impossible. The whole repair is rolled back.
 var errRemovalRaced = errors.New("facts: a stored row changed while it was being removed; nothing was repaired")
+
+// pageFacts calls each with every row of the device dev (its database ID)
+// that where selects, in id order, a page at a time, and each row's place
+// among them from 0: how an inspection and a repair read a device's rows.
+func pageFacts(ctx context.Context, tx *ent.Tx, dev int, where []predicate.Fact, each func(row *ent.Fact, position int) error) error {
+	after, position := 0, 0
+	for {
+		filter := append([]predicate.Fact{entfact.HasDeviceWith(entdevice.IDEQ(dev)), entfact.IDGT(after)}, where...)
+		rows, err := tx.Fact.Query().Where(filter...).Order(ent.Asc(entfact.FieldID)).Limit(inspectPage).All(ctx)
+		if err != nil {
+			return fmt.Errorf("facts: %w", err)
+		}
+		for _, row := range rows {
+			after = row.ID
+			if err := each(row, position); err != nil {
+				return err
+			}
+			position++
+		}
+		if len(rows) < inspectPage {
+			return nil
+		}
+	}
+}
 
 // removeFacts digests and removes each of the device's facts that where
 // selects and drop (when not nil) chooses, a page at a time.
@@ -145,26 +169,31 @@ func (r *removal) removeCoverages(ctx context.Context, orphans bool) error {
 	}
 }
 
-// digestFact writes row, as stored, into the removal digest: one canonical
-// JSON array per row and a newline after it, which canonical JSON never
-// holds, so no two sequences of rows give the same bytes.
+// digestFact writes row into the removal digest: one canonical JSON array
+// per row and a newline after it, which canonical JSON never holds, so no
+// two sequences of rows give the same bytes. A row is named by what the
+// facts key made of it (its token, keyed hash, keys and chain link) and its
+// time, kind, gather and provenance, in the order rows are stored. Its
+// sealed payload is left out, since a master key rotation seals it again
+// and the digest should still match a backup taken before; so is its ID,
+// which the database assigns and a table rebuild need not keep.
 func (r *removal) digestFact(row *ent.Fact) error {
 	var prev any
 	if row.ChainPrev != nil {
 		prev = *row.ChainPrev
 	}
-	return r.digest([]any{"fact", row.ID, row.KeyToken, row.Hash, row.KeyedBy, string(row.Kind),
-		storedTime(row.CreatedAt), row.ObservationSeq, prev, row.Chain, row.Payload, row.Provenance})
+	return r.digest([]any{"fact", row.KeyToken, row.Hash, row.KeyedBy, string(row.Kind),
+		storedTime(row.CreatedAt), row.ObservationSeq, prev, row.Chain, row.Provenance})
 }
 
-// digestCoverage writes c, as stored, into the removal digest.
+// digestCoverage writes c into the removal digest, without its ID.
 func (r *removal) digestCoverage(c *ent.FactCoverage) error {
-	return r.digest([]any{"coverage", c.ID, c.Digest, c.Stable, c.Volatile})
+	return r.digest([]any{"coverage", c.Digest, c.Stable, c.Volatile})
 }
 
-// digestObservation writes o, as stored, into the removal digest.
+// digestObservation writes o into the removal digest, without its ID.
 func (r *removal) digestObservation(o *ent.FactObservation) error {
-	return r.digest([]any{"observation", o.ID, o.Seq, storedTime(o.ObservedAt), o.OrderSource, o.OrderToken, o.Provenance, o.Coverage})
+	return r.digest([]any{"observation", o.Seq, storedTime(o.ObservedAt), o.OrderSource, o.OrderToken, o.Provenance, o.Coverage})
 }
 
 // digest writes fields as one canonical line into the removal digest.

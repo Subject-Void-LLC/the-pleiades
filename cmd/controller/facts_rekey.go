@@ -50,9 +50,9 @@ func runFactsRekey(ctx context.Context, store factsRekeyer, logger *slog.Logger)
 			first[i] = termsafe.Quote(id)
 		}
 		logger.Warn("facts key rotation refused devices whose stored facts do not verify under the previous key; they keep it and are served nothing. "+
-			"Run `controller facts inspect` on this host, with both keys set, to see where each breaks, and `controller facts truncate` or `discard` to repair one; "+
-			"removing the previous key first leaves them unreadable for good",
-			slog.Int("devices", count.Refused), slog.Any("first", first))
+			"Run `controller facts inspect --device-id <id>` on this host, with both keys set, for each device ID listed, to see where it breaks, "+
+			"and `controller facts truncate` or `discard` to repair one; removing the previous key first leaves them unreadable for good",
+			slog.Int("devices", count.Refused), slog.Any("first_device_ids", first))
 	}
 	if err != nil {
 		logger.Error("facts key rotation could not finish its pass; keep "+factDigestKeyPreviousEnv+" set, and restart for another pass",

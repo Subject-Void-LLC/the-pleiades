@@ -41,10 +41,14 @@ var ErrNotThisDevices = errors.New("facts: a stored fact does not open as this d
 // facts key to read with (facts.ErrNoKeys), a device's facts stored under
 // other keys than the store holds (ErrKeysChanged), or a device whose facts
 // could not be re-keyed under new ones (ErrRekeyRefused). None of these
-// changes until an operator changes the configuration. Any other error is
-// "", false. The cause is fixed text: it names no fact, no key's identity
-// and nothing the error itself says. The two that only an operator on the
-// controller's host can look into name the command that does
+// changes until an operator changes the configuration. So is a stored row
+// that does not open as the device's own (ErrNotThisDevices): it was moved,
+// edited, or sealed under a master key this controller does not hold, and
+// it stays so until the key is set right or the history repaired, so every
+// read of the device's facts is refused the same way until then. Any other
+// error is "", false. The cause is fixed text: it names no fact, no key's
+// identity and nothing the error itself says. The ones only an operator on
+// the controller's host can look into name the command that does
 // (InspectCommand).
 func Unavailable(err error) (string, bool) {
 	switch {
@@ -54,6 +58,8 @@ func Unavailable(err error) (string, bool) {
 		return "facts are unavailable: the device's facts were stored under another facts key than this controller holds; keep that key as PLEIADES_FACTS_DIGEST_KEY_PREVIOUS beside the new one, or run " + InspectCommand + " on the controller's host to see which keys they name", true
 	case errors.Is(err, ErrRekeyRefused):
 		return "facts are unavailable: the device's facts could not be re-keyed under the new facts key, since they do not verify under the previous one; run " + InspectCommand + " on the controller's host to see where, and how to repair them", true
+	case errors.Is(err, ErrNotThisDevices):
+		return "facts are unavailable: one of the device's stored facts does not open as its own: it was moved or edited, or MASTER_ENCRYPTION_KEY is not the key it was sealed under; run " + InspectCommand + " on the controller's host to see which, and how to repair it", true
 	}
 	return "", false
 }

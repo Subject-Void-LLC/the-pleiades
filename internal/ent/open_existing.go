@@ -14,6 +14,7 @@ import (
 	"regexp"
 
 	"entgo.io/ent/dialect"
+	entsql "entgo.io/ent/dialect/sql"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/migrate"
 )
@@ -116,6 +117,17 @@ func (d *ExistingDatabase) Describe() string { return d.describe }
 
 // Close releases the connection pool.
 func (d *ExistingDatabase) Close() error { return d.db.Close() }
+
+// Client is an ent client over the database as it stands, for a command
+// that reads and writes rows of a schema it has checked first (SchemaPlan)
+// and must not be the thing that creates, upgrades or reclaims anything,
+// which OpenDatabase does on every open. It shares the connection pool:
+// closing the client closes the database. On SQLite the connection opens
+// the file as OpenExisting does (mode=rw, no journal-mode change), so
+// foreign keys are not enforced on what it writes.
+func (d *ExistingDatabase) Client() *Client {
+	return NewClient(Driver(entsql.OpenDB(d.driver, d.db)))
+}
 
 // StoredValue is one row's raw stored text for one column.
 type StoredValue struct {

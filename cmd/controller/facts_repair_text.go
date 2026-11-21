@@ -1,7 +1,9 @@
 // This file is how `controller facts` reads to a person (facts_repair.go):
 // the same model its --json prints, so the two cannot disagree. Every name
-// the report carries was already escaped by the store (termsafe.Quote), and
-// no line names a fact unless --show-fact-names asked for it.
+// an inspection report carries was already escaped by the store
+// (termsafe.Quote). A repair's recorded sentence names the device as the
+// activity stream stores it, raw, so it is escaped here as it is printed.
+// No line names a fact unless --show-fact-names asked for it.
 package main
 
 import (
@@ -12,15 +14,19 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts/entstore"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts/factsreport"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/termsafe"
 )
 
 // writeInspectText prints an inspection report.
 func writeInspectText(w io.Writer, r factsreport.Report) {
 	fmt.Fprintf(w, "Facts keys:   %s\n", suppliedKeysText(r.Keys))
 	if r.Scope == factsreport.ScopeFleet {
-		fmt.Fprintf(w, "Devices:      %d with stored facts read, %d need repair\n", r.Scanned, r.NeedsRepair)
+		fmt.Fprintf(w, "Devices:      %s with stored facts read, %d need repair\n", howMany(r.Scanned, "device", "devices"), r.NeedsRepair)
 		if len(r.Devices) == 0 {
 			fmt.Fprintln(w, "Every device's stored history can be served.")
+		}
+		if r.Advice != "" {
+			fmt.Fprintln(w, r.Advice)
 		}
 	}
 	for _, d := range r.Devices {
@@ -44,8 +50,8 @@ func suppliedKeysText(k factsreport.Keys) string {
 // writeDeviceText prints one device's inspection.
 func writeDeviceText(w io.Writer, d factsreport.Device) {
 	fmt.Fprintf(w, "Device %s (id %s): %s\n", d.Device, d.ID, d.State)
-	fmt.Fprintf(w, "  Stored:     %d facts (%d stable, %d volatile), %d coverages, %d observations\n",
-		d.Rows.Total, d.Rows.Stable, d.Rows.Volatile, d.Coverages, d.Observations)
+	fmt.Fprintf(w, "  Stored:     %s (%d stable, %d volatile), %s, %s\n",
+		howMany(d.Rows.Total, "fact", "facts"), d.Rows.Stable, d.Rows.Volatile, howMany(d.Coverages, "coverage", "coverages"), howMany(d.Observations, "observation", "observations"))
 	for _, k := range d.KeyedBy {
 		fmt.Fprintf(w, "  Keyed by:   %s (%s), %d rows\n", k.KeyID, k.Role, k.Rows)
 	}
@@ -62,6 +68,14 @@ func writeDeviceText(w io.Writer, d factsreport.Device) {
 		fmt.Fprintf(w, "  Repairs:    %s\n", strings.Join(d.Repairs, ", "))
 	}
 	fmt.Fprintf(w, "  %s\n", d.Advice)
+}
+
+// howMany is n with the noun for one or for more.
+func howMany(n int, one, more string) string {
+	if n == 1 {
+		return "1 " + one
+	}
+	return fmt.Sprintf("%d %s", n, more)
 }
 
 // keyCheckText says how a history read under one set of keys.
@@ -93,12 +107,14 @@ func writeRepairText(w io.Writer, r entstore.Removal) {
 		head, removed = "Would "+r.Repair, "Removes:   "
 	}
 	fmt.Fprintf(w, "%s the stored facts of %s (id %s), found %s:\n", head, r.Before.Device, r.Before.ID, r.Before.State)
-	fmt.Fprintf(w, "  %s %d stored facts, %d coverages, %d observations\n", removed, r.Facts, r.Coverages, r.Observations)
+	fmt.Fprintf(w, "  %s %s, %s, %s\n", removed, howMany(r.Facts, "stored fact", "stored facts"),
+		howMany(r.Coverages, "coverage", "coverages"), howMany(r.Observations, "observation", "observations"))
 	if r.Repair == factsreport.RepairTruncate {
-		fmt.Fprintf(w, "  Kept:       %d stored facts, %d of them re-keyed under the current key\n", r.Kept, r.Rekeyed)
+		fmt.Fprintf(w, "  Kept:       %s, %d of them re-keyed under the current key\n", howMany(r.Kept, "stored fact", "stored facts"), r.Rekeyed)
 	}
-	fmt.Fprintf(w, "  Digest:     %s under %s, of every removed row as it was stored\n", r.Digest, r.DigestKey)
-	fmt.Fprintf(w, "  Recorded:   %s\n", r.Recorded)
+	fmt.Fprintf(w, "  Digest:     %s under %s, of what the facts key made of every removed row\n", r.Digest, r.DigestKey)
+	// The record names the device as stored, raw; escaped here, on one line.
+	fmt.Fprintf(w, "  Recorded:   %s\n", termsafe.EscapeLine(r.Recorded))
 	if !r.Committed {
 		fmt.Fprintln(w, "Nothing was changed. Run it again with --confirm to do it. What it removes cannot be recovered afterwards except from a backup taken before.")
 		return

@@ -22,7 +22,7 @@ func fullReport() Report {
 		ObservedAt: at, Observation: 2, Fact: "os.kernel"}
 	return Report{
 		SchemaVersion: Version, Keys: Keys{Current: "controller:00112233aabbccdd", Previous: "controller:99887766ffeeddcc"},
-		Scope: ScopeFleet, Scanned: 4, NeedsRepair: 1,
+		Scope: ScopeFleet, Scanned: 4, NeedsRepair: 1, Advice: "every device is under another facts key",
 		Devices: []Device{{
 			Device: "web1", ID: "0f8fad5b-d9cb-469f-a165-70867728950e", State: StateRefused,
 			Rows: Rows{Total: 7, Stable: 6, Volatile: 1}, Coverages: 3, Observations: 4,

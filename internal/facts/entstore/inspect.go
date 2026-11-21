@@ -7,12 +7,21 @@
 // previous facts key and do not verify under it (ErrRekeyRefused, the state
 // a change of the facts key leaves behind), they name both keys at once
 // (ErrRekeyRefused), they name a key the controller was not given
-// (ErrKeysChanged), or they name the current key and a row does not open as
-// the device's own or the chain breaks (ErrNotThisDevices on a read, a
-// break on the chain route). Nothing makes such a history verify again
+// (ErrKeysChanged), or a row under the current key does not open as the
+// device's own (ErrNotThisDevices). Each answers the facts routes 503
+// (Unavailable). A chain that breaks under the current key while every row
+// opens is still served; the chain route reports the break, and inspect
+// calls the device broken. Nothing makes such a history verify again
 // without the facts it was built from, and rewriting a chain until it
 // verifies would defeat what the chain is for. So the tool reads and says,
 // and its repairs remove history rather than rewrite it.
+//
+// One state is not a device's fault at all: a master key other than the one
+// the facts were sealed under, under which no row's payload opens. The
+// command refuses a MASTER_ENCRYPTION_KEY the database's key registry does
+// not record (cmd/controller's facts_repair_open.go), and a device no row of
+// which opens is its own state (factsreport.StateUnopened), whose advice is
+// to check the master key and which truncate refuses.
 //
 // Inspect (InspectDevice, InspectAll) is read-only. Each device is read in a
 // transaction of its own that is read-only and REPEATABLE READ (PostgreSQL
@@ -39,36 +48,49 @@
 // Discard (repair.go) removes every stored fact, coverage and observation of
 // one device in one transaction, so its next gather starts a new history
 // under the current keys. It refuses a device that verifies (nothing to
-// repair) unless told to discard a verified history by name.
+// repair) unless told to discard a verified history by name, and one the
+// keys given cannot verify either way (no row opens, rows under another
+// facts key or under both) unless told to discard an unverifiable history
+// by name: those point first at the command's own settings.
 //
-// Truncate (truncate.go) keeps the longest prefix of the history that
-// verifies and removes the rest, then re-keys what it keeps when that is
-// under the previous key, through the re-key itself (Store.rekey, under its
-// own precondition). It is sound because of where it cuts: at the gather
-// that wrote the first stable row that fails, removing that gather, every
-// row it or a later gather wrote, and every later gather, so no confirmation
-// from after the cut is left to confirm a value it never saw; volatile rows
-// before the cut that fail on their own are removed too, since they are not
-// chained. A failing row in the middle whose successors verify among
-// themselves is cut with its successors: they chain onto it, so keeping
-// them would leave a gap, and the chain cannot say whether the failing row
-// or everything after it is the edit. What it keeps is then checked again,
-// and the truncate is refused, changing nothing, when that does not verify
-// (a database whose storage order and gather numbers disagree). It applies
-// only to a history wholly under one key it was given (broken, or refused
-// with the current key given too to re-key into); every other state can
-// only be discarded.
+// Truncate (truncate.go) keeps a prefix of the history that verifies and
+// removes the rest, then re-keys what it keeps when that is under the
+// previous key, through the re-key itself (Store.rekey, under its own
+// precondition). It is sound because of where it cuts: at the gather that
+// wrote the last stable row the chain verified before the first that fails,
+// removing that gather whole, every row it or a later gather wrote, and
+// every later gather. A row deleted just before the first failure could
+// have been written by that gather or any later one, and whatever fails
+// first at a row (its payload, its value, its link) the chain cannot prove
+// no row before it is missing; so no gather that might have lost a write is
+// kept, and no observation is left to confirm a value its gather never saw.
+// Volatile rows that fail on their own are removed too, since they are not
+// chained; a volatile value replaced after the cut is not brought back, so
+// its key holds none until the next gather. A failing row in the middle
+// whose successors verify among themselves is cut with its successors: they
+// chain onto it, so keeping them would leave a gap. What it keeps is then
+// checked again, and the truncate is refused, changing nothing, when that
+// does not verify (a database whose storage order and gather numbers
+// disagree). Gather numbers are not covered by the chain, so an edit of them
+// alone is not seen, as it is not by the chain route either. It applies only
+// to a history wholly under one key it was given (broken, or refused with
+// the current key given too to re-key into) with a stable row that verifies
+// before the first failure; every other state can only be discarded.
 //
 // Each repair holds the device's facts exclusively for its whole
 // transaction (ent.Tx.LockFactsOfDevice, as a re-key does), so a gather of
-// the device lands wholly before it or wholly after. Each prints what it
-// will do: without its confirmation flag it runs and rolls back, so what it
+// the device lands wholly before it or wholly after; on SQLite that hold is
+// the database's one write lock. Each prints what it will do: without its
+// confirmation flag it runs, under the same hold, and rolls back, so what it
 // prints is what it would do, digest included. Each is recorded in the
 // activity stream in the same transaction (a "device facts" entry, action
 // deleted, naming the device, what was removed by count and a keyed digest
-// of the removed rows as stored under the facts key's removal key,
-// facts.Keys.RemovalMAC, never a value), so a repair is never committed
-// unrecorded and a record never names a repair that did not happen. A failed
+// of the removed rows under the facts key's removal key,
+// facts.Keys.RemovalMAC), so a repair is never committed unrecorded and a
+// record never names a repair that did not happen. The digest covers what
+// the facts key made of each row (token, keyed hash, keys, chain link) and
+// its time, kind, gather and provenance, in storage order; never its sealed
+// payload, which a master key rotation seals again, nor its ID. A failed
 // write of the record therefore fails the repair, unlike the other audited
 // stores, which log it and let their write stand: here the write is the
 // destruction of evidence, and it must not happen unrecorded. Only the repairs, a
@@ -134,6 +156,19 @@ func (s *Store) InspectDevice(ctx context.Context, name string, opts InspectOpti
 	return found, err
 }
 
+// NameOf is the inventory name of the device whose ID is id, the form the
+// controller's log names a device in, or ErrUnknownDevice.
+func (s *Store) NameOf(ctx context.Context, id string) (string, error) {
+	dev, err := s.client.Device.Query().Where(entdevice.DeviceIDEQ(id)).Select(entdevice.FieldName).Only(ctx)
+	if ent.IsNotFound(err) {
+		return "", fmt.Errorf("%w: no device has the ID %s", ErrUnknownDevice, termsafe.Quote(id))
+	}
+	if err != nil {
+		return "", fmt.Errorf("facts: %w", err)
+	}
+	return dev.Name, nil
+}
+
 // inspectOne inspects the one device which selects, in a read-only
 // transaction of its own. No such device is ent's not-found error.
 func (s *Store) inspectOne(ctx context.Context, which predicate.Device, opts InspectOptions) (factsreport.Device, error) {
@@ -176,6 +211,9 @@ func (s *Store) inspectTx(ctx context.Context, tx *ent.Tx, dev *ent.Device, opts
 	keyed := map[string]int{}
 	order := []string{}
 	byRole := map[string]int{}
+	// sealedElsewhere counts the rows whose sealed payload does not open at
+	// all, which no facts key changes (FaultDoesNotOpen).
+	sealedElsewhere := 0
 	err := pageFacts(ctx, tx, dev.ID, nil, func(row *ent.Fact, position int) error {
 		// Every row is counted, by kind and by the keys it names.
 		in.Rows.Total++
@@ -197,6 +235,9 @@ func (s *Store) inspectTx(ctx context.Context, tx *ent.Tx, dev *ent.Device, opts
 		// One opening serves every set of keys: the payload does not depend
 		// on the facts key.
 		opened, openErr := s.openPayload(row)
+		if kind, _ := faultKind(openErr); kind == factsreport.FaultDoesNotOpen {
+			sealedElsewhere++
+		}
 		for _, c := range out.checks() {
 			c.see(row, position, opened, openErr)
 		}
@@ -219,6 +260,11 @@ func (s *Store) inspectTx(ctx context.Context, tx *ent.Tx, dev *ent.Device, opts
 		in.Under = append(in.Under, c.report)
 	}
 	in.State = stateOf(in.Rows.Total, byRole, out.current, out.previous)
+	if in.Rows.Total > 0 && sealedElsewhere == in.Rows.Total {
+		// No row opens, whatever keys it names: none of the states the keys
+		// give can be judged, and the master key is what to check first.
+		in.State = factsreport.StateUnopened
+	}
 	advise(in, out, s.keys.ID() != "")
 	return out, nil
 }
@@ -232,63 +278,4 @@ func (i inspected) checks() []*underCheck {
 		}
 	}
 	return out
-}
-
-// roleOf is the role the key identity id has for the store.
-func (s *Store) roleOf(id string) string {
-	switch {
-	case id != "" && id == s.keys.ID():
-		return factsreport.RoleCurrent
-	case id != "" && id == s.previousID():
-		return factsreport.RolePrevious
-	}
-	return factsreport.RoleOther
-}
-
-// stateOf is the state rows rows add up to, split by the role of the keys
-// each names, and the checks under the current and previous keys.
-func stateOf(rows int, byRole map[string]int, current, previous *underCheck) factsreport.State {
-	switch {
-	case rows == 0:
-		return factsreport.StateEmpty
-	case byRole[factsreport.RoleOther] > 0:
-		return factsreport.StateOtherKeys
-	case byRole[factsreport.RoleCurrent] > 0 && byRole[factsreport.RolePrevious] > 0:
-		return factsreport.StateMixedKeys
-	case byRole[factsreport.RoleCurrent] == rows:
-		// Rows under the current keys mean the store holds them.
-		if current.report.Failure == nil {
-			return factsreport.StateHealthy
-		}
-		return factsreport.StateBroken
-	}
-	// Every row is under the previous keys, which the store holds.
-	if previous.report.Failure == nil {
-		return factsreport.StateRekeyPending
-	}
-	return factsreport.StateRefused
-}
-
-// pageFacts calls each with every row of the device dev (its database ID)
-// that where selects, in id order, a page at a time, and each row's place
-// among them from 0.
-func pageFacts(ctx context.Context, tx *ent.Tx, dev int, where []predicate.Fact, each func(row *ent.Fact, position int) error) error {
-	after, position := 0, 0
-	for {
-		filter := append([]predicate.Fact{entfact.HasDeviceWith(entdevice.IDEQ(dev)), entfact.IDGT(after)}, where...)
-		rows, err := tx.Fact.Query().Where(filter...).Order(ent.Asc(entfact.FieldID)).Limit(inspectPage).All(ctx)
-		if err != nil {
-			return fmt.Errorf("facts: %w", err)
-		}
-		for _, row := range rows {
-			after = row.ID
-			if err := each(row, position); err != nil {
-				return err
-			}
-			position++
-		}
-		if len(rows) < inspectPage {
-			return nil
-		}
-	}
 }

@@ -3,11 +3,13 @@
 // change of the facts key refused to re-key, and the two repairs that remove
 // such a history (internal/facts/entstore's inspect.go has the design).
 //
-// It is an administrative command, run on the controller's host, and opens
-// the database the way the others do (openAdminDepsWith: no NATS, no
-// listener, no election, the database never upgraded), with one difference
-// in order: its flags and its facts keys are read first, so a usage error or
-// an unusable key stops it before the database is opened. It reads
+// It is an administrative command, run on the controller's host with the
+// server's own key settings. It opens no NATS connection, starts no listener
+// and joins no election, and unlike the other administrative commands it
+// never creates, migrates or reclaims a database (facts_repair_open.go): it
+// reads its flags and its facts keys first, then refuses a database that is
+// missing, has no migration history, or is short of this build, and a master
+// key the database's key registry does not record. It reads
 // PLEIADES_FACTS_DIGEST_KEY, PLEIADES_FACTS_DIGEST_KEY_PREVIOUS, or both,
 // unlike the server, which refuses a previous key with no current one: a
 // history can be inspected under the old key alone. Its exit code is its
@@ -23,7 +25,6 @@ import (
 	"io"
 	"os"
 
-	"github.com/Subject-Void-LLC/the-pleiades/internal/facts"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts/entstore"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts/factsreport"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/termsafe"
@@ -51,11 +52,15 @@ const (
 
 // factsUsage is the command's help.
 const factsUsage = `Usage:
-  controller facts inspect [--device <name>] [--all] [--json] [--show-fact-names]
-  controller facts discard --device <name> [--confirm] [--discard-verified-history]
-  controller facts truncate --device <name> [--confirm]
+  controller facts inspect [--device <name> | --device-id <id>] [--all] [--json] [--show-fact-names]
+  controller facts discard (--device <name> | --device-id <id>) [--confirm]
+                           [--discard-verified-history] [--discard-unverifiable-history]
+  controller facts truncate (--device <name> | --device-id <id>) [--confirm]
 
-inspect reads, and changes nothing. With --device it reports that device;
+--device takes the device's inventory name; --device-id takes its ID, which
+is how the controller's log names a device.
+
+inspect reads, and changes nothing. With a device it reports that device;
 without, every device holding stored facts whose history cannot be served
 (every one with --all). It names rows, key identities, times and failure
 kinds, never a fact's name or value; --show-fact-names names the fact a
@@ -64,17 +69,25 @@ when a device does.
 
 discard removes the device's stored facts, coverages and observations, so
 its next gather starts a new history under the current key. It refuses a
-device whose history verifies unless --discard-verified-history is given.
+history that verifies unless --discard-verified-history is given, and one
+no key given can verify (no row opens, or its rows name another facts key)
+unless --discard-unverifiable-history is given.
 
-truncate keeps the device's history before the gather that wrote its first
-failing value, removes the rest, and re-keys what it keeps under the current
-key when it was under the previous one.
+truncate keeps the device's history before the gather that wrote the last
+value that verifies, removes that gather and everything after it, and
+re-keys what it keeps under the current key when it was under the previous
+one.
 
-Both repairs print what they would do and change nothing without --confirm.
-What they remove cannot be recovered except from a backup taken before, and
-each is recorded in the activity stream. They read the same database and
-MASTER_ENCRYPTION_KEY the server does, and PLEIADES_FACTS_DIGEST_KEY,
-PLEIADES_FACTS_DIGEST_KEY_PREVIOUS, or both.
+Both repairs print what they would do and change nothing without --confirm,
+though the preview holds the device as the repair does. What they remove
+cannot be recovered except from a backup taken before, and each is recorded
+in the activity stream.
+
+Run it with the server's settings: the same database (DB_DSN or DB_PATH),
+MASTER_ENCRYPTION_KEY and MASTER_ENCRYPTION_KEY_PREVIOUS with their
+versions, and PLEIADES_FACTS_DIGEST_KEY, PLEIADES_FACTS_DIGEST_KEY_PREVIOUS,
+or both. It refuses a database it would have to create or upgrade, and a
+master key the database's key registry does not record.
 `
 
 // isFactsCommand reports whether args ask for this file's subcommand.
@@ -84,20 +97,18 @@ func isFactsCommand(args []string) bool {
 
 // factsRequest is a parsed command line.
 type factsRequest struct {
-	action                                       string
-	device                                       string
-	all, asJSON, showNames, confirm, discardGood bool
+	action, device, deviceID                                     string
+	all, asJSON, showNames, confirm, discardGood, discardUnknown bool
 }
 
 // parseFactsArgs reads args (the subcommand name first). A request for help
 // is flag.ErrHelp, after the usage was written to stderr.
 func parseFactsArgs(args []string, stderr io.Writer) (factsRequest, error) {
 	if len(args) < 2 || (args[1] != "inspect" && args[1] != "discard" && args[1] != "truncate") {
+		fmt.Fprint(stderr, factsUsage)
 		if len(args) >= 2 && (args[1] == "-h" || args[1] == "--help" || args[1] == "help") {
-			fmt.Fprint(stderr, factsUsage)
 			return factsRequest{}, flag.ErrHelp
 		}
-		fmt.Fprint(stderr, factsUsage)
 		return factsRequest{}, errors.New("name one of inspect, discard or truncate")
 	}
 	req := factsRequest{action: args[1]}
@@ -105,6 +116,7 @@ func parseFactsArgs(args []string, stderr io.Writer) (factsRequest, error) {
 	fs.SetOutput(stderr)
 	fs.Usage = func() { fmt.Fprint(stderr, factsUsage) }
 	fs.StringVar(&req.device, "device", "", "the device's inventory name")
+	fs.StringVar(&req.deviceID, "device-id", "", "the device's ID, as the controller's log names it")
 	if req.action == "inspect" {
 		fs.BoolVar(&req.all, "all", false, "report every device read, healthy ones too")
 		fs.BoolVar(&req.asJSON, "json", false, "print the report as JSON")
@@ -114,69 +126,23 @@ func parseFactsArgs(args []string, stderr io.Writer) (factsRequest, error) {
 	}
 	if req.action == "discard" {
 		fs.BoolVar(&req.discardGood, "discard-verified-history", false, "discard even a history that verifies")
+		fs.BoolVar(&req.discardUnknown, "discard-unverifiable-history", false, "discard even a history no key given can verify")
 	}
 	if err := fs.Parse(args[2:]); err != nil {
 		return factsRequest{}, err
 	}
+	named := req.device != "" || req.deviceID != ""
 	switch {
 	case fs.NArg() != 0:
 		return factsRequest{}, fmt.Errorf("unexpected argument %s", termsafe.Quote(fs.Arg(0)))
-	case req.action != "inspect" && req.device == "":
-		return factsRequest{}, fmt.Errorf("%s needs --device, the device's inventory name", req.action)
-	case req.all && req.device != "":
-		return factsRequest{}, errors.New("--all reports a fleet inspection; it does not go with --device")
+	case req.device != "" && req.deviceID != "":
+		return factsRequest{}, errors.New("name the device by --device or by --device-id, not both")
+	case req.action != "inspect" && !named:
+		return factsRequest{}, fmt.Errorf("%s needs --device, the device's inventory name, or --device-id, its ID", req.action)
+	case req.all && named:
+		return factsRequest{}, errors.New("--all reports a fleet inspection; it does not go with a device")
 	}
 	return req, nil
-}
-
-// loadFactsCommandKeys reads the facts keys the command checks with: the
-// current, the previous, or both, at least one. A key that does not decode,
-// or a previous key that is the current one, is refused by name, as the
-// server refuses it.
-func loadFactsCommandKeys() (*facts.Keys, *facts.Keys, error) {
-	var currentSecret []byte
-	var current, previous *facts.Keys
-	if os.Getenv(factDigestKeyEnv) != "" {
-		secret, err := decodeEnvelopeKey(factDigestKeyEnv)
-		if err != nil {
-			return nil, nil, err
-		}
-		if current, err = entstore.AtRestKeys(secret); err != nil {
-			return nil, nil, err
-		}
-		currentSecret = secret
-	}
-	previousSecret, err := previousFactSecret(currentSecret)
-	if err != nil {
-		return nil, nil, err
-	}
-	if previousSecret != nil {
-		if previous, err = entstore.AtRestKeys(previousSecret); err != nil {
-			return nil, nil, err
-		}
-	}
-	if current == nil && previous == nil {
-		return nil, nil, fmt.Errorf("set %s, %s, or both: stored facts are checked under the facts keys", factDigestKeyEnv, factDigestKeyPreviousEnv)
-	}
-	return current, previous, nil
-}
-
-// openFactStore opens the database and returns the fact store the command
-// works through, holding current and previous, and its cleanup.
-func openFactStore(ctx context.Context, current, previous *facts.Keys) (*entstore.Store, func(), error) {
-	dsn, err := resolveDatabaseDSN()
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to resolve database configuration: %w", err)
-	}
-	envelopeSvc, err := loadEnvelopeService()
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to init envelope encryption: %w", err)
-	}
-	deps, cleanup, err := openAdminDepsWith(ctx, dsn, envelopeSvc)
-	if err != nil {
-		return nil, nil, err
-	}
-	return entstore.New(deps.client, current, envelopeSvc, entstore.WithPreviousKeys(previous)), cleanup, nil
 }
 
 // runFacts runs `controller facts ...` and returns its exit code.
@@ -197,12 +163,18 @@ func runFacts(args []string, stdout, stderr io.Writer) int {
 		return factsExitFailed
 	}
 	ctx := context.Background()
-	store, cleanup, err := openFactStore(ctx, current, previous)
+	store, cleanup, err := openFactStore(ctx, current, previous, stderr)
 	if err != nil {
 		fmt.Fprintf(stderr, "controller facts: %s\n", termsafe.Escape(err.Error()))
 		return factsExitFailed
 	}
 	defer cleanup()
+	if req.deviceID != "" {
+		if req.device, err = store.NameOf(ctx, req.deviceID); err != nil {
+			fmt.Fprintf(stderr, "controller facts %s: %s\n", req.action, termsafe.Escape(err.Error()))
+			return factsExitFailed
+		}
+	}
 	if req.action == "inspect" {
 		return runFactsInspect(ctx, store, req, stdout, stderr)
 	}
@@ -250,7 +222,7 @@ func runFactsInspect(ctx context.Context, store *entstore.Store, req factsReques
 // runFactsRepair runs a discard or a truncate and prints what it did, or
 // without --confirm what it would do.
 func runFactsRepair(ctx context.Context, store *entstore.Store, req factsRequest, stdout, stderr io.Writer) int {
-	opts := entstore.RepairOptions{Confirm: req.confirm, DiscardVerified: req.discardGood, Actor: factsActor}
+	opts := entstore.RepairOptions{Confirm: req.confirm, DiscardVerified: req.discardGood, DiscardUnverifiable: req.discardUnknown, Actor: factsActor}
 	repair := store.Discard
 	if req.action == "truncate" {
 		repair = store.Truncate

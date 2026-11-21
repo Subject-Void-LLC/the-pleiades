@@ -26,6 +26,13 @@ var ErrNothingToRepair = errors.New("facts: the device's stored facts need no re
 // the error says which repair does.
 var ErrRepairDoesNotApply = errors.New("facts: this repair does not apply to the device's stored facts")
 
+// ErrUnverifiable marks a discard refused because nothing the command was
+// given can say whether the history is broken: no row of it opens (a
+// MASTER_ENCRYPTION_KEY other than the one it was sealed under looks just
+// so), or its rows name a facts key the command was not given, or both
+// facts keys at once. Discarding it takes the flag that names it.
+var ErrUnverifiable = errors.New("facts: the device's stored facts cannot be verified with the keys this command was given")
+
 // RepairOptions says how a repair runs.
 type RepairOptions struct {
 	// Confirm commits the repair. Without it the repair runs inside its
@@ -35,6 +42,11 @@ type RepairOptions struct {
 	// DiscardVerified has discard remove a history that verifies, or one a
 	// re-key is pending for. Truncate never removes one.
 	DiscardVerified bool
+	// DiscardUnverifiable has discard remove a history the keys given
+	// cannot verify either way (ErrUnverifiable): one no row of which opens,
+	// or one under another facts key or under both. Truncate never removes
+	// one.
+	DiscardUnverifiable bool
 	// Actor is who the activity stream records the repair as.
 	Actor string
 }
@@ -53,8 +65,10 @@ type Removal struct {
 	// Kept counts the stored facts a truncate kept, and Rekeyed the ones
 	// it re-keyed from the previous key to the current one.
 	Kept, Rekeyed int
-	// Digest is the keyed digest of every removed row as it was stored,
-	// under the removal key of the keys DigestKey names.
+	// Digest is the keyed digest of every removed row, by what the facts
+	// key made of it and its time, kind, gather and provenance, never its
+	// sealed payload or its ID (digestFact), under the removal key of the
+	// keys DigestKey names.
 	Digest, DigestKey string
 	// Recorded is the activity stream's sentence for the repair.
 	Recorded string
@@ -62,16 +76,21 @@ type Removal struct {
 
 // Discard removes every stored fact, coverage and observation of the
 // device named name, so its next gather starts a new history under the
-// current keys. It refuses a device with nothing stored, and one whose
-// history verifies or is pending a re-key unless opts.DiscardVerified.
+// current keys. It refuses a device with nothing stored, one whose history
+// verifies or is pending a re-key unless opts.DiscardVerified, and one the
+// keys given cannot verify either way unless opts.DiscardUnverifiable.
 func (s *Store) Discard(ctx context.Context, name string, opts RepairOptions) (Removal, error) {
 	return s.repair(ctx, name, factsreport.RepairDiscard, opts, func(ctx context.Context, r *removal) error {
-		switch r.before.report.State {
+		switch st := r.before.report.State; st {
 		case factsreport.StateEmpty:
 			return fmt.Errorf("%w: it has no stored facts", ErrNothingToRepair)
 		case factsreport.StateHealthy, factsreport.StateRekeyPending:
 			if !opts.DiscardVerified {
-				return fmt.Errorf("%w: its history verifies (%s); discarding a history that verifies takes a second flag that names it", ErrNothingToRepair, r.before.report.State)
+				return fmt.Errorf("%w: its history verifies (%s); discarding a history that verifies takes a second flag that names it", ErrNothingToRepair, st)
+			}
+		case factsreport.StateUnopened, factsreport.StateOtherKeys, factsreport.StateMixedKeys:
+			if !opts.DiscardUnverifiable {
+				return fmt.Errorf("%w (%s): set the keys the server runs with first; discarding a history no key given can verify takes a second flag that names it", ErrUnverifiable, st)
 			}
 		}
 		if err := r.removeFacts(ctx, nil, nil); err != nil {

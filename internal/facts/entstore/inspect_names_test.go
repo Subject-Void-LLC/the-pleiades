@@ -83,6 +83,27 @@ func TestInspectAll_ReportsTheDevicesThatAreNotHealthy(t *testing.T) {
 	}
 }
 
+// TestInspectAll_SaysWhenEveryDeviceIsWrongTheSameWay: when every device
+// read is under a facts key the command was not given, or has no row that
+// opens, the fleet's own advice says which setting to check, since every
+// device failing alike is the command's keys far more likely than every
+// device's history; one device of another state and it says nothing.
+func TestInspectAll_SaysWhenEveryDeviceIsWrongTheSameWay(t *testing.T) {
+	ctx := context.Background()
+	h := newHistory(t, onSQLite)
+	web2 := h.client.Device.Create().SetName("web2").SetType("linux_server").SetProperties(map[string]any{"host": "10.0.0.2"}).SaveX(ctx)
+	gatherRotationHistory(t, entstore.New(h.client, h.old, factstest.Envelope()), web2.DeviceID)
+	for store, want := range map[string]string{"third": "wrong PLEIADES_FACTS_DIGEST_KEY", "other master key": "wrong MASTER_ENCRYPTION_KEY", "": ""} {
+		report, err := h.store(store).InspectAll(ctx, entstore.InspectOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if (want == "" && report.Advice != "") || !strings.Contains(report.Advice, want) || report.Scanned != 2 {
+			t.Errorf("store %q: the fleet's advice is %q, want it to say %q", store, report.Advice, want)
+		}
+	}
+}
+
 func TestInspect_RefusesAnUnknownDevice(t *testing.T) {
 	h := newHistory(t, onSQLite)
 	if _, err := h.store("").InspectDevice(context.Background(), "no-such-device", entstore.InspectOptions{}); !errors.Is(err, entstore.ErrUnknownDevice) {

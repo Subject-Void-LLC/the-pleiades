@@ -39,6 +39,8 @@ type factsDB struct {
 	t    *testing.T
 	path string
 	db   *sql.DB
+	// id is web1's device ID.
+	id string
 }
 
 // newFactsDB makes the database and the environment.
@@ -63,8 +65,10 @@ func newFactsDB(t *testing.T) *factsDB {
 	}
 	defer func() { _ = client.Close() }()
 	// The same hooks the command's client installs, so what it reads back
-	// is what a controller wrote.
+	// is what a controller wrote, and the master key recorded in the key
+	// registry as a controller's start records it.
 	installCryptoHooks(client, envelope)
+	recordKeyFirstUse(ctx, client, quietLogger())
 	dev := client.Device.Create().SetName("web1").SetType("linux_server").SetProperties(map[string]any{"host": "10.0.0.1"}).SaveX(ctx)
 	old, err := entstore.AtRestKeys(previousDigestSecret)
 	if err != nil {
@@ -87,16 +91,16 @@ func newFactsDB(t *testing.T) *factsDB {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
-	return &factsDB{t: t, path: path, db: db}
+	return &factsDB{t: t, path: path, db: db, id: dev.DeviceID}
 }
 
-// breakChain moves the time of the third stored value, the one gather 2
+// breakChain moves the time of the fourth stored value, the one gather 3
 // wrote (gather 1 wrote the package and the user, gathers 2 and 3 a new
 // package each): it still opens, and the chain breaks at it, so a re-key
-// refuses the device.
+// refuses the device, and the last value verifying before it is gather 2's.
 func (f *factsDB) breakChain() {
 	f.t.Helper()
-	if _, err := f.db.Exec("UPDATE facts SET created_at = ? WHERE id = (SELECT id FROM facts ORDER BY id LIMIT 1 OFFSET 2)", time.Unix(0, 0)); err != nil {
+	if _, err := f.db.Exec("UPDATE facts SET created_at = ? WHERE id = (SELECT id FROM facts ORDER BY id LIMIT 1 OFFSET 3)", time.Unix(0, 0)); err != nil {
 		f.t.Fatal(err)
 	}
 }
@@ -132,7 +136,7 @@ func TestFactsInspect_ReportsARefusedDevice(t *testing.T) {
 	if code != factsExitNeedsRepair || errs != "" {
 		t.Fatalf("exit %d, stderr %q; want %d", code, errs, factsExitNeedsRepair)
 	}
-	for _, want := range []string{"Device web1", ": refused", "chain_hash_mismatch", "chain index 2", "Under the previous key", "Repairs:    truncate, discard", "Truncate:   would cut at gather 2"} {
+	for _, want := range []string{"Device web1", ": refused", "chain_hash_mismatch", "chain index 3", "Under the previous key", "Repairs:    truncate, discard", "Truncate:   would cut at gather 2"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the report does not say %q:\n%s", want, out)
 		}
@@ -234,7 +238,7 @@ func TestFacts_RefusesBadCommandLinesBeforeOpeningTheDatabase(t *testing.T) {
 	}{
 		{nil, factsExitUsage, "Usage:"},
 		{[]string{"repair"}, factsExitUsage, "name one of inspect"},
-		{[]string{"-h"}, factsExitOK, "controller facts inspect [--device <name>]"},
+		{[]string{"-h"}, factsExitOK, "controller facts inspect [--device <name> | --device-id <id>]"},
 		{[]string{"inspect", "-h"}, factsExitOK, "--discard-verified-history"},
 		{[]string{"discard"}, factsExitUsage, "needs --device"},
 		{[]string{"truncate", "--device", "web1", "extra"}, factsExitUsage, "unexpected argument"},

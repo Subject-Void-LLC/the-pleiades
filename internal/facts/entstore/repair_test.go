@@ -149,6 +149,10 @@ func TestDiscard_RefusesWhatNeedsNoRepair(t *testing.T) {
 		{"nothing stored", "", "web3", entstore.RepairOptions{Confirm: true, Actor: repairActor, DiscardVerified: true}, entstore.ErrNothingToRepair},
 		{"an unknown device", "", "no-such-device", confirm, entstore.ErrUnknownDevice},
 		{"nobody to record it as", "", "web1", entstore.RepairOptions{Confirm: true, DiscardVerified: true}, nil},
+		{"a history under a facts key not given", "third", "web1", confirm, entstore.ErrUnverifiable},
+		{"a history no row of which opens", "other master key", "web1", confirm, entstore.ErrUnverifiable},
+		{"the flag for a verified history is not the flag for an unverifiable one", "third", "web1",
+			entstore.RepairOptions{Confirm: true, Actor: repairActor, DiscardVerified: true}, entstore.ErrUnverifiable},
 	} {
 		_, err := h.store(c.store).Discard(ctx, c.device, c.opts)
 		if err == nil || (c.want != nil && !errors.Is(err, c.want)) {
@@ -163,4 +167,36 @@ func TestDiscard_RefusesWhatNeedsNoRepair(t *testing.T) {
 		t.Fatalf("a verified history with the flag that names it = %+v, %v", done, err)
 	}
 	h.startsAgain(h.store("old"), 2)
+}
+
+// TestDiscard_AnUnverifiableHistoryTakesItsFlag: a history under both keys,
+// under a facts key not given, or with no row that opens is discarded only
+// with the flag that names it, and then removed whole.
+func TestDiscard_AnUnverifiableHistoryTakesItsFlag(t *testing.T) {
+	ctx := context.Background()
+	for _, c := range []struct {
+		name, store string
+		edit        func(h *history)
+	}{
+		{"both keys", "", func(h *history) {
+			if _, err := h.store("").Current(ctx, h.device); err != nil {
+				h.t.Fatal(err)
+			}
+			h.exec("UPDATE facts SET keyed_by = ? WHERE id = ?", h.old.ID(), h.ids("")[0])
+		}},
+		{"a facts key not given", "third", func(*history) {}},
+		{"no row that opens", "other master key", func(*history) {}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			h := newHistory(t, onSQLite)
+			c.edit(h)
+			if _, err := h.store(c.store).Discard(ctx, "web1", entstore.RepairOptions{Confirm: true, Actor: repairActor}); !errors.Is(err, entstore.ErrUnverifiable) {
+				t.Fatalf("without the flag: %v, want ErrUnverifiable", err)
+			}
+			done, err := h.store(c.store).Discard(ctx, "web1", entstore.RepairOptions{Confirm: true, Actor: repairActor, DiscardUnverifiable: true})
+			if err != nil || done.Facts != 7 || h.rowsOf(h.dev) != "" {
+				t.Fatalf("with the flag: %+v, %v; want the whole history removed", done, err)
+			}
+		})
+	}
 }

@@ -7,6 +7,7 @@
 package entstore_test
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -16,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/crypto"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent"
 	entdevice "github.com/Subject-Void-LLC/the-pleiades/internal/ent/device"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts"
@@ -142,8 +144,22 @@ func (h *history) store(name string) *entstore.Store {
 		return entstore.New(h.client, nil, env, entstore.WithPreviousKeys(h.old))
 	case "third":
 		return entstore.New(h.client, newFactKeys(h.t, 7), env, entstore.WithPreviousKeys(newFactKeys(h.t, 2)))
+	case "other master key":
+		// The right facts keys and another MASTER_ENCRYPTION_KEY.
+		return entstore.New(h.client, newFactKeys(h.t, 7), otherMaster(h.t), entstore.WithPreviousKeys(h.old))
 	}
 	return entstore.New(h.client, newFactKeys(h.t, 7), env, entstore.WithPreviousKeys(h.old))
+}
+
+// otherMaster is an envelope service under a master key the history was
+// not sealed under.
+func otherMaster(t *testing.T) *crypto.EnvelopeService {
+	t.Helper()
+	svc, err := crypto.NewEnvelopeService(bytes.Repeat([]byte{9}, 32), "v1", nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return svc
 }
 
 // inspectCase is one state an inspection must tell apart: the store it
@@ -224,6 +240,8 @@ var inspectCases = []inspectCase{
 			return 0
 		}},
 	{name: "a third key", store: "third", edit: func(*history) int { return 0 }, state: factsreport.StateOtherKeys},
+	{name: "a wrong master key", store: "other master key", role: factsreport.RolePrevious, kind: factsreport.FaultDoesNotOpen, state: factsreport.StateUnopened,
+		edit: func(h *history) int { return h.ids("")[0] }},
 }
 
 // inspectsEveryState runs every case on d: the state, the first failure's

@@ -8,8 +8,11 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/facts"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts/entstore"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/facts/factstest"
 )
 
 // gatherRotationHistory's rows, by the gather that wrote them: stable rows 0
@@ -19,8 +22,9 @@ import (
 // 3's and gather 4's.
 
 // truncatesAndRekeys is the proof both dialects run: a history under the
-// previous key whose gather 4 was edited keeps gathers 1 to 3, re-keyed
-// under the current key, and starts again from there.
+// previous key whose gather 4 was edited, so that the last value verifying
+// before it is gather 3's, keeps gathers 1 and 2, re-keyed under the current
+// key, and starts again from there.
 func truncatesAndRekeys(t *testing.T, d database) {
 	ctx := context.Background()
 	h := newHistory(t, d)
@@ -32,9 +36,9 @@ func truncatesAndRekeys(t *testing.T, d database) {
 		t.Fatalf("the shown truncate = %+v, %v; want nothing changed or recorded", shown, err)
 	}
 	done, err := store.Truncate(ctx, "web1", entstore.RepairOptions{Confirm: true, Actor: repairActor})
-	if err != nil || !done.Committed || done.Facts != 2 || done.Observations != 1 || done.Coverages != 1 || done.Kept != 5 || done.Rekeyed != 5 ||
-		done.Digest != shown.Digest || done.Before.TruncateFrom != 4 {
-		t.Fatalf("the truncate = %+v, %v; want gather 4's two values, its observation and coverage removed, five kept and re-keyed, as shown", done, err)
+	if err != nil || !done.Committed || done.Facts != 5 || done.Observations != 2 || done.Coverages != 2 || done.Kept != 2 || done.Rekeyed != 2 ||
+		done.Digest != shown.Digest || done.Before.TruncateFrom != 3 {
+		t.Fatalf("the truncate = %+v, %v; want gathers 3 and 4 removed whole (five values, two observations, two coverages), two kept and re-keyed, as shown", done, err)
 	}
 	if got := rawQuery(t, h.db, "SELECT DISTINCT keyed_by FROM facts"); got != newFactKeys(t, 7).ID()+"|\n" {
 		t.Errorf("the kept rows name %q, want the current keys alone", got)
@@ -43,14 +47,14 @@ func truncatesAndRekeys(t *testing.T, d database) {
 		t.Errorf("%s observation(s) name a coverage the device does not hold", got)
 	}
 	kept, err := store.InspectDevice(ctx, "web1", entstore.InspectOptions{})
-	if err != nil || kept.State != "healthy" || kept.Rows.Stable != 4 || kept.Observations != 3 || kept.Coverages != 2 {
-		t.Fatalf("the device after the truncate = %+v, %v; want healthy, four stable rows, three gathers", kept, err)
+	if err != nil || kept.State != "healthy" || kept.Rows.Stable != 2 || kept.Observations != 2 || kept.Coverages != 1 {
+		t.Fatalf("the device after the truncate = %+v, %v; want healthy, two stable rows, two gathers", kept, err)
 	}
 	if len(h.activityOf()) != 1 {
 		t.Errorf("activity %+v, want the truncate's one entry", h.activityOf())
 	}
 	// Gather 9 changes the package and the user: two values more.
-	h.startsAgain(store, 6)
+	h.startsAgain(store, 4)
 }
 
 func TestTruncate_KeepsTheVerifiedPrefixAndRekeysIt(t *testing.T) {
@@ -61,13 +65,82 @@ func TestTruncate_KeepsTheVerifiedPrefixAndRekeysItOnPostgres(t *testing.T) {
 	truncatesAndRekeys(t, onPostgres)
 }
 
+// gatherInOrder records one gather of device through store, its stable
+// values written in the order pairs (key, value, key, value...) gives them:
+// facts.Prepare's order is a map's, and this test needs a known last row.
+func gatherInOrder(t *testing.T, store *entstore.Store, device, run string, token uint64, pairs ...any) {
+	t.Helper()
+	var entries []facts.Entry
+	for i := 0; i < len(pairs); i += 2 {
+		entries = append(entries, prepared(t, map[string]any{pairs[i].(string): pairs[i+1]})...)
+	}
+	obs := facts.Observation{Entries: entries, At: rotationT0.Add(time.Duration(token) * time.Minute), By: facts.Provenance{Run: run, Order: facts.Order{Source: facts.ClockSource, Token: token}}}
+	if err := store.Record(context.Background(), device, obs); err != nil {
+		t.Fatalf("%s: %v", run, err)
+	}
+}
+
+// keepsNoGatherWhoseWritesAreMissing is the proof both dialects run: last
+// held A from gather 1, and gather 3 changed it to B as the last stable value
+// gather 3 wrote. That row is deleted, so the next stable row, gather 4's,
+// names a predecessor that is not there. Nothing before the gap fails, so a
+// cut at gather 4 would keep gather 3's observation, which covers last and
+// would then confirm A at gather 3, though gather 3 saw B. The cut is at the
+// gather of the last value that verified (gather 3's other row), so gather
+// 3 goes whole and both values read as last confirmed by gather 2.
+func keepsNoGatherWhoseWritesAreMissing(t *testing.T, d database) {
+	ctx := context.Background()
+	h := newHistory(t, d)
+	web9 := h.client.Device.Create().SetName("web9").SetType("linux_server").SetProperties(map[string]any{"host": "10.0.0.9"}).SaveX(ctx)
+	old := entstore.New(h.client, h.old, factstest.Envelope())
+	gatherInOrder(t, old, web9.DeviceID, "run1", 10, "aaa.first", "1", "zzz.last", "A")
+	gatherInOrder(t, old, web9.DeviceID, "run2", 20, "aaa.first", "1", "zzz.last", "A")
+	gatherInOrder(t, old, web9.DeviceID, "run3", 30, "aaa.first", "2", "zzz.last", "B")
+	gatherInOrder(t, old, web9.DeviceID, "run4", 40, "aaa.first", "3")
+	var lastOfGather3 int
+	q := "SELECT max(id) FROM facts WHERE observation_seq = 3 AND device_facts = " + h.d.ph(1)
+	if err := h.db.QueryRowContext(ctx, q, web9.ID).Scan(&lastOfGather3); err != nil {
+		t.Fatal(err)
+	}
+	h.exec("DELETE FROM facts WHERE id = "+h.d.ph(1), lastOfGather3)
+	store := h.store("")
+	if _, err := store.Truncate(ctx, "web9", entstore.RepairOptions{Confirm: true, Actor: repairActor}); err != nil {
+		t.Fatal(err)
+	}
+	current, err := store.Current(ctx, web9.DeviceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]any{"aaa.first": "1", "zzz.last": "A"}
+	for _, e := range current {
+		if e.Value != want[e.Key] || e.LastBy.Run != "run2" {
+			t.Errorf("after the truncate %s reads %v, last confirmed by %s; want %v, last confirmed by run2: run3 saw another value", e.Key, e.Value, e.LastBy.Run, want[e.Key])
+		}
+	}
+	if len(current) != 2 {
+		t.Errorf("after the truncate %d values, want both", len(current))
+	}
+	q = "SELECT max(seq) FROM fact_observations WHERE device_id = " + h.d.ph(1)
+	if got := rawQuery(t, h.db, q, web9.ID); got != "2|\n" {
+		t.Errorf("the newest gather kept is %s, want gather 2", got)
+	}
+}
+
+func TestTruncate_KeepsNoGatherWhoseWritesAreMissing(t *testing.T) {
+	keepsNoGatherWhoseWritesAreMissing(t, onSQLite)
+}
+
+func TestTruncate_KeepsNoGatherWhoseWritesAreMissingOnPostgres(t *testing.T) {
+	keepsNoGatherWhoseWritesAreMissing(t, onPostgres)
+}
+
 // TestTruncate_UnderTheCurrentKey: a broken history under the current key,
-// edited at gather 3, keeps gather 1 alone; the volatile row gather 3 left
-// goes with it.
+// edited at gather 4, keeps gathers 1 and 2 and re-keys nothing; the
+// volatile row gather 3 left goes with gather 3.
 func TestTruncate_UnderTheCurrentKey(t *testing.T) {
 	ctx := context.Background()
 	h := newHistory(t, onSQLite)
-	h.editTime(2)
+	h.editTime(4)
 	done, err := h.store("old").Truncate(ctx, "web1", entstore.RepairOptions{Confirm: true, Actor: repairActor})
 	if err != nil || done.Facts != 5 || done.Observations != 2 || done.Coverages != 2 || done.Kept != 2 || done.Rekeyed != 0 {
 		t.Fatalf("the truncate = %+v, %v; want four values and a volatile row removed, two kept", done, err)
@@ -110,17 +183,19 @@ func TestTruncate_RefusesWhatItCannotMakeSound(t *testing.T) {
 			h.exec("UPDATE facts SET keyed_by = ? WHERE id = ?", h.old.ID(), h.ids("")[0])
 		}, entstore.ErrRepairDoesNotApply},
 		{"no current key to re-key into", "previous only", func(h *history) { h.editTime(4) }, entstore.ErrRepairDoesNotApply},
-		// The second stable row says gather 4 wrote it, so the cut at gather
-		// 4 would take it and leave a gap.
+		{"nothing before the first failure verifies", "", func(h *history) { h.editTime(0) }, entstore.ErrRepairDoesNotApply},
+		{"no row that opens: a wrong master key", "other master key", func(*history) {}, entstore.ErrRepairDoesNotApply},
+		// The last value verifying before the edit says gather 5 wrote it,
+		// so the cut at gather 5 would keep the edited value of gather 4.
 		{"gather numbers that disagree with the storage order", "", func(h *history) {
 			h.editTime(4)
-			h.exec("UPDATE facts SET observation_seq = 4 WHERE id = ?", h.stable(1))
+			h.exec("UPDATE facts SET observation_seq = 5 WHERE id = ?", h.stable(3))
 		}, entstore.ErrTruncateUnsound},
 		// Under the current key nothing is re-keyed after the cut, so the
 		// check of what is kept is all that refuses it.
 		{"gather numbers that disagree, under the current key", "old", func(h *history) {
 			h.editTime(4)
-			h.exec("UPDATE facts SET observation_seq = 4 WHERE id = ?", h.stable(1))
+			h.exec("UPDATE facts SET observation_seq = 5 WHERE id = ?", h.stable(3))
 		}, entstore.ErrTruncateUnsound},
 	} {
 		t.Run(c.name, func(t *testing.T) {

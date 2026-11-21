@@ -36,6 +36,11 @@ type Report struct {
 	// NeedsRepair is how many of them hold a history no controller with
 	// these keys can serve (State.NeedsRepair).
 	NeedsRepair int `json:"needs_repair"`
+	// Advice is said of the fleet as a whole when every device read is in
+	// one state that points at the command's own settings rather than at
+	// any device: every one under another facts key, or every one with no
+	// row that opens. Absent otherwise.
+	Advice string `json:"advice,omitempty"`
 	// Devices are the devices reported: the one asked for, or in a fleet
 	// inspection every device whose state is not empty or healthy (all of
 	// them with --all), in the order of their database IDs.
@@ -88,11 +93,17 @@ const (
 	StateMixedKeys State = "mixed_keys"
 	// StateOtherKeys: some row is under a key the inspection was not given.
 	StateOtherKeys State = "other_keys"
+	// StateUnopened: no stored row's payload opens at all, whatever facts
+	// key it is under. The payload is sealed under MASTER_ENCRYPTION_KEY, so
+	// this is what a master key other than the one the facts were sealed
+	// under looks like; it takes precedence over every state the keys alone
+	// would give, since none of them can be judged.
+	StateUnopened State = "unopened"
 )
 
 // KnownStates are every state this release reports, for the schema.
 var KnownStates = []string{string(StateEmpty), string(StateHealthy), string(StateRekeyPending),
-	string(StateRefused), string(StateBroken), string(StateMixedKeys), string(StateOtherKeys)}
+	string(StateRefused), string(StateBroken), string(StateMixedKeys), string(StateOtherKeys), string(StateUnopened)}
 
 // NeedsRepair reports whether no controller holding the inspection's keys
 // can serve the device: every state but empty, healthy and rekey_pending.
@@ -178,8 +189,10 @@ type Device struct {
 	// current first.
 	Under []KeyCheck `json:"under"`
 	// TruncateFrom is the gather a truncate would cut the history at: the
-	// one that wrote its first stable row that fails. Absent when no stable
-	// row fails, or no truncate applies.
+	// one that wrote the last stable row that verifies before the first
+	// that fails. That gather and every later one are removed whole, since a
+	// row missing after the last that verifies could be any of theirs.
+	// Absent when no stable row fails, or no truncate applies.
 	TruncateFrom int64 `json:"truncate_from,omitempty"`
 	// Repairs names the repairs that apply: discard, truncate. Empty when
 	// there is nothing to repair.

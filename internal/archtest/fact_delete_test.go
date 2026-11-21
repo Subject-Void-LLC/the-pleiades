@@ -9,7 +9,9 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -52,34 +54,49 @@ var factTableDeletes = []string{"delete from facts", "delete from fact_coverages
 // every writer but the ones factDeleters names. A deletion anywhere else
 // could cut a device's history so its chain still verifies (cutting values
 // off the end is the one edit the chain cannot see), or drop the gathers a
-// value's last confirmation is read from. internal/ent defines the methods
-// and is not scanned.
+// value's last confirmation is read from. It reads three shapes: a generated
+// client's delete (X.Fact.Delete()), a SQL builder's delete naming a fact
+// table (sql.Delete(fact.Table), Dialect(d).Delete("facts")), and a string
+// literal of SQL deleting from one. It reads every production file under
+// the scan roots, and internal/ent's hand-written files too (walkGoFiles
+// skips internal/ent whole), but not its generated code, which defines the
+// delete builders rather than calls them. Its limit: SQL built from pieces
+// ("DELETE FROM " + table) is not recognized, as factTableUpdates' check
+// does not recognize it either.
 func TestOnlyTheRepairsDeleteFactHistory(t *testing.T) {
 	root := repoRoot(t)
 	seen := map[string]bool{}
+	check := func(rel string, file *ast.File, fset *token.FileSet) {
+		pkgDir := filepath.ToSlash(filepath.Dir(rel))
+		for _, use := range append(factDeleteUses(file), factDeleteBuilders(file)...) {
+			if factDeleters[pkgDir][use.decl] {
+				seen[pkgDir+"."+use.decl] = true
+				continue
+			}
+			t.Errorf("%s:%d deletes from ent's %s in %s, which is not one of the writers allowed to. The fact history is "+
+				"insert-only: a value changes by a new row, and a device whose history cannot be served is repaired by "+
+				"internal/facts/entstore's discard or truncate", rel, fset.Position(use.pos).Line, use.entry, use.decl)
+		}
+		for _, lit := range factTableDeleteLiterals(file) {
+			t.Errorf("%s:%d holds SQL that deletes from a fact table; delete through the writers allowed to", rel, fset.Position(lit).Line)
+		}
+	}
 	for _, dir := range seamScanRoots {
 		walkGoFiles(t, filepath.Join(root, dir), func(path string, file *ast.File, fset *token.FileSet) {
 			rel, err := filepath.Rel(root, path)
 			if err != nil {
 				t.Fatalf("resolving %s: %v", path, err)
 			}
-			pkgDir := filepath.ToSlash(filepath.Dir(rel))
-			if strings.HasSuffix(rel, "_test.go") || pkgDir == "internal/ent" || strings.HasPrefix(pkgDir, "internal/ent/") {
-				return
-			}
-			for _, use := range factDeleteUses(file) {
-				if factDeleters[pkgDir][use.decl] {
-					seen[pkgDir+"."+use.decl] = true
-					continue
-				}
-				t.Errorf("%s:%d deletes from ent's %s in %s, which is not one of the writers allowed to. The fact history is "+
-					"insert-only: a value changes by a new row, and a device whose history cannot be served is repaired by "+
-					"internal/facts/entstore's discard or truncate", rel, fset.Position(use.pos).Line, use.entry, use.decl)
-			}
-			for _, lit := range factTableDeleteLiterals(file) {
-				t.Errorf("%s:%d holds SQL that deletes from a fact table; delete through the writers allowed to", rel, fset.Position(lit).Line)
+			if !strings.HasSuffix(rel, "_test.go") {
+				check(rel, file, fset)
 			}
 		})
+	}
+	// The control: the hand-written re-key file is read, the generated
+	// client is not.
+	scanned := handWrittenEntFiles(t, root, check)
+	if !slices.Contains(scanned, "internal/ent/fact_rekey.go") || slices.Contains(scanned, "internal/ent/client.go") {
+		t.Fatalf("the control failed: the internal/ent files read were %v", scanned)
 	}
 	// Every listed deleter still deletes, so the list cannot outlive the
 	// code it allows.
@@ -116,6 +133,17 @@ const q = "DELETE FROM facts WHERE id = ?"`, nil, 1},
 		{"SQL deleting observations, spaced out", "package p\nconst q = `delete   from\n fact_observations`", nil, 1},
 		{"SQL deleting a table merely named like one is not one", `package p
 const q = "DELETE FROM facts_archive"`, nil, 0},
+		{"a builder's delete of the facts table", `package p
+import "github.com/Subject-Void-LLC/the-pleiades/internal/ent/fact"
+func (tx *Tx) wipe() { _ = sql.Delete(fact.Table) }`, []string{"Tx.wipe"}, 0},
+		{"a builder's delete of an observation table, aliased", `package p
+import obs "github.com/Subject-Void-LLC/the-pleiades/internal/ent/factobservation"
+func wipe(d string) { _ = sql.Dialect(d).Delete(obs.Table) }`, []string{"wipe"}, 0},
+		{"a builder's delete of coverages by name", `package p
+func wipe() { _ = sql.Delete("fact_coverages") }`, []string{"wipe"}, 0},
+		{"a builder's delete of another table is not one", `package p
+import "github.com/Subject-Void-LLC/the-pleiades/internal/ent/session"
+func wipe() { _ = sql.Delete(session.Table) }`, nil, 0},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -124,7 +152,7 @@ const q = "DELETE FROM facts_archive"`, nil, 0},
 				t.Fatalf("parsing the control source: %v", err)
 			}
 			var got []string
-			for _, use := range factDeleteUses(file) {
+			for _, use := range append(factDeleteUses(file), factDeleteBuilders(file)...) {
 				got = append(got, use.decl)
 			}
 			if strings.Join(got, ",") != strings.Join(tc.uses, ",") {
@@ -135,6 +163,97 @@ const q = "DELETE FROM facts_archive"`, nil, 0},
 			}
 		})
 	}
+}
+
+// handWrittenEntFiles calls visit with every production Go file under
+// internal/ent that is not generated (ast.IsGenerated), by its path in the
+// module, and returns those paths.
+func handWrittenEntFiles(t *testing.T, root string, visit func(rel string, file *ast.File, fset *token.FileSet)) []string {
+	t.Helper()
+	var out []string
+	fset := token.NewFileSet()
+	err := filepath.WalkDir(filepath.Join(root, "internal", "ent"), func(path string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return err
+		}
+		file, err := parser.ParseFile(fset, path, nil, parser.ParseComments)
+		if err != nil {
+			return err
+		}
+		if ast.IsGenerated(file) {
+			return nil
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		rel = filepath.ToSlash(rel)
+		out = append(out, rel)
+		visit(rel, file, fset)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+// factTablePackages are the generated packages whose Table constant names a
+// fact table.
+var factTablePackages = map[string]bool{
+	modulePath + "/internal/ent/fact":            true,
+	modulePath + "/internal/ent/factcoverage":    true,
+	modulePath + "/internal/ent/factobservation": true,
+}
+
+// factTableNames are the fact tables as SQL names them.
+var factTableNames = map[string]bool{"facts": true, "fact_coverages": true, "fact_observations": true}
+
+// factDeleteBuilders returns every call in file of a SQL builder's Delete
+// whose argument names a fact table: a fact package's Table constant, or
+// the table's name as a string, by the declaration holding it.
+func factDeleteBuilders(file *ast.File) []factRekeyUse {
+	tables := map[string]bool{}
+	for _, imp := range file.Imports {
+		path, err := strconv.Unquote(imp.Path.Value)
+		if err != nil || !factTablePackages[path] {
+			continue
+		}
+		name := path[strings.LastIndex(path, "/")+1:]
+		if imp.Name != nil {
+			name = imp.Name.Name
+		}
+		tables[name] = true
+	}
+	names := func(arg ast.Expr) bool {
+		switch a := arg.(type) {
+		case *ast.SelectorExpr:
+			id, ok := a.X.(*ast.Ident)
+			return ok && a.Sel.Name == "Table" && tables[id.Name]
+		case *ast.BasicLit:
+			text, err := strconv.Unquote(a.Value)
+			return err == nil && factTableNames[text]
+		}
+		return false
+	}
+	var uses []factRekeyUse
+	for _, d := range file.Decls {
+		fn, ok := d.(*ast.FuncDecl)
+		if !ok {
+			continue
+		}
+		ast.Inspect(fn, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			if sel, ok := call.Fun.(*ast.SelectorExpr); ok && sel.Sel.Name == "Delete" && len(call.Args) > 0 && names(call.Args[0]) {
+				uses = append(uses, factRekeyUse{pos: sel.Pos(), entry: "a SQL builder's Delete of a fact table", decl: funcDeclName(fn)})
+			}
+			return true
+		})
+	}
+	return uses
 }
 
 // factDeleteUses returns every call in file of a delete method on a fact

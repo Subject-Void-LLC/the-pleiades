@@ -102,8 +102,8 @@ func (s *Store) RekeyAll(ctx context.Context) (RekeyCount, error) {
 				}
 				// The reason is the store's own text: a row's place, or a
 				// chain break's, never a stored key or value.
-				slog.Warn("not re-keying a device's stored facts under the new facts key",
-					slog.String("device", termsafe.Quote(d.DeviceID)), slog.String("reason", err.Error()))
+				slog.Warn("not re-keying a device's stored facts under the new facts key; `controller facts inspect --device-id <device_id>` on the controller's host says why",
+					slog.String("device_id", termsafe.Quote(d.DeviceID)), slog.String("reason", err.Error()))
 			default:
 				count.Failed++
 				slog.Warn("failed to re-key a device's stored facts under the new facts key, will retry on a later pass or its next read",

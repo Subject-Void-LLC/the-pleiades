@@ -52,7 +52,7 @@
           "description": "Rows counts its stored facts."
         },
         "state": {
-          "description": "State is how its stored history stands. Known values: empty, healthy, rekey_pending, refused, broken, mixed_keys, other_keys. A newer producer may add others, and a reader treats one it does not know as not a pass.",
+          "description": "State is how its stored history stands. Known values: empty, healthy, rekey_pending, refused, broken, mixed_keys, other_keys, unopened. A newer producer may add others, and a reader treats one it does not know as not a pass.",
           "examples": [
             "empty",
             "healthy",
@@ -60,12 +60,13 @@
             "refused",
             "broken",
             "mixed_keys",
-            "other_keys"
+            "other_keys",
+            "unopened"
           ],
           "type": "string"
         },
         "truncate_from": {
-          "description": "TruncateFrom is the gather a truncate would cut the history at: the one that wrote its first stable row that fails. Absent when no stable row fails, or no truncate applies.",
+          "description": "TruncateFrom is the gather a truncate would cut the history at: the one that wrote the last stable row that verifies before the first that fails. That gather and every later one are removed whole, since a row missing after the last that verifies could be any of theirs. Absent when no stable row fails, or no truncate applies.",
           "type": "integer"
         },
         "under": {
@@ -269,6 +270,10 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "description": "Report is what one inspection found: the keys it read with, and each device it reports. Printed by controller facts inspect --json. schema_version is the major version: it goes up only for a change an existing reader could misread, a field removed or renamed or given another type or meaning. Within a major version a newer producer may add fields, and new values to the open sets (a state, a failure kind, a role, a repair). So a reader ignores a field it does not know, treats a state it does not know as needing repair, and refuses a major version it does not know.",
   "properties": {
+    "advice": {
+      "description": "Advice is said of the fleet as a whole when every device read is in one state that points at the command's own settings rather than at any device: every one under another facts key, or every one with no row that opens. Absent otherwise.",
+      "type": "string"
+    },
     "devices": {
       "description": "Devices are the devices reported: the one asked for, or in a fleet inspection every device whose state is not empty or healthy (all of them with --all), in the order of their database IDs.",
       "items": {

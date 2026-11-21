@@ -461,7 +461,7 @@ func TestRekey_AHistoryThatDoesNotVerifyIsNotRekeyed(t *testing.T) {
 	}
 	raw := rawFactTables(t, db)
 	rotated := entstore.New(client, newFactKeys(t, 7), factstest.Envelope(), entstore.WithPreviousKeys(old))
-	if _, err := rotated.Current(ctx, device); !errors.Is(err, entstore.ErrRekeyRefused) || !strings.Contains(err.Error(), "chain breaks at stored value 0") {
+	if _, err := rotated.Current(ctx, device); !errors.Is(err, entstore.ErrRekeyRefused) || !strings.Contains(err.Error(), "chain breaks at chain index 0") {
 		t.Errorf("Current = %v, want ErrRekeyRefused naming the break", err)
 	}
 	if err := recordGather(t, rotated, device, "run5", 40, rotationT0.Add(3*time.Hour), map[string]any{"package.openssh-server": "9.9"}, nil); !errors.Is(err, entstore.ErrRekeyRefused) {
