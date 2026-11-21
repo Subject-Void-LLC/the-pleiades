@@ -32,8 +32,8 @@
 //     internal/crypto's bound envelope under MASTER_ENCRYPTION_KEY, bound to
 //     the row's device and token (internal/crypto's fact_hook.go,
 //     internal/facts/entstore). On the Crawl CLI each line of
-//     <device>.jsonl and <device>.seen.jsonl, and <device>.state.json whole,
-//     is sealed with AES-256-GCM under a line key (SealLine), with
+//     <device>.jsonl, <device>.seen.jsonl and <device>.baselines.jsonl, and
+//     <device>.state.json whole, is sealed with AES-256-GCM under a line key (SealLine), with
 //     associated data naming the device, the file's role and the line's
 //     byte offset, so a line moved to another device, another file or
 //     another place fails to open.
@@ -99,6 +99,8 @@ const (
 	RoleSeen = "seen"
 	// RoleState is <device>.state.json, whole.
 	RoleState = "state"
+	// RoleBaseline is a line of <device>.baselines.jsonl (file_baseline.go).
+	RoleBaseline = "baseline"
 )
 
 // ErrNoKeys marks a store asked to keep or read facts with no key to seal
