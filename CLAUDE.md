@@ -72,6 +72,21 @@ pre-1.0 project and the honest state is not what the docs' introductions might i
   secret is masked by value in every run (`engine.WithKnownSecrets`), `net.ios.command`'s stdout is masked,
   and `validate` warns on a key written out. A Runner and an external Collection cannot resolve one yet
   (`sdk.ErrNoNamedSecrets`). Proven live by `TestCLI_ANamedSecretKeysAnIKEv2TunnelAndNeverShows`.
+- **Stored facts are sealed at rest on both tiers (Phase 41).** The Crawl tier seals each line of `.pleiades/facts` under a
+  key derived from the project master key, bound to the device, file and offset (`internal/facts/atrest.go`); a project
+  with no master key stores and reads no facts, and a file from before sealing is refused (`facts.ErrUnsealed`). On the
+  Controller a fact row is found by `key_token` (an HMAC of its name bound to the device), its name and value are sealed
+  together under the master key with the token as associated data (`internal/crypto/fact_hook.go`), and the change hash
+  and the history chain are keyed too (`(*facts.Keys).ChainHash`); token, hash and chain keys derive from
+  `PLEIADES_FACTS_DIGEST_KEY`, without which the Controller stores no facts and the facts routes answer 503. A Runner
+  seals each `job.facts` batch to the Controller's public key on its dispatch (`sealed.PurposeFactBatch`); a dispatch
+  with no key publishes no facts. Three things to say plainly: provenance (job, task, method, Runner), counts, times and
+  sizes stay readable in the database and on the stream; the sealing migration is a contract (`internal/ent/migrate`'s
+  `compat.go`, refused by `guard.go` while an older Controller's heartbeat is live, and the schema itself refuses a
+  pre-sealing build's writes), so Controllers cannot be rolled one at a time across it; and the facts key is changed by
+  setting the old one as `PLEIADES_FACTS_DIGEST_KEY_PREVIOUS`, which re-keys each device's history in one transaction
+  (`internal/facts/entstore/rekey.go`). A device whose history does not verify is refused under the new key, with no
+  repair tool yet.
 - **Module catalog: 273 registered FQCNs; 271 implemented, 2 declared-not-implemented (2026-11-16).** These counts
   and every per-method status come from the generated
   `docs/reference/schemas/module-catalog.json`, which `tools/gendocs` builds from the real registry
