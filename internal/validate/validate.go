@@ -59,6 +59,13 @@ type WorldView struct {
 	// project file is the project's to hold.
 	NoProjectDirectory bool
 
+	// StoredFacts is what the run can read of its devices' stored facts,
+	// which FactsRule holds a runbook reading facts to. The zero value,
+	// FactStoreNone, is a run with no store (a Walk-tier Runner), so a
+	// caller that does not say refuses such a runbook; the command line
+	// says whether its project has the key its facts are sealed under.
+	StoredFacts FactStore
+
 	// resolveCache memoizes Resolve by target string. Unexported and
 	// unset by every caller that builds a WorldView directly (Resolve is
 	// nil-safe and falls back to computing directly), so this changes
@@ -233,6 +240,7 @@ func Validate(world WorldView) Report {
 	warnings = append(warnings, SetFactOverrideWarnings(world)...)
 	warnings = append(append(warnings, UntilWarnings(world)...), StatementParamWarnings(world)...)
 	warnings = append(warnings, GrantWarnings(world)...)
+	warnings = append(warnings, FactCheckWarnings(world)...)
 	return Report{Findings: findings, Routes: routes, Warnings: warnings}
 }
 

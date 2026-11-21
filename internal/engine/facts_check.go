@@ -60,17 +60,7 @@ func CheckedFactReads(runMode collection.Mode, dag *DAG) map[string][]FactTaint 
 	if len(reads) == 0 {
 		return nil
 	}
-	levels := map[string]int{}
-	it := NewLevelIterator(dag)
-	for n := 0; ; n++ {
-		level, ok := it.Next()
-		if !ok {
-			break
-		}
-		for _, id := range level {
-			levels[id] = n
-		}
-	}
+	levels := levelsOf(dag)
 	var emitters []string
 	for id := range levels {
 		emitters = append(emitters, id)
@@ -95,6 +85,39 @@ func CheckedFactReads(runMode collection.Mode, dag *DAG) map[string][]FactTaint 
 		return nil
 	}
 	return out
+}
+
+// levelsOf is each node of dag the walk reaches, by the level it runs in.
+func levelsOf(dag *DAG) map[string]int {
+	levels := map[string]int{}
+	it := NewLevelIterator(dag)
+	for n := 0; ; n++ {
+		level, ok := it.Next()
+		if !ok {
+			return levels
+		}
+		for _, id := range level {
+			levels[id] = n
+		}
+	}
+}
+
+// DeclaredBefore reports whether a task of dag in an earlier level than
+// nodeID declares it emits key (its method's fact declarations, by key or by
+// family): whether this run could gather key before nodeID reads it, which
+// is all a run with no readable store has to answer with.
+func DeclaredBefore(dag *DAG, nodeID, key string) bool {
+	levels := levelsOf(dag)
+	at, ok := levels[nodeID]
+	if !ok {
+		return false
+	}
+	for id, level := range levels {
+		if task := dag.Nodes[id]; level < at && task != nil && methodDeclaresFact(task.FQCN, key) {
+			return true
+		}
+	}
+	return false
 }
 
 // emitterTaints is each of keys that task (node id) declares it emits.

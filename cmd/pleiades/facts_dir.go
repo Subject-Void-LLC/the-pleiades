@@ -9,6 +9,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/facts"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/validate"
 )
 
 // factsDir is the project's fact store directory.
@@ -36,4 +37,17 @@ func factKeysToRead(projectDir string) *facts.Keys {
 		}
 		return key, err
 	}, "project")
+}
+
+// projectFactStore is what a run in projectDir can read of its devices'
+// stored facts, for validation (validate.FactsRule): readable when the
+// project has the master key every stored fact is sealed under, and nothing
+// otherwise, whether no fact was ever stored or the key that sealed them is
+// gone. A run that gathers then reads in the same run needs no key; one
+// reading what an earlier run stored does.
+func projectFactStore(projectDir string) validate.FactStore {
+	if _, err := credential.ExistingMasterKey(vaultDir(projectDir)); err != nil {
+		return validate.FactStoreNoKey
+	}
+	return validate.FactStoreReadable
 }
