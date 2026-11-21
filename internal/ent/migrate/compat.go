@@ -71,8 +71,8 @@ type contract struct {
 // the shape test checks that the two dialects declare the same changes.
 //
 // The grandfathered entries below are history, and go when the 1.0.0 golden
-// image squashes the migrations they name into one baseline. The table and
-// the rules around it stay.
+// image squashes the migrations they name into one baseline, as does the facts
+// at rest one. The table and the rules around it stay.
 var contracts = map[string]map[string]contract{
 	"sqlite3": {
 		"0002_add_device_type.sql": {
@@ -95,6 +95,11 @@ var contracts = map[string]map[string]contract{
 			grandfathered:  true,
 			reason:         "drops schedules.template_schedules for a required launchable_schedules the build before it never writes",
 		},
+		"0052_fact_at_rest.sql": {
+			compatibleFrom: "0052_fact_at_rest.sql",
+			semantic:       true,
+			reason:         factAtRestReason,
+		},
 	},
 	"postgres": {
 		"0028_add_sync_run_origin.sql": {
@@ -107,8 +112,20 @@ var contracts = map[string]map[string]contract{
 			grandfathered:  true,
 			reason:         "drops schedules.template_schedules for a required launchable_schedules the build before it never writes",
 		},
+		"0049_fact_at_rest.sql": {
+			compatibleFrom: "0049_fact_at_rest.sql",
+			semantic:       true,
+			reason:         factAtRestReason,
+		},
 	},
 }
+
+// factAtRestReason is why the facts at rest migration is a contract although
+// its shape only expands: the table keeps every column a build before it
+// writes, so that build would go on writing, and what it writes is the
+// plaintext the migration deleted. Only the floor, and the guard while one
+// still runs (guard.go), keep it from doing so.
+const factAtRestReason = "seals stored facts, and the build before it would store a fact's key and value in plaintext again, which this build refuses to read"
 
 // floorAfter returns the compatibility floor a database of this dialect has
 // once the named migration is applied: the highest compatibleFrom among the

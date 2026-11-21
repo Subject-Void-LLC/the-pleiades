@@ -1,5 +1,7 @@
--- Facts at rest: a stored fact names nothing in plaintext. Expand-only.
--- A row is found by key_token and says which keys made it in keyed_by, and
+-- Facts at rest: a stored fact names nothing in plaintext. Its shape only
+-- expands, but it is declared a contract (internal/ent/migrate's compat.go),
+-- since a build before it would store plaintext facts again; it is not applied
+-- while one is still running (guard.go). A row is found by key_token and says which keys made it in keyed_by, and
 -- payload holds the key and the value sealed. Every fact stored before this
 -- is plaintext and carries a plain hash, which no key can turn into a token
 -- or a keyed hash, so those rows are deleted with their observations; the

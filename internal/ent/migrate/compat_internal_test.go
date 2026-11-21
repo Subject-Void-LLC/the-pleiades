@@ -109,6 +109,16 @@ func TestFloorAfter_OnlyRises(t *testing.T) {
 	if got := floorAfter("postgres", names, "0029_add_launchables.sql"); got != "0029_add_launchables.sql" {
 		t.Errorf("postgres floor after the launchables contract = %s; want itself", got)
 	}
+	// The facts at rest contract: no build from before sealing serves after it.
+	for dialectName, steps := range factAtRest {
+		all := namesOf(t, dialectName)
+		if got := floorAfter(dialectName, all, steps[0]); got >= steps[1] {
+			t.Errorf("%s floor before facts at rest = %s; want one an unsealed build reaches", dialectName, got)
+		}
+		if got := floorAfter(dialectName, all, steps[1]); got != steps[1] {
+			t.Errorf("%s floor after facts at rest = %s; want itself", dialectName, got)
+		}
+	}
 }
 
 // heartbeatTable names, by dialect, the migration that creates

@@ -33,9 +33,13 @@ var ErrKeysChanged = errors.New("facts: the device's stored facts were sealed un
 // errPlaintextRows refuses a device holding a row that names no facts key at
 // all: a fact in plaintext, as a Controller of a release from before facts
 // were sealed stores one. The migration that sealed facts deleted every such
-// row, but it is an expand migration (internal/ent/migrate's compat.go), so
-// an older Controller can still serve the schema it left, and one storing a
-// gather after it writes such a row. No facts key re-keys it, so
+// row and is declared a contract (internal/ent/migrate's compat.go): an older
+// Controller refuses the schema it leaves, and the migration is not applied
+// while one is running. Its shape still takes an older Controller's writes,
+// though, and one the guard could not see (starting at the moment of the
+// upgrade, or cut off past its heartbeat window, internal/ent/migrate's
+// guard.go) stores such a row before its next heartbeat stops it. No facts
+// key re-keys it, so
 // ErrKeysChanged's advice cannot help, and this says what does. errors.Is
 // still reads it as ErrKeysChanged, so every caller refuses the device as it
 // refuses one under other keys: not retried, counted as refused by
