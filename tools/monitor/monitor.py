@@ -8,8 +8,8 @@
     monitor.py watch  [--log FILE] [--pr-dir DIR] [--pace SECONDS] [--no-save] [--port 8767]
 
 The page is one always-on daemon per machine (daemon.py): ensure starts it
-when it is not running, and is what the session hook calls. run starts
-`make --trace pr-check` itself (under ~/.local/bin/capped, in its own process
+when it is not running, and is what an opt-in session hook calls (README.md).
+run starts `make --trace pr-check` itself (under ~/.local/bin/capped, in its own process
 group), refuses while another gate runs on this machine, stops the run if
 MemAvailable drops under 700 MB, saves the run to history, hands it to the
 daemon through files (runfile.py) and exits with pr-check's status. watch

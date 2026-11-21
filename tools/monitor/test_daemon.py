@@ -1201,7 +1201,7 @@ class McpTest(unittest.TestCase):
                     {"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "nope"}},
                 ]
                 stdin = "".join(json.dumps(m) + "\n" for m in msgs)
-                env = dict(os.environ, STATUS_PORT=str(port), STATUS_STATE_DIR=d)
+                env = dict(os.environ, STATUS_PORT=str(port))
                 out = subprocess.run([sys.executable, "-B", os.path.join(HERE, "mcp_status.py")], input=stdin,
                                      capture_output=True, text=True, timeout=60, env=env)
                 replies = [json.loads(x) for x in out.stdout.splitlines()]
@@ -1264,6 +1264,76 @@ def untrusted_paths(value: JSONValue, word: str, path: str = "") -> List[str]:
         for i, v in enumerate(value):
             out += untrusted_paths(v, word, path + "/%d" % i)
     return out
+
+
+def free_port() -> int:
+    """Names a loopback port nothing listens on, as far as this test knows.
+
+    Returns:
+        A port the kernel handed out and that was then closed.
+    """
+    import socket
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        port: int = s.getsockname()[1]
+    return port
+
+
+@needs_flock
+class NoDaemonStartedTest(unittest.TestCase):
+    """Nothing in the committed tree starts a background daemon unasked."""
+
+    def test_the_mcp_server_never_starts_a_daemon(self) -> None:
+        """With no daemon running, the MCP server starts, lists its tools and
+        answers each call that no daemon answered, how to start one and the
+        settings.local.json that starts one at each session; nothing is
+        started, here or in the state directory its own copy would use."""
+        import mcp_status
+        with tempfile.TemporaryDirectory() as root:
+            copy = copy_monitor(os.path.join(root, "tree", "tools", "monitor"))
+            # Outside any git repository, the copy's state directory is under its own tree.
+            state = os.path.join(root, "tree", ".IGNORE", "ci", "monitor")
+            port = free_port()
+            msgs = mcp_session("status") + json.dumps({"jsonrpc": "2.0", "id": 4, "method": "tools/call",
+                                                       "params": {"name": "gate", "arguments": {}}}) + "\n"
+            try:
+                out = subprocess.run([sys.executable, "-B", os.path.join(copy, "mcp_status.py")], input=msgs,
+                                     capture_output=True, text=True, timeout=60,
+                                     env=dict(os.environ, STATUS_PORT=str(port)))
+                replies = [json.loads(x) for x in out.stdout.splitlines()]
+                self.assertEqual([r["id"] for r in replies], [1, 2, 3, 4], out.stderr)
+                self.assertEqual(len(replies[1]["result"]["tools"]), 8)
+                for reply in replies[2:]:
+                    result = reply["result"]
+                    self.assertTrue(result["isError"])
+                    answer = json.loads(result["content"][0]["text"])
+                    self.assertIn("never starts one", answer["error"])
+                    self.assertIn(mcp_status.START, answer["start"])
+                    self.assertIn("settings.local.json", answer["automatic"])
+                    self.assertEqual(answer["settings_local_json"], mcp_status.AUTOSTART)
+                self.assertFalse(os.path.exists(os.path.join(root, "tree", ".IGNORE")), "a state directory was made")
+                self.assertIsNone(daemon.healthz(port, 0.5), "something answers on the port")
+            finally:
+                stop_daemon(state)
+
+
+class CommittedSettingsTest(unittest.TestCase):
+    """The daemon is opt-in: a contributor's session starts none unless they add the hook themselves."""
+
+    def test_the_committed_settings_start_nothing(self) -> None:
+        """The repository's .claude/settings.json runs no hook, so a contributor's
+        session starts no daemon; the README's settings.local.json is the
+        MCP server's own AUTOSTART, exactly."""
+        import mcp_status
+        with open(os.path.join(HERE, "..", "..", ".claude", "settings.json"), encoding="utf-8") as f:
+            settings = as_object(loads(f.read())) or {}
+        self.assertNotIn("hooks", settings)
+        with open(os.path.join(HERE, "README.md"), encoding="utf-8") as f:
+            readme = f.read()
+        blocks = [b.split("```", 1)[0] for b in readme.split("```json\n")[1:]]
+        hooks = [b for b in blocks if "SessionStart" in b]
+        self.assertEqual(len(hooks), 1, "the README shows one SessionStart hook")
+        self.assertEqual(loads(hooks[0]), mcp_status.AUTOSTART)
 
 
 @needs_flock
@@ -1344,7 +1414,7 @@ class UntrustedTextTest(unittest.TestCase):
                     msgs.append({"jsonrpc": "2.0", "id": i + 1, "method": "tools/call", "params": params})
                 out = subprocess.run([sys.executable, "-B", os.path.join(HERE, "mcp_status.py")],
                                      input="".join(json.dumps(m) + "\n" for m in msgs), capture_output=True, text=True,
-                                     timeout=60, env=dict(os.environ, STATUS_PORT=str(port), STATUS_STATE_DIR=state))
+                                     timeout=60, env=dict(os.environ, STATUS_PORT=str(port)))
             finally:
                 httpd.shutdown()
                 httpd.server_close()
@@ -1532,7 +1602,7 @@ class NoRoadmapTest(unittest.TestCase):
                                            "params": {"name": n, "arguments": {}}}) + "\n"
                                for i, n in enumerate(("roadmap", "security")))
                 out = subprocess.run([sys.executable, "-B", MCP], input=msgs, capture_output=True, text=True, timeout=60,
-                                     env=dict(os.environ, STATUS_PORT=str(port), STATUS_STATE_DIR=state))
+                                     env=dict(os.environ, STATUS_PORT=str(port)))
             finally:
                 httpd.shutdown()
                 httpd.server_close()
@@ -1606,7 +1676,7 @@ class SwitchedOffTest(unittest.TestCase):
                                  out.stderr)
             self.assertEqual(os.listdir(d), [])
             out = without_fcntl(MCP, [], mcp_session("status"),
-                                dict(os.environ, STATUS_PORT="9", STATUS_STATE_DIR=d))
+                                dict(os.environ, STATUS_PORT="9"))
             replies = [json.loads(x) for x in out.stdout.splitlines()]
             self.assertEqual([r["id"] for r in replies], [1, 2, 3], out.stderr)
             self.assertEqual(len(replies[1]["result"]["tools"]), 8)
@@ -1628,7 +1698,7 @@ class SwitchedOffTest(unittest.TestCase):
                 self.assertFalse(daemon.lock_held(d))
                 self.assertEqual(os.listdir(d), [])
                 mcp = subprocess.run([sys.executable, "-B", MCP], input=mcp_session("status"), capture_output=True,
-                                     text=True, timeout=60, env=dict(env, STATUS_PORT="9", STATUS_STATE_DIR=d))
+                                     text=True, timeout=60, env=dict(env, STATUS_PORT="9"))
                 reply = json.loads(mcp.stdout.splitlines()[-1])
                 self.assertTrue(reply["result"]["isError"])
                 self.assertIn("switched off", reply["result"]["content"][0]["text"])

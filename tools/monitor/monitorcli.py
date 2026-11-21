@@ -55,7 +55,7 @@ def parse_args(argv: Sequence[str]) -> Options:
     """
     p = argparse.ArgumentParser(prog="monitor.py", description="Live status page: pr-check, GitHub Actions, roadmap.")
     sub = p.add_subparsers(dest="command", required=True)
-    for name, helptext in (("ensure", "start the status daemon unless it runs (the session hook calls this)"),
+    for name, helptext in (("ensure", "start the status daemon unless it runs (an opt-in session hook may call this)"),
                            ("daemon", "run the status daemon in the foreground"),
                            ("serve", "the old name of daemon"),
                            ("run", "run make --trace pr-check and hand it to the daemon"),

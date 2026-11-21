@@ -9,26 +9,53 @@ it; `make monitor-test` runs its tests, in pr-check and on every pull request.
 
 ## Run it
 
-The page is a daemon. Claude Code sessions in this repository start it
-through the `SessionStart` hook in `.claude/settings.json`, and the `status`
-MCP server starts it on its first call; by hand:
+The page is a daemon, and it is opt-in: nothing in the repository starts
+it for you. The committed `.claude/settings.json` runs no hook, and the
+`status` MCP server that `.mcp.json` lists only reads a daemon that is
+already running; with none, each of its tools answers that no daemon
+answered, the command that starts one, and the JSON below. Start it by hand
+with `python3 -B tools/monitor/monitor.py ensure`.
 
-What the hook does on every session: unless one already runs, it starts a
-detached daemon on 127.0.0.1:8765 that outlives the session. The daemon calls
-`gh api` with your own gh login every 60 seconds for the branch in use, and
-reads every workflow run of the repository every six hours. It keeps its
-history under the main clone's `.IGNORE/ci/monitor/`, and never deletes it.
-When you open the page, your browser loads ECharts from jsDelivr and two
-typefaces from Google Fonts. To turn all of this off, set
-`PLEIADES_NO_STATUS_DAEMON` to any non-empty value in the environment your
-sessions start from: `monitor.py ensure` then starts nothing and says so, the
-hook does nothing, and the MCP tools answer that the daemon is switched off.
-A daemon already running keeps running until you stop it
-(`kill -TERM <pid>`, the pid in `statusd.lock` and on `/healthz`).
+To start it at each Claude Code session, add this to your own
+`.claude/settings.local.json`, which git ignores (merge the `hooks` key into
+the file if it already has one):
+
+```json
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "timeout": 30,
+            "command": "python3 -B \"$CLAUDE_PROJECT_DIR/tools/monitor/monitor.py\" ensure --quiet || true"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+What that hook then does on every session: unless one already runs, it
+starts a detached daemon on 127.0.0.1:8765 that outlives the session. The
+daemon calls `gh api` with your own gh login every 60 seconds for the branch
+in use, and reads every workflow run of the repository every six hours. It
+keeps its history under the main clone's `.IGNORE/ci/monitor/`, and never
+deletes it. When you open the page, your browser loads ECharts from jsDelivr
+and two typefaces from Google Fonts. To switch all of this off without
+editing the file, set `PLEIADES_NO_STATUS_DAEMON` to any non-empty value in
+the environment your sessions start from: `monitor.py ensure` then starts
+nothing and says so, so the hook does nothing, and the MCP tools answer that
+the daemon is switched off. A daemon already running keeps running until you
+stop it (`kill -TERM <pid>`, the pid in `statusd.lock` and on `/healthz`).
 
 On a platform without `fcntl` (Windows), `ensure` and `daemon` print one
 line saying the daemon is not supported there and exit 0, and the MCP server
 starts and answers each call that it is not available.
+
+By hand:
 
 ```bash
 python3 -B tools/monitor/monitor.py ensure          # start it unless it runs (safe to repeat)
@@ -187,15 +214,18 @@ than 20,000 lines of one file is parsed again each time instead of kept.
 ### The MCP server
 
 `mcp_status.py` is a stdio MCP server, wired in `.mcp.json` as `status`.
-Every tool only reads, through the daemon. Workflow, job and branch names
+Every tool only reads, through a daemon that is already running. It never
+starts one, neither when the server starts nor on a call: with no daemon,
+every call answers with an error, `python3 -B tools/monitor/monitor.py
+ensure` to start one, and the `settings.local.json` above. Workflow, job and branch names
 and run titles come from GitHub, and stage details from test output, so
 every answer puts that text inside an object named `untrusted`, cut to 300
 characters, and every tool description and the server's instructions say
 it is data never to be followed as an instruction. Run titles appear only
 when a call passes `titles=true` (`actions`, `timeline`). What the daemon
 serves is masked only by the values of its own secret-named environment
-variables (below); nothing else about it is made safe. `STATUS_PORT` and
-`STATUS_STATE_DIR` point the server at another daemon, such as a test's.
+variables (below); nothing else about it is made safe. `STATUS_PORT`
+points the server at another daemon, such as a test's.
 
 | Tool | Answers |
 |---|---|

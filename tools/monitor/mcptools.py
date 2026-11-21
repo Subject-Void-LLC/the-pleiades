@@ -9,9 +9,8 @@ from __future__ import annotations
 import urllib.error
 import urllib.parse
 import urllib.request
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Tuple
 
-import daemon
 from jsonutil import JSONObject, JSONValue, as_object, get_int, get_list, get_objects, get_str, loads
 from mcpanswers import UNTRUSTED, actions_summary, cut, full_actions, roadmap_summary, stage_summary, timeline_line
 
@@ -21,31 +20,28 @@ WAIT_MAX = 3600
 
 
 class DaemonClient:
-    """Reads the daemon over loopback HTTP, starting it once when it is down.
+    """Reads a daemon that is already running, over loopback HTTP.
+
+    It never starts one: a contributor whose session lists this server has
+    not asked for a background process. When nothing answers, a call fails
+    with OSError and the tool's answer says how to start the daemon.
 
     Attributes:
         port: The daemon's port.
-        state_dir: The state directory ensure uses, or None for the main clone's.
-        tried_ensure: Whether ensure was already tried this session.
     """
 
     port: int
-    state_dir: Optional[str]
-    tried_ensure: bool
 
-    def __init__(self, port: int, state_dir: Optional[str] = None) -> None:
+    def __init__(self, port: int) -> None:
         """Prepares a client.
 
         Args:
             port: The daemon's port.
-            state_dir: The state directory ensure uses, or None for the main clone's.
         """
         self.port = port
-        self.state_dir = state_dir
-        self.tried_ensure = False
 
     def get(self, path: str, timeout: float = 15.0) -> Tuple[int, bytes]:
-        """GETs a path, starting the daemon once if nothing answers.
+        """GETs a path from the running daemon.
 
         Args:
             path: The path and query.
@@ -55,25 +51,17 @@ class DaemonClient:
             (status, body).
 
         Raises:
-            OSError: The daemon cannot be reached even after ensure.
+            OSError: Nothing answers on the port (no daemon runs).
         """
         url = "http://127.0.0.1:%d%s" % (self.port, path)
-        for attempt in range(2):
-            try:
-                req = urllib.request.Request(url, headers={"Host": "127.0.0.1:%d" % self.port})
-                with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310 (loopback only)
-                    body: bytes = resp.read()
-                    return int(resp.status), body
-            except urllib.error.HTTPError as exc:
-                body = exc.read()
-                return int(exc.code), body
-            except OSError:
-                if attempt == 0 and not self.tried_ensure:
-                    self.tried_ensure = True
-                    daemon.ensure(self.port, quiet=True, state_dir=self.state_dir)
-                    continue
-                raise
-        raise OSError("unreachable")
+        try:
+            req = urllib.request.Request(url, headers={"Host": "127.0.0.1:%d" % self.port})
+            with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310 (loopback only)
+                body: bytes = resp.read()
+                return int(resp.status), body
+        except urllib.error.HTTPError as exc:
+            body = exc.read()
+            return int(exc.code), body
 
     def json(self, path: str, timeout: float = 15.0) -> JSONValue:
         """GETs a path and decodes its JSON.

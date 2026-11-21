@@ -6,9 +6,11 @@
 
 It speaks JSON-RPC 2.0, one message a line, as the MCP stdio transport
 does, and reads everything from the status daemon on 127.0.0.1 (port
-STATUS_PORT, 8765 by default), starting the daemon through ensure when it
-does not answer. Every tool only reads: none starts, stops or signals a
-gate.
+STATUS_PORT, 8765 by default). It never starts the daemon, at its own start
+or on any call: listing this server in .mcp.json must not start a detached
+process nobody asked for. When no daemon answers, each call says so, how to
+start one (START), and how to start one at each session (AUTOSTART). Every
+tool only reads: none starts, stops or signals a gate.
 
 What the daemon serves has passed its redactor, which masks the values of
 the daemon's own secret-named environment variables (redact.py) and
@@ -50,7 +52,8 @@ from jsonutil import JSONObject, JSONValue, as_object, get_str, loads  # noqa: E
 from mcpanswers import TEXT_MAX, UNTRUSTED  # noqa: E402
 from mcptools import TOOLS, DaemonClient  # noqa: E402
 
-__all__ = ["TEXT_MAX", "TOOLS", "UNTRUSTED", "DaemonClient", "handle", "main", "text", "unavailable"]
+__all__ = ["AUTOSTART", "START", "TEXT_MAX", "TOOLS", "UNTRUSTED", "DaemonClient", "handle", "main", "not_running",
+           "text", "unavailable"]
 
 SERVER_NAME = "pleiades-status"
 SERVER_VERSION = "1"
@@ -58,9 +61,14 @@ SERVER_VERSION = "1"
 # client's when it is one of them, else the newest.
 PROTOCOL_VERSIONS = ("2025-06-18", "2025-03-26", "2024-11-05")
 PORT = int(os.environ.get("STATUS_PORT", str(daemon.DEFAULT_PORT)))
-# STATE_DIR is the state directory the fallback ensure uses; a test (or a
-# second daemon on another port) names its own, so it never reaches the real one.
-STATE_DIR = os.environ.get("STATUS_STATE_DIR") or None
+# START is the command that starts the daemon by hand, from the repository root.
+START = "python3 -B tools/monitor/monitor.py ensure"
+# AUTOSTART is what a developer adds to their own git-ignored
+# .claude/settings.local.json to start the daemon at each session;
+# tools/monitor/README.md shows the same JSON, and a test holds them equal.
+AUTOSTART: JSONObject = {"hooks": {"SessionStart": [{"hooks": [{
+    "type": "command", "timeout": 30,
+    "command": "python3 -B \"$CLAUDE_PROJECT_DIR/tools/monitor/monitor.py\" ensure --quiet || true"}]}]}}
 
 
 def text(value: JSONValue) -> JSONObject:
@@ -73,6 +81,25 @@ def text(value: JSONValue) -> JSONObject:
         {"content": [one text block of JSON]}.
     """
     return {"content": [{"type": "text", "text": json.dumps(value, indent=1, sort_keys=True, ensure_ascii=False)}]}
+
+
+def not_running(port: int, exc: OSError) -> JSONObject:
+    """Says that no daemon answers, and how to start one.
+
+    Args:
+        port: The port asked.
+        exc: Why the request failed.
+
+    Returns:
+        The tool's error answer.
+    """
+    return {"error": "no status daemon answered on 127.0.0.1:%d (%s); this server only reads a daemon that "
+                     "already runs, and never starts one" % (port, exc),
+            "start": "run `%s` from the repository root: it starts the daemon detached, on 127.0.0.1:%d, "
+                     "polling GitHub through gh every 60 seconds" % (START, daemon.DEFAULT_PORT),
+            "automatic": "to start it at each Claude Code session, add this to your own git-ignored "
+                         ".claude/settings.local.json (tools/monitor/README.md explains it)",
+            "settings_local_json": AUTOSTART}
 
 
 def unavailable() -> Optional[str]:
@@ -130,8 +157,7 @@ def handle(c: DaemonClient, msg: JSONObject) -> Optional[JSONObject]:
         try:
             result = text(TOOLS[name][0](c, args))
         except OSError as exc:
-            result = dict(text({"error": "the status daemon is not reachable on 127.0.0.1:%d: %s" % (c.port, exc)}),
-                          isError=True)
+            result = dict(text(not_running(c.port, exc)), isError=True)
         except ValueError as exc:
             result = dict(text({"error": "the daemon answered something that is not JSON: %s" % exc}), isError=True)
         return {"jsonrpc": "2.0", "id": mid, "result": result}
@@ -144,7 +170,7 @@ def main() -> int:
     Returns:
         0.
     """
-    client = DaemonClient(PORT, STATE_DIR)
+    client = DaemonClient(PORT)
     for raw in sys.stdin:
         raw = raw.strip()
         if not raw:
